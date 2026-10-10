@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.hermes/.env)",
+      "Read(~/.hermes/auth.json)",
+      "Read(~/.hermes/profiles/*/.env)",
+      "Read(~/.cli-proxy-api/**)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.hermes/**)",
+      "Edit(~/projects/parallelscript/tools/agent/**)",
+      "Bash(sudo *)",
+      "Bash(systemctl *)",
+      "Bash(hermes gateway *)",
+      "Bash(hermes config *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push upstream*)",
+      "Bash(cat ~/.hermes/.env*)",
+      "Bash(cat /home/bryan/.hermes/.env*)"
+    ]
+  }
+}
