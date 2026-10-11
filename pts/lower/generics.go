@@ -33,6 +33,7 @@ type genericFunc struct {
 	outer      *substitution // for a method of a generic class's instance, the instance's
 	erased     *instance     // its erased copy, if made (D-078)
 	inTable    bool          // for an instance method, its erased copy is in its class's method table
+	dispatched bool          // abstract, or overridden: its calls find the receiver's class's method by name (D-101)
 }
 
 // instance is a generic function's instance for a list of type arguments.
@@ -193,7 +194,7 @@ func (l *lowerer) genericCall(call *ast.CallExpression, generic *genericFunc) ir
 // genericMethodCall lowers `o.m(args)` for a generic method m of a class: a direct call
 // of m's instance for the call's type arguments, on o.
 func (l *lowerer) genericMethodCall(call *ast.CallExpression, generic *genericFunc) ir.Expr {
-	if receiverNode := call.Expression.Expression(); l.dispatchedGenerics[generic.node.Name().Text()] && receiverNode.Kind != ast.KindSuperKeyword {
+	if receiverNode := call.Expression.Expression(); generic.dispatched && receiverNode.Kind != ast.KindSuperKeyword {
 		return l.dispatchedGenericCall(call, generic, receiverNode)
 	}
 	fn := l.calledInstance(call, generic)
@@ -452,13 +453,16 @@ func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
 	case !ast.IsStatic(member) && class.Parent != nil && class.Parent.Method(name, ir.Plain) != nil:
 		l.notSupportedYet(nameOf(member), "overriding a method with a generic method is")
 		return
-	case abstract || !ast.IsStatic(member) && class.Parent != nil && l.inheritedGenericMethod(class.Parent, name) != nil:
+	}
+	generic := &genericFunc{node: member, name: class.Name + "." + name, module: class.Module.Init, class: class, outer: l.subst, dispatched: abstract}
+	if overridden := l.inheritedGenericMethod(class.Parent, name); !ast.IsStatic(member) && class.Parent != nil && overridden != nil {
+		overridden.dispatched = true
+	}
+	if abstract || generic.dispatched || !ast.IsStatic(member) && class.Parent != nil && l.inheritedGenericMethod(class.Parent, name) != nil {
 		// Calls of an abstract or overridden generic method find the method of the
 		// receiver's class by name, through erased copies in method tables (D-101).
-		l.dispatchedGenerics[name] = true
 		l.wantInMethodTables(name)
 	}
-	generic := &genericFunc{node: member, name: class.Name + "." + name, module: class.Module.Init, class: class, outer: l.subst}
 	for _, parameter := range member.TypeParameters() {
 		generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
 	}

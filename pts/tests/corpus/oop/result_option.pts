@@ -1,4 +1,4 @@
-// skip: diverges: an erased copy makes a generic class instance for any (TypeError: Expected Result, got Result; known issue, D-078)
+// skip: diverges: an erased copy makes a generic class instance for any (TypeError: Expected Option, got Some; known issue, D-078, D-101)
 // Generic Result and Option classes used to validate and parse user records without exceptions.
 
 abstract class Option<T> {
