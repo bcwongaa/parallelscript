@@ -14,12 +14,12 @@ func (e *emitter) elementType(array ir.Expr) string {
 
 // newArray writes an array literal: its elements, evaluated in order, copied into a new array (D-038).
 func (e *emitter) newArray(n *ir.NewArray) string {
-	kind := fieldKind(n.Array.Elem)
+	descriptor := e.arrayDescriptor(n.Array)
 	if len(n.Elems) == 0 {
-		return fmt.Sprintf("pts_array_of(%s, NULL, 0)", kind)
+		return fmt.Sprintf("pts_array_of(%s, NULL, 0)", descriptor)
 	}
 	elems, prelude := e.operands(n.Elems)
-	return ordered(prelude, fmt.Sprintf("pts_array_of(%s, (%s[]){%s}, %d)", kind, strings.TrimSuffix(e.declarator(n.Array.Elem), " "), strings.Join(elems, ", "), len(elems)))
+	return ordered(prelude, fmt.Sprintf("pts_array_of(%s, (%s[]){%s}, %d)", descriptor, strings.TrimSuffix(e.declarator(n.Array.Elem), " "), strings.Join(elems, ", "), len(elems)))
 }
 
 // arrayCall writes an operation on an array, its operands evaluated left to right.
@@ -67,7 +67,7 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 	case ir.ArrayReverse, ir.ArraySort:
 		c = fmt.Sprintf("pts_array_%s(%s)", call.Op, args[0])
 	case ir.ArrayFlat:
-		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], fieldKind(call.To.Elem))
+		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], e.arrayDescriptor(call.To))
 	case ir.ArrayFill:
 		c = fmt.Sprintf("pts_array_fill(%s, (%s[]){%s}, %s, %s)", args[0], elem, args[1], args[2], args[3])
 	case ir.ArraySortWith:

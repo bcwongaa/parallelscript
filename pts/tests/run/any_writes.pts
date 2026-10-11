@@ -1,0 +1,69 @@
+// Writing objects and unions through `any` into typed places (D-072): each value is
+// checked against the place's declared type, and a typed object is stored as it is.
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return this.name + " barks";
+  }
+}
+class Kennel {
+  resident: Dog = new Dog("rex");
+  visitor: Animal | null = null;
+  note: string | undefined = undefined;
+}
+
+const kennel = new Kennel();
+const loose: any = kennel;
+const fido = new Dog("fido");
+loose.resident = fido;
+loose.visitor = new Animal("cat");
+loose.note = "fed";
+console.log(kennel.resident.bark(), kennel.resident === fido, kennel.visitor?.name, kennel.note);
+loose.visitor = fido;
+loose.visitor = null;
+loose.note = undefined;
+console.log(kennel.visitor, kennel.note);
+
+// Interface-typed properties take objects that are of their type as they are.
+interface Address {
+  city: string;
+  zip?: number;
+}
+interface Person {
+  name: string;
+  home: Address;
+  tags: string[];
+}
+const ada: Person = { name: "Ada", home: { city: "London" }, tags: ["math"] };
+const paris: Address = { city: "Paris", zip: 75000 };
+const anyAda: any = ada;
+anyAda.home = paris;
+anyAda.tags = ["code", "logic"];
+console.log(ada.home === paris, ada.home.zip, ada.tags.join("+"));
+
+// Elements of arrays of objects and of unions, and values of hash-map objects.
+const dogs: Dog[] = [new Dog("a"), new Dog("b")];
+const anyDogs: any = dogs;
+anyDogs[1] = fido;
+anyDogs[2] = new Dog("c");
+console.log(dogs.map((d) => d.bark()).join(", "), dogs[1] === fido);
+const labels: (string | null)[] = ["x", null];
+const anyLabels: any = labels;
+anyLabels[0] = null;
+anyLabels[1] = "y";
+console.log(labels);
+const byName: Record<string, Animal> = {};
+const anyByName: any = byName;
+anyByName.fido = fido;
+anyByName["rex"] = new Animal("rex");
+console.log(Object.keys(byName), byName.fido === fido);
+
+// An object literal of `any` keeps its identity through an interface it is one of, and
+// writes through either reach the same object.
+const data: any = { name: "Grace", home: { city: "Arlington" }, tags: ["navy"] };
+const grace: Person = data;
+grace.home.city = "New York";
+data.tags = ["navy", "cobol"];
+console.log(grace === data, data.home.city, grace.tags);

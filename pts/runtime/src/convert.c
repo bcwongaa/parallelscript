@@ -1,9 +1,11 @@
 /*
  * Converting dynamic values to the program's types (D-071). A value that already is one
- * of the target type, as its representation goes, is returned as it is, so a typed object
- * that went through `any` keeps its identity; dynamic data (an `any[]`, a hash-map object
- * of `any`, parsed JSON) is checked and copied into the target's representation, since an
- * `any[]` holds pts_values where a `number[]` holds doubles.
+ * of the target type is returned as it is, so a typed object that went through `any`
+ * keeps its identity; dynamic data (an `any[]`, a hash-map object of `any`, parsed JSON)
+ * is checked and copied into the target's representation, since an `any[]` holds
+ * pts_values where a `number[]` holds doubles. Whether an object already is one is
+ * decided by the declared types of its fields (D-072), not by the values they hold now,
+ * which a write through the object's own type could change.
  */
 #include "pts.h"
 
@@ -50,12 +52,10 @@ static const pts_method *getter_named(const pts_type *type, const char *name) {
   return NULL;
 }
 
-/* Whether (object, check) is being converted already: a cycle, which fits if nothing is copied (coinduction). */
-static bool enter(converting *c, const pts_object *object, const pts_check *check, bool *cycle) {
-  *cycle = false;
+/* Pushes (object, check), unless it is being converted already (a cycle) or the walk is too deep. */
+static bool enter(converting *c, const pts_object *object, const pts_check *check) {
   for (size_t i = 0; i < c->depth; i++) {
     if (c->stack[i].object == object && c->stack[i].check == check) {
-      *cycle = true;
       return false;
     }
   }
@@ -68,43 +68,174 @@ static bool enter(converting *c, const pts_object *object, const pts_check *chec
   return true;
 }
 
-/* Whether a field of an object fits a property of the target as it is: its kind is the property's, and an object or dynamic value in it fits too. */
-static bool field_fits(converting *c, const pts_object *object, const pts_field *field, const pts_check_property *property) {
-  const void *slot = (const char *)object + field->offset;
-  pts_value value = pts_value_of_slot(field->kind, slot);
-  if (field->kind != property->check->slot) {
-    /* An optional property may be held as its type without undefined (D-066), which the property's sites convert. */
-    pts_value ignored;
-    return property->optional && field->kind != PTS_FIELD_OBJECT && field->kind != PTS_FIELD_VALUE &&
-           convert(c, value, property->check, false, &ignored);
+/* ---------------------------------------------------------------- declared types */
+
+/* The types of places whose check is NULL: the types their kinds hold. */
+static const pts_check kind_checks[] = {
+    [PTS_FIELD_NUMBER] = {.kind = PTS_CHECK_NUMBER, .slot = PTS_FIELD_NUMBER, .name = "number"},
+    [PTS_FIELD_BOOL] = {.kind = PTS_CHECK_BOOLEAN, .slot = PTS_FIELD_BOOL, .name = "boolean"},
+    [PTS_FIELD_STRING] = {.kind = PTS_CHECK_STRING, .slot = PTS_FIELD_STRING, .name = "string"},
+    [PTS_FIELD_VALUE] = {.kind = PTS_CHECK_ANY, .slot = PTS_FIELD_VALUE, .name = "any"},
+    [PTS_FIELD_OBJECT] = {.kind = PTS_CHECK_OPAQUE, .slot = PTS_FIELD_OBJECT, .name = "object"},
+    [PTS_FIELD_I8] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_I8, .name = "i8"},
+    [PTS_FIELD_I16] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_I16, .name = "i16"},
+    [PTS_FIELD_I32] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_I32, .name = "i32"},
+    [PTS_FIELD_I64] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_I64, .name = "i64"},
+    [PTS_FIELD_U8] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_U8, .name = "u8"},
+    [PTS_FIELD_U16] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_U16, .name = "u16"},
+    [PTS_FIELD_U32] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_U32, .name = "u32"},
+    [PTS_FIELD_U64] = {.kind = PTS_CHECK_INTEGER, .slot = PTS_FIELD_U64, .name = "u64"},
+    [PTS_FIELD_F32] = {.kind = PTS_CHECK_NUMBER, .slot = PTS_FIELD_F32, .name = "f32"},
+};
+
+const pts_check *pts_check_declared(pts_field_kind kind, const pts_check *check) { return check != NULL ? check : &kind_checks[kind]; }
+
+/* Whether two checks describe the same type: checks of the program's types are one per type, the runtime's of primitives may repeat them. */
+static bool same_type(const pts_check *a, const pts_check *b) {
+  if (a == b) {
+    return true;
   }
-  if (field->kind != PTS_FIELD_OBJECT && field->kind != PTS_FIELD_VALUE) {
-    return true; /* a number field holds numbers, and so on */
+  switch (a->kind) {
+  case PTS_CHECK_ANY:
+  case PTS_CHECK_NUMBER:
+  case PTS_CHECK_INTEGER:
+  case PTS_CHECK_STRING:
+  case PTS_CHECK_BOOLEAN:
+  case PTS_CHECK_NULL:
+  case PTS_CHECK_UNDEFINED:
+    return a->kind == b->kind && a->slot == b->slot;
+  default:
+    return false;
   }
-  if (value == PTS_VALUE_ABSENT) {
-    return property->optional;
-  }
-  pts_value same;
-  return convert(c, value, property->check, false, &same);
 }
 
-/* Whether an object fits an object type as it is: each property is a field that fits, a getter of its kind, or missing and optional. */
-static bool object_fits(converting *c, const pts_object *object, const pts_check *check) {
-  for (uint32_t i = 0; i < check->count; i++) {
-    const pts_check_property *property = &check->properties[i];
-    const pts_field *field = field_named(object->type, property->name);
+/* The pairs of types whose implication is being decided: meeting one again is a cycle of recursive types, which holds (coinduction). */
+typedef struct implying {
+  struct {
+    const pts_check *sub, *super;
+  } stack[MAX_DEPTH];
+  size_t depth;
+} implying;
+
+static bool implies(implying *s, const pts_check *sub, const pts_check *super);
+
+/*
+ * Whether a place of kind `kind` declared `declared` (a field, or a getter's result) can
+ * stand for a property `property` of an object type: it holds the property's
+ * representation and only values of its type, or for an optional property, values of
+ * its type without undefined, which the property's sites convert (D-066).
+ */
+static bool place_implies(implying *s, pts_field_kind kind, const pts_check *declared, const pts_check_property *property) {
+  if (kind != property->check->slot && !(property->optional && kind != PTS_FIELD_VALUE)) {
+    return false;
+  }
+  return implies(s, declared, property->check);
+}
+
+static bool type_extends(const pts_type *type, const pts_type *ancestor) {
+  for (; type != NULL; type = type->parent) {
+    if (type == ancestor) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether every object of descriptor `type` has every property of the object type `super` as it is (by its declared types). */
+static bool descriptor_implies(implying *s, const pts_type *type, const pts_check *super) {
+  for (uint32_t i = 0; i < super->count; i++) {
+    const pts_check_property *property = &super->properties[i];
+    const pts_field *field = field_named(type, property->name);
     if (field != NULL) {
-      if (!field_fits(c, object, field, property)) {
+      if (!place_implies(s, field->kind, pts_check_declared(field->kind, field->check), property)) {
         return false;
       }
       continue;
     }
-    const pts_method *getter = getter_named(object->type, property->name);
-    if (getter != NULL ? getter->result != property->check->slot || getter->result == PTS_FIELD_OBJECT : !property->optional) {
+    const pts_method *getter = getter_named(type, property->name);
+    if (getter != NULL ? !place_implies(s, getter->result, pts_check_declared(getter->result, getter->check), property) : !property->optional) {
       return false;
     }
   }
   return true;
+}
+
+/* Whether every value of the object type `sub` has every property of the object type `super` as it is. */
+static bool properties_imply(implying *s, const pts_check *sub, const pts_check *super) {
+  for (uint32_t i = 0; i < super->count; i++) {
+    const pts_check_property *property = &super->properties[i];
+    const pts_check_property *own = NULL;
+    for (uint32_t j = 0; j < sub->count && own == NULL; j++) {
+      if (strcmp(sub->properties[j].name, property->name) == 0) {
+        own = &sub->properties[j];
+      }
+    }
+    if (own == NULL ? !property->optional : (own->optional && !property->optional) || !place_implies(s, own->check->slot, own->check, property)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ * Whether every value of type sub is a value of type super, held as super holds it where
+ * their kinds agree. Arrays, tuples, maps and hash-map objects imply only their own type,
+ * since code typed with either may write to them; objects imply the object types whose
+ * properties their own declared types imply, and the classes they extend. An optional
+ * property that sub doesn't declare is implied too: sub's objects may lack it.
+ */
+static bool implies(implying *s, const pts_check *sub, const pts_check *super) {
+  if (same_type(sub, super) || super->kind == PTS_CHECK_ANY) {
+    return true;
+  }
+  if (sub->kind == PTS_CHECK_UNION) {
+    for (uint32_t i = 0; i < sub->count; i++) {
+      if (!implies(s, sub->members[i], super)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  switch (super->kind) {
+  case PTS_CHECK_UNION:
+    for (uint32_t i = 0; i < super->count; i++) {
+      if (implies(s, sub, super->members[i])) {
+        return true;
+      }
+    }
+    return false;
+  case PTS_CHECK_NUMBER:
+    return sub->kind == PTS_CHECK_NUMBER || sub->kind == PTS_CHECK_INTEGER; /* as values; places compare their kinds */
+  case PTS_CHECK_INSTANCE:
+    return sub->kind == PTS_CHECK_INSTANCE && type_extends(sub->type, super->type);
+  case PTS_CHECK_OBJECT:
+    break;
+  default:
+    return false;
+  }
+  if (sub->kind != PTS_CHECK_INSTANCE && sub->kind != PTS_CHECK_OBJECT) {
+    return false;
+  }
+  for (size_t i = 0; i < s->depth; i++) {
+    if (s->stack[i].sub == sub && s->stack[i].super == super) {
+      return true;
+    }
+  }
+  if (s->depth == MAX_DEPTH) {
+    return false;
+  }
+  s->stack[s->depth].sub = sub;
+  s->stack[s->depth].super = super;
+  s->depth++;
+  bool holds = sub->kind == PTS_CHECK_INSTANCE ? descriptor_implies(s, sub->type, super) : properties_imply(s, sub, super);
+  s->depth--;
+  return holds;
+}
+
+/* Whether an object is one of an object type as it is: its descriptor's declared types imply the type's properties. */
+static bool object_fits(const pts_object *object, const pts_check *check) {
+  implying s = {.depth = 0};
+  return descriptor_implies(&s, object->type, check);
 }
 
 /* A property of dynamic data to copy: a hash-map object's entry or an object's field or getter; absent if it has none. */
@@ -154,18 +285,9 @@ static bool copy_object(converting *c, const pts_object *source, const pts_check
   return true;
 }
 
-/* A tuple: one of the check's descriptor whose elements fit, or a copy of an array of as many elements. */
+/* A tuple: one of the check's descriptor, or a copy of an array of as many elements. */
 static bool convert_tuple(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
   if (object->type == check->type) {
-    for (uint32_t i = 0; i < check->count; i++) {
-      const pts_check_property *element = &check->properties[i];
-      if (element->check->slot == PTS_FIELD_OBJECT || element->check->slot == PTS_FIELD_VALUE) {
-        pts_value same;
-        if (!convert(c, pts_value_of_slot(element->check->slot, (const char *)object + element->offset), element->check, false, &same)) {
-          return false;
-        }
-      }
-    }
     *out = pts_value_from_object(object);
     return true;
   }
@@ -185,23 +307,18 @@ static bool convert_tuple(converting *c, pts_object *object, const pts_check *ch
   return true;
 }
 
-/* An array: itself if its elements are of the element type's kind and fit, else a copy with each element converted. */
+/* An array: itself if it is declared with the element type, else a copy with each element converted. */
 static bool convert_array(converting *c, pts_array *array, const pts_check *check, bool copy, pts_value *out) {
   const pts_check *element = check->element;
-  size_t length = pts_array_length_of(array);
-  bool fits = array->type->element == element->slot;
-  for (size_t i = 0; fits && i < length && (element->slot == PTS_FIELD_OBJECT || element->slot == PTS_FIELD_VALUE); i++) {
-    pts_value same;
-    fits = convert(c, pts_array_element(array, (double)i), element, false, &same);
-  }
-  if (fits) {
+  if (array->type->element == element->slot && same_type(pts_check_declared(array->type->element, array->type->check), element)) {
     *out = pts_value_from_object(array);
     return true;
   }
   if (!copy) {
     return false;
   }
-  pts_array *result = pts_array_of(element->slot, NULL, 0);
+  size_t length = pts_array_length_of(array);
+  pts_array *result = pts_array_of(check->type, NULL, 0);
   for (size_t i = 0; i < length; i++) {
     pts_value converted;
     if (!convert(c, pts_array_element(array, (double)i), element, true, &converted)) {
@@ -215,22 +332,12 @@ static bool convert_array(converting *c, pts_array *array, const pts_check *chec
   return true;
 }
 
-/* A hash-map object: itself if it is of the check's descriptor and its values fit, else a copy of a hash-map object's entries or an object's fields. */
+/* A hash-map object: itself if it is of the check's descriptor, else a copy of a hash-map object's entries or an object's fields. */
 static bool convert_record(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
   const pts_check *element = check->element;
   if (object->type == check->type) {
-    bool fits = true;
-    if (element->slot == PTS_FIELD_OBJECT || element->slot == PTS_FIELD_VALUE) {
-      pts_map_iterator entries = pts_record_iterate((pts_map *)object);
-      while (fits && pts_map_next(&entries)) {
-        pts_value same;
-        fits = convert(c, pts_value_of_slot(element->slot, &entries.value), element, false, &same);
-      }
-    }
-    if (fits) {
-      *out = pts_value_from_object(object);
-      return true;
-    }
+    *out = pts_value_from_object(object);
+    return true;
   }
   if (!copy) {
     return false;
@@ -308,14 +415,13 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     return false;
   }
   pts_object *object = pts_value_as_object(value);
-  bool cycle;
-  if (!enter(c, object, check, &cycle)) {
-    return cycle && !copy; /* a cycle fits as it is; one that would have to be copied doesn't */
+  if (!enter(c, object, check)) {
+    return false; /* a cycle of dynamic data, which a copy can't hold (JSON has none) */
   }
   bool converted = false;
   switch (check->kind) {
   case PTS_CHECK_OBJECT:
-    if (object->type->kind == PTS_KIND_OBJECT && object_fits(c, object, check)) {
+    if (object->type->kind == PTS_KIND_OBJECT && object_fits(object, check)) {
       converted = true;
     } else if (copy) {
       converted = copy_object(c, object, check, out);
@@ -341,10 +447,14 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
   return converted;
 }
 
-pts_value pts_value_convert(pts_value value, const pts_check *check) {
+bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out) {
   converting c = {.depth = 0};
+  return convert(&c, value, check, true, out);
+}
+
+pts_value pts_value_convert(pts_value value, const pts_check *check) {
   pts_value result;
-  if (!convert(&c, value, check, true, &result)) {
+  if (!pts_value_try_convert(value, check, &result)) {
     pts_throw_type_mismatch(value, check->name);
   }
   return result;

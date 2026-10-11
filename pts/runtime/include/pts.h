@@ -67,10 +67,14 @@ typedef enum pts_field_kind {
 /* Whether a field entry stands for an accessor property rather than a value in the object. */
 static inline bool pts_field_is_accessor(pts_field_kind kind) { return kind >= PTS_FIELD_GETTER; }
 
+struct pts_check;
+
 typedef struct pts_field {
   const char *name;
   uint32_t offset; /* from the start of the object, header included */
   pts_field_kind kind;
+  /* The field's declared type, for writes and conversions through `any` (D-072); NULL for the type its kind holds (any for PTS_FIELD_VALUE). */
+  const struct pts_check *check;
 } pts_field;
 
 /* A function of any type, as method tables hold them: cast it back to its own type to call it. */
@@ -87,6 +91,7 @@ typedef struct pts_method {
   pts_method_kind kind;
   pts_function function; /* takes the object as a pts_object * first (D-036) */
   pts_field_kind result; /* what a getter returns, or a setter takes, for reads and writes through `any` (D-070) */
+  const struct pts_check *check; /* its declared type, as pts_field.check (D-072) */
 } pts_method;
 
 /*
@@ -106,6 +111,8 @@ typedef struct pts_type {
   const pts_method *methods; /* what interfaces call: methods, getters and setters, inherited ones included */
   pts_field_kind element;    /* for an array: what its elements are; for a map: what its values are */
   pts_field_kind key;        /* for a map or set: what its keys are */
+  /* For an array or hash-map object: its elements' declared type, as pts_field.check (D-072). */
+  const struct pts_check *check;
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -719,6 +726,7 @@ typedef enum pts_check_kind {
   PTS_CHECK_MAP,      /* a Map of descriptor `type` */
   PTS_CHECK_SET,      /* a Set of descriptor `type` */
   PTS_CHECK_UNION,    /* one of `members` */
+  PTS_CHECK_OPAQUE,   /* a function type or an object type with methods, whose values the runtime can't check yet: only a place of this type holds one */
 } pts_check_kind;
 
 typedef struct pts_check_property {
@@ -741,6 +749,10 @@ typedef struct pts_check {
 
 /* value as a value of the type check describes: itself if it is one, else a copy of it converted to one (dynamic data); TypeError if neither. */
 pts_value pts_value_convert(pts_value value, const pts_check *check);
+/* pts_value_convert, which reports whether value converts instead of throwing. */
+bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out);
+/* The declared type of a place of the given kind whose check is check: check, or for NULL, the type the kind holds. */
+const pts_check *pts_check_declared(pts_field_kind kind, const pts_check *check);
 
 /* A value from `any` that isn't of the type expected where it goes. */
 _Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
@@ -823,8 +835,15 @@ typedef struct pts_array {
 /* The size of a field or array element of the given kind. */
 size_t pts_field_kind_size(pts_field_kind kind);
 
-/* A new array of count elements of the given kind, copied from elements (which may be NULL if count is 0). */
-pts_array *pts_array_of(pts_field_kind kind, const void *elements, size_t count);
+/*
+ * The runtime's array descriptors, one per element kind: those of arrays whose element
+ * type its kind tells (a PTS_FIELD_VALUE array is an `any[]`). A program that converts
+ * or writes dynamic values describes its arrays of other element types itself (D-072).
+ */
+extern const pts_type pts_array_types[];
+
+/* A new array of descriptor type, holding count elements copied from elements (which may be NULL if count is 0). */
+pts_array *pts_array_of(const pts_type *type, const void *elements, size_t count);
 
 _Noreturn void pts_array_index_error(const pts_array *array, double index);
 
@@ -892,7 +911,7 @@ bool pts_array_includes(const pts_array *array, const void *value, double from);
 pts_string *pts_array_join(const pts_array *array, pts_string *separator);
 pts_array *pts_array_reverse(pts_array *array);
 pts_array *pts_array_sort(pts_array *array);
-pts_array *pts_array_flat(const pts_array *array, double depth, pts_field_kind result_kind);
+pts_array *pts_array_flat(const pts_array *array, double depth, const pts_type *result_type);
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
 /*
  * array.sort(compare): sorts array in place, stably, by the numbers compare returns for

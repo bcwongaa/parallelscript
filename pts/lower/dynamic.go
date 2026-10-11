@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -71,6 +72,9 @@ func (l *lowerer) dynamicPlace(node *ast.Node) (place, bool) {
 	key := l.dynamicKey(node)
 	if object == nil || key == nil {
 		return place{}, false
+	}
+	if l.dynamicWrite == nil {
+		l.dynamicWrite = node
 	}
 	return place{object: box(object), key: key, dynamic: true}, true
 }
@@ -212,6 +216,41 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 		return ""
 	}
 	return "an object type of no declaration"
+}
+
+// prepareWrittenTypes readies, in a program that writes through `any`, the declared types
+// of every class's and shape's fields and of the arrays and hash-map objects it makes to
+// take dynamic data, which a write converts to them (D-072): each interface among them
+// gets the shape its copies take. Types that dynamic values can't be converted to yet are
+// left as they are, and writing to them throws.
+func (l *lowerer) prepareWrittenTypes(funcs []*ir.Func) {
+	if l.dynamicWrite == nil {
+		return
+	}
+	seen := map[ir.Type]bool{}
+	prepare := func(t ir.Type) { l.prepareDynamicTarget(t, l.dynamicWrite, seen) }
+	for _, class := range slices.Concat(l.classList, l.instanceClasses) {
+		for _, field := range class.Fields {
+			prepare(field.Type)
+		}
+	}
+	for i := 0; i < len(l.shapeList); i++ { // copy shapes are added as it goes
+		for _, field := range l.shapeList[i].Fields {
+			prepare(field.Type)
+		}
+	}
+	for _, f := range funcs {
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			switch x := x.(type) {
+			case *ir.NewArray:
+				prepare(x.Array)
+			case *ir.NewMap:
+				if x.Map.Record {
+					prepare(x.Map)
+				}
+			}
+		})
+	}
 }
 
 // dynamicWithDefault applies a pattern's default to part, a dynamic value (an any's

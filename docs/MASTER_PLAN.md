@@ -183,9 +183,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Checked conversions from `any` (and `unknown`) to primitives, integer types, classes and unions of them (`TypeError` on mismatch); checked `x!`.
 - [x] **M3.3b1 Runtime type checks** (62e2e0485) (split from M3.3 by D-070, from M3.3b by D-071).
   - Descriptors of the program's types for the runtime (interfaces, arrays, tuples, maps, sets, records), and checked conversions from `any` and `unknown` to them; checked `as` downcasts to them. (Function types and object types with methods need signatures: M3.3c.)
-- [ ] **M3.3b2 Checked object writes** (split from M3.3b by D-071).
+- [ ] **M3.3b2a Checked object writes** (split from M3.3b by D-071, from M3.3b2 by D-072).
   - Writes of objects through `any` into typed fields, checked by the fields' declared types, which descriptors then carry.
-  - Interface sites that check a field's kind when they meet a new descriptor, and class-typed properties of objects that went through `any`, so that a later write through an object's own wider type can't break the view.
+  - Class-typed properties of objects that went through `any`: an object is one of an object type as it is only if its fields' declared types imply the type's, so that a later write through an object's own wider type can't break the view.
+- [ ] **M3.3b2b Guarded interface sites** (split from M3.3b2 by D-072).
+  - Interface sites that check a field's kind and declared type when they meet a new descriptor: a write through a view into a field whose declared type is narrower than the view's is checked; an optional property that an object's declared type leaves out is checked where it is read.
 - [ ] **M3.3c Calls through `any`** (split from M3.3 by D-070).
   - Calling a function value or a method through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
 - [ ] **M3.3d Generic function values** (split from M3.3 by D-070).

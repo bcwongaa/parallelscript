@@ -5,15 +5,26 @@
 
 static const pts_check number_check = {.kind = PTS_CHECK_NUMBER, .slot = PTS_FIELD_NUMBER, .name = "number"};
 static const pts_check any_check = {.kind = PTS_CHECK_ANY, .slot = PTS_FIELD_VALUE, .name = "any"};
-static const pts_check numbers_check = {.kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "number[]", .element = &number_check};
-static const pts_check anys_check = {.kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "any[]", .element = &any_check};
-static const pts_check nested_check = {.kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "any[][]", .element = &anys_check};
+static const pts_check numbers_check = {
+    .kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "number[]", .element = &number_check, .type = &pts_array_types[PTS_FIELD_NUMBER]};
+static const pts_check anys_check = {
+    .kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "any[]", .element = &any_check, .type = &pts_array_types[PTS_FIELD_VALUE]};
+/* any[][]: an array of objects, which the program describes (D-072). */
+static const pts_type nested_type = {
+    .kind = PTS_KIND_ARRAY,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_array, buffer)),
+    .name = "Array",
+    .size = sizeof(pts_array),
+    .element = PTS_FIELD_OBJECT,
+    .check = &anys_check,
+};
+static const pts_check nested_check = {.kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "any[][]", .element = &anys_check, .type = &nested_type};
 
-static pts_array *values_of(size_t count, const pts_value *values) { return pts_array_of(PTS_FIELD_VALUE, values, count); }
+static pts_array *values_of(size_t count, const pts_value *values) { return pts_array_of(&pts_array_types[PTS_FIELD_VALUE], values, count); }
 
 static void an_array_of_the_right_kind_is_the_same_array(void) {
   double elements[] = {1, 2};
-  pts_array *numbers = pts_array_of(PTS_FIELD_NUMBER, elements, 2);
+  pts_array *numbers = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2);
   CHECK(pts_value_convert(pts_value_from_object(numbers), &numbers_check) == pts_value_from_object(numbers));
 }
 
@@ -44,7 +55,7 @@ static void a_self_containing_array_converts_without_looping(void) {
   pts_value self = pts_value_from_object(outer);
   pts_array_set(outer, 0, &self); /* outer[0] is outer */
   pts_array *copy = (pts_array *)pts_value_as_object(pts_value_convert(self, &nested_check));
-  CHECK(copy != outer && copy->type->element == PTS_FIELD_OBJECT); /* any[][] holds pointers where any[] holds pts_values */
+  CHECK(copy != outer && copy->type == &nested_type); /* any[][] holds pointers where any[] holds pts_values */
   CHECK(pts_array_element(copy, 0) == self);                        /* an any[] fits as it is */
 }
 

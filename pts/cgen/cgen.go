@@ -18,7 +18,8 @@ import (
 func Emit(program *ir.Program) string {
 	e := &emitter{checks: map[ir.Type]string{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
-		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{}}
+		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
+		arrayDescriptors: map[*ir.Array]string{}}
 	e.nameClasses(program)
 	e.externFunctions(program)
 	e.collectClosures(program)
@@ -27,6 +28,7 @@ func Emit(program *ir.Program) string {
 	e.collectChecks(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
+	e.collectDeclaredTypes(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -82,6 +84,12 @@ type emitter struct {
 
 	checks     map[ir.Type]string // the pts_check of each type dynamic values are converted to, and of the types in it (D-071)
 	checkOrder []ir.Type
+	// declaredTypes is whether descriptors carry the declared types of fields, accessors,
+	// elements and hash-map values (D-072); arrayDescriptors name the program's descriptors
+	// of arrays whose element kind doesn't tell their element type.
+	declaredTypes    bool
+	arrayDescriptors map[*ir.Array]string
+	arrayOrder       []*ir.Array
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -108,10 +116,12 @@ func (e *emitter) header(program *ir.Program) {
 	}
 	e.line(0, "")
 	e.entryFunctions()
+	e.checkDeclarations()
 	e.classDescriptors(program.Classes)
 	e.closureDefinitions()
 	e.comparatorFunctions()
 	e.mapDescriptorDefinitions()
+	e.arrayDescriptorDefinitions()
 	e.checkDefinitions()
 	e.functionNameTable(program)
 	e.line(0, "int main(int argc, char **argv) {")

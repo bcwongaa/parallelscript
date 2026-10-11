@@ -274,12 +274,43 @@ static bool fits_integer(pts_value value, pts_field_kind kind) {
   }
 }
 
-/* What a value written to a slot of the given kind must be; TypeError if it isn't. Object slots are checked from M3.3b. */
-static void check_storable(pts_field_kind kind, pts_value value, const char *name, const pts_type *type) {
+/* How messages name a value of the wrong type: by typeof, or an object by its class's name (Point, Array, Object). */
+static const char *value_description(pts_value value) {
+  if (value == PTS_VALUE_NULL) {
+    return "null";
+  }
+  if (pts_value_is_object(value)) {
+    const pts_type *type = pts_value_as_object(value)->type;
+    if (type->kind != PTS_KIND_STRING && type->kind != PTS_KIND_FUNCTION && type->name != NULL) {
+      return type->name;
+    }
+  }
+  return (const char *)pts_value_typeof(value)->bytes;
+}
+
+/*
+ * The value to store for value written to a place of the given kind declared check (a
+ * field, setter, element or hash-map entry, D-072): value, or for an object type, value
+ * converted to it, which copies dynamic data. TypeError if it doesn't fit.
+ */
+static pts_value storable(pts_field_kind kind, const pts_check *check, pts_value value, const char *name, const pts_type *type) {
   bool fits;
   switch (kind) {
   case PTS_FIELD_VALUE:
-    return;
+  case PTS_FIELD_OBJECT: {
+    if (check == NULL && kind == PTS_FIELD_VALUE) {
+      return value; /* any */
+    }
+    if (check == NULL) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Writing the object property %s of a %s through `any` is not supported", name, type->name);
+    }
+    pts_value converted;
+    if (!pts_value_try_convert(value, check, &converted)) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s: expected %s, got %s", name, type->name, check->name,
+                    value_description(value));
+    }
+    return converted;
+  }
   case PTS_FIELD_NUMBER:
   case PTS_FIELD_F32:
     fits = pts_value_is_number(value);
@@ -290,8 +321,6 @@ static void check_storable(pts_field_kind kind, pts_value value, const char *nam
   case PTS_FIELD_STRING:
     fits = is_string(value);
     break;
-  case PTS_FIELD_OBJECT:
-    pts_throw_new(&pts_type_builtin_TypeError, "Writing the object property %s of a %s through `any` is not supported yet", name, type->name);
   default:
     fits = fits_integer(value, kind);
   }
@@ -299,6 +328,7 @@ static void check_storable(pts_field_kind kind, pts_value value, const char *nam
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s to a %s: the property's type doesn't allow it", name, type->name,
                   pts_value_typeof(value)->bytes);
   }
+  return value;
 }
 
 static void object_set(pts_object *object, pts_value key, pts_value value) {
@@ -307,14 +337,13 @@ static void object_set(pts_object *object, pts_value key, pts_value value) {
   const char *name = key_text(key, buffer);
   const pts_field *field = field_named(type, name);
   if (field != NULL) {
-    check_storable(field->kind, value, name, type);
-    pts_store_value_in_slot(field->kind, (char *)object + field->offset, value);
+    pts_store_value_in_slot(field->kind, (char *)object + field->offset, storable(field->kind, field->check, value, name, type));
     return;
   }
   int64_t setter = method_named(type, name, PTS_SETTER);
   if (setter >= 0) {
     pts_field_kind kind = type->methods[setter].result;
-    check_storable(kind, value, name, type);
+    value = storable(kind, type->methods[setter].check, value, name, type);
     union {
       double number;
       float f32;
@@ -371,25 +400,24 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     pts_array *array = (pts_array *)target;
     pts_field_kind kind = array->type->element;
     if (key_is(key, "length")) {
-      check_storable(PTS_FIELD_NUMBER, value, "length", array->type);
+      storable(PTS_FIELD_NUMBER, NULL, value, "length", array->type);
       pts_array_set_length(array, pts_value_as_number(value));
       return value;
     }
     if (!array_index(key, &index)) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));
     }
-    check_storable(kind, value, "element", array->type);
     uint64_t element = 0;
-    pts_store_value_in_slot(kind, &element, value);
+    pts_store_value_in_slot(kind, &element, storable(kind, array->type->check, value, key_text(key, buffer), array->type));
     pts_array_set(array, index, &element);
     return value;
   }
   case PTS_KIND_RECORD: {
     pts_map *record = (pts_map *)target;
-    check_storable(record->type->element, value, key_text(key, buffer), record->type);
+    pts_value stored = storable(record->type->element, record->type->check, value, key_text(key, buffer), record->type);
     pts_string *name = pts_value_to_string(key);
     uint64_t entry = 0;
-    pts_store_value_in_slot(record->type->element, &entry, value);
+    pts_store_value_in_slot(record->type->element, &entry, stored);
     pts_map_set(record, &name, &entry);
     return value;
   }
@@ -430,11 +458,7 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
 /* ---------------------------------------------------------------- boundaries */
 
 void pts_throw_type_mismatch(pts_value value, const char *expected) {
-  const char *got = value == PTS_VALUE_NULL ? "null" : (const char *)pts_value_typeof(value)->bytes;
-  if (pts_value_is_object(value) && !is_string(value) && pts_value_as_object(value)->type->name != NULL) {
-    got = pts_value_as_object(value)->type->name; /* a class's or other object's name: Point, Array, Object */
-  }
-  pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s", expected, got);
+  pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s", expected, value_description(value));
 }
 
 /* Whether value is an integer that the integer type of the given kind holds exactly: a boundary from `any` requires it. */

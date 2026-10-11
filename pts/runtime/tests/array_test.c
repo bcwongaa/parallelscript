@@ -8,7 +8,7 @@
 enum { THREADS = 4, PUSHES = 20000 };
 
 static pts_array *numbers(size_t count) {
-  pts_array *array = pts_array_of(PTS_FIELD_NUMBER, NULL, 0);
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], NULL, 0);
   for (size_t i = 0; i < count; i++) {
     double value = (double)i;
     pts_array_push(array, &value, 1);
@@ -54,13 +54,13 @@ static void both_ends_add_and_remove_in_order(void) {
 
 static void elements_of_every_kind_box_as_their_values(void) {
   pts_string *word = pts_string_from_cstr("word");
-  pts_array *strings = pts_array_of(PTS_FIELD_STRING, &word, 1);
+  pts_array *strings = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &word, 1);
   CHECK(pts_array_element(strings, 0) == pts_value_from_string(word));
   bool flags[] = {true, false};
-  pts_array *bools = pts_array_of(PTS_FIELD_BOOL, flags, 2);
+  pts_array *bools = pts_array_of(&pts_array_types[PTS_FIELD_BOOL], flags, 2);
   CHECK(pts_array_element(bools, 0) == PTS_VALUE_TRUE && pts_array_element(bools, 1) == PTS_VALUE_FALSE);
   uint8_t bytes[] = {255, 7};
-  pts_array *small = pts_array_of(PTS_FIELD_U8, bytes, 2);
+  pts_array *small = pts_array_of(&pts_array_types[PTS_FIELD_U8], bytes, 2);
   CHECK(pts_value_as_number(pts_array_element(small, 0)) == 255);
   uint8_t more = 9;
   pts_array_push(small, &more, 1);
@@ -68,7 +68,7 @@ static void elements_of_every_kind_box_as_their_values(void) {
 }
 
 static void a_cycle_joins_as_empty(void) {
-  pts_array *outer = pts_array_of(PTS_FIELD_OBJECT, NULL, 0);
+  pts_array *outer = pts_array_of(&pts_array_types[PTS_FIELD_OBJECT], NULL, 0);
   pts_array *inner = numbers(2);
   pts_array_push(outer, &inner, 1);
   pts_array_push(outer, &outer, 1);
@@ -87,7 +87,7 @@ static void splice_clamps_and_inserts(void) {
 
 static void sort_keeps_equal_keys_in_order(void) {
   pts_string *words[] = {pts_string_from_cstr("b"), pts_string_from_cstr("a"), pts_string_from_cstr("b"), pts_string_from_cstr("a")};
-  pts_array *array = pts_array_of(PTS_FIELD_STRING, words, 4);
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_STRING], words, 4);
   pts_array_sort(array);
   CHECK(PTS_ARRAY_GET(pts_string *, array, 0) == words[1] && PTS_ARRAY_GET(pts_string *, array, 1) == words[3]);
   CHECK(PTS_ARRAY_GET(pts_string *, array, 2) == words[0] && PTS_ARRAY_GET(pts_string *, array, 3) == words[2]);
@@ -118,7 +118,7 @@ static void *read_while_pushing(void *arg) {
 }
 
 static void racing_pushes_lose_elements_but_stay_in_bounds(void) {
-  shared = pts_array_of(PTS_FIELD_NUMBER, NULL, 0);
+  shared = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], NULL, 0);
   pthread_t pushers[THREADS], reader;
   for (int i = 0; i < THREADS; i++) {
     CHECK(pthread_create(&pushers[i], NULL, push_many, NULL) == 0);
@@ -149,7 +149,7 @@ static void sort_with_a_comparator_is_stable(void) {
   static const pts_type closure_type = {.kind = PTS_KIND_FUNCTION, .name = "byIntegerPart", .size = sizeof(pts_closure)};
   pts_closure compare = {&closure_type, (pts_function)by_integer_part};
   double values[] = {3.1, 1.1, 2.1, 1.2, 3.2, 1.3};
-  pts_array *array = pts_array_of(PTS_FIELD_NUMBER, values, 6);
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], values, 6);
   CHECK(pts_array_sort_with(array, &compare, call_number_comparator) == array);
   double sorted[] = {1.1, 1.2, 1.3, 2.1, 3.1, 3.2};
   for (size_t i = 0; i < 6; i++) {

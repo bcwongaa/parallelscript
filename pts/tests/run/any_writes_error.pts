@@ -1,0 +1,89 @@
+// What writes through `any` check (D-072), where JS carries on: a value written to a typed
+// place must be of the place's declared type, and dynamic data written to an object type
+// is copied into it. An object whose declared types don't make it one of an object type
+// is copied when converted to it, so that a write through its own type can't break the copy.
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return this.name + " barks";
+  }
+}
+class Cat extends Animal {}
+class Kennel {
+  resident: Dog = new Dog("rex");
+  visitor: Dog | null = null;
+  label: string | null = null;
+  onOpen: () => void = () => {};
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const kennel: any = new Kennel();
+attempt("a Cat as a Dog", () => { kennel.resident = new Cat("tom"); });
+attempt("a string as a Dog", () => { kennel.resident = "rex"; });
+attempt("null as a Dog", () => { kennel.resident = null; });
+attempt("data as a Dog", () => { kennel.resident = { name: "rex" }; });
+attempt("a Cat as Dog | null", () => { kennel.visitor = new Cat("tom"); });
+attempt("a number as string | null", () => { kennel.label = 5; });
+attempt("a function", () => { kennel.onOpen = () => {}; });
+const labels: (string | null)[] = [];
+attempt("a number as an element", () => { (labels as any)[0] = 1; });
+const dogs: Dog[] = [];
+attempt("an Animal as an element", () => { (dogs as any)[0] = new Animal("a"); });
+const byName: Record<string, Dog> = {};
+attempt("an Animal as a value", () => { (byName as any).a = new Animal("a"); });
+console.log(kennel, labels, dogs, byName);
+
+// Dynamic data written to an interface-typed property is copied into it.
+interface Address {
+  city: string;
+  zip?: number;
+}
+class Person {
+  home: Address = { city: "London" };
+}
+const person = new Person();
+const loose: Record<string, any> = { city: "Paris", zip: 75000, extra: true };
+(person as any).home = loose;
+console.log(person.home, (person.home as any) === loose);
+attempt("data that isn't an Address", () => { (person as any).home = { town: "Rome" }; });
+
+// A view that a write through the object's own type could break is a copy.
+class Owner {
+  pet: Animal = new Dog("rex");
+}
+const owner = new Owner();
+const view = owner as any as { pet: Dog };
+console.log(view === (owner as any), view.pet === owner.pet, view.pet.bark());
+owner.pet = new Cat("tom");
+console.log(view.pet.bark(), owner.pet.name);
+
+// no-diff: JS writes whatever it is given and converts nothing
+// expect:
+// a Cat as a Dog -> TypeError: Cannot set property resident of Kennel: expected Dog, got Cat
+// a string as a Dog -> TypeError: Cannot set property resident of Kennel: expected Dog, got string
+// null as a Dog -> TypeError: Cannot set property resident of Kennel: expected Dog, got null
+// data as a Dog -> TypeError: Cannot set property resident of Kennel: expected Dog, got Object
+// a Cat as Dog | null -> TypeError: Cannot set property visitor of Kennel: expected Dog | null, got Cat
+// a number as string | null -> TypeError: Cannot set property label of Kennel: expected null | string, got number
+// a function -> TypeError: Cannot set property onOpen of Kennel: expected () => void, got function
+// a number as an element -> TypeError: Cannot set property 0 of Array: expected null | string, got number
+// an Animal as an element -> TypeError: Cannot set property 0 of Array: expected Dog, got Animal
+// an Animal as a value -> TypeError: Cannot set property a of Object: expected Dog, got Animal
+// Kennel {
+//   resident: Dog { name: 'rex' },
+//   visitor: null,
+//   label: null,
+//   onOpen: [Function: onOpen]
+// } [] [] {}
+// { city: 'Paris', zip: 75000 } false
+// data that isn't an Address -> TypeError: Cannot set property home of Person: expected {city: string; zip?: number | undefined}, got Object
+// false true rex barks
+// rex barks tom

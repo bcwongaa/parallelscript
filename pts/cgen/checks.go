@@ -9,17 +9,125 @@ import (
 
 // Runtime descriptions of types (pts_check, D-071): for each type that a dynamic value is
 // converted to and that valueTest can't test, and for the types of its properties and
-// elements, a static pts_check that pts_value_convert reads.
+// elements, a static pts_check that pts_value_convert reads. A program that converts
+// dynamic values to such types or writes through `any` also describes the declared type
+// of every field, accessor and array element and hash-map value in its descriptors
+// (D-072), which decide what a written value must be and whether an object already is
+// one of an object type.
 
-// collectChecks names the checks of the types dynamic values are converted to.
+// collectChecks names the checks of the types dynamic values are converted to, and
+// decides whether descriptors carry declared types.
 func (e *emitter) collectChecks(program *ir.Program) {
+	var targets []ir.Type
 	for _, f := range program.Funcs {
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
-			if from, ok := x.(*ir.FromUnion); ok && from.X.Type() == ir.Value && !hasValueTest(from.To) {
-				e.check(from.To)
+			switch x := x.(type) {
+			case *ir.FromUnion:
+				if x.X.Type() == ir.Value && !hasValueTest(x.To) {
+					targets = append(targets, x.To)
+				}
+			case *ir.CallBuiltin:
+				if x.Builtin == ir.DynamicSet {
+					e.declaredTypes = true
+				}
 			}
 		})
 	}
+	e.declaredTypes = e.declaredTypes || len(targets) > 0
+	for _, t := range targets {
+		e.check(t)
+	}
+}
+
+// collectDeclaredTypes names, if descriptors carry declared types, the checks of every
+// class's and shape's fields and accessors and of hash-map objects' values, and the
+// descriptors of the arrays the program makes whose element kind doesn't tell their
+// element type.
+func (e *emitter) collectDeclaredTypes(program *ir.Program) {
+	if !e.declaredTypes {
+		return
+	}
+	for _, class := range program.Classes {
+		if class.Builtin {
+			continue
+		}
+		for _, field := range class.AllFields() {
+			e.check(field.Type)
+			if field.Kind != ir.Plain { // a shape's accessor's closure
+				e.check(shapeAccessorType(field))
+			}
+		}
+		for _, method := range e.interfaceMembers[class] {
+			if method.Kind != ir.Plain {
+				e.check(accessorType(method.Kind, method.Func.Params, method.Func.Result))
+			}
+		}
+	}
+	for _, f := range program.Funcs {
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			switch x := x.(type) {
+			case *ir.NewArray:
+				e.describeArray(x.Array)
+			case *ir.ArrayCall:
+				if x.Op == ir.ArrayFlat {
+					e.describeArray(x.To)
+				}
+			}
+		})
+	}
+	for i := 0; i < len(e.mapOrder); i++ { // checks may add map types
+		if mt := e.mapOrder[i]; mt.Record {
+			e.check(mt.Value)
+		}
+	}
+}
+
+// describeArray gives arrays of type t a descriptor of the program's that carries their
+// element type, if descriptors carry declared types and the element kind doesn't tell it:
+// arrays of objects and of unions.
+func (e *emitter) describeArray(t *ir.Array) {
+	kind := fieldKind(t.Elem)
+	if _, ok := e.arrayDescriptors[t]; ok || !e.declaredTypes || t.Elem == ir.Value || (kind != "PTS_FIELD_OBJECT" && kind != "PTS_FIELD_VALUE") {
+		return
+	}
+	e.arrayDescriptors[t] = fmt.Sprintf("pts_type_array_%d", len(e.arrayOrder)+1)
+	e.arrayOrder = append(e.arrayOrder, t)
+	e.check(t.Elem)
+}
+
+// arrayDescriptor is the C expression of the descriptor of arrays of type t: the
+// program's (describeArray), or the runtime's for their element kind.
+func (e *emitter) arrayDescriptor(t *ir.Array) string {
+	if name, ok := e.arrayDescriptors[t]; ok {
+		return "&" + name
+	}
+	return "&pts_array_types[" + fieldKind(t.Elem) + "]"
+}
+
+// arrayDescriptorDefinitions writes the program's array descriptors.
+func (e *emitter) arrayDescriptorDefinitions() {
+	for _, t := range e.arrayOrder {
+		e.line(0, "static const pts_type %s = {", e.arrayDescriptors[t])
+		e.line(1, ".kind = PTS_KIND_ARRAY,")
+		e.line(1, ".gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_array, buffer)),")
+		e.line(1, ".name = \"Array\",")
+		e.line(1, ".size = sizeof(pts_array),")
+		e.line(1, ".element = %s,", fieldKind(t.Elem))
+		e.line(1, ".check = &%s,", e.checks[t.Elem])
+		e.line(0, "};")
+	}
+	if len(e.arrayOrder) > 0 {
+		e.line(0, "")
+	}
+}
+
+// declaredType is the C initializer member of a descriptor's entry that gives the
+// declared type t of a field or accessor, or "" if descriptors don't carry them.
+func (e *emitter) declaredType(t ir.Type) string {
+	if !e.declaredTypes {
+		return ""
+	}
+	return ", &" + e.checks[t]
 }
 
 // hasValueTest reports whether valueTest can test a dynamic value for t.
@@ -53,6 +161,7 @@ func (e *emitter) check(t ir.Type) string {
 		}
 	case *ir.Array:
 		e.check(t.Elem)
+		e.describeArray(t)
 	case *ir.MapType:
 		e.check(t.Key)
 		if t.Value != nil {
@@ -63,6 +172,9 @@ func (e *emitter) check(t ir.Type) string {
 			e.mapOrder = append(e.mapOrder, t)
 		}
 	case *ir.Interface:
+		if len(t.Methods) > 0 {
+			break // opaque
+		}
 		for _, field := range t.Fields {
 			e.check(field.Type)
 		}
@@ -74,18 +186,25 @@ func (e *emitter) check(t ir.Type) string {
 	return name
 }
 
-// checkDefinitions writes the checks: declarations first, since types may contain each other.
-func (e *emitter) checkDefinitions() {
-	if len(e.checkOrder) == 0 {
-		return
-	}
+// checkDeclarations declares the checks, which types and descriptors refer to before
+// checkDefinitions defines them.
+func (e *emitter) checkDeclarations() {
 	for _, t := range e.checkOrder {
 		e.line(0, "static const pts_check %s;", e.checks[t])
 	}
+	if len(e.checkOrder) > 0 {
+		e.line(0, "")
+	}
+}
+
+// checkDefinitions writes the checks.
+func (e *emitter) checkDefinitions() {
 	for _, t := range e.checkOrder {
 		e.checkDefinition(t)
 	}
-	e.line(0, "")
+	if len(e.checkOrder) > 0 {
+		e.line(0, "")
+	}
 }
 
 func (e *emitter) checkDefinition(t ir.Type) string {
@@ -121,14 +240,20 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 		members = append(members, fmt.Sprintf(".count = %d", len(t.Members)), ".members = "+name+"_members")
 	case *ir.Array:
 		members[0] = ".kind = PTS_CHECK_ARRAY"
-		members = append(members, ".element = &"+e.checks[t.Elem])
+		members = append(members, ".element = &"+e.checks[t.Elem], ".type = "+e.arrayDescriptor(t))
 	case *ir.MapType:
 		members[0] = ".kind = PTS_CHECK_" + mapKind(t)
 		members = append(members, ".type = &"+e.mapDescriptors[t])
 		if t.Value != nil {
 			members = append(members, ".element = &"+e.checks[t.Value])
 		}
+	case *ir.FuncType:
+		members[0] = ".kind = PTS_CHECK_OPAQUE"
 	case *ir.Interface:
+		if len(t.Methods) > 0 {
+			members[0] = ".kind = PTS_CHECK_OPAQUE"
+			break
+		}
 		members[0] = ".kind = PTS_CHECK_OBJECT"
 		members = append(members, e.checkProperties(name, t.Fields, t.Copy, t.Copy != nil)...)
 		if t.Copy != nil {

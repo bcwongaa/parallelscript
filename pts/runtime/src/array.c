@@ -19,7 +19,7 @@ enum { MIN_CAPACITY = 4 };
       .element = element_kind,                                          \
   }
 
-static const pts_type array_types[] = {
+const pts_type pts_array_types[] = {
     ARRAY_TYPE(PTS_FIELD_NUMBER), ARRAY_TYPE(PTS_FIELD_BOOL), ARRAY_TYPE(PTS_FIELD_STRING), ARRAY_TYPE(PTS_FIELD_VALUE),
     ARRAY_TYPE(PTS_FIELD_OBJECT), ARRAY_TYPE(PTS_FIELD_I8),   ARRAY_TYPE(PTS_FIELD_I16),    ARRAY_TYPE(PTS_FIELD_I32),
     ARRAY_TYPE(PTS_FIELD_I64),    ARRAY_TYPE(PTS_FIELD_U8),   ARRAY_TYPE(PTS_FIELD_U16),    ARRAY_TYPE(PTS_FIELD_U32),
@@ -127,8 +127,9 @@ static pts_array_buffer *with_room(pts_array *array, size_t length, size_t neede
   return bigger;
 }
 
-pts_array *pts_array_of(pts_field_kind kind, const void *elements, size_t count) {
-  pts_array *array = pts_object_new(&array_types[kind]);
+pts_array *pts_array_of(const pts_type *type, const void *elements, size_t count) {
+  pts_field_kind kind = type->element;
+  pts_array *array = pts_object_new(type);
   array->buffer = new_buffer(kind, count);
   if (count > 0) {
     memcpy(array->buffer->elements, elements, count * pts_field_kind_size(kind));
@@ -410,9 +411,10 @@ static void copy_elements(unsigned char *to, const unsigned char *from, size_t c
   }
 }
 
-/* new_array makes an array of the given kind holding count elements read from from. */
-static pts_array *new_array(pts_field_kind kind, const unsigned char *from, size_t count) {
-  pts_array *array = pts_object_new(&array_types[kind]);
+/* new_array makes an array of descriptor type holding count elements read from from. */
+static pts_array *new_array(const pts_type *type, const unsigned char *from, size_t count) {
+  pts_field_kind kind = type->element;
+  pts_array *array = pts_object_new(type);
   array->buffer = new_buffer(kind, count);
   copy_elements(array->buffer->elements, from, count, pts_field_kind_size(kind));
   array->length = count;
@@ -424,7 +426,7 @@ pts_array *pts_array_slice(const pts_array *array, double start, double end) {
   size_t length = readable_length(array, buffer);
   size_t from = relative_index(start, length), to = relative_index(end, length);
   size_t size = pts_field_kind_size(array->type->element);
-  return new_array(array->type->element, buffer->elements + from * size, to > from ? to - from : 0);
+  return new_array(array->type, buffer->elements + from * size, to > from ? to - from : 0);
 }
 
 pts_array *pts_array_copy(const pts_array *array) { return pts_array_slice(array, 0, (double)SIZE_MAX); }
@@ -437,7 +439,7 @@ pts_array *pts_array_splice(pts_array *array, double start, double delete_count,
   size_t from = relative_index(start, length);
   double wanted = delete_count != delete_count ? 0 : __builtin_trunc(delete_count);
   size_t deleted = wanted <= 0 ? 0 : wanted >= (double)(length - from) ? length - from : (size_t)wanted;
-  pts_array *removed = new_array(kind, old->elements + from * size, deleted);
+  pts_array *removed = new_array(array->type, old->elements + from * size, deleted);
   /* A new buffer, filled before it is published, as unshift does. */
   size_t new_length = length - deleted + count;
   pts_array_buffer *buffer = new_buffer(kind, new_length > old->capacity ? new_length : old->capacity);
@@ -743,8 +745,8 @@ static void flatten_into(pts_array *result, const pts_array *array, double depth
   }
 }
 
-pts_array *pts_array_flat(const pts_array *array, double depth, pts_field_kind result_kind) {
-  pts_array *result = pts_array_of(result_kind, NULL, 0);
+pts_array *pts_array_flat(const pts_array *array, double depth, const pts_type *result_type) {
+  pts_array *result = pts_array_of(result_type, NULL, 0);
   flatten_into(result, array, depth != depth ? 0 : __builtin_trunc(depth));
   return result;
 }
@@ -760,7 +762,7 @@ pts_array *pts_array_fill(pts_array *array, const void *value, double start, dou
 }
 
 pts_array *pts_array_from_string(pts_string *string) {
-  pts_array *array = pts_array_of(PTS_FIELD_STRING, NULL, 0);
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
   for (uint32_t i = 0; i < string->byte_len;) {
     unsigned char lead = (unsigned char)string->bytes[i];
     uint32_t length = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;

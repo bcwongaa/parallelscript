@@ -530,7 +530,7 @@ pts_string *pts_string_repeat(pts_string *string, double count) {
 }
 
 pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit) {
-  pts_array *pieces = pts_array_of(PTS_FIELD_STRING, NULL, 0);
+  pts_array *pieces = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
   /* JS's ToUint32 of the limit; a left-out one is Infinity, which means 2^32 - 1. */
   double max = limit != limit ? 0 : limit >= 4294967295.0 ? 4294967295.0 : limit <= 0 ? 0 : __builtin_trunc(limit);
   if (max == 0) {

@@ -264,7 +264,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			fields = "pts_fields_" + name
 			e.line(0, "static const pts_field %s[] = {", fields)
 			for _, field := range visible {
-				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(field.Name), name, fieldPath(class, field), fieldKind(field.Type))
+				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s%s},", cString(field.Name), name, fieldPath(class, field), fieldKind(field.Type), e.declaredType(field.Type))
 			}
 			e.line(0, "};")
 		}
@@ -273,7 +273,11 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			methods = "pts_methods_" + name
 			e.line(0, "static const pts_method %s[] = {", methods)
 			for _, method := range callable {
-				e.line(1, "{%s, %s, (pts_function)%s, %s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result))
+				declared := ""
+				if method.Kind != ir.Plain {
+					declared = e.declaredType(accessorType(method.Kind, method.Func.Params, method.Func.Result))
+				}
+				e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result), declared)
 			}
 			e.line(0, "};")
 		}
@@ -331,7 +335,11 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 			fields = "pts_fields_" + name
 			e.line(0, "static const pts_field %s[] = {", fields)
 			for _, entry := range entries {
-				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(entry.name), e.classNames[shape], fieldIdentifier(entry.field.Name), entry.kind)
+				declared := ""
+				if entry.field.Kind == ir.Plain {
+					declared = e.declaredType(entry.field.Type)
+				}
+				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s%s},", cString(entry.name), e.classNames[shape], fieldIdentifier(entry.field.Name), entry.kind, declared)
 			}
 			e.line(0, "};")
 		}
@@ -449,7 +457,7 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 			params[j] = &ir.Local{Type: param}
 		}
 		if field.Kind != ir.Plain {
-			e.line(1, "{%s, %s, (pts_function)%s, %s},", cString(field.Property), methodKinds[field.Kind], entries[i], accessorKind(field.Kind, params, ft.Result))
+			e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(field.Property), methodKinds[field.Kind], entries[i], accessorKind(field.Kind, params, ft.Result), e.declaredType(shapeAccessorType(field)))
 		} else {
 			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0},", cString(field.Name), entries[i])
 		}
@@ -496,13 +504,28 @@ var methodKinds = map[ir.MethodKind]string{ir.Plain: "PTS_METHOD", ir.Getter: "P
 // accessorKind is what a getter returns, or a setter takes (its parameter after `this`),
 // as a field kind, for reads and writes through `any` (D-070); 0 for a method.
 func accessorKind(kind ir.MethodKind, params []*ir.Local, result ir.Type) string {
-	switch kind {
-	case ir.Getter:
-		return fieldKind(result)
-	case ir.Setter:
-		return fieldKind(params[1].Type)
+	if kind == ir.Plain {
+		return "0"
 	}
-	return "0"
+	return fieldKind(accessorType(kind, params, result))
+}
+
+// accessorType is the type a getter returns or a setter takes.
+func accessorType(kind ir.MethodKind, params []*ir.Local, result ir.Type) ir.Type {
+	if kind == ir.Getter {
+		return result
+	}
+	return params[1].Type
+}
+
+// shapeAccessorType is the type of the accessor property whose getter or setter a shape's
+// field holds.
+func shapeAccessorType(field *ir.Field) ir.Type {
+	ft := field.Type.(*ir.FuncType)
+	if field.Kind == ir.Getter {
+		return ft.Result
+	}
+	return ft.Params[1]
 }
 
 // slotName is the member of a method table that holds a slot: the method's name, or for

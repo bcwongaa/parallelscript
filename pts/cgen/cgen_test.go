@@ -385,3 +385,32 @@ func TestAThrowLandsInTheCatchBlockWithTheThrownValue(t *testing.T) {
 	)
 	assert.Equal(t, run(t, program), "caught thrown\nafter\n")
 }
+
+func TestDescriptorsCarryDeclaredTypesOnlyInProgramsThatWriteThroughAny(t *testing.T) {
+	t.Parallel()
+	labelsType := &ir.Array{Elem: &ir.Union{Members: []ir.Type{ir.Null, ir.String}}}
+	programWith := func(writes bool) *ir.Program {
+		shape := &ir.Class{Name: "object1", Shape: true}
+		labels := &ir.Field{Name: "labels", Type: labelsType, Class: shape}
+		shape.Fields = []*ir.Field{labels}
+		shape.Orders = [][]*ir.Field{{labels}}
+		o := &ir.Local{Name: "o", Type: shape}
+		stmts := []ir.Stmt{&ir.LocalDecl{At: at(1), Local: o, Init: &ir.NewObject{Shape: shape, Values: []ir.Expr{&ir.NewArray{Array: labelsType}}}}}
+		if writes {
+			list := &ir.Box{X: &ir.FieldRef{X: &ir.LocalRef{Local: o}, Field: labels}}
+			write := &ir.CallBuiltin{Builtin: ir.DynamicSet, Args: []ir.Expr{list, &ir.Box{X: num(0)}, &ir.Box{X: str("x")}}}
+			stmts = append(stmts, &ir.ExprStmt{At: at(2), X: write})
+		}
+		stmts = append(stmts, logAt(3, &ir.FieldRef{X: &ir.LocalRef{Local: o}, Field: labels}))
+		program := programOf(stmts...)
+		program.Classes = []*ir.Class{shape}
+		return program
+	}
+	// Writing through any needs the field's and the elements' declared types (D-072).
+	source := cgen.Emit(programWith(true))
+	assert.Assert(t, strings.Contains(source, `{"labels", offsetof(pts_class_object1, labels), PTS_FIELD_OBJECT, &pts_check_`) &&
+		strings.Contains(source, `pts_array_of(&pts_type_array_1, NULL, 0)`) && strings.Contains(source, `.check = &pts_check_`), source)
+	assert.Equal(t, run(t, programWith(true)), "[ 'x' ]\n")
+	source = cgen.Emit(programWith(false))
+	assert.Assert(t, !strings.Contains(source, `pts_check`) && strings.Contains(source, `pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0)`), source)
+}

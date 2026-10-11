@@ -16,7 +16,7 @@ static void to_number_follows_javascript(void) {
   CHECK(isnan(pts_value_to_number(PTS_VALUE_UNDEFINED)));
   CHECK(pts_value_to_number(PTS_VALUE_TRUE) == 1);
   double element = 7;
-  CHECK(pts_value_to_number(pts_value_from_object(pts_array_of(PTS_FIELD_NUMBER, &element, 1))) == 7); /* "7" */
+  CHECK(pts_value_to_number(pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], &element, 1))) == 7); /* "7" */
 }
 
 static void plus_concatenates_when_either_side_is_a_string(void) {
@@ -35,7 +35,7 @@ static void comparisons_are_false_with_nan(void) {
 
 static void arrays_and_strings_answer_indices_and_length(void) {
   double elements[] = {10, 20};
-  pts_value array = pts_value_from_object(pts_array_of(PTS_FIELD_NUMBER, elements, 2));
+  pts_value array = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2));
   CHECK(pts_dynamic_get(array, str("length")) == num(2));
   CHECK(pts_dynamic_get(array, num(1)) == num(20));
   CHECK(pts_dynamic_get(array, str("1")) == num(20));
@@ -49,7 +49,7 @@ static void arrays_and_strings_answer_indices_and_length(void) {
 
 static void a_number_element_refuses_a_string(void) {
   double elements[] = {1};
-  pts_value array = pts_value_from_object(pts_array_of(PTS_FIELD_NUMBER, elements, 1));
+  pts_value array = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 1));
   pts_handler handler;
   pts_try_enter(&handler);
   if (_setjmp(handler.jump) == 0) {

@@ -56,6 +56,9 @@ func (e *emitter) mapDescriptorDefinitions() {
 		if !mt.Set {
 			e.line(1, ".element = %s,", fieldKind(mt.Value))
 		}
+		if mt.Record && e.declaredTypes {
+			e.line(1, ".check = &%s,", e.checks[mt.Value])
+		}
 		e.line(0, "};")
 	}
 	if len(e.mapOrder) > 0 {
