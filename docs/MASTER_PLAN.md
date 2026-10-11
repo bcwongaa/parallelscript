@@ -214,7 +214,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)` with `fill`, `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`.
 - [x] **M3.5d `Object` functions and `for…in`** (37dc8ae27) (split from M3.5 by D-082).
   - `Object.keys`/`values`/`entries` of class instances and object literals, `Object.assign`, `Object.freeze`/`isFrozen`, `Object.is`, `Object.fromEntries`; `for…in` over typed objects and dynamic values.
-- [ ] **M3.5e Basic `Date`** (split from M3.5 by D-082).
+- [x] **M3.5e Basic `Date`** (d9d9f3f2b) (split from M3.5 by D-082).
   - `new Date()` (now, milliseconds, ISO strings, components), `Date.now()`, `Date.UTC`, the getters (local and UTC), the common setters, `getTime`/`valueOf`, `toISOString`/`toJSON`, `toString`, `console.log` of dates as Node prints them.
 - [ ] **M3.6 `console.log` parity.** A full `util.inspect` port per decision O16: nesting, line breaking, `Map`/`Set`, class names, `%s`/`%d`/`%o` format strings, and `console.error`/`warn`/`info`.
 - [ ] **M3.7 Corpus.**
