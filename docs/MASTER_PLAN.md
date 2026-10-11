@@ -46,7 +46,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M0.8 Milestone M0.** (m0) Run the checklist (benchmarks n/a). The Telegram message also states the plan ahead.
 
 ## M1: Core language
-- [ ] **M1.1 Numbers.**
+- [x] **M1.1 Numbers.** (554c989)
   - `number` arithmetic and comparisons with exact f64 semantics.
   - Number-to-string conversion matching JS exactly (a Ryu-style shortest round-trip, with JS rules for exponent and fixed notation).
   - A large differential test corpus for formatting.
