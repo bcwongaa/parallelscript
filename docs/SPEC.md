@@ -317,4 +317,16 @@ The compatibility principle (§1.1) holds except for these:
 
 ## 9. Implementation notes
 
-(Filled in as features land: representation choices, runtime layouts, and anything a later session needs to know that the sections above don't say.)
+Representation choices, runtime layouts, and anything a later session needs to know that the sections above don't say.
+
+### 9.1 Runtime layout (M0.4)
+
+- `pts/runtime/include/pts.h` is the only header generated C includes. Sources are `pts/runtime/src/*.c`; C unit tests are `pts/runtime/tests/*_test.c` (each its own program; `go test ./pts/toolchain/` builds and runs them under ASan and UBSan).
+- `pts/toolchain` builds `libptsrt.a`, `libuv.a` and `libgc.a` into `~/.cache/pts/` and links programs against them with `clang -std=c11` plus `-lpthread -ldl -lm` (D-003). Output binaries depend only on libc. A fresh clone needs `git submodule update --init pts/third_party`.
+- Static types compile to native C types: `number` → `double`, `boolean` → `bool`, `string` → `pts_string *`.
+- **Heap objects** start with `const pts_type *type`, a descriptor with the kind and name. Later milestones extend `pts_type` with fields and methods (D-L09).
+- **Strings** (`pts_string`): the header, `flags` (bit 0 = pure ASCII), `byte_len`, `utf16_len` (the JS `.length`), then NUL-terminated UTF-8 bytes. They are allocated with `GC_MALLOC_ATOMIC` (no pointers inside). Literals are static objects declared with `PTS_STATIC_STRING`. Lengths are `uint32_t`, and strings over 2^30 bytes throw `RangeError: Invalid string length`.
+- **Dynamic values** (`pts_value`): one 64-bit word (D-002). Raw object pointer; double + 2^49; or the constants `null` 0x02, `false` 0x06, `true` 0x07, `undefined` 0x0a.
+- **Number formatting** (`pts_number_format`): the shortest round-trip digits via correctly rounded `%.*e` at increasing precision, then ECMAScript's Number::toString notation rules. It is checked against `internal/jsnum` on 25,000 values. M1.1 replaces the digit search with a Ryu-style algorithm.
+- **`console.log`** (`pts_console_log(argc, argv)`) takes boxed values. It prints strings raw, `-0` as `-0` and other primitives as `String(x)`, separated by spaces. Format specifiers (`%s`, `%d`, …) are not interpreted yet (M3.6).
+- **Errors:** `pts_panic(name, fmt, …)` flushes stdout, prints `Uncaught <name>: <message>` to stderr and exits with 1 (D-O07). It stands in for `throw` until M3.2.

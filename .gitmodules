@@ -2,3 +2,10 @@
 	path = _submodules/TypeScript
 	url = https://github.com/microsoft/TypeScript.git
 	branch = tsgo-port
+# PTS: vendored runtime dependencies, pinned to release tags (docs/FORK.md).
+[submodule "pts/third_party/bdwgc"]
+	path = pts/third_party/bdwgc
+	url = https://github.com/ivmai/bdwgc.git
+[submodule "pts/third_party/libuv"]
+	path = pts/third_party/libuv
+	url = https://github.com/libuv/libuv.git
