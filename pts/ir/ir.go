@@ -742,6 +742,9 @@ type NewObject struct {
 	Shape  *Class
 	Order  int
 	Values []Expr
+	// OrderOf, if not nil, is an object whose property order the new one takes if it is
+	// an object of Shape (D-108): `{ ...o }` lists o's properties in o's order.
+	OrderOf Expr
 }
 
 // NewArray makes an array from an array literal: Elems, of Array's element type, evaluated in order.

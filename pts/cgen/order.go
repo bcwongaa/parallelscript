@@ -131,6 +131,9 @@ func effectsOf(expr ir.Expr) effects {
 		for _, value := range x.Values {
 			f |= effectsOf(value)
 		}
+		if x.OrderOf != nil {
+			f |= effectsOf(x.OrderOf)
+		}
 		return f
 	case *ir.FieldRef:
 		if x.Field.Accessor {

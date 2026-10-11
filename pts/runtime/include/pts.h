@@ -155,6 +155,19 @@ typedef struct pts_object {
 void *pts_object_new(const pts_type *type);
 
 /*
+ * A spread copy takes its source's property order (D-108): the source's descriptor, if it
+ * is one of the descriptors of the copy's shape (orders, one per property order).
+ */
+static inline void pts_object_take_order(pts_object *copy, const pts_object *source, const pts_type *const *orders, uint32_t count) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (source->type == orders[i]) {
+      copy->type = source->type;
+      return;
+    }
+  }
+}
+
+/*
  * A place in generated code that reads or writes a property through an interface
  * (D-035) caches the descriptor of the last object it met and the property's offset in
  * it, packed in one word (descriptor | offset << 48; 0 when empty), so that threads racing

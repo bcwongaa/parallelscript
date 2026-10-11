@@ -1,0 +1,40 @@
+// A spread copy whose first spread gives every property lists them in its source's
+// order, as JS does, not in its type's (D-108): a Record<K, V> over literal keys has its
+// properties sorted, and an object of an interface type may be a literal of any order.
+
+function cleaned<K extends string>(form: Record<K, string>): Record<K, string> {
+  const copy = { ...form };
+  for (const key of Object.keys(copy) as K[]) copy[key] = copy[key].trim();
+  return copy;
+}
+console.log(cleaned<"username" | "email" | "age">({ username: " ada ", email: "a@b ", age: " 36" }));
+
+type Status = "ok" | "failed" | "skipped";
+const counts = ["ok", "failed", "ok"].reduce<Record<Status, number>>(
+  (acc, s) => ({ ...acc, [s as Status]: acc[s as Status] + 1 }),
+  { ok: 0, failed: 0, skipped: 0 },
+);
+console.log(counts, JSON.stringify(counts), Object.keys(counts));
+
+interface Point {
+  x: number;
+  y: number;
+}
+const p: Point = { y: 1, x: 2 };
+const q: Point = { x: 3, y: 4 };
+const moved = { ...p, x: 5 };
+console.log({ ...p }, { ...q }, moved, Object.entries(moved));
+
+class Pair {
+  constructor(
+    public b: number,
+    public a: number,
+  ) {}
+}
+console.log({ ...new Pair(1, 2) });
+
+// expect:
+// { username: 'ada', email: 'a@b', age: '36' }
+// { ok: 2, failed: 1, skipped: 0 } {"ok":2,"failed":1,"skipped":0} [ 'ok', 'failed', 'skipped' ]
+// { y: 1, x: 2 } { x: 3, y: 4 } { y: 1, x: 5 } [ [ 'y', 1 ], [ 'x', 5 ] ]
+// { b: 1, a: 2 }

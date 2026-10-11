@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: computed property names
 // Runs tasks in dependency order; when a task fails, everything depending on
 // it is skipped (not run), and the final report shows why.
 

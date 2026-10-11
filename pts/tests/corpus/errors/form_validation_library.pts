@@ -1,4 +1,3 @@
-// skip: diverges: an object printed without properties Node shows (cause not found yet)
 // A tiny form-validation library: rules are composed into schemas and every
 // failing rule is collected, instead of stopping at the first error.
 

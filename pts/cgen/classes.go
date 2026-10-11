@@ -404,6 +404,14 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 		e.line(0, "};")
 		e.line(0, "")
 	}
+	if len(shape.Orders) > 1 { // for spread copies that take their source's order (D-108)
+		descriptors := make([]string, len(shape.Orders))
+		for i := range shape.Orders {
+			descriptors[i] = "&pts_type_" + shapeDescriptorName(e.classNames[shape], i)
+		}
+		e.line(0, "static const pts_type *const pts_orders_%s[] = {%s};", e.classNames[shape], strings.Join(descriptors, ", "))
+		e.line(0, "")
+	}
 }
 
 // fieldEntry is an entry of a descriptor's field table: a property's name, the field that
@@ -525,6 +533,9 @@ func (e *emitter) newObject(n *ir.NewObject) string {
 	fmt.Fprintf(&c, "({ %s%s = pts_object_new(&pts_type_%s); ", e.declarator(n.Shape), object, shapeDescriptorName(e.classNames[n.Shape], n.Order))
 	for i, field := range n.Shape.Orders[n.Order] {
 		fmt.Fprintf(&c, "%s->%s = %s; ", object, fieldIdentifier(field.Name), e.expr(n.Values[i]))
+	}
+	if n.OrderOf != nil && len(n.Shape.Orders) > 1 {
+		fmt.Fprintf(&c, "pts_object_take_order((pts_object *)%s, (const pts_object *)(%s), pts_orders_%s, %d); ", object, e.expr(n.OrderOf), e.classNames[n.Shape], len(n.Shape.Orders))
 	}
 	fmt.Fprintf(&c, "%s; })", object)
 	return c.String()

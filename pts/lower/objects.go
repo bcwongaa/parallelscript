@@ -528,6 +528,7 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		locals, bound = append(locals, local), append(bound, value)
 		return &ir.LocalRef{Local: local}
 	}
+	var orderOf ir.Expr // the first spread's source, if it gives every property (D-108)
 	var order []*ir.Field
 	values := map[*ir.Field]ir.Expr{}
 	set := func(field *ir.Field, value ir.Expr) {
@@ -547,6 +548,9 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		source := part.source
 		if !isPure(source) {
 			source = bind("spread", source)
+		}
+		if i == 0 && len(part.names) == len(shape.Fields) && isObject(source.Type()) && !isArray(source.Type()) {
+			orderOf = source // later properties only replace values: the copy lists them in the source's order
 		}
 		for _, name := range part.names {
 			field := shape.Field(name)
@@ -578,7 +582,7 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		l.notSupportedYet(node, "an object literal whose spreads don't give every property is")
 		return nil
 	}
-	var object ir.Expr = &ir.NewObject{Shape: shape, Order: shape.Order(order), Values: objectValues}
+	var object ir.Expr = &ir.NewObject{Shape: shape, Order: shape.Order(order), Values: objectValues, OrderOf: orderOf}
 	for i := len(locals) - 1; i >= 0; i-- {
 		object = &ir.Bind{Local: locals[i], Value: bound[i], In: object}
 	}

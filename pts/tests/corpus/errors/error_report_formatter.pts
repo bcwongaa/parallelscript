@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: calling `t.hasOwnProperty`
+// skip: diverges: a subclass's `name` getter isn't the name errors print (an error's name is a field, D-068)
 // Formats errors for a log file without stack traces: name, message, own
 // fields, and the cause chain, plus String()/toString()/template behaviour.
 

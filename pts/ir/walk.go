@@ -1,5 +1,7 @@
 package ir
 
+import "slices"
+
 // Walk calls visitStmt for every statement in stmts and visitExpr for every expression,
 // outer ones first. It doesn't enter the bodies of the functions that closures run.
 func Walk(stmts []Stmt, visitStmt func(Stmt), visitExpr func(Expr)) {
@@ -120,6 +122,9 @@ func children(x Expr) []Expr {
 	case *New:
 		return x.Args
 	case *NewObject:
+		if x.OrderOf != nil {
+			return append(slices.Clone(x.Values), x.OrderOf)
+		}
 		return x.Values
 	case *FieldRef:
 		return []Expr{x.X}
