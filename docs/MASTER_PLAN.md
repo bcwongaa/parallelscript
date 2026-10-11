@@ -26,7 +26,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Make the minimal `// PTS:`-marked edits so `.ps` files parse and check as TS and resolve in imports (the `tspath` extension lists, script kind, the module resolver).
   - Add a Go test.
   - Make sure upstream tests for the touched packages still pass.
-- [ ] **M0.4 Runtime skeleton.**
+- [x] **M0.4 Runtime skeleton.** (26476ae)
   - `pts/runtime/` with a C11 runtime: values, strings, `console.log` of primitives, panics.
   - Vendor bdwgc and libuv as pinned submodules under `pts/third_party/`, with a CMake (or Make) build into a cache dir (decision O11).
   - The runtime builds and links on its own.
