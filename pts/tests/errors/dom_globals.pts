@@ -1,0 +1,4 @@
+// Programs see the ES library and the ParallelScript prelude, not the DOM.
+console.log(document.title);
+
+// error: Cannot find name 'document'

@@ -1,0 +1,5 @@
+// The first ParallelScript program.
+console.log("Hello, ParallelScript");
+
+// expect:
+// Hello, ParallelScript

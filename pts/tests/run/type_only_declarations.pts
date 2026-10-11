@@ -1,0 +1,12 @@
+// Interfaces, type aliases and `export {}` produce no code.
+interface Point {
+  x: number;
+  y: number;
+}
+type Label = string;
+const label: Label = "point";
+console.log(label);
+export {};
+
+// expect:
+// point

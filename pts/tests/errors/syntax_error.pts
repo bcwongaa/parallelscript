@@ -1,0 +1,4 @@
+const ok: number = "type errors are hidden by syntax errors";
+console.log(;
+
+// error: syntax_error.pts:2:13 - error TS1005: ')' expected.

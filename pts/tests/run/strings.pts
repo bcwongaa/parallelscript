@@ -1,0 +1,18 @@
+// String literals keep every character, whatever C thinks of it.
+console.log("double \"quoted\" and 'single'", 'single \'quoted\'');
+console.log("backslash \\ tab\tend");
+console.log("line one\nline two");
+console.log("??= ??/ ??' are not trigraphs");
+console.log("héllo wörld", "日本語", "emoji 😀", "\u{1F600}", "é");
+console.log(`template with "quotes" and \`backticks\``);
+console.log("");
+
+// expect:
+// double "quoted" and 'single' single 'quoted'
+// backslash \ tab	end
+// line one
+// line two
+// ??= ??/ ??' are not trigraphs
+// héllo wörld 日本語 emoji 😀 😀 é
+// template with "quotes" and `backticks`
+//

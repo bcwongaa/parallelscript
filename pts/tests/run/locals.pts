@@ -1,0 +1,33 @@
+const greeting = "hello";
+let count = 3;
+const flag: boolean = true;
+const nothing = null;
+const missing = undefined;
+console.log(greeting, count, flag, nothing, missing);
+
+{
+  // An inner block shadows outer names.
+  const count = "three";
+  console.log(count);
+  {
+    const greeting = 0.5;
+    console.log(greeting, count);
+  }
+}
+console.log(greeting, count);
+
+// C keywords and runtime-like names are fine as TypeScript names.
+const int = 1;
+const main = 2;
+const pts_value = 3;
+const MAX = 4;
+const $dollar = 5;
+const café = 6;
+console.log(int, main, pts_value, MAX, $dollar, café);
+
+// expect:
+// hello 3 true null undefined
+// three
+// 0.5 three
+// hello 3
+// 1 2 3 4 5 6

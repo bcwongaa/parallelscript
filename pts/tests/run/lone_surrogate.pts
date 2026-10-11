@@ -1,0 +1,2 @@
+// skip: known issue (PROGRESS.md): Node writes a lone surrogate to stdout as U+FFFD; the runtime writes its WTF-8 bytes. Fix in M1.3.
+console.log("a\uD800b");

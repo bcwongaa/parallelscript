@@ -1,0 +1,4 @@
+console.log("fine");
+while (true) {}
+
+// error: unsupported_statement.pts:2:1 - error PTS1001: while statement is not supported yet

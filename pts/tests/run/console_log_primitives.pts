@@ -1,0 +1,11 @@
+// console.log prints strings raw and other primitives as String(x), separated by spaces.
+console.log("text", 42, true, false, null, undefined);
+console.log();
+console.log('single', `template`);
+console.log(("parenthesized"));
+
+// expect:
+// text 42 true false null undefined
+//
+// single template
+// parenthesized

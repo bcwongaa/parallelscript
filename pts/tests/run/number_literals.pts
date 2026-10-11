@@ -1,0 +1,7 @@
+// Every numeric literal syntax, printed with JavaScript's Number::toString.
+// No expected output: the differential test compares it with Node.
+console.log(0, 1, 42, 3.14, .5, 5., 1e3, 1E-3, 2.5e+10);
+console.log(0x1F, 0XfF, 0o17, 0O7, 0b101, 0B11, 1_000_000, 0xff_ff);
+console.log(0.1, 0.2, 0.30000000000000004, 1e21, 1e-7, 1e-6, 123456789012345680000);
+console.log(5e-324, 1.7976931348623157e308, 9007199254740993, 2e308);
+console.log(1.5e-9, 100, 1e20, 123e-20, 0.000001, 0.0000001);
