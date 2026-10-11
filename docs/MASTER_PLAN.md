@@ -116,9 +116,12 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `this` in arrow functions (lexical); `console.log`, `typeof` and `===` on function values.
 - [x] **M2.4c Array methods with callbacks** (b737989a8) (split from M2.4 by D-037; after M2.5a, which brings function values, D-040).
   - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
-- [ ] **M2.5b `this` in methods** (split from M2.5 by D-040).
-  - Methods and accessors in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).
-  - Methods as values, with JS's `this` rules for them; `bind`, `call` and `apply` where the types allow.
+- [ ] **M2.5b1 Methods in object literals and methods as values** (split from M2.5 by D-040, from M2.5b by D-043).
+  - Methods in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).
+  - Methods as values, with JS's `this` rules for them; `bind` and `call` where the types allow.
+- [ ] **M2.5b2 Accessors in object literals and `apply`** (split from M2.5b by D-043).
+  - Getters and setters in object literals, through interfaces too, printed as Node prints them (`[Getter]`, `[Setter]`, `[Getter/Setter]`).
+  - `apply` where the types allow (an array argument for a function whose parameters all have its element type).
 - [ ] **M2.5c `Map` and `Set`** (split from M2.5 by D-040).
   - `Map` and `Set` with insertion order and SameValueZero semantics: `get`, `set`, `has`, `delete`, `clear`, `size`, `forEach`, and `for…of` over them and their `keys()`, `values()` and `entries()`.
 - [ ] **M2.6 Generics and syntax.**

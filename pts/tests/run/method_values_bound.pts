@@ -1,0 +1,26 @@
+// A method used as a value stays bound to its object (D-044, SPEC §8): where JS would
+// call it with `this` undefined (and fail if it uses `this`), ParallelScript calls it on
+// the object it was read from.
+// no-diff: Node throws TypeError where the method uses `this`
+class Counter {
+  count = 0;
+  increment(): number {
+    return ++this.count;
+  }
+}
+const counter = new Counter();
+const increment = counter.increment;
+increment();
+console.log([1, 2].map(counter.increment), counter.count);
+const literal = {
+  label: "x",
+  show(): string {
+    return "label " + this.label;
+  },
+};
+const show = literal.show;
+console.log(show(), show === literal.show);
+
+// expect:
+// [ 2, 3 ] 3
+// label x false

@@ -1,0 +1,148 @@
+// Methods in object literals, with `this` bound to the object; methods as values; bind and call.
+
+const counter = {
+  count: 0,
+  step: 1,
+  inc(): number {
+    this.count += this.step;
+    return this.count;
+  },
+  incTwice(): number {
+    this.inc();
+    return this.inc();
+  },
+  later(): () => number {
+    return () => this.count * 100; // an arrow keeps the method's `this`
+  },
+};
+console.log(counter.inc(), counter.incTwice(), counter.later()());
+console.log(counter);
+
+// Methods capture variables like any closure, and objects of one type may hold different methods.
+interface Shape {
+  name: string;
+  area(): number;
+  describe(prefix: string): string;
+}
+function square(side: number): Shape {
+  let described = 0;
+  return {
+    name: "square",
+    area() {
+      return side * side;
+    },
+    describe(prefix) {
+      described++;
+      return prefix + " " + this.name + " of area " + this.area() + " (" + described + ")";
+    },
+  };
+}
+function circle(radius: number): Shape {
+  return {
+    name: "circle",
+    area: function () {
+      return 3 * radius * radius;
+    },
+    describe(prefix: string): string {
+      return prefix + " circle";
+    },
+  };
+}
+class Rectangle {
+  name = "rectangle";
+  constructor(
+    private width: number,
+    private height: number,
+  ) {}
+  area(): number {
+    return this.width * this.height;
+  }
+  describe(prefix: string): string {
+    return prefix + " " + this.width + "x" + this.height;
+  }
+}
+const shapes: Shape[] = [square(3), circle(2), new Rectangle(2, 5)];
+for (const shape of shapes) {
+  console.log(shape.describe("a"), shape.area());
+}
+console.log(shapes.map((s) => s.describe("one")).join("; "));
+console.log(shapes[0]);
+
+// bind and call give methods their object.
+const sq = square(4);
+const describe = sq.describe.bind(sq);
+console.log(describe("bound"), describe);
+console.log(sq.describe.call(sq, "called"));
+const rect = new Rectangle(1, 2);
+const area = rect.area.bind(new Rectangle(3, 4));
+console.log(area(), area, rect.describe.call(new Rectangle(6, 7), "called"));
+
+// bind on functions fixes leading arguments; call passes the rest.
+function volume(width: number, height: number, depth: number): number {
+  return width * height * depth;
+}
+const flat = volume.bind(null, 2, 3);
+console.log(flat(4), flat(10), flat, volume.call(null, 1, 2, 3));
+const twice = (x: number) => x * 2;
+const boundTwice = twice.bind(undefined);
+console.log(boundTwice(21), boundTwice, boundTwice.bind(null), twice.call(null, 5));
+
+// Methods that don't use `this` work as values, as in JS; so do static methods.
+const tools = {
+  shout(s: string): string {
+    return s.toUpperCase() + "!";
+  },
+};
+console.log(["a", "b"].map(tools.shout), tools.shout);
+class Maths {
+  static cube(x: number): number {
+    return x * x * x;
+  }
+}
+console.log([1, 2, 3].map(Maths.cube), Maths.cube);
+
+// Nested objects with methods.
+const tree = {
+  value: 1,
+  child: {
+    value: 2,
+    sum(): number {
+      return this.value * 10;
+    },
+  },
+  total(): number {
+    return this.value + this.child.sum();
+  },
+};
+console.log(tree.total(), tree);
+
+// expect:
+// 1 3 300
+// {
+//   count: 3,
+//   step: 1,
+//   inc: [Function: inc],
+//   incTwice: [Function: incTwice],
+//   later: [Function: later]
+// }
+// a square of area 9 (1) 9
+// a circle 12
+// a 2x5 10
+// one square of area 9 (2); one circle; one 2x5
+// {
+//   name: 'square',
+//   area: [Function: area],
+//   describe: [Function: describe]
+// }
+// bound square of area 16 (1) [Function: bound describe]
+// called square of area 16 (2)
+// 12 [Function: bound area] called 6x7
+// 24 60 [Function: bound volume] 6
+// 42 [Function: bound twice] [Function: bound bound twice] 10
+// [ 'A!', 'B!' ] [Function: shout]
+// [ 1, 8, 27 ] [Function: cube]
+// 21 {
+//   value: 1,
+//   child: { value: 2, sum: [Function: sum] },
+//   total: [Function: total]
+// }

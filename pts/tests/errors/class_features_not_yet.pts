@@ -29,7 +29,7 @@ class Method {
     return 1;
   }
 }
-console.log(new Method().run);
+console.log(new Method().run.apply(null, []));
 function local() {
   class Inner {}
 }
@@ -42,5 +42,5 @@ function local() {
 // error: class_features_not_yet.pts:20:16 - error PTS1001: index signatures in classes are not supported yet
 // error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters are not supported yet
 // error: class_features_not_yet.pts:25:3 - error PTS1001: optional fields are not supported yet
-// error: class_features_not_yet.pts:32:13 - error PTS1001: methods as values are not supported yet
+// error: class_features_not_yet.pts:32:13 - error PTS1001: `apply` is not supported yet
 // error: class_features_not_yet.pts:34:3 - error PTS1001: classes inside functions or blocks are not supported yet

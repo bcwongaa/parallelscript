@@ -213,6 +213,9 @@ typedef struct pts_closure {
   pts_function code;
 } pts_closure;
 
+/* The parent of the descriptor of a closure that `bind` made of a function value, which it captures first: it shows as "bound " and that function's name. */
+extern const pts_type pts_bound_function;
+
 /* A new cell, size bytes and zeroed, for a captured variable that its function and closures share; scanned if it may hold a pointer. */
 void *pts_cell_new(size_t size, bool holds_pointers);
 /* A new cell holding a copy of cell's value: the next iteration's copy of a loop's `let` variable. */

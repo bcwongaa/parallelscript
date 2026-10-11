@@ -169,16 +169,28 @@ static void format_number(text *out, double number) {
 
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
 
-/* Node's formatting of a function without properties: `[Function: name]`, or `[Function (anonymous)]`. */
+const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
+
+/*
+ * Node's formatting of a function without properties: `[Function: name]`, or `[Function
+ * (anonymous)]`. An adapter shows as the function it adapts, and a bound function as
+ * "bound " and the name of the function it binds; both capture that function first.
+ */
 static void format_function(text *out, const pts_closure *closure) {
+  text name = {0};
   while (closure->type->name == NULL) {
-    closure = ((const pts_closure *const *)(closure + 1))[0]; /* an adapter shows as the function it adapts, its first capture */
+    if (closure->type->parent == &pts_bound_function) {
+      text_puts(&name, "bound ");
+    }
+    closure = ((const pts_closure *const *)(closure + 1))[0];
   }
-  if (closure->type->name[0] == '\0') {
+  text_puts(&name, closure->type->name);
+  if (name.len == 0) {
     text_puts(out, "[Function (anonymous)]");
   } else {
-    text_printf(out, "[Function: %s]", closure->type->name);
+    text_printf(out, "[Function: %.*s]", (int)name.len, name.bytes);
   }
+  free(name.bytes);
 }
 
 /* Node's formatValue for a value nested in an object or array: strings are quoted. */

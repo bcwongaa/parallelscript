@@ -87,13 +87,19 @@ func (e *emitter) closureDefinitions() {
 			size, layout = "sizeof(pts_closure_"+name+")", e.closureLayout(f)
 		}
 		jsName := cString(f.JSName)
-		if f.Adapts {
+		switch {
+		case f.Adapts:
 			jsName = "NULL /* an adapter: console.log shows the function it adapts */"
+		case f.Binds:
+			jsName = "NULL /* bound: console.log shows \"bound \" and the name of the function it binds */"
 		}
 		e.line(0, "static const pts_type pts_type_closure_%s = {", name)
 		e.line(1, ".kind = PTS_KIND_FUNCTION,")
 		e.line(1, ".gc_descr = %s,", layout)
 		e.line(1, ".name = %s,", jsName)
+		if f.Binds {
+			e.line(1, ".parent = &pts_bound_function,")
+		}
 		e.line(1, ".size = %s,", size)
 		e.line(0, "};")
 		code := e.funcNames[f]

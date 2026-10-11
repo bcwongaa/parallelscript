@@ -889,3 +889,35 @@ func arrow(n: number) boolean closure [] {
 }
 `)
 }
+
+func TestObjectLiteralMethodsAreClosuresThatTakeTheObject(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function make(step: number) {
+  return {
+    count: 0,
+    inc(): number {
+      this.count += step;
+      return this.count;
+    },
+  };
+}
+const counter = make(2);
+const inc = counter.inc;
+`)
+	assert.Equal(t, got, `shape object1{count: number; inc: (object1) => number}
+func main() void {
+  10: let counter: {count: number; inc(): number} = make(2)
+  11: let inc: () => number = (let receiver = counter in closure inc)
+}
+func inc() number closure [receiver] {
+  11: return interface inc(receiver)
+}
+func make.inc(this: object1) number closure [step] {
+  5: (this.count = (this.count + step))
+  6: return this.count
+}
+func make(step: number) {count: number; inc(): number} {
+  2: return (object1{count: 0, inc: closure make.inc} as {count: number; inc(): number})
+}
+`)
+}

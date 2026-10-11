@@ -1015,6 +1015,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
 	}
+	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
+		return l.functionMethodCall(call)
+	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if fn, ok := l.staticMethods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		return l.staticCall(call, fn)
@@ -1307,8 +1310,10 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return l.propertyRead(node, accessors)
 	}
 	if _, ok := l.methods[member]; ok || l.isObjectTypeMethod(member) {
-		l.notSupportedYet(node, "methods as values are")
-		return nil
+		return l.methodValue(node)
+	}
+	if _, ok := l.staticMethods[member]; ok {
+		return l.methodValue(node)
 	}
 	if l.isNamespace(node.Expression()) {
 		if x, ok := l.binding(node, l.target(node)); ok {

@@ -269,6 +269,9 @@ type Field struct {
 	// or setter of the same name for: through the interface, reading it may call a getter
 	// and writing it a setter.
 	Accessor bool
+	// Method marks a method of an object literal's shape (D-044): the field holds the
+	// method's closure, whose code takes the object first, as `this`.
+	Method bool
 }
 
 // MethodKind tells methods from the getters and setters of accessor properties.
@@ -342,8 +345,11 @@ type Func struct {
 	// JSName is the function's `name` in JS, which console.log shows: "" if anonymous.
 	JSName string
 	// Adapts marks an adapter: a closure that calls the function value it captures,
-	// adapting its arguments and result to another function type (D-041).
+	// adapting its arguments and result to another function type (D-041). Binds marks a
+	// function value that `bind` made of another, which it captures first (D-044). Both
+	// show as the function they wrap.
 	Adapts bool
+	Binds  bool
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).

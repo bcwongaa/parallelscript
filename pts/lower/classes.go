@@ -223,6 +223,7 @@ func (l *lowerer) declareStaticMember(member *ast.Node, class *ir.Class) {
 		l.staticMethods[member] = fn
 		if fn != nil {
 			l.staticClasses[fn] = class
+			fn.JSName = member.Name().Text()
 		}
 	}
 }

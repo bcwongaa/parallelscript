@@ -38,19 +38,24 @@ func (l *lowerer) functionType(t *checker.Type, node *ast.Node) (ft *ir.FuncType
 
 // signatureType is the function type of a call signature, or nil (reported at node).
 func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *ir.FuncType {
+	parameters := signature.Parameters()
+	restIsTuple := signature.HasRestParameter() && checker.IsTupleType(l.checker.GetTypeOfSymbol(parameters[len(parameters)-1]))
+	if restIsTuple {
+		parameters = l.checker.GetExpandedParameters(signature, true)[0] // a rest parameter of a tuple type, as `bind` leaves, is its elements
+	}
 	switch {
 	case len(signature.TypeParameters()) > 0:
 		l.notSupportedYet(node, "generic function types are")
 		return nil
-	case signature.HasRestParameter():
+	case signature.HasRestParameter() && !restIsTuple || len(parameters) > 0 && parameters[len(parameters)-1].CheckFlags&ast.CheckFlagsRestParameter != 0:
 		l.notSupportedYet(node, "rest parameters are")
 		return nil
-	case signature.MinArgumentCount() < len(signature.Parameters()):
+	case !restIsTuple && signature.MinArgumentCount() < len(parameters) || hasOptionalParameter(parameters):
 		l.notSupportedYet(node, "optional parameters are")
 		return nil
 	}
-	params := make([]ir.Type, len(signature.Parameters()))
-	for i, param := range signature.Parameters() {
+	params := make([]ir.Type, len(parameters))
+	for i, param := range parameters {
 		if params[i] = l.irType(l.checker.GetTypeOfSymbol(param), node); params[i] == nil {
 			return nil
 		}
@@ -64,6 +69,16 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 		return nil
 	}
 	return l.funcType(params, resultType)
+}
+
+// hasOptionalParameter reports whether one of a signature's (expanded) parameters is optional.
+func hasOptionalParameter(parameters []*ast.Symbol) bool {
+	for _, param := range parameters {
+		if param.CheckFlags&ast.CheckFlagsOptionalParameter != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // funcType is the one function type that takes params and returns result.

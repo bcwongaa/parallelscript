@@ -282,6 +282,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 // shapeDescriptors writes a pts_type for each property order of a shape's objects:
 // pts_type_<shape> for the first, pts_type_<shape>_<n> for the nth.
 func (e *emitter) shapeDescriptors(shape *ir.Class) {
+	methods := e.shapeMethodTable(shape)
 	for i, order := range shape.Orders {
 		name := shapeDescriptorName(e.classNames[shape], i)
 		fields := "NULL"
@@ -300,9 +301,63 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 		e.line(1, ".size = sizeof(pts_class_%s),", e.classNames[shape])
 		e.line(1, ".field_count = %d,", len(order))
 		e.line(1, ".fields = %s,", fields)
+		if methods != "" {
+			e.line(1, ".method_count = %d,", len(methodFields(shape)))
+			e.line(1, ".methods = %s,", methods)
+		}
 		e.line(0, "};")
 		e.line(0, "")
 	}
+}
+
+// methodFields are the fields of a shape that hold its objects' methods (D-044).
+func methodFields(shape *ir.Class) []*ir.Field {
+	var methods []*ir.Field
+	for _, field := range shape.Fields {
+		if field.Method {
+			methods = append(methods, field)
+		}
+	}
+	return methods
+}
+
+// shapeMethodTable writes the entry point of each method of a shape's objects, which
+// interfaces call, and the method table its descriptors share; it returns the table's
+// name, or "" if the objects have no methods. An entry point takes `this` as any object
+// and calls the closure the object's field holds with it (D-036, D-044).
+func (e *emitter) shapeMethodTable(shape *ir.Class) string {
+	methods := methodFields(shape)
+	if len(methods) == 0 {
+		return ""
+	}
+	name := e.classNames[shape]
+	entries := make([]string, len(methods))
+	for i, field := range methods {
+		ft := field.Type.(*ir.FuncType)
+		entries[i] = "pts_entry_" + name + "_" + memberIdentifier(field.Name)
+		params := []string{"pts_object *this"}
+		args := []string{"method", "(pts_class_" + name + " *)this"}
+		for j, param := range ft.Params[1:] {
+			arg := fmt.Sprintf("arg%d", j+1)
+			params = append(params, e.declarator(param)+arg)
+			args = append(args, arg)
+		}
+		call := fmt.Sprintf("((%s)method->code)(%s);", e.functionPointer(ft), strings.Join(args, ", "))
+		if ft.Result != ir.Void {
+			call = "return " + call
+		}
+		e.line(0, "static %s%s(%s) {", e.declarator(ft.Result), entries[i], strings.Join(params, ", "))
+		e.line(1, "pts_closure *method = ((pts_class_%s *)this)->%s;", name, fieldIdentifier(field.Name))
+		e.line(1, "%s", call)
+		e.line(0, "}")
+	}
+	table := "pts_methods_" + name
+	e.line(0, "static const pts_method %s[] = {", table)
+	for i, field := range methods {
+		e.line(1, "{%s, PTS_METHOD, (pts_function)%s},", cString(field.Name), entries[i])
+	}
+	e.line(0, "};")
+	return table
 }
 
 func shapeDescriptorName(shape string, order int) string {

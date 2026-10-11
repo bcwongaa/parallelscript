@@ -32,9 +32,10 @@ func (l *lowerer) isObjectType(t *checker.Type) bool {
 }
 
 // shape returns the shape of an object type: the anonymous struct type, with a field per
-// property in name order, of the objects that literals of the type make. Object types
-// with the same properties of the same types share a shape, except that a recursive type
-// has one of its own. It reports (at node) why a type has no shape and returns nil.
+// property and method in name order, of the objects that literals of the type make; a
+// method's field holds its closure (D-044). Object types with the same members of the
+// same types share a shape, except that a recursive type has one of its own. It reports
+// (at node) why a type has no shape and returns nil.
 func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	if shape, ok := l.shapesByType[t]; ok {
 		return shape // nil if it failed, which was reported
@@ -42,20 +43,20 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	shape := &ir.Class{Shape: true}
 	l.shapesByType[t] = shape // a recursive type finds itself here
 	fields, methods, ok := l.objectMembers(t, node)
-	if ok && len(methods) > 0 {
-		l.notSupportedYet(node, "methods and accessors in object literals are")
-		ok = false
-	}
 	if !ok {
 		l.shapesByType[t] = nil
 		return nil
 	}
-	key := membersKey(fields, nil)
+	key := membersKey(fields, methods)
 	if existing, ok := l.shapesByKey[key]; ok {
 		l.shapesByType[t] = existing
 		return existing
 	}
 	shape.Name = "object" + strconv.Itoa(len(l.shapeList)+1)
+	for _, method := range methods {
+		fields = append(fields, &ir.Field{Name: method.Name, Type: l.funcType(append([]ir.Type{shape}, method.Params...), method.Result), Method: true})
+	}
+	slices.SortFunc(fields, func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
 	for _, field := range fields {
 		field.Class = shape
 	}
@@ -187,7 +188,7 @@ func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 // typeKey identifies an IR type in membersKey: a class or interface by its identity.
 func typeKey(t ir.Type) string {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface, *ir.Array:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
 		return fmt.Sprintf("%p", t)
 	}
 	return t.String()
@@ -220,8 +221,12 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		case ast.KindSpreadAssignment:
 			l.notSupportedYet(property, "spreading `...` into an object literal is")
 			return nil
+		case ast.KindMethodDeclaration:
+			if property.Name().Kind != ast.KindComputedPropertyName {
+				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
+			}
 		default:
-			l.notSupportedYet(property, "methods and accessors in object literals are")
+			l.notSupportedYet(property, "accessors in object literals are")
 			return nil
 		}
 		if property.Name().Kind == ast.KindComputedPropertyName {
@@ -389,6 +394,14 @@ func providesProperty(t ir.Type, property *ir.Field) bool {
 func providesMethod(t ir.Type, method *ir.InterfaceMethod) bool {
 	switch from := t.(type) {
 	case *ir.Class:
+		if from.Shape {
+			field := from.Field(method.Name)
+			if field == nil || !field.Method {
+				return false
+			}
+			ft := field.Type.(*ir.FuncType)
+			return ft.Result == method.Result && slices.Equal(ft.Params[1:], method.Params)
+		}
 		own := from.Method(method.Name, ir.Plain)
 		if own == nil || own.Func.Result != method.Result || len(own.Func.Params) != len(method.Params)+1 {
 			return false
@@ -417,8 +430,19 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 	if receiver == nil {
 		return nil
 	}
+	name := callee.AsPropertyAccessExpression().Name().Text()
+	if shape, ok := receiver.Type().(*ir.Class); ok && shape.Shape && shape.Field(name) != nil && shape.Field(name).Method {
+		ft := shape.Field(name).Type.(*ir.FuncType)
+		args := l.typedArguments(call.Arguments.Nodes, ft.Params[1:])
+		if args == nil {
+			return nil
+		}
+		return l.withReceiver(receiver, func(object ir.Expr) ir.Expr {
+			return &ir.CallValue{Callee: &ir.FieldRef{X: object, Field: shape.Field(name)}, Args: append([]ir.Expr{object}, args...)}
+		})
+	}
 	iface, ok := receiver.Type().(*ir.Interface)
-	if !ok || iface.Method(callee.AsPropertyAccessExpression().Name().Text()) == nil {
+	if !ok || iface.Method(name) == nil {
 		l.notSupportedYet(callee, fmt.Sprintf("calling a method of an object type on a %s is", receiver.Type()))
 		return nil
 	}

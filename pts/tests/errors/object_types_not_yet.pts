@@ -1,6 +1,6 @@
-// Object types and literals that arrive later are reported: members whose types differ
-// from an object type's, setter-only, overloaded and generic members, optional properties
-// (M3.1), methods in literals and methods as values (M2.5), spread, numeric and computed keys.
+// Object types and literals that arrive later are reported: members whose types differ, setter-only,
+// overloaded and generic members, optional properties (M3.1), accessors in literals (M2.5b2), a method
+// called with another object as `this`, spread, numeric and computed keys.
 interface Point {
   x: number;
   y: number;
@@ -18,7 +18,7 @@ class Box {
 const s: Sized = new Box();
 type Maybe = { value?: number };
 const m: Maybe = {};
-const withMethod = { run(): number { return 1; } };
+const withGetter = { get run(): number { return 1; } };
 const spread = { ...p3 };
 const numeric = { 1: "one" };
 const key = "k";
@@ -37,18 +37,18 @@ interface Generic {
 }
 function identity(o: Generic): void {}
 function size(o: Sized): number {
-  console.log(o.size);
+  console.log(o.size.call(new Box()));
   return 0;
 }
 
 // error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: i64; y: number}` as a `{x: number; y: number}`, whose `x` it doesn't provide with the same types, is not supported yet
 // error: object_types_not_yet.pts:18:18 - error PTS1001: using a `Box` as a `{size(): number}`, whose `size` it doesn't provide with the same types, is not supported yet
 // error: object_types_not_yet.pts:20:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
-// error: object_types_not_yet.pts:21:20 - error PTS1001: methods and accessors in object literals are not supported yet
+// error: object_types_not_yet.pts:21:22 - error PTS1001: accessors in object literals are not supported yet
 // error: object_types_not_yet.pts:22:18 - error PTS1001: spreading `...` into an object literal is not supported yet
 // error: object_types_not_yet.pts:23:7 - error PTS1001: numeric property names
 // error: object_types_not_yet.pts:25:20 - error PTS1001: computed property names are not supported yet
 // error: object_types_not_yet.pts:29:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet
 // error: object_types_not_yet.pts:34:15 - error PTS1001: overloaded methods (`f` in Overloaded) are not supported yet
 // error: object_types_not_yet.pts:38:19 - error PTS1001: generic methods (`id` in Generic) are not supported yet
-// error: object_types_not_yet.pts:40:15 - error PTS1001: methods as values are not supported yet
+// error: object_types_not_yet.pts:40:27 - error PTS1001: calling or binding a method of an object type with another object as `this` is not supported yet
