@@ -194,7 +194,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Converting `any` to function types (signatures in descriptors, adapters that call through the dynamic entry) and to object types with methods; reading a method through `any` as a bound function value; spreading the arguments of a call through `any`.
 - [x] **M3.3c3a Builtin methods through `any`** (d0e1abd8b) (split from M3.3c by D-074, from M3.3c3 by D-076).
   - The methods of strings, arrays (with callbacks called through `any`), numbers, booleans and functions (`call`, `apply`, `bind`) called on dynamic values, as JSON's results need; `Array.isArray` of dynamic values.
-- [ ] **M3.3c3b Maps and sets through `any`** (split from M3.3c3 by D-076).
+- [x] **M3.3c3b Maps and sets through `any`** (67f994368) (split from M3.3c3 by D-076).
   - The methods of maps and sets called on dynamic values (`get`, `set`, `has`, `delete`, `clear`, `forEach`), with keys and values checked against their declared types; `Object.keys`, `values` and `entries` of dynamic values.
 - [ ] **M3.3d Generic function values** (split from M3.3 by D-070).
   - Generic function values and generic methods of object literals and interfaces, whose type parameters take dynamic values (moved from M2.6b3 by D-051).
