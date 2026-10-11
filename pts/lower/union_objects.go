@@ -52,7 +52,8 @@ func (l *lowerer) mixedUnionRead(node *ast.Node) ir.Expr {
 // unionProperty returns the object of a property access on a union of object types,
 // as an interface with just that property, and the property's field: one that members
 // holding it as different types (all within its type) make Mixed, read by the field's
-// kind. It reports why it can't and returns nils.
+// kind. An object that is dynamic data (of a recursive union) comes back without a
+// field. It reports why it can't and returns nils.
 func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	name := node.AsPropertyAccessExpression().Name().Text()
 	t := l.checker.GetNonNullableType(l.typeAt(node.Expression()))
@@ -86,8 +87,8 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	}
 	iface := l.internInterface([]*ir.Field{field}, nil)
 	object := l.expression(node.Expression())
-	if object == nil {
-		return nil, nil
+	if object == nil || object.Type() == ir.Value {
+		return object, nil // a recursive union's dynamic data: its property is found at run time
 	}
 	return l.asUnionInterface(object, iface, node), iface.Fields[0]
 }

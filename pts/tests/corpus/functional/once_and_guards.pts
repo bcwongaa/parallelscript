@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: values of type void
 // `once`, `before`, `after` and call-limiting wrappers built from closures.
 
 function once<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {

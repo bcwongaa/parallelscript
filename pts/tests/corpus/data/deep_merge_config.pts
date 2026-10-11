@@ -1,4 +1,3 @@
-// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
 type ConfigValue = string | number | boolean | null | ConfigValue[] | ConfigObject;
 interface ConfigObject {
   [key: string]: ConfigValue;

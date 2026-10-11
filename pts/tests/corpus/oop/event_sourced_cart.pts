@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: using a () => void as a () => value, whose result it doesn't return,
 // Event-sourced shopping cart: commands produce events, state is rebuilt by replaying them.
 
 type CartEvent =

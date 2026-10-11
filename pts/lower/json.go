@@ -35,7 +35,8 @@ func (l *lowerer) jsonParse(call *ast.CallExpression) ir.Expr {
 // jsonStringify lowers JSON.stringify(value, replacer, space): the runtime's, of the
 // arguments boxed. tsc types the result as a string, but it is undefined for undefined
 // and functions: where the context takes any value (console.log's arguments) or
-// undefined it stays dynamic, and anywhere else it is converted to a string with a check.
+// undefined, or it is the left of `??` or an operand of `===`, it stays dynamic, and
+// anywhere else it is converted to a string with a check.
 func (l *lowerer) jsonStringify(call *ast.CallExpression) ir.Expr {
 	if l.hasSpreadArgument(call) {
 		return nil
@@ -55,5 +56,33 @@ func (l *lowerer) jsonStringify(call *ast.CallExpression) ir.Expr {
 	if contextual := l.contextualType(call.AsNode()); contextual != nil && (contextual.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 || l.contextTakesUndefined(call.AsNode())) {
 		return result
 	}
+	if isNullishLeft(call.AsNode()) || isEqualityOperand(call.AsNode()) {
+		return result
+	}
 	return &ir.FromUnion{X: result, To: ir.String}
+}
+
+// isEqualityOperand reports whether node is an operand of `===`, `!==`, `==` or `!=`,
+// which take any value.
+func isEqualityOperand(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	if node.Parent.Kind != ast.KindBinaryExpression {
+		return false
+	}
+	switch node.Parent.AsBinaryExpression().OperatorToken.Kind {
+	case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken, ast.KindEqualsEqualsToken, ast.KindExclamationEqualsToken:
+		return true
+	}
+	return false
+}
+
+// isNullishLeft reports whether node is the left operand of `??`, which takes any value.
+func isNullishLeft(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	parent := node.Parent
+	return parent.Kind == ast.KindBinaryExpression && parent.AsBinaryExpression().OperatorToken.Kind == ast.KindQuestionQuestionToken && parent.AsBinaryExpression().Left == node
 }

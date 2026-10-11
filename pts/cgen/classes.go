@@ -204,16 +204,27 @@ func (e *emitter) methodTableStruct(class *ir.Class) {
 		e.line(1, "pts_type pts_descriptor;")
 	}
 	for _, slot := range class.Slots() {
-		params := []string{e.declarator(class)}
-		for _, param := range slot.Func.Params[1:] {
-			params = append(params, e.declarator(param.Type))
-		}
-		for i, param := range params {
-			params[i] = strings.TrimSuffix(param, " ")
-		}
-		e.line(1, "%s(*%s)(%s);", e.declarator(slot.Func.Result), slotName(slot), strings.Join(params, ", "))
+		e.line(1, "%s(*%s)(%s);", e.declarator(slot.Func.Result), slotName(slot), e.slotParams(slot))
 	}
 	e.line(0, "} pts_vtable_%s;", name)
+}
+
+// slotParams are the C parameter types of a method table entry: its class's instance
+// first, then the slot method's parameters.
+func (e *emitter) slotParams(slot *ir.Method) string {
+	params := []string{e.declarator(slot.Class)}
+	for _, param := range slot.Func.Params[1:] {
+		params = append(params, e.declarator(param.Type))
+	}
+	for i, param := range params {
+		params[i] = strings.TrimSuffix(param, " ")
+	}
+	return strings.Join(params, ", ")
+}
+
+// slotPointerType is the C type of a method table entry, a function pointer.
+func (e *emitter) slotPointerType(slot *ir.Method) string {
+	return fmt.Sprintf("%s(*)(%s)", e.declarator(slot.Func.Result), e.slotParams(slot))
 }
 
 // hasMethodTable reports whether a class or an ancestor has virtual methods, so that its
@@ -338,7 +349,11 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, slot := range owner.Slots() {
 				if implementation := class.Method(slot.Name, slot.Kind); !implementation.Abstract {
-					e.line(1, ".%s%s = %s,", basePath(class, owner), slotName(slot), e.funcNames[implementation.Func])
+					function := e.funcNames[implementation.Func]
+					if implementation.Func.Result != slot.Func.Result { // a covariant result, a pointer to a subclass's instance
+						function = fmt.Sprintf("(%s)%s", e.slotPointerType(slot), function)
+					}
+					e.line(1, ".%s%s = %s,", basePath(class, owner), slotName(slot), function)
 				}
 			}
 		}
@@ -751,7 +766,11 @@ func (e *emitter) virtualCall(call *ir.VirtualCall) string {
 	}
 	header := args[0] + "->" + basePath(slot.Class, root(slot.Class)) + "pts_header"
 	function := fmt.Sprintf("((const pts_vtable_%s *)%s)->%s", e.classNames[slot.Class], header, slotName(slot))
-	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
+	result := function + "(" + strings.Join(args, ", ") + ")"
+	if call.Method.Func.Result != slot.Func.Result { // an override's covariant result (fitOverride)
+		result = "((" + strings.TrimSuffix(e.declarator(call.Method.Func.Result), " ") + ")" + result + ")"
+	}
+	return ordered(prelude, result)
 }
 
 // interfaceCall writes a call of a method through an interface: the receiver is evaluated

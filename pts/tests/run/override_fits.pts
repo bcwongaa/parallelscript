@@ -1,0 +1,57 @@
+// Overrides that leave out parameters of the method they override, or return an instance
+// of a subclass of what it returns (M3.7b).
+abstract class Participant {
+  constructor(readonly name: string) {}
+  abstract wantsCard(dealerUp: number, round: number): boolean;
+  describe(verbose: boolean): string {
+    return verbose ? `participant ${this.name}` : this.name;
+  }
+}
+class Dealer extends Participant {
+  wantsCard(): boolean {
+    return true;
+  }
+  override describe(): string {
+    return `dealer ${this.name}`;
+  }
+}
+class Player extends Participant {
+  wantsCard(up: number): boolean {
+    return up < 7;
+  }
+}
+class Cautious extends Player {
+  override wantsCard(up: number): boolean {
+    return up < 4 && super.wantsCard(up);
+  }
+}
+const table: Participant[] = [new Dealer("dee"), new Player("pat"), new Cautious("cat")];
+for (const p of table) console.log(p.describe(true), p.wantsCard(5, 1), p.wantsCard(2, 2));
+const dealer = new Dealer("solo");
+console.log(dealer.wantsCard(), dealer.describe());
+
+class Point2 {
+  constructor(readonly x: number, readonly y: number) {}
+  scale(k: number): Point2 {
+    return new Point2(this.x * k, this.y * k);
+  }
+  toString(): string {
+    return `(${this.x}, ${this.y})`;
+  }
+}
+class Point3 extends Point2 {
+  constructor(x: number, y: number, readonly z: number) {
+    super(x, y);
+  }
+  override scale(k: number): Point3 {
+    const p = super.scale(k);
+    return new Point3(p.x, p.y, this.z * k);
+  }
+  override toString(): string {
+    return `(${this.x}, ${this.y}, ${this.z})`;
+  }
+}
+const p3 = new Point3(1, 2, 3);
+const asPoint2: Point2 = p3;
+console.log(`${p3.scale(2)} ${p3.scale(2).z} ${asPoint2.scale(3)}`, asPoint2.scale(3) instanceof Point3);
+console.log([new Point2(1, 1), p3].map((p) => p.scale(10).toString()));

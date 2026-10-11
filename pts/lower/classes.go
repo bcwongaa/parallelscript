@@ -502,7 +502,8 @@ func (l *lowerer) implicitConstructor(node *ast.Node, class *ir.Class) *ir.Func 
 }
 
 // linkOverrides links each method of class that overrides an inherited one to it, and
-// marks both virtual. An override must take and return what the method it overrides does.
+// marks both virtual. An override must take and return what the method it overrides
+// does, or fit it (fitOverride).
 func (l *lowerer) linkOverrides(class *ir.Class) {
 	if class.Parent == nil {
 		return
@@ -517,7 +518,7 @@ func (l *lowerer) linkOverrides(class *ir.Class) {
 		case overridden.Class.Builtin:
 			l.notSupportedYet(nameOf(l.methodDeclarations[method]), fmt.Sprintf("overriding `%s.%s` is", overridden.Class.Name, method.Name))
 			continue
-		case !sameSignature(method.Func, overridden.Func):
+		case !sameSignature(method.Func, overridden.Func) && !l.fitOverride(method.Func, overridden.Func):
 			l.notSupportedYet(nameOf(l.methodDeclarations[method]), fmt.Sprintf("overriding `%s.%s` with other parameter or result types is", overridden.Class.Name, method.Name))
 			continue
 		}
@@ -532,6 +533,51 @@ func (l *lowerer) linkOverrides(class *ir.Class) {
 // class's code can use, so that a subclass's member of the same name is another member.
 func isPrivateName(name string) bool {
 	return strings.HasPrefix(name, "#")
+}
+
+// fitOverride makes an override that declares fewer parameters than the method it
+// overrides, or returns an instance of a subclass of the class that method returns, fit
+// its method table entry: it gets the parameters it leaves out, unused, which calls of
+// its own leave out too (convertArguments). It reports whether the override fits.
+func (l *lowerer) fitOverride(override, overridden *ir.Func) bool {
+	if len(override.Params) > len(overridden.Params) || !isCovariantResult(override.Result, overridden.Result) {
+		return false
+	}
+	if len(override.Params) < len(overridden.Params) && overridden.Params[len(override.Params)].Type == ir.Given {
+		return false // it declares a parameter the overridden method has a default for without one
+	}
+	for i := 1; i < len(override.Params); i++ {
+		if override.Params[i].Type != overridden.Params[i].Type {
+			return false
+		}
+	}
+	outer := l.function
+	l.function = override
+	for _, param := range overridden.Params[len(override.Params):] {
+		override.Params = append(override.Params, l.newLocal(param.Name+"_unused", param.Type))
+	}
+	l.function = outer
+	return true
+}
+
+// isCovariantResult reports whether an override may return result where the method it
+// overrides returns overridden: the same type, or an instance of a subclass, which is a
+// pointer to an instance of the class as it is.
+func isCovariantResult(result, overridden ir.Type) bool {
+	if result == overridden {
+		return true
+	}
+	sub, ok := result.(*ir.Class)
+	super, superOK := overridden.(*ir.Class)
+	if !ok || !superOK || sub.Shape || super.Shape {
+		return false
+	}
+	for c := sub.Parent; c != nil; c = c.Parent {
+		if c == super {
+			return true
+		}
+	}
+	return false
 }
 
 // sameSignature reports whether two methods take the same arguments and return the same type.

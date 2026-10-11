@@ -1,5 +1,5 @@
-// Inheritance that isn't supported yet is reported: overrides that change the
-// signature, using a class where a structurally equal one is expected, super(...)
+// Inheritance that isn't supported yet is reported: overrides that change the types
+// of parameters, using a class where a structurally equal one is expected, super(...)
 // inside an expression in a class with fields, and instanceof of a non-class.
 class Base {
   n = 1;
@@ -12,8 +12,8 @@ class Narrower extends Base {
     return x;
   }
 }
-class Fewer extends Base {
-  m(): number {
+class Wider extends Base {
+  m(x: number | string): number {
     return 2;
   }
 }

@@ -1,0 +1,35 @@
+// Rest parameters of tuple types: a parameter per element, and the tuple in the body
+// (M3.7b).
+function connect(...args: [host: string, port: number]): string {
+  const [host, port] = args;
+  return `${host}:${port} (${args.length} args, first ${args[0]})`;
+}
+console.log(connect("localhost", 8080));
+
+function once<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  let called = false;
+  let result: R | undefined;
+  return (...args: A): R => {
+    if (!called) {
+      called = true;
+      result = fn(...args);
+    }
+    return result as R;
+  };
+}
+const greet = once((name: string, times: number) => `hello ${name} x${times}`);
+console.log(greet("ada", 2), greet("bob", 3));
+const ping = once(() => "pong");
+console.log(ping(), ping());
+
+function logCalls<A extends unknown[], R>(label: string, fn: (...args: A) => R): (...args: A) => R {
+  return (...args: A) => {
+    const r = fn(...args);
+    console.log(label, args, "->", r);
+    return r;
+  };
+}
+const add = logCalls("add", (a: number, b: number) => a + b);
+console.log(add(2, 3) * 10);
+const shout = logCalls("shout", (s: string) => s.toUpperCase());
+shout("hey");

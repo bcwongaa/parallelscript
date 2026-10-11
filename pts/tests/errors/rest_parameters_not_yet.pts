@@ -1,7 +1,7 @@
-// Rest and spread forms not supported yet (D-057): rest parameters of tuple types,
+// Rest and spread forms not supported yet (D-057): rest parameters of tuples with rest elements,
 // spreading a tuple that isn't in a variable or a set, spreads in apply and bind, binding
 // rest arguments, and adapting a rest parameter list to optional parameters.
-function pairUp(...args: [number, string]): string {
+function pairUp(...args: [number, ...string[]]): string {
   return "";
 }
 function add(a: number, b: number): number {
@@ -21,7 +21,7 @@ sum.apply(null, ...[nums]);
 sum.bind(null, 1);
 const loose: (...xs: number[]) => number = (a: number, b = 2) => a + b;
 
-// error: rest_parameters_not_yet.pts:4:17 - error PTS1001: rest parameters of type [number, string] are not supported yet
+// error: rest_parameters_not_yet.pts:4:20 - error PTS1001: tuples with optional or rest elements ([number, ...string[]]) are not supported yet
 // error: rest_parameters_not_yet.pts:18:5 - error PTS1001: spreading an array into parameters other than a rest parameter is not supported yet
 // error: rest_parameters_not_yet.pts:19:5 - error PTS1001: spreading a Set<number> into arguments is not supported yet
 // error: rest_parameters_not_yet.pts:20:17 - error PTS1001: spread arguments are not supported yet

@@ -560,15 +560,13 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 			fn.Body = &ir.Block{At: fn.Pos, Stmts: []ir.Stmt{&ir.ExprStmt{At: fn.Pos, X: call}}}
 			return
 		}
-		if from.Result == ir.Void {
-			l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, whose result it doesn't return, is", from, to))
-			failed = true
-			return
-		}
 		var result ir.Expr
-		if from.Result == ir.Value && to.Result != ir.Value {
+		switch {
+		case from.Result == ir.Void:
+			result = l.voidResult(call, to.Result) // `() => cart.clear()` as a `() => unknown`
+		case from.Result == ir.Value && to.Result != ir.Value:
 			result = l.dynamicConversion(call, to.Result, node) // what an erased copy returns, or an any (D-078)
-		} else {
+		default:
 			result = l.convert(call, to.Result, node)
 		}
 		failed = result == nil
@@ -578,6 +576,16 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 		return nil
 	}
 	return &ir.Bind{Local: wrapped, Value: value, In: &ir.MakeClosure{Func: fn, FuncType: to}}
+}
+
+// voidResult is call, of a function that returns nothing, as a call returning result:
+// undefined where result holds it, as in JS; anywhere else tsc took the function to
+// return never (`() => { throw e; }` as a `() => string`), so nothing is ever returned.
+func (l *lowerer) voidResult(call ir.Expr, result ir.Type) ir.Expr {
+	if result == ir.Value || result == ir.Undefined || isUnion(result) && result.(*ir.Union).Has(ir.Undefined) {
+		return &ir.Sequence{X: call, Y: l.convert(&ir.UndefinedConst{}, result, nil)}
+	}
+	return &ir.Sequence{X: call, Y: &ir.LeftOut{T: result}}
 }
 
 // adaptedArguments are the arguments an adapter from the function type from to the

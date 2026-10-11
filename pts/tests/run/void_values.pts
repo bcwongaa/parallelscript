@@ -1,0 +1,50 @@
+// Functions that return nothing used as functions that return a value, and values of
+// type void (M3.7b).
+function once<R>(fn: () => R): () => R {
+  let called = false;
+  let result: R | undefined;
+  return (): R => {
+    if (!called) {
+      called = true;
+      result = fn();
+    }
+    return result as R;
+  };
+}
+let count = 0;
+const init = once(() => {
+  count++;
+});
+console.log(init(), init(), count);
+
+const log: string[] = [];
+const ops: Array<[string, () => unknown]> = [
+  ["push", () => log.push("a")],
+  ["clear", () => { log.length = 0; }],
+  ["note", () => console.log("noted")],
+];
+for (const [label, op] of ops) console.log(label, op());
+
+const handlers: Array<[string, (n: number) => string]> = [
+  ["double", (n) => String(n * 2)],
+  ["fail", () => {
+    throw new Error("always fails");
+  }],
+];
+for (const [label, h] of handlers) {
+  try {
+    console.log(label, h(4));
+  } catch (e) {
+    console.log(label, "threw", (e as Error).message);
+  }
+}
+
+type Teardown = () => void;
+function start(withTeardown: boolean): Teardown | void {
+  if (withTeardown) return () => console.log("torn down");
+}
+for (const flag of [true, false]) {
+  const teardown = start(flag);
+  if (teardown) teardown();
+  else console.log("no teardown", teardown);
+}

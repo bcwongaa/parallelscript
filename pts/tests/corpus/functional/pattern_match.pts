@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to {kind: string}
 // A small pattern-matching helper for discriminated unions, used for shapes, commands and HTTP results.
 
 type Tagged = { kind: string };

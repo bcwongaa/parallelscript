@@ -1,4 +1,3 @@
-// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError, caught; JS gives undefined)
 // Wraps low-level failures with higher-level context using `cause`,
 // then prints the chain by walking `.cause`.
 

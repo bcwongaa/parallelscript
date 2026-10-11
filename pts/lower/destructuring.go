@@ -23,8 +23,9 @@ import (
 type parameterBinding struct {
 	node  *ast.Node // the parameter declaration
 	value *ir.Local
-	arg   *ir.Local // with a default or for a rest parameter
-	given *ir.Local // with a default
+	arg      *ir.Local   // with a default or for a rest parameter
+	given    *ir.Local   // with a default
+	elements []*ir.Local // for a rest parameter of a tuple type: its elements' parameters
 }
 
 // destructure binds the names of a binding pattern to the parts of value, declaring their
@@ -276,6 +277,9 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 		if rest {
 			return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{source, position, &ir.NumberConst{Value: math.Inf(1)}}}
 		}
+		if initializer == nil && element.Kind == ast.KindBindingElement && element.Name().Kind == ast.KindIdentifier && l.isLoose(l.checker.GetSymbolAtLocation(element.Name())) {
+			return &ir.ArrayCall{Op: ir.ArrayElement, Args: []ir.Expr{source, position}} // undefined past the end (D-090)
+		}
 		read := &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, position}}
 		if initializer == nil {
 			return read
@@ -310,6 +314,12 @@ func (l *lowerer) parameterPrologue(fn *ir.Func) []ir.Stmt {
 			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: value})
 		case binding.arg != nil: // a rest parameter
 			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: &ir.RestArgs{X: &ir.LocalRef{Local: binding.arg}}})
+		case binding.elements != nil: // a rest parameter of a tuple type
+			values := make([]ir.Expr, len(binding.elements))
+			for i, element := range binding.elements {
+				values[i] = &ir.LocalRef{Local: element}
+			}
+			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: &ir.NewObject{Shape: binding.value.Type.(*ir.Class), Values: values}})
 		}
 		if pattern := binding.node.Name(); pattern.Kind != ast.KindIdentifier {
 			destructured, ok := l.destructure(pattern, &ir.LocalRef{Local: binding.value}, l.pos(pattern))

@@ -1,0 +1,53 @@
+// Dynamic values that tsc gives object types: unknowns narrowed by type guards, values of
+// erased generic code, recursive unions' objects, `{}`; `satisfies`; JSON.stringify's
+// undefined before `??` (M3.7b).
+function isNamed(x: unknown): x is { name: string; tags: string[] } {
+  return typeof x === "object" && x !== null && "name" in x && "tags" in x;
+}
+const things: unknown[] = [{ name: "ada", tags: ["math"] }, 5, { name: "bob" }];
+for (const t of things) {
+  if (isNamed(t)) {
+    console.log(t.name.toUpperCase(), t.tags.length, t.tags);
+    t.name = "renamed";
+    console.log(t);
+  } else {
+    console.log("not named:", t);
+  }
+}
+
+type Tagged = { kind: string };
+type Handlers<T extends Tagged, R> = { [K in T["kind"]]: (value: Extract<T, { kind: K }>) => R };
+function match<T extends Tagged, R>(value: T, handlers: Handlers<T, R>): R {
+  const h = handlers[value.kind as T["kind"]] as (v: T) => R;
+  return h(value);
+}
+type Shape = { kind: "circle"; r: number } | { kind: "square"; side: number };
+const area = (s: Shape): number => match(s, { circle: ({ r }) => 3 * r * r, square: ({ side }) => side * side });
+const shapes: Shape[] = [{ kind: "circle", r: 2 }, { kind: "square", side: 3 }];
+console.log(shapes.map(area));
+
+type Tree = { t: "leaf"; value: number } | { t: "node"; children: Tree[] };
+function sum(tree: Tree): number {
+  if (tree.t === "leaf") return tree.value;
+  let total = 0;
+  for (const child of tree.children) total += sum(child);
+  return total;
+}
+const tree: Tree = { t: "node", children: [{ t: "leaf", value: 4 }, { t: "node", children: [{ t: "leaf", value: 6 }] }] };
+console.log(sum(tree), tree.t);
+
+const config = { retries: 3, mode: "fast" } satisfies { retries: number; mode: string };
+console.log(config.retries + 1, config.mode);
+
+function show(x: unknown): string {
+  return JSON.stringify(x) ?? String(x);
+}
+console.log(show(undefined), show("s"), show({ a: [1, "b"] }));
+
+function orDefault(input: Record<string, unknown>): string {
+  const fit = input.fit ?? "cover";
+  return typeof fit === "string" ? fit : `not a string: ${String(fit)}`;
+}
+console.log(orDefault({}), orDefault({ fit: "contain" }), orDefault({ fit: 7 }));
+const anything: {} = 42;
+console.log(anything, typeof anything);

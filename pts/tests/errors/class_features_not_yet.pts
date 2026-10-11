@@ -13,7 +13,7 @@ class Private {
 }
 class Indexd { [key: string]: number; }
 class Properties {
-  constructor(...rest: [number, string]) {}
+  constructor(...rest: [number, ...string[]]) {}
 }
 class Method {
   run(): number {
@@ -29,6 +29,6 @@ function local() {
 // error: class_features_not_yet.pts:7:12 - error PTS1001: auto-accessors (`accessor`) are not supported yet
 // error: class_features_not_yet.pts:12:3 - error PTS1001: members with computed or quoted names are not supported yet
 // error: class_features_not_yet.pts:14:16 - error PTS1001: index signatures in classes are not supported yet
-// error: class_features_not_yet.pts:16:15 - error PTS1001: rest parameters of type [number, string] are not supported yet
+// error: class_features_not_yet.pts:16:18 - error PTS1001: tuples with optional or rest elements ([number, ...string[]]) are not supported yet
 // error: class_features_not_yet.pts:23:35 - error PTS1001: spread arguments are not supported yet
 // error: class_features_not_yet.pts:25:3 - error PTS1001: classes inside functions or blocks are not supported yet

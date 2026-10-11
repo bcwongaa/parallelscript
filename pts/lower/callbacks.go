@@ -423,7 +423,7 @@ func (h *helperBuilder) truthy(x ir.Expr) ir.Expr {
 		return x
 	case t == ir.Void || t == ir.Undefined || t == ir.Null:
 		return &ir.Sequence{X: x, Y: &ir.BoolConst{Value: false}}
-	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
+	case ir.IsNumeric(t) || t == ir.String || t == ir.Value || isUnion(t):
 		return &ir.Truthy{X: x}
 	}
 	return &ir.Sequence{X: x, Y: &ir.BoolConst{Value: true}} // an object or function, never null

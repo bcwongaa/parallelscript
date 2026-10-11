@@ -1,4 +1,3 @@
-// skip: by design (D-015): reads a string index past the end where a string is required (RangeError; JS gives undefined)
 // A small Markdown-to-HTML converter: headings, paragraphs, lists, code blocks,
 // emphasis, inline code and links.
 type Block =

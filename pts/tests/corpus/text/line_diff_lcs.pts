@@ -1,4 +1,3 @@
-// skip: by design (D-038): reads an array element at -1 where a value is required (RangeError; JS gives undefined)
 // A line-based diff using the longest common subsequence, rendered as a unified-style hunk list.
 type Op = { kind: "keep" | "add" | "del"; line: string; a?: number; b?: number };
 

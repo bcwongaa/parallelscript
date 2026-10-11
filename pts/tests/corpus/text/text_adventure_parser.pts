@@ -1,4 +1,3 @@
-// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
 // A text adventure command parser: verb synonyms, articles, prepositions, direct and
 // indirect objects, plus a tiny world that reacts to the parsed commands.
 enum Verb { Go = "go", Take = "take", Drop = "drop", Look = "look", Open = "open", Put = "put", Use = "use", Inventory = "inventory" }

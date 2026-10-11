@@ -24,7 +24,13 @@ func (l *lowerer) optionalChain(node *ast.Node) ir.Expr {
 		link = link.Expression()
 	}
 	objectNode := link.Expression()
-	object := l.expression(objectNode)
+	var object ir.Expr
+	element := l.isElementRead(objectNode)
+	if element {
+		object = l.valueExpression(objectNode) // `terms[t]?.length` past the end is undefined, as in JS
+	} else {
+		object = l.expression(objectNode)
+	}
 	if object == nil {
 		return nil
 	}
@@ -61,11 +67,29 @@ func (l *lowerer) optionalChain(node *ast.Node) ir.Expr {
 		if result == nil {
 			return nil
 		}
+		required := result
+		if element {
+			result = l.withUndefined(result) // tsc's result may lack the undefined an element past the end gives
+		}
 		if whenNullish, whenNot = l.convert(whenNullish, result, node), l.convert(rest, result, node); whenNullish == nil || whenNot == nil {
 			return nil
 		}
+		if result != required && !l.takesAnyValue(node) {
+			chain := &ir.Bind{Local: tmp, Value: object, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: whenNullish, Else: whenNot}}
+			return l.checkedConversion(chain, required, node)
+		}
 	}
 	return &ir.Bind{Local: tmp, Value: object, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: whenNullish, Else: whenNot}}
+}
+
+// takesAnyValue reports whether node's context takes any value, undefined included: the
+// left of `??`, or a place whose type is any, unknown or a union with undefined.
+func (l *lowerer) takesAnyValue(node *ast.Node) bool {
+	if isNullishLeft(node) || l.contextTakesUndefined(node) {
+		return true
+	}
+	contextual := l.contextualType(node)
+	return contextual != nil && contextual.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0
 }
 
 // isUnloweredOptionalChain reports whether node is part of an optional chain that isn't

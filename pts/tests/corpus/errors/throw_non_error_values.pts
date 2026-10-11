@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to {message: value}
 // Code that throws strings, numbers, plain objects, null and arrays, and a
 // normalizer that turns any thrown value into a proper Error.
 

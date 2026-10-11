@@ -1,4 +1,3 @@
-// skip: diverges: a line Node prints is missing (cause not found yet)
 // Parking garage with levels, spot sizes and hourly billing.
 
 enum SpotSize {

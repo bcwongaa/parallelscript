@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to {kind: value}
 // Errors as a discriminated union of plain objects (no classes), narrowed
 // with `kind`, `in` and user-defined type guards, then rendered for users.
 

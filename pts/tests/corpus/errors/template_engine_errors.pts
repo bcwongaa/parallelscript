@@ -1,4 +1,3 @@
-// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
 // A mustache-like template renderer with {{name}}, {{name|filter}} and
 // {{#each list}}...{{/each}} blocks; template mistakes raise TemplateError
 // with the offending offset.

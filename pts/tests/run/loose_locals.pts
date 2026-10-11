@@ -1,0 +1,74 @@
+// Elements read past the end, or keys that aren't there, are undefined as in JS: locals
+// that the program tests for undefined hold it (D-090), and so do `?.`, conditionals,
+// comparisons and JSON.stringify's results where a value is compared (M3.7b).
+function takeValue(argv: string[], i: number): string {
+  const next = argv[i + 1];
+  if (next === undefined || next.startsWith("-")) return "<none>";
+  return next.toUpperCase();
+}
+console.log(takeValue(["-o", "out"], 0), takeValue(["-o"], 0), takeValue(["-o", "-v"], 0));
+
+function splitPair(s: string): string {
+  const [key, value] = s.split("=");
+  return value === undefined ? `${key} (flag)` : `${key} is ${value}`;
+}
+console.log(splitPair("mode=fast"), splitPair("verbose"));
+
+const FILTERS: Record<string, (s: string) => string> = { upper: (s) => s.toUpperCase(), rev: (s) => [...s].reverse().join("") };
+function apply(name: string, s: string): string {
+  const fn = FILTERS[name];
+  if (!fn) return `unknown filter ${name}`;
+  return fn(s);
+}
+console.log(apply("upper", "abc"), apply("rev", "abc"), apply("nope", "abc"));
+
+type Bid = { who: string; amount: number };
+function winner(bids: Bid[]): string {
+  const sorted = [...bids].sort((a, b) => b.amount - a.amount);
+  const top = sorted[0];
+  if (top === undefined || top.amount < 10) return "no sale";
+  return `${top.who} at ${top.amount} (second ${sorted[1]?.amount ?? "none"})`;
+}
+console.log(winner([]), winner([{ who: "ann", amount: 5 }]), winner([{ who: "ann", amount: 50 }]), winner([{ who: "ann", amount: 50 }, { who: "bo", amount: 40 }]));
+
+const terms: string[][] = [["a"]];
+let t = 0;
+while ((terms[t]?.length ?? 0) >= 1) t++;
+console.log("first free term", t);
+
+const exits: Record<string, string> = { north: "hall" };
+for (const dir of ["north", "south", ""]) {
+  const dest = dir ? exits[dir] : undefined;
+  console.log(dir || "(none)", dest ?? "nowhere", dest === undefined);
+}
+
+const text = "a*b**c_";
+let out = "";
+for (let i = 0; i < text.length; i++) {
+  const c = text[i];
+  if (c === "*" || c === "_") {
+    const strong = text[i + 1] === c;
+    out += strong ? "<S>" : "<E>";
+    if (strong) i++;
+  } else out += c;
+}
+console.log(out);
+
+const fmt = "%12";
+let width = "";
+let i = 1;
+while (fmt[i] >= "0" && fmt[i] <= "9") width += fmt[i++];
+console.log(width, i, fmt[i] === undefined);
+
+const words = ["take", "the", "", "lamp"];
+console.log(words.filter((w) => w && w !== "the"));
+console.log(JSON.stringify(undefined) === JSON.stringify(() => 1), JSON.stringify({ a: 1 }) !== JSON.stringify({ a: 1 }));
+
+const values = [3];
+const second = values[1];
+if (second !== undefined) console.log("has a second");
+try {
+  console.log(second.toFixed(1));
+} catch (e) {
+  console.log((e as Error).name);
+}

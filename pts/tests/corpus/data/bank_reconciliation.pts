@@ -1,4 +1,3 @@
-// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
 type TxKind = "deposit" | "withdrawal" | "fee";
 
 interface LedgerEntry {

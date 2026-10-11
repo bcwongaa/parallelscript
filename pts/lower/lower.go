@@ -150,7 +150,9 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{}}
+		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
+		looseSymbols: map[*ast.Symbol]bool{}}
+	l.collectUndefinedTests(program.Modules)
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -227,6 +229,8 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 }
 
 type lowerer struct {
+	undefinedTested map[*ast.Symbol]bool // variables the program tests for undefined (collectUndefinedTests)
+	looseSymbols    map[*ast.Symbol]bool // loose locals and the variables known not to be (isLoose)
 	program             *compiler.Program
 	checker             *checker.Checker
 	argumentTemps       []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
@@ -668,7 +672,11 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	}
 	var init ir.Expr
 	if initializer := node.Initializer(); initializer != nil {
-		if init = l.expression(initializer); init == nil {
+		read := l.expression
+		if l.isLoose(symbol) {
+			read = l.valueExpression // the element, or undefined past the end (D-090)
+		}
+		if init = read(initializer); init == nil {
 			l.locals[symbol] = nil
 			return nil
 		}
@@ -683,10 +691,14 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 // bindingType is the IR type of a variable or `export default` binding (symbol, written
 // at node): the numeric type the semantic pass gave it, or its type's; nil if it has none (reported).
 func (l *lowerer) bindingType(symbol *ast.Symbol, node *ast.Node) ir.Type {
-	if t := l.numericType(node); t != nil {
-		return t
+	t := l.numericType(node)
+	if t == nil {
+		t = l.irType(l.typeOfSymbol(symbol), node)
 	}
-	return l.irType(l.typeOfSymbol(symbol), node)
+	if t != nil && l.isLoose(symbol) {
+		return l.withUndefined(t) // D-090
+	}
+	return t
 }
 
 // ---------------------------------------------------------------- modules
@@ -847,6 +859,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return l.dynamicConversion(value, target, node) // an element of a recursive type's array, which may be any object (D-089)
 	case isUnion(target) && value.Type() == ir.Value:
 		return &ir.ToUnion{X: value, To: target.(*ir.Union)} // a dynamic value tsc types as the union, such as `a.find(…)`'s
+	case value.Type() == ir.Value:
+		return l.dynamicConversion(value, target, node)
 	case isUnion(target):
 		return l.toUnion(value, target.(*ir.Union), node)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
@@ -986,6 +1000,16 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 		local = l.newLocal("destructured", t) // a pattern, which the body starts by destructuring
 		l.paramLocals[l.function] = append(l.paramLocals[l.function], nil)
 	}
+	if tuple, ok := t.(*ir.Class); ok && node.AsParameterDeclaration().DotDotDotToken != nil {
+		// `...args: [string, number]`: a parameter per element, as tsc expands it in
+		// function types (signatureType), which the body starts by making the tuple of.
+		binding := &parameterBinding{node: node, value: local, elements: make([]*ir.Local, 0, len(tuple.Fields))}
+		for i, field := range tuple.Fields {
+			binding.elements = append(binding.elements, l.newLocal(fmt.Sprintf("%s_%d", local.Name, i), field.Type))
+		}
+		l.bindings[l.function] = append(l.bindings[l.function], binding)
+		return binding.elements
+	}
 	if node.AsParameterDeclaration().DotDotDotToken != nil { // the array the caller makes (D-057)
 		binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_rest", l.restOf(t.(*ir.Array)))}
 		l.bindings[l.function] = append(l.bindings[l.function], binding)
@@ -1041,7 +1065,7 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	switch {
 	case param.DotDotDotToken != nil:
 		t = l.instantiateMade(l.checker.GetTypeOfSymbol(node.Symbol())) // in erased code, any[] for a T[] (D-078)
-		if !l.checker.IsArrayType(t) {
+		if !l.checker.IsArrayType(t) && !checker.IsTupleType(t) {
 			l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", l.checker.TypeToString(t)))
 			return nil
 		}
@@ -1154,7 +1178,7 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		return &ir.NullConst{}
 	case ast.KindIdentifier:
 		return l.narrowed(node, l.identifier(node))
-	case ast.KindParenthesizedExpression:
+	case ast.KindParenthesizedExpression, ast.KindSatisfiesExpression:
 		return l.expression(node.Expression())
 	case ast.KindCallExpression:
 		return l.call(node)
@@ -1699,6 +1723,10 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 			args = append(args, notPassed(param)...)
 			continue
 		}
+		if next >= len(values) { // a parameter an override doesn't declare (fitOverride), which tsc doesn't count
+			args = append(args, &ir.LeftOut{T: param})
+			continue
+		}
 		arg, node := values[next], at[next] // tsc checked the count
 		next++
 		if _, ok := arg.(*spreadValue); ok {
@@ -2044,10 +2072,13 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	}
 	if l.isUnionReceiver(node) {
 		object, field := l.unionProperty(node)
-		if field == nil {
-			return nil
+		switch {
+		case field != nil:
+			return &ir.FieldRef{X: object, Field: field}
+		case object != nil:
+			return l.valueProperty(node, object)
 		}
-		return &ir.FieldRef{X: object, Field: field}
+		return nil
 	}
 	if shape := l.tupleShapeOf(node.Expression()); shape != nil && node.AsPropertyAccessExpression().Name().Text() == "length" {
 		object := l.expression(node.Expression())
@@ -2082,8 +2113,12 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return &ir.Call{Func: accessors.getter}
 	}
 	if l.isShapeProperty(member) || l.isMappedProperty(node) {
-		if object, field := l.shapeProperty(node); field != nil {
+		object, field := l.shapeProperty(node)
+		switch {
+		case field != nil:
 			return &ir.FieldRef{X: object, Field: field}
+		case object != nil:
+			return l.valueProperty(node, object)
 		}
 		return nil
 	}
@@ -2203,8 +2238,15 @@ func (l *lowerer) elementComparedWithString(expr *ast.BinaryExpression) (element
 	if !l.isStringElement(element) {
 		element, other = ast.SkipParentheses(expr.Right), expr.Left
 	}
-	ok = l.isStringElement(element) && l.hasTypeFlags(other, checker.TypeFlagsStringLike)
+	ok = l.isStringElement(element) && l.isStringTyped(other)
 	return element, other, ok
+}
+
+// isStringTyped reports whether tsc types node as a string: a string type, or a union of
+// string literals (`"*" | "_"`).
+func (l *lowerer) isStringTyped(node *ast.Node) bool {
+	t := l.typeAt(node)
+	return t.Flags()&checker.TypeFlagsStringLike != 0 || t.Flags()&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsStringLike)
 }
 
 // arrayElementComparedWithString recognises a[i] compared with a string (either way
@@ -2214,15 +2256,22 @@ func (l *lowerer) arrayElementComparedWithString(expr *ast.BinaryExpression) (el
 	if !l.isArrayElement(element) {
 		element, other = ast.SkipParentheses(expr.Right), expr.Left
 	}
-	ok = l.isArrayElement(element) && l.hasTypeFlags(other, checker.TypeFlagsStringLike)
+	ok = l.isArrayElement(element) && l.isStringTyped(other)
 	return element, other, ok
 }
 
 // elementEquality lowers s[i] === t (or !==) so that an index out of range makes it
 // false (true for !==), as undefined does in JS (D-015).
 func (l *lowerer) elementEquality(op ir.BinaryOp, element *ast.Node, other *ast.Node) ir.Expr {
-	s, i := l.stringElementOperands(element)
 	t := l.expression(other)
+	if t != nil && t.Type() != ir.String { // a loose local, which may be undefined (D-090)
+		x := l.valueExpression(element)
+		if x == nil {
+			return nil
+		}
+		return unionEquality(op, box(x), box(t))
+	}
+	s, i := l.stringElementOperands(element)
 	if s == nil || t == nil {
 		return nil
 	}
@@ -2290,8 +2339,12 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 			return l.nullishTest(op, operand, matches)
 		}
 	}
-	x := l.expression(expr.Left)
-	y := l.expression(expr.Right)
+	operand := l.expression
+	if op >= ir.Lt && op <= ir.Ge && (l.isStringElement(ast.SkipParentheses(expr.Left)) || l.isStringElement(ast.SkipParentheses(expr.Right))) {
+		operand = l.valueExpression // `fmt[i] >= "0"` past the end compares undefined, which is false, as in JS
+	}
+	x := operand(expr.Left)
+	y := operand(expr.Right)
 	if x == nil || y == nil {
 		return nil
 	}
@@ -2614,6 +2667,9 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 		if l.isUnionReceiver(node) {
 			object, field := l.unionProperty(node)
+			if field == nil && object != nil { // a recursive union's dynamic data
+				return place{object: object, key: l.dynamicKey(node), dynamic: true}, true
+			}
 			if field != nil && field.Mixed {
 				l.notSupportedYet(node, fmt.Sprintf("writing `%s` of a %s, whose members hold it as different types, is", field.Name, l.checker.TypeToString(l.typeAt(node.Expression()))))
 				return place{}, false
@@ -2630,6 +2686,9 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 		if l.isShapeProperty(l.memberDeclaration(node)) || l.isMappedProperty(node) {
 			object, field := l.shapeProperty(node)
+			if field == nil && object != nil { // a dynamic value tsc narrowed to an object type
+				return place{object: object, key: l.dynamicKey(node), dynamic: true}, true
+			}
 			return place{object: object, field: field}, field != nil
 		}
 		if accessors, ok := l.accessorProperty(node); ok {
@@ -2746,16 +2805,26 @@ func (l *lowerer) conditional(node *ast.Node) ir.Expr {
 	return &ir.Conditional{Cond: cond, Then: then, Else: otherwise}
 }
 
+// branch lowers a branch of a conditional whose result may be undefined: an element it
+// reads is undefined when it isn't there, as in JS.
+func (l *lowerer) branch(node *ast.Node) ir.Expr {
+	if l.isElementRead(node) {
+		return l.valueExpression(node)
+	}
+	return l.expression(node)
+}
+
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
-	if op == ir.And && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
+	loose := l.isLooseIdentifier(left) // a union of its type and undefined (D-090)
+	if op == ir.And && !loose && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
 		x, y := l.expression(left), l.expression(right) // `obj && test` is test, after obj (D-089)
 		if x == nil || y == nil {
 			return nil
 		}
 		return &ir.Sequence{X: x, Y: y}
 	}
-	if l.involvesUnion(node, left, right) {
+	if loose || l.involvesUnion(node, left, right) {
 		x, y := l.expression(left), l.expression(right)
 		if x == nil || y == nil {
 			return nil
@@ -2783,7 +2852,11 @@ func neverFalsy(t ir.Type) bool {
 // the operands of && and ||), converting numbers to the type the semantic pass chose.
 // Either both results are nil or neither is.
 func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, ir.Expr) {
-	x, y := l.expression(a), l.expression(b)
+	operand := l.expression
+	if node.Kind == ast.KindConditionalExpression && mayHoldUndefined(l.typeAt(node)) {
+		operand = l.branch // `c ? room.exits[dir] : undefined`
+	}
+	x, y := operand(a), operand(b)
 	if x == nil || y == nil {
 		return nil, nil
 	}
@@ -3102,6 +3175,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		}
 		return ft
 	}
+	if t.Flags()&checker.TypeFlagsObject != 0 && (t.Symbol() == nil || t.Symbol().Flags&ast.SymbolFlagsObjectLiteral == 0) && l.checker.IsEmptyAnonymousObjectType(t) {
+		return ir.Value // `{}` written as a type, or `unknown ?? "x"`'s: any value but null and undefined
+	}
 	if l.isObjectType(t) {
 		if iface := l.interfaceOf(t, node); iface != nil {
 			return iface
@@ -3119,6 +3195,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.String
 	case flags&checker.TypeFlagsUndefined != 0:
 		return ir.Undefined
+	case flags&checker.TypeFlagsVoid != 0:
+		return ir.Undefined // a value of type void (`R | undefined` for an R of void) is undefined
 	case flags&checker.TypeFlagsNull != 0:
 		return ir.Null
 	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsStringLike):

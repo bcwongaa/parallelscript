@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: rest parameters of type [q: string]
 // Debounce and throttle simulated with a fake clock that runs scheduled callbacks.
 
 class FakeClock {

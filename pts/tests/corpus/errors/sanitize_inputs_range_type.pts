@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to {}
 // Sanitizes values for an image-resize request, throwing TypeError for wrong
 // kinds of input and RangeError for values outside allowed bounds.
 

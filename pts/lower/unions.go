@@ -107,6 +107,12 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		return x // unreachable code, as tsc sees it
 	}
 	if narrow := l.irType(t, node); narrow != nil && isNarrowing(union, narrow) {
+		if node.Kind == ast.KindIdentifier && l.isLoose(l.target(node)) {
+			if l.isTestedOperand(node) {
+				return x // tested for undefined: the union it holds
+			}
+			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
+		}
 		if node.Kind != ast.KindIdentifier && isCheckable(narrow) && !isClass(narrow) && !isUnion(narrow) {
 			// A property tsc narrowed may have changed since, through a call that tsc
 			// doesn't follow, so its value is checked (classes' always are) (D-089).
@@ -283,7 +289,14 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	case !isDynamic(t):
 		return x // never null or undefined, so y is never evaluated
 	}
-	result := l.irType(l.typeAt(node), node)
+	t := l.typeAt(node)
+	required := t
+	if !mayHoldUndefined(l.typeAt(expr.Left)) {
+		// tsc took x to be never undefined, so its result has x's type, though x may be an
+		// element that isn't there (`sorted[1]?.amount ?? "none"`): y's type is added.
+		t = l.checker.GetUnionType([]*checker.Type{t, l.typeAt(expr.Right)})
+	}
+	result := l.irType(t, node)
 	y := l.expression(expr.Right)
 	if result == nil || y == nil {
 		return nil
@@ -293,7 +306,13 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	}
 	tmp := l.newLocal("value", x.Type())
 	ref := &ir.LocalRef{Local: tmp}
-	return &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: fromUnion(ref, result)}}
+	coalesced := &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: fromUnion(ref, result)}}
+	if t != required && !l.takesAnyValue(node) {
+		if requiredType := l.irType(required, node); requiredType != nil && requiredType != result {
+			return l.checkedConversion(coalesced, requiredType, node)
+		}
+	}
+	return coalesced
 }
 
 // unionLogical lowers `x || y` and `x && y` where x is a union, or where the result is

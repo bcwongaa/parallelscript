@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to string[]
 // Generic compose/pipe utilities applied to a text-cleaning and number-crunching pipeline.
 
 type Unary<A, B> = (a: A) => B;

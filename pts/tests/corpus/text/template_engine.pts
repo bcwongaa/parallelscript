@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value to {t: string}
 // A mustache-like template engine: {{name}}, dotted paths, filters, sections and loops.
 type Value = string | number | boolean | null | Value[] | { [k: string]: Value };
 type Scope = { [k: string]: Value };

@@ -1,4 +1,3 @@
-// skip: by design (D-038): destructures an array past its end into a string (RangeError; JS gives undefined)
 // Parses 5-field cron expressions (lists, ranges, steps, names, macros), describes them in
 // English, and computes the next few run times from a fixed UTC start date.
 interface CronField { name: string; min: number; max: number; names?: string[] }

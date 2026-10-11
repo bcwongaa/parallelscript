@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: overriding `Auction.validate` with other parameter or result types
 // Auction house: English and sealed-bid (Vickrey) auctions sharing an abstract base, with bidders and budgets.
 
 class BidRejected extends Error {

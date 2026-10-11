@@ -1,4 +1,3 @@
-// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
 // A command-line argument parser over fixed argv arrays: long/short flags, bundled shorts,
 // --key=value, typed options, defaults, positionals, "--" terminator and help text.
 type OptType = "boolean" | "string" | "number" | "list";

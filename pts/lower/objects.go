@@ -599,7 +599,14 @@ func (l *lowerer) literalTarget(node *ast.Node) *checker.Type {
 // shorthandValue lowers the value of a shorthand property `{ x }`: the binding x.
 func (l *lowerer) shorthandValue(property *ast.Node) ir.Expr {
 	name := property.Name()
-	if x, ok := l.binding(name, l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(property))); ok {
+	symbol := l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(property))
+	if x, ok := l.binding(name, symbol); ok {
+		if x != nil && isUnion(x.Type()) && l.isLoose(symbol) {
+			if t := l.irType(l.typeOfSymbol(symbol), name); t != nil {
+				return l.looseRead(x, t, name) // D-090
+			}
+			return nil
+		}
 		return x
 	}
 	l.notSupportedYet(name, fmt.Sprintf("using `%s` is", name.Text()))
@@ -645,15 +652,17 @@ func (l *lowerer) isObjectTypeMember(declaration *ast.Node) bool {
 }
 
 // shapeProperty lowers the object of `o.p` for a property p of an object type and
-// returns it with p's field, or reports why it can't and returns nils.
+// returns it with p's field, or reports why it can't and returns nils. An object that is
+// a dynamic value (an unknown that a type guard narrowed to the object type) comes back
+// without a field: its property is found at run time.
 func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil, nil
 	}
 	object := l.expression(node.Expression())
-	if object == nil {
-		return nil, nil
+	if object == nil || object.Type() == ir.Value {
+		return object, nil
 	}
 	name := node.AsPropertyAccessExpression().Name().Text()
 	switch t := object.Type().(type) {
@@ -675,6 +684,17 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	}
 	l.notSupportedYet(node, fmt.Sprintf("a property of an object type on a %s is", object.Type()))
 	return nil, nil
+}
+
+// valueProperty reads `o.p` for an object o that is a dynamic value although tsc gives it
+// an object type: the property found at run time, converted to p's type with a check.
+func (l *lowerer) valueProperty(node *ast.Node, object ir.Expr) ir.Expr {
+	l.wantDynamicMember(node)
+	t := l.irType(l.typeAt(node), node)
+	if t == nil {
+		return nil
+	}
+	return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{object, l.dynamicKey(node)}}, t, node)
 }
 
 // objectCast converts value, a reference to an object, to another object type: a class
