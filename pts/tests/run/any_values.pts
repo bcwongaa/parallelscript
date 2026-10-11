@@ -1,0 +1,102 @@
+// Values of type `any` (D-070): properties and elements found at run time, the
+// operators with JS's conversions, and checked conversions into typed places.
+class Point {
+  constructor(public x: number, public y: number) {}
+  get sum(): number {
+    return this.x + this.y;
+  }
+  set both(value: number) {
+    this.x = value;
+    this.y = value;
+  }
+}
+
+const values: any[] = [1, -0, 2.5, "two", "", "42", true, false, null, undefined, [1, 2, 3], [], new Point(1, 2), { name: "obj", n: 5 }];
+for (const v of values) {
+  console.log(typeof v, v, v + 1, 1 + v, v + "!", v * 2, v - 1, -v, +v, ~v, v | 0, `${v}`);
+  console.log("  ", v == 1, v == "", v == null, v === "two", !v, v ? "truthy" : "falsy", v > 1, v <= "2", v < 10);
+}
+
+// Properties: fields, getters and setters of classes, object literals, arrays, strings.
+const p: any = new Point(3, 4);
+console.log(p.x, p.y, p.sum, p.missing, p["x"], "x" in p);
+p.x = 10;
+p.y += 5;
+p.x++;
+++p.y;
+p.both = 7;
+console.log(p.x, p.y, p.sum, p);
+const literal: any = { name: "box", size: 3, tags: ["a", "b"] };
+console.log(literal.name, literal.size * 2, literal.tags[1], literal.tags.length, literal.nothing);
+literal.size = 4;
+literal.name += "es";
+console.log(literal);
+const list: any = [10, 20, 30];
+console.log(list.length, list[0], list[5], list["1"], list["01"]);
+list[1] = 99;
+list[3] = 40;
+console.log(list, list.length);
+const text: any = "hello";
+console.log(text.length, text[1], text[10]);
+const nested: any = { inner: { deeper: { value: 1 } } };
+console.log(nested.inner.deeper.value, nested?.inner?.missing?.value, nested.none ?? "fallback");
+
+// Records of any, any[] and any as a parameter, a result and a field.
+const record: Record<string, any> = { a: 1, b: "x" };
+console.log(record.a + 1, record.b + 1, record.c);
+record.c = [1];
+console.log(record);
+function pick(o: any, key: string): any {
+  return o[key];
+}
+console.log(pick({ y: 42 }, "y"), pick(p, "sum"), pick([5, 6], "1"));
+class Holder {
+  value: any = 1;
+}
+const holder = new Holder();
+holder.value = "now a string";
+console.log(holder.value.length, holder);
+
+// Converting into typed places checks the value.
+const n: number = p.x;
+const s: string = text;
+const b: boolean = values[6];
+const maybe: string | null = values[8];
+const pt: Point = p;
+console.log(n + 1, s.toUpperCase(), !b, maybe, pt.sum);
+let counter: any = "5";
+counter++;
+counter += 10;
+console.log(counter, typeof counter);
+console.log(("10" as any) > 9, (3 as any) < "20", ("a" as any) < "b", (NaN as any) < 1, (undefined as any) >= 0);
+
+// catch (e: any) reads what was thrown.
+try {
+  throw new RangeError("out of range");
+} catch (e: any) {
+  console.log(e.name, e.message, e.stack.length > 0, e instanceof RangeError);
+}
+try {
+  const u: any = undefined;
+  console.log(u.foo);
+} catch (e: any) {
+  console.log(e.message);
+}
+
+// Destructuring an any, and callbacks over an any[].
+const parsed: any = { id: 7, label: "seven", inner: { tags: ["x", "y"] } };
+const { id, label, inner: { tags }, extra = "none" } = parsed;
+console.log(id, label, tags, extra);
+function describe({ id, label }: any): string {
+  return id + ":" + label;
+}
+console.log(describe(parsed));
+const items: any[] = [{ name: "a", price: 3 }, { name: "b", price: 5 }, { name: "c", price: 1 }];
+const total = items.reduce((sum: number, item) => sum + item.price, 0);
+const names = items.map((item) => item.name).join(",");
+const byPrice = [...items].sort((a, b) => a.price - b.price).map((item) => item.name);
+const cheap = items.filter((item) => item.price < 4).length;
+console.log(total, names, byPrice, cheap);
+for (const { name, price } of items) {
+  console.log(name, price * 2);
+}

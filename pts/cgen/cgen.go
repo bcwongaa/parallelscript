@@ -898,13 +898,10 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 	if x.Checked {
 		value = "pts_value_non_null(" + value + ")"
 	}
+	if x.X.Type() == ir.Value && x.To != ir.Value {
+		return e.fromValue(value, x.To)
+	}
 	switch t := x.To; {
-	case x.X.Type() == ir.Value && t == ir.Number: // an unknown narrowed by a type guard that may be wrong (D-068)
-		return "pts_value_to_number_checked(" + value + ")"
-	case x.X.Type() == ir.Value && t == ir.String:
-		return "pts_value_as_string(" + value + ")"
-	case x.X.Type() == ir.Value && t == ir.Bool:
-		return "pts_value_as_bool(" + value + ")"
 	case t == ir.Number:
 		return "pts_value_as_number(" + value + ")"
 	case t == ir.I64:
@@ -921,6 +918,66 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 		return "((" + e.cDeclaredType(t) + ")pts_value_as_object(" + value + "))"
 	}
 	return value // null, undefined, or a smaller union: the same pts_value
+}
+
+// fromValue converts value, a dynamic value (`any`, `unknown`), to t with a check, since
+// nothing but the program's logic says it is one (D-068, D-070): TypeError if it isn't.
+func (e *emitter) fromValue(value string, t ir.Type) string {
+	switch {
+	case t == ir.Number:
+		return "pts_value_to_number_checked(" + value + ")" // a boxed 64-bit integer too
+	case t == ir.String:
+		return "pts_value_as_string(" + value + ")"
+	case t == ir.Bool:
+		return "pts_value_as_bool(" + value + ")"
+	}
+	tmp := e.temporary()
+	var converted string
+	switch {
+	case t == ir.I64:
+		converted = "pts_value_as_i64(" + tmp + ")"
+	case t == ir.U64:
+		converted = "pts_value_as_u64(" + tmp + ")"
+	case ir.IsNumeric(t):
+		converted = "((" + cType(t) + ")pts_value_as_number(" + tmp + "))" // exact: checked
+	case isObject(t):
+		converted = "((" + e.cDeclaredType(t) + ")pts_value_as_object(" + tmp + "))"
+	default:
+		converted = tmp // null, undefined or a union: the same pts_value
+	}
+	return fmt.Sprintf("({ pts_value %s = %s; if (!(%s)) pts_throw_type_mismatch(%s, %s); %s; })", tmp, value, e.valueTest(t, tmp), tmp, cString(t.String()), converted)
+}
+
+// valueTest is a C test of whether v, a pts_value, holds a value of type t: a number, a
+// string, a boolean, null, undefined, an integer the integer type holds exactly, an
+// instance of a class, or one of a union's members. The lowering converts dynamic values
+// only to these (D-070).
+func (e *emitter) valueTest(t ir.Type, v string) string {
+	switch {
+	case t == ir.Value:
+		return "true"
+	case t == ir.Number || t == ir.F32:
+		return "pts_value_is_number(" + v + ")"
+	case ir.IsInteger(t):
+		return "pts_value_is_integer_of(" + v + ", " + fieldKind(t) + ")"
+	case t == ir.String:
+		return "pts_value_is_string(" + v + ")"
+	case t == ir.Bool:
+		return "(" + v + " == PTS_VALUE_TRUE || " + v + " == PTS_VALUE_FALSE)"
+	case t == ir.Null:
+		return "(" + v + " == PTS_VALUE_NULL)"
+	case t == ir.Undefined:
+		return "(" + v + " == PTS_VALUE_UNDEFINED)"
+	case isClass(t):
+		return "pts_value_instance_of(" + v + ", " + e.descriptor(t.(*ir.Class)) + ")"
+	case isUnion(t):
+		tests := make([]string, len(t.(*ir.Union).Members))
+		for i, member := range t.(*ir.Union).Members {
+			tests[i] = e.valueTest(member, v)
+		}
+		return "(" + strings.Join(tests, " || ") + ")"
+	}
+	panic("cgen: no test for a dynamic value as " + t.String())
 }
 
 // isClass reports whether t is a class, not a shape: a union narrowed to one is checked (D-067).
@@ -1165,6 +1222,13 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueTypeOf:          "pts_value_typeof",
 	ir.ValueStrictEquals:    "pts_value_strict_equals",
 	ir.ValueLooseEquals:     "pts_value_loose_equals",
+	ir.DynamicGet:           "pts_dynamic_get",
+	ir.DynamicSet:           "pts_dynamic_set",
+	ir.DynamicHas:           "pts_dynamic_has",
+	ir.ValueAdd:             "pts_value_add",
+	ir.ValueToNumber:        "pts_value_to_number",
+	ir.ValueLess:            "pts_value_less",
+	ir.ValueLessEqual:       "pts_value_less_equal",
 	ir.ThrowError:           "pts_throw_error",
 }
 

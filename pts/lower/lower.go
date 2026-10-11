@@ -808,6 +808,10 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.Sequence{X: value, Y: &ir.LeftOut{T: target}}
 	case target == ir.Value:
 		return box(value)
+	case value.Type() == ir.Value && isCheckable(target): // a dynamic value into a typed place: checked (D-070)
+		return &ir.FromUnion{X: value, To: target}
+	case value.Type() == ir.Value && l.isDynamicSource(node):
+		return l.dynamicConversion(value, target, node)
 	case isUnion(target) && value.Type() == ir.Value:
 		return &ir.ToUnion{X: value, To: target.(*ir.Union)} // a dynamic value tsc types as the union, such as `a.find(…)`'s
 	case isUnion(target):
@@ -1126,6 +1130,9 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		}
 		return l.narrowed(node, l.propertyAccess(node))
 	case ast.KindElementAccessExpression:
+		if l.isAny(node.Expression()) {
+			return l.dynamicRead(node)
+		}
 		if x, ok := l.enumMember(node); ok {
 			return x
 		}
@@ -1254,6 +1261,10 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return nil
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
+	}
+	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
+		l.notSupportedYet(node, "calling a function or method through `any` is")
+		return nil
 	}
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)
@@ -1668,7 +1679,13 @@ func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 
 // as lowers `x as T` between numeric types, which converts the value.
 func (l *lowerer) as(node *ast.Node) ir.Expr {
-	if l.typeAt(node.Expression()).Flags()&checker.TypeFlagsUnknown != 0 {
+	if l.isDynamicSource(node) { // `x as any` and `x as unknown`: any value is one
+		if x := l.valueExpression(node.Expression()); x != nil {
+			return box(x)
+		}
+		return nil
+	}
+	if l.isDynamicSource(node.Expression()) {
 		return l.asFromValue(node)
 	}
 	target := l.numericType(node)
@@ -1757,6 +1774,9 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if l.isAny(node.Expression()) {
+		return l.dynamicRead(node)
+	}
 	if l.isUnionReceiver(node) {
 		object, field := l.unionProperty(node)
 		if field == nil {
@@ -1967,6 +1987,11 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 // operation applies op to x and y, the lowered left and right operands of node,
 // converting them to the type the semantic pass chose for them.
 func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr, left *ast.Node, right *ast.Node) ir.Expr {
+	if x.Type() == ir.Value || y.Type() == ir.Value {
+		if result, ok := l.dynamicOperation(node, op, x, y); ok {
+			return result
+		}
+	}
 	if n, ok := l.info.OperandType(node); ok {
 		x, y = l.convert(x, numericTypes[n], left), l.convert(y, numericTypes[n], right)
 		if x == nil || y == nil {
@@ -2072,11 +2097,14 @@ type place struct {
 	current     *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
 	stored      *ir.Local // the value stored in an accessor property, which is the assignment's value
 	at          *ast.Node // the assignment's target, for an accessor property
+	dynamic     bool      // a property of a dynamic value (any), whose key is key (D-070)
 	l           *lowerer
 }
 
 func (p place) valueType() ir.Type {
 	switch {
+	case p.dynamic:
+		return ir.Value
 	case p.local != nil:
 		return p.local.Type
 	case p.field != nil:
@@ -2101,6 +2129,8 @@ func (p place) read() ir.Expr {
 		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{p.object, p.index}}
 	case p.arrayLength:
 		return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{p.object}}
+	case p.dynamic:
+		return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{p.object, p.key}}
 	case p.key != nil:
 		return &ir.MapCall{Op: ir.MapGetChecked, Args: []ir.Expr{p.object, p.key}, Map: p.object.Type().(*ir.MapType)}
 	}
@@ -2120,6 +2150,8 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 		stored = &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{p.object, p.index, value}}
 	case p.arrayLength:
 		stored = &ir.ArrayCall{Op: ir.ArraySetLength, Args: []ir.Expr{p.object, value}}
+	case p.dynamic:
+		stored = &ir.CallBuiltin{Builtin: ir.DynamicSet, Args: []ir.Expr{p.object, p.key, value}}
 	case p.key != nil:
 		stored = &ir.MapCall{Op: ir.MapPut, Args: []ir.Expr{p.object, p.key, value}, Map: p.object.Type().(*ir.MapType)}
 	}
@@ -2199,6 +2231,9 @@ func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
 // and returns false.
 func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 	node = ast.SkipParentheses(node)
+	if (node.Kind == ast.KindPropertyAccessExpression || node.Kind == ast.KindElementAccessExpression) && l.isAny(node.Expression()) {
+		return l.dynamicPlace(node)
+	}
 	switch node.Kind {
 	case ast.KindIdentifier:
 		if local, ok := l.locals[l.target(node)]; ok {
@@ -2316,6 +2351,13 @@ func (l *lowerer) increment(node *ast.Node, operand *ast.Node, operator ast.Kind
 		return nil
 	}
 	t := target.valueType()
+	if t == ir.Value {
+		op := ir.Add
+		if operator == ast.KindMinusMinusToken {
+			op = ir.Sub
+		}
+		return l.dynamicIncrement(target, op, postfix)
+	}
 	if u, ok := t.(*ir.Union); ok { // a union that tsc narrowed to its numeric member here
 		if n := l.irType(l.typeAt(operand), operand); n != nil && ir.IsNumeric(n) && u.Has(n) {
 			t = n
@@ -2552,6 +2594,9 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	if x == nil {
 		return nil
 	}
+	if x.Type() == ir.Value { // JS's ToNumber of an any (D-070)
+		x = toNumber(x)
+	}
 	if !ir.IsNumeric(x.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
 		return nil
@@ -2667,6 +2712,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return l.unionType(t, node)
 	case flags&checker.TypeFlagsUnknown != 0:
 		return ir.Value // narrowed before use (narrowedValue, D-068)
+	case flags&checker.TypeFlagsAny != 0:
+		return ir.Value // a dynamic value (D-070)
 	case flags&checker.TypeFlagsNever != 0:
 		return ir.Value // no value ever has it: `assertNever(x: never)`'s parameter
 	}

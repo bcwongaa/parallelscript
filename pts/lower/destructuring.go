@@ -135,6 +135,9 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 		return nil
 	}
 	name := property.Text()
+	if source.Type() == ir.Value { // an any's property, found at run time (D-070)
+		return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{source, box(&ir.StringConst{Value: name})}}
+	}
 	if read := propertyOf(source, name); read != nil {
 		return read
 	}

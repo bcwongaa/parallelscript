@@ -1,0 +1,14 @@
+// What `any` doesn't do yet (D-070): calls through it (M3.3c), and converting it to object
+// types other than classes (M3.3b).
+interface Named {
+  name: string;
+}
+const data: any = { name: "x", greet: () => "hi" };
+console.log(data.greet());
+const named: Named = data;
+const list: number[] = data;
+console.log(named, list);
+
+// error: any_not_yet.pts:7:13 - error PTS1001: calling a function or method through `any` is not supported yet
+// error: any_not_yet.pts:8:22 - error PTS1001: converting any to {name: string} is not supported yet
+// error: any_not_yet.pts:9:24 - error PTS1001: converting any to number[] is not supported yet

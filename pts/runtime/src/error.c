@@ -55,9 +55,9 @@ static void stack_setter(pts_object *error, pts_value stack) { pts_error_set_sta
 static pts_string *to_string_method(pts_object *error) { return pts_error_to_string((pts_error *)error); }
 
 static const pts_method error_methods[] = {
-    {"stack", PTS_GETTER, (pts_function)stack_getter},
-    {"stack", PTS_SETTER, (pts_function)stack_setter},
-    {"toString", PTS_METHOD, (pts_function)to_string_method},
+    {"stack", PTS_GETTER, (pts_function)stack_getter, PTS_FIELD_VALUE},
+    {"stack", PTS_SETTER, (pts_function)stack_setter, PTS_FIELD_VALUE},
+    {"toString", PTS_METHOD, (pts_function)to_string_method, PTS_FIELD_STRING},
 };
 
 #define ERROR_LAYOUT                                                                                   \

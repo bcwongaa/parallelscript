@@ -66,6 +66,9 @@ func (l *lowerer) spreadOver(read *ir.FieldRef, earlier ir.Expr, field *ir.Field
 // otherwise part, as a value of the type tsc gives the element's name. A part that can't
 // be undefined is itself.
 func (l *lowerer) withDefault(part ir.Expr, initializer *ast.Node, name *ast.Node) ir.Expr {
+	if part.Type() == ir.Value && initializer != nil {
+		return l.dynamicWithDefault(part, initializer, name)
+	}
 	u, ok := part.Type().(*ir.Union)
 	if initializer == nil || !ok || !u.Has(ir.Undefined) {
 		return part

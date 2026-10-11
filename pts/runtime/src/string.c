@@ -281,9 +281,7 @@ void pts_throw_non_null(pts_value value) {
   pts_throw_new(&pts_type_builtin_TypeError, "Non-null assertion on %s", value == PTS_VALUE_NULL ? "null" : "undefined");
 }
 
-void pts_throw_not_primitive(pts_value value, const char *type_name) {
-  pts_throw_new(&pts_type_builtin_TypeError, "The value narrowed to %s is of type %s", type_name, pts_value_typeof(value)->bytes);
-}
+void pts_throw_not_primitive(pts_value value, const char *type_name) { pts_throw_type_mismatch(value, type_name); }
 
 double pts_value_to_number_checked(pts_value value) {
   if (pts_value_is_number(value)) {

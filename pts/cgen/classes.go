@@ -91,8 +91,8 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 		}
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
-				if class.Method(method.Name, method.Kind) != method || method.Abstract || !wanted[method.Kind][method.Name] && !isToString(method) {
-					continue // overridden below, not implemented, or not called through interfaces or by join
+				if class.Method(method.Name, method.Kind) != method || method.Abstract || method.Kind == ir.Plain && !wanted[ir.Plain][method.Name] && !isToString(method) {
+					continue // overridden below, not implemented, or a method not called through interfaces or by join; every getter and setter is, for `any` (D-070)
 				}
 				e.interfaceMembers[class] = append(e.interfaceMembers[class], method)
 				if _, named := e.entryNames[method.Func]; !named {
@@ -273,7 +273,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			methods = "pts_methods_" + name
 			e.line(0, "static const pts_method %s[] = {", methods)
 			for _, method := range callable {
-				e.line(1, "{%s, %s, (pts_function)%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func])
+				e.line(1, "{%s, %s, (pts_function)%s, %s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result))
 			}
 			e.line(0, "};")
 		}
@@ -443,10 +443,15 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 	table := "pts_methods_" + name
 	e.line(0, "static const pts_method %s[] = {", table)
 	for i, field := range methods {
+		ft := field.Type.(*ir.FuncType)
+		params := make([]*ir.Local, len(ft.Params))
+		for j, param := range ft.Params {
+			params[j] = &ir.Local{Type: param}
+		}
 		if field.Kind != ir.Plain {
-			e.line(1, "{%s, %s, (pts_function)%s},", cString(field.Property), methodKinds[field.Kind], entries[i])
+			e.line(1, "{%s, %s, (pts_function)%s, %s},", cString(field.Property), methodKinds[field.Kind], entries[i], accessorKind(field.Kind, params, ft.Result))
 		} else {
-			e.line(1, "{%s, PTS_METHOD, (pts_function)%s},", cString(field.Name), entries[i])
+			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0},", cString(field.Name), entries[i])
 		}
 	}
 	e.line(0, "};")
@@ -487,6 +492,18 @@ func visibleFields(class *ir.Class) []*ir.Field {
 
 // methodKinds are the runtime's names for the kinds of methods.
 var methodKinds = map[ir.MethodKind]string{ir.Plain: "PTS_METHOD", ir.Getter: "PTS_GETTER", ir.Setter: "PTS_SETTER"}
+
+// accessorKind is what a getter returns, or a setter takes (its parameter after `this`),
+// as a field kind, for reads and writes through `any` (D-070); 0 for a method.
+func accessorKind(kind ir.MethodKind, params []*ir.Local, result ir.Type) string {
+	switch kind {
+	case ir.Getter:
+		return fieldKind(result)
+	case ir.Setter:
+		return fieldKind(params[1].Type)
+	}
+	return "0"
+}
 
 // slotName is the member of a method table that holds a slot: the method's name, or for
 // a getter or setter, pts_get_<name> or pts_set_<name>.

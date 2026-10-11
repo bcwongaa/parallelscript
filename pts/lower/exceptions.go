@@ -128,7 +128,7 @@ func (l *lowerer) tryCatch(node *ast.Node) *ir.Try {
 			return nil
 		}
 		symbol := l.checker.GetSymbolAtLocation(name)
-		if t := l.typeOfSymbol(symbol); t.Flags()&checker.TypeFlagsUnknown == 0 {
+		if t := l.typeOfSymbol(symbol); t.Flags()&(checker.TypeFlagsUnknown|checker.TypeFlagsAny) == 0 {
 			l.notSupportedYet(name, fmt.Sprintf("a caught exception of type %s is", l.checker.TypeToString(t)))
 			return nil
 		}

@@ -178,9 +178,15 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.2b Stacks** (d0b802bb0) (split from M3.2 by D-068).
   - `stack` with `.pts` file and line numbers, and `console.log` of errors with it as Node prints them.
   - The stack-overflow guard: deep recursion throws `RangeError: Maximum call stack size exceeded` (`pts/tests/run/stack_overflow.pts`).
-- [ ] **M3.3 `any`, `unknown` and casts.**
-  - `any` as a checked dynamic value using descriptors, with runtime checks at typed boundaries.
-  - `unknown`; checked `as` downcasts; checked `x!`.
+- [ ] **M3.3a `any` values** (split from M3.3 by D-070).
+  - `any` as a dynamic value: property and element reads, writes to dynamic places (fields of type `any`, hash-map objects, arrays of `any`), the operators with JS's conversions, `typeof`, equality, truthiness, templates, `console.log`, `catch (e: any)`.
+  - Checked conversions from `any` (and `unknown`) to primitives, integer types, classes and unions of them (`TypeError` on mismatch); checked `x!`.
+- [ ] **M3.3b Runtime type checks** (split from M3.3 by D-070).
+  - Descriptors of the program's types for the runtime (interfaces, arrays, tuples, maps, sets, records, functions), and checked conversions from `any` and `unknown` to them; checked `as` downcasts to them.
+  - Writes through `any` into typed fields, checked by those descriptors.
+- [ ] **M3.3c Calls through `any`** (split from M3.3 by D-070).
+  - Calling a function value or a method through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
+- [ ] **M3.3d Generic function values** (split from M3.3 by D-070).
   - Generic function values and generic methods of object literals and interfaces, whose type parameters take dynamic values (moved from M2.6b3 by D-051).
 - [ ] **M3.4 JSON.**
   - `JSON.parse` returning `any`; `JSON.stringify` with indent and replacer basics, matching Node byte for byte.

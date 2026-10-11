@@ -1,0 +1,441 @@
+/*
+ * Operations on dynamic values (`any`, D-070): property reads and writes found at run
+ * time through the descriptors, and the operators with JavaScript's conversions.
+ */
+#include "pts.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+/* ---------------------------------------------------------------- conversions */
+
+/* JS's ToPrimitive of an object, which has no valueOf in ParallelScript: its string (pts_object_to_string). */
+static pts_value to_primitive(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return value;
+  }
+  const pts_object *object = pts_value_as_object(value);
+  switch (object->type->kind) {
+  case PTS_KIND_STRING:
+  case PTS_KIND_INT64:
+  case PTS_KIND_UINT64:
+    return value;
+  default:
+    return pts_value_from_string(pts_value_to_string(value));
+  }
+}
+
+static bool is_string(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_STRING;
+}
+
+double pts_value_to_number(pts_value value) {
+  value = to_primitive(value);
+  if (pts_value_is_number(value)) {
+    return pts_value_as_number(value);
+  }
+  if (pts_value_is_object(value)) {
+    const pts_object *object = pts_value_as_object(value);
+    switch (object->type->kind) {
+    case PTS_KIND_STRING:
+      return pts_string_to_number((const pts_string *)object);
+    case PTS_KIND_INT64:
+      return (double)((const pts_boxed_int64 *)object)->value;
+    case PTS_KIND_UINT64:
+      return (double)((const pts_boxed_uint64 *)object)->value;
+    default:
+      break;
+    }
+  }
+  switch (value) {
+  case PTS_VALUE_NULL:
+  case PTS_VALUE_FALSE:
+    return 0;
+  case PTS_VALUE_TRUE:
+    return 1;
+  default:
+    return __builtin_nan(""); /* undefined */
+  }
+}
+
+pts_value pts_value_add(pts_value left, pts_value right) {
+  left = to_primitive(left);
+  right = to_primitive(right);
+  if (is_string(left) || is_string(right)) {
+    return pts_value_from_string(pts_string_concat(pts_value_to_string(left), pts_value_to_string(right)));
+  }
+  return pts_value_from_number(pts_value_to_number(left) + pts_value_to_number(right));
+}
+
+/* JS's IsLessThan: strings by UTF-16 code units, everything else as numbers; undefined if either is NaN. */
+static int compare(pts_value left, pts_value right, bool *undefined) {
+  left = to_primitive(left);
+  right = to_primitive(right);
+  *undefined = false;
+  if (is_string(left) && is_string(right)) {
+    return pts_string_compare((const pts_string *)pts_value_as_object(left), (const pts_string *)pts_value_as_object(right));
+  }
+  double x = pts_value_to_number(left), y = pts_value_to_number(right);
+  if (x != x || y != y) {
+    *undefined = true;
+    return 0;
+  }
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+bool pts_value_less(pts_value left, pts_value right) {
+  bool undefined;
+  int order = compare(left, right, &undefined);
+  return !undefined && order < 0;
+}
+
+bool pts_value_less_equal(pts_value left, pts_value right) {
+  bool undefined;
+  int order = compare(left, right, &undefined);
+  return !undefined && order <= 0;
+}
+
+/* ---------------------------------------------------------------- properties */
+
+enum { MAX_KEY = 256 };
+
+/* The key as a C string, written into buffer (MAX_KEY bytes): a longer key is cut, which no field's name is. */
+static const char *key_text(pts_value key, char *buffer) {
+  pts_string *text = pts_value_to_string(key);
+  size_t len = text->byte_len < MAX_KEY - 1 ? text->byte_len : MAX_KEY - 1;
+  memcpy(buffer, text->bytes, len);
+  buffer[len] = '\0';
+  return buffer;
+}
+
+/* The index a key names, if it is an array index: a number or a canonical numeric string. */
+static bool array_index(pts_value key, double *index) {
+  if (pts_value_is_number(key)) {
+    *index = pts_value_as_number(key);
+    return true;
+  }
+  if (!is_string(key)) {
+    return false;
+  }
+  double number = pts_string_to_number((const pts_string *)pts_value_as_object(key));
+  if (number != number || number < 0 || (double)(uint64_t)number != number) {
+    return false;
+  }
+  char canonical[PTS_NUMBER_BUF_SIZE];
+  size_t len = pts_number_format(number, canonical);
+  const pts_string *text = (const pts_string *)pts_value_as_object(key);
+  if (len != text->byte_len || memcmp(canonical, text->bytes, len) != 0) {
+    return false; /* "01" and "1.0" are keys, not indices */
+  }
+  *index = number;
+  return true;
+}
+
+static bool key_is(pts_value key, const char *name) {
+  if (!is_string(key)) {
+    return false;
+  }
+  const pts_string *text = (const pts_string *)pts_value_as_object(key);
+  return text->byte_len == strlen(name) && memcmp(text->bytes, name, text->byte_len) == 0;
+}
+
+static int64_t method_named(const pts_type *type, const char *name, pts_method_kind kind) {
+  for (uint32_t i = 0; i < type->method_count; i++) {
+    if (type->methods[i].kind == kind && strcmp(type->methods[i].name, name) == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+static const pts_field *field_named(const pts_type *type, const char *name) {
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    if (!pts_field_is_accessor(type->fields[i].kind) && strcmp(type->fields[i].name, name) == 0) {
+      return &type->fields[i];
+    }
+  }
+  return NULL;
+}
+
+/* A getter's result (or a setter's argument) of the given kind, as a dynamic value. */
+static pts_value call_getter(pts_function getter, pts_field_kind kind, pts_object *object) {
+#define CALL(T) ((T(*)(pts_object *))getter)(object)
+  switch (kind) {
+  case PTS_FIELD_NUMBER: return pts_value_from_number(CALL(double));
+  case PTS_FIELD_F32: return pts_value_from_number(CALL(float));
+  case PTS_FIELD_BOOL: return pts_value_from_bool(CALL(bool));
+  case PTS_FIELD_STRING:
+  case PTS_FIELD_OBJECT: return pts_value_from_object(CALL(void *));
+  case PTS_FIELD_I8: return pts_value_from_number(CALL(int8_t));
+  case PTS_FIELD_I16: return pts_value_from_number(CALL(int16_t));
+  case PTS_FIELD_I32: return pts_value_from_number(CALL(int32_t));
+  case PTS_FIELD_I64: return pts_value_from_i64(CALL(int64_t));
+  case PTS_FIELD_U8: return pts_value_from_number(CALL(uint8_t));
+  case PTS_FIELD_U16: return pts_value_from_number(CALL(uint16_t));
+  case PTS_FIELD_U32: return pts_value_from_number(CALL(uint32_t));
+  case PTS_FIELD_U64: return pts_value_from_u64(CALL(uint64_t));
+  default: return CALL(pts_value);
+  }
+#undef CALL
+}
+
+static pts_value object_get(pts_object *object, pts_value key) {
+  const pts_type *type = object->type;
+  char buffer[MAX_KEY];
+  const char *name = key_text(key, buffer);
+  const pts_field *field = field_named(type, name);
+  if (field != NULL) {
+    return pts_value_present(pts_value_of_slot(field->kind, (const char *)object + field->offset));
+  }
+  int64_t getter = method_named(type, name, PTS_GETTER);
+  if (getter >= 0) {
+    return call_getter(type->methods[getter].function, type->methods[getter].result, object);
+  }
+  if (method_named(type, name, PTS_METHOD) >= 0) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Reading the method %s of a %s through `any` is not supported yet", name, type->name);
+  }
+  return PTS_VALUE_UNDEFINED;
+}
+
+pts_value pts_dynamic_get(pts_value object, pts_value key) {
+  if (pts_value_is_nullish(object)) {
+    char buffer[MAX_KEY];
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot read properties of %s (reading '%s')", object == PTS_VALUE_NULL ? "null" : "undefined",
+                  key_text(key, buffer));
+  }
+  if (!pts_value_is_object(object)) {
+    return PTS_VALUE_UNDEFINED; /* a number's or boolean's methods are reached by calls (M3.3c) */
+  }
+  pts_object *target = pts_value_as_object(object);
+  double index;
+  switch (target->type->kind) {
+  case PTS_KIND_STRING: {
+    const pts_string *string = (const pts_string *)target;
+    if (key_is(key, "length")) {
+      return pts_value_from_number(string->utf16_len);
+    }
+    return array_index(key, &index) ? pts_string_element(string, index) : PTS_VALUE_UNDEFINED;
+  }
+  case PTS_KIND_ARRAY: {
+    const pts_array *array = (const pts_array *)target;
+    if (key_is(key, "length")) {
+      return pts_value_from_number(pts_array_length(array));
+    }
+    return array_index(key, &index) ? pts_array_element(array, index) : PTS_VALUE_UNDEFINED;
+  }
+  case PTS_KIND_TUPLE:
+    if (key_is(key, "length")) {
+      return pts_value_from_number(target->type->field_count);
+    }
+    return array_index(key, &index) ? object_get(target, key) : PTS_VALUE_UNDEFINED;
+  case PTS_KIND_RECORD: {
+    pts_string *name = pts_value_to_string(key);
+    return pts_map_get_value((const pts_map *)target, &name);
+  }
+  case PTS_KIND_MAP:
+  case PTS_KIND_SET:
+    return key_is(key, "size") ? pts_value_from_number(pts_map_size((const pts_map *)target)) : PTS_VALUE_UNDEFINED;
+  case PTS_KIND_OBJECT:
+    return object_get(target, key);
+  default:
+    return PTS_VALUE_UNDEFINED; /* a function's name and length, and a boxed integer's methods */
+  }
+}
+
+/* Whether value is an integer that a slot of the given integer kind holds exactly. */
+static bool fits_integer(pts_value value, pts_field_kind kind) {
+  if (pts_value_is_object(value)) {
+    pts_kind object_kind = pts_value_as_object(value)->type->kind;
+    if (object_kind == PTS_KIND_INT64) {
+      return kind == PTS_FIELD_I64 || (kind == PTS_FIELD_U64 && ((const pts_boxed_int64 *)pts_value_as_object(value))->value >= 0);
+    }
+    if (object_kind == PTS_KIND_UINT64) {
+      return kind == PTS_FIELD_U64 || (kind == PTS_FIELD_I64 && ((const pts_boxed_uint64 *)pts_value_as_object(value))->value <= INT64_MAX);
+    }
+    return false;
+  }
+  if (!pts_value_is_number(value)) {
+    return false;
+  }
+  double n = pts_value_as_number(value);
+  if (n != __builtin_trunc(n)) {
+    return false; /* NaN, infinities and fractions */
+  }
+  switch (kind) {
+  case PTS_FIELD_I8: return n >= INT8_MIN && n <= INT8_MAX;
+  case PTS_FIELD_I16: return n >= INT16_MIN && n <= INT16_MAX;
+  case PTS_FIELD_I32: return n >= INT32_MIN && n <= INT32_MAX;
+  case PTS_FIELD_I64: return n >= -9223372036854775808.0 && n < 9223372036854775808.0;
+  case PTS_FIELD_U8: return n >= 0 && n <= UINT8_MAX;
+  case PTS_FIELD_U16: return n >= 0 && n <= UINT16_MAX;
+  case PTS_FIELD_U32: return n >= 0 && n <= UINT32_MAX;
+  case PTS_FIELD_U64: return n >= 0 && n < 18446744073709551616.0;
+  default: return false;
+  }
+}
+
+/* What a value written to a slot of the given kind must be; TypeError if it isn't. Object slots are checked from M3.3b. */
+static void check_storable(pts_field_kind kind, pts_value value, const char *name, const pts_type *type) {
+  bool fits;
+  switch (kind) {
+  case PTS_FIELD_VALUE:
+    return;
+  case PTS_FIELD_NUMBER:
+  case PTS_FIELD_F32:
+    fits = pts_value_is_number(value);
+    break;
+  case PTS_FIELD_BOOL:
+    fits = value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE;
+    break;
+  case PTS_FIELD_STRING:
+    fits = is_string(value);
+    break;
+  case PTS_FIELD_OBJECT:
+    pts_throw_new(&pts_type_builtin_TypeError, "Writing the object property %s of a %s through `any` is not supported yet", name, type->name);
+  default:
+    fits = fits_integer(value, kind);
+  }
+  if (!fits) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s to a %s: the property's type doesn't allow it", name, type->name,
+                  pts_value_typeof(value)->bytes);
+  }
+}
+
+static void object_set(pts_object *object, pts_value key, pts_value value) {
+  const pts_type *type = object->type;
+  char buffer[MAX_KEY];
+  const char *name = key_text(key, buffer);
+  const pts_field *field = field_named(type, name);
+  if (field != NULL) {
+    check_storable(field->kind, value, name, type);
+    pts_store_value_in_slot(field->kind, (char *)object + field->offset, value);
+    return;
+  }
+  int64_t setter = method_named(type, name, PTS_SETTER);
+  if (setter >= 0) {
+    pts_field_kind kind = type->methods[setter].result;
+    check_storable(kind, value, name, type);
+    union {
+      double number;
+      float f32;
+      bool boolean;
+      void *pointer;
+      int8_t i8;
+      int16_t i16;
+      int32_t i32;
+      int64_t i64;
+      uint8_t u8;
+      uint16_t u16;
+      uint32_t u32;
+      uint64_t u64;
+    } argument = {0};
+    pts_store_value_in_slot(kind, &argument, value);
+    pts_function function = type->methods[setter].function;
+#define SET(T, member) ((void (*)(pts_object *, T))function)(object, argument.member); return
+    switch (kind) { /* the argument in the setter's C type */
+    case PTS_FIELD_NUMBER: SET(double, number);
+    case PTS_FIELD_F32: SET(float, f32);
+    case PTS_FIELD_BOOL: SET(bool, boolean);
+    case PTS_FIELD_STRING: SET(void *, pointer);
+    case PTS_FIELD_I8: SET(int8_t, i8);
+    case PTS_FIELD_I16: SET(int16_t, i16);
+    case PTS_FIELD_I32: SET(int32_t, i32);
+    case PTS_FIELD_I64: SET(int64_t, i64);
+    case PTS_FIELD_U8: SET(uint8_t, u8);
+    case PTS_FIELD_U16: SET(uint16_t, u16);
+    case PTS_FIELD_U32: SET(uint32_t, u32);
+    case PTS_FIELD_U64: SET(uint64_t, u64);
+    default: ((void (*)(pts_object *, pts_value))function)(object, value); return;
+    }
+#undef SET
+  }
+  if (method_named(type, name, PTS_GETTER) >= 0) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
+  }
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", name);
+}
+
+pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
+  char buffer[MAX_KEY];
+  if (pts_value_is_nullish(object)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set properties of %s (setting '%s')", object == PTS_VALUE_NULL ? "null" : "undefined",
+                  key_text(key, buffer));
+  }
+  if (!pts_value_is_object(object) || is_string(object)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot create property '%s' on %s", key_text(key, buffer), pts_value_typeof(object)->bytes);
+  }
+  pts_object *target = pts_value_as_object(object);
+  double index;
+  switch (target->type->kind) {
+  case PTS_KIND_ARRAY: {
+    pts_array *array = (pts_array *)target;
+    pts_field_kind kind = array->type->element;
+    if (key_is(key, "length")) {
+      check_storable(PTS_FIELD_NUMBER, value, "length", array->type);
+      pts_array_set_length(array, pts_value_as_number(value));
+      return value;
+    }
+    if (!array_index(key, &index)) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));
+    }
+    check_storable(kind, value, "element", array->type);
+    uint64_t element = 0;
+    pts_store_value_in_slot(kind, &element, value);
+    pts_array_set(array, index, &element);
+    return value;
+  }
+  case PTS_KIND_RECORD: {
+    pts_map *record = (pts_map *)target;
+    check_storable(record->type->element, value, key_text(key, buffer), record->type);
+    pts_string *name = pts_value_to_string(key);
+    uint64_t entry = 0;
+    pts_store_value_in_slot(record->type->element, &entry, value);
+    pts_map_set(record, &name, &entry);
+    return value;
+  }
+  case PTS_KIND_OBJECT:
+  case PTS_KIND_TUPLE:
+    object_set(target, key, value);
+    return value;
+  default:
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot create property '%s' on a %s", key_text(key, buffer), target->type->name);
+  }
+}
+
+bool pts_dynamic_has(pts_value object, pts_value key) {
+  char buffer[MAX_KEY];
+  if (!pts_value_is_object(object) || is_string(object)) {
+    char shown[MAX_KEY];
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot use 'in' operator to search for '%s' in %s", key_text(key, buffer),
+                  key_text(object, shown));
+  }
+  pts_object *target = pts_value_as_object(object);
+  double index;
+  switch (target->type->kind) {
+  case PTS_KIND_ARRAY:
+    return key_is(key, "length") || (array_index(key, &index) && index < pts_array_length((const pts_array *)target));
+  case PTS_KIND_TUPLE:
+    return key_is(key, "length") || (array_index(key, &index) && index < target->type->field_count);
+  case PTS_KIND_RECORD: {
+    pts_string *name = pts_value_to_string(key);
+    return pts_map_has((const pts_map *)target, &name);
+  }
+  case PTS_KIND_OBJECT:
+    return pts_object_has(target, key_text(key, buffer));
+  default:
+    return false;
+  }
+}
+
+/* ---------------------------------------------------------------- boundaries */
+
+void pts_throw_type_mismatch(pts_value value, const char *expected) {
+  const char *got = value == PTS_VALUE_NULL ? "null" : (const char *)pts_value_typeof(value)->bytes;
+  if (pts_value_is_object(value) && !is_string(value) && pts_value_as_object(value)->type->name != NULL) {
+    got = pts_value_as_object(value)->type->name; /* a class's or other object's name: Point, Array, Object */
+  }
+  pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s", expected, got);
+}
+
+/* Whether value is an integer that the integer type of the given kind holds exactly: a boundary from `any` requires it. */
+bool pts_value_is_integer_of(pts_value value, pts_field_kind kind) { return fits_integer(value, kind); }

@@ -993,6 +993,17 @@ var (
 	ValueStrictEquals = &Builtin{Name: "===", Params: []Type{Value, Value}, Result: Bool}
 	// ValueLooseEquals is == on boxed values, with JS's conversions (D-067).
 	ValueLooseEquals = &Builtin{Name: "==", Params: []Type{Value, Value}, Result: Bool}
+	// DynamicGet and DynamicSet read and write the property (or element) a key names of a
+	// dynamic value, found at run time (D-070); DynamicSet's value is the value written.
+	DynamicGet = &Builtin{Name: "get", Params: []Type{Value, Value}, Result: Value}
+	DynamicSet = &Builtin{Name: "set", Params: []Type{Value, Value, Value}, Result: Value}
+	DynamicHas = &Builtin{Name: "in", Params: []Type{Value, Value}, Result: Bool}
+	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
+	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
+	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}
+	ValueToNumber  = &Builtin{Name: "Number", Params: []Type{Value}, Result: Number}
+	ValueLess      = &Builtin{Name: "<", Params: []Type{Value, Value}, Result: Bool}
+	ValueLessEqual = &Builtin{Name: "<=", Params: []Type{Value, Value}, Result: Bool}
 
 	// The Math functions of numbers, with JS's semantics (NaN and -0 included). MathMax
 	// and MathMin take two numbers; Math.max(a, b, c) applies MathMax twice.

@@ -86,6 +86,7 @@ typedef struct pts_method {
   const char *name;
   pts_method_kind kind;
   pts_function function; /* takes the object as a pts_object * first (D-036) */
+  pts_field_kind result; /* what a getter returns, or a setter takes, for reads and writes through `any` (D-070) */
 } pts_method;
 
 /*
@@ -685,6 +686,25 @@ static inline bool pts_value_instance_of(pts_value value, const pts_type *type) 
 }
 /* JS's ===: numbers by value (NaN unequal to itself, -0 equal to 0), strings by content, 64-bit integers by value, the rest by identity. */
 bool pts_value_strict_equals(pts_value a, pts_value b);
+/*
+ * Dynamic values (`any`, D-070): reads and writes of properties and elements found at run
+ * time (a missing property reads as undefined; writing one an object lacks, or a value
+ * its type doesn't allow, throws TypeError), and the operators with JS's conversions.
+ */
+pts_value pts_dynamic_get(pts_value object, pts_value key);
+pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value);
+/* `key in object`: TypeError if object isn't one. */
+bool pts_dynamic_has(pts_value object, pts_value key);
+pts_value pts_value_add(pts_value left, pts_value right);
+double pts_value_to_number(pts_value value);
+bool pts_value_less(pts_value left, pts_value right);
+bool pts_value_less_equal(pts_value left, pts_value right);
+/* A value from `any` that isn't of the type expected where it goes. */
+_Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
+bool pts_value_is_integer_of(pts_value value, pts_field_kind kind);
+static inline bool pts_value_is_string(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_STRING;
+}
 /* JS's ==: === for values of one type, null equal to undefined, and numbers compared with strings, booleans and objects converted to them (D-067). */
 bool pts_value_loose_equals(pts_value a, pts_value b);
 /* JS's ToString of an object: an array's join, its class's toString() if it has one interfaces can call, else "[object Object]". */

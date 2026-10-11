@@ -277,3 +277,16 @@ function use(a: Adder, b: { scale(by: i8): i8 }): u8 {
 		"main.pts:15:16 - error PTS2002: 300 doesn't fit in u8 (0 to 255)",
 	})
 }
+
+func TestAnAnyConvertsToEveryNumericTypeAndIsCheckedAtRunTime(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `const data: any = 300;
+const small: u8 = data;
+const whole: int = data.count;
+function take(n: i32): i32 { return n; }
+take(data);
+const plain: number = 1.5;
+const lossy: u8 = plain;
+`)
+	assert.DeepEqual(t, formatted(errors), []string{"main.pts:7:19 - error PTS2001: a number doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it"})
+}

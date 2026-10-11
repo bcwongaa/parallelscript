@@ -13,6 +13,6 @@ try {
 
 // no-diff: JS reads the string's missing message as undefined and concatenates
 // exit: 1
-// stderr: Uncaught TypeError: The value narrowed to number is of type string
+// stderr: Uncaught TypeError: Expected number, got string
 // expect:
-// TypeError: The value narrowed to Error is not an instance of it
+// TypeError: Expected Error, got string

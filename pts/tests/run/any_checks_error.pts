@@ -1,0 +1,43 @@
+// What `any` checks (D-070), where JS carries on: converting a dynamic value into a typed
+// place, and writing a property its object's type doesn't allow or doesn't have.
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const text: any = "hello";
+const point: any = new Point(1, 2);
+attempt("string as number", () => { const n: number = text; console.log(n); });
+attempt("point as string", () => { const s: string = point; console.log(s); });
+attempt("string as Point", () => { const p: Point = text; console.log(p.x); });
+attempt("number as u8", () => { const b: u8 = 300 as any; console.log(b); });
+attempt("fraction as int", () => { const i: int = 1.5 as any; console.log(i); });
+attempt("u8 that fits", () => { const b: u8 = 255 as any; console.log(b); });
+attempt("union", () => { const v: number | null = text; console.log(v); });
+attempt("write a string to x", () => { point.x = "one"; });
+attempt("add a property", () => { point.z = 3; });
+attempt("read from null", () => { const nothing: any = null; console.log(nothing.x); });
+attempt("write to a string", () => { text.size = 1; });
+console.log(point);
+
+// no-diff: JS converts nothing and adds properties
+// expect:
+// string as number -> TypeError: Expected number, got string
+// point as string -> TypeError: Expected string, got Point
+// string as Point -> TypeError: Expected Point, got string
+// number as u8 -> TypeError: Expected u8, got number
+// fraction as int -> TypeError: Expected i64, got number
+// 255
+// u8 that fits ok
+// union -> TypeError: Expected null | number, got string
+// write a string to x -> TypeError: Cannot set property x of Point to a string: the property's type doesn't allow it
+// add a property -> TypeError: Cannot add property z, object is not extensible
+// read from null -> TypeError: Cannot read properties of null (reading 'x')
+// write to a string -> TypeError: Cannot create property 'size' on string
+// Point { x: 1, y: 2 }

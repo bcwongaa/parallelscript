@@ -219,6 +219,9 @@ func (l *lowerer) keyIn(expr *ast.BinaryExpression) ir.Expr {
 	if object == nil {
 		return nil
 	}
+	if object.Type() == ir.Value { // any (D-070)
+		return &ir.CallBuiltin{Builtin: ir.DynamicHas, Args: []ir.Expr{object, box(&ir.StringConst{Value: expr.Left.Text()})}}
+	}
 	switch object.Type().(type) {
 	case *ir.Union:
 		object = &ir.FromUnion{X: object, To: l.internInterface(nil, nil)}

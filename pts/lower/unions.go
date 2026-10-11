@@ -242,7 +242,7 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 			return nil
 		}
 		return discard(x, y)
-	case !isUnion(t):
+	case !isDynamic(t):
 		return x // never null or undefined, so y is never evaluated
 	}
 	result := l.irType(l.typeAt(node), node)

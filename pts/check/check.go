@@ -348,6 +348,10 @@ func (c *pass) annotationType(typeNode *ast.Node) (Numeric, bool) {
 // expr types a number-typed expression. expected is the type its context wants, if any;
 // literals take it. The result is recorded for the lowering.
 func (c *pass) expr(node *ast.Node, expected *Numeric) Numeric {
+	if expected != nil && c.tc.GetTypeAtLocation(node).Flags()&checker.TypeFlagsAny != 0 {
+		c.expr(node, nil)
+		return *expected // an any converts to every numeric type, with a check at run time (D-070)
+	}
 	result := c.exprType(node, expected)
 	c.info.types[node] = result
 	return result
