@@ -40,6 +40,7 @@ typedef enum pts_kind {
   PTS_KIND_SET = 8,      /* a Set (pts_map) of values of its type's key kind */
   PTS_KIND_TUPLE = 9,    /* a tuple: an object whose fields, named 0, 1, …, are its elements; printed as an array */
   PTS_KIND_RECORD = 10,  /* a hash-map object (pts_map) from string keys to values of its element kind */
+  PTS_KIND_DATE = 11,    /* a Date (pts_date) */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -1340,6 +1341,53 @@ double pts_string_locale_compare(pts_string *string, pts_string *that);
 /* String.fromCharCode and String.fromCodePoint of a number array; fromCodePoint throws RangeError for an invalid code point. */
 pts_string *pts_string_from_char_codes(pts_array *codes);
 pts_string *pts_string_from_code_points(pts_array *code_points);
+
+/* ---------------------------------------------------------------- Date (D-087) */
+
+/* A Date: its time value, milliseconds since the epoch in UTC, or NaN for an invalid date. */
+typedef struct pts_date {
+  const pts_type *type;
+  double time;
+} pts_date;
+
+extern const pts_type pts_type_builtin_Date;
+typedef pts_date pts_class_builtin_Date;
+
+/* The fields pts_date_get reads and pts_date_set writes from (the UTC ones are the local ones moved by 8). */
+enum {
+  PTS_DATE_TIME = 0,
+  PTS_DATE_TIMEZONE_OFFSET = 1,
+  PTS_DATE_FULL_YEAR = 2,
+  PTS_DATE_MONTH = 3,
+  PTS_DATE_DATE = 4,
+  PTS_DATE_DAY = 5,
+  PTS_DATE_HOURS = 6,
+  PTS_DATE_MINUTES = 7,
+  PTS_DATE_SECONDS = 8,
+  PTS_DATE_MILLISECONDS = 9,
+  PTS_DATE_UTC_FULL_YEAR = 10, /* … PTS_DATE_UTC_MILLISECONDS = 17 */
+};
+
+/* The formats of pts_date_format: toString, toDateString, toTimeString, toISOString (RangeError if invalid), toUTCString. */
+enum { PTS_DATE_STRING = 0, PTS_DATE_DATE_ONLY = 1, PTS_DATE_TIME_ONLY = 2, PTS_DATE_ISO = 3, PTS_DATE_UTC = 4 };
+
+double pts_date_now(void);
+pts_date *pts_date_new_now(void);
+pts_date *pts_date_new_time(double time);
+pts_date *pts_date_new_string(pts_string *text);
+pts_date *pts_date_new_value(pts_value value);
+/* new Date(year, month[, date, hours, minutes, seconds, ms]) in local time; argc of them given. */
+pts_date *pts_date_new_components(double argc, double year, double month, double date, double hours, double minutes, double seconds, double ms);
+/* Date.UTC(…), argc of them given. */
+double pts_date_utc(double argc, double year, double month, double date, double hours, double minutes, double seconds, double ms);
+/* Date.parse: ISO's format and the common others; NaN if text is none. */
+double pts_date_parse(pts_string *text);
+double pts_date_get(pts_date *date, double field);
+double pts_date_set_time(pts_date *date, double time);
+double pts_date_set(pts_date *date, double field, double argc, double a, double b, double c, double d);
+pts_string *pts_date_format(pts_date *date, double format);
+/* toJSON: the ISO string, or null for an invalid date. */
+pts_value pts_date_to_json(pts_date *date);
 
 /* ---------------------------------------------------------------- console */
 

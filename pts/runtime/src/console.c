@@ -42,6 +42,7 @@ static void write_value(FILE *out, pts_value value) {
     case PTS_KIND_MAP:
     case PTS_KIND_SET:
     case PTS_KIND_RECORD:
+    case PTS_KIND_DATE:
       pts_inspect_write(out, object);
       return;
     }

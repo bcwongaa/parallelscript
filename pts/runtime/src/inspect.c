@@ -239,6 +239,12 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
   case PTS_KIND_FUNCTION:
     format_function(out, (const pts_closure *)object);
     return;
+  case PTS_KIND_DATE: {
+    pts_date *date = (pts_date *)object;
+    pts_string *text = pts_date_format(date, date->time != date->time ? PTS_DATE_STRING : PTS_DATE_ISO);
+    text_add(out, text->bytes, text->byte_len);
+    return;
+  }
   }
 }
 
@@ -933,6 +939,8 @@ void pts_inspect_write(FILE *out, const pts_object *object) {
   text result = {0};
   if (object->type->kind == PTS_KIND_FUNCTION) {
     format_function(&result, (const pts_closure *)object);
+  } else if (object->type->kind == PTS_KIND_DATE) {
+    format_value(&in, &result, pts_value_from_object(object), 0);
   } else {
     format_heap_object(&in, &result, object, 0);
   }

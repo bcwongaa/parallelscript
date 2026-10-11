@@ -1,0 +1,59 @@
+// Basic Date (D-087), checked against Node; the tests run with TZ=America/New_York.
+const d = new Date(2024, 0, 15, 10, 30, 5, 7);
+console.log(d, d.getTime(), d.valueOf(), +d, d.getFullYear(), d.getMonth(), d.getDate(), d.getDay(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+console.log(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCDay(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds(), d.getTimezoneOffset());
+console.log(String(d), `${d}`, "at " + d);
+console.log(d.toString(), "|", d.toDateString(), "|", d.toTimeString(), "|", d.toISOString(), "|", d.toUTCString(), "|", d.toJSON());
+console.log(JSON.stringify({ d, list: [d] }), [d], { when: d }, d instanceof Date, typeof d);
+
+// constructors
+console.log(new Date(0), new Date(1e12), new Date(-1), new Date(8.64e15), new Date(8.64e15 + 1), new Date(NaN));
+console.log(new Date(2024, 0), new Date(99, 11, 31), new Date(2024, 13, 1), new Date(2024, 0, 0), new Date(2024, 1, 29, 25, 61, 61, 1001), new Date(-5, 0));
+console.log(new Date("2024-01-15"), new Date("2024-01-15T10:30"), new Date("2024-01-15T10:30:05.123Z"), new Date("2024-01-15T10:30:05+08:00"), new Date("+002024-06"));
+console.log(new Date("Jan 15, 2024"), new Date("15 January 2024 10:30 PM"), new Date("2024/01/15"), new Date("1/15/2024"), new Date("Mon, 15 Jan 2024 02:30:05 GMT"));
+console.log(new Date(d), new Date(d.toString()), new Date(d.toUTCString()), new Date(d.toISOString()).getTime() === d.getTime(), new Date("nope"));
+console.log(Date.UTC(2020, 1, 29), Date.UTC(2020), Date.UTC(2020, 0, 1, 12, 30), Date.parse("2024-01-15"), Date.parse("2024-01-15T00:00:00"), Date.parse("x"), typeof Date.now());
+
+// DST in New York: the gap, the overlap, and both offsets
+for (const [month, date, hours] of [[2, 10, 1], [2, 10, 2], [2, 10, 3], [10, 3, 0], [10, 3, 1], [10, 3, 2], [6, 4, 12]]) {
+  const t = new Date(2024, month, date, hours, 30);
+  console.log(t.toString(), t.getTimezoneOffset(), t.getHours());
+}
+
+// setters
+const s = new Date(2024, 0, 31, 12, 0, 0);
+console.log(s.setMonth(1), s);
+console.log(s.setDate(0), s);
+console.log(s.setFullYear(2025, 5), s);
+console.log(s.setHours(23, 59, 59, 999), s);
+console.log(s.setMinutes(90), s);
+console.log(s.setSeconds(-1), s.setMilliseconds(1500), s);
+console.log(s.setUTCHours(0, 0, 0, 0), s, s.setUTCDate(1), s.setUTCMonth(0, 15), s.setUTCFullYear(2000), s);
+console.log(s.setTime(0), s, s.setTime(NaN), s, s.setHours(1), s.setFullYear(2020), s);
+
+// invalid dates
+const bad = new Date("garbage");
+console.log(bad.getTime(), bad.getFullYear(), bad.getUTCDay(), bad.getTimezoneOffset(), String(bad), bad.toDateString(), bad.toUTCString(), JSON.stringify(bad));
+try {
+  bad.toISOString();
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+
+// comparing, sorting and arithmetic
+const a = new Date(2024, 5, 1), b = new Date(2024, 0, 1);
+console.log(a > b, a < b, a >= b, a <= b, a === b, a.getTime() === new Date(a).getTime(), (a.getTime() - b.getTime()) / 86400000);
+const dates = [a, b, new Date(2023, 11, 25)];
+dates.sort((x, y) => x.getTime() - y.getTime());
+console.log(dates, dates.map((x) => x.toISOString().slice(0, 10)));
+class Event {
+  constructor(public name: string, public at: Date) {}
+}
+const events = [new Event("launch", new Date(Date.UTC(2024, 3, 1)))];
+console.log(events, events[0].at.getUTCMonth());
+const byDay = new Map<string, Date>([["first", new Date(0)]]);
+console.log(byDay);
+
+// through any
+const any: any = new Date(Date.UTC(2020, 5, 15, 8, 0, 0));
+console.log(any.getTime(), any.getUTCHours(), any.getHours(), any.toISOString(), any.toUTCString(), any.setUTCDate(20), any, any.toJSON(), String(any));

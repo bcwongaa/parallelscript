@@ -24,7 +24,7 @@ func (l *lowerer) declareErrorClasses() {
 		}
 		class.Constructor = l.errorConstructor(class)
 		l.classes[symbol] = class
-		l.errorClasses = append(l.errorClasses, class)
+		l.builtinClasses = append(l.builtinClasses, class)
 	}
 }
 

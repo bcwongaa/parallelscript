@@ -42,16 +42,26 @@ func (e *emitter) nameClasses(program *ir.Program) {
 }
 
 // externFunctions names the runtime functions that implement the constructors and
-// methods of builtin classes (D-068).
+// methods of builtin classes (D-068), and any other function the program calls that the
+// runtime implements (Date's, D-087).
 func (e *emitter) externFunctions(program *ir.Program) {
 	for _, class := range program.Classes {
 		if !class.Builtin {
 			continue
 		}
-		e.funcNames[class.Constructor] = class.Constructor.Extern
+		if class.Constructor != nil {
+			e.funcNames[class.Constructor] = class.Constructor.Extern
+		}
 		for _, method := range class.Methods {
 			e.funcNames[method.Func] = method.Func.Extern
 		}
+	}
+	for _, f := range program.Funcs {
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			if call, ok := x.(*ir.Call); ok && call.Func.Extern != "" {
+				e.funcNames[call.Func] = call.Func.Extern
+			}
+		})
 	}
 }
 

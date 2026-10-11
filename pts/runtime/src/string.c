@@ -245,6 +245,7 @@ pts_string *pts_value_to_string(pts_value value) {
     case PTS_KIND_OBJECT:
     case PTS_KIND_ARRAY:
     case PTS_KIND_RECORD:
+    case PTS_KIND_DATE:
       return pts_object_to_string(object);
     default:
       break;

@@ -787,6 +787,15 @@ static bool serialize(writer *w, pts_value holder, pts_value key, pts_value valu
     return true;
   case PTS_KIND_FUNCTION:
     return false;
+  case PTS_KIND_DATE: {
+    pts_value json = pts_date_to_json((pts_date *)pts_value_as_object(value));
+    if (json == PTS_VALUE_NULL) {
+      put_cstr(w, "null");
+    } else {
+      put_quoted(w, pts_value_as_string(json));
+    }
+    return true;
+  }
   case PTS_KIND_ARRAY:
   case PTS_KIND_TUPLE:
     push_frame(w, value, key);

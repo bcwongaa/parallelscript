@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.5e Basic `Date`
+- **Next task:** M3.6 `console.log` parity
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.5e Basic Date: constructors (now, time values, ISO and common strings, local components), `Date.now`/`UTC`/`parse`, local and UTC getters and setters, `toString`/`toDateString`/`toTimeString`/`toISOString`/`toUTCString`/`toJSON`, `console.log` and JSON of dates, relational operators and ToNumber on dates, dates through `any`; local time from the C library's zone rules with V8's DST disambiguation; every test program runs with `TZ=America/New_York` (D-087, SPEC §9.64). M3.5 is complete.
 - M3.5d Object functions and `for…in`: `Object.keys`/`values`/`entries`/`hasOwn` of class instances, literals, arrays and strings (the runtime's own keys), `for…in` over any value, `Object.assign` (checked writes through the target's declared types), `Object.is`, `Object.freeze` (not enforced), `Object.fromEntries`; intersections that one member covers are that member (D-086, SPEC §9.63).
 - M3.5c2 The remaining array methods: `at`, `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)`/`Array(n)` (holes printed as `<n empty items>`; zeros for primitive element types), `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`, the copying methods through `any`; an `any[]` converts to a typed array by a checked copy (D-085, SPEC §9.62). M3.5c is complete.
 - M3.5c1 Math in full: V8 13.6's fdlibm converted to C for the transcendental functions (equal to Node on 440,000 random inputs; glibc differed on 1 to 50 %), V8's `hypot`, `fround`, `imul`, `clz32`, `random` (xorshift128+ per thread), ToNumber of arguments, spread arguments of `max`/`min`/`hypot`, Math's functions as values (D-084, SPEC §9.61). M3.5c split by D-084.
@@ -88,7 +89,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.5e (basic `Date`); see `docs/MASTER_PLAN.md`. Small gaps left (PTS1001): `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` and `toLocaleString` with locales other than English or options.
+1. M3.6 `console.log` parity (`%s`/`%d`/`%o` format strings, `console.error`/`warn`/`info`, the rest of `util.inspect`), then M3.7 (the 300-program corpus). Small gaps left (PTS1001): `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` and `toLocaleString` with locales other than English or options; Date's `toLocale…` formats; `Object.isFrozen`; `Object.assign({}, …)`; iterators as values (M4.1).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -103,7 +104,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (168 run tests, one skipped (`generic_values_classes.pts`, a known issue); 59 error tests; 8 number-corpus and 13 string-corpus parts; about 50 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (169 run tests, one skipped (`generic_values_classes.pts`, a known issue); 60 error tests; 8 number-corpus and 13 string-corpus parts; about 50 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -134,6 +135,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M3.5e done; M3.5 complete.
 - 2026-10-12: M3.5d done.
 - 2026-10-12: M3.5c2 done; M3.5c complete.
 - 2026-10-12: M3.5c1 done (M3.5c split by D-084).

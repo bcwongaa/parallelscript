@@ -1,0 +1,9 @@
+// Date's locale formats, calling Date without `new`, and classes extending Date aren't supported yet (D-087).
+const d = new Date(0);
+console.log(d.toLocaleDateString());
+console.log(Date());
+class Stamp extends Date {}
+
+// error: dates_not_yet.pts:3:13 - error PTS1001: the Date method `toLocaleDateString` is not supported yet
+// error: dates_not_yet.pts:4:13 - error PTS1001: calling `Date` without `new` is not supported yet
+// error: dates_not_yet.pts:5:21 - error PTS1001: extending `Date` is not supported yet

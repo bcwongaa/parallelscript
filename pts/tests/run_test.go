@@ -234,6 +234,10 @@ func nodeModulePath(path string) string {
 	return strings.TrimSuffix(path, ".pts") + ".mts"
 }
 
+// testTimeZone is the local time zone of every program the tests run, under pts and
+// Node alike, so that local times print the same on every machine and cross DST (D-087).
+const testTimeZone = "America/New_York"
+
 func execute(t *testing.T, dir string, name string, args ...string) runResult {
 	t.Helper()
 	heavyJobs <- struct{}{}
@@ -242,6 +246,7 @@ func execute(t *testing.T, dir string, name string, args ...string) runResult {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TZ="+testTimeZone)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

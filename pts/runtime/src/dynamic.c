@@ -11,7 +11,7 @@
 /* ---------------------------------------------------------------- conversions */
 
 /* JS's ToPrimitive of an object, which has no valueOf in ParallelScript: its string (pts_object_to_string). */
-static pts_value to_primitive(pts_value value) {
+static pts_value to_primitive(pts_value value, bool number_hint) {
   if (!pts_value_is_object(value)) {
     return value;
   }
@@ -21,6 +21,11 @@ static pts_value to_primitive(pts_value value) {
   case PTS_KIND_INT64:
   case PTS_KIND_UINT64:
     return value;
+  case PTS_KIND_DATE: /* valueOf for a number, toString otherwise, as Date.prototype[Symbol.toPrimitive] does */
+    if (number_hint) {
+      return pts_value_from_number(((const pts_date *)object)->time);
+    }
+    return pts_value_from_string(pts_value_to_string(value));
   default:
     return pts_value_from_string(pts_value_to_string(value));
   }
@@ -31,7 +36,7 @@ static bool is_string(pts_value value) {
 }
 
 double pts_value_to_number(pts_value value) {
-  value = to_primitive(value);
+  value = to_primitive(value, true);
   if (pts_value_is_number(value)) {
     return pts_value_as_number(value);
   }
@@ -60,8 +65,8 @@ double pts_value_to_number(pts_value value) {
 }
 
 pts_value pts_value_add(pts_value left, pts_value right) {
-  left = to_primitive(left);
-  right = to_primitive(right);
+  left = to_primitive(left, false);
+  right = to_primitive(right, false);
   if (is_string(left) || is_string(right)) {
     return pts_value_from_string(pts_string_concat(pts_value_to_string(left), pts_value_to_string(right)));
   }
@@ -70,8 +75,8 @@ pts_value pts_value_add(pts_value left, pts_value right) {
 
 /* JS's IsLessThan: strings by UTF-16 code units, everything else as numbers; undefined if either is NaN. */
 static int compare(pts_value left, pts_value right, bool *undefined) {
-  left = to_primitive(left);
-  right = to_primitive(right);
+  left = to_primitive(left, true);
+  right = to_primitive(right, true);
   *undefined = false;
   if (is_string(left) && is_string(right)) {
     return pts_string_compare((const pts_string *)pts_value_as_object(left), (const pts_string *)pts_value_as_object(right));

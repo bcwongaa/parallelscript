@@ -926,6 +926,92 @@ static const named_method record_methods[] = {
     {NULL, NULL},
 };
 
+/* ---------------------------------------------------------------- dates (D-087) */
+
+static pts_date *date_of(pts_value self) { return (pts_date *)pts_value_as_object(self); }
+
+#define DATE_GETTER(name, field)                                                     \
+  static pts_value name(pts_value self, uint32_t argc, const pts_value *argv) {      \
+    (void)argc, (void)argv;                                                          \
+    return pts_value_from_number(pts_date_get(date_of(self), field));                \
+  }
+#define DATE_SETTER(name, field)                                                     \
+  static pts_value name(pts_value self, uint32_t argc, const pts_value *argv) {      \
+    double a = number_argument(argc, argv, 0, __builtin_nan("")), b = number_argument(argc, argv, 1, 0), \
+           c = number_argument(argc, argv, 2, 0), d = number_argument(argc, argv, 3, 0); \
+    return pts_value_from_number(pts_date_set(date_of(self), field, argc, a, b, c, d)); \
+  }
+#define DATE_FORMAT(name, format)                                                    \
+  static pts_value name(pts_value self, uint32_t argc, const pts_value *argv) {      \
+    (void)argc, (void)argv;                                                          \
+    return pts_value_from_string(pts_date_format(date_of(self), format));            \
+  }
+DATE_GETTER(date_get_time, PTS_DATE_TIME)
+DATE_GETTER(date_get_timezone_offset, PTS_DATE_TIMEZONE_OFFSET)
+DATE_GETTER(date_get_full_year, PTS_DATE_FULL_YEAR)
+DATE_GETTER(date_get_month, PTS_DATE_MONTH)
+DATE_GETTER(date_get_date, PTS_DATE_DATE)
+DATE_GETTER(date_get_day, PTS_DATE_DAY)
+DATE_GETTER(date_get_hours, PTS_DATE_HOURS)
+DATE_GETTER(date_get_minutes, PTS_DATE_MINUTES)
+DATE_GETTER(date_get_seconds, PTS_DATE_SECONDS)
+DATE_GETTER(date_get_milliseconds, PTS_DATE_MILLISECONDS)
+DATE_GETTER(date_get_utc_full_year, PTS_DATE_UTC_FULL_YEAR)
+DATE_GETTER(date_get_utc_month, PTS_DATE_UTC_FULL_YEAR + 1)
+DATE_GETTER(date_get_utc_date, PTS_DATE_UTC_FULL_YEAR + 2)
+DATE_GETTER(date_get_utc_day, PTS_DATE_UTC_FULL_YEAR + 3)
+DATE_GETTER(date_get_utc_hours, PTS_DATE_UTC_FULL_YEAR + 4)
+DATE_GETTER(date_get_utc_minutes, PTS_DATE_UTC_FULL_YEAR + 5)
+DATE_GETTER(date_get_utc_seconds, PTS_DATE_UTC_FULL_YEAR + 6)
+DATE_GETTER(date_get_utc_milliseconds, PTS_DATE_UTC_FULL_YEAR + 7)
+DATE_SETTER(date_set_full_year, PTS_DATE_FULL_YEAR)
+DATE_SETTER(date_set_month, PTS_DATE_MONTH)
+DATE_SETTER(date_set_date, PTS_DATE_DATE)
+DATE_SETTER(date_set_hours, PTS_DATE_HOURS)
+DATE_SETTER(date_set_minutes, PTS_DATE_MINUTES)
+DATE_SETTER(date_set_seconds, PTS_DATE_SECONDS)
+DATE_SETTER(date_set_milliseconds, PTS_DATE_MILLISECONDS)
+DATE_SETTER(date_set_utc_full_year, PTS_DATE_UTC_FULL_YEAR)
+DATE_SETTER(date_set_utc_month, PTS_DATE_UTC_FULL_YEAR + 1)
+DATE_SETTER(date_set_utc_date, PTS_DATE_UTC_FULL_YEAR + 2)
+DATE_SETTER(date_set_utc_hours, PTS_DATE_UTC_FULL_YEAR + 4)
+DATE_SETTER(date_set_utc_minutes, PTS_DATE_UTC_FULL_YEAR + 5)
+DATE_SETTER(date_set_utc_seconds, PTS_DATE_UTC_FULL_YEAR + 6)
+DATE_SETTER(date_set_utc_milliseconds, PTS_DATE_UTC_FULL_YEAR + 7)
+DATE_FORMAT(date_to_string, PTS_DATE_STRING)
+DATE_FORMAT(date_to_date_string, PTS_DATE_DATE_ONLY)
+DATE_FORMAT(date_to_time_string, PTS_DATE_TIME_ONLY)
+DATE_FORMAT(date_to_iso_string, PTS_DATE_ISO)
+DATE_FORMAT(date_to_utc_string, PTS_DATE_UTC)
+#undef DATE_GETTER
+#undef DATE_SETTER
+#undef DATE_FORMAT
+
+static pts_value date_set_time(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_number(pts_date_set_time(date_of(self), number_argument(argc, argv, 0, __builtin_nan(""))));
+}
+
+static pts_value date_to_json(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_date_to_json(date_of(self));
+}
+
+static const named_method date_methods[] = {
+    {"getDate", date_get_date}, {"getDay", date_get_day}, {"getFullYear", date_get_full_year}, {"getHours", date_get_hours},
+    {"getMilliseconds", date_get_milliseconds}, {"getMinutes", date_get_minutes}, {"getMonth", date_get_month},
+    {"getSeconds", date_get_seconds}, {"getTime", date_get_time}, {"getTimezoneOffset", date_get_timezone_offset},
+    {"getUTCDate", date_get_utc_date}, {"getUTCDay", date_get_utc_day}, {"getUTCFullYear", date_get_utc_full_year},
+    {"getUTCHours", date_get_utc_hours}, {"getUTCMilliseconds", date_get_utc_milliseconds}, {"getUTCMinutes", date_get_utc_minutes},
+    {"getUTCMonth", date_get_utc_month}, {"getUTCSeconds", date_get_utc_seconds}, {"setDate", date_set_date},
+    {"setFullYear", date_set_full_year}, {"setHours", date_set_hours}, {"setMilliseconds", date_set_milliseconds},
+    {"setMinutes", date_set_minutes}, {"setMonth", date_set_month}, {"setSeconds", date_set_seconds}, {"setTime", date_set_time},
+    {"setUTCDate", date_set_utc_date}, {"setUTCFullYear", date_set_utc_full_year}, {"setUTCHours", date_set_utc_hours},
+    {"setUTCMilliseconds", date_set_utc_milliseconds}, {"setUTCMinutes", date_set_utc_minutes}, {"setUTCMonth", date_set_utc_month},
+    {"setUTCSeconds", date_set_utc_seconds}, {"toDateString", date_to_date_string}, {"toGMTString", date_to_utc_string},
+    {"toISOString", date_to_iso_string}, {"toJSON", date_to_json}, {"toString", date_to_string}, {"toTimeString", date_to_time_string},
+    {"toUTCString", date_to_utc_string}, {"valueOf", date_get_time}, {NULL, NULL},
+};
+
 /* ---------------------------------------------------------------- Object.keys, values, entries */
 
 /* The own enumerable string keys of value, in JS's order, as a string[]. */
@@ -1114,6 +1200,9 @@ bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, c
       break;
     case PTS_KIND_RECORD:
       methods = record_methods;
+      break;
+    case PTS_KIND_DATE:
+      methods = date_methods;
       break;
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:

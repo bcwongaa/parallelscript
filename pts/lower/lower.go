@@ -165,6 +165,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	// module runs. Classes come first, since any declaration's type may name one.
 	l.function = result.Main
 	l.declareErrorClasses()
+	l.declareDateClass()
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareClasses(file)
@@ -203,7 +204,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
 	l.prepareDynamicTypes(result.Funcs)
-	result.Classes = append(orderedByParent(slices.Concat(l.errorClasses, l.classList, l.instanceClasses)), l.shapeList...)
+	result.Classes = append(orderedByParent(slices.Concat(l.builtinClasses, l.classList, l.instanceClasses)), l.shapeList...)
 	result.Interfaces = l.interfaceList
 	result.InKeys = slices.Sorted(maps.Keys(l.inKeys))
 	l.markAccessorProperties()
@@ -291,7 +292,9 @@ type lowerer struct {
 	function            *ir.Func                         // the function being lowered
 	targets             []jumpTarget                     // the statements around the current one that break or continue can leave
 	finallies           []*finallyContext                // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
-	errorClasses        []*ir.Class                      // Error and its native subclasses, the runtime's (D-068)
+	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068) and Date (D-087), the runtime's
+	dateClass           *ir.Class                        // Date (D-087)
+	dates               *dateFunctions                   // the runtime functions behind Date
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
 }
@@ -1295,6 +1298,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
 	}
+	if x, handled := l.dateCall(call); handled {
+		return x
+	}
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)
 	}
@@ -2042,6 +2048,9 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	y := l.expression(expr.Right)
 	if x == nil || y == nil {
 		return nil
+	}
+	if op >= ir.Lt && op <= ir.Ge && x.Type() == l.dateClass && y.Type() == l.dateClass {
+		return &ir.Binary{Op: op, X: l.dateTime(x), Y: l.dateTime(y)} // dates compare by their time values (D-087)
 	}
 	if loose := operator == ast.KindEqualsEqualsToken || operator == ast.KindExclamationEqualsToken; loose && (isDynamic(x.Type()) || isDynamic(y.Type())) {
 		return looseEquality(op, x, y)

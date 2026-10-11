@@ -544,6 +544,9 @@ pts_string *pts_object_to_string(const pts_object *object) {
   if (object->type->kind == PTS_KIND_ARRAY) {
     return pts_array_join((const pts_array *)object, NULL);
   }
+  if (object->type->kind == PTS_KIND_DATE) {
+    return pts_date_format((pts_date *)object, PTS_DATE_STRING);
+  }
   for (uint32_t i = 0; i < object->type->method_count; i++) {
     const pts_method *method = &object->type->methods[i];
     if (method->kind == PTS_METHOD && strcmp(method->name, "toString") == 0) {
