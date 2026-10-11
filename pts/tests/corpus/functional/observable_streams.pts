@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: values of type void
+// skip: diverges: an erased copy makes a generic class instance for any (TypeError: Expected Observable, got Observable; known issue, D-078)
 // A minimal synchronous Observable with map/filter/scan/take/merge operators.
 
 interface Observer<T> {

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: overriding `CellContent.evaluate` with other parameter or result types
+// skip: not supported yet: PTS1001: converting string to number
 // Spreadsheet with cell objects, simple formulas, dependency tracking, recalculation and cycle detection.
 
 type CellValue = number | string | null;

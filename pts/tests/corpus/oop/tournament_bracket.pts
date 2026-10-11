@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting null to Team
+// skip: not supported yet: PTS1001: converting Team[] to Team | null[]
 // Single-elimination tournament bracket with seeding, byes, Elo ratings and a deterministic match simulator.
 
 class Team {

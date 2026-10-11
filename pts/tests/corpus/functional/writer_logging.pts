@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting value to string[]
+// skip: not supported yet: PTS1001: converting number[] to value[]
 // A Writer-style computation that accumulates logs alongside values, used for a loan calculator.
 
 type Writer<A> = { value: A; logs: string[] };

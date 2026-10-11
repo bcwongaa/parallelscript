@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: overriding `Participant.wantsCard` with other parameter or result types
+// skip: not supported yet: PTS1001: converting BasicStrategyPlayer | CautiousPlayer[] to Participant[]
 // Blackjack with a seeded shuffle: deck, hands, dealer strategy and scoring.
 
 function mulberry32(seed: number): () => number {

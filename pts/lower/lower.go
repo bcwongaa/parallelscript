@@ -229,8 +229,6 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 }
 
 type lowerer struct {
-	undefinedTested map[*ast.Symbol]bool // variables the program tests for undefined (collectUndefinedTests)
-	looseSymbols    map[*ast.Symbol]bool // loose locals and the variables known not to be (isLoose)
 	program             *compiler.Program
 	checker             *checker.Checker
 	argumentTemps       []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
@@ -305,6 +303,8 @@ type lowerer struct {
 	dates               *dateFunctions                   // the runtime functions behind Date
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
+	undefinedTested     map[*ast.Symbol]bool // variables the program tests for undefined (collectUndefinedTests)
+	looseSymbols        map[*ast.Symbol]bool // loose locals and the variables known not to be (isLoose)
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.

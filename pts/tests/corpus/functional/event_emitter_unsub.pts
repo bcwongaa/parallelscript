@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting value to {at: number; user: string}
+// skip: diverges: a function converted to another function type is a new adapter, so Set.delete of the handler finds nothing
 // A typed event emitter whose `on` returns an unsubscribe closure.
 
 type Events = {

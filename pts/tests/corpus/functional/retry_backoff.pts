@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: using a (number) => void as a (number) => string, whose result it doesn't return,
+// skip: not supported yet: PTS1001: converting Error to FatalError | RetriesExhausted
 // A retry wrapper with exponential backoff and jitter driven by a fake clock and a seeded PRNG.
 
 function mulberry32(seed: number): () => number {

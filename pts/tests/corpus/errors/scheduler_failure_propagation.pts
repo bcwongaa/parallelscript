@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: using a (Record<string, number>) => void as a (Record<string, number>) => number, whose result it doesn't return,
+// skip: not supported yet: PTS1001: computed property names
 // Runs tasks in dependency order; when a task fails, everything depending on
 // it is skipped (not run), and the final report shows why.
 

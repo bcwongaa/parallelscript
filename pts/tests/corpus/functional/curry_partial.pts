@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: rest parameters of type [module: string, msg: string, code: number]
+// skip: not supported yet: a function's length (`f.length` of a function of a union type reads undefined)
 // Currying and partial application helpers used to build small pricing functions.
 
 type Fn2<A, B, R> = (a: A, b: B) => R;

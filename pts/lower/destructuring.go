@@ -21,8 +21,8 @@ import (
 // value (D-057); or one written as a pattern, which the body destructures from value (the
 // argument itself, if the parameter has no default and isn't a rest parameter).
 type parameterBinding struct {
-	node  *ast.Node // the parameter declaration
-	value *ir.Local
+	node     *ast.Node // the parameter declaration
+	value    *ir.Local
 	arg      *ir.Local   // with a default or for a rest parameter
 	given    *ir.Local   // with a default
 	elements []*ir.Local // for a rest parameter of a tuple type: its elements' parameters
