@@ -20,7 +20,7 @@ import (
 // Info is what the pass learned about a program.
 type Info struct {
 	types    map[*ast.Node]Numeric // number-typed expressions and the names of number-typed variables
-	operands map[*ast.Node]Numeric // binary operators on numbers: the type both operands convert to
+	operands map[*ast.Node]Numeric // binary operators (compound assignments and switch case clauses too) on numbers: the type both operands convert to
 }
 
 // TypeOf returns the numeric type of a number-typed expression or variable name.
@@ -29,7 +29,9 @@ func (i *Info) TypeOf(node *ast.Node) (Numeric, bool) {
 	return n, ok
 }
 
-// OperandType returns the type both operands of a binary operator on numbers convert to.
+// OperandType returns the type both operands of a binary operator on numbers convert to;
+// for a compound assignment, the operator's operands; for a switch case clause, the
+// switch's value and the case's.
 func (i *Info) OperandType(node *ast.Node) (Numeric, bool) {
 	n, ok := i.operands[node]
 	return n, ok
@@ -68,6 +70,9 @@ func (c *pass) visit(node *ast.Node) {
 	case node.Kind == ast.KindBinaryExpression && isComparison(node) && c.isNumber(node.AsBinaryExpression().Left):
 		c.operands(node, nil)
 		return
+	case node.Kind == ast.KindSwitchStatement && c.isNumber(node.Expression()):
+		c.switchStatement(node)
+		return
 	case ast.IsExpression(node) && c.isNumber(node):
 		c.expr(node, nil)
 		return
@@ -84,6 +89,12 @@ func (c *pass) isNumber(node *ast.Node) bool {
 
 func (c *pass) variableDeclaration(node *ast.Node) {
 	name, initializer := node.Name(), node.Initializer()
+	if name.Kind == ast.KindIdentifier && initializer == nil && c.isNumber(name) {
+		declared, _ := c.annotationType(node.Type()) // `let n: u8;`; without an annotation tsc wouldn't type it number
+		c.symbols[c.tc.GetSymbolAtLocation(name)] = declared
+		c.info.types[name] = declared
+		return
+	}
 	if name.Kind != ast.KindIdentifier || initializer == nil || !c.isNumber(name) {
 		node.ForEachChild(func(child *ast.Node) bool {
 			c.visit(child)
@@ -100,6 +111,21 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	}
 	c.symbols[symbol] = declared
 	c.info.types[name] = declared
+}
+
+// switchStatement types the cases of a switch on a number: each case compares with the
+// switch's value as === would.
+func (c *pass) switchStatement(node *ast.Node) {
+	tag := node.Expression()
+	tagType := c.expr(tag, nil)
+	for _, clause := range node.AsSwitchStatement().CaseBlock.AsCaseBlock().Clauses.Nodes {
+		if clause.Kind == ast.KindCaseClause {
+			c.info.operands[clause] = c.pair(clause, tag, &tagType, clause.Expression(), nil, "case")
+		}
+		for _, statement := range clause.Statements() {
+			c.visit(statement)
+		}
+	}
 }
 
 // requireConvertible reports node if its type doesn't convert to target without `as`.
@@ -158,18 +184,38 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 		return c.expr(node.Expression(), expected)
 	case ast.KindPrefixUnaryExpression:
 		unary := node.AsPrefixUnaryExpression()
-		if unary.Operator != ast.KindMinusToken && unary.Operator != ast.KindPlusToken {
-			break
+		switch unary.Operator {
+		case ast.KindPlusPlusToken, ast.KindMinusMinusToken:
+			return c.expr(unary.Operand, nil)
+		case ast.KindMinusToken, ast.KindPlusToken, ast.KindTildeToken:
+			if unary.Operand.Kind == ast.KindNumericLiteral {
+				result := c.literal(unary.Operand, node, unary.Operator == ast.KindMinusToken, expected)
+				c.info.types[unary.Operand] = result
+				return result
+			}
+			return c.expr(unary.Operand, expected)
 		}
-		if unary.Operand.Kind == ast.KindNumericLiteral {
-			result := c.literal(unary.Operand, node, unary.Operator == ast.KindMinusToken, expected)
-			c.info.types[unary.Operand] = result
-			return result
-		}
-		return c.expr(unary.Operand, expected)
+	case ast.KindPostfixUnaryExpression:
+		return c.expr(node.AsPostfixUnaryExpression().Operand, nil)
+	case ast.KindConditionalExpression:
+		conditional := node.AsConditionalExpression()
+		c.visit(conditional.Condition)
+		return c.pair(node, conditional.WhenTrue, nil, conditional.WhenFalse, expected, "?:")
 	case ast.KindBinaryExpression:
-		if binaryOperatorIsArithmetic(node) {
+		binary := node.AsBinaryExpression()
+		switch operator := binary.OperatorToken.Kind; {
+		case binaryOperatorIsArithmetic(node):
 			return c.operands(node, expected)
+		case operator == ast.KindEqualsToken:
+			return c.assignment(node)
+		case operator == ast.KindAmpersandAmpersandToken || operator == ast.KindBarBarToken:
+			return c.pair(node, binary.Left, nil, binary.Right, expected, scanner.TokenToString(operator))
+		case operator == ast.KindCommaToken:
+			c.visit(binary.Left)
+			return c.expr(binary.Right, expected)
+		}
+		if _, ok := CompoundOperator(binary.OperatorToken.Kind); ok {
+			return c.compoundAssignment(node)
 		}
 	case ast.KindAsExpression:
 		if target, ok := c.annotationType(node.Type()); ok {
@@ -244,6 +290,62 @@ func (c *pass) operands(node *ast.Node, expected *Numeric) Numeric {
 	return operandType
 }
 
+// assignment types `x = value` for a number-typed x: the value converts to x's type.
+func (c *pass) assignment(node *ast.Node) Numeric {
+	binary := node.AsBinaryExpression()
+	target := c.expr(binary.Left, nil)
+	c.requireConvertible(binary.Right, c.expr(binary.Right, &target), target)
+	return target
+}
+
+// compoundAssignment types `x op= value` as `x = x op value`.
+func (c *pass) compoundAssignment(node *ast.Node) Numeric {
+	target := c.expr(node.AsBinaryExpression().Left, nil)
+	if op, _ := CompoundOperator(node.AsBinaryExpression().OperatorToken.Kind); isLogical(op) {
+		c.requireConvertible(node.AsBinaryExpression().Right, c.expr(node.AsBinaryExpression().Right, &target), target)
+		return target
+	}
+	c.requireConvertible(node, c.operands(node, &target), target)
+	return target
+}
+
+// pair types two expressions that must end up with one type: the branches of ?:, the
+// operands of && and ||, a switch value and a case. Either may already be typed (aType
+// non-nil, for a switch's value). The type is recorded for node and returned.
+func (c *pass) pair(node *ast.Node, a *ast.Node, aType *Numeric, b *ast.Node, expected *Numeric, what string) Numeric {
+	var result Numeric
+	aUntyped, bUntyped := aType == nil && isUntyped(a), isUntyped(b)
+	switch {
+	case aUntyped && bUntyped:
+		result = Number
+		if expected != nil {
+			result = *expected
+		}
+		c.expr(a, &result)
+		c.expr(b, &result)
+	case bUntyped:
+		if aType == nil {
+			aType = ptr(c.expr(a, expected))
+		}
+		result = c.withUntyped(*aType, b)
+	case aUntyped:
+		result = c.withUntyped(c.expr(b, expected), a)
+	default:
+		if aType == nil {
+			aType = ptr(c.expr(a, expected))
+		}
+		bType := c.expr(b, expected)
+		var ok bool
+		if result, ok = unify(*aType, bType); !ok {
+			c.report(node, diagnostic.NumericMix, "`%s` can't mix %s and %s, because neither converts to the other without loss; convert one with `as`", what, *aType, bType)
+			result = *aType
+		}
+	}
+	return result
+}
+
+func ptr(n Numeric) *Numeric { return &n }
+
 // withUntyped types an untyped operand next to an operand of type typed: integer
 // constants take the typed side's type; other constants are numbers.
 func (c *pass) withUntyped(typed Numeric, untyped *ast.Node) Numeric {
@@ -267,7 +369,7 @@ func isUntyped(node *ast.Node) bool {
 		return isUntyped(node.Expression())
 	case ast.KindPrefixUnaryExpression:
 		unary := node.AsPrefixUnaryExpression()
-		return (unary.Operator == ast.KindMinusToken || unary.Operator == ast.KindPlusToken) && isUntyped(unary.Operand)
+		return (unary.Operator == ast.KindMinusToken || unary.Operator == ast.KindPlusToken || unary.Operator == ast.KindTildeToken) && isUntyped(unary.Operand)
 	case ast.KindBinaryExpression:
 		binary := node.AsBinaryExpression()
 		return binaryOperatorIsArithmetic(node) && isUntyped(binary.Left) && isUntyped(binary.Right)
@@ -290,11 +392,41 @@ func isIntegerConstant(node *ast.Node) bool {
 }
 
 func binaryOperatorIsArithmetic(node *ast.Node) bool {
-	switch node.AsBinaryExpression().OperatorToken.Kind {
-	case ast.KindPlusToken, ast.KindMinusToken, ast.KindAsteriskToken, ast.KindSlashToken, ast.KindPercentToken, ast.KindAsteriskAsteriskToken:
+	return isArithmetic(node.AsBinaryExpression().OperatorToken.Kind)
+}
+
+// isArithmetic reports whether a binary operator computes a number from two numbers:
+// the arithmetic and the bitwise operators.
+func isArithmetic(operator ast.Kind) bool {
+	switch operator {
+	case ast.KindPlusToken, ast.KindMinusToken, ast.KindAsteriskToken, ast.KindSlashToken, ast.KindPercentToken, ast.KindAsteriskAsteriskToken,
+		ast.KindAmpersandToken, ast.KindBarToken, ast.KindCaretToken,
+		ast.KindLessThanLessThanToken, ast.KindGreaterThanGreaterThanToken, ast.KindGreaterThanGreaterThanGreaterThanToken:
 		return true
 	}
 	return false
+}
+
+func isLogical(operator ast.Kind) bool {
+	return operator == ast.KindAmpersandAmpersandToken || operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken
+}
+
+// compoundOperators map each compound assignment operator to the binary operator it applies.
+var compoundOperators = map[ast.Kind]ast.Kind{
+	ast.KindPlusEqualsToken: ast.KindPlusToken, ast.KindMinusEqualsToken: ast.KindMinusToken,
+	ast.KindAsteriskEqualsToken: ast.KindAsteriskToken, ast.KindSlashEqualsToken: ast.KindSlashToken,
+	ast.KindPercentEqualsToken: ast.KindPercentToken, ast.KindAsteriskAsteriskEqualsToken: ast.KindAsteriskAsteriskToken,
+	ast.KindAmpersandEqualsToken: ast.KindAmpersandToken, ast.KindBarEqualsToken: ast.KindBarToken, ast.KindCaretEqualsToken: ast.KindCaretToken,
+	ast.KindLessThanLessThanEqualsToken: ast.KindLessThanLessThanToken, ast.KindGreaterThanGreaterThanEqualsToken: ast.KindGreaterThanGreaterThanToken,
+	ast.KindGreaterThanGreaterThanGreaterThanEqualsToken: ast.KindGreaterThanGreaterThanGreaterThanToken,
+	ast.KindAmpersandAmpersandEqualsToken:                ast.KindAmpersandAmpersandToken, ast.KindBarBarEqualsToken: ast.KindBarBarToken,
+	ast.KindQuestionQuestionEqualsToken: ast.KindQuestionQuestionToken,
+}
+
+// CompoundOperator returns the binary operator a compound assignment operator applies: + for +=.
+func CompoundOperator(operator ast.Kind) (ast.Kind, bool) {
+	op, ok := compoundOperators[operator]
+	return op, ok
 }
 
 func isComparison(node *ast.Node) bool {

@@ -120,8 +120,8 @@ func TestTypeOnlyDeclarationsProduceNoCode(t *testing.T) {
 
 func TestUnsupportedStatementIsReportedAtItsPosition(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(1);\n  if (true) {}\n")
-	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: if statement is not supported yet")
+	err := lowerInvalid(t, "console.log(1);\n  for (const c of \"ab\") {}\n")
+	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: for of statement is not supported yet")
 }
 
 func TestArithmeticFollowsTypeScriptPrecedence(t *testing.T) {
@@ -164,16 +164,16 @@ func TestALocalNamedNaNShadowsTheGlobal(t *testing.T) {
 
 func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, `console.log(!1);`)
+	err := lowerInvalid(t, `console.log(+true);`)
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the prefix `!` operator on number is not supported yet")
+	assert.Equal(t, err.Message, "the prefix `+` operator on boolean is not supported yet")
 }
 
 func TestUnsupportedOperatorIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(~1);")
+	err := lowerInvalid(t, "const s: string = \"x\";\nconsole.log(s ?? \"y\");")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the prefix `~` operator is not supported yet")
+	assert.Equal(t, err.Message, "the `??` operator is not supported yet")
 }
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
@@ -198,7 +198,7 @@ func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 
 func TestEveryUnsupportedConstructIsReported(t *testing.T) {
 	t.Parallel()
-	_, errors := lowerSource(t, "while (false) {}\nconsole.log(1 << 2);\n")
+	_, errors := lowerSource(t, "for (const c of \"ab\") {}\nconsole.log(+true);\n")
 	assert.Equal(t, len(errors), 2)
 	assert.Equal(t, errors[0].Line, 1)
 	assert.Equal(t, errors[1].Line, 2)
@@ -332,4 +332,83 @@ func TestOnlyDirectCallsOfImplementedMethodsLower(t *testing.T) {
 	assert.Equal(t, err.Message, "optional chaining `?.` is not supported yet")
 	err = lowerInvalid(t, "console.log(\"abc\".at(0));\n")
 	assert.Equal(t, err.Message, "calling `\"abc\".at` is not supported yet")
+}
+
+func TestJumpsNameTheLoopTheyLeave(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "outer: for (let i = 0; i < 3; i++) {\n  while (true) {\n    if (i === 1) continue outer;\n    break;\n  }\n}\n")
+	assert.Equal(t, got, `func main() void {
+  1: {
+    1: let i: number = 0
+    1: outer: for (i < 3); old(i = (i + 1)) {
+      2: #2: while true {
+        3: if (i === 1) {
+          3: continue outer
+        }
+        4: break #2
+      }
+    }
+  }
+}
+`)
+}
+
+func TestSwitchStoresItsValueAndComparesEachCase(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const day: u8 = 2;\nswitch (day) {\n  case 1:\n  case 2:\n    console.log(\"low\");\n    break;\n  default:\n    console.log(\"other\");\n}\n")
+	assert.Equal(t, got, `func main() void {
+  1: let day: u8 = 2:u8
+  2: {
+    2: let tag: u8 = day
+    2: #1: switch {
+      3: case (tag === 1:u8):
+      4: case (tag === 2:u8):
+        5: console.log(box("low"))
+        6: break #1
+      7: default:
+        8: console.log(box("other"))
+    }
+  }
+}
+`)
+}
+
+func TestCompoundAssignmentAndIncrementStoreInTheLocal(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "let n: u8 = 1;\nn += 2;\nn++;\nconst m = n--;\nlet s = \"a\";\ns += n;\n")
+	assert.Equal(t, got, `func main() void {
+  1: let n: u8 = 1:u8
+  2: (n = (n + 2:u8))
+  3: old(n = (n + 1:u8))
+  4: let m: u8 = old(n = (n - 1:u8))
+  5: let s: string = "a"
+  6: (s = (s ++ str(n)))
+}
+`)
+}
+
+func TestConditionsTestAnyPrimitiveForTruth(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const s = \"abc\";\nconst n = 0;\nif (s) console.log(!n, s[9] ? 1 : 2, n || 3, typeof s[9], void n);\n")
+	assert.Equal(t, got, `func main() void {
+  1: let s: string = "abc"
+  2: let n: number = 0
+  3: if truthy(s) {
+    3: console.log(box((!truthy(n))), box((truthy(String.element(s, 9)) ? 1 : 2)), box((n || 3)), box(typeof(String.element(s, 9))), box(undefined))
+  }
+}
+`)
+}
+
+func TestAVariableWithoutInitializerStartsAtItsZeroValue(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "done: {\n  let late: string;\n  late = \"x\";\n  break done;\n}\n")
+	assert.Equal(t, got, `func main() void {
+  1: done: {
+    2: let late: string
+    3: (late = "x")
+    4: break done
+  }
+}
+`)
 }

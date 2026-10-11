@@ -93,16 +93,80 @@ type ExprStmt struct {
 	X  Expr
 }
 
-// LocalDecl declares Local and initialises it with Init, whose type is Local.Type.
+// LocalDecl declares Local and initialises it with Init, whose type is Local.Type. A nil
+// Init (`let x: T;`) means the type's zero value; tsc makes sure the local is assigned before it is read.
 type LocalDecl struct {
 	At    Pos
 	Local *Local
 	Init  Expr
 }
 
-func (s *Block) Pos() Pos     { return s.At }
-func (s *ExprStmt) Pos() Pos  { return s.At }
-func (s *LocalDecl) Pos() Pos { return s.At }
+// If runs Then when Cond (a boolean) holds, and otherwise Else: nil, a *Block or an *If.
+type If struct {
+	At   Pos
+	Cond Expr
+	Then *Block
+	Else Stmt
+}
+
+// Label is a target for Break and Continue. Every loop and switch has one, labelled in
+// the source or not, so a Break or Continue always names its target.
+type Label struct {
+	Name string // the source label, or ""
+}
+
+// Loop is while, do-while and for. Cond (a boolean; nil means forever) is tested before
+// each iteration, or after it if PostTest; Update runs after each iteration, also after a continue.
+type Loop struct {
+	At       Pos
+	Label    *Label
+	Cond     Expr
+	Update   Expr
+	PostTest bool
+	Body     *Block
+}
+
+// Switch runs the cases from the first whose Match holds, trying them in order, or from
+// the default case (Match nil) if none does; control falls through into the following cases.
+type Switch struct {
+	At    Pos
+	Label *Label
+	Cases []*Case
+}
+
+type Case struct {
+	At    Pos
+	Match Expr
+	Body  []Stmt
+}
+
+// LabeledBlock is a labelled statement other than a loop or switch; Break can leave it.
+type LabeledBlock struct {
+	At    Pos
+	Label *Label
+	Body  *Block
+}
+
+type Break struct {
+	At     Pos
+	Target *Label
+}
+
+// Continue starts the next iteration of the loop with label Target.
+type Continue struct {
+	At     Pos
+	Target *Label
+}
+
+func (s *Block) Pos() Pos        { return s.At }
+func (s *ExprStmt) Pos() Pos     { return s.At }
+func (s *LocalDecl) Pos() Pos    { return s.At }
+func (s *If) Pos() Pos           { return s.At }
+func (s *Loop) Pos() Pos         { return s.At }
+func (s *Switch) Pos() Pos       { return s.At }
+func (s *LabeledBlock) Pos() Pos { return s.At }
+func (s *Break) Pos() Pos        { return s.At }
+func (s *Continue) Pos() Pos     { return s.At }
 
 // Expr is an expression.
 type Expr interface {
@@ -137,6 +201,44 @@ type NullConst struct{}
 
 // LocalRef reads a local.
 type LocalRef struct{ Local *Local }
+
+// Assign stores Value (of the local's type) in Local. Its value is the new value, or the
+// old one if Postfix (x++).
+type Assign struct {
+	Local   *Local
+	Value   Expr
+	Postfix bool
+}
+
+// Truthy is JS's ToBoolean of a primitive value, static or boxed.
+type Truthy struct{ X Expr }
+
+// Conditional is Cond ? Then : Else, with Cond a boolean and the branches of one type.
+type Conditional struct {
+	Cond, Then, Else Expr
+}
+
+// LogicalOp is && or ||, which yield one of their operands.
+type LogicalOp int
+
+const (
+	And LogicalOp = iota
+	Or
+)
+
+var logicalOpText = [...]string{And: "&&", Or: "||"}
+
+func (op LogicalOp) String() string { return logicalOpText[op] }
+
+// Logical is X && Y or X || Y, with operands of one type: Y is evaluated only if X is
+// truthy (&&) or falsy (||), and the value is the last operand evaluated.
+type Logical struct {
+	Op   LogicalOp
+	X, Y Expr
+}
+
+// Sequence evaluates X for its effects, then Y, whose value it has (the comma operator).
+type Sequence struct{ X, Y Expr }
 
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
@@ -182,6 +284,9 @@ var (
 	StringPadStart    = stringMember("padStart", String, Number, String)
 	StringPadEnd      = stringMember("padEnd", String, Number, String)
 	StringRepeat      = stringMember("repeat", String, Number)
+
+	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
+	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
 )
 
 // ToString is JS's ToString of a primitive value, static or boxed: "true", "null", Number::toString, …
@@ -210,9 +315,18 @@ const (
 	Eq // === on two values of the same primitive type
 	Ne
 	Concat // string + string
+	// The bitwise operators: JS's int32 semantics on numbers; on an integer type, the
+	// type's own bits, with the shift count taken modulo its width (D-018).
+	BitAnd
+	BitOr
+	BitXor
+	Shl
+	Shr  // sign-propagating for numbers and signed types
+	UShr // zero-filling
 )
 
-var binaryOpText = [...]string{Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%", Pow: "**", Lt: "<", Le: "<=", Gt: ">", Ge: ">=", Eq: "===", Ne: "!==", Concat: "++"}
+var binaryOpText = [...]string{Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%", Pow: "**", Lt: "<", Le: "<=", Gt: ">", Ge: ">=", Eq: "===", Ne: "!==", Concat: "++",
+	BitAnd: "&", BitOr: "|", BitXor: "^", Shl: "<<", Shr: ">>", UShr: ">>>"}
 
 func (op BinaryOp) String() string { return binaryOpText[op] }
 
@@ -231,11 +345,12 @@ type Binary struct {
 type UnaryOp int
 
 const (
-	Neg UnaryOp = iota // negation of a numeric value (wrapping for integers)
-	Not                // ! on a boolean
+	Neg    UnaryOp = iota // negation of a numeric value (wrapping for integers)
+	Not                   // ! on a boolean
+	BitNot                // ~ on a numeric value (int32 for numbers)
 )
 
-var unaryOpText = [...]string{Neg: "-", Not: "!"}
+var unaryOpText = [...]string{Neg: "-", Not: "!", BitNot: "~"}
 
 func (op UnaryOp) String() string { return unaryOpText[op] }
 
@@ -251,6 +366,11 @@ func (*StringConst) Type() Type    { return String }
 func (*UndefinedConst) Type() Type { return Undefined }
 func (*NullConst) Type() Type      { return Null }
 func (e *LocalRef) Type() Type     { return e.Local.Type }
+func (e *Assign) Type() Type       { return e.Local.Type }
+func (*Truthy) Type() Type         { return Bool }
+func (e *Conditional) Type() Type  { return e.Then.Type() }
+func (e *Logical) Type() Type      { return e.X.Type() }
+func (e *Sequence) Type() Type     { return e.Y.Type() }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
 func (e *Unary) Type() Type        { return e.X.Type() }

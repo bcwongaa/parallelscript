@@ -189,3 +189,45 @@ pts_string *pts_value_to_string(pts_value value) {
     pts_panic("Error", "ToString got a malformed value 0x%llx", (unsigned long long)value);
   }
 }
+
+bool pts_value_truthy(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return pts_number_truthy(pts_value_as_number(value));
+  }
+  if (pts_value_is_object(value)) {
+    pts_object *object = pts_value_as_object(value);
+    /* A boxed 64-bit integer is beyond 2^53, so never 0. */
+    return object->type->kind != PTS_KIND_STRING || ((pts_string *)object)->byte_len != 0;
+  }
+  return value == PTS_VALUE_TRUE;
+}
+
+PTS_STATIC_STRING(number_word, PTS_STRING_ASCII, 6, 6, "number");
+PTS_STATIC_STRING(string_word, PTS_STRING_ASCII, 6, 6, "string");
+PTS_STATIC_STRING(boolean_word, PTS_STRING_ASCII, 7, 7, "boolean");
+PTS_STATIC_STRING(object_word, PTS_STRING_ASCII, 6, 6, "object");
+
+pts_string *pts_value_typeof(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return number_word;
+  }
+  if (pts_value_is_object(value)) {
+    switch (pts_value_as_object(value)->type->kind) {
+    case PTS_KIND_STRING:
+      return string_word;
+    case PTS_KIND_INT64:
+    case PTS_KIND_UINT64:
+      return number_word;
+    }
+    return object_word;
+  }
+  switch (value) {
+  case PTS_VALUE_UNDEFINED:
+    return undefined_word;
+  case PTS_VALUE_TRUE:
+  case PTS_VALUE_FALSE:
+    return boolean_word;
+  default:
+    return object_word; /* null */
+  }
+}

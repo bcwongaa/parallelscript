@@ -236,3 +236,33 @@ func TestStringBuiltinsCallTheRuntime(t *testing.T) {
 	)
 	assert.Equal(t, run(t, program), "é undefined o true 233\nllo 2 HÉLLO 007 abab\nundefined\n")
 }
+
+func TestOperandsWithEffectsAreEvaluatedLeftToRight(t *testing.T) {
+	t.Parallel()
+	x := &ir.Local{Name: "x", Type: ir.Number}
+	ref := &ir.LocalRef{Local: x}
+	program := programOf(
+		&ir.LocalDecl{At: at(1), Local: x, Init: num(1)},
+		logAt(2, binary(ir.Add, ref, &ir.Assign{Local: x, Value: num(5)}), ref,
+			&ir.Assign{Local: x, Value: binary(ir.Mul, ref, num(2)), Postfix: true}, ref),
+	)
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "pts_tmp"), source)
+	assert.Equal(t, run(t, program), "6 5 5 10\n")
+}
+
+func TestLabelsAreWrittenOnlyWhereAGotoJumps(t *testing.T) {
+	t.Parallel()
+	inner, outer := &ir.Label{}, &ir.Label{Name: "outer"}
+	loop := func(label *ir.Label, body ...ir.Stmt) ir.Stmt {
+		return &ir.Loop{At: at(1), Label: label, Body: &ir.Block{At: at(1), Stmts: body}}
+	}
+	program := programOf(
+		loop(outer, loop(inner, &ir.Break{At: at(2), Target: outer}), &ir.Break{At: at(3), Target: outer}),
+		logAt(4, str("done")),
+	)
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "goto outer_break;") && strings.Contains(source, "outer_break: ;"), source)
+	assert.Assert(t, !strings.Contains(source, "_continue: ;") && !strings.Contains(source, "loop_break: ;"), source)
+	assert.Equal(t, run(t, program), "done\n")
+}

@@ -1,0 +1,45 @@
+// Integer types keep their semantics in the M1.4a1 operators: compound assignment and
+// ++/-- wrap, shifts take the count modulo the width and >>> shifts the bits as unsigned (D-018).
+let small: u8 = 250;
+small += 10;
+let tiny: i8 = 127;
+tiny++;
+let counter: int = 0;
+for (let k: int = 0; k < 10; k++) counter += k;
+console.log(small, tiny, counter);
+const bits: u32 = 0xF0F0F0F0;
+console.log(bits & 0xFF, bits | 1, bits ^ 0xFFFFFFFF, ~bits);
+const one: int = 1;
+console.log(one << 40, one << 64, one << 65);
+const negative: i32 = -16;
+console.log(negative >> 2, negative >>> 28, negative >>> 0);
+const big: u64 = 18446744073709551615;
+console.log(big >> 60, big >>> 60, big & 0xFF);
+let q: int = 17;
+q /= 5;
+q %= 2;
+const pick: u8 = counter > 40 ? 200 : 100;
+console.log(q, pick, typeof q, typeof big);
+const level: u16 = 3;
+switch (level) {
+  case 1:
+    console.log("one");
+    break;
+  case 3:
+    console.log("three");
+}
+let late: u8;
+late = 255;
+late++;
+const mixed = q + 0.5;
+console.log(late, mixed);
+
+// expect:
+// 4 -128 45
+// 240 4042322161 252645135 252645135
+// 1099511627776 1 2
+// -4 15 -16
+// 15 15 255
+// 1 200 number number
+// three
+// 0 1.5

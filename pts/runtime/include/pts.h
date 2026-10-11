@@ -117,6 +117,40 @@ static inline double pts_number_pow(double x, double y) {
   return __builtin_pow(x, y);
 }
 
+/* JS's ToBoolean of a number: false for 0, -0 and NaN. */
+static inline bool pts_number_truthy(double x) { return x == x && x != 0; }
+
+/*
+ * The bitwise operators on numbers: JS converts the operands with ToInt32 (ToUint32
+ * for >>>, and the shift count modulo 32) and the int32 or uint32 result back to a number.
+ */
+static inline int32_t pts_number_to_int32(double d) {
+  if (d >= -2147483648.0 && d < 2147483648.0) {
+    return (int32_t)d; /* the common case; NaN fails the test */
+  }
+  if (!__builtin_isfinite(d)) {
+    return 0;
+  }
+  double modulo = __builtin_fmod(__builtin_trunc(d), 4294967296.0);
+  if (modulo < 0) {
+    modulo += 4294967296.0;
+  }
+  return (int32_t)(uint32_t)modulo;
+}
+
+static inline uint32_t pts_number_shift_count(double count) { return (uint32_t)pts_number_to_int32(count) & 31; }
+static inline double pts_number_bitand(double x, double y) { return pts_number_to_int32(x) & pts_number_to_int32(y); }
+static inline double pts_number_bitor(double x, double y) { return pts_number_to_int32(x) | pts_number_to_int32(y); }
+static inline double pts_number_bitxor(double x, double y) { return pts_number_to_int32(x) ^ pts_number_to_int32(y); }
+static inline double pts_number_bitnot(double x) { return ~pts_number_to_int32(x); }
+static inline double pts_number_shl(double x, double y) {
+  return (int32_t)((uint32_t)pts_number_to_int32(x) << pts_number_shift_count(y));
+}
+static inline double pts_number_shr(double x, double y) { return pts_number_to_int32(x) >> pts_number_shift_count(y); }
+static inline double pts_number_ushr(double x, double y) {
+  return (uint32_t)pts_number_to_int32(x) >> pts_number_shift_count(y);
+}
+
 /* ---------------------------------------------------------------- integers */
 
 /*
@@ -179,6 +213,15 @@ _Noreturn void pts_throw_negative_exponent(void);
   }                                                                                              \
   static inline T pts_##name##_pow(T base, T exponent) { return pts_##name##_pow_unchecked(base, exponent); }
 
+/*
+ * Shifts on an integer type take the count modulo the type's width, as Java does
+ * (D-018); << is done unsigned so it can't overflow, >>> shifts the bits as unsigned.
+ */
+#define PTS_INTEGER_SHIFTS(name, T, U, BITS)                                                      \
+  static inline T pts_##name##_shl(T a, T count) { return (T)((U)a << ((U)count & ((BITS)-1))); } \
+  static inline T pts_##name##_shr(T a, T count) { return (T)(a >> ((U)count & ((BITS)-1))); }    \
+  static inline T pts_##name##_ushr(T a, T count) { return (T)((U)a >> ((U)count & ((BITS)-1))); }
+
 /* Number (or f32, promoted) to an integer type, as Rust's `as`: truncate, saturate, NaN -> 0. */
 #define PTS_NUMBER_TO_SMALL_INTEGER(name, T, MIN, MAX)                                            \
   static inline T pts_number_to_##name(double d) {                                               \
@@ -210,6 +253,14 @@ PTS_UNSIGNED_DIVISION(u8, uint8_t)
 PTS_UNSIGNED_DIVISION(u16, uint16_t)
 PTS_UNSIGNED_DIVISION(u32, uint32_t)
 PTS_UNSIGNED_DIVISION(u64, uint64_t)
+PTS_INTEGER_SHIFTS(i8, int8_t, uint8_t, 8)
+PTS_INTEGER_SHIFTS(i16, int16_t, uint16_t, 16)
+PTS_INTEGER_SHIFTS(i32, int32_t, uint32_t, 32)
+PTS_INTEGER_SHIFTS(i64, int64_t, uint64_t, 64)
+PTS_INTEGER_SHIFTS(u8, uint8_t, uint8_t, 8)
+PTS_INTEGER_SHIFTS(u16, uint16_t, uint16_t, 16)
+PTS_INTEGER_SHIFTS(u32, uint32_t, uint32_t, 32)
+PTS_INTEGER_SHIFTS(u64, uint64_t, uint64_t, 64)
 PTS_NUMBER_TO_SMALL_INTEGER(i8, int8_t, INT8_MIN, INT8_MAX)
 PTS_NUMBER_TO_SMALL_INTEGER(i16, int16_t, INT16_MIN, INT16_MAX)
 PTS_NUMBER_TO_SMALL_INTEGER(i32, int32_t, INT32_MIN, INT32_MAX)
@@ -313,6 +364,12 @@ static inline pts_object *pts_value_as_object(pts_value v) { return (pts_object 
 
 /* JS's ToString of a primitive value. */
 pts_string *pts_value_to_string(pts_value value);
+
+/* JS's ToBoolean of a primitive value. */
+bool pts_value_truthy(pts_value value);
+
+/* typeof of a primitive value: "number" (64-bit integers too), "string", "boolean", "undefined" or "object" (null). */
+pts_string *pts_value_typeof(pts_value value);
 
 /* ---------------------------------------------------------------- String.prototype */
 

@@ -1,4 +1,5 @@
-// Bitwise operators arrive with M1.4a.
-console.log(1 << 2);
+// The nullish coalescing operator arrives with unions (M3.1).
+const s: string = "x";
+console.log(s ?? "y");
 
-// error: PTS1001: the `<<` operator is not supported yet
+// error: PTS1001: the `??` operator is not supported yet

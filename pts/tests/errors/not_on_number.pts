@@ -1,4 +1,0 @@
-// Truthiness of non-booleans arrives with M1.4a.
-console.log(!0);
-
-// error: not_on_number.pts:2:13 - error PTS1001: the prefix `!` operator on number is not supported yet

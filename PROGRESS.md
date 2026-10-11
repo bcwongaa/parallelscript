@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.4a1 Statements and operators
+- **Next task:** M1.4a2 Functions
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.4a1 Statements and operators: `if`, `while`, `do`, `for`, `switch` (any type, fallthrough), labels, `break`/`continue`; assignment, compound assignment, `++`/`--`, `?:`, `&&`/`||`, comma, `typeof`, `void`, bitwise operators (JS int32 on numbers; D-018 on integer types), truthiness; the numeric rules on all of them; JS's left-to-right evaluation order kept in C with temporaries where it matters (D-019, SPEC §9.7). Plan split D-017.
 - M1.3b String methods: `s[i]` (JS's `undefined` where the context takes any value, `RangeError` where a `string` is required, D-015), `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase` (full Unicode mappings and Final_Sigma from tables generated out of Node's ICU), `trim*`, `padStart`/`padEnd`, `repeat`, with UTF-16 indices (D-016, SPEC §9.6). Generated differential corpus `TestGeneratedStringCorpusMatchesNode`. Fixed quadratic local naming in `cgen` for many same-named locals.
 - M1.3a Booleans and string basics: `!`, concatenation with ToString, template literals, `.length`, string equality and ordering (UTF-16 order), lone surrogates kept as WTF-8, joined on concatenation and printed as U+FFFD (D-014, SPEC §9.5). The lone-surrogate known issue is fixed.
 - M1.2 Integer types: prelude aliases; the semantic pass `pts/check` (numeric types from annotations, untyped literals typed by context, lossless-only implicit conversions, PTS2001–PTS2003); wrapping integer arithmetic, truncating `/`, `RangeError` on division by zero and negative exponents; Rust `as`; exact 64-bit printing (D-012, SPEC §9.4).
@@ -26,7 +27,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.4a1 Statements and operators, then M1.4a2 Functions (D-017). When adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered"). Once calls can have side effects, `cgen` must evaluate arguments in JS order: C leaves the order of function arguments (and of a compound literal's initialisers, as in `pts_console_log`'s argument array) unspecified, so lower effectful arguments into temporaries. With functions, the generated corpora can put each case in a function: tsc's flow analysis and clang both slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M1.4a2 Functions (D-017): declarations, parameters and returns with the numeric rules (`pts/check` must type arguments against parameter types and return values against the return type), recursion, calls. Calls have effects, so add user calls to `cgen/order.go`'s `effectsOf` (writes and may throw). `break`/`continue` targets (`lowerer.targets`) must not cross a function boundary. Then the unsupported-feature errors (`eval`, `with`, `arguments`, `new Function`, prototype manipulation, `Proxy`/`Reflect`, declaration merging, namespaces, `bigint`, `Symbol`, regex literals; SPEC §3.10). With functions, the generated corpora can put each case in a function: tsc's flow analysis and clang both slow down sharply on one huge top-level function (`pts/tests/README.md`).
 2. M1.4b Modules.
 3. M1.5 Benchmarks setup.
 
@@ -42,7 +43,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (26 run tests; 20 error tests; 5 number-corpus and 11 string-corpus parts; about 17 s) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (30 run tests; 24 error tests; 5 number-corpus and 11 string-corpus parts; about 17 s) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -64,6 +65,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.4a1 done (M1.4a split by D-017).
 - 2026-10-11: M1.3b done.
 - 2026-10-11: M1.3a done.
 - 2026-10-11: M1.2 done.

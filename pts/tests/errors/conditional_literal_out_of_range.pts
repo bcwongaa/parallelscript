@@ -1,0 +1,5 @@
+// The branches of ?: take the type the context expects, so both must fit.
+let ok = true;
+const level: u8 = ok ? 1 : 300;
+
+// error: conditional_literal_out_of_range.pts:3:28 - error PTS2002: 300 doesn't fit in u8 (0 to 255)

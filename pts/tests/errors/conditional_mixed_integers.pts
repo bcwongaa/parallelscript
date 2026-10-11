@@ -1,0 +1,6 @@
+const signed: i64 = 1;
+const unsigned: u64 = 2;
+let ok = true;
+const either = ok ? signed : unsigned;
+
+// error: conditional_mixed_integers.pts:4:16 - error PTS2003: `?:` can't mix int and u64

@@ -25,21 +25,33 @@ import (
 // binaryOps maps TypeScript operator tokens to IR operators. == and != mean === and
 // !== here because lowering only accepts operands of one primitive type.
 var binaryOps = map[ast.Kind]ir.BinaryOp{
-	ast.KindPlusToken:                    ir.Add,
-	ast.KindMinusToken:                   ir.Sub,
-	ast.KindAsteriskToken:                ir.Mul,
-	ast.KindSlashToken:                   ir.Div,
-	ast.KindPercentToken:                 ir.Rem,
-	ast.KindAsteriskAsteriskToken:        ir.Pow,
-	ast.KindLessThanToken:                ir.Lt,
-	ast.KindLessThanEqualsToken:          ir.Le,
-	ast.KindGreaterThanToken:             ir.Gt,
-	ast.KindGreaterThanEqualsToken:       ir.Ge,
-	ast.KindEqualsEqualsEqualsToken:      ir.Eq,
-	ast.KindExclamationEqualsEqualsToken: ir.Ne,
-	ast.KindEqualsEqualsToken:            ir.Eq,
-	ast.KindExclamationEqualsToken:       ir.Ne,
+	ast.KindPlusToken:                              ir.Add,
+	ast.KindMinusToken:                             ir.Sub,
+	ast.KindAsteriskToken:                          ir.Mul,
+	ast.KindSlashToken:                             ir.Div,
+	ast.KindPercentToken:                           ir.Rem,
+	ast.KindAsteriskAsteriskToken:                  ir.Pow,
+	ast.KindLessThanToken:                          ir.Lt,
+	ast.KindLessThanEqualsToken:                    ir.Le,
+	ast.KindGreaterThanToken:                       ir.Gt,
+	ast.KindGreaterThanEqualsToken:                 ir.Ge,
+	ast.KindEqualsEqualsEqualsToken:                ir.Eq,
+	ast.KindExclamationEqualsEqualsToken:           ir.Ne,
+	ast.KindEqualsEqualsToken:                      ir.Eq,
+	ast.KindExclamationEqualsToken:                 ir.Ne,
+	ast.KindAmpersandToken:                         ir.BitAnd,
+	ast.KindBarToken:                               ir.BitOr,
+	ast.KindCaretToken:                             ir.BitXor,
+	ast.KindLessThanLessThanToken:                  ir.Shl,
+	ast.KindGreaterThanGreaterThanToken:            ir.Shr,
+	ast.KindGreaterThanGreaterThanGreaterThanToken: ir.UShr,
 }
+
+// logicalOps maps && and || to IR operators.
+var logicalOps = map[ast.Kind]ir.LogicalOp{ast.KindAmpersandAmpersandToken: ir.And, ast.KindBarBarToken: ir.Or}
+
+// typeofWords are what typeof gives for each static type.
+var typeofWords = map[ir.Type]string{ir.Bool: "boolean", ir.String: "string", ir.Undefined: "undefined", ir.Null: "object"}
 
 // libConstants are the global constants of the ES library that lower to number constants.
 var libConstants = map[string]float64{
@@ -124,7 +136,15 @@ type lowerer struct {
 	info    *check.Info
 	file    *ast.SourceFile
 	locals  map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
+	targets []jumpTarget              // the statements around the current one that break or continue can leave
 	errors  []diagnostic.Diagnostic
+}
+
+// jumpTarget is a statement that break (and for a loop, continue) can target.
+type jumpTarget struct {
+	label *ir.Label
+	loop  bool // a loop, which continue can target
+	inner bool // a loop or switch, which an unlabelled break leaves
 }
 
 func (l *lowerer) pos(node *ast.Node) ir.Pos {
@@ -161,6 +181,18 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		return l.variableStatement(node)
 	case ast.KindBlock:
 		return []ir.Stmt{l.block(node, node.Statements())}
+	case ast.KindIfStatement:
+		if s := l.ifStatement(node); s != nil {
+			return []ir.Stmt{s}
+		}
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindSwitchStatement:
+		return l.breakable(node, "")
+	case ast.KindLabeledStatement:
+		return l.labeledStatement(node)
+	case ast.KindBreakStatement:
+		return l.jump(node, node.AsBreakStatement().Label, false)
+	case ast.KindContinueStatement:
+		return l.jump(node, node.AsContinueStatement().Label, true)
 	case ast.KindEmptyStatement, ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
 		// No runtime effect.
 	case ast.KindExportDeclaration:
@@ -173,6 +205,180 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	return nil
 }
 
+// statementBlock lowers the body of an if, a loop or a labelled statement as a block.
+func (l *lowerer) statementBlock(node *ast.Node) *ir.Block {
+	if node.Kind == ast.KindBlock {
+		return l.block(node, node.Statements())
+	}
+	return &ir.Block{At: l.pos(node), Stmts: l.statement(node)}
+}
+
+// ifStatement lowers an if statement, or reports it and returns nil.
+func (l *lowerer) ifStatement(node *ast.Node) *ir.If {
+	s := node.AsIfStatement()
+	cond := l.condition(s.Expression)
+	then := l.statementBlock(s.ThenStatement)
+	var otherwise ir.Stmt
+	switch {
+	case s.ElseStatement == nil:
+	case s.ElseStatement.Kind == ast.KindIfStatement:
+		if elseIf := l.ifStatement(s.ElseStatement); elseIf != nil {
+			otherwise = elseIf
+		}
+	default:
+		otherwise = l.statementBlock(s.ElseStatement)
+	}
+	if cond == nil {
+		return nil
+	}
+	return &ir.If{At: l.pos(node), Cond: cond, Then: then, Else: otherwise}
+}
+
+// labeledStatement lowers `name: statement`. A labelled loop or switch takes the label;
+// any other statement becomes a block that `break name` leaves.
+func (l *lowerer) labeledStatement(node *ast.Node) []ir.Stmt {
+	labeled := node.AsLabeledStatement()
+	name := labeled.Label.Text()
+	switch labeled.Statement.Kind {
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindSwitchStatement:
+		return l.breakable(labeled.Statement, name)
+	}
+	label := &ir.Label{Name: name}
+	l.targets = append(l.targets, jumpTarget{label: label})
+	body := l.statementBlock(labeled.Statement)
+	l.targets = l.targets[:len(l.targets)-1]
+	return []ir.Stmt{&ir.LabeledBlock{At: l.pos(node), Label: label, Body: body}}
+}
+
+// breakable lowers a loop or switch statement; name is its source label, or "".
+func (l *lowerer) breakable(node *ast.Node, name string) []ir.Stmt {
+	label := &ir.Label{Name: name}
+	loop := node.Kind != ast.KindSwitchStatement
+	l.targets = append(l.targets, jumpTarget{label: label, loop: loop, inner: true})
+	defer func() { l.targets = l.targets[:len(l.targets)-1] }()
+	switch node.Kind {
+	case ast.KindWhileStatement:
+		return l.whileStatement(node, label)
+	case ast.KindDoStatement:
+		return l.doStatement(node, label)
+	case ast.KindForStatement:
+		return l.forStatement(node, label)
+	default:
+		return l.switchStatement(node, label)
+	}
+}
+
+func (l *lowerer) whileStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
+	s := node.AsWhileStatement()
+	cond := l.condition(s.Expression)
+	body := l.statementBlock(s.Statement)
+	if cond == nil {
+		return nil
+	}
+	return []ir.Stmt{&ir.Loop{At: l.pos(node), Label: label, Cond: cond, Body: body}}
+}
+
+func (l *lowerer) doStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
+	s := node.AsDoStatement()
+	body := l.statementBlock(s.Statement)
+	cond := l.condition(s.Expression)
+	if cond == nil {
+		return nil
+	}
+	return []ir.Stmt{&ir.Loop{At: l.pos(node), Label: label, Cond: cond, PostTest: true, Body: body}}
+}
+
+// forStatement lowers `for (init; cond; update) body` to a block holding the
+// initialisation and a loop, so its declarations are scoped to the loop.
+func (l *lowerer) forStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
+	s := node.AsForStatement()
+	var init []ir.Stmt
+	failed := false
+	switch {
+	case s.Initializer == nil:
+	case s.Initializer.Kind == ast.KindVariableDeclarationList:
+		init = l.declarationList(node, s.Initializer)
+		failed = init == nil
+	default:
+		x := l.expression(s.Initializer)
+		failed = x == nil
+		init = []ir.Stmt{&ir.ExprStmt{At: l.pos(s.Initializer), X: x}}
+	}
+	loop := &ir.Loop{At: l.pos(node), Label: label}
+	if s.Condition != nil {
+		loop.Cond = l.condition(s.Condition)
+		failed = failed || loop.Cond == nil
+	}
+	if s.Incrementor != nil {
+		loop.Update = l.expression(s.Incrementor)
+		failed = failed || loop.Update == nil
+	}
+	loop.Body = l.statementBlock(s.Statement)
+	if failed {
+		return nil
+	}
+	if len(init) == 0 {
+		return []ir.Stmt{loop}
+	}
+	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: append(init, loop)}}
+}
+
+// switchStatement lowers a switch to a block that stores the value in a local, then the
+// cases, each testing the local with === against its expression.
+func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
+	s := node.AsSwitchStatement()
+	value := l.expression(s.Expression)
+	var tag *ir.Local
+	if value != nil {
+		tag = &ir.Local{Name: "tag", Type: value.Type()}
+	}
+	result := &ir.Switch{At: l.pos(node), Label: label}
+	failed := value == nil
+	for _, clause := range s.CaseBlock.AsCaseBlock().Clauses.Nodes {
+		c := &ir.Case{At: l.pos(clause)}
+		if clause.Kind == ast.KindCaseClause && tag != nil {
+			c.Match = l.caseMatch(clause, tag)
+			failed = failed || c.Match == nil
+		}
+		for _, statement := range clause.Statements() {
+			c.Body = append(c.Body, l.statement(statement)...)
+		}
+		result.Cases = append(result.Cases, c)
+	}
+	if failed {
+		return nil
+	}
+	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: []ir.Stmt{&ir.LocalDecl{At: l.pos(node), Local: tag, Init: value}, result}}}
+}
+
+// caseMatch compares a switch's value, stored in tag, with a case's expression.
+func (l *lowerer) caseMatch(clause *ast.Node, tag *ir.Local) ir.Expr {
+	test := l.expression(clause.Expression())
+	if test == nil {
+		return nil
+	}
+	return l.operation(clause, ir.Eq, &ir.LocalRef{Local: tag}, test, clause, clause.Expression())
+}
+
+// jump lowers break and continue, with or without a label.
+func (l *lowerer) jump(node *ast.Node, labelNode *ast.Node, isContinue bool) []ir.Stmt {
+	for i := len(l.targets) - 1; i >= 0; i-- {
+		target := l.targets[i]
+		found := target.inner && (target.loop || !isContinue)
+		if labelNode != nil {
+			found = target.label.Name == labelNode.Text()
+		}
+		if !found {
+			continue
+		}
+		if isContinue {
+			return []ir.Stmt{&ir.Continue{At: l.pos(node), Target: target.label}}
+		}
+		return []ir.Stmt{&ir.Break{At: l.pos(node), Target: target.label}}
+	}
+	panic("lower: tsc accepted a break or continue without a target")
+}
+
 // isEmptyExport reports whether node is `export {}`, which only marks a file as a module.
 func isEmptyExport(node *ast.Node) bool {
 	export := node.AsExportDeclaration()
@@ -181,11 +387,17 @@ func isEmptyExport(node *ast.Node) bool {
 }
 
 func (l *lowerer) variableStatement(node *ast.Node) []ir.Stmt {
-	list := node.AsVariableStatement().DeclarationList
-	switch {
-	case ast.HasSyntacticModifier(node, ast.ModifierFlagsAmbient):
+	if ast.HasSyntacticModifier(node, ast.ModifierFlagsAmbient) {
 		l.notSupportedYet(node, "`declare` is")
 		return nil
+	}
+	return l.declarationList(node, node.AsVariableStatement().DeclarationList)
+}
+
+// declarationList lowers the declarations of a variable statement or a for loop's
+// initialiser (node), or reports them and returns nil.
+func (l *lowerer) declarationList(node *ast.Node, list *ast.Node) []ir.Stmt {
+	switch {
 	case list.Flags&ast.NodeFlagsBlockScoped == 0:
 		l.unsupported(node, "`var` is not supported; use `let` or `const`")
 		return nil
@@ -195,9 +407,11 @@ func (l *lowerer) variableStatement(node *ast.Node) []ir.Stmt {
 	}
 	var stmts []ir.Stmt
 	for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
-		if decl := l.variableDeclaration(declaration); decl != nil {
-			stmts = append(stmts, decl)
+		decl := l.variableDeclaration(declaration)
+		if decl == nil {
+			return nil
 		}
+		stmts = append(stmts, decl)
 	}
 	return stmts
 }
@@ -209,10 +423,6 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 		return nil
 	}
 	initializer := node.Initializer()
-	if initializer == nil {
-		l.notSupportedYet(node, "a variable without an initializer is")
-		return nil
-	}
 	symbol := l.checker.GetSymbolAtLocation(name)
 	l.locals[symbol] = nil // until it lowers, uses of it are silent: the declaration already failed
 	localType := l.numericType(name)
@@ -222,13 +432,14 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	if localType == nil {
 		return nil
 	}
-	init := l.expression(initializer)
-	if init == nil {
-		return nil
-	}
-	init = l.convert(init, localType, initializer)
-	if init == nil {
-		return nil
+	var init ir.Expr
+	if initializer != nil {
+		if init = l.expression(initializer); init == nil {
+			return nil
+		}
+		if init = l.convert(init, localType, initializer); init == nil {
+			return nil
+		}
 	}
 	local := &ir.Local{Name: name.Text(), Type: localType}
 	l.locals[symbol] = local
@@ -286,6 +497,19 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.binary(node)
 	case ast.KindPrefixUnaryExpression:
 		return l.prefixUnary(node)
+	case ast.KindPostfixUnaryExpression:
+		postfix := node.AsPostfixUnaryExpression()
+		return l.increment(node, postfix.Operand, postfix.Operator, true)
+	case ast.KindConditionalExpression:
+		return l.conditional(node)
+	case ast.KindTypeOfExpression:
+		return l.typeOf(node)
+	case ast.KindVoidExpression:
+		x := l.expression(node.Expression())
+		if x == nil {
+			return nil
+		}
+		return discard(x, &ir.UndefinedConst{})
 	case ast.KindTemplateExpression:
 		return l.template(node)
 	case ast.KindPropertyAccessExpression:
@@ -586,10 +810,26 @@ func (l *lowerer) elementEquality(op ir.BinaryOp, element *ast.Node, other *ast.
 
 func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	if expr.OperatorToken.Kind == ast.KindPlusToken && l.checker.GetTypeAtLocation(node).Flags()&checker.TypeFlagsStringLike != 0 {
+	operator := expr.OperatorToken.Kind
+	switch {
+	case operator == ast.KindPlusToken && l.hasTypeFlags(node, checker.TypeFlagsStringLike):
 		return l.concatenation(node)
+	case operator == ast.KindEqualsToken:
+		return l.assignment(node)
+	case operator == ast.KindCommaToken:
+		x, y := l.expression(expr.Left), l.expression(expr.Right)
+		if x == nil || y == nil {
+			return nil
+		}
+		return &ir.Sequence{X: x, Y: y}
 	}
-	op, ok := binaryOps[expr.OperatorToken.Kind]
+	if op, ok := logicalOps[operator]; ok {
+		return l.logical(node, op, expr.Left, expr.Right)
+	}
+	if _, ok := check.CompoundOperator(operator); ok {
+		return l.compoundAssignment(node)
+	}
+	op, ok := binaryOps[operator]
 	if !ok {
 		l.notSupportedYet(node, describe(node)+" is")
 		return nil
@@ -604,8 +844,14 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	if x == nil || y == nil {
 		return nil
 	}
+	return l.operation(node, op, x, y, expr.Left, expr.Right)
+}
+
+// operation applies op to x and y, the lowered left and right operands of node,
+// converting them to the type the semantic pass chose for them.
+func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr, left *ast.Node, right *ast.Node) ir.Expr {
 	if n, ok := l.info.OperandType(node); ok {
-		x, y = l.convert(x, numericTypes[n], expr.Left), l.convert(y, numericTypes[n], expr.Right)
+		x, y = l.convert(x, numericTypes[n], left), l.convert(y, numericTypes[n], right)
 		if x == nil || y == nil {
 			return nil
 		}
@@ -615,6 +861,194 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.Binary{Op: op, X: x, Y: y}
+}
+
+// assignment lowers `x = value`.
+func (l *lowerer) assignment(node *ast.Node) ir.Expr {
+	expr := node.AsBinaryExpression()
+	local := l.assignmentTarget(expr.Left)
+	value := l.expression(expr.Right)
+	if local == nil || value == nil {
+		return nil
+	}
+	if value = l.convert(value, local.Type, expr.Right); value == nil {
+		return nil
+	}
+	return &ir.Assign{Local: local, Value: value}
+}
+
+// compoundAssignment lowers `x op= value` to `x = x op value`, and `x ||= value` to
+// `x || (x = value)` (&&= likewise).
+func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
+	expr := node.AsBinaryExpression()
+	operator, _ := check.CompoundOperator(expr.OperatorToken.Kind)
+	local := l.assignmentTarget(expr.Left)
+	if local == nil {
+		return nil
+	}
+	current := &ir.LocalRef{Local: local}
+	if op, ok := logicalOps[operator]; ok {
+		value := l.expression(expr.Right)
+		if value == nil {
+			return nil
+		}
+		if value = l.convert(value, local.Type, expr.Right); value == nil {
+			return nil
+		}
+		return &ir.Logical{Op: op, X: current, Y: &ir.Assign{Local: local, Value: value}}
+	}
+	var value ir.Expr
+	switch op, ok := binaryOps[operator]; {
+	case operator == ast.KindPlusToken && local.Type == ir.String:
+		if y := l.valueExpression(expr.Right); y != nil {
+			if y = l.toString(y, expr.Right); y != nil {
+				value = &ir.Binary{Op: ir.Concat, X: current, Y: y}
+			}
+		}
+	case ok:
+		if y := l.expression(expr.Right); y != nil {
+			value = l.operation(node, op, current, y, expr.Left, expr.Right)
+		}
+	default:
+		l.notSupportedYet(node, describe(node)+" is")
+	}
+	if value == nil {
+		return nil
+	}
+	if value = l.convert(value, local.Type, node); value == nil {
+		return nil
+	}
+	return &ir.Assign{Local: local, Value: value}
+}
+
+// assignmentTarget returns the local an assignment stores to, or reports the target and returns nil.
+func (l *lowerer) assignmentTarget(node *ast.Node) *ir.Local {
+	node = ast.SkipParentheses(node)
+	if node.Kind == ast.KindIdentifier {
+		if local, ok := l.locals[l.checker.GetSymbolAtLocation(node)]; ok {
+			return local // nil if its declaration failed, which was reported
+		}
+	}
+	l.notSupportedYet(node, "assigning to `"+scanner.GetTextOfNode(node)+"` is")
+	return nil
+}
+
+// increment lowers ++ and -- (operator) on operand, prefix or postfix.
+func (l *lowerer) increment(node *ast.Node, operand *ast.Node, operator ast.Kind, postfix bool) ir.Expr {
+	local := l.assignmentTarget(operand)
+	if local == nil {
+		return nil
+	}
+	if !ir.IsNumeric(local.Type) {
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), local.Type))
+		return nil
+	}
+	op := ir.Add
+	if operator == ast.KindMinusMinusToken {
+		op = ir.Sub
+	}
+	value := &ir.Binary{Op: op, X: &ir.LocalRef{Local: local}, Y: one(local.Type)}
+	return &ir.Assign{Local: local, Value: value, Postfix: postfix}
+}
+
+// one is the constant 1 of a numeric type.
+func one(t ir.Type) ir.Expr {
+	switch {
+	case ir.IsInteger(t):
+		return &ir.IntConst{Bits: 1, Ty: t}
+	case t == ir.F32:
+		return &ir.Convert{X: &ir.NumberConst{Value: 1}, To: ir.F32}
+	}
+	return &ir.NumberConst{Value: 1}
+}
+
+// conditional lowers `cond ? a : b`; the branches must have one type.
+func (l *lowerer) conditional(node *ast.Node) ir.Expr {
+	expr := node.AsConditionalExpression()
+	cond := l.condition(expr.Condition)
+	then, otherwise := l.sameType(node, expr.WhenTrue, expr.WhenFalse)
+	if cond == nil || then == nil {
+		return nil
+	}
+	return &ir.Conditional{Cond: cond, Then: then, Else: otherwise}
+}
+
+// logical lowers && and ||, whose operands must have one type.
+func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
+	x, y := l.sameType(node, left, right)
+	if x == nil {
+		return nil
+	}
+	return &ir.Logical{Op: op, X: x, Y: y}
+}
+
+// sameType lowers two expressions that must end up with one type (the branches of ?:,
+// the operands of && and ||), converting numbers to the type the semantic pass chose.
+// Either both results are nil or neither is.
+func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, ir.Expr) {
+	x, y := l.expression(a), l.expression(b)
+	if x == nil || y == nil {
+		return nil, nil
+	}
+	if t := l.numericType(node); t != nil {
+		x, y = l.convert(x, t, a), l.convert(y, t, b)
+		if x == nil || y == nil {
+			return nil, nil
+		}
+	}
+	if x.Type() != y.Type() {
+		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
+		return nil, nil
+	}
+	return x, y
+}
+
+// condition lowers an expression tested for truth: if and loop conditions, ?:, !.
+// Any value can be tested, so s[i] keeps JS's undefined out of range (D-015).
+func (l *lowerer) condition(node *ast.Node) ir.Expr {
+	x := l.valueExpression(node)
+	if x == nil {
+		return nil
+	}
+	switch t := x.Type(); {
+	case t == ir.Bool:
+		return x
+	case t == ir.Null || t == ir.Undefined:
+		return discard(x, &ir.BoolConst{Value: false})
+	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
+		return &ir.Truthy{X: x}
+	}
+	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
+	return nil
+}
+
+// typeOf lowers typeof, which is a constant for every static type.
+func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
+	x := l.valueExpression(node.Expression())
+	if x == nil {
+		return nil
+	}
+	if x.Type() == ir.Value {
+		return &ir.CallBuiltin{Builtin: ir.ValueTypeOf, Args: []ir.Expr{x}}
+	}
+	word, ok := typeofWords[x.Type()]
+	if ir.IsNumeric(x.Type()) {
+		word, ok = "number", true
+	}
+	if !ok {
+		l.notSupportedYet(node, fmt.Sprintf("typeof on %s is", x.Type()))
+		return nil
+	}
+	return discard(x, &ir.StringConst{Value: word})
+}
+
+// discard evaluates x for its effects, if it may have any, and then has the value of then.
+func discard(x ir.Expr, then ir.Expr) ir.Expr {
+	switch x.(type) {
+	case *ir.LocalRef, *ir.NumberConst, *ir.BoolConst, *ir.StringConst, *ir.IntConst, *ir.NullConst, *ir.UndefinedConst:
+		return then
+	}
+	return &ir.Sequence{X: x, Y: then}
 }
 
 // concatenation lowers `+` with a string operand: both sides become strings.
@@ -648,14 +1082,21 @@ func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 
 func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	expr := node.AsPrefixUnaryExpression()
-	if expr.Operator == ast.KindExclamationToken {
-		return l.not(node)
-	}
-	if expr.Operator != ast.KindMinusToken && expr.Operator != ast.KindPlusToken {
+	switch expr.Operator {
+	case ast.KindExclamationToken:
+		x := l.condition(expr.Operand)
+		if x == nil {
+			return nil
+		}
+		return &ir.Unary{Op: ir.Not, X: x}
+	case ast.KindPlusPlusToken, ast.KindMinusMinusToken:
+		return l.increment(node, expr.Operand, expr.Operator, false)
+	case ast.KindMinusToken, ast.KindPlusToken, ast.KindTildeToken:
+	default:
 		l.notSupportedYet(node, describe(node)+" is")
 		return nil
 	}
-	if expr.Operand.Kind == ast.KindNumericLiteral {
+	if expr.Operand.Kind == ast.KindNumericLiteral && expr.Operator != ast.KindTildeToken {
 		return l.numericLiteral(expr.Operand, expr.Operator == ast.KindMinusToken)
 	}
 	x := l.expression(expr.Operand)
@@ -666,24 +1107,13 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
 		return nil
 	}
-	if expr.Operator == ast.KindPlusToken {
+	switch expr.Operator {
+	case ast.KindPlusToken:
 		return x // +x is x for a numeric value
+	case ast.KindTildeToken:
+		return &ir.Unary{Op: ir.BitNot, X: x}
 	}
 	return &ir.Unary{Op: ir.Neg, X: x}
-}
-
-// not lowers `!b` for a boolean b.
-func (l *lowerer) not(node *ast.Node) ir.Expr {
-	operand := node.AsPrefixUnaryExpression().Operand
-	x := l.expression(operand)
-	if x == nil {
-		return nil
-	}
-	if x.Type() != ir.Bool {
-		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
-		return nil
-	}
-	return &ir.Unary{Op: ir.Not, X: x}
 }
 
 // builtin returns the runtime function a member access refers to, or nil if it isn't

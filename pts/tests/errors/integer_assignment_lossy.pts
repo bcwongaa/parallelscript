@@ -1,0 +1,5 @@
+let byte: u8 = 1;
+const half = 2.5;
+byte = half;
+
+// error: integer_assignment_lossy.pts:3:8 - error PTS2001: a number doesn't convert to u8 implicitly

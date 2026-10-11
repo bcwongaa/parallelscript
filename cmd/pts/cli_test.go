@@ -101,7 +101,7 @@ func TestEmitCWritesToAFileWithOutput(t *testing.T) {
 
 func TestCompileErrorsArePrintedRelativeToTheWorkingDirectory(t *testing.T) {
 	t.Parallel()
-	dir := projectWith(t, map[string]string{"bad.pts": "const n: number = \"one\";\nwhile (true) {}\n"})
+	dir := projectWith(t, map[string]string{"bad.pts": "const n: number = \"one\";\nfor (const c of \"ab\") {}\n"})
 
 	got := runIn(t, dir, "run", "bad.pts")
 
@@ -110,11 +110,11 @@ func TestCompileErrorsArePrintedRelativeToTheWorkingDirectory(t *testing.T) {
 
 func TestUnsupportedSyntaxIsACompileError(t *testing.T) {
 	t.Parallel()
-	dir := projectWith(t, map[string]string{"loop.pts": "while (true) {}\n"})
+	dir := projectWith(t, map[string]string{"loop.pts": "for (const c of \"ab\") {}\n"})
 
 	got := runIn(t, dir, "build", "loop.pts")
 
-	assert.Equal(t, got, result{code: exitFailure, stderr: "loop.pts:1:1 - error PTS1001: while statement is not supported yet\n"})
+	assert.Equal(t, got, result{code: exitFailure, stderr: "loop.pts:1:1 - error PTS1001: for of statement is not supported yet\n"})
 	_, err := os.Stat(filepath.Join(dir, "loop"))
 	assert.Assert(t, os.IsNotExist(err), "no executable on failure")
 }
@@ -152,7 +152,7 @@ func TestBinaryRunsProgramsAndFailsOnCompileErrors(t *testing.T) {
 	assert.NilError(t, err, string(out))
 	home, err := toolchain.FindHome()
 	assert.NilError(t, err)
-	dir := projectWith(t, map[string]string{"hello.pts": helloSource, "bad.pts": "while (true) {}\n"})
+	dir := projectWith(t, map[string]string{"hello.pts": helloSource, "bad.pts": "for (const c of \"ab\") {}\n"})
 	// Like an installed pts, the binary is outside the source tree and finds the runtime through PTS_HOME.
 	command := func(args ...string) *exec.Cmd {
 		cmd := exec.CommandContext(t.Context(), pts, args...)

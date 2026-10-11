@@ -1,4 +1,4 @@
 console.log("fine");
-while (true) {}
+for (const c of "ab") {}
 
-// error: unsupported_statement.pts:2:1 - error PTS1001: while statement is not supported yet
+// error: unsupported_statement.pts:2:1 - error PTS1001: for of statement is not supported yet

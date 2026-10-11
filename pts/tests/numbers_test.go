@@ -116,7 +116,8 @@ func emitRandomOperands(rng *rand.Rand, emit func(string)) {
 // The operands are let-bound so tsc types them as number, not as literal types.
 func operatorBlock(a string, b string) string {
 	return fmt.Sprintf("{ let a = %s; let b = %s; console.log(a + b, a - b, a * b, a / b, a %% b, a ** b, "+
-		"a < b, a <= b, a > b, a >= b, a === b, a !== b, a == b, -a, +b); }", a, b)
+		"a < b, a <= b, a > b, a >= b, a === b, a !== b, a == b, -a, +b, "+
+		"a & b, a | b, a ^ b, a << b, a >> b, a >>> b, ~a, !a, a ? 1 : 0); }", a, b)
 }
 
 // randomNumber draws from a mix of distributions, chosen by kind: raw bit patterns,

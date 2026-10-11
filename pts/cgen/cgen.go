@@ -31,6 +31,11 @@ type emitter struct {
 	locals      map[*ir.Local]string
 	usedNames   map[string]bool
 	nextSuffix  map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
+	temporaries int            // pts_tmpN locals made so far in the function
+	labels      map[*ir.Label]string
+	usedLabels  map[string]bool
+	gotoTargets map[string]bool // C labels some goto jumps to, so only those are written
+	loops       []*ir.Label     // the C loops around the current statement, innermost last
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -66,6 +71,10 @@ func (e *emitter) function(f *ir.Func) {
 	e.locals = map[*ir.Local]string{}
 	e.usedNames = map[string]bool{}
 	e.nextSuffix = map[string]int{}
+	e.temporaries = 0
+	e.labels = map[*ir.Label]string{}
+	e.usedLabels = map[string]bool{}
+	e.gotoTargets = map[string]bool{}
 	e.line(0, "")
 	e.at(f.Pos)
 	e.line(0, "static %s {", signature(f))
@@ -77,20 +86,170 @@ func (e *emitter) function(f *ir.Func) {
 
 func (e *emitter) statements(stmts []ir.Stmt, depth int) {
 	for _, stmt := range stmts {
-		e.at(stmt.Pos())
-		switch s := stmt.(type) {
-		case *ir.Block:
-			e.line(depth, "{")
-			e.statements(s.Stmts, depth+1)
-			e.line(depth, "}")
-		case *ir.ExprStmt:
-			e.line(depth, "%s;", e.expr(s.X))
-		case *ir.LocalDecl:
-			e.line(depth, "%s%s = %s;", declarator(s.Local.Type), e.declareLocal(s.Local), e.expr(s.Init))
-		default:
-			panic(fmt.Sprintf("cgen: unexpected statement %T", stmt))
-		}
+		e.statement(stmt, depth)
 	}
+}
+
+func (e *emitter) statement(stmt ir.Stmt, depth int) {
+	e.at(stmt.Pos())
+	switch s := stmt.(type) {
+	case *ir.Block:
+		e.line(depth, "{")
+		e.statements(s.Stmts, depth+1)
+		e.line(depth, "}")
+	case *ir.ExprStmt:
+		e.line(depth, "%s;", e.effect(s.X))
+	case *ir.LocalDecl:
+		init := zeroValue(s.Local.Type, e.strings[""])
+		if s.Init != nil {
+			init = e.expr(s.Init)
+		}
+		e.line(depth, "%s%s = %s;", declarator(s.Local.Type), e.declareLocal(s.Local), init)
+	case *ir.If:
+		e.ifStatement(s, depth)
+	case *ir.Loop:
+		e.loop(s, depth)
+	case *ir.Switch:
+		e.switchStatement(s, depth)
+	case *ir.LabeledBlock:
+		name := e.label(s.Label, "block")
+		e.line(depth, "{")
+		e.statements(s.Body.Stmts, depth+1)
+		e.line(depth, "}")
+		e.labelHere(depth, name+"_break")
+	case *ir.Break:
+		e.jump(depth, s.Target, "break", "_break")
+	case *ir.Continue:
+		e.jump(depth, s.Target, "continue", "_continue")
+	default:
+		panic(fmt.Sprintf("cgen: unexpected statement %T", stmt))
+	}
+}
+
+func (e *emitter) ifStatement(s *ir.If, depth int) {
+	e.line(depth, "if (%s) {", e.expr(s.Cond))
+	e.statements(s.Then.Stmts, depth+1)
+	for s.Else != nil {
+		elseIf, ok := s.Else.(*ir.If)
+		if !ok {
+			e.line(depth, "} else {")
+			e.statements(s.Else.(*ir.Block).Stmts, depth+1)
+			break
+		}
+		e.at(elseIf.At)
+		e.line(depth, "} else if (%s) {", e.expr(elseIf.Cond))
+		e.statements(elseIf.Then.Stmts, depth+1)
+		s = elseIf
+	}
+	e.line(depth, "}")
+}
+
+func (e *emitter) loop(loop *ir.Loop, depth int) {
+	cond := "1"
+	if loop.Cond != nil {
+		cond = e.expr(loop.Cond)
+	}
+	name := e.label(loop.Label, "loop")
+	switch {
+	case loop.PostTest:
+		e.line(depth, "do {")
+	case loop.Update != nil:
+		e.line(depth, "for (; %s; %s) {", cond, e.effect(loop.Update))
+	case loop.Cond == nil:
+		e.line(depth, "for (;;) {")
+	default:
+		e.line(depth, "while (%s) {", cond)
+	}
+	e.loops = append(e.loops, loop.Label)
+	e.statements(loop.Body.Stmts, depth+1)
+	e.loops = e.loops[:len(e.loops)-1]
+	e.labelHere(depth+1, name+"_continue")
+	if loop.PostTest {
+		e.line(depth, "} while (%s);", cond)
+	} else {
+		e.line(depth, "}")
+	}
+	e.labelHere(depth, name+"_break")
+}
+
+// switchStatement tests the cases in order and jumps to the first that matches, or to
+// the default case; the bodies follow one another, so control falls through as in JS.
+func (e *emitter) switchStatement(s *ir.Switch, depth int) {
+	name := e.label(s.Label, "switch")
+	caseLabels := make([]string, len(s.Cases))
+	otherwise := name + "_break"
+	for i, c := range s.Cases {
+		caseLabels[i] = fmt.Sprintf("%s_case_%d", name, i+1)
+		if c.Match == nil {
+			caseLabels[i] = name + "_default"
+			otherwise = caseLabels[i]
+			continue
+		}
+		e.at(c.At)
+		e.line(depth, "if (%s) goto %s;", e.expr(c.Match), caseLabels[i])
+	}
+	e.line(depth, "goto %s;", otherwise)
+	e.gotoTargets[otherwise] = true
+	for i, c := range s.Cases {
+		e.at(c.At)
+		e.line(depth, "%s: ;", caseLabels[i])
+		e.statements(c.Body, depth+1)
+	}
+	e.labelHere(depth, name+"_break")
+}
+
+// jump writes a break or continue: the C statement when the target is the innermost C
+// loop, or a goto to the target's label otherwise.
+func (e *emitter) jump(depth int, target *ir.Label, keyword string, suffix string) {
+	if len(e.loops) > 0 && e.loops[len(e.loops)-1] == target {
+		e.line(depth, "%s;", keyword)
+		return
+	}
+	label := e.labels[target] + suffix
+	e.gotoTargets[label] = true
+	e.line(depth, "goto %s;", label)
+}
+
+// label names a target's C labels: its source label if it has one, else what it is.
+func (e *emitter) label(label *ir.Label, kind string) string {
+	base := kind
+	if label.Name != "" {
+		base = cIdentifier(label.Name)
+	}
+	name := base
+	for i := 2; e.usedLabels[name]; i++ {
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+	e.usedLabels[name] = true
+	e.labels[label] = name
+	return name
+}
+
+// labelHere writes a C label if some goto jumps to it. The empty statement after it
+// lets a declaration follow, which C11 doesn't allow straight after a label.
+func (e *emitter) labelHere(depth int, label string) {
+	if e.gotoTargets[label] {
+		e.line(depth, "%s: ;", label)
+	}
+}
+
+// zeroValue is what `let x: T;` starts as; empty is the C name of the "" constant.
+func zeroValue(t ir.Type, empty string) string {
+	switch {
+	case t == ir.Bool:
+		return "false"
+	case t == ir.String:
+		return empty
+	case t == ir.Null:
+		return "PTS_VALUE_NULL"
+	case t == ir.Undefined || t == ir.Value:
+		return "PTS_VALUE_UNDEFINED"
+	case t == ir.F32:
+		return "0.0f"
+	case t == ir.Number:
+		return "0.0"
+	}
+	return "0" // the integer types
 }
 
 // declareLocal picks the local's C name: its source name if C allows it, made unique in the function.
@@ -123,6 +282,20 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return "PTS_VALUE_NULL"
 	case *ir.LocalRef:
 		return e.locals[x.Local]
+	case *ir.Assign:
+		if x.Postfix {
+			old := e.temporary()
+			return fmt.Sprintf("({ %s%s = %s; %s = %s; %s; })", declarator(x.Local.Type), old, e.locals[x.Local], e.locals[x.Local], e.expr(x.Value), old)
+		}
+		return "(" + e.locals[x.Local] + " = " + e.expr(x.Value) + ")"
+	case *ir.Truthy:
+		return truthy(x.X.Type(), e.expr(x.X))
+	case *ir.Conditional:
+		return "(" + e.expr(x.Cond) + " ? " + e.expr(x.Then) + " : " + e.expr(x.Else) + ")"
+	case *ir.Logical:
+		return e.logical(x)
+	case *ir.Sequence:
+		return "(" + e.expr(x.X) + ", " + e.expr(x.Y) + ")"
 	case *ir.Box:
 		return e.box(x.X)
 	case *ir.CallBuiltin:
@@ -130,13 +303,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.Binary:
 		return e.binary(x)
 	case *ir.Unary:
-		switch {
-		case x.Op == ir.Not:
-			return "(!" + e.expr(x.X) + ")"
-		case ir.IsInteger(x.Type()):
-			return "pts_" + x.Type().String() + "_neg(" + e.expr(x.X) + ")"
-		}
-		return "(-" + e.expr(x.X) + ")"
+		return e.unary(x)
 	case *ir.ToString:
 		return e.toString(x.X)
 	case *ir.IntConst:
@@ -148,6 +315,99 @@ func (e *emitter) expr(expr ir.Expr) string {
 	}
 }
 
+// effect writes an expression evaluated only for its effects (a statement or a for
+// loop's update), where an assignment needs no parentheses and x++ no old value.
+func (e *emitter) effect(expr ir.Expr) string {
+	if assign, ok := expr.(*ir.Assign); ok {
+		return e.locals[assign.Local] + " = " + e.expr(assign.Value)
+	}
+	return e.expr(expr)
+}
+
+func (e *emitter) unary(u *ir.Unary) string {
+	x := e.expr(u.X)
+	t := u.X.Type()
+	switch {
+	case u.Op == ir.Not:
+		return "(!" + x + ")"
+	case u.Op == ir.BitNot && ir.IsInteger(t):
+		return "((" + cType(t) + ")~" + x + ")"
+	case u.Op == ir.BitNot && t == ir.F32:
+		return "((float)pts_number_bitnot(" + x + "))"
+	case u.Op == ir.BitNot:
+		return "pts_number_bitnot(" + x + ")"
+	case ir.IsInteger(t):
+		return "pts_" + t.String() + "_neg(" + x + ")"
+	}
+	return "(-" + x + ")"
+}
+
+// logical writes && and ||. On booleans they are C's; otherwise the left operand is
+// kept in a temporary, since it is both tested and possibly the value.
+func (e *emitter) logical(l *ir.Logical) string {
+	x, y := e.expr(l.X), e.expr(l.Y)
+	t := l.X.Type()
+	if t == ir.Bool {
+		return "(" + x + " " + l.Op.String() + " " + y + ")"
+	}
+	tmp := e.temporary()
+	then, otherwise := y, tmp
+	if l.Op == ir.Or {
+		then, otherwise = tmp, y
+	}
+	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
+}
+
+// truthy writes JS's ToBoolean of x, a C expression of type t.
+func truthy(t ir.Type, x string) string {
+	switch {
+	case t == ir.Bool:
+		return x
+	case ir.IsInteger(t):
+		return "(" + x + " != 0)"
+	case t == ir.String:
+		return "((" + x + ")->byte_len != 0)"
+	case t == ir.Value:
+		return "pts_value_truthy(" + x + ")"
+	case t == ir.Number || t == ir.F32:
+		return "pts_number_truthy(" + x + ")"
+	}
+	panic("cgen: no truthiness for " + t.String())
+}
+
+// temporary names a new C local for an intermediate value.
+func (e *emitter) temporary() string {
+	e.temporaries++
+	return fmt.Sprintf("pts_tmp%d", e.temporaries)
+}
+
+// operands writes exprs as C. C leaves the evaluation order of operands and arguments
+// unspecified; where that could change what JS's left-to-right order does, each is
+// evaluated into a temporary first, and prelude declares them for ordered.
+func (e *emitter) operands(exprs []ir.Expr) (args []string, prelude string) {
+	args = make([]string, len(exprs))
+	if !orderMatters(exprs) {
+		for i, x := range exprs {
+			args[i] = e.expr(x)
+		}
+		return args, ""
+	}
+	var declarations strings.Builder
+	for i, x := range exprs {
+		args[i] = e.temporary()
+		fmt.Fprintf(&declarations, "%s%s = %s; ", declarator(x.Type()), args[i], e.expr(x))
+	}
+	return args, declarations.String()
+}
+
+// ordered wraps result, which uses the temporaries prelude declares, in a statement expression.
+func ordered(prelude string, result string) string {
+	if prelude == "" {
+		return result
+	}
+	return "({ " + prelude + result + "; })"
+}
+
 // cOperators are the binary operators C spells like JS (for the operand types the IR allows).
 var cOperators = map[ir.BinaryOp]string{
 	ir.Add: "+", ir.Sub: "-", ir.Mul: "*", ir.Div: "/",
@@ -155,16 +415,27 @@ var cOperators = map[ir.BinaryOp]string{
 }
 
 // integerOperations name the runtime's wrapping and checked integer operations: pts_<type>_<name>.
-var integerOperations = map[ir.BinaryOp]string{ir.Add: "add", ir.Sub: "sub", ir.Mul: "mul", ir.Div: "div", ir.Rem: "rem", ir.Pow: "pow"}
+var integerOperations = map[ir.BinaryOp]string{ir.Add: "add", ir.Sub: "sub", ir.Mul: "mul", ir.Div: "div", ir.Rem: "rem", ir.Pow: "pow",
+	ir.Shl: "shl", ir.Shr: "shr", ir.UShr: "ushr"}
+
+// bitwiseOperators are C's spelling of the bitwise operators on integer types.
+var bitwiseOperators = map[ir.BinaryOp]string{ir.BitAnd: "&", ir.BitOr: "|", ir.BitXor: "^"}
+
+// numberBitwise name the runtime's int32 bitwise operations on numbers: pts_number_<name>.
+var numberBitwise = map[ir.BinaryOp]string{ir.BitAnd: "bitand", ir.BitOr: "bitor", ir.BitXor: "bitxor", ir.Shl: "shl", ir.Shr: "shr", ir.UShr: "ushr"}
 
 // stringComparisons write string ordering through pts_string_compare's sign.
 var stringComparisons = map[ir.BinaryOp]string{ir.Lt: "<", ir.Le: "<=", ir.Gt: ">", ir.Ge: ">="}
 
 func (e *emitter) binary(b *ir.Binary) string {
-	x, y := e.expr(b.X), e.expr(b.Y)
-	operandType := b.X.Type()
+	args, prelude := e.operands([]ir.Expr{b.X, b.Y})
+	return ordered(prelude, e.binaryOf(b.Op, b.X.Type(), args[0], args[1]))
+}
+
+// binaryOf writes op applied to x and y, C expressions of type operandType.
+func (e *emitter) binaryOf(op ir.BinaryOp, operandType ir.Type, x string, y string) string {
 	if operandType == ir.String {
-		switch b.Op {
+		switch op {
 		case ir.Concat:
 			return "pts_string_concat(" + x + ", " + y + ")"
 		case ir.Eq:
@@ -172,23 +443,32 @@ func (e *emitter) binary(b *ir.Binary) string {
 		case ir.Ne:
 			return "(!pts_string_equals(" + x + ", " + y + "))"
 		default:
-			return "(pts_string_compare(" + x + ", " + y + ") " + stringComparisons[b.Op] + " 0)"
+			return "(pts_string_compare(" + x + ", " + y + ") " + stringComparisons[op] + " 0)"
 		}
 	}
-	if name, ok := integerOperations[b.Op]; ok && ir.IsInteger(operandType) {
+	if name, ok := integerOperations[op]; ok && ir.IsInteger(operandType) {
 		return fmt.Sprintf("pts_%s_%s(%s, %s)", operandType, name, x, y)
+	}
+	if c, ok := bitwiseOperators[op]; ok && ir.IsInteger(operandType) {
+		return "((" + cType(operandType) + ")(" + x + " " + c + " " + y + "))"
+	}
+	if name, ok := numberBitwise[op]; ok {
+		if operandType == ir.F32 {
+			return "((float)pts_number_" + name + "(" + x + ", " + y + "))"
+		}
+		return "pts_number_" + name + "(" + x + ", " + y + ")"
 	}
 	prefix := "pts_number"
 	if operandType == ir.F32 {
 		prefix = "pts_f32"
 	}
-	switch b.Op {
+	switch op {
 	case ir.Rem:
 		return prefix + "_rem(" + x + ", " + y + ")"
 	case ir.Pow:
 		return prefix + "_pow(" + x + ", " + y + ")"
 	}
-	return "(" + x + " " + cOperators[b.Op] + " " + y + ")"
+	return "(" + x + " " + cOperators[op] + " " + y + ")"
 }
 
 // toString writes JS's ToString of a primitive. The words true, false, null and
@@ -282,14 +562,16 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.StringPadStart:       "pts_string_pad_start",
 	ir.StringPadEnd:         "pts_string_pad_end",
 	ir.StringRepeat:         "pts_string_repeat",
+	ir.ValueTypeOf:          "pts_value_typeof",
 }
 
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
-	args := make([]string, len(call.Args))
-	for i, arg := range call.Args {
-		args[i] = e.expr(arg)
-	}
-	switch call.Builtin {
+	args, prelude := e.operands(call.Args)
+	return ordered(prelude, builtinCall(call.Builtin, args))
+}
+
+func builtinCall(builtin *ir.Builtin, args []string) string {
+	switch builtin {
 	case ir.ConsoleLog:
 		if len(args) == 0 {
 			return "pts_console_log(0, NULL)"
@@ -298,9 +580,9 @@ func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 	case ir.StringLength:
 		return "((double)(" + args[0] + ")->utf16_len)"
 	}
-	function, ok := builtinFunctions[call.Builtin]
+	function, ok := builtinFunctions[builtin]
 	if !ok {
-		panic("cgen: unexpected builtin " + call.Builtin.Name)
+		panic("cgen: unexpected builtin " + builtin.Name)
 	}
 	return function + "(" + strings.Join(args, ", ") + ")"
 }
@@ -377,7 +659,11 @@ var toStringWords = map[ir.Type][]string{ir.Bool: {"true", "false"}, ir.Null: {"
 
 func (e *emitter) collectStrings(program *ir.Program) {
 	for _, f := range program.Funcs {
-		walkExprs(f.Body.Stmts, func(expr ir.Expr) {
+		walk(f.Body.Stmts, func(stmt ir.Stmt) {
+			if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Init == nil && decl.Local.Type == ir.String {
+				e.intern("") // the zero value of `let s: string;`
+			}
+		}, func(expr ir.Expr) {
 			switch x := expr.(type) {
 			case *ir.StringConst:
 				e.intern(x.Value)
@@ -397,37 +683,73 @@ func (e *emitter) intern(value string) {
 	}
 }
 
-// walkExprs calls visit for every expression in stmts, outer expressions first.
-func walkExprs(stmts []ir.Stmt, visit func(ir.Expr)) {
-	var walk func(ir.Expr)
-	walk = func(expr ir.Expr) {
-		visit(expr)
-		switch x := expr.(type) {
+// walk calls visitStmt for every statement in stmts and visitExpr for every expression,
+// outer ones first.
+func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
+	var expr func(ir.Expr)
+	expr = func(x ir.Expr) {
+		if x == nil {
+			return
+		}
+		visitExpr(x)
+		switch x := x.(type) {
 		case *ir.Box:
-			walk(x.X)
+			expr(x.X)
 		case *ir.CallBuiltin:
 			for _, arg := range x.Args {
-				walk(arg)
+				expr(arg)
 			}
 		case *ir.Binary:
-			walk(x.X)
-			walk(x.Y)
+			expr(x.X)
+			expr(x.Y)
 		case *ir.Unary:
-			walk(x.X)
+			expr(x.X)
 		case *ir.Convert:
-			walk(x.X)
+			expr(x.X)
 		case *ir.ToString:
-			walk(x.X)
+			expr(x.X)
+		case *ir.Truthy:
+			expr(x.X)
+		case *ir.Assign:
+			expr(x.Value)
+		case *ir.Conditional:
+			expr(x.Cond)
+			expr(x.Then)
+			expr(x.Else)
+		case *ir.Logical:
+			expr(x.X)
+			expr(x.Y)
+		case *ir.Sequence:
+			expr(x.X)
+			expr(x.Y)
 		}
 	}
 	for _, stmt := range stmts {
+		visitStmt(stmt)
 		switch s := stmt.(type) {
 		case *ir.Block:
-			walkExprs(s.Stmts, visit)
+			walk(s.Stmts, visitStmt, visitExpr)
 		case *ir.ExprStmt:
-			walk(s.X)
+			expr(s.X)
 		case *ir.LocalDecl:
-			walk(s.Init)
+			expr(s.Init)
+		case *ir.If:
+			expr(s.Cond)
+			walk([]ir.Stmt{s.Then}, visitStmt, visitExpr)
+			if s.Else != nil {
+				walk([]ir.Stmt{s.Else}, visitStmt, visitExpr)
+			}
+		case *ir.Loop:
+			expr(s.Cond)
+			expr(s.Update)
+			walk(s.Body.Stmts, visitStmt, visitExpr)
+		case *ir.Switch:
+			for _, c := range s.Cases {
+				expr(c.Match)
+				walk(c.Body, visitStmt, visitExpr)
+			}
+		case *ir.LabeledBlock:
+			walk(s.Body.Stmts, visitStmt, visitExpr)
 		}
 	}
 }

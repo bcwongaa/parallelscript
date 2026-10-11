@@ -1,0 +1,105 @@
+// if/else chains, the four loops, labelled break and continue, and switch with
+// fallthrough, a default case in the middle and string cases.
+const grade = 72;
+if (grade >= 90) {
+  console.log("A");
+} else if (grade >= 70) {
+  console.log("C or B");
+} else console.log("lower");
+
+let i = 0;
+while (true) {
+  i++;
+  if (i < 3) continue;
+  if (i > 5) break;
+  console.log("while", i);
+}
+do console.log("do runs once"); while (false);
+for (let a = 0, b = 10; a < b; a += 3, b -= 3) console.log("for", a, b);
+let spins = 0;
+for (;;) { if (++spins === 4) break; }
+console.log("spins", spins);
+
+let pairs = "";
+rows: for (let r = 0; r < 4; r++) {
+  cols: for (let c = 0; c < 4; c++) {
+    if (c > r) continue rows;
+    if (r === 3) break rows;
+    if (c === 1) continue cols;
+    pairs += `${r}${c} `;
+  }
+}
+console.log(pairs.trimEnd());
+
+found: {
+  for (let n = 2; n < 50; n++) {
+    if (n * n > 40) {
+      console.log("first square over 40:", n * n);
+      break found;
+    }
+  }
+  console.log("not reached");
+}
+
+for (let day = 0; day < 8; day++) {
+  let kind = "";
+  switch (day) {
+    case 0:
+    case 6:
+      kind = "weekend";
+      break;
+    default:
+      kind = "unknown";
+      break;
+    case 1:
+      kind = "monday, ";
+    case 2:
+      kind += "early week";
+      break;
+    case 3: case 4: case 5:
+      kind = "midweek";
+  }
+  console.log(day, kind);
+}
+
+const fruit: string = "kiwi";
+switch (fruit) {
+  case "apple":
+    console.log("red");
+    break;
+  case "kiwi":
+    console.log("green");
+}
+switch (fruit) { case "plum": console.log("purple"); }
+let count = 0;
+loop: while (true) {
+  switch (count++) {
+    case 3:
+      break loop;
+    default:
+      continue loop;
+  }
+}
+console.log("count", count);
+
+// expect:
+// C or B
+// while 3
+// while 4
+// while 5
+// do runs once
+// for 0 10
+// for 3 7
+// spins 4
+// 00 10 20 22
+// first square over 40: 49
+// 0 weekend
+// 1 monday, early week
+// 2 early week
+// 3 midweek
+// 4 midweek
+// 5 midweek
+// 6 weekend
+// 7 unknown
+// green
+// count 4

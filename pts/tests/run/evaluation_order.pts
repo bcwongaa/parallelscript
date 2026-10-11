@@ -1,0 +1,24 @@
+// Operands and arguments are evaluated left to right, even where C wouldn't promise it.
+let x = 1;
+console.log(x + (x = 5), x);
+let i = 0;
+console.log(i++ + i++, i, i++ * 10 + i++, i);
+let a = 2;
+a = (a = 3) * a + a;
+console.log(a);
+let log = "";
+const r = (log += "L", 1) - (log += "R", 2);
+console.log(r, log);
+let j = 0;
+console.log(j++, j++, j++, j);
+const word = "abc";
+let k = 0;
+console.log(word[k++] + word[k++] + word[k++], k);
+
+// expect:
+// 6 5
+// 1 2 23 4
+// 12
+// -1 LR
+// 0 1 2 3
+// abc 3

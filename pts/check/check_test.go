@@ -120,3 +120,50 @@ func TestMixingIntegerAndNumberYieldsNumber(t *testing.T) {
 		"main.pts:2:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
 	})
 }
+
+func TestAssignmentsFollowTheConversionRules(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `let small: u8 = 1;
+let wide: int = 2;
+let n = 0.5;
+small = 255;
+wide = small;
+wide += small;
+small <<= 1;
+n += wide;
+small = 256;
+small = wide;
+wide *= 1.5;
+let later: u8;
+later = n;
+`)
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:9:9 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
+		"main.pts:10:9 - error PTS2001: a int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
+		"main.pts:11:1 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
+		"main.pts:13:9 - error PTS2001: a number doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
+	})
+}
+
+func TestBranchesAndCasesShareOneType(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `let ok = true;
+const level: u8 = ok ? 1 : 255;
+const wide: i64 = 1;
+const mixed = ok ? wide : 0.5;
+const either: number = mixed;
+const unsigned: u64 = 3;
+const bad = ok ? wide : unsigned;
+const pick: u16 = 3;
+switch (pick) {
+  case 70000:
+    break;
+}
+const both: u8 = level || 300;
+`)
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:7:13 - error PTS2003: `?:` can't mix int and u64, because neither converts to the other without loss; convert one with `as`",
+		"main.pts:10:8 - error PTS2002: 70000 doesn't fit in u16 (0 to 65535)",
+		"main.pts:13:27 - error PTS2002: 300 doesn't fit in u8 (0 to 255)",
+	})
+}
