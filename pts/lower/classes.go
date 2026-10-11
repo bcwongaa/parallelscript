@@ -255,7 +255,31 @@ func (l *lowerer) declareStaticMember(member *ast.Node, class *ir.Class) {
 			l.staticClasses[fn] = class
 			fn.JSName = member.Name().Text()
 		}
+	case ast.KindGetAccessor, ast.KindSetAccessor: // functions of the class's statics, called where `C.p` is read or written (D-089)
+		kind := methodKinds[member.Kind]
+		fn := l.declareFunction(member, class.Name+"."+accessorPrefixes[kind]+member.Name().Text(), nil)
+		l.staticMethods[member] = fn
+		if fn == nil {
+			return
+		}
+		l.staticClasses[fn] = class
+		fn.JSName = member.Name().Text()
+		symbol := l.declaredSymbol(member)
+		accessors := l.staticAccessors[symbol]
+		if kind == ir.Getter {
+			accessors.getter = fn
+		} else {
+			fn.Result = ir.Void
+			accessors.setter = fn
+		}
+		l.staticAccessors[symbol] = accessors
 	}
+}
+
+// staticProperty is a static accessor property's getter and setter, either of them nil if
+// the class doesn't define it.
+type staticProperty struct {
+	getter, setter *ir.Func
 }
 
 // staticInitializers run where a class declaration is: each static field's initialiser
@@ -507,8 +531,6 @@ func unsupportedMember(member *ast.Node) string {
 		return "index signatures in classes are"
 	case member.Name() != nil && member.Name().Kind != ast.KindIdentifier && member.Name().Kind != ast.KindPrivateIdentifier:
 		return "members with computed or quoted names are"
-	case ast.IsStatic(member) && (member.Kind == ast.KindGetAccessor || member.Kind == ast.KindSetAccessor):
-		return "static getters and setters are"
 	case ast.HasSyntacticModifier(member, ast.ModifierFlagsAccessor):
 		return "auto-accessors (`accessor`) are"
 	}

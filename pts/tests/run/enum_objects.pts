@@ -1,0 +1,27 @@
+// An enum object used as a value is a hash-map object of its members (D-089).
+enum Color { Red = "R", Green = "G" }
+enum Size { S, M = 5, L }
+console.log(Object.values(Color), Object.keys(Color));
+console.log(Size, Color);
+console.log(Object.values(Size).filter((v) => typeof v === "number"));
+for (const k in Size) console.log(k);
+const sizes = Object.keys(Size).filter((k) => isNaN(Number(k)));
+console.log(sizes, Size[Size.M]);
+function names(e: Record<string, string>): string[] { return Object.keys(e); }
+console.log(names(Color));
+const colorObj = Color;
+console.log(colorObj.Red);
+
+// expect:
+// [ 'R', 'G' ] [ 'Red', 'Green' ]
+// { '0': 'S', '5': 'M', '6': 'L', S: 0, M: 5, L: 6 } { Red: 'R', Green: 'G' }
+// [ 0, 5, 6 ]
+// 0
+// 5
+// 6
+// S
+// M
+// L
+// [ 'S', 'M', 'L' ] M
+// [ 'Red', 'Green' ]
+// R

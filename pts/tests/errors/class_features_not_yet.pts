@@ -3,9 +3,6 @@ class Base {
   n = 1;
 }
 class Failure extends Map<string, number> {}
-class Statics {
-  static get count(): number { return 0; }
-}
 class Accessors {
   accessor size = 1;
   other = 1;
@@ -32,11 +29,10 @@ function local() {
 }
 
 // error: class_features_not_yet.pts:5:23 - error PTS1001: extending `Map` is not supported yet
-// error: class_features_not_yet.pts:7:14 - error PTS1001: static getters and setters are not supported yet
-// error: class_features_not_yet.pts:10:12 - error PTS1001: auto-accessors (`accessor`) are not supported yet
-// error: class_features_not_yet.pts:15:3 - error PTS1001: members with computed or quoted names are not supported yet
-// error: class_features_not_yet.pts:18:10 - error PTS1001: static members of generic classes are not supported yet
-// error: class_features_not_yet.pts:20:16 - error PTS1001: index signatures in classes are not supported yet
-// error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters of type [number, string] are not supported yet
-// error: class_features_not_yet.pts:29:35 - error PTS1001: spread arguments are not supported yet
-// error: class_features_not_yet.pts:31:3 - error PTS1001: classes inside functions or blocks are not supported yet
+// error: class_features_not_yet.pts:7:12 - error PTS1001: auto-accessors (`accessor`) are not supported yet
+// error: class_features_not_yet.pts:12:3 - error PTS1001: members with computed or quoted names are not supported yet
+// error: class_features_not_yet.pts:15:10 - error PTS1001: static members of generic classes are not supported yet
+// error: class_features_not_yet.pts:17:16 - error PTS1001: index signatures in classes are not supported yet
+// error: class_features_not_yet.pts:19:15 - error PTS1001: rest parameters of type [number, string] are not supported yet
+// error: class_features_not_yet.pts:26:35 - error PTS1001: spread arguments are not supported yet
+// error: class_features_not_yet.pts:28:3 - error PTS1001: classes inside functions or blocks are not supported yet

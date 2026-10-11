@@ -15,6 +15,15 @@ import (
 // (D-062), or to the one IR type they all map to (`1 | 2` is a number); it reports why
 // it can't (at node) and returns nil.
 func (l *lowerer) unionType(t *checker.Type, node *ast.Node) ir.Type {
+	if l.recursiveUnions[t] {
+		return ir.Value
+	}
+	l.unionsInProgress[t]++
+	defer func() {
+		if l.unionsInProgress[t]--; l.unionsInProgress[t] == 0 {
+			delete(l.unionsInProgress, t)
+		}
+	}()
 	var members []ir.Type
 	for _, constituent := range t.Types() {
 		member := l.irType(constituent, node)
@@ -24,6 +33,9 @@ func (l *lowerer) unionType(t *checker.Type, node *ast.Node) ir.Type {
 		if !slices.Contains(members, member) {
 			members = append(members, member)
 		}
+	}
+	if l.recursiveUnions[t] {
+		return ir.Value // a recursive union (`type Json = … | Json[]`) holds dynamic values (D-089)
 	}
 	if slices.Contains(members, ir.Type(ir.Value)) {
 		return ir.Value // a dynamic value (`unknown`) holds every member's values
@@ -36,6 +48,16 @@ func (l *lowerer) unionType(t *checker.Type, node *ast.Node) ir.Type {
 		return nil
 	}
 	return l.unionOf(members)
+}
+
+// recurring is the IR type of an array or hash-map object type met again while mapping
+// it inside a union, which makes the unions being mapped recursive: their values are
+// dynamic (D-089). ok is false outside unions.
+func (l *lowerer) recurring() (t ir.Type, ok bool) {
+	for u := range l.unionsInProgress {
+		l.recursiveUnions[u] = true
+	}
+	return ir.Value, len(l.unionsInProgress) > 0
 }
 
 func isUnion(t ir.Type) bool {
@@ -85,6 +107,11 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		return x // unreachable code, as tsc sees it
 	}
 	if narrow := l.irType(t, node); narrow != nil && isNarrowing(union, narrow) {
+		if node.Kind != ast.KindIdentifier && isCheckable(narrow) && !isClass(narrow) && !isUnion(narrow) {
+			// A property tsc narrowed may have changed since, through a call that tsc
+			// doesn't follow, so its value is checked (classes' always are) (D-089).
+			return &ir.FromUnion{X: box(x), To: narrow}
+		}
 		return &ir.FromUnion{X: x, To: narrow}
 	}
 	return x
@@ -231,7 +258,12 @@ func looseEquality(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr {
 // evaluated only then. The result has the type tsc gives the expression.
 func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	x := l.expression(expr.Left)
+	var x ir.Expr
+	if left := ast.SkipParentheses(expr.Left); l.isArrayElement(left) || l.isStringElement(left) {
+		x = l.valueExpression(left) // `digits[i] ?? 0`: undefined past the end, as in JS (D-089)
+	} else {
+		x = l.expression(expr.Left)
+	}
 	if x == nil {
 		return nil
 	}

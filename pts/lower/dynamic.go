@@ -105,23 +105,37 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	if l.firstDynamicCall == nil {
 		l.firstDynamicCall = call.AsNode()
 	}
-	args := []ir.Expr{}
-	method := ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee))
-	if method {
-		l.wantDynamicMember(callee)
+	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee)) {
 		object := l.expression(callee.Expression())
-		key := l.dynamicKey(callee)
-		if object == nil || key == nil {
+		if object == nil {
 			return nil
 		}
-		args = append(args, box(object), key)
-	} else {
-		function := l.expression(callee)
-		if function == nil {
-			return nil
-		}
-		args = append(args, box(function))
+		return l.dynamicMethodCall(call, callee, object)
 	}
+	function := l.expression(callee)
+	if function == nil {
+		return nil
+	}
+	return l.dynamicCallWith(call, callee, ir.DynamicCall, []ir.Expr{box(function)})
+}
+
+// dynamicMethodCall lowers `o.m(args)` (callee) for object, the lowered o, a dynamic value
+// or one whose member m is found at run time: DynamicCallMethod.
+func (l *lowerer) dynamicMethodCall(call *ast.CallExpression, callee *ast.Node, object ir.Expr) ir.Expr {
+	if l.firstDynamicCall == nil {
+		l.firstDynamicCall = call.AsNode()
+	}
+	l.wantDynamicMember(callee)
+	key := l.dynamicKey(callee)
+	if key == nil {
+		return nil
+	}
+	return l.dynamicCallWith(call, callee, ir.DynamicCallMethod, []ir.Expr{box(object), key})
+}
+
+// dynamicCallWith is the dynamic call builtin with args, the callee's, then its text and
+// the call's arguments as dynamic values.
+func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, builtin *ir.Builtin, args []ir.Expr) ir.Expr {
 	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
 	for _, argument := range call.Arguments.Nodes {
 		if argument.Kind == ast.KindSpreadElement { // an array, whose elements the runtime spreads
@@ -138,10 +152,7 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 		}
 		args = append(args, box(value))
 	}
-	if method {
-		return &ir.CallBuiltin{Builtin: ir.DynamicCallMethod, Args: args}
-	}
-	return &ir.CallBuiltin{Builtin: ir.DynamicCall, Args: args}
+	return &ir.CallBuiltin{Builtin: builtin, Args: args}
 }
 
 // dynamicOperation lowers a binary operator with an operand of type any, as JS applies

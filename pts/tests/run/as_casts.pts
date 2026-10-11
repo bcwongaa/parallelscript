@@ -1,0 +1,37 @@
+// `as` to types other than numeric ones: free upcasts, checked downcasts (D-089).
+class Animal { constructor(public name: string) {} }
+class Dog extends Animal { bark() { return this.name + " woofs"; } }
+class Cat extends Animal {}
+const pets: Animal[] = [new Dog("rex"), new Cat("tom")];
+console.log((pets[0] as Dog).bark());
+try { console.log((pets[1] as Dog).bark()); } catch (e) { console.log("caught", (e as Error).name); }
+type Key = "USD" | "EUR";
+const rates: Record<Key, number> = { USD: 1, EUR: 0.9 };
+const keys = Object.keys(rates) as Key[];
+console.log(keys);
+const row: (string | number)[] = ["v", 1, 2];
+const nums = row.slice(1) as number[];
+console.log(nums.reduce((a, b) => a + b, 0));
+interface Shape { kind: string }
+interface Circle extends Shape { kind: "circle"; r: number }
+const s: Shape = { kind: "circle", r: 2 } as Circle;
+console.log((s as Circle).r, s);
+const maybe: number | null = Math.PI > 3 ? 5 : null;
+console.log((maybe as number) + 1);
+const label = "x" as const;
+console.log(label, [1, 2] as const);
+const a = pets[0] as Animal;
+console.log(a.name);
+const maybe2: number | null = Math.PI > 3 ? 5 : null;
+console.log((maybe2 as number) + 1);
+
+// expect:
+// rex woofs
+// caught TypeError
+// [ 'USD', 'EUR' ]
+// 3
+// 2 { kind: 'circle', r: 2 }
+// 6
+// x [ 1, 2 ]
+// rex
+// 6

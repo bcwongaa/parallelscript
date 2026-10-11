@@ -39,7 +39,8 @@ type genericFunc struct {
 type instance struct {
 	generic   *genericFunc
 	arguments []ir.Type
-	fn        *ir.Func // nil if it failed, which was reported
+	literals  []*checker.Type // the type arguments that are literal types, which `T[K]` can tell apart (D-089)
+	fn        *ir.Func        // nil if it failed, which was reported
 	subst     *substitution
 }
 
@@ -430,14 +431,18 @@ func (l *lowerer) inheritedGenericMethod(class *ir.Class, name string) *genericF
 func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) *ir.Func {
 	arguments := make([]ir.Type, len(typeArguments))
 	concrete := make([]*checker.Type, len(typeArguments))
+	literals := make([]*checker.Type, len(typeArguments))
 	for i, t := range typeArguments {
 		concrete[i] = l.instantiate(t)
 		if arguments[i] = l.irType(concrete[i], node); arguments[i] == nil {
 			return nil
 		}
+		if isLiteralType(concrete[i]) {
+			literals[i] = concrete[i] // `pick(o, "a")` and `pick(o, "b")` return different types
+		}
 	}
 	for _, existing := range generic.instances {
-		if slices.Equal(existing.arguments, arguments) {
+		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
 			return existing.fn
 		}
 	}
@@ -450,10 +455,18 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
-	inst := &instance{generic: generic, arguments: arguments, subst: subst}
+	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
 	return inst.fn
+}
+
+// isLiteralType reports whether t is a literal type or a union of them.
+func isLiteralType(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !isLiteralType(member) })
+	}
+	return t.Flags()&(checker.TypeFlagsStringLiteral|checker.TypeFlagsNumberLiteral|checker.TypeFlagsEnumLiteral) != 0
 }
 
 // declareInstance declares the function of a generic function's instance, named name,

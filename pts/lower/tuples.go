@@ -131,3 +131,31 @@ func (l *lowerer) tupleElementRead(node *ast.Node, field *ir.Field) ir.Expr {
 	}
 	return &ir.FieldRef{X: object, Field: field}
 }
+
+// tupleArray copies the elements of x, a tuple of type t, into a new array of the union of
+// their types, for `for…of` and the array methods that don't change an array (D-089).
+func (l *lowerer) tupleArray(x ir.Expr, t *checker.Type, node *ast.Node) ir.Expr {
+	shape := x.Type().(*ir.Class)
+	elementTypes := l.checker.GetTypeArguments(t)
+	elem := l.irType(l.checker.GetUnionType(elementTypes[:min(len(elementTypes), len(shape.Fields))]), node)
+	if elem == nil {
+		return nil
+	}
+	tuple := l.newLocal("tuple", shape)
+	elems := make([]ir.Expr, len(shape.Fields))
+	for i := range elems {
+		if elems[i] = l.convert(&ir.FieldRef{X: &ir.LocalRef{Local: tuple}, Field: shape.Field(strconv.Itoa(i))}, elem, node); elems[i] == nil {
+			return nil
+		}
+	}
+	return &ir.Bind{Local: tuple, Value: x, In: &ir.NewArray{Array: l.arrayOf(elem), Elems: elems}}
+}
+
+// tupleCopyMethods are the array methods a tuple has as an array of its elements: the
+// ones that don't change the array.
+var tupleCopyMethods = map[string]bool{
+	"map": true, "forEach": true, "filter": true, "reduce": true, "reduceRight": true, "some": true, "every": true,
+	"find": true, "findIndex": true, "findLast": true, "findLastIndex": true, "flatMap": true, "join": true,
+	"slice": true, "includes": true, "indexOf": true, "lastIndexOf": true, "concat": true, "toString": true, "at": true,
+	"toSorted": true, "toReversed": true,
+}

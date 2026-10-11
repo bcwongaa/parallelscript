@@ -144,7 +144,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
-		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
+		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
@@ -230,6 +230,9 @@ type lowerer struct {
 	program             *compiler.Program
 	checker             *checker.Checker
 	argumentTemps       []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
+	staticAccessors     map[*ast.Symbol]staticProperty
+	unionsInProgress    map[*checker.Type]int  // the unions irType is mapping, with how often each is
+	recursiveUnions     map[*checker.Type]bool // the unions found to recur through arrays or hash-map objects (D-089)
 	info                *check.Info
 	locals              map[*ast.Symbol]*ir.Local        // nil for a declaration that failed to lower
 	owners              map[*ir.Local]*ir.Func           // the function each local belongs to
@@ -849,8 +852,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.FromUnion{X: value, To: target} // `Dog | Bird` as an Animal
 	case isEmptyArrayLiteral(value) && isArray(target):
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
-	case value.Type() == ir.ValueArray && isArray(target):
-		return l.dynamicConversion(box(value), target, node) // an any[] (`new Array(n).fill(0)`) copied and checked, as dynamic data is (D-071)
+	case isDynamicArray(value.Type()) && isArray(target):
+		return l.dynamicConversion(box(value), target, node) // an any[] (`new Array(n).fill(0)`, `Array.from(…, () => [])`) copied and checked, as dynamic data is (D-071)
 	case isObject(value.Type()) && isRecord(target):
 		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "using a `%s` as a hash-map object (`%s`) is not supported yet; a copy of its properties, `{ ...o }`, is one", value.Type(), target))
 		return nil
@@ -858,6 +861,12 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
 	}
+}
+
+// isDynamicArray reports whether t is an array of dynamic values, or of such arrays.
+func isDynamicArray(t ir.Type) bool {
+	array, ok := t.(*ir.Array)
+	return ok && (array.Elem == ir.Value || isDynamicArray(array.Elem))
 }
 
 // ---------------------------------------------------------------- functions
@@ -1187,6 +1196,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		if l.isRecordElement(node) {
 			return l.narrowed(node, l.recordElement(node, ir.MapGetChecked))
 		}
+		if l.isKeyedElement(node) {
+			return l.keyedElementRead(node)
+		}
 		return l.stringElement(node, ir.StringElementChecked)
 	case ast.KindArrayLiteralExpression:
 		return l.arrayLiteral(node)
@@ -1282,6 +1294,9 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0 {
 		l.notSupportedYet(node, "using the module namespace `"+scanner.GetTextOfNode(node)+"` as a value is")
 		return nil, true
+	}
+	if enum := l.enumOf(node); enum != nil {
+		return l.enumObject(enum), true
 	}
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsEnum != 0 {
 		l.notSupportedYet(node, "using the enum object `"+scanner.GetTextOfNode(node)+"` as a value is")
@@ -1802,7 +1817,7 @@ func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 	return number
 }
 
-// as lowers `x as T` between numeric types, which converts the value.
+// as lowers `x as T`: between numeric types it converts the value.
 func (l *lowerer) as(node *ast.Node) ir.Expr {
 	if l.isDynamicSource(node) { // `x as any` and `x as unknown`: any value is one
 		if x := l.valueExpression(node.Expression()); x != nil {
@@ -1825,14 +1840,102 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	}
 
 	if target == nil {
-		l.notSupportedYet(node, "`as` other than between numeric types is")
-		return nil
+		return l.asCast(node)
 	}
 	x := l.expression(node.Expression())
 	if x == nil {
 		return nil
 	}
+	if isUnion(x.Type()) {
+		return l.checkedCast(x, target, node) // `x as number` for x: number | null
+	}
 	return l.convert(x, target, node)
+}
+
+// asCast lowers `x as T` for a T that isn't numeric (D-089): free where x is a T as it is
+// (an upcast, which converts as an assignment would, or the same representation), else
+// checked at run time as a dynamic value converting to T is (D-070), which throws
+// TypeError where x isn't one (SPEC §3.5).
+func (l *lowerer) asCast(node *ast.Node) ir.Expr {
+	t := l.typeAt(node)
+	target := l.irType(t, node)
+	x := l.expression(node.Expression())
+	switch {
+	case target == nil || x == nil:
+		return nil
+	case x.Type() == target:
+		return x // `Object.keys(o) as Key[]`: literal types aren't kept at run time
+	case l.checker.IsTypeAssignableTo(l.typeAt(node.Expression()), t):
+		return l.convert(x, target, node)
+	}
+	return l.checkedCast(x, target, node)
+}
+
+// checkedCast converts x to target for `x as T` (node) as a dynamic value converts to
+// it: checked, and for an integer type, a number converted by `as`'s rules.
+func (l *lowerer) checkedCast(x ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
+	return l.checkedConversion(x, target, node.Expression())
+}
+
+// checkedConversion converts x, written at node, to target as a dynamic value converts
+// to it (D-070): checked, and for an integer type, a number converted by `as`'s rules.
+func (l *lowerer) checkedConversion(x ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
+	switch {
+	case ir.IsNumeric(target) && target != ir.Number:
+		return &ir.Convert{X: &ir.FromUnion{X: box(x), To: ir.Number}, To: target}
+	case isCheckable(target):
+		return &ir.FromUnion{X: box(x), To: target}
+	}
+	return l.dynamicConversion(box(x), target, node)
+}
+
+// isKeyedElement reports whether node is `o[k]` for an object o of the program (a class
+// instance, an object type or a union of them or of tuples) and a key that tsc checked
+// names one of its properties: `totals[status]` for `Record<Status, number>`, `o[key]`
+// for `key: keyof T`. Such an element is found at run time, as through `any` (D-089).
+func (l *lowerer) isKeyedElement(node *ast.Node) bool {
+	if node.Kind != ast.KindElementAccessExpression {
+		return false
+	}
+	switch receiver := l.irType(l.checker.GetNonNullableType(l.typeAt(node.Expression())), node).(type) {
+	case *ir.Class, *ir.Interface:
+		return true
+	case *ir.Union:
+		return !slices.ContainsFunc(receiver.Members, func(m ir.Type) bool { return !isObject(m) || isArray(m) })
+	}
+	return false
+}
+
+// keyedElementRead lowers a read of a keyed element: the property found at run time,
+// converted to the type tsc gives it with a check.
+func (l *lowerer) keyedElementRead(node *ast.Node) ir.Expr {
+	t := l.irType(l.typeAt(node), node)
+	l.wantKeyedMembers(node)
+	object := l.expression(node.Expression())
+	key := l.dynamicKey(node)
+	if t == nil || object == nil || key == nil {
+		return nil
+	}
+	return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), key}}, t, node)
+}
+
+// wantKeyedMembers makes the generic methods a keyed element may find have erased copies
+// in their classes' method tables: those its key's literal types name, or else all.
+func (l *lowerer) wantKeyedMembers(node *ast.Node) {
+	key := l.typeAt(node.AsElementAccessExpression().ArgumentExpression)
+	keys := []*checker.Type{key}
+	if key.Flags()&checker.TypeFlagsUnion != 0 {
+		keys = key.Types()
+	}
+	for _, k := range keys {
+		if k.Flags()&checker.TypeFlagsStringLiteral == 0 {
+			l.wantDynamicMember(node)
+			return
+		}
+	}
+	for _, k := range keys {
+		l.wantInMethodTables(k.AsLiteralType().Value().(string))
+	}
 }
 
 // assertedLiteral lowers `literal as T` (or `as const`) for an array or object literal,
@@ -1938,6 +2041,12 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
+	if accessors, ok := l.staticAccessors[l.memberSymbol(node)]; ok {
+		if accessors.getter == nil {
+			return &ir.UndefinedConst{} // a static property with only a setter reads as undefined
+		}
+		return &ir.Call{Func: accessors.getter}
+	}
 	if l.isShapeProperty(member) || l.isMappedProperty(node) {
 		if object, field := l.shapeProperty(node); field != nil {
 			return &ir.FieldRef{X: object, Field: field}
@@ -2038,6 +2147,17 @@ func (l *lowerer) elementComparedWithString(expr *ast.BinaryExpression) (element
 	return element, other, ok
 }
 
+// arrayElementComparedWithString recognises a[i] compared with a string (either way
+// round) and returns the two sides.
+func (l *lowerer) arrayElementComparedWithString(expr *ast.BinaryExpression) (element *ast.Node, other *ast.Node, ok bool) {
+	element, other = ast.SkipParentheses(expr.Left), expr.Right
+	if !l.isArrayElement(element) {
+		element, other = ast.SkipParentheses(expr.Right), expr.Left
+	}
+	ok = l.isArrayElement(element) && l.hasTypeFlags(other, checker.TypeFlagsStringLike)
+	return element, other, ok
+}
+
 // elementEquality lowers s[i] === t (or !==) so that an index out of range makes it
 // false (true for !==), as undefined does in JS (D-015).
 func (l *lowerer) elementEquality(op ir.BinaryOp, element *ast.Node, other *ast.Node) ir.Expr {
@@ -2095,6 +2215,13 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		if element, other, ok := l.elementComparedWithString(expr); ok {
 			return l.elementEquality(op, element, other)
 		}
+		if element, other, ok := l.arrayElementComparedWithString(expr); ok && (operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken) {
+			x, y := l.valueExpression(element), l.expression(other) // `rest[0] === "at"`: undefined past the end, as in JS (D-089)
+			if x == nil || y == nil {
+				return nil
+			}
+			return unionEquality(op, x, box(y))
+		}
 		if element, ok := l.recordElementComparedWithUndefined(expr); ok && !l.recordMayHoldNullish(element) {
 			record, key := l.recordElementOperands(element)
 			return l.recordHas(record, key, op == ir.Eq) // a missing key's undefined
@@ -2120,6 +2247,9 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 // operation applies op to x and y, the lowered left and right operands of node,
 // converting them to the type the semantic pass chose for them.
 func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr, left *ast.Node, right *ast.Node) ir.Expr {
+	if op != ir.Eq && op != ir.Ne && (isUnion(x.Type()) || isUnion(y.Type())) {
+		x, y = box(x), box(y) // `a[key] < b[key]` for key: keyof Item: JS's rules for the values the operands hold (D-089)
+	}
 	if x.Type() == ir.Value || y.Type() == ir.Value {
 		if result, ok := l.dynamicOperation(node, op, x, y); ok {
 			return result
@@ -2150,6 +2280,11 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if left := ast.SkipParentheses(expr.Left); left.Kind == ast.KindArrayLiteralExpression || left.Kind == ast.KindObjectLiteralExpression {
 		return l.destructuringAssignment(left, expr.Right)
 	}
+	if left := ast.SkipParentheses(expr.Left); left.Kind == ast.KindPropertyAccessExpression {
+		if accessors, ok := l.staticAccessors[l.memberSymbol(left)]; ok && accessors.setter != nil {
+			return l.staticSetterCall(accessors.setter, expr.Right)
+		}
+	}
 	target, ok := l.assignmentTarget(expr.Left)
 	value := l.expression(expr.Right)
 	if !ok || value == nil {
@@ -2162,6 +2297,21 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 		return target.store(value, false) // the store evaluates the instance (or array and index) first
 	}
 	return l.withObject(target, func(target place) ir.Expr { return target.store(value, false) })
+}
+
+// staticSetterCall lowers `C.p = value` for a static property p with a setter: the
+// setter called with the value, which is the assignment's value.
+func (l *lowerer) staticSetterCall(setter *ir.Func, valueNode *ast.Node) ir.Expr {
+	value := l.expression(valueNode)
+	if value == nil {
+		return nil
+	}
+	if value = l.convert(value, setter.Params[0].Type, valueNode); value == nil {
+		return nil
+	}
+	stored := l.newLocal("value", value.Type())
+	ref := &ir.LocalRef{Local: stored}
+	return &ir.Bind{Local: stored, Value: value, In: &ir.Sequence{X: &ir.Call{Func: setter, Args: []ir.Expr{ref}}, Y: ref}}
 }
 
 // compoundAssignment lowers `x op= value` to `x = x op value`, and `x ||= value` to
@@ -2381,6 +2531,10 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			object := l.expression(node.Expression())
 			return place{object: object, field: field}, object != nil
 		}
+		if l.isKeyedElement(node) {
+			l.wantKeyedMembers(node)
+			return l.dynamicPlace(node) // a checked write (D-072)
+		}
 		if l.isArrayElement(node) {
 			array, index := l.arrayElementOperands(node)
 			return place{object: array, index: index}, array != nil
@@ -2534,6 +2688,13 @@ func (l *lowerer) conditional(node *ast.Node) ir.Expr {
 
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
+	if op == ir.And && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
+		x, y := l.expression(left), l.expression(right) // `obj && test` is test, after obj (D-089)
+		if x == nil || y == nil {
+			return nil
+		}
+		return &ir.Sequence{X: x, Y: y}
+	}
 	if l.involvesUnion(node, left, right) {
 		x, y := l.expression(left), l.expression(right)
 		if x == nil || y == nil {
@@ -2546,6 +2707,16 @@ func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right
 		return nil
 	}
 	return &ir.Logical{Op: op, X: x, Y: y}
+}
+
+// neverFalsy reports whether every value of type t is truthy: an object, an array, a
+// function or a map, which `&&` passes over (`last && last.done`).
+func neverFalsy(t ir.Type) bool {
+	switch t.(type) {
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.MapType:
+		return t != ir.String
+	}
+	return false
 }
 
 // sameType lowers two expressions that must end up with one type (the branches of ?:,
@@ -2589,6 +2760,13 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	}
 	if x.Type() != y.Type() && (x.Type() == ir.Value || y.Type() == ir.Value) { // `c ? String(e) : e` for an unknown e
 		x, y = box(x), box(y)
+	}
+	if x.Type() != y.Type() && (isEmptyArrayLiteral(x) || isEmptyArrayLiteral(y)) { // `c ? [x] : []` (D-089)
+		if t, ok := l.irType(l.typeAt(node), node).(*ir.Array); ok {
+			if x, y = l.convert(x, t, a), l.convert(y, t, b); x == nil || y == nil {
+				return nil, nil
+			}
+		}
 	}
 	if x.Type() != y.Type() {
 		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
@@ -2803,10 +2981,16 @@ func box(value ir.Expr) ir.Expr {
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	t = l.instantiate(t)
+	if t.Flags()&checker.TypeFlagsTypeParameter != 0 && t.AsTypeParameter().IsThisType() {
+		t = l.checker.GetConstraintOfTypeParameter(t) // a fluent method's `this`: its class (D-089)
+	}
 	if t.Flags()&checker.TypeFlagsIntersection != 0 {
 		if member := l.coveringMember(t); member != nil {
 			t = member // `Settings & { width: number }`, which Object.assign gives, is a Settings (D-086)
 		}
+	}
+	if symbol := t.Symbol(); symbol != nil && symbol.Flags&ast.SymbolFlagsRegularEnum != 0 && t.Flags()&checker.TypeFlagsObject != 0 && len(symbol.Declarations) == 1 {
+		return l.enumObjectType(symbol.ValueDeclaration) // `typeof Color`
 	}
 	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
 		if generic == nil {
@@ -2831,6 +3015,11 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 			return nil // reported
 		}
 		return mt
+	}
+	if l.mapsInProgress[t] {
+		if value, ok := l.recurring(); ok {
+			return value // `type Context = { [k: string]: string | Context[] }`
+		}
 	}
 	if mt, ok := l.recordType(t, node); ok {
 		if mt == nil {

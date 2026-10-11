@@ -193,13 +193,28 @@ func completionConst(completion int) ir.Expr {
 // narrowings are), a primitive, or a union of them (D-068). Others stay dynamic.
 func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 	t := l.typeAt(node)
-	if t.Flags()&(checker.TypeFlagsUnknown|checker.TypeFlagsAny|checker.TypeFlagsNever) != 0 || !l.isCheckedValueType(t) {
+	if t.Flags()&(checker.TypeFlagsUnknown|checker.TypeFlagsAny|checker.TypeFlagsNever) != 0 {
+		return x
+	}
+	if !l.isCheckedValueType(t) {
+		if narrow := l.irType(t, node); isDynamicData(narrow) {
+			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
+		}
 		return x
 	}
 	if narrow := l.irType(t, node); narrow != nil && narrow != ir.Value {
 		return &ir.FromUnion{X: x, To: narrow}
 	}
 	return x
+}
+
+// isDynamicData reports whether t is an array or hash-map object of dynamic values, which
+// a dynamic value holding one converts to without a copy (D-071).
+func isDynamicData(t ir.Type) bool {
+	if mt, ok := t.(*ir.MapType); ok {
+		return mt.Record && mt.Value == ir.Value
+	}
+	return t == ir.ValueArray
 }
 
 // isCheckedValueType reports whether a dynamic value converts to the IR type of t with a
@@ -223,15 +238,10 @@ func (l *lowerer) asFromValue(node *ast.Node) ir.Expr {
 	if numeric := l.numericType(node); numeric != nil {
 		target = numeric // `e as u8`
 	}
-	switch {
-	case x == nil || target == nil:
+	if x == nil || target == nil {
 		return nil
-	case ir.IsNumeric(target) && target != ir.Number: // a checked number, then `as`'s rules
-		return &ir.Convert{X: &ir.FromUnion{X: x, To: ir.Number}, To: target}
-	case isCheckable(target):
-		return &ir.FromUnion{X: x, To: target}
 	}
-	return l.dynamicConversion(x, target, node.Expression())
+	return l.checkedCast(x, target, node)
 }
 
 // stringCall lowers `String(x)`: JS's ToString of x, or "" for `String()`.

@@ -1,0 +1,39 @@
+// Empty array literals in conditionals and callbacks; `a[i] ?? d` and `a[i] === s` past
+// the end; `obj && test` (D-089).
+const digits: number[] = [1, 2];
+const odds = [1, 2, 3, 4, 5].flatMap((x) => (x % 2 ? [x] : []));
+console.log(odds);
+const buckets: number[][] = Array.from({ length: 3 }, () => []);
+buckets[1].push(7);
+console.log(buckets);
+const pick = (b: boolean): string[] => (b ? [] : ["z"]);
+console.log(pick(true), pick(false));
+console.log(digits[5] ?? 0, digits[1] ?? 0);
+const parts = "select 1".split(" from ");
+console.log(parts[1] ?? "dual", parts[0] ?? "x");
+const s = "ab";
+console.log(s[3] ?? "-", s[0] ?? "-");
+let total = 0;
+for (let i = 0; i < 4; i++) total += digits[i] ?? 10;
+console.log(total);
+const tokens = [{ kind: "word", text: "a" }];
+const last = tokens[tokens.length - 1];
+if (last && last.kind === "word") last.text += "!";
+console.log(tokens);
+const rest: string[] = [];
+if (rest[0] === "at") console.log("at");
+else console.log("empty", rest[0] !== "x");
+const pair: [number, number] = [1, 2];
+console.log(pair && pair[0] > 0);
+
+// expect:
+// [ 1, 3, 5 ]
+// [ [], [ 7 ], [] ]
+// [] [ 'z' ]
+// 0 2
+// dual select 1
+// - a
+// 23
+// [ { kind: 'word', text: 'a!' } ]
+// empty true
+// true

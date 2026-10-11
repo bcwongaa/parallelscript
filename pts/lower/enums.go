@@ -8,8 +8,9 @@ import (
 )
 
 // Enums compile away (D-052): a member is the constant tsc computes for it, an enum type
-// is the number or string type of its members, and the only use of the enum object is a
-// numeric enum's reverse mapping, E[n], which compares n with each member's value.
+// is the number or string type of its members, and a numeric enum's reverse mapping, E[n],
+// compares n with each member's value. The enum object used as a value is made where it
+// is used (D-089).
 
 // enumDeclaration checks an enum declaration, which makes no code: a member whose value
 // tsc can't compute is reported.
@@ -94,4 +95,37 @@ func (l *lowerer) enumReverseMapping(node *ast.Node, checked bool) ir.Expr {
 		name = &ir.Conditional{Cond: matches, Then: memberName, Else: name} // the last member that matches wins, as in JS
 	}
 	return &ir.Bind{Local: value, Value: index, In: name}
+}
+
+// enumObjectType is the type of an enum's object as a value: a hash-map object of
+// strings, or of numbers and strings if a member is a number.
+func (l *lowerer) enumObjectType(enum *ast.Node) *ir.MapType {
+	for _, member := range enum.Members() {
+		if _, isNumber := l.checker.GetConstantValue(member).(jsnum.Number); isNumber {
+			return l.recordOf(l.unionOf([]ir.Type{ir.Number, ir.String}))
+		}
+	}
+	return l.recordOf(ir.String)
+}
+
+// enumObject makes the object an enum's name gives as a value, as JS's enum object: a
+// hash-map object with each member's value under its name and, for a number, the name
+// under the number.
+func (l *lowerer) enumObject(enum *ast.Node) ir.Expr {
+	mt := l.enumObjectType(enum)
+	var record ir.Expr = &ir.NewMap{Map: mt}
+	set := func(key string, value ir.Expr) {
+		record = &ir.MapCall{Op: ir.MapSet, Args: []ir.Expr{record, &ir.StringConst{Value: key}, l.convert(value, mt.Value, enum)}, Map: mt}
+	}
+	for _, member := range enum.Members() {
+		name := member.Name().Text()
+		switch value := l.checker.GetConstantValue(member).(type) {
+		case jsnum.Number:
+			set(name, &ir.NumberConst{Value: float64(value)})
+			set(value.String(), &ir.StringConst{Value: name})
+		case string:
+			set(name, &ir.StringConst{Value: value})
+		}
+	}
+	return record
 }

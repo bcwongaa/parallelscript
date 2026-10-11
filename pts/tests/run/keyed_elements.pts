@@ -1,0 +1,39 @@
+// Keyed elements of objects (`totals[status]`, `o[key]` for `key: keyof T`) are found at
+// run time; generic instances tell literal type arguments apart; tuples iterate and have
+// the array methods that do not change them; relational operators on unions (D-089).
+type Status = "single" | "married";
+const d: Record<Status, number> = { single: 1, married: 2 };
+const s: Status = Math.PI > 3 ? "married" : "single";
+console.log(d[s]);
+const byKind: Record<"deposit" | "fee", number> = { deposit: 0, fee: 0 };
+const k: "deposit" | "fee" = Math.PI > 3 ? "fee" : "deposit";
+byKind[k] += 4.5;
+byKind[k]++;
+console.log(byKind);
+const counts = { even: 0, odd: 0 };
+for (const n of [1, 2, 3, 5]) counts[n % 2 ? "odd" : "even"]++;
+console.log(counts);
+function pick<T, K extends keyof T>(o: T, key: K): T[K] { return o[key]; }
+console.log(pick({ a: 1, b: "x" }, "b"), pick({ a: 1, b: "x" }, "a"));
+type Op = ["add", string] | ["print"];
+const ops: Op[] = [["add", "x"], ["print"]];
+for (const op of ops) console.log(op[0]);
+class P { x = 1; y = 2; }
+const p = new P();
+for (const key of ["x", "y"] as const) { p[key] *= 10; console.log(key, p[key]); }
+interface Item { name: string; price: number }
+function sortBy(items: Item[], key: keyof Item): Item[] {
+  return [...items].sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0));
+}
+console.log(sortBy([{ name: "b", price: 1 }, { name: "a", price: 2 }], "name"));
+
+// expect:
+// 2
+// { deposit: 0, fee: 5.5 }
+// { even: 1, odd: 3 }
+// x 1
+// add
+// print
+// x 10
+// y 20
+// [ { name: 'a', price: 2 }, { name: 'b', price: 1 } ]

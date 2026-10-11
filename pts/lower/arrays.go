@@ -29,6 +29,9 @@ func (l *lowerer) arrayType(t *checker.Type, node *ast.Node) ir.Type {
 		return l.arrayOf(ir.Value)
 	}
 	if l.arraysInProgress[t] {
+		if elem, ok := l.recurring(); ok {
+			return l.arrayOf(elem) // `type Json = … | Json[]` (D-089)
+		}
 		l.notSupportedYet(node, fmt.Sprintf("recursive array types (%s) are", l.checker.TypeToString(t)))
 		return nil
 	}
@@ -247,7 +250,11 @@ func (l *lowerer) arrayObject(access *ast.Node) ir.Expr {
 		l.notSupportedYet(access, "optional chaining `?.` is")
 		return nil
 	}
-	return l.expression(access.Expression())
+	x := l.expression(access.Expression())
+	if x != nil && isTuple(x.Type()) {
+		return l.tupleArray(x, l.typeAt(access.Expression()), access.Expression()) // `pair.map(f)`
+	}
+	return x
 }
 
 // arrayRemovers are the array methods that return an element or undefined: the dynamic
@@ -305,6 +312,14 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	array := l.arrayObject(callee)
 	if array == nil {
 		return nil
+	}
+	if array.Type() == ir.Value { // an unknown that Array.isArray narrowed, or a recursive type's array (D-089)
+		t := l.irType(l.typeAt(call.AsNode()), call.AsNode())
+		result := l.dynamicMethodCall(call, callee, array)
+		if t == nil || result == nil || t == ir.Void || t == ir.Value {
+			return result
+		}
+		return l.checkedConversion(result, t, call.AsNode())
 	}
 	arrayType := array.Type().(*ir.Array)
 	args := call.Arguments.Nodes
@@ -471,7 +486,11 @@ func (l *lowerer) isArrayMethodCall(node *ast.Node) bool {
 		return false
 	}
 	callee := ast.SkipParentheses(node.AsCallExpression().Expression)
-	return callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())
+	if callee.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	return l.isArrayExpression(callee.Expression()) ||
+		checker.IsTupleType(l.typeAt(callee.Expression())) && tupleCopyMethods[callee.AsPropertyAccessExpression().Name().Text()]
 }
 
 // isArrayStatic reports whether a callee is the static method name of the global Array.
@@ -578,6 +597,11 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	if iterable.Type() == ir.String {
 		iterable = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{iterable}} // its code points
+	}
+	if isTuple(iterable.Type()) {
+		if iterable = l.tupleArray(iterable, l.typeAt(s.Expression), s.Expression); iterable == nil {
+			return nil
+		}
 	}
 	// The loop reads element index of source while index is below its length.
 	var elemType ir.Type

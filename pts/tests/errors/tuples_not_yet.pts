@@ -1,14 +1,11 @@
 // Tuple features not supported yet (D-053): optional and rest elements, an index that
-// isn't a constant, converting a tuple to an array, and for...of over a tuple.
+// isn't a constant, and converting a tuple to an array.
 const opt: [string, number?] = ["a"];
 const t: [string, number] = ["a", 1];
 let i = 1;
 console.log(t[i]);
 const strings: string[] = ["a", "b"] as [string, string];
-for (const x of t) {
-}
 
 // error: tuples_not_yet.pts:3:7 - error PTS1001: tuples with optional or rest elements ([string, (number | undefined)?]) are not supported yet
 // error: tuples_not_yet.pts:7:27 - error PTS1001: converting [string, string] to string[] is not supported yet
 // error: tuples_not_yet.pts:6:15 - error PTS1001: a tuple's elements at an index that isn't a constant are not supported yet
-// error: tuples_not_yet.pts:8:17 - error PTS1001: `for...of` over a [string, number] is not supported yet

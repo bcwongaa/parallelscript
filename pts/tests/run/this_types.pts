@@ -1,0 +1,19 @@
+// Methods returning `this` (D-089).
+class Builder {
+  parts: string[] = [];
+  add(p: string): this { this.parts.push(p); return this; }
+  build(): string { return this.parts.join(" "); }
+}
+class HtmlBuilder extends Builder {
+  tag(t: string): this { return this.add(`<${t}>`); }
+}
+console.log(new Builder().add("a").add("b").build());
+const h = new HtmlBuilder().add("x").tag("p").add("y");
+console.log(h.tag("br").build(), h instanceof HtmlBuilder, h);
+class Counter { n = 0; inc(): this { this.n++; return this; } }
+console.log(new Counter().inc().inc().n);
+
+// expect:
+// a b
+// x <p> y <br> true HtmlBuilder { parts: [ 'x', '<p>', 'y', '<br>' ] }
+// 2

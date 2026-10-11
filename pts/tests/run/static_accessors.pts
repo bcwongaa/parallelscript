@@ -1,0 +1,15 @@
+// Static getters and setters (D-089).
+class Config {
+  private static n = 3;
+  private static label = "x";
+  static get count(): number { return Config.n; }
+  static set count(v: number) { Config.n = v * 2; }
+  static get name2(): string { return this.label + Config.n; }
+}
+console.log(Config.count, Config.name2);
+Config.count = 5;
+console.log(Config.count, (Config.count = 7), Config.count);
+
+// expect:
+// 3 x3
+// 10 7 14

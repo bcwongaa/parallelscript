@@ -1,0 +1,26 @@
+// Recursive types hold dynamic values (D-089).
+type Json = null | number | string | boolean | Json[] | { [k: string]: Json };
+const v: Json = JSON.parse('{"a":[1,{"b":null}],"c":"x"}');
+console.log(v);
+function depth(j: Json): number {
+  if (Array.isArray(j)) return 1 + Math.max(0, ...j.map(depth));
+  if (j !== null && typeof j === "object") return 1 + Math.max(0, ...Object.values(j).map(depth));
+  return 0;
+}
+console.log(depth(v));
+const lit: Json = [1, "a", [2, null], { k: [3] }];
+console.log(JSON.stringify(lit));
+type Nested = number | Nested[];
+const xs: Nested[] = [1, [2, [3]]];
+const flat = (n: Nested): number[] => (typeof n === "number" ? [n] : n.flatMap(flat));
+console.log(xs.flatMap(flat), xs);
+type Context = { [k: string]: string | Context[] };
+const c: Context = { a: "x", kids: [{ b: "y" }] };
+console.log(c);
+
+// expect:
+// { a: [ 1, { b: null } ], c: 'x' }
+// 3
+// [1,"a",[2,null],{"k":[3]}]
+// [ 1, 2, 3 ] [ 1, [ 2, [ 3 ] ] ]
+// { a: 'x', kids: [ { b: 'y' } ] }
