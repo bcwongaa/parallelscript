@@ -40,7 +40,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - A Go test runner (`go test ./pts/tests/...`) that runs these in parallel.
   - A Node differential runner (decision O04) that runs automatically for plain-TS tests, which are marked in a header comment or detected automatically.
   - A Makefile with `build`, `test`, `test-diff` and `bench`.
-- [ ] **M0.7 CI.**
+- [x] **M0.7 CI.** (6ee609b)
   - A GitHub Actions workflow (`.github/workflows/pts.yml`) that installs clang, builds `pts`, runs the PTS tests, the differential tests and the touched upstream Go tests on every push.
   - Disable or limit the upstream workflows that cannot run in this repo (release, CodeQL and similar); leave a note in `docs/FORK.md`.
 - [ ] **M0.8 Milestone M0.** Run the checklist (benchmarks n/a). The Telegram message also states the plan ahead.

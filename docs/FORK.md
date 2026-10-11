@@ -25,8 +25,8 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/module/util.go` | `GetResolutionDiagnostic` allows `.pts`; `TryGetJSExtensionForFile` maps `.pts` → `.js`. | M0.3 | 139254b |
 | `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.pts'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b |
 | `.gitmodules` | Pinned submodules `pts/third_party/bdwgc` (v8.2.12) and `pts/third_party/libuv` (v1.53.0). Upstream's `_submodules/TypeScript` entry is unchanged. | M0.4 | 26476ae |
-| `.github/workflows/ci.yml` | `on:` reduced to `workflow_dispatch`: upstream's CI (hereby build, full test matrix, release build, extension, lint) runs only on demand. See below. | M0.7 | (this commit) |
-| `.github/dependabot.yml` | `open-pull-requests-limit: 0` for both ecosystems: no version-update PRs (the fork commits straight to `main`, D-O02). | M0.7 | (this commit) |
+| `.github/workflows/ci.yml` | `on:` reduced to `workflow_dispatch`: upstream's CI (hereby build, full test matrix, release build, extension, lint) runs only on demand. See below. | M0.7 | 6ee609b |
+| `.github/dependabot.yml` | `open-pull-requests-limit: 0` for both ecosystems: no version-update PRs (the fork commits straight to `main`, D-O02). | M0.7 | 6ee609b |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 
 ## Disabled or limited upstream workflows
