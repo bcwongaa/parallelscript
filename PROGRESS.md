@@ -139,6 +139,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M3.7b continued: corpus 164 → 195 of 300 matching Node (D-090 loose locals, D-091, D-092, D-093); M3.7b not finished (see Next).
 - 2026-10-12: M3.6 ticked; M3.7a done (M3.7 split by D-089); M3.7b started.
 - 2026-10-12: M3.6 done.
 - 2026-10-12: M3.5e done; M3.5 complete.
