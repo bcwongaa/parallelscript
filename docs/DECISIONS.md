@@ -221,4 +221,8 @@ Id scheme:
 
 ## Decided by agent sessions
 
-(Entries D-001 onwards.)
+### D-001 · How `.ps` plugs into the front end
+- **Date:** 2026-10-11
+- **Decision:** `.ps` is a TypeScript implementation extension (`ScriptKindTS`; declarations emit as `.d.ts`; implied module format as for `.ts`). In the grouped extension lists used by tsconfig `include`, `.ps` is its own priority group, appended last, so `a.ps` and `a.ts` side by side are both included and upstream's ordering is unchanged. Module resolution: an extensionless import (`./x`) tries `x.ps` first, then upstream's order (D-O01); an explicit `./x.ps` resolves to that file (like `./x.ts`, it needs `allowImportingTsExtensions`, which `pts` sets). `./x.js` does not map to `x.ps`. A missed `.ps` probe is not written to the resolution trace.
+- **Reason:** Smallest upstream diff that meets D-O01. Untraced misses keep every upstream `traceResolution` baseline byte-identical, so upstream tests stay green without baseline churn; appending `.ps` last keeps upstream's extension priorities and messages stable apart from the extra entry.
+- **Alternatives rejected:** Putting `.ps` in the `.ts` group (would make `a.ps` shadow or be shadowed by `a.ts` in `include`). Tracing `.ps` misses (changes upstream trace baselines). Trying `.ps` only from `.ps` importers (a `.ts` file in a PTS program couldn't import a `.ps` module). Mapping `./x.js` to `x.ps` (no PTS code writes `.js` specifiers; can be added later).
