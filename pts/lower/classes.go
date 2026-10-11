@@ -740,7 +740,12 @@ func (l *lowerer) callMethod(receiver ir.Expr, receiverNode *ast.Node, method *i
 		return nil
 	}
 	static := receiver.Type().(*ir.Class)
-	if method.Virtual && (method.Abstract || l.isOverriddenBelow(static, method)) {
+	if l.mayBeOverriddenByAnInstance(static, method) {
+		for m := method; m != nil; m = m.Overrides {
+			m.Virtual = true
+		}
+	}
+	if method.Virtual && (method.Abstract || l.isOverriddenBelow(static, method) || l.mayBeOverriddenByAnInstance(static, method)) {
 		receiver = upcast(receiver, method.Slot().Class)
 		return &ir.VirtualCall{Method: method, Args: append([]ir.Expr{receiver}, args...)}
 	}
@@ -760,7 +765,7 @@ func (l *lowerer) superMethodCall(call *ast.CallExpression, method *ir.Method) i
 
 // isOverriddenBelow reports whether a subclass of class overrides method.
 func (l *lowerer) isOverriddenBelow(class *ir.Class, method *ir.Method) bool {
-	for _, other := range l.classList {
+	for _, other := range append(l.classList, l.instanceClasses...) {
 		if other != class && other.IsSubclassOf(class) && other.OwnMethod(method.Name, method.Kind) != nil {
 			return true
 		}

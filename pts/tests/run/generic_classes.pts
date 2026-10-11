@@ -73,6 +73,34 @@ queue.enqueue("a");
 queue.enqueue("b");
 console.log(queue.dequeue(), queue.length, queue);
 
+// A method that only a generic class's instance overrides is called through the method
+// table, even where the call is lowered before the instance exists.
+class Animal {
+  speak(): string {
+    return "...";
+  }
+}
+function talk(animal: Animal): string {
+  return animal.speak();
+}
+class Pet<T> extends Animal {
+  constructor(public tag: T) {
+    super();
+  }
+  speak(): string {
+    return `pet ${this.tag}`;
+  }
+}
+function callGet(box: Box<number>): number {
+  return box.get() + box.count; // Box's get counts; Frozen's doesn't
+}
+class Frozen<T> extends Box<T> {
+  get(): T {
+    return this.value;
+  }
+}
+console.log(talk(new Pet(1)), talk(new Animal()), callGet(new Frozen(7)), callGet(new Box(8)));
+
 // expect:
 // Box { value: 5, count: 1 } Box { value: 'hi', count: 1 } 6 HI 5
 // Box { value: 'yo', count: 1 } Box { value: Box { value: [ true ], count: 0 }, count: 0 }
@@ -80,3 +108,4 @@ console.log(queue.dequeue(), queue.length, queue);
 // list: 1,2 Labeled { value: [ 1, 2 ], count: 1, label: 'list' } 42
 // 5 [ 1, 2 ] Stack { items: [ 'x', 'x', 'x' ] } 1
 // a 1 Queue {}
+// pet 1 ... 7 9

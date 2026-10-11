@@ -246,3 +246,48 @@ func orderedByParent(classes []*ir.Class) []*ir.Class {
 	}
 	return ordered
 }
+
+// mayBeOverriddenByAnInstance reports whether a generic class that extends class,
+// directly or not, declares a method of method's name and kind: an instance of it, which
+// may be made after a call is lowered, would override the method, so calls go through
+// the method table.
+func (l *lowerer) mayBeOverriddenByAnInstance(class *ir.Class, method *ir.Method) bool {
+	for _, generic := range l.genericClasses {
+		if generic != nil && declaresMethod(generic.node, method) && l.instancesExtend(generic.node, class) {
+			return true
+		}
+	}
+	return false
+}
+
+// declaresMethod reports whether a class declaration declares an instance method (or
+// getter or setter) of method's name and kind.
+func declaresMethod(node *ast.Node, method *ir.Method) bool {
+	for _, member := range node.Members() {
+		if kind, ok := methodKinds[member.Kind]; ok && kind == method.Kind && !ast.IsStatic(member) && member.Name() != nil && member.Name().Text() == method.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// instancesExtend reports whether the instances of a generic class declaration (may)
+// extend class: their superclass is class or extends it, or is an instance of a generic
+// class that class is an instance of.
+func (l *lowerer) instancesExtend(node *ast.Node, class *ir.Class) bool {
+	heritage := ast.GetExtendsHeritageClauseElement(node)
+	if heritage == nil {
+		return false
+	}
+	parentSymbol := l.target(heritage.Expression())
+	if parent := l.classes[parentSymbol]; parent != nil {
+		return parent.IsSubclassOf(class)
+	}
+	if parent := l.genericClasses[parentSymbol]; parent != nil {
+		if inst := l.classInstances[class]; inst != nil && inst.generic == parent {
+			return true
+		}
+		return l.instancesExtend(parent.node, class)
+	}
+	return false
+}
