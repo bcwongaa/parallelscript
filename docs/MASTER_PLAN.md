@@ -59,7 +59,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Booleans: `!`; strings in UTF-8 with an ASCII flag and UTF-16 semantics.
   - Concatenation (`+` with a string and any primitive, with JS's ToString), template literals, `length`, `===`/`!==` and `<`/`<=`/`>`/`>=` on strings (UTF-16 code-unit order).
   - `console.log` writes lone surrogates as U+FFFD, as Node does (the known issue).
-- [ ] **M1.3b String methods** (split by D-013).
+- [x] **M1.3b String methods** (58ce643) (split by D-013).
   - Indexing, `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase`, `trim*`, `padStart`/`padEnd`, `repeat`, with UTF-16 index semantics (O(1) for ASCII strings).
   - `split` on a string separator moves to M2.4, because it returns an array.
 - [ ] **M1.4a Control flow.**
