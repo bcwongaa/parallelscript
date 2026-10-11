@@ -7,9 +7,9 @@ import "github.com/microsoft/typescript-go/pts/ir"
 type effects uint8
 
 const (
-	readsLocals effects = 1 << iota
-	writes              // assigns a local or does output
-	mayThrow            // may stop with an error, whose order among errors and effects is observable
+	readsLocals effects = 1 << iota // reads locals or fields
+	writes                          // assigns a local or a field, or does output
+	mayThrow                        // may stop with an error, whose order among errors and effects is observable
 )
 
 // throwingBuiltins are the builtins that can throw (beyond running out of memory).
@@ -63,6 +63,18 @@ func effectsOf(expr ir.Expr) effects {
 		return effectsOf(x.X) | effectsOf(x.Y)
 	case *ir.Sequence:
 		return effectsOf(x.X) | effectsOf(x.Y)
+	case *ir.Bind:
+		return writes | effectsOf(x.Value) | effectsOf(x.In)
+	case *ir.New:
+		f := writes | mayThrow // the constructor's body
+		for _, arg := range x.Args {
+			f |= effectsOf(arg)
+		}
+		return f
+	case *ir.FieldRef:
+		return readsLocals | effectsOf(x.X)
+	case *ir.SetField:
+		return readsLocals | writes | effectsOf(x.X) | effectsOf(x.Value)
 	}
 	return 0 // constants
 }

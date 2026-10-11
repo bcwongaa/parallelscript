@@ -92,6 +92,8 @@ _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj all
 #define PTS_GC_NO_POINTERS ((GC_word)0)
 #define PTS_GC_POINTER_WORDS(bits) (((GC_word)__builtin_bitreverse64((uint64_t)(bits))) | GC_DS_BITMAP)
 #define PTS_GC_ALL_WORDS(size) ((GC_word)(size) | GC_DS_LENGTH)
+/* The bit of PTS_GC_POINTER_WORDS for the word that holds a member of a struct. */
+#define PTS_GC_WORD(type, member) (UINT64_C(1) << (offsetof(type, member) / sizeof(GC_word)))
 
 typedef struct pts_object {
   const pts_type *type;

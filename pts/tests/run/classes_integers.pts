@@ -1,0 +1,26 @@
+// Fields keep their integer types: literals take the field's type, and arithmetic wraps.
+class Pixel {
+  r: u8 = 250;
+  g: u8;
+  level: int;
+  weight: f32 = 0.5;
+  constructor(g: u8) {
+    this.g = g;
+    this.level = 9007199254740993;
+  }
+  brighten(by: u8): u8 {
+    this.r += by;
+    this.g = this.g + by;
+    return this.r;
+  }
+}
+
+const p = new Pixel(100);
+console.log(p.brighten(10), p.g, p.level + 1, p.weight * 3);
+p.r++;
+const total: int = p.r + p.g + p.level;
+console.log(p.r, total);
+
+// expect:
+// 4 110 9007199254740994 1.5
+// 5 9007199254741108

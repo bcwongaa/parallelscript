@@ -16,7 +16,8 @@ import (
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
-		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}}
+		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}}
+	e.nameClasses(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -31,6 +32,7 @@ type emitter struct {
 	strings      map[string]string // string constant value → C name
 	stringOrder  []string          // values in order of first use
 	funcNames    map[*ir.Func]string
+	classNames   map[*ir.Class]string // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
 	globals      map[*ir.Local]string // module-scope bindings that other functions use, by C name
 	globalOrder  []*ir.Local
 	globalOwners map[*ir.Local]*ir.Func // the top-level code that declares each global
@@ -56,8 +58,9 @@ func (e *emitter) header(program *ir.Program) {
 	if len(e.stringOrder) > 0 {
 		e.line(0, "")
 	}
+	e.classDeclarations(program.Classes)
 	for _, global := range e.globalOrder {
-		e.line(0, "static %s%s;", declarator(global.Type), e.globals[global])
+		e.line(0, "static %s%s;", e.declarator(global.Type), e.globals[global])
 		e.line(0, "static bool %s_ready; /* its declaration has run */", e.globals[global])
 	}
 	if len(e.globalOrder) > 0 {
@@ -67,6 +70,7 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "static %s;", e.signature(f, nil))
 	}
 	e.line(0, "")
+	e.classDescriptors(program.Classes)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
 	for _, module := range program.Modules {
@@ -140,12 +144,12 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 		if paramNames != nil {
 			name = paramNames[i]
 		}
-		params[i] = declarator(param.Type) + name
+		params[i] = e.declarator(param.Type) + name
 	}
 	if len(params) == 0 {
 		params = []string{"void"}
 	}
-	return fmt.Sprintf("%s%s(%s)", declarator(f.Result), e.funcNames[f], strings.Join(params, ", "))
+	return fmt.Sprintf("%s%s(%s)", e.declarator(f.Result), e.funcNames[f], strings.Join(params, ", "))
 }
 
 // collectGlobals names the module-scope locals that other functions use:
@@ -222,7 +226,7 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 			e.line(depth, "%s_ready = true;", name)
 			return
 		}
-		e.line(depth, "%s%s = %s;", declarator(s.Local.Type), e.declareLocal(s.Local), init)
+		e.line(depth, "%s%s = %s;", e.declarator(s.Local.Type), e.declareLocal(s.Local), init)
 	case *ir.If:
 		e.ifStatement(s, depth)
 	case *ir.Loop:
@@ -417,7 +421,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 				check += "; "
 			}
 			name := e.local(x.Local)
-			return fmt.Sprintf("({ %s%s%s = %s; %s = %s; %s; })", check, declarator(x.Local.Type), old, name, name, e.expr(x.Value), old)
+			return fmt.Sprintf("({ %s%s%s = %s; %s = %s; %s; })", check, e.declarator(x.Local.Type), old, name, name, e.expr(x.Value), old)
 		}
 		return "(" + e.assignment(x) + ")"
 	case *ir.Truthy:
@@ -428,6 +432,14 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.logical(x)
 	case *ir.Sequence:
 		return "(" + e.expr(x.X) + ", " + e.expr(x.Y) + ")"
+	case *ir.Bind:
+		return e.bind(x)
+	case *ir.New:
+		return e.newInstance(x)
+	case *ir.FieldRef:
+		return e.fieldRef(e.expr(x.X), x.Field)
+	case *ir.SetField:
+		return e.setField(x)
 	case *ir.Box:
 		return e.box(x.X)
 	case *ir.CallBuiltin:
@@ -485,8 +497,13 @@ func (e *emitter) readyCheck(local *ir.Local) string {
 // effect writes an expression evaluated only for its effects (a statement or a for
 // loop's update), where an assignment needs no parentheses and x++ no old value.
 func (e *emitter) effect(expr ir.Expr) string {
-	if assign, ok := expr.(*ir.Assign); ok {
-		return e.assignment(assign)
+	switch x := expr.(type) {
+	case *ir.Assign:
+		return e.assignment(x)
+	case *ir.SetField:
+		if !x.Postfix {
+			return e.storeField(x)
+		}
 	}
 	return e.expr(expr)
 }
@@ -522,7 +539,7 @@ func (e *emitter) logical(l *ir.Logical) string {
 	if l.Op == ir.Or {
 		then, otherwise = tmp, y
 	}
-	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
+	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", e.declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
 }
 
 // truthy writes JS's ToBoolean of x, a C expression of type t.
@@ -562,7 +579,7 @@ func (e *emitter) operands(exprs []ir.Expr) (args []string, prelude string) {
 	var declarations strings.Builder
 	for i, x := range exprs {
 		args[i] = e.temporary()
-		fmt.Fprintf(&declarations, "%s%s = %s; ", declarator(x.Type()), args[i], e.expr(x))
+		fmt.Fprintf(&declarations, "%s%s = %s; ", e.declarator(x.Type()), args[i], e.expr(x))
 	}
 	return args, declarations.String()
 }
@@ -704,6 +721,10 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_u64(" + inner + ")"
 	case ir.I8, ir.I16, ir.I32, ir.U8, ir.U16, ir.U32, ir.F32:
 		return "pts_value_from_number(" + inner + ")" // exact as a double
+	}
+	switch value.Type().(type) {
+	case *ir.Class:
+		return "pts_value_from_object(" + inner + ")"
 	default:
 		panic("cgen: cannot box " + value.Type().String())
 	}
@@ -810,8 +831,12 @@ func cType(t ir.Type) string {
 	}
 }
 
-// declarator is the C type followed by what separates it from a name: "double " but "pts_string *".
-func declarator(t ir.Type) string {
+// declarator is the C type followed by what separates it from a name: "double " but
+// "pts_string *"; a class instance is a pointer to its struct.
+func (e *emitter) declarator(t ir.Type) string {
+	if class, ok := t.(*ir.Class); ok {
+		return "pts_class_" + e.classNames[class] + " *"
+	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {
 		return c
@@ -893,6 +918,18 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 		case *ir.Sequence:
 			expr(x.X)
 			expr(x.Y)
+		case *ir.Bind:
+			expr(x.Value)
+			expr(x.In)
+		case *ir.New:
+			for _, arg := range x.Args {
+				expr(arg)
+			}
+		case *ir.FieldRef:
+			expr(x.X)
+		case *ir.SetField:
+			expr(x.X)
+			expr(x.Value)
 		}
 	}
 	for _, stmt := range stmts {

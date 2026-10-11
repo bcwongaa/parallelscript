@@ -123,7 +123,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
 	l := &lowerer{program: program.TS, checker: c, info: info,
-		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{}}
+		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
+		classes: map[*ast.Symbol]*ir.Class{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Func{}, this: map[*ir.Func]*ir.Local{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -131,11 +132,17 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		result.Funcs = append(result.Funcs, module.Init)
 	}
 	result.Main = result.Modules[len(result.Modules)-1].Init
-	// Every function and module-scope binding exists before any code is lowered: code
-	// may use them above their declarations, and in an import cycle before their module runs.
+	// Every class, function and module-scope binding exists before any code is lowered:
+	// code may use them above their declarations, and in an import cycle before their
+	// module runs. Classes come first, since any declaration's type may name one.
+	for i, file := range program.Modules {
+		l.function = result.Modules[i].Init
+		l.declareClasses(file)
+	}
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareFunctions(file.AsNode(), "")
+		l.declareClassMembers(file)
 		l.declareModuleBindings(file)
 	}
 	for i, file := range program.Modules {
@@ -149,6 +156,13 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		l.functionBody(body)
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
+	for _, file := range program.Modules {
+		for _, statement := range file.Statements.Nodes {
+			if class := l.classes[l.declaredSymbol(statement)]; statement.Kind == ast.KindClassDeclaration && class != nil {
+				result.Classes = append(result.Classes, class)
+			}
+		}
+	}
 	return result, l.errors
 }
 
@@ -174,6 +188,10 @@ type lowerer struct {
 	owners      map[*ir.Local]*ir.Func    // the function each local belongs to
 	moduleScope map[*ir.Local]bool        // the locals declared at module scope, which functions and other modules may use
 	funcs       map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
+	classes     map[*ast.Symbol]*ir.Class // every class declaration, made before any code is lowered; nil if it failed
+	fields      map[*ast.Node]*ir.Field   // the fields of those classes, by property declaration
+	methods     map[*ast.Node]*ir.Func    // their methods, by method declaration; nil if it failed
+	this        map[*ir.Func]*ir.Local    // the `this` parameter of each constructor and method
 	lowered     []*ir.Func                // the functions whose bodies are lowered
 	bodies      []*ast.Node               // function declarations whose bodies are still to be lowered
 	function    *ir.Func                  // the function being lowered
@@ -233,6 +251,12 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		return l.labeledStatement(node)
 	case ast.KindFunctionDeclaration:
 		l.bodies = append(l.bodies, node)
+	case ast.KindClassDeclaration:
+		if _, ok := l.classes[l.declaredSymbol(node)]; ok {
+			l.bodies = append(l.bodies, node) // its constructor and methods
+		} else {
+			l.notSupportedYet(node, "classes inside functions or blocks are")
+		}
 	case ast.KindReturnStatement:
 		return l.returnStatement(node)
 	case ast.KindBreakStatement:
@@ -581,6 +605,19 @@ func (l *lowerer) target(node *ast.Node) *ast.Symbol {
 	return symbol
 }
 
+// memberDeclaration is the declaration of the member a property access names, or nil.
+// The checker may give an instance's member a symbol of its own (instantiated for the
+// instance's `this` type), so members are known by their declarations.
+func (l *lowerer) memberDeclaration(node *ast.Node) *ast.Node {
+	if node.Kind != ast.KindPropertyAccessExpression {
+		return nil
+	}
+	if symbol := l.checker.GetSymbolAtLocation(node); symbol != nil {
+		return symbol.ValueDeclaration
+	}
+	return nil
+}
+
 // isNamespace reports whether node names a module namespace object: `m` after `import * as m`.
 func (l *lowerer) isNamespace(node *ast.Node) bool {
 	symbol := l.target(node)
@@ -632,28 +669,33 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 			if outer != "" {
 				qualified = outer + "." + qualified
 			}
-			l.funcs[l.declaredSymbol(child)] = l.declareFunction(child, qualified)
+			l.funcs[l.declaredSymbol(child)] = l.declareFunction(child, qualified, nil)
 		}
 		l.declareFunctions(child, qualified)
 		return false
 	})
 }
 
-// declareFunction makes the IR function for a declaration, or reports why it can't and returns nil.
-func (l *lowerer) declareFunction(node *ast.Node, name string) *ir.Func {
-	declaration := node.AsFunctionDeclaration()
+// declareFunction makes the IR function for a function, method or constructor
+// declaration, or reports why it can't and returns nil. A method or constructor of class
+// takes `this` first.
+func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) *ir.Func {
+	flags := ast.GetFunctionFlags(node)
 	switch {
-	case declaration.TypeParameters != nil:
+	case node.TypeParameterList() != nil:
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
-	case declaration.AsteriskToken != nil:
+	case flags&ast.FunctionFlagsGenerator != 0:
 		l.notSupportedYet(nameOf(node), "generator functions are")
 		return nil
-	case ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync):
+	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(nameOf(node), "async functions are")
 		return nil
 	}
 	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node)}
+	if class != nil {
+		fn.Params = []*ir.Local{l.newThis(fn, class)}
+	}
 	outer := l.function
 	l.function = fn // parameters are locals of fn
 	defer func() { l.function = outer }()
@@ -664,8 +706,9 @@ func (l *lowerer) declareFunction(node *ast.Node, name string) *ir.Func {
 		}
 		fn.Params = append(fn.Params, local)
 	}
-	fn.Result = l.resultType(node)
-	if fn.Result == nil {
+	if node.Kind == ast.KindConstructor {
+		fn.Result = ir.Void
+	} else if fn.Result = l.resultType(node); fn.Result == nil {
 		return nil
 	}
 	return fn
@@ -683,6 +726,9 @@ func (l *lowerer) parameter(node *ast.Node) *ir.Local {
 		return nil
 	case param.QuestionToken != nil || param.Initializer != nil:
 		l.notSupportedYet(node, "optional parameters are")
+		return nil
+	case ast.IsParameterPropertyDeclaration(node, node.Parent):
+		l.notSupportedYet(node, "parameter properties are")
 		return nil
 	}
 	symbol := l.checker.GetSymbolAtLocation(param.Name())
@@ -719,17 +765,18 @@ func nameOf(declaration *ast.Node) *ast.Node {
 	return declaration
 }
 
-// functionBody lowers the body of a function declaration into the function made for it.
+// functionBody lowers the body of a function declaration into the function made for
+// it, or a class's constructor and methods.
 func (l *lowerer) functionBody(node *ast.Node) {
+	if node.Kind == ast.KindClassDeclaration {
+		l.classBodies(node)
+		return
+	}
 	fn := l.funcs[l.declaredSymbol(node)]
 	if fn == nil || node.Body() == nil {
 		return // a failed declaration (reported), or an overload signature
 	}
-	outer, outerTargets := l.function, l.targets
-	l.function, l.targets = fn, nil
-	fn.Body = l.block(node.Body(), node.Body().Statements())
-	l.function, l.targets = outer, outerTargets
-	l.lowered = append(l.lowered, fn)
+	l.inFunction(fn, func() { fn.Body = l.block(node.Body(), node.Body().Statements()) })
 }
 
 // returnStatement lowers `return value`, converting the value to the function's result type.
@@ -801,6 +848,10 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.propertyAccess(node)
 	case ast.KindElementAccessExpression:
 		return l.stringElement(node, ir.StringElementChecked)
+	case ast.KindThisKeyword:
+		return l.thisExpression(node)
+	case ast.KindNewExpression:
+		return l.newExpression(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
@@ -863,7 +914,14 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, "dynamic `import()` is")
 		return nil
 	}
-	fn, isUserFunction := l.funcs[l.target(ast.SkipParentheses(call.Expression))]
+	callee := l.target(ast.SkipParentheses(call.Expression))
+	if method, ok := l.methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
+		if method == nil {
+			return nil // its declaration failed, which was reported
+		}
+		return l.instanceMethodCall(call, method)
+	}
+	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
 	switch {
 	case isUserFunction && fn == nil:
@@ -890,11 +948,21 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	return l.methodCall(node, builtin)
 }
 
-// userCall calls a function of the program, converting each argument to its parameter's type.
+// userCall calls a function of the program.
 func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
-	args := make([]ir.Expr, len(fn.Params))
-	for i, param := range fn.Params {
-		argument := call.Arguments.Nodes[i] // tsc checked the count; optional and rest parameters aren't lowered yet
+	args := l.arguments(call.Arguments.Nodes, fn.Params)
+	if args == nil {
+		return nil
+	}
+	return &ir.Call{Func: fn, Args: args}
+}
+
+// arguments lowers the arguments of a call of a function of the program, each converted
+// to its parameter's type, or reports one and returns nil.
+func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr {
+	args := make([]ir.Expr, len(params))
+	for i, param := range params {
+		argument := arguments[i] // tsc checked the count; optional and rest parameters aren't lowered yet
 		arg := l.expression(argument)
 		if arg == nil {
 			return nil
@@ -903,7 +971,7 @@ func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
 			return nil
 		}
 	}
-	return &ir.Call{Func: fn, Args: args}
+	return args
 }
 
 func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {
@@ -1065,6 +1133,14 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	member := l.memberDeclaration(node)
+	if field := l.fields[member]; field != nil {
+		return l.fieldAccess(node, field)
+	}
+	if _, ok := l.methods[member]; ok {
+		l.notSupportedYet(node, "methods as values are")
+		return nil
+	}
 	if l.isNamespace(node.Expression()) {
 		if x, ok := l.binding(node, l.target(node)); ok {
 			return x
@@ -1207,18 +1283,18 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 	return &ir.Binary{Op: op, X: x, Y: y}
 }
 
-// assignment lowers `x = value`.
+// assignment lowers `target = value`.
 func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	local := l.assignmentTarget(expr.Left)
+	target, ok := l.assignmentTarget(expr.Left)
 	value := l.expression(expr.Right)
-	if local == nil || value == nil {
+	if !ok || value == nil {
 		return nil
 	}
-	if value = l.convert(value, local.Type, expr.Right); value == nil {
+	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
 		return nil
 	}
-	return &ir.Assign{Local: local, Value: value}
+	return target.store(value, false)
 }
 
 // compoundAssignment lowers `x op= value` to `x = x op value`, and `x ||= value` to
@@ -1226,55 +1302,108 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	operator, _ := check.CompoundOperator(expr.OperatorToken.Kind)
-	local := l.assignmentTarget(expr.Left)
-	if local == nil {
+	target, ok := l.assignmentTarget(expr.Left)
+	if !ok {
 		return nil
 	}
-	current := &ir.LocalRef{Local: local}
-	if op, ok := logicalOps[operator]; ok {
-		value := l.expression(expr.Right)
+	return l.readAndStore(target, func(target place) ir.Expr {
+		current, t := target.read(), target.valueType()
+		if op, ok := logicalOps[operator]; ok {
+			value := l.expression(expr.Right)
+			if value == nil {
+				return nil
+			}
+			if value = l.convert(value, t, expr.Right); value == nil {
+				return nil
+			}
+			return &ir.Logical{Op: op, X: current, Y: target.store(value, false)}
+		}
+		var value ir.Expr
+		switch op, ok := binaryOps[operator]; {
+		case operator == ast.KindPlusToken && t == ir.String:
+			if y := l.valueExpression(expr.Right); y != nil {
+				if y = l.toString(y, expr.Right); y != nil {
+					value = &ir.Binary{Op: ir.Concat, X: current, Y: y}
+				}
+			}
+		case ok:
+			if y := l.expression(expr.Right); y != nil {
+				value = l.operation(node, op, current, y, expr.Left, expr.Right)
+			}
+		default:
+			l.notSupportedYet(node, describe(node)+" is")
+		}
 		if value == nil {
 			return nil
 		}
-		if value = l.convert(value, local.Type, expr.Right); value == nil {
+		if value = l.convert(value, t, node); value == nil {
 			return nil
 		}
-		return &ir.Logical{Op: op, X: current, Y: &ir.Assign{Local: local, Value: value}}
-	}
-	var value ir.Expr
-	switch op, ok := binaryOps[operator]; {
-	case operator == ast.KindPlusToken && local.Type == ir.String:
-		if y := l.valueExpression(expr.Right); y != nil {
-			if y = l.toString(y, expr.Right); y != nil {
-				value = &ir.Binary{Op: ir.Concat, X: current, Y: y}
-			}
-		}
-	case ok:
-		if y := l.expression(expr.Right); y != nil {
-			value = l.operation(node, op, current, y, expr.Left, expr.Right)
-		}
-	default:
-		l.notSupportedYet(node, describe(node)+" is")
-	}
-	if value == nil {
-		return nil
-	}
-	if value = l.convert(value, local.Type, node); value == nil {
-		return nil
-	}
-	return &ir.Assign{Local: local, Value: value}
+		return target.store(value, false)
+	})
 }
 
-// assignmentTarget returns the local an assignment stores to, or reports the target and returns nil.
-func (l *lowerer) assignmentTarget(node *ast.Node) *ir.Local {
+// place is what an assignment stores to: a local, or a field of an instance.
+type place struct {
+	local  *ir.Local
+	object ir.Expr // the instance, for a field
+	field  *ir.Field
+}
+
+func (p place) valueType() ir.Type {
+	if p.local != nil {
+		return p.local.Type
+	}
+	return p.field.Type
+}
+
+func (p place) read() ir.Expr {
+	if p.local != nil {
+		return &ir.LocalRef{Local: p.local}
+	}
+	return &ir.FieldRef{X: p.object, Field: p.field}
+}
+
+func (p place) store(value ir.Expr, postfix bool) ir.Expr {
+	if p.local != nil {
+		return &ir.Assign{Local: p.local, Value: value, Postfix: postfix}
+	}
+	return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
+}
+
+// readAndStore builds, with build, an expression that both reads and stores target.
+// A field's instance is evaluated once, first, as in JS: if it isn't a local, build gets
+// a place whose instance is a temporary holding it.
+func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr {
+	if target.local != nil || isPure(target.object) {
+		return build(target)
+	}
+	object := l.newLocal("object", target.object.Type())
+	result := build(place{object: &ir.LocalRef{Local: object}, field: target.field})
+	if result == nil {
+		return nil
+	}
+	return &ir.Bind{Local: object, Value: target.object, In: result}
+}
+
+// assignmentTarget returns the place an assignment stores to, or reports the target
+// and returns false.
+func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 	node = ast.SkipParentheses(node)
-	if node.Kind == ast.KindIdentifier {
+	switch node.Kind {
+	case ast.KindIdentifier:
 		if local, ok := l.locals[l.target(node)]; ok {
-			return l.ownLocal(node, local) // nil also if its declaration failed, which was reported
+			local = l.ownLocal(node, local) // nil also if its declaration failed, which was reported
+			return place{local: local}, local != nil
+		}
+	case ast.KindPropertyAccessExpression:
+		if field := l.fields[l.memberDeclaration(node)]; field != nil {
+			object := l.fieldObject(node)
+			return place{object: object, field: field}, object != nil
 		}
 	}
 	l.notSupportedYet(node, "assigning to `"+scanner.GetTextOfNode(node)+"` is")
-	return nil
+	return place{}, false
 }
 
 // newLocal makes a local of the function being lowered.
@@ -1301,20 +1430,22 @@ func (l *lowerer) ownLocal(node *ast.Node, local *ir.Local) *ir.Local {
 
 // increment lowers ++ and -- (operator) on operand, prefix or postfix.
 func (l *lowerer) increment(node *ast.Node, operand *ast.Node, operator ast.Kind, postfix bool) ir.Expr {
-	local := l.assignmentTarget(operand)
-	if local == nil {
+	target, ok := l.assignmentTarget(operand)
+	if !ok {
 		return nil
 	}
-	if !ir.IsNumeric(local.Type) {
-		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), local.Type))
+	t := target.valueType()
+	if !ir.IsNumeric(t) {
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), t))
 		return nil
 	}
 	op := ir.Add
 	if operator == ast.KindMinusMinusToken {
 		op = ir.Sub
 	}
-	value := &ir.Binary{Op: op, X: &ir.LocalRef{Local: local}, Y: one(local.Type)}
-	return &ir.Assign{Local: local, Value: value, Postfix: postfix}
+	return l.readAndStore(target, func(target place) ir.Expr {
+		return target.store(&ir.Binary{Op: op, X: target.read(), Y: one(t)}, postfix)
+	})
 }
 
 // one is the constant 1 of a numeric type.
@@ -1383,6 +1514,8 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 		return discard(x, &ir.BoolConst{Value: false})
 	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
 		return &ir.Truthy{X: x}
+	case isClass(t):
+		return discard(x, &ir.BoolConst{Value: true}) // an instance, never null
 	}
 	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
 	return nil
@@ -1398,8 +1531,11 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 		return &ir.CallBuiltin{Builtin: ir.ValueTypeOf, Args: []ir.Expr{x}}
 	}
 	word, ok := typeofWords[x.Type()]
-	if ir.IsNumeric(x.Type()) {
+	switch {
+	case ir.IsNumeric(x.Type()):
 		word, ok = "number", true
+	case isClass(x.Type()):
+		word, ok = "object", true
 	}
 	if !ok {
 		l.notSupportedYet(node, fmt.Sprintf("typeof on %s is", x.Type()))
@@ -1447,7 +1583,7 @@ func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 	}
 	switch op {
 	case ir.Eq, ir.Ne:
-		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String
+		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isClass(x)
 	case ir.Lt, ir.Le, ir.Gt, ir.Ge:
 		return ir.IsNumeric(x) || x == ir.String
 	}
@@ -1504,6 +1640,11 @@ func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
 	return builtins[symbol.Parent.Name+"."+symbol.Name]
 }
 
+func isClass(t ir.Type) bool {
+	_, ok := t.(*ir.Class)
+	return ok
+}
+
 func box(value ir.Expr) ir.Expr {
 	switch value.Type() {
 	case ir.Value:
@@ -1518,6 +1659,12 @@ func box(value ir.Expr) ir.Expr {
 
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
+	if class, ok := l.classes[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
+		if class == nil {
+			return nil // the class failed, which was reported
+		}
+		return class
+	}
 	flags := t.Flags()
 	switch {
 	case flags&checker.TypeFlagsNumberLike != 0:

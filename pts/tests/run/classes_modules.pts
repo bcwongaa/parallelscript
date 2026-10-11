@@ -1,0 +1,14 @@
+// Classes are exported and imported like other bindings; instances cross modules.
+import { Account, transfer } from "./classes_modules/bank.pts";
+import * as bank from "./classes_modules/bank.pts";
+import Ledger from "./classes_modules/ledger.pts";
+
+const alice = new Account("alice", 100);
+const bob = new bank.Account("bob", 5);
+const ledger = new Ledger();
+transfer(alice, bob, 30, ledger);
+ledger.record(bob.name + " checks in");
+console.log(alice.balance, bob.balance, ledger.entries, ledger.last);
+
+// expect:
+// 70 35 2 bob checks in

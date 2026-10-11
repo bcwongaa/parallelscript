@@ -1,0 +1,16 @@
+import Ledger from "./ledger.pts";
+
+export class Account {
+  name: string;
+  balance: number;
+  constructor(name: string, balance: number) {
+    this.name = name;
+    this.balance = balance;
+  }
+}
+
+export function transfer(from: Account, to: Account, amount: number, ledger: Ledger): void {
+  from.balance -= amount;
+  to.balance += amount;
+  ledger.record(from.name + " pays " + to.name);
+}

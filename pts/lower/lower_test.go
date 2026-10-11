@@ -490,3 +490,38 @@ func twice:twice(n: number) number {
 }
 `)
 }
+
+func TestClassesLowerToFieldsAConstructorAndMethods(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `class Point {
+  x: number;
+  label = "p";
+  constructor(x: number) { this.x = x; }
+  twice(): number { return this.x * 2; }
+}
+function make(): Point { return new Point(3); }
+const p = new Point(1);
+p.x += p.twice();
+make().x++;
+console.log(p.label);
+`)
+	// Initialisers start the constructor; an instance with effects is evaluated once.
+	assert.Equal(t, got, `class Point { x: number; label: string }
+func main() void {
+  8: let p: Point = new Point(1)
+  9: (p.x = (p.x + Point.twice(p)))
+  10: (let object = make() in old(object.x = (object.x + 1)))
+  11: console.log(box(p.label))
+}
+func Point.constructor(this: Point, x: number) void {
+  3: (this.label = "p")
+  4: (this.x = x)
+}
+func Point.twice(this: Point) number {
+  5: return (this.x * 2)
+}
+func make() Point {
+  7: return new Point(3)
+}
+`)
+}

@@ -1,0 +1,118 @@
+// Classes: fields in declaration order, constructors, methods, `this` and `new`.
+class Counter {
+  count = 0;
+  step: number;
+  name: string;
+  constructor(name: string, step: number) {
+    this.name = name;
+    this.step = step;
+  }
+  tick(): number {
+    this.count += this.step;
+    return this.count;
+  }
+  describe(): string {
+    return this.name + "=" + this.count;
+  }
+}
+
+class Pair {
+  left: Counter;
+  right: Counter;
+  ticks = 0;
+  constructor(left: Counter, right: Counter) {
+    this.left = left;
+    this.right = right;
+  }
+  tickBoth(): string {
+    this.ticks++;
+    return this.left.tick() + "/" + this.right.tick();
+  }
+}
+
+const a = new Counter("a", 1);
+const b = new Counter("b", 10);
+const pair = new Pair(a, b);
+console.log(pair.tickBoth(), pair.tickBoth(), pair.ticks);
+console.log(a.describe(), b.describe(), pair.left === a, pair.left === b, pair.left !== b, typeof pair);
+
+// Fields read and written through chains, with compound assignment and ++.
+pair.left.count += 100;
+pair.right.step *= 2;
+console.log(pair.left.count++, ++pair.left.count, pair.tickBoth());
+
+// An instance computed by an expression with effects is evaluated once.
+let picks = 0;
+function pick(): Counter {
+  picks++;
+  return picks % 2 === 1 ? a : b;
+}
+pick().count += 5;
+pick().count++;
+pick().name += "!";
+console.log(picks, a.describe(), b.describe());
+
+// Field initialisers run in declaration order, before the constructor's body.
+function note(text: string): string {
+  console.log("init", text);
+  return text;
+}
+class Ordered {
+  first = note("first");
+  second: string;
+  third = note("third");
+  constructor() {
+    console.log("constructor", this.first, this.third);
+    this.second = note("second");
+  }
+}
+const ordered = new Ordered();
+console.log(ordered.first, ordered.second, ordered.third);
+
+// Arguments are evaluated before the constructor runs; a constructor may return early.
+class Box {
+  value: number;
+  big = false;
+  constructor(value: number) {
+    console.log("Box", value);
+    this.value = value;
+    if (value < 10) {
+      return;
+    }
+    this.big = true;
+  }
+}
+console.log(new Box(note("four").length).value, new Box(12).big);
+
+// Classes without a constructor, without members, and instances in conditions.
+class Defaults {
+  n = 1;
+  s = "s";
+  flag = true;
+  nothing = undefined;
+  empty = null;
+}
+class Empty {}
+const d = new Defaults();
+const e = new Empty();
+console.log(d.n, d.s, d.flag, d.nothing, d.empty, e === e, new Empty() === new Empty());
+if (d) {
+  console.log(d ? "truthy" : "falsy", !d);
+}
+
+// expect:
+// 1/10 2/20 2
+// a=2 b=20 true false true object
+// 102 104 105/40
+// 3 a!=110 b=41
+// init first
+// init third
+// constructor first third
+// init second
+// first second third
+// init four
+// Box 4
+// Box 12
+// 4 true
+// 1 s true undefined null true false
+// truthy false

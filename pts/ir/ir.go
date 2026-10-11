@@ -5,6 +5,7 @@ package ir
 
 // Program is a whole lowered program.
 type Program struct {
+	Classes []*Class
 	Funcs   []*Func
 	Modules []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
 	Main    *Func     // runs the entry module's top-level code; also in Funcs
@@ -56,6 +57,26 @@ var (
 	U64 = &Primitive{"u64"}
 	F32 = &Primitive{"f32"}
 )
+
+// Class is a class declared in the program, and the type of a reference to one of its
+// instances (never null). An instance holds its Fields in order; Constructor and Methods
+// take the instance as their first parameter, `this`.
+type Class struct {
+	Name        string
+	Module      *Module
+	Fields      []*Field
+	Constructor *Func // runs the field initialisers, then the constructor's body
+	Methods     []*Func
+}
+
+func (c *Class) String() string { return c.Name }
+
+// Field is a field of a class's instances.
+type Field struct {
+	Name  string
+	Type  Type
+	Class *Class
+}
 
 // IsInteger reports whether t is one of the integer types.
 func IsInteger(t Type) bool {
@@ -271,6 +292,35 @@ type Logical struct {
 // Sequence evaluates X for its effects, then Y, whose value it has (the comma operator).
 type Sequence struct{ X, Y Expr }
 
+// Bind evaluates Value into Local, a new local of the current function, then In, whose
+// value it has: a value used twice but evaluated once.
+type Bind struct {
+	Local *Local
+	Value Expr
+	In    Expr
+}
+
+// New makes an instance of Class with every field zero and runs its constructor with Args.
+type New struct {
+	Class *Class
+	Args  []Expr
+}
+
+// FieldRef reads a field of the instance X.
+type FieldRef struct {
+	X     Expr
+	Field *Field
+}
+
+// SetField stores Value (of the field's type) in a field of the instance X. Its value is
+// the new value, or the old one if Postfix (o.x++).
+type SetField struct {
+	X       Expr
+	Field   *Field
+	Value   Expr
+	Postfix bool
+}
+
 // Call calls a function of the program with arguments of its parameter types.
 type Call struct {
 	Func *Func
@@ -408,6 +458,10 @@ func (*Truthy) Type() Type         { return Bool }
 func (e *Conditional) Type() Type  { return e.Then.Type() }
 func (e *Logical) Type() Type      { return e.X.Type() }
 func (e *Sequence) Type() Type     { return e.Y.Type() }
+func (e *Bind) Type() Type         { return e.In.Type() }
+func (e *New) Type() Type          { return e.Class }
+func (e *FieldRef) Type() Type     { return e.Field.Type }
+func (e *SetField) Type() Type     { return e.Field.Type }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
 func (e *Call) Type() Type         { return e.Func.Result }

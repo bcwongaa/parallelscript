@@ -9,6 +9,13 @@ import (
 // String prints the program in a compact text form, for tests and debugging.
 func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
+	for _, c := range p.Classes {
+		fields := make([]string, len(c.Fields))
+		for i, field := range c.Fields {
+			fields[i] = field.Name + ": " + field.Type.String()
+		}
+		fmt.Fprintf(&pr.out, "class %s { %s }\n", c.Name, strings.Join(fields, "; "))
+	}
 	for _, f := range p.Funcs {
 		params := make([]string, len(f.Params))
 		for i, param := range f.Params {
@@ -168,6 +175,18 @@ func FormatExpr(expr Expr) string {
 		return "(" + FormatExpr(e.X) + " " + e.Op.String() + " " + FormatExpr(e.Y) + ")"
 	case *Sequence:
 		return "(" + FormatExpr(e.X) + ", " + FormatExpr(e.Y) + ")"
+	case *Bind:
+		return "(let " + e.Local.Name + " = " + FormatExpr(e.Value) + " in " + FormatExpr(e.In) + ")"
+	case *New:
+		return "new " + e.Class.Name + formatArgs(e.Args)
+	case *FieldRef:
+		return FormatExpr(e.X) + "." + e.Field.Name
+	case *SetField:
+		set := "(" + FormatExpr(e.X) + "." + e.Field.Name + " = " + FormatExpr(e.Value) + ")"
+		if e.Postfix {
+			return "old" + set
+		}
+		return set
 	case *CallBuiltin:
 		return e.Builtin.Name + formatArgs(e.Args)
 	case *Call:

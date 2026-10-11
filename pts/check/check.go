@@ -82,7 +82,7 @@ func (c *pass) report(node *ast.Node, code string, format string, args ...any) {
 // visit checks node and everything below it.
 func (c *pass) visit(node *ast.Node) {
 	switch {
-	case node.Kind == ast.KindVariableDeclaration:
+	case node.Kind == ast.KindVariableDeclaration || node.Kind == ast.KindPropertyDeclaration:
 		c.variableDeclaration(node)
 		return
 	case node.Kind == ast.KindExportAssignment:
@@ -94,7 +94,7 @@ func (c *pass) visit(node *ast.Node) {
 	case node.Kind == ast.KindSwitchStatement && c.isNumber(node.Expression()):
 		c.switchStatement(node)
 		return
-	case node.Kind == ast.KindFunctionDeclaration && node.Body() != nil:
+	case isFunctionWithBody(node):
 		if fn := c.functionOf(node); !fn.visited {
 			c.checkBody(node, fn)
 		}
@@ -108,6 +108,9 @@ func (c *pass) visit(node *ast.Node) {
 	case node.Kind == ast.KindCallExpression && c.calledFunction(node) != nil:
 		c.call(node, c.calledFunction(node))
 		return
+	case node.Kind == ast.KindNewExpression && c.constructorOf(node) != nil:
+		c.call(node, c.constructorOf(node))
+		return
 	}
 	node.ForEachChild(func(child *ast.Node) bool {
 		c.visit(child)
@@ -119,6 +122,7 @@ func (c *pass) isNumber(node *ast.Node) bool {
 	return c.tc.GetTypeAtLocation(node).Flags()&checker.TypeFlagsNumberLike != 0
 }
 
+// variableDeclaration types a variable or a class field.
 func (c *pass) variableDeclaration(node *ast.Node) {
 	if c.declared[node] {
 		return // checked early, when a function or another module used it
@@ -166,11 +170,14 @@ func (c *pass) exportDefault(node *ast.Node) {
 // value, checking its declaration first if the pass hasn't reached it yet: a function may
 // use a module-scope binding declared below it, and a module one of a module checked later.
 func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
+	if declaration := symbol.ValueDeclaration; declaration != nil && declaration.Kind == ast.KindPropertyDeclaration {
+		symbol = c.tc.GetMergedSymbol(declaration.Symbol()) // not the instance's own copy of the member
+	}
 	if n, ok := c.symbols[symbol]; ok {
 		return n, true
 	}
 	if declaration := symbol.ValueDeclaration; declaration != nil && !c.declared[declaration] &&
-		(declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindExportAssignment) {
+		(declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindPropertyDeclaration || declaration.Kind == ast.KindExportAssignment) {
 		outer := c.current
 		c.current = nil // the declaration's own code, not the function's
 		c.visit(declaration)
@@ -310,9 +317,10 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 		}
 		return Number
 	case ast.KindPropertyAccessExpression:
-		if symbol := c.target(node); symbol != nil && c.isNamespace(node.Expression()) {
+		if symbol := c.target(node); symbol != nil {
 			if n, ok := c.bindingType(symbol); ok {
-				return n // m.x, for a namespace import m
+				c.visit(node.Expression())
+				return n // a field, or m.x for a namespace import m
 			}
 		}
 	}

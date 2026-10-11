@@ -1,0 +1,11 @@
+// Fields follow the numeric rules: initialisers and assignments convert losslessly only.
+class Gauge {
+  level: u8 = 300;
+  reading: int = 0;
+  set(value: number): void {
+    this.reading = value;
+  }
+}
+
+// error: class_field_conversions.pts:3:15 - error PTS2002: 300 doesn't fit in u8 (0 to 255)
+// error: class_field_conversions.pts:6:20 - error PTS2001: a number doesn't convert to int implicitly

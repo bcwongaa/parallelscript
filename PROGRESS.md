@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.2a Class basics (M2.2 split by D-025)
+- **Next task:** M2.2b `console.log` of instances
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.2a Class basics: classes at module scope with fields (declaration order, initialisers), constructors, methods, `new`, `this`, field reads and writes (compound, `++`), method calls, across modules, with the numeric rules (D-026, SPEC §9.11). M2.2 split by D-025.
 - M2.1 GC and the object model: `pts_type` descriptors carry the GC layout, size, fields and methods; `pts_object_new` allocates gcj-style (precise, thread-local) or atomic by layout; bdwgc built with gcj support (D-024, SPEC §9.10). C tests cover collection and threads allocating while another collects.
 - M1.6 Milestone M1: checklist run, CI green on `4b7eb10`, M1 table in `docs/BENCHMARKS.md`, tag `m1`, Telegram report.
 - M1.5 Benchmarks setup: `pts/bench/run.sh` (hyperfine; ParallelScript, Node, Bun and Go on the same program, outputs checked equal), `fib` and `fib_int`; results in `docs/BENCHMARKS.md` (fib: 3.0× Node, 1.14× Go). nbody moved to M2.7 (D-023).
@@ -33,8 +34,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.2a Class basics (then M2.2b `console.log` of instances, M2.2c inheritance, M2.2d accessors, statics and privacy; D-025). Emit each class's `pts_type` from cgen as static data (compute `gc_descr` in Go: bit i of the bitmap for pointer word i, `PTS_GC_ALL_WORDS` past 62 words; D-024, SPEC §9.10) and allocate with `pts_object_new`. Instances need a new IR type (a class type) and property access/assignment on it; `ownLocal`/`target` in `pts/lower` show how names resolve.
-2. M2.2b–M2.2d, then M2.3 Object literals and interfaces.
+1. M2.2b `console.log` of instances: in the runtime (`pts/runtime/src/console.c`, which panics on `PTS_KIND_OBJECT` today), print `Name { field: value, … }` from the descriptor's fields, following Node's `util.inspect`: strings quoted (single quotes, escapes), nested instances, the single-line rule (`compact: 3` and `breakLength` 80, see `reduceToSingleString` in Node's `lib/internal/util/inspect.js`), depth 2 (`[Name]` deeper), circular references (`<ref *1>`, `[Circular *1]`). The lowering already boxes an instance as its pointer.
+2. M2.2c inheritance, M2.2d accessors, statics and privacy (D-025), then M2.3 Object literals and interfaces.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -49,7 +50,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (40 run tests, 1 skipped; 33 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (43 run tests, 1 skipped; 35 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -61,6 +62,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **Classes have no TDZ check:** `new C()` in a function called before `class C` has run works, where Node throws `ReferenceError`. And a class-typed field read before the constructor assigns it is NULL, so it crashes (tsc rejects most such reads; a method called from the constructor before the assignment can still do it). Both need the null and ready checks that come with unions (M3.1) or a class ready flag.
 - **Stack overflow crashes** with SIGSEGV (exit 139) instead of throwing `RangeError: Maximum call stack size exceeded`; `pts/tests/run/stack_overflow.pts` is skipped until it does. Needs a guard (a depth counter or an alternate-stack SIGSEGV handler); natural with exceptions (M3.2).
 - **Indexing a non-ASCII string is O(n)** (a scan from the start); ASCII strings are O(1). A lazy UTF-16 index needs a GC-traced field in `pts_string` (D-016): M2.1 or M8.
 - **Integer constant expressions wrap at run time** instead of failing to compile: `const b: u8 = 200 + 56` is 0 (D-012). A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
@@ -72,6 +74,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.2a done (M2.2 split by D-025).
 - 2026-10-11: M2.1 done.
 - 2026-10-11: M1.6 done; tagged `m1`.
 - 2026-10-11: M1.5 done (nbody moved to M2.7, D-023).

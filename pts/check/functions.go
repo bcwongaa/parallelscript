@@ -30,11 +30,34 @@ func (c *pass) calledFunction(call *ast.Node) *ast.Node {
 		return nil
 	}
 	for _, declaration := range symbol.Declarations {
-		if declaration.Kind == ast.KindFunctionDeclaration && declaration.Body() != nil {
+		if isFunctionWithBody(declaration) {
 			return declaration
 		}
 	}
 	return nil
+}
+
+// constructorOf returns the constructor a `new` expression runs, if its class declares one.
+func (c *pass) constructorOf(node *ast.Node) *ast.Node {
+	symbol := c.target(node.Expression())
+	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindClassDeclaration {
+		return nil
+	}
+	for _, member := range symbol.ValueDeclaration.Members() {
+		if member.Kind == ast.KindConstructor && member.Body() != nil {
+			return member
+		}
+	}
+	return nil
+}
+
+// isFunctionWithBody reports whether node declares a function, method or constructor with a body.
+func isFunctionWithBody(node *ast.Node) bool {
+	switch node.Kind {
+	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration, ast.KindConstructor:
+		return node.Body() != nil
+	}
+	return false
 }
 
 // functionOf returns what the pass knows about a function, checking its body first if

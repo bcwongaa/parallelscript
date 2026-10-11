@@ -1,0 +1,8 @@
+export default class Ledger {
+  entries = 0;
+  last = "";
+  record(entry: string): void {
+    this.entries++;
+    this.last = entry;
+  }
+}
