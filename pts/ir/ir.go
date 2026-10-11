@@ -1115,11 +1115,11 @@ var (
 	ValueToArray         = &Builtin{Name: "Array.from", Params: []Type{Value, String}, Result: ValueArray}
 	// JSONParse is JSON.parse of a string: a dynamic value (D-080). JSONStringify is
 	// JSON.stringify(value, replacer, space): a string, or undefined.
-	JSONParse     = &Builtin{Name: "JSON.parse", Params: []Type{String}, Result: Value}
+	JSONParse = &Builtin{Name: "JSON.parse", Params: []Type{String}, Result: Value}
 	// JSONParseRevived is JSON.parse(text, reviver) for a reviver closure of type
 	// (key: string, value: any) => any, boxed.
 	JSONParseRevived = &Builtin{Name: "JSON.parse", Params: []Type{String, Value}, Result: Value}
-	JSONStringify = &Builtin{Name: "JSON.stringify", Params: []Type{Value, Value, Value}, Result: Value}
+	JSONStringify    = &Builtin{Name: "JSON.stringify", Params: []Type{Value, Value, Value}, Result: Value}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
 	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}
