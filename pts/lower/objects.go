@@ -261,8 +261,20 @@ func isArrayIndex(name string) bool {
 }
 
 // objectLiteral lowers `{ x: 1, y }`: an object of the shape of the literal's type, with
-// its properties in the order the literal writes them.
+// its properties in the order the literal writes them, or a hash-map object if its
+// contextual type or its own is one (D-059).
 func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
+	for _, t := range []*checker.Type{l.contextualType(node), l.typeAt(node)} {
+		if t == nil {
+			continue
+		}
+		if mt, ok := l.recordType(t, node); ok {
+			if mt == nil {
+				return nil // reported
+			}
+			return l.recordLiteral(node, mt)
+		}
+	}
 	shape := l.shape(l.literalType(node), node)
 	if shape == nil {
 		return nil

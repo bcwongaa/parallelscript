@@ -255,16 +255,21 @@ func (a *Array) String() string {
 }
 
 // MapType is the type of a reference to a Map from Key to Value, or if Set, to a Set of
-// Key (Value nil) (D-046). The lowering makes one per key and value type, so map types
-// compare by identity too.
+// Key (Value nil) (D-046), or if Record, to a hash-map object (D-059: Record<string, T>
+// or an index signature) from String keys to Value. The lowering makes one per key and
+// value type and kind, so map types compare by identity too.
 type MapType struct {
 	Key, Value Type
 	Set        bool
+	Record     bool
 }
 
 func (m *MapType) String() string {
-	if m.Set {
+	switch {
+	case m.Set:
 		return "Set<" + m.Key.String() + ">"
+	case m.Record:
+		return "Record<" + m.Key.String() + ", " + m.Value.String() + ">"
 	}
 	return "Map<" + m.Key.String() + ", " + m.Value.String() + ">"
 }
@@ -706,10 +711,13 @@ const (
 	MapNext                       // moves the iteration in the local Args[0] to its next entry: false at the end
 	MapIteratorKey                // the key of the entry the iteration in Args[0] is at
 	MapIteratorValue              // the value of that entry
+	MapPut                        // o[k] = v on a hash-map object: v
+	MapGetInto                    // whether m has the key Args[1], whose value it then stores in the local Args[2]
+	MapAssign                     // copies the entries of the map Args[1], of the same type, into m, in its iteration order: m
 )
 
 var mapOpText = [...]string{MapSize: "size", MapGet: "get", MapGetChecked: "getChecked", MapSet: "set", MapHas: "has", MapDelete: "delete",
-	MapClear: "clear", MapIterate: "iterate", MapNext: "next", MapIteratorKey: "key", MapIteratorValue: "value"}
+	MapClear: "clear", MapIterate: "iterate", MapNext: "next", MapIteratorKey: "key", MapIteratorValue: "value", MapPut: "put", MapGetInto: "getInto", MapAssign: "assign"}
 
 func (op MapOp) String() string { return mapOpText[op] }
 
@@ -966,11 +974,11 @@ func (e *MapCall) Type() Type {
 		return Number
 	case MapGet:
 		return Value
-	case MapGetChecked, MapIteratorValue:
+	case MapGetChecked, MapIteratorValue, MapPut:
 		return e.Map.Value
-	case MapSet:
+	case MapSet, MapAssign:
 		return e.Map
-	case MapHas, MapDelete, MapNext:
+	case MapHas, MapDelete, MapNext, MapGetInto:
 		return Bool
 	case MapClear:
 		return Void

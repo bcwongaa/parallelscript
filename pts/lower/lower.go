@@ -318,7 +318,7 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		if s := l.ifStatement(node); s != nil {
 			return []ir.Stmt{s}
 		}
-	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindSwitchStatement:
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindForInStatement, ast.KindSwitchStatement:
 		return l.breakable(node, "")
 	case ast.KindLabeledStatement:
 		return l.labeledStatement(node)
@@ -402,7 +402,7 @@ func (l *lowerer) labeledStatement(node *ast.Node) []ir.Stmt {
 	labeled := node.AsLabeledStatement()
 	name := labeled.Label.Text()
 	switch labeled.Statement.Kind {
-	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindSwitchStatement:
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindForInStatement, ast.KindSwitchStatement:
 		return l.breakable(labeled.Statement, name)
 	}
 	label := &ir.Label{Name: name}
@@ -427,6 +427,8 @@ func (l *lowerer) breakable(node *ast.Node, name string) []ir.Stmt {
 		return l.forStatement(node, label)
 	case ast.KindForOfStatement:
 		return l.forOfStatement(node, label)
+	case ast.KindForInStatement:
+		return l.forInStatement(node, label)
 	default:
 		return l.switchStatement(node, label)
 	}
@@ -797,6 +799,9 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return l.objectCast(value, target, node)
 	case isEmptyArrayLiteral(value) && isArray(target):
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
+	case isObject(value.Type()) && isRecord(target):
+		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "using a `%s` as a hash-map object (`%s`) is not supported yet; a copy of its properties, `{ ...o }`, is one", value.Type(), target))
+		return nil
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
@@ -1104,6 +1109,9 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		if l.isArrayElement(node) {
 			return l.arrayElement(node, ir.ArrayElementChecked)
 		}
+		if l.isRecordElement(node) {
+			return l.recordElement(node, ir.MapGetChecked)
+		}
 		return l.stringElement(node, ir.StringElementChecked)
 	case ast.KindArrayLiteralExpression:
 		return l.arrayLiteral(node)
@@ -1117,6 +1125,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.objectLiteral(node)
 	case ast.KindArrowFunction, ast.KindFunctionExpression:
 		return l.functionExpression(node)
+	case ast.KindDeleteExpression:
+		return l.deleteExpression(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
@@ -1124,7 +1134,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 
 // valueExpression lowers an expression whose context takes any value, such as an
 // argument of console.log. There s[i] and a[i] keep JS's undefined for an index out of
-// range (D-015); everything else lowers as usual.
+// range (D-015), and o[k] for a key a hash-map object doesn't have (D-059); everything
+// else lowers as usual.
 func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 	inner := ast.SkipParentheses(node)
 	switch {
@@ -1134,6 +1145,8 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 		return l.stringElement(inner, ir.StringElement)
 	case l.isArrayElement(inner):
 		return l.arrayElement(inner, ir.ArrayElement)
+	case l.isRecordElement(inner):
+		return l.recordElement(inner, ir.MapGet)
 	}
 	return l.expression(node)
 }
@@ -1238,6 +1251,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "from") {
 		return l.arrayFrom(call)
+	}
+	if l.isObjectStatic(ast.SkipParentheses(call.Expression), "keys", "values", "entries", "hasOwn") {
+		return l.objectStaticCall(call)
+	}
+	if l.isRecordMethodCall(node) {
+		return l.recordMethodCall(call)
 	}
 	if generic, ok := l.generics[callee]; ok {
 		if generic == nil {
@@ -1682,6 +1701,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if l.isMapExpression(node.Expression()) {
 		return l.mapProperty(node)
 	}
+	if l.isRecordElement(node) {
+		return l.recordElement(node, ir.MapGetChecked)
+	}
 	member := l.memberDeclaration(node)
 	if field := l.membersAt(node).fields[member]; field != nil {
 		return l.fieldAccess(node, field)
@@ -1814,6 +1836,10 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.instanceOf(node)
 	case operator == ast.KindInKeyword && expr.Left.Kind == ast.KindPrivateIdentifier:
 		return l.privateIn(node)
+	case operator == ast.KindInKeyword && l.isRecordExpression(expr.Right):
+		return l.inRecord(expr)
+	case (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) && l.isRecordElement(ast.SkipParentheses(expr.Left)):
+		return l.recordElementFallback(ast.SkipParentheses(expr.Left), expr.Right, operator == ast.KindQuestionQuestionToken)
 	case operator == ast.KindCommaToken:
 		x, y := l.expression(expr.Left), l.expression(expr.Right)
 		if x == nil || y == nil {
@@ -1835,6 +1861,10 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	if op == ir.Eq || op == ir.Ne {
 		if element, other, ok := l.elementComparedWithString(expr); ok {
 			return l.elementEquality(op, element, other)
+		}
+		if element, ok := l.recordElementComparedWithUndefined(expr); ok {
+			record, key := l.recordElementOperands(element)
+			return l.recordHas(record, key, op == ir.Eq) // a missing key's undefined
 		}
 	}
 	x := l.expression(expr.Left)
@@ -1878,7 +1908,7 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
 		return nil
 	}
-	if target.local != nil || target.field != nil || target.index != nil || target.arrayLength {
+	if target.local != nil || target.field != nil || target.index != nil || target.arrayLength || target.key != nil {
 		return target.store(value, false) // the store evaluates the instance (or array and index) first
 	}
 	return l.withObject(target, func(target place) ir.Expr { return target.store(value, false) })
@@ -1892,6 +1922,9 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	target, ok := l.assignmentTarget(expr.Left)
 	if !ok {
 		return nil
+	}
+	if target.key != nil && (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) {
+		return l.recordElementOrSet(target, expr.Right, operator == ast.KindQuestionQuestionToken)
 	}
 	return l.readAndStore(target, func(target place) ir.Expr {
 		current, t := target.read(), target.valueType()
@@ -1931,12 +1964,13 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 }
 
 // place is what an assignment stores to: a local, a field of an instance (or through an
-// interface, a property of an object), or an accessor property of an instance, whose
-// setter stores (and getter reads).
+// interface, a property of an object), an accessor property of an instance, whose
+// setter stores (and getter reads), or an entry of a hash-map object.
 type place struct {
 	local       *ir.Local
-	object      ir.Expr // the instance, for a field or accessor property; the array, for an element or the length
+	object      ir.Expr // the instance, for a field or accessor property; the array, for an element or the length; the hash-map object, for an entry
 	index       ir.Expr // the index, for an element of an array
+	key         ir.Expr // the key, for an entry of a hash-map object
 	arrayLength bool    // the length of an array
 	field       *ir.Field
 	accessors   property
@@ -1956,6 +1990,8 @@ func (p place) valueType() ir.Type {
 		return p.object.Type().(*ir.Array).Elem
 	case p.arrayLength:
 		return ir.Number
+	case p.key != nil:
+		return p.object.Type().(*ir.MapType).Value
 	}
 	return p.stored.Type
 }
@@ -1970,6 +2006,8 @@ func (p place) read() ir.Expr {
 		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{p.object, p.index}}
 	case p.arrayLength:
 		return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{p.object}}
+	case p.key != nil:
+		return &ir.MapCall{Op: ir.MapGetChecked, Args: []ir.Expr{p.object, p.key}, Map: p.object.Type().(*ir.MapType)}
 	}
 	return &ir.FieldRef{X: p.object, Field: p.field}
 }
@@ -1987,6 +2025,8 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 		stored = &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{p.object, p.index, value}}
 	case p.arrayLength:
 		stored = &ir.ArrayCall{Op: ir.ArraySetLength, Args: []ir.Expr{p.object, value}}
+	case p.key != nil:
+		stored = &ir.MapCall{Op: ir.MapPut, Args: []ir.Expr{p.object, p.key, value}, Map: p.object.Type().(*ir.MapType)}
 	}
 	if stored != nil {
 		if postfix { // readAndStore read the old value into current
@@ -2017,7 +2057,7 @@ func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr 
 		switch {
 		case target.field != nil && !viaInterface:
 			return build(target)
-		case target.field != nil || target.index != nil || target.arrayLength:
+		case target.field != nil || target.index != nil || target.arrayLength || target.key != nil:
 			read = target.read()
 		case target.accessors.getter == nil:
 			l.notSupportedYet(target.at, "reading a property that has no getter is")
@@ -2048,6 +2088,7 @@ func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
 	}
 	bind(&target.object, "object")
 	bind(&target.index, "index")
+	bind(&target.key, "key")
 	result := build(target)
 	if result == nil {
 		return nil
@@ -2081,7 +2122,15 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			array, index := l.arrayElementOperands(node)
 			return place{object: array, index: index}, array != nil
 		}
+		if l.isRecordElement(node) {
+			record, key := l.recordElementOperands(node)
+			return place{object: record, key: key}, record != nil
+		}
 	case ast.KindPropertyAccessExpression:
+		if l.isRecordElement(node) {
+			record, key := l.recordElementOperands(node)
+			return place{object: record, key: key}, record != nil
+		}
 		if l.isArrayExpression(node.Expression()) && node.AsPropertyAccessExpression().Name().Text() == "length" {
 			array := l.arrayObject(node)
 			return place{object: array, arrayLength: true}, array != nil
@@ -2436,6 +2485,12 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return l.tupleType(t, node)
 	}
 	if mt, ok := l.mapType(t, node); ok {
+		if mt == nil {
+			return nil // reported
+		}
+		return mt
+	}
+	if mt, ok := l.recordType(t, node); ok {
 		if mt == nil {
 			return nil // reported
 		}

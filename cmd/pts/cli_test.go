@@ -110,12 +110,12 @@ func TestCompileErrorsArePrintedRelativeToTheWorkingDirectory(t *testing.T) {
 
 func TestUnsupportedSyntaxIsACompileError(t *testing.T) {
 	t.Parallel()
-	dir := projectWith(t, map[string]string{"loop.pts": "for (const c in { a: 1 }) {}\n"})
+	dir := projectWith(t, map[string]string{"try.pts": "try {} finally {}\n"})
 
-	got := runIn(t, dir, "build", "loop.pts")
+	got := runIn(t, dir, "build", "try.pts")
 
-	assert.Equal(t, got, result{code: exitFailure, stderr: "loop.pts:1:1 - error PTS1001: for in statement is not supported yet\n"})
-	_, err := os.Stat(filepath.Join(dir, "loop"))
+	assert.Equal(t, got, result{code: exitFailure, stderr: "try.pts:1:1 - error PTS1001: try statement is not supported yet\n"})
+	_, err := os.Stat(filepath.Join(dir, "try"))
 	assert.Assert(t, os.IsNotExist(err), "no executable on failure")
 }
 

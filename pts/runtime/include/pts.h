@@ -38,6 +38,7 @@ typedef enum pts_kind {
   PTS_KIND_MAP = 7,      /* a Map (pts_map) from keys of its type's key kind to values of its element kind */
   PTS_KIND_SET = 8,      /* a Set (pts_map) of values of its type's key kind */
   PTS_KIND_TUPLE = 9,    /* a tuple: an object whose fields, named 0, 1, …, are its elements; printed as an array */
+  PTS_KIND_RECORD = 10,  /* a hash-map object (pts_map) from string keys to values of its element kind */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -772,6 +773,8 @@ _Noreturn void pts_map_key_error(void);
 /* map.set(key, value), set.add(key) (value NULL): returns map. */
 pts_map *pts_map_set(pts_map *map, const void *key, const void *value);
 bool pts_map_delete(pts_map *map, const void *key);
+/* Sets in map each entry of source, a map of the same type, in its iteration order (JS's key order for a hash-map object): returns map. */
+pts_map *pts_map_assign(pts_map *map, pts_map *source);
 void pts_map_clear(pts_map *map);
 pts_map_iterator pts_map_iterate(pts_map *map);
 /* Moves to the next live entry, whose key and value it then holds; false at the end. */
@@ -789,6 +792,33 @@ bool pts_map_next(pts_map_iterator *iterator);
 /* The key and value an iterator holds, as their C types. */
 #define PTS_MAP_ITERATOR_KEY(T, iterator) (*(T *)&(iterator).key)
 #define PTS_MAP_ITERATOR_VALUE(T, iterator) (*(T *)&(iterator).value)
+/* m[k] = v for generated code: sets the entry and is the value, of C type T. */
+#define PTS_MAP_PUT(T, map, key, value)     \
+  ({                                        \
+    T pts_put = (value);                    \
+    pts_map_set((map), (key), &pts_put);    \
+    pts_put;                                \
+  })
+
+/*
+ * A hash-map object (D-059: Record<string, T>, index signatures) is a pts_map from
+ * strings to values whose descriptor has kind PTS_KIND_RECORD and the name "Object". JS
+ * lists an object's keys with the array indices ("0", "17") first, in numeric order, and
+ * the others in insertion order; pts_record_iterate iterates in that order. Without
+ * array-index keys it is pts_map_iterate; with them, it iterates over a snapshot.
+ */
+pts_map_iterator pts_record_iterate(pts_map *record);
+_Noreturn void pts_record_key_error(const pts_string *key);
+/* o[k] for generated code: the value, of C type T, or RangeError if o has no key k. */
+#define PTS_RECORD_GET(T, record, key)                 \
+  ({                                                   \
+    T pts_got;                                         \
+    pts_string *const *pts_key = (key);                \
+    if (!pts_map_get((record), pts_key, &pts_got)) {   \
+      pts_record_key_error(*pts_key);                  \
+    }                                                  \
+    pts_got;                                           \
+  })
 
 /* ---------------------------------------------------------------- String.prototype */
 

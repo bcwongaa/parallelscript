@@ -142,9 +142,14 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 }
 
 // propertyOf reads the property name of source: a field of a class or shape, a class's
-// getter, or a field through an interface; nil if it has no such property.
+// getter, a field through an interface, or a hash-map object's entry (which throws if
+// it has none); nil if it has no such property.
 func propertyOf(source ir.Expr, name string) ir.Expr {
 	switch t := source.Type().(type) {
+	case *ir.MapType:
+		if t.Record {
+			return &ir.MapCall{Op: ir.MapGetChecked, Args: []ir.Expr{source, &ir.StringConst{Value: name}}, Map: t}
+		}
 	case *ir.Class:
 		if field := t.Field(name); field != nil && !field.Method {
 			return &ir.FieldRef{X: source, Field: field}

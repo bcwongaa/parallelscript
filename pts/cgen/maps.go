@@ -7,31 +7,48 @@ import (
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
-// collectMaps names the descriptor of each map and set type the program makes maps of (D-046).
+// collectMaps names the descriptor of each map, set and hash-map object type the program
+// makes maps of (D-046, D-059).
 func (e *emitter) collectMaps(program *ir.Program) {
 	for _, f := range program.Funcs {
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
 			if n, ok := x.(*ir.NewMap); ok && e.mapDescriptors[n.Map] == "" {
-				e.mapDescriptors[n.Map] = fmt.Sprintf("pts_type_%s_%d", strings.ToLower(collectionName(n.Map)), len(e.mapOrder)+1)
+				e.mapDescriptors[n.Map] = fmt.Sprintf("pts_type_%s_%d", strings.ToLower(mapKind(n.Map)), len(e.mapOrder)+1)
 				e.mapOrder = append(e.mapOrder, n.Map)
 			}
 		})
 	}
 }
 
+// mapKind is the descriptor kind of a map type: MAP, SET or RECORD.
+func mapKind(mt *ir.MapType) string {
+	switch {
+	case mt.Set:
+		return "SET"
+	case mt.Record:
+		return "RECORD"
+	}
+	return "MAP"
+}
+
+// collectionName is the name of a map type's descriptor, which console.log prints: a
+// hash-map object's is "Object", as a plain object's constructor is.
 func collectionName(mt *ir.MapType) string {
-	if mt.Set {
+	switch {
+	case mt.Set:
 		return "Set"
+	case mt.Record:
+		return "Object"
 	}
 	return "Map"
 }
 
-// mapDescriptorDefinitions writes the descriptors of the map and set types: their key
-// and value kinds, and the GC layout of a pts_map.
+// mapDescriptorDefinitions writes the descriptors of the map, set and hash-map object
+// types: their key and value kinds, and the GC layout of a pts_map.
 func (e *emitter) mapDescriptorDefinitions() {
 	for _, mt := range e.mapOrder {
 		e.line(0, "static const pts_type %s = {", e.mapDescriptors[mt])
-		e.line(1, ".kind = PTS_KIND_%s,", strings.ToUpper(collectionName(mt)))
+		e.line(1, ".kind = PTS_KIND_%s,", mapKind(mt))
 		e.line(1, ".gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),")
 		e.line(1, ".name = %q,", collectionName(mt))
 		e.line(1, ".size = sizeof(pts_map),")
@@ -74,7 +91,11 @@ func (e *emitter) mapCall(call *ir.MapCall) string {
 	case ir.MapIteratorValue:
 		return fmt.Sprintf("PTS_MAP_ITERATOR_VALUE(%s, %s)", e.cDeclaredType(mt.Value), e.local(call.Args[0].(*ir.LocalRef).Local))
 	}
-	args, prelude := e.operands(call.Args)
+	operands := call.Args
+	if call.Op == ir.MapGetInto {
+		operands = operands[:2] // the local is written, not evaluated
+	}
+	args, prelude := e.operands(operands)
 	key := func() string { return fmt.Sprintf("(%s[]){%s}", e.cDeclaredType(mt.Key), args[1]) }
 	var c string
 	switch call.Op {
@@ -83,13 +104,23 @@ func (e *emitter) mapCall(call *ir.MapCall) string {
 	case ir.MapGet:
 		c = "pts_map_get_value(" + args[0] + ", " + key() + ")"
 	case ir.MapGetChecked:
-		c = fmt.Sprintf("PTS_MAP_GET(%s, %s, %s)", e.cDeclaredType(mt.Value), args[0], key())
+		get := "PTS_MAP_GET"
+		if mt.Record {
+			get = "PTS_RECORD_GET" // its error names the key
+		}
+		c = fmt.Sprintf("%s(%s, %s, %s)", get, e.cDeclaredType(mt.Value), args[0], key())
+	case ir.MapGetInto:
+		c = "pts_map_get(" + args[0] + ", " + key() + ", &" + e.local(call.Args[2].(*ir.LocalRef).Local) + ")"
+	case ir.MapPut:
+		c = fmt.Sprintf("PTS_MAP_PUT(%s, %s, %s, %s)", e.cDeclaredType(mt.Value), args[0], key(), args[2])
 	case ir.MapSet:
 		value := "NULL"
 		if !mt.Set {
 			value = fmt.Sprintf("(%s[]){%s}", e.cDeclaredType(mt.Value), args[2])
 		}
 		c = "pts_map_set(" + args[0] + ", " + key() + ", " + value + ")"
+	case ir.MapAssign:
+		c = "pts_map_assign(" + args[0] + ", " + args[1] + ")"
 	case ir.MapHas:
 		c = "pts_map_has(" + args[0] + ", " + key() + ")"
 	case ir.MapDelete:
@@ -97,7 +128,11 @@ func (e *emitter) mapCall(call *ir.MapCall) string {
 	case ir.MapClear:
 		c = "pts_map_clear(" + args[0] + ")"
 	case ir.MapIterate:
-		c = "pts_map_iterate(" + args[0] + ")"
+		if mt.Record {
+			c = "pts_record_iterate(" + args[0] + ")" // in JS's key order
+		} else {
+			c = "pts_map_iterate(" + args[0] + ")"
+		}
 	default:
 		panic(fmt.Sprintf("cgen: unexpected map operation %s", call.Op))
 	}

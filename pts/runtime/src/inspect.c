@@ -232,6 +232,7 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
   case PTS_KIND_TUPLE:
   case PTS_KIND_MAP:
   case PTS_KIND_SET:
+  case PTS_KIND_RECORD:
     format_heap_object(in, out, object, recurse_times);
     return;
   case PTS_KIND_FUNCTION:
@@ -307,17 +308,32 @@ static void format_slot(inspector *in, text *out, pts_field_kind kind, const voi
 #undef SLOT
 }
 
-/* A key prints bare if it matches Node's keyStrRegExp, ^[a-zA-Z_][a-zA-Z_0-9]*$, else quoted. */
-static void format_key(text *out, const char *name) {
-  bool bare = name[0] != '\0' && !(name[0] >= '0' && name[0] <= '9');
-  for (const char *c = name; *c && bare; c++) {
-    bare = *c == '_' || (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9');
+/* is_bare_key reports whether a key matches Node's keyStrRegExp, ^[a-zA-Z_][a-zA-Z_0-9]*$, so it prints unquoted. */
+static bool is_bare_key(const char *bytes, size_t len) {
+  bool bare = len > 0 && !(bytes[0] >= '0' && bytes[0] <= '9');
+  for (size_t i = 0; i < len && bare; i++) {
+    char c = bytes[i];
+    bare = c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
   }
-  if (bare) {
+  return bare;
+}
+
+/* A field's name prints bare if is_bare_key, else quoted. */
+static void format_key(text *out, const char *name) {
+  if (is_bare_key(name, strlen(name))) {
     text_puts(out, name);
     return;
   }
   pts_string *key = pts_string_from_cstr(name);
+  quote_string(out, key);
+}
+
+/* format_string_key is format_key for a hash-map object's key. */
+static void format_string_key(text *out, const pts_string *key) {
+  if (is_bare_key(key->bytes, key->byte_len)) {
+    text_add(out, key->bytes, key->byte_len);
+    return;
+  }
   quote_string(out, key);
 }
 
@@ -434,6 +450,26 @@ static text *format_map_entries(inspector *in, pts_map *map, size_t *count, size
     size_t remaining = *count - i;
     text_printf(&entries[i++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
   }
+  *count = i;
+  return entries;
+}
+
+/*
+ * Node's formatRaw for a plain object's properties, here a hash-map object's entries
+ * (D-059): `key: value`, in JS's key order (pts_record_iterate), all of them. count is
+ * the size on entry and the number of entries on return.
+ */
+static text *format_record_entries(inspector *in, pts_map *record, size_t *count, size_t recurse_times) {
+  text *entries = new_entries(*count);
+  in->indentation += 2;
+  pts_map_iterator iterator = pts_record_iterate(record);
+  size_t i = 0;
+  for (; i < *count && pts_map_next(&iterator); i++) {
+    format_string_key(&entries[i], (const pts_string *)(uintptr_t)iterator.key);
+    text_puts(&entries[i], ": ");
+    format_slot(in, &entries[i], record->type->element, &iterator.value, recurse_times);
+  }
+  in->indentation -= 2;
   *count = i;
   return entries;
 }
@@ -656,7 +692,11 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   bool is_tuple = type->kind == PTS_KIND_TUPLE;
   bool is_array = type->kind == PTS_KIND_ARRAY || is_tuple;
   bool is_map = type->kind == PTS_KIND_MAP || type->kind == PTS_KIND_SET;
+  bool is_record = type->kind == PTS_KIND_RECORD;
   size_t length = is_array && !is_tuple ? pts_array_length_of((const pts_array *)object) : type->field_count;
+  if (is_record) {
+    length = (size_t)pts_map_size((const pts_map *)object);
+  }
   char buffer[256];
   const char *open = is_array ? "[" : opening_brace(type, buffer, sizeof buffer);
   const char *close = is_array ? "]" : "}";
@@ -679,8 +719,9 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   size_t count = length;
   text *output = is_tuple ? format_tuple_elements(in, object, recurse_times)
                  : is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
-                 : is_map ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
-                          : format_fields(in, object, recurse_times);
+                 : is_map    ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
+                 : is_record ? format_record_entries(in, (pts_map *)object, &count, recurse_times)
+                             : format_fields(in, object, recurse_times);
   in->seen_len--;
 
   text base = {0};

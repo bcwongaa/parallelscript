@@ -1,0 +1,228 @@
+// Hash-map objects (D-059): Record<string, T> and index signatures.
+
+// Counting words: the common idioms.
+const words = "the cat and the hat and the bat".split(" ");
+const counts: Record<string, number> = {};
+for (const w of words) {
+  counts[w] = (counts[w] || 0) + 1;
+}
+console.log(counts);
+
+const nullish: Record<string, number> = {};
+for (const w of words) {
+  nullish[w] = (nullish[w] ?? 0) + 1;
+}
+console.log(nullish);
+
+const viaIn: { [word: string]: number } = {};
+for (const w of words) {
+  if (!(w in viaIn)) {
+    viaIn[w] = 0;
+  }
+  viaIn[w]++;
+}
+console.log(viaIn, Object.keys(viaIn).length);
+
+// Literals, property access by name, computed and numeric keys.
+const key = "dyn" + 1;
+const lit: Record<string, string> = { a: "x", "with space": "y", [key]: "z", 2: "two", 1: "one" };
+console.log(lit);
+console.log(lit.a, lit["with space"], lit[key], lit[1], lit["2"]);
+lit.b = "new";
+lit["a"] += "!";
+console.log(lit);
+
+// JS key order: array indices first, in numeric order, then insertion order.
+const order: Record<string, number> = {};
+order.z = 1;
+order["10"] = 2;
+order["9"] = 3;
+order.a = 4;
+order["01"] = 5;
+order["-1"] = 6;
+order["4294967295"] = 7;
+order["4294967294"] = 8;
+console.log(order);
+console.log(Object.keys(order));
+console.log(Object.values(order));
+console.log(Object.entries(order));
+
+// Missing keys: undefined where any value can go.
+console.log(counts.dog, `${counts["dog"]}`, "x" + counts.dog);
+if (counts.dog === undefined) console.log("no dog");
+if (counts.cat !== undefined) console.log("a cat");
+if (counts["dog"] == undefined && undefined != counts.cat) console.log("loose");
+if (!counts.dog && counts.cat > 0) console.log("truthiness");
+console.log(typeof counts.dog, typeof counts.cat);
+
+// delete, in, hasOwnProperty, Object.hasOwn.
+const d: Record<string, boolean> = { a: true, b: false, c: true };
+console.log(delete d.b, delete d["nope"], "b" in d, "a" in d, d.hasOwnProperty("c"), Object.hasOwn(d, "b"));
+console.log(d);
+
+// Number index signatures convert keys to strings.
+const squares: Record<number, number> = {};
+for (let i = 5; i >= 0; i--) {
+  squares[i] = i * i;
+}
+squares[1.5] = 2.25;
+squares[-0] = -1;
+console.log(squares, 3 in squares, "3" in squares, squares[4]);
+const byIndex: { [i: number]: string } = { 0: "zero" };
+byIndex[10] = "ten";
+console.log(byIndex, Object.keys(byIndex));
+
+// for...in: keys in order; deleted keys are skipped, added ones aren't visited.
+const live: Record<string, number> = { b: 1, a: 2, 3: 3, c: 4 };
+for (const k in live) {
+  if (k === "a") {
+    delete live.c;
+    live.added = 5;
+  }
+  console.log(k, live[k]);
+}
+outer: for (const k in live) {
+  for (const j in live) {
+    if (j === k) continue outer;
+    if (k === "added") break outer;
+    console.log(k, j);
+  }
+}
+
+// Values of other types: arrays, nested records, objects, functions.
+interface Point {
+  x: number;
+  y: number;
+}
+const groups: Record<string, string[]> = {};
+for (const w of words) {
+  const initial = w[0];
+  groups[initial] = groups[initial] || [];
+  groups[initial].push(w);
+}
+console.log(groups);
+const viaOrAssign: Record<string, string[]> = {};
+for (const w of words) {
+  (viaOrAssign[w.length] ||= []).push(w);
+  (viaOrAssign["all"] ??= []).push(w);
+}
+console.log(viaOrAssign);
+const nested: Record<string, Record<string, number>> = { outer: { inner: 1 } };
+nested.outer.second = 2;
+nested.more = {};
+nested.more.deep = 3;
+console.log(nested, nested.outer.inner + nested["more"]["deep"]);
+const points: Record<string, Point> = { origin: { x: 0, y: 0 } };
+points.p = { x: 1, y: 2 };
+points.p.x += 10;
+console.log(points, points.p.x);
+const ops: Record<string, (a: number, b: number) => number> = {
+  add: (a, b) => a + b,
+  mul: (a, b) => a * b,
+};
+ops.sub = (a, b) => a - b;
+for (const name of Object.keys(ops)) {
+  console.log(name, ops[name](6, 3));
+}
+const deep: Record<string, Record<string, Record<string, Record<string, number>>>> = { a: { b: { c: { d: 1 } } } };
+console.log(deep);
+
+// Spreads, records as parameters and results, destructuring entries.
+function merge(base: Record<string, number>, extra: Record<string, number>): Record<string, number> {
+  return { ...base, b: 20, ...extra };
+}
+console.log(merge({ a: 1, b: 2, c: 3 }, { c: 30, d: 40 }));
+const pointRecord: Record<string, number> = { ...points.p, z: 3 };
+console.log(pointRecord);
+let total = 0;
+for (const [name, value] of Object.entries(merge({}, { x: 1, y: 2 }))) {
+  console.log(name, value);
+  total += value;
+}
+console.log(total);
+const { a: first, c: third } = merge({ a: 1 }, { c: 3 });
+console.log(first, third);
+
+// Records in classes and arrays; identity and copies.
+class Inventory {
+  items: Record<string, number> = {};
+  add(name: string, n: number): Inventory {
+    this.items[name] = (this.items[name] ?? 0) + n;
+    return this;
+  }
+}
+const inv = new Inventory().add("apple", 2).add("pear", 1).add("apple", 3);
+console.log(inv, inv.items.apple);
+const list: Record<string, number>[] = [{ a: 1 }, {}];
+list[1].b = 2;
+console.log(list);
+const alias = counts;
+alias.extra = 1;
+console.log(counts === alias, counts.extra, typeof counts);
+const copy = { ...counts };
+copy.extra = 2;
+console.log(counts.extra, copy.extra);
+
+// Keys that print quoted.
+const quoted: Record<string, number> = { "": 1, "a-b": 2, "it's": 3, _ok: 4, $no: 5, "ünï": 6 };
+console.log(quoted);
+
+// Long records break lines as Node does.
+const many: Record<string, number> = {};
+for (let i = 0; i < 30; i++) {
+  many["key" + i] = i;
+}
+console.log(many);
+const empty: Record<string, number> = {};
+console.log({}, empty, Object.keys(empty));
+
+// Evaluation order, and fallbacks evaluated only when the key is missing.
+function trace<T>(label: string, value: T): T {
+  console.log(label);
+  return value;
+}
+const traced: Record<string, number> = {};
+trace("object", traced)[trace("key", "k")] = trace("value", 1);
+trace("object", traced)[trace("key", "k")] += trace("value", 2);
+trace("object", traced)[trace("key", "k")]++;
+console.log(traced);
+const literal: Record<string, number> = {
+  [trace("k1", "a")]: trace("v1", 1),
+  ...trace("spread", traced),
+  [trace("k2", "b")]: trace("v2", 2),
+};
+console.log(literal);
+console.log(traced.k ?? trace("fallback 1", 0), traced.none ?? trace("fallback 2", 0), traced.k || trace("fallback 3", 0));
+traced.zero = 0;
+traced.zero ||= trace("or-assign", 7);
+traced.zero ??= trace("never", 8);
+console.log(traced, trace("in", "k") in trace("record", traced));
+
+// Index signatures with properties of their type; a literal's own index signature;
+// generic functions over hash-map objects; functions named by their keys.
+interface Totals {
+  [category: string]: number;
+  all: number;
+}
+const totals: Totals = { all: 0 };
+for (const [category, amount] of [["food", 3], ["rent", 10], ["food", 2]] as [string, number][]) {
+  totals[category] = (totals[category] ?? 0) + amount;
+  totals.all += amount;
+}
+console.log(totals);
+const dynamicKey: string = "dyn";
+const own = { [dynamicKey]: 1, other: 2 };
+own.more = 3;
+console.log(own, Object.entries(own));
+function keysOf<T>(r: Record<string, T>): string[] {
+  return Object.keys(r);
+}
+function sumOf(r: Readonly<Record<string, number>>): number {
+  let sum = 0;
+  for (const k in r) sum += r[k];
+  return sum;
+}
+console.log(keysOf(ops), keysOf({ x: 1 }), keysOf<string>({}), sumOf(own));
+const named: Record<string, () => string> = { plain: () => "p", ["computed"]: () => "c", 7: () => "n" };
+named[dynamicKey] = () => "d";
+console.log(named, named[7](), named.dyn());

@@ -216,16 +216,24 @@ func (c *pass) objectLiteral(node *ast.Node) {
 }
 
 // contextualPropertyType returns the numeric type of the property of a literal's
-// contextual type that a property of the literal gives a value.
+// contextual type that a property of the literal gives a value, or of its index
+// signature: a hash-map object's values (D-059).
 func (c *pass) contextualPropertyType(contextual *checker.Type, property *ast.Node) (Numeric, bool) {
-	if contextual == nil || property.Symbol() == nil {
+	if contextual == nil {
 		return 0, false
 	}
-	if symbol := c.tc.GetPropertyOfType(contextual, property.Symbol().Name); symbol != nil {
-		if n, ok := c.bindingType(symbol); ok {
-			return n, true
+	if property.Symbol() != nil {
+		if symbol := c.tc.GetPropertyOfType(contextual, property.Symbol().Name); symbol != nil {
+			if n, ok := c.bindingType(symbol); ok {
+				return n, true
+			}
+			return NumericOf(c.tc.GetTypeOfSymbol(symbol)) // value in Box<int>, declared as `value: T`
 		}
-		return NumericOf(c.tc.GetTypeOfSymbol(symbol)) // value in Box<int>, declared as `value: T`
+	}
+	for _, info := range c.tc.GetIndexInfosOfType(contextual) {
+		if info.KeyType().Flags()&(checker.TypeFlagsString|checker.TypeFlagsNumber) != 0 {
+			return NumericOf(info.ValueType()) // the lowering requires string and number index signatures to agree
+		}
 	}
 	return 0, false
 }

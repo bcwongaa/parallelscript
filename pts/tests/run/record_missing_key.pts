@@ -1,0 +1,13 @@
+// Reading a key a hash-map object doesn't have where a value of its type is required
+// throws RangeError (D-059), where JS would carry on with undefined.
+const ages: Record<string, number> = { ann: 31 };
+const next: number = ages.ann + 1;
+console.log(next);
+const missing: number = ages["bob"] + 1;
+console.log(missing);
+
+// no-diff: JS gives NaN for undefined + 1
+// exit: 1
+// stderr: RangeError: Object has no property 'bob'
+// expect:
+// 32

@@ -327,8 +327,8 @@ func (l *lowerer) jsName(node *ast.Node) string {
 	}
 	switch parent.Kind {
 	case ast.KindVariableDeclaration, ast.KindPropertyAssignment, ast.KindPropertyDeclaration, ast.KindParameter:
-		if parent.Initializer() == child && parent.Name() != nil && (parent.Name().Kind == ast.KindIdentifier || parent.Name().Kind == ast.KindStringLiteral) {
-			return parent.Name().Text()
+		if parent.Initializer() == child && parent.Name() != nil {
+			return constantPropertyName(parent.Name())
 		}
 	case ast.KindBinaryExpression:
 		expr := parent.AsBinaryExpression()
@@ -340,6 +340,23 @@ func (l *lowerer) jsName(node *ast.Node) string {
 		}
 	case ast.KindExportAssignment:
 		return "default"
+	}
+	return ""
+}
+
+// constantPropertyName is the text of a name that is known before the program runs: an
+// identifier, a string or numeric literal (tsc keeps a number's as JS's string of it), or
+// a computed name of a literal; "" for any other.
+func constantPropertyName(name *ast.Node) string {
+	if name.Kind == ast.KindIdentifier {
+		return name.Text()
+	}
+	if name.Kind == ast.KindComputedPropertyName {
+		name = ast.SkipParentheses(name.Expression())
+	}
+	switch name.Kind {
+	case ast.KindStringLiteral, ast.KindNumericLiteral, ast.KindNoSubstitutionTemplateLiteral:
+		return name.Text()
 	}
 	return ""
 }

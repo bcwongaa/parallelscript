@@ -1,4 +1,5 @@
-/* Maps and sets: SameValueZero keys, insertion order, deletion, growth, and iteration that follows replaced tables. */
+/* Maps, sets and hash-map objects: SameValueZero keys, insertion order, deletion, growth,
+ * iteration that follows replaced tables, and JS's key order for objects. */
 #include "pts.h"
 
 #include "check.h"
@@ -18,6 +19,15 @@ static const pts_type string_set_type = {
     .name = "Set",
     .size = sizeof(pts_map),
     .key = PTS_FIELD_STRING,
+};
+
+static const pts_type number_record_type = {
+    .kind = PTS_KIND_RECORD,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+    .name = "Object",
+    .size = sizeof(pts_map),
+    .key = PTS_FIELD_STRING,
+    .element = PTS_FIELD_NUMBER,
 };
 
 static double get(pts_map *map, double key) {
@@ -94,10 +104,46 @@ static void iterators_see_additions_and_follow_replaced_tables(void) {
   CHECK(!pts_map_next(&after_clear));
 }
 
+static void put_string(pts_map *record, const char *key, double value) {
+  pts_string *string = pts_string_from_cstr(key);
+  pts_map_set(record, &string, &value);
+}
+
+/* record_keys joins a record's keys in the order pts_record_iterate gives them. */
+static pts_string *record_keys(pts_map *record) {
+  pts_string *keys = pts_string_from_cstr("");
+  pts_map_iterator iterator = pts_record_iterate(record);
+  while (pts_map_next(&iterator)) {
+    keys = pts_string_concat(pts_string_concat(keys, PTS_MAP_ITERATOR_KEY(pts_string *, iterator)), pts_string_from_cstr(" "));
+  }
+  return keys;
+}
+
+static void record_keys_list_array_indices_first_in_numeric_order(void) {
+  pts_map *record = pts_map_new(&number_record_type);
+  const char *inserted[] = {"b", "10", "a", "2", "017", "4294967295", "4294967294", "0", "-1", "1.5"};
+  for (size_t i = 0; i < sizeof inserted / sizeof *inserted; i++) {
+    put_string(record, inserted[i], (double)i);
+  }
+  pts_string *deleted = pts_string_from_cstr("a");
+  pts_map_delete(record, &deleted);
+  CHECK(pts_string_equals(record_keys(record), pts_string_from_cstr("0 2 10 4294967294 b 017 4294967295 -1 1.5 ")));
+}
+
+static void record_keys_without_indices_keep_insertion_order(void) {
+  pts_map *record = pts_map_new(&number_record_type);
+  put_string(record, "z", 1);
+  put_string(record, "y", 2);
+  put_string(record, "z", 3); /* replaced in place */
+  CHECK(pts_string_equals(record_keys(record), pts_string_from_cstr("z y ")));
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   keys_compare_with_same_value_zero();
   entries_keep_insertion_order_across_growth_and_deletion();
   iterators_see_additions_and_follow_replaced_tables();
+  record_keys_list_array_indices_first_in_numeric_order();
+  record_keys_without_indices_keep_insertion_order();
   return CHECK_DONE();
 }

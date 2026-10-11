@@ -7,6 +7,7 @@
  */
 #include "pts.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 enum { MIN_CAPACITY = 4 };
@@ -239,7 +240,7 @@ pts_map *pts_map_copy(const pts_type *type, const pts_map *source) {
   pts_map *map = pts_map_new(type);
   pts_map_iterator iterator = pts_map_iterate((pts_map *)source);
   while (pts_map_next(&iterator)) {
-    pts_map_set(map, &iterator.key, type->kind == PTS_KIND_MAP ? &iterator.value : NULL);
+    pts_map_set(map, &iterator.key, type->kind == PTS_KIND_SET ? NULL : &iterator.value);
   }
   return map;
 }
@@ -290,7 +291,7 @@ pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   pts_map_table *table = load_table(map);
   int64_t number = find(map->type, table, word, h);
   if (number >= 0) {
-    if (map->type->kind == PTS_KIND_MAP) {
+    if (map->type->kind != PTS_KIND_SET) {
       __atomic_store_n(&table->entries[number].value, value_word, __ATOMIC_RELAXED);
     }
     return map;
@@ -366,4 +367,113 @@ bool pts_map_next(pts_map_iterator *iterator) {
     }
   }
   return false;
+}
+
+/* ---------------------------------------------------------------- hash-map objects */
+
+/* array_index_of reports whether key is an array index, the canonical decimal form of an
+ * integer below 2^32 - 1 ("0", "17"; not "017" or "4294967295"), and stores it in *index. */
+static bool array_index_of(const pts_string *key, uint32_t *index) {
+  enum { MAX_DIGITS = 10 };
+  if (key->byte_len == 0 || key->byte_len > MAX_DIGITS || (key->bytes[0] == '0' && key->byte_len > 1)) {
+    return false;
+  }
+  uint64_t value = 0;
+  for (size_t i = 0; i < key->byte_len; i++) {
+    if (key->bytes[i] < '0' || key->bytes[i] > '9') {
+      return false;
+    }
+    value = value * 10 + (uint64_t)(key->bytes[i] - '0');
+  }
+  if (value >= UINT32_MAX) {
+    return false;
+  }
+  *index = (uint32_t)value;
+  return true;
+}
+
+/* An entry of a hash-map object in its place in JS's key order: array indices by value,
+ * then the other keys (index NOT_AN_INDEX) by insertion position. */
+typedef struct ordered_entry {
+  uint32_t index;
+  size_t position;
+  pts_map_entry entry;
+} ordered_entry;
+
+enum { NOT_AN_INDEX = UINT32_MAX };
+
+static int compare_ordered(const void *a, const void *b) {
+  const ordered_entry *x = a, *y = b;
+  if (x->index != y->index) {
+    return x->index < y->index ? -1 : 1;
+  }
+  return x->position < y->position ? -1 : x->position > y->position;
+}
+
+static bool has_array_index_key(const pts_map_table *table) {
+  uint32_t index;
+  for (size_t i = 0, used = load_used(table); i < used; i++) {
+    const pts_map_entry *entry = &table->entries[i];
+    if (__atomic_load_n(&entry->hash, __ATOMIC_ACQUIRE) != PTS_MAP_DELETED &&
+        array_index_of((const pts_string *)(uintptr_t)__atomic_load_n(&entry->key, __ATOMIC_RELAXED), &index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* ordered_snapshot is a table, never published, of table's live entries in JS's key order. */
+static pts_map_table *ordered_snapshot(const pts_map_table *table) {
+  size_t used = load_used(table), count = 0;
+  ordered_entry *ordered = malloc((used ? used : 1) * sizeof *ordered);
+  if (ordered == NULL) {
+    pts_panic("RangeError", "Out of memory listing the keys of an object of %zu entries", used);
+  }
+  for (size_t i = 0; i < used; i++) {
+    const pts_map_entry *entry = &table->entries[i];
+    pts_map_entry copy = {
+        .hash = __atomic_load_n(&entry->hash, __ATOMIC_ACQUIRE),
+        .key = __atomic_load_n(&entry->key, __ATOMIC_RELAXED),
+        .value = __atomic_load_n(&entry->value, __ATOMIC_RELAXED),
+    };
+    if (copy.hash == PTS_MAP_DELETED) {
+      continue;
+    }
+    uint32_t index;
+    if (!array_index_of((const pts_string *)(uintptr_t)copy.key, &index)) {
+      index = NOT_AN_INDEX;
+    }
+    ordered[count++] = (ordered_entry){index, i, copy};
+  }
+  qsort(ordered, count, sizeof *ordered, compare_ordered);
+  pts_map_table *snapshot = GC_MALLOC(sizeof *snapshot + count * sizeof(pts_map_entry));
+  if (snapshot == NULL) {
+    pts_panic("RangeError", "Out of memory listing the keys of an object of %zu entries", count);
+  }
+  for (size_t i = 0; i < count; i++) {
+    snapshot->entries[i] = ordered[i].entry;
+  }
+  free(ordered);
+  snapshot->capacity = snapshot->used = count; /* no index and no next: only iterated */
+  return snapshot;
+}
+
+pts_map_iterator pts_record_iterate(pts_map *record) {
+  pts_map_table *table = load_table(record);
+  if (!has_array_index_key(table)) {
+    return (pts_map_iterator){record, table, 0, 0, 0};
+  }
+  return (pts_map_iterator){record, ordered_snapshot(table), 0, 0, 0};
+}
+
+void pts_record_key_error(const pts_string *key) {
+  pts_panic("RangeError", "Object has no property '%.*s'", (int)key->byte_len, key->bytes);
+}
+
+pts_map *pts_map_assign(pts_map *map, pts_map *source) {
+  pts_map_iterator iterator = source->type->kind == PTS_KIND_RECORD ? pts_record_iterate(source) : pts_map_iterate(source);
+  while (pts_map_next(&iterator)) {
+    pts_map_set(map, &iterator.key, source->type->kind == PTS_KIND_SET ? NULL : &iterator.value);
+  }
+  return map;
 }

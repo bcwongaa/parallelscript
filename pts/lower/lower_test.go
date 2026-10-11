@@ -125,8 +125,8 @@ func TestTypeOnlyDeclarationsProduceNoCode(t *testing.T) {
 
 func TestUnsupportedStatementIsReportedAtItsPosition(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(1);\n  for (const c in { a: 1 }) {}\n")
-	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: for in statement is not supported yet")
+	err := lowerInvalid(t, "console.log(1);\n  try {} finally {}\n")
+	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: try statement is not supported yet")
 }
 
 func TestArithmeticFollowsTypeScriptPrecedence(t *testing.T) {

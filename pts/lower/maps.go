@@ -278,8 +278,21 @@ func mapItemsOf(mt *ir.MapType) mapItems {
 // mapMethodItems are the items the iteration methods of maps and sets yield.
 var mapMethodItems = map[string]mapItems{"keys": mapKeys, "values": mapValues, "entries": mapEntries}
 
-// arrayFromMethods name the helpers of `Array.from` over each kind of items.
-var arrayFromMethods = [...]string{mapValues: "Array.from values", mapKeys: "Array.from keys", mapEntries: "Array.from entries"}
+// arrayFromMethods name the helpers of `Array.from` over each kind of items, and
+// objectMethods those of Object.values, Object.keys and Object.entries of a hash-map object.
+var (
+	arrayFromMethods = [...]string{mapValues: "Array.from values", mapKeys: "Array.from keys", mapEntries: "Array.from entries"}
+	objectMethods    = [...]string{mapValues: "Object.values", mapKeys: "Object.keys", mapEntries: "Object.entries"}
+)
+
+// itemsOfHelper is the kind of items the helper method of `Array.from` or of an Object
+// static method lists.
+func itemsOfHelper(method string) mapItems {
+	if i := slices.Index(objectMethods[:], method); i >= 0 {
+		return mapItems(i)
+	}
+	return mapItems(slices.Index(arrayFromMethods[:], method))
+}
 
 // mapIterable is what a `for...of`, `Array.from` or `new Map` iterates over a map or set:
 // the map, and the items it yields.
@@ -432,11 +445,15 @@ func (l *lowerer) callbackArgument(arg *ast.Node) ir.Expr {
 	return callback
 }
 
-// mapItemsArray is a new array of the items an iteration over a map or set yields, made
-// by a helper; nil if it fails (reported at node).
+// mapItemsArray is a new array of the items an iteration over a map, set or hash-map
+// object yields, made by a helper; nil if it fails (reported at node).
 func (l *lowerer) mapItemsArray(it mapIterable, node *ast.Node) ir.Expr {
 	mt := it.m.Type().(*ir.MapType)
-	helper := l.mapHelper(helperKey{method: arrayFromMethods[it.items], collection: mt}, node, l.arrayOf(l.mapItemType(mt, it.items)), nil)
+	method := arrayFromMethods[it.items]
+	if mt.Record {
+		method = objectMethods[it.items]
+	}
+	helper := l.mapHelper(helperKey{method: method, collection: mt}, node, l.arrayOf(l.mapItemType(mt, it.items)), nil)
 	if helper == nil {
 		return nil
 	}
@@ -505,7 +522,7 @@ func (l *lowerer) mapHelper(key helperKey, node *ast.Node, result ir.Type, args 
 		stmts = append(stmts, l.mapLoop(at, &ir.Label{}, &ir.LocalRef{Local: fn.Params[0]}, func(iteration *ir.Local) []ir.Stmt {
 			var value ir.Expr
 			if callback == nil {
-				value = l.mapItem(iteration, mt, mapItems(slices.Index(arrayFromMethods[:], key.method)))
+				value = l.mapItem(iteration, mt, itemsOfHelper(key.method))
 			} else {
 				all, _ := args(fn, iteration, collected)
 				callArgs := l.callbackArguments(all, key.callback, node)

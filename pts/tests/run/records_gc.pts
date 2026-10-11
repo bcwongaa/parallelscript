@@ -1,0 +1,32 @@
+// Hash-map objects survive collections: many entries of objects are added, deleted and
+// listed (with array-index keys, through snapshots) while garbage is made.
+class Entry {
+  constructor(
+    public name: string,
+    public tags: string[],
+  ) {}
+}
+const index: Record<string, Entry> = {};
+for (let i = 0; i < 100000; i++) {
+  const name = i % 2 === 0 ? "entry" + i : "" + i;
+  index[name] = new Entry(name, ["t" + (i % 7), "u" + (i % 3)]);
+  if (i % 3 === 0) {
+    delete index["entry" + (i - 1)];
+    delete index[i - 1];
+  }
+}
+let listed = 0;
+for (let round = 0; round < 20; round++) {
+  const keys = Object.keys(index);
+  listed += keys.length;
+  const temp: Record<number, string> = {};
+  for (let k = 0; k < 2000; k++) {
+    temp[k] = "x" + k + round;
+  }
+  listed += Object.values(temp).length;
+}
+const e = index["entry99996"];
+console.log(Object.keys(index).length, listed, e.name, e.tags, Object.keys(index).slice(0, 3), "entry2" in index, "entry4" in index);
+
+// expect:
+// 66667 1373340 entry99996 [ 't1', 'u0' ] [ '1', '3', '7' ] false true
