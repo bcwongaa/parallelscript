@@ -274,6 +274,27 @@ func (m *MapType) String() string {
 	return "Map<" + m.Key.String() + ", " + m.Value.String() + ">"
 }
 
+// Union is the type of a value of one of several types (D-062): its Members, each a
+// type other than a union, in a canonical order. It is a pts_value in C, as Value is:
+// numbers (and the integer types and f32 that a double holds exactly) as numbers, i64 and
+// u64 boxed, booleans, null and undefined as constants, and references as pointers. The
+// lowering makes one per set of members, so union types compare by identity.
+type Union struct{ Members []Type }
+
+func (u *Union) String() string {
+	names := make([]string, len(u.Members))
+	for i, member := range u.Members {
+		names[i] = member.String()
+		if _, ok := member.(*FuncType); ok {
+			names[i] = "(" + names[i] + ")"
+		}
+	}
+	return strings.Join(names, " | ")
+}
+
+// Has reports whether t is one of u's members.
+func (u *Union) Has(t Type) bool { return slices.Contains(u.Members, t) }
+
 // Rest is the type of a rest parameter in a parameter list (D-057): the array of the
 // arguments from its position on, which the caller makes. A pts_array * in C, like Array.
 // A function reads it as an array through RestArgs. The lowering makes one per array type.
@@ -806,6 +827,29 @@ type InstanceOf struct {
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
 
+// ToUnion makes X, a value of a member of To or of a union of some of its members, a
+// value of the union To.
+type ToUnion struct {
+	X  Expr
+	To *Union
+}
+
+// FromUnion is X, a value of a union, as a value of To, one of its members or a union of
+// some of them, which the checker has narrowed X to (D-062). If Checked (`x!`), a null or
+// undefined X throws TypeError instead.
+type FromUnion struct {
+	X       Expr
+	To      Type
+	Checked bool
+}
+
+// IsNullish is whether X, a value of a union or a dynamic value, is null or undefined
+// (`x == null`), or if Only is Null or Undefined, that one (`x === null`).
+type IsNullish struct {
+	X    Expr
+	Only Type
+}
+
 // RestArgs is the array X, a rest parameter (of type Rest), holds.
 type RestArgs struct{ X Expr }
 
@@ -871,6 +915,8 @@ var (
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
+	// ValueStrictEquals is === on boxed values, with JS's rules for numbers and strings.
+	ValueStrictEquals = &Builtin{Name: "===", Params: []Type{Value, Value}, Result: Bool}
 
 	// The Math functions of numbers, with JS's semantics (NaN and -0 included). MathMax
 	// and MathMin take two numbers; Math.max(a, b, c) applies MathMax twice.
@@ -1032,6 +1078,9 @@ func (*InstanceOf) Type() Type  { return Bool }
 func (e *Unary) Type() Type     { return e.X.Type() }
 func (e *IntConst) Type() Type  { return e.Ty }
 func (e *Convert) Type() Type   { return e.To }
+func (e *ToUnion) Type() Type   { return e.To }
+func (e *FromUnion) Type() Type { return e.To }
+func (e *IsNullish) Type() Type { return Bool }
 func (*ToString) Type() Type    { return String }
 
 func (e *Binary) Type() Type {

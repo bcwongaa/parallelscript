@@ -1,0 +1,131 @@
+// Unions (D-062): values of several types, null and undefined, narrowing by the checker,
+// equality, typeof, truthiness, ??, || and !, in variables, parameters, results, fields,
+// array elements, maps and hash-map objects.
+let x: number | null = null;
+console.log(x, x === null, x == undefined, typeof x);
+x = 5;
+console.log(x + 1, x === 5, typeof x);
+function find(xs: string[], s: string): number | undefined {
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] === s) return i;
+  }
+  return undefined;
+}
+const names = ["a", "b"];
+const i = find(names, "b");
+if (i !== undefined) {
+  console.log("found at", i * 10);
+}
+const j = find(names, "z");
+console.log(j, j ?? -1, (j ?? -1) + 1);
+let label: string | null = null;
+console.log(label || "anonymous", label ?? "none");
+label = "named";
+console.log(label || "anonymous", label!.length);
+const mixed: (string | number)[] = [1, "two", 3];
+for (const m of mixed) {
+  if (typeof m === "number") console.log(m * 2);
+  else console.log(m.toUpperCase());
+}
+console.log(mixed, mixed[0] === 1, mixed[1] === "two");
+class Node2 {
+  next: Node2 | null = null;
+  constructor(public value: number) {}
+}
+const head = new Node2(1);
+head.next = new Node2(2);
+let n: Node2 | null = head;
+let sum = 0;
+while (n !== null) {
+  sum += n.value;
+  n = n.next;
+}
+console.log(sum, head);
+
+function describe(x: string | number | boolean | null | undefined): string {
+  switch (typeof x) {
+    case "string":
+      return "string " + x.length;
+    case "number":
+      return "number " + (x + 1);
+    case "boolean":
+      return "boolean " + !x;
+  }
+  return x === null ? "null" : "undefined";
+}
+console.log(describe("abc"), describe(41), describe(true), describe(null), describe(undefined));
+const maybe: (number | null)[] = [1, null, 3];
+maybe.push(null);
+maybe.push(4);
+console.log(maybe, maybe.length, maybe.indexOf(null), maybe.includes(3), maybe.filter((v) => v !== null));
+let total = 0;
+for (const v of maybe) {
+  if (v !== null) total += v;
+}
+console.log(total);
+const cache = new Map<string, string | null>();
+cache.set("a", null);
+cache.set("b", "bee");
+console.log(cache, cache.get("a"), cache.get("b"));
+const opt: Record<string, number | undefined> = { a: 1, b: undefined };
+console.log(opt, "b" in opt, opt.b === undefined);
+const pick = (flag: boolean) => (flag ? "yes" : null);
+console.log(pick(true), pick(false), `${pick(false)}!`, pick(true) + "?");
+function firstWord(s: string | null): string {
+  if (!s) return "";
+  return s.split(" ")[0];
+}
+console.log(firstWord("hello world"), JSON_like(null), firstWord(null) === "");
+function JSON_like(v: number | string | null): string {
+  return v === null ? "null" : typeof v === "string" ? '"' + v + '"' : "" + v;
+}
+let counter: number | undefined;
+console.log(counter);
+counter = 1;
+counter += 1;
+counter++;
+console.log(counter);
+class Box {
+  value: string | undefined;
+  other: number | null = null;
+}
+const box = new Box();
+console.log(box, box.value === undefined);
+box.value = "v";
+box.other = 2;
+console.log(box, box.value!.toUpperCase(), (box.other ?? 0) * 2);
+function idOf<T>(x: T): T {
+  return x;
+}
+console.log(idOf<string | null>(null), idOf<number | string>(5), idOf<number | string>("s"));
+let a: string | number = "x";
+let b: string | number = "x";
+console.log(a === b, a !== b, a === "x");
+a = 1;
+b = 1;
+console.log(a === b);
+const captured: number | null = maybe[0];
+const f = () => captured ?? -1;
+console.log(f());
+type Shape = Circle | Square;
+class Circle { constructor(public r: number) {} }
+class Square { constructor(public side: number) {} }
+function area(s: Shape): number {
+  if (s instanceof Circle) return Math.PI * s.r * s.r;
+  return s.side * s.side;
+}
+console.log(area(new Circle(1)) > 3, area(new Square(2)));
+
+// Evaluation order and single evaluation.
+function trace<T>(label: string, value: T): T {
+  console.log(label);
+  return value;
+}
+console.log(trace("left", null as string | null) ?? trace("right", "r"));
+console.log(trace("left", "l" as string | null) ?? trace("never", "r"));
+console.log(trace("a", 0 as number | null) || trace("b", 2), trace("c", 1 as number | null) && trace("d", "d"));
+const nested: { inner: number | null }[] = [{ inner: null }, { inner: 3 }];
+for (const item of nested) {
+  if (item.inner !== null) console.log("inner", item.inner + 1);
+  else console.log("no inner", item.inner);
+}

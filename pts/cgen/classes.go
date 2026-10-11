@@ -486,12 +486,15 @@ func layout(class *ir.Class, name string) string {
 }
 
 func holdsPointer(t ir.Type) bool {
-	return isObject(t) || t == ir.String || t == ir.Value || t == ir.Undefined || t == ir.Null
+	return isObject(t) || t == ir.String || t == ir.Value || t == ir.Undefined || t == ir.Null || isUnion(t)
 }
 
 func fieldKind(t ir.Type) string {
 	if isObject(t) {
 		return "PTS_FIELD_OBJECT"
+	}
+	if isUnion(t) {
+		return "PTS_FIELD_VALUE"
 	}
 	return fieldKinds[t]
 }

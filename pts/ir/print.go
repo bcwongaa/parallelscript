@@ -226,6 +226,18 @@ func FormatExpr(expr Expr) string {
 		return e.To.String() + "(" + FormatExpr(e.X) + ")"
 	case *Box:
 		return "box(" + FormatExpr(e.X) + ")"
+	case *ToUnion:
+		return "(" + e.To.String() + ")(" + FormatExpr(e.X) + ")"
+	case *FromUnion:
+		if e.Checked {
+			return "checked " + e.To.String() + "(" + FormatExpr(e.X) + ")"
+		}
+		return e.To.String() + "(" + FormatExpr(e.X) + ")"
+	case *IsNullish:
+		if e.Only != nil {
+			return "is" + e.Only.String() + "(" + FormatExpr(e.X) + ")"
+		}
+		return "nullish(" + FormatExpr(e.X) + ")"
 	case *RestArgs:
 		return FormatExpr(e.X)
 	case *SpreadArg:

@@ -607,8 +607,8 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 		case field.Class != class && ast.HasSyntacticModifier(member, ast.ModifierFlagsAmbient):
 		case field.Type == ir.String:
 			value = &ir.StringConst{}
-		case field.Type == ir.Value || field.Type == ir.Undefined:
-			value = &ir.UndefinedConst{}
+		case field.Type == ir.Value || field.Type == ir.Undefined || isUnion(field.Type):
+			value = &ir.UndefinedConst{} // what JS gives a field declared without a value
 		case field.Type == ir.Null:
 			value = &ir.NullConst{}
 		}
@@ -956,7 +956,7 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	switch {
 	case x == nil || class == nil:
 		return nil // reported, or the class failed, which was
-	case !isObject(x.Type()):
+	case !isObject(x.Type()) && !isUnion(x.Type()):
 		l.notSupportedYet(expr.Left, fmt.Sprintf("`instanceof` on a %s is", x.Type()))
 		return nil
 	}

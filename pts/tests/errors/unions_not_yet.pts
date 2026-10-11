@@ -1,0 +1,41 @@
+// Unions (D-062): what waits for M3.1b (optional properties and parameters, `?.`) and
+// M3.1c (members of unions of objects, `==` beyond null and undefined), and unions of
+// several numeric types, which the semantic pass can't type.
+interface Circle {
+  kind: "circle";
+  r: number;
+}
+interface Square {
+  kind: "square";
+  side: number;
+}
+function area(s: Circle | Square): number {
+  return s.kind === "circle" ? 1 : 2;
+}
+function len(either: string | string[]): number {
+  return either.length;
+}
+function eq(loose: string | number): boolean {
+  return loose == 1;
+}
+interface Opt {
+  a: number;
+  b?: string;
+}
+const o: Opt = { a: 1 };
+function optional(x?: number): number {
+  return 1;
+}
+function maybeCircle(): Circle | null {
+  return null;
+}
+console.log(maybeCircle()?.r);
+function mixed(x: u8 | i16 | null): void {}
+
+// error: unions_not_yet.pts:13:10 - error PTS1001: reading `kind` of a Circle | Square (a union) is not supported yet
+// error: unions_not_yet.pts:16:10 - error PTS1001: reading `length` of a string | string[] (a union) is not supported yet
+// error: unions_not_yet.pts:19:10 - error PTS1001: the `==` operator on a union, other than with null or undefined, is not supported yet
+// error: unions_not_yet.pts:25:7 - error PTS1001: optional properties (`b?` in Opt) are not supported yet
+// error: unions_not_yet.pts:26:19 - error PTS1001: optional parameters without a default are not supported yet
+// error: unions_not_yet.pts:32:13 - error PTS1001: optional chaining `?.` is not supported yet
+// error: unions_not_yet.pts:33:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet

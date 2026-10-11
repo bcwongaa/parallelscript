@@ -90,6 +90,15 @@ func effectsOf(expr ir.Expr) effects {
 		return effectsOf(x.X)
 	case *ir.Box:
 		return effectsOf(x.X)
+	case *ir.ToUnion:
+		return effectsOf(x.X)
+	case *ir.FromUnion:
+		if x.Checked {
+			return mayThrow | effectsOf(x.X)
+		}
+		return effectsOf(x.X)
+	case *ir.IsNullish:
+		return effectsOf(x.X)
 	case *ir.RestArgs:
 		return effectsOf(x.X)
 	case *ir.SpreadArg:

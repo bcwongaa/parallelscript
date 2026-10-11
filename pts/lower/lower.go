@@ -253,6 +253,7 @@ type lowerer struct {
 	funcNodes           map[*ir.Func]*ast.Node           // the declaration, function expression or source file of each function
 	helpers             map[helperKey]*ir.Func           // the helpers of the array methods that take callbacks; nil if one failed
 	mapTypes            []*ir.MapType                    // the map and set types met
+	unions              []*ir.Union                      // the union types met
 	mapsInProgress      map[*checker.Type]bool           // the map and set types whose key and value types are being mapped
 	this                map[*ir.Func]*ir.Local           // the `this` parameter of each constructor and method
 	lowered             []*ir.Func                       // the functions whose bodies are lowered
@@ -791,6 +792,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return value
 	case target == ir.Value:
 		return box(value)
+	case isUnion(target):
+		return l.toUnion(value, target.(*ir.Union), node)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
 		return &ir.Convert{X: value, To: target}
 	case isFunction(value.Type()) && isFunction(target):
@@ -924,6 +927,10 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 			return []*ir.Local{local, l.newLocal(local.Name+"_given", ir.Given)}
 		}
 		return []*ir.Local{local}
+	}
+	if u, ok := t.(*ir.Union); ok && u.Has(ir.Undefined) {
+		l.notSupportedYet(node, "defaults of parameters whose type includes undefined are") // an undefined argument means the default
+		return nil
 	}
 	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
 	l.bindings[l.function] = append(l.bindings[l.function], binding)
@@ -1064,7 +1071,7 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 	case ast.KindNullKeyword:
 		return &ir.NullConst{}
 	case ast.KindIdentifier:
-		return l.identifier(node)
+		return l.narrowed(node, l.identifier(node))
 	case ast.KindParenthesizedExpression:
 		return l.expression(node.Expression())
 	case ast.KindCallExpression:
@@ -1092,7 +1099,7 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		if x, ok := l.enumMember(node); ok {
 			return x
 		}
-		return l.propertyAccess(node)
+		return l.narrowed(node, l.propertyAccess(node))
 	case ast.KindElementAccessExpression:
 		if x, ok := l.enumMember(node); ok {
 			return x
@@ -1107,10 +1114,10 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 			return l.tupleElementRead(node, field)
 		}
 		if l.isArrayElement(node) {
-			return l.arrayElement(node, ir.ArrayElementChecked)
+			return l.narrowed(node, l.arrayElement(node, ir.ArrayElementChecked))
 		}
 		if l.isRecordElement(node) {
-			return l.recordElement(node, ir.MapGetChecked)
+			return l.narrowed(node, l.recordElement(node, ir.MapGetChecked))
 		}
 		return l.stringElement(node, ir.StringElementChecked)
 	case ast.KindArrayLiteralExpression:
@@ -1618,6 +1625,9 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	if operand := ast.SkipParentheses(node.Expression()); target == nil && (operand.Kind == ast.KindArrayLiteralExpression || operand.Kind == ast.KindObjectLiteralExpression) {
 		return l.assertedLiteral(node, operand)
 	}
+	if t := l.typeAt(node); target == nil && isUnionValue(t) {
+		return l.asUnion(node, t)
+	}
 	if target == nil {
 		l.notSupportedYet(node, "`as` other than between numeric types is")
 		return nil
@@ -1679,7 +1689,7 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 	switch t := x.Type(); {
 	case t == ir.String:
 		return x
-	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined || t == ir.Value:
+	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined || t == ir.Value || isUnion(t):
 		return &ir.ToString{X: x}
 	case isArray(t):
 		return &ir.ArrayCall{Op: ir.ArrayJoin, Args: []ir.Expr{x, &ir.StringConst{Value: ","}}} // JS's Array.prototype.toString
@@ -1691,6 +1701,10 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if receiver := l.typeAt(node.Expression()); isUnionValue(receiver) && !l.isMemberOfAll(node) && !ast.IsOptionalChain(node) {
+		l.notSupportedYet(node, fmt.Sprintf("reading `%s` of a %s (a union) is", node.AsPropertyAccessExpression().Name().Text(), l.checker.TypeToString(receiver)))
+		return nil
+	}
 	if shape := l.tupleShapeOf(node.Expression()); shape != nil && node.AsPropertyAccessExpression().Name().Text() == "length" {
 		object := l.expression(node.Expression())
 		if object == nil {
@@ -1844,8 +1858,10 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.privateIn(node)
 	case operator == ast.KindInKeyword && l.isRecordExpression(expr.Right):
 		return l.inRecord(expr)
+	case operator == ast.KindQuestionQuestionToken && !l.isRecordElement(ast.SkipParentheses(expr.Left)):
+		return l.nullishCoalescing(node)
 	case (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) && l.isRecordElement(ast.SkipParentheses(expr.Left)):
-		return l.recordElementFallback(ast.SkipParentheses(expr.Left), expr.Right, operator == ast.KindQuestionQuestionToken)
+		return l.recordElementFallback(node, ast.SkipParentheses(expr.Left), expr.Right, operator == ast.KindQuestionQuestionToken)
 	case operator == ast.KindCommaToken:
 		x, y := l.expression(expr.Left), l.expression(expr.Right)
 		if x == nil || y == nil {
@@ -1868,14 +1884,21 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		if element, other, ok := l.elementComparedWithString(expr); ok {
 			return l.elementEquality(op, element, other)
 		}
-		if element, ok := l.recordElementComparedWithUndefined(expr); ok {
+		if element, ok := l.recordElementComparedWithUndefined(expr); ok && !l.recordMayHoldNullish(element) {
 			record, key := l.recordElementOperands(element)
 			return l.recordHas(record, key, op == ir.Eq) // a missing key's undefined
+		}
+		if operand, matches, ok := isNullishTest(expr); ok {
+			return l.nullishTest(op, operand, matches)
 		}
 	}
 	x := l.expression(expr.Left)
 	y := l.expression(expr.Right)
 	if x == nil || y == nil {
+		return nil
+	}
+	if loose := operator == ast.KindEqualsEqualsToken || operator == ast.KindExclamationEqualsToken; loose && (isUnion(x.Type()) || isUnion(y.Type())) {
+		l.notSupportedYet(node, describe(node)+" on a union, other than with null or undefined, is") // JS converts between types
 		return nil
 	}
 	return l.operation(node, op, x, y, expr.Left, expr.Right)
@@ -1891,6 +1914,9 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		}
 	}
 	if op == ir.Eq || op == ir.Ne {
+		if isUnion(x.Type()) || isUnion(y.Type()) {
+			return unionEquality(op, x, y)
+		}
 		x, y = commonClass(x, y)
 	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
@@ -1933,7 +1959,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		return l.recordElementOrSet(target, expr.Right, operator == ast.KindQuestionQuestionToken)
 	}
 	return l.readAndStore(target, func(target place) ir.Expr {
-		current, t := target.read(), target.valueType()
+		current, t := l.narrowed(expr.Left, target.read()), target.valueType()
 		if op, ok := logicalOps[operator]; ok {
 			value := l.expression(expr.Right)
 			if value == nil {
@@ -2219,8 +2245,13 @@ func (l *lowerer) increment(node *ast.Node, operand *ast.Node, operator ast.Kind
 		return nil
 	}
 	t := target.valueType()
+	if u, ok := t.(*ir.Union); ok { // a union that tsc narrowed to its numeric member here
+		if n := l.irType(l.typeAt(operand), operand); n != nil && ir.IsNumeric(n) && u.Has(n) {
+			t = n
+		}
+	}
 	if !ir.IsNumeric(t) {
-		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), t))
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), target.valueType()))
 		return nil
 	}
 	op := ir.Add
@@ -2228,7 +2259,8 @@ func (l *lowerer) increment(node *ast.Node, operand *ast.Node, operator ast.Kind
 		op = ir.Sub
 	}
 	return l.readAndStore(target, func(target place) ir.Expr {
-		return target.store(&ir.Binary{Op: op, X: target.read(), Y: one(t)}, postfix)
+		value := l.convert(&ir.Binary{Op: op, X: fromUnion(target.read(), t), Y: one(t)}, target.valueType(), node)
+		return target.store(value, postfix)
 	})
 }
 
@@ -2256,6 +2288,13 @@ func (l *lowerer) conditional(node *ast.Node) ir.Expr {
 
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
+	if l.involvesUnion(node, left, right) {
+		x, y := l.expression(left), l.expression(right)
+		if x == nil || y == nil {
+			return nil
+		}
+		return l.unionLogical(node, op, x, y, right)
+	}
 	x, y := l.sameType(node, left, right)
 	if x == nil {
 		return nil
@@ -2280,6 +2319,12 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	x, y = commonClass(x, y)
 	if x.Type() != y.Type() && isObject(x.Type()) && isObject(y.Type()) {
 		x, y = l.asContextualInterface(node, x, y)
+	}
+	if u, ok := l.irType(l.typeAt(node), node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? 1 : null`
+		x, y = l.convert(x, u, a), l.convert(y, u, b)
+		if x == nil || y == nil {
+			return nil, nil
+		}
 	}
 	if x.Type() != y.Type() {
 		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
@@ -2315,7 +2360,7 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 		return x
 	case t == ir.Null || t == ir.Undefined:
 		return discard(x, &ir.BoolConst{Value: false})
-	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
+	case ir.IsNumeric(t) || t == ir.String || t == ir.Value || isUnion(t):
 		return &ir.Truthy{X: x}
 	case isObject(t) || isFunction(t) || isMap(t):
 		return discard(x, &ir.BoolConst{Value: true}) // an object or function, never null
@@ -2330,8 +2375,8 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 	if x == nil {
 		return nil
 	}
-	if x.Type() == ir.Value {
-		return &ir.CallBuiltin{Builtin: ir.ValueTypeOf, Args: []ir.Expr{x}}
+	if x.Type() == ir.Value || isUnion(x.Type()) {
+		return &ir.CallBuiltin{Builtin: ir.ValueTypeOf, Args: []ir.Expr{box(x)}}
 	}
 	word, ok := typeofWords[x.Type()]
 	switch {
@@ -2529,6 +2574,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.Null
 	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsStringLike):
 		return ir.String
+	case flags&checker.TypeFlagsUnion != 0:
+		return l.unionType(t, node)
 	}
 	l.notSupportedYet(node, fmt.Sprintf("values of type %s are", l.checker.TypeToString(t)))
 	return nil

@@ -1,5 +1,5 @@
-// The nullish coalescing operator arrives with unions (M3.1).
-const s: string = "x";
-console.log(s ?? "y");
+// The `in` operator on objects of fixed layouts arrives with the narrowing it serves (M3.1).
+const point = { x: 1, y: 2 };
+console.log("x" in point);
 
-// error: PTS1001: the `??` operator is not supported yet
+// error: PTS1001: the `in` operator is not supported yet

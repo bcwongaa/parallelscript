@@ -450,7 +450,7 @@ func zeroValue(t ir.Type, empty string) string {
 		return empty
 	case t == ir.Null:
 		return "PTS_VALUE_NULL"
-	case t == ir.Undefined || t == ir.Value:
+	case t == ir.Undefined || t == ir.Value || isUnion(t):
 		return "PTS_VALUE_UNDEFINED"
 	case t == ir.F32:
 		return "0.0f"
@@ -528,6 +528,18 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.setField(x)
 	case *ir.Box:
 		return e.box(x.X)
+	case *ir.ToUnion:
+		return e.box(x.X)
+	case *ir.FromUnion:
+		return e.fromUnion(x)
+	case *ir.IsNullish:
+		switch x.Only {
+		case ir.Null:
+			return "(" + e.expr(x.X) + " == PTS_VALUE_NULL)"
+		case ir.Undefined:
+			return "(" + e.expr(x.X) + " == PTS_VALUE_UNDEFINED)"
+		}
+		return "pts_value_is_nullish(" + e.expr(x.X) + ")"
 	case *ir.RestArgs:
 		return e.expr(x.X)
 	case *ir.SpreadArg:
@@ -563,6 +575,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.ClassCast:
 		return e.classCast(x)
 	case *ir.InstanceOf:
+		if isUnion(x.X.Type()) {
+			return "pts_value_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
+		}
 		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 	case *ir.Binary:
 		return e.binary(x)
@@ -663,6 +678,34 @@ func (e *emitter) logical(l *ir.Logical) string {
 	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", e.declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
 }
 
+// fromUnion writes a union's value as the type the checker narrowed it to (D-062).
+func (e *emitter) fromUnion(x *ir.FromUnion) string {
+	value := e.expr(x.X)
+	if x.Checked {
+		value = "pts_value_non_null(" + value + ")"
+	}
+	switch t := x.To; {
+	case t == ir.Number:
+		return "pts_value_as_number(" + value + ")"
+	case t == ir.I64:
+		return "pts_value_as_i64(" + value + ")"
+	case t == ir.U64:
+		return "pts_value_as_u64(" + value + ")"
+	case ir.IsNumeric(t):
+		return "((" + cType(t) + ")pts_value_as_number(" + value + "))" // exact as a double
+	case t == ir.Bool:
+		return "(" + value + " == PTS_VALUE_TRUE)"
+	case t == ir.String || isObject(t):
+		return "((" + e.cDeclaredType(t) + ")pts_value_as_object(" + value + "))"
+	}
+	return value // null, undefined, or a smaller union: the same pts_value
+}
+
+func isUnion(t ir.Type) bool {
+	_, ok := t.(*ir.Union)
+	return ok
+}
+
 // truthy writes JS's ToBoolean of x, a C expression of type t.
 func truthy(t ir.Type, x string) string {
 	switch {
@@ -672,7 +715,7 @@ func truthy(t ir.Type, x string) string {
 		return "(" + x + " != 0)"
 	case t == ir.String:
 		return "((" + x + ")->byte_len != 0)"
-	case t == ir.Value:
+	case t == ir.Value || isUnion(t):
 		return "pts_value_truthy(" + x + ")"
 	case t == ir.Number || t == ir.F32:
 		return "pts_number_truthy(" + x + ")"
@@ -793,9 +836,11 @@ func (e *emitter) toString(value ir.Expr) string {
 		return "pts_string_from_u64(" + x + ")"
 	case ir.Value:
 		return "pts_value_to_string(" + x + ")"
-	default:
-		return "pts_number_to_string(" + x + ")" // numbers, f32 and the narrower integers, exact as doubles
 	}
+	if isUnion(value.Type()) {
+		return "pts_value_to_string(" + x + ")"
+	}
+	return "pts_number_to_string(" + x + ")" // numbers, f32 and the narrower integers, exact as doubles
 }
 
 // convert writes a numeric conversion. Float to integer saturates (a runtime helper);
@@ -846,6 +891,8 @@ func (e *emitter) box(value ir.Expr) string {
 	switch value.Type().(type) {
 	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.MapType:
 		return "pts_value_from_object(" + inner + ")"
+	case *ir.Union:
+		return inner // already a pts_value
 	default:
 		panic("cgen: cannot box " + value.Type().String())
 	}
@@ -883,6 +930,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.StringPadEnd:         "pts_string_pad_end",
 	ir.StringRepeat:         "pts_string_repeat",
 	ir.ValueTypeOf:          "pts_value_typeof",
+	ir.ValueStrictEquals:    "pts_value_strict_equals",
 	ir.ThrowError:           "pts_throw_error",
 }
 
@@ -1005,6 +1053,8 @@ func (e *emitter) declarator(t ir.Type) string {
 		return "pts_map *"
 	case *ir.Rest:
 		return "pts_array *"
+	case *ir.Union:
+		return "pts_value "
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {

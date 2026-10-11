@@ -1,4 +1,4 @@
-// Binary trees, the twin of main.pts: a leaf's children are the leaf itself, as there.
+// Binary trees, the twin of main.pts.
 package main
 
 import "fmt"
@@ -8,18 +8,14 @@ type treeNode struct {
 }
 
 func bottomUpTree(depth int) *treeNode {
-	node := &treeNode{}
 	if depth > 0 {
-		node.left = bottomUpTree(depth - 1)
-		node.right = bottomUpTree(depth - 1)
-	} else {
-		node.left, node.right = node, node
+		return &treeNode{bottomUpTree(depth - 1), bottomUpTree(depth - 1)}
 	}
-	return node
+	return &treeNode{nil, nil}
 }
 
 func itemCheck(node *treeNode) int {
-	if node.left == node {
+	if node.left == nil {
 		return 1
 	}
 	return 1 + itemCheck(node.left) + itemCheck(node.right)

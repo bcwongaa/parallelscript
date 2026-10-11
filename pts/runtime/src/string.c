@@ -273,6 +273,36 @@ bool pts_value_truthy(pts_value value) {
   return value == PTS_VALUE_TRUE;
 }
 
+void pts_throw_non_null(pts_value value) {
+  pts_panic("TypeError", "Non-null assertion on %s", value == PTS_VALUE_NULL ? "null" : "undefined");
+}
+
+bool pts_value_strict_equals(pts_value a, pts_value b) {
+  if (pts_value_is_number(a) || pts_value_is_number(b)) {
+    return pts_value_is_number(a) && pts_value_is_number(b) && pts_value_as_number(a) == pts_value_as_number(b);
+  }
+  if (a == b) {
+    return true;
+  }
+  if (!pts_value_is_object(a) || !pts_value_is_object(b)) {
+    return false;
+  }
+  const pts_object *x = pts_value_as_object(a), *y = pts_value_as_object(b);
+  if (x->type->kind != y->type->kind) {
+    return false;
+  }
+  switch (x->type->kind) {
+  case PTS_KIND_STRING:
+    return pts_string_equals((const pts_string *)x, (const pts_string *)y);
+  case PTS_KIND_INT64:
+    return ((const pts_boxed_int64 *)x)->value == ((const pts_boxed_int64 *)y)->value;
+  case PTS_KIND_UINT64:
+    return ((const pts_boxed_uint64 *)x)->value == ((const pts_boxed_uint64 *)y)->value;
+  default:
+    return false;
+  }
+}
+
 PTS_STATIC_STRING(number_word, PTS_STRING_ASCII, 6, 6, "number");
 PTS_STATIC_STRING(string_word, PTS_STRING_ASCII, 6, 6, "string");
 PTS_STATIC_STRING(boolean_word, PTS_STRING_ASCII, 7, 7, "boolean");

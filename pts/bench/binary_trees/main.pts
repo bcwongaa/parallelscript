@@ -1,27 +1,25 @@
 // Binary trees (the Benchmarks Game's binary-trees, depth 18): many short-lived trees and
 // one long-lived tree, which stress the allocator and the collector. Node and Bun run
-// this file too. Null arrives with unions (M3.1), so a leaf's children are the leaf
-// itself where the usual version has null.
+// this file too.
 class TreeNode {
-  left: TreeNode;
-  right: TreeNode;
-  constructor() {
-    this.left = this;
-    this.right = this;
+  left: TreeNode | null;
+  right: TreeNode | null;
+
+  constructor(left: TreeNode | null, right: TreeNode | null) {
+    this.left = left;
+    this.right = right;
   }
 }
 
 function bottomUpTree(depth: number): TreeNode {
-  const node = new TreeNode();
-  if (depth > 0) {
-    node.left = bottomUpTree(depth - 1);
-    node.right = bottomUpTree(depth - 1);
-  }
-  return node;
+  return depth > 0 ? new TreeNode(bottomUpTree(depth - 1), bottomUpTree(depth - 1)) : new TreeNode(null, null);
 }
 
 function itemCheck(node: TreeNode): number {
-  return node.left === node ? 1 : 1 + itemCheck(node.left) + itemCheck(node.right);
+  if (node.left === null) {
+    return 1;
+  }
+  return 1 + itemCheck(node.left) + itemCheck(node.right!);
 }
 
 const minDepth = 4;

@@ -29,6 +29,6 @@ class Derived extends Base {
 }
 
 // error: default_parameters_not_yet.pts:5:14 - error PTS1001: optional parameters without a default are not supported yet
-// error: default_parameters_not_yet.pts:8:15 - error PTS1001: values of type number | undefined are not supported yet
+// error: default_parameters_not_yet.pts:8:15 - error PTS1001: defaults of parameters whose type includes undefined are not supported yet
 // error: default_parameters_not_yet.pts:19:28 - error PTS1001: using a `Plain` as a `{label(string, given): string}`, whose `label` it doesn't provide with the same types, is not supported yet
 // error: default_parameters_not_yet.pts:26:3 - error PTS1001: overriding `Base.n` with other parameter or result types is not supported yet

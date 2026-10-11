@@ -31,3 +31,17 @@ pts_value pts_value_from_u64(uint64_t value) {
   box->value = value;
   return pts_value_from_object(box);
 }
+
+int64_t pts_value_as_i64(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return (int64_t)pts_value_as_number(value);
+  }
+  return ((const pts_boxed_int64 *)pts_value_as_object(value))->value;
+}
+
+uint64_t pts_value_as_u64(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return (uint64_t)pts_value_as_number(value);
+  }
+  return ((const pts_boxed_uint64 *)pts_value_as_object(value))->value;
+}

@@ -1,0 +1,41 @@
+// Unions (D-062) with integer members: literals typed by the union's numeric member,
+// 64-bit integers boxed beyond 2^53, wrapping arithmetic once narrowed.
+let b: u8 | null = 250;
+b = 255;
+let c: u8 | null = null;
+c = 7;
+function f(x: i8 | undefined): i8 {
+  return x ?? 0;
+}
+console.log(f(100), f(undefined), b, c);
+const arr: (u8 | null)[] = [1, null, 200];
+const ok: u8 | null = b;
+if (ok !== null) {
+  const sum: u8 = ok + 1;
+  console.log(sum);
+}
+let big: i64 | null = 9007199254740993;
+console.log(big, big === null);
+if (big !== null) console.log(big + 1);
+let maybeBig: u64 | string = 18446744073709551615;
+console.log(maybeBig, typeof maybeBig);
+maybeBig = "now a string";
+console.log(maybeBig);
+function pick(n: int): int | null {
+  return n > 0 ? n * 2 : null;
+}
+console.log(pick(4), pick(-1), arr);
+let counter: u8 | undefined = 254;
+counter++;
+counter++;
+console.log(counter);
+
+// expect:
+// 100 0 255 7
+// 0
+// 9007199254740993 false
+// 9007199254740994
+// 18446744073709551615 number
+// now a string
+// 8 null [ 1, null, 200 ]
+// 0

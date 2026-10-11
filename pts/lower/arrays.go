@@ -504,8 +504,8 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 }
 
 // nonNull lowers `x!`. Under it, a.pop() and a.shift() give the element itself, and
-// throw if a is empty; elsewhere `!` changes nothing (values that may be undefined or
-// null have no IR type yet).
+// throw if a is empty; a union becomes its type without null and undefined, and throws
+// TypeError if it is either (D-062); elsewhere `!` changes nothing.
 func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 	inner := ast.SkipParentheses(node.Expression())
 	if l.isArrayMethodCall(inner) {
@@ -517,7 +517,15 @@ func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 	if l.isMapMethodCall(inner) && ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text() == "get" {
 		return l.mapMethodCall(inner.AsCallExpression(), true)
 	}
-	return l.expression(inner)
+	x := l.expression(inner)
+	if x == nil || !isUnion(x.Type()) {
+		return x
+	}
+	t := l.irType(l.typeAt(node), node)
+	if t == nil {
+		return nil
+	}
+	return &ir.FromUnion{X: x, To: t, Checked: true} // throws on null and undefined (docs/SPEC.md §3.5)
 }
 
 // forOfStatement lowers `for (const x of a) body` for an array a to a loop over its

@@ -11,6 +11,7 @@ import (
 type function struct {
 	params      []*Numeric // each parameter's numeric type, or nil if it isn't a number
 	result      *Numeric   // the numeric result type, or nil if the function doesn't return a number (or isn't inferred yet)
+	returned    *Numeric   // for a union result with one numeric type (`u8 | null`), that type, which returned numbers convert to
 	inferResult bool       // it returns a number without saying which type: the return statements decide
 	visited     bool       // its body has been checked, or is being checked
 }
@@ -177,9 +178,16 @@ func (c *pass) signature(declaration *ast.Node) *function {
 				t = &n
 				c.symbols[symbol] = n
 				c.info.types[name] = n
+			} else if n, ok := NumericContext(c.tc.GetTypeOfSymbol(symbol)); ok {
+				t = &n // a union parameter (`x: u8 | null`): arguments that are numbers convert to its numeric member
 			}
 		}
 		fn.params = append(fn.params, t)
+	}
+	if declaration.Type() != nil && !c.returnsNumber(declaration) {
+		if n, ok := NumericContext(c.tc.GetTypeFromTypeNode(declaration.Type())); ok {
+			fn.returned = &n
+		}
 	}
 	if c.returnsNumber(declaration) {
 		n, ok := c.annotationType(declaration.Type())
@@ -301,6 +309,8 @@ func (c *pass) returnStatement(node *ast.Node) {
 func (c *pass) returnValue(value *ast.Node, node *ast.Node) {
 	body := c.current
 	switch {
+	case value != nil && body.fn.returned != nil && c.isNumber(value):
+		c.requireConvertible(value, c.expr(value, body.fn.returned), *body.fn.returned)
 	case value == nil || (body.fn.result == nil && !body.fn.inferResult):
 		if value == node {
 			c.visit(value)

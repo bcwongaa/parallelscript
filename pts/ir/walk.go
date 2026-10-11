@@ -55,6 +55,12 @@ func children(x Expr) []Expr {
 		return []Expr{x.X}
 	case *Box:
 		return []Expr{x.X}
+	case *ToUnion:
+		return []Expr{x.X}
+	case *FromUnion:
+		return []Expr{x.X}
+	case *IsNullish:
+		return []Expr{x.X}
 	case *CallBuiltin:
 		return x.Args
 	case *Call:

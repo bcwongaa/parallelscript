@@ -166,15 +166,17 @@ func (l *lowerer) recordKey(node *ast.Node) ir.Expr {
 }
 
 // recordElementFallback lowers `o[k] ?? fallback` (nullish) and `o[k] || fallback` for a
-// hash-map object o: o's value for k if it has one (that is truthy, for ||), and
-// otherwise fallback, which is evaluated only then. JS's undefined for a missing key
-// makes the fallback apply exactly then. nil if it fails (reported).
-func (l *lowerer) recordElementFallback(element *ast.Node, fallback *ast.Node, nullish bool) ir.Expr {
+// hash-map object o: o's value for k if it has one (that is truthy, for ||; not null or
+// undefined, for ??), and otherwise fallback, which is evaluated only then. JS's
+// undefined for a missing key makes the fallback apply exactly then. The result has the
+// type tsc gives node. nil if it fails (reported).
+func (l *lowerer) recordElementFallback(node *ast.Node, element *ast.Node, fallback *ast.Node, nullish bool) ir.Expr {
 	record, key := l.recordElementOperands(element)
-	if record == nil {
+	result := l.irType(l.typeAt(node), node)
+	if record == nil || result == nil {
 		return nil
 	}
-	return l.recordFallback(record, key, nullish, func(t ir.Type) ir.Expr {
+	return l.recordFallback(record, key, nullish, result, node, func(t ir.Type) ir.Expr {
 		value := l.expression(fallback)
 		if value == nil {
 			return nil
@@ -183,24 +185,31 @@ func (l *lowerer) recordElementFallback(element *ast.Node, fallback *ast.Node, n
 	})
 }
 
-// recordFallback is the value of the key in record if it has one (that is truthy, unless
-// nullish), else what fallback makes of the record's value type.
-func (l *lowerer) recordFallback(record ir.Expr, key ir.Expr, nullish bool, fallback func(ir.Type) ir.Expr) ir.Expr {
+// recordFallback is, as type result, the value of the key in record if it has one (that
+// is truthy, unless nullish; not null or undefined, if nullish), else what fallback makes
+// of type result (at node, for errors).
+func (l *lowerer) recordFallback(record ir.Expr, key ir.Expr, nullish bool, result ir.Type, node *ast.Node, fallback func(ir.Type) ir.Expr) ir.Expr {
 	mt := record.Type().(*ir.MapType)
 	value := l.newLocal("value", mt.Value)
-	var found ir.Expr = &ir.MapCall{Op: ir.MapGetInto, Args: []ir.Expr{record, key, &ir.LocalRef{Local: value}}, Map: mt}
-	if t := mt.Value; !nullish && (t == ir.Bool || ir.IsNumeric(t) || t == ir.String) {
-		var truthy ir.Expr = &ir.LocalRef{Local: value}
-		if t != ir.Bool {
-			truthy = &ir.Truthy{X: truthy}
-		}
-		found = &ir.Logical{Op: ir.And, X: found, Y: truthy} // objects and functions are never falsy
+	ref := &ir.LocalRef{Local: value}
+	var found ir.Expr = &ir.MapCall{Op: ir.MapGetInto, Args: []ir.Expr{record, key, ref}, Map: mt}
+	switch t := mt.Value; {
+	case !nullish && (t == ir.Bool || ir.IsNumeric(t) || t == ir.String || isUnion(t)):
+		found = &ir.Logical{Op: ir.And, X: found, Y: truthOf(ref)} // objects and functions are never falsy
+	case nullish && isUnion(t):
+		found = &ir.Logical{Op: ir.And, X: found, Y: &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: ref}}}
 	}
-	otherwise := fallback(mt.Value)
+	var then ir.Expr = ref
+	if isUnion(mt.Value) {
+		then = fromUnion(ref, result) // a value the test let through
+	} else if then = l.convert(ref, result, node); then == nil {
+		return nil
+	}
+	otherwise := fallback(result)
 	if otherwise == nil {
 		return nil
 	}
-	return &ir.Bind{Local: value, Value: &ir.LeftOut{T: mt.Value}, In: &ir.Conditional{Cond: found, Then: &ir.LocalRef{Local: value}, Else: otherwise}}
+	return &ir.Bind{Local: value, Value: &ir.LeftOut{T: mt.Value}, In: &ir.Conditional{Cond: found, Then: then, Else: otherwise}}
 }
 
 // recordElementOrSet lowers `o[k] ??= value` (nullish) and `o[k] ||= value` for an entry
@@ -208,7 +217,8 @@ func (l *lowerer) recordFallback(record ir.Expr, key ir.Expr, nullish bool, fall
 // otherwise value, which is evaluated and set only then.
 func (l *lowerer) recordElementOrSet(target place, valueNode *ast.Node, nullish bool) ir.Expr {
 	return l.withObject(target, func(target place) ir.Expr {
-		return l.recordFallback(target.object, target.key, nullish, func(t ir.Type) ir.Expr {
+		t := target.valueType()
+		return l.recordFallback(target.object, target.key, nullish, t, valueNode, func(ir.Type) ir.Expr {
 			value := l.expression(valueNode)
 			if value == nil {
 				return nil
@@ -229,6 +239,13 @@ func (l *lowerer) recordElementComparedWithUndefined(expr *ast.BinaryExpression)
 		element, other = ast.SkipParentheses(expr.Right), expr.Left
 	}
 	return element, l.isRecordElement(element) && isUndefined(ast.SkipParentheses(other))
+}
+
+// recordMayHoldNullish reports whether the values of the hash-map object that element
+// (o[k] or o.k) reads may be null or undefined themselves.
+func (l *lowerer) recordMayHoldNullish(element *ast.Node) bool {
+	t := l.checker.GetIndexInfosOfType(l.typeAt(element.Expression()))[0].ValueType()
+	return t.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined|checker.TypeFlagsUnion) != 0
 }
 
 // recordHas lowers `k in o` (and `o[k] !== undefined`, negated for ===) for a hash-map

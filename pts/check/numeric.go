@@ -71,3 +71,25 @@ func unionNumeric(members []*checker.Type) (Numeric, bool) {
 	}
 	return result, true
 }
+
+// NumericContext returns the numeric type a number takes where tsc expects a value of
+// type t: t's own if t is a number, or for a union holding numbers of one numeric type
+// and values of other types (`u8 | null`, a union D-062 boxes), that one.
+func NumericContext(t *checker.Type) (Numeric, bool) {
+	if n, ok := NumericOf(t); ok {
+		return n, true
+	}
+	if t.Flags()&checker.TypeFlagsUnion == 0 {
+		return 0, false
+	}
+	var numbers []*checker.Type
+	for _, member := range t.Types() {
+		if IsNumber(member) {
+			numbers = append(numbers, member)
+		}
+	}
+	if len(numbers) == 0 {
+		return 0, false
+	}
+	return unionNumeric(numbers)
+}

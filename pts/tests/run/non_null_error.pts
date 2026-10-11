@@ -1,0 +1,13 @@
+// `x!` is checked (docs/SPEC.md §3.5, D-062): asserting that null isn't null throws
+// TypeError, where JS would carry on with null.
+function lookup(found: boolean): string | null {
+  return found ? "value" : null;
+}
+console.log(lookup(true)!.length);
+console.log(lookup(false)!.length);
+
+// no-diff: JS doesn't check `!`, so Node fails later, reading length of null
+// exit: 1
+// stderr: TypeError: Non-null assertion on null
+// expect:
+// 5

@@ -227,12 +227,12 @@ func (c *pass) contextualPropertyType(contextual *checker.Type, property *ast.No
 			if n, ok := c.bindingType(symbol); ok {
 				return n, true
 			}
-			return NumericOf(c.tc.GetTypeOfSymbol(symbol)) // value in Box<int>, declared as `value: T`
+			return NumericContext(c.tc.GetTypeOfSymbol(symbol)) // value in Box<int>, declared as `value: T`
 		}
 	}
 	for _, info := range c.tc.GetIndexInfosOfType(contextual) {
 		if info.KeyType().Flags()&(checker.TypeFlagsString|checker.TypeFlagsNumber) != 0 {
-			return NumericOf(info.ValueType()) // the lowering requires string and number index signatures to agree
+			return NumericContext(info.ValueType()) // the lowering requires string and number index signatures to agree
 		}
 	}
 	return 0, false
@@ -385,7 +385,7 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 			return c.operands(node, expected)
 		case operator == ast.KindEqualsToken:
 			return c.assignment(node)
-		case operator == ast.KindAmpersandAmpersandToken || operator == ast.KindBarBarToken:
+		case operator == ast.KindAmpersandAmpersandToken || operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken:
 			return c.pair(node, binary.Left, nil, binary.Right, expected, scanner.TokenToString(operator))
 		case operator == ast.KindCommaToken:
 			c.visit(binary.Left)
@@ -410,6 +410,9 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 			}
 			if n, ok := NumericOf(c.tc.GetTypeOfSymbol(symbol)); ok {
 				return n // its declared type, not the literal an equality may narrow it to
+			}
+			if n, ok := NumericContext(c.tc.GetTypeAtLocation(node)); ok {
+				return n // a union variable, narrowed to its numeric member here
 			}
 		}
 		return Number
@@ -441,7 +444,7 @@ func (c *pass) contextualExpr(node *ast.Node) {
 		c.expr(node, nil)
 		return
 	}
-	expected, ok := NumericOf(contextual)
+	expected, ok := NumericContext(contextual)
 	if !ok {
 		c.expr(node, nil)
 		return
@@ -508,6 +511,9 @@ func (c *pass) operands(node *ast.Node, expected *Numeric) Numeric {
 func (c *pass) assignment(node *ast.Node) Numeric {
 	binary := node.AsBinaryExpression()
 	target := c.expr(binary.Left, nil)
+	if n, ok := NumericContext(c.tc.GetTypeAtLocation(binary.Left)); ok && !c.isNumber(binary.Left) {
+		target = n // a union's numeric member: `b = 300` for `b: u8 | null`
+	}
 	c.requireConvertible(binary.Right, c.expr(binary.Right, &target), target)
 	return target
 }

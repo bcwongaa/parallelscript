@@ -626,6 +626,28 @@ bool pts_value_truthy(pts_value value);
 /* typeof of a primitive value: "number" (64-bit integers too), "string", "boolean", "undefined" or "object" (null). */
 pts_string *pts_value_typeof(pts_value value);
 
+/*
+ * Unions (D-062) are pts_values. These read one as the member type the checker narrowed
+ * it to: a 64-bit integer is a number while a double holds it exactly, else boxed.
+ */
+int64_t pts_value_as_i64(pts_value value);
+uint64_t pts_value_as_u64(pts_value value);
+static inline bool pts_value_is_nullish(pts_value v) { return v == PTS_VALUE_NULL || v == PTS_VALUE_UNDEFINED; }
+_Noreturn void pts_throw_non_null(pts_value value);
+/* `x!`: value, or TypeError if it is null or undefined. */
+static inline pts_value pts_value_non_null(pts_value value) {
+  if (__builtin_expect(pts_value_is_nullish(value), 0)) {
+    pts_throw_non_null(value);
+  }
+  return value;
+}
+/* instanceof on a union: whether value is an instance of type or of a subclass. */
+static inline bool pts_value_instance_of(pts_value value, const pts_type *type) {
+  return pts_value_is_object(value) && pts_instance_of(pts_value_as_object(value), type);
+}
+/* JS's ===: numbers by value (NaN unequal to itself, -0 equal to 0), strings by content, 64-bit integers by value, the rest by identity. */
+bool pts_value_strict_equals(pts_value a, pts_value b);
+
 /* ---------------------------------------------------------------- arrays */
 
 /*
