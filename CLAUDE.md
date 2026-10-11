@@ -11,7 +11,7 @@ You run as one session in a long chain of autonomous sessions. **The repository 
 5. `docs/agent/OWNER_ANSWERS.md`, if present: answers the owner has given to earlier questions.
 
 ## Owner overrides of the brief (these win over docs/BRIEF.md)
-- **The source file extension is `.ps`, not `.pts`.** Wherever the brief says `.pts` for source files, read `.ps`: tests are `name.ps` plus `name.out`, and so on. Everything else keeps the PTS name: the CLI `pts`, the `pts:` module prefix, the `// PTS:` fork markers and the `pts/` directory.
+- **The source file extension is `.pts`**, as in the brief. The owner briefly switched to `.ps` and then reverted (D-004). `.ps` is not a ParallelScript extension; never reintroduce it. Older commits and log entries that mention `.ps` are history.
 - **The repo is `github.com/bcwongaa/parallelscript`** (remote `origin`). `upstream` is microsoft/typescript-go. Never push to upstream.
 - The owner wants maximum autonomy. Decide things yourself, log them in `docs/DECISIONS.md`, and keep going (see "Asking the owner").
 
@@ -39,16 +39,11 @@ You run as one session in a long chain of autonomous sessions. **The repository 
 8. **End** your final message with one line: `SESSION_RESULT: done=<task ids> next=<task id> green=<yes|no>`.
 9. **All of M0–M7 done?** Create `docs/agent/DONE` containing a short summary, commit, push, send the final Telegram report, and stop.
 
-## Asking the owner (rare)
-Ask only when a choice changes user-visible language semantics and neither the spec, the brief's §3 tie-breakers nor `docs/agent/PREDECISIONS.md` settle it. Otherwise decide and log it.
-To ask:
-1. Append the question to `docs/agent/QUESTIONS.md`, with options and your default.
-2. Notify the owner (see below).
-3. **Proceed immediately with your default.** Never wait.
+## Asking the owner: don't
+The owner said not to ask them anything until the whole project is done. Decide every open question yourself, using the spec, the brief's §3 tie-breakers and `docs/agent/PREDECISIONS.md`. Log each one in `docs/DECISIONS.md` and keep going. If a decision is big enough that the owner should review it later, also list it in `docs/agent/REVIEW_LATER.md`. That file is for review after DONE; never wait on it.
 
-Answers will appear in `docs/agent/OWNER_ANSWERS.md`.
-
-## Telegram (milestones, proposals, questions only)
+## Telegram (status only, never questions)
+Send a message at each finished milestone, and for a proposal (a heads-up only; don't wait for a reply).
 ```sh
 hermes send -t telegram:-1004441160190:228 -f /path/to/msg.txt
 ```
