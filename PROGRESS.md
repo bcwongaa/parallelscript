@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.6d2b Default parameter values
+- **Next task:** M2.6d3 Map entries as pairs
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.6d2b Default parameter values: a parameter with a default takes its argument and a `given` flag (new IR type, a C `bool`) that says whether the call passed it; the body starts with `x = x_given ? x_arg : default`, in parameter order, in the function's scope. Functions, nested functions, arrows, methods (virtual and through interfaces), constructors and parameter properties, `super(...)`, implicit constructors, generic functions and classes, function values with optional parameters (`(x: number, y?: number) => number`), adapters, `call`/`bind`/`apply` and builtin callbacks all pass the flags; `undefined` arguments count as left out; the semantic pass checks defaults against numeric parameters (D-055, SPEC §9.32). Fixed: a parameter property couldn't be used by name in its constructor.
 - M2.6d2a Destructuring: object, array and tuple patterns (nested, defaults, elisions, rest elements) in declarations, parameters (callbacks too), `for…of` over arrays and assignments; array elements use D-015's checked read unless they have a default (D-054, SPEC §9.31). M2.6d2 split by D-054.
 - M2.6d1 Tuples: fixed-length tuples are shapes with unboxed element fields, printed as arrays (new descriptor kind `PTS_KIND_TUPLE`): literals where a tuple goes, `as const` and `as T` on array and object literals, constant indices, writes, `length` (D-053, SPEC §9.30). M2.6d split by D-053.
 - M2.6c Enums: numeric, string and `const` enums compile to constants (`E.m`, `E["m"]`, across modules), enum types are numbers or strings, `switch` over members, and a numeric enum's reverse mapping `E[n]` (undefined, or RangeError where a string is required) (D-052, SPEC §9.29). The enum object as a value and computed members are PTS1001.
@@ -55,7 +56,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.6d2b Default parameter values: `function f(x = 1)`, methods and constructors (`constructor(public x = 0)`), arrows. Functions take fixed parameter lists (D-020), so a call that leaves out an argument (or passes `undefined`) must say so: e.g. a hidden count of the arguments passed, or a presence flag per defaulted parameter, with the callee's prologue evaluating the default in its own scope (it may use earlier parameters). Function values of such functions have optional parameters in their types, PTS1001 today (`signatureType`). Then M2.6d3 (Map entries as tuples; `pts/lower/maps.go`'s PTS1001s) and M2.6e. Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code.
+1. M2.6d3 Map entries as pairs: `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])`, iterators as values, `apply` with tuples (`pts/lower/maps.go`'s PTS1001s; tuples are shapes, D-053). Then M2.6e (spread, rest parameters, `Record` hash maps). Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code. Optional parameters without a default wait for unions (M3.1); their calling convention is already D-055's (value plus `given` flag).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -70,7 +71,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (96 run tests, 1 skipped; 48 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (99 run tests, 1 skipped; 50 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -82,6 +83,8 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **A method with a default can't provide a required parameter of an interface method:** `class Sq { label(suffix = "sq") }` used as `interface { label(suffix: string): string }` is PTS1001: the method takes `(string, given)` and the interface's table entry passes `(string)`. Arrows drop the flag when their context always passes the argument (D-055); methods would need the method-table entry (or an object literal method's field) to pass `true`.
+- **An arrow-function property can't provide an interface method:** `const s: Shape = { label: (x: string) => x }` where `Shape` declares `label(x: string): string` as a method fails with a misleading PTS1001 ("converting object1 to string"): the literal takes the interface's shape, whose method field type takes `this` first, and the adapter maps the arrow's parameters onto it one to one. A method (`label(x) { … }`) works. Fix: an adapter (or shaping) that skips the `this` parameter for function-valued properties in method fields.
 - **Equality narrowing loses an integer type to tsc:** after `if (b === 5)` with `b: u8`, tsc types `b` in the branch as the literal `5`, so `[b + 1]` is a `number[]` to tsc while the semantic pass computes `b + 1` as a `u8` (the value is converted to number; nothing breaks). Fixing it means `replacePrimitivesWithLiterals` (`internal/checker/flow.go`) keeping D-048's types; not worth a fork edit yet.
 - **Captured variables have no TDZ check:** a closure that runs before the declaration of a variable it captures has run (e.g. a hoisted function called above a `const` it reads) sees the type's zero value, and a NULL string or object crashes, where Node throws `ReferenceError: Cannot access 'x' before initialization`. Needs a ready flag for the cells that the cell pass marks as captured early.
 - **Overrides must keep the overridden method's parameter and result types** (PTS1001 otherwise): no covariant class results, no overrides with fewer parameters (D-028). A base constructor that calls an overridden method reading a subclass field sees the field's zero value (`""`, 0, NULL for an object), where Node sees `undefined`, since the subclass's initialisers run after `super()` returns; `console.log(this)` there lists the subclass's fields too, where Node doesn't yet.
@@ -97,6 +100,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.6d2b done.
 - 2026-10-11: M2.6d2a done (M2.6d2 split by D-054).
 - 2026-10-11: M2.6d1 done (M2.6d split by D-053).
 - 2026-10-11: M2.6c done.

@@ -140,7 +140,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Tuples of fixed length as fixed layouts printed as arrays: literals where a tuple goes and `as const`, constant indices, writes, `length`.
 - [x] **M2.6d2a Destructuring** (deed13ccf) (split from M2.6d by D-053, from M2.6d2 by D-054).
   - Destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`.
-- [ ] **M2.6d2b Default parameter values** (split from M2.6d2 by D-054).
+- [x] **M2.6d2b Default parameter values** (6b87b600b) (split from M2.6d2 by D-054).
   - `function f(x = 1)` for functions, methods and constructors, with left-out and `undefined` arguments.
 - [ ] **M2.6d3 Map entries as pairs** (split from M2.6d by D-053).
   - `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples.
