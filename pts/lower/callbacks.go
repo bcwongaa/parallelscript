@@ -22,11 +22,12 @@ var callbackMethods = map[string]bool{
 // type, the callback type and, for a filter whose callback is a type guard, the
 // narrower array it makes.
 type helperKey struct {
-	method     string
-	array      *ir.Array
-	callback   *ir.FuncType
-	collection *ir.MapType
-	narrowed   *ir.Array
+	method      string
+	array       *ir.Array
+	callback    *ir.FuncType
+	collection  *ir.MapType
+	narrowed    *ir.Array
+	arrayUnused bool // the callback's array parameter, of another type, is one its literal doesn't declare
 }
 
 // callbackMethodCall lowers `a.m(callback, …)` for an array method m that takes a
@@ -65,6 +66,13 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 		operands = append(operands, initial)
 	}
 	key := helperKey{method: method, array: arrayType, callback: ft}
+	arrayAt := 2 // in (element, index, array), or reduce's (accumulator, element, index, array)
+	if name == "reduce" || name == "reduceRight" {
+		arrayAt = 3
+	}
+	if param := nthParam(ft, arrayAt); param != nil && param != ir.Type(arrayType) && declaresFewer(args[0], arrayAt+1) {
+		key.arrayUnused = true // `(a) => …` shaped as an `(a: unknown, i: number, all: unknown[]) => …` for a number[]
+	}
 	if name == "filter" {
 		key.narrowed = l.guardedFilterResult(call, arrayType)
 	}
@@ -344,6 +352,9 @@ func (h *helperBuilder) call(element, index ir.Expr) ir.Expr {
 
 // callWith calls the callback with the first of args, as many as it takes (callbackArguments).
 func (h *helperBuilder) callWith(args []ir.Expr) ir.Expr {
+	if last := len(args) - 1; h.key.arrayUnused {
+		args = append(slices.Clone(args[:last]), &ir.LeftOut{T: nthParam(h.key.callback, last)}) // never read
+	}
 	converted := h.l.callbackArguments(args, h.key.callback, h.node)
 	if converted == nil {
 		h.failed = true
@@ -395,6 +406,32 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 		}
 	}
 	return converted
+}
+
+// nthParam is the type of the parameter of ft at position n, Given flags aside; nil if it has fewer.
+func nthParam(ft *ir.FuncType, n int) ir.Type {
+	for _, param := range ft.Params {
+		if param == ir.Given {
+			continue
+		}
+		if n == 0 {
+			return param
+		}
+		n--
+	}
+	return nil
+}
+
+// declaresFewer reports whether node is an arrow function or function expression that
+// declares fewer than n parameters, none of them a rest parameter: those its type has
+// past them only give it its context's shape (closureSignature).
+func declaresFewer(node *ast.Node, n int) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind != ast.KindArrowFunction && node.Kind != ast.KindFunctionExpression {
+		return false
+	}
+	params := node.Parameters()
+	return len(params) < n && (len(params) == 0 || params[len(params)-1].AsParameterDeclaration().DotDotDotToken == nil)
 }
 
 // appendAll pushes each element of an array value onto result (flatMap's flattening).

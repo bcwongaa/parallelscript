@@ -1,0 +1,40 @@
+// An arrow passed to an array method takes the shape of the method's callback type, which
+// may give its array parameter another type than the array's (`unknown[]` for a number[]
+// in a generic function, a guard's narrowed type); an arrow that doesn't declare that
+// parameter never reads it, so the array isn't converted for it (M3.7b).
+
+function logged<A extends unknown[], R>(name: string, fn: (...args: A) => R): (...args: A) => string {
+  return (...args) => `${name}(${args.map((a) => JSON.stringify(a)).join(", ")}) = ${String(fn(...args))}`;
+}
+const add = logged("add", (a: number, b: number) => a + b);
+const greet = logged("greet", (who: string) => "hi " + who);
+console.log(add(1, 2), greet("ann"));
+
+function describeAll<T extends unknown[]>(...xs: T): string {
+  const total = xs.reduce((n: number, x) => n + String(x).length, 0);
+  return xs.filter((x) => x !== null).length + " items, " + total + " chars";
+}
+console.log(describeAll(1, "two", null, [3, 4]));
+
+interface Swimmer {
+  swimSpeed: number;
+}
+class Animal {
+  constructor(public name: string) {}
+}
+class Penguin extends Animal implements Swimmer {
+  swimSpeed = 8;
+}
+class Lion extends Animal {}
+function canSwim(a: Animal): a is Animal & Swimmer {
+  return "swimSpeed" in a;
+}
+const zoo: Animal[] = [new Lion("Leo"), new Penguin("Pingu"), new Penguin("Pip")];
+console.log(zoo.filter(canSwim).map((a) => `${a.name}@${a.swimSpeed}`));
+console.log(zoo.map((a, i, all) => `${i + 1}/${all.length} ${a.name}`).join("; "));
+
+// expect:
+// add(1, 2) = 3 greet("ann") = hi ann
+// 3 items, 11 chars
+// [ 'Pingu@8', 'Pip@8' ]
+// 1/3 Leo; 2/3 Pingu; 3/3 Pip

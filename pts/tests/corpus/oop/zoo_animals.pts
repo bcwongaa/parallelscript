@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: using a Animal[] as a value[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied)
 // Zoo with an animal hierarchy, polymorphic behaviour, feeding schedule and capability interfaces.
 
 interface Swimmer {
