@@ -135,7 +135,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
-		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{}}
+		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
+		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -223,6 +224,8 @@ type lowerer struct {
 	classInstanceBodies []*classInstance                // the class instances whose constructors and methods are still to be lowered
 	membersDeclared     bool                            // the classes' members are declared, so a new class instance declares its own at once
 	membersStarted      map[*ir.Class]bool              // the classes whose members are declared, or being declared
+	tuples              map[string]*ir.Class            // the shape of each tuple type met, by its element types
+	tuplesInProgress    map[*checker.Type]bool          // the tuple types whose element types are being mapped
 	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
 	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
 	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
@@ -1001,6 +1004,12 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		if l.isEnumReverseMapping(node) {
 			return l.enumReverseMapping(node, true)
 		}
+		if field, ok := l.tupleElement(node); ok {
+			if field == nil {
+				return nil // reported
+			}
+			return l.tupleElementRead(node, field)
+		}
 		if l.isArrayElement(node) {
 			return l.arrayElement(node, ir.ArrayElementChecked)
 		}
@@ -1337,6 +1346,9 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	if instantiated := l.typeAt(node); target == nil && l.subst != nil && check.IsNumber(instantiated) {
 		target = l.irType(instantiated, node) // `x as T` in an instance whose T is a numeric type
 	}
+	if operand := ast.SkipParentheses(node.Expression()); target == nil && (operand.Kind == ast.KindArrayLiteralExpression || operand.Kind == ast.KindObjectLiteralExpression) {
+		return l.assertedLiteral(node, operand)
+	}
 	if target == nil {
 		l.notSupportedYet(node, "`as` other than between numeric types is")
 		return nil
@@ -1346,6 +1358,21 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return l.convert(x, target, node)
+}
+
+// assertedLiteral lowers `literal as T` (or `as const`) for an array or object literal,
+// which takes T as its contextual type (with `as const`, its own readonly type), and so
+// is a T.
+func (l *lowerer) assertedLiteral(node *ast.Node, literal *ast.Node) ir.Expr {
+	x := l.expression(literal)
+	if x == nil {
+		return nil
+	}
+	t := l.irType(l.typeAt(node), node)
+	if t == nil {
+		return nil
+	}
+	return l.convert(x, t, node)
 }
 
 // template lowers `head${x}middle${y}tail` to concatenations of the parts.
@@ -1395,6 +1422,13 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if shape := l.tupleShapeOf(node.Expression()); shape != nil && node.AsPropertyAccessExpression().Name().Text() == "length" {
+		object := l.expression(node.Expression())
+		if object == nil {
+			return nil
+		}
+		return discard(object, &ir.NumberConst{Value: float64(len(shape.Fields))})
+	}
 	if l.isArrayExpression(node.Expression()) {
 		return l.arrayProperty(node)
 	}
@@ -1786,6 +1820,13 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			return place{local: local}, local != nil
 		}
 	case ast.KindElementAccessExpression:
+		if field, ok := l.tupleElement(node); ok {
+			if field == nil {
+				return place{}, false // reported
+			}
+			object := l.expression(node.Expression())
+			return place{object: object, field: field}, object != nil
+		}
 		if l.isArrayElement(node) {
 			array, index := l.arrayElementOperands(node)
 			return place{object: array, index: index}, array != nil
@@ -2140,6 +2181,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	}
 	if l.checker.IsArrayType(t) {
 		return l.arrayType(t, node)
+	}
+	if checker.IsTupleType(t) {
+		return l.tupleType(t, node)
 	}
 	if mt, ok := l.mapType(t, node); ok {
 		if mt == nil {

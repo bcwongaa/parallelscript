@@ -183,14 +183,14 @@ func TestUnsupportedOperatorIsNamed(t *testing.T) {
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, `const pair: [number, string] = [1, "one"];`)
+	err := lowerInvalid(t, `const either: number | string = 1;`)
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "values of type [number, string] are not supported yet")
+	assert.Equal(t, err.Message, "values of type string | number are not supported yet")
 }
 
 func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "const pair: [number, string] = [1, \"one\"];\nconsole.log(pair);\n")
+	err := lowerInvalid(t, "const either: number | string = 1;\nconsole.log(either);\n")
 	assert.Equal(t, err.Line, 1)
 }
 

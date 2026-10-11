@@ -1,0 +1,12 @@
+// Tuples of the integer types and f32 keep each element's type (D-048, D-053).
+const t: [u8, int, f32] = [255, 9007199254740993, 0.1];
+t[0] += 1;
+console.log(t, t[1] + 1, t[2] * 2);
+function pairOf(a: i16): [i16, i16] {
+  return [a, a * 2];
+}
+console.log(pairOf(20000));
+
+// expect:
+// [ 0, 9007199254740993, 0.10000000149011612 ] 9007199254740994 0.20000000298023224
+// [ 20000, -25536 ]

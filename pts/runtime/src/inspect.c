@@ -229,6 +229,7 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     return;
   case PTS_KIND_OBJECT:
   case PTS_KIND_ARRAY:
+  case PTS_KIND_TUPLE:
   case PTS_KIND_MAP:
   case PTS_KIND_SET:
     format_heap_object(in, out, object, recurse_times);
@@ -438,6 +439,40 @@ static text *format_map_entries(inspector *in, pts_map *map, size_t *count, size
 }
 
 /* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order. */
+/* is_numeric_tuple is is_numeric_array for a tuple's elements. */
+static bool is_numeric_tuple(const pts_object *tuple) {
+  const pts_type *type = tuple->type;
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    const void *slot = (const char *)tuple + type->fields[i].offset;
+    switch (type->fields[i].kind) {
+    case PTS_FIELD_BOOL:
+    case PTS_FIELD_STRING:
+    case PTS_FIELD_OBJECT:
+      return false;
+    case PTS_FIELD_VALUE:
+      if (!pts_value_is_number(*(const pts_value *)slot)) {
+        return false;
+      }
+      break;
+    default:
+      break;
+    }
+  }
+  return true;
+}
+
+/* format_tuple_elements formats a tuple's elements as format_elements formats an array's. */
+static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_t recurse_times) {
+  const pts_type *type = tuple->type;
+  text *entries = new_entries(type->field_count);
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    in->indentation += 2;
+    format_slot(in, &entries[i], type->fields[i].kind, (const char *)tuple + type->fields[i].offset, recurse_times);
+    in->indentation -= 2;
+  }
+  return entries;
+}
+
 static text *format_fields(inspector *in, const pts_object *object, size_t recurse_times) {
   const pts_type *type = object->type;
   text *entries = new_entries(type->field_count);
@@ -520,7 +555,7 @@ static void pad(text *out, const text *entry, const char *suffix, size_t width, 
  * Node's groupArrayElements: more than six short entries are laid out in columns,
  * several to a line. Returns the new entries (and their count), or output unchanged.
  */
-static text *group_array_elements(inspector *in, text *output, size_t *count, const pts_array *array) {
+static text *group_array_elements(inspector *in, text *output, size_t *count, bool numeric) {
   enum { SEPARATOR_SPACE = 2 };
   size_t output_length = *count;
   if (MAX_ARRAY_LENGTH < *count) {
@@ -560,7 +595,7 @@ static text *group_array_elements(inspector *in, text *output, size_t *count, co
         }
         max_line_length[i] = line_max_length + SEPARATOR_SPACE;
       }
-      bool right_aligned = is_numeric_array(array, *count);
+      bool right_aligned = numeric;
       size_t lines = (output_length + cols - 1) / cols;
       grouped = new_entries(lines + (output_length < *count));
       size_t n = 0;
@@ -618,9 +653,10 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
     return;
   }
   const pts_type *type = object->type;
-  bool is_array = type->kind == PTS_KIND_ARRAY;
+  bool is_tuple = type->kind == PTS_KIND_TUPLE;
+  bool is_array = type->kind == PTS_KIND_ARRAY || is_tuple;
   bool is_map = type->kind == PTS_KIND_MAP || type->kind == PTS_KIND_SET;
-  size_t length = is_array ? pts_array_length_of((const pts_array *)object) : type->field_count;
+  size_t length = is_array && !is_tuple ? pts_array_length_of((const pts_array *)object) : type->field_count;
   char buffer[256];
   const char *open = is_array ? "[" : opening_brace(type, buffer, sizeof buffer);
   const char *close = is_array ? "]" : "}";
@@ -641,7 +677,8 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   push(&in->seen, &in->seen_len, &in->seen_cap, object);
   in->current_depth = recurse_times;
   size_t count = length;
-  text *output = is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
+  text *output = is_tuple ? format_tuple_elements(in, object, recurse_times)
+                 : is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
                  : is_map ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
                           : format_fields(in, object, recurse_times);
   in->seen_len--;
@@ -653,7 +690,8 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   }
   size_t entries = count;
   if (is_array && entries > 6) {
-    output = group_array_elements(in, output, &count, (const pts_array *)object);
+    bool numeric = is_tuple ? is_numeric_tuple(object) : is_numeric_array((const pts_array *)object, count);
+    output = group_array_elements(in, output, &count, numeric);
   }
   reduce_to_single_string(in, out, output, count, entries, &base, open, close, recurse_times);
   free(output);

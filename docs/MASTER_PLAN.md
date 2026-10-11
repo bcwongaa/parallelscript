@@ -136,9 +136,12 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Generic methods of classes (instance and static); generic functions inside functions and blocks. Generic methods of object literals and interfaces move to M3.3 (D-051).
 - [x] **M2.6c Enums** (2ce1c5b4f) (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
-- [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).
-  - Tuples; destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`; default parameter values.
-  - Map entries as pairs: `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples.
+- [x] **M2.6d1 Tuples** (TICK) (split from M2.6 by D-047, from M2.6d by D-053).
+  - Tuples of fixed length as fixed layouts printed as arrays: literals where a tuple goes and `as const`, constant indices, writes, `length`.
+- [ ] **M2.6d2 Destructuring** (split from M2.6d by D-053).
+  - Destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`; default parameter values.
+- [ ] **M2.6d3 Map entries as pairs** (split from M2.6d by D-053).
+  - `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples.
 - [ ] **M2.6e Spread, rest and hash-map objects** (split from M2.6 by D-047).
   - Spread and rest in calls, array literals and object literals; rest parameters.
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.

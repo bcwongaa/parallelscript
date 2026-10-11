@@ -595,3 +595,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`pts/lower/enums.go`, D-052): an enum declaration makes no code (`enumDeclaration` reports members whose values tsc can't compute); `enumMember` lowers `E.m` and `E["m"]` (also through imports and namespace imports) to the member's value from `GetConstantValue` on its declaration; enum types are numbers or strings through `irType` (`check.NumericOf` maps numeric enum literals to `number`); `enumReverseMapping` lowers `E[n]` to a `Bind` of `n` and a chain of `Conditional`s, last member first, ending in `undefined` (from `valueExpression`) or a `RangeError` thrown with `ThrowError` (from `expression`); `binding` reports the enum object as a value.
 - **Numbers:** a numeric member is a `number` to the semantic pass, so it converts to an integer type only with `as`.
 - **Tests:** `pts/tests/run/enums.pts` (with `run/enums/palette.pts`), `enum_reverse_mapping_error.pts`; `errors/enums_not_yet.pts`, `enum_member_to_integer.pts`.
+
+### 9.30 Tuples (M2.6d1)
+
+- **IR** (D-053): a tuple type is a shape (`ir.Class` with `Shape` and the new `Tuple`) whose fields are named `0`, `1`, …; one per list of element IR types (`l.tuples`). `Class.String` writes it as `[string, number]`.
+- **Lowering** (`pts/lower/tuples.go`): `irType` maps fixed-length tuple types (`tupleType`; optional and rest elements are PTS1001); `arrayLiteral` makes a tuple (`tupleLiteral`, an `ir.NewObject`) where the literal's type or contextual type is a tuple; `t[i]` with a constant index reads and writes the field (`tupleElement`); `t.length` is a constant; `as` on an array or object literal (`as T`, `as const`) gives the literal the asserted type (`assertedLiteral`).
+- **C and runtime:** tuple descriptors have the new kind `PTS_KIND_TUPLE` and the name `Array`; `inspect.c` prints them as arrays (`format_tuple_elements`, grouping with `is_numeric_tuple`); fields are `pts_element_<i>` (`fieldIdentifier`).
+- **Tests:** `pts/tests/run/tuples.pts`, `tuples_integers.pts`; `errors/tuples_not_yet.pts`.

@@ -37,6 +37,7 @@ typedef enum pts_kind {
   PTS_KIND_FUNCTION = 6, /* a function value: a closure (pts_closure); the type's name is the function's */
   PTS_KIND_MAP = 7,      /* a Map (pts_map) from keys of its type's key kind to values of its element kind */
   PTS_KIND_SET = 8,      /* a Set (pts_map) of values of its type's key kind */
+  PTS_KIND_TUPLE = 9,    /* a tuple: an object whose fields, named 0, 1, …, are its elements; printed as an array */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */

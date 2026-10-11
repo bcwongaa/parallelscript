@@ -85,9 +85,22 @@ type Class struct {
 	// one of Orders, the order the object literal that made it wrote them.
 	Shape  bool
 	Orders [][]*Field
+
+	// Tuple marks a shape whose fields, named 0, 1, …, are a tuple's elements (D-053). Its
+	// objects print as arrays.
+	Tuple bool
 }
 
-func (c *Class) String() string { return c.Name }
+func (c *Class) String() string {
+	if c.Tuple {
+		elements := make([]string, len(c.Fields))
+		for i, field := range c.Fields {
+			elements[i] = field.Type.String()
+		}
+		return "[" + strings.Join(elements, ", ") + "]"
+	}
+	return c.Name
+}
 
 // Order returns the index in Orders of a property order of a shape, adding it if new.
 func (c *Class) Order(fields []*Field) int {

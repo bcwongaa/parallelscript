@@ -1,0 +1,36 @@
+// Tuples are fixed layouts with unboxed elements that print as arrays (D-053): literals
+// where a tuple goes (or `as const`), constant indices, writes, length, tuples in arrays,
+// parameters, results, fields and other tuples.
+type Entry = [string, number];
+const e: Entry = ["a", 1];
+const pair: [boolean, string[]] = [true, ["x", "y"]];
+function swap(p: [string, number]): [number, string] {
+  return [p[1], p[0]];
+}
+const swapped = swap(e);
+e[1] = 42;
+console.log(e, pair, swapped, e[0], e[1] + 1, e.length, swapped[0] * 2);
+const entries: Entry[] = [["x", 1], ["y", 2]];
+entries.push(["z", 3]);
+console.log(entries, entries.map(entry => entry[0]).join(""));
+const nested: [[number, number], string] = [[1, 2], "pt"];
+console.log(nested, nested[0][1]);
+const frozen = ["k", 9] as const;
+console.log(frozen, frozen[0]);
+const big: [number, number, number, number, number, number, number] = [1, 2, 3, 4, 5, 6, 7];
+console.log(big, e === e, swap(e) === swapped);
+class Point {
+  constructor(public xy: [number, number]) {}
+}
+console.log(new Point([3, 4]), [[1, "a"]] as [number, string][]);
+
+// expect:
+// [ 'a', 42 ] [ true, [ 'x', 'y' ] ] [ 1, 'a' ] a 43 2 2
+// [ [ 'x', 1 ], [ 'y', 2 ], [ 'z', 3 ] ] xyz
+// [ [ 1, 2 ], 'pt' ] 2
+// [ 'k', 9 ] k
+// [
+//   1, 2, 3, 4,
+//   5, 6, 7
+// ] true false
+// Point { xy: [ 3, 4 ] } [ [ 1, 'a' ] ]

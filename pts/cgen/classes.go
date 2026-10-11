@@ -296,9 +296,17 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 			e.line(0, "};")
 		}
 		e.line(0, "static const pts_type pts_type_%s = {", name)
-		e.line(1, ".kind = PTS_KIND_OBJECT,")
+		if shape.Tuple {
+			e.line(1, ".kind = PTS_KIND_TUPLE,")
+		} else {
+			e.line(1, ".kind = PTS_KIND_OBJECT,")
+		}
 		e.line(1, ".gc_descr = %s,", layout(shape, e.classNames[shape]))
-		e.line(1, ".name = \"Object\", /* a plain object for console.log */")
+		if shape.Tuple {
+			e.line(1, ".name = \"Array\", /* a tuple is an array for console.log */")
+		} else {
+			e.line(1, ".name = \"Object\", /* a plain object for console.log */")
+		}
 		e.line(1, ".size = sizeof(pts_class_%s),", e.classNames[shape])
 		e.line(1, ".field_count = %d,", len(entries))
 		e.line(1, ".fields = %s,", fields)

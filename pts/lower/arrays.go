@@ -53,6 +53,16 @@ func (l *lowerer) isArrayExpression(node *ast.Node) bool {
 // an array type, so that `const s: Shape[] = [circle]` holds Shapes, and otherwise of its own.
 func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 	t := l.typeAt(node)
+	if contextual := l.contextualType(node); contextual != nil && checker.IsTupleType(contextual) {
+		t = contextual // [1, "a"] where a [number, string] goes
+	}
+	if checker.IsTupleType(t) {
+		shape, ok := l.irType(t, node).(*ir.Class)
+		if !ok {
+			return nil // reported
+		}
+		return l.tupleLiteral(node, shape)
+	}
 	if contextual := l.contextualType(node); contextual != nil && l.checker.IsArrayType(contextual) {
 		t = contextual
 	}
