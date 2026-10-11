@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: the reviver argument of `JSON.parse`
 // Reads a batch of JSON messages from a queue, reporting the ones that
 // fail to parse or fail to match the expected message schema.
 

@@ -19,6 +19,9 @@ import (
 // false if the call isn't one.
 func (l *lowerer) stringLibraryCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
+	if builtin, component, ok := l.uriFunction(callee); ok {
+		return l.uriCall(call, builtin, component), true
+	}
 	switch member := l.libMemberName(callee); member {
 	case "String.concat":
 		return l.stringConcat(call), true
@@ -34,6 +37,43 @@ func (l *lowerer) stringLibraryCall(call *ast.CallExpression) (x ir.Expr, handle
 		return l.stringFromCodes(call, builtin), true
 	}
 	return nil, false
+}
+
+// uriFunction reports whether callee names encodeURI, encodeURIComponent, decodeURI or
+// decodeURIComponent, and which builtin it is, for components or not.
+func (l *lowerer) uriFunction(callee *ast.Node) (builtin *ir.Builtin, component bool, ok bool) {
+	if callee.Kind != ast.KindIdentifier || !l.isDeclaredInDefaultLib(l.target(callee)) {
+		return nil, false, false
+	}
+	switch callee.Text() {
+	case "encodeURI":
+		return ir.URIEncode, false, true
+	case "encodeURIComponent":
+		return ir.URIEncode, true, true
+	case "decodeURI":
+		return ir.URIDecode, false, true
+	case "decodeURIComponent":
+		return ir.URIDecode, true, true
+	}
+	return nil, false, false
+}
+
+// uriCall lowers a call of a URI function: of its argument as a string (ToString).
+func (l *lowerer) uriCall(call *ast.CallExpression, builtin *ir.Builtin, component bool) ir.Expr {
+	if l.hasSpreadArgument(call) {
+		return nil
+	}
+	var text ir.Expr = &ir.StringConst{Value: "undefined"}
+	if len(call.Arguments.Nodes) > 0 {
+		argument := call.Arguments.Nodes[0]
+		if text = l.expression(argument); text == nil {
+			return nil
+		}
+		if text = l.toString(text, argument); text == nil {
+			return nil
+		}
+	}
+	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{text, &ir.BoolConst{Value: component}}}
 }
 
 // stringConcat lowers `s.concat(a, b, …)`: s + a + b + …, a spread string array joined.

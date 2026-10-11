@@ -1887,6 +1887,9 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	if l.isDynamicSource(node.Expression()) {
 		return l.asFromValue(node)
 	}
+	if x, ok := l.asOfDynamicVariable(node); ok {
+		return x
+	}
 	target := l.numericType(node)
 	if instantiated := l.typeAt(node); target == nil && l.subst != nil && check.IsNumber(instantiated) {
 		target = l.irType(instantiated, node) // `x as T` in an instance whose T is a numeric type
@@ -1909,6 +1912,29 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 		return l.checkedCast(x, target, node) // `x as number` for x: number | null
 	}
 	return l.convert(x, target, node)
+}
+
+// asOfDynamicVariable lowers `e as T` for a variable e that holds a dynamic value (a
+// catch binding, an unknown) whatever tsc narrowed it to: e's value converted to T with a
+// check, so that `(e as Error).name` works for any error, though tsc may have narrowed e
+// to a class of the same members as another. ok is false for other operands.
+func (l *lowerer) asOfDynamicVariable(node *ast.Node) (x ir.Expr, ok bool) {
+	operand := ast.SkipParentheses(node.Expression())
+	if operand.Kind != ast.KindIdentifier {
+		return nil, false
+	}
+	value := l.identifier(operand)
+	if value == nil || value.Type() != ir.Value {
+		return nil, false
+	}
+	target := l.irType(l.typeAt(node), node)
+	if target == nil {
+		return nil, true
+	}
+	if n := l.numericType(node); n != nil {
+		target = n
+	}
+	return l.checkedConversion(value, target, node.Expression()), true
 }
 
 // asCast lowers `x as T` for a T that isn't numeric (D-089): free where x is a T as it is
@@ -2298,6 +2324,8 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.inRecord(expr)
 	case operator == ast.KindInKeyword && ast.IsStringLiteralLike(expr.Left):
 		return l.propertyIn(expr)
+	case operator == ast.KindInKeyword:
+		return l.computedKeyIn(expr)
 	case operator == ast.KindQuestionQuestionToken && !l.isRecordElement(ast.SkipParentheses(expr.Left)):
 		return l.nullishCoalescing(node)
 	case (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) && l.isRecordElement(ast.SkipParentheses(expr.Left)):

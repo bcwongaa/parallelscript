@@ -157,6 +157,9 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	if source.Type() == ir.Value { // an any's property, found at run time (D-070)
 		return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{source, box(&ir.StringConst{Value: name})}}
 	}
+	if t, ok := source.Type().(*ir.MapType); ok && t.Record && t.Value == ir.Value {
+		return &ir.MapCall{Op: ir.MapGet, Args: []ir.Expr{source, &ir.StringConst{Value: name}}, Map: t} // a missing key of a Record<string, unknown> is undefined
+	}
 	if read := propertyOf(source, name); read != nil {
 		return read
 	}

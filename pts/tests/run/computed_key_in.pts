@@ -1,0 +1,17 @@
+// `k in o` with a key computed at run time, on objects, records, class instances and arrays (M3.7b).
+interface Flags { verbose: boolean; color: boolean }
+const defaults: Flags = { verbose: false, color: true };
+const parsed: Partial<Flags> = {};
+for (const pair of "verbose=on,bogus=on,color=off".split(",")) {
+  const [k, v] = pair.split("=");
+  if (k in defaults) parsed[k as keyof Flags] = v === "on";
+  else console.log("unknown flag", k);
+}
+console.log(parsed);
+const lookup = <V>(r: Record<string, V>, k: string): V | undefined => (k in r ? r[k] : undefined);
+console.log(lookup({ a: 1 }, "a"), lookup({ a: 1 }, "b"));
+class Point { constructor(public x: number, public y: number) {} norm() { return Math.hypot(this.x, this.y); } }
+const p = new Point(3, 4);
+for (const key of ["x", "z", "norm"]) console.log(key, key in p);
+const arr = [10, 20];
+console.log(0 in arr, 5 in arr, "length" in arr);

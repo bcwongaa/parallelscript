@@ -9,15 +9,12 @@ import (
 // JSON (D-080): JSON.parse makes dynamic values and JSON.stringify reads any value, at
 // run time, through descriptors.
 
-// jsonParse lowers JSON.parse(text): the runtime's parse of text, converted to a string
-// as JS's ToString does if it is a dynamic value. A reviver is PTS1001.
+// jsonParse lowers JSON.parse(text, reviver): the runtime's parse of text, converted to a
+// string as JS's ToString does if it is a dynamic value. A reviver is converted to the
+// function type (key: string, value: any) => any, which the runtime calls.
 func (l *lowerer) jsonParse(call *ast.CallExpression) ir.Expr {
 	args := call.Arguments.Nodes
-	switch {
-	case l.hasSpreadArgument(call):
-		return nil
-	case len(args) > 1:
-		l.notSupportedYet(args[1], "the reviver argument of `JSON.parse` is")
+	if l.hasSpreadArgument(call) {
 		return nil
 	}
 	text := l.expression(args[0])
@@ -28,6 +25,16 @@ func (l *lowerer) jsonParse(call *ast.CallExpression) ir.Expr {
 		if text = l.toString(text, args[0]); text == nil {
 			return nil
 		}
+	}
+	if len(args) > 1 {
+		reviver := l.expression(args[1])
+		if reviver == nil {
+			return nil
+		}
+		if reviver = l.convert(reviver, l.funcType([]ir.Type{ir.String, ir.Value}, ir.Value), args[1]); reviver == nil {
+			return nil
+		}
+		return &ir.CallBuiltin{Builtin: ir.JSONParseRevived, Args: []ir.Expr{text, box(reviver)}}
 	}
 	return &ir.CallBuiltin{Builtin: ir.JSONParse, Args: []ir.Expr{text}}
 }

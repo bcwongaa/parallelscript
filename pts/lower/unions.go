@@ -186,14 +186,27 @@ func providedMember(t ir.Type, u *ir.Union) ir.Type {
 		case !ok || unprovided(t, iface) != "":
 		case found == nil || len(iface.Fields) > len(found.Fields):
 			found, ambiguous = iface, false // `{ type: "num", n: 1 }` for `{ type: "num"; n: number } | { type: "end" }` is the first (D-089)
-		case len(iface.Fields) == len(found.Fields):
-			ambiguous = true
+		case len(iface.Fields) == len(found.Fields) && !sameFields(iface, found):
+			ambiguous = true // members with the same fields (`{ kind: "add"; … } | { kind: "mul"; … }`) are alike at run time
 		}
 	}
 	if found == nil || ambiguous {
 		return nil
 	}
 	return found
+}
+
+// sameFields reports whether two interfaces have the same fields, of the same types.
+func sameFields(a, b *ir.Interface) bool {
+	if len(a.Fields) != len(b.Fields) {
+		return false
+	}
+	for i, field := range a.Fields {
+		if other := b.Fields[i]; other.Name != field.Name || other.Type != field.Type || other.Optional != field.Optional {
+			return false
+		}
+	}
+	return true
 }
 
 // fromUnion is x, a value of a union, as type t, which the checker says it holds: a

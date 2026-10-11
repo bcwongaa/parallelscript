@@ -1,0 +1,17 @@
+// `e as T` of a dynamic variable converts its value, whatever tsc narrowed it to; missing
+// keys of a Record<string, unknown> destructure as undefined (M3.7b).
+class SchemaError extends Error {}
+const inputs = ["{bad", '{"type":"x"}', '{"type":"event","name":"a"}'];
+for (const raw of inputs) {
+  try {
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    const { type, name, extra } = data;
+    if (type !== "event") throw new SchemaError(`unknown type ${String(type)}`);
+    console.log("ok", type, name, extra);
+  } catch (e) {
+    if (e instanceof SyntaxError) console.log("syntax");
+    else if (e instanceof SchemaError) console.log("schema", e.message);
+    else throw e;
+    console.log((e as Error).name);
+  }
+}

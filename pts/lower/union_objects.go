@@ -243,6 +243,17 @@ func (l *lowerer) internInterface(fields []*ir.Field, methods []*ir.InterfaceMet
 	return iface
 }
 
+// computedKeyIn lowers `k in o` for a key computed at run time: looked up through o's
+// descriptor, as for a dynamic value (D-070).
+func (l *lowerer) computedKeyIn(expr *ast.BinaryExpression) ir.Expr {
+	key := l.valueExpression(expr.Left)
+	object := l.expression(expr.Right)
+	if key == nil || object == nil {
+		return nil
+	}
+	return &ir.CallBuiltin{Builtin: ir.DynamicHas, Args: []ir.Expr{box(object), box(key)}}
+}
+
 // keyIn lowers `"p" in o` looked up at run time (D-067): for o of a union, or of an
 // object type that doesn't declare p, whose objects may have it all the same.
 func (l *lowerer) keyIn(expr *ast.BinaryExpression) ir.Expr {

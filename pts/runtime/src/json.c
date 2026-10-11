@@ -865,3 +865,66 @@ pts_value pts_json_stringify(pts_value value, pts_value replacer, pts_value spac
   free(w.out.data);
   return pts_value_from_string(result);
 }
+
+/* ---------------------------------------------------------------- revivers */
+
+/* The code of a reviver, converted to the function type (key: string, value: any) => any. */
+typedef pts_value (*reviver_code)(pts_closure *, pts_string *, pts_value);
+
+static pts_value revive(pts_closure *reviver, pts_string *name, pts_value value);
+
+/*
+ * The children of a parsed array or object, each replaced by what the reviver makes of it,
+ * or left out (a hole in an array, a deleted key) where it makes undefined
+ * (InternalizeJSONProperty, ECMAScript 25.5.1.1).
+ */
+static void revive_children(pts_closure *reviver, pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return;
+  }
+  pts_object *object = pts_value_as_object(value);
+  if (object->type == &pts_array_types[PTS_FIELD_VALUE]) {
+    pts_array *array = (pts_array *)object;
+    for (size_t i = 0; i < pts_array_length_of(array); i++) {
+      pts_value element = pts_value_present(pts_array_element(array, (double)i));
+      pts_value revived = revive(reviver, pts_number_to_string((double)i), element);
+      if (revived == PTS_VALUE_UNDEFINED) {
+        revived = PTS_VALUE_ABSENT;
+      }
+      pts_array_set(array, (double)i, &revived);
+    }
+    return;
+  }
+  if (object->type != &pts_type_any_record) {
+    return;
+  }
+  pts_map *record = (pts_map *)object;
+  size_t count = (size_t)pts_map_size(record), n = 0;
+  pts_string **keys = malloc((count ? count : 1) * sizeof *keys); /* the keys as they were, as JS takes them first */
+  if (keys == NULL) {
+    abort();
+  }
+  pts_map_iterator entries = pts_record_iterate(record);
+  while (pts_map_next(&entries) && n < count) {
+    keys[n++] = PTS_MAP_ITERATOR_KEY(pts_string *, entries);
+  }
+  for (size_t i = 0; i < n; i++) {
+    pts_value revived = revive(reviver, keys[i], pts_map_get_value(record, &keys[i]));
+    if (revived == PTS_VALUE_UNDEFINED) {
+      pts_map_delete(record, &keys[i]);
+    } else {
+      pts_map_set(record, &keys[i], &revived);
+    }
+  }
+  free(keys);
+}
+
+static pts_value revive(pts_closure *reviver, pts_string *name, pts_value value) {
+  revive_children(reviver, value);
+  return ((reviver_code)reviver->code)(reviver, name, value);
+}
+
+pts_value pts_json_parse_revived(const pts_string *text, pts_value reviver) {
+  pts_value root = pts_json_parse(text);
+  return revive((pts_closure *)pts_value_as_object(reviver), pts_string_from_cstr(""), root);
+}

@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: the reviver argument of `JSON.parse`
 interface LineItem {
   sku: string;
   qty: number;

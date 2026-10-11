@@ -1,0 +1,19 @@
+// encodeURI, encodeURIComponent, decodeURI and decodeURIComponent, with URIError (M3.7b).
+const samples = ["hello world", "a+b=c&d", "café ☕", "😀 smile", "/path?q=1#frag", "-_.!~*'()"];
+for (const s of samples) {
+  const c = encodeURIComponent(s), u = encodeURI(s);
+  console.log(c, u, decodeURIComponent(c) === s, decodeURI(u) === s);
+}
+console.log(decodeURI("%3B%2F%3F%20%41"), decodeURIComponent("%3B%2F%3F%20%41"), encodeURIComponent(42));
+for (const bad of ["%", "%E0%A4%A", "%FF", "%ED%A0%80", "%C3"]) {
+  try {
+    decodeURIComponent(bad);
+  } catch (e) {
+    console.log(bad, e instanceof URIError, (e as Error).message);
+  }
+}
+try {
+  encodeURIComponent("\uD800");
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}

@@ -1065,6 +1065,10 @@ var (
 	// String.fromCodePoint of an array of their arguments.
 	StringFromCharCode  = &Builtin{Name: "String.fromCharCode", Params: []Type{NumberArray}, Result: String}
 	StringFromCodePoint = &Builtin{Name: "String.fromCodePoint", Params: []Type{NumberArray}, Result: String}
+	// URIEncode and URIDecode are encodeURI and decodeURI, or with Args[1] true,
+	// encodeURIComponent and decodeURIComponent.
+	URIEncode = &Builtin{Name: "encodeURI", Params: []Type{String, Bool}, Result: String}
+	URIDecode = &Builtin{Name: "decodeURI", Params: []Type{String, Bool}, Result: String}
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
@@ -1112,6 +1116,9 @@ var (
 	// JSONParse is JSON.parse of a string: a dynamic value (D-080). JSONStringify is
 	// JSON.stringify(value, replacer, space): a string, or undefined.
 	JSONParse     = &Builtin{Name: "JSON.parse", Params: []Type{String}, Result: Value}
+	// JSONParseRevived is JSON.parse(text, reviver) for a reviver closure of type
+	// (key: string, value: any) => any, boxed.
+	JSONParseRevived = &Builtin{Name: "JSON.parse", Params: []Type{String, Value}, Result: Value}
 	JSONStringify = &Builtin{Name: "JSON.stringify", Params: []Type{Value, Value, Value}, Result: Value}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).

@@ -1,0 +1,17 @@
+// JSON.parse with a reviver: children first, undefined leaves a key out (M3.7b).
+const text = '{"name":"ada","born":"1815-12-10","tags":["a","b"],"meta":{"secret":"x","n":"3"},"list":[1,2,3]}';
+const revived = JSON.parse(text, (key: string, value: unknown) => {
+  if (key === "secret") return undefined;
+  if (key === "n" && typeof value === "string") return Number(value);
+  if (typeof value === "number") return value * 10;
+  return value;
+});
+console.log(revived);
+const keys: string[] = [];
+JSON.parse('{"a":{"b":[1,{"c":2}]},"d":3}', (key, value) => {
+  keys.push(key === "" ? "(root)" : key);
+  return value;
+});
+console.log(keys.join(" "));
+console.log(JSON.parse("[1,2,3]", (k, v) => (k === "1" ? undefined : v)));
+console.log(JSON.parse('"text"', (k, v) => (typeof v === "string" ? v.toUpperCase() : v)));

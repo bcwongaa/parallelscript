@@ -174,13 +174,6 @@ func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
 	assert.Equal(t, err.Message, "the prefix `+` operator on void is not supported yet")
 }
 
-func TestUnsupportedOperatorIsNamed(t *testing.T) {
-	t.Parallel()
-	err := lowerInvalid(t, "const point = { x: 1 };\nconst key: string = \"x\";\nconsole.log(key in point);")
-	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the `in` operator is not supported yet")
-}
-
 func TestUnsupportedTypeIsNamed(t *testing.T) {
 	t.Parallel()
 	err := lowerInvalid(t, `const weak: WeakMap<object, number> = new WeakMap();`)

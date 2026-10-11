@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling `decodeURIComponent`
 interface LogRecord {
   ip: string;
   time: Date;

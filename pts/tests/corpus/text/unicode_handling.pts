@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling `encodeURIComponent`
 // Unicode-aware string handling: code points vs UTF-16 units, surrogate pairs, emoji,
 // accented letters, safe truncation, reversal, and UTF-8 byte lengths.
 const samples = ["hello", "café", "naïve façade", "日本語テキスト", "😀👍🏽", "a😀b", "👨‍👩‍👧 family", "𝒳𝒴𝒵", "Ωmega ≠ omega"];

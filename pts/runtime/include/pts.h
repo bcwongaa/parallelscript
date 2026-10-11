@@ -367,6 +367,10 @@ extern const pts_type pts_string_type;
 /* Copies `len` bytes of valid UTF-8 into a new GC string. */
 pts_string *pts_string_from_utf8(const char *bytes, size_t len);
 pts_string *pts_string_from_cstr(const char *cstr);
+/* encodeURI (component false) and encodeURIComponent of string; URIError for a lone surrogate. */
+pts_string *pts_uri_encode(pts_string *string, bool component);
+/* decodeURI (component false) and decodeURIComponent of string; URIError for a malformed escape. */
+pts_string *pts_uri_decode(pts_string *string, bool component);
 /* left + right. A lone high surrogate at the end of left and a lone low one at the start of right join, as in JS. */
 pts_string *pts_string_concat(pts_string *left, pts_string *right);
 bool pts_string_equals(const pts_string *left, const pts_string *right);
@@ -1281,6 +1285,8 @@ extern const pts_type pts_type_any_record;
 
 /* JSON.parse: the dynamic value text holds, or SyntaxError with V8's message (D-080). */
 pts_value pts_json_parse(const pts_string *text);
+/* JSON.parse(text, reviver) for a reviver closure of type (key: string, value: any) => any, boxed. */
+pts_value pts_json_parse_revived(const pts_string *text, pts_value reviver);
 /*
  * JSON.stringify(value, replacer, space), with JS's rules (toJSON, a replacer function or
  * property list, an indent of up to ten spaces or characters, V8's TypeError for a cycle):

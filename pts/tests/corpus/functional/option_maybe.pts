@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: the `in` operator
 // Option/Maybe as a discriminated union with map, flatMap, getOrElse and friends.
 
 type Option<T> = { readonly tag: "some"; readonly value: T } | { readonly tag: "none" };
