@@ -1,0 +1,69 @@
+// Destructuring (D-054): object, array and tuple patterns, nested, with defaults, elisions
+// and rest elements, in declarations, parameters (callbacks too), for...of and assignments.
+interface Point { x: number; y: number }
+class Circle {
+  constructor(public center: Point, public radius: number) {}
+  get area(): number {
+    return 3 * this.radius * this.radius;
+  }
+}
+const { x, y } = { x: 1, y: 2 };
+const { center: { x: cx }, radius, area } = new Circle({ x: 5, y: 6 }, 1);
+const [first, second = 20, , fourth = 40] = [1, 2, 3];
+const [head, ...tail] = ["a", "b", "c"];
+const pair: [string, number] = ["k", 9];
+const [key, count] = pair;
+console.log(x, y, cx, radius, area, first, second, fourth, head, tail, key, count);
+function len({ x, y }: Point): number {
+  return x * x + y * y;
+}
+const pairs: [string, number][] = [["a", 1], ["b", 2]];
+for (const [name, value] of pairs) {
+  console.log(name, value);
+}
+console.log(len({ x: 3, y: 4 }), pairs.map(([k, v]) => k + v).join(","));
+for (const { x: px } of [{ x: 7, y: 8 }]) {
+  console.log(px);
+}
+const [[a1, a2], { b }] = [[1, 2], { b: "bee" }] as [[number, number], { b: string }];
+console.log(a1, a2, b);
+class P {
+  constructor(public x: number, public y: number) {}
+}
+function assignments(): void {
+  let a = 1;
+  let b = 2;
+  [a, b] = [b, a];
+  console.log(a, b);
+  let s = "x";
+  let n = 0;
+  const pair: [string, number] = ["k", 5];
+  [s, n] = pair;
+  console.log(s, n);
+  const p = new P(3, 4);
+  let x = 0;
+  let y = 0;
+  ({ x, y } = p);
+  console.log(x, y);
+  const target = { left: 0, right: 0 };
+  ({ x: target.left, y: target.right } = p);
+  const nums = [9, 8, 7];
+  let first = 0;
+  let rest: number[] = [];
+  [first, ...rest] = nums;
+  const r = ([a, b] = [10, 20]);
+  console.log(target, first, rest, a, b, r);
+}
+assignments();
+
+// expect:
+// 1 2 5 1 3 1 2 40 a [ 'b', 'c' ] k 9
+// a 1
+// b 2
+// 25 a1,b2
+// 7
+// 1 2 bee
+// 2 1
+// k 5
+// 3 4
+// { left: 3, right: 4 } 9 [ 8, 7 ] 10 20 [ 10, 20 ]

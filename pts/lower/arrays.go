@@ -458,11 +458,11 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		return nil
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
-	if declaration.Name().Kind != ast.KindIdentifier {
-		l.notSupportedYet(declaration.Name(), "destructuring is")
-		return nil
-	}
 	if it, ok := l.mapIterableOf(s.Expression); ok {
+		if declaration.Name().Kind != ast.KindIdentifier {
+			l.notSupportedYet(declaration.Name(), "destructuring a Map's or Set's items is")
+			return nil
+		}
 		if it.m == nil {
 			return nil // reported
 		}
@@ -486,19 +486,29 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	at := l.pos(node)
 	array, index := l.newLocal("array", arrayType), l.newLocal("index", ir.Number)
-	symbol := l.checker.GetSymbolAtLocation(declaration.Name())
-	t := l.bindingType(symbol, declaration.Name())
-	if t == nil {
-		return nil
+	var element *ir.Local
+	var destructured []ir.Stmt
+	if name := declaration.Name(); name.Kind == ast.KindIdentifier {
+		symbol := l.checker.GetSymbolAtLocation(name)
+		t := l.bindingType(symbol, name)
+		if t == nil {
+			return nil
+		}
+		element = l.newLocal(name.Text(), t)
+		l.locals[symbol] = element
+	} else { // `for (const [k, v] of pairs)`: each element is destructured
+		element = l.newLocal("element", arrayType.Elem)
+		var ok bool
+		if destructured, ok = l.destructure(name, &ir.LocalRef{Local: element}, l.pos(declaration)); !ok {
+			return nil
+		}
 	}
-	element := l.newLocal(declaration.Name().Text(), t)
-	l.locals[symbol] = element
-	value := l.convert(&ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: array}, &ir.LocalRef{Local: index}}}, t, declaration)
+	value := l.convert(&ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: array}, &ir.LocalRef{Local: index}}}, element.Type, declaration)
 	if value == nil {
 		return nil
 	}
 	body := l.statementBlock(s.Statement)
-	body.Stmts = append([]ir.Stmt{&ir.LocalDecl{At: l.pos(declaration), Local: element, Init: value}}, body.Stmts...)
+	body.Stmts = append(append([]ir.Stmt{&ir.LocalDecl{At: l.pos(declaration), Local: element, Init: value}}, destructured...), body.Stmts...)
 	loop := &ir.Loop{
 		At:     at,
 		Label:  label,

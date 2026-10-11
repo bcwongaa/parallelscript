@@ -136,7 +136,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}}
+		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, patterns: map[*ir.Func][]patternParameter{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -226,6 +226,7 @@ type lowerer struct {
 	membersStarted      map[*ir.Class]bool              // the classes whose members are declared, or being declared
 	tuples              map[string]*ir.Class            // the shape of each tuple type met, by its element types
 	tuplesInProgress    map[*checker.Type]bool          // the tuple types whose element types are being mapped
+	patterns            map[*ir.Func][]patternParameter // the parameters of each function written as patterns
 	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
 	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
 	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
@@ -576,6 +577,14 @@ func (l *lowerer) declarationList(node *ast.Node, list *ast.Node) []ir.Stmt {
 	}
 	var stmts []ir.Stmt
 	for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
+		if declaration.Name().Kind != ast.KindIdentifier {
+			destructured, ok := l.destructuringDeclaration(declaration)
+			if !ok {
+				return nil
+			}
+			stmts = append(stmts, destructured...)
+			continue
+		}
 		decl := l.variableDeclaration(declaration)
 		if decl == nil {
 			return nil
@@ -585,12 +594,17 @@ func (l *lowerer) declarationList(node *ast.Node, list *ast.Node) []ir.Stmt {
 	return stmts
 }
 
+// destructuringDeclaration lowers `const { x, y } = value` or `let [a, b] = value`.
+func (l *lowerer) destructuringDeclaration(node *ast.Node) ([]ir.Stmt, bool) {
+	value := l.expression(node.Initializer()) // tsc requires one
+	if value == nil {
+		return nil, false
+	}
+	return l.destructure(node.Name(), value, l.pos(node))
+}
+
 func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	name := node.Name()
-	if name.Kind != ast.KindIdentifier {
-		l.notSupportedYet(name, "destructuring is")
-		return nil
-	}
 	symbol := l.checker.GetSymbolAtLocation(name)
 	local, declared := l.locals[symbol] // module-scope bindings are declared before any code is lowered
 	if !declared {
@@ -638,12 +652,24 @@ func (l *lowerer) declareModuleBindings(file *ast.SourceFile) {
 				continue // reported when the statement is lowered
 			}
 			for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
-				if name := declaration.Name(); name.Kind == ast.KindIdentifier {
-					l.declareModuleBinding(name.Text(), l.checker.GetSymbolAtLocation(name), name)
-				}
+				l.declarePatternBindings(declaration.Name())
 			}
 		case statement.Kind == ast.KindExportAssignment && l.hasDefaultBinding(statement):
 			l.declareModuleBinding("default", l.declaredSymbol(statement), statement.Expression())
+		}
+	}
+}
+
+// declarePatternBindings declares the module-scope binding a declaration's name makes,
+// or each one its binding pattern makes.
+func (l *lowerer) declarePatternBindings(name *ast.Node) {
+	if name.Kind == ast.KindIdentifier {
+		l.declareModuleBinding(name.Text(), l.checker.GetSymbolAtLocation(name), name)
+		return
+	}
+	for _, element := range name.AsBindingPattern().Elements.Nodes {
+		if element.Kind == ast.KindBindingElement && element.Name() != nil { // not an elision
+			l.declarePatternBindings(element.Name())
 		}
 	}
 }
@@ -866,6 +892,11 @@ func (l *lowerer) parameter(node *ast.Node) *ir.Local {
 		return nil
 	}
 	name := node.Name()
+	if name.Kind != ast.KindIdentifier { // a pattern, which the body starts by destructuring
+		local := l.newLocal("destructured", t)
+		l.patterns[l.function] = append(l.patterns[l.function], patternParameter{pattern: name, local: local})
+		return local
+	}
 	local := l.newLocal(name.Text(), t)
 	l.locals[l.checker.GetSymbolAtLocation(name)] = local
 	return local
@@ -876,15 +907,15 @@ func (l *lowerer) parameter(node *ast.Node) *ir.Local {
 func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
 	switch {
-	case param.Name().Kind != ast.KindIdentifier:
-		l.notSupportedYet(param.Name(), "destructuring is")
-		return nil
 	case param.DotDotDotToken != nil:
 		l.notSupportedYet(node, "rest parameters are")
 		return nil
 	case param.QuestionToken != nil || param.Initializer != nil:
 		l.notSupportedYet(node, "optional parameters are")
 		return nil
+	}
+	if param.Name().Kind != ast.KindIdentifier {
+		return l.irType(l.typeOfSymbol(node.Symbol()), param.Name()) // a pattern's
 	}
 	if t := l.numericType(param.Name()); t != nil {
 		return t
@@ -1620,6 +1651,9 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 // assignment lowers `target = value`.
 func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
+	if left := ast.SkipParentheses(expr.Left); left.Kind == ast.KindArrayLiteralExpression || left.Kind == ast.KindObjectLiteralExpression {
+		return l.destructuringAssignment(left, expr.Right)
+	}
 	target, ok := l.assignmentTarget(expr.Left)
 	value := l.expression(expr.Right)
 	if !ok || value == nil {

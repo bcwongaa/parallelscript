@@ -1,0 +1,17 @@
+// Destructured names take the integer types of the parts they bind (D-048, D-054); an
+// array element's default converts to the element type.
+const bytes: u8[] = [250];
+const [low = 7, high = 9] = bytes;
+const point: { x: i16; y: i16 } = { x: 30000, y: -2 };
+const { x, y } = point;
+const pair: [int, u64] = [9007199254740993, 18446744073709551615];
+const [big, huge] = pair;
+console.log(low + 10, high + 250, x + x, y - 1, big + 1, huge + 1);
+function sum([a, b]: [u8, u8]): u8 {
+  return a + b;
+}
+console.log(sum([200, 100]));
+
+// expect:
+// 4 3 -5536 -3 9007199254740994 0
+// 44

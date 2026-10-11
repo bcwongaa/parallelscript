@@ -68,6 +68,9 @@ func (l *lowerer) typeOfSymbol(symbol *ast.Symbol) *checker.Type {
 }
 
 func (l *lowerer) contextualType(node *ast.Node) *checker.Type {
+	if isDestructuringSource(node) {
+		return nil // the type tsc derives from the pattern (`{ x: any }`) says nothing about the value
+	}
 	if t := l.checker.GetContextualType(node, checker.ContextFlagsNone); t != nil {
 		return l.instantiate(t)
 	}
@@ -239,7 +242,7 @@ func (l *lowerer) instanceBody(inst *instance) {
 	node, fn := inst.generic.node, inst.fn
 	l.subst = inst.subst
 	defer func() { l.subst = nil }()
-	l.forgetLocals(node.Body()) // another instance's
+	l.forgetLocals(node) // another instance's
 	l.bindParameters(node, fn)
 	outerBodies, outerFunction := l.bodies, l.function
 	l.bodies, l.function = nil, inst.generic.module

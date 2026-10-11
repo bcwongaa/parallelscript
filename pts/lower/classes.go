@@ -623,7 +623,11 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
 	outer, outerTargets := l.function, l.targets
 	l.function, l.targets = fn, nil
+	prologue := l.parameterPatterns(fn) // declares the names the body uses
 	lower()
+	if len(prologue) > 0 && fn.Body != nil {
+		fn.Body.Stmts = append(prologue, fn.Body.Stmts...)
+	}
 	l.function, l.targets = outer, outerTargets
 	l.lowered = append(l.lowered, fn)
 }
