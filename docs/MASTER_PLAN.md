@@ -161,7 +161,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Narrowing via `typeof`, `instanceof`, equality, truthiness and user-defined type guards (the checker narrows; the backend converts and emits tag tests); `??`, `!`, `==` with null and undefined.
 - [x] **M3.1b1 Optional parameters** (57332bef3) (split from M3.1 by D-062, from M3.1b by D-063).
   - Optional parameters without a default; defaults of parameters whose type includes undefined; `??=`.
-- [ ] **M3.1b2 Optional chaining** (split from M3.1b by D-063).
+- [x] **M3.1b2 Optional chaining** (a5de69521) (split from M3.1b by D-063).
   - Optional chaining `?.` on properties, calls and elements.
 - [ ] **M3.1b3 Optional properties** (split from M3.1b by D-063).
   - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032); literals that leave them out.
