@@ -116,7 +116,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `this` in arrow functions (lexical); `console.log`, `typeof` and `===` on function values.
 - [x] **M2.4c Array methods with callbacks** (b737989a8) (split from M2.4 by D-037; after M2.5a, which brings function values, D-040).
   - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
-- [ ] **M2.5b1 Methods in object literals and methods as values** (split from M2.5 by D-040, from M2.5b by D-043).
+- [x] **M2.5b1 Methods in object literals and methods as values** (ebd3326a3) (split from M2.5 by D-040, from M2.5b by D-043).
   - Methods in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).
   - Methods as values, with JS's `this` rules for them; `bind` and `call` where the types allow.
 - [ ] **M2.5b2 Accessors in object literals and `apply`** (split from M2.5b by D-043).
