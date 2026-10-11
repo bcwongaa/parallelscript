@@ -76,7 +76,8 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Module initialisation in dependency order, each module once; import cycles behave as in Node for the cases tsc accepts.
 - [ ] **M1.5 Benchmarks setup.**
   - `pts/bench/` with a hyperfine script comparing ParallelScript against Node, Bun and Go.
-  - Implement fib and nbody (with `.ts` and `.go` twins). Record the results.
+  - Implement fib (Node and Bun run the same source; a `.go` twin). Record the results.
+  - nbody moves to M2.7 (D-023): its standard form needs arrays or classes and `Math.sqrt`.
 - [ ] **M1.6 Milestone M1.**
 
 ## M2: Data and memory
@@ -102,6 +103,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Enums (numeric and string); destructuring of objects and arrays with defaults; spread and rest in calls, arrays and objects.
   - `Record<string, T>` and index signatures as hash maps.
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
+  - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
 - [ ] **M2.8 Milestone M2.**
 
 ## M3: The TypeScript feel

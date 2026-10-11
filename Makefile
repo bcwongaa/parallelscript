@@ -33,5 +33,6 @@ test-upstream:
 test-upstream-cli:
 	$(GO) test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/... -skip '$(UPSTREAM_KNOWN_FAILURE)'
 
+# ParallelScript against Node, Bun and Go (hyperfine); prints a table for docs/BENCHMARKS.md.
 bench:
-	@if [ -x pts/bench/run.sh ]; then pts/bench/run.sh; else echo "No benchmarks yet: pts/bench/run.sh arrives with M1.5."; fi
+	pts/bench/run.sh

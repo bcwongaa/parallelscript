@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.5 Benchmarks setup
+- **Next task:** M1.6 Milestone M1
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.5 Benchmarks setup: `pts/bench/run.sh` (hyperfine; ParallelScript, Node, Bun and Go on the same program, outputs checked equal), `fib` and `fib_int`; results in `docs/BENCHMARKS.md` (fib: 3.0× Node, 1.14× Go). nbody moved to M2.7 (D-023).
 - M1.4b2 Modules: `import`/`export` in every static form between `.pts` files (named, default, namespace, side-effect, re-exports, `export *`, `export * as`), live bindings, `export default <expression>` as a snapshot binding, modules run in ES evaluation order with cycles as in Node (TDZ ReferenceError included), C names qualified per module (D-022, SPEC §6, §9.9). Fixed: a function declared above an integer-typed module-scope binding it uses got a wrong PTS2001. The test harness runs multi-module tests under Node (helper modules in `run/<name>/`).
 - M1.4b1 Module-scope bindings in functions: top-level `let`/`const` that functions use are C globals with a ready flag, so a use before the declaration throws ReferenceError as in Node; function bodies are lowered after the top-level code (D-021, SPEC §9.8). M1.4b split by D-021.
 - M1.4a2 Functions: declarations (hoisted, nested if they capture nothing), parameters and returns with the numeric rules, inferred integer result types, recursion, calls in JS order; top-level code is now `pts_main`; the features left out by design (SPEC §3.10) are PTS1002 errors from `pts/check` with the reason (D-020, SPEC §9.8).
@@ -30,8 +31,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.5 Benchmarks setup (fib and nbody need functions, which work; nbody needs objects or arrays, so it may need M2 or a scalar formulation).
-2. M1.6 Milestone M1.
+1. M1.6 Milestone M1: run the checklist in `docs/MASTER_PLAN.md` (CI green, `make bench` for the M1 table, tag `m1`, Telegram report).
+2. M2.1 GC and the object model.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -54,7 +55,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `057efbe`: both jobs about 4.5 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
-`make bench` prints a placeholder until `pts/bench/run.sh` arrives with M1.5.
+`make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the table for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int).
 
 ## Known issues
 
@@ -69,6 +70,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.5 done (nbody moved to M2.7, D-023).
 - 2026-10-11: M1.4b2 done.
 - 2026-10-11: M1.4b1 done (M1.4b split by D-021).
 - 2026-10-11: M1.4a2 done.
