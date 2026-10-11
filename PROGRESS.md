@@ -4,13 +4,14 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.6 Milestone M1
+- **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
+- **Next task:** M2.1 GC and the object model
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.6 Milestone M1: checklist run, CI green on `4b7eb10`, M1 table in `docs/BENCHMARKS.md`, tag `m1`, Telegram report.
 - M1.5 Benchmarks setup: `pts/bench/run.sh` (hyperfine; ParallelScript, Node, Bun and Go on the same program, outputs checked equal), `fib` and `fib_int`; results in `docs/BENCHMARKS.md` (fib: 3.0× Node, 1.14× Go). nbody moved to M2.7 (D-023).
 - M1.4b2 Modules: `import`/`export` in every static form between `.pts` files (named, default, namespace, side-effect, re-exports, `export *`, `export * as`), live bindings, `export default <expression>` as a snapshot binding, modules run in ES evaluation order with cycles as in Node (TDZ ReferenceError included), C names qualified per module (D-022, SPEC §6, §9.9). Fixed: a function declared above an integer-typed module-scope binding it uses got a wrong PTS2001. The test harness runs multi-module tests under Node (helper modules in `run/<name>/`).
 - M1.4b1 Module-scope bindings in functions: top-level `let`/`const` that functions use are C globals with a ready flag, so a use before the declaration throws ReferenceError as in Node; function bodies are lowered after the top-level code (D-021, SPEC §9.8). M1.4b split by D-021.
@@ -31,8 +32,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.6 Milestone M1: run the checklist in `docs/MASTER_PLAN.md` (CI green, `make bench` for the M1 table, tag `m1`, Telegram report).
-2. M2.1 GC and the object model.
+1. M2.1 GC and the object model: bdwgc in thread-aware mode with thread-local allocation, atomic allocation for pointer-free data, and a type descriptor (name, fields → offsets, methods) for every runtime type, reused later by `console.log` and JSON. Read SPEC §3.4, §3.6, §4 and §9.1 (heap objects already start with a `pts_type *`; D-002 for `pts_value`).
+2. M2.2 Classes.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -70,6 +71,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.6 done; tagged `m1`.
 - 2026-10-11: M1.5 done (nbody moved to M2.7, D-023).
 - 2026-10-11: M1.4b2 done.
 - 2026-10-11: M1.4b1 done (M1.4b split by D-021).

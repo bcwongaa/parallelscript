@@ -78,7 +78,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `pts/bench/` with a hyperfine script comparing ParallelScript against Node, Bun and Go.
   - Implement fib (Node and Bun run the same source; a `.go` twin). Record the results.
   - nbody moves to M2.7 (D-023): its standard form needs arrays or classes and `Math.sqrt`.
-- [ ] **M1.6 Milestone M1.**
+- [x] **M1.6 Milestone M1.** (m1)
 
 ## M2: Data and memory
 - [ ] **M2.1 GC and the object model.**
