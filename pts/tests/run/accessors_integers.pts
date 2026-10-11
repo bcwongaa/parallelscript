@@ -1,0 +1,37 @@
+// Integer types through accessors, parameter properties and abstract fields: literals
+// take the property's type and arithmetic wraps.
+abstract class Channel {
+  abstract level: u8;
+  constructor(public gain: i16) {}
+  boost(): u8 {
+    this.level += 200;
+    return this.level;
+  }
+}
+
+class Direct extends Channel {
+  level: u8 = 100;
+}
+
+class Scaled extends Channel {
+  raw: int = 0;
+  get level(): u8 {
+    return (this.raw / 2) as u8;
+  }
+  set level(value: u8) {
+    this.raw = value * 2; // u8 arithmetic: 250 * 2 wraps to 244
+  }
+  get doubled() {
+    return this.level * 2; // a u8, so it wraps
+  }
+}
+
+const direct: Channel = new Direct(-3);
+const scaled = new Scaled(32767);
+scaled.level = 250;
+console.log(direct.boost(), direct.boost(), scaled.boost(), scaled.raw, scaled.doubled, direct.gain + 1, scaled.gain + 1);
+console.log(direct, scaled);
+
+// expect:
+// 44 244 66 132 132 -2 -32768
+// Direct { gain: -3, level: 244 } Scaled { gain: 32767, raw: 132 }

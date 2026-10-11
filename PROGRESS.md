@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.2d Accessors, statics and privacy
+- **Next task:** M2.2d2 Statics and `#private`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.2d1 Accessors and parameter properties: getters and setters (overridable, dispatched through the method tables, `super.p`), compound assignment and `++` on accessor properties with one getter call, abstract fields implemented by subclass fields or accessors, parameter properties in Node's property order, `private`/`protected`/`readonly` (D-030, SPEC §9.13). M2.2d split by D-029.
 - M2.2c Inheritance: `extends` (across modules too), `super(...)` with the subclass's field initialisers after it, implicit constructors that forward their arguments, `super.method()`, overriding with typed method tables (`pts_vtable_<C>`, two loads per virtual call) only for hierarchies that override, direct calls wherever no subclass of the static type overrides, abstract classes and methods, `instanceof`, narrowing to subclasses, redeclared fields, overrides inheriting numeric result types (D-028, SPEC §9.12).
 - M2.2b `console.log` of instances: Node's `util.inspect` for class instances, ported to the runtime over the type descriptors (line breaking, depth, circular references, string quoting), byte for byte equal to Node on the corpus (D-027).
 - M2.2a Class basics: classes at module scope with fields (declaration order, initialisers), constructors, methods, `new`, `this`, field reads and writes (compound, `++`), method calls, across modules, with the numeric rules (D-026, SPEC §9.11). M2.2 split by D-025.
@@ -36,7 +37,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.2d Accessors, statics and privacy: getters and setters, static fields and methods, `private` and `#private`, parameter properties, and abstract fields (D-028: an abstract field's storage is in each subclass, so reads through the base need dispatch, like an accessor). Members are found by declaration (`memberDeclaration`); `ir.Class.Method`/`Field` look up instance members by name and will need to skip statics. Virtual methods are `ir.Method`s with slots; a getter that subclasses override can reuse that machinery.
+1. M2.2d2 Statics and `#private`: static fields (storage outside instances, initialised when the class declaration runs, in order with static blocks), static methods (plain functions; decide what `this` means in them, D-028/D-030 style), static blocks, `#private` fields and methods (hidden from `console.log`: leave them out of the descriptor's field table but not the GC layout; `#x in o` is `pts_instance_of`). `unsupportedMember` reports statics and `#private` today; `ir.Class.Method`/`Field` look up instance members and must not see statics. Node prints a class value as `[class C] { count: 3 }`, but classes as values arrive later.
 2. M2.3 Object literals and interfaces. Using a class instance where a structurally equal but unrelated class is expected is PTS1001 today (`classCast`); interface tables may cover it.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -52,7 +53,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (48 run tests, 1 skipped; 36 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (50 run tests, 1 skipped; 37 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -77,6 +78,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.2d1 done (M2.2d split by D-029).
 - 2026-10-11: M2.2c done.
 - 2026-10-11: M2.2b done.
 - 2026-10-11: M2.2a done (M2.2 split by D-025).

@@ -584,3 +584,53 @@ func measure(shape: Shape, tile: Tile, cube: Cube) number {
 }
 `)
 }
+
+func TestAccessorsAreCallsAndFieldsImplementAbstractFields(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `abstract class Named {
+  abstract name: string;
+  constructor(public id: number) {}
+}
+class Person extends Named {
+  name = "ann";
+  get upper(): string { return this.name; }
+  set upper(value: string) { this.name = value; }
+}
+function rename(named: Named, person: Person): string {
+  named.name = "bo";
+  person.upper += "!";
+  return named.name + person.upper;
+}
+`)
+	// A field that implements an abstract field gets a getter and setter; reads and writes
+	// of the abstract field go through them, and compound assignments read once.
+	assert.Equal(t, got, `abstract class Named { id: number; virtual get name; virtual set name }
+class Person extends Named { name: string; virtual get name; virtual set name; get upper; set upper }
+func main() void {
+}
+func Person.get_name(this: Person) string {
+  6: return this.name
+}
+func Person.set_name(this: Person, value: string) void {
+  6: (this.name = value)
+}
+func Named.constructor(this: Named, id: number) void {
+  3: (this.id = id)
+}
+func Person.constructor(this: Person, id: number) void {
+  5: Named.constructor((this as Named), id)
+  6: (this.name = "ann")
+}
+func Person.get_upper(this: Person) string {
+  7: return this.name
+}
+func Person.set_upper(this: Person, value: string) void {
+  8: (this.name = value)
+}
+func rename(named: Named, person: Person) string {
+  11: (let value = "bo" in (virtual Named.set_name(named, value), value))
+  12: (let current = Person.get_upper(person) in (let value = (current ++ "!") in (Person.set_upper(person, value), value)))
+  13: return (virtual Named.get_name(named) ++ Person.get_upper(person))
+}
+`)
+}

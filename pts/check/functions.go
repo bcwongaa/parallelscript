@@ -77,8 +77,9 @@ func (c *pass) superclass(class *ast.Node) *ast.Node {
 	return symbol.ValueDeclaration
 }
 
-// inheritedMember returns the declaration of the instance member of the same name that
-// a class member redeclares or overrides, in the nearest superclass that has one, or nil.
+// inheritedMember returns the declaration of the instance member of the same name and
+// kind that a class member redeclares or overrides, in the nearest superclass that has
+// one, or nil.
 func (c *pass) inheritedMember(member *ast.Node) *ast.Node {
 	name := member.Name()
 	if name == nil || name.Kind != ast.KindIdentifier {
@@ -86,7 +87,7 @@ func (c *pass) inheritedMember(member *ast.Node) *ast.Node {
 	}
 	for class := c.superclass(member.Parent); class != nil; class = c.superclass(class) {
 		for _, other := range class.Members() {
-			if other.Name() != nil && other.Name().Kind == ast.KindIdentifier && other.Name().Text() == name.Text() && !ast.IsStatic(other) {
+			if other.Kind == member.Kind && other.Name() != nil && other.Name().Kind == ast.KindIdentifier && other.Name().Text() == name.Text() && !ast.IsStatic(other) {
 				return other
 			}
 		}
@@ -108,7 +109,7 @@ func (c *pass) inheritedFieldType(node *ast.Node) (Numeric, bool) {
 // declaration overrides, if it overrides one that returns a number.
 func (c *pass) overriddenResultType(declaration *ast.Node) (Numeric, bool) {
 	inherited := c.inheritedMember(declaration)
-	if inherited == nil || inherited.Kind != ast.KindMethodDeclaration {
+	if inherited == nil {
 		return 0, false
 	}
 	if fn := c.functionOf(inherited); fn.result != nil {
@@ -122,15 +123,20 @@ func isSuperCall(node *ast.Node) bool {
 	return node.Kind == ast.KindCallExpression && node.Expression().Kind == ast.KindSuperKeyword
 }
 
-// isAbstractMethod reports whether node declares an abstract method, which has no body.
+// isAbstractMethod reports whether node declares an abstract method or accessor, which has no body.
 func isAbstractMethod(node *ast.Node) bool {
-	return node.Kind == ast.KindMethodDeclaration && ast.HasSyntacticModifier(node, ast.ModifierFlagsAbstract)
+	return isAbstractAccessor(node, ast.KindMethodDeclaration) || isAbstractAccessor(node, ast.KindGetAccessor) || isAbstractAccessor(node, ast.KindSetAccessor)
 }
 
-// isFunctionWithBody reports whether node declares a function, method or constructor with a body.
+// isAbstractAccessor reports whether node is an abstract declaration of the given kind.
+func isAbstractAccessor(node *ast.Node, kind ast.Kind) bool {
+	return node.Kind == kind && ast.HasSyntacticModifier(node, ast.ModifierFlagsAbstract)
+}
+
+// isFunctionWithBody reports whether node declares a function, method, accessor or constructor with a body.
 func isFunctionWithBody(node *ast.Node) bool {
 	switch node.Kind {
-	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration, ast.KindConstructor:
+	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration, ast.KindConstructor, ast.KindGetAccessor, ast.KindSetAccessor:
 		return node.Body() != nil
 	}
 	return false
@@ -168,7 +174,7 @@ func (c *pass) signature(declaration *ast.Node) *function {
 	}
 	if c.returnsNumber(declaration) {
 		n, ok := c.annotationType(declaration.Type())
-		if !ok && declaration.Kind == ast.KindMethodDeclaration {
+		if !ok && (declaration.Kind == ast.KindMethodDeclaration || declaration.Kind == ast.KindGetAccessor) {
 			n, ok = c.overriddenResultType(declaration) // an override returns what the method it overrides does
 		}
 		switch {

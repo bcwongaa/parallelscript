@@ -179,8 +179,16 @@ func (c *pass) exportDefault(node *ast.Node) {
 // value, checking its declaration first if the pass hasn't reached it yet: a function may
 // use a module-scope binding declared below it, and a module one of a module checked later.
 func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
-	if declaration := symbol.ValueDeclaration; declaration != nil && declaration.Kind == ast.KindPropertyDeclaration {
-		symbol = c.tc.GetMergedSymbol(declaration.Symbol()) // not the instance's own copy of the member
+	if declaration := symbol.ValueDeclaration; declaration != nil {
+		switch {
+		case declaration.Kind == ast.KindPropertyDeclaration:
+			symbol = c.tc.GetMergedSymbol(declaration.Symbol()) // not the instance's own copy of the member
+		case declaration.Kind == ast.KindGetAccessor || declaration.Kind == ast.KindSetAccessor:
+			return c.accessorType(symbol)
+		case ast.IsParameterPropertyDeclaration(declaration, declaration.Parent):
+			c.functionOf(declaration.Parent) // the constructor's signature types the parameter, and so the field
+			symbol = declaration.Symbol()
+		}
 	}
 	if n, ok := c.symbols[symbol]; ok {
 		return n, true
@@ -194,6 +202,26 @@ func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
 	}
 	n, ok := c.symbols[symbol]
 	return n, ok
+}
+
+// accessorType returns the numeric type of an accessor property: its getter's result
+// type, or without a getter, its setter's parameter type.
+func (c *pass) accessorType(symbol *ast.Symbol) (Numeric, bool) {
+	for _, declaration := range symbol.Declarations {
+		if declaration.Kind == ast.KindGetAccessor && declaration.Body() != nil || isAbstractAccessor(declaration, ast.KindGetAccessor) {
+			if result := c.functionOf(declaration).result; result != nil {
+				return *result, true
+			}
+		}
+	}
+	for _, declaration := range symbol.Declarations {
+		if declaration.Kind == ast.KindSetAccessor {
+			if params := c.functionOf(declaration).params; len(params) == 1 && params[0] != nil {
+				return *params[0], true
+			}
+		}
+	}
+	return 0, false
 }
 
 // target returns the symbol node refers to, following imports and re-exports to what they name.

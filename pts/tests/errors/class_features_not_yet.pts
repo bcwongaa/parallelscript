@@ -1,4 +1,4 @@
-// Class features that arrive with later tasks (M2.2d, M2.6, M3.2) are reported.
+// Class features that arrive with later tasks (M2.2d2, M2.6, M3.2) or aren't supported yet are reported.
 class Base {
   n = 1;
 }
@@ -7,9 +7,9 @@ class Statics {
   static count = 0;
 }
 class Accessors {
-  get size(): number {
-    return 1;
-  }
+  accessor size = 1;
+  other = 1;
+  more = 2;
 }
 class Private {
   #secret = 1;
@@ -17,9 +17,9 @@ class Private {
 class Generic<T> {
   value: number = 1;
 }
-abstract class Shape { abstract area: number; }
+class Hidden { #helper(): number { return 1; } }
 class Properties {
-  constructor(public x: number) {}
+  constructor(...rest: number[]) {}
 }
 class Optional {
   maybe?: number;
@@ -36,11 +36,11 @@ function local() {
 
 // error: class_features_not_yet.pts:5:23 - error PTS1001: extending `Error` is not supported yet
 // error: class_features_not_yet.pts:7:10 - error PTS1001: static members are not supported yet
-// error: class_features_not_yet.pts:10:7 - error PTS1001: getters and setters are not supported yet
+// error: class_features_not_yet.pts:10:12 - error PTS1001: auto-accessors (`accessor`) are not supported yet
 // error: class_features_not_yet.pts:15:3 - error PTS1001: `#private` members are not supported yet
 // error: class_features_not_yet.pts:17:7 - error PTS1001: generic classes are not supported yet
-// error: class_features_not_yet.pts:20:33 - error PTS1001: abstract fields are not supported yet
-// error: class_features_not_yet.pts:22:15 - error PTS1001: parameter properties are not supported yet
+// error: class_features_not_yet.pts:20:16 - error PTS1001: `#private` members are not supported yet
+// error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters are not supported yet
 // error: class_features_not_yet.pts:25:3 - error PTS1001: optional fields are not supported yet
 // error: class_features_not_yet.pts:32:13 - error PTS1001: methods as values are not supported yet
 // error: class_features_not_yet.pts:34:3 - error PTS1001: classes inside functions or blocks are not supported yet

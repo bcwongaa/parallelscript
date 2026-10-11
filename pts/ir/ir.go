@@ -105,14 +105,22 @@ func (c *Class) Field(name string) *Field {
 	return nil
 }
 
-// Method returns the method name of an instance, its class's own or the nearest
-// ancestor's, or nil.
-func (c *Class) Method(name string) *Method {
+// Method returns the method of the given name and kind an instance has, its class's own
+// or the nearest ancestor's, or nil.
+func (c *Class) Method(name string, kind MethodKind) *Method {
 	for ; c != nil; c = c.Parent {
-		for _, method := range c.Methods {
-			if method.Name == name {
-				return method
-			}
+		if method := c.OwnMethod(name, kind); method != nil {
+			return method
+		}
+	}
+	return nil
+}
+
+// OwnMethod returns the method of the given name and kind that c declares, or nil.
+func (c *Class) OwnMethod(name string, kind MethodKind) *Method {
+	for _, method := range c.Methods {
+		if method.Name == name && method.Kind == kind {
+			return method
 		}
 	}
 	return nil
@@ -137,14 +145,27 @@ type Field struct {
 	Class *Class
 }
 
-// Method is a method a class declares. A virtual method, which is abstract, overridden
-// or an override, is called through the method table of its instance's class, unless
-// the caller knows which implementation runs; others are called directly.
+// MethodKind tells methods from the getters and setters of accessor properties.
+type MethodKind int
+
+const (
+	Plain MethodKind = iota
+	Getter
+	Setter
+)
+
+// Method is a method a class declares, or an accessor property's getter or setter. A
+// virtual method, which is abstract, overridden or an override, is called through the
+// method table of its instance's class, unless the caller knows which implementation
+// runs; others are called directly. A class implements an abstract field's getter and
+// setter with its field.
 type Method struct {
 	Name      string
+	Kind      MethodKind
 	Class     *Class
-	Func      *Func   // takes `this` (an instance of Class) first; its Body is nil if the method is abstract
-	Overrides *Method // the nearest ancestor's method of the same name, or nil
+	Func      *Func   // takes `this` (an instance of Class) first; it has no Body if Abstract
+	Overrides *Method // the nearest ancestor's method of the same name and kind, or nil
+	Abstract  bool
 	Virtual   bool
 }
 

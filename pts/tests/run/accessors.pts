@@ -1,0 +1,108 @@
+// Getters and setters, overridable like methods; abstract fields; parameter properties
+// and the private, protected and readonly modifiers.
+class Temperature {
+  private celsius = 0;
+  constructor(readonly label: string) {}
+  get fahrenheit(): number {
+    return this.celsius * 9 / 5 + 32;
+  }
+  set fahrenheit(value: number) {
+    this.celsius = (value - 32) * 5 / 9;
+  }
+  get kelvin(): number {
+    return this.celsius + 273.15;
+  }
+}
+
+const t = new Temperature("room");
+t.fahrenheit = 212;
+console.log(t.fahrenheit, t.kelvin, t);
+t.fahrenheit += 18;
+console.log(t.fahrenheit, t.fahrenheit++, ++t.fahrenheit, (t.fahrenheit = 50), t.label);
+
+// An accessor's instance is evaluated once, before the value.
+let evaluated = "";
+function pick(): Temperature {
+  evaluated += "pick ";
+  return t;
+}
+function degrees(): number {
+  evaluated += "degrees ";
+  return 77;
+}
+pick().fahrenheit = degrees();
+pick().fahrenheit -= 9;
+console.log(evaluated, t.fahrenheit);
+
+// Accessors are inherited and overridden; calls through the base dispatch.
+class Box {
+  constructor(public width: number, protected height: number) {}
+  get area(): number {
+    return this.width * this.height;
+  }
+  get name(): string {
+    return "box";
+  }
+  set name(value: string) {
+    this.width = value.length;
+  }
+  describe(): string {
+    return this.name + " " + this.area;
+  }
+}
+
+class Square extends Box {
+  sides = 4;
+  constructor(side: number, public color: string) {
+    super(side, side);
+  }
+  override get area(): number {
+    return super.area + 1;
+  }
+}
+
+class Named extends Box {
+  get name(): string {
+    return "named";
+  }
+  set name(value: string) {
+    this.height = value.length;
+  }
+}
+
+const boxes: Box = new Square(3, "red");
+const named: Box = new Named(1, 1);
+named.name = "four";
+console.log(boxes.describe(), boxes.area, named.describe(), named.area, boxes, named);
+
+// Abstract fields: subclasses implement them with a field or accessors.
+abstract class Shape {
+  abstract readonly kind: string;
+  abstract size: number;
+  report(): string {
+    this.size += 1;
+    return this.kind + " of size " + this.size;
+  }
+}
+
+class Circle extends Shape {
+  kind = "circle";
+  size = 2;
+}
+
+class Grid extends Shape {
+  cells = 9;
+  get kind(): string {
+    return "grid";
+  }
+  get size(): number {
+    return this.cells;
+  }
+  set size(value: number) {
+    this.cells = value * 10;
+  }
+}
+
+const shapes: Shape = new Circle();
+const grid: Shape = new Grid();
+console.log(shapes.report(), shapes.report(), grid.report(), shapes.kind, grid.size, shapes, grid);

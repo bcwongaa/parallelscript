@@ -38,11 +38,23 @@ func (pr *printer) class(c *Class) {
 		members = append(members, field.Name+": "+field.Type.String())
 	}
 	for _, method := range c.Methods {
-		if method.Virtual {
+		switch {
+		case method.Kind == Getter:
+			members = append(members, virtual(method)+"get "+method.Name)
+		case method.Kind == Setter:
+			members = append(members, virtual(method)+"set "+method.Name)
+		case method.Virtual:
 			members = append(members, "virtual "+method.Name)
 		}
 	}
 	fmt.Fprintf(&pr.out, "%s { %s }\n", header, strings.Join(members, "; "))
+}
+
+func virtual(method *Method) string {
+	if method.Virtual {
+		return "virtual "
+	}
+	return ""
 }
 
 type printer struct {
@@ -209,7 +221,7 @@ func FormatExpr(expr Expr) string {
 	case *Call:
 		return e.Func.QualifiedName() + formatArgs(e.Args)
 	case *VirtualCall:
-		return "virtual " + e.Method.Class.Name + "." + e.Method.Name + formatArgs(e.Args)
+		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
 	case *ClassCast:
 		return "(" + FormatExpr(e.X) + " as " + e.To.Name + ")"
 	case *InstanceOf:

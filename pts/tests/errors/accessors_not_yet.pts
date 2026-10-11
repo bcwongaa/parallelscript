@@ -1,0 +1,33 @@
+// Accessor properties that aren't supported yet are reported: a getter and setter of
+// different types, reading a property that has only a setter, and an override that
+// changes an accessor's type.
+class Gauge {
+  level: int = 0;
+  get value(): int {
+    return this.level;
+  }
+  set value(v: number) {
+    this.level = v as int;
+  }
+  set target(v: number) {
+    this.level = v as int;
+  }
+}
+const gauge = new Gauge();
+gauge.value = 3;
+console.log(gauge.target);
+
+class Meter {
+  get reading(): number {
+    return 1;
+  }
+}
+class Wider extends Meter {
+  get reading(): int {
+    return 2;
+  }
+}
+
+// error: accessors_not_yet.pts:17:1 - error PTS1001: a property whose getter and setter differ in class or type is not supported yet
+// error: accessors_not_yet.pts:18:13 - error PTS1001: reading a property that has no getter is not supported yet
+// error: accessors_not_yet.pts:26:7 - error PTS1001: overriding `Meter.reading` with other parameter or result types is not supported yet

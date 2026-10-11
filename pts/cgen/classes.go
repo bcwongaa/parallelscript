@@ -88,7 +88,7 @@ func (e *emitter) methodTableStruct(class *ir.Class) {
 		for i, param := range params {
 			params[i] = strings.TrimSuffix(param, " ")
 		}
-		e.line(1, "%s(*%s)(%s);", e.declarator(slot.Func.Result), cIdentifier(slot.Name), strings.Join(params, ", "))
+		e.line(1, "%s(*%s)(%s);", e.declarator(slot.Func.Result), slotName(slot), strings.Join(params, ", "))
 	}
 	e.line(0, "} pts_vtable_%s;", name)
 }
@@ -196,8 +196,8 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 		e.line(1, "},")
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, slot := range owner.Slots() {
-				if implementation := class.Method(slot.Name); implementation.Func.Body != nil {
-					e.line(1, ".%s%s = %s,", basePath(class, owner), cIdentifier(slot.Name), e.funcNames[implementation.Func])
+				if implementation := class.Method(slot.Name, slot.Kind); !implementation.Abstract {
+					e.line(1, ".%s%s = %s,", basePath(class, owner), slotName(slot), e.funcNames[implementation.Func])
 				}
 			}
 		}
@@ -206,15 +206,27 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 	}
 }
 
-// implementedMethods are the methods a class declares that have a body.
+// implementedMethods are the methods a class declares that aren't abstract, accessors excluded.
 func implementedMethods(class *ir.Class) []*ir.Method {
 	var methods []*ir.Method
 	for _, method := range class.Methods {
-		if method.Func.Body != nil {
+		if method.Kind == ir.Plain && !method.Abstract {
 			methods = append(methods, method)
 		}
 	}
 	return methods
+}
+
+// slotName is the member of a method table that holds a slot: the method's name, or for
+// a getter or setter, pts_get_<name> or pts_set_<name>.
+func slotName(slot *ir.Method) string {
+	switch slot.Kind {
+	case ir.Getter:
+		return "pts_get_" + prefixedIdentifier(slot.Name)
+	case ir.Setter:
+		return "pts_set_" + prefixedIdentifier(slot.Name)
+	}
+	return cIdentifier(slot.Name)
 }
 
 // fieldPath is the C member designator of a field in an instance of class: its name,
@@ -299,7 +311,7 @@ func (e *emitter) virtualCall(call *ir.VirtualCall) string {
 		args[0] = receiver
 	}
 	header := args[0] + "->" + basePath(slot.Class, root(slot.Class)) + "pts_header"
-	function := fmt.Sprintf("((const pts_vtable_%s *)%s)->%s", e.classNames[slot.Class], header, cIdentifier(slot.Name))
+	function := fmt.Sprintf("((const pts_vtable_%s *)%s)->%s", e.classNames[slot.Class], header, slotName(slot))
 	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
 }
 

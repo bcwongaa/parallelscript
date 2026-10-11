@@ -125,7 +125,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	l := &lowerer{program: program.TS, checker: c, info: info,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{},
-		this: map[*ir.Func]*ir.Local{}}
+		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -180,24 +180,26 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 }
 
 type lowerer struct {
-	program     *compiler.Program
-	checker     *checker.Checker
-	info        *check.Info
-	locals      map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
-	owners      map[*ir.Local]*ir.Func    // the function each local belongs to
-	moduleScope map[*ir.Local]bool        // the locals declared at module scope, which functions and other modules may use
-	funcs       map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
-	classes     map[*ast.Symbol]*ir.Class // every class declaration, made before any code is lowered; nil if it failed
-	classNodes  map[*ir.Class]*ast.Node   // the declaration of each class
-	classList   []*ir.Class               // the classes that didn't fail, superclasses first
-	fields      map[*ast.Node]*ir.Field   // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
-	methods     map[*ast.Node]*ir.Method  // their methods, by method declaration; nil if it failed
-	this        map[*ir.Func]*ir.Local    // the `this` parameter of each constructor and method
-	lowered     []*ir.Func                // the functions whose bodies are lowered
-	bodies      []*ast.Node               // function declarations whose bodies are still to be lowered
-	function    *ir.Func                  // the function being lowered
-	targets     []jumpTarget              // the statements around the current one that break or continue can leave
-	errors      []diagnostic.Diagnostic
+	program            *compiler.Program
+	checker            *checker.Checker
+	info               *check.Info
+	locals             map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
+	owners             map[*ir.Local]*ir.Func    // the function each local belongs to
+	moduleScope        map[*ir.Local]bool        // the locals declared at module scope, which functions and other modules may use
+	funcs              map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
+	classes            map[*ast.Symbol]*ir.Class // every class declaration, made before any code is lowered; nil if it failed
+	classNodes         map[*ir.Class]*ast.Node   // the declaration of each class
+	classList          []*ir.Class               // the classes that didn't fail, superclasses first
+	fields             map[*ast.Node]*ir.Field   // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
+	methods            map[*ast.Node]*ir.Method  // their methods, getters and setters, by declaration; nil if it failed
+	methodDeclarations map[*ir.Method]*ast.Node  // the declaration of each method (for an accessor that implements an abstract field, the field's)
+	abstractFields     map[*ast.Node]property    // the getter and setter of each abstract field, by declaration
+	this               map[*ir.Func]*ir.Local    // the `this` parameter of each constructor and method
+	lowered            []*ir.Func                // the functions whose bodies are lowered
+	bodies             []*ast.Node               // function declarations whose bodies are still to be lowered
+	function           *ir.Func                  // the function being lowered
+	targets            []jumpTarget              // the statements around the current one that break or continue can leave
+	errors             []diagnostic.Diagnostic
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -733,9 +735,6 @@ func (l *lowerer) parameter(node *ast.Node) *ir.Local {
 	case param.QuestionToken != nil || param.Initializer != nil:
 		l.notSupportedYet(node, "optional parameters are")
 		return nil
-	case ast.IsParameterPropertyDeclaration(node, node.Parent):
-		l.notSupportedYet(node, "parameter properties are")
-		return nil
 	}
 	symbol := l.checker.GetSymbolAtLocation(param.Name())
 	t := l.numericType(param.Name())
@@ -1146,6 +1145,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if field := l.fields[member]; field != nil {
 		return l.fieldAccess(node, field)
 	}
+	if accessors, ok := l.accessorProperty(node); ok {
+		return l.propertyRead(node, accessors)
+	}
 	if _, ok := l.methods[member]; ok {
 		l.notSupportedYet(node, "methods as values are")
 		return nil
@@ -1308,7 +1310,10 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
 		return nil
 	}
-	return target.store(value, false)
+	if target.local != nil || target.field != nil {
+		return target.store(value, false) // C stores a field after evaluating the instance
+	}
+	return l.withObject(target, func(target place) ir.Expr { return target.store(value, false) })
 }
 
 // compoundAssignment lowers `x op= value` to `x = x op value`, and `x ||= value` to
@@ -1357,47 +1362,93 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	})
 }
 
-// place is what an assignment stores to: a local, or a field of an instance.
+// place is what an assignment stores to: a local, a field of an instance, or an
+// accessor property of one, whose setter stores (and getter reads).
 type place struct {
-	local  *ir.Local
-	object ir.Expr // the instance, for a field
-	field  *ir.Field
+	local     *ir.Local
+	object    ir.Expr // the instance, for a field or accessor property
+	field     *ir.Field
+	accessors property
+	current   *ir.Local // an accessor property's value, read once by readAndStore
+	stored    *ir.Local // the value stored in an accessor property, which is the assignment's value
+	at        *ast.Node // the assignment's target, for an accessor property
+	l         *lowerer
 }
 
 func (p place) valueType() ir.Type {
-	if p.local != nil {
+	switch {
+	case p.local != nil:
 		return p.local.Type
+	case p.field != nil:
+		return p.field.Type
 	}
-	return p.field.Type
+	return p.stored.Type
 }
 
 func (p place) read() ir.Expr {
-	if p.local != nil {
+	switch {
+	case p.local != nil:
 		return &ir.LocalRef{Local: p.local}
+	case p.field != nil:
+		return &ir.FieldRef{X: p.object, Field: p.field}
 	}
-	return &ir.FieldRef{X: p.object, Field: p.field}
+	return &ir.LocalRef{Local: p.current}
 }
 
 func (p place) store(value ir.Expr, postfix bool) ir.Expr {
-	if p.local != nil {
+	switch {
+	case p.local != nil:
 		return &ir.Assign{Local: p.local, Value: value, Postfix: postfix}
+	case p.field != nil:
+		return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
 	}
-	return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
+	result := p.stored
+	if postfix {
+		result = p.current
+	}
+	set := p.l.callMethod(p.object, nil, p.accessors.setter, []ir.Expr{&ir.LocalRef{Local: p.stored}})
+	return &ir.Bind{Local: p.stored, Value: value, In: &ir.Sequence{X: set, Y: &ir.LocalRef{Local: result}}}
 }
 
 // readAndStore builds, with build, an expression that both reads and stores target.
-// A field's instance is evaluated once, first, as in JS: if it isn't a local, build gets
-// a place whose instance is a temporary holding it.
+// A field's or property's instance is evaluated once, first, as in JS: if it isn't a
+// local, build gets a place whose instance is a temporary holding it. A property's
+// getter runs once, before build's expression.
 func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr {
-	if target.local != nil || isPure(target.object) {
+	if target.local != nil {
+		return build(target)
+	}
+	return l.withObject(target, func(target place) ir.Expr {
+		if target.field != nil {
+			return build(target)
+		}
+		if target.accessors.getter == nil {
+			l.notSupportedYet(target.at, "reading a property that has no getter is")
+			return nil
+		}
+		target.current = l.newLocal("current", target.valueType())
+		result := build(target)
+		if result == nil {
+			return nil
+		}
+		return &ir.Bind{Local: target.current, Value: l.callMethod(target.object, nil, target.accessors.getter, nil), In: result}
+	})
+}
+
+// withObject builds, with build, an expression that uses the instance of a field or
+// property place, evaluated once into a temporary first unless it is a local.
+func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
+	if isPure(target.object) {
 		return build(target)
 	}
 	object := l.newLocal("object", target.object.Type())
-	result := build(place{object: &ir.LocalRef{Local: object}, field: target.field})
+	instance := target.object
+	target.object = &ir.LocalRef{Local: object}
+	result := build(target)
 	if result == nil {
 		return nil
 	}
-	return &ir.Bind{Local: object, Value: target.object, In: result}
+	return &ir.Bind{Local: object, Value: instance, In: result}
 }
 
 // assignmentTarget returns the place an assignment stores to, or reports the target
@@ -1415,9 +1466,38 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
 		}
+		if accessors, ok := l.accessorProperty(node); ok {
+			return l.propertyPlace(node, accessors)
+		}
 	}
 	l.notSupportedYet(node, "assigning to `"+scanner.GetTextOfNode(node)+"` is")
 	return place{}, false
+}
+
+// propertyPlace makes the place of an assignment to an accessor property, or reports
+// why it can't and returns false.
+func (l *lowerer) propertyPlace(node *ast.Node, accessors property) (place, bool) {
+	getter, setter := accessors.getter, accessors.setter
+	switch {
+	case setter == nil:
+		l.notSupportedYet(node, "assigning to a property that has no setter is")
+		return place{}, false
+	case getter != nil && (getter.Class != setter.Class || getter.Func.Result != setter.Func.Params[1].Type):
+		l.notSupportedYet(node, "a property whose getter and setter differ in class or type is")
+		return place{}, false
+	case ast.IsOptionalChain(node):
+		l.notSupportedYet(node, "optional chaining `?.` is")
+		return place{}, false
+	}
+	object := l.expression(node.Expression())
+	if object == nil {
+		return place{}, false
+	}
+	if object = l.asInstanceOf(object, setter.Class, node.Expression()); object == nil {
+		return place{}, false
+	}
+	stored := l.newLocal("value", setter.Func.Params[1].Type)
+	return place{object: object, accessors: accessors, stored: stored, at: node, l: l}, true
 }
 
 // newLocal makes a local of the function being lowered.

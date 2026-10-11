@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/scanner"
@@ -110,6 +109,9 @@ func (l *lowerer) declareClassMembers() {
 }
 
 func (l *lowerer) declareMembers(node *ast.Node, class *ir.Class) {
+	for _, param := range parameterProperties(node) {
+		l.declareField(param, class)
+	}
 	for _, member := range node.Members() {
 		if member.Kind == ast.KindSemicolonClassElement {
 			continue
@@ -120,19 +122,13 @@ func (l *lowerer) declareMembers(node *ast.Node, class *ir.Class) {
 		}
 		switch member.Kind {
 		case ast.KindPropertyDeclaration:
-			l.declareField(member, class)
-		case ast.KindMethodDeclaration:
-			abstract := ast.HasSyntacticModifier(member, ast.ModifierFlagsAbstract)
-			if member.Body() == nil && !abstract {
-				continue // an overload signature
+			if ast.HasSyntacticModifier(member, ast.ModifierFlagsAbstract) {
+				l.declareAbstractField(member, class)
+			} else {
+				l.declareField(member, class)
 			}
-			name := member.Name().Text()
-			var method *ir.Method
-			if fn := l.declareFunction(member, class.Name+"."+name, class); fn != nil {
-				method = &ir.Method{Name: name, Class: class, Func: fn, Virtual: abstract}
-				class.Methods = append(class.Methods, method)
-			}
-			l.methods[member] = method
+		case ast.KindMethodDeclaration, ast.KindGetAccessor, ast.KindSetAccessor:
+			l.declareMethod(member, class)
 		case ast.KindConstructor:
 			if member.Body() != nil {
 				class.Constructor = l.declareFunction(member, class.Name+".constructor", class)
@@ -142,6 +138,77 @@ func (l *lowerer) declareMembers(node *ast.Node, class *ir.Class) {
 	if !hasConstructor(node) {
 		class.Constructor = l.implicitConstructor(node, class)
 	}
+}
+
+// methodKinds are the kinds of methods each declaration declares.
+var methodKinds = map[ast.Kind]ir.MethodKind{ast.KindMethodDeclaration: ir.Plain, ast.KindGetAccessor: ir.Getter, ast.KindSetAccessor: ir.Setter}
+
+// accessorPrefixes start the names of getters' and setters' functions: "Point.get_x".
+var accessorPrefixes = map[ir.MethodKind]string{ir.Getter: "get_", ir.Setter: "set_"}
+
+// declareMethod makes the method a method, getter or setter declaration declares.
+func (l *lowerer) declareMethod(member *ast.Node, class *ir.Class) {
+	abstract := ast.HasSyntacticModifier(member, ast.ModifierFlagsAbstract)
+	if member.Body() == nil && !abstract {
+		return // an overload signature
+	}
+	name, kind := member.Name().Text(), methodKinds[member.Kind]
+	var method *ir.Method
+	if fn := l.declareFunction(member, class.Name+"."+accessorPrefixes[kind]+name, class); fn != nil {
+		method = &ir.Method{Name: name, Kind: kind, Class: class, Func: fn, Abstract: abstract, Virtual: abstract}
+		l.addMethod(method, member)
+	}
+	l.methods[member] = method
+}
+
+// addMethod adds a method to its class; declaration is where errors about it go.
+func (l *lowerer) addMethod(method *ir.Method, declaration *ast.Node) {
+	method.Class.Methods = append(method.Class.Methods, method)
+	l.methodDeclarations[method] = declaration
+}
+
+// declareAbstractField makes an abstract field's getter and, unless it is readonly, its
+// setter: abstract methods that subclasses implement with a field or accessors.
+func (l *lowerer) declareAbstractField(member *ast.Node, class *ir.Class) {
+	t := l.bindingType(l.declaredSymbol(member), member.Name())
+	if t == nil {
+		return
+	}
+	name, pos := member.Name().Text(), l.pos(member)
+	var accessors property
+	accessors.getter = &ir.Method{Name: name, Kind: ir.Getter, Class: class, Func: l.newMethod(class, class.Name+".get_"+name, pos), Abstract: true, Virtual: true}
+	accessors.getter.Func.Result = t
+	l.addMethod(accessors.getter, member)
+	if !ast.HasSyntacticModifier(member, ast.ModifierFlagsReadonly) {
+		accessors.setter = &ir.Method{Name: name, Kind: ir.Setter, Class: class, Func: l.newSetter(class, class.Name+".set_"+name, t, pos), Abstract: true, Virtual: true}
+		l.addMethod(accessors.setter, member)
+	}
+	l.abstractFields[member] = accessors
+}
+
+// newSetter makes an IR function of class taking `this` and a value of type t, with no body yet.
+func (l *lowerer) newSetter(class *ir.Class, name string, t ir.Type, pos ir.Pos) *ir.Func {
+	setter := l.newMethod(class, name, pos)
+	value := &ir.Local{Name: "value", Type: t}
+	l.owners[value] = setter
+	setter.Params = append(setter.Params, value)
+	return setter
+}
+
+// parameterProperties are the parameters of a class's constructor that declare fields
+// (`constructor(public x: number)`).
+func parameterProperties(node *ast.Node) []*ast.Node {
+	var params []*ast.Node
+	for _, member := range node.Members() {
+		if member.Kind == ast.KindConstructor && member.Body() != nil {
+			for _, param := range member.Parameters() {
+				if ast.IsParameterPropertyDeclaration(param, member) {
+					params = append(params, param)
+				}
+			}
+		}
+	}
+	return params
 }
 
 // declareField makes the field a property declaration declares. A field that redeclares
@@ -163,8 +230,33 @@ func (l *lowerer) declareField(member *ast.Node, class *ir.Class) {
 	}
 	if field.Class == class {
 		class.Fields = append(class.Fields, field)
+		l.implementAbstractAccessors(field, member)
 	}
 	l.fields[member] = field
+}
+
+// implementAbstractAccessors implements, with a field a class declares, the abstract
+// getter and setter of the same name it inherits (from an abstract field, say).
+func (l *lowerer) implementAbstractAccessors(field *ir.Field, member *ast.Node) {
+	class, pos := field.Class, l.pos(member)
+	if class.Parent == nil {
+		return
+	}
+	if class.Parent.Method(field.Name, ir.Getter) != nil {
+		getter := l.newMethod(class, class.Name+".get_"+field.Name, pos)
+		getter.Result = field.Type
+		read := &ir.FieldRef{X: &ir.LocalRef{Local: getter.Params[0]}, Field: field}
+		getter.Body = &ir.Block{At: pos, Stmts: []ir.Stmt{&ir.Return{At: pos, Value: read}}}
+		l.addMethod(&ir.Method{Name: field.Name, Kind: ir.Getter, Class: class, Func: getter}, member)
+		l.lowered = append(l.lowered, getter)
+	}
+	if class.Parent.Method(field.Name, ir.Setter) != nil {
+		setter := l.newSetter(class, class.Name+".set_"+field.Name, field.Type, pos)
+		store := &ir.SetField{X: &ir.LocalRef{Local: setter.Params[0]}, Field: field, Value: &ir.LocalRef{Local: setter.Params[1]}}
+		setter.Body = &ir.Block{At: pos, Stmts: []ir.Stmt{&ir.ExprStmt{At: pos, X: store}}}
+		l.addMethod(&ir.Method{Name: field.Name, Kind: ir.Setter, Class: class, Func: setter}, member)
+		l.lowered = append(l.lowered, setter)
+	}
 }
 
 // implicitConstructor is the constructor of a class that doesn't declare one: it takes
@@ -193,17 +285,13 @@ func (l *lowerer) linkOverrides(class *ir.Class) {
 	if class.Parent == nil {
 		return
 	}
-	for _, member := range l.classNodes[class].Members() {
-		method := l.methods[member]
-		if method == nil {
-			continue
-		}
-		overridden := class.Parent.Method(method.Name)
+	for _, method := range class.Methods {
+		overridden := class.Parent.Method(method.Name, method.Kind)
 		switch {
 		case overridden == nil:
 			continue
 		case !sameSignature(method.Func, overridden.Func):
-			l.notSupportedYet(member.Name(), fmt.Sprintf("overriding `%s.%s` with other parameter or result types is", overridden.Class.Name, method.Name))
+			l.notSupportedYet(nameOf(l.methodDeclarations[method]), fmt.Sprintf("overriding `%s.%s` with other parameter or result types is", overridden.Class.Name, method.Name))
 			continue
 		}
 		method.Overrides = overridden
@@ -229,8 +317,6 @@ func sameSignature(a *ir.Func, b *ir.Func) bool {
 // unsupportedMember says which class member isn't supported yet ("getters are"), or "".
 func unsupportedMember(member *ast.Node) string {
 	switch {
-	case member.Kind == ast.KindGetAccessor || member.Kind == ast.KindSetAccessor:
-		return "getters and setters are"
 	case member.Kind == ast.KindClassStaticBlockDeclaration || ast.IsStatic(member):
 		return "static members are"
 	case member.Kind == ast.KindIndexSignature:
@@ -241,8 +327,8 @@ func unsupportedMember(member *ast.Node) string {
 		return "members with computed or quoted names are"
 	case member.Kind == ast.KindPropertyDeclaration && member.PostfixToken() != nil:
 		return "optional fields are"
-	case member.Kind == ast.KindPropertyDeclaration && ast.HasSyntacticModifier(member, ast.ModifierFlagsAbstract):
-		return "abstract fields are"
+	case ast.HasSyntacticModifier(member, ast.ModifierFlagsAccessor):
+		return "auto-accessors (`accessor`) are"
 	}
 	return ""
 }
@@ -282,7 +368,7 @@ func (l *lowerer) classBodies(node *ast.Node) {
 		l.inFunction(class.Constructor, func() { class.Constructor.Body = l.constructorBody(node, class) })
 	}
 	for _, member := range node.Members() {
-		if member.Kind == ast.KindMethodDeclaration && member.Body() != nil {
+		if _, isMethod := methodKinds[member.Kind]; isMethod && member.Body() != nil {
 			if method := l.methods[member]; method != nil {
 				l.inFunction(method.Func, func() { method.Func.Body = l.block(member.Body(), member.Body().Statements()) })
 			}
@@ -319,13 +405,20 @@ func (l *lowerer) constructorBody(node *ast.Node, class *ir.Class) *ir.Block {
 	return &ir.Block{At: class.Constructor.Pos, Stmts: stmts}
 }
 
-// fieldInitializers give each field the class declares, in declaration order, its
-// initialiser's value, or the zero value of its type ("" for a string, undefined for a
-// dynamic value; numbers and booleans are zero already), as `let x: T;` does. A
-// `declare` redeclaration of an inherited field changes nothing.
+// fieldInitializers store each parameter property's argument in its field, then give
+// each field the class declares, in declaration order, its initialiser's value, or the
+// zero value of its type ("" for a string, undefined for a dynamic value; numbers and
+// booleans are zero already), as `let x: T;` does. A `declare` redeclaration of an
+// inherited field changes nothing.
 func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 	var stmts []ir.Stmt
 	this := &ir.LocalRef{Local: l.this[class.Constructor]}
+	for _, param := range parameterProperties(node) {
+		field, arg := l.fields[param], l.locals[l.checker.GetSymbolAtLocation(param.Name())]
+		if field != nil && arg != nil {
+			stmts = append(stmts, &ir.ExprStmt{At: l.pos(param), X: &ir.SetField{X: this, Field: field, Value: &ir.LocalRef{Local: arg}}})
+		}
+	}
 	for _, member := range node.Members() {
 		field := l.fields[member]
 		if member.Kind != ast.KindPropertyDeclaration || field == nil {
@@ -444,34 +537,38 @@ func (l *lowerer) currentClass() *ir.Class {
 	return l.this[l.function].Type.(*ir.Class)
 }
 
-// instanceMethodCall lowers `o.m(args)` for a method m of a class of the program: a
-// direct call when no subclass of o's static class overrides m, so that the
-// implementation is known, and otherwise a call through the instance's method table.
+// instanceMethodCall lowers `o.m(args)` for a method m of a class of the program.
 func (l *lowerer) instanceMethodCall(call *ast.CallExpression, method *ir.Method) ir.Expr {
 	receiverNode := call.Expression.Expression()
 	if receiverNode.Kind == ast.KindSuperKeyword {
 		return l.superMethodCall(call, method)
 	}
 	receiver := l.expression(receiverNode)
-	if receiver == nil {
+	args := l.arguments(call.Arguments.Nodes, method.Func.Params[1:])
+	if receiver == nil || args == nil {
 		return nil
 	}
+	return l.callMethod(receiver, receiverNode, method, args)
+}
+
+// callMethod calls a method (or getter or setter) on receiver, an instance of its class
+// or one the checker narrowed (at receiverNode) to its class: directly when no subclass
+// of the receiver's static class overrides the method, so that the implementation is
+// known, and otherwise through the instance's method table.
+func (l *lowerer) callMethod(receiver ir.Expr, receiverNode *ast.Node, method *ir.Method, args []ir.Expr) ir.Expr {
 	if receiver = l.asInstanceOf(receiver, method.Class, receiverNode); receiver == nil {
 		return nil
 	}
-	args := l.arguments(call.Arguments.Nodes, method.Func.Params[1:])
-	if args == nil {
-		return nil
-	}
 	static := receiver.Type().(*ir.Class)
-	if method.Virtual && (method.Func.Body == nil || l.isOverriddenBelow(static, method.Name)) {
+	if method.Virtual && (method.Abstract || l.isOverriddenBelow(static, method)) {
 		receiver = upcast(receiver, method.Slot().Class)
 		return &ir.VirtualCall{Method: method, Args: append([]ir.Expr{receiver}, args...)}
 	}
 	return &ir.Call{Func: method.Func, Args: append([]ir.Expr{upcast(receiver, method.Class)}, args...)}
 }
 
-// superMethodCall lowers `super.m(args)`: the implementation the parent has, called on `this`.
+// superMethodCall lowers `super.m(args)`: the implementation the parent has, called on `this`
+// (`super.p` for a getter p is propertyRead's).
 func (l *lowerer) superMethodCall(call *ast.CallExpression, method *ir.Method) ir.Expr {
 	args := l.arguments(call.Arguments.Nodes, method.Func.Params[1:])
 	if args == nil {
@@ -481,14 +578,64 @@ func (l *lowerer) superMethodCall(call *ast.CallExpression, method *ir.Method) i
 	return &ir.Call{Func: method.Func, Args: append([]ir.Expr{this}, args...)}
 }
 
-// isOverriddenBelow reports whether a subclass of class declares a method named name.
-func (l *lowerer) isOverriddenBelow(class *ir.Class, name string) bool {
+// isOverriddenBelow reports whether a subclass of class overrides method.
+func (l *lowerer) isOverriddenBelow(class *ir.Class, method *ir.Method) bool {
 	for _, other := range l.classList {
-		if other != class && other.IsSubclassOf(class) && slices.ContainsFunc(other.Methods, func(m *ir.Method) bool { return m.Name == name }) {
+		if other != class && other.IsSubclassOf(class) && other.OwnMethod(method.Name, method.Kind) != nil {
 			return true
 		}
 	}
 	return false
+}
+
+// property is an accessor property of a class: its getter and setter, either of which
+// may be missing.
+type property struct {
+	getter, setter *ir.Method
+}
+
+// accessorProperty returns the accessor property a property access names, if it names
+// one: through getter and setter declarations, or an abstract field. ok is false for
+// anything else; a property whose getter or setter failed has nil there (reported).
+func (l *lowerer) accessorProperty(node *ast.Node) (accessors property, ok bool) {
+	symbol := l.checker.GetSymbolAtLocation(node)
+	if symbol == nil {
+		return property{}, false
+	}
+	for _, declaration := range symbol.Declarations {
+		switch declaration.Kind {
+		case ast.KindGetAccessor:
+			accessors.getter, ok = l.methods[declaration], true
+		case ast.KindSetAccessor:
+			accessors.setter, ok = l.methods[declaration], true
+		case ast.KindPropertyDeclaration:
+			if abstract, isAbstract := l.abstractFields[declaration]; isAbstract {
+				accessors, ok = abstract, true
+			}
+		}
+	}
+	return accessors, ok
+}
+
+// propertyRead lowers `o.p` for an accessor property p: a call of its getter.
+func (l *lowerer) propertyRead(node *ast.Node, accessors property) ir.Expr {
+	if accessors.getter == nil {
+		l.notSupportedYet(node, "reading a property that has no getter is")
+		return nil
+	}
+	if ast.IsOptionalChain(node) {
+		l.notSupportedYet(node, "optional chaining `?.` is")
+		return nil
+	}
+	if node.Expression().Kind == ast.KindSuperKeyword { // the parent's getter, called on `this`
+		this := upcast(&ir.LocalRef{Local: l.this[l.function]}, accessors.getter.Class)
+		return &ir.Call{Func: accessors.getter.Func, Args: []ir.Expr{this}}
+	}
+	object := l.expression(node.Expression())
+	if object == nil {
+		return nil
+	}
+	return l.callMethod(object, node.Expression(), accessors.getter, nil)
 }
 
 // fieldAccess lowers `o.f` for a field f of a class of the program.
