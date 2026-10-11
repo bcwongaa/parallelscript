@@ -103,13 +103,18 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Structural dispatch, cached at run time, so that class instances and objects of other shapes can be used where an object type is expected, when fields provide its properties.
 - [x] **M2.3b2 Methods and accessors through interfaces** (aa0d4a74c) (split from M2.3b by D-034).
   - Interfaces with methods, and class methods and accessors that provide an interface's methods and properties, through per-(concrete type, interface) tables built at compile time where possible.
-- [ ] **M2.4 Arrays.**
-  - Growable arrays that are race-safe per brief §2.5 (capacity inside the buffer).
+- [ ] **M2.4a Array basics** (split from M2.4 by D-037).
+  - Growable arrays of any element type that are race-safe per brief §2.5 (capacity inside the buffer).
+  - Literals, `length` (and truncating it), `a[i]` reads (D-015's rule) and writes, `push`, `pop`, `shift`, `unshift`, `for…of` over arrays and `Array.isArray`.
+  - `console.log` of arrays as Node prints them.
+- [ ] **M2.4b Array methods without callbacks** (split from M2.4 by D-037).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
-  - The core methods: `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` (stable, with JS default comparison), `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flat`, `flatMap`, `fill`, `Array.from` and `Array.isArray`.
+  - `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` without a comparator (stable, with JS default comparison), `flat`, `fill` and `Array.from` of an array.
 - [ ] **M2.5 Collections and closures.**
   - `Map` and `Set` with insertion order and SameValueZero semantics.
   - Closures with explicit environments in the IR; arrow functions; `this` binding rules for methods and arrows.
+- [ ] **M2.4c Array methods with callbacks** (split from M2.4 by D-037; after M2.5, which brings function values).
+  - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
 - [ ] **M2.6 Generics and syntax.**
   - Generics via monomorphization.
   - Enums (numeric and string); destructuring of objects and arrays with defaults; spread and rest in calls, arrays and objects.
