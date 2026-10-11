@@ -17,13 +17,13 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 
 | File | What changed and why | Task | Commit |
 |---|---|---|---|
-| `.gitattributes` | `*.ps linguist-language=TypeScript`, so GitHub highlights `.ps` sources as TS (D-O01). | M0.1 | 3441372 |
-| `internal/tspath/extension.go` | `ExtensionPs`; `.ps` added to the TS extension lists (its own group in the grouped lists), `ExtensionIsTs`, `extensionsToRemove` and `GetDeclarationEmitExtensionForPath` (D-001). | M0.3 | 139254b |
-| `internal/core/core.go` | `GetScriptKindFromFileName`: `.ps` → `ScriptKindTS`. | M0.3 | 139254b |
-| `internal/ast/utilities.go` | `GetImpliedNodeFormatForFile`: `.ps` like `.ts`. | M0.3 | 139254b |
-| `internal/module/resolver.go` | `tryAddingExtensions`: explicit `.ps` case; extensionless imports try `.ps` first via the new untraced `tryPsExtension`; `extensionIsOk` accepts `.ps` (D-001). | M0.3 | 139254b |
-| `internal/module/util.go` | `GetResolutionDiagnostic` allows `.ps`; `TryGetJSExtensionForFile` maps `.ps` → `.js`. | M0.3 | 139254b |
-| `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.ps'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b |
+| `.gitattributes` | `*.pts linguist-language=TypeScript`, so GitHub highlights `.pts` sources as TS (D-O01). | M0.1 | 3441372 |
+| `internal/tspath/extension.go` | `ExtensionPts`; `.pts` added to the TS extension lists (its own group in the grouped lists), `ExtensionIsTs`, `extensionsToRemove` and `GetDeclarationEmitExtensionForPath` (D-001). | M0.3 | 139254b |
+| `internal/core/core.go` | `GetScriptKindFromFileName`: `.pts` → `ScriptKindTS`. | M0.3 | 139254b |
+| `internal/ast/utilities.go` | `GetImpliedNodeFormatForFile`: `.pts` like `.ts`. | M0.3 | 139254b |
+| `internal/module/resolver.go` | `tryAddingExtensions`: explicit `.pts` case; extensionless imports try `.pts` first via the new untraced `tryPtsExtension`; `extensionIsOk` accepts `.pts` (D-001). | M0.3 | 139254b |
+| `internal/module/util.go` | `GetResolutionDiagnostic` allows `.pts`; `TryGetJSExtensionForFile` maps `.pts` → `.js`. | M0.3 | 139254b |
+| `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.pts'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b |
 | `.gitmodules` | Pinned submodules `pts/third_party/bdwgc` (v8.2.12) and `pts/third_party/libuv` (v1.53.0). Upstream's `_submodules/TypeScript` entry is unchanged. | M0.4 | 26476ae |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 

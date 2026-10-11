@@ -1,7 +1,7 @@
 # ParallelScript master plan
 
 The ordered task list. Each session takes the **first unchecked task**, finishes it end to end (code, tests, docs, commit, push), ticks it with the short hash (`- [x] M1.2 … (abc1234)`), and moves on. A task too big for one session gets split in place (`M1.2a`, `M1.2b`) without dropping scope.
-Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECISIONS.md`. Source files use the `.ps` extension (owner override).
+Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECISIONS.md`. Source files use the `.pts` extension (owner override).
 
 ## Milestone checklist (run when a milestone's last task is ticked)
 1. The full test suite is green locally (`make test`, or the commands in `PROGRESS.md`), and CI is green on the pushed commit (`gh run list -L 1`).
@@ -14,16 +14,16 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 
 ## M0: Bootstrap
 - [x] **M0.1 Memory files.** (3441372)
-  - Write `docs/SPEC.md` from brief §2, with `.ps` substituted, and an empty "Implementation notes" section for later.
+  - Write `docs/SPEC.md` from brief §2, with `.pts` substituted, and an empty "Implementation notes" section for later.
   - Write `docs/DECISIONS.md`: the brief §2 decisions marked *locked by owner*, then `docs/agent/PREDECISIONS.md` entries as D-O01…
   - Write `docs/FORK.md` (the upstream-modification ledger), `PROGRESS.md` and `docs/BENCHMARKS.md` (empty table skeleton).
-  - Add `*.ps linguist-language=TypeScript` to `.gitattributes`.
+  - Add `*.pts linguist-language=TypeScript` to `.gitattributes`.
 - [x] **M0.2 Study notes.** (cc6210c)
   - Write `docs/agent/NOTES-tsgo.md`: where the scanner, parser, binder, checker, program, compiler host and LSP live; how to build a `Program` from Go and get a typed AST plus a checker; how upstream tests run, and which suites cover the parser and checker.
   - Write `docs/agent/NOTES-rayon.md`: `join`, Chase–Lev deques, adaptive splitting, and how a thread that starts work helps while it waits.
   - Keep both short and practical.
-- [x] **M0.3 `.ps` in the front end.** (139254b)
-  - Make the minimal `// PTS:`-marked edits so `.ps` files parse and check as TS and resolve in imports (the `tspath` extension lists, script kind, the module resolver).
+- [x] **M0.3 `.pts` in the front end.** (139254b)
+  - Make the minimal `// PTS:`-marked edits so `.pts` files parse and check as TS and resolve in imports (the `tspath` extension lists, script kind, the module resolver).
   - Add a Go test.
   - Make sure upstream tests for the touched packages still pass.
 - [x] **M0.4 Runtime skeleton.** (26476ae)
@@ -35,8 +35,8 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Write the `cmd/pts` CLI with `build`, `run` and `emit-c`.
   - `console.log("Hello, ParallelScript")` must compile and run end to end.
 - [ ] **M0.6 Test harness.**
-  - `pts/tests/run/*.ps` with `.out` files or an `// expect:` block.
-  - `pts/tests/errors/*.ps` with expected message substrings.
+  - `pts/tests/run/*.pts` with `.out` files or an `// expect:` block.
+  - `pts/tests/errors/*.pts` with expected message substrings.
   - A Go test runner (`go test ./pts/tests/...`) that runs these in parallel.
   - A Node differential runner (decision O04) that runs automatically for plain-TS tests, which are marked in a header comment or detected automatically.
   - A Makefile with `build`, `test`, `test-diff` and `bench`.
@@ -98,7 +98,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Optional chaining, `??`, `==` with JS semantics.
 - [ ] **M3.2 Exceptions.**
   - `throw`, `try`, `catch` and `finally` with JS semantics, where any value can be thrown.
-  - `Error` and its subclasses with `message`, `name` and `cause`; `stack` with `.ps` lines (a best effort now).
+  - `Error` and its subclasses with `message`, `name` and `cause`; `stack` with `.pts` lines (a best effort now).
   - Uncaught exceptions are handled per decision O07.
 - [ ] **M3.3 `any`, `unknown` and casts.**
   - `any` as a checked dynamic value using descriptors, with runtime checks at typed boundaries.
@@ -162,7 +162,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:
   - a parallel file hasher
   - a JSON API server that uses every core
-  - a mandelbrot renderer that writes a PNG (with a zlib-free stored-deflate PNG writer in `.ps`)
+  - a mandelbrot renderer that writes a PNG (with a zlib-free stored-deflate PNG writer in `.pts`)
   - a parallel log analyzer
 - [ ] **M6.5 README.** A README that sells the language: the pitch, install and build steps, these examples, benchmark tables, and the documented differences from TypeScript.
 - [ ] **M6.6 Milestone M6.**
@@ -170,7 +170,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 ## M7: Editor support
 - [ ] **M7.1 `pts lsp`.** The forked language server via `pts lsp`, with the PTS prelude and lib declarations resolved and PTS semantic diagnostics published alongside tsc's.
 - [ ] **M7.2 VS Code extension.**
-  - `pts/editors/vscode`, starting the server for `.ps` files.
+  - `pts/editors/vscode`, starting the server for `.pts` files.
   - A TextMate grammar, extended from TS, with `parallel` highlighted.
   - Package a `.vsix` with `vsce`; installation instructions in the README.
 - [ ] **M7.3 Usability pass.**

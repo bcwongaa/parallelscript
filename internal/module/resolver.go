@@ -1529,15 +1529,15 @@ func (r *resolutionState) tryAddingExtensions(extensionless string, extensions e
 			}
 		}
 		return continueSearching()
-	case tspath.ExtensionPs: // PTS: an explicit `./x.ps` import
+	case tspath.ExtensionPts: // PTS: an explicit `./x.pts` import
 		if extensions&extensionsTypeScript != 0 {
-			return r.tryExtension(tspath.ExtensionPs, extensionless, true)
+			return r.tryExtension(tspath.ExtensionPts, extensionless, true)
 		}
 		return continueSearching()
 	case tspath.ExtensionTs, tspath.ExtensionDts, tspath.ExtensionJs, "":
-		// PTS: an extensionless import tries `.ps` before the TS extensions (D-O01).
+		// PTS: an extensionless import tries `.pts` before the TS extensions (D-O01).
 		if originalExtension == "" && extensions&extensionsTypeScript != 0 {
-			if resolved := r.tryPsExtension(extensionless); !resolved.shouldContinueSearching() {
+			if resolved := r.tryPtsExtension(extensionless); !resolved.shouldContinueSearching() {
 				return resolved
 			}
 		}
@@ -1590,13 +1590,13 @@ func (r *resolutionState) tryExtension(extension string, extensionless string, r
 	return continueSearching()
 }
 
-// PTS: like tryExtension(".ps", ...), but a miss is not traced, so resolution traces of
-// programs without `.ps` files stay identical to upstream's (D-001).
-func (r *resolutionState) tryPsExtension(extensionless string) *resolved {
-	if len(r.compilerOptions.ModuleSuffixes) == 0 && !r.resolver.host.FS().FileExists(extensionless+tspath.ExtensionPs) {
+// PTS: like tryExtension(".pts", ...), but a miss is not traced, so resolution traces of
+// programs without `.pts` files stay identical to upstream's (D-001).
+func (r *resolutionState) tryPtsExtension(extensionless string) *resolved {
+	if len(r.compilerOptions.ModuleSuffixes) == 0 && !r.resolver.host.FS().FileExists(extensionless+tspath.ExtensionPts) {
 		return continueSearching()
 	}
-	return r.tryExtension(tspath.ExtensionPs, extensionless, false)
+	return r.tryExtension(tspath.ExtensionPts, extensionless, false)
 }
 
 func (r *resolutionState) tryFile(fileName string) (string, bool) {
@@ -2089,7 +2089,7 @@ func matchesPatternWithTrailer(target string, name string) bool {
 /** True if `extension` is one of the supported `extensions`. */
 func extensionIsOk(extensions extensions, extension string) bool {
 	return (extensions&extensionsJavaScript != 0 && (extension == tspath.ExtensionJs || extension == tspath.ExtensionJsx || extension == tspath.ExtensionMjs || extension == tspath.ExtensionCjs) ||
-		(extensions&extensionsTypeScript != 0 && (extension == tspath.ExtensionTs || extension == tspath.ExtensionTsx || extension == tspath.ExtensionMts || extension == tspath.ExtensionCts || extension == tspath.ExtensionPs /* PTS */)) ||
+		(extensions&extensionsTypeScript != 0 && (extension == tspath.ExtensionTs || extension == tspath.ExtensionTsx || extension == tspath.ExtensionMts || extension == tspath.ExtensionCts || extension == tspath.ExtensionPts /* PTS */)) ||
 		(extensions&extensionsDeclaration != 0 && (extension == tspath.ExtensionDts || extension == tspath.ExtensionDmts || extension == tspath.ExtensionDcts)) ||
 		(extensions&extensionsJson != 0 && extension == tspath.ExtensionJson))
 }

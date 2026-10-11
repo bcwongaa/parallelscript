@@ -29,7 +29,7 @@ cfg := &tsoptions.ParsedCommandLine{ParsedConfig: &core.ParsedOptions{
 // With one: tsoptions.GetParsedCommandLineOfConfigFile(path, &core.CompilerOptions{}, nil, host, nil)
 p := compiler.NewProgram(compiler.ProgramOptions{Config: cfg, Host: host})
 
-sf  := p.GetSourceFile("/p/a.ps")                // or p.GetSourceFiles()
+sf  := p.GetSourceFile("/p/a.pts")                // or p.GetSourceFiles()
 syn := p.GetSyntacticDiagnostics(ctx, sf)        // nil file = all files
 sem := p.GetSemanticDiagnostics(ctx, sf)         // also GetBindDiagnostics, GetGlobalDiagnostics, GetProgramDiagnostics
 
@@ -49,12 +49,12 @@ sym := c.GetSymbolAtLocation(node)               // also GetTypeOfSymbol, Symbol
 - `fileloader.go:157` (`processAllProgramFiles`) loads `GetDefaultLibFileName` when `Lib == nil`, else `GetLibFileName` names from `LibMap` (unknown names are silently ignored).
 - **Prelude options:** the simplest is appending `prelude.d.ts` to the root `FileNames` (no upstream edit). Making it a real lib means registering it in `LibMap` plus the generated files. `LibReplacement` and `Types`/`typeRoots` are lighter alternatives.
 
-## 4. File extensions (everything `.ps` touches)
+## 4. File extensions (everything `.pts` touches)
 
-- `internal/tspath/extension.go`: a new `ExtensionPs`; add it to `SupportedTSExtensions` (tsconfig `include`), `SupportedTSExtensionsFlat` (`HasTSFileExtension`), `SupportedTSImplementationExtensions`, `supportedTSExtensionsForExtractExtension`, `AllSupportedExtensions`, `ExtensionIsTs`, `GetDeclarationEmitExtensionForPath`, and **`extensionsToRemove`** (drives `RemoveFileExtension`, `TryGetExtensionFromPath` and `ChangeExtension`; without it emit could overwrite the source).
-- `internal/core/core.go` `GetScriptKindFromFileName`: `.ps` → `ScriptKindTS`; otherwise the parser panics.
+- `internal/tspath/extension.go`: a new `ExtensionPts`; add it to `SupportedTSExtensions` (tsconfig `include`), `SupportedTSExtensionsFlat` (`HasTSFileExtension`), `SupportedTSImplementationExtensions`, `supportedTSExtensionsForExtractExtension`, `AllSupportedExtensions`, `ExtensionIsTs`, `GetDeclarationEmitExtensionForPath`, and **`extensionsToRemove`** (drives `RemoveFileExtension`, `TryGetExtensionFromPath` and `ChangeExtension`; without it emit could overwrite the source).
+- `internal/core/core.go` `GetScriptKindFromFileName`: `.pts` → `ScriptKindTS`; otherwise the parser panics.
 - Root files: `tsoptions.GetSupportedExtensions` → `getFileNamesFromConfigSpecs` → `vfsmatch.ReadDirectory`. `extraFileExtensions` is forced empty (tsconfigparsing.go:1676), so editing `tspath` is the way. `fileLoader.isSupportedExtension` (fileloader.go:378) rejects unknown extensions.
-- Imports, `internal/module/resolver.go`: `tryAddingExtensions` (try `.ps` first for extensionless imports, D-O01), `extensionIsOk`, `extensions.Array()` in types.go; `module/util.go` `GetResolutionDiagnostic` and `TryGetJSExtensionForFile`.
+- Imports, `internal/module/resolver.go`: `tryAddingExtensions` (try `.pts` first for extensionless imports, D-O01), `extensionIsOk`, `extensions.Array()` in types.go; `module/util.go` `GetResolutionDiagnostic` and `TryGetJSExtensionForFile`.
 - Also: `outputpaths.GetOutputExtension`, `ast.GetImpliedNodeFormatForFile`, the LSP watch glob (`lsp/server.go:86`), `ls/string_completions.go`, `modulespecifiers`. The LSP ones can wait for M7.
 
 ## 5. AST basics

@@ -8,8 +8,8 @@ Order of authority: `docs/BRIEF.md` (with the owner overrides in `CLAUDE.md`) โ
 
 ## 1. Syntax and files
 
-- Source files use the extension **`.ps`** (D-O01, an owner override of the brief's `.pts`). Declaration files stay `.d.ts`.
-- `import "./x"` tries `x.ps` first, then the usual TypeScript extensions.
+- Source files use the extension **`.pts`** (D-O01, the brief's original extension, confirmed by the owner after a brief switch to `.ps`). Declaration files stay `.d.ts`.
+- `import "./x"` tries `x.pts` first, then the usual TypeScript extensions.
 - The syntax is TypeScript plus one contextual keyword, `parallel` (ยง5).
 - `parallel` is a keyword only in two positions; everywhere else it is an ordinary identifier, so existing code that uses it as a name keeps working:
   - `parallel <expression>` in expression position;
@@ -18,7 +18,7 @@ Order of authority: `docs/BRIEF.md` (with the owner overrides in `CLAUDE.md`) โ
 
 ### 1.1 The compatibility principle
 
-A `.ps` program that uses only plain TypeScript features (no `parallel`, no integer types, no `pts:` imports) must print exactly what Node prints when run as TypeScript, except where this spec documents a difference (ยง8).
+A `.pts` program that uses only plain TypeScript features (no `parallel`, no integer types, no `pts:` imports) must print exactly what Node prints when run as TypeScript, except where this spec documents a difference (ยง8).
 
 ---
 
@@ -42,7 +42,7 @@ A `.ps` program that uses only plain TypeScript features (no `parallel`, no inte
 
 **The IR** is structured (not SSA) and fully typed. Boxing, closure environments, monomorphized generics, and async functions and generators (already turned into state machines) are all explicit in it. C is never emitted directly from the TS AST.
 
-**Generated C** is readable and carries `#line` directives pointing at the `.ps` source, so gdb, lldb and crash backtraces show ParallelScript lines.
+**Generated C** is readable and carries `#line` directives pointing at the `.pts` source, so gdb, lldb and crash backtraces show ParallelScript lines.
 
 **The runtime** is written in C (`pts/runtime/`) and statically linked. Its dependencies (bdwgc, libuv, later PCRE2) are vendored as pinned submodules and built from source. `pts build` output depends only on libc.
 
@@ -52,9 +52,9 @@ A `.ps` program that uses only plain TypeScript features (no `parallel`, no inte
 
 | Command | Purpose |
 |---|---|
-| `pts build file.ps -o out` | Build a native binary |
-| `pts run file.ps` | Build and run |
-| `pts emit-c file.ps` | Print the generated C, for debugging |
+| `pts build file.pts -o out` | Build a native binary |
+| `pts run file.pts` | Build and run |
+| `pts emit-c file.pts` | Print the generated C, for debugging |
 | `pts test` | Test runner (later) |
 | `pts lsp` | Language server (milestone 7) |
 
@@ -138,9 +138,9 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
 ### 3.9 Exceptions
 
 - `throw`, `try`, `catch` and `finally` have JS semantics, and any value can be thrown.
-- `Error` and its subclasses have `message`, `name`, `cause` and `stack`. `stack` shows `.ps` file and line numbers (it may arrive in a later milestone).
+- `Error` and its subclasses have `message`, `name`, `cause` and `stack`. `stack` shows `.pts` file and line numbers (it may arrive in a later milestone).
 - **Uncaught errors** (D-O07):
-  - An uncaught exception prints `Uncaught <Name>: <message>` (and, once available, a `.ps` stack trace) to stderr, then exits with code 1.
+  - An uncaught exception prints `Uncaught <Name>: <message>` (and, once available, a `.pts` stack trace) to stderr, then exits with code 1.
   - An unhandled rejection behaves like Node's default `--unhandled-rejections=throw`.
   - Until exceptions land in M3, runtime errors (such as integer division by zero) abort with the same message format and exit code 1.
 

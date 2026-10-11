@@ -9,7 +9,7 @@ Input::
 tsgo -p ./tsconfig.json
 ExitStatus:: DiagnosticsPresent_OutputsGenerated
 Output::
-[91merror[0m[90m TS6231: [0mCould not resolve the path '/home/src/workspaces/project/src/doesNotExist' with the extensions: '.ts', '.tsx', '.d.ts', '.cts', '.d.cts', '.mts', '.d.mts', '.ps'.
+[91merror[0m[90m TS6231: [0mCould not resolve the path '/home/src/workspaces/project/src/doesNotExist' with the extensions: '.ts', '.tsx', '.d.ts', '.cts', '.d.cts', '.mts', '.d.mts', '.pts'.
   The file is in the program because:
     Part of 'files' list in tsconfig.json
   [96mtsconfig.json[0m:[93m2[0m:[93m31[0m - File is matched by 'files' list specified here.

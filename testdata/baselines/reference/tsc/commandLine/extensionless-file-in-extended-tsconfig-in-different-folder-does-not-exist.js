@@ -15,7 +15,7 @@ export const abc = 10;
 tsgo -p ./src/tsconfig.json
 ExitStatus:: DiagnosticsPresent_OutputsGenerated
 Output::
-[91merror[0m[90m TS6231: [0mCould not resolve the path '/home/src/workspaces/project/oops' with the extensions: '.ts', '.tsx', '.d.ts', '.cts', '.d.cts', '.mts', '.d.mts', '.ps'.
+[91merror[0m[90m TS6231: [0mCould not resolve the path '/home/src/workspaces/project/oops' with the extensions: '.ts', '.tsx', '.d.ts', '.cts', '.d.cts', '.mts', '.d.mts', '.pts'.
   The file is in the program because:
     Part of 'files' list in tsconfig.json
 
