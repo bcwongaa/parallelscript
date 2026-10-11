@@ -17,8 +17,8 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 
 | File | What changed and why | Task | Commit |
 |---|---|---|---|
-| `.gitattributes` | `*.ps linguist-language=TypeScript`, so GitHub highlights `.ps` sources as TS (D-O01). | M0.1 | (this commit) |
-| `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | (this commit) |
+| `.gitattributes` | `*.ps linguist-language=TypeScript`, so GitHub highlights `.ps` sources as TS (D-O01). | M0.1 | 3441372 |
+| `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 
 ## Disabled or limited upstream workflows
 

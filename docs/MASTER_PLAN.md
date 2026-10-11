@@ -13,7 +13,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 ---
 
 ## M0: Bootstrap
-- [ ] **M0.1 Memory files.**
+- [x] **M0.1 Memory files.** (3441372)
   - Write `docs/SPEC.md` from brief §2, with `.ps` substituted, and an empty "Implementation notes" section for later.
   - Write `docs/DECISIONS.md`: the brief §2 decisions marked *locked by owner*, then `docs/agent/PREDECISIONS.md` entries as D-O01…
   - Write `docs/FORK.md` (the upstream-modification ledger), `PROGRESS.md` and `docs/BENCHMARKS.md` (empty table skeleton).
