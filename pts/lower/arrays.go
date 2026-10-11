@@ -462,15 +462,15 @@ func (l *lowerer) isArrayStatic(callee *ast.Node, name string) bool {
 	return object.Kind == ast.KindIdentifier && object.Text() == "Array" && l.isDeclaredInDefaultLib(l.target(object))
 }
 
-// arrayIsArray lowers Array.isArray(x), which the static type of x decides.
+// arrayIsArray lowers Array.isArray(x), which the static type of x decides, unless x is
+// a dynamic value or a union, whose value does (D-076).
 func (l *lowerer) arrayIsArray(call *ast.CallExpression) ir.Expr {
 	x := l.valueExpression(call.Arguments.Nodes[0])
 	if x == nil {
 		return nil
 	}
-	if x.Type() == ir.Value {
-		l.notSupportedYet(call.Arguments.Nodes[0], "`Array.isArray` of a dynamic value is")
-		return nil
+	if x.Type() == ir.Value || isUnion(x.Type()) {
+		return &ir.CallBuiltin{Builtin: ir.ValueIsArray, Args: []ir.Expr{box(x)}}
 	}
 	return discard(x, &ir.BoolConst{Value: isArray(x.Type())})
 }

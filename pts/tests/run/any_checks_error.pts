@@ -36,7 +36,7 @@ console.log(point);
 // 255
 // u8 that fits ok
 // union -> TypeError: Expected null | number, got string
-// write a string to x -> TypeError: Cannot set property x of Point to a string: the property's type doesn't allow it
+// write a string to x -> TypeError: Cannot set property x of Point: expected number, got string
 // add a property -> TypeError: Cannot add property z, object is not extensible
 // read from null -> TypeError: Cannot read properties of null (reading 'x')
 // write to a string -> TypeError: Cannot create property 'size' on string

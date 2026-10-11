@@ -1259,6 +1259,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.DynamicGet:           "pts_dynamic_get",
 	ir.DynamicSet:           "pts_dynamic_set",
 	ir.DynamicHas:           "pts_dynamic_has",
+	ir.ValueIsArray:         "pts_value_is_array",
 	ir.ValueAdd:             "pts_value_add",
 	ir.ValueToNumber:        "pts_value_to_number",
 	ir.ValueLess:            "pts_value_less",

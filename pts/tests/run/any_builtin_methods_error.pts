@@ -1,0 +1,43 @@
+// Where builtin methods through `any` differ from JS (D-076): an array takes only values
+// of its declared element type, whichever method writes them; the arrays that map,
+// concat and flat make are `any[]`, which convert back to typed arrays by copying; and
+// what isn't supported yet throws.
+class Item {
+  constructor(public name: string) {}
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const numbers: number[] = [1, 2, 3];
+const loose: any = numbers;
+attempt("push a string", () => { loose.push(4, "5"); });
+attempt("unshift null", () => { loose.unshift(null); });
+attempt("fill with a string", () => { loose.fill("x"); });
+attempt("splice in a boolean", () => { loose.splice(0, 1, true); });
+const items: Item[] = [new Item("a")];
+const looseItems: any = items;
+attempt("push an Item", () => { looseItems.push(new Item("b")); });
+attempt("push data", () => { looseItems.push({ name: "c" }); });
+console.log(numbers, items.map((item) => item.name));
+const doubled: number[] = loose.map((n: number) => n * 2);
+console.log(doubled, doubled === loose, (loose.filter((n: number) => n > 1) as number[]).length);
+attempt("a radix", () => { const n: any = 255; n.toString(16); });
+attempt("a missing string method", () => { const s: any = "abc"; s.localeCompare("b"); });
+
+// no-diff: JS writes whatever it is given; radixes and localeCompare come with M3.5
+// expect:
+// push a string -> TypeError: Cannot set property element of Array: expected number, got string
+// unshift null -> TypeError: Cannot set property element of Array: expected number, got null
+// fill with a string -> TypeError: Cannot set property element of Array: expected number, got string
+// splice in a boolean -> TypeError: Cannot set property element of Array: expected number, got boolean
+// push an Item ok
+// push data -> TypeError: Cannot set property element of Array: expected Item, got Object
+// [ 1, 2, 3 ] [ 'a', 'b' ]
+// [ 2, 4, 6 ] false 2
+// a radix -> TypeError: toString with a radix through `any` is not supported yet
+// a missing string method -> TypeError: s.localeCompare is not a function

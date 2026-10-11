@@ -1,12 +1,11 @@
-// What `any` doesn't do yet (D-070, D-075): `Array.isArray` of a dynamic value (M3.3c3),
-// classes as values, and `new` of a dynamic value.
+// What `any` doesn't do yet (D-070, D-076): classes as values, and `new` of a dynamic
+// value.
 class Point {}
 const data: any = [1, 2];
-console.log(Array.isArray(data));
+console.log(data);
 const maker: any = Point;
 const made = new maker();
 console.log(made);
 
-// error: any_not_yet.pts:5:27 - error PTS1001: `Array.isArray` of a dynamic value is not supported yet
 // error: any_not_yet.pts:6:20 - error PTS1001: using `Point` is not supported yet
 // error: any_not_yet.pts:7:14 - error PTS1001: `new` of anything but a class of the program is not supported yet

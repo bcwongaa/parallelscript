@@ -2,7 +2,7 @@
  * Operations on dynamic values (`any`, D-070): property reads and writes found at run
  * time through the descriptors, and the operators with JavaScript's conversions.
  */
-#include "pts.h"
+#include "dynamic_internal.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -334,8 +334,7 @@ static bool fits_integer(pts_value value, pts_field_kind kind) {
   }
 }
 
-/* How messages name a value of the wrong type: by typeof, or an object by its class's name (Point, Array, Object). */
-static const char *value_description(pts_value value) {
+const char *pts_value_description(pts_value value) {
   if (value == PTS_VALUE_NULL) {
     return "null";
   }
@@ -363,7 +362,7 @@ pts_value pts_storable(pts_field_kind kind, const pts_check *check, pts_value va
     pts_value converted;
     if (!pts_value_try_convert(value, check, &converted)) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s: expected %s, got %s", name, type->name, check->name,
-                    value_description(value));
+                    pts_value_description(value));
     }
     return converted;
   }
@@ -381,8 +380,8 @@ pts_value pts_storable(pts_field_kind kind, const pts_check *check, pts_value va
     fits = fits_integer(value, kind);
   }
   if (!fits) {
-    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s to a %s: the property's type doesn't allow it", name, type->name,
-                  pts_value_typeof(value)->bytes);
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s: expected %s, got %s", name, type->name,
+                  pts_check_declared(kind, NULL)->name, pts_value_description(value));
   }
   return value;
 }
@@ -539,8 +538,7 @@ pts_value pts_adapter_call(pts_closure *self, uint32_t argc, const pts_value *ar
   return pts_dynamic_call_closure(((pts_adapter *)self)->function, argc, argv);
 }
 
-/* How many elements an array or tuple spread into arguments has: TypeError for anything else. */
-static size_t spread_length(pts_value value) {
+size_t pts_spread_length(pts_value value) {
   if (pts_value_is_object(value)) {
     const pts_object *object = pts_value_as_object(value);
     if (object->type->kind == PTS_KIND_ARRAY) {
@@ -550,11 +548,10 @@ static size_t spread_length(pts_value value) {
       return object->type->field_count;
     }
   }
-  pts_throw_new(&pts_type_builtin_TypeError, "Cannot spread %s into the arguments of a call through `any`", value_description(value));
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot spread %s into the arguments of a call through `any`", pts_value_description(value));
 }
 
-/* Element i of an array or tuple spread into arguments. */
-static pts_value spread_element(pts_value value, size_t i) {
+pts_value pts_spread_element(pts_value value, size_t i) {
   const pts_object *object = pts_value_as_object(value);
   if (object->type->kind == PTS_KIND_ARRAY) {
     return pts_array_element((const pts_array *)object, (double)i);
@@ -567,7 +564,7 @@ static pts_value spread_element(pts_value value, size_t i) {
 static pts_value *spread_arguments(uint32_t argc, const pts_value *argv, const bool *spread, uint32_t *count) {
   size_t total = 0;
   for (uint32_t i = 0; i < argc; i++) {
-    total += spread[i] ? spread_length(argv[i]) : 1;
+    total += spread[i] ? pts_spread_length(argv[i]) : 1;
   }
   if (total > UINT32_MAX) {
     pts_throw_new(&pts_type_builtin_RangeError, "Maximum call stack size exceeded");
@@ -582,8 +579,8 @@ static pts_value *spread_arguments(uint32_t argc, const pts_value *argv, const b
       values[n++] = argv[i];
       continue;
     }
-    for (size_t j = 0, length = spread_length(argv[i]); j < length && n < total; j++) { /* an array may have shrunk */
-      values[n++] = spread_element(argv[i], j);
+    for (size_t j = 0, length = pts_spread_length(argv[i]); j < length && n < total; j++) { /* an array may have shrunk */
+      values[n++] = pts_spread_element(argv[i], j);
     }
   }
   *count = (uint32_t)n;
@@ -609,8 +606,11 @@ pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_str
                   key_text(key, buffer));
   }
   if (!pts_value_is_object(object) || pts_value_as_object(object)->type->kind != PTS_KIND_OBJECT) {
-    pts_throw_new(&pts_type_builtin_TypeError, "Calling the method %s of a %s through `any` is not supported yet", key_text(key, buffer),
-                  value_description(object));
+    pts_value result;
+    if (pts_builtin_method_call(object, key_text(key, buffer), argc, argv, &result)) {
+      return result;
+    }
+    return pts_dynamic_call(pts_dynamic_get(object, key), text, argc, argv); /* a hash-map object's function, say */
   }
   pts_object *target = pts_value_as_object(object);
   int64_t method = method_named(target->type, key_text(key, buffer), PTS_METHOD);
@@ -624,7 +624,7 @@ pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_str
 /* ---------------------------------------------------------------- boundaries */
 
 void pts_throw_type_mismatch(pts_value value, const char *expected) {
-  pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s", expected, value_description(value));
+  pts_throw_new(&pts_type_builtin_TypeError, "Expected %s, got %s", expected, pts_value_description(value));
 }
 
 /* Whether value is an integer that the integer type of the given kind holds exactly: a boundary from `any` requires it. */

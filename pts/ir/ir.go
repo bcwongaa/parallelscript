@@ -1009,6 +1009,8 @@ var (
 	// dynamic value: the object, the key, the source text, then the arguments.
 	DynamicCall       = &Builtin{Name: "call", Result: Value}
 	DynamicCallMethod = &Builtin{Name: "call method", Result: Value}
+	// ValueIsArray is Array.isArray of a dynamic value or a union (D-076).
+	ValueIsArray = &Builtin{Name: "Array.isArray", Params: []Type{Value}, Result: Bool}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
 	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}

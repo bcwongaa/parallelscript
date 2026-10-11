@@ -748,9 +748,11 @@ pts_value pts_dynamic_get(pts_value object, pts_value key);
 pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value);
 /* `key in object`: TypeError if object isn't one. */
 bool pts_dynamic_has(pts_value object, pts_value key);
+/* Array.isArray of a dynamic value: an array or a tuple. */
+bool pts_value_is_array(pts_value value);
 /* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
-/* object[key](argv…) through `any`: a method, or a property that holds a function. */
+/* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
 pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);

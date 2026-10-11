@@ -1,0 +1,39 @@
+// Builtin methods of strings, numbers, booleans, arrays and functions called through `any`
+// (D-076), with JS's argument conversions and errors.
+const text: any = "  Hello, World  ";
+console.log(text.trim().toUpperCase(), text.indexOf("o"), text.slice(2, 7), text.split(","), text.includes("World"));
+console.log(text.trim().padStart(16, "*"), "ab".repeat(3), text.charAt(2), text.at(-3), text.charCodeAt(2), "a-b-c".split("-", 2));
+console.log(text.startsWith("  H"), text.endsWith("  "), text.substring(5), (text.charAt(9) as any).concat(1, true, null), text.split());
+const n: any = 42;
+const b: any = true;
+console.log(n.toString(), b.toString(), n.valueOf() + 1);
+const data: any = [3, 1, 2];
+data.push(10, 20);
+console.log(data, data.length, data.pop(), data.shift(), data);
+console.log(data.map((x: number) => x * 2), data.filter((x: number) => x > 1), data.reduce((a: number, b: number) => a + b, 0));
+console.log(data.join("|"), data.indexOf(2), data.includes(10), data.find((x: number) => x > 1), data.findIndex((x: number) => x > 5));
+console.log(data.some((x: number) => x > 5), data.every((x: number) => x > 0), data.slice(1), data.concat([7, 8], 9));
+const inner: any = [4];
+const pair: any = [1, 2];
+const nested: any = [pair, [3, inner]];
+data.sort((a: number, b: number) => b - a);
+console.log(data, data.reverse(), nested.flat(), data.flatMap((x: number) => [x, x]));
+data.forEach((x: number, i: number) => console.log(i, x));
+console.log(data.splice(1, 1, 99, 98), data, data.at(-1), data.lastIndexOf(99), data.reduce((a: number, b: number) => a + b));
+const f: any = (a: number, b: number) => a + b;
+console.log(f.call(null, 1, 2), f.apply(null, [3, 4]), f.bind(null, 10)(5), f.bind(null, 1));
+console.log(Array.isArray(data), Array.isArray(text));
+const record: any = { greet: (name: string) => "hi " + name, n: 1 };
+console.log(record.greet("x"));
+function attempt(what: string, g: () => void): void {
+  try { g(); console.log(what, "ok"); } catch (e: any) { console.log(what, "->", e.message); }
+}
+attempt("unknown", () => text.nope());
+const empty: any = [];
+attempt("reduce empty", () => empty.reduce((a: any, b: any) => a + b));
+attempt("map(5)", () => data.map(5));
+attempt("map(null)", () => data.map(null));
+attempt("forEach(string)", () => data.forEach("s"));
+attempt("every(object)", () => data.every({}));
+attempt("sort(5)", () => data.sort(5));
+attempt("sort(object)", () => data.sort({}));

@@ -760,3 +760,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering:** `prepareDynamicTarget` accepts function types and object types with methods (`dynamic.go`); spread arguments in `dynamicCall`.
 - **C:** `checks.go`: `canonicalFuncType`, `signatureCheck`, function-type checks with `.adapt`, methods in interfaces' checks; `dynamic_calls.go`: `adapterFunctionTypes`, `adapterDefinition`, `adapterMaker`, `dynamicMethodMembers` (dynamic entry and signature); closures' `.signature` (`closures.go`); `callBuiltin` and `spreadArgs` for spread arguments of dynamic calls (`cgen.go`); `emitter.dynamicCalls` folded into `declaredTypes`.
 - **Tests:** `pts/tests/run/any_functions.pts` (against Node), `any_functions_error.pts`; updated `any_writes_error.pts`, `any_calls_error.pts`, `errors/any_not_yet.pts`.
+
+### 9.53 Builtin methods through `any` (M3.3c3a)
+
+- **Runtime** (D-076): `dynamic_methods.c` (the tables `string_methods`, `primitive_methods`, `array_methods`, `function_methods`; `pts_builtin_method_call`, `pts_value_is_array`, `bound_function`), `dynamic_internal.h` (`pts_value_description`, `pts_spread_length`, `pts_spread_element`, `pts_builtin_method_call`); `pts_dynamic_call_method` dispatches to them, then to a property's function.
+- **IR:** `ir.ValueIsArray`.
+- **Lowering:** `arrayIsArray` for dynamic values and unions (`arrays.go`).
+- **Tests:** `pts/tests/run/any_builtin_methods.pts` (against Node), `any_builtin_methods_error.pts`; updated `any_calls_error.pts`, `any_checks_error.pts`, `errors/any_not_yet.pts`.
