@@ -103,7 +103,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Structural dispatch, cached at run time, so that class instances and objects of other shapes can be used where an object type is expected, when fields provide its properties.
 - [x] **M2.3b2 Methods and accessors through interfaces** (aa0d4a74c) (split from M2.3b by D-034).
   - Interfaces with methods, and class methods and accessors that provide an interface's methods and properties, through per-(concrete type, interface) tables built at compile time where possible.
-- [ ] **M2.4a Array basics** (split from M2.4 by D-037).
+- [x] **M2.4a Array basics** (7d9f41a0a) (split from M2.4 by D-037).
   - Growable arrays of any element type that are race-safe per brief §2.5 (capacity inside the buffer).
   - Literals, `length` (and truncating it), `a[i]` reads (D-015's rule) and writes, `push`, `pop`, `shift`, `unshift`, `for…of` over arrays and `Array.isArray`.
   - `console.log` of arrays as Node prints them.
