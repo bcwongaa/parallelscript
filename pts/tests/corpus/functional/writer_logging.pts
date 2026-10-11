@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting undefined to number
+// skip: not supported yet: PTS1001: using a number[] as a value[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied)
 // A Writer-style computation that accumulates logs alongside values, used for a loan calculator.
 
 type Writer<A> = { value: A; logs: string[] };
