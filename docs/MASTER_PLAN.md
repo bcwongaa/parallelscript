@@ -107,7 +107,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Growable arrays of any element type that are race-safe per brief §2.5 (capacity inside the buffer).
   - Literals, `length` (and truncating it), `a[i]` reads (D-015's rule) and writes, `push`, `pop`, `shift`, `unshift`, `for…of` over arrays and `Array.isArray`.
   - `console.log` of arrays as Node prints them.
-- [ ] **M2.4b Array methods without callbacks** (split from M2.4 by D-037).
+- [x] **M2.4b Array methods without callbacks** (7f08c4a94) (split from M2.4 by D-037).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
   - `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` without a comparator (stable, with JS default comparison), `flat`, `fill` and `Array.from` of an array.
 - [ ] **M2.5 Collections and closures.**
