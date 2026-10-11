@@ -84,7 +84,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.1 GC and the object model.** (1c0570727)
   - Integrate bdwgc in thread-aware mode with thread-local allocation; use atomic allocation for pointer-free data.
   - Type descriptors for every runtime type (name, fields mapped to offsets, methods), to be reused by `console.log` and JSON.
-- [ ] **M2.2a Class basics** (split from M2.2 by D-025).
+- [x] **M2.2a Class basics** (d405e8fd2) (split from M2.2 by D-025).
   - Class declarations with fixed layouts: fields (declared and initialised, in declaration order), constructors, `new`, `this`, methods.
   - Reading and assigning fields, calling methods; the numeric rules on fields, parameters and results.
 - [ ] **M2.2b `console.log` of instances** (split from M2.2 by D-025).
