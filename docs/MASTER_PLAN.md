@@ -206,7 +206,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Add the JSON benchmark and the `Map`-heavy word-frequency benchmark.
 - [x] **M3.5a Strings** (24e10aecf) (split from M3.5 by D-082).
   - The remaining common `String` methods: `lastIndexOf`, `at`, `charAt`, `codePointAt`, `substr`, `concat`, `replace` and `replaceAll` with string patterns (replacement strings and callbacks), `localeCompare` (Node's default collation), `isWellFormed`/`toWellFormed`, `toLocaleUpperCase`/`toLocaleLowerCase`, `String.fromCharCode` and `String.fromCodePoint`; the same through `any`. `normalize` moves to M6.1 (D-082).
-- [ ] **M3.5b Numbers** (split from M3.5 by D-082).
+- [x] **M3.5b Numbers** (59a142879) (split from M3.5 by D-082).
   - `Number` methods (`toFixed`, `toPrecision`, `toExponential`, `toString(radix)`) and statics (`isInteger`, `isSafeInteger`, `isFinite`, `isNaN`, `parseInt`, `parseFloat`, the constants); the globals `parseInt`, `parseFloat`, `isNaN`, `isFinite`; `Number(x)`, `Boolean(x)` and unary `+` on strings and other values; `String`, `Number` and `Boolean` as values (`map(Number)`, `filter(Boolean)`).
 - [ ] **M3.5c `Math` in full and the remaining `Array` methods** (split from M3.5 by D-082).
   - Every `Math` function (`random` included), spread arguments of `Math.max`/`Math.min`.
