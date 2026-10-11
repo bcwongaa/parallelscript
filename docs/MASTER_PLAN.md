@@ -159,7 +159,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.1a Union values** (903deeb69) (split from M3.1 by D-062).
   - Unions as tagged values; `null` and `undefined` as distinct values.
   - Narrowing via `typeof`, `instanceof`, equality, truthiness and user-defined type guards (the checker narrows; the backend converts and emits tag tests); `??`, `!`, `==` with null and undefined.
-- [ ] **M3.1b1 Optional parameters** (split from M3.1 by D-062, from M3.1b by D-063).
+- [x] **M3.1b1 Optional parameters** (57332bef3) (split from M3.1 by D-062, from M3.1b by D-063).
   - Optional parameters without a default; defaults of parameters whose type includes undefined; `??=`.
 - [ ] **M3.1b2 Optional chaining** (split from M3.1b by D-063).
   - Optional chaining `?.` on properties, calls and elements.
