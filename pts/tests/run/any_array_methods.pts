@@ -1,0 +1,12 @@
+// The copying array methods through `any` (D-085), checked against Node.
+const data: any = JSON.parse('{"xs": [5, 3, 8, 1], "words": ["b", "a"]}');
+console.log(data.xs.toSorted(), data.xs.toSorted((a: number, b: number) => b - a), data.xs.toReversed(), data.xs);
+console.log(data.xs.toSpliced(1, 2), data.xs.toSpliced(0, 1, "x"), data.xs.with(1, 30), data.xs.with(-1, "z"), data.xs.at(-1), data.words.toSorted());
+const typed: number[] = [1, 2, 3];
+const view: any = typed;
+console.log(view.with(0, 9), view.toReversed(), typed);
+try {
+  view.with(5, 1);
+} catch (e) {
+  console.log((e as Error).message);
+}

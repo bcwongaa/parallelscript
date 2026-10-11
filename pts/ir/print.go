@@ -318,6 +318,9 @@ func FormatExpr(expr Expr) string {
 	case *InterfaceCall:
 		return "interface " + e.Method.Name + formatArgs(e.Args)
 	case *NewArray:
+		if e.Length != nil {
+			return "new " + e.Array.String() + "(" + FormatExpr(e.Length) + ")"
+		}
 		elems := make([]string, len(e.Elems))
 		for i, elem := range e.Elems {
 			elems[i] = FormatExpr(elem)

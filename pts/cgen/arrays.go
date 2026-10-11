@@ -15,6 +15,10 @@ func (e *emitter) elementType(array ir.Expr) string {
 // newArray writes an array literal: its elements, evaluated in order, copied into a new array (D-038).
 func (e *emitter) newArray(n *ir.NewArray) string {
 	descriptor := e.arrayDescriptor(n.Array)
+	if n.Length != nil {
+		length, prelude := e.operands([]ir.Expr{n.Length})
+		return ordered(prelude, fmt.Sprintf("pts_array_of_length(%s, %s)", descriptor, length[0]))
+	}
 	if len(n.Elems) == 0 {
 		return fmt.Sprintf("pts_array_of(%s, NULL, 0)", descriptor)
 	}
@@ -70,6 +74,14 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], e.arrayDescriptor(call.To))
 	case ir.ArrayFill:
 		c = fmt.Sprintf("pts_array_fill(%s, (%s[]){%s}, %s, %s)", args[0], elem, args[1], args[2], args[3])
+	case ir.ArrayAt:
+		c = fmt.Sprintf("pts_array_at(%s, %s)", args[0], args[1])
+	case ir.ArrayCopy:
+		c = fmt.Sprintf("pts_array_copy(%s)", args[0])
+	case ir.ArrayWith:
+		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s})", args[0], args[1], elem, args[2])
+	case ir.ArrayKeys:
+		c = fmt.Sprintf("pts_array_keys(%s)", args[0])
 	case ir.ArraySortWith:
 		c = fmt.Sprintf("pts_array_sort_with(%s, %s, %s)", args[0], args[1], e.comparators[call.Args[0].Type().(*ir.Array).Elem])
 	default:
@@ -149,9 +161,10 @@ func (e *emitter) comparatorFunctions() {
 // arrayEffects are the effects of an array operation beyond its operands'.
 func arrayEffects(op ir.ArrayOp) effects {
 	switch op {
-	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes, ir.ArrayFlat:
+	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes, ir.ArrayFlat,
+		ir.ArrayAt, ir.ArrayCopy, ir.ArrayKeys:
 		return readsLocals
-	case ir.ArrayElementChecked:
+	case ir.ArrayElementChecked, ir.ArrayWith:
 		return readsLocals | mayThrow
 	case ir.ArrayPush, ir.ArrayPushAll, ir.ArrayUnshift, ir.ArrayUnshiftAll, ir.ArrayPop, ir.ArrayShift, ir.ArraySplice, ir.ArrayReverse, ir.ArrayFill:
 		return readsLocals | writes

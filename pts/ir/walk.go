@@ -89,6 +89,9 @@ func children(x Expr) []Expr {
 		}
 		return nil
 	case *NewArray:
+		if x.Length != nil {
+			return []Expr{x.Length}
+		}
 		return x.Elems
 	case *ClassCast:
 		return []Expr{x.X}

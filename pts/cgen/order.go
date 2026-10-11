@@ -75,6 +75,9 @@ func effectsOf(expr ir.Expr) effects {
 		for _, elem := range x.Elems {
 			f |= effectsOf(elem)
 		}
+		if x.Length != nil {
+			f |= effectsOf(x.Length) | mayThrow
+		}
 		return f
 	case *ir.ClassCast:
 		return effectsOf(x.X)

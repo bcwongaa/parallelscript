@@ -772,3 +772,46 @@ pts_array *pts_array_from_string(pts_string *string) {
   }
   return array;
 }
+
+/* ---------------------------------------------------------------- M3.5c2 (D-085) */
+
+pts_value pts_array_at(const pts_array *array, double index) {
+  double position = index != index ? 0 : __builtin_trunc(index);
+  return pts_array_element(array, position < 0 ? position + pts_array_length(array) : position);
+}
+
+pts_array *pts_array_with(const pts_array *array, double index, const void *value) {
+  double position = index != index ? 0 : __builtin_trunc(index);
+  double length = pts_array_length(array);
+  double at = position < 0 ? position + length : position;
+  if (!(at >= 0 && at < length)) {
+    char buf[PTS_NUMBER_BUF_SIZE];
+    pts_number_format(position + 0.0, buf);
+    pts_throw_new(&pts_type_builtin_RangeError, "Invalid index : %s", buf);
+  }
+  pts_array *copy = pts_array_copy(array);
+  size_t size = pts_field_kind_size(array->type->element);
+  element_store(copy->buffer->elements + (size_t)at * size, value, size);
+  return copy;
+}
+
+pts_array *pts_array_of_length(const pts_type *type, double length) {
+  if (!(length >= 0 && length <= 4294967295.0) || length != __builtin_trunc(length)) {
+    pts_throw_new(&pts_type_builtin_RangeError, "Invalid array length");
+  }
+  pts_array *array = pts_object_new(type);
+  array->buffer = new_buffer(type->element, (size_t)length); /* zeroed: holes, or zeros of a primitive kind */
+  array->length = (size_t)length;
+  return array;
+}
+
+pts_array *pts_array_keys(const pts_array *array) {
+  size_t length = pts_array_length_of(array);
+  pts_array *keys = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], NULL, 0);
+  keys->buffer = new_buffer(PTS_FIELD_NUMBER, length);
+  for (size_t i = 0; i < length; i++) {
+    ((double *)keys->buffer->elements)[i] = (double)i;
+  }
+  keys->length = length;
+  return keys;
+}

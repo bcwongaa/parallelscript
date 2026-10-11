@@ -1099,6 +1099,14 @@ double pts_array_set_length(pts_array *array, double length);
 pts_array *pts_array_slice(const pts_array *array, double start, double end);
 pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count);
 pts_array *pts_array_copy(const pts_array *array);
+/* a.at(index): the element at index (from the end if negative) as a dynamic value, or undefined. */
+pts_value pts_array_at(const pts_array *array, double index);
+/* a.with(index, value): a copy with the element at index (from the end if negative) replaced; RangeError out of range. */
+pts_array *pts_array_with(const pts_array *array, double index, const void *value);
+/* new Array(length): length holes (zeros of a primitive element kind); RangeError for an invalid length. */
+pts_array *pts_array_of_length(const pts_type *type, double length);
+/* a.keys() as a number array of the indices. */
+pts_array *pts_array_keys(const pts_array *array);
 void pts_array_append(pts_array *array, const pts_array *other);
 double pts_array_index_of(const pts_array *array, const void *value, double from);
 double pts_array_last_index_of(const pts_array *array, const void *value, double from);

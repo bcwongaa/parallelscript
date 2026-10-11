@@ -278,6 +278,7 @@ var arrayMethods = map[string]struct {
 	"reverse":     {ir.ArrayReverse, nil},
 	"sort":        {ir.ArraySort, nil},
 	"fill":        {ir.ArrayFill, []arrayParam{elementParam, startParam, endParam}},
+	"at":          {ir.ArrayAt, []arrayParam{startParam}},
 }
 
 // arrayMethodCall lowers `a.m(args)` for an array a. checked is true under `!`
@@ -288,7 +289,7 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	method, fixed := arrayMethods[name]
 	removers, removes := arrayRemovers[name]
 	sortWith := name == "sort" && len(call.Arguments.Nodes) > 0
-	if !fixed && !removes && !callbackMethods[name] && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat" {
+	if !fixed && !removes && !callbackMethods[name] && !copyingMethods[name] && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat" {
 		l.notSupportedYet(callee, fmt.Sprintf("the array method `%s` is", name))
 		return nil
 	}
@@ -307,6 +308,8 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	switch {
 	case callbackMethods[name]:
 		return l.callbackMethodCall(call, name, array, checked)
+	case copyingMethods[name]:
+		return l.copyingMethodCall(call, name, array)
 	case sortWith:
 		return l.sortWith(array, args[0])
 	case removes:
@@ -497,13 +500,16 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 		l.notSupportedYet(args[2], "the `thisArg` argument of `Array.from` is")
 		return nil
 	}
+	if length := lengthObject(args[0]); length != nil {
+		return l.arrayFromLength(call, length)
+	}
 	if it, ok := l.mapIterableOf(args[0]); ok {
 		if it.m == nil {
 			return nil // reported
 		}
 		return l.arrayFromMap(call, it)
 	}
-	x := l.expression(args[0])
+	x := l.iterable(args[0])
 	switch {
 	case x == nil:
 		return nil
@@ -563,7 +569,7 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		}
 		return l.mapForOf(node, label, it, declaration.Name(), s.Statement)
 	}
-	iterable := l.expression(s.Expression)
+	iterable := l.iterable(s.Expression)
 	if iterable == nil {
 		return nil
 	}

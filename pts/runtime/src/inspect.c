@@ -547,26 +547,47 @@ static text *format_fields(inspector *in, const pts_object *object, size_t *coun
   return entries;
 }
 
-/* Node's formatArray: an entry per element, at most MAX_ARRAY_LENGTH, then "... n more items". */
+/* Whether an array slot of the given kind is a hole: a zero pointer or dynamic value (D-038, D-085). */
+static bool is_hole_slot(pts_field_kind kind, const void *slot) {
+  return (kind == PTS_FIELD_STRING || kind == PTS_FIELD_VALUE || kind == PTS_FIELD_OBJECT) && *(const uint64_t *)slot == 0;
+}
+
+/*
+ * Node's formatArray and formatSpecialArray: an entry per element, a run of holes as one
+ * "<n empty items>" entry, at most MAX_ARRAY_LENGTH entries, then "... n more items".
+ */
 static text *format_elements(inspector *in, const pts_array *array, size_t length, size_t *count, size_t recurse_times) {
-  size_t shown = length < MAX_ARRAY_LENGTH ? length : MAX_ARRAY_LENGTH;
-  *count = shown + (length > shown);
-  text *entries = new_entries(*count);
-  size_t size = pts_field_kind_size(array->type->element);
-  for (size_t i = 0; i < shown; i++) {
+  text *entries = new_entries(MAX_ARRAY_LENGTH + 1);
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind), n = 0, index = 0; /* entries made; the index they reach */
+  for (size_t i = 0; i < length && n < MAX_ARRAY_LENGTH; i++) {
     const void *slot = pts_array_slot_or_null(array, (double)i, size);
+    if (slot != NULL && is_hole_slot(kind, slot)) {
+      continue;
+    }
+    if (i != index) {
+      text_printf(&entries[n++], "<%zu empty item%s>", i - index, i - index > 1 ? "s" : "");
+      index = i;
+      if (n == MAX_ARRAY_LENGTH) {
+        break;
+      }
+    }
     in->indentation += 2;
     if (slot == NULL) {
-      text_puts(&entries[i], "undefined"); /* another thread shrank the array meanwhile */
+      text_puts(&entries[n], "undefined"); /* another thread shrank the array meanwhile */
     } else {
-      format_slot(in, &entries[i], array->type->element, slot, recurse_times);
+      format_slot(in, &entries[n], kind, slot, recurse_times);
     }
     in->indentation -= 2;
+    n++, index++;
   }
-  if (length > shown) {
-    size_t remaining = length - shown;
-    text_printf(&entries[shown], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
+  size_t remaining = length - index;
+  if (n != MAX_ARRAY_LENGTH && remaining > 0) {
+    text_printf(&entries[n++], "<%zu empty item%s>", remaining, remaining > 1 ? "s" : "");
+  } else if (remaining > 0) {
+    text_printf(&entries[n++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
   }
+  *count = n;
   return entries;
 }
 

@@ -846,6 +846,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.FromUnion{X: value, To: target} // `Dog | Bird` as an Animal
 	case isEmptyArrayLiteral(value) && isArray(target):
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
+	case value.Type() == ir.ValueArray && isArray(target):
+		return l.dynamicConversion(box(value), target, node) // an any[] (`new Array(n).fill(0)`) copied and checked, as dynamic data is (D-071)
 	case isObject(value.Type()) && isRecord(target):
 		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "using a `%s` as a hash-map object (`%s`) is not supported yet; a copy of its properties, `{ ...o }`, is one", value.Type(), target))
 		return nil
@@ -1333,6 +1335,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "from") {
 		return l.arrayFrom(call)
 	}
+	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "of") {
+		return l.arrayOfCall(call)
+	}
+	if l.isArrayConstructor(ast.SkipParentheses(call.Expression)) {
+		return l.arrayConstructor(node, call.Arguments.Nodes)
+	}
 	if name := l.mathMember(ast.SkipParentheses(call.Expression)); name != "" {
 		return l.mathCall(call, name)
 	}
@@ -1468,7 +1476,7 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 		}
 		return nil
 	}
-	x := l.expression(argument.Expression())
+	x := l.iterable(argument.Expression())
 	switch {
 	case x == nil:
 		return nil

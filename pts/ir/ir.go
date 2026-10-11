@@ -745,6 +745,9 @@ type NewObject struct {
 type NewArray struct {
 	Array *Array
 	Elems []Expr
+	// Length, if not nil, makes `new Array(n)` instead (no Elems): n holes, or zeros of
+	// a primitive element type (D-085); RangeError for an invalid length.
+	Length Expr
 }
 
 // ArrayOp is an operation on an array.
@@ -776,13 +779,18 @@ const (
 	ArrayFlat                          // a.flat(depth): a new array of To's type, nested arrays flattened depth levels
 	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
 	ArraySortWith                      // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
+	ArrayAt                            // a.at(i) as a dynamic value: from the end for a negative i, undefined out of range (D-085)
+	ArrayCopy                          // a new array of a's elements
+	ArrayWith                          // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
+	ArrayKeys                          // a.keys() as a number[] of a's indices
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
 	ArraySetElement: "setElement", ArrayPush: "push", ArrayPushAll: "pushAll", ArrayUnshift: "unshift", ArrayUnshiftAll: "unshiftAll", ArrayPop: "pop", ArrayPopChecked: "popChecked",
 	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
 	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
-	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith"}
+	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith", ArrayAt: "at", ArrayCopy: "copy", ArrayWith: "with",
+	ArrayKeys: "keys"}
 
 func (op ArrayOp) String() string { return arrayOpText[op] }
 
@@ -1277,13 +1285,15 @@ func (e *ArrayCall) Type() Type {
 	switch e.Op {
 	case ArrayLength, ArraySetLength, ArrayPush, ArrayPushAll, ArrayUnshift, ArrayUnshiftAll, ArrayIndexOf, ArrayLastIndexOf:
 		return Number
-	case ArrayElement, ArrayPop, ArrayShift:
+	case ArrayElement, ArrayPop, ArrayShift, ArrayAt:
 		return Value
+	case ArrayKeys:
+		return NumberArray
 	case ArrayIncludes:
 		return Bool
 	case ArrayJoin:
 		return String
-	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill, ArraySortWith:
+	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill, ArraySortWith, ArrayCopy, ArrayWith:
 		return e.Args[0].Type()
 	case ArrayFlat:
 		return e.To

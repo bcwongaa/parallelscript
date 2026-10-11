@@ -672,6 +672,9 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 	if l.isMapConstructor(node) {
 		return l.newMap(node)
 	}
+	if l.isArrayConstructor(node.Expression()) {
+		return l.arrayConstructor(node, node.Arguments())
+	}
 	class, ok := l.classes[l.target(node.Expression())]
 	if _, isGeneric := l.genericClasses[l.target(node.Expression())]; isGeneric {
 		class, ok = l.genericClassReference(node), true

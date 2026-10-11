@@ -686,6 +686,25 @@ static pts_value array_reduce(pts_value self, uint32_t argc, const pts_value *ar
 
 static pts_value array_reduce_right(pts_value self, uint32_t argc, const pts_value *argv) { return reduce(self, argc, argv, true); }
 
+/* toSorted, toReversed, toSpliced and with (D-085): sort, reverse, splice and a write on a copy. */
+static pts_value copy_of(pts_value self) { return pts_value_from_object(pts_array_copy(array_of(self))); }
+
+static pts_value array_to_sorted(pts_value self, uint32_t argc, const pts_value *argv) { return array_sort(copy_of(self), argc, argv); }
+
+static pts_value array_to_reversed(pts_value self, uint32_t argc, const pts_value *argv) { return array_reverse(copy_of(self), argc, argv); }
+
+static pts_value array_to_spliced(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value copy = copy_of(self);
+  array_splice(copy, argc, argv);
+  return copy;
+}
+
+static pts_value array_with(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_array *array = array_of(self);
+  pts_value value = argument(argc, argv, 1);
+  return pts_value_from_object(pts_array_with(array, number_argument(argc, argv, 0, 0), elements_for(array, 1, &value)));
+}
+
 static const named_method array_methods[] = {
     {"at", array_at},
     {"concat", array_concat},
@@ -714,8 +733,12 @@ static const named_method array_methods[] = {
     {"some", array_some},
     {"sort", array_sort},
     {"splice", array_splice},
+    {"toReversed", array_to_reversed},
+    {"toSorted", array_to_sorted},
+    {"toSpliced", array_to_spliced},
     {"toString", array_to_string},
     {"unshift", array_unshift},
+    {"with", array_with},
     {NULL, NULL},
 };
 

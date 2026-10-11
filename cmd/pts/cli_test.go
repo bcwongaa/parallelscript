@@ -152,7 +152,7 @@ func TestBinaryRunsProgramsAndFailsOnCompileErrors(t *testing.T) {
 	assert.NilError(t, err, string(out))
 	home, err := toolchain.FindHome()
 	assert.NilError(t, err)
-	dir := projectWith(t, map[string]string{"hello.pts": helloSource, "bad.pts": "for (const e of [1].entries()) {}\n"})
+	dir := projectWith(t, map[string]string{"hello.pts": helloSource, "bad.pts": "const weak = new WeakMap<object, number>();\n"})
 	// Like an installed pts, the binary is outside the source tree and finds the runtime through PTS_HOME.
 	command := func(args ...string) *exec.Cmd {
 		cmd := exec.CommandContext(t.Context(), pts, args...)

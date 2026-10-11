@@ -1,0 +1,14 @@
+// new Array(n) of a primitive element type holds zeros (false for booleans) where JS has holes (D-085).
+const bytes = new Array<u8>(4);
+bytes[1] = 200;
+console.log(bytes, bytes.with(0, 7), bytes.toSorted(), bytes.at(-3));
+const flags: boolean[] = new Array(3);
+console.log(flags, new Array<number>(2));
+const names: string[] = new Array(2);
+console.log(names, names.length);
+
+// no-diff: JS prints `<n empty items>` for the holes of a number or boolean array
+// expect:
+// [ 0, 200, 0, 0 ] [ 7, 200, 0, 0 ] [ 0, 0, 0, 200 ] 200
+// [ false, false, false ] [ 0, 0 ]
+// [ <2 empty items> ] 2

@@ -1,0 +1,46 @@
+// The array methods of M3.5c2 (D-085), checked against Node.
+const xs = [5, 3, 8, 1];
+console.log(xs.at(0), xs.at(-1), xs.at(10), xs.at(-10), xs.at(1.5));
+const sorted = xs.toSorted();
+const descending = xs.toSorted((a, b) => b - a);
+console.log(sorted, descending, xs.toReversed(), xs);
+console.log(xs.toSpliced(1, 2), xs.toSpliced(1, 1, 9, 9), xs.toSpliced(2), xs);
+console.log(xs.with(0, 50), xs.with(-1, 10), xs);
+for (const bad of [4, -5]) {
+  try {
+    xs.with(bad, 0);
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+const words = ["pear", "apple", "fig"];
+console.log(words.toSorted(), words.toSorted((a, b) => a.length - b.length), words.at(-2), words.with(1, "kiwi"));
+
+console.log(Array.of(7), Array.of(1, 2, 3), Array.of(...xs, 0), Array.of<string>());
+const empty = new Array(3);
+console.log(empty, empty.length, empty[0]);
+empty[1] = 5;
+console.log(empty);
+console.log(new Array(2).fill(7), new Array<number>(4).fill(0), Array(3).fill("x"), new Array("3"), new Array(1, 2), new Array<string>());
+const counts: number[] = new Array(5).fill(0);
+counts[2]++;
+console.log(counts);
+try {
+  new Array(-1);
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+console.log(Array.from({ length: 3 }), Array.from({ length: 4 }, (_, i) => i * i), Array.from({ length: 2.7 }, (_, i) => `#${i}`));
+const n = 3;
+console.log(Array.from({ length: n }, () => 0), Array.from({ length: 0 }, (_, i) => i));
+
+for (const i of xs.keys()) console.log("key", i);
+for (const x of xs.values()) console.log("value", x);
+for (const [i, x] of xs.entries()) console.log("entry", i, x);
+for (const entry of words.entries()) console.log(entry);
+console.log([...xs.keys()], [...xs.entries()], Array.from(words.keys()), Array.from(words.entries()), Math.max(...xs.values()));
+const sparse: string[] = new Array(4);
+sparse[0] = "a";
+sparse[3] = "d";
+console.log(sparse, sparse.length);
+console.log(new Array(150), [1, 2, 3].toSorted().join("-"));
