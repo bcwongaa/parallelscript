@@ -196,7 +196,7 @@ func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 
 func TestEveryUnsupportedConstructIsReported(t *testing.T) {
 	t.Parallel()
-	_, errors := lowerSource(t, "for (const c of \"ab\") {}\nconsole.log(+true);\n")
+	_, errors := lowerSource(t, "for (const e of [1].entries()) {}\nconsole.log(+true);\n")
 	assert.Equal(t, len(errors), 2)
 	assert.Equal(t, errors[0].Line, 1)
 	assert.Equal(t, errors[1].Line, 2)
@@ -1101,6 +1101,31 @@ func f() number {
       2: return result
     }
   }
+}
+`)
+}
+
+func TestGenericFunctionValuesAreInstancesInContextAndErasedCopiesElsewhere(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function wrap<T>(x: T): T[] {
+  return [x];
+}
+const byString: (s: string) => string[] = wrap;
+const any = wrap;
+const n: number[] = any(1);
+console.log(byString("a"), n);
+`)
+	assert.Equal(t, got, `func main() void {
+  4: let byString: (string) => string[] = closure wrap_string
+  5: let any: (value) => value = closure wrap_dynamic
+  6: let n: number[] = number[](call any(box(1)))
+  7: console.log(box(call byString("a")), box(n))
+}
+func wrap_string(x: string) string[] {
+  2: return string[][x]
+}
+func wrap_dynamic(x: value) value {
+  2: return box(value[][x])
 }
 `)
 }

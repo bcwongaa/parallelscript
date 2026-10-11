@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -31,6 +32,13 @@ type parameterBinding struct {
 func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir.Stmt, bool) {
 	if names := namesOfTuple(pattern, value); names != nil {
 		return l.bindTupleValues(names, value.(*ir.NewObject).Values)
+	}
+	switch {
+	case pattern.Kind != ast.KindArrayBindingPattern:
+	case value.Type() == ir.Value:
+		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{value, &ir.StringConst{Value: patternSource(pattern)}}} // its items (D-078)
+	case value.Type() == ir.String:
+		value = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{value}} // its code points
 	}
 	whole := l.newLocal("destructured", value.Type())
 	stmts := []ir.Stmt{&ir.LocalDecl{At: at, Local: whole, Init: value}}
@@ -65,6 +73,16 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 		stmts = append(stmts, stmt)
 	}
 	return stmts, true
+}
+
+// patternSource is the source text V8 names in its TypeError for destructuring a value
+// that isn't iterable with an array pattern: the initializer the pattern binds, or the
+// pattern itself.
+func patternSource(pattern *ast.Node) string {
+	if parent := pattern.Parent; parent != nil && parent.Initializer() != nil && parent.Name() == pattern {
+		return scanner.GetTextOfNode(parent.Initializer())
+	}
+	return scanner.GetTextOfNode(pattern)
 }
 
 // namesOfTuple returns the names of an array pattern that binds a tuple made in place

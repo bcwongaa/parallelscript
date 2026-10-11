@@ -58,6 +58,20 @@ try {
 } catch (e) {
   show(e);
 }
+function failWith<T>(x: T): T {
+  throw new Error("generic " + String(x));
+}
+const failing = failWith;
+try {
+  failWith(1);
+} catch (e) {
+  show(e);
+}
+try {
+  failing("s");
+} catch (e) {
+  show(e);
+}
 
 // no-diff: Node's frames have columns, file URLs and its own internal frames
 // expect:
@@ -72,3 +86,9 @@ try {
 // RangeError: Array index 7 is out of range (length 3)
 //     at readAt (stack_frames.pts:53)
 //     at stack_frames.pts:57
+// Error: generic 1
+//     at failWith (stack_frames.pts:62)
+//     at stack_frames.pts:66
+// Error: generic s
+//     at failWith (stack_frames.pts:62)
+//     at stack_frames.pts:71

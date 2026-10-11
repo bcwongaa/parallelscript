@@ -56,7 +56,7 @@ func (l *lowerer) libCollection(t *checker.Type) (string, bool) {
 // mapOf is the one map (or set) type with the given key and value types.
 func (l *lowerer) mapOf(key ir.Type, value ir.Type, set bool) *ir.MapType {
 	for _, mt := range l.mapTypes {
-		if mt.Key == key && mt.Value == value && mt.Set == set {
+		if mt.Key == key && mt.Value == value && mt.Set == set && !mt.Record {
 			return mt
 		}
 	}

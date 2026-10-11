@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -128,11 +129,11 @@ func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
 		}
 		for _, value := range values {
 			if s, ok := value.(*spreadValue); ok {
-				if s.x.Type() != array {
-					l.notSupportedYet(element, fmt.Sprintf("spreading a %s into a %s is", s.x.Type(), array))
+				part := l.spreadPart(s, array, element)
+				if part == nil {
 					return nil
 				}
-				parts = append(parts, s.x)
+				parts = append(parts, part)
 				continue
 			}
 			converted := l.convert(value, array.Elem, element)
@@ -143,6 +144,20 @@ func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
 		}
 	}
 	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
+}
+
+// spreadPart is the array of type array whose elements a spread (s, at node) adds: an
+// array of that type as it is, or a dynamic value's items converted to it with a check
+// (D-078). It reports what it can't spread and returns nil.
+func (l *lowerer) spreadPart(s *spreadValue, array *ir.Array, node *ast.Node) ir.Expr {
+	switch s.x.Type() {
+	case array:
+		return s.x
+	case ir.ValueArray: // a dynamic value's items
+		return l.dynamicConversion(box(s.x), array, node)
+	}
+	l.notSupportedYet(node, fmt.Sprintf("spreading a %s into a %s is", s.x.Type(), array))
+	return nil
 }
 
 // spreadParts lowers a spread element `...x` into an array of type array: as an argument
@@ -530,7 +545,7 @@ func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 
 // forOfStatement lowers `for (const x of a) body` for an array a to a loop over its
 // indices: like JS's array iterator, it reads the length before each iteration, so it
-// sees elements pushed meanwhile.
+// sees elements pushed meanwhile. A string's code points come from a new array of them.
 func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	s := node.AsForInOrOfStatement()
 	switch {
@@ -552,13 +567,35 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if iterable == nil {
 		return nil
 	}
-	arrayType, ok := iterable.Type().(*ir.Array)
-	if !ok {
+	if iterable.Type() == ir.String {
+		iterable = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{iterable}} // its code points
+	}
+	// The loop reads element index of source while index is below its length.
+	var elemType ir.Type
+	var length func(source ir.Expr) ir.Expr
+	var elementAt func(source, index ir.Expr) ir.Expr
+	switch t := iterable.Type(); {
+	case isArray(t):
+		elemType = t.(*ir.Array).Elem
+		length = func(source ir.Expr) ir.Expr { return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}} }
+		elementAt = func(source, index ir.Expr) ir.Expr {
+			return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, index}}
+		}
+	case t == ir.Value: // a dynamic value's items (D-078)
+		iterable = &ir.CallBuiltin{Builtin: ir.ValueIterable, Args: []ir.Expr{iterable, &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
+		elemType = ir.Value
+		length = func(source ir.Expr) ir.Expr {
+			return &ir.CallBuiltin{Builtin: ir.ValueIterableLength, Args: []ir.Expr{source}}
+		}
+		elementAt = func(source, index ir.Expr) ir.Expr {
+			return &ir.CallBuiltin{Builtin: ir.ValueIterableElement, Args: []ir.Expr{source, index}}
+		}
+	default:
 		l.notSupportedYet(s.Expression, fmt.Sprintf("`for...of` over a %s is", iterable.Type()))
 		return nil
 	}
 	at := l.pos(node)
-	array, index := l.newLocal("array", arrayType), l.newLocal("index", ir.Number)
+	source, index := l.newLocal("array", iterable.Type()), l.newLocal("index", ir.Number)
 	var element *ir.Local
 	var destructured []ir.Stmt
 	if name := declaration.Name(); name.Kind == ast.KindIdentifier {
@@ -570,13 +607,13 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		element = l.newLocal(name.Text(), t)
 		l.locals[symbol] = element
 	} else { // `for (const [k, v] of pairs)`: each element is destructured
-		element = l.newLocal("element", arrayType.Elem)
+		element = l.newLocal("element", elemType)
 		var ok bool
 		if destructured, ok = l.destructure(name, &ir.LocalRef{Local: element}, l.pos(declaration)); !ok {
 			return nil
 		}
 	}
-	value := l.convert(&ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: array}, &ir.LocalRef{Local: index}}}, element.Type, declaration)
+	value := l.convert(elementAt(&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}), element.Type, declaration)
 	if value == nil {
 		return nil
 	}
@@ -585,12 +622,12 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	loop := &ir.Loop{
 		At:     at,
 		Label:  label,
-		Cond:   &ir.Binary{Op: ir.Lt, X: &ir.LocalRef{Local: index}, Y: &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: array}}}},
+		Cond:   &ir.Binary{Op: ir.Lt, X: &ir.LocalRef{Local: index}, Y: length(&ir.LocalRef{Local: source})},
 		Update: &ir.Assign{Local: index, Value: &ir.Binary{Op: ir.Add, X: &ir.LocalRef{Local: index}, Y: &ir.NumberConst{Value: 1}}},
 		Body:   body,
 	}
 	return []ir.Stmt{&ir.Block{At: at, Stmts: []ir.Stmt{
-		&ir.LocalDecl{At: at, Local: array, Init: iterable},
+		&ir.LocalDecl{At: at, Local: source, Init: iterable},
 		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
 		loop,
 	}}}

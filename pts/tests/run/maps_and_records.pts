@@ -1,0 +1,11 @@
+// A Map and a hash-map object with the same key and value types are different types: a
+// Map made after a Record<string, number> is still a Map.
+const r: Record<string, number> = { a: 1 };
+const m = new Map<string, number>([["x", 1]]);
+m.set("y", 2);
+console.log(r, m, m.size, [...m]);
+for (const [k, v] of m) console.log(k, v);
+const s = new Set<string>(["p"]);
+const counts: Record<string, number> = {};
+for (const key of s) counts[key] = (counts[key] ?? 0) + 1;
+console.log(counts, s);

@@ -1,0 +1,24 @@
+// no-diff: an erased copy's result is converted to the type tsc gives the call with a
+// check (D-078), so a lie told through `any` inside generic code throws where Node goes on.
+const lie = <T>(x: T): T => 42 as any;
+console.log(lie(1));
+try {
+  const s: string = lie("x");
+  console.log(s);
+} catch (e) {
+  console.log(String(e));
+}
+const shout = <T>(xs: T[]): T[] => xs.map((x) => String(x).toUpperCase() as any);
+try {
+  const n: number[] = shout([1, 2]);
+  console.log(n);
+} catch (e) {
+  console.log(String(e));
+}
+console.log(shout(["a", "b"]));
+
+// expect:
+// 42
+// TypeError: Expected string, got number
+// TypeError: Expected number[], got Array
+// [ 'A', 'B' ]

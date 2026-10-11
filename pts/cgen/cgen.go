@@ -178,9 +178,12 @@ func (e *emitter) functionNameTable(program *ir.Program) {
 			js = f.JSName
 		default:
 			parts := strings.Split(f.Name, ".")
+			if f.JSName != "" {
+				parts[len(parts)-1] = f.JSName // a generic function's instance (`identity_number`) is the function
+			}
 			js = parts[len(parts)-1]
 			if len(parts) > 1 && (classNames[parts[0]] || builtinOwners[parts[0]]) {
-				js = f.Name // a static method, or a helper such as Array.map
+				js = strings.Join(parts, ".") // a static method, or a helper such as Array.map
 			}
 		}
 		if errorConstructor := isConstructor && root(class).Builtin; js != "" || errorConstructor {
@@ -1264,6 +1267,10 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueValues:          "pts_value_values",
 	ir.ValueEntries:         "pts_value_entries",
 	ir.ValueHasOwn:          "pts_value_has_own",
+	ir.ValueIterable:        "pts_value_iterable",
+	ir.ValueIterableLength:  "pts_value_iterable_length",
+	ir.ValueIterableElement: "pts_value_iterable_element",
+	ir.ValueToArray:         "pts_value_to_array",
 	ir.ValueAdd:             "pts_value_add",
 	ir.ValueToNumber:        "pts_value_to_number",
 	ir.ValueLess:            "pts_value_less",

@@ -1,0 +1,55 @@
+// `for…of` over dynamic values and spreading them (D-078): arrays and tuples are read
+// live, strings by code point, sets by element and maps by [key, value] entry; anything
+// else throws V8's TypeError.
+const values: any[] = [[1, "two", 3], "héllo", new Set([1, 2, 2]), new Map([["a", 1], ["b", 2]]), [true, null] as [boolean, null]];
+for (const v of values) {
+  const seen: any[] = [];
+  for (const x of v) {
+    seen.push(x);
+  }
+  console.log(seen, [...v], [0, ...v].length);
+}
+
+const growing: any = [1, 2];
+for (const x of growing) {
+  if (growing.length < 5) growing.push(x * 10);
+}
+console.log(growing);
+
+for (const [k, v] of new Map([["x", 1]]) as any) {
+  console.log(k, v);
+}
+
+function sum(...xs: number[]): number {
+  let total = 0;
+  for (const x of xs) total += x;
+  return total;
+}
+const parts: any = [1, 2, 3];
+console.log(sum(...parts), sum(10, ...parts));
+const typed: number[] = [...parts];
+console.log(typed);
+
+for (const bad of [5, { a: 1 }, undefined, null] as any[]) {
+  try {
+    for (const x of bad) {
+      console.log(x);
+    }
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+  try {
+    console.log([...bad]);
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+const [first, second, ...others]: any = parts;
+console.log(first, second, others);
+const [c1, c2]: any = "hé";
+console.log(c1, c2);
+
+// `for…of` over a typed string: its code points.
+for (const ch of "a😀b") {
+  console.log(ch, ch.length);
+}

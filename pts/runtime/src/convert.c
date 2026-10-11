@@ -316,20 +316,28 @@ static bool copy_object(converting *c, const pts_object *source, const pts_check
   return true;
 }
 
-/* A tuple: one of the check's descriptor, or a copy of an array of as many elements. */
+/*
+ * A tuple: one of the check's descriptor, or a copy of an array or of another tuple (an
+ * erased copy's `[string, any]` for a `[string, number]`, D-078) of as many elements.
+ */
 static bool convert_tuple(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
   if (object->type == check->type) {
     *out = pts_value_from_object(object);
     return true;
   }
-  if (!copy || object->type->kind != PTS_KIND_ARRAY || pts_array_length((const pts_array *)object) != check->count) {
+  bool array = object->type->kind == PTS_KIND_ARRAY;
+  if (!copy || (!array && object->type->kind != PTS_KIND_TUPLE) ||
+      (array ? pts_array_length((const pts_array *)object) : object->type->field_count) != check->count) {
     return false;
   }
   pts_object *tuple = pts_object_new(check->type);
   for (uint32_t i = 0; i < check->count; i++) {
     const pts_check_property *element = &check->properties[i];
+    const pts_field *field = &object->type->fields[i]; /* a tuple's fields are its elements, in order */
+    pts_value value = array ? pts_array_element((const pts_array *)object, i)
+                            : pts_value_of_slot(field->kind, (const char *)object + field->offset);
     pts_value converted;
-    if (!convert(c, pts_array_element((const pts_array *)object, i), element->check, true, &converted)) {
+    if (!convert(c, value, element->check, true, &converted)) {
       return false;
     }
     store((char *)tuple + element->offset, element->check->slot, converted);

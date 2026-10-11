@@ -1,7 +1,7 @@
 // Generics that aren't supported yet are reported (D-049, D-050, D-051): generic
-// functions as values, generic functions inside generic code, nested generic functions
-// that use their outer function's variables, generic methods as values and overriding
-// with one, `instanceof` of a generic class, and a function needing ever more instances.
+// functions inside generic code, nested generic functions that use their outer
+// function's variables, generic methods as values and overriding with one, `instanceof`
+// of a generic class, and a function needing ever more instances. (`f` is fine, D-078.)
 function identity<T>(x: T): T {
   return x;
 }
@@ -43,7 +43,6 @@ function grow<T>(x: T, n: number): number {
 }
 console.log(grow(1, 3));
 
-// error: generics_not_yet.pts:8:7 - error PTS1001: generic function types are not supported yet
 // error: generics_not_yet.pts:34:3 - error PTS1001: overriding with a generic method is not supported yet
 // error: generics_not_yet.pts:39:13 - error PTS1001: generic methods as values are not supported yet
 // error: generics_not_yet.pts:40:28 - error PTS1001: `instanceof` of a generic class is not supported yet

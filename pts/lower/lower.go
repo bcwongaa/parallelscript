@@ -133,7 +133,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
-		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
@@ -992,13 +992,14 @@ func parameterSymbol(node *ast.Node) *ast.Symbol {
 // undefined, and a Given flag (D-055).
 func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
-	switch {
-	case param.DotDotDotToken != nil && !l.checker.IsArrayType(l.typeOfSymbol(node.Symbol())):
-		l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", l.checker.TypeToString(l.typeOfSymbol(node.Symbol()))))
-		return nil
-	}
 	var t *checker.Type
 	switch {
+	case param.DotDotDotToken != nil:
+		t = l.instantiateMade(l.checker.GetTypeOfSymbol(node.Symbol())) // in erased code, any[] for a T[] (D-078)
+		if !l.checker.IsArrayType(t) {
+			l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", l.checker.TypeToString(t)))
+			return nil
+		}
 	case param.Name().Kind != ast.KindIdentifier:
 		t = l.typeOfSymbol(node.Symbol()) // a pattern's
 	case l.numericType(param.Name()) != nil:
@@ -1173,6 +1174,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.objectLiteral(node)
 	case ast.KindArrowFunction, ast.KindFunctionExpression:
 		return l.functionExpression(node)
+	case ast.KindExpressionWithTypeArguments:
+		return l.instantiationExpression(node)
 	case ast.KindDeleteExpression:
 		return l.deleteExpression(node)
 	}
@@ -1234,9 +1237,11 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 		}
 		return &ir.LocalRef{Local: local}, true
 	}
-	if _, ok := l.generics[symbol]; ok {
-		l.notSupportedYet(node, "generic functions as values are")
-		return nil, true
+	if generic, ok := l.generics[symbol]; ok {
+		if generic == nil {
+			return nil, true // its declaration failed, which was reported
+		}
+		return l.genericValue(node, generic), true
 	}
 	if fn, ok := l.funcs[symbol]; ok {
 		if fn == nil {
@@ -1448,6 +1453,8 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 	case isTuple(x.Type()):
 		l.notSupportedYet(argument, "spreading a tuple that isn't in a variable into arguments is")
 		return nil
+	case x.Type() == ir.Value: // a dynamic value's items (D-078)
+		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{x, &ir.StringConst{Value: scanner.GetTextOfNode(argument.Expression())}}}}}
 	}
 	l.notSupportedYet(argument, fmt.Sprintf("spreading a %s into arguments is", x.Type()))
 	return nil
@@ -1472,11 +1479,14 @@ func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) i
 	spread := false
 	for i, value := range values {
 		if s, ok := value.(*spreadValue); ok {
-			if s.x.Type() != array {
+			if s.x.Type() != array && s.x.Type() != ir.ValueArray {
 				l.notSupportedYet(at[i], fmt.Sprintf("spreading a %s into a rest parameter of type %s is", s.x.Type(), array))
 				return nil
 			}
-			parts[i], spread = s.x, true
+			if parts[i] = l.spreadPart(s, array, at[i]); parts[i] == nil {
+				return nil
+			}
+			spread = true
 			continue
 		}
 		if parts[i] = l.convert(value, array.Elem, at[i]); parts[i] == nil {

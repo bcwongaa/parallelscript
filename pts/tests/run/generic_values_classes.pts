@@ -1,0 +1,11 @@
+// skip: an erased copy makes instances of a generic class for any (Box<any>), which don't
+// convert to another instance (Box<number>) (PROGRESS.md, known issues; D-078).
+class Box<T> {
+  constructor(public value: T) {}
+  get(): T {
+    return this.value;
+  }
+}
+const make = <T>(x: T): Box<T> => new Box(x);
+const b = make(5);
+console.log(b, b.get() + 1);

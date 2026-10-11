@@ -43,10 +43,12 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	if restIsTuple {
 		parameters = l.checker.GetExpandedParameters(signature, true)[0] // a rest parameter of a tuple type, as `bind` leaves, is its elements
 	}
+	if typeParameters := signature.TypeParameters(); len(typeParameters) > 0 {
+		outer := l.subst
+		l.subst = l.erasing(typeParameters, nil) // a generic function type's values are erased copies (D-078)
+		defer func() { l.subst = outer }()
+	}
 	switch {
-	case len(signature.TypeParameters()) > 0:
-		l.notSupportedYet(node, "generic function types are")
-		return nil
 	case restIsTuple && len(parameters) > 0 && parameters[len(parameters)-1].CheckFlags&ast.CheckFlagsRestParameter != 0:
 		l.notSupportedYet(node, "rest parameters of tuples with rest elements are")
 		return nil
@@ -55,6 +57,9 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	for i, param := range parameters {
 		t := l.typeOfSymbol(param)
 		rest := signature.HasRestParameter() && !restIsTuple && i == len(parameters)-1
+		if rest {
+			t = l.instantiateMade(l.checker.GetTypeOfSymbol(param)) // in erased code, any[] for a T[] (D-078)
+		}
 		optional := !rest && (!restIsTuple && i >= signature.MinArgumentCount() || isOptionalParameter(param))
 		if optional {
 			t = l.checker.RemoveMissingOrUndefinedType(t)
@@ -136,15 +141,17 @@ func isFunction(t ir.Type) bool {
 func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case node.TypeParameterList() != nil:
-		l.notSupportedYet(node, "generic functions are")
-		return nil
 	case flags&ast.FunctionFlagsGenerator != 0:
 		l.notSupportedYet(node, "generator functions are")
 		return nil
 	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(node, "async functions are")
 		return nil
+	}
+	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
+		outer := l.subst
+		l.subst = l.erasing(typeParameters, nil) // its own, or its context's (D-078)
+		defer func() { l.subst = outer }()
 	}
 	name := l.jsName(node)
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name}
@@ -426,7 +433,24 @@ func (l *lowerer) valueCall(call *ast.CallExpression) ir.Expr {
 	if args == nil {
 		return nil
 	}
-	return &ir.CallValue{Callee: callee, Args: args}
+	result := ir.Expr(&ir.CallValue{Callee: callee, Args: args})
+	if ft.Result == ir.Value {
+		return l.fromErased(result, call.AsNode()) // a generic function type's result (D-078)
+	}
+	return result
+}
+
+// fromErased converts value, the dynamic result of a call of an erased copy (node), to
+// the type tsc gives the call, with a check (D-078).
+func (l *lowerer) fromErased(value ir.Expr, node *ast.Node) ir.Expr {
+	target := l.irType(l.typeAt(node), node)
+	switch {
+	case target == nil:
+		return nil
+	case target == ir.Value:
+		return value
+	}
+	return l.dynamicConversion(value, target, node)
 }
 
 // isValueCall reports whether a call's callee is a function value of the program rather
@@ -538,7 +562,12 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 			failed = true
 			return
 		}
-		result := l.convert(call, to.Result, node)
+		var result ir.Expr
+		if from.Result == ir.Value && to.Result != ir.Value {
+			result = l.dynamicConversion(call, to.Result, node) // what an erased copy returns, or an any (D-078)
+		} else {
+			result = l.convert(call, to.Result, node)
+		}
 		failed = result == nil
 		fn.Body = &ir.Block{At: fn.Pos, Stmts: []ir.Stmt{&ir.Return{At: fn.Pos, Value: result}}}
 	})

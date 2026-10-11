@@ -829,6 +829,54 @@ bool pts_value_has_own(pts_value value, pts_value key) {
   return false;
 }
 
+/* ---------------------------------------------------------------- iterating */
+
+pts_value pts_value_iterable(pts_value value, const pts_string *text) {
+  if (pts_value_is_object(value)) {
+    pts_object *object = pts_value_as_object(value);
+    switch (object->type->kind) {
+    case PTS_KIND_ARRAY:
+    case PTS_KIND_TUPLE:
+      return value; /* read live, as JS's array iterator does */
+    case PTS_KIND_STRING:
+      return pts_value_from_object(pts_array_from_string((pts_string *)object));
+    case PTS_KIND_MAP:
+    case PTS_KIND_SET: {
+      pts_map *map = (pts_map *)object;
+      bool set = object->type->kind == PTS_KIND_SET;
+      pts_array *items = any_array();
+      pts_map_iterator entries = pts_map_iterate(map);
+      while (pts_map_next(&entries)) {
+        pts_value key = pts_value_of_slot(map->type->key, &entries.key);
+        if (set) {
+          push_any(items, key);
+          continue;
+        }
+        pts_value pair[] = {key, pts_value_of_slot(map->type->element, &entries.value)};
+        push_any(items, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
+      }
+      return pts_value_from_object(items);
+    }
+    default:
+      break;
+    }
+  }
+  pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not iterable", (int)text->byte_len, text->bytes);
+}
+
+double pts_value_iterable_length(pts_value iterable) { return (double)pts_spread_length(iterable); }
+
+pts_value pts_value_iterable_element(pts_value iterable, double i) { return pts_spread_element(iterable, (size_t)i); }
+
+pts_array *pts_value_to_array(pts_value value, const pts_string *text) {
+  pts_value items = pts_value_iterable(value, text);
+  pts_array *array = any_array();
+  for (size_t i = 0, n = pts_spread_length(items); i < n; i++) {
+    push_any(array, pts_spread_element(items, i));
+  }
+  return array;
+}
+
 /* ---------------------------------------------------------------- dispatch */
 
 static builtin_method find(const named_method *methods, const char *name) {

@@ -1,6 +1,6 @@
-// Function values that arrive later are reported: generic, async and generator functions
-// (M2.6, M4), `this` parameters, overloaded and recursive function types, and functions
-// as strings.
+// Function values that arrive later are reported: async and generator functions (M4),
+// `this` parameters, overloaded and recursive function types, and functions as strings.
+// (Generic function values work since M3.3d1, D-078.)
 const identity = <T>(x: T): T => x;
 const later = async () => 1;
 const numbers = function* () {
@@ -15,7 +15,6 @@ type Recursive = (f: Recursive) => number;
 function useRecursive(r: Recursive): void {}
 const text = "" + (() => 1);
 
-// error: closures_not_yet.pts:4:7 - error PTS1001: generic function types are not supported yet
 // error: closures_not_yet.pts:5:7 - error PTS1001: values of type Promise<number> are not supported yet
 // error: closures_not_yet.pts:6:7 - error PTS1001: values of type Generator<number, void, unknown> are not supported yet
 // error: closures_not_yet.pts:9:28 - error PTS1001: `this` parameters are not supported yet

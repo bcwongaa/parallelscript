@@ -760,6 +760,16 @@ pts_value pts_value_keys(pts_value value);
 pts_value pts_value_values(pts_value value);
 pts_value pts_value_entries(pts_value value);
 bool pts_value_has_own(pts_value value, pts_value key);
+/*
+ * What `for…of` iterates over for a dynamic value (D-078): an array or tuple itself, read
+ * live, or a new array of a string's code points, a set's elements or a map's [key,
+ * value] entries; TypeError `text is not iterable` for anything else. Its length and
+ * element i, boxed; and a new any[] of a dynamic value's items, for spreading.
+ */
+pts_value pts_value_iterable(pts_value value, const pts_string *text);
+double pts_value_iterable_length(pts_value iterable);
+pts_value pts_value_iterable_element(pts_value iterable, double i);
+struct pts_array *pts_value_to_array(pts_value value, const pts_string *text);
 /* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */

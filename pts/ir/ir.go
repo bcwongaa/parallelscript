@@ -269,6 +269,10 @@ type Array struct {
 // the one array type of strings.
 var StringArray = &Array{Elem: String}
 
+// ValueArray is any[], which ValueToArray makes; the lowering uses it as the one array
+// type of dynamic values.
+var ValueArray = &Array{Elem: Value}
+
 func (a *Array) String() string {
 	if _, ok := a.Elem.(*FuncType); ok {
 		return "(" + a.Elem.String() + ")[]"
@@ -1018,6 +1022,15 @@ var (
 	ValueValues  = &Builtin{Name: "Object.values", Params: []Type{Value}, Result: Value}
 	ValueEntries = &Builtin{Name: "Object.entries", Params: []Type{Value}, Result: Value}
 	ValueHasOwn  = &Builtin{Name: "Object.hasOwn", Params: []Type{Value, Value}, Result: Bool}
+	// ValueIterable is what `for…of` iterates over for a dynamic value: an array or tuple
+	// itself, or a new array of the items of a string, set or map (D-078); its second
+	// argument is the iterated expression's source text, for V8's `TypeError: x is not
+	// iterable`. ValueIterableLength and ValueIterableElement read it; ValueToArray is a new
+	// any[] of a dynamic value's items, for spreading.
+	ValueIterable        = &Builtin{Name: "iterable", Params: []Type{Value, String}, Result: Value}
+	ValueIterableLength  = &Builtin{Name: "iterable.length", Params: []Type{Value}, Result: Number}
+	ValueIterableElement = &Builtin{Name: "iterable.element", Params: []Type{Value, Number}, Result: Value}
+	ValueToArray         = &Builtin{Name: "Array.from", Params: []Type{Value, String}, Result: ValueArray}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
 	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}

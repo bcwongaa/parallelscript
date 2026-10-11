@@ -118,3 +118,10 @@ func (c *Checker) PtsTypeArgumentsOfSignature(signature *Signature) []*Type {
 func (c *Checker) PtsInstantiateType(t *Type, sources []*Type, targets []*Type) *Type {
 	return c.instantiateType(t, newTypeMapper(sources, targets))
 }
+
+// PtsInstantiateSignatureInContextOf returns a generic signature instantiated with the
+// type arguments tsc infers from a non-generic contextual signature, as when it relates
+// the two: the instance a generic function used as a value of that type stands for (D-078).
+func (c *Checker) PtsInstantiateSignatureInContextOf(signature *Signature, contextual *Signature) *Signature {
+	return c.instantiateSignatureInContextOf(signature, contextual, nil /*inferenceContext*/, nil /*compareTypes*/)
+}
