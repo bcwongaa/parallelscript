@@ -76,6 +76,10 @@ func (e *emitter) dynamicEntryDeclarations(program *ir.Program) {
 	for _, ft := range e.adapterFunctionTypes() {
 		e.line(0, "static pts_closure *%s(pts_closure *function);", adapterMaker(e.checks[ft]))
 	}
+	for _, adapter := range e.methodAdapterOrder {
+		params, _ := e.forwardedParams(adapter.ft.Params)
+		e.line(0, "%s;", e.methodAdapterSignature(adapter, params))
+	}
 	if e.declaredTypes {
 		e.line(0, "")
 	}
@@ -91,6 +95,14 @@ func (e *emitter) dynamicEntryDefinitions(program *ir.Program) {
 	})
 	for _, ft := range e.adapterFunctionTypes() {
 		e.adapterDefinition(ft)
+	}
+	for _, adapter := range e.methodAdapterOrder {
+		params, names := e.forwardedParams(adapter.ft.Params)
+		e.line(0, "%s {", e.methodAdapterSignature(adapter, params))
+		e.forwardBody(adapter.ft.Params, names, adapter.ft.Result, func(argc, argv string) string {
+			return fmt.Sprintf("pts_method_call_dynamic(self, %s, %s, %s)", cString(adapter.name), argc, argv)
+		})
+		e.line(0, "}")
 	}
 	if e.declaredTypes {
 		e.line(0, "")
@@ -160,46 +172,11 @@ func (e *emitter) adapterFunctionTypes() []*ir.FuncType {
 // type's; their descriptor; and the maker the type's check points to.
 func (e *emitter) adapterDefinition(ft *ir.FuncType) {
 	suffix := strings.TrimPrefix(e.checks[ft], "pts_check_")
-	used := map[string]bool{"self": true, "argv": true, "argc": true, "result": true}
-	params := []string{"pts_closure *self"}
-	var boxed []string
-	var rest string
-	for i, t := range ft.Params {
-		name := unique(used, fmt.Sprintf("arg%d", i+1))
-		params = append(params, e.declarator(t)+name)
-		switch {
-		case t == ir.Given:
-			boxed[len(boxed)-1] = name + " ? " + boxed[len(boxed)-1] + " : PTS_VALUE_UNDEFINED"
-		case isRest(t):
-			rest = name
-		default:
-			boxed = append(boxed, boxAs(name, t))
-		}
-	}
-	e.line(0, "static %spts_adapter_%s(%s) {", e.declarator(ft.Result), suffix, strings.Join(params, ", "))
-	call := fmt.Sprintf("pts_dynamic_call_closure(((pts_adapter *)self)->function, %d, %s)", len(boxed), "argv")
-	switch {
-	case rest != "":
-		e.line(1, "size_t argc = %d + pts_array_length_of(%s);", len(boxed), rest)
-		e.line(1, "pts_value argv[argc + 1];")
-		for i, value := range boxed {
-			e.line(1, "argv[%d] = %s;", i, value)
-		}
-		e.line(1, "for (size_t i = %d; i < argc; i++) {", len(boxed))
-		e.line(2, "argv[i] = pts_array_element(%s, (double)(i - %d));", rest, len(boxed))
-		e.line(1, "}")
-		call = "pts_dynamic_call_closure(((pts_adapter *)self)->function, (uint32_t)argc, argv)"
-	case len(boxed) > 0:
-		e.line(1, "pts_value argv[] = {%s};", strings.Join(boxed, ", "))
-	default:
-		call = "pts_dynamic_call_closure(((pts_adapter *)self)->function, 0, NULL)"
-	}
-	if ft.Result == ir.Void {
-		e.line(1, "%s;", call)
-	} else {
-		e.line(1, "pts_value result = %s;", call)
-		e.line(1, "return %s;", e.fromValue("result", ft.Result))
-	}
+	params, names := e.forwardedParams(ft.Params)
+	e.line(0, "static %spts_adapter_%s(%s) {", e.declarator(ft.Result), suffix, strings.Join(append([]string{"pts_closure *self"}, params...), ", "))
+	e.forwardBody(ft.Params, names, ft.Result, func(argc, argv string) string {
+		return fmt.Sprintf("pts_dynamic_call_closure(((pts_adapter *)self)->function, %s, %s)", argc, argv)
+	})
 	e.line(0, "}")
 	e.line(0, "static const pts_type pts_type_adapter_%s = {", suffix)
 	e.line(1, ".kind = PTS_KIND_FUNCTION,")
@@ -215,6 +192,105 @@ func (e *emitter) adapterDefinition(ft *ir.FuncType) {
 	e.line(1, "adapter->function = function;")
 	e.line(1, "return &adapter->closure;")
 	e.line(0, "}")
+}
+
+// forwardedParams are the C parameters of a function that forwards its arguments of
+// types params to a dynamic call (an adapter), and their names.
+func (e *emitter) forwardedParams(params []ir.Type) (declarations []string, names []string) {
+	used := map[string]bool{"self": true, "argv": true, "argc": true, "result": true}
+	for i, t := range params {
+		name := unique(used, fmt.Sprintf("arg%d", i+1))
+		declarations, names = append(declarations, e.declarator(t)+name), append(names, name)
+	}
+	return declarations, names
+}
+
+// forwardBody writes the body of a function that forwards its arguments (named names, of
+// types params) to call(argc, argv) as dynamic values (one not given, D-055, is undefined;
+// a rest array's elements are spread) and converts the dynamic result to result.
+func (e *emitter) forwardBody(params []ir.Type, names []string, result ir.Type, call func(argc, argv string) string) {
+	var boxed []string
+	var rest string
+	for i, t := range params {
+		switch {
+		case t == ir.Given:
+			boxed[len(boxed)-1] = names[i] + " ? " + boxed[len(boxed)-1] + " : PTS_VALUE_UNDEFINED"
+		case isRest(t):
+			rest = names[i]
+		default:
+			boxed = append(boxed, boxAs(names[i], t))
+		}
+	}
+	callExpr := call(fmt.Sprint(len(boxed)), "argv")
+	switch {
+	case rest != "":
+		e.line(1, "size_t argc = %d + pts_array_length_of(%s);", len(boxed), rest)
+		e.line(1, "pts_value argv[argc + 1];")
+		for i, value := range boxed {
+			e.line(1, "argv[%d] = %s;", i, value)
+		}
+		e.line(1, "for (size_t i = %d; i < argc; i++) {", len(boxed))
+		e.line(2, "argv[i] = pts_array_element(%s, (double)(i - %d));", rest, len(boxed))
+		e.line(1, "}")
+		callExpr = call("(uint32_t)argc", "argv")
+	case len(boxed) > 0:
+		e.line(1, "pts_value argv[] = {%s};", strings.Join(boxed, ", "))
+	default:
+		callExpr = call("0", "NULL")
+	}
+	if result == ir.Void {
+		e.line(1, "%s;", callExpr)
+	} else {
+		e.line(1, "pts_value result = %s;", callExpr)
+		e.line(1, "return %s;", e.fromValue("result", result))
+	}
+}
+
+// methodAdapter is the function that an interface's call site of a method of this name
+// and function type (after `this`) calls instead of an object's method of another
+// function type, which an object that came through `any` may have (D-078): it forwards
+// to the method's dynamic entry.
+type methodAdapter struct {
+	name string
+	ft   *ir.FuncType // canonical
+	c    string
+}
+
+// collectMethodAdapters names the adapter of each interface method that the program
+// calls, in a program whose objects may have come through `any`.
+func (e *emitter) collectMethodAdapters(program *ir.Program) {
+	if !e.declaredTypes {
+		return
+	}
+	for _, f := range program.Funcs {
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			if call, ok := x.(*ir.InterfaceCall); ok {
+				e.methodAdapterOf(call.Method)
+			}
+		})
+	}
+}
+
+// methodAdapterOf is the adapter of an interface method, named when first asked for.
+func (e *emitter) methodAdapterOf(method *ir.InterfaceMethod) *methodAdapter {
+	ft := e.canonicalFuncType(method.Params, method.Result)
+	key := method.Name + "\x00" + e.check(ft)
+	if adapter, ok := e.methodAdapters[key]; ok {
+		return adapter
+	}
+	e.checkParams(method.Params)
+	if method.Result != ir.Void && !hasValueTest(method.Result) {
+		e.check(method.Result)
+	}
+	adapter := &methodAdapter{name: method.Name, ft: ft, c: fmt.Sprintf("pts_method_adapter_%d", len(e.methodAdapterOrder)+1)}
+	e.methodAdapters[key] = adapter
+	e.methodAdapterOrder = append(e.methodAdapterOrder, adapter)
+	return adapter
+}
+
+// methodAdapterSignature is a method adapter's C declarator.
+func (e *emitter) methodAdapterSignature(adapter *methodAdapter, params []string) string {
+	return fmt.Sprintf("static %s%s(%s)", e.declarator(adapter.ft.Result), adapter.c, strings.Join(append([]string{"pts_object *self"}, params...), ", "))
 }
 
 func isRest(t ir.Type) bool {

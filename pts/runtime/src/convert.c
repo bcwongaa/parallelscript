@@ -155,8 +155,8 @@ static const pts_method *method_named(const pts_type *type, const char *name) {
 static bool descriptor_implies(implying *s, const pts_type *type, const pts_check *super) {
   for (uint32_t i = 0; i < super->method_count; i++) {
     const pts_method *method = method_named(type, super->methods[i].name);
-    if (method == NULL || method->signature != super->methods[i].signature) {
-      return false; /* interfaces call a method through its exact function type (D-036) */
+    if (method == NULL || (method->signature != super->methods[i].signature && method->dynamic == NULL)) {
+      return false; /* interfaces call a method of another function type through its dynamic entry (D-078) */
     }
   }
   for (uint32_t i = 0; i < super->count; i++) {

@@ -1,0 +1,37 @@
+// no-diff: a method an object that came through `any` holds with another signature than
+// an interface's (an erased copy's Box<any> as a Container<number>) is called through its
+// dynamic entry, its result checked (D-078), so a lie told through `any` throws.
+interface Container<T> {
+  map<U>(f: (x: T) => U): Container<U>;
+  get(): T;
+}
+class Box<T> implements Container<T> {
+  constructor(public value: T) {}
+  map<U>(f: (x: T) => U): Box<U> {
+    return new Box(f(this.value));
+  }
+  get(): T {
+    return this.value;
+  }
+}
+const c: Container<number> = new Box(1);
+const next = c.map((x) => x + 1); // a Box<any>, whose get() returns any
+console.log(next.get() + 1);
+const strings: any = new Box<any>("str");
+const numbers: Container<number> = strings; // its methods are called through their dynamic entries
+try {
+  console.log(numbers.get() + 1);
+} catch (e) {
+  console.log(String(e));
+}
+try {
+  const lying = c.map((x): number => "not a number" as any);
+  console.log(lying.get());
+} catch (e) {
+  console.log(String(e));
+}
+
+// expect:
+// 3
+// TypeError: Expected number, got string
+// TypeError: Expected number, got string

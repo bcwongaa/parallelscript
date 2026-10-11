@@ -135,7 +135,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{},
+		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{}}
 	result := &ir.Program{}
@@ -223,6 +223,9 @@ type lowerer struct {
 	generics            map[*ast.Symbol]*genericFunc     // every generic function declaration, whose instances calls make
 	genericStatics      map[*ast.Node]*genericFunc       // every generic static method, by declaration
 	instances           []*instance                      // the instances whose bodies are still to be lowered
+	genericMethodList   []*genericFunc                   // the generic instance methods of every class, in the order they were declared
+	tableMethodNames    map[string]bool                  // the names whose generic methods have erased copies in method tables (D-078)
+	allMethodsInTables  bool                             // every generic method has its erased copy in its class's method table
 	subst               *substitution                    // the instance being lowered or declared, or nil
 	genericClasses      map[*ast.Symbol]*genericClass    // every generic class declaration, whose instances types make; nil if it failed
 	classInstances      map[*ir.Class]*classInstance     // the generic class instance each instance's class is
@@ -1831,9 +1834,8 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if accessors, ok := l.accessorProperty(node); ok {
 		return l.propertyRead(node, accessors)
 	}
-	if l.genericMethodAt(node) != nil {
-		l.notSupportedYet(node, "generic methods as values are")
-		return nil
+	if generic := l.genericMethodAt(node); generic != nil {
+		return l.genericMethodValue(node, generic)
 	}
 	if _, ok := l.membersAt(node).methods[member]; ok || l.isObjectTypeMethod(member) {
 		return l.methodValue(node)

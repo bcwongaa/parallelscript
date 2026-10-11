@@ -221,6 +221,25 @@ static inline pts_function pts_method_find(const void *object, pts_site *site, c
   return pts_method_find_slow((const pts_object *)object, site, name, kind);
 }
 
+pts_function pts_method_find_adapted_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *signature,
+                                          pts_function adapter);
+
+/*
+ * pts_method_find for a place in a program whose objects may have come through `any`
+ * (D-078): an object of an object type may then hold a method of another signature
+ * (an erased copy's `Box<any>` as a Container<number>), which the place calls through
+ * adapter, a function of the place's signature that calls the method's dynamic entry.
+ */
+static inline pts_function pts_method_find_adapted(const void *object, pts_site *site, const char *name, const struct pts_check *signature,
+                                                   pts_function adapter) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    return type->methods[PTS_SITE_INDEX(cache)].function;
+  }
+  return pts_method_find_adapted_slow((const pts_object *)object, site, name, signature, adapter);
+}
+
 /* Where a property of an object is: a getter or setter that provides it, or else a field. */
 typedef struct pts_property {
   pts_function accessor;
@@ -774,6 +793,8 @@ struct pts_array *pts_value_to_array(pts_value value, const pts_string *text);
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
+/* Calls the method name of object through its dynamic entry, as a method adapter does (D-078). */
+pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t argc, const pts_value *argv);
 /* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
 pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);

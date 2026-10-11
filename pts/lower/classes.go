@@ -177,6 +177,11 @@ func (l *lowerer) declareMethod(member *ast.Node, class *ir.Class) {
 		return
 	}
 	name, kind := member.Name().Text(), methodKinds[member.Kind]
+	if class.Parent != nil && !ast.IsStatic(member) && l.inheritedGenericMethod(class.Parent, name) != nil {
+		l.notSupportedYet(nameOf(member), "overriding a generic method is") // its calls go straight to the generic method's instances (D-051)
+		l.declaringMembers().methods[member] = nil
+		return
+	}
 	var method *ir.Method
 	if fn := l.declareFunction(member, class.Name+"."+accessorPrefixes[kind]+name, class); fn != nil {
 		method = &ir.Method{Name: name, Kind: kind, Class: class, Func: fn, Abstract: abstract, Virtual: abstract}

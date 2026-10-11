@@ -15,15 +15,17 @@ import (
 func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case node.TypeParameterList() != nil:
-		l.notSupportedYet(node.Name(), "generic methods are")
-		return nil
 	case flags&ast.FunctionFlagsGenerator != 0:
 		l.notSupportedYet(node.Name(), "generator methods are")
 		return nil
 	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(node.Name(), "async methods are")
 		return nil
+	}
+	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
+		outer := l.subst
+		l.subst = l.erasing(typeParameters, nil) // its own, or its context's (D-078)
+		defer func() { l.subst = outer }()
 	}
 	ft := field.Type.(*ir.FuncType)
 	name := field.Name

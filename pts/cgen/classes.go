@@ -740,8 +740,12 @@ func (e *emitter) interfaceCall(call *ir.InterfaceCall) string {
 		params = append(params, strings.TrimSuffix(e.declarator(param), " "))
 	}
 	site := e.site()
-	function := fmt.Sprintf("((%s(*)(%s))({ static pts_site %s; pts_method_find(%s, &%s, %s, PTS_METHOD); }))",
-		e.declarator(call.Method.Result), strings.Join(params, ", "), site, args[0], site, cString(call.Method.Name))
+	find := fmt.Sprintf("pts_method_find(%s, &%s, %s, PTS_METHOD)", args[0], site, cString(call.Method.Name))
+	if adapter, ok := e.methodAdapters[call.Method.Name+"\x00"+e.checks[e.canonicalFuncType(call.Method.Params, call.Method.Result)]]; ok {
+		find = fmt.Sprintf("pts_method_find_adapted(%s, &%s, %s, %s, (pts_function)%s)", args[0], site, cString(call.Method.Name),
+			e.signatureCheck(call.Method.Params, call.Method.Result), adapter.c) // its object may have come through `any` (D-078)
+	}
+	function := fmt.Sprintf("((%s(*)(%s))({ static pts_site %s; %s; }))", e.declarator(call.Method.Result), strings.Join(params, ", "), site, find)
 	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
 }
 

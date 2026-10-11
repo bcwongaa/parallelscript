@@ -32,6 +32,7 @@ type genericFunc struct {
 	static     *ir.Class     // for a static method, its class
 	outer      *substitution // for a method of a generic class's instance, the instance's
 	erased     *instance     // its erased copy, if made (D-078)
+	inTable    bool          // for an instance method, its erased copy is in its class's method table
 }
 
 // instance is a generic function's instance for a list of type arguments.
@@ -229,16 +230,48 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 // tsc infers from it, as it does when it relates the two (`[1, 2].map(identity)`);
 // anywhere else, the erased copy (D-078).
 func (l *lowerer) genericValue(node *ast.Node, generic *genericFunc) ir.Expr {
-	var fn *ir.Func
-	if arguments := l.contextualTypeArguments(node, generic); arguments != nil {
-		fn = l.genericInstance(generic, arguments, node)
-	} else {
-		fn = l.erasedInstance(generic, node)
-	}
+	fn := l.valueInstance(node, generic, l.checker.GetTypeOfSymbol(l.declaredSymbol(generic.node)))
 	if fn == nil {
 		return nil
 	}
 	return l.functionValue(node, fn)
+}
+
+// valueInstance is the function a generic function or method of type t (node names it)
+// is as a value: the instance its context implies, or else its erased copy; nil if it
+// failed (reported).
+func (l *lowerer) valueInstance(node *ast.Node, generic *genericFunc, t *checker.Type) *ir.Func {
+	if arguments := l.contextualTypeArguments(node, generic, t); arguments != nil {
+		return l.genericInstance(generic, arguments, node)
+	}
+	return l.erasedInstance(generic, node)
+}
+
+// genericMethodValue lowers `o.m` or `C.m` for a generic method m used as a value: as
+// genericValue does for functions, the instance the context implies or the erased copy,
+// bound to o for an instance method as other methods are (D-044).
+func (l *lowerer) genericMethodValue(node *ast.Node, generic *genericFunc) ir.Expr {
+	fn := l.valueInstance(node, generic, l.checker.GetTypeAtLocation(node))
+	if fn == nil {
+		return nil
+	}
+	if generic.static != nil {
+		return l.functionValue(node, fn)
+	}
+	receiver := l.expression(node.Expression())
+	if receiver == nil {
+		return nil
+	}
+	receiver = upcast(l.asInstanceOf(receiver, generic.class, node.Expression()), generic.class)
+	params := make([]ir.Type, len(fn.Params)-1)
+	for i, param := range fn.Params[1:] {
+		params[i] = param.Type
+	}
+	name := generic.node.Name().Text()
+	m := method{name, receiver.Type(), params, fn.Result, func(object ir.Expr, args []ir.Expr) ir.Expr {
+		return &ir.Call{Func: fn, Args: append([]ir.Expr{object}, args...)}
+	}}
+	return l.boundMethod(node, m, receiver, nil, name, false)
 }
 
 // instantiationExpression lowers `f<T>`, a generic function given type arguments: the
@@ -271,16 +304,17 @@ func (l *lowerer) instantiationExpression(node *ast.Node) ir.Expr {
 	return l.convert(value, target, node)
 }
 
-// contextualTypeArguments are the type arguments of a generic function (node names it)
-// that its context's function type implies, or nil if the context isn't a function type
-// with one call signature that isn't generic, or they mention erased type parameters.
-func (l *lowerer) contextualTypeArguments(node *ast.Node, generic *genericFunc) []*checker.Type {
+// contextualTypeArguments are the type arguments of a generic function or method of type
+// t (node names it) that its context's function type implies, or nil if the context isn't
+// a function type with one call signature that isn't generic, or they mention erased type
+// parameters.
+func (l *lowerer) contextualTypeArguments(node *ast.Node, generic *genericFunc, t *checker.Type) []*checker.Type {
 	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
 	if contextual == nil {
 		return nil
 	}
 	contextualSignatures := l.checker.GetSignaturesOfType(l.checker.GetNonNullableType(contextual), checker.SignatureKindCall)
-	signatures := l.checker.GetSignaturesOfType(l.checker.GetTypeOfSymbol(l.declaredSymbol(generic.node)), checker.SignatureKindCall)
+	signatures := l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)
 	if len(contextualSignatures) != 1 || len(contextualSignatures[0].TypeParameters()) > 0 || len(signatures) != 1 {
 		return nil
 	}
@@ -343,6 +377,38 @@ func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
 		return
 	}
 	l.declaringMembers().genericMethods[member] = generic
+	l.genericMethodList = append(l.genericMethodList, generic)
+	if l.tableMethodNames[name] || l.allMethodsInTables {
+		l.addErasedMethod(generic)
+	}
+}
+
+// wantInMethodTables records that the program finds methods named name at run time, by
+// an interface's generic method of that name or through `any`: each generic method of a
+// class so named, declared so far or later, gets its erased copy in its class's method
+// table (D-078), whose entry such calls find. Other generic methods stay out of the
+// tables (D-051), so their bodies are never lowered erased unless something needs them.
+func (l *lowerer) wantInMethodTables(name string) {
+	if l.tableMethodNames[name] {
+		return
+	}
+	l.tableMethodNames[name] = true
+	for _, generic := range l.genericMethodList {
+		if generic.node.Name().Text() == name {
+			l.addErasedMethod(generic)
+		}
+	}
+}
+
+// addErasedMethod adds a generic method's erased copy to its class's method table.
+func (l *lowerer) addErasedMethod(generic *genericFunc) {
+	if generic.inTable {
+		return
+	}
+	generic.inTable = true
+	if fn := l.erasedInstance(generic, generic.node); fn != nil {
+		l.addMethod(&ir.Method{Name: generic.node.Name().Text(), Kind: ir.Plain, Class: generic.class, Func: fn}, generic.node)
+	}
 }
 
 // inheritedGenericMethod returns the generic method of the given name that class declares

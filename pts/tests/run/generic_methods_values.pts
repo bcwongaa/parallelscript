@@ -1,0 +1,151 @@
+// Generic methods of interfaces, object literals and classes (D-078): an interface's or
+// object literal's generic method has its erased signature; a class's generic method is
+// called directly through its instances, and through an interface or `any` by its erased
+// copy in the method table; a generic method read as a value is the instance its context
+// implies or the erased copy, bound to the object.
+interface Mapper<T> {
+  map<U>(f: (x: T) => U): U[];
+  size(): number;
+}
+class List<T> implements Mapper<T> {
+  constructor(public items: T[]) {}
+  map<U>(f: (x: T) => U): U[] {
+    const out: U[] = [];
+    for (const item of this.items) out.push(f(item));
+    return out;
+  }
+  size(): number {
+    return this.items.length;
+  }
+}
+const list = new List([1, 2, 3]);
+console.log(list.map((x) => x * 2));
+const m: Mapper<number> = list;
+console.log(m.map((x) => `#${x}`), m.size());
+
+// Object literals with generic methods, as an interface and on their own.
+const lit: Mapper<string> = {
+  map<U>(f: (x: string) => U): U[] {
+    return [f("a"), f("b")];
+  },
+  size() {
+    return 2;
+  },
+};
+console.log(lit.map((s) => s.toUpperCase()), lit.map((s) => s.length));
+const util = {
+  name: "util",
+  wrap<T>(x: T): T[] {
+    return [x];
+  },
+  pair<A, B>(a: A, b: B): [A, B] {
+    return [a, b];
+  },
+};
+console.log(util.wrap(1), util.wrap("s"), util.pair(1, "x"), util);
+
+// Generic methods as values, and static ones.
+console.log(typeof list.map, [list].map((l) => l.size()));
+class Util {
+  static first<T>(xs: T[]): T {
+    return xs[0];
+  }
+}
+const firstOf = Util.first;
+console.log(firstOf([9, 8]), [[1], [2]].map(Util.first));
+
+// Through `any`: the erased copies in the method tables.
+const dyn: any = list;
+console.log(dyn.map((x: number) => x + 100), dyn.size(), typeof dyn.map);
+
+// Generic classes whose generic methods return instances, through an interface.
+interface Container<T> {
+  map<U>(f: (x: T) => U): Container<U>;
+  get(): T;
+}
+class Box<T> implements Container<T> {
+  constructor(public value: T) {}
+  map<U>(f: (x: T) => U): Box<U> {
+    return new Box(f(this.value));
+  }
+  twice<U>(f: (x: T) => U): [U, U] {
+    return [this.apply(f), this.apply(f)];
+  }
+  apply<U>(f: (x: T) => U): U {
+    return f(this.value);
+  }
+  get(): T {
+    return this.value;
+  }
+}
+class Labeled<T> extends Box<T> {
+  label(): string {
+    return "labeled " + String(this.value);
+  }
+}
+function show<T>(c: Container<T>): T {
+  return c.get();
+}
+const b = new Box(2);
+console.log(b.map((x) => x + 1), b.twice((x) => x * 10));
+const c: Container<number> = b;
+console.log(c.get(), show(c), c.map((x) => x + 1).get(), c.map((x) => String(x)).map((s) => s + "!").get());
+const labeled: Container<string> = new Labeled("z");
+console.log(labeled.get(), labeled.map((s) => s.length).get());
+interface Twice {
+  twice<U>(f: (x: number) => U): [U, U];
+}
+const t: Twice = b;
+console.log(t.twice((x) => String(x)));
+const dynBox: any = new Box("dyn");
+console.log(dynBox.twice((s: string) => s.length));
+
+// An Option type: chains through the interface.
+interface Option<T> {
+  map<U>(f: (x: T) => U): Option<U>;
+  flatMap<U>(f: (x: T) => Option<U>): Option<U>;
+  getOrElse(fallback: T): T;
+  isSome(): boolean;
+}
+class Some<T> implements Option<T> {
+  constructor(private value: T) {}
+  map<U>(f: (x: T) => U): Option<U> {
+    return new Some(f(this.value));
+  }
+  flatMap<U>(f: (x: T) => Option<U>): Option<U> {
+    return f(this.value);
+  }
+  getOrElse(fallback: T): T {
+    return this.value;
+  }
+  isSome(): boolean {
+    return true;
+  }
+}
+class None<T> implements Option<T> {
+  map<U>(f: (x: T) => U): Option<U> {
+    return new None<U>();
+  }
+  flatMap<U>(f: (x: T) => Option<U>): Option<U> {
+    return new None<U>();
+  }
+  getOrElse(fallback: T): T {
+    return fallback;
+  }
+  isSome(): boolean {
+    return false;
+  }
+}
+const digits: Record<string, number> = { "4": 4, "7": 7, "10": 10 };
+function parse(s: string): Option<number> {
+  return s in digits ? new Some(digits[s]) : new None<number>();
+}
+const results = ["4", "x", "10"].map((s) =>
+  parse(s)
+    .map((n) => n * 2)
+    .flatMap((n) => (n > 10 ? new Some(`big ${n}`) : new None<string>()))
+    .getOrElse("none"),
+);
+console.log(results);
+const lengths = parse("7").map((n) => String(n).repeat(3)).map((s) => s.length);
+console.log(lengths.getOrElse(-1), lengths.isSome());

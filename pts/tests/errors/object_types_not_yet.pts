@@ -1,6 +1,6 @@
 // Object types and literals that arrive later are reported: members whose types differ, setter-only,
-// overloaded and generic members, optional methods, a method called with another
-// object as `this`, methods beside a spread, numeric and computed keys.
+// overloaded members, optional methods, a method called with another object as `this`,
+// methods beside a spread, numeric and computed keys. (`Generic` is fine since M3.3d2.)
 interface Point {
   x: number;
   y: number;
@@ -50,5 +50,4 @@ function size(o: Sized): number {
 // error: object_types_not_yet.pts:25:20 - error PTS1001: computed property names are not supported yet
 // error: object_types_not_yet.pts:29:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet
 // error: object_types_not_yet.pts:34:15 - error PTS1001: overloaded methods (`f` in Overloaded) are not supported yet
-// error: object_types_not_yet.pts:38:19 - error PTS1001: generic methods (`id` in Generic) are not supported yet
 // error: object_types_not_yet.pts:40:27 - error PTS1001: calling or binding a method of an object type with another object as `this` is not supported yet

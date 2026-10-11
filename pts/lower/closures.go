@@ -203,11 +203,14 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 	for i := len(fn.Params); i < len(context.Params); i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", context.Params[i]))
 	}
+	_, contextInterface := context.Result.(*ir.Interface)
 	switch {
 	case context.Result == ir.Void:
 		fn.Result = ir.Void
 	case context.Result == ir.Number && ir.IsNumeric(fn.Result) && node.Type() == nil:
 		fn.Result = ir.Number // an inferred integer result widens to the context's number, losslessly
+	case contextInterface && node.Type() == nil:
+		fn.Result = context.Result // `(b) => (b ? new Square() : new Circle())` for a `(b: boolean) => Shape`
 	}
 	return true
 }

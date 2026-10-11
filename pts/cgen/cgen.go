@@ -16,7 +16,7 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{checks: map[ir.Type]string{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
@@ -30,6 +30,7 @@ func Emit(program *ir.Program) string {
 	e.collectInterfaceMembers(program)
 	e.collectDeclaredTypes(program)
 	e.collectDynamicEntries(program)
+	e.collectMethodAdapters(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -96,6 +97,11 @@ type emitter struct {
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType
+	// methodAdapters are the adapters of the interface methods the program calls, by name
+	// and check of their function type, in a program whose objects may come through `any`
+	// with methods of other function types (D-078).
+	methodAdapters     map[string]*methodAdapter
+	methodAdapterOrder []*methodAdapter
 }
 
 func (e *emitter) header(program *ir.Program) {

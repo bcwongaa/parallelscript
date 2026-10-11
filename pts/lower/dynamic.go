@@ -57,8 +57,27 @@ func (l *lowerer) dynamicKey(node *ast.Node) ir.Expr {
 	return box(key)
 }
 
+// wantDynamicMember makes the generic methods that `o.name` or `o[k]` through `any` may
+// find, a method call or a method read as a value, have erased copies in their classes'
+// method tables (D-078): those named name, or k if it is a literal, or else all.
+func (l *lowerer) wantDynamicMember(node *ast.Node) {
+	if node.Kind == ast.KindPropertyAccessExpression {
+		l.wantInMethodTables(node.AsPropertyAccessExpression().Name().Text())
+		return
+	}
+	if key := ast.SkipParentheses(node.AsElementAccessExpression().ArgumentExpression); ast.IsStringLiteralLike(key) {
+		l.wantInMethodTables(key.Text())
+		return
+	}
+	for _, generic := range l.genericMethodList {
+		l.wantInMethodTables(generic.node.Name().Text())
+	}
+	l.allMethodsInTables = true
+}
+
 // dynamicRead lowers `o.name` or `o[k]` for an o of type any: the property found at run time.
 func (l *lowerer) dynamicRead(node *ast.Node) ir.Expr {
+	l.wantDynamicMember(node)
 	object := l.expression(node.Expression())
 	key := l.dynamicKey(node)
 	if object == nil || key == nil {
@@ -89,6 +108,7 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	args := []ir.Expr{}
 	method := ast.IsAccessExpression(callee) && l.isAny(callee.Expression())
 	if method {
+		l.wantDynamicMember(callee)
 		object := l.expression(callee.Expression())
 		key := l.dynamicKey(callee)
 		if object == nil || key == nil {

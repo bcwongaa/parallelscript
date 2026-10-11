@@ -201,13 +201,15 @@ func (l *lowerer) propertyType(property *ast.Symbol, node *ast.Node) ir.Type {
 // (at node, or at a parameter) why it can't and returns nil.
 func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *ast.Node) *ir.InterfaceMethod {
 	declarations := property.Declarations
-	switch {
-	case len(declarations) != 1:
+	if len(declarations) != 1 {
 		l.notSupportedYet(node, fmt.Sprintf("overloaded methods (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
 		return nil
-	case declarations[0].TypeParameterList() != nil:
-		l.notSupportedYet(node, fmt.Sprintf("generic methods (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
-		return nil
+	}
+	if typeParameters := l.checker.GetSignatureFromDeclaration(declarations[0]).TypeParameters(); len(typeParameters) > 0 {
+		outer := l.subst
+		l.subst = l.erasing(typeParameters, nil) // a generic method's signature is its erased copy's (D-078)
+		defer func() { l.subst = outer }()
+		l.wantInMethodTables(property.Name)
 	}
 	if property.CheckFlags&ast.CheckFlagsInstantiated != 0 { // a method of Stack<string>, whose declaration has Stack<T>'s types
 		ft := l.signatureType(l.checker.GetSignaturesOfType(l.typeOfSymbol(property), checker.SignatureKindCall)[0], node)
@@ -723,9 +725,13 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 		if args == nil {
 			return nil
 		}
-		return l.withReceiver(receiver, func(object ir.Expr) ir.Expr {
+		result := l.withReceiver(receiver, func(object ir.Expr) ir.Expr {
 			return &ir.CallValue{Callee: &ir.FieldRef{X: object, Field: shape.Field(name)}, Args: append([]ir.Expr{object}, args...)}
 		})
+		if ft.Result == ir.Value {
+			return l.fromErased(result, call.AsNode()) // a generic method's result (D-078)
+		}
+		return result
 	}
 	iface, ok := receiver.Type().(*ir.Interface)
 	if !ok || iface.Method(name) == nil {
@@ -737,7 +743,11 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 	if args == nil {
 		return nil
 	}
-	return &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{receiver}, args...)}
+	result := ir.Expr(&ir.InterfaceCall{Method: method, Args: append([]ir.Expr{receiver}, args...)})
+	if method.Result == ir.Value {
+		return l.fromErased(result, call.AsNode()) // a generic method's result (D-078)
+	}
+	return result
 }
 
 // markAccessorProperties marks the properties of interfaces that some class of the

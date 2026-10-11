@@ -100,6 +100,30 @@ pts_function pts_method_find_slow(const pts_object *object, pts_site *site, cons
   return type->methods[index].function;
 }
 
+pts_function pts_method_find_adapted_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *signature,
+                                          pts_function adapter) {
+  const pts_type *type = object->type;
+  int64_t index = method_index(type, name, PTS_METHOD);
+  if (index < 0) {
+    pts_panic("TypeError", "A %s has no method '%s'", type->name, name); /* the compiler or a conversion checked that it has */
+  }
+  if (type->methods[index].signature != signature) {
+    return adapter; /* not cached: the cache holds only methods the site calls as they are */
+  }
+  if (index < PTS_SITE_INDEX(UINT64_MAX)) {
+    cache_member(site, type, (uint64_t)index);
+  }
+  return type->methods[index].function;
+}
+
+pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t argc, const pts_value *argv) {
+  int64_t index = method_index(object->type, name, PTS_METHOD);
+  if (index < 0 || object->type->methods[index].dynamic == NULL) {
+    pts_panic("TypeError", "A %s has no method '%s' to call through `any`", object->type->name, name); /* a conversion checked that it has */
+  }
+  return object->type->methods[index].dynamic(object, argc, argv);
+}
+
 /* Whether a field or accessor declared `declared` is exactly what a site of check's type writes: then the site may cache it (D-072). */
 static bool exact(pts_field_kind kind, const pts_check *declared, const pts_check *check) {
   return check == NULL || pts_check_same(pts_check_declared(kind, declared), check);
