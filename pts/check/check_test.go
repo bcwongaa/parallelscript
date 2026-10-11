@@ -251,3 +251,29 @@ export default limit + 1;
 		"main.pts:6:15 - error PTS2001: a u16 doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 	})
 }
+
+func TestPrivateFieldsAndInterfaceMembersFollowTheConversionRules(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `class Counter {
+  #count: u8 = 250;
+  get count(): u8 { return this.#count; }
+  #wide: int = this.#count;
+  #bad: u8 = 256;
+}
+interface Adder {
+  readonly total: u8;
+  add(n: u8): u8;
+}
+function use(a: Adder, b: { scale(by: i8): i8 }): u8 {
+  const fine: u8 = a.add(200) + a.total;
+  const wide: i16 = b.scale(-1);
+  b.scale(200);
+  return a.add(300);
+}
+`)
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:5:14 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
+		"main.pts:14:11 - error PTS2002: 200 doesn't fit in i8 (-128 to 127)",
+		"main.pts:15:16 - error PTS2002: 300 doesn't fit in u8 (0 to 255)",
+	})
+}

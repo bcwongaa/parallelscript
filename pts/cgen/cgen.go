@@ -16,9 +16,11 @@ import (
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
-		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{}}
+		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
+		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}}
 	e.nameClasses(program)
 	e.indexMethods(program)
+	e.collectInterfaceMembers(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -30,25 +32,31 @@ func Emit(program *ir.Program) string {
 
 type emitter struct {
 	out
-	strings      map[string]string // string constant value → C name
-	stringOrder  []string          // values in order of first use
-	funcNames    map[*ir.Func]string
-	classNames   map[*ir.Class]string    // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
-	methods      map[*ir.Func]*ir.Method // the method each method's function implements
-	globals      map[*ir.Local]string    // module-scope bindings that other functions use, by C name
-	globalOrder  []*ir.Local
-	globalOwners map[*ir.Local]*ir.Func // the top-level code that declares each global
-	initOrder    map[*ir.Func]int       // each module's top-level code: its place in the order modules run
-	current      *ir.Func
-	locals       map[*ir.Local]string
-	usedNames    map[string]bool
-	nextSuffix   map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
-	temporaries  int            // pts_tmpN locals made so far in the function
-	sites        int            // pts_siteN caches made so far in the function (fieldRef)
-	labels       map[*ir.Label]string
-	usedLabels   map[string]bool
-	gotoTargets  map[string]bool // C labels some goto jumps to, so only those are written
-	loops        []*ir.Label     // the C loops around the current statement, innermost last
+	strings     map[string]string // string constant value → C name
+	stringOrder []string          // values in order of first use
+	funcNames   map[*ir.Func]string
+	classNames  map[*ir.Class]string    // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
+	methods     map[*ir.Func]*ir.Method // the method each method's function implements
+	// interfaceMembers are the methods, getters and setters of each class that interfaces
+	// may call, in its descriptor's method table; entryNames name the functions that
+	// interfaces call them through, which take `this` as any object (D-036).
+	interfaceMembers map[*ir.Class][]*ir.Method
+	entryNames       map[*ir.Func]string
+	entryOrder       []*ir.Method
+	globals          map[*ir.Local]string // module-scope bindings that other functions use, by C name
+	globalOrder      []*ir.Local
+	globalOwners     map[*ir.Local]*ir.Func // the top-level code that declares each global
+	initOrder        map[*ir.Func]int       // each module's top-level code: its place in the order modules run
+	current          *ir.Func
+	locals           map[*ir.Local]string
+	usedNames        map[string]bool
+	nextSuffix       map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
+	temporaries      int            // pts_tmpN locals made so far in the function
+	sites            int            // pts_siteN caches made so far in the function (fieldRef)
+	labels           map[*ir.Label]string
+	usedLabels       map[string]bool
+	gotoTargets      map[string]bool // C labels some goto jumps to, so only those are written
+	loops            []*ir.Label     // the C loops around the current statement, innermost last
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -73,6 +81,7 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "static %s;", e.signature(f, nil))
 	}
 	e.line(0, "")
+	e.entryFunctions()
 	e.classDescriptors(program.Classes)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
@@ -454,7 +463,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.NewObject:
 		return e.newObject(x)
 	case *ir.FieldRef:
-		return e.fieldRef(e.expr(x.X), x.X.Type(), x.Field)
+		return e.fieldRead(e.expr(x.X), x.X.Type(), x.Field)
 	case *ir.SetField:
 		return e.setField(x)
 	case *ir.Box:
@@ -469,6 +478,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return ordered(prelude, e.funcNames[x.Func]+"("+strings.Join(args, ", ")+")")
 	case *ir.VirtualCall:
 		return e.virtualCall(x)
+	case *ir.InterfaceCall:
+		return e.interfaceCall(x)
 	case *ir.ClassCast:
 		return e.classCast(x)
 	case *ir.InstanceOf:
@@ -865,7 +876,7 @@ func (e *emitter) declarator(t ir.Type) string {
 	case *ir.Class:
 		return "pts_class_" + e.classNames[t] + " *"
 	case *ir.Interface:
-		return "pts_object *" // any object whose fields provide the interface's properties
+		return "pts_object *" // any object that provides the interface's members
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {
@@ -926,6 +937,10 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 				expr(arg)
 			}
 		case *ir.VirtualCall:
+			for _, arg := range x.Args {
+				expr(arg)
+			}
+		case *ir.InterfaceCall:
 			for _, arg := range x.Args {
 				expr(arg)
 			}

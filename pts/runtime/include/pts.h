@@ -59,9 +59,19 @@ typedef struct pts_field {
   pts_field_kind kind;
 } pts_field;
 
+/* A function of any type, as method tables hold them: cast it back to its own type to call it. */
+typedef void (*pts_function)(void);
+
+typedef enum pts_method_kind {
+  PTS_METHOD,
+  PTS_GETTER,
+  PTS_SETTER,
+} pts_method_kind;
+
 typedef struct pts_method {
   const char *name;
-  void (*function)(void); /* cast to the method's own signature to call it */
+  pts_method_kind kind;
+  pts_function function; /* takes the object as a pts_object * first (D-036) */
 } pts_method;
 
 /*
@@ -78,7 +88,7 @@ typedef struct pts_type {
   uint32_t field_count;
   const pts_field *fields; /* in declaration order, inherited ones first */
   uint32_t method_count;
-  const pts_method *methods;
+  const pts_method *methods; /* what interfaces call: methods, getters and setters, inherited ones included */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -124,6 +134,70 @@ static inline void *pts_field_address(const void *object, pts_site *site, const 
   }
   return pts_field_address_slow((const pts_object *)object, site, name);
 }
+
+/*
+ * A place that calls a method through an interface (D-036) caches the index of the
+ * method in the descriptor's method table instead of an offset. A place that reads or
+ * writes a property some class provides with accessors caches either the field's offset
+ * or, with PTS_SITE_ACCESSOR set, the index of the getter or setter.
+ */
+#define PTS_SITE_ACCESSOR (UINT64_C(1) << 63)
+#define PTS_SITE_INDEX(cache) ((uint32_t)((cache) >> 48) & 0x7fff)
+
+pts_function pts_method_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind);
+
+/* The function that implements the method (or getter or setter) name of object, found through site's cache. */
+static inline pts_function pts_method_find(const void *object, pts_site *site, const char *name, pts_method_kind kind) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    return type->methods[PTS_SITE_INDEX(cache)].function;
+  }
+  return pts_method_find_slow((const pts_object *)object, site, name, kind);
+}
+
+/* Where a property of an object is: a getter or setter that provides it, or else a field. */
+typedef struct pts_property {
+  pts_function accessor;
+  void *field;
+} pts_property;
+
+pts_property pts_property_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind);
+
+/* Where object's property name is, to read (PTS_GETTER) or write (PTS_SETTER), found through site's cache. */
+static inline pts_property pts_property_find(const void *object, pts_site *site, const char *name, pts_method_kind kind) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    if (cache & PTS_SITE_ACCESSOR) {
+      return (pts_property){type->methods[PTS_SITE_INDEX(cache)].function, NULL};
+    }
+    return (pts_property){NULL, (char *)object + (cache >> 48)};
+  }
+  return pts_property_find_slow((const pts_object *)object, site, name, kind);
+}
+
+/* Reads, through site, the property name of object, a value of C type T held by a field or a getter. */
+#define PTS_GET(T, object, site, name)                                                                     \
+  ({                                                                                                       \
+    pts_object *pts_get_object = (pts_object *)(object);                                                   \
+    pts_property pts_get = pts_property_find(pts_get_object, (site), (name), PTS_GETTER);                  \
+    pts_get.accessor != NULL ? ((T(*)(pts_object *))pts_get.accessor)(pts_get_object) : *(T *)pts_get.field; \
+  })
+
+/* Writes value, of C type T, to the property name of object through site: to its field, or with its setter. */
+#define PTS_SET(T, object, site, name, value)                                                    \
+  ({                                                                                             \
+    pts_object *pts_set_object = (pts_object *)(object);                                         \
+    T pts_set_value = (value);                                                                   \
+    pts_property pts_set = pts_property_find(pts_set_object, (site), (name), PTS_SETTER);        \
+    if (pts_set.accessor != NULL) {                                                              \
+      ((void (*)(pts_object *, T))pts_set.accessor)(pts_set_object, pts_set_value);             \
+    } else {                                                                                     \
+      *(T *)pts_set.field = pts_set_value;                                                       \
+    }                                                                                            \
+    pts_set_value;                                                                               \
+  })
 
 /* Whether object, an instance, is one of type or of a subclass: JS's instanceof on classes. */
 static inline bool pts_instance_of(const void *object, const pts_type *type) {

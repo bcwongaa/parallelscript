@@ -101,9 +101,11 @@ func (c *pass) visit(node *ast.Node) {
 		if fn := c.functionOf(node); !fn.visited {
 			c.checkBody(node, fn)
 		}
+		c.visitSignatureTypes(node)
 		return
-	case isAbstractMethod(node):
+	case isSignature(node):
 		c.functionOf(node) // its parameter and result types
+		c.visitSignatureTypes(node)
 		return
 	case node.Kind == ast.KindReturnStatement && c.current != nil:
 		c.returnStatement(node)
@@ -127,6 +129,19 @@ func (c *pass) visit(node *ast.Node) {
 	})
 }
 
+// visitSignatureTypes visits the types a function's parameters and result are annotated
+// with, so that the methods and properties of object types written there are typed.
+func (c *pass) visitSignatureTypes(node *ast.Node) {
+	for _, param := range node.Parameters() {
+		if param.Type() != nil {
+			c.visit(param.Type())
+		}
+	}
+	if node.Type() != nil {
+		c.visit(node.Type())
+	}
+}
+
 func (c *pass) isNumber(node *ast.Node) bool {
 	return c.tc.GetTypeAtLocation(node).Flags()&checker.TypeFlagsNumberLike != 0
 }
@@ -138,13 +153,14 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	}
 	c.declared[node] = true
 	name, initializer := node.Name(), node.Initializer()
-	if name.Kind == ast.KindIdentifier && initializer == nil && c.isNumber(name) {
+	named := name.Kind == ast.KindIdentifier || name.Kind == ast.KindPrivateIdentifier // not a destructuring pattern
+	if named && initializer == nil && c.isNumber(name) {
 		declared, _ := c.annotationType(node.Type()) // `let n: u8;`; without an annotation tsc wouldn't type it number
 		c.symbols[c.tc.GetSymbolAtLocation(name)] = declared
 		c.info.types[name] = declared
 		return
 	}
-	if name.Kind != ast.KindIdentifier || initializer == nil || !c.isNumber(name) {
+	if !named || initializer == nil || !c.isNumber(name) {
 		node.ForEachChild(func(child *ast.Node) bool {
 			c.visit(child)
 			return false
@@ -254,7 +270,7 @@ func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
 // type, or without a getter, its setter's parameter type.
 func (c *pass) accessorType(symbol *ast.Symbol) (Numeric, bool) {
 	for _, declaration := range symbol.Declarations {
-		if declaration.Kind == ast.KindGetAccessor && declaration.Body() != nil || isAbstractAccessor(declaration, ast.KindGetAccessor) {
+		if declaration.Kind == ast.KindGetAccessor && (declaration.Body() != nil || isSignature(declaration)) {
 			if result := c.functionOf(declaration).result; result != nil {
 				return *result, true
 			}

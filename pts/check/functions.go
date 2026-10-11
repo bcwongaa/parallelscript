@@ -30,7 +30,7 @@ func (c *pass) calledFunction(call *ast.Node) *ast.Node {
 		return nil
 	}
 	for _, declaration := range symbol.Declarations {
-		if isFunctionWithBody(declaration) || isAbstractMethod(declaration) {
+		if isFunctionWithBody(declaration) || isSignature(declaration) {
 			return declaration
 		}
 	}
@@ -123,14 +123,21 @@ func isSuperCall(node *ast.Node) bool {
 	return node.Kind == ast.KindCallExpression && node.Expression().Kind == ast.KindSuperKeyword
 }
 
-// isAbstractMethod reports whether node declares an abstract method or accessor, which has no body.
-func isAbstractMethod(node *ast.Node) bool {
-	return isAbstractAccessor(node, ast.KindMethodDeclaration) || isAbstractAccessor(node, ast.KindGetAccessor) || isAbstractAccessor(node, ast.KindSetAccessor)
+// isSignature reports whether node declares a method or accessor without a body that
+// calls still go to: an abstract one, or one of an interface or type literal.
+func isSignature(node *ast.Node) bool {
+	switch node.Kind {
+	case ast.KindMethodSignature:
+		return true
+	case ast.KindMethodDeclaration, ast.KindGetAccessor, ast.KindSetAccessor:
+		return node.Body() == nil && (ast.HasSyntacticModifier(node, ast.ModifierFlagsAbstract) || isObjectTypeMember(node))
+	}
+	return false
 }
 
-// isAbstractAccessor reports whether node is an abstract declaration of the given kind.
-func isAbstractAccessor(node *ast.Node, kind ast.Kind) bool {
-	return node.Kind == kind && ast.HasSyntacticModifier(node, ast.ModifierFlagsAbstract)
+// isObjectTypeMember reports whether node is a member of an interface or type literal.
+func isObjectTypeMember(node *ast.Node) bool {
+	return node.Parent.Kind == ast.KindInterfaceDeclaration || node.Parent.Kind == ast.KindTypeLiteral
 }
 
 // isFunctionWithBody reports whether node declares a function, method, accessor or constructor with a body.

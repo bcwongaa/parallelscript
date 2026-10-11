@@ -39,6 +39,8 @@ func effectsOf(expr ir.Expr) effects {
 		return callEffects(x.Args)
 	case *ir.VirtualCall:
 		return callEffects(x.Args)
+	case *ir.InterfaceCall:
+		return callEffects(x.Args)
 	case *ir.ClassCast:
 		return effectsOf(x.X)
 	case *ir.InstanceOf:
@@ -80,8 +82,14 @@ func effectsOf(expr ir.Expr) effects {
 		}
 		return f
 	case *ir.FieldRef:
+		if x.Field.Accessor {
+			return callEffects([]ir.Expr{x.X}) // a getter may run
+		}
 		return readsLocals | effectsOf(x.X)
 	case *ir.SetField:
+		if x.Field.Accessor {
+			return callEffects([]ir.Expr{x.X, x.Value}) // a setter may run
+		}
 		return readsLocals | writes | effectsOf(x.X) | effectsOf(x.Value)
 	}
 	return 0 // constants

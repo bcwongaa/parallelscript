@@ -1,0 +1,66 @@
+// Interface methods and accessor properties keep the numeric rules: integer parameters
+// and results, literals typed by the method's parameter, and properties of class types.
+interface Counter {
+  readonly total: u8;
+  add(n: u8): u8;
+}
+class Wrapping {
+  #total: u8 = 250;
+  get total(): u8 {
+    return this.#total;
+  }
+  add(n: u8): u8 {
+    this.#total += n;
+    return this.#total;
+  }
+}
+class Plain {
+  total: u8 = 1;
+  add(n: u8): u8 {
+    return this.total += n;
+  }
+}
+function addTwice(c: Counter, n: u8): u8 {
+  return c.add(n) + c.add(n);
+}
+console.log(addTwice(new Wrapping(), 4), addTwice(new Plain(), 4));
+
+// An object type written in a parameter's annotation.
+function step(c: { add(n: u8): u8; readonly total: u8 }): u8 {
+  return c.add(10);
+}
+const w = new Wrapping();
+console.log(step(w), w.total);
+
+// A property of a class type, provided by a field in one class and a getter in another.
+class Node {
+  constructor(public value: int) {}
+}
+interface Holder {
+  node: Node;
+}
+class Box {
+  node = new Node(1);
+}
+class Lazy {
+  #made: int = 0;
+  get node(): Node {
+    this.#made++;
+    return new Node(this.#made * 100);
+  }
+  set node(n: Node) {
+    this.#made = n.value;
+  }
+}
+function read(h: Holder): int {
+  return h.node.value;
+}
+const lazy = new Lazy();
+const holder: Holder = lazy;
+holder.node = new Node(7);
+console.log(read(new Box()), read(lazy), read(lazy));
+
+// expect:
+// 0 14
+// 4 4
+// 1 800 900

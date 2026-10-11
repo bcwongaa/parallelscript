@@ -165,6 +165,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
 	result.Classes = append(l.classList, l.shapeList...)
+	result.Interfaces = l.interfaceList
+	l.markAccessorProperties()
 	return result, l.errors
 }
 
@@ -202,10 +204,11 @@ type lowerer struct {
 	staticClasses      map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
 	staticContext      *ir.Class                       // the class whose static initialisers are being lowered, or nil
 	shapesByType       map[*checker.Type]*ir.Class     // the shape of each object type met; nil if it has none
-	shapesByKey        map[string]*ir.Class            // the shapes, by their fields (shapeKey)
+	shapesByKey        map[string]*ir.Class            // the shapes, by their fields (membersKey)
 	shapeList          []*ir.Class                     // the shapes, in the order they were made
 	interfacesByType   map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
-	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their fields (fieldsKey)
+	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their members (membersKey)
+	interfaceList      []*ir.Interface                 // the interfaces, in the order they were made
 	this               map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
 	lowered            []*ir.Func                      // the functions whose bodies are lowered
 	bodies             []*ast.Node                     // function declarations whose bodies are still to be lowered
@@ -743,6 +746,19 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 
 // parameter makes the local for a parameter, or reports why it can't and returns nil.
 func (l *lowerer) parameter(node *ast.Node) *ir.Local {
+	t := l.parameterType(node)
+	if t == nil {
+		return nil
+	}
+	name := node.Name()
+	local := l.newLocal(name.Text(), t)
+	l.locals[l.checker.GetSymbolAtLocation(name)] = local
+	return local
+}
+
+// parameterType is the IR type of a parameter, or nil if it has none or is of a kind not
+// supported yet (reported).
+func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
 	switch {
 	case param.Name().Kind != ast.KindIdentifier:
@@ -755,17 +771,10 @@ func (l *lowerer) parameter(node *ast.Node) *ir.Local {
 		l.notSupportedYet(node, "optional parameters are")
 		return nil
 	}
-	symbol := l.checker.GetSymbolAtLocation(param.Name())
-	t := l.numericType(param.Name())
-	if t == nil {
-		t = l.irType(l.checker.GetTypeOfSymbol(symbol), param.Name())
+	if t := l.numericType(param.Name()); t != nil {
+		return t
 	}
-	if t == nil {
-		return nil
-	}
-	local := l.newLocal(param.Name().Text(), t)
-	l.locals[symbol] = local
-	return local
+	return l.irType(l.checker.GetTypeOfSymbol(l.checker.GetSymbolAtLocation(param.Name())), param.Name())
 }
 
 // resultType is the IR type a function returns: Void, the numeric type the semantic
@@ -953,6 +962,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		}
 		return l.instanceMethodCall(call, method)
 	}
+	if l.isObjectTypeMethod(l.memberDeclaration(ast.SkipParentheses(call.Expression))) {
+		return l.interfaceMethodCall(call)
+	}
 	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
 	switch {
@@ -992,6 +1004,16 @@ func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
 // arguments lowers the arguments of a call of a function of the program, each converted
 // to its parameter's type, or reports one and returns nil.
 func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr {
+	types := make([]ir.Type, len(params))
+	for i, param := range params {
+		types[i] = param.Type
+	}
+	return l.typedArguments(arguments, types)
+}
+
+// typedArguments lowers the arguments of a call, each converted to its parameter's type
+// in params, or reports one and returns nil.
+func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.Expr {
 	args := make([]ir.Expr, len(params))
 	for i, param := range params {
 		argument := arguments[i] // tsc checked the count; optional and rest parameters aren't lowered yet
@@ -999,7 +1021,7 @@ func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr
 		if arg == nil {
 			return nil
 		}
-		if args[i] = l.convert(arg, param.Type, argument); args[i] == nil {
+		if args[i] = l.convert(arg, param, argument); args[i] == nil {
 			return nil
 		}
 	}
@@ -1175,16 +1197,16 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
-	if accessors, ok := l.accessorProperty(node); ok {
-		return l.propertyRead(node, accessors)
-	}
 	if l.isShapeProperty(member) {
 		if object, field := l.shapeProperty(node); field != nil {
 			return &ir.FieldRef{X: object, Field: field}
 		}
 		return nil
 	}
-	if _, ok := l.methods[member]; ok {
+	if accessors, ok := l.accessorProperty(node); ok {
+		return l.propertyRead(node, accessors)
+	}
+	if _, ok := l.methods[member]; ok || l.isObjectTypeMethod(member) {
 		l.notSupportedYet(node, "methods as values are")
 		return nil
 	}
@@ -1400,14 +1422,15 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	})
 }
 
-// place is what an assignment stores to: a local, a field of an instance, or an
-// accessor property of one, whose setter stores (and getter reads).
+// place is what an assignment stores to: a local, a field of an instance (or through an
+// interface, a property of an object), or an accessor property of an instance, whose
+// setter stores (and getter reads).
 type place struct {
 	local     *ir.Local
 	object    ir.Expr // the instance, for a field or accessor property
 	field     *ir.Field
 	accessors property
-	current   *ir.Local // an accessor property's value, read once by readAndStore
+	current   *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
 	stored    *ir.Local // the value stored in an accessor property, which is the assignment's value
 	at        *ast.Node // the assignment's target, for an accessor property
 	l         *lowerer
@@ -1427,16 +1450,18 @@ func (p place) read() ir.Expr {
 	switch {
 	case p.local != nil:
 		return &ir.LocalRef{Local: p.local}
-	case p.field != nil:
-		return &ir.FieldRef{X: p.object, Field: p.field}
+	case p.current != nil:
+		return &ir.LocalRef{Local: p.current}
 	}
-	return &ir.LocalRef{Local: p.current}
+	return &ir.FieldRef{X: p.object, Field: p.field}
 }
 
 func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 	switch {
 	case p.local != nil:
 		return &ir.Assign{Local: p.local, Value: value, Postfix: postfix}
+	case p.field != nil && postfix && p.current != nil:
+		return &ir.Sequence{X: &ir.SetField{X: p.object, Field: p.field, Value: value}, Y: &ir.LocalRef{Local: p.current}}
 	case p.field != nil:
 		return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
 	}
@@ -1451,25 +1476,32 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 // readAndStore builds, with build, an expression that both reads and stores target.
 // A field's or property's instance is evaluated once, first, as in JS: if it isn't a
 // local, build gets a place whose instance is a temporary holding it. A property's
-// getter runs once, before build's expression.
+// getter runs once, before build's expression; so does the read of a property through an
+// interface, which a getter may provide.
 func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr {
 	if target.local != nil {
 		return build(target)
 	}
 	return l.withObject(target, func(target place) ir.Expr {
-		if target.field != nil {
+		var read ir.Expr
+		_, viaInterface := target.object.Type().(*ir.Interface)
+		switch {
+		case target.field != nil && !viaInterface:
 			return build(target)
-		}
-		if target.accessors.getter == nil {
+		case target.field != nil:
+			read = &ir.FieldRef{X: target.object, Field: target.field}
+		case target.accessors.getter == nil:
 			l.notSupportedYet(target.at, "reading a property that has no getter is")
 			return nil
+		default:
+			read = l.callMethod(target.object, nil, target.accessors.getter, nil)
 		}
 		target.current = l.newLocal("current", target.valueType())
 		result := build(target)
-		if result == nil {
+		if read == nil || result == nil {
 			return nil
 		}
-		return &ir.Bind{Local: target.current, Value: l.callMethod(target.object, nil, target.accessors.getter, nil), In: result}
+		return &ir.Bind{Local: target.current, Value: read, In: result}
 	})
 }
 
@@ -1634,11 +1666,29 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		}
 	}
 	x, y = commonClass(x, y)
+	if x.Type() != y.Type() && isObject(x.Type()) && isObject(y.Type()) {
+		x, y = l.asContextualInterface(node, x, y)
+	}
 	if x.Type() != y.Type() {
 		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
 		return nil, nil
 	}
 	return x, y
+}
+
+// asContextualInterface converts two references to objects to the object type that the
+// context of node expects (`const s: Shape = c ? circle : rect`), if both provide it.
+// Otherwise they stay as they are.
+func (l *lowerer) asContextualInterface(node *ast.Node, x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
+	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	if contextual == nil || !l.isObjectType(contextual) {
+		return x, y
+	}
+	iface := l.interfaceOf(contextual, node)
+	if iface == nil || unprovided(x.Type(), iface) != "" || unprovided(y.Type(), iface) != "" {
+		return x, y
+	}
+	return &ir.ClassCast{X: x, To: iface}, &ir.ClassCast{X: y, To: iface}
 }
 
 // condition lowers an expression tested for truth: if and loop conditions, ?:, !.

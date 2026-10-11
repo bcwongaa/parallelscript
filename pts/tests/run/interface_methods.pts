@@ -1,0 +1,166 @@
+// Methods and accessors through interfaces: class methods provide an interface's
+// methods, getters and setters its properties, and one place in the code calls whatever
+// the object it meets has.
+interface Shape {
+  name: string;
+  area(): number;
+  scale(by: number): void;
+}
+
+class Circle {
+  name = "circle";
+  constructor(public r: number) {}
+  area(): number {
+    return 3 * this.r * this.r;
+  }
+  scale(by: number): void {
+    this.r *= by;
+  }
+}
+
+class Rect implements Shape {
+  constructor(public w: number, public h: number) {}
+  get name(): string {
+    return "rect " + this.w + "x" + this.h;
+  }
+  area(): number {
+    return this.w * this.h;
+  }
+  scale(by: number): void {
+    this.w *= by;
+    this.h *= by;
+  }
+}
+
+class Square extends Rect {
+  constructor(side: number) {
+    super(side, side);
+  }
+  get name(): string {
+    return "square " + this.w;
+  }
+}
+
+function describe(s: Shape): string {
+  return s.name + ": " + s.area();
+}
+
+const circle = new Circle(2);
+const rect = new Rect(2, 3);
+const square = new Square(4);
+console.log(describe(circle), describe(rect), describe(square));
+let total = 0;
+for (let i = 0; i < 9; i++) {
+  const s: Shape = i % 3 === 0 ? circle : i % 3 === 1 ? rect : square;
+  s.scale(2);
+  total += s.area();
+}
+console.log(total, describe(circle), describe(square));
+
+// Overrides, abstract methods and inherited implementations behind one interface.
+interface Animal {
+  sound(): string;
+  legs(): number;
+}
+abstract class Base {
+  abstract sound(): string;
+  legs(): number {
+    return 4;
+  }
+}
+class Dog extends Base {
+  sound(): string {
+    return "woof";
+  }
+}
+class Bird extends Base {
+  sound(): string {
+    return "tweet";
+  }
+  legs(): number {
+    return 2;
+  }
+}
+class Puppy extends Dog {
+  sound(): string {
+    return "yip, " + super.sound();
+  }
+}
+function chorus(a: Animal, b: Animal, c: Animal): string {
+  return a.sound() + " " + b.sound() + " " + c.sound() + " " + (a.legs() + b.legs() + c.legs());
+}
+console.log(chorus(new Dog(), new Bird(), new Puppy()));
+const base: Base = new Puppy();
+const animal: Animal = base;
+console.log(animal.sound(), animal.legs());
+
+// Getters and setters provide properties; each runs once per read or write.
+interface Counter {
+  count: number;
+}
+class Logged {
+  #count = 0;
+  reads = 0;
+  writes = 0;
+  get count(): number {
+    this.reads++;
+    return this.#count;
+  }
+  set count(value: number) {
+    this.writes++;
+    this.#count = value;
+  }
+}
+class Plain {
+  count = 10;
+}
+function bump(c: Counter): number {
+  c.count += 5;
+  c.count++;
+  const old = c.count++;
+  c.count = c.count * 2;
+  return old;
+}
+const logged = new Logged();
+const plain = new Plain();
+console.log(bump(logged), bump(plain), logged.count, plain.count);
+console.log(logged.reads, logged.writes, logged);
+
+// Interfaces may declare accessors, and convert to narrower interfaces.
+interface Temperature {
+  get celsius(): number;
+  set celsius(value: number);
+  fahrenheit(): number;
+}
+interface Reading {
+  fahrenheit(): number;
+}
+class Thermometer {
+  constructor(public celsius: number) {}
+  fahrenheit(): number {
+    return this.celsius * 9 / 5 + 32;
+  }
+}
+const t: Temperature = new Thermometer(100);
+t.celsius -= 50;
+const reading: Reading = t;
+console.log(t.celsius, reading.fahrenheit(), reading === t);
+
+// Methods take and return objects; arguments run in order, after the receiver.
+interface Vec {
+  x: number;
+  y: number;
+  plus(other: Vec): Vec;
+}
+class V {
+  constructor(public x: number, public y: number) {}
+  plus(other: Vec): Vec {
+    return new V(this.x + other.x, this.y + other.y);
+  }
+}
+function trace(label: string, v: Vec): Vec {
+  console.log("eval " + label);
+  return v;
+}
+const sum = trace("receiver", new V(1, 2)).plus(trace("argument", new V(10, 20))).plus(new V(100, 200));
+console.log(sum.x, sum.y);

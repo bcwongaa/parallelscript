@@ -844,10 +844,10 @@ func upcast(x ir.Expr, to *ir.Class) ir.Expr {
 // classes' nearest common ancestor, or an interface that one is and the other provides.
 // Other values stay as they are.
 func commonClass(x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
-	if iface, ok := x.Type().(*ir.Interface); ok && isObject(y.Type()) && y.Type() != iface && unprovided(y.Type(), iface) == nil {
+	if iface, ok := x.Type().(*ir.Interface); ok && isObject(y.Type()) && y.Type() != iface && unprovided(y.Type(), iface) == "" {
 		return x, &ir.ClassCast{X: y, To: iface}
 	}
-	if iface, ok := y.Type().(*ir.Interface); ok && isObject(x.Type()) && x.Type() != iface && unprovided(x.Type(), iface) == nil {
+	if iface, ok := y.Type().(*ir.Interface); ok && isObject(x.Type()) && x.Type() != iface && unprovided(x.Type(), iface) == "" {
 		return &ir.ClassCast{X: x, To: iface}, y
 	}
 	a, aIsClass := x.Type().(*ir.Class)

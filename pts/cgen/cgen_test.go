@@ -293,3 +293,26 @@ func TestOnlyCodeThatMayRunEarlyChecksThatAnImportedBindingIsReady(t *testing.T)
 	assert.Assert(t, !strings.Contains(got, `pts_check_ready(pts_global_a_x_ready`), got)
 	assert.Assert(t, strings.Contains(got, "  pts_module_a();\n  pts_main();\n"), got)
 }
+
+func TestOnlyInterfacePropertiesThatAccessorsMayProvideCallThem(t *testing.T) {
+	t.Parallel()
+	shape := &ir.Class{Name: "object1", Shape: true}
+	shapeX, shapeY := &ir.Field{Name: "x", Type: ir.Number, Class: shape}, &ir.Field{Name: "y", Type: ir.Number, Class: shape}
+	shape.Fields = []*ir.Field{shapeX, shapeY}
+	shape.Orders = [][]*ir.Field{{shapeX, shapeY}}
+	x, y := &ir.Field{Name: "x", Type: ir.Number}, &ir.Field{Name: "y", Type: ir.Number, Accessor: true}
+	point := &ir.Interface{Fields: []*ir.Field{x, y}}
+	p := &ir.Local{Name: "p", Type: point}
+	ref := &ir.LocalRef{Local: p}
+	program := programOf(
+		&ir.LocalDecl{At: at(1), Local: p, Init: &ir.ClassCast{X: &ir.NewObject{Shape: shape, Values: []ir.Expr{num(1), num(2)}}, To: point}},
+		&ir.ExprStmt{At: at(2), X: &ir.SetField{X: ref, Field: y, Value: num(5)}},
+		logAt(3, &ir.FieldRef{X: ref, Field: x}, &ir.FieldRef{X: ref, Field: y}),
+	)
+	program.Classes, program.Interfaces = []*ir.Class{shape}, []*ir.Interface{point}
+	// x is a field in every object (D-035); a getter or setter may provide y (D-036).
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, `pts_field_address(p, &pts_site`) && strings.Contains(source, `PTS_GET(double, p, &pts_site`) &&
+		strings.Contains(source, `PTS_SET(double, p, &pts_site`), source)
+	assert.Equal(t, run(t, program), "1 5\n")
+}

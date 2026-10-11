@@ -42,6 +42,63 @@ func (e *emitter) indexMethods(program *ir.Program) {
 	}
 }
 
+// collectInterfaceMembers lists, for each class, the methods, getters and setters that
+// calls through interfaces may need: those named like a method of some interface, and
+// the accessors named like a property of one that some class provides with accessors.
+// Each is the implementation the class has, its own or inherited. Their functions get
+// entry points, named pts_entry_<function>.
+func (e *emitter) collectInterfaceMembers(program *ir.Program) {
+	wanted := map[ir.MethodKind]map[string]bool{ir.Plain: {}, ir.Getter: {}, ir.Setter: {}}
+	for _, iface := range program.Interfaces {
+		for _, method := range iface.Methods {
+			wanted[ir.Plain][method.Name] = true
+		}
+		for _, property := range iface.Fields {
+			if property.Accessor {
+				wanted[ir.Getter][property.Name], wanted[ir.Setter][property.Name] = true, true
+			}
+		}
+	}
+	for _, class := range program.Classes {
+		for owner := class; owner != nil; owner = owner.Parent {
+			for _, method := range owner.Methods {
+				if class.Method(method.Name, method.Kind) != method || method.Abstract || !wanted[method.Kind][method.Name] {
+					continue // overridden below, not implemented, or not called through interfaces
+				}
+				e.interfaceMembers[class] = append(e.interfaceMembers[class], method)
+				if _, named := e.entryNames[method.Func]; !named {
+					e.entryNames[method.Func] = "pts_entry_" + strings.TrimPrefix(e.funcNames[method.Func], "pts_fn_")
+					e.entryOrder = append(e.entryOrder, method)
+				}
+			}
+		}
+	}
+}
+
+// entryFunctions writes the entry point of each method that interfaces call: a function
+// that takes `this` as any object and calls the method with it as its class.
+func (e *emitter) entryFunctions() {
+	for _, method := range e.entryOrder {
+		f := method.Func
+		used := map[string]bool{"this": true}
+		params := []string{"pts_object *this"}
+		args := []string{"(" + strings.TrimSuffix(e.declarator(e.receiverClass(f)), " ") + ")this"}
+		for _, param := range f.Params[1:] {
+			name := unique(used, cIdentifier(param.Name))
+			params = append(params, e.declarator(param.Type)+name)
+			args = append(args, name)
+		}
+		call := e.funcNames[f] + "(" + strings.Join(args, ", ") + ");"
+		if f.Result != ir.Void {
+			call = "return " + call
+		}
+		e.line(0, "static %s%s(%s) { %s }", e.declarator(f.Result), e.entryNames[f], strings.Join(params, ", "), call)
+	}
+	if len(e.entryOrder) > 0 {
+		e.line(0, "")
+	}
+}
+
 // classDeclarations writes each class's struct, after typedefs that let fields name any
 // class, and the method-table structs of the classes that have virtual methods. A
 // subclass's struct starts with its parent's, as its member pts_base.
@@ -164,12 +221,12 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			}
 			e.line(0, "};")
 		}
-		implemented := implementedMethods(class)
-		if len(implemented) > 0 {
+		callable := e.interfaceMembers[class]
+		if len(callable) > 0 {
 			methods = "pts_methods_" + name
 			e.line(0, "static const pts_method %s[] = {", methods)
-			for _, method := range implemented {
-				e.line(1, "{%s, (void (*)(void))%s},", cString(method.Name), e.funcNames[method.Func])
+			for _, method := range callable {
+				e.line(1, "{%s, %s, (pts_function)%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func])
 			}
 			e.line(0, "};")
 		}
@@ -185,7 +242,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			".size = sizeof(pts_class_" + name + ")",
 			fmt.Sprintf(".field_count = %d", len(visible)),
 			".fields = " + fields,
-			fmt.Sprintf(".method_count = %d", len(implemented)),
+			fmt.Sprintf(".method_count = %d", len(callable)),
 			".methods = " + methods,
 		}
 		if !hasMethodTable(class) {
@@ -273,16 +330,8 @@ func visibleFields(class *ir.Class) []*ir.Field {
 	return fields
 }
 
-// implementedMethods are the methods a class declares that aren't abstract, accessors excluded.
-func implementedMethods(class *ir.Class) []*ir.Method {
-	var methods []*ir.Method
-	for _, method := range class.Methods {
-		if method.Kind == ir.Plain && !method.Abstract {
-			methods = append(methods, method)
-		}
-	}
-	return methods
-}
+// methodKinds are the runtime's names for the kinds of methods.
+var methodKinds = map[ir.MethodKind]string{ir.Plain: "PTS_METHOD", ir.Getter: "PTS_GETTER", ir.Setter: "PTS_SETTER"}
 
 // slotName is the member of a method table that holds a slot: the method's name, or for
 // a getter or setter, pts_get_<name> or pts_set_<name>.
@@ -355,8 +404,7 @@ func (e *emitter) newInstance(n *ir.New) string {
 func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
 	class, ok := t.(*ir.Class)
 	if !ok {
-		e.sites++
-		site := fmt.Sprintf("pts_site%d", e.sites)
+		site := e.site()
 		pointer := strings.TrimSuffix(e.declarator(field.Type), " ") + " *"
 		return fmt.Sprintf("(*({ static pts_site %s; (%s)pts_field_address(%s, &%s, %s); }))", site, pointer, object, site, cString(field.Name))
 	}
@@ -366,14 +414,40 @@ func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
 	return object + "->" + fieldPath(class, field)
 }
 
+// fieldRead writes a read of a field of object, a reference of type t (fieldRef), or of a
+// property through an interface that a getter may provide (D-036).
+func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
+	if !field.Accessor {
+		return e.fieldRef(object, t, field)
+	}
+	site := e.site()
+	return fmt.Sprintf("({ static pts_site %s; PTS_GET(%s, %s, &%s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name))
+}
+
+// fieldStore writes a store of value to a field of object, a reference of type t
+// (fieldRef), or to a property through an interface that a setter may provide (D-036).
+func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value string) string {
+	if !field.Accessor {
+		return e.fieldRef(object, t, field) + " = " + value
+	}
+	site := e.site()
+	return fmt.Sprintf("({ static pts_site %s; PTS_SET(%s, %s, &%s, %s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name), value)
+}
+
+// site names a new cache for a place in the function that finds a member at run time.
+func (e *emitter) site() string {
+	e.sites++
+	return fmt.Sprintf("pts_site%d", e.sites)
+}
+
 // setField writes a store to a field; its value is the new value, or the old one if postfix.
 func (e *emitter) setField(s *ir.SetField) string {
 	if s.Postfix {
 		old := e.temporary()
 		object := e.expr(s.X) // pure: the lowering binds anything else to a local first
 		t := s.X.Type()
-		return fmt.Sprintf("({ %s%s = %s; %s = %s; %s; })", e.declarator(s.Field.Type), old, e.fieldRef(object, t, s.Field),
-			e.fieldRef(object, t, s.Field), e.expr(s.Value), old)
+		return fmt.Sprintf("({ %s%s = %s; %s; %s; })", e.declarator(s.Field.Type), old, e.fieldRead(object, t, s.Field),
+			e.fieldStore(object, t, s.Field, e.expr(s.Value)), old)
 	}
 	return "(" + e.storeField(s) + ")"
 }
@@ -381,7 +455,7 @@ func (e *emitter) setField(s *ir.SetField) string {
 // storeField writes a store to a field as a statement would: the instance, then the value, in JS's order.
 func (e *emitter) storeField(s *ir.SetField) string {
 	operands, prelude := e.operands([]ir.Expr{s.X, s.Value})
-	return ordered(prelude, e.fieldRef(operands[0], s.X.Type(), s.Field)+" = "+operands[1])
+	return ordered(prelude, e.fieldStore(operands[0], s.X.Type(), s.Field, operands[1]))
 }
 
 // virtualCall writes a call through the method table of the receiver's class: the
@@ -396,6 +470,26 @@ func (e *emitter) virtualCall(call *ir.VirtualCall) string {
 	}
 	header := args[0] + "->" + basePath(slot.Class, root(slot.Class)) + "pts_header"
 	function := fmt.Sprintf("((const pts_vtable_%s *)%s)->%s", e.classNames[slot.Class], header, slotName(slot))
+	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
+}
+
+// interfaceCall writes a call of a method through an interface: the receiver is evaluated
+// once, before the arguments, and the function its class has for the method is found
+// through a cache at this place in the code (D-036).
+func (e *emitter) interfaceCall(call *ir.InterfaceCall) string {
+	args, prelude := e.operands(call.Args)
+	if !isIdentifier(args[0]) {
+		receiver := e.temporary()
+		prelude = "pts_object *" + receiver + " = " + args[0] + "; " + prelude
+		args[0] = receiver
+	}
+	params := []string{"pts_object *"}
+	for _, param := range call.Method.Params {
+		params = append(params, strings.TrimSuffix(e.declarator(param), " "))
+	}
+	site := e.site()
+	function := fmt.Sprintf("((%s(*)(%s))({ static pts_site %s; pts_method_find(%s, &%s, %s, PTS_METHOD); }))",
+		e.declarator(call.Method.Result), strings.Join(params, ", "), site, args[0], site, cString(call.Method.Name))
 	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
 }
 

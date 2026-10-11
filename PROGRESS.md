@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.3b2 Methods and accessors through interfaces
+- **Next task:** M2.4 Arrays
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.3b2 Methods and accessors through interfaces: interfaces and type literals with methods and accessor signatures; class methods provide interface methods and getters/setters provide properties (same IR types), called through per-site caches over each descriptor's table of entry points; properties some class provides with accessors go through `PTS_GET`/`PTS_SET`, others stay plain field sites; writing a getter-only property through an interface throws TypeError as in JS; `?:` of unrelated classes meets in the contextual interface (D-036, SPEC §9.17). M2.3 is complete. Fixed: the semantic pass didn't type `#private` fields, so a `#count: u8` read as a number.
 - M2.3b1 Interfaces over fields: object types are structural interfaces (one-word pointers); class instances and objects of other shapes whose fields provide an interface's properties (with the same types) convert to it; property access through per-site caches of (descriptor, offset), race-safe; contextually typed literals take the context's shape (D-035, SPEC §9.16). M2.3b split by D-034.
 - M2.3a Object literals and exact object types: object literals as anonymous struct types (shapes) shared by structurally identical object types, one descriptor per property order so `console.log` prints Node's `{ x: 1 }` in each literal's order, property reads and writes, the numeric rules through object types and literal contexts (D-033, SPEC §9.15). M2.3 split by D-032 (optional properties moved to M3.1).
 - M2.2d2 Statics and `#private`: static fields as module-scope globals initialised where the class declaration runs (TDZ included), static methods and blocks, `this` in static code, inherited statics read through subclasses, `#private` fields and methods (hidden from `console.log`), `#x in o` (D-031, SPEC §9.14). M2.2 (classes) is complete.
@@ -40,7 +41,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.3b2 Methods and accessors through interfaces: interfaces with methods (PTS1001 today in `objectFields`), and class methods and getters/setters that provide an interface's methods and properties (`objectCast` reports a getter-provided property today). D-L10 wants per-(concrete type, interface) tables built at compile time where possible: a conversion from a known class to an interface knows its pair, but the value is one word (D-002), so the table must be found from the object's descriptor at the call site, like D-035's field cache (a per-site cache of (descriptor, table) pointers, or a function pointer per site). Object-literal methods need function values (M2.5), so the concrete types with methods are classes for now. Property types must match exactly (D-035).
+1. M2.4 Arrays: growable, race-safe arrays (capacity inside the buffer, brief §2.5), `split`, and the core methods. `s[i]` out of range follows D-015 (undefined where the context holds it); arrays should follow the same rule. Callbacks (`map`, `filter`, …) need function values, which come with closures in M2.5: consider splitting M2.4 so that the methods taking callbacks follow M2.5, or pull plain function references forward.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -55,7 +56,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (57 run tests, 1 skipped; 40 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (60 run tests, 1 skipped; 40 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -80,6 +81,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.3b2 done.
 - 2026-10-11: M2.3b1 done (M2.3b split by D-034).
 - 2026-10-11: M2.3a done (M2.3 split by D-032).
 - 2026-10-11: M2.2d2 done.

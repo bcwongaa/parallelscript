@@ -10,10 +10,11 @@ import (
 
 // Program is a whole lowered program.
 type Program struct {
-	Classes []*Class // superclasses before their subclasses
-	Funcs   []*Func
-	Modules []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
-	Main    *Func     // runs the entry module's top-level code; also in Funcs
+	Classes    []*Class // superclasses before their subclasses
+	Interfaces []*Interface
+	Funcs      []*Func
+	Modules    []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
+	Main       *Func     // runs the entry module's top-level code; also in Funcs
 }
 
 // Module is one source file of the program.
@@ -160,13 +161,50 @@ func (c *Class) Slots() []*Method {
 	return slots
 }
 
-// Interface is an object type, used structurally (D-035): the type of a reference to an
-// object of any class or shape whose fields provide its properties, Fields, in name order.
+// Interface is an object type, used structurally (D-035, D-036): the type of a reference
+// to an object of any class or shape that provides its properties, Fields, with fields or
+// accessors, and its Methods with methods; both in name order.
 type Interface struct {
-	Fields []*Field // their Class is nil
+	Fields  []*Field // their Class is nil
+	Methods []*InterfaceMethod
 }
 
-func (i *Interface) String() string { return "{" + fieldList(i.Fields) + "}" }
+func (i *Interface) String() string {
+	members := []string{}
+	if len(i.Fields) > 0 {
+		members = append(members, fieldList(i.Fields))
+	}
+	for _, method := range i.Methods {
+		members = append(members, method.String())
+	}
+	return "{" + strings.Join(members, "; ") + "}"
+}
+
+// Method returns the method name of the interface, or nil.
+func (i *Interface) Method(name string) *InterfaceMethod {
+	for _, method := range i.Methods {
+		if method.Name == name {
+			return method
+		}
+	}
+	return nil
+}
+
+// InterfaceMethod is a method of an interface. A class provides it with a method of the
+// same name that takes the same parameter types and returns the same type.
+type InterfaceMethod struct {
+	Name   string
+	Params []Type // after `this`
+	Result Type
+}
+
+func (m *InterfaceMethod) String() string {
+	params := make([]string, len(m.Params))
+	for i, param := range m.Params {
+		params[i] = param.String()
+	}
+	return m.Name + "(" + strings.Join(params, ", ") + "): " + m.Result.String()
+}
 
 // Field returns the property name of the interface, or nil.
 func (i *Interface) Field(name string) *Field {
@@ -194,6 +232,10 @@ type Field struct {
 	Name  string
 	Type  Type
 	Class *Class // nil for an interface's property
+	// Accessor marks an interface's property that some class of the program has a getter
+	// or setter of the same name for: through the interface, reading it may call a getter
+	// and writing it a setter.
+	Accessor bool
 }
 
 // MethodKind tells methods from the getters and setters of accessor properties.
@@ -495,6 +537,13 @@ type VirtualCall struct {
 	Args   []Expr
 }
 
+// InterfaceCall calls a method of an interface on Args[0], a reference of that interface
+// type: the method that the class of the object it refers to has, found at run time.
+type InterfaceCall struct {
+	Method *InterfaceMethod
+	Args   []Expr
+}
+
 // ClassCast is X, a reference to an object, as a reference of another object type To
 // (a class or an Interface): an ancestor of its static class, an interface its fields
 // provide, or a class the checker narrowed it to.
@@ -629,32 +678,33 @@ type Unary struct {
 	X  Expr
 }
 
-func (*NumberConst) Type() Type    { return Number }
-func (*BoolConst) Type() Type      { return Bool }
-func (*StringConst) Type() Type    { return String }
-func (*UndefinedConst) Type() Type { return Undefined }
-func (*NullConst) Type() Type      { return Null }
-func (e *LocalRef) Type() Type     { return e.Local.Type }
-func (e *Assign) Type() Type       { return e.Local.Type }
-func (*Truthy) Type() Type         { return Bool }
-func (e *Conditional) Type() Type  { return e.Then.Type() }
-func (e *Logical) Type() Type      { return e.X.Type() }
-func (e *Sequence) Type() Type     { return e.Y.Type() }
-func (e *Bind) Type() Type         { return e.In.Type() }
-func (e *New) Type() Type          { return e.Class }
-func (e *NewObject) Type() Type    { return e.Shape }
-func (e *FieldRef) Type() Type     { return e.Field.Type }
-func (e *SetField) Type() Type     { return e.Field.Type }
-func (*Box) Type() Type            { return Value }
-func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
-func (e *Call) Type() Type         { return e.Func.Result }
-func (e *VirtualCall) Type() Type  { return e.Method.Func.Result }
-func (e *ClassCast) Type() Type    { return e.To }
-func (*InstanceOf) Type() Type     { return Bool }
-func (e *Unary) Type() Type        { return e.X.Type() }
-func (e *IntConst) Type() Type     { return e.Ty }
-func (e *Convert) Type() Type      { return e.To }
-func (*ToString) Type() Type       { return String }
+func (*NumberConst) Type() Type     { return Number }
+func (*BoolConst) Type() Type       { return Bool }
+func (*StringConst) Type() Type     { return String }
+func (*UndefinedConst) Type() Type  { return Undefined }
+func (*NullConst) Type() Type       { return Null }
+func (e *LocalRef) Type() Type      { return e.Local.Type }
+func (e *Assign) Type() Type        { return e.Local.Type }
+func (*Truthy) Type() Type          { return Bool }
+func (e *Conditional) Type() Type   { return e.Then.Type() }
+func (e *Logical) Type() Type       { return e.X.Type() }
+func (e *Sequence) Type() Type      { return e.Y.Type() }
+func (e *Bind) Type() Type          { return e.In.Type() }
+func (e *New) Type() Type           { return e.Class }
+func (e *NewObject) Type() Type     { return e.Shape }
+func (e *FieldRef) Type() Type      { return e.Field.Type }
+func (e *SetField) Type() Type      { return e.Field.Type }
+func (*Box) Type() Type             { return Value }
+func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
+func (e *Call) Type() Type          { return e.Func.Result }
+func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
+func (e *InterfaceCall) Type() Type { return e.Method.Result }
+func (e *ClassCast) Type() Type     { return e.To }
+func (*InstanceOf) Type() Type      { return Bool }
+func (e *Unary) Type() Type         { return e.X.Type() }
+func (e *IntConst) Type() Type      { return e.Ty }
+func (e *Convert) Type() Type       { return e.To }
+func (*ToString) Type() Type        { return String }
 
 func (e *Binary) Type() Type {
 	if e.Op.IsComparison() {

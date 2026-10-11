@@ -38,3 +38,56 @@ void *pts_field_address_slow(const pts_object *object, pts_site *site, const cha
   }
   pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
 }
+
+/* method_index returns the index in type's method table of the method name of the given kind, or -1. */
+static int64_t method_index(const pts_type *type, const char *name, pts_method_kind kind) {
+  for (uint32_t i = 0; i < type->method_count; i++) {
+    if (type->methods[i].kind == kind && strcmp(type->methods[i].name, name) == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/* cache_member caches at site that objects of type have what payload says (an offset, or an index with flags). */
+static void cache_member(pts_site *site, const pts_type *type, uint64_t payload) {
+  if ((uintptr_t)type <= PTS_SITE_TYPE_MASK && payload < UINT64_C(1) << 16) {
+    __atomic_store_n(&site->cache, (uint64_t)(uintptr_t)type | payload << 48, __ATOMIC_RELAXED);
+  }
+}
+
+pts_function pts_method_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind) {
+  const pts_type *type = object->type;
+  int64_t index = method_index(type, name, kind);
+  if (index < 0) {
+    pts_panic("TypeError", "A %s has no method '%s'", type->name, name); /* the compiler checked that it has */
+  }
+  if (index < PTS_SITE_INDEX(UINT64_MAX)) {
+    cache_member(site, type, (uint64_t)index);
+  }
+  return type->methods[index].function;
+}
+
+pts_property pts_property_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind) {
+  const pts_type *type = object->type;
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    if (strcmp(type->fields[i].name, name) == 0) {
+      uint32_t offset = type->fields[i].offset;
+      if (offset <= PTS_SITE_INDEX(UINT64_MAX)) {
+        cache_member(site, type, offset);
+      }
+      return (pts_property){NULL, (char *)object + offset};
+    }
+  }
+  int64_t index = method_index(type, name, kind);
+  if (index >= 0) {
+    if (index < PTS_SITE_INDEX(UINT64_MAX)) {
+      cache_member(site, type, (uint64_t)index | PTS_SITE_ACCESSOR >> 48);
+    }
+    return (pts_property){type->methods[index].function, NULL};
+  }
+  if (kind == PTS_SETTER && method_index(type, name, PTS_GETTER) >= 0) {
+    pts_panic("TypeError", "Cannot set property %s of #<%s> which has only a getter", name, type->name);
+  }
+  pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
+}

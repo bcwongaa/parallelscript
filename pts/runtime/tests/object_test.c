@@ -38,11 +38,14 @@ typedef struct point {
   double x, y;
 } point;
 
-static double point_norm1(point *p) { return p->x + p->y; }
+static double point_norm1(pts_object *object) {
+  point *p = (point *)object;
+  return p->x + p->y;
+}
 
 static const pts_field point_fields[] = {{"x", offsetof(point, x), PTS_FIELD_NUMBER}, {"y", offsetof(point, y), PTS_FIELD_NUMBER}};
 
-static const pts_method point_methods[] = {{"norm1", (void (*)(void))point_norm1}};
+static const pts_method point_methods[] = {{"norm1", PTS_METHOD, (pts_function)point_norm1}};
 
 static const pts_type point_type = {
     .kind = PTS_KIND_OBJECT,
@@ -93,8 +96,8 @@ static void methods_are_found_through_the_descriptor(void) {
   point *p = pts_object_new(&point_type);
   p->x = 1.5;
   p->y = 2;
-  double (*norm1)(point *) = (double (*)(point *))point_type.methods[0].function;
-  CHECK(norm1(p) == 3.5);
+  double (*norm1)(pts_object *) = (double (*)(pts_object *))point_type.methods[0].function;
+  CHECK(norm1((pts_object *)p) == 3.5);
   labelled_point *lp = pts_object_new(&labelled_point_type);
   CHECK(lp->base.type->parent == &point_type);
 }
@@ -138,6 +141,73 @@ static void field_addresses_are_cached_per_layout(void) {
   CHECK(pts_field_address(t, &site, "x") == &t->x);
   CHECK(site.cache == ((uint64_t)(uintptr_t)&tagged_type | (uint64_t)offsetof(tagged, x) << 48));
   CHECK(*(double *)pts_field_address(p, &site, "x") == 1.5);
+}
+
+/* An object whose property x a getter and setter provide, over a field named hidden. */
+typedef struct computed {
+  const pts_type *type;
+  double hidden;
+  int reads, writes;
+} computed;
+
+static double computed_get_x(pts_object *object) {
+  computed *c = (computed *)object;
+  c->reads++;
+  return c->hidden * 10;
+}
+
+static void computed_set_x(pts_object *object, double value) {
+  computed *c = (computed *)object;
+  c->writes++;
+  c->hidden = value / 10;
+}
+
+static double computed_norm1(pts_object *object) { return ((computed *)object)->hidden; }
+
+static const pts_method computed_methods[] = {
+    {"x", PTS_GETTER, (pts_function)computed_get_x},
+    {"x", PTS_SETTER, (pts_function)computed_set_x},
+    {"norm1", PTS_METHOD, (pts_function)computed_norm1},
+};
+
+static const pts_type computed_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "Computed",
+    .size = sizeof(computed),
+    .method_count = 3,
+    .methods = computed_methods,
+};
+
+static void method_sites_cache_the_index_per_layout(void) {
+  static pts_site site;
+  point *p = pts_object_new(&point_type);
+  computed *c = pts_object_new(&computed_type);
+  p->x = 1;
+  c->hidden = 7;
+  CHECK(pts_method_find(p, &site, "norm1", PTS_METHOD) == (pts_function)point_norm1);
+  CHECK(site.cache == (uint64_t)(uintptr_t)&point_type);
+  CHECK(pts_method_find(c, &site, "norm1", PTS_METHOD) == (pts_function)computed_norm1);
+  CHECK(site.cache == ((uint64_t)(uintptr_t)&computed_type | UINT64_C(2) << 48));
+  CHECK(((double (*)(pts_object *))pts_method_find(c, &site, "norm1", PTS_METHOD))((pts_object *)c) == 7);
+}
+
+static void property_sites_use_fields_or_accessors(void) {
+  static pts_site read_site, write_site;
+  point *p = pts_object_new(&point_type);
+  computed *c = pts_object_new(&computed_type);
+  p->x = 1.5;
+  c->hidden = 0.25;
+  CHECK(PTS_GET(double, c, &read_site, "x") == 2.5);
+  CHECK(read_site.cache == ((uint64_t)(uintptr_t)&computed_type | PTS_SITE_ACCESSOR));
+  CHECK(PTS_GET(double, p, &read_site, "x") == 1.5);
+  CHECK(read_site.cache == ((uint64_t)(uintptr_t)&point_type | (uint64_t)offsetof(point, x) << 48));
+  CHECK(PTS_SET(double, c, &write_site, "x", 40.0) == 40);
+  CHECK(write_site.cache == ((uint64_t)(uintptr_t)&computed_type | PTS_SITE_ACCESSOR | UINT64_C(1) << 48));
+  CHECK(PTS_SET(double, c, &write_site, "x", 50.0) == 50);
+  CHECK(PTS_SET(double, p, &write_site, "x", 3.0) == 3);
+  CHECK(c->hidden == 5 && p->x == 3);
+  CHECK(c->reads == 1 && c->writes == 2);
 }
 
 static pts_site shared_site;
@@ -248,6 +318,8 @@ int main(int argc, char **argv) {
   methods_are_found_through_the_descriptor();
   instance_of_follows_the_parent_chain();
   field_addresses_are_cached_per_layout();
+  method_sites_cache_the_index_per_layout();
+  property_sites_use_fields_or_accessors();
   threads_racing_on_a_site_read_the_right_fields();
   collection_keeps_everything_objects_point_to();
   unreachable_objects_are_collected();

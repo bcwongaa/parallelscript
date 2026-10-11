@@ -1,17 +1,21 @@
-// Object types and literals that arrive later are reported: values whose property types
-// differ from an object type's, properties that a getter provides (M2.3b2), optional
-// properties (M3.1), methods, spread, numeric and computed keys.
+// Object types and literals that arrive later are reported: members whose types differ
+// from an object type's, setter-only, overloaded and generic members, optional properties
+// (M3.1), methods in literals and methods as values (M2.5), spread, numeric and computed keys.
 interface Point {
   x: number;
   y: number;
 }
 const p3 = { x: 1 as int, y: 2 };
 const p: Point = p3;
-class Vec {
-  get x(): number { return 0; }
-  y = 0;
+interface Sized {
+  size(): number;
 }
-const v: Point = new Vec();
+class Box {
+  size(): int {
+    return 1;
+  }
+}
+const s: Sized = new Box();
 type Maybe = { value?: number };
 const m: Maybe = {};
 const withMethod = { run(): number { return 1; } };
@@ -19,11 +23,32 @@ const spread = { ...p3 };
 const numeric = { 1: "one" };
 const key = "k";
 const computed = { [key]: 1 };
+interface WriteOnly {
+  set w(value: number);
+}
+function write(o: WriteOnly): void {}
+interface Overloaded {
+  f(x: number): number;
+  f(x: string): string;
+}
+function call(o: Overloaded): void {}
+interface Generic {
+  id<T>(x: T): T;
+}
+function identity(o: Generic): void {}
+function size(o: Sized): number {
+  console.log(o.size);
+  return 0;
+}
 
-// error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: i64; y: number}` as a `{x: number; y: number}` is not supported yet
-// error: object_types_not_yet.pts:14:18 - error PTS1001: using a `Vec` as a `{x: number; y: number}`, whose `x` its getter provides, is not supported yet
-// error: object_types_not_yet.pts:16:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
-// error: object_types_not_yet.pts:17:7 - error PTS1001: methods and accessors in object types
-// error: object_types_not_yet.pts:18:18 - error PTS1001: spreading `...` into an object literal is not supported yet
-// error: object_types_not_yet.pts:19:7 - error PTS1001: numeric property names
-// error: object_types_not_yet.pts:21:20 - error PTS1001: computed property names are not supported yet
+// error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: i64; y: number}` as a `{x: number; y: number}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: object_types_not_yet.pts:18:18 - error PTS1001: using a `Box` as a `{size(): number}`, whose `size` it doesn't provide with the same types, is not supported yet
+// error: object_types_not_yet.pts:20:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
+// error: object_types_not_yet.pts:21:20 - error PTS1001: methods and accessors in object literals are not supported yet
+// error: object_types_not_yet.pts:22:18 - error PTS1001: spreading `...` into an object literal is not supported yet
+// error: object_types_not_yet.pts:23:7 - error PTS1001: numeric property names
+// error: object_types_not_yet.pts:25:20 - error PTS1001: computed property names are not supported yet
+// error: object_types_not_yet.pts:29:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet
+// error: object_types_not_yet.pts:34:15 - error PTS1001: overloaded methods (`f` in Overloaded) are not supported yet
+// error: object_types_not_yet.pts:38:19 - error PTS1001: generic methods (`id` in Generic) are not supported yet
+// error: object_types_not_yet.pts:40:15 - error PTS1001: methods as values are not supported yet

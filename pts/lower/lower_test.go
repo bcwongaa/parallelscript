@@ -680,15 +680,56 @@ console.log({ label: "q", at: q });
 `)
 	// The three spellings of {x, y} are one interface, and literals of it one shape, each
 	// literal keeping its own order; a literal converts to the interface it is used as.
+	// `q.x += 1` reads q.x once, since a getter may provide it.
 	assert.Equal(t, got, `shape object1{x: number; y: number}
 shape object2{at: {x: number; y: number}; label: string}
 func main() void {
   5: let q: {x: number; y: number} = swap((object1{x: 1, y: 2} as {x: number; y: number}))
-  6: (q.x = (q.x + 1))
+  6: (let current = q.x in (q.x = (current + 1)))
   7: console.log(box(object2{label: "q", at: q}))
 }
 func swap(p: {x: number; y: number}) {x: number; y: number} {
   3: return (object1{y: p.x, x: p.y} as {x: number; y: number})
+}
+`)
+}
+
+func TestMethodsAndAccessorsProvideInterfaces(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `interface Shape { name: string; area(): number; scale(by: number): void }
+class Square {
+  constructor(public side: number) {}
+  get name(): string { return "square"; }
+  area(): number { return this.side * this.side; }
+  scale(by: number): void { this.side *= by; }
+}
+function grow(s: Shape): string {
+  s.scale(2);
+  return s.name + s.area();
+}
+console.log(grow(new Square(2)));
+`)
+	// A getter provides name and methods provide area and scale; calls through the
+	// interface go to whatever the object's class has.
+	assert.Equal(t, got, `class Square { side: number; get name }
+func main() void {
+  12: console.log(box(grow((new Square(2) as {name: string; area(): number; scale(number): void}))))
+}
+func Square.constructor(this: Square, side: number) void {
+  3: (this.side = side)
+}
+func Square.get_name(this: Square) string {
+  4: return "square"
+}
+func Square.area(this: Square) number {
+  5: return (this.side * this.side)
+}
+func Square.scale(this: Square, by: number) void {
+  6: (this.side = (this.side * by))
+}
+func grow(s: {name: string; area(): number; scale(number): void}) string {
+  9: interface scale(s, 2)
+  10: return (s.name ++ str(interface area(s)))
 }
 `)
 }

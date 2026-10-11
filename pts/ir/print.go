@@ -232,6 +232,8 @@ func FormatExpr(expr Expr) string {
 		return e.Func.QualifiedName() + formatArgs(e.Args)
 	case *VirtualCall:
 		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
+	case *InterfaceCall:
+		return "interface " + e.Method.Name + formatArgs(e.Args)
 	case *ClassCast:
 		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:

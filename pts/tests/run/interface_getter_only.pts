@@ -1,0 +1,17 @@
+// Writing, through an interface, a property that the object's class provides with a
+// getter alone throws TypeError, as in JS.
+interface Point {
+  x: number;
+}
+class Fixed {
+  get x(): number {
+    return 1;
+  }
+}
+const p: Point = new Fixed();
+console.log(p.x);
+p.x = 2;
+console.log("unreachable");
+
+// exit: 1
+// stderr: TypeError: Cannot set property x of #<Fixed> which has only a getter
