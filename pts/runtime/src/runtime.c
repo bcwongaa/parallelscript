@@ -1,6 +1,7 @@
 #include "pts.h"
 
 #include <gc_gcj.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +20,44 @@ void pts_runtime_init(int argc, char **argv) {
   }
   GC_allow_register_threads();
   GC_init_gcj_malloc(GC_GCJ_RESERVED_MARK_PROC_INDEX, NULL); /* objects: see pts_object_new */
+  pts_stack_limit_init();
 }
+
+_Thread_local uintptr_t pts_stack_limit;
+
+/* What the guard leaves of the stack for throwing RangeError: formatting it, allocating (and perhaps collecting) and capturing frames. */
+enum { STACK_RESERVE = 256 * 1024 };
+
+void pts_stack_limit_init(void) {
+  pthread_attr_t attributes;
+  if (pthread_getattr_np(pthread_self(), &attributes) != 0) {
+    return; /* no limit: deep recursion crashes as before */
+  }
+  void *low;
+  size_t size;
+  if (pthread_attr_getstack(&attributes, &low, &size) == 0 && size > 2 * STACK_RESERVE) {
+    pts_stack_limit = (uintptr_t)low + STACK_RESERVE;
+  }
+  pthread_attr_destroy(&attributes);
+}
+
+void pts_throw_stack_overflow(void) { pts_throw_new(&pts_type_builtin_RangeError, "Maximum call stack size exceeded"); }
+
+#if defined(__x86_64__)
+/*
+ * Where pts_stack_check jumps, from anywhere in a function: before or after its prologue,
+ * so the stack's alignment is unknown. It has no unwind information, so a stack trace
+ * taken from here stops at it.
+ */
+__asm__(".text\n"
+        ".globl pts_stack_overflow_stub\n"
+        ".type pts_stack_overflow_stub, @function\n"
+        "pts_stack_overflow_stub:\n"
+        "  andq $-16, %rsp\n"
+        "  call pts_throw_stack_overflow\n"
+        "  ud2\n"
+        ".size pts_stack_overflow_stub, .-pts_stack_overflow_stub\n");
+#endif
 
 int pts_runtime_exit(int code) {
   fflush(stdout);

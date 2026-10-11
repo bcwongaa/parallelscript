@@ -4,6 +4,8 @@
  */
 #include "pts.h"
 
+#include <backtrace.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +62,8 @@ static const pts_method error_methods[] = {
 
 #define ERROR_LAYOUT                                                                                   \
   PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_error, name) | PTS_GC_WORD(pts_error, message) |               \
-                       PTS_GC_WORD(pts_error, cause) | PTS_GC_WORD(pts_error, pts_private_stack))
+                       PTS_GC_WORD(pts_error, cause) | PTS_GC_WORD(pts_error, pts_private_stack) |    \
+                       PTS_GC_WORD(pts_error, pts_private_frames))
 
 #define NATIVE_ERROR(class_name, parent_type)                                                          \
   const pts_type pts_type_builtin_##class_name = {                                                     \
@@ -105,11 +108,147 @@ bool pts_is_error(const pts_object *object) { return native_error_of(object->typ
 
 PTS_STATIC_STRING(empty, PTS_STRING_ASCII, 0, 0, "");
 
+/* ---------------------------------------------------------------- stack traces (D-069) */
+
+/* V8's Error.stackTraceLimit; frames of the runtime come first and are dropped, so more are captured. */
+enum { STACK_TRACE_LIMIT = 10, CAPTURED_FRAMES = 24 };
+
+/* The return addresses where an error was made, innermost first; pointer-free. */
+typedef struct frames {
+  size_t count;
+  uintptr_t pcs[CAPTURED_FRAMES];
+} frames;
+
+static const pts_function_name *function_names;
+static size_t function_name_count;
+
+void pts_register_function_names(const pts_function_name *names, size_t count) {
+  function_names = names;
+  function_name_count = count;
+}
+
+static int compare_c_names(const void *key, const void *entry) {
+  return strcmp(key, ((const pts_function_name *)entry)->c_name);
+}
+
+static const pts_function_name *function_name_of(const char *c_name) {
+  if (c_name == NULL || function_names == NULL) {
+    return NULL;
+  }
+  return bsearch(c_name, function_names, function_name_count, sizeof *function_names, compare_c_names);
+}
+
+static struct backtrace_state *state;
+static pthread_once_t state_once = PTHREAD_ONCE_INIT;
+
+static void ignore_error(void *data, const char *message, int errnum) {
+  (void)data, (void)message, (void)errnum; /* a frame without information is left out */
+}
+
+static void create_state(void) { state = backtrace_create_state(NULL, 1, ignore_error, NULL); }
+
+static struct backtrace_state *shared_state(void) {
+  pthread_once(&state_once, create_state);
+  return state;
+}
+
+static int add_frame(void *data, uintptr_t pc) {
+  frames *captured = data;
+  captured->pcs[captured->count++] = pc;
+  return captured->count == CAPTURED_FRAMES;
+}
+
+/* The return addresses of the calls that are making error, captured where it is made. */
+static void *capture_frames(void) {
+  frames *captured = GC_MALLOC_ATOMIC(sizeof *captured);
+  if (captured == NULL) {
+    return NULL; /* the error just has no frames */
+  }
+  captured->count = 0;
+  backtrace_simple(shared_state(), 1, add_frame, ignore_error, captured);
+  return captured;
+}
+
+/* A growable C string for formatting a stack. */
+typedef struct trace {
+  char *bytes;
+  size_t len, cap;
+  size_t shown;    /* frames written so far */
+  bool any_source; /* whether a frame of the program's source was met, before which constructors of errors are left out */
+} trace;
+
+static void trace_add(trace *t, const char *text, size_t len) {
+  if (t->len + len + 1 > t->cap) {
+    size_t cap = (t->len + len + 1) * 2;
+    char *bytes = realloc(t->bytes, cap);
+    if (bytes == NULL) {
+      pts_panic("RangeError", "Out of memory formatting a stack trace");
+    }
+    t->bytes = bytes;
+    t->cap = cap;
+  }
+  memcpy(t->bytes + t->len, text, len);
+  t->len += len;
+  t->bytes[t->len] = '\0';
+}
+
+static bool ends_with(const char *text, const char *suffix) {
+  size_t len = strlen(text), suffix_len = strlen(suffix);
+  return len >= suffix_len && strcmp(text + len - suffix_len, suffix) == 0;
+}
+
+/*
+ * One frame of a stack, as Node writes it: "    at name (file:line)", or for top-level
+ * code and anonymous functions "    at file:line". Only frames in the program's source
+ * count: the runtime's C, inlined headers and libc are left out.
+ */
+static int add_source_frame(void *data, uintptr_t pc, const char *file, int line, const char *function) {
+  (void)pc;
+  trace *t = data;
+  if (file == NULL || line == 0 || ends_with(file, ".c") || ends_with(file, ".h") || t->shown == STACK_TRACE_LIMIT) {
+    return 0;
+  }
+  const pts_function_name *name = function_name_of(function);
+  if (!t->any_source && name != NULL && name->error_constructor) {
+    return 0; /* `new MyError(…)` itself, as V8 leaves it out */
+  }
+  t->any_source = true;
+  char text[64];
+  trace_add(t, "\n    at ", 8);
+  if (name != NULL && name->js_name[0] != '\0') {
+    trace_add(t, name->js_name, strlen(name->js_name));
+    trace_add(t, " (", 2);
+  }
+  trace_add(t, file, strlen(file));
+  int len = snprintf(text, sizeof text, ":%d%s", line, name != NULL && name->js_name[0] != '\0' ? ")" : "");
+  trace_add(t, text, (size_t)len);
+  t->shown++;
+  return 0;
+}
+
+/* The stack of error: its toString(), then the source frames where it was made. */
+static pts_string *format_stack(pts_error *error) {
+  pts_string *header = pts_error_to_string(error);
+  const frames *captured = error->pts_private_frames;
+  if (captured == NULL) {
+    return header;
+  }
+  trace t = {0};
+  trace_add(&t, header->bytes, header->byte_len);
+  for (size_t i = 0; i < captured->count; i++) {
+    backtrace_pcinfo(shared_state(), captured->pcs[i], add_source_frame, ignore_error, &t);
+  }
+  pts_string *stack = pts_string_from_utf8(t.bytes, t.len);
+  free(t.bytes);
+  return stack;
+}
+
 void pts_error_init(pts_error *error, pts_string *message, bool message_given, pts_object *options, bool options_given) {
   error->name = pts_string_from_cstr(native_error_of(error->pts_header)->name);
   error->message = message_given ? message : empty;
   error->cause = PTS_VALUE_ABSENT;
   error->pts_private_stack = PTS_VALUE_ABSENT;
+  error->pts_private_frames = capture_frames();
   if (options_given) {
     static pts_site cause_site;
     error->cause = pts_optional_get(options, &cause_site, "cause");
@@ -136,7 +275,7 @@ pts_string *pts_error_to_string(pts_error *error) {
 
 pts_value pts_error_get_stack(pts_error *error) {
   if (error->pts_private_stack == PTS_VALUE_ABSENT) {
-    error->pts_private_stack = pts_value_from_string(pts_error_to_string(error));
+    error->pts_private_stack = pts_value_from_string(format_stack(error));
   }
   return error->pts_private_stack;
 }

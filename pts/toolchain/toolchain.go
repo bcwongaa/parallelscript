@@ -102,6 +102,7 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 		{ryuLibrary, vendoredFlags},
 		{libuvLibrary, vendoredFlags},
 		{bdwgcLibrary, vendoredFlags},
+		{libbacktraceLibrary, vendoredFlags},
 	}
 	for _, b := range builds {
 		archive, err := t.ensureArchive(ctx, b.lib, b.flags, ccVersion)

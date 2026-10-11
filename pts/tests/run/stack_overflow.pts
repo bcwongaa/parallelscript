@@ -1,5 +1,4 @@
 // Unbounded recursion throws RangeError, as in Node.
-// skip: stack overflow crashes with SIGSEGV instead (PROGRESS.md, known issues)
 function down(n: number): number {
   return 1 + down(n + 1);
 }

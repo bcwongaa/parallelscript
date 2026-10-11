@@ -1,0 +1,12 @@
+// Unbounded recursion throws RangeError (D-069), which a program can catch and go on.
+function down(n: number): number {
+  return 1 + down(n + 1);
+}
+for (let attempt = 1; attempt <= 2; attempt++) {
+  try {
+    down(0);
+  } catch (e) {
+    console.log(attempt, e instanceof RangeError, (e as Error).message);
+  }
+}
+console.log("still running");

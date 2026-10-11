@@ -38,7 +38,8 @@ func (l *lowerer) declareErrorMembers(class *ir.Class, symbol *ast.Symbol) {
 		class.Fields = append(class.Fields, field)
 		l.members.fields[l.checker.GetPropertyOfType(errorType, member.name).ValueDeclaration] = field
 	}
-	class.Fields = append(class.Fields, &ir.Field{Name: "#stack", Type: ir.Value, Class: class})
+	// The runtime's own members, private to the program, which classes derived from Error lay out with the rest.
+	class.Fields = append(class.Fields, &ir.Field{Name: "#stack", Type: ir.Value, Class: class}, &ir.Field{Name: "#frames", Type: ir.Value, Class: class})
 	stackType := l.unionOf([]ir.Type{ir.String, ir.Undefined})
 	getter := l.externMethod(class, "get_stack", "pts_error_get_stack", stackType)
 	setter := l.externMethod(class, "set_stack", "pts_error_set_stack", ir.Void, &ir.Local{Name: "stack", Type: stackType})

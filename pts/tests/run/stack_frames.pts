@@ -1,0 +1,74 @@
+// An error's stack lists where it was made (D-069): the name and message, then a frame
+// per call, innermost first, with the .pts file and line; functions by their JS names,
+// methods with their class's, top-level code without a name. The constructors of
+// classes derived from Error are left out, as V8 leaves them out.
+class AppError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+class Service {
+  load(id: number): string {
+    if (id < 0) {
+      throw new AppError("bad id " + id);
+    }
+    return "ok";
+  }
+}
+function handle(service: Service, id: number): string {
+  return service.load(id);
+}
+
+// The frames, with their directories left out.
+function show(e: unknown): void {
+  for (const line of String((e as Error).stack).split("\n")) {
+    if (!line.startsWith("    at ")) {
+      console.log(line);
+      continue;
+    }
+    const open = line.indexOf("(");
+    const start = open < 0 ? 7 : open + 1;
+    const path = line.slice(start).split("/");
+    console.log(line.slice(0, start) + path[path.length - 1]);
+  }
+}
+
+try {
+  handle(new Service(), -1);
+} catch (e) {
+  show(e);
+}
+const values = [1, 2, 3];
+try {
+  values.forEach((n) => {
+    if (n === 2) {
+      throw new TypeError("two");
+    }
+  });
+} catch (e) {
+  show(e);
+}
+function readAt(i: number): number {
+  const n: number = values[i];
+  return n;
+}
+try {
+  readAt(7);
+} catch (e) {
+  show(e);
+}
+
+// no-diff: Node's frames have columns, file URLs and its own internal frames
+// expect:
+// AppError: bad id -1
+//     at Service.load (stack_frames.pts:14)
+//     at handle (stack_frames.pts:20)
+//     at stack_frames.pts:38
+// TypeError: two
+//     at stack_frames.pts:46
+//     at Array.forEach (stack_frames.pts:44)
+//     at stack_frames.pts:44
+// RangeError: Array index 7 is out of range (length 3)
+//     at readAt (stack_frames.pts:53)
+//     at stack_frames.pts:57

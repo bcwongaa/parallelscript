@@ -72,15 +72,36 @@ var ryuLibrary = library{
 	},
 }
 
+// libbacktrace captures and symbolizes the stack frames of errors (D-069): unwinding with
+// libgcc's unwinder, reading the program's own DWARF, whose line tables map code to the
+// .pts lines of the generated C's #line directives. Its configure's output for x86-64
+// Linux is checked in next to it.
+var libbacktraceLibrary = library{
+	name: "backtrace",
+	dir:  "pts/third_party/libbacktrace",
+	sources: []string{
+		"atomic.c", "dwarf.c", "fileline.c", "posix.c", "print.c", "sort.c", "state.c",
+		"backtrace.c", "simple.c", "elf.c", "mmapio.c", "mmap.c",
+	},
+	includes: []string{"pts/third_party/libbacktrace-config", "pts/third_party/libbacktrace"},
+	flags:    []string{"-funwind-tables"},
+	keyFiles: []string{
+		"pts/third_party/libbacktrace-config/config.h", "pts/third_party/libbacktrace-config/backtrace-supported.h",
+		"pts/third_party/libbacktrace/backtrace.h", "pts/third_party/libbacktrace/internal.h",
+		"pts/third_party/libbacktrace/dwarf.c", "pts/third_party/libbacktrace/elf.c",
+	},
+}
+
 // runtimeLibrary is the ParallelScript runtime itself.
 var runtimeLibrary = library{
 	name:     "ptsrt",
 	dir:      "pts/runtime",
 	glob:     "src/*.c",
-	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu"},
+	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu", "pts/third_party/libbacktrace"},
 	flags:    []string{"-std=c11", "-Wall", "-Wextra", "-Werror=implicit-function-declaration"},
 	keyDirs:  []string{"pts/runtime/include", "pts/runtime/src"},
 }
 
 // systemLibraries are linked after the archives. glibc 2.34+ folds pthread and dl into libc.
-var systemLibraries = []string{"-lpthread", "-ldl", "-lm"}
+// libgcc is linked statically, so that its unwinder (libbacktrace's) adds no libgcc_s.
+var systemLibraries = []string{"-lpthread", "-ldl", "-lm", "-static-libgcc"}

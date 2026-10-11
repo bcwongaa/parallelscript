@@ -76,6 +76,8 @@ type emitter struct {
 	labelTries map[*ir.Label]int
 	handlers   int                // pts_tryN handlers made so far in the function
 	volatile   map[*ir.Local]bool // locals a try block assigns that are declared outside it
+
+	hasFunctionNames bool // whether the program has a table of its functions' JS names (functionNameTable)
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -106,13 +108,73 @@ func (e *emitter) header(program *ir.Program) {
 	e.closureDefinitions()
 	e.comparatorFunctions()
 	e.mapDescriptorDefinitions()
+	e.functionNameTable(program)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
+	if e.hasFunctionNames {
+		e.line(1, "pts_register_function_names(pts_function_names, sizeof pts_function_names / sizeof pts_function_names[0]);")
+	}
 	for _, module := range program.Modules {
 		e.line(1, "%s();", e.funcNames[module.Init])
 	}
 	e.line(1, "return pts_runtime_exit(0);")
 	e.line(0, "}")
+}
+
+// builtinOwners name the helpers lowering makes for builtin methods (Array.map), which
+// stack traces show by their full names, as Node does.
+var builtinOwners = map[string]bool{"Array": true, "Map": true, "Set": true, "Object": true}
+
+// functionNameTable writes the JS name of each function of the program by its C name,
+// sorted, which stack traces show (D-069); constructors of classes derived from Error are
+// marked, since an error's stack leaves out the constructors that made it.
+func (e *emitter) functionNameTable(program *ir.Program) {
+	constructors := map[*ir.Func]*ir.Class{}
+	classNames := map[string]bool{}
+	for _, class := range program.Classes {
+		constructors[class.Constructor] = class
+		classNames[class.Name] = true
+	}
+	type entry struct {
+		c, js            string
+		errorConstructor bool
+	}
+	entries := make([]entry, 0, len(program.Funcs))
+	for _, f := range program.Funcs {
+		js := ""
+		class, isConstructor := constructors[f]
+		method := e.methods[f]
+		switch {
+		case f == f.Module.Init:
+			// top-level code, which Node shows without a name
+		case isConstructor:
+			js = "new " + class.Name
+		case method != nil:
+			js = method.Class.Name + "." + method.Name
+		case f.Closure:
+			js = f.JSName
+		default:
+			parts := strings.Split(f.Name, ".")
+			js = parts[len(parts)-1]
+			if len(parts) > 1 && (classNames[parts[0]] || builtinOwners[parts[0]]) {
+				js = f.Name // a static method, or a helper such as Array.map
+			}
+		}
+		if errorConstructor := isConstructor && root(class).Builtin; js != "" || errorConstructor {
+			entries = append(entries, entry{e.funcNames[f], js, errorConstructor}) // a frame of a function not listed shows no name
+		}
+	}
+	e.hasFunctionNames = len(entries) > 0
+	if !e.hasFunctionNames {
+		return
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.c, b.c) })
+	e.line(0, "static const pts_function_name pts_function_names[] = {")
+	for _, entry := range entries {
+		e.line(1, "{%s, %s, %t},", cString(entry.c), cString(entry.js), entry.errorConstructor)
+	}
+	e.line(0, "};")
+	e.line(0, "")
 }
 
 // functionNames gives each function its C name (D-020, D-022): the entry module's
@@ -247,6 +309,9 @@ func (e *emitter) function(f *ir.Func) {
 		e.line(1, "%s%s = (%s)pts_this;", class, this, strings.TrimSuffix(class, " "))
 	}
 	e.closurePrologue(f, paramNames)
+	if f != f.Module.Init && mayRecurse(f) { // a module's top-level code runs once
+		e.line(1, "pts_stack_check();")
+	}
 	e.scope(f.Body.Stmts, 1)
 	if f.Result != ir.Void && !endsWithReturn(f.Body.Stmts) {
 		e.line(1, "pts_unreachable(); /* tsc checked that every path returns */")
@@ -468,6 +533,28 @@ func (e *emitter) tryStatement(s *ir.Try, depth int) {
 	e.scope(s.Catch.Stmts, depth+2)
 	e.line(depth+1, "}")
 	e.line(depth, "}")
+}
+
+// mayRecurse reports whether f runs other code of the program, so that a recursion may
+// go through it: it calls a function, a method or a function value, makes an instance,
+// reads or writes a property through an interface (a getter or setter), or calls the
+// runtime, which may call back (a comparator, a toString). Every cycle of calls has such
+// a function, whose prologue checks the stack (D-069).
+func mayRecurse(f *ir.Func) bool {
+	found := false
+	ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+		switch x := x.(type) {
+		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
+			found = true
+		case *ir.CallBuiltin: // one that may convert an object to a string calls its toString()
+			found = found || x.Builtin != ir.ConsoleLog && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
+		case *ir.FieldRef:
+			found = found || !isClass(x.X.Type())
+		case *ir.SetField:
+			found = found || !isClass(x.X.Type())
+		}
+	})
+	return found
 }
 
 // volatileLocals are the locals that a try block of f assigns and that are declared
@@ -840,6 +927,11 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 func isClass(t ir.Type) bool {
 	class, ok := t.(*ir.Class)
 	return ok && !class.Shape
+}
+
+// isDynamic reports whether values of t are pts_values: unions and dynamic values.
+func isDynamic(t ir.Type) bool {
+	return t == ir.Value || isUnion(t)
 }
 
 func isUnion(t ir.Type) bool {

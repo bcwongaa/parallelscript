@@ -1078,6 +1078,7 @@ typedef struct pts_error {
   pts_string *message;
   pts_value cause;
   pts_value pts_private_stack;
+  void *pts_private_frames; /* the return addresses where it was made, for its stack (D-069) */
 } pts_error;
 
 extern const pts_type pts_type_builtin_Error;
@@ -1097,6 +1098,19 @@ typedef pts_error pts_class_builtin_SyntaxError;
 typedef pts_error pts_class_builtin_EvalError;
 typedef pts_error pts_class_builtin_URIError;
 
+/*
+ * The JS name of each function of the program, by its C name (sorted), which a stack
+ * trace shows (D-069): "" for a module's top-level code and anonymous functions. A
+ * constructor of a class derived from Error is marked: the frames of the constructors
+ * that made an error are left out of its stack, as V8 leaves them out.
+ */
+typedef struct pts_function_name {
+  const char *c_name;
+  const char *js_name;
+  bool error_constructor;
+} pts_function_name;
+void pts_register_function_names(const pts_function_name *names, size_t count);
+
 /* The constructor of every native error class: `new Error(message?, options?)`, whose options may give a cause. */
 void pts_error_init(pts_error *error, pts_string *message, bool message_given, pts_object *options, bool options_given);
 /* A new error of a native error class (or a class derived from one) with message. */
@@ -1105,7 +1119,7 @@ pts_error *pts_error_new(const pts_type *type, pts_string *message);
 bool pts_is_error(const pts_object *object);
 /* Error.prototype.toString: "name: message", or whichever of them isn't empty. */
 pts_string *pts_error_to_string(pts_error *error);
-/* The stack property: the name and message, formatted when first read. */
+/* The stack property: the name and message, then the frames where the error was made, formatted when first read. */
 pts_value pts_error_get_stack(pts_error *error);
 void pts_error_set_stack(pts_error *error, pts_value stack);
 
@@ -1135,6 +1149,32 @@ static inline void pts_check_ready(bool ready, const char *name) {
     pts_throw_uninitialized(name);
   }
 }
+
+/*
+ * The stack guard (D-069): the lowest address this thread's C stack may reach before a
+ * call throws RangeError, with room left to throw it; 0 (no limit) until the thread sets it.
+ */
+extern _Thread_local uintptr_t pts_stack_limit;
+/* Sets this thread's pts_stack_limit from its stack's bounds. */
+void pts_stack_limit_init(void);
+_Noreturn void pts_throw_stack_overflow(void);
+/* The prologue of a generated function that may recurse: deep recursion throws RangeError rather than overflow the stack. */
+#if defined(__x86_64__)
+/*
+ * A compare and a jump to pts_stack_overflow_stub (error.c), which aligns the stack and
+ * calls pts_throw_stack_overflow: no call on the function's own path, so it needs no
+ * frame and a leaf path (fib's base case) stays as short as it was.
+ */
+static inline __attribute__((always_inline)) void pts_stack_check(void) {
+  __asm__ volatile("cmpq %%fs:pts_stack_limit@tpoff, %%rsp\n\tjb pts_stack_overflow_stub" ::: "cc");
+}
+#else
+static inline void pts_stack_check(void) {
+  if (__builtin_expect((uintptr_t)__builtin_frame_address(0) < pts_stack_limit, 0)) {
+    pts_throw_stack_overflow();
+  }
+}
+#endif
 
 /* ---------------------------------------------------------------- lifecycle */
 

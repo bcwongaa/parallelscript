@@ -759,18 +759,61 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
   pts_string *stack_string = pts_value_truthy(stack_value) ? pts_value_to_string(stack_value) : pts_error_to_string(error);
   text stack = {0};
   text_add(&stack, stack_string->bytes, stack_string->byte_len);
-
+  bool shows_name = !text_contains(&stack, error->name->bytes, error->name->byte_len);
   const pts_type *type = error->pts_header;
-  text *entries = new_entries(type->field_count + 1);
-  size_t count = 0;
-  if (!text_contains(&stack, error->name->bytes, error->name->byte_len)) {
-    text_puts(&entries[count], "name: ");
-    quote_string(&entries[count++], error->name);
+  size_t keys = shows_name + (error->cause != PTS_VALUE_ABSENT);
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    keys += type->fields[i].offset >= sizeof(pts_error) && has_field((const pts_object *)error, &type->fields[i]);
   }
-  bool too_deep = recurse_times > DEPTH;
+
+  improve_stack(&stack, type->name, error->name);
+  ptrdiff_t position = -1;
+  if (error->message->byte_len > 0) {
+    position = text_index(&stack, error->message->bytes, error->message->byte_len, 0);
+    if (position > 0) {
+      position += error->message->byte_len;
+    } else {
+      position = -1; /* Node's `indexOf(…) || -1` also discards a message at 0 */
+    }
+  }
+  text base = {0};
+  size_t reference = circular_index(in, (const pts_object *)error);
+  if (reference != 0) {
+    text_printf(&base, "<ref *%zu> ", reference);
+  }
+  if (text_index(&stack, "\n    at", 7, position < 0 ? 0 : (size_t)position) < 0) {
+    text_puts(&base, "[");
+    text_add(&base, stack.bytes, stack.len);
+    text_puts(&base, "]");
+  } else {
+    for (size_t i = 0; i < stack.len; i++) {
+      text_add(&base, &stack.bytes[i], 1);
+      if (stack.bytes[i] == '\n') {
+        spaces(&base, in->indentation);
+      }
+    }
+  }
+  free(stack.bytes);
+  if (keys == 0) {
+    text_add(out, base.bytes, base.len);
+    free(base.bytes);
+    return;
+  }
+  if (recurse_times > DEPTH) {
+    text_printf(out, "[%s]", type->name);
+    free(base.bytes);
+    return;
+  }
+
   recurse_times++;
   push(&in->seen, &in->seen_len, &in->seen_cap, (const pts_object *)error);
   in->current_depth = recurse_times;
+  text *entries = new_entries(keys);
+  size_t count = 0;
+  if (shows_name) {
+    text_puts(&entries[count], "name: ");
+    quote_string(&entries[count++], error->name);
+  }
   for (uint32_t i = 0; i < type->field_count; i++) {
     const pts_field *field = &type->fields[i];
     if (field->offset < sizeof(pts_error) || !has_field((const pts_object *)error, field)) {
@@ -789,50 +832,7 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
     in->indentation -= 2;
   }
   in->seen_len--;
-
-  improve_stack(&stack, type->name, error->name);
-  ptrdiff_t position = -1;
-  if (error->message->byte_len > 0) {
-    position = text_index(&stack, error->message->bytes, error->message->byte_len, 0);
-    if (position > 0) {
-      position += error->message->byte_len;
-    } else {
-      position = -1; /* Node's `indexOf(…) || -1` also discards a message at 0 */
-    }
-  }
-  text base = {0};
-  if (text_index(&stack, "\n    at", 7, position < 0 ? 0 : (size_t)position) < 0) {
-    text_puts(&base, "[");
-    text_add(&base, stack.bytes, stack.len);
-    text_puts(&base, "]");
-  } else {
-    for (size_t i = 0; i < stack.len; i++) {
-      text_add(&base, &stack.bytes[i], 1);
-      if (stack.bytes[i] == '\n') {
-        spaces(&base, in->indentation);
-      }
-    }
-  }
-  free(stack.bytes);
-
-  size_t reference = circular_index(in, (const pts_object *)error);
-  if (reference != 0) {
-    text tagged = {0};
-    text_printf(&tagged, "<ref *%zu> ", reference);
-    text_add(&tagged, base.bytes, base.len);
-    free(base.bytes);
-    base = tagged;
-  }
-  if (count == 0) {
-    text_add(out, base.bytes, base.len);
-  } else if (too_deep) {
-    text_printf(out, "[%s]", type->name);
-    for (size_t i = 0; i < count; i++) {
-      free(entries[i].bytes);
-    }
-  } else {
-    reduce_to_single_string(in, out, entries, count, count, &base, "{", "}", recurse_times);
-  }
+  reduce_to_single_string(in, out, entries, count, count, &base, "{", "}", recurse_times);
   free(entries);
   free(base.bytes);
 }

@@ -12,3 +12,6 @@
 [submodule "pts/third_party/ryu"]
 	path = pts/third_party/ryu
 	url = https://github.com/ulfjack/ryu
+[submodule "pts/third_party/libbacktrace"]
+	path = pts/third_party/libbacktrace
+	url = https://github.com/ianlancetaylor/libbacktrace
