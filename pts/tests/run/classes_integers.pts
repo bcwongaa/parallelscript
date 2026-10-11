@@ -20,7 +20,9 @@ console.log(p.brighten(10), p.g, p.level + 1, p.weight * 3);
 p.r++;
 const total: int = p.r + p.g + p.level;
 console.log(p.r, total);
+console.log(p);
 
 // expect:
 // 4 110 9007199254740994 1.5
 // 5 9007199254741108
+// Pixel { r: 5, g: 110, level: 9007199254740993, weight: 0.5 }

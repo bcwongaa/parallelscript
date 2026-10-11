@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.2b `console.log` of instances
+- **Next task:** M2.2c Inheritance
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.2b `console.log` of instances: Node's `util.inspect` for class instances, ported to the runtime over the type descriptors (line breaking, depth, circular references, string quoting), byte for byte equal to Node on the corpus (D-027).
 - M2.2a Class basics: classes at module scope with fields (declaration order, initialisers), constructors, methods, `new`, `this`, field reads and writes (compound, `++`), method calls, across modules, with the numeric rules (D-026, SPEC §9.11). M2.2 split by D-025.
 - M2.1 GC and the object model: `pts_type` descriptors carry the GC layout, size, fields and methods; `pts_object_new` allocates gcj-style (precise, thread-local) or atomic by layout; bdwgc built with gcj support (D-024, SPEC §9.10). C tests cover collection and threads allocating while another collects.
 - M1.6 Milestone M1: checklist run, CI green on `4b7eb10`, M1 table in `docs/BENCHMARKS.md`, tag `m1`, Telegram report.
@@ -34,8 +35,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.2b `console.log` of instances: in the runtime (`pts/runtime/src/console.c`, which panics on `PTS_KIND_OBJECT` today), print `Name { field: value, … }` from the descriptor's fields, following Node's `util.inspect`: strings quoted (single quotes, escapes), nested instances, the single-line rule (`compact: 3` and `breakLength` 80, see `reduceToSingleString` in Node's `lib/internal/util/inspect.js`), depth 2 (`[Name]` deeper), circular references (`<ref *1>`, `[Circular *1]`). The lowering already boxes an instance as its pointer.
-2. M2.2c inheritance, M2.2d accessors, statics and privacy (D-025), then M2.3 Object literals and interfaces.
+1. M2.2c Inheritance: `extends`, `super(...)` and `super.method()`, vtables and overriding, abstract classes, `instanceof`. `pts_type.parent` exists (D-024); a derived class's fields extend its base's layout (inherited fields first in the descriptor, as Node lists them); constructors already take `this` and don't allocate (D-026), so `super(...)` is a call of the base constructor on `this`. Method calls are direct today (`instanceMethodCall`); overriding needs dispatch through a per-class method table. `console.log` uses the instance's own descriptor, so derived instances print their own name.
+2. M2.2d accessors, statics and privacy (D-025), then M2.3 Object literals and interfaces.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -50,7 +51,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (43 run tests, 1 skipped; 35 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (44 run tests, 1 skipped; 35 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -74,6 +75,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.2b done.
 - 2026-10-11: M2.2a done (M2.2 split by D-025).
 - 2026-10-11: M2.1 done.
 - 2026-10-11: M1.6 done; tagged `m1`.

@@ -1,0 +1,129 @@
+// console.log prints class instances as Node's util.inspect does.
+class Point {
+  x = 1;
+  y = -0;
+}
+class Strings {
+  plain = "plain";
+  single = "it's";
+  double = 'say "hi"';
+  both = `a'b"c`;
+  all = `a'b"c\`d`;
+  template = `'"\${x}`;
+  escapes = "tab\there\nnl\\ \u0001 \u007f \u0085 \ud800 é 😀";
+}
+class Flags {
+  on = true;
+  off = false;
+  none = null;
+  missing = undefined;
+  valid_name$ = 2;
+}
+class Empty {}
+class Deep3 {
+  v = 3;
+}
+class Deep2 {
+  inner = new Deep3();
+}
+class Deep1 {
+  inner = new Deep2();
+  empty = new Empty();
+}
+class Deep0 {
+  inner = new Deep1();
+}
+class Long {
+  label = "a fairly long label that takes room";
+  other = "another fairly long string value";
+}
+class Holder {
+  long = new Long();
+  point = new Point();
+}
+class Many {
+  a = 1;
+  b = 2;
+  c = 3;
+  d = 4;
+  e = 5;
+  f = 6;
+  g = 7;
+  h = 8;
+  i = 9;
+  j = 10;
+  k = 11;
+  l = 12;
+}
+class Link {
+  next: Link;
+  v = 1;
+  constructor() {
+    this.next = this;
+  }
+}
+
+console.log(new Point());
+console.log(new Strings());
+console.log(new Flags(), new Empty());
+console.log(new Deep0());
+console.log(new Long());
+console.log("holder:", new Holder(), 5);
+console.log(new Many());
+const self = new Link();
+console.log(self);
+const first = new Link();
+const second = new Link();
+first.next = second;
+second.next = first;
+second.v = 2;
+console.log(first, second);
+
+// expect:
+// Point { x: 1, y: -0 }
+// Strings {
+//   plain: 'plain',
+//   single: "it's",
+//   double: 'say "hi"',
+//   both: `a'b"c`,
+//   all: 'a\'b"c`d',
+//   template: '\'"${x}',
+//   escapes: 'tab\there\nnl\\ \x01 \x7F \x85 \ud800 é 😀'
+// }
+// Flags {
+//   on: true,
+//   off: false,
+//   none: null,
+//   missing: undefined,
+//   'valid_name$': 2
+// } Empty {}
+// Deep0 {
+//   inner: Deep1 { inner: Deep2 { inner: [Deep3] }, empty: Empty {} }
+// }
+// Long {
+//   label: 'a fairly long label that takes room',
+//   other: 'another fairly long string value'
+// }
+// holder: Holder {
+//   long: Long {
+//     label: 'a fairly long label that takes room',
+//     other: 'another fairly long string value'
+//   },
+//   point: Point { x: 1, y: -0 }
+// } 5
+// Many {
+//   a: 1,
+//   b: 2,
+//   c: 3,
+//   d: 4,
+//   e: 5,
+//   f: 6,
+//   g: 7,
+//   h: 8,
+//   i: 9,
+//   j: 10,
+//   k: 11,
+//   l: 12
+// }
+// <ref *1> Link { next: [Circular *1], v: 1 }
+// <ref *1> Link { next: Link { next: [Circular *1], v: 2 }, v: 1 } <ref *1> Link { next: Link { next: [Circular *1], v: 1 }, v: 2 }
