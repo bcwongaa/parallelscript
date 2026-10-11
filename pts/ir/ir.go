@@ -955,8 +955,14 @@ type SpreadArg struct{ X Expr }
 // Builtin is a runtime function with a fixed signature.
 type Builtin struct {
 	Name   string // as written in TypeScript
-	Params []Type // the receiver first for a member; nil for console.log
+	Params []Type // the receiver first for a member; nil for console.log and the console methods like it
 	Result Type
+}
+
+// ConsoleMethods are the console methods that take any number of Value arguments.
+var ConsoleMethods = map[*Builtin]bool{
+	ConsoleLog: true, ConsoleError: true, ConsoleGroup: true, ConsoleAssert: true, ConsoleTrace: true,
+	ConsoleCount: true, ConsoleCountReset: true, ConsoleTime: true, ConsoleTimeEnd: true, ConsoleTimeLog: true,
 }
 
 // mathFunction is a function of Math that takes n numbers and returns a number.
@@ -984,8 +990,21 @@ func stringMember(name string, result Type, params ...Type) *Builtin {
 }
 
 var (
-	// ConsoleLog is console.log; it takes any number of Value arguments.
-	ConsoleLog = &Builtin{Name: "console.log", Result: Void}
+	// ConsoleLog is console.log; it takes any number of Value arguments, as the other
+	// console methods in ConsoleMethods do (D-088).
+	ConsoleLog        = &Builtin{Name: "console.log", Result: Void}
+	ConsoleError      = &Builtin{Name: "console.error", Result: Void}
+	ConsoleGroup      = &Builtin{Name: "console.group", Result: Void}
+	ConsoleAssert     = &Builtin{Name: "console.assert", Result: Void}
+	ConsoleTrace      = &Builtin{Name: "console.trace", Result: Void}
+	ConsoleCount      = &Builtin{Name: "console.count", Result: Void}
+	ConsoleCountReset = &Builtin{Name: "console.countReset", Result: Void}
+	ConsoleTime       = &Builtin{Name: "console.time", Result: Void}
+	ConsoleTimeEnd    = &Builtin{Name: "console.timeEnd", Result: Void}
+	ConsoleTimeLog    = &Builtin{Name: "console.timeLog", Result: Void}
+	// ConsoleGroupEnd is console.groupEnd(); ConsoleDir is console.dir(value, { depth, showHidden }).
+	ConsoleGroupEnd = &Builtin{Name: "console.groupEnd", Result: Void}
+	ConsoleDir      = &Builtin{Name: "console.dir", Params: []Type{Value, Number, Bool}, Result: Void}
 	// StringLength is a string's .length (UTF-16 code units).
 	StringLength = stringMember("length", Number)
 

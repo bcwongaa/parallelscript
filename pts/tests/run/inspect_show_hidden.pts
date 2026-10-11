@@ -1,0 +1,98 @@
+// %o (and console.dir's showHidden) shows what JS doesn't enumerate: an array's length,
+// the getters and setters a class instance's classes define, an error's stack and
+// message; it looks four levels deep.
+class Temperature {
+  private celsius = 21;
+  get fahrenheit(): number {
+    return (this.celsius * 9) / 5 + 32;
+  }
+  set fahrenheit(value: number) {
+    this.celsius = ((value - 32) * 5) / 9;
+  }
+  get kelvin(): number {
+    return this.celsius + 273.15;
+  }
+  describe(): string {
+    return "temperature";
+  }
+}
+class Reading extends Temperature {
+  get label(): string {
+    return "reading";
+  }
+}
+class NotFound extends Error {
+  constructor(public resource: string) {
+    super(`${resource} not found`, { cause: "missing" });
+  }
+}
+class Empty {}
+
+console.log("%o", new Temperature());
+console.log("%o", new Reading());
+console.log("%o", [new Temperature()]);
+console.log("%o", { list: [1, { b: 2 }], empty: [] });
+console.log("%o", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+console.log("%o", [[1, [2, [3, [4, [5]]]]]]);
+console.log("%o", { a: { b: { c: { d: { e: { f: 1 } } } } } });
+console.log("%o", new Map<string, number[]>([["k", [1]]]), new Set(["a"]));
+const pair: [number, string] = [1, "one"];
+console.log("%o", pair);
+console.log("%o", "a string", new Empty());
+const error = new NotFound("page");
+error.stack = "Error: page not found";
+console.log("%o", error);
+console.log("%o", [new Date(0)]);
+console.dir(new Reading(), { showHidden: true });
+
+// expect:
+// Temperature {
+//   celsius: 21,
+//   [fahrenheit]: [Getter/Setter],
+//   [kelvin]: [Getter]
+// }
+// Reading {
+//   celsius: 21,
+//   [label]: [Getter],
+//   [fahrenheit]: [Getter/Setter],
+//   [kelvin]: [Getter]
+// }
+// [
+//   Temperature {
+//     celsius: 21,
+//     [fahrenheit]: [Getter/Setter],
+//     [kelvin]: [Getter]
+//   },
+//   [length]: 1
+// ]
+// { list: [ 1, { b: 2 }, [length]: 2 ], empty: [ [length]: 0 ] }
+// [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, [length]: 10 ]
+// [
+//   [
+//     1,
+//     [ 2, [ 3, [ 4, [Array], [length]: 2 ], [length]: 2 ], [length]: 2 ],
+//     [length]: 2
+//   ],
+//   [length]: 1
+// ]
+// {
+//   a: {
+//     b: { c: { d: { e: [Object] } } }
+//   }
+// }
+// Map(1) { 'k' => [ 1, [length]: 1 ] } Set(1) { 'a' }
+// [ 1, 'one', [length]: 2 ]
+// 'a string' Empty {}
+// [NotFound [Error]: page not found] {
+//   [stack]: [Getter/Setter],
+//   [message]: 'page not found',
+//   [cause]: 'missing',
+//   resource: 'page'
+// }
+// [ 1970-01-01T00:00:00.000Z, [length]: 1 ]
+// Reading {
+//   celsius: 21,
+//   [label]: [Getter],
+//   [fahrenheit]: [Getter/Setter],
+//   [kelvin]: [Getter]
+// }

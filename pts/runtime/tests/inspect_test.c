@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void pts_inspect_write(FILE *out, const pts_object *object);
+char *pts_inspect(pts_value value, double depth, bool show_hidden, size_t *len); /* inspect.c */
 
 typedef struct chain {
   const pts_type *type;
@@ -32,12 +32,8 @@ static const pts_type chain_type = {
 
 /* inspected returns what console.log prints for object, without the newline. */
 static char *inspected(const void *object) {
-  char *text = NULL;
-  size_t len = 0;
-  FILE *out = open_memstream(&text, &len);
-  pts_inspect_write(out, object);
-  fclose(out);
-  return text;
+  size_t len;
+  return pts_inspect(pts_value_from_object((pts_object *)object), 2, false, &len);
 }
 
 static chain *new_chain(const char *label, int64_t big) {
@@ -138,11 +134,77 @@ static void absent_properties_are_not_printed(void) {
   CHECK(pts_value_present(o->level) == o->level);
 }
 
+char *pts_format(size_t argc, const pts_value *argv, size_t *len); /* inspect.c */
+
+static pts_value text_value(const char *cstr) { return pts_value_from_string(pts_string_from_cstr(cstr)); }
+
+/* formatted returns what console.log prints for its argc arguments, without the newline. */
+static char *formatted(size_t argc, const pts_value *argv) {
+  size_t len;
+  return pts_format(argc, argv, &len);
+}
+
+/* A format's placeholders take the arguments in order; those left over follow, strings raw. */
+static void placeholders_take_the_next_arguments(void) {
+  char *text = formatted(4, (pts_value[]){text_value("%s has %d items"), text_value("cart"), pts_value_from_number(3), text_value("extra")});
+  CHECK_STR(text, "cart has 3 items extra");
+  free(text);
+  text = formatted(3, (pts_value[]){text_value("%i|%f"), text_value("42.9px"), text_value("1e3x")});
+  CHECK_STR(text, "42|1000");
+  free(text);
+  text = formatted(2, (pts_value[]){text_value("%c%s"), text_value("color: red")});
+  CHECK_STR(text, "%s");
+  free(text);
+}
+
+/* A placeholder without an argument, an unknown one and a lone % stay; %% is % only where arguments follow. */
+static void placeholders_without_arguments_stay(void) {
+  char *text = formatted(2, (pts_value[]){text_value("%s and %s"), text_value("one")});
+  CHECK_STR(text, "one and %s");
+  free(text);
+  text = formatted(2, (pts_value[]){text_value("%x %s %"), pts_value_from_number(1)});
+  CHECK_STR(text, "%x 1 %");
+  free(text);
+  text = formatted(1, (pts_value[]){text_value("100%%")});
+  CHECK_STR(text, "100%%");
+  free(text);
+  text = formatted(2, (pts_value[]){text_value("100%%"), pts_value_from_number(5)});
+  CHECK_STR(text, "100% 5");
+  free(text);
+}
+
+/* Without a format, strings print raw and other values inspected, nested strings quoted. */
+static void arguments_without_a_format_are_inspected(void) {
+  char *text = formatted(3, (pts_value[]){pts_value_from_number(-0.0), text_value("%s"), PTS_VALUE_NULL});
+  CHECK_STR(text, "-0 %s null");
+  free(text);
+}
+
+/* A long string nested in an object is split after its line breaks; one beyond 10,000 units is cut. */
+static void long_strings_are_split_and_cut(void) {
+  size_t len;
+  char *text = pts_inspect(text_value("first line of a long text\nsecond line of a long text\nthird line of a long text"), 2, false, &len);
+  CHECK_STR(text, "'first line of a long text\\n' +\n  'second line of a long text\\n' +\n  'third line of a long text'");
+  free(text);
+  char *huge = malloc(10003);
+  memset(huge, 'x', 10002);
+  huge[10002] = '\0';
+  text = pts_inspect(text_value(huge), 2, false, &len);
+  CHECK(len == 10000 + 2 + strlen("... 2 more characters"));
+  CHECK(strcmp(text + len - strlen("'... 2 more characters"), "'... 2 more characters") == 0);
+  free(text);
+  free(huge);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   circular_references_are_numbered();
   deep_instances_print_their_name();
   plain_objects_print_without_a_name();
   absent_properties_are_not_printed();
+  placeholders_take_the_next_arguments();
+  placeholders_without_arguments_stay();
+  arguments_without_a_format_are_inspected();
+  long_strings_are_split_and_cut();
   return CHECK_DONE();
 }

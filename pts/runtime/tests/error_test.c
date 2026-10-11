@@ -6,15 +6,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void pts_inspect_write(FILE *out, const pts_object *object);
+char *pts_inspect(pts_value value, double depth, bool show_hidden, size_t *len); /* inspect.c */
 
 static char *inspected(const void *object) {
-  char *text = NULL;
-  size_t len = 0;
-  FILE *out = open_memstream(&text, &len);
-  pts_inspect_write(out, object);
-  fclose(out);
-  return text;
+  size_t len;
+  return pts_inspect(pts_value_from_object((pts_object *)object), 2, false, &len);
 }
 
 static char *c_string(const pts_string *string) {

@@ -67,7 +67,6 @@ var libConstants = map[string]float64{
 // builtins maps members of the prelude and of the ES library, by "Interface.member",
 // to the runtime functions that implement them.
 var builtins = map[string]*ir.Builtin{
-	"Console.log":              ir.ConsoleLog,
 	"String.length":            ir.StringLength,
 	"String.charCodeAt":        ir.StringCharCodeAt,
 	"String.slice":             ir.StringSlice,
@@ -1301,6 +1300,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if x, handled := l.dateCall(call); handled {
 		return x
 	}
+	if name := l.consoleMethodName(ast.SkipParentheses(call.Expression)); name != "" {
+		return l.consoleCall(node, name)
+	}
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)
 	}
@@ -1400,8 +1402,6 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	switch {
 	case isUserFunction:
 		return l.userCall(call, fn)
-	case builtin == ir.ConsoleLog:
-		return l.consoleLog(call)
 	case l.hasSpreadArgument(call):
 		return nil
 	}
@@ -1620,34 +1620,6 @@ func arity(params []ir.Type) int {
 		}
 	}
 	return n
-}
-
-// consoleLog lowers console.log(…): each argument boxed; a spread argument passes an
-// array's elements (SpreadArg) or a tuple's.
-func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {
-	args := make([]ir.Expr, 0, len(call.Arguments.Nodes))
-	for _, argument := range call.Arguments.Nodes {
-		if argument.Kind == ast.KindSpreadElement {
-			values := l.argumentValues(argument)
-			if values == nil {
-				return nil
-			}
-			for _, value := range values {
-				if spread, ok := value.(*spreadValue); ok {
-					args = append(args, &ir.SpreadArg{X: spread.x})
-				} else {
-					args = append(args, box(value))
-				}
-			}
-			continue
-		}
-		arg := l.valueExpression(argument)
-		if arg == nil {
-			return nil
-		}
-		args = append(args, box(arg))
-	}
-	return &ir.CallBuiltin{Builtin: ir.ConsoleLog, Args: args}
 }
 
 // methodCall lowers a call of a builtin method: the receiver, then each argument

@@ -30,7 +30,7 @@ func effectsOf(expr ir.Expr) effects {
 		for _, arg := range x.Args {
 			f |= effectsOf(arg)
 		}
-		if x.Builtin == ir.ConsoleLog || x.Builtin == ir.ObjectAssign {
+		if ir.ConsoleMethods[x.Builtin] || x.Builtin == ir.ConsoleGroupEnd || x.Builtin == ir.ConsoleDir || x.Builtin == ir.ObjectAssign {
 			f |= writes
 		}
 		if throwingBuiltins[x.Builtin] {

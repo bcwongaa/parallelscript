@@ -101,7 +101,7 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 		}
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
-				callable := wanted[ir.Plain][method.Name] || isToString(method) || e.declaredTypes && !strings.HasPrefix(method.Name, "#")
+				callable := wanted[ir.Plain][method.Name] || isToString(method) || isValueOf(method) || e.declaredTypes && !strings.HasPrefix(method.Name, "#")
 				if class.Method(method.Name, method.Kind) != method || method.Abstract || method.Kind == ir.Plain && !callable {
 					continue // overridden below, not implemented, or a method not called through interfaces, by join or through `any` (D-074); every getter and setter is, for `any` (D-070)
 				}
@@ -119,6 +119,16 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 // runtime calls where JS converts an object to a string (join).
 func isToString(method *ir.Method) bool {
 	return method.Kind == ir.Plain && method.Name == "toString" && len(method.Func.Params) == 1 && method.Func.Result == ir.String
+}
+
+// isValueOf reports whether a method is a valueOf() returning a primitive, which the
+// runtime calls where JS converts an object to a primitive (ToPrimitive, D-088).
+func isValueOf(method *ir.Method) bool {
+	if method.Kind != ir.Plain || method.Name != "valueOf" || len(method.Func.Params) != 1 {
+		return false
+	}
+	result := method.Func.Result
+	return result == ir.String || result == ir.Bool || ir.IsNumeric(result)
 }
 
 // entryFunctions writes the entry point of each method that interfaces call: a function
@@ -291,7 +301,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 				if method.Kind == ir.Plain {
 					declared = e.dynamicMethodMembers(e.entryNames[method.Func], paramTypes(method.Func.Params[1:]), method.Func.Result)
 				}
-				e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result), declared)
+				e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], resultKind(method), declared)
 			}
 			e.line(0, "};")
 		}
@@ -519,6 +529,15 @@ func visibleFields(class *ir.Class) []*ir.Field {
 
 // methodKinds are the runtime's names for the kinds of methods.
 var methodKinds = map[ir.MethodKind]string{ir.Plain: "PTS_METHOD", ir.Getter: "PTS_GETTER", ir.Setter: "PTS_SETTER"}
+
+// resultKind is a class method's pts_method.result: what an accessor returns or takes,
+// or what a valueOf() returns, for ToPrimitive (D-088); 0 for other methods.
+func resultKind(method *ir.Method) string {
+	if isValueOf(method) {
+		return fieldKind(method.Func.Result)
+	}
+	return accessorKind(method.Kind, method.Func.Params, method.Func.Result)
+}
 
 // accessorKind is what a getter returns, or a setter takes (its parameter after `this`),
 // as a field kind, for reads and writes through `any` (D-070); 0 for a method.

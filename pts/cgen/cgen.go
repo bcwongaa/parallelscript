@@ -579,7 +579,7 @@ func mayRecurse(f *ir.Func) bool {
 		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
 			found = true
 		case *ir.CallBuiltin: // one that may convert an object to a string calls its toString()
-			found = found || x.Builtin != ir.ConsoleLog && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
+			found = found || !ir.ConsoleMethods[x.Builtin] && x.Builtin != ir.ConsoleDir && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
 		case *ir.FieldRef:
 			found = found || !isClass(x.X.Type())
 		case *ir.SetField:
@@ -1358,16 +1358,28 @@ func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 		case ir.DynamicCallMethod:
 			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_method_spread(%s, %s, %s, %s)", args[0], args[1], args[2], spreading))
 		}
-		return ordered(prelude, "pts_console_log_spread("+spreading+")")
+		if call.Builtin == ir.ConsoleLog {
+			return ordered(prelude, "pts_console_log_spread("+spreading+")")
+		}
+		return ordered(prelude, fmt.Sprintf("pts_console(%s, %s)", consoleMethods[call.Builtin], spreading))
 	}
 	return ordered(prelude, builtinCall(call.Builtin, args))
 }
 
-// spreadArgs says, for console.log or a dynamic call with a spread argument (`...xs`),
+// consoleMethods names the runtime's pts_console_method of each console builtin but log,
+// which has a function of its own (D-088).
+var consoleMethods = map[*ir.Builtin]string{
+	ir.ConsoleError: "PTS_CONSOLE_ERROR", ir.ConsoleGroup: "PTS_CONSOLE_GROUP", ir.ConsoleAssert: "PTS_CONSOLE_ASSERT",
+	ir.ConsoleTrace: "PTS_CONSOLE_TRACE", ir.ConsoleCount: "PTS_CONSOLE_COUNT", ir.ConsoleCountReset: "PTS_CONSOLE_COUNT_RESET",
+	ir.ConsoleTime: "PTS_CONSOLE_TIME", ir.ConsoleTimeEnd: "PTS_CONSOLE_TIME_END", ir.ConsoleTimeLog: "PTS_CONSOLE_TIME_LOG",
+}
+
+// spreadArgs says, for a console method or a dynamic call with a spread argument (`...xs`),
 // which of its arguments are spread ("true") and which aren't; nil for any other call.
 func spreadArgs(call *ir.CallBuiltin) []string {
-	fixed := map[*ir.Builtin]int{ir.ConsoleLog: 0, ir.DynamicCall: 2, ir.DynamicCallMethod: 3}
+	fixed := map[*ir.Builtin]int{ir.DynamicCall: 2, ir.DynamicCallMethod: 3}
 	n, ok := fixed[call.Builtin]
+	ok = ok || ir.ConsoleMethods[call.Builtin]
 	if !ok || !slices.ContainsFunc(call.Args, isSpreadArg) {
 		return nil
 	}
@@ -1384,12 +1396,22 @@ func isSpreadArg(x ir.Expr) bool {
 }
 
 func builtinCall(builtin *ir.Builtin, args []string) string {
+	if method, ok := consoleMethods[builtin]; ok {
+		if len(args) == 0 {
+			return fmt.Sprintf("pts_console(%s, 0, NULL, NULL)", method)
+		}
+		return fmt.Sprintf("pts_console(%s, %d, (pts_value[]){%s}, NULL)", method, len(args), strings.Join(args, ", "))
+	}
 	switch builtin {
 	case ir.ConsoleLog:
 		if len(args) == 0 {
 			return "pts_console_log(0, NULL)"
 		}
 		return fmt.Sprintf("pts_console_log(%d, (pts_value[]){%s})", len(args), strings.Join(args, ", "))
+	case ir.ConsoleGroupEnd:
+		return "pts_console_group_end()"
+	case ir.ConsoleDir:
+		return fmt.Sprintf("pts_console_dir(%s)", strings.Join(args, ", "))
 	case ir.StringLength:
 		return "((double)(" + args[0] + ")->utf16_len)"
 	case ir.DynamicCall:

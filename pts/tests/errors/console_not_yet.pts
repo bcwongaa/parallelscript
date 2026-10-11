@@ -1,0 +1,10 @@
+// console.dir's options must be an object literal of depth and showHidden properties.
+const options = { depth: 1 };
+const depth = 3;
+console.dir({ a: 1 }, options);
+console.dir({ a: 1 }, { ...options });
+console.dir({ a: 1 }, { showHidden: true, depth });
+
+// error: console_not_yet.pts:4:23 - error PTS1001: options of `console.dir` other than an object literal are not supported yet
+// error: console_not_yet.pts:5:25 - error PTS1001: this option of `console.dir` is not supported yet
+// error: console_not_yet.pts:6:43 - error PTS1001: this option of `console.dir` is not supported yet

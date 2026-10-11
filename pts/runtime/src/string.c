@@ -247,6 +247,8 @@ pts_string *pts_value_to_string(pts_value value) {
     case PTS_KIND_RECORD:
     case PTS_KIND_DATE:
       return pts_object_to_string(object);
+    case PTS_KIND_FUNCTION:
+      pts_panic("TypeError", "converting a function to a string is not supported yet");
     default:
       break;
     }
@@ -386,7 +388,9 @@ bool pts_value_loose_equals(pts_value a, pts_value b) {
     }
     if (x == LOOSE_OBJECT || y == LOOSE_OBJECT) {
       pts_value *object = x == LOOSE_OBJECT ? &a : &b;
-      *object = pts_value_from_string(pts_object_to_string(pts_value_as_object(*object)));
+      const pts_object *converted = pts_value_as_object(*object);
+      *object = converted->type->kind == PTS_KIND_OBJECT ? pts_value_to_primitive(*object, false) /* valueOf first */
+                                                         : pts_value_from_string(pts_object_to_string(converted));
       continue;
     }
     return as_number(a) == as_number(b); /* a number and a string */

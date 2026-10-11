@@ -10,8 +10,28 @@
 
 /* ---------------------------------------------------------------- conversions */
 
-/* JS's ToPrimitive of an object, which has no valueOf in ParallelScript: its string (pts_object_to_string). */
-static pts_value to_primitive(pts_value value, bool number_hint) {
+static int64_t method_named(const pts_type *type, const char *name, pts_method_kind kind);
+static pts_value call_getter(pts_function getter, pts_field_kind kind, pts_object *object);
+
+/*
+ * The program's valueOf() of an object, if its class has one that returns a primitive
+ * (its method table gives the result's kind, D-088): sets *result and returns true.
+ */
+static bool call_value_of(const pts_object *object, pts_value *result) {
+  int64_t index = object->type->kind == PTS_KIND_OBJECT ? method_named(object->type, "valueOf", PTS_METHOD) : -1;
+  if (index < 0 || object->type->methods[index].result == 0) {
+    return false;
+  }
+  const pts_method *method = &object->type->methods[index];
+  *result = call_getter(method->function, method->result, (pts_object *)object);
+  return true;
+}
+
+/*
+ * ToPrimitive for the number and default hints: an object's valueOf() first, then
+ * toString(), as OrdinaryToPrimitive does; a date's default is its string.
+ */
+pts_value pts_value_to_primitive(pts_value value, bool number_hint) {
   if (!pts_value_is_object(value)) {
     return value;
   }
@@ -26,8 +46,13 @@ static pts_value to_primitive(pts_value value, bool number_hint) {
       return pts_value_from_number(((const pts_date *)object)->time);
     }
     return pts_value_from_string(pts_value_to_string(value));
-  default:
+  default: {
+    pts_value primitive;
+    if (call_value_of(object, &primitive)) {
+      return primitive;
+    }
     return pts_value_from_string(pts_value_to_string(value));
+  }
   }
 }
 
@@ -36,7 +61,7 @@ static bool is_string(pts_value value) {
 }
 
 double pts_value_to_number(pts_value value) {
-  value = to_primitive(value, true);
+  value = pts_value_to_primitive(value, true);
   if (pts_value_is_number(value)) {
     return pts_value_as_number(value);
   }
@@ -65,8 +90,8 @@ double pts_value_to_number(pts_value value) {
 }
 
 pts_value pts_value_add(pts_value left, pts_value right) {
-  left = to_primitive(left, false);
-  right = to_primitive(right, false);
+  left = pts_value_to_primitive(left, false);
+  right = pts_value_to_primitive(right, false);
   if (is_string(left) || is_string(right)) {
     return pts_value_from_string(pts_string_concat(pts_value_to_string(left), pts_value_to_string(right)));
   }
@@ -75,8 +100,8 @@ pts_value pts_value_add(pts_value left, pts_value right) {
 
 /* JS's IsLessThan: strings by UTF-16 code units, everything else as numbers; undefined if either is NaN. */
 static int compare(pts_value left, pts_value right, bool *undefined) {
-  left = to_primitive(left, true);
-  right = to_primitive(right, true);
+  left = pts_value_to_primitive(left, true);
+  right = pts_value_to_primitive(right, true);
   *undefined = false;
   if (is_string(left) && is_string(right)) {
     return pts_string_compare((const pts_string *)pts_value_as_object(left), (const pts_string *)pts_value_as_object(right));

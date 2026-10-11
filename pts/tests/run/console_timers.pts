@@ -1,0 +1,15 @@
+// no-diff: the times differ from run to run; TestConsoleTimersPrintTheirLabelAndTheTime checks their form.
+function work(n: number): number {
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += i;
+  return sum;
+}
+console.time("loop");
+work(1000);
+console.timeLog("loop", "halfway", { n: 1 });
+console.timeEnd("loop");
+console.time();
+console.timeEnd();
+console.timeEnd("missing");
+console.time("twice");
+console.time("twice");

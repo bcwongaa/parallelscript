@@ -1,0 +1,28 @@
+// An object converts to a primitive through its class's valueOf(), as JS's ToPrimitive
+// does for numbers and +, and through toString() for strings.
+class Money {
+  constructor(public cents: number) {}
+  valueOf(): number {
+    return this.cents / 100;
+  }
+}
+class Tagged {
+  valueOf(): string {
+    return "tag";
+  }
+  toString(): string {
+    return "Tagged!";
+  }
+}
+const price: any = new Money(250);
+console.log(price + 1, price * 2, price > 2, +price, price == 2.5);
+console.log(`${price}`, String(price));
+const tagged: any = new Tagged();
+console.log(tagged + 1, `${tagged}`, String(tagged));
+console.log("%d %s", new Money(199), new Money(199));
+
+// expect:
+// 3.5 5 true 2.5 true
+// [object Object] [object Object]
+// tag1 Tagged! Tagged!
+// 1.99 Money { cents: 199 }

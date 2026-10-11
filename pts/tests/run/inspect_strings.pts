@@ -1,0 +1,18 @@
+// Strings nested in objects and arrays as Node's util.inspect shows them: one longer than
+// the line has room for is split after each line break into quoted pieces joined by " +";
+// one longer than 10,000 UTF-16 units is cut; wide characters take two columns when an
+// array's elements are laid out in columns.
+const poem = "line one of the text\nline two of the text\nline three of the text that is long\n";
+console.log({ poem });
+console.log([poem]);
+console.log({ nested: { deeper: { text: "first line\nsecond line\nthird line, which is long enough" } } });
+console.log({ single: "x".repeat(100) });
+console.log(new Map([["k", "a\nb".repeat(30)]]));
+console.log({ quotes: "it's\n\"quoted\"\nboth ' and \" here, and more text to be long" });
+const huge = "ab".repeat(6000);
+console.log(huge.length, [huge]);
+const cut = "x".repeat(9999) + "😀" + "tail";
+console.log([cut]);
+console.log(["日本語テキスト", "中文", "한국어", "😀", "😀😀", "abc", "de", "f", "ﾊﾝｶｸ", "é"]);
+console.log(Array.from({ length: 30 }, (_, i) => "😀".repeat(i % 4)));
+console.log(["é", "a​b", "x", "y", "z", "w", "v"]);

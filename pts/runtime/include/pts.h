@@ -874,6 +874,8 @@ pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint
 pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_value_add(pts_value left, pts_value right);
 double pts_value_to_number(pts_value value);
+/* ToPrimitive with the number hint, or the default one: an object's valueOf() if its class has one, else its string (D-088). */
+pts_value pts_value_to_primitive(pts_value value, bool number_hint);
 bool pts_value_less(pts_value left, pts_value right);
 bool pts_value_less_equal(pts_value left, pts_value right);
 /*
@@ -1391,11 +1393,32 @@ pts_value pts_date_to_json(pts_date *date);
 
 /* ---------------------------------------------------------------- console */
 
-/* console.log(args...): Node's formatting for primitives, joined by spaces. */
+/* console.log(args...): the arguments as Node's util.format formats them, on stdout (D-088). */
 void pts_console_log(size_t argc, const pts_value *argv);
 // console.log with spread arguments: each argv[i] with spread[i] is an array (boxed as an
 // object) whose elements are arguments in its place (D-057).
 void pts_console_log_spread(size_t argc, const pts_value *argv, const bool *spread);
+
+/* The console methods that take any values (D-088); info, debug and dirxml are log, warn is error. */
+typedef enum pts_console_method {
+  PTS_CONSOLE_LOG,
+  PTS_CONSOLE_ERROR,       /* error and warn: on stderr */
+  PTS_CONSOLE_GROUP,       /* group and groupCollapsed: log the arguments, if any, then indent */
+  PTS_CONSOLE_ASSERT,      /* assert(condition, ...data) */
+  PTS_CONSOLE_TRACE,       /* trace(...data): "Trace: …" and the stack, on stderr */
+  PTS_CONSOLE_COUNT,       /* count(label?) */
+  PTS_CONSOLE_COUNT_RESET, /* countReset(label?) */
+  PTS_CONSOLE_TIME,        /* time(label?) */
+  PTS_CONSOLE_TIME_END,    /* timeEnd(label?) */
+  PTS_CONSOLE_TIME_LOG,    /* timeLog(label?, ...data) */
+} pts_console_method;
+
+/* Calls a console method; spread is NULL, or says which arguments are spread as for pts_console_log_spread. */
+void pts_console(pts_console_method method, size_t argc, const pts_value *argv, const bool *spread);
+/* console.groupEnd(). */
+void pts_console_group_end(void);
+/* console.dir(value, { depth, showHidden }): depth is INFINITY for null. */
+void pts_console_dir(pts_value value, double depth, bool show_hidden);
 
 /* ---------------------------------------------------------------- exceptions */
 

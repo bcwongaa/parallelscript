@@ -1,0 +1,80 @@
+// The console methods besides log (D-088): info, debug and dirxml are log; error and
+// warn write to stderr; groups indent every line; count, assert and dir as Node's.
+console.info("info", 1);
+console.debug("debug %d", 2);
+console.dirxml("dirxml", [1]);
+console.group("Group A");
+console.log("inside\nmultiline");
+console.group();
+console.log({ deep: { x: 1 } });
+console.groupEnd();
+console.log("back");
+console.groupEnd();
+console.groupEnd();
+console.log("out");
+console.groupCollapsed("collapsed");
+console.info("in collapsed");
+console.groupEnd();
+console.count();
+console.count();
+console.count("x");
+console.countReset();
+console.count();
+console.assert(true, "never shown");
+console.assert(1 + 1 === 2);
+console.dir("quoted");
+console.dir({ a: { b: { c: { d: { e: 1 } } } } }, { depth: null });
+console.dir({ a: { b: 1 } }, { depth: 0 });
+console.dir([1, [2]], { showHidden: true });
+const xs = [1, 2, 3];
+console.info(...xs);
+console.error("error %s", "e", { a: 1 });
+console.warn("warning", [1, 2]);
+console.assert(false);
+console.assert(false, "failed %d", 5);
+console.assert(0, { a: 1 });
+console.group("g");
+console.error("indented\nerror");
+console.groupEnd();
+console.countReset("nope");
+function where(): void {
+  console.trace("tracing %d", 42);
+}
+where();
+
+// expect:
+// info 1
+// debug 2
+// dirxml [ 1 ]
+// Group A
+//   inside
+//   multiline
+//     { deep: { x: 1 } }
+//   back
+// out
+// collapsed
+//   in collapsed
+// default: 1
+// default: 2
+// x: 1
+// default: 1
+// 'quoted'
+// {
+//   a: {
+//     b: { c: { d: { e: 1 } } }
+//   }
+// }
+// { a: [Object] }
+// [ 1, [ 2, [length]: 1 ], [length]: 2 ]
+// 1 2 3
+// g
+// stderr: error e { a: 1 }
+// stderr: warning [ 1, 2 ]
+// stderr: Assertion failed
+// stderr: Assertion failed: failed 5
+// stderr: Assertion failed { a: 1 }
+// stderr:   indented
+// stderr:   error
+// stderr: Count for 'nope' does not exist
+// stderr: Trace: tracing 42
+// stderr: console_methods.pts:41)

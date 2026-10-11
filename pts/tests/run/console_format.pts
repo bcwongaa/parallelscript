@@ -1,0 +1,69 @@
+// console.log's first argument, if a string, is a format (Node's util.format): each
+// placeholder takes the next argument, and the arguments left over follow, inspected.
+class Celsius {
+  constructor(public degrees: number) {}
+  toString(): string {
+    return `${this.degrees}°C`;
+  }
+}
+class Price {
+  constructor(public cents: number) {}
+  valueOf(): number {
+    return this.cents / 100;
+  }
+}
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+class Cycle {
+  self: Cycle | null = null;
+}
+
+console.log("%s is %d years old", "Ada", 36);
+console.log("%s|%s|%s|%s|%s", -0, null, undefined, true, "text");
+console.log("%s|%s", new Celsius(21), new Point(1, 2));
+console.log("%s", [1, [2, [3]]], new Map([["k", 1]]), new Date(0));
+console.log("%d|%d|%d|%d|%d|%d", "42", "", "abc", -0, true, new Price(250));
+console.log("%i|%i|%i|%i", 3.7, -0.5, "0x10", "42.9px");
+console.log("%f|%f|%f", "1e3x", "-0", 2.5);
+console.log("%j|%j|%j", { a: [1, 2], b: "x" }, "str", undefined);
+const cycle = new Cycle();
+cycle.self = cycle;
+console.log("%j", cycle);
+console.log("%O", { a: { b: { c: { d: 1 } } } });
+console.log("%c styled %s", "color: red", "text");
+console.log("100%", 5);
+console.log("%d%%", 50);
+console.log("%%", 1);
+console.log("%%");
+console.log("%s %s", "only one");
+console.log("%x %s", 1);
+console.log("%s:%s", "a", "b", "c", 4, { d: 5 });
+console.log("end %");
+console.log(1, "%s", 2);
+console.log("héllo %s wörld %d", "ü", 3);
+console.log("%s-%s", ...["spread", "args"]);
+
+// expect:
+// Ada is 36 years old
+// -0|null|undefined|true|text
+// 21°C|Point { x: 1, y: 2 }
+// [ 1, [Array] ] Map(1) { 'k' => 1 } 1970-01-01T00:00:00.000Z
+// 42|0|NaN|-0|1|2.5
+// 3|-0|16|42
+// 1000|-0|2.5
+// {"a":[1,2],"b":"x"}|"str"|undefined
+// [Circular]
+// { a: { b: { c: [Object] } } }
+//  styled text
+// 100% 5
+// 50%
+// % 1
+// %%
+// only one %s
+// %x 1
+// a:b c 4 { d: 5 }
+// end %
+// 1 %s 2
+// héllo ü wörld 3
+// spread-args
