@@ -386,6 +386,9 @@ var objectStatics = map[string]mapItems{"keys": mapKeys, "values": mapValues, "e
 func (l *lowerer) objectStaticCall(call *ast.CallExpression) ir.Expr {
 	name := ast.SkipParentheses(call.Expression).AsPropertyAccessExpression().Name().Text()
 	args := call.Arguments.Nodes
+	if len(args) > 0 && l.isAny(args[0]) && !l.hasSpreadArgument(call) {
+		return l.dynamicObjectStatic(call, name)
+	}
 	if len(args) == 0 || !l.isRecordExpression(args[0]) {
 		l.notSupportedYet(call.Expression, fmt.Sprintf("`Object.%s` of anything but a hash-map object (`Record<string, T>`, an index signature) is", name))
 		return nil
@@ -401,6 +404,36 @@ func (l *lowerer) objectStaticCall(call *ast.CallExpression) ir.Expr {
 		return l.recordHas(record, l.recordKey(args[1]), false)
 	}
 	return l.mapItemsArray(mapIterable{record, objectStatics[name]}, call.Expression)
+}
+
+// dynamicObjectStatics are the runtime's Object.keys, values, entries and hasOwn of dynamic values.
+var dynamicObjectStatics = map[string]*ir.Builtin{"keys": ir.ValueKeys, "values": ir.ValueValues, "entries": ir.ValueEntries, "hasOwn": ir.ValueHasOwn}
+
+// dynamicObjectStatic lowers Object.keys, values, entries or hasOwn of a dynamic value
+// (D-077), found at run time; the array is converted to the type tsc gives the call.
+func (l *lowerer) dynamicObjectStatic(call *ast.CallExpression, name string) ir.Expr {
+	builtin := dynamicObjectStatics[name]
+	args := make([]ir.Expr, len(builtin.Params))
+	for i := range args {
+		if i >= len(call.Arguments.Nodes) {
+			args[i] = &ir.UndefinedConst{}
+			continue
+		}
+		arg := l.valueExpression(call.Arguments.Nodes[i])
+		if arg == nil {
+			return nil
+		}
+		args[i] = box(arg)
+	}
+	result := ir.Expr(&ir.CallBuiltin{Builtin: builtin, Args: args})
+	if builtin.Result == ir.Bool {
+		return result
+	}
+	target := l.irType(l.typeAt(call.AsNode()), call.AsNode())
+	if target == nil {
+		return nil
+	}
+	return l.dynamicConversion(result, target, call.AsNode())
 }
 
 // isRecordMethodCall reports whether node calls a method of Object.prototype on a

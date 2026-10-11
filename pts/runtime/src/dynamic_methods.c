@@ -628,6 +628,207 @@ static const named_method function_methods[] = {
     {NULL, NULL},
 };
 
+/* ---------------------------------------------------------------- maps, sets and hash-map objects */
+
+static pts_map *map_of(pts_value self) { return (pts_map *)pts_value_as_object(self); }
+
+/* A key or value as a map's slot of the given kind for a lookup: false if it can't be one, so the map can't have it. */
+static bool lookup_slot(pts_field_kind kind, pts_value value, uint64_t *slot) {
+  bool fits;
+  switch (kind) {
+  case PTS_FIELD_VALUE:
+    fits = true;
+    break;
+  case PTS_FIELD_OBJECT:
+    fits = pts_value_is_object(value) && !pts_value_is_string(value);
+    break;
+  case PTS_FIELD_STRING:
+    fits = pts_value_is_string(value);
+    break;
+  case PTS_FIELD_NUMBER:
+  case PTS_FIELD_F32:
+    fits = pts_value_is_number(value);
+    break;
+  case PTS_FIELD_BOOL:
+    fits = value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE;
+    break;
+  default:
+    fits = pts_value_is_integer_of(value, kind);
+  }
+  *slot = 0;
+  if (fits) {
+    pts_store_value_in_slot(kind, slot, value);
+  }
+  return fits;
+}
+
+/* A key or value to store in a map: converted to its declared type (D-072), TypeError if it doesn't fit. */
+static uint64_t stored_slot(pts_field_kind kind, const pts_check *check, pts_value value, const char *what, const pts_type *type) {
+  uint64_t slot = 0;
+  pts_store_value_in_slot(kind, &slot, pts_storable(kind, check, value, what, type));
+  return slot;
+}
+
+static pts_value map_get(pts_value self, uint32_t argc, const pts_value *argv) {
+  uint64_t key;
+  pts_map *map = map_of(self);
+  return lookup_slot(map->type->key, argument(argc, argv, 0), &key) ? pts_map_get_value(map, &key) : PTS_VALUE_UNDEFINED;
+}
+
+static pts_value map_has(pts_value self, uint32_t argc, const pts_value *argv) {
+  uint64_t key;
+  pts_map *map = map_of(self);
+  return pts_value_from_bool(lookup_slot(map->type->key, argument(argc, argv, 0), &key) && pts_map_has(map, &key));
+}
+
+static pts_value map_delete(pts_value self, uint32_t argc, const pts_value *argv) {
+  uint64_t key;
+  pts_map *map = map_of(self);
+  return pts_value_from_bool(lookup_slot(map->type->key, argument(argc, argv, 0), &key) && pts_map_delete(map, &key));
+}
+
+static pts_value map_clear(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  pts_map_clear(map_of(self));
+  return PTS_VALUE_UNDEFINED;
+}
+
+static pts_value map_set(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_map *map = map_of(self);
+  const pts_type *type = map->type;
+  uint64_t key = stored_slot(type->key, type->key_check, argument(argc, argv, 0), "key", type);
+  uint64_t value = stored_slot(type->element, type->check, argument(argc, argv, 1), "value", type);
+  pts_map_set(map, &key, &value);
+  return self;
+}
+
+static pts_value set_add(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_map *set = map_of(self);
+  uint64_t key = stored_slot(set->type->key, set->type->key_check, argument(argc, argv, 0), "element", set->type);
+  pts_map_set(set, &key, NULL);
+  return self;
+}
+
+/* forEach of a map, callback(value, key, map), or of a set, callback(element, element, set). */
+static pts_value map_for_each(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_closure *callback = function_argument(argc, argv, 0);
+  pts_map *map = map_of(self);
+  bool set = map->type->kind == PTS_KIND_SET;
+  pts_map_iterator entries = pts_map_iterate(map);
+  while (pts_map_next(&entries)) {
+    pts_value key = pts_value_of_slot(map->type->key, &entries.key);
+    pts_value args[] = {set ? key : pts_value_of_slot(map->type->element, &entries.value), key, self};
+    pts_dynamic_call_closure(callback, 3, args);
+  }
+  return PTS_VALUE_UNDEFINED;
+}
+
+static pts_value map_iterator(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)self, (void)argc, (void)argv;
+  pts_throw_new(&pts_type_builtin_TypeError, "Iterators of maps and sets through `any` are not supported yet");
+}
+
+static pts_value record_has_own_property(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_string *key = pts_value_to_string(argument(argc, argv, 0));
+  return pts_value_from_bool(pts_map_has(map_of(self), &key));
+}
+
+static const named_method map_methods[] = {
+    {"clear", map_clear},     {"delete", map_delete}, {"entries", map_iterator}, {"forEach", map_for_each}, {"get", map_get},
+    {"has", map_has},         {"keys", map_iterator}, {"set", map_set},          {"values", map_iterator}, {NULL, NULL},
+};
+
+static const named_method set_methods[] = {
+    {"add", set_add},         {"clear", map_clear},      {"delete", map_delete}, {"entries", map_iterator}, {"forEach", map_for_each},
+    {"has", map_has},         {"keys", map_iterator},    {"values", map_iterator}, {NULL, NULL},
+};
+
+static const named_method record_methods[] = {
+    {"hasOwnProperty", record_has_own_property},
+    {NULL, NULL},
+};
+
+/* ---------------------------------------------------------------- Object.keys, values, entries */
+
+/* The own enumerable string keys of value, in JS's order, as a string[]. */
+static pts_array *own_keys(pts_value value) {
+  if (pts_value_is_nullish(value)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot convert undefined or null to object");
+  }
+  pts_array *keys = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
+  if (!pts_value_is_object(value)) {
+    return keys; /* a number's or boolean's: none */
+  }
+  pts_object *object = pts_value_as_object(value);
+  switch (object->type->kind) {
+  case PTS_KIND_RECORD: {
+    pts_map_iterator entries = pts_record_iterate((pts_map *)object);
+    while (pts_map_next(&entries)) {
+      pts_array_push(keys, &entries.key, 1);
+    }
+    return keys;
+  }
+  case PTS_KIND_STRING:
+  case PTS_KIND_ARRAY:
+  case PTS_KIND_TUPLE: {
+    double length = object->type->kind == PTS_KIND_STRING ? ((pts_string *)object)->utf16_len : (double)pts_spread_length(value);
+    for (double i = 0; i < length; i++) {
+      pts_string *index = pts_number_to_string(i);
+      pts_array_push(keys, &index, 1);
+    }
+    return keys;
+  }
+  case PTS_KIND_OBJECT:
+    break;
+  default:
+    return keys; /* a map's, set's or function's: none */
+  }
+  /* An error's own name, message and cause aren't enumerable in JS. */
+  uint32_t first = pts_instance_of(object, &pts_type_builtin_Error) ? sizeof(pts_error) : 0;
+  for (uint32_t i = 0; i < object->type->field_count; i++) {
+    const pts_field *field = &object->type->fields[i];
+    if (field->name[0] == '#' || field->offset < first ||
+        (!pts_field_is_accessor(field->kind) && field->kind == PTS_FIELD_VALUE &&
+         __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) == PTS_VALUE_ABSENT)) {
+      continue; /* private, an error's, or an optional property left out */
+    }
+    pts_string *name = pts_string_from_cstr(field->name);
+    pts_array_push(keys, &name, 1);
+  }
+  return keys;
+}
+
+pts_value pts_value_keys(pts_value value) { return pts_value_from_object(own_keys(value)); }
+
+pts_value pts_value_values(pts_value value) {
+  pts_array *keys = own_keys(value), *values = any_array();
+  for (double i = 0; i < pts_array_length(keys); i++) {
+    push_any(values, pts_dynamic_get(value, pts_array_element(keys, i)));
+  }
+  return pts_value_from_object(values);
+}
+
+pts_value pts_value_entries(pts_value value) {
+  pts_array *keys = own_keys(value), *entries = any_array();
+  for (double i = 0; i < pts_array_length(keys); i++) {
+    pts_value key = pts_array_element(keys, i);
+    pts_value pair[] = {key, pts_dynamic_get(value, key)};
+    push_any(entries, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
+  }
+  return pts_value_from_object(entries);
+}
+
+bool pts_value_has_own(pts_value value, pts_value key) {
+  pts_array *keys = own_keys(value);
+  pts_value name = pts_value_from_string(pts_value_to_string(key));
+  for (double i = 0; i < pts_array_length(keys); i++) {
+    if (pts_value_strict_equals(pts_array_element(keys, i), name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* ---------------------------------------------------------------- dispatch */
 
 static builtin_method find(const named_method *methods, const char *name) {
@@ -651,6 +852,15 @@ bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, c
       break;
     case PTS_KIND_FUNCTION:
       methods = function_methods;
+      break;
+    case PTS_KIND_MAP:
+      methods = map_methods;
+      break;
+    case PTS_KIND_SET:
+      methods = set_methods;
+      break;
+    case PTS_KIND_RECORD:
+      methods = record_methods;
       break;
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:

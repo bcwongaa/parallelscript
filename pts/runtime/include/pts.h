@@ -124,8 +124,9 @@ typedef struct pts_type {
   const pts_method *methods; /* what interfaces call: methods, getters and setters, inherited ones included */
   pts_field_kind element;    /* for an array: what its elements are; for a map: what its values are */
   pts_field_kind key;        /* for a map or set: what its keys are */
-  /* For an array or hash-map object: its elements' declared type, as pts_field.check (D-072). */
+  /* For an array, map or hash-map object: its elements' (values') declared type, as pts_field.check (D-072). */
   const struct pts_check *check;
+  const struct pts_check *key_check; /* for a map or set: its keys' declared type (D-077) */
   pts_dynamic_function call;         /* a closure's dynamic entry, in a program that uses `any` (D-074) */
   const struct pts_check *signature; /* a closure's function type, which its code takes and returns (D-075) */
 } pts_type;
@@ -750,6 +751,15 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value);
 bool pts_dynamic_has(pts_value object, pts_value key);
 /* Array.isArray of a dynamic value: an array or a tuple. */
 bool pts_value_is_array(pts_value value);
+/*
+ * Object.keys, values and entries of a dynamic value (D-077): a string[] of its own
+ * enumerable keys in JS's order, an any[] of their values, an any[] of [key, value]
+ * any[]s; Object.hasOwn: whether it has the key. TypeError for null and undefined.
+ */
+pts_value pts_value_keys(pts_value value);
+pts_value pts_value_values(pts_value value);
+pts_value pts_value_entries(pts_value value);
+bool pts_value_has_own(pts_value value, pts_value key);
 /* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */

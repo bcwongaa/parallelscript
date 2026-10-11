@@ -1,0 +1,33 @@
+// What maps and sets check through `any` (D-077), where JS carries on: keys and values
+// stored must be of the declared types; and their iterators come with M4.1.
+class Dog {
+  constructor(public name: string) {}
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const scores: any = new Map<string, number>();
+attempt("a number key", () => { scores.set(1, 2); });
+attempt("a string value", () => { scores.set("a", "b"); });
+const kennel: any = new Map<string, Dog>();
+attempt("a Dog", () => { kennel.set("rex", new Dog("rex")); });
+attempt("data for a Dog", () => { kennel.set("fido", { name: "fido" }); });
+const ids: any = new Set<number>();
+attempt("a string in a Set<number>", () => { ids.add("1"); });
+attempt("keys", () => { scores.keys(); });
+console.log(scores, kennel, ids, scores.get(1));
+
+// no-diff: JS stores whatever it is given, and has map iterators
+// expect:
+// a number key -> TypeError: Cannot set property key of Map: expected string, got number
+// a string value -> TypeError: Cannot set property value of Map: expected number, got string
+// a Dog ok
+// data for a Dog -> TypeError: Cannot set property value of Map: expected Dog, got Object
+// a string in a Set<number> -> TypeError: Cannot set property element of Set: expected number, got string
+// keys -> TypeError: Iterators of maps and sets through `any` are not supported yet
+// Map(0) {} Map(1) { 'rex' => Dog { name: 'rex' } } Set(0) {} undefined

@@ -1011,6 +1011,13 @@ var (
 	DynamicCallMethod = &Builtin{Name: "call method", Result: Value}
 	// ValueIsArray is Array.isArray of a dynamic value or a union (D-076).
 	ValueIsArray = &Builtin{Name: "Array.isArray", Params: []Type{Value}, Result: Bool}
+	// ValueKeys, ValueValues and ValueEntries are Object.keys, values and entries of a
+	// dynamic value, as a dynamic value (a string[], an any[], an any[] of [key, value]
+	// any[]s), and ValueHasOwn is Object.hasOwn of one (D-077).
+	ValueKeys    = &Builtin{Name: "Object.keys", Params: []Type{Value}, Result: Value}
+	ValueValues  = &Builtin{Name: "Object.values", Params: []Type{Value}, Result: Value}
+	ValueEntries = &Builtin{Name: "Object.entries", Params: []Type{Value}, Result: Value}
+	ValueHasOwn  = &Builtin{Name: "Object.hasOwn", Params: []Type{Value, Value}, Result: Bool}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
 	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}

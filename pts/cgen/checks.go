@@ -43,7 +43,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 }
 
 // collectDeclaredTypes names, if descriptors carry declared types, the checks of every
-// class's and shape's fields and accessors, of hash-map objects' values and of the
+// class's and shape's fields and accessors, of maps' keys and values and of the
 // properties read and written through interfaces, and the descriptors of the arrays the
 // program makes whose element kind doesn't tell their element type.
 func (e *emitter) collectDeclaredTypes(program *ir.Program) {
@@ -83,7 +83,9 @@ func (e *emitter) collectDeclaredTypes(program *ir.Program) {
 		})
 	}
 	for i := 0; i < len(e.mapOrder); i++ { // checks may add map types
-		if mt := e.mapOrder[i]; mt.Record {
+		mt := e.mapOrder[i]
+		e.check(mt.Key)
+		if mt.Value != nil {
 			e.check(mt.Value)
 		}
 	}

@@ -1,0 +1,31 @@
+// Maps, sets and hash-map objects through `any`, and Object.keys, values, entries and
+// hasOwn of dynamic values (D-077).
+const ages = new Map<string, number>();
+const loose: any = ages;
+loose.set("ada", 36).set("bob", 7);
+console.log(loose.get("ada"), loose.get("nobody"), loose.get(5), loose.has("bob"), loose.size);
+loose.forEach((v: number, k: string) => console.log(k, v));
+console.log(loose.delete("bob"), loose.delete("bob"), ages);
+const tags = new Set<string>(["x"]);
+const looseTags: any = tags;
+looseTags.add("y").add("x");
+looseTags.forEach((v: string) => console.log(v));
+console.log(looseTags.has("y"), looseTags.size, tags);
+looseTags.clear();
+console.log(tags.size);
+const data: any = { name: "Ada", age: 36, tags: ["a"] };
+console.log(Object.keys(data), Object.values(data), Object.entries(data));
+console.log(Object.hasOwn(data, "name"), Object.hasOwn(data, "nope"));
+class Point { constructor(public x: number, public y: number) {} get len(): number { return 1; } }
+const p: any = new Point(1, 2);
+console.log(Object.keys(p), Object.entries(p));
+const list: any = ["a", "b"];
+console.log(Object.keys(list), Object.values("hi" as any));
+const rec: Record<string, number> = { a: 1 };
+const looseRec: any = rec;
+console.log(looseRec.hasOwnProperty("a"), looseRec.hasOwnProperty("b"));
+for (const [k, v] of Object.entries(data)) console.log(k, v);
+function attempt(what: string, f: () => void): void {
+  try { f(); console.log(what, "ok"); } catch (e: any) { console.log(what, "->", e.message); }
+}
+attempt("keys of null", () => Object.keys(null as any));

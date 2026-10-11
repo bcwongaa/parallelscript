@@ -767,3 +767,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **IR:** `ir.ValueIsArray`.
 - **Lowering:** `arrayIsArray` for dynamic values and unions (`arrays.go`).
 - **Tests:** `pts/tests/run/any_builtin_methods.pts` (against Node), `any_builtin_methods_error.pts`; updated `any_calls_error.pts`, `any_checks_error.pts`, `errors/any_not_yet.pts`.
+
+### 9.54 Maps, sets and `Object.keys` through `any` (M3.3c3b)
+
+- **Runtime** (D-077): `pts_type.key_check`; `dynamic_methods.c`: `map_methods`, `set_methods`, `record_methods`, `lookup_slot`, `stored_slot`, `own_keys`, `pts_value_keys`, `pts_value_values`, `pts_value_entries`, `pts_value_has_own`.
+- **IR:** `ir.ValueKeys`, `ir.ValueValues`, `ir.ValueEntries`, `ir.ValueHasOwn`.
+- **Lowering:** `dynamicObjectStatic`, `dynamicObjectStatics` (`records.go`).
+- **C:** maps' `.check` and maps' and sets' `.key_check` (`mapDescriptorDefinitions`), their checks in `collectDeclaredTypes`.
+- **Tests:** `pts/tests/run/any_maps.pts` (against Node), `any_maps_error.pts`.
