@@ -212,7 +212,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Every `Math` function (`random` included) with V8's results, spread arguments of `Math.max`/`Math.min`, Math's functions as values.
 - [x] **M3.5c2 The remaining `Array` methods** (5105ee04a) (split from M3.5 by D-082, from M3.5c by D-084).
   - `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)` with `fill`, `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`.
-- [ ] **M3.5d `Object` functions and `for…in`** (split from M3.5 by D-082).
+- [x] **M3.5d `Object` functions and `for…in`** (37dc8ae27) (split from M3.5 by D-082).
   - `Object.keys`/`values`/`entries` of class instances and object literals, `Object.assign`, `Object.freeze`/`isFrozen`, `Object.is`, `Object.fromEntries`; `for…in` over typed objects and dynamic values.
 - [ ] **M3.5e Basic `Date`** (split from M3.5 by D-082).
   - `new Date()` (now, milliseconds, ISO strings, components), `Date.now()`, `Date.UTC`, the getters (local and UTC), the common setters, `getTime`/`valueOf`, `toISOString`/`toJSON`, `toString`, `console.log` of dates as Node prints them.
