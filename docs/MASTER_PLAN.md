@@ -96,9 +96,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Parameter properties; the `private`, `protected` and `readonly` modifiers.
 - [x] **M2.2d2 Statics and `#private`** (e3957937a) (split from M2.2 by D-025, from M2.2d by D-029).
   - Static fields, methods and blocks; `#private` fields and methods.
-- [ ] **M2.3 Object literals and interfaces.**
-  - Object literals become anonymous struct types; optional properties are stored as `T | undefined`.
-  - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise.
+- [ ] **M2.3a Object literals and exact object types** (split from M2.3 by D-032).
+  - Object literals become anonymous struct types; `console.log` prints them as Node does (`{ x: 1 }`, `[Object]`).
+  - Object types (interfaces, type literals, aliases) whose values are exactly such literals; the numeric rules through properties.
+- [ ] **M2.3b Interfaces** (split from M2.3 by D-032).
+  - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise, so that class instances and other object types can be used where an object type is expected.
 - [ ] **M2.4 Arrays.**
   - Growable arrays that are race-safe per brief §2.5 (capacity inside the buffer).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
@@ -117,6 +119,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 ## M3: The TypeScript feel
 - [ ] **M3.1 Unions and narrowing.**
   - Unions as tagged values; `null` and `undefined` as distinct values.
+  - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032).
   - Narrowing via `typeof`, `instanceof`, `in`, discriminants, equality and user-defined type guards (the backend emits tag tests).
   - Optional chaining, `??`, `==` with JS semantics.
 - [ ] **M3.2 Exceptions.**
