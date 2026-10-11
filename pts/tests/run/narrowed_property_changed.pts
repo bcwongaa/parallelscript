@@ -1,0 +1,17 @@
+// A property tsc narrowed that a call has changed since is checked where it is read as
+// the narrowed type, rather than read as garbage (D-089); Node reads the new value.
+// no-diff: Node computes null + 1; ParallelScript throws TypeError
+const box: { n: number | null } = { n: null };
+const reset = (): void => {
+  box.n = null;
+};
+box.n = 5;
+reset();
+try {
+  console.log(box.n + 1);
+} catch (e) {
+  console.log((e as Error).name);
+}
+
+// expect:
+// TypeError

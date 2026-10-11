@@ -36,6 +36,8 @@ type genericClass struct {
 	module     *ir.Func // the top-level code of its module
 	parameters []*checker.Type
 	instances  []*classInstance
+	classes    []*ir.Class // its instances' classes, for `instanceof`
+	statics    *ir.Class   // the class of its static members, which all its instances share
 }
 
 // classInstance is a generic class's instance for a list of type arguments.
@@ -80,8 +82,8 @@ func (l *lowerer) membersFor(member *ast.Node, receiver *ast.Node) *classMembers
 		return l.members
 	}
 	declaring := ast.GetContainingClass(member)
-	if declaring == nil {
-		return l.members
+	if declaring == nil || ast.IsStatic(member) {
+		return l.members // a static member is the generic class's own, which its instances share
 	}
 	if _, ok := l.genericClasses[l.declaredSymbol(declaring)]; !ok {
 		return l.members
@@ -108,21 +110,27 @@ func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 }
 
 // declareGenericClass records a generic class declaration, whose instances the types
-// that name it make. Static members, which every instance would share, are reported.
+// that name it make. Its static members, which can't mention its type parameters, belong
+// to one class of statics that every instance shares, as in JS (D-089).
 func (l *lowerer) declareGenericClass(node *ast.Node) {
-	symbol := l.declaredSymbol(node)
-	for _, member := range node.Members() {
-		if ast.IsStatic(member) {
-			l.notSupportedYet(nameOf(member), "static members of generic classes are")
-			l.genericClasses[symbol] = nil
-			return
-		}
-	}
-	generic := &genericClass{node: node, module: l.function}
+	generic := &genericClass{node: node, module: l.function, statics: &ir.Class{Name: node.Name().Text(), Module: l.function.Module}}
 	for _, parameter := range node.TypeParameters() {
 		generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
 	}
-	l.genericClasses[symbol] = generic
+	l.genericClasses[l.declaredSymbol(node)] = generic
+	l.genericClassList = append(l.genericClassList, generic)
+}
+
+// declareGenericStatics declares a generic class's static members in its class of statics.
+func (l *lowerer) declareGenericStatics(generic *genericClass) {
+	outer := l.function
+	l.function = generic.module
+	defer func() { l.function = outer }()
+	for _, member := range generic.node.Members() {
+		if ast.IsStatic(member) && unsupportedMember(member) == "" {
+			l.declareStaticMember(member, generic.statics)
+		}
+	}
 }
 
 // classInstanceOf returns the class of a generic class's instance for the type arguments
@@ -162,6 +170,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 		return nil
 	}
 	l.instanceClasses = append(l.instanceClasses, class)
+	generic.classes = append(generic.classes, class)
 	if l.membersDeclared {
 		l.ensureMembers(class)
 		l.linkOverrides(class)

@@ -261,3 +261,23 @@ func (l *lowerer) isConversionFunction(node *ast.Node) bool {
 	_, ok := conversionFunctions[node.Text()]
 	return ok && node.Kind == ast.KindIdentifier && l.isDeclaredInDefaultLib(l.target(node))
 }
+
+// numberTestValue is Number.isInteger, isSafeInteger, isFinite or isNaN used as a value
+// (`xs.some(Number.isNaN)`): a static closure of a function that tests its one argument,
+// made the first time (D-089).
+func (l *lowerer) numberTestValue(node *ast.Node, name string) ir.Expr {
+	key := helperKey{method: "Number." + name}
+	fn, ok := l.helpers[key]
+	if !ok {
+		at := l.pos(node)
+		fn = &ir.Func{Name: "Number." + name, Module: l.function.Module, Pos: at, Result: ir.Bool, JSName: name}
+		l.inFunction(fn, func() {
+			value := l.newLocal("value", ir.Value)
+			fn.Params = []*ir.Local{value}
+			test := &ir.CallBuiltin{Builtin: numberTests[name][1], Args: []ir.Expr{&ir.LocalRef{Local: value}}}
+			fn.Body = &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Return{At: at, Value: test}}}
+		})
+		l.helpers[key] = fn
+	}
+	return &ir.MakeClosure{Func: fn, FuncType: l.funcType([]ir.Type{ir.Value}, ir.Bool)}
+}

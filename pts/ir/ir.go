@@ -917,6 +917,9 @@ type ClassCast struct {
 type InstanceOf struct {
 	X     Expr
 	Class *Class
+	// Family, for a generic class, is its instances (the program's when it is complete):
+	// X is an instance of one of them, and Class is nil.
+	Family *[]*Class
 }
 
 // Box turns a statically typed value into a dynamic Value.
@@ -1065,6 +1068,8 @@ var (
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
+	// ValueConstructorName is `o.constructor.name`: the name of the class of o, or of a primitive's wrapper.
+	ValueConstructorName = &Builtin{Name: "constructorName", Params: []Type{Value}, Result: String}
 	// ValueStrictEquals is === on boxed values, with JS's rules for numbers and strings.
 	ValueStrictEquals = &Builtin{Name: "===", Params: []Type{Value, Value}, Result: Bool}
 	// ValueLooseEquals is == on boxed values, with JS's conversions (D-067).

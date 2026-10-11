@@ -1,0 +1,28 @@
+// Number.isNaN, isFinite, isInteger and isSafeInteger as values; `o.constructor.name`,
+// `new.target.name` and the `object` type (D-089).
+console.log("1.x".split(".").map(Number).some(Number.isNaN), [3, Infinity, 5].filter(Number.isFinite));
+console.log([1, 1.5, 2].map(Number.isInteger), [2 ** 53, 3].every(Number.isSafeInteger));
+class A { get kind() { return this.constructor.name; } }
+class D extends A {}
+console.log(new A().kind, new D().kind);
+class AppError extends Error {
+  constructor(m: string) { super(m); this.name = new.target.name; }
+}
+class NotFound extends AppError {}
+const e = new NotFound("x");
+console.log(e.name, e.constructor.name, new RangeError("r").constructor.name);
+const things: unknown[] = [1, "s", true, [1], new Map(), new Set(), { a: 1 }, new Date(0), () => 1];
+console.log(things.map((t) => (t as object).constructor.name));
+
+// expect:
+// true [ 3, 5 ]
+// [ true, false, true ] false
+// A D
+// NotFound NotFound RangeError
+// [
+//   'Number',   'String',
+//   'Boolean',  'Array',
+//   'Map',      'Set',
+//   'Object',   'Date',
+//   'Function'
+// ]

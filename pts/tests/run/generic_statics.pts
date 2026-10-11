@@ -1,0 +1,41 @@
+// Static members of generic classes, which their instances share, and `instanceof` of a
+// generic class (D-089).
+class Stack<T> {
+  static created = 0;
+  private static readonly label = "stack";
+  items: T[] = [];
+  constructor() { Stack.created++; }
+  push(x: T): this { this.items.push(x); return this; }
+  static of<U>(...xs: U[]): Stack<U> { const s = new Stack<U>(); for (const x of xs) s.push(x); return s; }
+  static describe(): string { return `${this.label}:${Stack.created}`; }
+}
+console.log(Stack.created);
+new Stack<number>(); new Stack<string>();
+const s = Stack.of(1, 2, 3);
+console.log(Stack.created, s.items, Stack.describe(), Stack.of("a").items);
+class Result<T> {
+  private constructor(readonly ok: boolean, readonly value?: T) {}
+  static success<T>(v: T): Result<T> { return new Result(true, v); }
+  static failure<T>(): Result<T> { return new Result<T>(false); }
+}
+console.log(Result.success(5), Result.failure<string>());
+class Box<T> { constructor(readonly v: T) {} }
+class Other {}
+const xs: unknown[] = [new Box(3), new Box("s"), new Other(), 5];
+for (const x of xs) {
+  if (x instanceof Box) console.log("box", x.v);
+  else console.log("not", x instanceof Other);
+}
+class Special extends Box<number> {}
+const b: Box<number> | null = new Special(4);
+console.log(b instanceof Box, b instanceof Special);
+
+// expect:
+// 0
+// 3 [ 1, 2, 3 ] stack:3 [ 'a' ]
+// Result { ok: true, value: 5 } Result { ok: false, value: undefined }
+// box 3
+// box s
+// not true
+// not false
+// true true

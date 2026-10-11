@@ -768,6 +768,7 @@ bool pts_value_truthy(pts_value value);
 
 /* typeof of a primitive value: "number" (64-bit integers too), "string", "boolean", "undefined" or "object" (null). */
 pts_string *pts_value_typeof(pts_value value);
+pts_string *pts_value_constructor_name(pts_value value);
 
 /* Number.isInteger, isSafeInteger, isFinite and isNaN of a dynamic value: false unless it is a number (D-083). */
 bool pts_value_is_integer(pts_value value);

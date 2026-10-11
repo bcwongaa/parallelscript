@@ -338,6 +338,9 @@ func FormatExpr(expr Expr) string {
 	case *ClassCast:
 		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:
+		if e.Family != nil {
+			return "(" + FormatExpr(e.X) + " instanceof <generic>)"
+		}
 		return "(" + FormatExpr(e.X) + " instanceof " + e.Class.Name + ")"
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))

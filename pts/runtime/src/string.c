@@ -431,3 +431,47 @@ pts_string *pts_value_typeof(pts_value value) {
     return object_word; /* null */
   }
 }
+
+/* `o.constructor.name` (D-089): the name of o's class, or of the wrapper of a primitive. */
+pts_string *pts_value_constructor_name(pts_value value) {
+  const char *name = "Boolean";
+  if (pts_value_is_number(value)) {
+    name = "Number";
+  } else if (pts_value_is_object(value)) {
+    const pts_type *type = pts_value_as_object(value)->type;
+    switch (type->kind) {
+    case PTS_KIND_STRING:
+      name = "String";
+      break;
+    case PTS_KIND_INT64:
+    case PTS_KIND_UINT64:
+      name = "Number";
+      break;
+    case PTS_KIND_ARRAY:
+    case PTS_KIND_TUPLE:
+      name = "Array";
+      break;
+    case PTS_KIND_FUNCTION:
+      name = "Function";
+      break;
+    case PTS_KIND_MAP:
+      name = "Map";
+      break;
+    case PTS_KIND_SET:
+      name = "Set";
+      break;
+    case PTS_KIND_RECORD:
+      name = "Object";
+      break;
+    case PTS_KIND_DATE:
+      name = "Date";
+      break;
+    default:
+      name = type->name; /* a class's, or "Object" for an object type's shape */
+      break;
+    }
+  } else if (value == PTS_VALUE_NULL || value == PTS_VALUE_UNDEFINED) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot read properties of %s (reading 'constructor')", value == PTS_VALUE_NULL ? "null" : "undefined");
+  }
+  return pts_string_from_cstr(name);
+}

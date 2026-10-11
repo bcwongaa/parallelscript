@@ -169,17 +169,23 @@ func (l *lowerer) memberFor(t ir.Type, u *ir.Union) ir.Type {
 	return found
 }
 
-// providedMember is the one interface member of u whose members values of type t provide
-// as they are (`unprovided`), or nil.
+// providedMember is the interface member of u whose members values of type t provide as
+// they are (`unprovided`): the one with the most properties, or nil if that is not one.
 func providedMember(t ir.Type, u *ir.Union) ir.Type {
-	var found ir.Type
+	var found *ir.Interface
+	ambiguous := false
 	for _, m := range u.Members {
-		if iface, ok := m.(*ir.Interface); ok && unprovided(t, iface) == "" {
-			if found != nil {
-				return nil
-			}
-			found = m
+		iface, ok := m.(*ir.Interface)
+		switch {
+		case !ok || unprovided(t, iface) != "":
+		case found == nil || len(iface.Fields) > len(found.Fields):
+			found, ambiguous = iface, false // `{ type: "num", n: 1 }` for `{ type: "num"; n: number } | { type: "end" }` is the first (D-089)
+		case len(iface.Fields) == len(found.Fields):
+			ambiguous = true
 		}
+	}
+	if found == nil || ambiguous {
+		return nil
 	}
 	return found
 }

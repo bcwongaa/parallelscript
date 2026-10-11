@@ -821,6 +821,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.ClassCast:
 		return e.classCast(x)
 	case *ir.InstanceOf:
+		if x.Family != nil {
+			return e.familyInstanceOf(x)
+		}
 		if isUnion(x.X.Type()) || x.X.Type() == ir.Value {
 			return "pts_value_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 		}
@@ -922,6 +925,21 @@ func (e *emitter) logical(l *ir.Logical) string {
 		then, otherwise = tmp, y
 	}
 	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", e.declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
+}
+
+// familyInstanceOf writes `x instanceof C` for a generic class C: whether x is an
+// instance of one of C's instances (D-089).
+func (e *emitter) familyInstanceOf(x *ir.InstanceOf) string {
+	tmp := e.temporary()
+	test, declarator := "pts_instance_of", e.declarator(x.X.Type())
+	if isUnion(x.X.Type()) || x.X.Type() == ir.Value {
+		test = "pts_value_instance_of"
+	}
+	tests := []string{"false"}
+	for _, class := range *x.Family {
+		tests = append(tests, test+"("+tmp+", "+e.descriptor(class)+")")
+	}
+	return fmt.Sprintf("({ %s%s = %s; %s; })", declarator, tmp, e.expr(x.X), strings.Join(tests, " || "))
 }
 
 // fromUnion writes a union's value as the type the checker narrowed it to (D-062).
@@ -1321,6 +1339,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ParseInt:                    "pts_parse_int",
 	ir.ParseFloat:                  "pts_parse_float",
 	ir.ValueTypeOf:                 "pts_value_typeof",
+	ir.ValueConstructorName:        "pts_value_constructor_name",
 	ir.ValueStrictEquals:           "pts_value_strict_equals",
 	ir.ValueLooseEquals:            "pts_value_loose_equals",
 	ir.DynamicGet:                  "pts_dynamic_get",

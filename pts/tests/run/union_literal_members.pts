@@ -1,0 +1,24 @@
+// An object literal for a union of object types whose members overlap takes the member
+// with the most properties it provides (D-089).
+type Token = { type: "num"; value: number } | { type: "end" };
+const t: Token = { type: "num", value: 1 };
+const toks: Token[] = [t, { type: "end" }];
+for (const k of toks) console.log(k.type === "num" ? k.value : "end");
+type Action = { type: "add"; n: number } | { type: "reset" };
+const actions: Action[] = [{ type: "add", n: 2 }, { type: "reset" }];
+console.log(actions);
+type Bin = { kind: "add"; left: number; right: number } | { kind: "mul"; left: number; right: number };
+const exprs: Bin[] = [{ kind: "add", left: 1, right: 2 }, { kind: "mul", left: 3, right: 4 }];
+console.log(exprs.map((e) => (e.kind === "add" ? e.left + e.right : e.left * e.right)));
+type Block = { kind: "heading"; level: number } | { kind: "para"; lines: string[] } | { kind: "rule" };
+const blocks: Block[] = [];
+blocks.push({ kind: "heading", level: 2 });
+blocks.push({ kind: "rule" });
+console.log(blocks);
+
+// expect:
+// 1
+// end
+// [ { type: 'add', n: 2 }, { type: 'reset' } ]
+// [ 3, 12 ]
+// [ { kind: 'heading', level: 2 }, { kind: 'rule' } ]

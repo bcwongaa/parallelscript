@@ -117,6 +117,9 @@ func (l *lowerer) declareClassMembers() {
 	for _, class := range l.classList {
 		l.ensureMembers(class)
 	}
+	for _, generic := range l.genericClassList {
+		l.declareGenericStatics(generic)
+	}
 	for i := 0; i < len(l.instanceClasses); i++ { // instances made so far; declaring members may make more
 		l.ensureMembers(l.instanceClasses[i])
 	}
@@ -139,6 +142,8 @@ func (l *lowerer) declareMembers(node *ast.Node, class *ir.Class) {
 			continue
 		}
 		switch {
+		case ast.IsStatic(member) && l.classInstances[class] != nil:
+			continue // the generic class's statics, which its instances share (D-089)
 		case ast.IsStatic(member):
 			l.declareStaticMember(member, class)
 			continue
@@ -328,11 +333,29 @@ func (l *lowerer) staticOwner(node *ast.Node) *ir.Class {
 	if object.Kind == ast.KindThisKeyword {
 		return l.staticClass()
 	}
-	if class, ok := l.classes[l.target(object)]; ok && (object.Kind == ast.KindIdentifier || object.Kind == ast.KindPropertyAccessExpression) {
+	if class, ok := l.staticsOf(l.target(object)); ok && (object.Kind == ast.KindIdentifier || object.Kind == ast.KindPropertyAccessExpression) {
 		return class // nil if the class failed, which was reported
 	}
 	l.notSupportedYet(object, "a static member of anything but a class name or `this` is")
 	return nil
+}
+
+// staticsOf returns the class whose statics a class declaration's symbol names: the
+// class, or for a generic class, the one class of the statics its instances share.
+func (l *lowerer) staticsOf(symbol *ast.Symbol) (class *ir.Class, ok bool) {
+	if generic, isGeneric := l.genericClasses[symbol]; isGeneric {
+		if generic == nil {
+			return nil, true // it failed, which was reported
+		}
+		return generic.statics, true
+	}
+	class, ok = l.classes[symbol]
+	return class, ok
+}
+
+func (l *lowerer) mustStaticsOf(symbol *ast.Symbol) *ir.Class {
+	class, _ := l.staticsOf(symbol)
+	return class
 }
 
 // staticField lowers `C.f` (or `this.f`) for a static field f to its variable, or reports
@@ -343,7 +366,7 @@ func (l *lowerer) staticField(node *ast.Node, field *ir.Local, assigned bool) *i
 	switch {
 	case owner == nil || field == nil:
 		return nil // reported
-	case assigned && owner != l.classes[l.declaredSymbol(ast.GetContainingClass(l.memberDeclaration(node)))]:
+	case assigned && owner != l.mustStaticsOf(l.declaredSymbol(ast.GetContainingClass(l.memberDeclaration(node)))):
 		l.notSupportedYet(node, "assigning to an inherited static field through a subclass is")
 		return nil
 	}
@@ -562,8 +585,17 @@ func (l *lowerer) newThis(fn *ir.Func, class *ir.Class) *ir.Local {
 	return this
 }
 
-// classBodies lowers the constructor and the method bodies of a class, static methods' too.
+// classBodies lowers the constructor and the method bodies of a class, static methods' too;
+// for a generic class, the static methods' (each instance lowers its own methods).
 func (l *lowerer) classBodies(node *ast.Node) {
+	if _, isGeneric := l.genericClasses[l.declaredSymbol(node)]; isGeneric {
+		for _, member := range node.Members() {
+			if fn := l.staticMethods[member]; fn != nil && member.Body() != nil {
+				l.inFunction(fn, func() { fn.Body = l.block(member.Body(), member.Body().Statements()) })
+			}
+		}
+		return
+	}
 	if class := l.classes[l.declaredSymbol(node)]; class != nil {
 		l.classBodiesOf(node, class)
 	}
@@ -587,7 +619,7 @@ func (l *lowerer) classBodiesOf(node *ast.Node, class *ir.Class) {
 				l.bindParameters(member, method.Func)
 				l.inFunction(method.Func, func() { method.Func.Body = l.block(member.Body(), member.Body().Statements()) })
 			}
-			if fn := l.staticMethods[member]; fn != nil {
+			if fn := l.staticMethods[member]; fn != nil && l.classInstances[class] == nil { // a generic class's are lowered once (classBodies)
 				l.inFunction(fn, func() { fn.Body = l.block(member.Body(), member.Body().Statements()) })
 			}
 		}
@@ -894,6 +926,20 @@ func (l *lowerer) propertyRead(node *ast.Node, accessors property) ir.Expr {
 
 // fieldAccess lowers `o.f` for a field f of a class of the program.
 func (l *lowerer) fieldAccess(node *ast.Node, field *ir.Field) ir.Expr {
+	if l.classInstances[field.Class] != nil && !l.isUnloweredOptionalChain(node) {
+		if object := l.expression(node.Expression()); object == nil {
+			return nil
+		} else if object.Type() == ir.Value {
+			// `x.v` after `x instanceof Box` for an unknown x: tsc says Box<any>, whose
+			// instance holds v otherwise than the object's own, so v is found at run time (D-089).
+			key := box(&ir.StringConst{Value: node.AsPropertyAccessExpression().Name().Text()})
+			return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{object, key}}, field.Type, node)
+		} else if object = l.asInstanceOf(object, field.Class, node.Expression()); object == nil {
+			return nil
+		} else {
+			return &ir.FieldRef{X: object, Field: field}
+		}
+	}
 	object := l.fieldObject(node, field)
 	if object == nil {
 		return nil
@@ -997,9 +1043,12 @@ func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	class, ok := l.classes[l.target(expr.Right)]
-	if _, isGeneric := l.genericClasses[l.target(expr.Right)]; isGeneric {
-		l.notSupportedYet(expr.Right, "`instanceof` of a generic class is")
-		return nil
+	if generic, isGeneric := l.genericClasses[l.target(expr.Right)]; isGeneric {
+		x := l.expression(expr.Left)
+		if x == nil || generic == nil {
+			return nil
+		}
+		return &ir.InstanceOf{X: x, Family: &generic.classes} // its instances, all made by the time C is written
 	}
 	if !ok {
 		l.notSupportedYet(expr.Right, "`instanceof` of anything but a class of the program is")

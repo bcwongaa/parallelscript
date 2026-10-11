@@ -197,6 +197,9 @@ func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 		return x
 	}
 	if !l.isCheckedValueType(t) {
+		if !l.checker.IsArrayType(t) && !l.hasIndexSignatures(t) {
+			return x
+		}
 		if narrow := l.irType(t, node); isDynamicData(narrow) {
 			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
 		}

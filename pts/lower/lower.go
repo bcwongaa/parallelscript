@@ -233,6 +233,7 @@ type lowerer struct {
 	staticAccessors     map[*ast.Symbol]staticProperty
 	unionsInProgress    map[*checker.Type]int  // the unions irType is mapping, with how often each is
 	recursiveUnions     map[*checker.Type]bool // the unions found to recur through arrays or hash-map objects (D-089)
+	genericClassList    []*genericClass
 	info                *check.Info
 	locals              map[*ast.Symbol]*ir.Local        // nil for a declaration that failed to lower
 	owners              map[*ir.Local]*ir.Func           // the function each local belongs to
@@ -365,8 +366,12 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	case ast.KindFunctionDeclaration:
 		l.bodies = append(l.bodies, node)
 	case ast.KindClassDeclaration:
-		if _, ok := l.genericClasses[l.declaredSymbol(node)]; ok {
-			break // each instance lowers its constructor and methods
+		if generic, ok := l.genericClasses[l.declaredSymbol(node)]; ok {
+			l.bodies = append(l.bodies, node) // its static methods; each instance lowers its constructor and methods
+			if generic != nil {
+				return l.staticInitializers(node, generic.statics)
+			}
+			break
 		}
 		if class, ok := l.classes[l.declaredSymbol(node)]; ok {
 			l.bodies = append(l.bodies, node) // its constructor and methods
@@ -2002,6 +2007,9 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if x, ok := l.constructorName(node); ok {
+		return x
+	}
 	if l.isAny(node.Expression()) {
 		return l.dynamicRead(node)
 	}
@@ -2073,6 +2081,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if name := l.mathMember(node); name != "" {
 		return l.mathConstant(node, name)
 	}
+	if member, ok := strings.CutPrefix(l.libMemberName(node), "NumberConstructor."); ok && numberTests[member][0] != nil {
+		return l.numberTestValue(node, member)
+	}
 	if x, ok := l.numberConstant(node); ok {
 		return x
 	}
@@ -2090,6 +2101,29 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{receiver}}
+}
+
+// constructorName lowers `o.constructor.name`, and `new.target.name` in a constructor
+// (the class being made, `this`'s): the name of the class of o's value (D-089). ok is
+// false for other property accesses.
+func (l *lowerer) constructorName(node *ast.Node) (x ir.Expr, ok bool) {
+	constructor := ast.SkipParentheses(node.Expression())
+	if node.AsPropertyAccessExpression().Name().Text() != "name" {
+		return nil, false
+	}
+	var object ir.Expr
+	switch {
+	case constructor.Kind == ast.KindPropertyAccessExpression && constructor.AsPropertyAccessExpression().Name().Text() == "constructor" && !l.isAny(constructor.Expression()):
+		object = l.valueExpression(constructor.Expression())
+	case constructor.Kind == ast.KindMetaProperty && constructor.AsMetaProperty().KeywordToken == ast.KindNewKeyword && l.currentClass() != nil:
+		object = l.thisExpression(constructor)
+	default:
+		return nil, false
+	}
+	if object == nil {
+		return nil, true
+	}
+	return &ir.CallBuiltin{Builtin: ir.ValueConstructorName, Args: []ir.Expr{box(object)}}, true
 }
 
 // isStringElement reports whether node is s[i] for a string s and a number i.
@@ -2992,7 +3026,7 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if symbol := t.Symbol(); symbol != nil && symbol.Flags&ast.SymbolFlagsRegularEnum != 0 && t.Flags()&checker.TypeFlagsObject != 0 && len(symbol.Declarations) == 1 {
 		return l.enumObjectType(symbol.ValueDeclaration) // `typeof Color`
 	}
-	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
+	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 && t.ObjectFlags()&checker.ObjectFlagsAnonymous == 0 { // not `typeof Box`
 		if generic == nil {
 			return nil // the class failed, which was reported
 		}
@@ -3060,6 +3094,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.Value // narrowed before use (narrowedValue, D-068)
 	case flags&checker.TypeFlagsAny != 0:
 		return ir.Value // a dynamic value (D-070)
+	case flags&checker.TypeFlagsNonPrimitive != 0:
+		return ir.Value // `object`: any object, a dynamic value (D-089)
 	case flags&checker.TypeFlagsNever != 0:
 		return ir.Value // no value ever has it: `assertNever(x: never)`'s parameter
 	}
