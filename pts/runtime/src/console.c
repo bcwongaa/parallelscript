@@ -4,7 +4,7 @@
  * formatting its arguments as util.format does (inspect.c); every line is indented by
  * the groups that are open.
  */
-#include "pts.h"
+#include "inspect_internal.h"
 #include "string_internal.h"
 
 #include <math.h>
@@ -13,9 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-
-char *pts_format(size_t argc, const pts_value *argv, size_t *len);                /* inspect.c */
-char *pts_inspect(pts_value value, double depth, bool show_hidden, size_t *len); /* inspect.c */
 
 enum { GROUP_INDENTATION = 2 };
 
@@ -392,6 +389,22 @@ void pts_console_group_end(void) {
 void pts_console_dir(pts_value value, double depth, bool show_hidden) {
   size_t len;
   char *bytes = pts_inspect(value, depth, show_hidden, &len);
+  write_line(stdout, bytes, len);
+  free(bytes);
+}
+
+void pts_console_table(pts_value data, pts_value properties) {
+  bool tabular = pts_value_is_object(data);
+  if (tabular) {
+    pts_kind kind = pts_value_as_object(data)->type->kind;
+    tabular = kind != PTS_KIND_STRING && kind != PTS_KIND_INT64 && kind != PTS_KIND_UINT64 && kind != PTS_KIND_FUNCTION;
+  }
+  if (!tabular) { /* Node logs what isn't an object */
+    write_formatted(stdout, 1, &data);
+    return;
+  }
+  size_t len;
+  char *bytes = pts_table(data, properties, &len);
   write_line(stdout, bytes, len);
   free(bytes);
 }

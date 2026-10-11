@@ -17,7 +17,7 @@ var consoleMethods = map[string]*ir.Builtin{
 	"assert": ir.ConsoleAssert, "trace": ir.ConsoleTrace,
 	"count": ir.ConsoleCount, "countReset": ir.ConsoleCountReset,
 	"time": ir.ConsoleTime, "timeEnd": ir.ConsoleTimeEnd, "timeLog": ir.ConsoleTimeLog,
-	"dir": ir.ConsoleDir,
+	"dir": ir.ConsoleDir, "table": ir.ConsoleTable,
 }
 
 // consoleMethodName is the name of the method of console that callee names, or "".
@@ -42,6 +42,8 @@ func (l *lowerer) consoleCall(node *ast.Node, name string) ir.Expr {
 		return &ir.CallBuiltin{Builtin: builtin}
 	case builtin == ir.ConsoleDir:
 		return l.consoleDir(call)
+	case builtin == ir.ConsoleTable:
+		return l.consoleTable(call)
 	}
 	args := l.consoleArguments(call)
 	if args == nil {
@@ -99,6 +101,20 @@ func (l *lowerer) consoleDir(call *ast.CallExpression) ir.Expr {
 		}
 	}
 	return &ir.CallBuiltin{Builtin: ir.ConsoleDir, Args: []ir.Expr{box(value), depth, showHidden}}
+}
+
+// consoleTable lowers console.table(data, properties): both boxed, undefined if left out.
+func (l *lowerer) consoleTable(call *ast.CallExpression) ir.Expr {
+	if l.hasSpreadArgument(call) {
+		return nil
+	}
+	args := []ir.Expr{&ir.UndefinedConst{}, &ir.UndefinedConst{}}
+	for i, argument := range call.Arguments.Nodes {
+		if args[i] = l.valueExpression(argument); args[i] == nil {
+			return nil
+		}
+	}
+	return &ir.CallBuiltin{Builtin: ir.ConsoleTable, Args: []ir.Expr{box(args[0]), box(args[1])}}
 }
 
 // consoleDirOptions lowers console.dir's options, an object literal of depth and

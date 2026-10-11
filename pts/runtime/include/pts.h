@@ -1419,6 +1419,8 @@ void pts_console(pts_console_method method, size_t argc, const pts_value *argv, 
 void pts_console_group_end(void);
 /* console.dir(value, { depth, showHidden }): depth is INFINITY for null. */
 void pts_console_dir(pts_value value, double depth, bool show_hidden);
+/* console.table(data, properties): properties is undefined or a string[]. */
+void pts_console_table(pts_value data, pts_value properties);
 
 /* ---------------------------------------------------------------- exceptions */
 

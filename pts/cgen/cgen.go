@@ -579,7 +579,7 @@ func mayRecurse(f *ir.Func) bool {
 		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
 			found = true
 		case *ir.CallBuiltin: // one that may convert an object to a string calls its toString()
-			found = found || !ir.ConsoleMethods[x.Builtin] && x.Builtin != ir.ConsoleDir && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
+			found = found || !ir.IsConsole(x.Builtin) && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
 		case *ir.FieldRef:
 			found = found || !isClass(x.X.Type())
 		case *ir.SetField:
@@ -1412,6 +1412,8 @@ func builtinCall(builtin *ir.Builtin, args []string) string {
 		return "pts_console_group_end()"
 	case ir.ConsoleDir:
 		return fmt.Sprintf("pts_console_dir(%s)", strings.Join(args, ", "))
+	case ir.ConsoleTable:
+		return fmt.Sprintf("pts_console_table(%s)", strings.Join(args, ", "))
 	case ir.StringLength:
 		return "((double)(" + args[0] + ")->utf16_len)"
 	case ir.DynamicCall:

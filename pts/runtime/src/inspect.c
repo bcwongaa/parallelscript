@@ -4,52 +4,17 @@
  * compact 3, maxArrayLength 100, maxStringLength 10000. Objects are read through their
  * type descriptors (D-024); format strings (%s, %d, %o, …) follow formatWithOptions (D-088).
  */
-#include "pts.h"
+#include "inspect_internal.h"
 
 #include <inttypes.h>
 #include <math.h>
 #include <setjmp.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "width_tables.h"
 
 enum { DEPTH = 2, BREAK_LENGTH = 80, MAX_ARRAY_LENGTH = 100, MAX_STRING_LENGTH = 10000, MIN_LINE_WIDTH = 16 };
-
-/* A growable, NUL-terminated byte string on the C heap (inspect output holds no GC pointers). */
-typedef struct text {
-  char *bytes;
-  size_t len, cap;
-} text;
-
-static void text_add(text *t, const char *bytes, size_t len) {
-  if (t->len + len + 1 > t->cap) {
-    t->cap = (t->len + len + 1) * 2;
-    t->bytes = realloc(t->bytes, t->cap);
-    if (t->bytes == NULL) {
-      pts_panic("RangeError", "Out of memory formatting a value for console.log");
-    }
-  }
-  if (len > 0) { /* an empty text's bytes may be NULL */
-    memcpy(t->bytes + t->len, bytes, len);
-  }
-  t->len += len;
-  t->bytes[t->len] = '\0';
-}
-
-static void text_puts(text *t, const char *cstr) { text_add(t, cstr, strlen(cstr)); }
-
-static void text_printf(text *t, const char *format, ...) __attribute__((format(printf, 2, 3)));
-
-static void text_printf(text *t, const char *format, ...) {
-  char small[64];
-  va_list args;
-  va_start(args, format);
-  int len = vsnprintf(small, sizeof small, format, args);
-  va_end(args);
-  text_add(t, small, (size_t)len); /* callers format short numbers and references */
-}
 
 /* The JS .length of UTF-8 text: code points, astral ones counting twice. */
 static size_t utf16_length(const char *bytes, size_t len) {
@@ -72,9 +37,13 @@ typedef struct inspector {
   size_t current_depth; /* Node's ctx.currentDepth */
   double depth;         /* Node's ctx.depth: how many levels of objects to show; INFINITY for null */
   bool show_hidden;     /* Node's ctx.showHidden: non-enumerable properties too */
+  double break_length;  /* Node's ctx.breakLength: the columns a line may take; INFINITY for one line */
+  size_t max_array_length; /* Node's ctx.maxArrayLength: the elements of an array, map or set shown */
 } inspector;
 
-static inspector new_inspector(double depth, bool show_hidden) { return (inspector){.depth = depth, .show_hidden = show_hidden}; }
+static inspector new_inspector(double depth, bool show_hidden) {
+  return (inspector){.depth = depth, .show_hidden = show_hidden, .break_length = BREAK_LENGTH, .max_array_length = MAX_ARRAY_LENGTH};
+}
 
 static void free_inspector(inspector *in) {
   free(in->seen);
@@ -192,7 +161,7 @@ static void format_string(inspector *in, text *out, pts_string *string) {
   }
   const char *bytes = string->bytes;
   size_t len = string->byte_len;
-  if (units > MIN_LINE_WIDTH && (double)units > (double)BREAK_LENGTH - (double)in->indentation - 4) {
+  if (units > MIN_LINE_WIDTH && (double)units > in->break_length - (double)in->indentation - 4) {
     size_t start = 0;
     for (const char *newline; start < len && (newline = memchr(bytes + start, '\n', len - start)) != NULL;) {
       size_t end = (size_t)(newline - bytes) + 1;
@@ -413,15 +382,15 @@ static size_t circular_index(inspector *in, const pts_object *object) {
   return 0;
 }
 
-/* Node's isBelowBreakLength: whether the entries fit on one line after start columns. */
-static bool below_break_length(text *entries, size_t count, size_t start) {
+/* Node's isBelowBreakLength: whether the entries fit on one line after start columns (its caller checks for line breaks). */
+static bool below_break_length(const inspector *in, text *entries, size_t count, size_t start) {
   size_t total = count + start;
-  if (total + count > BREAK_LENGTH) {
+  if ((double)(total + count) > in->break_length) {
     return false;
   }
   for (size_t i = 0; i < count; i++) {
     total += utf16_length(entries[i].bytes, entries[i].len);
-    if (total > BREAK_LENGTH) {
+    if ((double)total > in->break_length) {
       return false;
     }
   }
@@ -444,7 +413,7 @@ static void reduce_to_single_string(inspector *in, text *out, text *output, size
   bool single_line = false;
   if (in->current_depth - recurse_times < 3 && entries == count) {
     size_t start = count + in->indentation + utf16_length(open, strlen(open)) + utf16_length(base->bytes, base->len) + 10;
-    single_line = below_break_length(output, count, start) && (base->len == 0 || memchr(base->bytes, '\n', base->len) == NULL);
+    single_line = below_break_length(in, output, count, start) && (base->len == 0 || memchr(base->bytes, '\n', base->len) == NULL);
     for (size_t i = 0; single_line && i < count; i++) {
       single_line = memchr(output[i].bytes, '\n', output[i].len) == NULL;
     }
@@ -495,11 +464,11 @@ static text *new_entries(size_t count) {
 
 /*
  * Node's formatMap and formatSet: `key => value` entries of a map, or a set's values, in
- * insertion order, at most MAX_ARRAY_LENGTH and then `... n more items`. count is the size
+ * insertion order, at most max_array_length and then `... n more items`. count is the size
  * on entry and the number of entries on return.
  */
 static text *format_map_entries(inspector *in, pts_map *map, size_t *count, size_t recurse_times) {
-  size_t shown = *count < MAX_ARRAY_LENGTH ? *count : MAX_ARRAY_LENGTH;
+  size_t shown = *count < in->max_array_length ? *count : in->max_array_length;
   text *entries = new_entries(shown + 1);
   bool is_set = map->type->kind == PTS_KIND_SET;
   in->indentation += 2;
@@ -580,14 +549,20 @@ static bool is_numeric_tuple(const pts_object *tuple, size_t count) {
   return true;
 }
 
-/* format_tuple_elements formats a tuple's elements as format_elements formats an array's. */
-static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_t recurse_times) {
+/* format_tuple_elements formats a tuple's elements as format_elements formats an array's; count is set to the entries made. */
+static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_t *count, size_t recurse_times) {
   const pts_type *type = tuple->type;
-  text *entries = new_entries(type->field_count);
-  for (uint32_t i = 0; i < type->field_count; i++) {
+  size_t shown = type->field_count < in->max_array_length ? type->field_count : in->max_array_length;
+  text *entries = new_entries(shown + 1);
+  for (uint32_t i = 0; i < shown; i++) {
     in->indentation += 2;
     format_slot(in, &entries[i], type->fields[i].kind, (const char *)tuple + type->fields[i].offset, recurse_times);
     in->indentation -= 2;
+  }
+  *count = shown;
+  if (type->field_count > shown) {
+    size_t remaining = type->field_count - shown;
+    text_printf(&entries[(*count)++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
   }
   return entries;
 }
@@ -619,13 +594,14 @@ static bool is_hole_slot(pts_field_kind kind, const void *slot) {
 
 /*
  * Node's formatArray and formatSpecialArray: an entry per element, a run of holes as one
- * "<n empty items>" entry, at most MAX_ARRAY_LENGTH entries, then "... n more items".
+ * "<n empty items>" entry, at most max_array_length entries, then "... n more items".
  */
 static text *format_elements(inspector *in, const pts_array *array, size_t length, size_t *count, size_t recurse_times) {
-  text *entries = new_entries(MAX_ARRAY_LENGTH + 1);
+  size_t max = in->max_array_length;
+  text *entries = new_entries(max + 1);
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind), n = 0, index = 0; /* entries made; the index they reach */
-  for (size_t i = 0; i < length && n < MAX_ARRAY_LENGTH; i++) {
+  for (size_t i = 0; i < length && n < max; i++) {
     const void *slot = pts_array_slot_or_null(array, (double)i, size);
     if (slot != NULL && is_hole_slot(kind, slot)) {
       continue;
@@ -633,7 +609,7 @@ static text *format_elements(inspector *in, const pts_array *array, size_t lengt
     if (i != index) {
       text_printf(&entries[n++], "<%zu empty item%s>", i - index, i - index > 1 ? "s" : "");
       index = i;
-      if (n == MAX_ARRAY_LENGTH) {
+      if (n == max) {
         break;
       }
     }
@@ -647,7 +623,7 @@ static text *format_elements(inspector *in, const pts_array *array, size_t lengt
     n++, index++;
   }
   size_t remaining = length - index;
-  if (n != MAX_ARRAY_LENGTH && remaining > 0) {
+  if (n != max && remaining > 0) {
     text_printf(&entries[n++], "<%zu empty item%s>", remaining, remaining > 1 ? "s" : "");
   } else if (remaining > 0) {
     text_printf(&entries[n++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
@@ -677,21 +653,23 @@ static size_t code_point_width(uint32_t c) {
  * characters and emoji counting two and controls and combining marks none. Node sums
  * the widths of the string's NFC form; this sums its code points' own.
  */
-static size_t string_width(const text *entry) {
+size_t pts_text_width(const char *bytes, size_t len) {
   size_t width = 0;
-  for (size_t i = 0; i < entry->len;) {
-    unsigned char byte = (unsigned char)entry->bytes[i];
+  for (size_t i = 0; i < len;) {
+    unsigned char byte = (unsigned char)bytes[i];
     if (byte < 0x80) {
       width += byte >= 0x20 && byte != 0x7F;
       i++;
       continue;
     }
     size_t size;
-    width += code_point_width(decode((const unsigned char *)entry->bytes + i, &size));
+    width += code_point_width(decode((const unsigned char *)bytes + i, &size));
     i += size;
   }
   return width;
 }
+
+static size_t string_width(const text *entry) { return pts_text_width(entry->bytes, entry->len); }
 
 /*
  * is_numeric_array reports whether the first count elements, which Node groups, are all
@@ -739,7 +717,7 @@ static void pad(text *out, const text *entry, const char *suffix, size_t width, 
 static text *group_array_elements(inspector *in, text *output, size_t *count, bool numeric) {
   enum { SEPARATOR_SPACE = 2 };
   size_t output_length = *count;
-  if (MAX_ARRAY_LENGTH < *count) {
+  if (in->max_array_length < *count) {
     output_length--; /* leave "... n more items" out */
   }
   size_t *data_len = calloc(output_length, sizeof *data_len);
@@ -756,10 +734,10 @@ static text *group_array_elements(inspector *in, text *output, size_t *count, bo
   }
   size_t actual_max = max_length + SEPARATOR_SPACE;
   text *grouped = NULL;
-  if (actual_max * 3 + in->indentation < BREAK_LENGTH && ((double)total_length / (double)actual_max > 5 || max_length <= 6)) {
+  if ((double)(actual_max * 3 + in->indentation) < in->break_length && ((double)total_length / (double)actual_max > 5 || max_length <= 6)) {
     double average_bias = sqrt((double)actual_max - (double)total_length / (double)*count);
     double biased_max = fmax((double)actual_max - 3 - average_bias, 1);
-    double columns = fmin(fmin(round(sqrt(2.5 * biased_max * (double)output_length) / biased_max), floor((double)(BREAK_LENGTH - in->indentation) / (double)actual_max)),
+    double columns = fmin(fmin(round(sqrt(2.5 * biased_max * (double)output_length) / biased_max), floor((in->break_length - (double)in->indentation) / (double)actual_max)),
                           fmin(3 * 4, 15));
     if (columns > 1) {
       size_t cols = (size_t)columns;
@@ -1104,7 +1082,7 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   push(&in->seen, &in->seen_len, &in->seen_cap, object);
   in->current_depth = recurse_times;
   size_t count = length;
-  text *output = is_tuple ? format_tuple_elements(in, object, recurse_times)
+  text *output = is_tuple ? format_tuple_elements(in, object, &count, recurse_times)
                  : is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
                  : is_map    ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
                  : is_record ? format_record_entries(in, (pts_map *)object, &count, recurse_times)
@@ -1356,6 +1334,22 @@ char *pts_inspect(pts_value value, double depth, bool show_hidden, size_t *len) 
   inspect_value(&result, value, depth, show_hidden);
   *len = result.len;
   return result.bytes;
+}
+
+/*
+ * console.table's _inspect: a non-array object with more than two keys as [Name], other
+ * values one level deep, on one line, with at most three elements of an array, map or set.
+ */
+void pts_inspect_cell(text *out, pts_value value) {
+  bool is_object = pts_value_is_object(value) && pts_value_as_object(value)->type->kind != PTS_KIND_STRING &&
+                   pts_value_as_object(value)->type->kind != PTS_KIND_INT64 && pts_value_as_object(value)->type->kind != PTS_KIND_UINT64 &&
+                   pts_value_as_object(value)->type->kind != PTS_KIND_FUNCTION;
+  bool summarized = is_object && !pts_value_is_array(value) && pts_array_length_of(pts_value_key_array(value)) > 2;
+  inspector in = new_inspector(summarized ? -1 : 0, false);
+  in.break_length = INFINITY;
+  in.max_array_length = 3;
+  format_value(&in, out, value, 0);
+  free_inspector(&in);
 }
 
 /* Writes value as console.log shows it nested in an object (strings quoted): for an uncaught exception. */

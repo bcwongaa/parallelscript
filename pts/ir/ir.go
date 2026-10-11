@@ -965,6 +965,11 @@ var ConsoleMethods = map[*Builtin]bool{
 	ConsoleCount: true, ConsoleCountReset: true, ConsoleTime: true, ConsoleTimeEnd: true, ConsoleTimeLog: true,
 }
 
+// IsConsole reports whether a builtin is a method of console.
+func IsConsole(builtin *Builtin) bool {
+	return ConsoleMethods[builtin] || builtin == ConsoleGroupEnd || builtin == ConsoleDir || builtin == ConsoleTable
+}
+
 // mathFunction is a function of Math that takes n numbers and returns a number.
 func mathFunction(name string, n int) *Builtin {
 	params := make([]Type, n)
@@ -1002,9 +1007,11 @@ var (
 	ConsoleTime       = &Builtin{Name: "console.time", Result: Void}
 	ConsoleTimeEnd    = &Builtin{Name: "console.timeEnd", Result: Void}
 	ConsoleTimeLog    = &Builtin{Name: "console.timeLog", Result: Void}
-	// ConsoleGroupEnd is console.groupEnd(); ConsoleDir is console.dir(value, { depth, showHidden }).
+	// ConsoleGroupEnd is console.groupEnd(); ConsoleDir is console.dir(value, { depth,
+	// showHidden }); ConsoleTable is console.table(data, properties), properties undefined or a string[].
 	ConsoleGroupEnd = &Builtin{Name: "console.groupEnd", Result: Void}
 	ConsoleDir      = &Builtin{Name: "console.dir", Params: []Type{Value, Number, Bool}, Result: Void}
+	ConsoleTable    = &Builtin{Name: "console.table", Params: []Type{Value, Value}, Result: Void}
 	// StringLength is a string's .length (UTF-16 code units).
 	StringLength = stringMember("length", Number)
 

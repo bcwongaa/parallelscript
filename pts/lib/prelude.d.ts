@@ -11,6 +11,7 @@ interface Console {
     error(...data: any[]): void;
     warn(...data: any[]): void;
     dir(item?: any, options?: ConsoleDirOptions): void;
+    table(tabularData?: any, properties?: readonly string[]): void;
     group(...label: any[]): void;
     groupCollapsed(...label: any[]): void;
     groupEnd(): void;

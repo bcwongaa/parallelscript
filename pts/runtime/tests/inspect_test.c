@@ -196,6 +196,23 @@ static void long_strings_are_split_and_cut(void) {
   free(huge);
 }
 
+char *pts_table(pts_value data, pts_value properties, size_t *len); /* table.c */
+
+/* console.table of an array of primitives: a row per index and a "Values" column, in boxes. */
+static void tables_draw_a_row_per_key(void) {
+  pts_string *elements[] = {pts_string_from_cstr("a"), pts_string_from_cstr("日本")};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_STRING], elements, 2);
+  size_t len;
+  char *text = pts_table(pts_value_from_object((pts_object *)array), PTS_VALUE_UNDEFINED, &len);
+  CHECK_STR(text, "┌─────────┬────────┐\n"
+                  "│ (index) │ Values │\n"
+                  "├─────────┼────────┤\n"
+                  "│ 0       │ 'a'    │\n"
+                  "│ 1       │ '日本' │\n"
+                  "└─────────┴────────┘");
+  free(text);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   circular_references_are_numbered();
@@ -206,5 +223,6 @@ int main(int argc, char **argv) {
   placeholders_without_arguments_stay();
   arguments_without_a_format_are_inspected();
   long_strings_are_split_and_cut();
+  tables_draw_a_row_per_key();
   return CHECK_DONE();
 }
