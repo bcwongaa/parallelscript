@@ -1,0 +1,3 @@
+const i: int = 2.5;
+
+// error: fractional_integer_literal.pts:1:16 - error PTS2002: 2.5 is not an integer, so it can't be a int

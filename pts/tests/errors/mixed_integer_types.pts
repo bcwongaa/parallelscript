@@ -1,0 +1,5 @@
+const a: i64 = 1;
+const b: u64 = 2;
+console.log(a + b);
+
+// error: mixed_integer_types.pts:3:13 - error PTS2003: `+` can't mix int and u64

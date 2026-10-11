@@ -35,7 +35,32 @@ var (
 	Null      = &Primitive{"null"}      // the one value null
 	Void      = &Primitive{"void"}      // no value: the result of a call made for its effect
 	Value     = &Primitive{"value"}     // a boxed dynamic value (pts_value, D-002)
+
+	// The integer types and f32 (docs/SPEC.md §3.2), as C's fixed-width types and float.
+	I8  = &Primitive{"i8"}
+	I16 = &Primitive{"i16"}
+	I32 = &Primitive{"i32"}
+	I64 = &Primitive{"i64"}
+	U8  = &Primitive{"u8"}
+	U16 = &Primitive{"u16"}
+	U32 = &Primitive{"u32"}
+	U64 = &Primitive{"u64"}
+	F32 = &Primitive{"f32"}
 )
+
+// IsInteger reports whether t is one of the integer types.
+func IsInteger(t Type) bool {
+	switch t {
+	case I8, I16, I32, I64, U8, U16, U32, U64:
+		return true
+	}
+	return false
+}
+
+// IsNumeric reports whether t is number, f32 or an integer type.
+func IsNumeric(t Type) bool {
+	return t == Number || t == F32 || IsInteger(t)
+}
 
 // Func is a function with a body.
 type Func struct {
@@ -92,6 +117,20 @@ type BoolConst struct{ Value bool }
 // the 3-byte sequence the TypeScript scanner produces for it (stringutil.EncodeJSStringRune).
 type StringConst struct{ Value string }
 
+// IntConst is a constant of an integer type, held as its two's complement bits
+// (sign-extended to 64 bits for signed types).
+type IntConst struct {
+	Bits uint64
+	Ty   Type
+}
+
+// Convert converts a numeric value to another numeric type: losslessly for the
+// implicit conversions, with Rust's `as` rules otherwise (docs/SPEC.md §3.2).
+type Convert struct {
+	X  Expr
+	To Type
+}
+
 type UndefinedConst struct{}
 
 type NullConst struct{}
@@ -142,8 +181,8 @@ func (op BinaryOp) String() string { return binaryOpText[op] }
 // IsComparison reports whether the operator yields a boolean.
 func (op BinaryOp) IsComparison() bool { return op >= Lt }
 
-// Binary applies Op to X and Y. Arithmetic and ordering take numbers; Eq and Ne take
-// two values of the same type.
+// Binary applies Op to X and Y, which have the same type: numeric for arithmetic
+// and ordering, numeric or boolean for Eq and Ne.
 type Binary struct {
 	Op   BinaryOp
 	X, Y Expr
@@ -153,7 +192,7 @@ type Binary struct {
 type UnaryOp int
 
 const (
-	Neg UnaryOp = iota // -number
+	Neg UnaryOp = iota // negation of a numeric value (wrapping for integers)
 )
 
 var unaryOpText = [...]string{Neg: "-"}
@@ -174,11 +213,13 @@ func (*NullConst) Type() Type      { return Null }
 func (e *LocalRef) Type() Type     { return e.Local.Type }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
-func (*Unary) Type() Type          { return Number }
+func (e *Unary) Type() Type        { return e.X.Type() }
+func (e *IntConst) Type() Type     { return e.Ty }
+func (e *Convert) Type() Type      { return e.To }
 
 func (e *Binary) Type() Type {
 	if e.Op.IsComparison() {
 		return Bool
 	}
-	return Number
+	return e.X.Type()
 }

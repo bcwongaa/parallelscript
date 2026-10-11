@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
+	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -12,13 +13,15 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// lowerSource type-checks source as /p/main.pts, which must have no tsc errors, and lowers it.
+// lowerSource type-checks source as /p/main.pts, which must pass tsc and the semantic pass, and lowers it.
 func lowerSource(t *testing.T, source string) (*ir.Program, []diagnostic.Diagnostic) {
 	t.Helper()
 	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
 	program, errors := frontend.Load(t.Context(), fs, "/p/main.pts")
 	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
-	return lower.Program(t.Context(), program)
+	info, errors := check.Program(t.Context(), program)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	return lower.Program(t.Context(), program, info)
 }
 
 // lowerValid lowers source, which must lower without errors, and prints the IR.
@@ -199,4 +202,59 @@ func TestEveryUnsupportedConstructIsReported(t *testing.T) {
 	assert.Equal(t, len(errors), 2)
 	assert.Equal(t, errors[0].Line, 1)
 	assert.Equal(t, errors[1].Line, 2)
+}
+
+func TestIntegerLocalsAndLiteralsTakeTheirDeclaredType(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const small: u8 = 200;
+const big: int = -9223372036854775808;
+const huge: u64 = 18446744073709551615;
+const ratio: f32 = 0.5;
+const neg: i8 = -5;
+console.log(small, big, huge, ratio, neg);
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let small: u8 = 200:u8
+  2: let big: i64 = -9223372036854775808:i64
+  3: let huge: u64 = 18446744073709551615:u64
+  4: let ratio: f32 = f32(0.5)
+  5: let neg: i8 = -5:i8
+  6: console.log(box(small), box(big), box(huge), box(ratio), box(neg))
+}
+`)
+}
+
+func TestOperandsAreConvertedToTheirCommonType(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const a: i32 = 1;
+const b: u8 = 2;
+const sum = a + b;
+const scaled = a * 1.5;
+const next = a + 1;
+const wide: i64 = b;
+console.log(sum < 3, a === 1);
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let a: i32 = 1:i32
+  2: let b: u8 = 2:u8
+  3: let sum: i32 = (a + i32(b))
+  4: let scaled: number = (number(a) * 1.5)
+  5: let next: i32 = (a + 1:i32)
+  6: let wide: i64 = i64(b)
+  7: console.log(box((sum < 3:i32)), box((a === 1:i32)))
+}
+`)
+}
+
+func TestAsConvertsBetweenNumericTypes(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const n = 3.9;\nconst i = n as int;\nconst b = i as u8;\nconst back = b as number;\nconsole.log(-i);\n")
+	assert.Equal(t, got, `func main() void {
+  1: let n: number = 3.9
+  2: let i: i64 = i64(n)
+  3: let b: u8 = u8(i)
+  4: let back: number = number(b)
+  5: console.log(box((-i)))
+}
+`)
 }

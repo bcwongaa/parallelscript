@@ -12,7 +12,7 @@ Directives are whole-line comments anywhere in the file.
 
 | Directive | Meaning |
 |---|---|
-| `// expect:` | Starts the expected stdout: every following line that starts with `//` is one output line (`// text` → `text`, a bare `//` → an empty line). The block ends at the first line that isn't a comment. |
+| `// expect:` | Starts the expected stdout: every following line that starts with `//` is one output line (`// text` → `text`, a bare `//` → an empty line). The block ends at the first line that isn't a comment or is another directive (use a `.out` file for output that looks like a directive). |
 | `name.out` | Alternatively, a file next to the test holding the exact expected stdout. Not both. |
 | `// exit: N` | Expected exit code (default 0). |
 | `// stderr: text` | stderr must contain `text`; repeatable. |

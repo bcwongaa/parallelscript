@@ -14,6 +14,16 @@ func TestExpectBlockBecomesExpectedStdout(t *testing.T) {
 	assert.Equal(t, *spec.stdout, "1\n\n  indented\n")
 }
 
+func TestADirectiveEndsTheExpectBlock(t *testing.T) {
+	t.Parallel()
+	spec, err := parseSpec("// expect:\n// before\n// exit: 1\n// stderr: boom\n")
+
+	assert.NilError(t, err)
+	assert.Equal(t, *spec.stdout, "before\n")
+	assert.Equal(t, spec.exitCode, 1)
+	assert.DeepEqual(t, spec.stderr, []string{"boom"})
+}
+
 func TestDirectivesAreCollected(t *testing.T) {
 	t.Parallel()
 	spec, err := parseSpec("// exit: 1\n// stderr: Uncaught RangeError\n// stderr: second\n// error: TS2322\n// no-diff: prints a pointer\n// skip: known issue\n")

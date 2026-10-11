@@ -126,7 +126,14 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.Binary:
 		return e.binary(x)
 	case *ir.Unary:
+		if ir.IsInteger(x.Type()) {
+			return "pts_" + x.Type().String() + "_neg(" + e.expr(x.X) + ")"
+		}
 		return "(-" + e.expr(x.X) + ")"
+	case *ir.IntConst:
+		return intLiteral(x)
+	case *ir.Convert:
+		return e.convert(x)
 	default:
 		panic(fmt.Sprintf("cgen: unexpected expression %T", expr))
 	}
@@ -138,15 +145,53 @@ var cOperators = map[ir.BinaryOp]string{
 	ir.Lt: "<", ir.Le: "<=", ir.Gt: ">", ir.Ge: ">=", ir.Eq: "==", ir.Ne: "!=",
 }
 
+// integerOperations name the runtime's wrapping and checked integer operations: pts_<type>_<name>.
+var integerOperations = map[ir.BinaryOp]string{ir.Add: "add", ir.Sub: "sub", ir.Mul: "mul", ir.Div: "div", ir.Rem: "rem", ir.Pow: "pow"}
+
 func (e *emitter) binary(b *ir.Binary) string {
 	x, y := e.expr(b.X), e.expr(b.Y)
+	operandType := b.X.Type()
+	if name, ok := integerOperations[b.Op]; ok && ir.IsInteger(operandType) {
+		return fmt.Sprintf("pts_%s_%s(%s, %s)", operandType, name, x, y)
+	}
+	prefix := "pts_number"
+	if operandType == ir.F32 {
+		prefix = "pts_f32"
+	}
 	switch b.Op {
 	case ir.Rem:
-		return "pts_number_rem(" + x + ", " + y + ")"
+		return prefix + "_rem(" + x + ", " + y + ")"
 	case ir.Pow:
-		return "pts_number_pow(" + x + ", " + y + ")"
+		return prefix + "_pow(" + x + ", " + y + ")"
 	}
 	return "(" + x + " " + cOperators[b.Op] + " " + y + ")"
+}
+
+// convert writes a numeric conversion. Float to integer saturates (a runtime helper);
+// everything else is a C cast, which wraps between integer types as `as` requires.
+func (e *emitter) convert(c *ir.Convert) string {
+	x := e.expr(c.X)
+	if ir.IsInteger(c.To) && !ir.IsInteger(c.X.Type()) {
+		return "pts_number_to_" + c.To.String() + "(" + x + ")"
+	}
+	return "((" + cType(c.To) + ")" + x + ")"
+}
+
+// intLiteral writes an integer constant in its C type.
+func intLiteral(c *ir.IntConst) string {
+	switch c.Ty {
+	case ir.I64:
+		if int64(c.Bits) == math.MinInt64 {
+			return "INT64_MIN"
+		}
+		return fmt.Sprintf("INT64_C(%d)", int64(c.Bits))
+	case ir.U64:
+		return fmt.Sprintf("UINT64_C(%d)", c.Bits)
+	case ir.I8, ir.I16, ir.I32:
+		return fmt.Sprintf("((%s)%d)", cType(c.Ty), int64(c.Bits))
+	default:
+		return fmt.Sprintf("((%s)%du)", cType(c.Ty), c.Bits)
+	}
 }
 
 func (e *emitter) box(value ir.Expr) string {
@@ -160,6 +205,12 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_string(" + inner + ")"
 	case ir.Undefined, ir.Null, ir.Value:
 		return inner // already a pts_value
+	case ir.I64:
+		return "pts_value_from_i64(" + inner + ")"
+	case ir.U64:
+		return "pts_value_from_u64(" + inner + ")"
+	case ir.I8, ir.I16, ir.I32, ir.U8, ir.U16, ir.U32, ir.F32:
+		return "pts_value_from_number(" + inner + ")" // exact as a double
 	default:
 		panic("cgen: cannot box " + value.Type().String())
 	}
@@ -214,6 +265,24 @@ func cType(t ir.Type) string {
 		return "pts_value"
 	case ir.Void:
 		return "void"
+	case ir.I8:
+		return "int8_t"
+	case ir.I16:
+		return "int16_t"
+	case ir.I32:
+		return "int32_t"
+	case ir.I64:
+		return "int64_t"
+	case ir.U8:
+		return "uint8_t"
+	case ir.U16:
+		return "uint16_t"
+	case ir.U32:
+		return "uint32_t"
+	case ir.U64:
+		return "uint64_t"
+	case ir.F32:
+		return "float"
 	default:
 		panic("cgen: no C type for " + t.String())
 	}
@@ -259,6 +328,8 @@ func walkExprs(stmts []ir.Stmt, visit func(ir.Expr)) {
 			walk(x.X)
 			walk(x.Y)
 		case *ir.Unary:
+			walk(x.X)
+		case *ir.Convert:
 			walk(x.X)
 		}
 	}

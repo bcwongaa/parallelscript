@@ -1,0 +1,7 @@
+const two: int = 2;
+const minusOne: int = -1;
+console.log(two ** minusOne);
+
+// expect:
+// exit: 1
+// stderr: Uncaught RangeError: Exponent must be non-negative

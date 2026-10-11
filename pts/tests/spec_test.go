@@ -91,15 +91,16 @@ func parseSpec(source string) (testSpec, error) {
 	return spec, nil
 }
 
-// expectBlock collects the comment lines from start on as output lines; it returns the
-// output and the index of the first line after the block.
+// expectBlock collects the comment lines from start on as output lines, up to a line
+// that isn't a comment or is another directive; it returns the output and the index of
+// the first line after the block.
 func expectBlock(lines []string, start int) (string, int) {
 	var out strings.Builder
 	end := start
 	for ; end < len(lines); end++ {
 		line := strings.TrimSpace(lines[end])
 		text, ok := strings.CutPrefix(line, "//")
-		if !ok {
+		if !ok || directivePattern.MatchString(line) {
 			break
 		}
 		out.WriteString(strings.TrimPrefix(text, " ") + "\n")

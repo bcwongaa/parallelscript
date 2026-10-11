@@ -1,5 +1,6 @@
 // Package driver runs the whole compiler pipeline: load and type-check the program,
-// lower it to IR, emit C and compile that with clang against the runtime.
+// run the semantic checks, lower it to IR, emit C and compile that with clang
+// against the runtime.
 package driver
 
 import (
@@ -9,6 +10,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 	"github.com/microsoft/typescript-go/pts/cgen"
+	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
 	"github.com/microsoft/typescript-go/pts/lower"
@@ -26,7 +28,11 @@ func EmitC(ctx context.Context, entry string) (string, error) {
 	if len(errors) > 0 {
 		return "", &diagnostic.Error{Diagnostics: errors}
 	}
-	lowered, errors := lower.Program(ctx, program)
+	info, errors := check.Program(ctx, program)
+	if len(errors) > 0 {
+		return "", &diagnostic.Error{Diagnostics: errors}
+	}
+	lowered, errors := lower.Program(ctx, program, info)
 	if len(errors) > 0 {
 		return "", &diagnostic.Error{Diagnostics: errors}
 	}

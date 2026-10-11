@@ -336,6 +336,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | Stage | Package | Notes |
 |---|---|---|
 | Declarations | `pts/lib` | `*.d.ts` embedded in the binary, served at `ptslib:///` by `lib.WrapFS` (D-005). `prelude.d.ts` is a root file of every program. |
+| Semantic checks | `pts/check` | `Program(ctx, program)` → `*check.Info` (numeric types of expressions, variable names and binary operands) plus PTS diagnostics (D-012). |
 | Load and type-check | `pts/frontend` | `Load(ctx, fs, entry)` → `*Program{TS, Entry}` plus tsc errors (syntax errors hide semantic ones). Options are fixed (D-005). |
 | Diagnostics | `pts/diagnostic` | One format for tsc and PTS errors; codes `PTS1001` (not supported yet), `PTS1002` (unsupported by design) (D-006). |
 | Lowering | `pts/lower` | `Program(ctx, program)` → `*ir.Program` plus diagnostics. Every construct it doesn't handle is reported as `PTS1001`, so the supported subset is exactly what it lowers. |
@@ -345,6 +346,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
+- **Added in M1.2:** the numeric types on `let`/`const` annotations, numeric `as`, and every operator above on them (`ir.IntConst`, `ir.Convert`).
 - **Added in M1.1:** `+ - * / % **`, unary `-` and `+`, and `< <= > >=` on numbers; `=== !== == !=` on two numbers or two booleans (`ir.Binary`, `ir.Unary`); `NaN` and `Infinity`.
 - **IR types** are singletons compared by identity: `ir.Number` (C `double`), `ir.Bool` (`bool`), `ir.String` (`pts_string *`), `ir.Undefined` and `ir.Null` (a `pts_value` holding the constant, so boxing them is free), `ir.Value` (boxed `pts_value`), `ir.Void`. Boxing is an explicit `ir.Box` node.
 - **Statements** carry an `ir.Pos` (absolute file, 1-based line); `cgen` turns positions into `#line` directives.
@@ -360,3 +362,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - Constants: `cgen` writes the shortest round-trip decimal with a `.0` or exponent (`1.0`, `1e+21`); `-0` is `(-0.0)`; `NaN` and `Infinity` are `__builtin_nan("")` and `__builtin_inf()`.
 - Number::toString (`pts_number_format`) takes the shortest digits from Ryu (`pts/third_party/ryu`, `libryu.a`) and applies ECMAScript's notation rules itself.
 - Tests: `pts/runtime/tests/number_test.c` (formatting, `%` and `**` edge cases, and the 25,000-value comparison with `jsnum`), `pts/tests/run/{arithmetic,comparisons,special_numbers}.pts`, and `TestGeneratedNumberCorpusMatchesNode` (`pts/tests/numbers_test.go`): 4,000 literals and every operator on 16 special operands and 1,200 random pairs, compared line by line with Node.
+
+### 9.4 Integer types (M1.2)
+
+- `pts/check` computes a `check.Numeric` for every number-typed expression and variable name, and for each binary operator on numbers the type its operands convert to (`Info.OperandType`). The lowering inserts `ir.Convert` wherever an expression's type differs from what its context needs.
+- Typing rules (D-012): annotations name the type; an unannotated variable takes its initializer's type; literals are untyped constants that take the expected type; operands unify to the wider compatible type, or to `number` when an integer meets a float.
+- C representation: the `<stdint.h>` types and `float`. Constants are `INT64_C(...)`, `UINT64_C(...)`, `INT64_MIN` or a cast decimal. Arithmetic and negation call `pts_<type>_<op>` from `pts.h` (wrapping, through `uint64_t`); comparisons are C operators; float → integer is `pts_number_to_<type>` (Rust: truncate, saturate, NaN → 0); other conversions are C casts, which wrap between integer types (clang converts to signed types modulo 2^n).
+- Boxing: `i8 … u32` and `f32` box as numbers (exact as doubles); `int`/`i64` and `u64` box through `pts_value_from_i64`/`pts_value_from_u64`, which allocate a `pts_boxed_int64`/`pts_boxed_uint64` (kinds `PTS_KIND_INT64`/`PTS_KIND_UINT64`) only beyond ±2^53. `console.log` prints them exactly.
+- Not yet covered (arrive with the features): assignments, compound assignment and `++`/`--` (M1.4a must apply the conversion rules there), function parameters and returns (M1.4a), bitwise operators on integers (M1.4a), `typeof` (M1.4a), integer types inside unions, arrays and generics (M2, M3).

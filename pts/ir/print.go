@@ -50,6 +50,13 @@ func FormatExpr(expr Expr) string {
 		return "null"
 	case *LocalRef:
 		return e.Local.Name
+	case *IntConst:
+		if e.Ty == I8 || e.Ty == I16 || e.Ty == I32 || e.Ty == I64 {
+			return strconv.FormatInt(int64(e.Bits), 10) + ":" + e.Ty.String()
+		}
+		return strconv.FormatUint(e.Bits, 10) + ":" + e.Ty.String()
+	case *Convert:
+		return e.To.String() + "(" + FormatExpr(e.X) + ")"
 	case *Box:
 		return "box(" + FormatExpr(e.X) + ")"
 	case *Binary:

@@ -1,0 +1,4 @@
+const n = 1.5;
+const i: int = n;
+
+// error: int_from_number.pts:2:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it

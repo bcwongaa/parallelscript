@@ -1,0 +1,4 @@
+const b: u8 = 1;
+console.log(b + 300);
+
+// error: operand_literal_out_of_range.pts:2:17 - error PTS2002: 300 doesn't fit in u8 (0 to 255)

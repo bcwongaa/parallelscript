@@ -1,0 +1,4 @@
+const w: i64 = 1;
+const n: i32 = w;
+
+// error: integer_narrowing.pts:2:16 - error PTS2001: a int doesn't convert to i32 implicitly

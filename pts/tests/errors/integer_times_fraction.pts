@@ -1,0 +1,4 @@
+const a: int = 3;
+const b: int = a * 0.5;
+
+// error: integer_times_fraction.pts:2:16 - error PTS2001: a number doesn't convert to int implicitly

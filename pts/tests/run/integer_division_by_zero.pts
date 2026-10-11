@@ -1,0 +1,10 @@
+// Integer division by zero throws RangeError (uncaught: exit code 1).
+const zero: int = 0;
+const ten: int = 10;
+console.log("before");
+console.log(ten / zero);
+
+// expect:
+// before
+// exit: 1
+// stderr: Uncaught RangeError: Division by zero

@@ -1,0 +1,4 @@
+const s: i8 = -1;
+const u: u16 = s;
+
+// error: signed_to_unsigned.pts:2:16 - error PTS2001: a i8 doesn't convert to u16 implicitly

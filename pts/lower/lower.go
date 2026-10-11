@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/jsnum"
 	"github.com/microsoft/typescript-go/internal/scanner"
+	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -51,12 +52,20 @@ var preludeBuiltins = map[string]*ir.Builtin{
 	"Console.log": ir.ConsoleLog,
 }
 
-// Program lowers a program that loaded without errors. It reports every
-// construct it cannot lower; the IR is complete only if there are none.
-func Program(ctx context.Context, program *frontend.Program) (*ir.Program, []diagnostic.Diagnostic) {
+// numericTypes maps the semantic pass's numeric types to IR types.
+var numericTypes = map[check.Numeric]ir.Type{
+	check.Number: ir.Number, check.F32: ir.F32,
+	check.I8: ir.I8, check.I16: ir.I16, check.I32: ir.I32, check.I64: ir.I64,
+	check.U8: ir.U8, check.U16: ir.U16, check.U32: ir.U32, check.U64: ir.U64,
+}
+
+// Program lowers a program that loaded and passed the semantic checks (info is what
+// they learned). It reports every construct it cannot lower; the IR is complete only
+// if there are none.
+func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, file: program.Entry, locals: map[*ast.Symbol]*ir.Local{}}
+	l := &lowerer{program: program.TS, checker: c, info: info, file: program.Entry, locals: map[*ast.Symbol]*ir.Local{}}
 	main := &ir.Func{
 		Name:   "main",
 		Pos:    ir.Pos{File: program.Entry.FileName(), Line: 1},
@@ -69,6 +78,7 @@ func Program(ctx context.Context, program *frontend.Program) (*ir.Program, []dia
 type lowerer struct {
 	program *compiler.Program
 	checker *checker.Checker
+	info    *check.Info
 	file    *ast.SourceFile
 	locals  map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
 	errors  []diagnostic.Diagnostic
@@ -162,7 +172,10 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	}
 	symbol := l.checker.GetSymbolAtLocation(name)
 	l.locals[symbol] = nil // until it lowers, uses of it are silent: the declaration already failed
-	localType := l.irType(l.checker.GetTypeOfSymbol(symbol), name)
+	localType := l.numericType(name)
+	if localType == nil {
+		localType = l.irType(l.checker.GetTypeOfSymbol(symbol), name)
+	}
 	if localType == nil {
 		return nil
 	}
@@ -179,13 +192,24 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: init}
 }
 
-// convert adapts value to the type target, or reports why it cannot.
+// numericType is the IR type the semantic pass gave a number-typed node, or nil.
+func (l *lowerer) numericType(node *ast.Node) ir.Type {
+	if n, ok := l.info.TypeOf(node); ok {
+		return numericTypes[n]
+	}
+	return nil
+}
+
+// convert adapts value to the type target, or reports why it cannot. Numeric
+// conversions are always possible here: the semantic pass rejected the lossy implicit ones.
 func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
 	switch {
 	case value.Type() == target:
 		return value
 	case target == ir.Value:
 		return box(value)
+	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
+		return &ir.Convert{X: value, To: target}
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
@@ -198,7 +222,9 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 func (l *lowerer) expression(node *ast.Node) ir.Expr {
 	switch node.Kind {
 	case ast.KindNumericLiteral:
-		return &ir.NumberConst{Value: float64(jsnum.FromString(node.Text()))}
+		return l.numericLiteral(node, false)
+	case ast.KindAsExpression:
+		return l.as(node)
 	case ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral:
 		return &ir.StringConst{Value: node.Text()}
 	case ast.KindTrueKeyword:
@@ -271,6 +297,45 @@ func (l *lowerer) isDeclaredInDefaultLib(symbol *ast.Symbol) bool {
 		l.program.IsSourceFileDefaultLibrary(ast.GetSourceFileOfNode(symbol.ValueDeclaration).Path())
 }
 
+// numericLiteral lowers a literal (negated if it is the operand of unary minus) to a
+// constant of the type the semantic pass gave it.
+func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
+	t := l.numericType(node)
+	if ir.IsInteger(t) {
+		value, _ := check.IntegerLiteralValue(node) // the pass checked it is an integer in range
+		if negated {
+			value.Neg(value)
+		}
+		bits := value.Uint64()
+		if value.Sign() < 0 {
+			bits = uint64(value.Int64())
+		}
+		return &ir.IntConst{Bits: bits, Ty: t}
+	}
+	var number ir.Expr = &ir.NumberConst{Value: float64(jsnum.FromString(node.Text()))}
+	if negated {
+		number = &ir.Unary{Op: ir.Neg, X: number}
+	}
+	if t == ir.F32 {
+		return &ir.Convert{X: number, To: ir.F32}
+	}
+	return number
+}
+
+// as lowers `x as T` between numeric types, which converts the value.
+func (l *lowerer) as(node *ast.Node) ir.Expr {
+	target := l.numericType(node)
+	if target == nil {
+		l.notSupportedYet(node, "`as` other than between numeric types is")
+		return nil
+	}
+	x := l.expression(node.Expression())
+	if x == nil {
+		return nil
+	}
+	return l.convert(x, target, node)
+}
+
 func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	op, ok := binaryOps[expr.OperatorToken.Kind]
@@ -283,6 +348,12 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	if x == nil || y == nil {
 		return nil
 	}
+	if n, ok := l.info.OperandType(node); ok {
+		x, y = l.convert(x, numericTypes[n], expr.Left), l.convert(y, numericTypes[n], expr.Right)
+		if x == nil || y == nil {
+			return nil
+		}
+	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s and %s is", describe(node), x.Type(), y.Type()))
 		return nil
@@ -293,9 +364,9 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 // acceptsOperands reports whether the IR can apply op to operands of these types.
 func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 	if op == ir.Eq || op == ir.Ne {
-		return x == y && (x == ir.Number || x == ir.Bool)
+		return x == y && (ir.IsNumeric(x) || x == ir.Bool)
 	}
-	return x == ir.Number && y == ir.Number
+	return x == y && ir.IsNumeric(x)
 }
 
 func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
@@ -304,16 +375,19 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, describe(node)+" is")
 		return nil
 	}
+	if expr.Operand.Kind == ast.KindNumericLiteral {
+		return l.numericLiteral(expr.Operand, expr.Operator == ast.KindMinusToken)
+	}
 	x := l.expression(expr.Operand)
 	if x == nil {
 		return nil
 	}
-	if x.Type() != ir.Number {
+	if !ir.IsNumeric(x.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
 		return nil
 	}
 	if expr.Operator == ast.KindPlusToken {
-		return x // +x is x for a number
+		return x // +x is x for a numeric value
 	}
 	return &ir.Unary{Op: ir.Neg, X: x}
 }

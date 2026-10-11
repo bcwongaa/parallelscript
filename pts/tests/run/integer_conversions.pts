@@ -1,0 +1,16 @@
+// `as` follows Rust: float to integer truncates toward zero, saturates and turns NaN
+// into 0; integer to integer wraps. Lossless conversions need no `as`.
+console.log(3.9 as int, -3.9 as int, 300.5 as u8, -5 as u8, NaN as int, Infinity as i32, -Infinity as i16);
+const wide: i32 = 300;
+console.log(wide as u8, wide as i8, (-1 as i64) as u64, (-1 as i8) as u8, 2147483648 as i32);
+const small: i8 = -5;
+const widened: i64 = small;
+const asNumber: number = widened;
+const unsigned: u8 = 200;
+const signed: i16 = unsigned;
+console.log(widened, asNumber, signed);
+
+// expect:
+// 3 -3 255 0 0 2147483647 -32768
+// 44 44 18446744073709551615 255 2147483647
+// -5 -5 200

@@ -29,6 +29,8 @@ extern "C" {
 
 typedef enum pts_kind {
   PTS_KIND_STRING = 1,
+  PTS_KIND_INT64 = 2,  /* a boxed int64_t (pts_boxed_int64) */
+  PTS_KIND_UINT64 = 3, /* a boxed uint64_t (pts_boxed_uint64) */
 } pts_kind;
 
 /* Every runtime type has a descriptor; every heap object starts with a pointer to one. */
@@ -101,6 +103,147 @@ static inline double pts_number_pow(double x, double y) {
   return __builtin_pow(x, y);
 }
 
+/* ---------------------------------------------------------------- integers */
+
+/*
+ * The integer types (docs/SPEC.md §3.2) are the C fixed-width types. Arithmetic
+ * wraps: it is done in uint64_t, which can't overflow, and converted back, relying
+ * on clang's modulo conversion to signed types. Division truncates; dividing by
+ * zero throws RangeError, and MIN / -1 wraps to MIN.
+ */
+
+_Noreturn void pts_throw_division_by_zero(void);
+_Noreturn void pts_throw_negative_exponent(void);
+
+#define PTS_INTEGER_ARITHMETIC(name, T)                                                           \
+  static inline T pts_##name##_add(T a, T b) { return (T)((uint64_t)a + (uint64_t)b); }          \
+  static inline T pts_##name##_sub(T a, T b) { return (T)((uint64_t)a - (uint64_t)b); }          \
+  static inline T pts_##name##_mul(T a, T b) { return (T)((uint64_t)a * (uint64_t)b); }          \
+  static inline T pts_##name##_neg(T a) { return (T)(0 - (uint64_t)a); }                         \
+  static inline T pts_##name##_pow_unchecked(T base, T exponent) {                               \
+    uint64_t result = 1, b = (uint64_t)base, e = (uint64_t)exponent;                             \
+    for (; e != 0; e >>= 1, b *= b) {                                                            \
+      if (e & 1) {                                                                               \
+        result *= b;                                                                             \
+      }                                                                                          \
+    }                                                                                            \
+    return (T)result;                                                                            \
+  }
+
+#define PTS_SIGNED_DIVISION(name, T)                                                              \
+  static inline T pts_##name##_div(T a, T b) {                                                   \
+    if (b == 0) {                                                                                \
+      pts_throw_division_by_zero();                                                              \
+    }                                                                                            \
+    return b == -1 ? pts_##name##_neg(a) : (T)(a / b);                                           \
+  }                                                                                              \
+  static inline T pts_##name##_rem(T a, T b) {                                                   \
+    if (b == 0) {                                                                                \
+      pts_throw_division_by_zero();                                                              \
+    }                                                                                            \
+    return b == -1 ? 0 : (T)(a % b);                                                             \
+  }                                                                                              \
+  static inline T pts_##name##_pow(T base, T exponent) {                                         \
+    if (exponent < 0) {                                                                          \
+      pts_throw_negative_exponent();                                                             \
+    }                                                                                            \
+    return pts_##name##_pow_unchecked(base, exponent);                                           \
+  }
+
+#define PTS_UNSIGNED_DIVISION(name, T)                                                            \
+  static inline T pts_##name##_div(T a, T b) {                                                   \
+    if (b == 0) {                                                                                \
+      pts_throw_division_by_zero();                                                              \
+    }                                                                                            \
+    return (T)(a / b);                                                                           \
+  }                                                                                              \
+  static inline T pts_##name##_rem(T a, T b) {                                                   \
+    if (b == 0) {                                                                                \
+      pts_throw_division_by_zero();                                                              \
+    }                                                                                            \
+    return (T)(a % b);                                                                           \
+  }                                                                                              \
+  static inline T pts_##name##_pow(T base, T exponent) { return pts_##name##_pow_unchecked(base, exponent); }
+
+/* Number (or f32, promoted) to an integer type, as Rust's `as`: truncate, saturate, NaN -> 0. */
+#define PTS_NUMBER_TO_SMALL_INTEGER(name, T, MIN, MAX)                                            \
+  static inline T pts_number_to_##name(double d) {                                               \
+    if (d != d) {                                                                                \
+      return 0;                                                                                  \
+    }                                                                                            \
+    if (d <= (double)(MIN)) {                                                                    \
+      return (MIN);                                                                              \
+    }                                                                                            \
+    if (d >= (double)(MAX)) {                                                                    \
+      return (MAX);                                                                              \
+    }                                                                                            \
+    return (T)d;                                                                                 \
+  }
+
+PTS_INTEGER_ARITHMETIC(i8, int8_t)
+PTS_INTEGER_ARITHMETIC(i16, int16_t)
+PTS_INTEGER_ARITHMETIC(i32, int32_t)
+PTS_INTEGER_ARITHMETIC(i64, int64_t)
+PTS_INTEGER_ARITHMETIC(u8, uint8_t)
+PTS_INTEGER_ARITHMETIC(u16, uint16_t)
+PTS_INTEGER_ARITHMETIC(u32, uint32_t)
+PTS_INTEGER_ARITHMETIC(u64, uint64_t)
+PTS_SIGNED_DIVISION(i8, int8_t)
+PTS_SIGNED_DIVISION(i16, int16_t)
+PTS_SIGNED_DIVISION(i32, int32_t)
+PTS_SIGNED_DIVISION(i64, int64_t)
+PTS_UNSIGNED_DIVISION(u8, uint8_t)
+PTS_UNSIGNED_DIVISION(u16, uint16_t)
+PTS_UNSIGNED_DIVISION(u32, uint32_t)
+PTS_UNSIGNED_DIVISION(u64, uint64_t)
+PTS_NUMBER_TO_SMALL_INTEGER(i8, int8_t, INT8_MIN, INT8_MAX)
+PTS_NUMBER_TO_SMALL_INTEGER(i16, int16_t, INT16_MIN, INT16_MAX)
+PTS_NUMBER_TO_SMALL_INTEGER(i32, int32_t, INT32_MIN, INT32_MAX)
+PTS_NUMBER_TO_SMALL_INTEGER(u8, uint8_t, 0, UINT8_MAX)
+PTS_NUMBER_TO_SMALL_INTEGER(u16, uint16_t, 0, UINT16_MAX)
+PTS_NUMBER_TO_SMALL_INTEGER(u32, uint32_t, 0, UINT32_MAX)
+
+/* The 64-bit bounds aren't doubles, so they are compared against 2^63 and 2^64. */
+static inline int64_t pts_number_to_i64(double d) {
+  if (d != d) {
+    return 0;
+  }
+  if (d <= -9223372036854775808.0) {
+    return INT64_MIN;
+  }
+  if (d >= 9223372036854775808.0) {
+    return INT64_MAX;
+  }
+  return (int64_t)d;
+}
+
+static inline uint64_t pts_number_to_u64(double d) {
+  if (d != d || d <= 0) {
+    return 0;
+  }
+  if (d >= 18446744073709551616.0) {
+    return UINT64_MAX;
+  }
+  return (uint64_t)d;
+}
+
+/* f32 `%` and `**`: computed in double (exact for %) and rounded to float. */
+static inline float pts_f32_rem(float x, float y) { return (float)pts_number_rem(x, y); }
+static inline float pts_f32_pow(float x, float y) { return (float)pts_number_pow(x, y); }
+
+typedef struct pts_boxed_int64 {
+  const pts_type *type;
+  int64_t value;
+} pts_boxed_int64;
+
+typedef struct pts_boxed_uint64 {
+  const pts_type *type;
+  uint64_t value;
+} pts_boxed_uint64;
+
+extern const pts_type pts_int64_type;
+extern const pts_type pts_uint64_type;
+
 /* ---------------------------------------------------------------- dynamic values */
 
 /*
@@ -130,6 +273,10 @@ static inline pts_value pts_value_from_number(double number) {
 }
 
 static inline pts_value pts_value_from_bool(bool b) { return b ? PTS_VALUE_TRUE : PTS_VALUE_FALSE; }
+
+/* 64-bit integers are numbers while a double holds them exactly (|v| <= 2^53), and boxed beyond (D-002). */
+pts_value pts_value_from_i64(int64_t value);
+pts_value pts_value_from_u64(uint64_t value);
 
 static inline pts_value pts_value_from_object(const void *object) { return (pts_value)(uintptr_t)object; }
 

@@ -1,0 +1,4 @@
+const n = 0.5;
+const f: f32 = n;
+
+// error: number_to_f32.pts:2:16 - error PTS2001: a number doesn't convert to f32 implicitly

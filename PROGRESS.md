@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.2 Integer types
+- **Next task:** M1.3 Booleans and strings
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.2 Integer types: prelude aliases; the semantic pass `pts/check` (numeric types from annotations, untyped literals typed by context, lossless-only implicit conversions, PTS2001–PTS2003); wrapping integer arithmetic, truncating `/`, `RangeError` on division by zero and negative exponents; Rust `as`; exact 64-bit printing (D-012, SPEC §9.4).
 - M1.1 Numbers: arithmetic, unary minus/plus, comparisons and equality on numbers (and equality on booleans), `NaN`/`Infinity`; Ryu (`pts/third_party/ryu` v2.0) for Number::toString; `-ffp-contract=off`; generated differential corpus against Node (D-011, SPEC §9.3).
 - M0.8 Milestone M0: checklist run, CI green (run 38105342986 on `057efbe`), hello-world baseline numbers in `docs/BENCHMARKS.md`, tag `m0`, Telegram report.
 - M0.7 CI: `.github/workflows/pts.yml` (PTS tests with the Node differential required, touched upstream suites, upstream CLI/LSP suites); upstream `ci.yml` on demand only, dependabot version PRs off (D-010, `docs/FORK.md`).
@@ -23,9 +24,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.2 Integer types: prelude aliases `int i8 … u64 f32 f64`, a PTS semantic pass (literal typing from context, lossless-only implicit conversion, Rust `as`), wrapping integer arithmetic, truncating `/`, `RangeError` on division by zero, error tests for every rule. Note that `f32`/`f64` are floats.
-2. M1.3 Booleans and strings.
-3. M1.4a Control flow.
+1. M1.3 Booleans and strings (also fixes the lone-surrogate known issue).
+2. M1.4a Control flow: when adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered").
+3. M1.4b Modules.
 
 ## Build and test commands
 
@@ -39,7 +40,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number corpus); `make test-diff` for the Node differential tests alone | ok (10 run tests, 1 skipped as a known issue; 7 error tests; 5 generated number-corpus parts) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number corpus); `make test-diff` for the Node differential tests alone | ok (15 run tests, 1 skipped as a known issue; 18 error tests; 5 generated number-corpus parts) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -51,6 +52,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **Integer constant expressions wrap at run time** instead of failing to compile: `const b: u8 = 200 + 56` is 0 (D-012). A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Lone surrogates in string literals** (`"\uD800"`) reach the runtime as WTF-8 bytes and `console.log` writes them raw; Node writes U+FFFD. Fix with the string work in M1.3. Reproduced by the skipped test `pts/tests/run/lone_surrogate.pts`.
 - **Upstream, pre-existing:** `go test ./internal/execute/tsctests/ -run TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped` fails at the fork base too (verified with the PTS edits stashed). The help header's padding depends on the real version string, which changed on the 7.1 nightly branch after the baseline was written. Not ours; CI excludes it (M0.7).
 
@@ -60,6 +62,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.2 done.
 - 2026-10-11: M1.1 done.
 - 2026-10-11: M0.8 done; tagged `m0`.
 - 2026-10-11: M0.7 done.

@@ -19,6 +19,13 @@ const (
 	NotSupportedYet = "PTS1001"
 	// Unsupported marks a feature ParallelScript leaves out on purpose (docs/SPEC.md §3.10).
 	Unsupported = "PTS1002"
+
+	// NumericConversion marks an implicit numeric conversion that could change the value (§3.2).
+	NumericConversion = "PTS2001"
+	// NumericLiteral marks a literal that its numeric type can't hold.
+	NumericLiteral = "PTS2002"
+	// NumericMix marks an operator on two numeric types with no lossless common type.
+	NumericMix = "PTS2003"
 )
 
 // Diagnostic is one compile error.
