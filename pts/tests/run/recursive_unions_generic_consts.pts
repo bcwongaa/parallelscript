@@ -1,0 +1,60 @@
+// Recursive unions of object types (M3.7b): members of the same fields stay types of their
+// own (`add` and `mul`), a member with a required never property holds no values (the cons
+// member of a `List<never>`), and generic consts that return such types are monomorphized
+// where they are called (D-102), as their erased copies would make them for any.
+
+type Expr =
+  | { kind: "num"; value: number }
+  | { kind: "add"; left: Expr; right: Expr }
+  | { kind: "mul"; left: Expr; right: Expr }
+  | { kind: "neg"; arg: Expr };
+
+const num = (value: number): Expr => ({ kind: "num", value });
+const add = (left: Expr, right: Expr): Expr => ({ kind: "add", left, right });
+const mul = (left: Expr, right: Expr): Expr => ({ kind: "mul", left, right });
+
+function evaluate(e: Expr): number {
+  switch (e.kind) {
+    case "num":
+      return e.value;
+    case "add":
+      return evaluate(e.left) + evaluate(e.right);
+    case "mul":
+      return evaluate(e.left) * evaluate(e.right);
+    case "neg":
+      return -evaluate(e.arg);
+  }
+}
+
+const e = add(num(2), mul(num(3), { kind: "neg", arg: num(4) }));
+console.log(evaluate(e), JSON.stringify(e));
+
+type List<T> = { readonly kind: "nil" } | { readonly kind: "cons"; readonly head: T; readonly tail: List<T> };
+const NIL: List<never> = { kind: "nil" };
+const cons = <T>(head: T, tail: List<T>): List<T> => ({ kind: "cons", head, tail });
+
+function list<T>(...xs: T[]): List<T> {
+  return xs.reduceRight<List<T>>((acc, x) => cons(x, acc), NIL);
+}
+
+const pairUp = <A, B>(a: List<A>, b: List<B>): List<[A, B]> =>
+  a.kind === "nil" || b.kind === "nil" ? NIL : cons<[A, B]>([a.head, b.head], pairUp(a.tail, b.tail));
+
+function show<T>(l: List<T>): string {
+  const parts: string[] = [];
+  for (let cur = l; cur.kind === "cons"; cur = cur.tail) parts.push(String(cur.head));
+  return "(" + parts.join(" ") + ")";
+}
+
+console.log(show(list(1, 2, 3)), show(list("a", "b")), show(NIL), show(pairUp(list(1, 2, 3), list("x", "y"))));
+console.log(list(true));
+function fromArray<T>(xs: T[]): List<T> {
+  return xs.length === 0 ? NIL : cons(xs[0], fromArray(xs.slice(1)));
+}
+console.log(show(fromArray([])), show(fromArray([4, 5]))); // T is never for []
+
+// expect:
+// -10 {"kind":"add","left":{"kind":"num","value":2},"right":{"kind":"mul","left":{"kind":"num","value":3},"right":{"kind":"neg","arg":{"kind":"num","value":4}}}}
+// (1 2 3) (a b) () (1,x 2,y)
+// { kind: 'cons', head: true, tail: { kind: 'nil' } }
+// () (4 5)

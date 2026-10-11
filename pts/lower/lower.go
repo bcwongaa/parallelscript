@@ -145,7 +145,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, genericConsts: map[*ast.Symbol]*genericFunc{},
-		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
+		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
@@ -272,6 +272,8 @@ type lowerer struct {
 	staticContext       *ir.Class                        // the class whose static initialisers are being lowered, or nil
 	shapesByType        map[*checker.Type]*ir.Class      // the shape of each object type met; nil if it has none
 	shapesByKey         map[string]*ir.Class             // the shapes, by their fields (membersKey)
+	typesInProgress     map[ir.Type]bool                 // the shapes and interfaces being made
+	recursiveTypes      map[ir.Type]bool                 // shapes and interfaces their own members' types refer to
 	shapeList           []*ir.Class                      // the shapes, in the order they were made
 	interfacesByType    map[*checker.Type]*ir.Interface  // the interface of each object type met; nil if it has none
 	interfacesByKey     map[string]*ir.Interface         // the interfaces, by their members (membersKey)

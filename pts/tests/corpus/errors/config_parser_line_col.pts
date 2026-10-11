@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting Map<value, value> to Map<string, boolean | number | string> | null
 // An INI-style configuration parser that reports precise line/column errors.
 
 class ConfigSyntaxError extends Error {

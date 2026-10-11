@@ -880,6 +880,9 @@ double pts_value_function_length(pts_value function);
 struct pts_array *pts_value_key_array(pts_value value);
 void pts_object_assign(pts_value target, struct pts_array *sources);
 bool pts_value_same_value(pts_value a, pts_value b);
+/* Object.freeze marks an object frozen, and Object.isFrozen tests the mark (true for primitives); writes are not stopped (D-105). */
+void pts_value_freeze(pts_value value);
+bool pts_value_is_frozen(pts_value value);
 /*
  * What `for…of` iterates over for a dynamic value (D-078): an array or tuple itself, read
  * live, or a new array of a string's code points, a set's elements or a map's [key,

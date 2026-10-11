@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting Map<string, number> to Map<value, value>
 type Ratings = Map<string, Map<string, number>>;
 
 const raw: Array<[user: string, item: string, stars: number]> = [

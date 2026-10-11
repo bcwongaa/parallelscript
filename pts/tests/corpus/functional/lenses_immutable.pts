@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling `Object.isFrozen`
 // Functional lenses for immutable updates of nested state.
 
 interface Lens<S, A> {

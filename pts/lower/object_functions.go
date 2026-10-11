@@ -9,13 +9,13 @@ import (
 )
 
 // The functions of the global Object beyond hash-map objects (D-086): keys, values,
-// entries and hasOwn of any object, assign, freeze, is and fromEntries.
+// entries and hasOwn of any object, assign, freeze, isFrozen, is and fromEntries.
 
-// objectFunctionCall lowers Object.assign, Object.freeze, Object.is and
-// Object.fromEntries; handled is false for any other call.
+// objectFunctionCall lowers Object.assign, Object.freeze, Object.isFrozen, Object.is
+// and Object.fromEntries; handled is false for any other call.
 func (l *lowerer) objectFunctionCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
-	if !l.isObjectStatic(callee, "assign", "freeze", "is", "fromEntries") {
+	if !l.isObjectStatic(callee, "assign", "freeze", "isFrozen", "is", "fromEntries") {
 		return nil, false
 	}
 	if callee.Name().Text() != "assign" && l.hasSpreadArgument(call) {
@@ -24,15 +24,25 @@ func (l *lowerer) objectFunctionCall(call *ast.CallExpression) (x ir.Expr, handl
 	switch callee.Name().Text() {
 	case "assign":
 		return l.objectAssign(call), true
-	case "freeze": // Readonly<T> to tsc; freezing isn't enforced (D-086)
+	case "freeze": // Readonly<T> to tsc; marked, but writes aren't stopped (D-086, D-105)
 		x := l.expression(call.Arguments.Nodes[0])
+		t := l.irType(l.typeAt(call.AsNode()), call.AsNode())
+		if x == nil || t == nil {
+			return nil, true
+		}
+		frozen := l.newLocal("frozen", x.Type())
+		ref := &ir.LocalRef{Local: frozen}
+		result := l.convert(ref, t, call.AsNode())
+		if result == nil {
+			return nil, true
+		}
+		return &ir.Bind{Local: frozen, Value: x, In: &ir.Sequence{X: &ir.CallBuiltin{Builtin: ir.ValueFreeze, Args: []ir.Expr{box(ref)}}, Y: result}}, true
+	case "isFrozen":
+		x := l.valueExpression(call.Arguments.Nodes[0])
 		if x == nil {
 			return nil, true
 		}
-		if t := l.irType(l.typeAt(call.AsNode()), call.AsNode()); t != nil {
-			return l.convert(x, t, call.AsNode()), true
-		}
-		return nil, true
+		return &ir.CallBuiltin{Builtin: ir.ValueIsFrozen, Args: []ir.Expr{box(x)}}, true
 	case "is":
 		operands := l.expressions(call.Arguments.Nodes)
 		if operands == nil {

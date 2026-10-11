@@ -50,6 +50,29 @@ func (l *lowerer) unionType(t *checker.Type, node *ast.Node) ir.Type {
 	return l.unionOf(members)
 }
 
+// holdsMembersOf reports whether the values of node's type are all of members of u, its
+// members that no value has aside (`NIL: List<never>` as a `List<number>`).
+func (l *lowerer) holdsMembersOf(node *ast.Node, u *ir.Union) bool {
+	t := l.typeAt(node)
+	if t.Flags()&checker.TypeFlagsUnion == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {
+		return !l.isUninhabited(member) && !u.Has(l.irType(member, node))
+	})
+}
+
+// isUninhabited reports whether no value has the object type t: one with a required
+// property of type never (the cons member of a `List<never>`, `{ head: never; … }`).
+func (l *lowerer) isUninhabited(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsObject == 0 || l.checker.IsArrayType(t) || checker.IsTupleType(t) {
+		return false
+	}
+	return slices.ContainsFunc(l.checker.GetPropertiesOfType(t), func(property *ast.Symbol) bool {
+		return property.Flags&ast.SymbolFlagsOptional == 0 && l.checker.GetTypeOfSymbol(property).Flags()&checker.TypeFlagsNever != 0
+	})
+}
+
 // recurring is the IR type of an array or hash-map object type met again while mapping
 // it inside a union, which makes the unions being mapped recursive: their values are
 // dynamic (D-089). ok is false outside unions.
@@ -145,7 +168,7 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 	switch from := value.Type().(type) {
 	case *ir.Union:
-		if !slices.ContainsFunc(from.Members, func(m ir.Type) bool { return !u.Has(m) }) {
+		if !slices.ContainsFunc(from.Members, func(m ir.Type) bool { return !u.Has(m) }) || l.holdsMembersOf(node, u) {
 			return &ir.ToUnion{X: value, To: u}
 		}
 	default:
@@ -320,6 +343,9 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 		return x // never null or undefined, so y is never evaluated
 	}
 	t := l.typeAt(node)
+	if l.untypedCollectionContext(ast.SkipParentheses(expr.Right)) != nil {
+		t = l.checker.GetNonNullableType(l.typeAt(expr.Left)) // `m.get(k) ?? new Map()` is a Map<any, any> to tsc
+	}
 	required := t
 	if !mayHoldUndefined(l.typeAt(expr.Left)) {
 		// tsc took x to be never undefined, so its result has x's type, though x may be an

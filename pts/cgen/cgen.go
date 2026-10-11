@@ -1370,6 +1370,8 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueKeyArray:               "pts_value_key_array",
 	ir.ObjectAssign:                "pts_object_assign",
 	ir.ValueSameValue:              "pts_value_same_value",
+	ir.ValueFreeze:                 "pts_value_freeze",
+	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",
 	ir.ValueIterableLength:         "pts_value_iterable_length",
 	ir.ValueIterableElement:        "pts_value_iterable_element",

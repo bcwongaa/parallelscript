@@ -370,6 +370,22 @@ static void threads_allocate_while_others_collect(void) {
   }
 }
 
+static void frozen_marks_go_with_their_objects(void) {
+  node *kept = pts_object_new(&node_type);
+  pts_value_freeze(pts_value_from_object(kept));
+  for (int i = 0; i < 100000; i++) {
+    pts_value_freeze(pts_value_from_object(pts_object_new(&node_type))); /* garbage once frozen */
+  }
+  GC_gcollect();
+  int frozen = 0;
+  for (int i = 0; i < 100000; i++) { /* reusing the dead ones' addresses */
+    frozen += pts_value_is_frozen(pts_value_from_object(pts_object_new(&node_type)));
+  }
+  CHECK(frozen == 0);
+  CHECK(pts_value_is_frozen(pts_value_from_object(kept)));
+  CHECK(pts_value_is_frozen(pts_value_from_string(pts_string_from_cstr("s")))); /* a primitive */
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   bitmap_descriptors_name_words_from_the_header();
@@ -386,5 +402,6 @@ int main(int argc, char **argv) {
   collection_keeps_everything_objects_point_to();
   unreachable_objects_are_collected();
   threads_allocate_while_others_collect();
+  frozen_marks_go_with_their_objects();
   return CHECK_DONE();
 }

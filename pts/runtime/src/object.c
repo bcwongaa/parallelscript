@@ -1,6 +1,8 @@
 #include "pts.h"
 
 #include <gc_gcj.h>
+#include <pthread.h>
+#include <stdlib.h>
 
 /*
  * Instances that hold pointers are allocated gcj-style: bdwgc stores the type pointer
@@ -287,4 +289,119 @@ bool pts_object_has(const void *object, const char *name) {
   }
   return field->kind != PTS_FIELD_VALUE ||
          __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) != PTS_VALUE_ABSENT;
+}
+
+/*
+ * Object.freeze's mark (D-105): the frozen objects, in a hash table of nodes outside the
+ * collected heap, so that the table keeps none of them alive. Each node's pointer is a
+ * disappearing link, which the collector clears when its object dies, before the address
+ * can be reused; cleared nodes are dropped when their bucket is next searched.
+ */
+typedef struct frozen_node {
+  void *object; /* NULL once the collector cleared it */
+  struct frozen_node *next;
+} frozen_node;
+
+static pthread_mutex_t frozen_lock = PTHREAD_MUTEX_INITIALIZER;
+static frozen_node **frozen_buckets;
+static size_t frozen_bucket_count; /* a power of two, or 0 */
+static size_t frozen_count;
+
+static size_t frozen_bucket(const void *object, size_t bucket_count) {
+  uint64_t h = (uint64_t)(uintptr_t)object * 0x9E3779B97F4A7C15ull;
+  return (size_t)(h ^ (h >> 32)) & (bucket_count - 1);
+}
+
+/* frozen_find returns object's node, dropping the cleared nodes of its bucket; NULL if it has none. */
+static frozen_node *frozen_find(const void *object) {
+  if (frozen_bucket_count == 0) {
+    return NULL;
+  }
+  frozen_node **link = &frozen_buckets[frozen_bucket(object, frozen_bucket_count)];
+  while (*link != NULL) {
+    frozen_node *node = *link;
+    void *frozen = node->object;
+    if (frozen == object) {
+      return node;
+    }
+    if (frozen == NULL) {
+      *link = node->next; /* the collector unregistered the link when it cleared it */
+      free(node);
+      frozen_count--;
+      continue;
+    }
+    link = &node->next;
+  }
+  return NULL;
+}
+
+static void frozen_grow(void) {
+  size_t bucket_count = frozen_bucket_count == 0 ? 64 : frozen_bucket_count * 2;
+  frozen_node **buckets = calloc(bucket_count, sizeof *buckets);
+  if (buckets == NULL) {
+    pts_panic("RangeError", "Out of memory freezing an object");
+  }
+  for (size_t i = 0; i < frozen_bucket_count; i++) {
+    for (frozen_node *node = frozen_buckets[i], *next; node != NULL; node = next) {
+      next = node->next;
+      void *frozen = node->object;
+      if (frozen == NULL) {
+        free(node);
+        frozen_count--;
+        continue;
+      }
+      size_t b = frozen_bucket(frozen, bucket_count);
+      node->next = buckets[b];
+      buckets[b] = node;
+    }
+  }
+  free(frozen_buckets);
+  frozen_buckets = buckets;
+  frozen_bucket_count = bucket_count;
+}
+
+/* is_primitive reports whether a value is a primitive, which JS's freezing functions take as frozen already. */
+static bool is_primitive(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return true;
+  }
+  pts_kind kind = pts_value_as_object(value)->type->kind;
+  return kind == PTS_KIND_STRING || kind == PTS_KIND_INT64 || kind == PTS_KIND_UINT64;
+}
+
+void pts_value_freeze(pts_value value) {
+  if (is_primitive(value)) {
+    return;
+  }
+  pts_object *object = pts_value_as_object(value);
+  pthread_mutex_lock(&frozen_lock);
+  if (frozen_find(object) == NULL) {
+    if (frozen_count >= frozen_bucket_count) {
+      frozen_grow();
+    }
+    frozen_node *node = malloc(sizeof *node);
+    if (node == NULL) {
+      pthread_mutex_unlock(&frozen_lock);
+      pts_panic("RangeError", "Out of memory freezing an object");
+    }
+    size_t b = frozen_bucket(object, frozen_bucket_count);
+    node->object = object;
+    node->next = frozen_buckets[b];
+    frozen_buckets[b] = node;
+    frozen_count++;
+    if (GC_base(object) == object) { /* a static object never dies */
+      GC_general_register_disappearing_link(&node->object, object);
+    }
+  }
+  pthread_mutex_unlock(&frozen_lock);
+}
+
+bool pts_value_is_frozen(pts_value value) {
+  if (is_primitive(value)) {
+    return true;
+  }
+  pthread_mutex_lock(&frozen_lock);
+  bool frozen = frozen_find(pts_value_as_object(value)) != NULL;
+  pthread_mutex_unlock(&frozen_lock);
+  return frozen;
 }

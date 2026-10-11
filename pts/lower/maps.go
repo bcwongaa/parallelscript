@@ -82,15 +82,31 @@ func (l *lowerer) isMapConstructor(node *ast.Node) bool {
 	return callee.Kind == ast.KindIdentifier && (callee.Text() == "Map" || callee.Text() == "Set") && l.isDeclaredInDefaultLib(l.target(callee))
 }
 
+// untypedCollectionContext is the map or set type the context of `new Map()` or `new
+// Set()` without arguments or type arguments (node) gives it, with null and undefined
+// left out (`current = new Map()` for a `Map<K, V> | null`); nil for any other node.
+func (l *lowerer) untypedCollectionContext(node *ast.Node) *checker.Type {
+	if node.Kind != ast.KindNewExpression || !l.isMapConstructor(node) || len(node.Arguments()) > 0 || node.TypeArgumentList() != nil {
+		return nil
+	}
+	contextual := l.contextualType(node)
+	if contextual == nil {
+		return nil
+	}
+	contextual = l.checker.GetNonNullableType(contextual)
+	if _, ok := l.libCollection(contextual); !ok {
+		return nil
+	}
+	return contextual
+}
+
 // newMap lowers `new Map()`, `new Set()`, a copy (`new Map(map)`, `new Map(m.entries())`,
 // `new Set(set)`), `new Set(array)` and `new Map(entries)` of an array of [key, value]
 // pairs.
 func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	checkerType := l.typeAt(node)
-	if contextual := l.contextualType(node); contextual != nil && len(node.Arguments()) == 0 && node.TypeArgumentList() == nil {
-		if _, ok := l.libCollection(contextual); ok {
-			checkerType = contextual // `new Map()` is a Map<any, any> to tsc; its context says what it holds
-		}
+	if contextual := l.untypedCollectionContext(node); contextual != nil {
+		checkerType = contextual // `new Map()` is a Map<any, any> to tsc; its context says what it holds
 	}
 	t := l.irType(checkerType, node)
 	if t == nil {

@@ -1,0 +1,33 @@
+// Object.freeze marks an object and Object.isFrozen tests the mark; primitives are frozen
+// already (D-105). Writes to frozen objects aren't stopped yet.
+
+const plain = { a: 1 };
+const frozen = Object.freeze({ b: 2, items: [1, 2] });
+console.log(Object.isFrozen(plain), Object.isFrozen(frozen), Object.isFrozen(frozen.items));
+console.log(Object.isFrozen("text"), Object.isFrozen(3), Object.isFrozen(null), Object.isFrozen(undefined));
+
+const list = Object.freeze([1, 2, 3]);
+console.log(Object.isFrozen(list), list);
+
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+const p = new Point(1, 2);
+Object.freeze(p);
+console.log(Object.isFrozen(p), Object.isFrozen(new Point(3, 4)), Object.freeze(p) === p);
+
+let count = 0;
+for (let i = 0; i < 50000; i++) {
+  if (Object.isFrozen(Object.freeze({ i }))) count++;
+}
+console.log(count, Object.isFrozen({ i: 1 }));
+
+// expect:
+// false true false
+// true true true true
+// true [ 1, 2, 3 ]
+// true false true
+// 50000 false

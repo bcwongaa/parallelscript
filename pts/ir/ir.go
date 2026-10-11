@@ -1112,6 +1112,9 @@ var (
 	ValueKeyArray  = &Builtin{Name: "Object.keys", Params: []Type{Value}, Result: StringArray}
 	ObjectAssign   = &Builtin{Name: "Object.assign", Params: []Type{Value, ValueArray}, Result: Void}
 	ValueSameValue = &Builtin{Name: "Object.is", Params: []Type{Value, Value}, Result: Bool}
+	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).
+	ValueFreeze   = &Builtin{Name: "Object.freeze", Params: []Type{Value}, Result: Void}
+	ValueIsFrozen = &Builtin{Name: "Object.isFrozen", Params: []Type{Value}, Result: Bool}
 	// ValueIterable is what `for…of` iterates over for a dynamic value: an array or tuple
 	// itself, or a new array of the items of a string, set or map (D-078); its second
 	// argument is the iterated expression's source text, for V8's `TypeError: x is not

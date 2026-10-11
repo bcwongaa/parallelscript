@@ -1,0 +1,40 @@
+// `new Map()` and `new Set()` without type arguments are a Map<any, any> and a Set<any> to
+// tsc; their context says what they hold, also where it allows null or undefined, and as
+// the fallback of `??` (M3.7b).
+
+const sections = new Map<string, Map<string, number>>();
+let current: Map<string, number> | null = null;
+for (const line of ["[a]", "x=1", "y=2", "[b]", "z=3"]) {
+  if (line.startsWith("[")) {
+    current = new Map();
+    sections.set(line.slice(1, -1), current);
+  } else if (current !== null) {
+    const [key, value] = line.split("=");
+    current.set(key, Number(value));
+  }
+}
+console.log(sections);
+
+let seen: Set<string> | undefined;
+seen = new Set();
+seen.add("k");
+console.log(seen);
+
+function total(m: Map<string, number>): number {
+  let sum = 0;
+  for (const v of m.values()) sum += v;
+  return sum;
+}
+console.log(total(sections.get("a") ?? new Map()), total(sections.get("zzz") ?? new Map()));
+const fallback: Map<string, number> = sections.get("nope") ?? new Map();
+fallback.set("w", 9);
+console.log(fallback, total(fallback));
+
+// expect:
+// Map(2) {
+//   'a' => Map(2) { 'x' => 1, 'y' => 2 },
+//   'b' => Map(1) { 'z' => 3 }
+// }
+// Set(1) { 'k' }
+// 3 0
+// Map(1) { 'w' => 9 } 9

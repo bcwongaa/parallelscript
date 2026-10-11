@@ -199,6 +199,9 @@ func (l *lowerer) makesGenericInstances(generic *genericFunc, seen map[*genericF
 		return false
 	}
 	seen[generic] = true
+	if l.returnsGenericObjects(generic) {
+		return true
+	}
 	found := false
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
@@ -218,6 +221,26 @@ func (l *lowerer) makesGenericInstances(generic *genericFunc, seen map[*genericF
 	}
 	visit(generic.node.Body())
 	return found
+}
+
+// returnsGenericObjects reports whether a generic const's function returns objects of a
+// type that mentions its type parameters other than an array's (`List<T>`, `Parser<T>`,
+// `Map<K, V>`): its erased copy would make them for any (`List<any>`), which doesn't
+// convert to an instance's type, as instances of generic classes don't (D-102).
+func (l *lowerer) returnsGenericObjects(generic *genericFunc) bool {
+	result := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(generic.node))
+	members := []*checker.Type{result}
+	if result.Flags()&checker.TypeFlagsUnion != 0 {
+		members = result.Types()
+	}
+	anys := make([]*checker.Type, len(generic.parameters))
+	for i := range anys {
+		anys[i] = l.checker.GetAnyType()
+	}
+	return slices.ContainsFunc(members, func(m *checker.Type) bool {
+		return m.Flags()&checker.TypeFlagsObject != 0 && !l.checker.IsArrayType(m) &&
+			l.checker.PtsInstantiateType(m, generic.parameters, anys) != l.checker.PtsInstantiateType(m, generic.parameters, generic.parameters)
+	})
 }
 
 // isGeneric reports whether a declaration has type parameters of its own, other than as

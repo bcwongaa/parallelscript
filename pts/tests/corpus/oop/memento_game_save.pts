@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling `Object.isFrozen`
 // Memento pattern: an RPG character whose state is saved to and restored from snapshots, plus JSON save files.
 
 interface Stats {

@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting {kind: string} | {head: value; kind: string; tail: {kind: string} | {...}} to {kind: string} | {head: number; kind: string; tail: {kind: string} | {...}}
 // A persistent functional linked list with cons/map/filter/fold and structural sharing.
 
 type List<T> = { readonly kind: "nil" } | { readonly kind: "cons"; readonly head: T; readonly tail: List<T> };

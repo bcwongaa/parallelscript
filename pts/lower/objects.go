@@ -48,17 +48,18 @@ func (l *lowerer) isObjectType(t *checker.Type) bool {
 // (at node) why a type has no shape and returns nil.
 func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	if shape, ok := l.shapesByType[t]; ok {
+		l.noteRecursion(shape)
 		return shape // nil if it failed, which was reported
 	}
 	shape := &ir.Class{Shape: true}
 	l.shapesByType[t] = shape // a recursive type finds itself here
-	fields, methods, ok := l.objectMembers(t, node)
+	fields, methods, ok := l.membersMaking(shape, t, node)
 	if !ok {
 		l.shapesByType[t] = nil
 		return nil
 	}
 	key := membersKey(fields, methods) + l.accessorsKey(t)
-	if existing, ok := l.shapesByKey[key]; ok {
+	if existing, ok := l.shapesByKey[key]; ok && !l.recursiveTypes[shape] {
 		l.shapesByType[t] = existing
 		return existing
 	}
@@ -72,7 +73,9 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 		field.Class = shape
 	}
 	shape.Fields = fields
-	l.shapesByKey[key] = shape
+	if _, ok := l.shapesByKey[key]; !ok {
+		l.shapesByKey[key] = shape
+	}
 	l.shapeList = append(l.shapeList, shape)
 	return shape
 }
@@ -122,24 +125,44 @@ func (l *lowerer) accessorsKey(t *checker.Type) string {
 // returns nil.
 func (l *lowerer) interfaceOf(t *checker.Type, node *ast.Node) *ir.Interface {
 	if iface, ok := l.interfacesByType[t]; ok {
+		l.noteRecursion(iface)
 		return iface // nil if it failed, which was reported
 	}
 	iface := &ir.Interface{}
 	l.interfacesByType[t] = iface
-	fields, methods, ok := l.objectMembers(t, node)
+	fields, methods, ok := l.membersMaking(iface, t, node)
 	if !ok {
 		l.interfacesByType[t] = nil
 		return nil
 	}
 	key := membersKey(fields, methods)
-	if existing, ok := l.interfacesByKey[key]; ok {
+	if existing, ok := l.interfacesByKey[key]; ok && !l.recursiveTypes[iface] {
 		l.interfacesByType[t] = existing
 		return existing
 	}
 	iface.Fields, iface.Methods = fields, methods
-	l.interfacesByKey[key] = iface
+	if _, ok := l.interfacesByKey[key]; !ok {
+		l.interfacesByKey[key] = iface
+	}
 	l.interfaceList = append(l.interfaceList, iface)
 	return iface
+}
+
+// membersMaking is objectMembers for made, the shape or interface of t being made. The types
+// of t's members may refer to made (`left: Expr` in a member of the union Expr); then
+// made stays a type of its own, though another type has the same members (`add` and
+// `mul` members of the same fields), since those references hold it.
+func (l *lowerer) membersMaking(made ir.Type, t *checker.Type, node *ast.Node) ([]*ir.Field, []*ir.InterfaceMethod, bool) {
+	l.typesInProgress[made] = true
+	defer delete(l.typesInProgress, made)
+	return l.objectMembers(t, node)
+}
+
+// noteRecursion records that a shape or interface was found while it was being made.
+func (l *lowerer) noteRecursion(t ir.Type) {
+	if t != nil && l.typesInProgress[t] {
+		l.recursiveTypes[t] = true
+	}
 }
 
 // objectMembers makes a field (of no class yet) for each property of an object type and

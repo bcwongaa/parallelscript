@@ -1,4 +1,3 @@
-// skip: diverges: TypeError converting a literal object to a recursive union of object types (Expected null | {rest: …; top: number}, got Object)
 // A purely functional FIFO queue built from two immutable stacks, with a simulation of a print shop.
 
 type Stack<T> = { readonly top: T; readonly rest: Stack<T> } | null;
