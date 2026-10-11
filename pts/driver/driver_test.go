@@ -85,11 +85,11 @@ func TestTypeErrorsStopTheBuild(t *testing.T) {
 
 func TestUnsupportedSyntaxStopsTheBuild(t *testing.T) {
 	t.Parallel()
-	entry := writeSource(t, `for (const x of "ab") console.log(x);`)
+	entry := writeSource(t, `for (const x in { a: 1 }) console.log(x);`)
 
 	_, err := driver.EmitC(t.Context(), entry)
 
 	diagnostics := compileErrors(t, err)
 	assert.Equal(t, len(diagnostics), 1)
-	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:1:1 - error PTS1001: for of statement is not supported yet")
+	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:1:1 - error PTS1001: for in statement is not supported yet")
 }

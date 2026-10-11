@@ -36,6 +36,7 @@ static void write_value(FILE *out, pts_value value) {
       fprintf(out, "%" PRIu64, ((pts_boxed_uint64 *)object)->value);
       return;
     case PTS_KIND_OBJECT:
+    case PTS_KIND_ARRAY:
       pts_inspect_write(out, object);
       return;
     }

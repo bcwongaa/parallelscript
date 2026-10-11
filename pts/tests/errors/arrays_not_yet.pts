@@ -1,0 +1,29 @@
+// Array features that arrive later are reported: spread, methods of M2.4b and M2.4c,
+// for...of over other iterables (M4.1), tuples, converting arrays between element types,
+// and arrays as strings (join, M2.4b).
+const a = [1, 2, 3];
+const copy = [...a];
+const tail = a.slice(1);
+let n = 0;
+for (n of a) {
+}
+for (const ch of "abc") {
+}
+const pair: [number, string] = [1, "one"];
+class Pixel {
+  constructor(public x: number, public y: number) {}
+}
+interface Point {
+  x: number;
+  y: number;
+}
+const pixels = [new Pixel(1, 2)];
+const points: Point[] = pixels;
+console.log("" + a);
+// error: arrays_not_yet.pts:5:15 - error PTS1001: spreading `...` into an array literal is not supported yet
+// error: arrays_not_yet.pts:6:14 - error PTS1001: the array method `slice` is not supported yet
+// error: arrays_not_yet.pts:8:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
+// error: arrays_not_yet.pts:10:18 - error PTS1001: `for...of` over a string is not supported yet
+// error: arrays_not_yet.pts:12:7 - error PTS1001: values of type [number, string] are not supported yet
+// error: arrays_not_yet.pts:21:25 - error PTS1001: converting Pixel[] to {x: number; y: number}[] is not supported yet
+// error: arrays_not_yet.pts:22:18 - error PTS1001: converting number[] to a string is not supported yet

@@ -234,6 +234,14 @@ func FormatExpr(expr Expr) string {
 		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
 	case *InterfaceCall:
 		return "interface " + e.Method.Name + formatArgs(e.Args)
+	case *NewArray:
+		elems := make([]string, len(e.Elems))
+		for i, elem := range e.Elems {
+			elems[i] = FormatExpr(elem)
+		}
+		return e.Array.String() + "[" + strings.Join(elems, ", ") + "]"
+	case *ArrayCall:
+		return "array." + e.Op.String() + formatArgs(e.Args)
 	case *ClassCast:
 		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:

@@ -1,0 +1,13 @@
+// Arrays of the integer types and f32 arrive with generics (M2.6, D-038): the checker
+// sees their elements as numbers.
+const bytes: u8[] = [1, 2];
+const words: Array<i32> = [];
+type Floats = readonly f32[];
+function sum(values: ReadonlyArray<int>): int {
+  return 0;
+}
+
+// error: arrays_of_integers.pts:3:14 - error PTS1001: arrays of u8 are not supported yet
+// error: arrays_of_integers.pts:4:14 - error PTS1001: arrays of i32 are not supported yet
+// error: arrays_of_integers.pts:5:24 - error PTS1001: arrays of f32 are not supported yet
+// error: arrays_of_integers.pts:6:22 - error PTS1001: arrays of int are not supported yet

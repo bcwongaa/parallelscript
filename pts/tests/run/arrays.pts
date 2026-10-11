@@ -1,0 +1,84 @@
+// Arrays: literals, length, reading and writing elements, push, pop, shift, unshift,
+// for...of, and console.log as Node prints them.
+const primes: number[] = [2, 3, 5, 7];
+const words = ["alpha", "beta"];
+const flags: Array<boolean> = [true, false, true];
+console.log(primes, words, flags, primes.length);
+
+// Elements: reads, writes, compound assignment and ++, appending at the end.
+primes[0] = 1;
+primes[1] += 10;
+primes[2]++;
+primes[primes.length] = 11;
+console.log(primes, primes[3] * 2, words[1] + "!");
+
+// push and unshift take several values and return the new length.
+const stack: number[] = [];
+console.log(stack.push(1), stack.push(2, 3), stack.unshift(-1, 0), stack);
+console.log(stack.pop(), stack.shift(), stack, stack.pop()! + stack.shift()!);
+console.log(stack, stack.pop(), stack.shift(), stack.length);
+
+// Reading past the end is undefined where any value can go (D-015).
+const few = [10, 20];
+console.log(few[2], few[-1], few[0.5], "" + few[5], `${few[9]}`);
+if (few[3]) {
+  console.log("unreachable");
+}
+
+// length can shrink an array.
+const letters = ["a", "b", "c", "d"];
+letters.length = 2;
+console.log(letters, letters.length);
+letters.length = 0;
+console.log(letters);
+
+// for...of sees elements pushed while it runs, and stops early with break.
+const queue = [1, 2];
+for (const n of queue) {
+  if (n < 4) {
+    queue.push(n * 2 + 1);
+  }
+  if (n > 8) {
+    break;
+  }
+}
+console.log(queue);
+let sum = 0;
+outer: for (const row of [[1, 2], [3, 4], [5, 6]]) {
+  for (const cell of row) {
+    if (cell === 4) {
+      continue outer;
+    }
+    sum += cell;
+  }
+}
+console.log(sum, Array.isArray(queue));
+
+// Arrays of objects, objects holding arrays, arrays of arrays.
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+const points = [new Point(1, 2), new Point(3, 4)];
+points.push(new Point(5, 6));
+const grid: number[][] = [[1, 2, 3], [4, 5, 6]];
+grid[1][2] = 60;
+const shape = { name: "triangle", corners: points };
+console.log(points[2].x, grid, shape, grid[0] === grid[0], grid[0] === grid[1]);
+
+// Node groups more than six short entries into columns, and prints at most 100.
+const counting: number[] = [];
+for (let i = 0; i < 26; i++) {
+  counting.push(i * i);
+}
+console.log(counting);
+const many: number[] = [];
+for (let i = 0; i < 120; i++) {
+  many.push(i);
+}
+console.log(many);
+console.log(["a", "bb", "ccc", "dddd", "eeeee", "ffffff", "ggggggg", "hhhhhhhh"]);
+console.log([true, false, true, false, true, false, true]);
+console.log([[[[1]]]], [[[]]], { deep: { deeper: { deepest: [1, 2] } } });
+const long = ["a fairly long string to fill the line", "another fairly long string", "and a third"];
+console.log(long, [long, long]);
+console.log([-0, 0.1, 1e21, NaN, -Infinity], [], [[]], [{}]);

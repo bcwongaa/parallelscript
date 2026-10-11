@@ -1,0 +1,77 @@
+// Arrays as parameters, results, fields and interface properties; cycles through
+// arrays; JS's evaluation order for element reads and writes.
+interface Polygon {
+  name: string;
+  corners: number[];
+}
+class Tree {
+  children: Tree[] = [];
+  constructor(public label: string) {}
+  add(child: Tree): Tree {
+    this.children.push(child);
+    return this;
+  }
+}
+
+function total(values: number[]): number {
+  let sum = 0;
+  for (const v of values) {
+    sum += v;
+  }
+  return sum;
+}
+function squares(n: number): number[] {
+  const result: number[] = [];
+  for (let i = 1; i <= n; i++) {
+    result.push(i * i);
+  }
+  return result;
+}
+function perimeter(p: Polygon): number {
+  return total(p.corners);
+}
+
+console.log(total(squares(4)), squares(3), perimeter({ name: "tri", corners: [3, 4, 5] }));
+
+// A tree whose node is its own child prints with a reference marker.
+const root = new Tree("root");
+root.add(new Tree("leaf")).add(root);
+console.log(root);
+console.log(root.children.length, root.children[0].label, root.children[1] === root);
+
+// The array and the index are evaluated once, before the value.
+const log: string[] = [];
+function pick(arr: number[], name: string): number[] {
+  log.push("array " + name);
+  return arr;
+}
+function at(i: number): number {
+  log.push("index " + i);
+  return i;
+}
+const data = [1, 2, 3];
+pick(data, "a")[at(0)] += 10;
+pick(data, "b")[at(1)]++;
+const old = pick(data, "c")[at(2)]--;
+pick(data, "d")[at(3)] = data.length;
+console.log(data, old, log);
+
+// Strings and booleans in arrays print as Node prints them.
+const notes = ["it's", 'say "hi"', "tab\there", "line\nbreak"];
+console.log(notes, notes.length, [notes[3]]);
+const matrix: string[][] = [];
+for (let row = 0; row < 3; row++) {
+  const cells: string[] = [];
+  for (let col = 0; col < 3; col++) {
+    cells.push(row === col ? "x" : ".");
+  }
+  matrix.push(cells);
+}
+console.log(matrix);
+for (const row of matrix) {
+  let line = "";
+  for (const cell of row) {
+    line += cell;
+  }
+  console.log(line);
+}

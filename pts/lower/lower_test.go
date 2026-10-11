@@ -125,8 +125,8 @@ func TestTypeOnlyDeclarationsProduceNoCode(t *testing.T) {
 
 func TestUnsupportedStatementIsReportedAtItsPosition(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(1);\n  for (const c of \"ab\") {}\n")
-	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: for of statement is not supported yet")
+	err := lowerInvalid(t, "console.log(1);\n  for (const c in { a: 1 }) {}\n")
+	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: for in statement is not supported yet")
 }
 
 func TestArithmeticFollowsTypeScriptPrecedence(t *testing.T) {
@@ -183,14 +183,14 @@ func TestUnsupportedOperatorIsNamed(t *testing.T) {
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "const xs: number[] = [];")
+	err := lowerInvalid(t, `const pair: [number, string] = [1, "one"];`)
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "values of type number[] are not supported yet")
+	assert.Equal(t, err.Message, "values of type [number, string] are not supported yet")
 }
 
 func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "const xs: number[] = [];\nconsole.log(xs);\n")
+	err := lowerInvalid(t, "const pair: [number, string] = [1, \"one\"];\nconsole.log(pair);\n")
 	assert.Equal(t, err.Line, 1)
 }
 
@@ -730,6 +730,33 @@ func Square.scale(this: Square, by: number) void {
 func grow(s: {name: string; area(): number; scale(number): void}) string {
   9: interface scale(s, 2)
   10: return (s.name ++ str(interface area(s)))
+}
+`)
+}
+
+func TestArrayElementsAndForOfLowerToArrayOperations(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function grid(): number[][] { return [[1, 2], [3]]; }
+grid()[0][1] += 5;
+for (const row of grid()) {
+  console.log(row[9], row.pop()!, row.length);
+}
+`)
+	// A compound assignment evaluates the array and index once; for...of reads the length
+	// before each iteration; a[i] is unchecked only where any value can go (D-015).
+	assert.Equal(t, got, `func main() void {
+  2: (let object = array.elementChecked(grid(), 0) in (let current = array.elementChecked(object, 1) in array.setElement(object, 1, (current + 5))))
+  3: {
+    3: let array: number[][] = grid()
+    3: let index: number = 0
+    3: #1: for (index < array.length(array)); (index = (index + 1)) {
+      3: let row: number[] = array.elementChecked(array, index)
+      4: console.log(array.element(row, 9), box(array.popChecked(row)), box(array.length(row)))
+    }
+  }
+}
+func grid() number[][] {
+  1: return number[][][number[][1, 2], number[][3]]
 }
 `)
 }

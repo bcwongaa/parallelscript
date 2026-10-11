@@ -1,0 +1,11 @@
+// Reading an array element out of range where a number is required throws RangeError (D-015, D-038).
+const a = [1, 2];
+console.log(a[1]);
+const x: number = a[5];
+console.log("unreachable", x);
+
+// no-diff: Node gives undefined, which a number cannot hold; a documented difference (docs/SPEC.md §8, D-038)
+// expect:
+// 2
+// exit: 1
+// stderr: RangeError: Array index 5 is out of range (length 2)

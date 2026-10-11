@@ -1,0 +1,12 @@
+// Writing past the end of an array (leaving holes) throws RangeError (D-038).
+const a = [1, 2];
+a[2] = 3;
+console.log(a);
+a[4] = 5;
+console.log("unreachable");
+
+// no-diff: Node leaves a hole at index 3, which arrays here cannot have; a documented difference (docs/SPEC.md §8, D-038)
+// expect:
+// [ 1, 2, 3 ]
+// exit: 1
+// stderr: RangeError: Array index 4 is out of range (length 3)

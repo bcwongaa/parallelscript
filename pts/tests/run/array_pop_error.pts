@@ -1,0 +1,11 @@
+// pop()! on an empty array throws RangeError (D-038).
+const a: number[] = [7];
+console.log(a.pop()! + 1);
+const b: number = a.pop()!;
+console.log("unreachable", b);
+
+// no-diff: Node gives undefined, which a number cannot hold; a documented difference (docs/SPEC.md §8, D-038)
+// expect:
+// 8
+// exit: 1
+// stderr: RangeError: pop() of an empty array

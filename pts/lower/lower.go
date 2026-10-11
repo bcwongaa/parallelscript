@@ -128,7 +128,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
-		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}}
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -209,6 +209,7 @@ type lowerer struct {
 	interfacesByType   map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
 	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their members (membersKey)
 	interfaceList      []*ir.Interface                 // the interfaces, in the order they were made
+	arrays             map[ir.Type]*ir.Array           // the array type of each element type met
 	this               map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
 	lowered            []*ir.Func                      // the functions whose bodies are lowered
 	bodies             []*ast.Node                     // function declarations whose bodies are still to be lowered
@@ -266,7 +267,7 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		if s := l.ifStatement(node); s != nil {
 			return []ir.Stmt{s}
 		}
-	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindSwitchStatement:
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindSwitchStatement:
 		return l.breakable(node, "")
 	case ast.KindLabeledStatement:
 		return l.labeledStatement(node)
@@ -345,7 +346,7 @@ func (l *lowerer) labeledStatement(node *ast.Node) []ir.Stmt {
 	labeled := node.AsLabeledStatement()
 	name := labeled.Label.Text()
 	switch labeled.Statement.Kind {
-	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindSwitchStatement:
+	case ast.KindWhileStatement, ast.KindDoStatement, ast.KindForStatement, ast.KindForOfStatement, ast.KindSwitchStatement:
 		return l.breakable(labeled.Statement, name)
 	}
 	label := &ir.Label{Name: name}
@@ -368,6 +369,8 @@ func (l *lowerer) breakable(node *ast.Node, name string) []ir.Stmt {
 		return l.doStatement(node, label)
 	case ast.KindForStatement:
 		return l.forStatement(node, label)
+	case ast.KindForOfStatement:
+		return l.forOfStatement(node, label)
 	default:
 		return l.switchStatement(node, label)
 	}
@@ -675,7 +678,7 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return box(value)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
 		return &ir.Convert{X: value, To: target}
-	case isObject(value.Type()) && isObject(target):
+	case isObject(value.Type()) && isObject(target) && !isArray(value.Type()) && !isArray(target):
 		return l.objectCast(value, target, node)
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
@@ -880,7 +883,14 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 	case ast.KindPropertyAccessExpression:
 		return l.propertyAccess(node)
 	case ast.KindElementAccessExpression:
+		if l.isArrayElement(node) {
+			return l.arrayElement(node, ir.ArrayElementChecked)
+		}
 		return l.stringElement(node, ir.StringElementChecked)
+	case ast.KindArrayLiteralExpression:
+		return l.arrayLiteral(node)
+	case ast.KindNonNullExpression:
+		return l.nonNull(node)
 	case ast.KindThisKeyword:
 		return l.thisExpression(node)
 	case ast.KindNewExpression:
@@ -893,11 +903,15 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 }
 
 // valueExpression lowers an expression whose context takes any value, such as an
-// argument of console.log. There s[i] keeps JS's undefined for an index out of range
-// (D-015); everything else lowers as usual.
+// argument of console.log. There s[i] and a[i] keep JS's undefined for an index out of
+// range (D-015); everything else lowers as usual.
 func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
-	if inner := ast.SkipParentheses(node); l.isStringElement(inner) {
+	inner := ast.SkipParentheses(node)
+	switch {
+	case l.isStringElement(inner):
 		return l.stringElement(inner, ir.StringElement)
+	case l.isArrayElement(inner):
+		return l.arrayElement(inner, ir.ArrayElement)
 	}
 	return l.expression(node)
 }
@@ -964,6 +978,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if l.isObjectTypeMethod(l.memberDeclaration(ast.SkipParentheses(call.Expression))) {
 		return l.interfaceMethodCall(call)
+	}
+	if l.isArrayMethodCall(node) {
+		return l.arrayMethodCall(call, false)
+	}
+	if l.isArrayIsArray(ast.SkipParentheses(call.Expression)) {
+		return l.arrayIsArray(call)
 	}
 	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
@@ -1187,6 +1207,9 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if l.isArrayExpression(node.Expression()) {
+		return l.arrayProperty(node)
+	}
 	member := l.memberDeclaration(node)
 	if field := l.fields[member]; field != nil {
 		return l.fieldAccess(node, field)
@@ -1370,8 +1393,8 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 	if value = l.convert(value, target.valueType(), expr.Right); value == nil {
 		return nil
 	}
-	if target.local != nil || target.field != nil {
-		return target.store(value, false) // C stores a field after evaluating the instance
+	if target.local != nil || target.field != nil || target.index != nil || target.arrayLength {
+		return target.store(value, false) // the store evaluates the instance (or array and index) first
 	}
 	return l.withObject(target, func(target place) ir.Expr { return target.store(value, false) })
 }
@@ -1426,14 +1449,16 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 // interface, a property of an object), or an accessor property of an instance, whose
 // setter stores (and getter reads).
 type place struct {
-	local     *ir.Local
-	object    ir.Expr // the instance, for a field or accessor property
-	field     *ir.Field
-	accessors property
-	current   *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
-	stored    *ir.Local // the value stored in an accessor property, which is the assignment's value
-	at        *ast.Node // the assignment's target, for an accessor property
-	l         *lowerer
+	local       *ir.Local
+	object      ir.Expr // the instance, for a field or accessor property; the array, for an element or the length
+	index       ir.Expr // the index, for an element of an array
+	arrayLength bool    // the length of an array
+	field       *ir.Field
+	accessors   property
+	current     *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
+	stored      *ir.Local // the value stored in an accessor property, which is the assignment's value
+	at          *ast.Node // the assignment's target, for an accessor property
+	l           *lowerer
 }
 
 func (p place) valueType() ir.Type {
@@ -1442,6 +1467,10 @@ func (p place) valueType() ir.Type {
 		return p.local.Type
 	case p.field != nil:
 		return p.field.Type
+	case p.index != nil:
+		return p.object.Type().(*ir.Array).Elem
+	case p.arrayLength:
+		return ir.Number
 	}
 	return p.stored.Type
 }
@@ -1452,18 +1481,33 @@ func (p place) read() ir.Expr {
 		return &ir.LocalRef{Local: p.local}
 	case p.current != nil:
 		return &ir.LocalRef{Local: p.current}
+	case p.index != nil:
+		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{p.object, p.index}}
+	case p.arrayLength:
+		return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{p.object}}
 	}
 	return &ir.FieldRef{X: p.object, Field: p.field}
 }
 
 func (p place) store(value ir.Expr, postfix bool) ir.Expr {
+	var stored ir.Expr
 	switch {
 	case p.local != nil:
 		return &ir.Assign{Local: p.local, Value: value, Postfix: postfix}
-	case p.field != nil && postfix && p.current != nil:
-		return &ir.Sequence{X: &ir.SetField{X: p.object, Field: p.field, Value: value}, Y: &ir.LocalRef{Local: p.current}}
-	case p.field != nil:
+	case p.field != nil && (!postfix || p.current == nil):
 		return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
+	case p.field != nil:
+		stored = &ir.SetField{X: p.object, Field: p.field, Value: value}
+	case p.index != nil:
+		stored = &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{p.object, p.index, value}}
+	case p.arrayLength:
+		stored = &ir.ArrayCall{Op: ir.ArraySetLength, Args: []ir.Expr{p.object, value}}
+	}
+	if stored != nil {
+		if postfix { // readAndStore read the old value into current
+			return &ir.Sequence{X: stored, Y: &ir.LocalRef{Local: p.current}}
+		}
+		return stored
 	}
 	result := p.stored
 	if postfix {
@@ -1488,8 +1532,8 @@ func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr 
 		switch {
 		case target.field != nil && !viaInterface:
 			return build(target)
-		case target.field != nil:
-			read = &ir.FieldRef{X: target.object, Field: target.field}
+		case target.field != nil || target.index != nil || target.arrayLength:
+			read = target.read()
 		case target.accessors.getter == nil:
 			l.notSupportedYet(target.at, "reading a property that has no getter is")
 			return nil
@@ -1506,19 +1550,28 @@ func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr 
 }
 
 // withObject builds, with build, an expression that uses the instance of a field or
-// property place, evaluated once into a temporary first unless it is a local.
+// property place (or the array and index of an element), each evaluated once into a
+// temporary first unless it is a local or constant.
 func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
-	if isPure(target.object) {
-		return build(target)
+	var binds []*ir.Bind // outermost first
+	bind := func(x *ir.Expr, name string) {
+		if *x != nil && !isPure(*x) {
+			local := l.newLocal(name, (*x).Type())
+			binds = append(binds, &ir.Bind{Local: local, Value: *x})
+			*x = &ir.LocalRef{Local: local}
+		}
 	}
-	object := l.newLocal("object", target.object.Type())
-	instance := target.object
-	target.object = &ir.LocalRef{Local: object}
+	bind(&target.object, "object")
+	bind(&target.index, "index")
 	result := build(target)
 	if result == nil {
 		return nil
 	}
-	return &ir.Bind{Local: object, Value: instance, In: result}
+	for i := len(binds) - 1; i >= 0; i-- {
+		binds[i].In = result
+		result = binds[i]
+	}
+	return result
 }
 
 // assignmentTarget returns the place an assignment stores to, or reports the target
@@ -1531,7 +1584,16 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			local = l.ownLocal(node, local) // nil also if its declaration failed, which was reported
 			return place{local: local}, local != nil
 		}
+	case ast.KindElementAccessExpression:
+		if l.isArrayElement(node) {
+			array, index := l.arrayElementOperands(node)
+			return place{object: array, index: index}, array != nil
+		}
 	case ast.KindPropertyAccessExpression:
+		if l.isArrayExpression(node.Expression()) && node.AsPropertyAccessExpression().Name().Text() == "length" {
+			array := l.arrayObject(node)
+			return place{object: array, arrayLength: true}, array != nil
+		}
 		if field := l.fields[l.memberDeclaration(node)]; field != nil {
 			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
@@ -1836,10 +1898,11 @@ func isClass(t ir.Type) bool {
 	return ok
 }
 
-// isObject reports whether t is the type of a reference to an object: a class (or shape) or an interface.
+// isObject reports whether t is the type of a reference to an object: a class (or
+// shape), an interface or an array.
 func isObject(t ir.Type) bool {
 	_, isInterface := t.(*ir.Interface)
-	return isClass(t) || isInterface
+	return isClass(t) || isInterface || isArray(t)
 }
 
 func box(value ir.Expr) ir.Expr {
@@ -1861,6 +1924,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 			return nil // the class failed, which was reported
 		}
 		return class
+	}
+	if l.checker.IsArrayType(t) {
+		return l.arrayType(t, node)
 	}
 	if l.isObjectType(t) {
 		if iface := l.interfaceOf(t, node); iface != nil {

@@ -41,6 +41,18 @@ func effectsOf(expr ir.Expr) effects {
 		return callEffects(x.Args)
 	case *ir.InterfaceCall:
 		return callEffects(x.Args)
+	case *ir.ArrayCall:
+		f := arrayEffects(x.Op)
+		for _, arg := range x.Args {
+			f |= effectsOf(arg)
+		}
+		return f
+	case *ir.NewArray:
+		var f effects
+		for _, elem := range x.Elems {
+			f |= effectsOf(elem)
+		}
+		return f
 	case *ir.ClassCast:
 		return effectsOf(x.X)
 	case *ir.InstanceOf:

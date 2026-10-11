@@ -216,6 +216,14 @@ func (i *Interface) Field(name string) *Field {
 	return nil
 }
 
+// Array is the type of a reference to an array whose elements have type Elem (D-038).
+// The lowering makes one Array per element type, so array types compare by identity too.
+type Array struct {
+	Elem Type
+}
+
+func (a *Array) String() string { return a.Elem.String() + "[]" }
+
 // ShapeString writes a shape as its name and its fields: "object1{x: number; y: number}".
 func (c *Class) ShapeString() string { return c.Name + "{" + fieldList(c.Fields) + "}" }
 
@@ -507,6 +515,42 @@ type NewObject struct {
 	Values []Expr
 }
 
+// NewArray makes an array from an array literal: Elems, of Array's element type, evaluated in order.
+type NewArray struct {
+	Array *Array
+	Elems []Expr
+}
+
+// ArrayOp is an operation on an array.
+type ArrayOp int
+
+const (
+	ArrayLength         ArrayOp = iota // a.length
+	ArraySetLength                     // a.length = n, for n at most the length; its value is n
+	ArrayElement                       // a[i] as a dynamic value: undefined for an index out of range (D-015)
+	ArrayElementChecked                // a[i], which throws RangeError for an index out of range
+	ArraySetElement                    // a[i] = v, for i at most the length (which appends); its value is v
+	ArrayPush                          // a.push(v, …), whose value is the new length
+	ArrayUnshift                       // a.unshift(v, …), whose value is the new length
+	ArrayPop                           // a.pop() as a dynamic value: undefined if a is empty
+	ArrayPopChecked                    // a.pop()!, which throws RangeError if a is empty
+	ArrayShift                         // a.shift() as a dynamic value: undefined if a is empty
+	ArrayShiftChecked                  // a.shift()!, which throws RangeError if a is empty
+)
+
+var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
+	ArraySetElement: "setElement", ArrayPush: "push", ArrayUnshift: "unshift", ArrayPop: "pop", ArrayPopChecked: "popChecked",
+	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked"}
+
+func (op ArrayOp) String() string { return arrayOpText[op] }
+
+// ArrayCall applies Op to the array Args[0] and the operands after it: a number index,
+// a number length, or values of the element type.
+type ArrayCall struct {
+	Op   ArrayOp
+	Args []Expr
+}
+
 // FieldRef reads a field of the instance X, or through an interface, a property of the
 // object X refers to.
 type FieldRef struct {
@@ -699,12 +743,23 @@ func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
 func (e *Call) Type() Type          { return e.Func.Result }
 func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
 func (e *InterfaceCall) Type() Type { return e.Method.Result }
-func (e *ClassCast) Type() Type     { return e.To }
-func (*InstanceOf) Type() Type      { return Bool }
-func (e *Unary) Type() Type         { return e.X.Type() }
-func (e *IntConst) Type() Type      { return e.Ty }
-func (e *Convert) Type() Type       { return e.To }
-func (*ToString) Type() Type        { return String }
+func (e *NewArray) Type() Type      { return e.Array }
+
+func (e *ArrayCall) Type() Type {
+	switch e.Op {
+	case ArrayLength, ArraySetLength, ArrayPush, ArrayUnshift:
+		return Number
+	case ArrayElement, ArrayPop, ArrayShift:
+		return Value
+	}
+	return e.Args[0].Type().(*Array).Elem
+}
+func (e *ClassCast) Type() Type { return e.To }
+func (*InstanceOf) Type() Type  { return Bool }
+func (e *Unary) Type() Type     { return e.X.Type() }
+func (e *IntConst) Type() Type  { return e.Ty }
+func (e *Convert) Type() Type   { return e.To }
+func (*ToString) Type() Type    { return String }
 
 func (e *Binary) Type() Type {
 	if e.Op.IsComparison() {

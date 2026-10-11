@@ -187,7 +187,7 @@ func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 // typeKey identifies an IR type in membersKey: a class or interface by its identity.
 func typeKey(t ir.Type) string {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface:
+	case *ir.Class, *ir.Interface, *ir.Array:
 		return fmt.Sprintf("%p", t)
 	}
 	return t.String()

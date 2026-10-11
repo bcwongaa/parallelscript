@@ -320,6 +320,7 @@ The compatibility principle (§1.1) holds except for these:
 - `any` is checked at the boundary into typed code (§3.4); casts are checked at runtime (§3.5).
 - The features in §3.10 are compile errors.
 - Reading a string index out of range (`s[i]`) gives `undefined` where the context can hold any value (printing, concatenation, template literals, `===`/`!==` with a string), but throws `RangeError` where a `string` is required, e.g. `const c: string = s[9]` (D-015).
+- Arrays have no holes (D-038). Reading `a[i]` out of range gives `undefined` where any value can go (printing, concatenation, template literals, conditions) and throws `RangeError` where an element is required; `a.pop()!` and `a.shift()!` on an empty array throw `RangeError`. Writing past the end (`a[a.length + 1] = x`) and growing an array by setting `length` throw `RangeError`.
 
 ---
 
@@ -495,3 +496,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C:** `collectInterfaceMembers` picks each class's members that interfaces may call, `entryFunctions` writes their `pts_entry_*` functions, and the descriptor's `pts_methods_<C>` lists them with their kinds; `interfaceCall` writes a call through `pts_method_find`; `fieldRead`/`fieldStore` write `PTS_GET`/`PTS_SET` for accessor-provided properties. Runtime: `pts_method`, `pts_function`, `pts_method_find`, `pts_property_find`, `PTS_GET`, `PTS_SET` (`pts.h`), and their slow paths in `object.c`.
 - **Semantic pass:** method and accessor signatures of object types are typed like abstract methods (`isSignature`); annotations of parameters and results are visited, so object types written there are typed; `#private` fields are typed like others.
 - **Tests:** `pts/tests/run/interface_methods{,_integers}.pts`, `interface_getter_only.pts`, `pts/tests/errors/object_types_not_yet.pts`, `TestMethodsAndAccessorsProvideInterfaces`, `TestOnlyInterfacePropertiesThatAccessorsMayProvideCallThem`, `TestPrivateFieldsAndInterfaceMembersFollowTheConversionRules`, `object_test.c` (method and property sites).
+
+### 9.18 Arrays (M2.4a)
+
+- **IR** (D-038): `ir.Array{Elem}` (one per element type, `lower.arrayOf`), `ir.NewArray`, `ir.ArrayCall{Op, Args}` with the `ir.ArrayOp`s (length, elements checked or as dynamic values, stores, push, unshift, pop, shift, truncation).
+- **Lowering** (`pts/lower/arrays.go`): `arrayType` from the checker's array types (`never[]` elements are dynamic values); `arrayLiteral` takes its contextual array type; `arrayElement` picks the checked or dynamic read (`valueExpression`); `place` has `index` and `arrayLength` for stores, read once by `readAndStore` and `withObject`; `arrayMethodCall`, `arrayIsArray` (static), `nonNull` (`pop()!`), `forOfStatement` (an index loop that reads the length each iteration).
+- **C:** an array is a `pts_array *`; `pts/cgen/arrays.go` writes `pts_array_of`, `PTS_ARRAY_GET`/`PTS_ARRAY_GET_WORD` (pointer and dynamic elements, where a zero word is a hole), `PTS_ARRAY_SET`, `pts_array_push`/`unshift` of a compound literal, `PTS_ARRAY_POP`/`SHIFT`. Runtime: `pts.h` (arrays section), `array.c` (one descriptor per element kind, single-word element copies, acquire/release on the length and buffer), and `inspect.c` (`format_elements`, `group_array_elements`, `reduce_to_single_string`: Node's `formatArray`, `groupArrayElements` and `reduceToSingleString`; string widths count code points).
+- **Semantic pass:** arrays of integer types and f32 are PTS1001 (`integerElements`) until M2.6.
+- **Tests:** `pts/tests/run/arrays.pts`, `arrays_objects.pts`, `array_{index,hole,length,pop}_error.pts`, `pts/tests/errors/arrays_not_yet.pts`, `arrays_of_integers.pts`, `TestArrayElementsAndForOfLowerToArrayOperations`, `array_test.c` (growth, both ends, boxing, threads racing pushes against a reader).

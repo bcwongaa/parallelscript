@@ -1,0 +1,12 @@
+// Setting an array's length can shrink it but not grow it (D-038).
+const a = [1, 2, 3];
+a.length = 1;
+console.log(a);
+a.length = 3;
+console.log("unreachable");
+
+// no-diff: Node fills the new length with holes, which arrays here cannot have; a documented difference (docs/SPEC.md §8, D-038)
+// expect:
+// [ 1 ]
+// exit: 1
+// stderr: RangeError: Invalid array length 3: setting length can only shrink an array (length 1)

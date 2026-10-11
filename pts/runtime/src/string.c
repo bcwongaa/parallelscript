@@ -173,6 +173,8 @@ pts_string *pts_value_to_string(pts_value value) {
       return pts_string_from_i64(((pts_boxed_int64 *)object)->value);
     case PTS_KIND_UINT64:
       return pts_string_from_u64(((pts_boxed_uint64 *)object)->value);
+    default:
+      break;
     }
     pts_panic("TypeError", "converting a %s value to a string is not supported yet", object->type->name);
   }
@@ -218,6 +220,8 @@ pts_string *pts_value_typeof(pts_value value) {
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:
       return number_word;
+    default:
+      break;
     }
     return object_word;
   }

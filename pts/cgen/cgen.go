@@ -480,6 +480,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.virtualCall(x)
 	case *ir.InterfaceCall:
 		return e.interfaceCall(x)
+	case *ir.NewArray:
+		return e.newArray(x)
+	case *ir.ArrayCall:
+		return e.arrayCall(x)
 	case *ir.ClassCast:
 		return e.classCast(x)
 	case *ir.InstanceOf:
@@ -761,7 +765,7 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_number(" + inner + ")" // exact as a double
 	}
 	switch value.Type().(type) {
-	case *ir.Class, *ir.Interface:
+	case *ir.Class, *ir.Interface, *ir.Array:
 		return "pts_value_from_object(" + inner + ")"
 	default:
 		panic("cgen: cannot box " + value.Type().String())
@@ -877,6 +881,8 @@ func (e *emitter) declarator(t ir.Type) string {
 		return "pts_class_" + e.classNames[t] + " *"
 	case *ir.Interface:
 		return "pts_object *" // any object that provides the interface's members
+	case *ir.Array:
+		return "pts_array *"
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {
@@ -943,6 +949,14 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 		case *ir.InterfaceCall:
 			for _, arg := range x.Args {
 				expr(arg)
+			}
+		case *ir.ArrayCall:
+			for _, arg := range x.Args {
+				expr(arg)
+			}
+		case *ir.NewArray:
+			for _, elem := range x.Elems {
+				expr(elem)
 			}
 		case *ir.ClassCast:
 			expr(x.X)

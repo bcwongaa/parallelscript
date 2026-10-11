@@ -8,11 +8,12 @@
 #include "pts.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-enum { DEPTH = 2, BREAK_LENGTH = 80 };
+enum { DEPTH = 2, BREAK_LENGTH = 80, MAX_ARRAY_LENGTH = 100 };
 
 /* A growable, NUL-terminated byte string on the C heap (inspect output holds no GC pointers). */
 typedef struct text {
@@ -166,9 +167,9 @@ static void format_number(text *out, double number) {
   text_add(out, buf, pts_number_format(number, buf));
 }
 
-static void format_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
+static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
 
-/* Node's formatValue for a value nested in an object: strings are quoted. */
+/* Node's formatValue for a value nested in an object or array: strings are quoted. */
 static void format_value(inspector *in, text *out, pts_value value, size_t recurse_times) {
   if (pts_value_is_number(value)) {
     format_number(out, pts_value_as_number(value));
@@ -203,64 +204,68 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     text_printf(out, "%" PRIu64, ((const pts_boxed_uint64 *)object)->value);
     return;
   case PTS_KIND_OBJECT:
-    format_object(in, out, object, recurse_times);
+  case PTS_KIND_ARRAY:
+    format_heap_object(in, out, object, recurse_times);
     return;
   }
 }
 
-/* format_field formats the value a field of object holds. */
-static void format_field(inspector *in, text *out, const pts_object *object, const pts_field *field, size_t recurse_times) {
-  const char *slot = (const char *)object + field->offset;
-#define FIELD(type) (*(const type *)(const void *)slot)
-  switch (field->kind) {
+/* format_slot formats the value of the given kind at slot: a field of an object or an element of an array. */
+static void format_slot(inspector *in, text *out, pts_field_kind kind, const void *slot, size_t recurse_times) {
+#define SLOT(type) (*(const type *)slot)
+  switch (kind) {
   case PTS_FIELD_NUMBER:
-    format_number(out, FIELD(double));
+    format_number(out, SLOT(double));
     return;
   case PTS_FIELD_F32:
-    format_number(out, FIELD(float));
+    format_number(out, SLOT(float));
     return;
   case PTS_FIELD_BOOL:
-    text_puts(out, FIELD(bool) ? "true" : "false");
+    text_puts(out, SLOT(bool) ? "true" : "false");
     return;
   case PTS_FIELD_STRING:
-    quote_string(out, FIELD(const pts_string *));
+    if (SLOT(pts_string *) == NULL) {
+      text_puts(out, "undefined"); /* a hole that threads racing on an array left */
+    } else {
+      quote_string(out, SLOT(pts_string *));
+    }
     return;
   case PTS_FIELD_VALUE:
-    format_value(in, out, FIELD(pts_value), recurse_times);
+    format_value(in, out, SLOT(pts_value) == 0 ? PTS_VALUE_UNDEFINED : SLOT(pts_value), recurse_times);
     return;
   case PTS_FIELD_OBJECT:
-    if (FIELD(const pts_object *) == NULL) {
-      text_puts(out, "undefined"); /* read before the constructor assigned it */
+    if (SLOT(pts_object *) == NULL) {
+      text_puts(out, "undefined"); /* a field read before the constructor assigned it */
     } else {
-      format_value(in, out, pts_value_from_object(FIELD(const pts_object *)), recurse_times);
+      format_value(in, out, pts_value_from_object(SLOT(pts_object *)), recurse_times);
     }
     return;
   case PTS_FIELD_I8:
-    text_printf(out, "%d", FIELD(int8_t));
+    text_printf(out, "%d", SLOT(int8_t));
     return;
   case PTS_FIELD_I16:
-    text_printf(out, "%d", FIELD(int16_t));
+    text_printf(out, "%d", SLOT(int16_t));
     return;
   case PTS_FIELD_I32:
-    text_printf(out, "%" PRId32, FIELD(int32_t));
+    text_printf(out, "%" PRId32, SLOT(int32_t));
     return;
   case PTS_FIELD_I64:
-    text_printf(out, "%" PRId64, FIELD(int64_t));
+    text_printf(out, "%" PRId64, SLOT(int64_t));
     return;
   case PTS_FIELD_U8:
-    text_printf(out, "%u", FIELD(uint8_t));
+    text_printf(out, "%u", SLOT(uint8_t));
     return;
   case PTS_FIELD_U16:
-    text_printf(out, "%u", FIELD(uint16_t));
+    text_printf(out, "%u", SLOT(uint16_t));
     return;
   case PTS_FIELD_U32:
-    text_printf(out, "%" PRIu32, FIELD(uint32_t));
+    text_printf(out, "%" PRIu32, SLOT(uint32_t));
     return;
   case PTS_FIELD_U64:
-    text_printf(out, "%" PRIu64, FIELD(uint64_t));
+    text_printf(out, "%" PRIu64, SLOT(uint64_t));
     return;
   }
-#undef FIELD
+#undef SLOT
 }
 
 /* A key prints bare if it matches Node's keyStrRegExp, ^[a-zA-Z_][a-zA-Z_0-9]*$, else quoted. */
@@ -301,6 +306,51 @@ static bool below_break_length(text *entries, size_t count, size_t start) {
   return true;
 }
 
+static void spaces(text *out, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    text_add(out, " ", 1);
+  }
+}
+
+/*
+ * Node's reduceToSingleString with compact 3: output (count entries, which grouping may
+ * have made from more) on one line between the braces if they fit, else one per line.
+ * base is "<ref *n>" or empty. It frees the entries.
+ */
+static void reduce_to_single_string(inspector *in, text *out, text *output, size_t count, size_t entries, const text *base,
+                                    const char *open, const char *close, size_t recurse_times) {
+  bool single_line = false;
+  if (in->current_depth - recurse_times < 3 && entries == count) {
+    size_t start = count + in->indentation + utf16_length(open, strlen(open)) + utf16_length(base->bytes, base->len) + 10;
+    single_line = below_break_length(output, count, start);
+    for (size_t i = 0; single_line && i < count; i++) {
+      single_line = memchr(output[i].bytes, '\n', output[i].len) == NULL;
+    }
+  }
+  if (base->len) {
+    text_add(out, base->bytes, base->len);
+    text_add(out, " ", 1);
+  }
+  text_puts(out, open);
+  for (size_t i = 0; i < count; i++) {
+    if (single_line) {
+      text_puts(out, i == 0 ? " " : ", ");
+    } else {
+      text_puts(out, i == 0 ? "\n" : ",\n");
+      spaces(out, in->indentation + 2);
+    }
+    text_add(out, output[i].bytes, output[i].len);
+    free(output[i].bytes);
+  }
+  if (single_line) {
+    text_puts(out, " ");
+  } else {
+    text_add(out, "\n", 1);
+    spaces(out, in->indentation);
+  }
+  text_puts(out, close);
+}
+
 /*
  * The opening brace of an object: `Name {`, or `{` for a plain object, which Node
  * recognises by its constructor's name being "Object" (object literals' descriptors use it).
@@ -313,9 +363,171 @@ static const char *opening_brace(const pts_type *type, char *buffer, size_t size
   return buffer;
 }
 
-/* Node's formatRaw and reduceToSingleString for an object: `Name { key: value, … }`, or `{ key: value, … }` for a plain one. */
-static void format_object(inspector *in, text *out, const pts_object *object, size_t recurse_times) {
+static text *new_entries(size_t count) {
+  text *entries = calloc(count ? count : 1, sizeof *entries);
+  if (entries == NULL) {
+    pts_panic("RangeError", "Out of memory formatting a value for console.log");
+  }
+  return entries;
+}
+
+/* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order. */
+static text *format_fields(inspector *in, const pts_object *object, size_t recurse_times) {
   const pts_type *type = object->type;
+  text *entries = new_entries(type->field_count);
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    format_key(&entries[i], type->fields[i].name);
+    text_puts(&entries[i], ": ");
+    in->indentation += 2;
+    format_slot(in, &entries[i], type->fields[i].kind, (const char *)object + type->fields[i].offset, recurse_times);
+    in->indentation -= 2;
+  }
+  return entries;
+}
+
+/* Node's formatArray: an entry per element, at most MAX_ARRAY_LENGTH, then "... n more items". */
+static text *format_elements(inspector *in, const pts_array *array, size_t length, size_t *count, size_t recurse_times) {
+  size_t shown = length < MAX_ARRAY_LENGTH ? length : MAX_ARRAY_LENGTH;
+  *count = shown + (length > shown);
+  text *entries = new_entries(*count);
+  size_t size = pts_field_kind_size(array->type->element);
+  for (size_t i = 0; i < shown; i++) {
+    const void *slot = pts_array_slot_or_null(array, (double)i, size);
+    in->indentation += 2;
+    if (slot == NULL) {
+      text_puts(&entries[i], "undefined"); /* another thread shrank the array meanwhile */
+    } else {
+      format_slot(in, &entries[i], array->type->element, slot, recurse_times);
+    }
+    in->indentation -= 2;
+  }
+  if (length > shown) {
+    size_t remaining = length - shown;
+    text_printf(&entries[shown], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
+  }
+  return entries;
+}
+
+/* Node's getStringWidth, approximated by counting code points (wide and zero-width characters count as one). */
+static size_t string_width(const text *entry) {
+  size_t width = 0;
+  for (size_t i = 0; i < entry->len; i++) {
+    width += ((unsigned char)entry->bytes[i] & 0xC0) != 0x80;
+  }
+  return width;
+}
+
+/* is_numeric_array reports whether every element Node would group is a number, so that columns align right. */
+static bool is_numeric_array(const pts_array *array, size_t count) {
+  switch (array->type->element) {
+  case PTS_FIELD_BOOL:
+  case PTS_FIELD_STRING:
+  case PTS_FIELD_OBJECT:
+    return false;
+  case PTS_FIELD_VALUE:
+    for (size_t i = 0; i < count; i++) {
+      const void *slot = pts_array_slot_or_null(array, (double)i, sizeof(pts_value));
+      if (slot == NULL || !pts_value_is_number(*(const pts_value *)slot)) {
+        return false;
+      }
+    }
+    return true;
+  default:
+    return true;
+  }
+}
+
+/* pad writes entry, padded with spaces to width columns: on the left if right_aligned, else on the right. */
+static void pad(text *out, const text *entry, const char *suffix, size_t width, bool right_aligned) {
+  size_t length = string_width(entry) + strlen(suffix);
+  if (right_aligned) {
+    spaces(out, width > length ? width - length : 0);
+  }
+  text_add(out, entry->bytes, entry->len);
+  text_puts(out, suffix);
+  if (!right_aligned) {
+    spaces(out, width > length ? width - length : 0);
+  }
+}
+
+/*
+ * Node's groupArrayElements: more than six short entries are laid out in columns,
+ * several to a line. Returns the new entries (and their count), or output unchanged.
+ */
+static text *group_array_elements(inspector *in, text *output, size_t *count, const pts_array *array) {
+  enum { SEPARATOR_SPACE = 2 };
+  size_t output_length = *count;
+  if (MAX_ARRAY_LENGTH < *count) {
+    output_length--; /* leave "... n more items" out */
+  }
+  size_t *data_len = calloc(output_length, sizeof *data_len);
+  if (data_len == NULL) {
+    pts_panic("RangeError", "Out of memory formatting a value for console.log");
+  }
+  size_t total_length = 0, max_length = 0;
+  for (size_t i = 0; i < output_length; i++) {
+    data_len[i] = string_width(&output[i]);
+    total_length += data_len[i] + SEPARATOR_SPACE;
+    if (max_length < data_len[i]) {
+      max_length = data_len[i];
+    }
+  }
+  size_t actual_max = max_length + SEPARATOR_SPACE;
+  text *grouped = NULL;
+  if (actual_max * 3 + in->indentation < BREAK_LENGTH && ((double)total_length / (double)actual_max > 5 || max_length <= 6)) {
+    double average_bias = sqrt((double)actual_max - (double)total_length / (double)*count);
+    double biased_max = fmax((double)actual_max - 3 - average_bias, 1);
+    double columns = fmin(fmin(round(sqrt(2.5 * biased_max * (double)output_length) / biased_max), floor((double)(BREAK_LENGTH - in->indentation) / (double)actual_max)),
+                          fmin(3 * 4, 15));
+    if (columns > 1) {
+      size_t cols = (size_t)columns;
+      size_t *max_line_length = calloc(cols, sizeof *max_line_length);
+      if (max_line_length == NULL) {
+        pts_panic("RangeError", "Out of memory formatting a value for console.log");
+      }
+      for (size_t i = 0; i < cols; i++) {
+        size_t line_max_length = 0;
+        for (size_t j = i; j < output_length; j += cols) {
+          if (data_len[j] > line_max_length) {
+            line_max_length = data_len[j];
+          }
+        }
+        max_line_length[i] = line_max_length + SEPARATOR_SPACE;
+      }
+      bool right_aligned = is_numeric_array(array, *count);
+      size_t lines = (output_length + cols - 1) / cols;
+      grouped = new_entries(lines + (output_length < *count));
+      size_t n = 0;
+      for (size_t i = 0; i < output_length; i += cols, n++) {
+        size_t max = i + cols < output_length ? i + cols : output_length;
+        size_t j = i;
+        for (; j < max - 1; j++) {
+          pad(&grouped[n], &output[j], ", ", max_line_length[j - i], right_aligned);
+        }
+        if (right_aligned) {
+          pad(&grouped[n], &output[j], "", max_line_length[j - i] - SEPARATOR_SPACE, true);
+        } else {
+          text_add(&grouped[n], output[j].bytes, output[j].len);
+        }
+      }
+      if (output_length < *count) {
+        grouped[n++] = output[output_length];
+        output[output_length] = (text){0};
+      }
+      for (size_t i = 0; i < *count; i++) {
+        free(output[i].bytes);
+      }
+      free(output);
+      free(max_line_length);
+      *count = n;
+    }
+  }
+  free(data_len);
+  return grouped != NULL ? grouped : output;
+}
+
+/* circular_reference writes [Circular *n] and returns true if object is already being formatted. */
+static bool circular_reference(inspector *in, text *out, const pts_object *object) {
   for (size_t i = 0; i < in->seen_len; i++) {
     if (in->seen[i] == object) {
       size_t index = circular_index(in, object);
@@ -324,13 +536,29 @@ static void format_object(inspector *in, text *out, const pts_object *object, si
         index = in->circular_len;
       }
       text_printf(out, "[Circular *%zu]", index);
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+/*
+ * Node's formatValue and formatRaw for an object or array: `Name { key: value, … }`,
+ * `{ key: value, … }` for a plain object, `[ element, … ]` for an array; `[Name]` or
+ * `[Array]` beyond depth 2 unless empty; `<ref *n>` and `[Circular *n]` for cycles.
+ */
+static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times) {
+  if (circular_reference(in, out, object)) {
+    return;
+  }
+  const pts_type *type = object->type;
+  bool is_array = type->kind == PTS_KIND_ARRAY;
+  size_t length = is_array ? pts_array_length_of((const pts_array *)object) : type->field_count;
   char buffer[256];
-  const char *brace = opening_brace(type, buffer, sizeof buffer);
-  if (type->field_count == 0) {
-    text_printf(out, "%s}", brace);
+  const char *open = is_array ? "[" : opening_brace(type, buffer, sizeof buffer);
+  const char *close = is_array ? "]" : "}";
+  if (length == 0) {
+    text_printf(out, "%s%s", open, close);
     return;
   }
   if (recurse_times > DEPTH) {
@@ -340,62 +568,28 @@ static void format_object(inspector *in, text *out, const pts_object *object, si
   recurse_times++;
   push(&in->seen, &in->seen_len, &in->seen_cap, object);
   in->current_depth = recurse_times;
-  text *entries = calloc(type->field_count, sizeof *entries);
-  if (entries == NULL) {
-    pts_panic("RangeError", "Out of memory formatting a value for console.log");
-  }
-  for (uint32_t i = 0; i < type->field_count; i++) {
-    format_key(&entries[i], type->fields[i].name);
-    text_puts(&entries[i], ": ");
-    in->indentation += 2;
-    format_field(in, &entries[i], object, &type->fields[i], recurse_times);
-    in->indentation -= 2;
-  }
+  size_t count = length;
+  text *output = is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times) : format_fields(in, object, recurse_times);
   in->seen_len--;
 
   text base = {0};
   size_t reference = circular_index(in, object);
   if (reference != 0) {
-    text_printf(&base, "<ref *%zu> ", reference);
+    text_printf(&base, "<ref *%zu>", reference);
   }
-  bool single_line = in->current_depth - recurse_times < 3 &&
-                     below_break_length(entries, type->field_count, type->field_count + in->indentation + strlen(brace) + (base.len ? base.len - 1 : 0) + 10);
-  for (uint32_t i = 0; single_line && i < type->field_count; i++) {
-    single_line = memchr(entries[i].bytes, '\n', entries[i].len) == NULL;
+  size_t entries = count;
+  if (is_array && entries > 6) {
+    output = group_array_elements(in, output, &count, (const pts_array *)object);
   }
-  if (base.len) {
-    text_add(out, base.bytes, base.len);
-  }
-  text_puts(out, brace);
-  for (uint32_t i = 0; i < type->field_count; i++) {
-    if (single_line) {
-      text_puts(out, i == 0 ? " " : ", ");
-    } else {
-      text_puts(out, i == 0 ? "\n" : ",\n");
-      for (size_t s = 0; s < in->indentation + 2; s++) {
-        text_add(out, " ", 1);
-      }
-    }
-    text_add(out, entries[i].bytes, entries[i].len);
-    free(entries[i].bytes);
-  }
-  if (single_line) {
-    text_puts(out, " }");
-  } else {
-    text_add(out, "\n", 1);
-    for (size_t s = 0; s < in->indentation; s++) {
-      text_add(out, " ", 1);
-    }
-    text_puts(out, "}");
-  }
-  free(entries);
+  reduce_to_single_string(in, out, output, count, entries, &base, open, close, recurse_times);
+  free(output);
   free(base.bytes);
 }
 
 void pts_inspect_write(FILE *out, const pts_object *object) {
   inspector in = {0};
   text result = {0};
-  format_object(&in, &result, object, 0);
+  format_heap_object(&in, &result, object, 0);
   fwrite(result.bytes, 1, result.len, out);
   free(result.bytes);
   free(in.seen);

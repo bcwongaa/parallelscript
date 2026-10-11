@@ -33,6 +33,7 @@ typedef enum pts_kind {
   PTS_KIND_INT64 = 2,  /* a boxed int64_t (pts_boxed_int64) */
   PTS_KIND_UINT64 = 3, /* a boxed uint64_t (pts_boxed_uint64) */
   PTS_KIND_OBJECT = 4, /* an instance of a class or object type, described by its type's fields */
+  PTS_KIND_ARRAY = 5,  /* an array (pts_array) of elements of its type's element kind */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -89,6 +90,7 @@ typedef struct pts_type {
   const pts_field *fields; /* in declaration order, inherited ones first */
   uint32_t method_count;
   const pts_method *methods; /* what interfaces call: methods, getters and setters, inherited ones included */
+  pts_field_kind element;    /* for an array: what its elements are */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -536,6 +538,113 @@ bool pts_value_truthy(pts_value value);
 
 /* typeof of a primitive value: "number" (64-bit integers too), "string", "boolean", "undefined" or "object" (null). */
 pts_string *pts_value_typeof(pts_value value);
+
+/* ---------------------------------------------------------------- arrays */
+
+/*
+ * An array (D-038) has a length and a buffer holding the buffer's capacity and the
+ * elements, each of the C type of its descriptor's element kind (8 bytes or less, stored
+ * with one write). Growing replaces the buffer instead of resizing it, and every access
+ * checks the index against the length and the capacity of the buffer it read, so threads
+ * racing on an array may see stale elements but never read or write out of bounds
+ * (D-L13). Buffers start zeroed. Racing pushes can leave a slot below the length that no
+ * push wrote: a zero pointer or dynamic value there is a hole, read as out of range, so
+ * that no NULL reaches typed code.
+ */
+typedef struct pts_array_buffer {
+  size_t capacity;
+  _Alignas(8) unsigned char elements[];
+} pts_array_buffer;
+
+typedef struct pts_array {
+  const pts_type *type;
+  pts_array_buffer *buffer;
+  size_t length;
+} pts_array;
+
+/* The size of a field or array element of the given kind. */
+size_t pts_field_kind_size(pts_field_kind kind);
+
+/* A new array of count elements of the given kind, copied from elements (which may be NULL if count is 0). */
+pts_array *pts_array_of(pts_field_kind kind, const void *elements, size_t count);
+
+_Noreturn void pts_array_index_error(const pts_array *array, double index);
+
+static inline size_t pts_array_length_of(const pts_array *array) { return __atomic_load_n(&array->length, __ATOMIC_ACQUIRE); }
+
+static inline double pts_array_length(const pts_array *array) { return (double)pts_array_length_of(array); }
+
+/* The address of element index (a number) of array, of size bytes, or NULL if index isn't one of its elements. */
+static inline void *pts_array_slot_or_null(const pts_array *array, double index, size_t size) {
+  size_t length = pts_array_length_of(array);
+  pts_array_buffer *buffer = __atomic_load_n(&array->buffer, __ATOMIC_ACQUIRE);
+  size_t limit = length < buffer->capacity ? length : buffer->capacity;
+  if (!(index >= 0 && index < (double)limit) || (double)(size_t)index != index) {
+    return NULL;
+  }
+  return buffer->elements + (size_t)index * size;
+}
+
+/* The address of element index of array, which throws RangeError if there is none. */
+static inline void *pts_array_slot(const pts_array *array, double index, size_t size) {
+  void *slot = pts_array_slot_or_null(array, index, size);
+  if (slot == NULL) {
+    pts_array_index_error(array, index);
+  }
+  return slot;
+}
+
+/* array[index] as a dynamic value: undefined if index isn't one of its elements, as in JS (D-015). */
+pts_value pts_array_element(const pts_array *array, double index);
+
+/* Stores *value in array[index], or appends it if index is the length; RangeError for other indices. */
+void pts_array_set(pts_array *array, double index, const void *value);
+
+/* Appends (push) or prepends (unshift) count elements; both return the new length. */
+double pts_array_push(pts_array *array, const void *values, size_t count);
+double pts_array_unshift(pts_array *array, const void *values, size_t count);
+
+/* Removes the last (pop) or first (shift) element into *out; RangeError if array is empty. */
+void pts_array_pop(pts_array *array, void *out);
+void pts_array_shift(pts_array *array, void *out);
+
+/* pop and shift as dynamic values: undefined if array is empty, as in JS. */
+pts_value pts_array_pop_value(pts_array *array);
+pts_value pts_array_shift_value(pts_array *array);
+
+/* array.length = length, which may only shrink it: RangeError otherwise. Returns length. */
+double pts_array_set_length(pts_array *array, double length);
+
+/* An element that is a pointer or dynamic value, which throws RangeError for a hole as for an index out of range. */
+static inline uint64_t pts_array_get_word(const pts_array *array, double index) {
+  uint64_t element = __atomic_load_n((const uint64_t *)pts_array_slot(array, index, sizeof(uint64_t)), __ATOMIC_RELAXED);
+  if (element == 0) {
+    pts_array_index_error(array, index);
+  }
+  return element;
+}
+
+/* Typed access for generated code: T is the C type of the array's elements; PTS_ARRAY_GET_WORD for pointers and dynamic values. */
+#define PTS_ARRAY_GET(T, array, index) (*(T *)pts_array_slot((array), (index), sizeof(T)))
+#define PTS_ARRAY_GET_WORD(T, array, index) ((T)pts_array_get_word((array), (index)))
+#define PTS_ARRAY_SET(T, array, index, value)       \
+  ({                                                \
+    T pts_set_value = (value);                      \
+    pts_array_set((array), (index), &pts_set_value); \
+    pts_set_value;                                  \
+  })
+#define PTS_ARRAY_POP(T, array)        \
+  ({                                   \
+    T pts_popped;                      \
+    pts_array_pop((array), &pts_popped); \
+    pts_popped;                        \
+  })
+#define PTS_ARRAY_SHIFT(T, array)          \
+  ({                                       \
+    T pts_shifted;                         \
+    pts_array_shift((array), &pts_shifted); \
+    pts_shifted;                           \
+  })
 
 /* ---------------------------------------------------------------- String.prototype */
 

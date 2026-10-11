@@ -117,6 +117,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
 - [ ] **M2.6 Generics and syntax.**
   - Generics via monomorphization.
+  - Integer types and f32 as array elements and type arguments (`u8[]`, `Box<int>`), which need the semantic pass to follow type nodes, since the checker sees them as `number` (D-038).
   - Enums (numeric and string); destructuring of objects and arrays with defaults; spread and rest in calls, arrays and objects.
   - `Record<string, T>` and index signatures as hash maps.
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
