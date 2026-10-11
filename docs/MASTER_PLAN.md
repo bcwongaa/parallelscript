@@ -196,7 +196,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - The methods of strings, arrays (with callbacks called through `any`), numbers, booleans and functions (`call`, `apply`, `bind`) called on dynamic values, as JSON's results need; `Array.isArray` of dynamic values.
 - [x] **M3.3c3b Maps and sets through `any`** (67f994368) (split from M3.3c3 by D-076).
   - The methods of maps and sets called on dynamic values (`get`, `set`, `has`, `delete`, `clear`, `forEach`), with keys and values checked against their declared types; `Object.keys`, `values` and `entries` of dynamic values.
-- [ ] **M3.3d1 Generic function values** (split from M3.3 by D-070, from M3.3d by D-078).
+- [x] **M3.3d1 Generic function values** (fde182377) (split from M3.3 by D-070, from M3.3d by D-078).
   - Generic function declarations used as values (the instance the context implies, else an erased copy whose type parameters take dynamic values), generic arrow functions and function expressions, generic function types, instantiation expressions (moved from M2.6b3 by D-051); `for…of`, spread and array destructuring of dynamic values, which erased code needs.
 - [ ] **M3.3d2 Generic methods** (split from M3.3d by D-078).
   - Generic methods of object literals and interfaces (erased signatures in method tables), generic methods of classes through interfaces, and generic methods as values (moved from M2.6b3 by D-051).
