@@ -83,16 +83,7 @@ type Class struct {
 	Orders [][]*Field
 }
 
-func (c *Class) String() string {
-	if !c.Shape {
-		return c.Name
-	}
-	members := make([]string, len(c.Fields))
-	for i, field := range c.Fields {
-		members[i] = field.Name + ": " + field.Type.String()
-	}
-	return "{" + strings.Join(members, "; ") + "}"
-}
+func (c *Class) String() string { return c.Name }
 
 // Order returns the index in Orders of a property order of a shape, adding it if new.
 func (c *Class) Order(fields []*Field) int {
@@ -169,11 +160,40 @@ func (c *Class) Slots() []*Method {
 	return slots
 }
 
-// Field is a field of a class's instances.
+// Interface is an object type, used structurally (D-035): the type of a reference to an
+// object of any class or shape whose fields provide its properties, Fields, in name order.
+type Interface struct {
+	Fields []*Field // their Class is nil
+}
+
+func (i *Interface) String() string { return "{" + fieldList(i.Fields) + "}" }
+
+// Field returns the property name of the interface, or nil.
+func (i *Interface) Field(name string) *Field {
+	for _, field := range i.Fields {
+		if field.Name == name {
+			return field
+		}
+	}
+	return nil
+}
+
+// ShapeString writes a shape as its name and its fields: "object1{x: number; y: number}".
+func (c *Class) ShapeString() string { return c.Name + "{" + fieldList(c.Fields) + "}" }
+
+func fieldList(fields []*Field) string {
+	members := make([]string, len(fields))
+	for i, field := range fields {
+		members[i] = field.Name + ": " + field.Type.String()
+	}
+	return strings.Join(members, "; ")
+}
+
+// Field is a field of a class's instances, or a property of an interface.
 type Field struct {
 	Name  string
 	Type  Type
-	Class *Class
+	Class *Class // nil for an interface's property
 }
 
 // MethodKind tells methods from the getters and setters of accessor properties.
@@ -445,7 +465,8 @@ type NewObject struct {
 	Values []Expr
 }
 
-// FieldRef reads a field of the instance X.
+// FieldRef reads a field of the instance X, or through an interface, a property of the
+// object X refers to.
 type FieldRef struct {
 	X     Expr
 	Field *Field
@@ -474,11 +495,12 @@ type VirtualCall struct {
 	Args   []Expr
 }
 
-// ClassCast is X, an instance of one class, as an instance of another: an ancestor of
-// its static class, or a subclass the checker narrowed it to.
+// ClassCast is X, a reference to an object, as a reference of another object type To
+// (a class or an Interface): an ancestor of its static class, an interface its fields
+// provide, or a class the checker narrowed it to.
 type ClassCast struct {
 	X  Expr
-	To *Class
+	To Type
 }
 
 // InstanceOf is X instanceof Class, for an instance X.

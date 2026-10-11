@@ -480,3 +480,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C:** shapes are structs like classes (`pts_class_object<n>`); `shapeDescriptors` writes a descriptor per order, named "Object"; `newObject` allocates and stores the values in order. `inspect.c` prints a descriptor named "Object" without a name.
 - **Semantic pass:** property signatures are typed like fields; `objectLiteral` types literal properties against `contextualPropertyType`.
 - **Tests:** `pts/tests/run/object_literals{,_integers}.pts`, `pts/tests/errors/object_types_not_yet.pts`, `pts/tests/errors/object_literal_conversions.pts`, `TestObjectTypesWithTheSamePropertiesShareAShape`, `inspect_test.c` (plain objects).
+
+### 9.16 Interfaces over fields (M2.3b1)
+
+- **IR** (D-035): `ir.Interface{Fields}` (property fields have no `Class`); `ir.ClassCast.To` may be an interface; `FieldRef`/`SetField` on an interface-typed `X` read and write the property's field in whatever object `X` refers to.
+- **Lowering:** `irType` maps object types to `interfaceOf` (interned in `interfacesByType`/`interfacesByKey`, fields from `objectFields`); `objectLiteral` builds the shape of `literalType`; `convert` sends object-to-object conversions to `objectCast`, which checks `unprovided` (a property the source has no same-typed field for); `commonClass` also meets a class and an interface it provides; `isObject` covers classes and interfaces wherever any object is accepted (truthiness, `typeof`, `===`, `instanceof`, `#x in`).
+- **C:** an interface value is a `pts_object *`; `fieldRef` writes `(*({ static pts_site pts_siteN; (T *)pts_field_address(o, &pts_siteN, "name"); }))`. Runtime: `pts_site`, `pts_field_address` (inline, `pts.h`) and `pts_field_address_slow` (`object.c`).
+- **Tests:** `pts/tests/run/interfaces.pts`, `pts/tests/errors/object_types_not_yet.pts`, `object_test.c` (cache per layout, four threads racing on one site).

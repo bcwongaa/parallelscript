@@ -24,3 +24,17 @@ void *pts_object_new(const pts_type *type) {
   }
   return object;
 }
+
+void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name) {
+  const pts_type *type = object->type;
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    if (strcmp(type->fields[i].name, name) == 0) {
+      uint32_t offset = type->fields[i].offset;
+      if ((uintptr_t)type <= PTS_SITE_TYPE_MASK && offset < UINT32_C(1) << 16) {
+        __atomic_store_n(&site->cache, (uint64_t)(uintptr_t)type | (uint64_t)offset << 48, __ATOMIC_RELAXED);
+      }
+      return (char *)object + offset;
+    }
+  }
+  pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
+}

@@ -44,6 +44,7 @@ type emitter struct {
 	usedNames    map[string]bool
 	nextSuffix   map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
 	temporaries  int            // pts_tmpN locals made so far in the function
+	sites        int            // pts_siteN caches made so far in the function (fieldRef)
 	labels       map[*ir.Label]string
 	usedLabels   map[string]bool
 	gotoTargets  map[string]bool // C labels some goto jumps to, so only those are written
@@ -179,6 +180,7 @@ func (e *emitter) function(f *ir.Func) {
 	e.usedNames = map[string]bool{}
 	e.nextSuffix = map[string]int{}
 	e.temporaries = 0
+	e.sites = 0
 	e.labels = map[*ir.Label]string{}
 	e.usedLabels = map[string]bool{}
 	e.gotoTargets = map[string]bool{}
@@ -452,7 +454,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.NewObject:
 		return e.newObject(x)
 	case *ir.FieldRef:
-		return e.fieldRef(e.expr(x.X), x.X.Type().(*ir.Class), x.Field)
+		return e.fieldRef(e.expr(x.X), x.X.Type(), x.Field)
 	case *ir.SetField:
 		return e.setField(x)
 	case *ir.Box:
@@ -748,7 +750,7 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_number(" + inner + ")" // exact as a double
 	}
 	switch value.Type().(type) {
-	case *ir.Class:
+	case *ir.Class, *ir.Interface:
 		return "pts_value_from_object(" + inner + ")"
 	default:
 		panic("cgen: cannot box " + value.Type().String())
@@ -859,8 +861,11 @@ func cType(t ir.Type) string {
 // declarator is the C type followed by what separates it from a name: "double " but
 // "pts_string *"; a class instance is a pointer to its struct.
 func (e *emitter) declarator(t ir.Type) string {
-	if class, ok := t.(*ir.Class); ok {
-		return "pts_class_" + e.classNames[class] + " *"
+	switch t := t.(type) {
+	case *ir.Class:
+		return "pts_class_" + e.classNames[t] + " *"
+	case *ir.Interface:
+		return "pts_object *" // any object whose fields provide the interface's properties
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {

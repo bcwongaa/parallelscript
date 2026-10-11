@@ -1,0 +1,87 @@
+// Interfaces over fields: class instances and objects with more properties are used
+// where an object type is expected, and stay the same objects.
+interface Point {
+  x: number;
+  y: number;
+}
+interface Named {
+  name: string;
+}
+interface NamedPoint {
+  name: string;
+  x: number;
+  y: number;
+}
+
+class Pixel {
+  color = "red";
+  constructor(public x: number, public y: number) {}
+}
+
+class Label extends Pixel {
+  name: string;
+  constructor(name: string, x: number) {
+    super(x, 0);
+    this.name = name;
+  }
+}
+
+function abs(n: number): number {
+  return n < 0 ? -n : n;
+}
+function norm(p: Point): number {
+  return abs(p.x) + abs(p.y);
+}
+function shift(p: Point, by: number): void {
+  p.x += by;
+  p.y++;
+}
+function describe(n: Named): string {
+  return "<" + n.name + ">";
+}
+
+const pixel = new Pixel(3, -4);
+const label = new Label("here", 7);
+const spot = { name: "spot", x: 1, y: 2, extra: true };
+const flipped = { y: 20, x: 10 };
+console.log(norm(pixel), norm(label), norm(spot), norm(flipped), norm({ x: -1, y: -1 }));
+shift(pixel, 10);
+shift(spot, 10);
+console.log(pixel, spot, describe(label), describe(spot));
+
+// One place in the code meets objects of many layouts.
+let total = 0;
+for (let i = 0; i < 6; i++) {
+  const p: Point = i % 3 === 0 ? pixel : i % 3 === 1 ? label : flipped;
+  total += p.x * 10 + p.y;
+}
+console.log(total);
+
+// A wider interface converts to a narrower one; references compare as the same object.
+const np: NamedPoint = spot;
+const asPoint: Point = np;
+const asNamed: Named = np;
+console.log(asPoint === np, asNamed === np, asPoint.x, asNamed.name, np === spot);
+asPoint.x = 99;
+console.log(spot.x, np.x);
+
+// instanceof narrows an interface value to a class.
+function kind(p: Point): string {
+  if (p instanceof Label) {
+    return "label " + p.name;
+  }
+  if (p instanceof Pixel) {
+    return "pixel " + p.color;
+  }
+  return "object";
+}
+console.log(kind(pixel), kind(label), kind(flipped));
+
+// Interfaces nest; an interface-typed field holds any object that fits.
+interface Segment {
+  from: Point;
+  to: Point;
+}
+const segment: Segment = { from: pixel, to: { x: 0, y: 0 } };
+segment.to = label;
+console.log(segment, norm(segment.from) + norm(segment.to));

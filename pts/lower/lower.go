@@ -127,7 +127,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{},
 		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
-		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}}
+		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -185,29 +186,31 @@ type lowerer struct {
 	program            *compiler.Program
 	checker            *checker.Checker
 	info               *check.Info
-	locals             map[*ast.Symbol]*ir.Local   // nil for a declaration that failed to lower
-	owners             map[*ir.Local]*ir.Func      // the function each local belongs to
-	moduleScope        map[*ir.Local]bool          // the locals declared at module scope, which functions and other modules may use
-	funcs              map[*ast.Symbol]*ir.Func    // every function declaration, made before any body is lowered; nil if it failed
-	classes            map[*ast.Symbol]*ir.Class   // every class declaration, made before any code is lowered; nil if it failed
-	classNodes         map[*ir.Class]*ast.Node     // the declaration of each class
-	classList          []*ir.Class                 // the classes that didn't fail, superclasses first
-	fields             map[*ast.Node]*ir.Field     // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
-	methods            map[*ast.Node]*ir.Method    // their methods, getters and setters, by declaration; nil if it failed
-	methodDeclarations map[*ir.Method]*ast.Node    // the declaration of each method (for an accessor that implements an abstract field, the field's)
-	abstractFields     map[*ast.Node]property      // the getter and setter of each abstract field, by declaration
-	statics            map[*ast.Node]*ir.Local     // the variable of each static field, by declaration; nil if it failed
-	staticMethods      map[*ast.Node]*ir.Func      // the function of each static method, by declaration; nil if it failed
-	staticClasses      map[*ir.Func]*ir.Class      // the class of each static method, which `this` stands for in it
-	staticContext      *ir.Class                   // the class whose static initialisers are being lowered, or nil
-	shapesByType       map[*checker.Type]*ir.Class // the shape of each object type met; nil if it has none
-	shapesByKey        map[string]*ir.Class        // the shapes, by their fields (shapeKey)
-	shapeList          []*ir.Class                 // the shapes, in the order they were made
-	this               map[*ir.Func]*ir.Local      // the `this` parameter of each constructor and method
-	lowered            []*ir.Func                  // the functions whose bodies are lowered
-	bodies             []*ast.Node                 // function declarations whose bodies are still to be lowered
-	function           *ir.Func                    // the function being lowered
-	targets            []jumpTarget                // the statements around the current one that break or continue can leave
+	locals             map[*ast.Symbol]*ir.Local       // nil for a declaration that failed to lower
+	owners             map[*ir.Local]*ir.Func          // the function each local belongs to
+	moduleScope        map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
+	funcs              map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
+	classes            map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
+	classNodes         map[*ir.Class]*ast.Node         // the declaration of each class
+	classList          []*ir.Class                     // the classes that didn't fail, superclasses first
+	fields             map[*ast.Node]*ir.Field         // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
+	methods            map[*ast.Node]*ir.Method        // their methods, getters and setters, by declaration; nil if it failed
+	methodDeclarations map[*ir.Method]*ast.Node        // the declaration of each method (for an accessor that implements an abstract field, the field's)
+	abstractFields     map[*ast.Node]property          // the getter and setter of each abstract field, by declaration
+	statics            map[*ast.Node]*ir.Local         // the variable of each static field, by declaration; nil if it failed
+	staticMethods      map[*ast.Node]*ir.Func          // the function of each static method, by declaration; nil if it failed
+	staticClasses      map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
+	staticContext      *ir.Class                       // the class whose static initialisers are being lowered, or nil
+	shapesByType       map[*checker.Type]*ir.Class     // the shape of each object type met; nil if it has none
+	shapesByKey        map[string]*ir.Class            // the shapes, by their fields (shapeKey)
+	shapeList          []*ir.Class                     // the shapes, in the order they were made
+	interfacesByType   map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
+	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their fields (fieldsKey)
+	this               map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
+	lowered            []*ir.Func                      // the functions whose bodies are lowered
+	bodies             []*ast.Node                     // function declarations whose bodies are still to be lowered
+	function           *ir.Func                        // the function being lowered
+	targets            []jumpTarget                    // the statements around the current one that break or continue can leave
 	errors             []diagnostic.Diagnostic
 }
 
@@ -669,8 +672,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return box(value)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
 		return &ir.Convert{X: value, To: target}
-	case isClass(value.Type()) && isClass(target):
-		return l.classCast(value, target.(*ir.Class), node)
+	case isObject(value.Type()) && isObject(target):
+		return l.objectCast(value, target, node)
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
@@ -1652,8 +1655,8 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 		return discard(x, &ir.BoolConst{Value: false})
 	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
 		return &ir.Truthy{X: x}
-	case isClass(t):
-		return discard(x, &ir.BoolConst{Value: true}) // an instance, never null
+	case isObject(t):
+		return discard(x, &ir.BoolConst{Value: true}) // an object, never null
 	}
 	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
 	return nil
@@ -1672,7 +1675,7 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 	switch {
 	case ir.IsNumeric(x.Type()):
 		word, ok = "number", true
-	case isClass(x.Type()):
+	case isObject(x.Type()):
 		word, ok = "object", true
 	}
 	if !ok {
@@ -1721,7 +1724,7 @@ func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 	}
 	switch op {
 	case ir.Eq, ir.Ne:
-		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isClass(x)
+		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isObject(x)
 	case ir.Lt, ir.Le, ir.Gt, ir.Ge:
 		return ir.IsNumeric(x) || x == ir.String
 	}
@@ -1783,6 +1786,12 @@ func isClass(t ir.Type) bool {
 	return ok
 }
 
+// isObject reports whether t is the type of a reference to an object: a class (or shape) or an interface.
+func isObject(t ir.Type) bool {
+	_, isInterface := t.(*ir.Interface)
+	return isClass(t) || isInterface
+}
+
 func box(value ir.Expr) ir.Expr {
 	switch value.Type() {
 	case ir.Value:
@@ -1804,8 +1813,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return class
 	}
 	if l.isObjectType(t) {
-		if shape := l.shape(t, node); shape != nil {
-			return shape
+		if iface := l.interfaceOf(t, node); iface != nil {
+			return iface
 		}
 		return nil
 	}

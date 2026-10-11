@@ -1,14 +1,14 @@
-// Object types and literals that arrive later are reported: values of another object
-// type or of a class where an object type is expected (M2.3b), optional properties
-// (M3.1), methods, spread, numeric and computed keys.
+// Object types and literals that arrive later are reported: values whose property types
+// differ from an object type's, properties that a getter provides (M2.3b2), optional
+// properties (M3.1), methods, spread, numeric and computed keys.
 interface Point {
   x: number;
   y: number;
 }
-const p3 = { x: 1, y: 2, z: 3 };
+const p3 = { x: 1 as int, y: 2 };
 const p: Point = p3;
 class Vec {
-  x = 0;
+  get x(): number { return 0; }
   y = 0;
 }
 const v: Point = new Vec();
@@ -20,8 +20,8 @@ const numeric = { 1: "one" };
 const key = "k";
 const computed = { [key]: 1 };
 
-// error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: number; y: number; z: number}` as a `{x: number; y: number}` is not supported yet
-// error: object_types_not_yet.pts:14:18 - error PTS1001: using a `Vec` as a `{x: number; y: number}` is not supported yet
+// error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: i64; y: number}` as a `{x: number; y: number}` is not supported yet
+// error: object_types_not_yet.pts:14:18 - error PTS1001: using a `Vec` as a `{x: number; y: number}`, whose `x` its getter provides, is not supported yet
 // error: object_types_not_yet.pts:16:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
 // error: object_types_not_yet.pts:17:7 - error PTS1001: methods and accessors in object types
 // error: object_types_not_yet.pts:18:18 - error PTS1001: spreading `...` into an object literal is not supported yet

@@ -31,57 +31,85 @@ func (l *lowerer) isObjectType(t *checker.Type) bool {
 		len(l.checker.GetSignaturesOfType(t, checker.SignatureKindConstruct)) == 0 && len(l.checker.GetIndexInfosOfType(t)) == 0
 }
 
-// shape returns the shape of an object type: the anonymous struct type with a field per
-// property, in name order. Object types with the same properties of the same types
-// share a shape, except that a recursive type has one of its own. It reports (at node)
-// why a type has no shape and returns nil.
+// shape returns the shape of an object type: the anonymous struct type, with a field per
+// property in name order, of the objects that literals of the type make. Object types
+// with the same properties of the same types share a shape, except that a recursive type
+// has one of its own. It reports (at node) why a type has no shape and returns nil.
 func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	if shape, ok := l.shapesByType[t]; ok {
 		return shape // nil if it failed, which was reported
 	}
 	shape := &ir.Class{Shape: true}
 	l.shapesByType[t] = shape // a recursive type finds itself here
-	fields := l.shapeFields(t, shape, node)
-	if fields == nil && len(l.checker.GetPropertiesOfType(t)) > 0 {
+	fields, ok := l.objectFields(t, node)
+	if !ok {
 		l.shapesByType[t] = nil
 		return nil
 	}
-	key := shapeKey(fields)
+	key := fieldsKey(fields)
 	if existing, ok := l.shapesByKey[key]; ok {
 		l.shapesByType[t] = existing
 		return existing
 	}
 	shape.Name = "object" + strconv.Itoa(len(l.shapeList)+1)
+	for _, field := range fields {
+		field.Class = shape
+	}
 	shape.Fields = fields
 	l.shapesByKey[key] = shape
 	l.shapeList = append(l.shapeList, shape)
 	return shape
 }
 
-// shapeFields makes the fields of shape for the properties of an object type, in name
-// order, or reports a property it can't hold and returns nil.
-func (l *lowerer) shapeFields(t *checker.Type, shape *ir.Class, node *ast.Node) []*ir.Field {
+// interfaceOf returns the interface an object type is, as the type of a binding: object
+// types with the same properties of the same types are one interface, except that a
+// recursive type is one of its own. It reports (at node) why a type can't be one and
+// returns nil.
+func (l *lowerer) interfaceOf(t *checker.Type, node *ast.Node) *ir.Interface {
+	if iface, ok := l.interfacesByType[t]; ok {
+		return iface // nil if it failed, which was reported
+	}
+	iface := &ir.Interface{}
+	l.interfacesByType[t] = iface
+	fields, ok := l.objectFields(t, node)
+	if !ok {
+		l.interfacesByType[t] = nil
+		return nil
+	}
+	key := fieldsKey(fields)
+	if existing, ok := l.interfacesByKey[key]; ok {
+		l.interfacesByType[t] = existing
+		return existing
+	}
+	iface.Fields = fields
+	l.interfacesByKey[key] = iface
+	return iface
+}
+
+// objectFields makes a field (of no class yet) for each property of an object type, in
+// name order, or reports a property it can't hold and returns false.
+func (l *lowerer) objectFields(t *checker.Type, node *ast.Node) ([]*ir.Field, bool) {
 	var fields []*ir.Field
 	for _, property := range l.checker.GetPropertiesOfType(t) {
 		switch {
 		case property.Flags&ast.SymbolFlagsOptional != 0:
 			l.notSupportedYet(node, fmt.Sprintf("optional properties (`%s?` in %s) are", property.Name, l.checker.TypeToString(t)))
-			return nil
+			return nil, false
 		case property.Flags&(ast.SymbolFlagsMethod|ast.SymbolFlagsAccessor) != 0:
 			l.notSupportedYet(node, fmt.Sprintf("methods and accessors in object types (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
-			return nil
+			return nil, false
 		case isArrayIndex(property.Name):
 			l.notSupportedYet(node, fmt.Sprintf("numeric property names (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
-			return nil
+			return nil, false
 		}
 		fieldType := l.propertyType(property, node)
 		if fieldType == nil {
-			return nil
+			return nil, false
 		}
-		fields = append(fields, &ir.Field{Name: property.Name, Type: fieldType, Class: shape})
+		fields = append(fields, &ir.Field{Name: property.Name, Type: fieldType})
 	}
 	slices.SortFunc(fields, func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
-	return fields
+	return fields, true
 }
 
 // propertyType is the IR type of a property of an object type: the numeric type the
@@ -95,15 +123,16 @@ func (l *lowerer) propertyType(property *ast.Symbol, node *ast.Node) ir.Type {
 	return l.irType(l.checker.GetTypeOfSymbol(property), node)
 }
 
-// shapeKey identifies a shape by its fields' names and types.
-func shapeKey(fields []*ir.Field) string {
+// fieldsKey identifies a shape or interface by its fields' names and types.
+func fieldsKey(fields []*ir.Field) string {
 	var key strings.Builder
 	for _, field := range fields {
 		fmt.Fprintf(&key, "%q:", field.Name)
-		if class, ok := field.Type.(*ir.Class); ok {
-			fmt.Fprintf(&key, "%p;", class) // the same class or shape
-		} else {
-			fmt.Fprintf(&key, "%s;", field.Type)
+		switch t := field.Type.(type) {
+		case *ir.Class, *ir.Interface:
+			fmt.Fprintf(&key, "%p;", t) // the same class or interface
+		default:
+			fmt.Fprintf(&key, "%s;", t)
 		}
 	}
 	return key.String()
@@ -119,11 +148,10 @@ func isArrayIndex(name string) bool {
 // objectLiteral lowers `{ x: 1, y }`: an object of the shape of the literal's type, with
 // its properties in the order the literal writes them.
 func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
-	t := l.irType(l.checker.GetTypeAtLocation(node), node)
-	if t == nil {
+	shape := l.shape(l.literalType(node), node)
+	if shape == nil {
 		return nil
 	}
-	shape := t.(*ir.Class)
 	properties := node.AsObjectLiteralExpression().Properties.Nodes
 	fields := make([]*ir.Field, len(properties))
 	values := make([]ir.Expr, len(properties))
@@ -154,6 +182,29 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		}
 	}
 	return &ir.NewObject{Shape: shape, Order: shape.Order(fields), Values: values}
+}
+
+// literalType is the object type an object literal makes an object of: its contextual
+// type if that is an object type with the same properties, so that `{ from: pixel }`
+// written for a `Segment` holds a `Point`, and otherwise the literal's own type.
+func (l *lowerer) literalType(node *ast.Node) *checker.Type {
+	own := l.checker.GetTypeAtLocation(node)
+	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	if contextual == nil || !l.isObjectType(contextual) {
+		return own
+	}
+	names := func(t *checker.Type) []string {
+		var names []string
+		for _, property := range l.checker.GetPropertiesOfType(t) {
+			names = append(names, property.Name)
+		}
+		slices.Sort(names)
+		return names
+	}
+	if !slices.Equal(names(own), names(contextual)) {
+		return own
+	}
+	return contextual
 }
 
 // shorthandValue lowers the value of a shorthand property `{ x }`: the binding x.
@@ -191,10 +242,56 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	if object == nil {
 		return nil, nil
 	}
-	shape, ok := object.Type().(*ir.Class)
-	if !ok || !shape.Shape {
-		l.notSupportedYet(node, fmt.Sprintf("a property of an object type on a %s is", object.Type()))
-		return nil, nil
+	name := node.AsPropertyAccessExpression().Name().Text()
+	switch t := object.Type().(type) {
+	case *ir.Interface:
+		return object, t.Field(name)
+	case *ir.Class:
+		if t.Shape {
+			return object, t.Field(name)
+		}
 	}
-	return object, shape.Field(node.AsPropertyAccessExpression().Name().Text())
+	l.notSupportedYet(node, fmt.Sprintf("a property of an object type on a %s is", object.Type()))
+	return nil, nil
+}
+
+// objectCast converts value, a reference to an object, to another object type: a class
+// (classCast), or an interface whose properties the object's fields provide, with the
+// same types, so that every access through the interface finds a field it can use as is.
+func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
+	if class, ok := target.(*ir.Class); ok {
+		if _, fromInterface := value.Type().(*ir.Interface); !fromInterface {
+			return l.classCast(value, class, node)
+		}
+		if l.isNarrowedTo(node, class) {
+			return &ir.ClassCast{X: value, To: class}
+		}
+	} else if missing := unprovided(value.Type(), target.(*ir.Interface)); missing == nil {
+		return &ir.ClassCast{X: value, To: target}
+	} else if t, ok := value.Type().(*ir.Class); ok && !t.Shape && t.Method(missing.Name, ir.Getter) != nil {
+		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` its getter provides, is", value.Type(), target, missing.Name))
+		return nil
+	}
+	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", value.Type(), target))
+	return nil
+}
+
+// unprovided returns a property of an interface that values of type t (a class, shape or
+// interface) have no field of the same type for, or nil if they provide them all.
+func unprovided(t ir.Type, iface *ir.Interface) *ir.Field {
+	for _, property := range iface.Fields {
+		var field *ir.Field
+		switch from := t.(type) {
+		case *ir.Class:
+			if !isPrivateName(property.Name) {
+				field = from.Field(property.Name)
+			}
+		case *ir.Interface:
+			field = from.Field(property.Name)
+		}
+		if field == nil || field.Type != property.Type {
+			return property
+		}
+	}
+	return nil
 }

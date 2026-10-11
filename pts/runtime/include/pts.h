@@ -102,6 +102,29 @@ typedef struct pts_object {
 /* A new instance of type with every field zero (0, false, NULL; a pts_value field is 0, not undefined). */
 void *pts_object_new(const pts_type *type);
 
+/*
+ * A place in generated code that reads or writes a property through an interface
+ * (D-035) caches the descriptor of the last object it met and the property's offset in
+ * it, packed in one word (descriptor | offset << 48; 0 when empty), so that threads racing
+ * on the cache never see half an update. Descriptors are static data, far below 2^48.
+ */
+typedef struct pts_site {
+  uint64_t cache;
+} pts_site;
+
+#define PTS_SITE_TYPE_MASK ((UINT64_C(1) << 48) - 1)
+
+void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name);
+
+/* The address of the field of object that holds its property name, found through site's cache. */
+static inline void *pts_field_address(const void *object, pts_site *site, const char *name) {
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)((const pts_object *)object)->type == (cache & PTS_SITE_TYPE_MASK)) {
+    return (char *)object + (cache >> 48);
+  }
+  return pts_field_address_slow((const pts_object *)object, site, name);
+}
+
 /* Whether object, an instance, is one of type or of a subclass: JS's instanceof on classes. */
 static inline bool pts_instance_of(const void *object, const pts_type *type) {
   for (const pts_type *t = ((const pts_object *)object)->type; t != NULL; t = t->parent) {

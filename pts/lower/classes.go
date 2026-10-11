@@ -840,9 +840,16 @@ func upcast(x ir.Expr, to *ir.Class) ir.Expr {
 	return &ir.ClassCast{X: x, To: to}
 }
 
-// commonClass converts two instances to their nearest common ancestor class, if they
-// have one; other values stay as they are.
+// commonClass converts two references to objects to one type, if they have one: their
+// classes' nearest common ancestor, or an interface that one is and the other provides.
+// Other values stay as they are.
 func commonClass(x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
+	if iface, ok := x.Type().(*ir.Interface); ok && isObject(y.Type()) && y.Type() != iface && unprovided(y.Type(), iface) == nil {
+		return x, &ir.ClassCast{X: y, To: iface}
+	}
+	if iface, ok := y.Type().(*ir.Interface); ok && isObject(x.Type()) && x.Type() != iface && unprovided(x.Type(), iface) == nil {
+		return &ir.ClassCast{X: x, To: iface}, y
+	}
 	a, aIsClass := x.Type().(*ir.Class)
 	b, bIsClass := y.Type().(*ir.Class)
 	if !aIsClass || !bIsClass {
@@ -865,7 +872,7 @@ func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 	switch {
 	case x == nil || class == nil:
 		return nil
-	case !isClass(x.Type()):
+	case !isObject(x.Type()):
 		l.notSupportedYet(expr.Right, fmt.Sprintf("`#private in` on a %s is", x.Type()))
 		return nil
 	}
@@ -884,7 +891,7 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	switch {
 	case x == nil || class == nil:
 		return nil // reported, or the class failed, which was
-	case !isClass(x.Type()):
+	case !isObject(x.Type()):
 		l.notSupportedYet(expr.Left, fmt.Sprintf("`instanceof` on a %s is", x.Type()))
 		return nil
 	}

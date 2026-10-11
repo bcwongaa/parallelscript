@@ -11,7 +11,7 @@ func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
 	for _, c := range p.Classes {
 		if c.Shape {
-			fmt.Fprintf(&pr.out, "shape %s %s\n", c.Name, c)
+			fmt.Fprintf(&pr.out, "shape %s\n", c.ShapeString())
 		} else {
 			pr.class(c)
 		}
@@ -233,7 +233,7 @@ func FormatExpr(expr Expr) string {
 	case *VirtualCall:
 		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
 	case *ClassCast:
-		return "(" + FormatExpr(e.X) + " as " + e.To.Name + ")"
+		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:
 		return "(" + FormatExpr(e.X) + " instanceof " + e.Class.Name + ")"
 	default:

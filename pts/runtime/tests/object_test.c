@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include <stdio.h>
 
+enum { THREADS_RACING = 4 };
+
 /* A list node: a number the collector must not scan, and two pointers it must. */
 typedef struct node {
   const pts_type *type;
@@ -107,6 +109,64 @@ static void instance_of_follows_the_parent_chain(void) {
   CHECK(!pts_instance_of(lp, &node_type));
 }
 
+/* An object with a property x at another offset than point's. */
+typedef struct tagged {
+  const pts_type *type;
+  pts_string *tag;
+  double x;
+} tagged;
+
+static const pts_field tagged_fields[] = {{"tag", offsetof(tagged, tag), PTS_FIELD_STRING}, {"x", offsetof(tagged, x), PTS_FIELD_NUMBER}};
+
+static const pts_type tagged_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(1u << 1),
+    .name = "Tagged",
+    .size = sizeof(tagged),
+    .field_count = 2,
+    .fields = tagged_fields,
+};
+
+static void field_addresses_are_cached_per_layout(void) {
+  static pts_site site;
+  point *p = pts_object_new(&point_type);
+  tagged *t = pts_object_new(&tagged_type);
+  p->x = 1.5;
+  t->x = 2.5;
+  CHECK(pts_field_address(p, &site, "x") == &p->x);
+  CHECK(site.cache == ((uint64_t)(uintptr_t)&point_type | (uint64_t)offsetof(point, x) << 48));
+  CHECK(pts_field_address(t, &site, "x") == &t->x);
+  CHECK(site.cache == ((uint64_t)(uintptr_t)&tagged_type | (uint64_t)offsetof(tagged, x) << 48));
+  CHECK(*(double *)pts_field_address(p, &site, "x") == 1.5);
+}
+
+static pts_site shared_site;
+
+/* reads_through_a_shared_site sums x over objects of both layouts through one cache. */
+static void *reads_through_a_shared_site(void *arg) {
+  point *p = pts_object_new(&point_type);
+  tagged *t = pts_object_new(&tagged_type);
+  p->x = 1;
+  t->x = 2;
+  double sum = 0;
+  for (int i = 0; i < 100000; i++) {
+    sum += *(double *)pts_field_address(i % 2 ? (void *)p : (void *)t, &shared_site, "x");
+  }
+  return (void *)(intptr_t)(sum == 150000 && arg == NULL);
+}
+
+static void threads_racing_on_a_site_read_the_right_fields(void) {
+  pthread_t threads[THREADS_RACING];
+  for (int i = 0; i < THREADS_RACING; i++) {
+    CHECK(pthread_create(&threads[i], NULL, reads_through_a_shared_site, NULL) == 0);
+  }
+  for (int i = 0; i < THREADS_RACING; i++) {
+    void *right = NULL;
+    CHECK(pthread_join(threads[i], &right) == 0);
+    CHECK(right == (void *)1);
+  }
+}
+
 /* build_list makes a list of count nodes, each labelled with its value. */
 static node *build_list(int count, int tag) {
   node *head = NULL;
@@ -187,6 +247,8 @@ int main(int argc, char **argv) {
   pointer_free_objects_are_allocated_atomic();
   methods_are_found_through_the_descriptor();
   instance_of_follows_the_parent_chain();
+  field_addresses_are_cached_per_layout();
+  threads_racing_on_a_site_read_the_right_fields();
   collection_keeps_everything_objects_point_to();
   unreachable_objects_are_collected();
   threads_allocate_while_others_collect();

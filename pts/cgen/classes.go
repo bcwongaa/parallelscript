@@ -322,15 +322,23 @@ func layout(class *ir.Class, name string) string {
 }
 
 func holdsPointer(t ir.Type) bool {
-	_, isClass := t.(*ir.Class)
-	return isClass || t == ir.String || t == ir.Value || t == ir.Undefined || t == ir.Null
+	return isObject(t) || t == ir.String || t == ir.Value || t == ir.Undefined || t == ir.Null
 }
 
 func fieldKind(t ir.Type) string {
-	if _, isClass := t.(*ir.Class); isClass {
+	if isObject(t) {
 		return "PTS_FIELD_OBJECT"
 	}
 	return fieldKinds[t]
+}
+
+// isObject reports whether t is the type of a reference to an object: a class (or shape) or an interface.
+func isObject(t ir.Type) bool {
+	switch t.(type) {
+	case *ir.Class, *ir.Interface:
+		return true
+	}
+	return false
 }
 
 // newInstance writes `new C(args)`: the arguments, then a zeroed instance, then the constructor.
@@ -341,8 +349,17 @@ func (e *emitter) newInstance(n *ir.New) string {
 		prelude, e.declarator(n.Class), instance, e.descriptor(n.Class), e.funcNames[n.Class.Constructor], strings.Join(append([]string{instance}, args...), ", "), instance)
 }
 
-// fieldRef writes a field of object, an instance of class.
-func (e *emitter) fieldRef(object string, class *ir.Class, field *ir.Field) string {
+// fieldRef writes a field of object, a reference of type t: an instance of a class, or
+// through an interface, the field that holds the property, found by the runtime and
+// cached at this place in the code (D-035).
+func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
+	class, ok := t.(*ir.Class)
+	if !ok {
+		e.sites++
+		site := fmt.Sprintf("pts_site%d", e.sites)
+		pointer := strings.TrimSuffix(e.declarator(field.Type), " ") + " *"
+		return fmt.Sprintf("(*({ static pts_site %s; (%s)pts_field_address(%s, &%s, %s); }))", site, pointer, object, site, cString(field.Name))
+	}
 	if !isIdentifier(object) {
 		object = "(" + object + ")"
 	}
@@ -354,9 +371,9 @@ func (e *emitter) setField(s *ir.SetField) string {
 	if s.Postfix {
 		old := e.temporary()
 		object := e.expr(s.X) // pure: the lowering binds anything else to a local first
-		class := s.X.Type().(*ir.Class)
-		return fmt.Sprintf("({ %s%s = %s; %s = %s; %s; })", e.declarator(s.Field.Type), old, e.fieldRef(object, class, s.Field),
-			e.fieldRef(object, class, s.Field), e.expr(s.Value), old)
+		t := s.X.Type()
+		return fmt.Sprintf("({ %s%s = %s; %s = %s; %s; })", e.declarator(s.Field.Type), old, e.fieldRef(object, t, s.Field),
+			e.fieldRef(object, t, s.Field), e.expr(s.Value), old)
 	}
 	return "(" + e.storeField(s) + ")"
 }
@@ -364,7 +381,7 @@ func (e *emitter) setField(s *ir.SetField) string {
 // storeField writes a store to a field as a statement would: the instance, then the value, in JS's order.
 func (e *emitter) storeField(s *ir.SetField) string {
 	operands, prelude := e.operands([]ir.Expr{s.X, s.Value})
-	return ordered(prelude, e.fieldRef(operands[0], s.X.Type().(*ir.Class), s.Field)+" = "+operands[1])
+	return ordered(prelude, e.fieldRef(operands[0], s.X.Type(), s.Field)+" = "+operands[1])
 }
 
 // virtualCall writes a call through the method table of the receiver's class: the
