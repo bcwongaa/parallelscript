@@ -20,7 +20,7 @@ type Maybe = { value?(): number };
 const m: Maybe = {};
 const withGetter = { get [`run`](): number { return 1; } };
 const spread = { ...p3, m() { return 1; } };
-const numeric = { 1: "one" };
+const numeric = { 1: "one", name: "n" };
 interface WriteOnly {
   set w(value: number);
 }

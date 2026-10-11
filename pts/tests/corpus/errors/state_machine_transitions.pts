@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: numeric property names (`0` in Partial<Record<OrderState, OrderState>>)
 // An order-lifecycle state machine that rejects invalid transitions.
 
 enum OrderState {

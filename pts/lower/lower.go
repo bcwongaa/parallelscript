@@ -1213,11 +1213,16 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		if x, ok := l.enumMember(node); ok {
 			return x
 		}
-		if (l.isArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && l.contextTakesUndefined(node) {
-			if x := l.valueExpression(node); x != nil {
-				return l.convert(x, l.irType(l.contextualType(node), node), node) // `return list[9]` for a T | undefined: undefined, as in JS
+		if (l.isArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node))) {
+			x := l.valueExpression(node)
+			if x == nil {
+				return nil
 			}
-			return nil
+			t := l.contextualType(node)
+			if !l.contextTakesUndefined(node) {
+				t = l.typeAt(node) // an element of a `Partial<Record<K, V>>`, which may be undefined
+			}
+			return l.convert(x, l.irType(t, node), node) // `return list[9]` for a T | undefined: undefined, as in JS
 		}
 		if l.isEnumReverseMapping(node) {
 			return l.enumReverseMapping(node, true)

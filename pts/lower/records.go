@@ -13,7 +13,46 @@ import (
 // (`Record<string, T>`, `{ [key: string]: T }`, `Record<number, T>`) to its IR type, a
 // hash-map object (D-059), or reports why it can't (at node) and returns nil; ok is false
 // for any other type.
+// hasOnlyNumericKeys reports whether t is an object type whose properties all have
+// array index names and one type (numericKeysValue).
+func (l *lowerer) hasOnlyNumericKeys(t *checker.Type) bool {
+	if !l.isObjectType(t) {
+		return false
+	}
+	properties := l.checker.GetPropertiesOfType(t)
+	var value *checker.Type
+	for _, property := range properties {
+		if !isArrayIndex(property.Name) || property.Flags&ast.SymbolFlagsProperty == 0 {
+			return false
+		}
+		propertyType := l.checker.RemoveMissingOrUndefinedType(l.typeOfSymbol(property))
+		if value != nil && propertyType != value {
+			return false
+		}
+		value = propertyType
+	}
+	return len(properties) > 0
+}
+
+// numericKeysValue reports whether t is an object type whose properties all have array
+// index names (`Record<Level, number>` for a numeric enum, `{ 0: "a"; 1: "b" }`) and
+// values of one type, which is a hash-map object of that value type, as JS keys such
+// objects by the names' strings; value is nil if a property's type was reported.
+func (l *lowerer) numericKeysValue(t *checker.Type, node *ast.Node) (value ir.Type, ok bool) {
+	if !l.hasOnlyNumericKeys(t) {
+		return nil, false
+	}
+	property := l.checker.GetPropertiesOfType(t)[0]
+	return l.irType(l.checker.RemoveMissingOrUndefinedType(l.typeOfSymbol(property)), node), true // `Partial<Record<…>>`: a missing key is undefined
+}
+
 func (l *lowerer) recordType(t *checker.Type, node *ast.Node) (mt *ir.MapType, ok bool) {
+	if value, ok := l.numericKeysValue(t, node); ok {
+		if value == nil {
+			return nil, true // reported
+		}
+		return l.recordOf(value), true // `Record<Level, number>` for a numeric enum: a hash-map object of "0", "1", …
+	}
 	if !l.hasIndexSignatures(t) {
 		return nil, false
 	}
@@ -61,6 +100,9 @@ func (l *lowerer) hasIndexSignatures(t *checker.Type) bool {
 // (`{ [key: string]: number; total: number }`, or the type of `{ [k]: 1, other: 2 }`):
 // entries that its values always have.
 func (l *lowerer) isHashMapType(t *checker.Type) bool {
+	if l.hasOnlyNumericKeys(t) {
+		return true
+	}
 	if !l.hasIndexSignatures(t) {
 		return false
 	}

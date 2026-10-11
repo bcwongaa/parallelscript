@@ -1,0 +1,11 @@
+// Object types whose properties all have numeric names (`Record<Level, number>` for a numeric enum) are hash-map objects of "0", "1", … (M3.7b).
+enum Level { Low, Mid, High }
+const price: Record<Level, number> = { [Level.Low]: 10, [Level.Mid]: 20, [Level.High]: 30 };
+const next: Partial<Record<Level, Level>> = { [Level.Low]: Level.Mid, [Level.Mid]: Level.High };
+const names: { 0: string; 1: string } = { 0: "zero", 1: "one" };
+let total = 0;
+for (const l of [Level.Low, Level.High]) total += price[l];
+console.log(price, next, names, total, price[Level.Mid], next[Level.High], names[1]);
+console.log(Object.keys(price), next[Level.Low] === Level.Mid, Level.High in next);
+price[Level.Low] = 11;
+console.log(JSON.stringify(price));

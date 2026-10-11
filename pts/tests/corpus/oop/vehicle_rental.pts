@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: numeric property names (`1` in Record<VehicleClass, number>)
 // Vehicle rental agency: fleet, reservations over date ranges, pricing with surcharges.
 
 enum VehicleClass {
