@@ -1,0 +1,40 @@
+// Binary trees (the Benchmarks Game's binary-trees, depth 18): many short-lived trees and
+// one long-lived tree, which stress the allocator and the collector. Node and Bun run
+// this file too. Null arrives with unions (M3.1), so a leaf's children are the leaf
+// itself where the usual version has null.
+class TreeNode {
+  left: TreeNode;
+  right: TreeNode;
+  constructor() {
+    this.left = this;
+    this.right = this;
+  }
+}
+
+function bottomUpTree(depth: number): TreeNode {
+  const node = new TreeNode();
+  if (depth > 0) {
+    node.left = bottomUpTree(depth - 1);
+    node.right = bottomUpTree(depth - 1);
+  }
+  return node;
+}
+
+function itemCheck(node: TreeNode): number {
+  return node.left === node ? 1 : 1 + itemCheck(node.left) + itemCheck(node.right);
+}
+
+const minDepth = 4;
+const maxDepth = 18;
+const stretchDepth = maxDepth + 1;
+console.log(`stretch tree of depth ${stretchDepth}\t check: ${itemCheck(bottomUpTree(stretchDepth))}`);
+const longLivedTree = bottomUpTree(maxDepth);
+for (let depth = minDepth; depth <= maxDepth; depth += 2) {
+  const iterations = 1 << (maxDepth - depth + minDepth);
+  let check = 0;
+  for (let i = 0; i < iterations; i++) {
+    check += itemCheck(bottomUpTree(depth));
+  }
+  console.log(`${iterations}\t trees of depth ${depth}\t check: ${check}`);
+}
+console.log(`long lived tree of depth ${maxDepth}\t check: ${itemCheck(longLivedTree)}`);

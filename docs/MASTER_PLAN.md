@@ -150,8 +150,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Spread in array literals (`[...a, x]`, of arrays, tuples, strings, sets and maps) and object literals (`{...o, x}`); rest properties in object patterns (`const { a, ...others } = o`); spread arguments of `call`/`apply`/`bind` and of builtins.
 - [x] **M2.6e3 Hash-map objects** (e9e356a9f) (split from M2.6e by D-057).
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
-- [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
+- [ ] **M2.7a binary-trees and nbody** (split from M2.7 by D-060). Add the binary-trees benchmark (GC stress).
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
+- [ ] **M2.7b String building** (split from M2.7 by D-060). Add a string-building benchmark; make building a string piece by piece (`s += x` in a loop) linear rather than quadratic.
 - [ ] **M2.8 Milestone M2.**
 
 ## M3: The TypeScript feel

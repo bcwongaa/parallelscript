@@ -1252,6 +1252,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "from") {
 		return l.arrayFrom(call)
 	}
+	if name := l.mathMember(ast.SkipParentheses(call.Expression)); name != "" {
+		return l.mathCall(call, name)
+	}
 	if l.isObjectStatic(ast.SkipParentheses(call.Expression), "keys", "values", "entries", "hasOwn") {
 		return l.objectStaticCall(call)
 	}
@@ -1737,6 +1740,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		if x, ok := l.binding(node, l.target(node)); ok {
 			return x
 		}
+	}
+	if name := l.mathMember(node); name != "" {
+		return l.mathConstant(node, name)
 	}
 	builtin := l.builtin(node)
 	switch {

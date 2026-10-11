@@ -853,6 +853,15 @@ func (e *emitter) box(value ir.Expr) string {
 
 // builtinFunctions are the runtime functions that take a builtin's arguments as they are.
 var builtinFunctions = map[*ir.Builtin]string{
+	ir.MathSqrt:             "__builtin_sqrt",
+	ir.MathAbs:              "__builtin_fabs",
+	ir.MathFloor:            "__builtin_floor",
+	ir.MathCeil:             "__builtin_ceil",
+	ir.MathTrunc:            "__builtin_trunc",
+	ir.MathRound:            "pts_math_round",
+	ir.MathSign:             "pts_math_sign",
+	ir.MathMax:              "pts_math_max",
+	ir.MathMin:              "pts_math_min",
 	ir.StringSplit:          "pts_string_split",
 	ir.ArrayFromString:      "pts_array_from_string",
 	ir.StringElement:        "pts_string_element",

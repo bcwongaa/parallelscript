@@ -317,6 +317,41 @@ static inline double pts_number_pow(double x, double y) {
   return __builtin_pow(x, y);
 }
 
+/* Math.round: the nearest integer, halves rounded up; -0 for -0.5 <= x < 0, as in JS. */
+static inline double pts_math_round(double x) {
+  if (x != x || __builtin_isinf(x) || x == 0) {
+    return x;
+  }
+  double rounded = __builtin_floor(x);
+  if (x - rounded >= 0.5) {
+    rounded += 1;
+  }
+  return rounded == 0 && x < 0 ? -0.0 : rounded;
+}
+
+/* Math.sign: -1, 1, or x itself for -0, 0 and NaN. */
+static inline double pts_math_sign(double x) { return x > 0 ? 1 : x < 0 ? -1 : x; }
+
+/* Math.max and Math.min of two numbers: NaN if either is, and +0 above -0. */
+static inline double pts_math_max(double x, double y) {
+  if (x != x || y != y) {
+    return __builtin_nan("");
+  }
+  if (x == y) {
+    return __builtin_signbit(x) ? y : x;
+  }
+  return x > y ? x : y;
+}
+static inline double pts_math_min(double x, double y) {
+  if (x != x || y != y) {
+    return __builtin_nan("");
+  }
+  if (x == y) {
+    return __builtin_signbit(x) ? x : y;
+  }
+  return x < y ? x : y;
+}
+
 /* JS's ToBoolean of a number: false for 0, -0 and NaN. */
 static inline bool pts_number_truthy(double x) { return x == x && x != 0; }
 

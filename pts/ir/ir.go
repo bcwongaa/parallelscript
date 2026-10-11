@@ -820,6 +820,15 @@ type Builtin struct {
 	Result Type
 }
 
+// mathFunction is a function of Math that takes n numbers and returns a number.
+func mathFunction(name string, n int) *Builtin {
+	params := make([]Type, n)
+	for i := range params {
+		params[i] = Number
+	}
+	return &Builtin{Name: "Math." + name, Params: params, Result: Number}
+}
+
 // stringMember is a member of String.prototype; it takes the string, then params.
 func stringMember(name string, result Type, params ...Type) *Builtin {
 	return &Builtin{Name: "String." + name, Params: append([]Type{String}, params...), Result: result}
@@ -862,6 +871,18 @@ var (
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
+
+	// The Math functions of numbers, with JS's semantics (NaN and -0 included). MathMax
+	// and MathMin take two numbers; Math.max(a, b, c) applies MathMax twice.
+	MathSqrt  = mathFunction("sqrt", 1)
+	MathAbs   = mathFunction("abs", 1)
+	MathFloor = mathFunction("floor", 1)
+	MathCeil  = mathFunction("ceil", 1)
+	MathRound = mathFunction("round", 1)
+	MathTrunc = mathFunction("trunc", 1)
+	MathSign  = mathFunction("sign", 1)
+	MathMax   = mathFunction("max", 2)
+	MathMin   = mathFunction("min", 2)
 
 	// ThrowError throws an error of the class its first argument names, with the message
 	// its second gives; until exceptions arrive (M3.2), it ends the program as uncaught.

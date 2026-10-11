@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.7 binary-trees (benchmarks: binary-trees, string building, nbody)
+- **Next task:** M2.7b String building (benchmark, and linear-time `s += x`)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.7a binary-trees and nbody: `pts/bench/binary_trees` (depth 18) and `pts/bench/nbody` (5M steps) with Go twins; Math's `sqrt`, `abs`, `floor`, `ceil`, `round`, `trunc`, `sign`, `max`, `min` and constants pulled forward from M3.5; the collector runs when the program has allocated as much as the heap holds (free-space divisor 1, like GOGC=100), and the C is compiled with `-fno-math-errno` (D-060, SPEC §9.37). M2.7 split by D-060. Local numbers (5 runs, noisy shared machine): nbody PTS 785 ms, Node 843, Bun 837, Go 502; binary_trees PTS about 2.1 s after the GC change (2.6 s before), Node 1.2 s, Bun 1.6 s, Go 3.2 s.
 - M2.6e3 Hash-map objects: `Record<string, T>`, `Record<number, T>` and index signatures (also with required properties of their value type) are D-046's ordered hash table with a `PTS_KIND_RECORD` descriptor; `o[k]`/`o.k` reads (undefined where any value can go, `RangeError` elsewhere), writes, compound assignments, `delete`; the missing-key idioms `o[k] ?? d`, `o[k] || d`, `??=`, `||=`, `=== undefined`, `in`, `hasOwnProperty`, `Object.hasOwn` as in JS; literals (computed and numeric keys, spreads); `Object.keys`/`values`/`entries`, `for…in` and `console.log` in JS's key order (array indices first) (D-059, SPEC §9.36). Functions in literals take constant computed and numeric keys as names. M2.6 is complete.
 - M2.6e2 Spread in literals and rest properties: `[...a, x]` of arrays, tuples, strings, sets and maps; spreads in tuple literals; `push(...xs)`/`unshift(...xs)`; `{ ...o, x }` with JS's property order and evaluation order (class instances copy their fields only); rest properties in object patterns; `f.call(thisArg, ...xs)` (D-058, SPEC §9.35).
 - M2.6e1 Rest parameters and spread arguments: a rest parameter is one parameter of IR type `Rest` (`...T[]`) holding the array the caller builds; spreads of arrays into rest parameters and of tuples (literals or variables) into any parameters; `console.log(...xs)`; function types, interface methods, adapters, callbacks, `call`/`bind` with rest parameters (D-057, SPEC §9.34). M2.6e split into e1, e2 (spread in literals, rest properties) and e3 (hash-map objects).
@@ -60,7 +61,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.7: add the binary-trees benchmark (GC stress), a string-building benchmark and nbody (moved from M1.5 by D-023; pull `Math.sqrt` forward from M3.5 if it isn't there yet), then M2.8 (milestone M2: checklist, CI, BENCHMARKS table, tag `m2`, Telegram). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention.
+1. M2.7b: a string-building benchmark (`pts/bench/<name>/main.pts` + `main.go`; `+=` in a loop, template literals, `join`), and make `s += x` in a loop linear: `pts_string_concat` copies both strings every time, so 50,000 appends take 3.3 s where Node takes 0.1 s. A plan that keeps every reader of `->bytes` working: give `pts_string` a `char *bytes` pointer instead of the inline array (inline strings point just past their header), and let a concatenation whose result is large put it in an append buffer with spare capacity; a later concatenation onto the string that ends at the buffer's claimed end claims the space with a CAS and copies only the new part (all strings sharing a buffer are prefixes of each other, so bytes are never changed once claimed: race-safe per D-L13). Buffered strings' headers must be scanned (GC_MALLOC), inline ones stay atomic; `pts_throw_error` (`%s`) and `inspect.c`'s `strstr` rely on NUL-terminated bytes and need bounds. Then M2.8 (milestone M2: checklist, CI, BENCHMARKS table with fib, fib_int, nbody, binary_trees and the string benchmark, tag `m2`, Telegram). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -75,7 +76,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (109 run tests, 1 skipped; 53 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (110 run tests, 1 skipped; 54 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -104,6 +105,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.7a done (M2.7 split by D-060).
 - 2026-10-11: M2.6e3 done; M2.6 complete.
 - 2026-10-11: M2.6e2 done.
 - 2026-10-11: M2.6e1 done (M2.6e split by D-057).
