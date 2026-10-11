@@ -28,3 +28,20 @@ Measured on 2026-10-11 (M1.5). `fib` is recursive Fibonacci of 38 on `number` (G
 | fib_int | 135 ms | – | – | 212 ms | – | 1.57× |
 
 nbody moved to M2.7 (D-023).
+
+## M2
+
+Measured on 2026-10-11 (M2.8), `pts/bench/run.sh` with 2 warm-ups and 10 runs, on a machine that also runs other services (σ is up to 5% for most rows, 26% for Bun's string_building). New since M1: binary-trees (depth 18, the GC stress test; leaves are their own children until null arrives in M3.1), nbody (5,000,000 steps, energies unrounded until `toFixed` in M3.5) and string building (a million pieces appended with `+=`, template literals and `join`; Go uses a `strings.Builder`). See D-060 and D-061 for how each is written.
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| binary_trees | 2144 ms | 1369 ms | 1526 ms | 3176 ms | 0.64× | 1.48× |
+| fib | 249 ms | 691 ms | 433 ms | 260 ms | 2.77× | 1.04× |
+| fib_int | 126 ms | – | – | 215 ms | – | 1.71× |
+| nbody | 791 ms | 869 ms | 858 ms | 509 ms | 1.10× | 0.64× |
+| string_building | 1088 ms | 1771 ms | 5855 ms | 376 ms | 1.63× | 0.35× |
+
+Notes:
+- binary_trees: bdwgc (conservative, non-moving, non-generational) is the cost; ParallelScript uses 127 MB, Node 264 MB. Collecting only when the program has allocated as much as the heap holds (D-060) took it from about 2.9 s to 2.1 s. A generational or precise collector is M8 work.
+- nbody: loop indices are `number` (doubles), so every `bodies[i]` converts and bounds-checks a double; Go's are ints. Integer inference is M8 work; with `int` indices the gap narrows, as fib_int shows.
+- string_building: before D-061 every concatenation copied both strings, so this benchmark would have taken minutes.

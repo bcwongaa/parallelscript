@@ -4,13 +4,14 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.8 Milestone M2
+- **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
+- **Next task:** M3.1 Unions and narrowing
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.8 Milestone M2: checklist run, CI green on `057198d`, M2 table in `docs/BENCHMARKS.md` (binary_trees 0.64× Node and 1.48× Go; fib 2.77× Node; nbody 1.10× Node; string_building 1.63× Node), tag `m2`, Telegram report.
 - M2.7b String building: strings point at their bytes (`char *bytes`), and a concatenation of 64 bytes or more goes to an append buffer that later concatenations onto its last string extend in place by claiming bytes with a CAS, so `s += x` in a loop is linear (50,000 appends: 3.3 s → 0.014 s; Node 0.1 s); `pts/bench/string_building` (a million pieces by `+=`, template literals and `join`; PTS about 1.0 s, Node 1.6 s, Bun 4.4 s, Go with `strings.Builder` 0.36 s) (D-061, SPEC §9.38). M2.7 is complete.
 - M2.7a binary-trees and nbody: `pts/bench/binary_trees` (depth 18) and `pts/bench/nbody` (5M steps) with Go twins; Math's `sqrt`, `abs`, `floor`, `ceil`, `round`, `trunc`, `sign`, `max`, `min` and constants pulled forward from M3.5; the collector runs when the program has allocated as much as the heap holds (free-space divisor 1, like GOGC=100), and the C is compiled with `-fno-math-errno` (D-060, SPEC §9.37). M2.7 split by D-060. Local numbers (5 runs, noisy shared machine): nbody PTS 785 ms, Node 843, Bun 837, Go 502; binary_trees PTS about 2.1 s after the GC change (2.6 s before), Node 1.2 s, Bun 1.6 s, Go 3.2 s.
 - M2.6e3 Hash-map objects: `Record<string, T>`, `Record<number, T>` and index signatures (also with required properties of their value type) are D-046's ordered hash table with a `PTS_KIND_RECORD` descriptor; `o[k]`/`o.k` reads (undefined where any value can go, `RangeError` elsewhere), writes, compound assignments, `delete`; the missing-key idioms `o[k] ?? d`, `o[k] || d`, `??=`, `||=`, `=== undefined`, `in`, `hasOwnProperty`, `Object.hasOwn` as in JS; literals (computed and numeric keys, spreads); `Object.keys`/`values`/`entries`, `for…in` and `console.log` in JS's key order (array indices first) (D-059, SPEC §9.36). Functions in literals take constant computed and numeric keys as names. M2.6 is complete.
@@ -62,7 +63,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.8 Milestone M2: run the checklist in `docs/MASTER_PLAN.md` (full suite green locally and in CI, PROGRESS updated, an M2 table in `docs/BENCHMARKS.md` from `make bench` with fib, fib_int, nbody, binary_trees and string_building, `git tag m2`, Telegram message). Then M3.1 (unions and narrowing, null and undefined, optional properties, `?.`, `??`, `==`). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention; binary-trees uses self-referencing leaves until null exists (switch it to `| null` in M3.1).
+1. M3.1 Unions and narrowing: unions as tagged values, `null` and `undefined` as distinct values, optional properties (`T | undefined`, moved from M2.3 by D-032), narrowing by `typeof`, `instanceof`, `in`, discriminants, equality and type guards, `?.`, `??` and `==`. Things waiting on it: optional parameters without a default (D-055's value plus `given` flag is the calling convention), the class TDZ and NULL checks in Known issues, `o[k]` of a hash-map object as `T | undefined` (D-059 throws today where a T is required), and binary-trees' leaves (switch `pts/bench/binary_trees` to `left: TreeNode | null`, with the Go twin back to nil). Probably split it (representation and `null`/`undefined` first, then narrowing, then optional properties and `?.`/`??`). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -82,7 +83,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `057efbe`: both jobs about 4.5 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `057198d`: about 4.5 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the table for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int).
@@ -106,6 +107,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.8 done; tagged `m2`.
 - 2026-10-11: M2.7b done; M2.7 complete.
 - 2026-10-11: M2.7a done (M2.7 split by D-060).
 - 2026-10-11: M2.6e3 done; M2.6 complete.
