@@ -170,7 +170,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.1c Unions of objects** (35739bda0) (split from M3.1 by D-062).
   - Reading properties and calling methods shared by a union's members; discriminants; `in` narrowing.
   - `==` with JS semantics beyond null and undefined.
-- [ ] **M3.2a Throw, try, catch, finally and `Error`** (split from M3.2 by D-068).
+- [x] **M3.2a Throw, try, catch, finally and `Error`** (9c6a43054) (split from M3.2 by D-068).
   - `throw`, `try`, `catch` and `finally` with JS semantics, where any value can be thrown; `return`, `break` and `continue` through `finally`.
   - `Error` and its native subclasses with `message`, `name`, `cause` and `toString()`; classes extending them; the runtime's TypeError, RangeError and ReferenceError thrown as catchable `Error` objects.
   - The catch binding as `unknown`, narrowed by `instanceof` and `typeof`, or cast with a checked `as`.
