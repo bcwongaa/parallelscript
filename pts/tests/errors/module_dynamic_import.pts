@@ -1,0 +1,4 @@
+// Modules are linked when the program is compiled, so they can't be loaded later.
+import("./module_dynamic_import.pts");
+
+// error: module_dynamic_import.pts:2:1 - error PTS1001: dynamic `import()` is not supported yet

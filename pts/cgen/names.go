@@ -26,8 +26,28 @@ var reservedNames = map[string]bool{
 // (all-caps names). Names that are fine in C are kept; others get a trailing underscore,
 // with characters C doesn't allow spelled out ($ as _S, others as _uXXXX).
 func cIdentifier(name string) string {
+	result, clean := spelledOut(name)
+	if !clean || isReserved(result) {
+		result += "_"
+	}
+	return result
+}
+
+// prefixedIdentifier turns a TypeScript identifier into the part of a C identifier that
+// follows a pts_ prefix, where it can't collide with keywords, macros or the runtime, so
+// only characters C doesn't allow are spelled out (with a trailing underscore, as in cIdentifier).
+func prefixedIdentifier(name string) string {
+	result, clean := spelledOut(name)
+	if !clean {
+		result += "_"
+	}
+	return result
+}
+
+// spelledOut writes name with the characters C doesn't allow spelled out; clean reports that there were none.
+func spelledOut(name string) (result string, clean bool) {
 	var c strings.Builder
-	clean := true
+	clean = true
 	for _, r := range name {
 		switch {
 		case r < utf8.RuneSelf && (r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)):
@@ -40,16 +60,26 @@ func cIdentifier(name string) string {
 			clean = false
 		}
 	}
-	result := c.String()
-	if !clean || isReserved(result) {
-		result += "_"
-	}
-	return result
+	return c.String(), clean
 }
 
 func isReserved(name string) bool {
 	return reservedNames[name] || strings.HasPrefix(name, "_") || strings.HasPrefix(name, "pts_") ||
 		strings.HasPrefix(name, "PTS_") || strings.HasPrefix(name, "GC_") || strings.ToUpper(name) == name
+}
+
+// moduleIdentifier turns a module's name into a part of C identifiers: characters C
+// doesn't allow become _. The names it is part of are made unique, so it may lose information.
+func moduleIdentifier(name string) string {
+	var c strings.Builder
+	for _, r := range name {
+		if r < utf8.RuneSelf && (r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			c.WriteRune(r)
+		} else {
+			c.WriteByte('_')
+		}
+	}
+	return c.String()
 }
 
 // cString writes a JS string value (see ir.StringConst) as a C string literal with the same bytes.

@@ -13,7 +13,13 @@ import (
 // checkSource type-checks source as /p/main.pts, which must have no tsc errors, and runs the pass.
 func checkSource(t *testing.T, source string) []diagnostic.Diagnostic {
 	t.Helper()
-	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	return checkFiles(t, map[string]string{"/p/main.pts": source})
+}
+
+// checkFiles is checkSource for a program of several modules; /p/main.pts is the entry.
+func checkFiles(t *testing.T, files map[string]string) []diagnostic.Diagnostic {
+	t.Helper()
+	fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
 	program, errors := frontend.Load(t.Context(), fs, "/p/main.pts")
 	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
 	_, errors = check.Program(t.Context(), program)
@@ -218,5 +224,30 @@ byte(256);
 		"main.pts:12:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
 		"main.pts:13:26 - error PTS2001: a int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 		"main.pts:14:6 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
+	})
+}
+
+func TestNumericTypesHoldAcrossModulesAndAboveDeclarations(t *testing.T) {
+	t.Parallel()
+	errors := checkFiles(t, map[string]string{
+		"/p/main.pts": `import total, { limit, next, readMain } from "./lib.pts";
+import * as lib from "./lib.pts";
+export const mainByte: u8 = 3;
+const a: u8 = limit;
+const b: u8 = next() + lib.counter + total + readMain();
+const c: u8 = lib.wide;
+`,
+		// lib.pts runs, and is checked, before main.pts, whose binding it uses.
+		"/p/lib.pts": `import { mainByte } from "./main.pts";
+export function readMain(): u8 { return mainByte + 1; }
+export function next(): u8 { return counter + 1; }
+export const limit: u8 = 1;
+export let counter: u8 = 255;
+export const wide: u16 = 300;
+export default limit + 1;
+`,
+	})
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:6:15 - error PTS2001: a u16 doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 	})
 }

@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.4b2 Modules
+- **Next task:** M1.5 Benchmarks setup
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.4b2 Modules: `import`/`export` in every static form between `.pts` files (named, default, namespace, side-effect, re-exports, `export *`, `export * as`), live bindings, `export default <expression>` as a snapshot binding, modules run in ES evaluation order with cycles as in Node (TDZ ReferenceError included), C names qualified per module (D-022, SPEC §6, §9.9). Fixed: a function declared above an integer-typed module-scope binding it uses got a wrong PTS2001. The test harness runs multi-module tests under Node (helper modules in `run/<name>/`).
 - M1.4b1 Module-scope bindings in functions: top-level `let`/`const` that functions use are C globals with a ready flag, so a use before the declaration throws ReferenceError as in Node; function bodies are lowered after the top-level code (D-021, SPEC §9.8). M1.4b split by D-021.
 - M1.4a2 Functions: declarations (hoisted, nested if they capture nothing), parameters and returns with the numeric rules, inferred integer result types, recursion, calls in JS order; top-level code is now `pts_main`; the features left out by design (SPEC §3.10) are PTS1002 errors from `pts/check` with the reason (D-020, SPEC §9.8).
 - M1.4a1 Statements and operators: `if`, `while`, `do`, `for`, `switch` (any type, fallthrough), labels, `break`/`continue`; assignment, compound assignment, `++`/`--`, `?:`, `&&`/`||`, comma, `typeof`, `void`, bitwise operators (JS int32 on numbers; D-018 on integer types), truthiness; the numeric rules on all of them; JS's left-to-right evaluation order kept in C with temporaries where it matters (D-019, SPEC §9.7). Plan split D-017.
@@ -29,9 +30,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.4b2 Modules: ES `import`/`export` between `.pts` files (D-L19), initialisation in dependency order, each module once, cycles as in Node. Exported bindings are module-scope bindings used from other modules, so they become globals like those functions use (D-021; `lower.ownLocal`, `cgen.collectGlobals`). Today `lower.Program` lowers only the entry file (`frontend.Program.Entry`) and C names (`pts_fn_<name>`, `pts_global_<name>`) are unique only within one module: qualify them per module. The generated corpora could put each case in a function now: tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
-2. M1.5 Benchmarks setup (fib and nbody need functions, which work; nbody needs objects or arrays, so it may need M2 or a scalar formulation).
-3. M1.6 Milestone M1.
+1. M1.5 Benchmarks setup (fib and nbody need functions, which work; nbody needs objects or arrays, so it may need M2 or a scalar formulation).
+2. M1.6 Milestone M1.
+3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -45,7 +46,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (35 run tests, 1 skipped; 29 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (40 run tests, 1 skipped; 33 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -68,6 +69,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.4b2 done.
 - 2026-10-11: M1.4b1 done (M1.4b split by D-021).
 - 2026-10-11: M1.4a2 done.
 - 2026-10-11: M1.4a1 done (M1.4a split by D-017).

@@ -272,6 +272,13 @@ A concurrent map may come later if benchmarks or examples want one.
 - Standard library modules use the `pts:` prefix: `import { Mutex } from "pts:sync"`.
 - No npm or `node_modules` in v1. Compiling pure-TS npm packages that fit the supported subset is a stretch goal.
 
+Semantics (D-022), as in Node:
+- Every `.pts` (or `.ts`) file reachable from the entry by imports is part of the program, and its top-level code runs once. Modules run in ES module evaluation order: a module after the modules it imports, in the order its `import` and `export … from` declarations name them. In an import cycle, a module that is already running is skipped, so the module that imported it runs first; that module can call the other's functions, but reading its `let`/`const` bindings before their declarations have run throws `ReferenceError: Cannot access 'x' before initialization`.
+- Every import runs its module, even one that names only types; `import type` and `export type … from` don't.
+- Imports are live bindings: a module sees later assignments to a `let` it imports, also through `import * as m` (`m.x`) and re-exports (`export { x as y }`, `export *`, `export * as ns`).
+- `export default <expression>` stores the expression's value when the statement runs; a later assignment to a variable it named doesn't change the default export (unlike `export { x as default }`).
+- Not supported yet: a module namespace object as a value (`console.log(m)`), dynamic `import()`, `import defer`.
+
 ---
 
 ## 7. Standard library
@@ -346,6 +353,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | Driver | `pts/driver` | `EmitC(ctx, entry)` and `Build(ctx, entry, output)`: the pipeline end to end; compile errors come back as `*diagnostic.Error`. |
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
+- **Added in M1.4b2:** `import` and `export` in every static form between modules (§6, §9.9).
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
 - **Added in M1.4b1:** functions use and assign module-scope `let`/`const` (D-021).
 - **Added in M1.4a2:** function declarations (also nested, if they use nothing from outside), parameters, `return`, calls and recursion (§9.8).
@@ -357,7 +365,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **IR types** are singletons compared by identity: `ir.Number` (C `double`), `ir.Bool` (`bool`), `ir.String` (`pts_string *`), `ir.Undefined` and `ir.Null` (a `pts_value` holding the constant, so boxing them is free), `ir.Value` (boxed `pts_value`), `ir.Void`. Boxing is an explicit `ir.Box` node.
 - **Statements** carry an `ir.Pos` (absolute file, 1-based line); `cgen` turns positions into `#line` directives.
 - **Builtins:** a call lowers to `ir.CallBuiltin` only if the callee resolves to a member declared in a PTS lib file and listed in `lower.preludeBuiltins` (keyed `"Interface.member"`, e.g. `"Console.log"`). A user binding that shadows `console` is therefore never mistaken for the builtin.
-- **Top-level code** is the IR function `main` (C `pts_main`, D-020); top-level `let`/`const` are its C locals, except those a function uses, which are C globals `pts_global_<name>` with a ready flag (D-021).
+- **Top-level code** of each module is an IR function `main` of that module (C `pts_main` for the entry module, `pts_module_<module>` for others, D-020, D-022); top-level `let`/`const` are its C locals, except those another function or module uses, which are C globals `pts_global_<name>` with a ready flag (D-021).
 - **String literals** reach the IR exactly as the TS scanner decodes them: UTF-8, except that a lone surrogate is its 3-byte encoding (WTF-8, `stringutil.EncodeJSStringRune`). `cgen` computes `utf16_len` and the ASCII flag at compile time.
 - **Adding a construct:** handle it in `pts/lower` (with a lowering test on the printed IR), add the IR node and its printer case, and the `cgen` case (with a compile-and-run test). Run `go test ./pts/... ./cmd/pts/`.
 
@@ -414,3 +422,12 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Semantic pass** (`pts/check/functions.go`): parameter types, return statements and call arguments; a function's body is checked once, early if a call needs its inferred result type. `pts/check/unsupported.go` reports the features left out by design (SPEC §3.10, D-020).
 - **Module-scope bindings** (M1.4b1, D-021): `lower.ownLocal` marks a module-scope local that another function uses as `Global`; cgen declares `static T pts_global_<name>;` and `static bool pts_global_<name>_ready;`, the declaration in `pts_main` assigns both, and uses from functions go through `pts_check_ready(…_ready, "name")` (ReferenceError before the declaration has run). Function bodies are lowered after the top-level code.
 - **Tests:** `pts/tests/run/{functions,integer_functions,module_scope_bindings,module_scope_before_initialization}.pts`; `pts/tests/errors/{function_*,unsupported_by_design,with_statement}.pts`.
+
+### 9.9 Modules (M1.4b2)
+
+- **Frontend:** `frontend.Program.Modules` lists the program's source files in evaluation order, entry last (`evaluationOrder` in `pts/frontend/load.go`: depth first over `moduleRequests`, skipping modules already seen, declaration files, `import type` and `export type … from`).
+- **IR:** `ir.Program.Modules` (same order), each an `ir.Module{Name, Init}`; `Name` is the file's base name without its extension, empty for the entry module. Every `ir.Func` points to its module; the printer qualifies names outside the entry module (`func lib:add`, `lib:main` for its top-level code).
+- **Semantic pass:** checks every module, dependencies first. Names resolve through imports with `GetAliasedSymbol`; `bindingType` types a module-scope `let`/`const` or `export default` value on first use when the pass hasn't reached its declaration yet (`declared` keeps it from being checked twice).
+- **Lowering:** first every module's functions (`declareFunctions`) and module-scope bindings (`declareModuleBindings`, including the `default` binding of `export default <expression>`), then each module's top-level code in order, then the function bodies. `lower.target` resolves a name with `GetImmediateAliasedSymbol` step by step, stopping at a `default` binding (`hasDefaultBinding`); `binding` lowers a name or a namespace member (`m.x`) to a `LocalRef`, a reported function value or a reported namespace value. Imports and `export` declarations produce no statements; `export default <expression>` is a `LocalDecl` of the `default` binding. A module-scope binding used by any other function, including another module's top-level code, becomes `Global` (`ownLocal`).
+- **C:** `main` calls each module's function in order. Functions outside the entry module are `pts_fn_<module>_<name>` and their globals `pts_global_<module>_<name>` (`modulePrefix`; characters C doesn't allow in a module name become `_`); clashes get `_2`, … (`unique`, and `uniqueGlobal`, which also keeps a global clear of another's `_ready` flag). `readyCheck` leaves the check out in the declaring module's top-level code and in modules that run after it (`initOrder`).
+- **Tests:** `pts/tests/run/modules*.pts`, each with its imported modules in the directory of the same name (the harness gives Node a copy with `.mts` files, `pts/tests/README.md`); `pts/tests/errors/module_*.pts`; unit tests `TestModulesAreOrderedAsTheyRun`, `TestNumericTypesHoldAcrossModulesAndAboveDeclarations`, `TestImportedBindingsAreTheExportingModulesOwn`, `TestOnlyCodeThatMayRunEarlyChecksThatAnImportedBindingIsReady`.

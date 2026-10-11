@@ -1,0 +1,15 @@
+export type Byte = u8;
+export const limit: u8 = 250;
+
+export function wrapAdd(a: u8, b: u8) {
+  return a + b;
+}
+
+// The default export is a u8 too: 250 + 10 wraps.
+export default limit + 10;
+
+// A function may use a typed binding declared below it.
+export function next(): u8 {
+  return counter + 1;
+}
+export let counter: u8 = 255;

@@ -1,0 +1,16 @@
+// Import cycles run as in Node: a module that is already running is skipped, so the
+// modules it imports run first, and they can call its functions before its code has run.
+import { ping, pings } from "./modules_cycle/ping.pts";
+
+export function shout(word: string): string {
+  return word.toUpperCase() + "!";
+}
+
+console.log("main runs");
+console.log(ping(3), pings);
+
+// expect:
+// pong runs HELLO! hi pong
+// ping runs
+// main runs
+// done 2

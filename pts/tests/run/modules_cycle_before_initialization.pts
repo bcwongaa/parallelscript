@@ -1,0 +1,9 @@
+// In an import cycle, the module that runs first finds the other's bindings not yet
+// initialized: reading one throws ReferenceError, as in Node.
+import { first } from "./modules_cycle_before_initialization/first.pts";
+console.log(first);
+
+// exit: 1
+// stderr: ReferenceError: Cannot access 'first' before initialization
+// expect:
+// second runs

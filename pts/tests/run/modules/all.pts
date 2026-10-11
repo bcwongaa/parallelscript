@@ -1,0 +1,9 @@
+// Re-exports: everything, a namespace and a renamed default.
+export * from "./shapes/geometry.pts";
+export * as counter from "./counter.pts";
+export { default as square } from "./shapes/geometry.pts";
+export { twice as double };
+function twice(n: number) {
+  return n * 2;
+}
+console.log("all runs");

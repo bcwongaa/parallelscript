@@ -1,0 +1,10 @@
+import { ping, greet } from "./ping.pts";
+import { shout } from "../modules_cycle.pts";
+
+// ping.pts and the entry module wait for this module, so their code hasn't run yet,
+// but their functions exist already.
+console.log("pong runs", shout("hello"), greet("pong"));
+
+export function pong(n: number): string {
+  return n === 0 ? "done" : ping(n - 1);
+}

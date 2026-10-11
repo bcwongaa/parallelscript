@@ -15,7 +15,13 @@ import (
 // lowerSource type-checks source as /p/main.pts, which must pass tsc and the semantic pass, and lowers it.
 func lowerSource(t *testing.T, source string) (*ir.Program, []diagnostic.Diagnostic) {
 	t.Helper()
-	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	return lowerFiles(t, map[string]string{"/p/main.pts": source})
+}
+
+// lowerFiles is lowerSource for a program of several modules; /p/main.pts is the entry.
+func lowerFiles(t *testing.T, files map[string]string) (*ir.Program, []diagnostic.Diagnostic) {
+	t.Helper()
+	fs := vfstest.FromMap(files, true /*useCaseSensitiveFileNames*/)
 	program, errors := frontend.Load(t.Context(), fs, "/p/main.pts")
 	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
 	info, errors := check.Program(t.Context(), program)
@@ -445,6 +451,42 @@ func TestModuleScopeBindingsThatFunctionsUseBecomeGlobals(t *testing.T) {
 }
 func below(n: number) boolean {
   3: return (n < limit)
+}
+`)
+}
+
+func TestImportedBindingsAreTheExportingModulesOwn(t *testing.T) {
+	t.Parallel()
+	program, errors := lowerFiles(t, map[string]string{
+		"/p/main.pts": `import total, { add, limit } from "./lib.pts";
+import * as lib from "./lib.pts";
+import twice from "./twice.pts";
+console.log(add(limit, 1), lib.limit, total, lib.add(1, 2), twice(4));
+`,
+		"/p/lib.pts": `export const limit = 3;
+export function add(a: number, b: number) { return a + b; }
+export default limit * 2;
+`,
+		"/p/twice.pts": `function twice(n: number) { return n * 2; }
+export default twice;
+`,
+	})
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	// The default export of a value is a binding of its own; of a function, the function.
+	assert.Equal(t, program.String(), `func lib:main() void {
+  1: global limit: number = 3
+  3: global default: number = (limit * 2)
+}
+func twice:main() void {
+}
+func main() void {
+  4: console.log(box(lib:add(limit, 1)), box(limit), box(default), box(lib:add(1, 2)), box(twice:twice(4)))
+}
+func lib:add(a: number, b: number) number {
+  2: return (a + b)
+}
+func twice:twice(n: number) number {
+  1: return (n * 2)
 }
 `)
 }

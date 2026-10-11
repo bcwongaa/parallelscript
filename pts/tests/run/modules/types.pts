@@ -1,0 +1,3 @@
+// Only `import type` names this module, so it never runs.
+console.log("types runs");
+export type Shape = string;

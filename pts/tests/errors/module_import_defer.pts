@@ -1,0 +1,5 @@
+// `import defer` runs a module when it is first used, which isn't supported yet.
+import defer * as self from "./module_import_defer.pts";
+export const unit = "cm";
+
+// error: module_import_defer.pts:2:1 - error PTS1001: `import defer` is not supported yet

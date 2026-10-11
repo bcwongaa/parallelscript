@@ -1,0 +1,3 @@
+// An import that names only types still runs the module, as in Node.
+console.log("labels runs");
+export type Labelled = string;

@@ -1,0 +1,10 @@
+// The integer types keep their meaning across modules.
+import total, { limit, wrapAdd, next, type Byte } from "./modules_integers/bytes.pts";
+import * as bytes from "./modules_integers/bytes.pts";
+
+const b: Byte = limit;
+const sum: u8 = bytes.limit + 1;
+console.log(wrapAdd(b, 10), b + 10, total, sum, next(), bytes.counter);
+
+// expect:
+// 4 4 4 251 0 255

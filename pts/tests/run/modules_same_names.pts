@@ -1,0 +1,22 @@
+// Modules may use the same names, and two modules may have the same file name: each
+// keeps its own functions and bindings.
+import * as left from "./modules_same_names/left/util.pts";
+import * as right from "./modules_same_names/right/util.pts";
+
+let count = 100;
+let count_ready = "ready";
+
+function util(): string {
+  function describe(): string {
+    return "main " + count + " " + count_ready;
+  }
+  return describe();
+}
+
+left.bump();
+right.bump();
+right.bump();
+console.log(util(), left.describe(), right.describe(), left.count, right.count);
+
+// expect:
+// main 100 ready left 1 right 2 1 2

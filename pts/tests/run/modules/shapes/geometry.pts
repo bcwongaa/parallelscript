@@ -1,0 +1,10 @@
+import { bump } from "../counter.pts";
+console.log("geometry runs");
+export const unit = "cm";
+export function perimeter(side: number): number {
+  return 4 * side;
+}
+export default function (side: number) {
+  return side * side;
+}
+bump(0);

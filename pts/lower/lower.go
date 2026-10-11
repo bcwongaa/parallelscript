@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/jsnum"
 	"github.com/microsoft/typescript-go/internal/scanner"
+	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
@@ -120,35 +122,63 @@ var numericTypes = map[check.Numeric]ir.Type{
 func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, info: info, file: program.Entry,
-		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, module: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{}}
-	main := &ir.Func{Name: "main", Pos: ir.Pos{File: program.Entry.FileName(), Line: 1}, Result: ir.Void}
-	l.function = main
-	l.declareFunctions(program.Entry.AsNode(), "")
-	main.Body = l.block(program.Entry.AsNode(), program.Entry.Statements.Nodes)
+	l := &lowerer{program: program.TS, checker: c, info: info,
+		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{}}
+	result := &ir.Program{}
+	for _, file := range program.Modules {
+		module := newModule(file, file == program.Entry)
+		result.Modules = append(result.Modules, module)
+		result.Funcs = append(result.Funcs, module.Init)
+	}
+	result.Main = result.Modules[len(result.Modules)-1].Init
+	// Every function and module-scope binding exists before any code is lowered: code
+	// may use them above their declarations, and in an import cycle before their module runs.
+	for i, file := range program.Modules {
+		l.function = result.Modules[i].Init
+		l.declareFunctions(file.AsNode(), "")
+		l.declareModuleBindings(file)
+	}
+	for i, file := range program.Modules {
+		l.function = result.Modules[i].Init
+		l.function.Body = l.block(file.AsNode(), file.Statements.Nodes)
+	}
 	// Function bodies come last, when every module-scope binding they may use is known.
 	for len(l.bodies) > 0 {
 		body := l.bodies[0]
 		l.bodies = l.bodies[1:]
 		l.functionBody(body)
 	}
-	return &ir.Program{Funcs: append([]*ir.Func{main}, l.lowered...), Main: main}, l.errors
+	result.Funcs = append(result.Funcs, l.lowered...)
+	return result, l.errors
+}
+
+// newModule makes the IR module for a source file, with an empty function for its top-level code.
+func newModule(file *ast.SourceFile, entry bool) *ir.Module {
+	module := &ir.Module{}
+	if !entry {
+		base := tspath.GetBaseFileName(file.FileName())
+		module.Name = strings.TrimSuffix(base, filepath.Ext(base))
+		if module.Name == "" {
+			module.Name = "module"
+		}
+	}
+	module.Init = &ir.Func{Name: "main", Module: module, Pos: ir.Pos{File: file.FileName(), Line: 1}, Result: ir.Void}
+	return module
 }
 
 type lowerer struct {
-	program  *compiler.Program
-	checker  *checker.Checker
-	info     *check.Info
-	file     *ast.SourceFile
-	locals   map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
-	owners   map[*ir.Local]*ir.Func    // the function each local belongs to
-	module   map[*ir.Local]bool        // the locals declared at module scope, which functions may use
-	funcs    map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
-	lowered  []*ir.Func                // the functions whose bodies are lowered
-	bodies   []*ast.Node               // function declarations whose bodies are still to be lowered
-	function *ir.Func                  // the function being lowered
-	targets  []jumpTarget              // the statements around the current one that break or continue can leave
-	errors   []diagnostic.Diagnostic
+	program     *compiler.Program
+	checker     *checker.Checker
+	info        *check.Info
+	locals      map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
+	owners      map[*ir.Local]*ir.Func    // the function each local belongs to
+	moduleScope map[*ir.Local]bool        // the locals declared at module scope, which functions and other modules may use
+	funcs       map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
+	lowered     []*ir.Func                // the functions whose bodies are lowered
+	bodies      []*ast.Node               // function declarations whose bodies are still to be lowered
+	function    *ir.Func                  // the function being lowered
+	targets     []jumpTarget              // the statements around the current one that break or continue can leave
+	errors      []diagnostic.Diagnostic
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -159,8 +189,9 @@ type jumpTarget struct {
 }
 
 func (l *lowerer) pos(node *ast.Node) ir.Pos {
-	start := scanner.GetTokenPosOfNode(node, l.file, false)
-	return ir.Pos{File: l.file.FileName(), Line: scanner.GetECMALineOfPosition(l.file, start) + 1}
+	file := ast.GetSourceFileOfNode(node)
+	start := scanner.GetTokenPosOfNode(node, file, false)
+	return ir.Pos{File: file.FileName(), Line: scanner.GetECMALineOfPosition(file, start) + 1}
 }
 
 func (l *lowerer) notSupportedYet(node *ast.Node, what string) {
@@ -210,14 +241,25 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		return l.jump(node, node.AsContinueStatement().Label, true)
 	case ast.KindEmptyStatement, ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
 		// No runtime effect.
-	case ast.KindExportDeclaration:
-		if !isEmptyExport(node) {
-			l.notSupportedYet(node, describe(node)+" is")
+	case ast.KindImportDeclaration, ast.KindExportDeclaration:
+		// No code: a use of an imported binding is a use of the exporting module's own,
+		// and the frontend puts the modules in the order they run.
+		if node.Kind == ast.KindImportDeclaration && isDeferred(node) {
+			l.notSupportedYet(node, "`import defer` is")
 		}
+	case ast.KindExportAssignment:
+		return l.exportDefault(node)
 	default:
 		l.notSupportedYet(node, describe(node)+" is")
 	}
 	return nil
+}
+
+// isDeferred reports whether an import declaration is `import defer`, whose module would
+// run when first used rather than before the importing module.
+func isDeferred(node *ast.Node) bool {
+	clause := node.AsImportDeclaration().ImportClause
+	return clause != nil && clause.AsImportClause().PhaseModifier == ast.KindDeferKeyword
 }
 
 // statementBlock lowers the body of an if, a loop or a labelled statement as a block.
@@ -394,13 +436,6 @@ func (l *lowerer) jump(node *ast.Node, labelNode *ast.Node, isContinue bool) []i
 	panic("lower: tsc accepted a break or continue without a target")
 }
 
-// isEmptyExport reports whether node is `export {}`, which only marks a file as a module.
-func isEmptyExport(node *ast.Node) bool {
-	export := node.AsExportDeclaration()
-	return export.ModuleSpecifier == nil && export.ExportClause != nil &&
-		export.ExportClause.Kind == ast.KindNamedExports && len(export.ExportClause.Elements()) == 0
-}
-
 func (l *lowerer) variableStatement(node *ast.Node) []ir.Stmt {
 	if ast.HasSyntacticModifier(node, ast.ModifierFlagsAmbient) {
 		l.notSupportedYet(node, "`declare` is")
@@ -433,31 +468,128 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 		l.notSupportedYet(name, "destructuring is")
 		return nil
 	}
-	initializer := node.Initializer()
 	symbol := l.checker.GetSymbolAtLocation(name)
-	l.locals[symbol] = nil // until it lowers, uses of it are silent: the declaration already failed
-	localType := l.numericType(name)
-	if localType == nil {
-		localType = l.irType(l.checker.GetTypeOfSymbol(symbol), name)
+	local, declared := l.locals[symbol] // module-scope bindings are declared before any code is lowered
+	if !declared {
+		l.locals[symbol] = nil // until it lowers, uses of it are silent: the declaration already failed
+		if t := l.bindingType(symbol, name); t != nil {
+			local = l.newLocal(name.Text(), t)
+		}
 	}
-	if localType == nil {
+	if local == nil {
 		return nil
 	}
 	var init ir.Expr
-	if initializer != nil {
+	if initializer := node.Initializer(); initializer != nil {
 		if init = l.expression(initializer); init == nil {
 			return nil
 		}
-		if init = l.convert(init, localType, initializer); init == nil {
+		if init = l.convert(init, local.Type, initializer); init == nil {
 			return nil
 		}
 	}
-	local := l.newLocal(name.Text(), localType)
 	l.locals[symbol] = local
-	if statement := node.Parent.Parent; statement.Kind == ast.KindVariableStatement && statement.Parent.Kind == ast.KindSourceFile {
-		l.module[local] = true
-	}
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: init}
+}
+
+// bindingType is the IR type of a variable or `export default` binding (symbol, written
+// at node): the numeric type the semantic pass gave it, or its type's; nil if it has none (reported).
+func (l *lowerer) bindingType(symbol *ast.Symbol, node *ast.Node) ir.Type {
+	if t := l.numericType(node); t != nil {
+		return t
+	}
+	return l.irType(l.checker.GetTypeOfSymbol(symbol), node)
+}
+
+// ---------------------------------------------------------------- modules
+
+// declareModuleBindings makes the locals of a module's top-level `let` and `const`
+// declarations and of its `export default` value, owned by the module's top-level code.
+func (l *lowerer) declareModuleBindings(file *ast.SourceFile) {
+	for _, statement := range file.Statements.Nodes {
+		switch {
+		case statement.Kind == ast.KindVariableStatement && !ast.HasSyntacticModifier(statement, ast.ModifierFlagsAmbient):
+			list := statement.AsVariableStatement().DeclarationList
+			if list.Flags&ast.NodeFlagsUsing != 0 {
+				continue // reported when the statement is lowered
+			}
+			for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
+				if name := declaration.Name(); name.Kind == ast.KindIdentifier {
+					l.declareModuleBinding(name.Text(), l.checker.GetSymbolAtLocation(name), name)
+				}
+			}
+		case statement.Kind == ast.KindExportAssignment && l.hasDefaultBinding(statement):
+			l.declareModuleBinding("default", l.declaredSymbol(statement), statement.Expression())
+		}
+	}
+}
+
+// declareModuleBinding makes the local of a module-scope binding, typed at node; it is
+// nil, so that uses of it are silent, if its type is reported.
+func (l *lowerer) declareModuleBinding(name string, symbol *ast.Symbol, node *ast.Node) {
+	var local *ir.Local
+	if t := l.bindingType(symbol, node); t != nil {
+		local = l.newLocal(name, t)
+		l.moduleScope[local] = true
+	}
+	l.locals[symbol] = local
+}
+
+// hasDefaultBinding reports whether `export default value` (node) makes a binding of its
+// own, which holds the value as it was when the statement ran, as in JS. A value that
+// names a function (which can't change) or only a type needs none: importing the
+// default names the function or type itself.
+func (l *lowerer) hasDefaultBinding(node *ast.Node) bool {
+	value := node.Expression()
+	if !ast.IsEntityNameExpression(value) {
+		return true
+	}
+	symbol := l.checker.GetSymbolAtLocation(value)
+	if symbol != nil && symbol.Flags&ast.SymbolFlagsAlias != 0 {
+		symbol = l.checker.GetAliasedSymbol(symbol)
+	}
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsValue != 0 && symbol.Flags&ast.SymbolFlagsFunction == 0
+}
+
+// exportDefault lowers `export default value`: it stores the value in the module's default binding.
+func (l *lowerer) exportDefault(node *ast.Node) []ir.Stmt {
+	local := l.locals[l.declaredSymbol(node)]
+	if local == nil {
+		return nil // it names a function or a type, so there is no binding; or its type was reported
+	}
+	value := l.expression(node.Expression())
+	if value == nil {
+		return nil
+	}
+	if value = l.convert(value, local.Type, node.Expression()); value == nil {
+		return nil
+	}
+	return []ir.Stmt{&ir.LocalDecl{At: l.pos(node), Local: local, Init: value}}
+}
+
+// target returns the symbol node refers to, following imports and re-exports to the
+// declaration they name. It stops at a module's default binding (hasDefaultBinding),
+// which holds a value of its own.
+func (l *lowerer) target(node *ast.Node) *ast.Symbol {
+	symbol := l.checker.GetSymbolAtLocation(node)
+	for symbol != nil && symbol.Flags&ast.SymbolFlagsAlias != 0 {
+		if declaration := symbol.Declarations[0]; declaration.Kind == ast.KindExportAssignment && l.hasDefaultBinding(declaration) {
+			return symbol
+		}
+		symbol = l.checker.GetImmediateAliasedSymbol(symbol)
+	}
+	return symbol
+}
+
+// isNamespace reports whether node names a module namespace object: `m` after `import * as m`.
+func (l *lowerer) isNamespace(node *ast.Node) bool {
+	symbol := l.target(node)
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0
+}
+
+// declaredSymbol is the symbol a declaration declares, also one without a name (`export default`).
+func (l *lowerer) declaredSymbol(declaration *ast.Node) *ast.Symbol {
+	return l.checker.GetMergedSymbol(declaration.Symbol())
 }
 
 // numericType is the IR type the semantic pass gave a number-typed node, or nil.
@@ -493,11 +625,14 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 	node.ForEachChild(func(child *ast.Node) bool {
 		qualified := outer
 		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil {
-			qualified = child.Name().Text()
+			qualified = "default" // `export default function () {}`
+			if name := child.Name(); name != nil {
+				qualified = name.Text()
+			}
 			if outer != "" {
 				qualified = outer + "." + qualified
 			}
-			l.funcs[l.checker.GetSymbolAtLocation(child.Name())] = l.declareFunction(child, qualified)
+			l.funcs[l.declaredSymbol(child)] = l.declareFunction(child, qualified)
 		}
 		l.declareFunctions(child, qualified)
 		return false
@@ -509,16 +644,16 @@ func (l *lowerer) declareFunction(node *ast.Node, name string) *ir.Func {
 	declaration := node.AsFunctionDeclaration()
 	switch {
 	case declaration.TypeParameters != nil:
-		l.notSupportedYet(node.Name(), "generic functions are")
+		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
 	case declaration.AsteriskToken != nil:
-		l.notSupportedYet(node.Name(), "generator functions are")
+		l.notSupportedYet(nameOf(node), "generator functions are")
 		return nil
 	case ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync):
-		l.notSupportedYet(node.Name(), "async functions are")
+		l.notSupportedYet(nameOf(node), "async functions are")
 		return nil
 	}
-	fn := &ir.Func{Name: name, Pos: l.pos(node)}
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node)}
 	outer := l.function
 	l.function = fn // parameters are locals of fn
 	defer func() { l.function = outer }()
@@ -573,12 +708,20 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	if result.Flags()&checker.TypeFlagsVoid != 0 {
 		return ir.Void
 	}
-	return l.irType(result, node.Name())
+	return l.irType(result, nameOf(node))
+}
+
+// nameOf is a declaration's name, or the declaration itself if it has none (`export default function () {}`).
+func nameOf(declaration *ast.Node) *ast.Node {
+	if name := declaration.Name(); name != nil {
+		return name
+	}
+	return declaration
 }
 
 // functionBody lowers the body of a function declaration into the function made for it.
 func (l *lowerer) functionBody(node *ast.Node) {
-	fn := l.funcs[l.checker.GetSymbolAtLocation(node.Name())]
+	fn := l.funcs[l.declaredSymbol(node)]
 	if fn == nil || node.Body() == nil {
 		return // a failed declaration (reported), or an overload signature
 	}
@@ -674,16 +817,9 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 }
 
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
-	symbol := l.checker.GetSymbolAtLocation(node)
-	if local, ok := l.locals[symbol]; ok {
-		if local = l.ownLocal(node, local); local == nil {
-			return nil
-		}
-		return &ir.LocalRef{Local: local}
-	}
-	if _, ok := l.funcs[symbol]; ok {
-		l.notSupportedYet(node, "function values are")
-		return nil
+	symbol := l.target(node)
+	if x, ok := l.binding(node, symbol); ok {
+		return x
 	}
 	if node.Text() == "undefined" {
 		return &ir.UndefinedConst{} // a local named undefined was found above
@@ -691,13 +827,43 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	if value, ok := libConstants[node.Text()]; ok && l.isDeclaredInDefaultLib(symbol) {
 		return &ir.NumberConst{Value: value}
 	}
-	l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
+	if l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) {
+		l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
+	} else {
+		l.notSupportedYet(node, fmt.Sprintf("using `%s` is", node.Text()))
+	}
 	return nil
+}
+
+// binding lowers a reference (node) to a binding of the program (symbol): a local, or a
+// module-scope binding of this module or an imported one. It reports, and returns nil, a
+// function or module namespace used as a value, and a binding that failed to lower. ok
+// is false if symbol is no binding of the program.
+func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok bool) {
+	if local, ok := l.locals[symbol]; ok {
+		if local = l.ownLocal(node, local); local == nil {
+			return nil, true
+		}
+		return &ir.LocalRef{Local: local}, true
+	}
+	if _, ok := l.funcs[symbol]; ok {
+		l.notSupportedYet(node, "function values are")
+		return nil, true
+	}
+	if symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0 {
+		l.notSupportedYet(node, "using the module namespace `"+scanner.GetTextOfNode(node)+"` as a value is")
+		return nil, true
+	}
+	return nil, false
 }
 
 func (l *lowerer) call(node *ast.Node) ir.Expr {
 	call := node.AsCallExpression()
-	fn, isUserFunction := l.funcs[l.checker.GetSymbolAtLocation(ast.SkipParentheses(call.Expression))]
+	if call.Expression.Kind == ast.KindImportKeyword {
+		l.notSupportedYet(node, "dynamic `import()` is")
+		return nil
+	}
+	fn, isUserFunction := l.funcs[l.target(ast.SkipParentheses(call.Expression))]
 	builtin := l.builtin(call.Expression)
 	switch {
 	case isUserFunction && fn == nil:
@@ -811,6 +977,10 @@ func (l *lowerer) isDeclaredInDefaultLib(symbol *ast.Symbol) bool {
 		l.program.IsSourceFileDefaultLibrary(ast.GetSourceFileOfNode(symbol.ValueDeclaration).Path())
 }
 
+func (l *lowerer) isDeclaredInPtsLib(symbol *ast.Symbol) bool {
+	return symbol != nil && symbol.ValueDeclaration != nil && lib.IsLibPath(ast.GetSourceFileOfNode(symbol.ValueDeclaration).FileName())
+}
+
 // numericLiteral lowers a literal (negated if it is the operand of unary minus) to a
 // constant of the type the semantic pass gave it.
 func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
@@ -892,8 +1062,14 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 	return nil
 }
 
-// propertyAccess lowers a property read; only builtin properties exist so far.
+// propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
+// `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	if l.isNamespace(node.Expression()) {
+		if x, ok := l.binding(node, l.target(node)); ok {
+			return x
+		}
+	}
 	builtin := l.builtin(node)
 	if !properties[builtin] {
 		l.notSupportedYet(node, "`"+scanner.GetTextOfNode(node)+"` is")
@@ -1093,7 +1269,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 func (l *lowerer) assignmentTarget(node *ast.Node) *ir.Local {
 	node = ast.SkipParentheses(node)
 	if node.Kind == ast.KindIdentifier {
-		if local, ok := l.locals[l.checker.GetSymbolAtLocation(node)]; ok {
+		if local, ok := l.locals[l.target(node)]; ok {
 			return l.ownLocal(node, local) // nil also if its declaration failed, which was reported
 		}
 	}
@@ -1109,17 +1285,17 @@ func (l *lowerer) newLocal(name string, t ir.Type) *ir.Local {
 }
 
 // ownLocal returns local if the function being lowered may use it: its own, or one at
-// module scope, which becomes a global. Otherwise it reports the use at node and returns
-// nil: functions don't capture other variables yet.
+// the module scope of any module, which becomes a global. Otherwise it reports the use at
+// node and returns nil: functions don't capture other variables yet.
 func (l *lowerer) ownLocal(node *ast.Node, local *ir.Local) *ir.Local {
 	switch {
 	case local == nil || l.owners[local] == l.function:
 		return local
-	case l.module[local]:
+	case l.moduleScope[local]:
 		local.Global = true
 		return local
 	}
-	l.notSupportedYet(node, "using `"+node.Text()+"` from outside the function is")
+	l.notSupportedYet(node, "using `"+scanner.GetTextOfNode(node)+"` from outside the function is")
 	return nil
 }
 

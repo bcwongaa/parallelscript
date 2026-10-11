@@ -1,0 +1,6 @@
+// A module namespace object can't be used as a value yet; its bindings can.
+import * as shapes from "./module_namespace_value/shapes.pts";
+console.log(shapes.unit);
+console.log(shapes);
+
+// error: module_namespace_value.pts:4:13 - error PTS1001: using the module namespace `shapes` as a value is not supported yet

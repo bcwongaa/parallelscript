@@ -21,8 +21,14 @@ func at(line int) ir.Pos { return ir.Pos{File: sourceFile, Line: line} }
 
 // programOf wraps statements in the main function of a program.
 func programOf(stmts ...ir.Stmt) *ir.Program {
-	main := &ir.Func{Name: "main", Pos: at(1), Result: ir.Void, Body: &ir.Block{At: at(1), Stmts: stmts}}
-	return &ir.Program{Funcs: []*ir.Func{main}, Main: main}
+	return programWithMain(&ir.Func{Name: "main", Pos: at(1), Result: ir.Void, Body: &ir.Block{At: at(1), Stmts: stmts}})
+}
+
+// programWithMain is the one-module program whose top-level code is main.
+func programWithMain(main *ir.Func) *ir.Program {
+	module := &ir.Module{Init: main}
+	main.Module = module
+	return &ir.Program{Funcs: []*ir.Func{main}, Modules: []*ir.Module{module}, Main: main}
 }
 
 // logAt is console.log(args...) on the given line, boxing each argument.
@@ -99,7 +105,7 @@ func TestLineDirectivesAreEmittedOnlyWhenTheLineChanges(t *testing.T) {
 func TestLineDirectiveEscapesThePath(t *testing.T) {
 	t.Parallel()
 	main := &ir.Func{Name: "main", Pos: ir.Pos{File: `/p/a "b"\c.pts`, Line: 1}, Result: ir.Void, Body: &ir.Block{}}
-	got := cgen.Emit(&ir.Program{Funcs: []*ir.Func{main}, Main: main})
+	got := cgen.Emit(programWithMain(main))
 	assert.Assert(t, strings.Contains(got, `#line 1 "/p/a \"b\"\\c.pts"`), got)
 }
 
@@ -265,4 +271,25 @@ func TestLabelsAreWrittenOnlyWhereAGotoJumps(t *testing.T) {
 	assert.Assert(t, strings.Contains(source, "goto outer_break;") && strings.Contains(source, "outer_break: ;"), source)
 	assert.Assert(t, !strings.Contains(source, "_continue: ;") && !strings.Contains(source, "loop_break: ;"), source)
 	assert.Equal(t, run(t, program), "done\n")
+}
+
+func TestOnlyCodeThatMayRunEarlyChecksThatAnImportedBindingIsReady(t *testing.T) {
+	t.Parallel()
+	// Module a runs before the entry module (an import cycle) and reads its y; the entry
+	// reads a's x after a has run.
+	x := &ir.Local{Name: "x", Type: ir.Number, Global: true}
+	y := &ir.Local{Name: "y", Type: ir.Number, Global: true}
+	a := &ir.Module{Name: "a"}
+	a.Init = &ir.Func{Name: "main", Module: a, Pos: at(1), Result: ir.Void, Body: &ir.Block{At: at(1), Stmts: []ir.Stmt{
+		&ir.LocalDecl{At: at(1), Local: x, Init: num(1)},
+		logAt(2, &ir.LocalRef{Local: y}),
+	}}}
+	program := programOf(&ir.LocalDecl{At: at(1), Local: y, Init: num(2)}, logAt(2, &ir.LocalRef{Local: x}))
+	program.Modules = append([]*ir.Module{a}, program.Modules...)
+	program.Funcs = append([]*ir.Func{a.Init}, program.Funcs...)
+
+	got := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(got, `pts_check_ready(pts_global_y_ready, "y")`), got)
+	assert.Assert(t, !strings.Contains(got, `pts_check_ready(pts_global_a_x_ready`), got)
+	assert.Assert(t, strings.Contains(got, "  pts_module_a();\n  pts_main();\n"), got)
 }

@@ -15,9 +15,10 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{}, main: program.Main}
+	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}}
 	e.collectStrings(program)
-	e.collectGlobals(program.Main)
+	e.collectGlobals(program)
 	e.header(program)
 	for _, f := range program.Funcs {
 		e.function(f)
@@ -27,21 +28,22 @@ func Emit(program *ir.Program) string {
 
 type emitter struct {
 	out
-	strings     map[string]string // string constant value → C name
-	stringOrder []string          // values in order of first use
-	funcNames   map[*ir.Func]string
-	globals     map[*ir.Local]string // module-scope bindings that functions use, by C name
-	globalOrder []*ir.Local
-	main        *ir.Func
-	current     *ir.Func
-	locals      map[*ir.Local]string
-	usedNames   map[string]bool
-	nextSuffix  map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
-	temporaries int            // pts_tmpN locals made so far in the function
-	labels      map[*ir.Label]string
-	usedLabels  map[string]bool
-	gotoTargets map[string]bool // C labels some goto jumps to, so only those are written
-	loops       []*ir.Label     // the C loops around the current statement, innermost last
+	strings      map[string]string // string constant value → C name
+	stringOrder  []string          // values in order of first use
+	funcNames    map[*ir.Func]string
+	globals      map[*ir.Local]string // module-scope bindings that other functions use, by C name
+	globalOrder  []*ir.Local
+	globalOwners map[*ir.Local]*ir.Func // the top-level code that declares each global
+	initOrder    map[*ir.Func]int       // each module's top-level code: its place in the order modules run
+	current      *ir.Func
+	locals       map[*ir.Local]string
+	usedNames    map[string]bool
+	nextSuffix   map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
+	temporaries  int            // pts_tmpN locals made so far in the function
+	labels       map[*ir.Label]string
+	usedLabels   map[string]bool
+	gotoTargets  map[string]bool // C labels some goto jumps to, so only those are written
+	loops        []*ir.Label     // the C loops around the current statement, innermost last
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -67,13 +69,17 @@ func (e *emitter) header(program *ir.Program) {
 	e.line(0, "")
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
-	e.line(1, "%s();", e.funcNames[program.Main])
+	for _, module := range program.Modules {
+		e.line(1, "%s();", e.funcNames[module.Init])
+	}
 	e.line(1, "return pts_runtime_exit(0);")
 	e.line(0, "}")
 }
 
-// functionNames gives each function its C name: pts_main for the top-level code (D-020),
-// pts_fn_<name> for the others, with a nested function's qualified name joined by _.
+// functionNames gives each function its C name (D-020, D-022): the entry module's
+// top-level code is pts_main and another module's pts_module_<module>; functions are
+// pts_fn_<name>, with a nested function's qualified name joined by _, and outside the
+// entry module the module's name first: pts_fn_<module>_<name>.
 func functionNames(program *ir.Program) map[*ir.Func]string {
 	names := map[*ir.Func]string{program.Main: "pts_main"}
 	used := map[string]bool{"pts_main": true}
@@ -81,19 +87,48 @@ func functionNames(program *ir.Program) map[*ir.Func]string {
 		if f == program.Main {
 			continue
 		}
-		parts := strings.Split(f.Name, ".")
-		for i, part := range parts {
-			parts[i] = cIdentifier(part)
+		var base string
+		if f == f.Module.Init {
+			base = "pts_module_" + moduleIdentifier(f.Module.Name)
+		} else {
+			parts := strings.Split(f.Name, ".")
+			for i, part := range parts {
+				parts[i] = prefixedIdentifier(part)
+			}
+			base = "pts_fn_" + modulePrefix(f.Module) + strings.Join(parts, "_")
 		}
-		base := "pts_fn_" + strings.Join(parts, "_")
-		name := base
-		for i := 2; used[name]; i++ {
-			name = fmt.Sprintf("%s_%d", base, i)
-		}
-		used[name] = true
-		names[f] = name
+		names[f] = unique(used, base)
 	}
 	return names
+}
+
+// modulePrefix starts the C names of a module's functions and globals: "" in the entry
+// module, "<module>_" in others.
+func modulePrefix(module *ir.Module) string {
+	if module.Name == "" {
+		return ""
+	}
+	return moduleIdentifier(module.Name) + "_"
+}
+
+// uniqueGlobal is unique for a global, whose name with _ready appended names its ready flag.
+func uniqueGlobal(used map[string]bool, base string) string {
+	name := base
+	for i := 2; used[name] || used[name+"_ready"]; i++ {
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+	used[name], used[name+"_ready"] = true, true
+	return name
+}
+
+// unique returns base, or base_2, base_3, … if it is already used, and marks the result used.
+func unique(used map[string]bool, base string) string {
+	name := base
+	for i := 2; used[name]; i++ {
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+	used[name] = true
+	return name
 }
 
 // signature is a function's C declarator. paramNames are the parameters' C names; with
@@ -113,14 +148,20 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 	return fmt.Sprintf("%s%s(%s)", declarator(f.Result), e.funcNames[f], strings.Join(params, ", "))
 }
 
-// collectGlobals names the top-level code's locals that functions use: pts_global_<name>.
-func (e *emitter) collectGlobals(main *ir.Func) {
-	walk(main.Body.Stmts, func(stmt ir.Stmt) {
-		if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Local.Global {
-			e.globals[decl.Local] = "pts_global_" + cIdentifier(decl.Local.Name)
-			e.globalOrder = append(e.globalOrder, decl.Local)
-		}
-	}, func(ir.Expr) {})
+// collectGlobals names the module-scope locals that other functions use:
+// pts_global_<name>, or pts_global_<module>_<name> outside the entry module.
+func (e *emitter) collectGlobals(program *ir.Program) {
+	used := map[string]bool{}
+	for i, module := range program.Modules {
+		e.initOrder[module.Init] = i
+		walk(module.Init.Body.Stmts, func(stmt ir.Stmt) {
+			if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Local.Global {
+				e.globals[decl.Local] = uniqueGlobal(used, "pts_global_"+modulePrefix(module)+prefixedIdentifier(decl.Local.Name))
+				e.globalOrder = append(e.globalOrder, decl.Local)
+				e.globalOwners[decl.Local] = module.Init
+			}
+		}, func(ir.Expr) {})
+	}
 }
 
 func (e *emitter) function(f *ir.Func) {
@@ -426,10 +467,16 @@ func (e *emitter) local(local *ir.Local) string {
 	return e.locals[local]
 }
 
-// readyCheck is the check that a global's declaration has run, needed where a function
-// other than the top-level code uses it; "" if none is needed.
+// readyCheck is the check that a global's declaration has run, or "" where it surely
+// has: in its own module's top-level code (tsc rejects uses above the declaration) and
+// in the top-level code of a module that runs later. Functions may run at any time, and in
+// an import cycle a module may run before a module it imports.
 func (e *emitter) readyCheck(local *ir.Local) string {
-	if !local.Global || e.current == e.main {
+	if !local.Global {
+		return ""
+	}
+	owner := e.globalOwners[local]
+	if order, isInit := e.initOrder[e.current]; isInit && order >= e.initOrder[owner] {
 		return ""
 	}
 	return fmt.Sprintf("pts_check_ready(%s_ready, %s)", e.globals[local], cString(local.Name))

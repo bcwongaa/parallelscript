@@ -5,8 +5,17 @@ package ir
 
 // Program is a whole lowered program.
 type Program struct {
-	Funcs []*Func
-	Main  *Func // runs the entry module's top-level code; also in Funcs
+	Funcs   []*Func
+	Modules []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
+	Main    *Func     // runs the entry module's top-level code; also in Funcs
+}
+
+// Module is one source file of the program.
+type Module struct {
+	// Name is the file's base name without its extension, which qualifies the names of
+	// its functions and bindings; it is empty for the entry module, whose names stay plain.
+	Name string
+	Init *Func // its top-level code; also in Program.Funcs
 }
 
 // Pos is a source position. The zero Pos means "no position".
@@ -62,22 +71,32 @@ func IsNumeric(t Type) bool {
 	return t == Number || t == F32 || IsInteger(t)
 }
 
-// Func is a function with a body. A nested function's Name is qualified: "outer.inner".
+// Func is a function with a body. A nested function's Name is qualified: "outer.inner";
+// a module's top-level code is named "main".
 type Func struct {
 	Name   string
+	Module *Module // the module it is declared in
 	Pos    Pos
 	Params []*Local
 	Result Type // Void if it returns nothing
 	Body   *Block
 }
 
+// QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
+func (f *Func) QualifiedName() string {
+	if f.Module == nil || f.Module.Name == "" {
+		return f.Name
+	}
+	return f.Module.Name + ":" + f.Name
+}
+
 // Local is a local variable. Each declaration gets its own Local, so two locals may share a Name.
 type Local struct {
 	Name string
 	Type Type
-	// Global marks a module-scope binding of the top-level code that functions use. It
-	// lives for the whole program, and a use from a function before its declaration has
-	// run throws ReferenceError, as in JS.
+	// Global marks a module-scope binding that other functions use: functions of its
+	// module, or the code of modules that import it. It lives for the whole program, and a
+	// use before its declaration has run throws ReferenceError, as in JS.
 	Global bool
 }
 

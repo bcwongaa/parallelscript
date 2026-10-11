@@ -1,0 +1,6 @@
+// Errors in an imported module name that module's file.
+import { total } from "./module_errors_name_their_file/sum.pts";
+console.log(total);
+
+// error: module_errors_name_their_file/sum.pts:2:1 - error PTS1002: `var` is not supported; use `let` or `const`
+// error: module_errors_name_their_file/sum.pts:4:22 - error PTS2001: a number doesn't convert to u8 implicitly

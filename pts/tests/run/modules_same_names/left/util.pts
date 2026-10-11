@@ -1,0 +1,9 @@
+export let count = 0;
+
+export function bump(): void {
+  count++;
+}
+
+export function describe(): string {
+  return "left " + count;
+}

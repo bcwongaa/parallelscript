@@ -14,7 +14,7 @@ func (p *Program) String() string {
 		for i, param := range f.Params {
 			params[i] = param.Name + ": " + param.Type.String()
 		}
-		fmt.Fprintf(&pr.out, "func %s(%s) %s {\n", f.Name, strings.Join(params, ", "), f.Result)
+		fmt.Fprintf(&pr.out, "func %s(%s) %s {\n", f.QualifiedName(), strings.Join(params, ", "), f.Result)
 		pr.stmts(f.Body.Stmts, 1)
 		pr.out.WriteString("}\n")
 	}
@@ -171,7 +171,7 @@ func FormatExpr(expr Expr) string {
 	case *CallBuiltin:
 		return e.Builtin.Name + formatArgs(e.Args)
 	case *Call:
-		return e.Func.Name + formatArgs(e.Args)
+		return e.Func.QualifiedName() + formatArgs(e.Args)
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))
 	}

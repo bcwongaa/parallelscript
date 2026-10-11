@@ -7,10 +7,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -78,15 +82,15 @@ func TestRunMatchesNode(t *testing.T) {
 		t.Run(testName(path), func(t *testing.T) {
 			t.Parallel()
 			spec := ensureSpec(t, path)
-			source, err := os.ReadFile(path)
+			modules, err := testModules(path)
 			assert.NilError(t, err)
 			switch {
 			case spec.noDiff != "":
 				t.Skip("no-diff: " + spec.noDiff)
-			case !isPlainTypeScript(string(source)):
+			case !isPlainTypeScript(strings.Join(slices.Collect(maps.Values(modules)), "\n")):
 				t.Skip("uses ParallelScript features")
 			}
-			want := runNode(t, node, string(source))
+			want := runNode(t, node, modules, filepath.Base(path))
 			got := runPts(t, path)
 			assert.Equal(t, got.stdout, want.stdout, "pts and Node print different output")
 			assert.Equal(t, got.exitCode, want.exitCode, "pts and Node exit differently; pts stderr:\n%s\nNode stderr:\n%s", got.stderr, want.stderr)
@@ -126,6 +130,35 @@ func testFiles(t *testing.T, dir string) []string {
 
 func testName(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), ".pts")
+}
+
+// testModules reads the sources of the program a test builds: the test file and, for a
+// test with modules of its own to import, every .pts file under the directory named
+// after it (run/name.pts imports from run/name/). Keys are paths relative to the test's directory.
+func testModules(path string) (map[string]string, error) {
+	dir := filepath.Dir(path)
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	modules := map[string]string{filepath.Base(path): string(source)}
+	helpers := strings.TrimSuffix(path, ".pts")
+	if _, err := os.Stat(helpers); errors.Is(err, fs.ErrNotExist) {
+		return modules, nil
+	}
+	err = filepath.WalkDir(helpers, func(file string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || filepath.Ext(file) != ".pts" {
+			return err
+		}
+		source, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(dir, file)
+		modules[relative] = string(source)
+		return err
+	})
+	return modules, err
 }
 
 // ensureSpec reads the test's spec, skipping the test if the spec says so.
@@ -170,13 +203,35 @@ func runPts(t *testing.T, path string) runResult {
 	return execute(t, filepath.Dir(path), build.exe)
 }
 
-// runNode runs source as an ES module under Node with TypeScript support (D-O04, D-009).
-func runNode(t *testing.T, node string, source string) runResult {
+// runNode runs a program under Node with TypeScript support (D-O04, D-009). modules maps
+// relative .pts paths to sources, and entry is the one to run. Each module is written as
+// an ES module (.mts), and its relative imports are renamed to match.
+func runNode(t *testing.T, node string, modules map[string]string, entry string) runResult {
 	t.Helper()
 	dir := t.TempDir()
-	module := filepath.Join(dir, "main.mts")
-	assert.NilError(t, os.WriteFile(module, []byte(source), 0o644))
-	return execute(t, dir, node, "--no-warnings", "--experimental-transform-types", module)
+	for path, source := range modules {
+		file := filepath.Join(dir, nodeModulePath(path))
+		assert.NilError(t, os.MkdirAll(filepath.Dir(file), 0o755))
+		assert.NilError(t, os.WriteFile(file, []byte(nodeModuleSource(source)), 0o644))
+	}
+	return execute(t, dir, node, "--no-warnings", "--experimental-transform-types", filepath.Join(dir, nodeModulePath(entry)))
+}
+
+// relativeSpecifierPattern finds a relative module specifier after `from` or `import`.
+var relativeSpecifierPattern = regexp.MustCompile(`(\b(?:from|import)\s*\(?\s*["'])(\.\.?/[^"'\n]*)(["'])`)
+
+// nodeModuleSource renames the relative imports of a module to the .mts files runNode
+// writes: Node needs explicit extensions and doesn't know .pts.
+func nodeModuleSource(source string) string {
+	return relativeSpecifierPattern.ReplaceAllStringFunc(source, func(match string) string {
+		parts := relativeSpecifierPattern.FindStringSubmatch(match)
+		return parts[1] + nodeModulePath(parts[2]) + parts[3]
+	})
+}
+
+// nodeModulePath is the .mts path runNode writes a module (or its specifier, extension optional) to.
+func nodeModulePath(path string) string {
+	return strings.TrimSuffix(path, ".pts") + ".mts"
 }
 
 func execute(t *testing.T, dir string, name string, args ...string) runResult {

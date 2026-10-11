@@ -1,0 +1,31 @@
+// ES modules: every import and export form, live bindings, and the order modules run in.
+import "./modules/log.pts";
+import { count, bump, live, rename } from "./modules/counter";
+import snapshot from "./modules/counter.pts";
+import * as geometry from "./modules/shapes/geometry.pts";
+import area, { perimeter, unit } from "./modules/shapes/geometry";
+import { double, counter, square } from "./modules/all.pts";
+import type { Shape } from "./modules/types.pts";
+import { type Labelled } from "./modules/labels.pts";
+
+const shape: Shape = "square";
+const label: Labelled = "box";
+console.log("main runs", shape, label);
+console.log(count, snapshot, live);
+bump(5);
+rename("renamed");
+console.log(count, snapshot, live, counter.count, counter.live);
+console.log(area(3), perimeter(3), unit, geometry.unit, geometry.perimeter(2), geometry.default(4));
+console.log(double(21), square(5));
+
+// expect:
+// log runs
+// counter runs
+// geometry runs
+// all runs
+// labels runs
+// main runs square box
+// 0 first first
+// 5 first renamed 5 renamed
+// 9 12 cm cm 8 16
+// 42 25

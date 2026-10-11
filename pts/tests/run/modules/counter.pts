@@ -1,0 +1,13 @@
+import "./log";
+console.log("counter runs");
+export let count = 0;
+export function bump(by: number): void {
+  count += by;
+}
+let name = "first";
+// `export default name` exports the value name has now; `export { name as live }` the binding.
+export default name;
+export { name as live };
+export function rename(to: string) {
+  name = to;
+}

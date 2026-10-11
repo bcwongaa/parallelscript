@@ -25,7 +25,7 @@ type functionBody struct {
 // calledFunction returns the declaration of the function a call calls, or nil if it
 // calls something other than a function declared in the program.
 func (c *pass) calledFunction(call *ast.Node) *ast.Node {
-	symbol := c.tc.GetSymbolAtLocation(ast.SkipParentheses(call.AsCallExpression().Expression))
+	symbol := c.target(ast.SkipParentheses(call.AsCallExpression().Expression))
 	if symbol == nil {
 		return nil
 	}
@@ -108,8 +108,11 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 		} else if unified, ok := unify(result, t); ok {
 			result = unified
 		} else {
-			c.report(declaration.Name(), diagnostic.NumericMix, "`%s` returns both %s and %s, and neither converts to the other without loss; annotate its return type",
-				declaration.Name().Text(), result, t)
+			name, at := "the default export", declaration
+			if declaration.Name() != nil {
+				name, at = "`"+declaration.Name().Text()+"`", declaration.Name()
+			}
+			c.report(at, diagnostic.NumericMix, "%s returns both %s and %s, and neither converts to the other without loss; annotate its return type", name, result, t)
 		}
 	}
 	for _, constant := range body.untyped {

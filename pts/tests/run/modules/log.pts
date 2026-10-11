@@ -1,0 +1,2 @@
+// A module imported for its effects only.
+console.log("log runs");

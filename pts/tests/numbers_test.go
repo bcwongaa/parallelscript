@@ -59,7 +59,7 @@ func TestGeneratedNumberCorpusMatchesNode(t *testing.T) {
 // compareWithNode runs the program under pts and Node and reports the lines that differ.
 func compareWithNode(t *testing.T, node string, path string, source string, statements []string) {
 	t.Helper()
-	want := runNode(t, node, source)
+	want := runNode(t, node, map[string]string{"main.pts": source}, "main.pts")
 	got := runPts(t, path)
 	assert.Equal(t, got.exitCode, 0, got.stderr)
 	assert.Equal(t, want.exitCode, 0, want.stderr)

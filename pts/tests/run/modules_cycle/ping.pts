@@ -1,0 +1,13 @@
+import { pong } from "./pong.pts";
+
+console.log("ping runs");
+export let pings = 0;
+
+export function ping(n: number): string {
+  pings++;
+  return n === 0 ? "done" : pong(n - 1);
+}
+
+export function greet(name: string): string {
+  return "hi " + name;
+}

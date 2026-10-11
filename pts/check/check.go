@@ -54,10 +54,13 @@ func Program(ctx context.Context, program *frontend.Program) (*Info, []diagnosti
 		tc:        tc,
 		info:      &Info{results: map[*ast.Node]Numeric{}, types: map[*ast.Node]Numeric{}, operands: map[*ast.Node]Numeric{}},
 		symbols:   map[*ast.Symbol]Numeric{},
+		declared:  map[*ast.Node]bool{},
 		functions: map[*ast.Node]*function{},
 	}
-	c.unsupportedFeatures(program.Entry.AsNode())
-	c.visit(program.Entry.AsNode())
+	for _, module := range program.Modules {
+		c.unsupportedFeatures(module.AsNode())
+		c.visit(module.AsNode())
+	}
 	return c.info, c.errors
 }
 
@@ -65,7 +68,8 @@ type pass struct {
 	program   *compiler.Program
 	tc        *checker.Checker
 	info      *Info
-	symbols   map[*ast.Symbol]Numeric // numeric type of each number-typed variable and parameter
+	symbols   map[*ast.Symbol]Numeric // numeric type of each number-typed variable, parameter and `export default` value
+	declared  map[*ast.Node]bool      // the variable declarations and `export default`s checked so far
 	functions map[*ast.Node]*function // by declaration
 	current   *functionBody           // the function whose body is being checked, or nil at the top level
 	errors    []diagnostic.Diagnostic
@@ -80,6 +84,9 @@ func (c *pass) visit(node *ast.Node) {
 	switch {
 	case node.Kind == ast.KindVariableDeclaration:
 		c.variableDeclaration(node)
+		return
+	case node.Kind == ast.KindExportAssignment:
+		c.exportDefault(node)
 		return
 	case node.Kind == ast.KindBinaryExpression && isComparison(node) && c.isNumber(node.AsBinaryExpression().Left):
 		c.operands(node, nil)
@@ -113,6 +120,10 @@ func (c *pass) isNumber(node *ast.Node) bool {
 }
 
 func (c *pass) variableDeclaration(node *ast.Node) {
+	if c.declared[node] {
+		return // checked early, when a function or another module used it
+	}
+	c.declared[node] = true
 	name, initializer := node.Name(), node.Initializer()
 	if name.Kind == ast.KindIdentifier && initializer == nil && c.isNumber(name) {
 		declared, _ := c.annotationType(node.Type()) // `let n: u8;`; without an annotation tsc wouldn't type it number
@@ -136,6 +147,46 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	}
 	c.symbols[symbol] = declared
 	c.info.types[name] = declared
+}
+
+// exportDefault types `export default value`, which is a binding of its own in JS.
+func (c *pass) exportDefault(node *ast.Node) {
+	if c.declared[node] {
+		return
+	}
+	c.declared[node] = true
+	if value := node.Expression(); c.isNumber(value) {
+		c.symbols[c.tc.GetMergedSymbol(node.Symbol())] = c.expr(value, nil)
+	} else {
+		c.visit(value)
+	}
+}
+
+// bindingType returns the numeric type of a number-typed variable or `export default`
+// value, checking its declaration first if the pass hasn't reached it yet: a function may
+// use a module-scope binding declared below it, and a module one of a module checked later.
+func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
+	if n, ok := c.symbols[symbol]; ok {
+		return n, true
+	}
+	if declaration := symbol.ValueDeclaration; declaration != nil && !c.declared[declaration] &&
+		(declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindExportAssignment) {
+		outer := c.current
+		c.current = nil // the declaration's own code, not the function's
+		c.visit(declaration)
+		c.current = outer
+	}
+	n, ok := c.symbols[symbol]
+	return n, ok
+}
+
+// target returns the symbol node refers to, following imports and re-exports to what they name.
+func (c *pass) target(node *ast.Node) *ast.Symbol {
+	symbol := c.tc.GetSymbolAtLocation(node)
+	if symbol != nil && symbol.Flags&ast.SymbolFlagsAlias != 0 {
+		symbol = c.tc.GetAliasedSymbol(symbol)
+	}
+	return symbol
 }
 
 // switchStatement types the cases of a switch on a number: each case compares with the
@@ -252,10 +303,18 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 			return target
 		}
 	case ast.KindIdentifier:
-		if n, ok := c.symbols[c.tc.GetSymbolAtLocation(node)]; ok {
-			return n
+		if symbol := c.target(node); symbol != nil {
+			if n, ok := c.bindingType(symbol); ok {
+				return n
+			}
 		}
 		return Number
+	case ast.KindPropertyAccessExpression:
+		if symbol := c.target(node); symbol != nil && c.isNamespace(node.Expression()) {
+			if n, ok := c.bindingType(symbol); ok {
+				return n // m.x, for a namespace import m
+			}
+		}
 	}
 	node.ForEachChild(func(child *ast.Node) bool {
 		c.visit(child)
@@ -384,6 +443,12 @@ func (c *pass) withUntyped(typed Numeric, untyped *ast.Node) Numeric {
 	}
 	c.expr(untyped, &operandType)
 	return operandType
+}
+
+// isNamespace reports whether node names a module namespace object: `m` after `import * as m`.
+func (c *pass) isNamespace(node *ast.Node) bool {
+	symbol := c.target(node)
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0
 }
 
 // ---------------------------------------------------------------- syntax helpers

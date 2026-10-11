@@ -1,0 +1,4 @@
+import { first } from "./first.pts";
+export const second = "second";
+console.log("second runs");
+console.log(first);
