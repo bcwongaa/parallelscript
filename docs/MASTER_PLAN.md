@@ -138,7 +138,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
 - [x] **M2.6d1 Tuples** (7dd24ed8c) (split from M2.6 by D-047, from M2.6d by D-053).
   - Tuples of fixed length as fixed layouts printed as arrays: literals where a tuple goes and `as const`, constant indices, writes, `length`.
-- [x] **M2.6d2a Destructuring** (TICK) (split from M2.6d by D-053, from M2.6d2 by D-054).
+- [x] **M2.6d2a Destructuring** (deed13ccf) (split from M2.6d by D-053, from M2.6d2 by D-054).
   - Destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`.
 - [ ] **M2.6d2b Default parameter values** (split from M2.6d2 by D-054).
   - `function f(x = 1)` for functions, methods and constructors, with left-out and `undefined` arguments.
