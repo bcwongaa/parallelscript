@@ -1,0 +1,18 @@
+// `as` on an unknown is checked (docs/SPEC.md §3.5): a cast to the wrong class throws
+// TypeError where JS carries on.
+try {
+  throw "not an error";
+} catch (e) {
+  try {
+    console.log((e as Error).message);
+  } catch (inner) {
+    console.log(String(inner));
+  }
+  console.log((e as number) + 1);
+}
+
+// no-diff: JS reads the string's missing message as undefined and concatenates
+// exit: 1
+// stderr: Uncaught TypeError: The value narrowed to number is of type string
+// expect:
+// TypeError: The value narrowed to Error is not an instance of it

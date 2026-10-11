@@ -10,6 +10,9 @@ import (
 func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
 	for _, c := range p.Classes {
+		if c.Builtin {
+			continue // the runtime's (D-068)
+		}
 		if c.Shape {
 			fmt.Fprintf(&pr.out, "shape %s\n", c.ShapeString())
 		} else {
@@ -155,6 +158,14 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 		pr.out.WriteString(pr.label(s.Label) + ": {\n")
 		pr.stmts(s.Body.Stmts, depth+1)
 		pr.out.WriteString(indent + "}\n")
+	case *Try:
+		pr.out.WriteString("try {\n")
+		pr.stmts(s.Body.Stmts, depth+1)
+		fmt.Fprintf(&pr.out, "%s} catch (%s) {\n", indent, localName(s.Exception))
+		pr.stmts(s.Catch.Stmts, depth+1)
+		pr.out.WriteString(indent + "}\n")
+	case *Throw:
+		pr.out.WriteString("throw " + FormatExpr(s.Value) + "\n")
 	case *Break:
 		pr.out.WriteString("break " + pr.label(s.Target) + "\n")
 	case *Continue:

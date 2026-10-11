@@ -1,0 +1,24 @@
+// console.log of an error prints its stack as Node does (D-068), with no frames until
+// M3.2b: in brackets, with properties of derived classes and the cause after it.
+class HttpError extends Error {
+  status = 500;
+}
+class Plain extends Error {}
+const error = new Error("boom");
+console.log(error);
+console.log([new RangeError("in an array")], { nested: new TypeError("in an object") });
+console.log(new Error("outer", { cause: new Error("inner") }));
+console.log(new HttpError("server"));
+console.log(new Plain("plain"));
+const renamed = new Error("x");
+renamed.name = "Renamed";
+console.log(renamed);
+
+// no-diff: Node prints stack frames
+// expect:
+// [Error: boom]
+// [ [RangeError: in an array] ] { nested: [TypeError: in an object] }
+// [Error: outer] { [cause]: [Error: inner] }
+// [HttpError: server] { status: 500 }
+// [Plain [Error]: plain]
+// [Renamed: x]

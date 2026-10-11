@@ -97,6 +97,12 @@ type Class struct {
 	// Tuple marks a shape whose fields, named 0, 1, …, are a tuple's elements (D-053). Its
 	// objects print as arrays.
 	Tuple bool
+
+	// Builtin marks a class the runtime defines (D-068): Error and its native subclasses.
+	// Their layout and descriptors are the runtime's, their constructor and methods are
+	// runtime functions (Func.Extern), and a native subclass's instances are laid out as
+	// its parent's, adding nothing.
+	Builtin bool
 }
 
 func (c *Class) String() string {
@@ -459,6 +465,9 @@ type Func struct {
 	// show as the function they wrap.
 	Adapts bool
 	Binds  bool
+	// Extern is the runtime function that implements a method of a Builtin class; such a
+	// function has no Body and isn't among the program's functions.
+	Extern string
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
@@ -575,7 +584,26 @@ type Continue struct {
 	Target *Label
 }
 
+// Try runs Body, and if Body throws, Catch, which starts with Exception, a Value local of
+// its own, holding what Body threw (D-068). A break, continue or return that leaves Body
+// leaves the try; `finally` is lowered to tries and jumps.
+type Try struct {
+	At        Pos
+	Body      *Block
+	Exception *Local
+	Catch     *Block
+}
+
+// Throw throws Value, a Value, to the innermost Try around it in this function or its
+// callers; with none, the program ends with it uncaught.
+type Throw struct {
+	At    Pos
+	Value Expr
+}
+
 func (s *Block) Pos() Pos        { return s.At }
+func (s *Try) Pos() Pos          { return s.At }
+func (s *Throw) Pos() Pos        { return s.At }
 func (s *ExprStmt) Pos() Pos     { return s.At }
 func (s *LocalDecl) Pos() Pos    { return s.At }
 func (s *If) Pos() Pos           { return s.At }

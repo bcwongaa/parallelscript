@@ -1,0 +1,109 @@
+// Error and its native subclasses (D-068): message, name, cause, toString(), the first
+// line of stack, and classes derived from them.
+
+const plain = new Error("plain message");
+console.log(plain.name, plain.message, plain.toString(), String(plain), `${plain}`, "" + plain);
+console.log(plain instanceof Error, plain.stack?.split("\n")[0]);
+
+const natives: Error[] = [new TypeError("t"), new RangeError("r"), new ReferenceError("f"), new SyntaxError("s"), new EvalError("e"), new URIError("u")];
+for (const error of natives) {
+  console.log(error.name, String(error), error instanceof Error, error instanceof TypeError, error instanceof RangeError);
+}
+
+// No message, an empty name or an empty message.
+const empty = new Error();
+console.log(JSON_like(empty.message), String(empty), String(new TypeError(undefined)));
+const renamed = new Error("kept");
+renamed.name = "";
+console.log(String(renamed));
+renamed.name = "Custom";
+renamed.message = "";
+console.log(String(renamed));
+
+function JSON_like(s: string): string {
+  return "[" + s + "]";
+}
+
+// cause, from the options.
+const root = new Error("root cause");
+const wrapped = new Error("wrapper", { cause: root });
+console.log("cause" in wrapped, "cause" in root, wrapped.cause === root, root.cause);
+if (wrapped.cause instanceof Error) {
+  console.log("caused by", wrapped.cause.message);
+}
+const withValue = new RangeError("numeric cause", { cause: 404 });
+console.log(withValue.cause, typeof withValue.cause);
+const noCause = new Error("options without a cause", {});
+console.log("cause" in noCause);
+
+// Classes derived from Error: a name set in the constructor or by a field, fields of
+// their own, instanceof along the chain, and their own toString.
+class AppError extends Error {
+  constructor(message: string, readonly code: number) {
+    super(message);
+    this.name = "AppError";
+  }
+}
+class NotFound extends AppError {
+  constructor(what: string) {
+    super(what + " not found", 404);
+  }
+}
+class Timeout extends Error {
+  name = "Timeout";
+  seconds = 30;
+}
+class Quiet extends Error {}
+class Loud extends Error {
+  toString(): string {
+    return "LOUD: " + super.toString().toUpperCase();
+  }
+}
+
+const errors: Error[] = [new AppError("bad request", 400), new NotFound("page"), new Timeout("slow"), new Quiet("hush"), new Loud("hello")];
+for (const error of errors) {
+  console.log(error.name, "|", error.message, "|", String(error), "|", `${error}`, "|", error.toString());
+  console.log("  ", error instanceof AppError, error instanceof NotFound, error instanceof Timeout, error instanceof Error);
+}
+const notFound = new NotFound("user");
+console.log(notFound.code, notFound.name, notFound.stack?.split("\n")[0]);
+const timeout = new Timeout("waited");
+console.log(timeout.seconds, timeout.stack?.split("\n")[0]);
+
+// Errors through interfaces and as values of other types.
+interface Described {
+  message: string;
+  name: string;
+}
+function show(d: Described): string {
+  return d.name + " says " + d.message;
+}
+console.log(show(new RangeError("range")), show(new AppError("app", 1)), show({ name: "literal", message: "hi" }));
+const list: (Error | string)[] = [new Error("in a union"), "a string"];
+for (const item of list) {
+  console.log(typeof item === "string" ? item : item.message);
+}
+
+// Thrown and caught as their own classes.
+function load(id: number): string {
+  if (id === 0) {
+    throw new NotFound("record " + id);
+  }
+  if (id < 0) {
+    throw new AppError("invalid id " + id, 400);
+  }
+  return "record " + id;
+}
+for (const id of [1, 0, -1]) {
+  try {
+    console.log(load(id));
+  } catch (e) {
+    if (e instanceof NotFound) {
+      console.log("not found:", e.message, e.code);
+    } else if (e instanceof AppError) {
+      console.log("app error:", e.code, String(e));
+    } else {
+      throw e;
+    }
+  }
+}

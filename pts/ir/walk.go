@@ -31,6 +31,11 @@ func Walk(stmts []Stmt, visitStmt func(Stmt), visitExpr func(Expr)) {
 			}
 		case *LabeledBlock:
 			Walk(s.Body.Stmts, visitStmt, visitExpr)
+		case *Try:
+			Walk(s.Body.Stmts, visitStmt, visitExpr)
+			Walk(s.Catch.Stmts, visitStmt, visitExpr)
+		case *Throw:
+			WalkExpr(s.Value, visitExpr)
 		}
 	}
 }

@@ -6,7 +6,7 @@
 
 const pts_type pts_string_type = {.kind = PTS_KIND_STRING, .gc_descr = PTS_GC_NO_POINTERS, .name = "string"};
 
-_Noreturn void pts_throw_invalid_string_length(void) { pts_panic("RangeError", "Invalid string length"); }
+_Noreturn void pts_throw_invalid_string_length(void) { pts_throw_new(&pts_type_builtin_RangeError, "Invalid string length"); }
 
 pts_string *pts_string_alloc(size_t byte_len) {
   if (byte_len > PTS_STRING_MAX_BYTES) {
@@ -242,6 +242,10 @@ pts_string *pts_value_to_string(pts_value value) {
       return pts_string_from_i64(((pts_boxed_int64 *)object)->value);
     case PTS_KIND_UINT64:
       return pts_string_from_u64(((pts_boxed_uint64 *)object)->value);
+    case PTS_KIND_OBJECT:
+    case PTS_KIND_ARRAY:
+    case PTS_KIND_RECORD:
+      return pts_object_to_string(object);
     default:
       break;
     }
@@ -274,11 +278,31 @@ bool pts_value_truthy(pts_value value) {
 }
 
 void pts_throw_non_null(pts_value value) {
-  pts_panic("TypeError", "Non-null assertion on %s", value == PTS_VALUE_NULL ? "null" : "undefined");
+  pts_throw_new(&pts_type_builtin_TypeError, "Non-null assertion on %s", value == PTS_VALUE_NULL ? "null" : "undefined");
+}
+
+void pts_throw_not_primitive(pts_value value, const char *type_name) {
+  pts_throw_new(&pts_type_builtin_TypeError, "The value narrowed to %s is of type %s", type_name, pts_value_typeof(value)->bytes);
+}
+
+double pts_value_to_number_checked(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return pts_value_as_number(value);
+  }
+  if (pts_value_is_object(value)) {
+    const pts_object *object = pts_value_as_object(value);
+    if (object->type->kind == PTS_KIND_INT64) {
+      return (double)((const pts_boxed_int64 *)object)->value;
+    }
+    if (object->type->kind == PTS_KIND_UINT64) {
+      return (double)((const pts_boxed_uint64 *)object)->value;
+    }
+  }
+  pts_throw_not_primitive(value, "number");
 }
 
 void pts_throw_not_instance(const pts_type *type) {
-  pts_panic("TypeError", "The value narrowed to %s is not an instance of it", type->name);
+  pts_throw_new(&pts_type_builtin_TypeError, "The value narrowed to %s is not an instance of it", type->name);
 }
 
 bool pts_value_strict_equals(pts_value a, pts_value b) {

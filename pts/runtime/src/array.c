@@ -140,7 +140,7 @@ pts_array *pts_array_of(pts_field_kind kind, const void *elements, size_t count)
 void pts_array_index_error(const pts_array *array, double index) {
   char buf[PTS_NUMBER_BUF_SIZE];
   pts_number_format(index, buf);
-  pts_panic("RangeError", "Array index %s is out of range (length %zu)", buf, pts_array_length_of(array));
+  pts_throw_new(&pts_type_builtin_RangeError, "Array index %s is out of range (length %zu)", buf, pts_array_length_of(array));
 }
 
 pts_value pts_value_of_slot(pts_field_kind kind, const void *slot) {
@@ -316,7 +316,7 @@ double pts_array_unshift(pts_array *array, const void *values, size_t count) {
 void pts_array_pop(pts_array *array, void *out) {
   size_t length = pts_array_length_of(array);
   if (length == 0) {
-    pts_panic("RangeError", "pop() of an empty array");
+    pts_throw_new(&pts_type_builtin_RangeError, "pop() of an empty array");
   }
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
@@ -330,7 +330,7 @@ void pts_array_pop(pts_array *array, void *out) {
 void pts_array_shift(pts_array *array, void *out) {
   size_t length = pts_array_length_of(array);
   if (length == 0) {
-    pts_panic("RangeError", "shift() of an empty array");
+    pts_throw_new(&pts_type_builtin_RangeError, "shift() of an empty array");
   }
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
@@ -371,12 +371,12 @@ pts_value pts_array_shift_value(pts_array *array) {
 double pts_array_set_length(pts_array *array, double length) {
   size_t current = pts_array_length_of(array);
   if (!(length >= 0 && length <= 4294967295.0) || (double)(size_t)length != length) {
-    pts_panic("RangeError", "Invalid array length");
+    pts_throw_new(&pts_type_builtin_RangeError, "Invalid array length");
   }
   if ((size_t)length > current) {
     char buf[PTS_NUMBER_BUF_SIZE];
     pts_number_format(length, buf);
-    pts_panic("RangeError", "Invalid array length %s: setting length can only shrink an array (length %zu)", buf, current);
+    pts_throw_new(&pts_type_builtin_RangeError, "Invalid array length %s: setting length can only shrink an array (length %zu)", buf, current);
   }
   publish_length(array, (size_t)length);
   return length;

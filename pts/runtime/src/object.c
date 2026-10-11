@@ -102,7 +102,7 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
     return (pts_property){type->methods[index].function, NULL};
   }
   if (kind == PTS_SETTER && method_index(type, name, PTS_GETTER) >= 0) {
-    pts_panic("TypeError", "Cannot set property %s of #<%s> which has only a getter", name, type->name);
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
   }
   pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
 }
@@ -161,9 +161,9 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
       return;
     }
     if (method_index(type, name, PTS_GETTER) >= 0) {
-      pts_panic("TypeError", "Cannot set property %s of #<%s> which has only a getter", name, type->name);
+      pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
     }
-    pts_panic("TypeError", "Cannot add property %s, object is not extensible", name);
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", name);
   }
   void *slot = (char *)object + field->offset;
   if (field->kind == PTS_FIELD_VALUE) {
@@ -172,7 +172,7 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
     return;
   }
   if (value == PTS_VALUE_UNDEFINED) {
-    pts_panic("TypeError", "Cannot set property %s of %s to undefined: the object's type doesn't allow it", name, type->name);
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of %s to undefined: the object's type doesn't allow it", name, type->name);
   }
   pts_store_value_in_slot(field->kind, slot, value);
 }

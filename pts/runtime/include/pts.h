@@ -13,6 +13,7 @@
 #define _GNU_SOURCE /* libuv and pthread declarations under -std=c11 */
 #endif
 
+#include <setjmp.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -414,8 +415,6 @@ static inline double pts_number_ushr(double x, double y) {
  */
 
 _Noreturn void pts_throw_division_by_zero(void);
-/* Throws an error of the class name with message: until exceptions arrive (M3.2), it ends the program as uncaught. */
-_Noreturn void pts_throw_error(pts_string *name, pts_string *message);
 _Noreturn void pts_throw_negative_exponent(void);
 
 #define PTS_INTEGER_ARITHMETIC(name, T)                                                           \
@@ -623,7 +622,7 @@ static inline double pts_value_as_number(pts_value v) {
 
 static inline pts_object *pts_value_as_object(pts_value v) { return (pts_object *)(uintptr_t)v; }
 
-/* JS's ToString of a primitive value. */
+/* JS's ToString of a value: an object converts as pts_object_to_string does. */
 pts_string *pts_value_to_string(pts_value value);
 
 /* JS's ToBoolean of a primitive value. */
@@ -661,6 +660,24 @@ static inline pts_object *pts_value_as_instance(pts_value value, const pts_type 
     pts_throw_not_instance(type);
   }
   return object;
+}
+_Noreturn void pts_throw_not_primitive(pts_value value, const char *type_name);
+/*
+ * An `unknown` narrowed to a primitive type (D-068): checked, as narrowing to a class is,
+ * since a type guard may be wrong at run time. A number may be a boxed 64-bit integer.
+ */
+static inline pts_string *pts_value_as_string(pts_value value) {
+  if (__builtin_expect(!pts_value_is_object(value) || pts_value_as_object(value)->type->kind != PTS_KIND_STRING, 0)) {
+    pts_throw_not_primitive(value, "string");
+  }
+  return (pts_string *)pts_value_as_object(value);
+}
+double pts_value_to_number_checked(pts_value value);
+static inline bool pts_value_as_bool(pts_value value) {
+  if (__builtin_expect(value != PTS_VALUE_TRUE && value != PTS_VALUE_FALSE, 0)) {
+    pts_throw_not_primitive(value, "boolean");
+  }
+  return value == PTS_VALUE_TRUE;
 }
 /* instanceof on a union: whether value is an instance of type or of a subclass. */
 static inline bool pts_value_instance_of(pts_value value, const pts_type *type) {
@@ -1011,11 +1028,98 @@ void pts_console_log(size_t argc, const pts_value *argv);
 // object) whose elements are arguments in its place (D-057).
 void pts_console_log_spread(size_t argc, const pts_value *argv, const bool *spread);
 
-/* ---------------------------------------------------------------- errors */
+/* ---------------------------------------------------------------- exceptions */
 
 /*
- * Prints "Uncaught <error_name>: <message>" to stderr and exits with code 1
- * (D-O07). Stands in for thrown errors until exceptions land in M3.
+ * Exceptions (D-068). Each `try` pushes a handler on its thread's chain: a jmp_buf in the
+ * C frame of the function that runs it. `throw` pops the innermost handler, leaves the
+ * exception in it and long-jumps there, so calls cost nothing and a try costs a _setjmp.
+ * Generated C leaves a try block, normally or by a jump out of it, with pts_try_leave;
+ * locals that a try block assigns and that code after the long jump may read are volatile.
+ */
+typedef struct pts_handler {
+  struct pts_handler *prev;
+  pts_value exception; /* what the throw that jumped here threw */
+  jmp_buf jump;
+} pts_handler;
+
+/* The innermost handler of this thread, or NULL. */
+extern _Thread_local pts_handler *pts_handlers;
+
+static inline void pts_try_enter(pts_handler *handler) {
+  handler->prev = pts_handlers;
+  pts_handlers = handler;
+}
+
+/* Leaves a try block: handler, and any inside it, are no longer current. */
+static inline void pts_try_leave(pts_handler *handler) { pts_handlers = handler->prev; }
+
+/* What the throw that jumped to handler threw (read from memory: the long jump left it there). */
+static inline pts_value pts_caught(pts_handler *handler) { return *(volatile pts_value *)&handler->exception; }
+
+/*
+ * Throws exception to the innermost handler of this thread. With none, it is uncaught:
+ * "Uncaught " and the error's stack, or the value as console.log shows it nested, go to
+ * stderr and the process exits with code 1 (D-O07).
+ */
+_Noreturn void pts_throw(pts_value exception);
+
+/*
+ * Error and its native subclasses (D-068) are classes the runtime defines and the compiler
+ * uses: an instance holds its name and message, its cause (PTS_VALUE_ABSENT unless the
+ * options gave one), and its stack, formatted from the name and message when first read
+ * (PTS_VALUE_ABSENT until then). The stack's member is named as the compiler names a
+ * #private field, so that the classes programs derive from Error lay it out with the rest.
+ * The native subclasses add nothing, so their instances are pts_errors too.
+ */
+typedef struct pts_error {
+  const pts_type *pts_header;
+  pts_string *name;
+  pts_string *message;
+  pts_value cause;
+  pts_value pts_private_stack;
+} pts_error;
+
+extern const pts_type pts_type_builtin_Error;
+extern const pts_type pts_type_builtin_TypeError;
+extern const pts_type pts_type_builtin_RangeError;
+extern const pts_type pts_type_builtin_ReferenceError;
+extern const pts_type pts_type_builtin_SyntaxError;
+extern const pts_type pts_type_builtin_EvalError;
+extern const pts_type pts_type_builtin_URIError;
+
+/* The C types the compiler names the native error classes' instances by (pts_class_<class>). */
+typedef pts_error pts_class_builtin_Error;
+typedef pts_error pts_class_builtin_TypeError;
+typedef pts_error pts_class_builtin_RangeError;
+typedef pts_error pts_class_builtin_ReferenceError;
+typedef pts_error pts_class_builtin_SyntaxError;
+typedef pts_error pts_class_builtin_EvalError;
+typedef pts_error pts_class_builtin_URIError;
+
+/* The constructor of every native error class: `new Error(message?, options?)`, whose options may give a cause. */
+void pts_error_init(pts_error *error, pts_string *message, bool message_given, pts_object *options, bool options_given);
+/* A new error of a native error class (or a class derived from one) with message. */
+pts_error *pts_error_new(const pts_type *type, pts_string *message);
+/* Whether object is an Error: an instance of Error or of a class derived from it. */
+bool pts_is_error(const pts_object *object);
+/* Error.prototype.toString: "name: message", or whichever of them isn't empty. */
+pts_string *pts_error_to_string(pts_error *error);
+/* The stack property: the name and message, formatted when first read. */
+pts_value pts_error_get_stack(pts_error *error);
+void pts_error_set_stack(pts_error *error, pts_value stack);
+
+/* Throws a new error of type (a native error class) whose message is format's output. */
+_Noreturn void pts_throw_new(const pts_type *type, const char *format, ...) __attribute__((format(printf, 2, 3)));
+
+/* Throws a new error of the native error class name ("RangeError", say) with message. */
+_Noreturn void pts_throw_error(pts_string *name, pts_string *message);
+
+/* ---------------------------------------------------------------- fatal errors */
+
+/*
+ * Prints "Uncaught <error_name>: <message>" to stderr and exits with code 1 (D-O07):
+ * for what a program can't catch, running out of memory and internal errors.
  */
 _Noreturn void pts_panic(const char *error_name, const char *format, ...)
     __attribute__((format(printf, 2, 3)));

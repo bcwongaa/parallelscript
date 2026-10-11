@@ -20,6 +20,7 @@ func Emit(program *ir.Program) string {
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{}}
 	e.nameClasses(program)
+	e.externFunctions(program)
 	e.collectClosures(program)
 	e.collectComparators(program)
 	e.collectMaps(program)
@@ -68,6 +69,13 @@ type emitter struct {
 	usedLabels       map[string]bool
 	gotoTargets      map[string]bool // C labels some goto jumps to, so only those are written
 	loops            []*ir.Label     // the C loops around the current statement, innermost last
+	// tries are the handlers of the try blocks around the current statement, innermost
+	// last; labelTries is how many there were where each label's statement is, so a jump
+	// to it leaves those inside it (D-068).
+	tries      []string
+	labelTries map[*ir.Label]int
+	handlers   int                // pts_tryN handlers made so far in the function
+	volatile   map[*ir.Local]bool // locals a try block assigns that are declared outside it
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -173,6 +181,9 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 			name = paramNames[i]
 		}
 		params[i] = e.declarator(param.Type) + name
+		if paramNames != nil {
+			params[i] = e.localDeclarator(param) + name // the definition's
+		}
 		if receiver := e.receiverClass(f); i == 0 && receiver != nil {
 			params[i] = e.declarator(receiver) + name
 		}
@@ -212,6 +223,10 @@ func (e *emitter) function(f *ir.Func) {
 	e.labels = map[*ir.Label]string{}
 	e.usedLabels = map[string]bool{}
 	e.gotoTargets = map[string]bool{}
+	e.tries = nil
+	e.labelTries = map[*ir.Label]int{}
+	e.handlers = 0
+	e.volatile = volatileLocals(f)
 	paramNames := make([]string, len(f.Params))
 	for i, param := range f.Params {
 		if param.Cell {
@@ -288,7 +303,7 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 			e.line(depth, "*%s = %s;", e.locals[s.Local], init) // its block made the cell
 			return
 		}
-		e.line(depth, "%s%s = %s;", e.declarator(s.Local.Type), e.declareLocal(s.Local), init)
+		e.line(depth, "%s%s = %s;", e.localDeclarator(s.Local), e.declareLocal(s.Local), init)
 	case *ir.If:
 		e.ifStatement(s, depth)
 	case *ir.Loop:
@@ -306,11 +321,11 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 	case *ir.Continue:
 		e.jump(depth, s.Target, "continue", "_continue")
 	case *ir.Return:
-		if s.Value == nil {
-			e.line(depth, "return;")
-		} else {
-			e.line(depth, "return %s;", e.expr(s.Value))
-		}
+		e.returnStatement(s, depth)
+	case *ir.Try:
+		e.tryStatement(s, depth)
+	case *ir.Throw:
+		e.line(depth, "pts_throw(%s);", e.expr(s.Value))
 	default:
 		panic(fmt.Sprintf("cgen: unexpected statement %T", stmt))
 	}
@@ -406,9 +421,109 @@ func (e *emitter) switchStatement(s *ir.Switch, depth int) {
 	e.labelHere(depth, name+"_break")
 }
 
+// returnStatement writes a return, which leaves every try block around it once its value
+// is computed: a throw while computing it still lands in them.
+func (e *emitter) returnStatement(s *ir.Return, depth int) {
+	switch {
+	case len(e.tries) == 0 && s.Value == nil:
+		e.line(depth, "return;")
+	case len(e.tries) == 0:
+		e.line(depth, "return %s;", e.expr(s.Value))
+	case s.Value == nil:
+		e.line(depth, "pts_try_leave(&%s);", e.tries[0])
+		e.line(depth, "return;")
+	default:
+		result := e.temporary()
+		e.line(depth, "{")
+		e.line(depth+1, "%s%s = %s;", e.declarator(e.current.Result), result, e.expr(s.Value))
+		e.line(depth+1, "pts_try_leave(&%s);", e.tries[0])
+		e.line(depth+1, "return %s;", result)
+		e.line(depth, "}")
+	}
+}
+
+// tryStatement writes a try (D-068): a handler pushed on the thread's chain, the body,
+// which pops it when it ends, and the catch block, which the handler's long jump runs
+// with the exception (pts_throw has popped the handler).
+func (e *emitter) tryStatement(s *ir.Try, depth int) {
+	e.handlers++
+	handler := fmt.Sprintf("pts_try%d", e.handlers)
+	e.line(depth, "{")
+	e.line(depth+1, "pts_handler %s;", handler)
+	e.line(depth+1, "pts_try_enter(&%s);", handler)
+	e.line(depth+1, "if (_setjmp(%s.jump) == 0) {", handler)
+	e.tries = append(e.tries, handler)
+	e.scope(s.Body.Stmts, depth+2)
+	e.tries = e.tries[:len(e.tries)-1]
+	e.line(depth+2, "pts_try_leave(&%s);", handler)
+	e.line(depth+1, "} else {")
+	caught := "pts_caught(&" + handler + ")"
+	if s.Exception.Cell {
+		cell := e.declareLocal(s.Exception)
+		e.line(depth+2, "%s*%s = %s;", e.declarator(s.Exception.Type), cell, e.cellAllocation(s.Exception))
+		e.line(depth+2, "*%s = %s;", cell, caught)
+	} else {
+		e.line(depth+2, "%s%s = %s;", e.localDeclarator(s.Exception), e.declareLocal(s.Exception), caught)
+	}
+	e.scope(s.Catch.Stmts, depth+2)
+	e.line(depth+1, "}")
+	e.line(depth, "}")
+}
+
+// volatileLocals are the locals that a try block of f assigns and that are declared
+// outside it. After a throw long-jumps out of the block, C keeps their values only if
+// they are volatile (C11 7.13.2.1); locals in cells and globals are in memory anyway.
+func volatileLocals(f *ir.Func) map[*ir.Local]bool {
+	volatile := map[*ir.Local]bool{}
+	ir.Walk(f.Body.Stmts, func(stmt ir.Stmt) {
+		try, ok := stmt.(*ir.Try)
+		if !ok {
+			return
+		}
+		declared := map[*ir.Local]bool{}
+		var assigned []*ir.Local
+		ir.Walk(try.Body.Stmts, func(stmt ir.Stmt) {
+			switch s := stmt.(type) {
+			case *ir.LocalDecl:
+				declared[s.Local] = true
+			case *ir.Try:
+				declared[s.Exception] = true
+			}
+		}, func(x ir.Expr) {
+			switch x := x.(type) {
+			case *ir.Assign:
+				assigned = append(assigned, x.Local)
+			case *ir.Bind:
+				declared[x.Local] = true
+			}
+		})
+		for _, local := range assigned {
+			if !declared[local] && !local.Cell && !local.Global {
+				volatile[local] = true
+			}
+		}
+	}, func(ir.Expr) {})
+	return volatile
+}
+
+// localDeclarator is declarator for a local, volatile if a try block needs it to be.
+func (e *emitter) localDeclarator(local *ir.Local) string {
+	declarator := e.declarator(local.Type)
+	switch {
+	case !e.volatile[local]:
+		return declarator
+	case strings.HasSuffix(declarator, "*"):
+		return declarator + "volatile "
+	}
+	return "volatile " + declarator
+}
+
 // jump writes a break or continue: the C statement when the target is the innermost C
-// loop, or a goto to the target's label otherwise.
+// loop, or a goto to the target's label otherwise. A jump out of try blocks leaves them.
 func (e *emitter) jump(depth int, target *ir.Label, keyword string, suffix string) {
+	if inside := e.labelTries[target]; inside < len(e.tries) {
+		e.line(depth, "pts_try_leave(&%s);", e.tries[inside])
+	}
 	if len(e.loops) > 0 && e.loops[len(e.loops)-1] == target {
 		e.line(depth, "%s;", keyword)
 		return
@@ -430,6 +545,7 @@ func (e *emitter) label(label *ir.Label, kind string) string {
 	}
 	e.usedLabels[name] = true
 	e.labels[label] = name
+	e.labelTries[label] = len(e.tries)
 	return name
 }
 
@@ -586,7 +702,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.ClassCast:
 		return e.classCast(x)
 	case *ir.InstanceOf:
-		if isUnion(x.X.Type()) {
+		if isUnion(x.X.Type()) || x.X.Type() == ir.Value {
 			return "pts_value_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 		}
 		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
@@ -696,6 +812,12 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 		value = "pts_value_non_null(" + value + ")"
 	}
 	switch t := x.To; {
+	case x.X.Type() == ir.Value && t == ir.Number: // an unknown narrowed by a type guard that may be wrong (D-068)
+		return "pts_value_to_number_checked(" + value + ")"
+	case x.X.Type() == ir.Value && t == ir.String:
+		return "pts_value_as_string(" + value + ")"
+	case x.X.Type() == ir.Value && t == ir.Bool:
+		return "pts_value_as_bool(" + value + ")"
 	case t == ir.Number:
 		return "pts_value_as_number(" + value + ")"
 	case t == ir.I64:

@@ -25,11 +25,33 @@ var fieldKinds = map[ir.Type]string{
 func (e *emitter) nameClasses(program *ir.Program) {
 	used := map[string]bool{}
 	for _, class := range program.Classes {
+		if class.Builtin { // the runtime's pts_type_builtin_<name>, which no other class may take
+			e.classNames[class] = unique(used, "builtin_"+class.Name)
+		}
+	}
+	for _, class := range program.Classes {
+		if class.Builtin {
+			continue
+		}
 		prefix := ""
 		if class.Module != nil { // not a shape
 			prefix = modulePrefix(class.Module)
 		}
 		e.classNames[class] = unique(used, prefix+prefixedIdentifier(class.Name))
+	}
+}
+
+// externFunctions names the runtime functions that implement the constructors and
+// methods of builtin classes (D-068).
+func (e *emitter) externFunctions(program *ir.Program) {
+	for _, class := range program.Classes {
+		if !class.Builtin {
+			continue
+		}
+		e.funcNames[class.Constructor] = class.Constructor.Extern
+		for _, method := range class.Methods {
+			e.funcNames[method.Func] = method.Func.Extern
+		}
 	}
 }
 
@@ -64,6 +86,9 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 		}
 	}
 	for _, class := range program.Classes {
+		if class.Builtin {
+			continue // its descriptor is the runtime's
+		}
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
 				if class.Method(method.Name, method.Kind) != method || method.Abstract || !wanted[method.Kind][method.Name] && !isToString(method) {
@@ -114,9 +139,15 @@ func (e *emitter) entryFunctions() {
 // subclass's struct starts with its parent's, as its member pts_base.
 func (e *emitter) classDeclarations(classes []*ir.Class) {
 	for _, class := range classes {
+		if class.Builtin {
+			continue // pts.h declares pts_class_builtin_<class> (D-068)
+		}
 		e.line(0, "typedef struct pts_class_%[1]s pts_class_%[1]s;", e.classNames[class])
 	}
 	for _, class := range classes {
+		if class.Builtin {
+			continue
+		}
 		e.line(0, "")
 		e.line(0, "struct pts_class_%s {", e.classNames[class])
 		if class.Parent == nil {
@@ -202,11 +233,14 @@ func root(class *ir.Class) *ir.Class {
 }
 
 // basePath is the path from a subclass's struct (or method table) to the part that an
-// ancestor's describes: "pts_base." once per class between them.
+// ancestor's describes: "pts_base." once per class between them, except for the builtin
+// classes, which are laid out as their parents.
 func basePath(class *ir.Class, ancestor *ir.Class) string {
 	var path strings.Builder
 	for ; class != ancestor; class = class.Parent {
-		path.WriteString("pts_base.")
+		if !class.Builtin {
+			path.WriteString("pts_base.")
+		}
 	}
 	return path.String()
 }
@@ -216,6 +250,9 @@ func basePath(class *ir.Class, ancestor *ir.Class) string {
 // pts_type for each of its property orders.
 func (e *emitter) classDescriptors(classes []*ir.Class) {
 	for _, class := range classes {
+		if class.Builtin {
+			continue // the runtime's
+		}
 		if class.Shape {
 			e.shapeDescriptors(class)
 			continue

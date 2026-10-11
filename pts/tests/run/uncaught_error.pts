@@ -1,0 +1,18 @@
+// An uncaught exception prints "Uncaught" and the error to stderr and exits with 1
+// (D-O07), after the finally blocks on the way have run.
+function fail(): void {
+  try {
+    throw new TypeError("nobody catches this");
+  } finally {
+    console.log("finally still runs");
+  }
+}
+console.log("before");
+fail();
+console.log("never printed");
+
+// exit: 1
+// stderr: Uncaught TypeError: nobody catches this
+// expect:
+// before
+// finally still runs

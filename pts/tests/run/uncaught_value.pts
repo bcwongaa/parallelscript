@@ -1,0 +1,8 @@
+// Any value can be thrown uncaught: stderr shows it as console.log shows nested values.
+console.log("before");
+throw "a plain string";
+
+// exit: 1
+// stderr: Uncaught 'a plain string'
+// expect:
+// before

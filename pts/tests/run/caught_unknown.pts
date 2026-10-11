@@ -1,0 +1,48 @@
+// A caught exception is an `unknown` (D-068): tsc's narrowing by instanceof, typeof and
+// equality applies, and `as` converts it with a check.
+class HttpError extends Error {
+  constructor(readonly status: number) {
+    super("HTTP " + status);
+  }
+}
+
+function explain(e: unknown): string {
+  if (e instanceof HttpError) {
+    return "http " + e.status;
+  }
+  if (e instanceof Error) {
+    return "error " + e.message;
+  }
+  if (typeof e === "string" || typeof e === "number") {
+    return "primitive " + e;
+  }
+  if (typeof e === "boolean") {
+    return e ? "yes" : "no";
+  }
+  if (e === null || e === undefined) {
+    return "nothing: " + e;
+  }
+  return "something else: " + String(e);
+}
+
+const values: unknown[] = [new HttpError(503), new Error("plain"), "text", 12, false, null, undefined, [1, 2]];
+for (const value of values) {
+  try {
+    throw value;
+  } catch (e) {
+    console.log(explain(e), `${e}` === String(e), e ? "truthy" : "falsy");
+  }
+}
+
+try {
+  throw new HttpError(404);
+} catch (e) {
+  const error = e as HttpError;
+  console.log(error.status, (e as Error).message, (e as Error).name);
+}
+try {
+  throw "just text";
+} catch (e) {
+  const text = e as string;
+  console.log(text.toUpperCase(), (e as string).length);
+}

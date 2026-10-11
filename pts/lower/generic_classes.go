@@ -198,8 +198,8 @@ func (l *lowerer) declareInstanceSuperclass(inst *classInstance) bool {
 // or under way: in the class's module, and for a generic class's instance, with the
 // instance's types and into its tables.
 func (l *lowerer) ensureMembers(class *ir.Class) {
-	if class == nil || l.membersStarted[class] {
-		return
+	if class == nil || class.Builtin || l.membersStarted[class] {
+		return // a builtin class's are declared with it (D-068)
 	}
 	l.membersStarted[class] = true
 	l.ensureMembers(class.Parent)

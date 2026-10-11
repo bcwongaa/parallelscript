@@ -1,0 +1,53 @@
+// The runtime's errors are Error objects a program can catch (D-068): the integer
+// rules' RangeError, D-015's and D-038's checked reads, checked `!` and narrowing, and
+// ReferenceError before a module-scope binding is ready.
+
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e) {
+    if (e instanceof Error) {
+      console.log(what, "->", e.name, "|", e.message, "|", e instanceof RangeError, e instanceof TypeError);
+    }
+  }
+}
+
+const zero: int = 0;
+attempt("integer division", () => console.log((7 as int) / zero));
+attempt("integer remainder", () => console.log((7 as int) % zero));
+const list = [1, 2, 3];
+attempt("array element", () => { const n: number = list[5]; console.log(n); });
+attempt("empty pop", () => { const empty: number[] = []; console.log(empty.pop()!); });
+const word = "abc";
+attempt("string index", () => { const c: string = word[7]; console.log(c); });
+const maybe: string | null = list.length > 5 ? "long" : null;
+attempt("non-null", () => console.log(maybe!.length));
+const scores = new Map<string, number>([["ada", 3]]);
+attempt("map get", () => console.log(scores.get("bob")!));
+attempt("repeat", () => console.log("ab".repeat(-1)));
+attempt("reduce", () => console.log(([] as number[]).reduce((a, b) => a + b)));
+attempt("find", () => console.log(list.find((n) => n > 10)!));
+attempt("before init", () => console.log(later));
+const later = "ready";
+attempt("after init", () => console.log(later));
+
+// Errors thrown in callbacks of the runtime's functions reach the caller.
+attempt("map callback", () => console.log(list.map((n) => (n === 2 ? (n as int) / zero : n))));
+
+// no-diff: integer division by zero, checked reads and `!` throw where JS gives Infinity or undefined
+// expect:
+// integer division -> RangeError | Division by zero | true false
+// integer remainder -> RangeError | Division by zero | true false
+// array element -> RangeError | Array index 5 is out of range (length 3) | true false
+// empty pop -> RangeError | pop() of an empty array | true false
+// string index -> RangeError | String index 7 is out of range (length 3) | true false
+// non-null -> TypeError | Non-null assertion on null | false true
+// map get -> RangeError | Map has no entry for the key | true false
+// repeat -> RangeError | Invalid count value: -1 | true false
+// reduce -> TypeError | Reduce of empty array with no initial value | false true
+// find -> RangeError | find() found no element | true false
+// before init -> ReferenceError | Cannot access 'later' before initialization | false false
+// ready
+// after init ok
+// map callback -> RangeError | Division by zero | true false

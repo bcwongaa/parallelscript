@@ -348,3 +348,40 @@ func TestCellsAreMadeOnBlockEntryAndCopiedForEachIteration(t *testing.T) {
 	// The last closure's iteration ended with i at 2; the update then changed the next copy.
 	assert.Equal(t, run(t, program), "2\n")
 }
+
+func TestLocalsATryBlockAssignAreVolatileAndJumpsOutOfItLeaveIt(t *testing.T) {
+	t.Parallel()
+	// let count = 0; loop: for (;;) { try { count = 1; break loop; } catch (e) {} } console.log(count)
+	count, untouched, exception := &ir.Local{Name: "count", Type: ir.Number}, &ir.Local{Name: "untouched", Type: ir.Number}, &ir.Local{Name: "e", Type: ir.Value}
+	loop := &ir.Label{Name: "loop"}
+	try := &ir.Try{At: at(3), Exception: exception, Catch: &ir.Block{At: at(5)}, Body: &ir.Block{At: at(3), Stmts: []ir.Stmt{
+		&ir.ExprStmt{At: at(3), X: &ir.Assign{Local: count, Value: num(1)}},
+		&ir.Break{At: at(4), Target: loop},
+	}}}
+	program := programOf(
+		&ir.LocalDecl{At: at(1), Local: count, Init: num(0)},
+		&ir.LocalDecl{At: at(1), Local: untouched, Init: num(2)},
+		&ir.Loop{At: at(2), Label: loop, Body: &ir.Block{At: at(2), Stmts: []ir.Stmt{try}}},
+		logAt(6, &ir.LocalRef{Local: count}, &ir.LocalRef{Local: untouched}),
+	)
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "volatile double count = 0.0;") && strings.Contains(source, "  double untouched = 2.0;"), source)
+	assert.Assert(t, strings.Contains(strings.Join(strings.Fields(source), " "), "pts_try_leave(&pts_try1); break;"), source)
+	assert.Equal(t, run(t, program), "1 2\n")
+}
+
+func TestAThrowLandsInTheCatchBlockWithTheThrownValue(t *testing.T) {
+	t.Parallel()
+	exception := &ir.Local{Name: "e", Type: ir.Value}
+	program := programOf(
+		&ir.Try{At: at(1), Exception: exception,
+			Body: &ir.Block{At: at(1), Stmts: []ir.Stmt{
+				&ir.Throw{At: at(2), Value: &ir.Box{X: str("thrown")}},
+				logAt(3, str("not reached")),
+			}},
+			Catch: &ir.Block{At: at(4), Stmts: []ir.Stmt{logAt(5, str("caught"), &ir.LocalRef{Local: exception})}},
+		},
+		logAt(6, str("after")),
+	)
+	assert.Equal(t, run(t, program), "caught thrown\nafter\n")
+}

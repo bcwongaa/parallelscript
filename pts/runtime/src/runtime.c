@@ -40,12 +40,5 @@ void pts_panic(const char *error_name, const char *format, ...) {
 void pts_unreachable(void) { pts_panic("Error", "internal compiler error: a function ended without returning its value"); }
 
 void pts_throw_uninitialized(const char *name) {
-  pts_panic("ReferenceError", "Cannot access '%s' before initialization", name);
-}
-
-void pts_throw_error(pts_string *name, pts_string *message) {
-  enum { MAX_NAME = 128 };
-  char error_name[MAX_NAME];
-  snprintf(error_name, sizeof error_name, "%.*s", (int)name->byte_len, name->bytes); /* bytes needn't end with NUL */
-  pts_panic(error_name, "%.*s", (int)message->byte_len, message->bytes);
+  pts_throw_new(&pts_type_builtin_ReferenceError, "Cannot access '%s' before initialization", name);
 }

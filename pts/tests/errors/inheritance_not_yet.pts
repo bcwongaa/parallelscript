@@ -30,7 +30,7 @@ class Fields extends Base {
     console.log(super());
   }
 }
-console.log(new Base() instanceof Error);
+console.log(new Base() instanceof Map);
 
 // error: inheritance_not_yet.pts:11:3 - error PTS1001: overriding `Base.m` with other parameter or result types is not supported yet
 // error: inheritance_not_yet.pts:16:3 - error PTS1001: overriding `Base.m` with other parameter or result types is not supported yet

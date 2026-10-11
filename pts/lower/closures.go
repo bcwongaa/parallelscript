@@ -218,8 +218,8 @@ func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	reported := l.errors
 	ft, ok := l.functionType(contextual, node)
 	l.errors = reported
-	if !ok || ft == nil {
-		return nil
+	if !ok || ft == nil || ft.Result == ir.Value && l.function.Result != ir.Value {
+		return nil // filter's predicate returns unknown: it gives nothing a shape to take
 	}
 	params := l.function.Params
 	j := 0 // in ft.Params
@@ -699,6 +699,12 @@ func (p *cellPass) stmts(stmts []ir.Stmt) {
 			}
 		case *ir.LabeledBlock:
 			p.stmts(s.Body.Stmts)
+		case *ir.Try:
+			p.stmts(s.Body.Stmts)
+			p.declared[s.Exception] = true
+			p.stmts(s.Catch.Stmts)
+		case *ir.Throw:
+			p.expr(s.Value)
 		}
 	}
 }

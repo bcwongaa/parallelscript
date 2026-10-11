@@ -109,7 +109,7 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
 - This keeps `JSON.parse(s).user?.name` working while making `any` honest.
 - Every runtime type therefore carries a descriptor (name, field names mapped to offsets, methods). The same descriptors drive `console.log` and JSON.
 
-`unknown` works exactly as in TypeScript: you must narrow before use.
+`unknown` works exactly as in TypeScript: you must narrow before use. Narrowing an `unknown` to a class or a primitive (by `instanceof`, `typeof` or a type guard) and `as` from it are checked at runtime and throw `TypeError` when wrong (D-068).
 
 ### 3.5 Casts
 
@@ -146,12 +146,12 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
 
 ### 3.9 Exceptions
 
-- `throw`, `try`, `catch` and `finally` have JS semantics, and any value can be thrown.
-- `Error` and its subclasses have `message`, `name`, `cause` and `stack`. `stack` shows `.pts` file and line numbers (it may arrive in a later milestone).
+- `throw`, `try`, `catch` and `finally` have JS semantics, and any value can be thrown. The catch binding is an `unknown` (D-068).
+- `Error` and its subclasses (`TypeError`, `RangeError`, `ReferenceError`, `SyntaxError`, `EvalError`, `URIError`) have `message`, `name`, `cause` and `stack`, and programs extend them. `stack` shows `.pts` file and line numbers from M3.2b; until then it is `Name: message`.
+- Errors the runtime detects (integer division by zero, checked reads, failed `!` and casts, `ReferenceError` before a binding is ready) are thrown as these classes and can be caught. Running out of memory can't be.
 - **Uncaught errors** (D-O07):
-  - An uncaught exception prints `Uncaught <Name>: <message>` (and, once available, a `.pts` stack trace) to stderr, then exits with code 1.
+  - An uncaught exception prints `Uncaught <Name>: <message>` (its stack, which gains a `.pts` trace in M3.2b) to stderr, then exits with code 1. Any other value prints as console.log shows it nested: `Uncaught 'text'`.
   - An unhandled rejection behaves like Node's default `--unhandled-rejections=throw`.
-  - Until exceptions land in M3, runtime errors (such as integer division by zero) abort with the same message format and exit code 1.
 
 ### 3.10 Not supported
 
@@ -333,6 +333,7 @@ The compatibility principle (§1.1) holds except for these:
 - Function values (D-041): an arrow function or function expression that captures no variables is one static closure, so two evaluations of it give the same (`===`) function, where JS makes a new one each time; the same holds for a nested function declaration that captures nothing. A function used where its type takes more parameters, or other parameter types, may be wrapped in an adapter, which is a different function for `===` but prints as the one it wraps. Functions can't be converted to strings (JS gives their source text).
 - Rest parameters (D-057): a function with fixed parameters used as a function type with a rest parameter (`const f: (...xs: number[]) => number = add`) reads each argument from the rest array with a checked read, so calling it with too few arguments throws `RangeError` where JS passes `undefined`.
 - Optional properties (D-065): an optional property that a literal leaves out and that is assigned later prints after the literal's properties, in the order the object's type declares such properties, where JS prints properties in the order they were added. `{ a: 1, ...o }` keeps 1 when `o.a` is undefined, if tsc types the result's `a` without undefined (JS gives undefined). An object that lacks an optional property of a type it is used as can't gain it: writing it throws `TypeError: Cannot add property p, object is not extensible`; one that holds it without undefined (`{ verbose: true }` used as `{ verbose?: boolean }`) throws `TypeError` when undefined is written to it (D-066). A value whose objects may hold an optional property as yet another type (a subclass's field of another type) can't be used as the type (PTS1001).
+- Exceptions (D-068): `console.log` of an error shows no stack frames until M3.2b (`[Error: boom]`, as Node shows an error without frames). An error's `name` is its own property, set by the constructor to its native class's name, where JS inherits it from the prototype (only `Object.keys` and JSON could tell). A class derived from Error can't redefine `stack`.
 - Unions of objects (D-067): narrowing a union to a class with a type guard or `in` that is wrong at run time throws `TypeError: The value narrowed to C is not an instance of it`, where JS carries on and reads undefined. `==` between an object and a primitive compares the object's string (an array's join, its class's `toString()`, else "[object Object]"); objects have no `valueOf`.
 - Object spread (D-058): `{ ...o }` copies the properties of o's static type, in the order its type lists them (a class instance's fields in their constructor's order, as JS does). An object made by a literal that wrote them in another order, or one with more properties than its static type, copies in that order and those properties only, where JS copies the object's own properties in its order.
 - Methods as values (D-044): `o.m` used as a value is bound to `o`, as `o.m.bind(o)` would be, where JS gives the unbound method (whose `this` is undefined when it is called plainly, so a method that uses `this` fails); each read makes a new bound function, so `o.m === o.m` is false. `f.call(x, …)` and `f.bind(x, …)` on a class's method run the method `x`'s class has; on a method of an object type, `x` must be `o` itself.
@@ -358,7 +359,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Dynamic values** (`pts_value`): one 64-bit word (D-002). Raw object pointer; double + 2^49; or the constants `null` 0x02, `false` 0x06, `true` 0x07, `undefined` 0x0a.
 - **Number formatting** (`pts_number_format`): the shortest round-trip digits via correctly rounded `%.*e` at increasing precision, then ECMAScript's Number::toString notation rules. It is checked against `internal/jsnum` on 25,000 values. M1.1 replaces the digit search with a Ryu-style algorithm.
 - **`console.log`** (`pts_console_log(argc, argv)`) takes boxed values. It prints strings raw, `-0` as `-0` and other primitives as `String(x)`, separated by spaces. Format specifiers (`%s`, `%d`, …) are not interpreted yet (M3.6).
-- **Errors:** `pts_panic(name, fmt, …)` flushes stdout, prints `Uncaught <name>: <message>` to stderr and exits with 1 (D-O07). It stands in for `throw` until M3.2.
+- **Errors:** `pts_throw(value)` throws to the innermost `try` (§9.45); `pts_panic(name, fmt, …)` flushes stdout, prints `Uncaught <name>: <message>` to stderr and exits with 1 (D-O07), for running out of memory and internal errors.
 
 ### 9.2 Compiler pipeline (M0.5)
 
@@ -696,3 +697,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`pts/lower/union_objects.go`): `isUnionReceiver` routes property reads (`propertyAccess`), writes (`assignmentTarget`) and calls (`call`) on unions of objects to `unionProperty` and `unionMethodCall` (`unionObjectMembers`, `holdsWithin`, `isMethodSymbol`, `asUnionInterface`, `internInterface`); `keyIn` (from `propertyIn`); `isUpcastOfMembers` (from `convert`); `looseEquality` (`unions.go`); `contextTakesUndefined` (element reads in `expression`); `literalType` picks a union member (`fitsLiteral`); `memberFor` falls back to `providedMember`; `sameType` makes a union of `?:` branches whose context is a union or nothing.
 - **C:** `fromUnion` checks a class target with `pts_value_as_instance`; Mixed fields go through `pts_optional_get` (`isOptionalThroughInterface`); `HasKey` is `pts_object_has`; `collectInterfaceMembers` adds `InKeys` to the method tables. Runtime: `pts_value_as_instance`/`pts_throw_not_instance`, `pts_value_loose_equals` (`string.c`), `pts_string_to_number` (`string_methods.c`), `pts_object_to_string` (`array.c`), `pts_object_has` (`object.c`).
 - **Tests:** `pts/tests/run/union_objects.pts`, `loose_equality.pts` (a matrix of every pair of 43 values against Node), `union_narrowing_error.pts`, `errors/unions_not_yet.pts`, `string_methods_test.c` (`strings_convert_to_numbers_as_number_does`).
+
+### 9.45 Exceptions (M3.2a)
+
+- **Runtime** (D-068): `pts_handler`, `pts_handlers` (thread-local), `pts_try_enter`/`pts_try_leave`/`pts_caught` (`pts.h`), `pts_throw` and `report_uncaught`, the native error classes (`pts_error`, `pts_type_builtin_<Name>`, `pts_class_builtin_<Name>`), `pts_error_init`, `pts_error_new`, `pts_error_to_string`, `pts_error_get_stack`/`_set_stack`, `pts_throw_new` (printf-style), `pts_throw_error` (by class name), `pts_is_error` (`error.c`); `format_error`, `improve_stack` and `pts_inspect_value_write` (`inspect.c`); `pts_value_as_string`, `pts_value_to_number_checked`, `pts_value_as_bool` and `pts_throw_not_primitive` (`string.c`); `pts_value_to_string` converts objects through `pts_object_to_string`. `pts_panic` is only for running out of memory and internal errors.
+- **IR:** `ir.Try`, `ir.Throw`, `ir.Class.Builtin`, `ir.Func.Extern`.
+- **Lowering** (`pts/lower/exceptions.go`, `errors.go`): `throwStatement`, `tryStatement` (the finally transform: `finallyContext`, `leaveFunction` from `returnStatement`, `jumpTo` from `jump`), `tryCatch` (the catch binding); `declareErrorClasses` (before `declareClasses`; `ErrorOptions` is an object type through `libObjectTypes`); `narrowedValue` (from `narrowed`), `asFromValue` (from `as`), `stringCall` (`String(x)`), `isObjectToString`/`objectToString` (`o.toString()`, `super.toString()`), `isDynamic`. `irType` maps `unknown` and `never` to Value; `resultType` maps a never result to Void and `convert` sequences a call of one with a zero value; `linkOverrides` keeps Error's methods non-virtual; `typeAt` strips tsc's optional marker from links inside a chain being lowered (`s?.split(",")[0]`).
+- **C:** `tryStatement`, `returnStatement`, `jump` (leaves the tries a label is outside of: `labelTries`), `volatileLocals` and `localDeclarator` (`cgen.go`); builtin classes get no struct, descriptor or method entries of their own, names `builtin_<Name>`, and their extern functions' names (`externFunctions`); `basePath` skips them.
+- **Tests:** `pts/tests/run/exceptions.pts`, `exceptions_edges.pts`, `error_classes.pts`, `caught_unknown.pts` (all against Node), `runtime_errors_caught.pts`, `caught_unknown_cast_error.pts`, `errors_printed.pts`, `uncaught_error.pts`, `uncaught_value.pts`; `errors/exceptions_not_yet.pts`; `error_test.c`; `TestLocalsATryBlockAssignAreVolatileAndJumpsOutOfItLeaveIt`, `TestAThrowLandsInTheCatchBlockWithTheThrownValue`, `TestFinallyRunsAfterTheProtectedCodeRecordsHowItCompleted`.

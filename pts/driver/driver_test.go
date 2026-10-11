@@ -85,11 +85,11 @@ func TestTypeErrorsStopTheBuild(t *testing.T) {
 
 func TestUnsupportedSyntaxStopsTheBuild(t *testing.T) {
 	t.Parallel()
-	entry := writeSource(t, `try { console.log(1); } finally {}`)
+	entry := writeSource(t, `debugger; console.log(1);`)
 
 	_, err := driver.EmitC(t.Context(), entry)
 
 	diagnostics := compileErrors(t, err)
 	assert.Equal(t, len(diagnostics), 1)
-	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:1:1 - error PTS1001: try statement is not supported yet")
+	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:1:1 - error PTS1001: debugger statement is not supported yet")
 }

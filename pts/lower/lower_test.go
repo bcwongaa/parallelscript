@@ -125,8 +125,8 @@ func TestTypeOnlyDeclarationsProduceNoCode(t *testing.T) {
 
 func TestUnsupportedStatementIsReportedAtItsPosition(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(1);\n  try {} finally {}\n")
-	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: try statement is not supported yet")
+	err := lowerInvalid(t, "console.log(1);\n  debugger;\n")
+	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: debugger statement is not supported yet")
 }
 
 func TestArithmeticFollowsTypeScriptPrecedence(t *testing.T) {
@@ -183,14 +183,14 @@ func TestUnsupportedOperatorIsNamed(t *testing.T) {
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, `const either: unknown = 1;`)
+	err := lowerInvalid(t, `const weak: WeakMap<object, number> = new WeakMap();`)
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "values of type unknown are not supported yet")
+	assert.Equal(t, err.Message, "values of type WeakMap<object, number> are not supported yet")
 }
 
 func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "const either: unknown = 1;\nconsole.log(either);\n")
+	err := lowerInvalid(t, "const weak: WeakMap<object, number> = new WeakMap();\nconsole.log(weak);\n")
 	assert.Equal(t, err.Line, 1)
 }
 
@@ -1056,6 +1056,49 @@ func main() void {
     5: #2: while map.next(iteration) {
       5: let entry: [string, number] = tuple1{0: map.key(iteration), 1: map.value(iteration)}
       6: console.log(box(entry))
+    }
+  }
+}
+`)
+}
+
+func TestFinallyRunsAfterTheProtectedCodeRecordsHowItCompleted(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function f(): number {
+  try {
+    return 1;
+  } finally {
+    console.log("done");
+  }
+}
+console.log(f());
+`)
+	assert.Equal(t, got, `func main() void {
+  8: console.log(box(f()))
+}
+func f() number {
+  2: {
+    2: let completion: i32 = 0:i32
+    2: let thrown: value = undefined
+    2: let result: number
+    2: #1: {
+      2: try {
+        3: (result = 1)
+        3: (completion = 2:i32)
+        3: break #1
+      } catch (exception) {
+        2: (completion = 1:i32)
+        2: (thrown = exception)
+      }
+    }
+    4: {
+      5: console.log(box("done"))
+    }
+    2: if (completion === 1:i32) {
+      2: throw thrown
+    }
+    2: if (completion === 2:i32) {
+      2: return result
     }
   }
 }

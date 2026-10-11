@@ -1,0 +1,243 @@
+// Corners of exceptions (D-068): jumps out of catch blocks through finally, finally
+// blocks in loops, throws from getters, constructors and generic code, catch variables
+// that closures capture or that shadow outer names, and module-scope state.
+
+function fromCatch(mode: string): string {
+  const log: string[] = [];
+  for (const n of [1, 2]) {
+    try {
+      try {
+        throw new Error("e" + n);
+      } catch (e) {
+        log.push("catch " + n);
+        if (mode === "return") {
+          return log.join(",") + " returned from catch";
+        }
+        if (mode === "break") {
+          break;
+        }
+        if (mode === "continue") {
+          continue;
+        }
+        throw new Error("from catch " + n);
+      } finally {
+        log.push("finally " + n);
+      }
+    } catch (outer) {
+      log.push("outer " + (outer as Error).message);
+    }
+  }
+  return log.join(",");
+}
+for (const mode of ["return", "break", "continue", "throw"]) {
+  console.log(mode, "=>", fromCatch(mode));
+}
+
+// continue inside a finally block replaces a pending return.
+function stubborn(): number {
+  let rounds = 0;
+  for (let i = 0; i < 3; i++) {
+    try {
+      rounds++;
+      return rounds;
+    } finally {
+      if (i < 2) {
+        continue;
+      }
+    }
+  }
+  return -1;
+}
+console.log("stubborn", stubborn());
+
+// Getters, setters and constructors of derived classes throw.
+class Temperature {
+  #celsius = 0;
+  get celsius(): number {
+    return this.#celsius;
+  }
+  set celsius(value: number) {
+    if (value < -273.15) {
+      throw new RangeError("below absolute zero: " + value);
+    }
+    this.#celsius = value;
+  }
+}
+const temperature = new Temperature();
+for (const value of [20, -300, 37]) {
+  try {
+    temperature.celsius = value;
+  } catch (e) {
+    console.log((e as Error).message);
+  }
+  console.log("now", temperature.celsius);
+}
+class Shape {
+  constructor(readonly sides: number) {
+    if (sides < 3) {
+      throw new RangeError("a shape needs at least 3 sides, not " + sides);
+    }
+  }
+}
+class Polygon extends Shape {
+  label = "polygon";
+  constructor(sides: number) {
+    super(sides);
+    console.log("made a", this.label, "of", sides);
+  }
+}
+for (const sides of [5, 2]) {
+  try {
+    console.log(new Polygon(sides).sides);
+  } catch (e) {
+    console.log(String(e));
+  }
+}
+
+// A caught value captured by closures, and a catch variable shadowing an outer one.
+const e = "outer e";
+const later: (() => string)[] = [];
+for (const word of ["one", "two"]) {
+  try {
+    throw new Error(word);
+  } catch (e) {
+    later.push(() => "remembered " + (e as Error).message);
+  }
+}
+console.log(e, later.map((f) => f()));
+
+// Generic code throws and catches.
+function firstOr<T>(items: T[], fallback: T): T {
+  try {
+    if (items.length === 0) {
+      throw new RangeError("empty");
+    }
+    return items[0];
+  } catch (err) {
+    console.log("fallback because", (err as Error).message);
+    return fallback;
+  }
+}
+console.log(firstOr([3, 4], 0), firstOr<string>([], "none"), firstOr(["a"], "none"));
+
+// Module-scope state assigned in a try block, read by functions and after a throw.
+let attempts = 0;
+let lastError = "";
+function attempt(succeed: boolean): void {
+  attempts++;
+  if (!succeed) {
+    throw new Error("attempt " + attempts + " failed");
+  }
+}
+for (const succeed of [false, true, false]) {
+  try {
+    attempt(succeed);
+    lastError = "";
+  } catch (err) {
+    lastError = (err as Error).message;
+  }
+}
+console.log(attempts, lastError);
+
+// A try block with nested function declarations and a switch.
+function parse(text: string): number {
+  try {
+    function digit(c: string): number {
+      const d = "0123456789".indexOf(c);
+      if (d < 0) {
+        throw new SyntaxError("not a digit: " + c);
+      }
+      return d;
+    }
+    let value = 0;
+    for (const c of text.split("")) {
+      switch (c) {
+        case "_":
+          continue;
+        default:
+          value = value * 10 + digit(c);
+      }
+    }
+    return value;
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      console.log(err.name, err.message);
+      return NaN;
+    }
+    throw err;
+  }
+}
+console.log(parse("1_000"), parse("12x"));
+
+// Errors built with a cause by derived classes.
+class WrappedError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+    this.name = "WrappedError";
+  }
+}
+try {
+  try {
+    parse("bad");
+    JSON_parse("{");
+  } catch (inner) {
+    throw new WrappedError("could not load", inner);
+  }
+} catch (outer) {
+  if (outer instanceof WrappedError) {
+    console.log(String(outer), "<-", outer.cause instanceof Error ? String(outer.cause) : outer.cause);
+  }
+}
+function JSON_parse(text: string): void {
+  throw new SyntaxError("Unexpected end of input in " + text);
+}
+
+// Deep recursion unwinds in one jump.
+function countdown(n: number): number {
+  if (n === 0) {
+    throw new Error("bottom");
+  }
+  return countdown(n - 1) + 1;
+}
+try {
+  countdown(10000);
+} catch (err) {
+  console.log("unwound from", (err as Error).message);
+}
+
+// Functions that return never: they only throw, and calls of them fit any type.
+function fail(message: string): never {
+  throw new Error(message);
+}
+type Shape2 = { kind: "circle"; r: number } | { kind: "square"; side: number };
+function assertNever(x: never): never {
+  throw new Error("unexpected: " + String(x));
+}
+function area(s: Shape2): number {
+  switch (s.kind) {
+    case "circle":
+      return 3 * s.r * s.r;
+    case "square":
+      return s.side * s.side;
+    default:
+      return assertNever(s);
+  }
+}
+function positive(n: number): number {
+  return n > 0 ? n : fail("not positive: " + n);
+}
+console.log(area({ kind: "circle", r: 1 }), area({ kind: "square", side: 2 }));
+for (const n of [3, -1]) {
+  try {
+    console.log(positive(n));
+  } catch (err) {
+    console.log(String(err));
+  }
+}
+const found: string | null = [1, 2].length > 5 ? "x" : null;
+try {
+  const sure: string = found ?? fail("nothing found");
+  console.log(sure);
+} catch (err) {
+  console.log(String(err));
+}

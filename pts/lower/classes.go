@@ -457,6 +457,11 @@ func (l *lowerer) linkOverrides(class *ir.Class) {
 		switch {
 		case overridden == nil || isPrivateName(method.Name): // a subclass's #m is a name of its own
 			continue
+		case overridden.Class.Builtin && method.Name == "toString" && method.Kind == ir.Plain:
+			continue // the runtime finds it in the descriptor (D-068)
+		case overridden.Class.Builtin:
+			l.notSupportedYet(nameOf(l.methodDeclarations[method]), fmt.Sprintf("overriding `%s.%s` is", overridden.Class.Name, method.Name))
+			continue
 		case !sameSignature(method.Func, overridden.Func):
 			l.notSupportedYet(nameOf(l.methodDeclarations[method]), fmt.Sprintf("overriding `%s.%s` with other parameter or result types is", overridden.Class.Name, method.Name))
 			continue
@@ -633,14 +638,14 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 
 // inFunction lowers with fn as the function being lowered.
 func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
-	outer, outerTargets := l.function, l.targets
-	l.function, l.targets = fn, nil
+	outer, outerTargets, outerFinallies := l.function, l.targets, l.finallies
+	l.function, l.targets, l.finallies = fn, nil, nil
 	prologue := l.parameterPrologue(fn) // declares the names the body uses
 	lower()
 	if len(prologue) > 0 && fn.Body != nil {
 		fn.Body.Stmts = append(prologue, fn.Body.Stmts...)
 	}
-	l.function, l.targets = outer, outerTargets
+	l.function, l.targets, l.finallies = outer, outerTargets, outerFinallies
 	l.lowered = append(l.lowered, fn)
 }
 
@@ -821,7 +826,7 @@ func (l *lowerer) accessorProperty(node *ast.Node) (accessors property, ok bool)
 			accessors.getter, ok = members.methods[declaration], true
 		case ast.KindSetAccessor:
 			accessors.setter, ok = members.methods[declaration], true
-		case ast.KindPropertyDeclaration:
+		case ast.KindPropertyDeclaration, ast.KindPropertySignature: // an abstract field, or Error's stack (D-068)
 			if abstract, isAbstract := members.abstractFields[declaration]; isAbstract {
 				accessors, ok = abstract, true
 			}
@@ -968,7 +973,7 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	switch {
 	case x == nil || class == nil:
 		return nil // reported, or the class failed, which was
-	case !isObject(x.Type()) && !isUnion(x.Type()):
+	case !isObject(x.Type()) && !isDynamic(x.Type()):
 		l.notSupportedYet(expr.Left, fmt.Sprintf("`instanceof` on a %s is", x.Type()))
 		return nil
 	}

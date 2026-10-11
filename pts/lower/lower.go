@@ -137,7 +137,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}}
+		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -149,6 +149,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	// Every class, function and module-scope binding exists before any code is lowered:
 	// code may use them above their declarations, and in an import cycle before their
 	// module runs. Classes come first, since any declaration's type may name one.
+	l.function = result.Main
+	l.declareErrorClasses()
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareClasses(file)
@@ -186,7 +188,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		}
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
-	result.Classes = append(orderedByParent(append(l.classList, l.instanceClasses...)), l.shapeList...)
+	result.Classes = append(orderedByParent(slices.Concat(l.errorClasses, l.classList, l.instanceClasses)), l.shapeList...)
 	result.Interfaces = l.interfaceList
 	result.InKeys = slices.Sorted(maps.Keys(l.inKeys))
 	l.markAccessorProperties()
@@ -268,6 +270,9 @@ type lowerer struct {
 	bodies              []*ast.Node                      // function declarations whose bodies are still to be lowered
 	function            *ir.Func                         // the function being lowered
 	targets             []jumpTarget                     // the statements around the current one that break or continue can leave
+	finallies           []*finallyContext                // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
+	errorClasses        []*ir.Class                      // Error and its native subclasses, the runtime's (D-068)
+	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
 }
 
@@ -347,6 +352,10 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		}
 	case ast.KindReturnStatement:
 		return l.returnStatement(node)
+	case ast.KindThrowStatement:
+		return l.throwStatement(node)
+	case ast.KindTryStatement:
+		return l.tryStatement(node)
 	case ast.KindBreakStatement:
 		return l.jump(node, node.AsBreakStatement().Label, false)
 	case ast.KindContinueStatement:
@@ -565,10 +574,7 @@ func (l *lowerer) jump(node *ast.Node, labelNode *ast.Node, isContinue bool) []i
 		if !found {
 			continue
 		}
-		if isContinue {
-			return []ir.Stmt{&ir.Continue{At: l.pos(node), Target: target.label}}
-		}
-		return []ir.Stmt{&ir.Break{At: l.pos(node), Target: target.label}}
+		return l.jumpTo(l.pos(node), i, isContinue)
 	}
 	panic("lower: tsc accepted a break or continue without a target")
 }
@@ -798,6 +804,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 	switch {
 	case value.Type() == target:
 		return value
+	case value.Type() == ir.Void && target != ir.Void: // a call of a function that returns never
+		return &ir.Sequence{X: value, Y: &ir.LeftOut{T: target}}
 	case target == ir.Value:
 		return box(value)
 	case isUnion(target) && value.Type() == ir.Value:
@@ -1013,8 +1021,8 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 		return numericTypes[n]
 	}
 	result := l.returnTypeOf(l.checker.GetSignatureFromDeclaration(node))
-	if result.Flags()&checker.TypeFlagsVoid != 0 {
-		return ir.Void
+	if result.Flags()&(checker.TypeFlagsVoid|checker.TypeFlagsNever) != 0 {
+		return ir.Void // a function that returns never only throws
 	}
 	return l.irType(result, nameOf(node))
 }
@@ -1045,7 +1053,7 @@ func (l *lowerer) functionBody(node *ast.Node) {
 func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 	at := l.pos(node)
 	if node.Expression() == nil {
-		return []ir.Stmt{&ir.Return{At: at}}
+		return l.leaveFunction(at, nil)
 	}
 	value := l.expression(node.Expression())
 	if value == nil {
@@ -1054,14 +1062,14 @@ func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 	if l.function.Result == ir.Void {
 		// `return f()` in a function that returns nothing still calls f.
 		if isPure(value) {
-			return []ir.Stmt{&ir.Return{At: at}}
+			return l.leaveFunction(at, nil)
 		}
-		return []ir.Stmt{&ir.ExprStmt{At: at, X: value}, &ir.Return{At: at}}
+		return append([]ir.Stmt{&ir.ExprStmt{At: at, X: value}}, l.leaveFunction(at, nil)...)
 	}
 	if value = l.convert(value, l.function.Result, node.Expression()); value == nil {
 		return nil
 	}
-	return []ir.Stmt{&ir.Return{At: at, Value: value}}
+	return l.leaveFunction(at, value)
 }
 
 // ---------------------------------------------------------------- expressions
@@ -1295,6 +1303,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if l.isRecordMethodCall(node) {
 		return l.recordMethodCall(call)
+	}
+	if l.isObjectToString(call) {
+		return l.objectToString(call)
+	}
+	if l.isStringFunction(call) {
+		return l.stringCall(call)
 	}
 	if generic, ok := l.generics[callee]; ok {
 		if generic == nil {
@@ -1654,6 +1668,9 @@ func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 
 // as lowers `x as T` between numeric types, which converts the value.
 func (l *lowerer) as(node *ast.Node) ir.Expr {
+	if l.typeAt(node.Expression()).Flags()&checker.TypeFlagsUnknown != 0 {
+		return l.asFromValue(node)
+	}
 	target := l.numericType(node)
 	if instantiated := l.typeAt(node); target == nil && l.subst != nil && check.IsNumber(instantiated) {
 		target = l.irType(instantiated, node) // `x as T` in an instance whose T is a numeric type
@@ -1664,6 +1681,7 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	if t := l.typeAt(node); target == nil && isUnionValue(t) {
 		return l.asUnion(node, t)
 	}
+
 	if target == nil {
 		l.notSupportedYet(node, "`as` other than between numeric types is")
 		return nil
@@ -1729,6 +1747,8 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 		return &ir.ToString{X: x}
 	case isArray(t):
 		return &ir.ArrayCall{Op: ir.ArrayJoin, Args: []ir.Expr{x, &ir.StringConst{Value: ","}}} // JS's Array.prototype.toString
+	case isObject(t) && !isFunction(t) && !isMap(t):
+		return &ir.ToString{X: box(x)} // its toString(), else "[object Object]"
 	}
 	l.notSupportedYet(node, fmt.Sprintf("converting %s to a string is", x.Type()))
 	return nil
@@ -1938,7 +1958,7 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	if x == nil || y == nil {
 		return nil
 	}
-	if loose := operator == ast.KindEqualsEqualsToken || operator == ast.KindExclamationEqualsToken; loose && (isUnion(x.Type()) || isUnion(y.Type())) {
+	if loose := operator == ast.KindEqualsEqualsToken || operator == ast.KindExclamationEqualsToken; loose && (isDynamic(x.Type()) || isDynamic(y.Type())) {
 		return looseEquality(op, x, y)
 	}
 	return l.operation(node, op, x, y, expr.Left, expr.Right)
@@ -1954,7 +1974,7 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		}
 	}
 	if op == ir.Eq || op == ir.Ne {
-		if isUnion(x.Type()) || isUnion(y.Type()) {
+		if isDynamic(x.Type()) || isDynamic(y.Type()) {
 			return unionEquality(op, x, y)
 		}
 		x, y = commonClass(x, y)
@@ -2367,6 +2387,12 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 			return nil, nil
 		}
 	}
+	switch { // `ok ? value : fail("…")` with a fail that returns never
+	case x.Type() == ir.Void && y.Type() != ir.Void:
+		x = l.convert(x, y.Type(), a)
+	case y.Type() == ir.Void && x.Type() != ir.Void:
+		y = l.convert(y, x.Type(), b)
+	}
 	if contextual := l.contextualType(node); contextual == nil || contextual.Flags()&checker.TypeFlagsUnion != 0 {
 		if u, ok := l.irType(l.typeAt(node), node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird
 			x, y = l.convert(x, u, a), l.convert(y, u, b)
@@ -2385,6 +2411,9 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		if x == nil || y == nil {
 			return nil, nil
 		}
+	}
+	if x.Type() != y.Type() && (x.Type() == ir.Value || y.Type() == ir.Value) { // `c ? String(e) : e` for an unknown e
+		x, y = box(x), box(y)
 	}
 	if x.Type() != y.Type() {
 		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
@@ -2636,6 +2665,10 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.String
 	case flags&checker.TypeFlagsUnion != 0:
 		return l.unionType(t, node)
+	case flags&checker.TypeFlagsUnknown != 0:
+		return ir.Value // narrowed before use (narrowedValue, D-068)
+	case flags&checker.TypeFlagsNever != 0:
+		return ir.Value // no value ever has it: `assertNever(x: never)`'s parameter
 	}
 	l.notSupportedYet(node, fmt.Sprintf("values of type %s are", l.checker.TypeToString(t)))
 	return nil

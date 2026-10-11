@@ -8,9 +8,9 @@ const pts_type pts_uint64_type = {
 /* The largest magnitude up to which every integer is exactly a double. */
 #define EXACT_DOUBLE_LIMIT (INT64_C(1) << 53)
 
-void pts_throw_division_by_zero(void) { pts_panic("RangeError", "Division by zero"); }
+void pts_throw_division_by_zero(void) { pts_throw_new(&pts_type_builtin_RangeError, "Division by zero"); }
 
-void pts_throw_negative_exponent(void) { pts_panic("RangeError", "Exponent must be non-negative"); }
+void pts_throw_negative_exponent(void) { pts_throw_new(&pts_type_builtin_RangeError, "Exponent must be non-negative"); }
 
 pts_value pts_value_from_i64(int64_t value) {
   if (value >= -EXACT_DOUBLE_LIMIT && value <= EXACT_DOUBLE_LIMIT) {

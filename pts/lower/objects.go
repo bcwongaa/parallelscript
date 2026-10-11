@@ -26,7 +26,7 @@ func (l *lowerer) isObjectType(t *checker.Type) bool {
 	if t.ObjectFlags()&(checker.ObjectFlagsAnonymous|checker.ObjectFlagsInterface) == 0 && !isGenericInterface && !isMapped {
 		return false
 	}
-	if symbol := t.Symbol(); symbol != nil && !isMapped {
+	if symbol := t.Symbol(); symbol != nil && !isMapped && !l.libObjectTypes[symbol] {
 		for _, declaration := range symbol.Declarations {
 			if l.program.IsSourceFileDefaultLibrary(ast.GetSourceFileOfNode(declaration).Path()) {
 				return false

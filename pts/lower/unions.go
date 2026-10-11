@@ -25,6 +25,9 @@ func (l *lowerer) unionType(t *checker.Type, node *ast.Node) ir.Type {
 			members = append(members, member)
 		}
 	}
+	if slices.Contains(members, ir.Type(ir.Value)) {
+		return ir.Value // a dynamic value (`unknown`) holds every member's values
+	}
 	if len(members) == 1 {
 		return members[0]
 	}
@@ -69,6 +72,9 @@ func isNarrowing(from *ir.Union, to ir.Type) bool {
 func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	if x == nil {
 		return nil
+	}
+	if x.Type() == ir.Value {
+		return l.narrowedValue(node, x)
 	}
 	union, ok := x.Type().(*ir.Union)
 	if !ok {
@@ -358,7 +364,7 @@ func (l *lowerer) withUndefined(t ir.Type) ir.Type {
 		}
 		return l.unionOf(append(slices.Clone(u.Members), ir.Undefined))
 	}
-	if t == ir.Undefined {
+	if t == ir.Undefined || t == ir.Value {
 		return t
 	}
 	return l.unionOf([]ir.Type{t, ir.Undefined})

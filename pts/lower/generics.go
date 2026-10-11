@@ -63,6 +63,11 @@ func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
 	if t, ok := l.chainObjects[node]; ok {
 		return t.checkerType // the object of a `?.` that was neither null nor undefined (D-064)
 	}
+	if l.chainDepth > 0 && ast.IsOptionalChain(node) && !l.chainRests[node] {
+		// A link inside the chain being lowered, whose object wasn't null or undefined: tsc
+		// marks its type as possibly undefined for the chain's sake (`s?.split(",")[0]`).
+		return l.instantiate(l.checker.GetNonOptionalType(l.checker.GetTypeAtLocation(node)))
+	}
 	return l.instantiate(l.checker.GetTypeAtLocation(node))
 }
 

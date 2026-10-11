@@ -1,0 +1,309 @@
+// throw, try, catch and finally with JS's control flow (D-068): any value can be thrown,
+// finally runs however the protected code completes, and a finally block that returns,
+// breaks or throws replaces what was pending.
+
+function check(n: number): number {
+  if (n < 0) {
+    throw new RangeError("negative: " + n);
+  }
+  return Math.sqrt(n);
+}
+
+function describe(e: unknown): string {
+  if (e instanceof RangeError) {
+    return "RangeError(" + e.message + ")";
+  }
+  if (e instanceof Error) {
+    return "Error(" + e.message + ")";
+  }
+  if (typeof e === "string") {
+    return "string(" + e + ")";
+  }
+  if (typeof e === "number") {
+    return "number(" + e + ")";
+  }
+  return "other(" + e + ")";
+}
+
+// Throws from callees land in the innermost try.
+for (const n of [4, -1, 9]) {
+  try {
+    console.log("sqrt", n, check(n));
+  } catch (e) {
+    console.log("caught", describe(e));
+  }
+}
+
+// Any value can be thrown.
+const thrown: unknown[] = ["text", 42, true, null, undefined, new Error("plain"), [1, 2], { code: 7 }];
+for (const value of thrown) {
+  try {
+    throw value;
+  } catch (e) {
+    console.log(describe(e), e === value);
+  }
+}
+
+// finally runs on every way out.
+function ways(mode: string): string {
+  const log: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    try {
+      log.push("try" + i);
+      if (mode === "break" && i === 1) {
+        break;
+      }
+      if (mode === "continue" && i === 0) {
+        continue;
+      }
+      if (mode === "return" && i === 1) {
+        return log.join(",") + ":returned";
+      }
+      if (mode === "throw" && i === 2) {
+        throw new Error("thrown at " + i);
+      }
+      log.push("end" + i);
+    } finally {
+      log.push("finally" + i);
+    }
+  }
+  return log.join(",");
+}
+for (const mode of ["normal", "break", "continue", "return"]) {
+  console.log(mode, ways(mode));
+}
+try {
+  ways("throw");
+} catch (e) {
+  console.log("throw", describe(e));
+}
+
+// A finally block that returns replaces the pending return or throw.
+function overrides(shouldThrow: boolean): string {
+  try {
+    if (shouldThrow) {
+      throw new Error("lost");
+    }
+    return "from try";
+  } finally {
+    return "from finally";
+  }
+}
+console.log(overrides(false), overrides(true));
+
+// The return value is computed before finally runs, and a later change doesn't affect it.
+function computedFirst(): number {
+  let x = 1;
+  try {
+    return x;
+  } finally {
+    x = 2;
+    console.log("x in finally", x);
+  }
+}
+console.log("returned", computedFirst());
+
+// A throw while computing the returned value is caught by the same try.
+function failingReturn(): string {
+  try {
+    return String(check(-4));
+  } catch (e) {
+    return "recovered from " + describe(e);
+  }
+}
+console.log(failingReturn());
+
+// Nested finally blocks run innermost first, also for a return through both.
+function nested(): string {
+  const log: string[] = [];
+  try {
+    try {
+      try {
+        log.push("inner");
+        throw new TypeError("deep");
+      } finally {
+        log.push("finally 1");
+      }
+    } catch (e) {
+      log.push("caught " + describe(e));
+      throw new Error("again");
+    } finally {
+      log.push("finally 2");
+    }
+  } catch (e) {
+    log.push("outer caught " + describe(e));
+  } finally {
+    log.push("finally 3");
+  }
+  return log.join(" > ");
+}
+console.log(nested());
+
+function returnThroughTwo(): number {
+  try {
+    try {
+      return 10;
+    } finally {
+      console.log("first finally");
+    }
+  } finally {
+    console.log("second finally");
+  }
+}
+console.log(returnThroughTwo());
+
+// Labelled jumps out of several try statements run every finally on the way.
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    try {
+      try {
+        if (i === 1 && j === 1) {
+          continue outer;
+        }
+        if (i === 2 && j === 0) {
+          break outer;
+        }
+        console.log("visit", i, j);
+      } finally {
+        console.log("inner finally", i, j);
+      }
+    } finally {
+      console.log("outer finally", i, j);
+    }
+  }
+}
+
+// A finally block that breaks discards the pending throw.
+for (let i = 0; i < 2; i++) {
+  try {
+    throw new Error("discarded");
+  } finally {
+    console.log("breaking out of finally", i);
+    break;
+  }
+}
+
+// Catching and rethrowing; catch without a binding.
+function rethrows(): void {
+  try {
+    check(-2);
+  } catch (e) {
+    console.log("logging", describe(e));
+    throw e;
+  }
+}
+try {
+  rethrows();
+} catch {
+  console.log("rethrown and caught without a binding");
+}
+
+// Locals assigned in a try block keep their values after a throw.
+let progress = 0;
+let label = "start";
+try {
+  progress = 1;
+  label = "middle";
+  check(-1);
+  progress = 2;
+} catch (e) {
+  console.log("progress", progress, label);
+}
+function counts(): number {
+  let count = 0;
+  for (let i = 0; i < 5; i++) {
+    try {
+      count += i;
+      if (i % 2 === 1) {
+        throw i;
+      }
+    } catch (e) {
+      count += 100;
+    }
+  }
+  return count;
+}
+console.log("counts", counts());
+
+// Closures capture the caught value; exceptions cross closures and callbacks.
+const handlers: (() => string)[] = [];
+for (const n of [1, -1, -3]) {
+  try {
+    check(n);
+    handlers.push(() => "ok " + n);
+  } catch (e) {
+    handlers.push(() => "failed " + describe(e));
+  }
+}
+console.log(handlers.map((h) => h()).join("; "));
+try {
+  [3, 2, -5, 1].forEach((n) => {
+    console.log("visiting", n);
+    check(n);
+  });
+} catch (e) {
+  console.log("forEach stopped:", describe(e));
+}
+const sorted = [3, 1, 2];
+try {
+  sorted.sort((a, b) => {
+    if (a === 2 || b === 2) {
+      throw new Error("no twos");
+    }
+    return a - b;
+  });
+} catch (e) {
+  console.log("sort stopped:", describe(e), sorted.length);
+}
+
+// Methods and constructors throw too.
+class Account {
+  balance = 0;
+  constructor(public owner: string) {
+    if (owner === "") {
+      throw new TypeError("an account needs an owner");
+    }
+  }
+  withdraw(amount: number): number {
+    if (amount > this.balance) {
+      throw new RangeError(`cannot withdraw ${amount} from ${this.balance}`);
+    }
+    this.balance -= amount;
+    return this.balance;
+  }
+}
+try {
+  new Account("");
+} catch (e) {
+  console.log(describe(e));
+}
+const account = new Account("ada");
+account.balance = 50;
+for (const amount of [20, 40, 30]) {
+  try {
+    console.log("left", account.withdraw(amount));
+  } catch (e) {
+    console.log(describe(e));
+  }
+}
+
+// A switch inside a try, and a try inside a switch.
+function classify(x: number): string {
+  switch (x) {
+    case 0:
+      try {
+        throw new Error("zero");
+      } catch (e) {
+        return "caught " + describe(e);
+      }
+    case 1:
+      try {
+        return "one";
+      } finally {
+        console.log("leaving case 1");
+      }
+    default:
+      return "many";
+  }
+}
+console.log(classify(0), classify(1), classify(2));

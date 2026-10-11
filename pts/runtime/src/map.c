@@ -282,7 +282,7 @@ pts_value pts_map_get_value(const pts_map *map, const void *key) {
   return pts_value_of_slot(map->type->element, &value);
 }
 
-void pts_map_key_error(void) { pts_panic("RangeError", "Map has no entry for the key"); }
+void pts_map_key_error(void) { pts_throw_new(&pts_type_builtin_RangeError, "Map has no entry for the key"); }
 
 pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   uint64_t word = word_of(map->type->key, key);
@@ -467,7 +467,7 @@ pts_map_iterator pts_record_iterate(pts_map *record) {
 }
 
 void pts_record_key_error(const pts_string *key) {
-  pts_panic("RangeError", "Object has no property '%.*s'", (int)key->byte_len, key->bytes);
+  pts_throw_new(&pts_type_builtin_RangeError, "Object has no property '%.*s'", (int)key->byte_len, key->bytes);
 }
 
 pts_map *pts_map_assign(pts_map *map, pts_map *source) {

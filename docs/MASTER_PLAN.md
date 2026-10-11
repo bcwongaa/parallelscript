@@ -170,10 +170,14 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.1c Unions of objects** (35739bda0) (split from M3.1 by D-062).
   - Reading properties and calling methods shared by a union's members; discriminants; `in` narrowing.
   - `==` with JS semantics beyond null and undefined.
-- [ ] **M3.2 Exceptions.**
-  - `throw`, `try`, `catch` and `finally` with JS semantics, where any value can be thrown.
-  - `Error` and its subclasses with `message`, `name` and `cause`; `stack` with `.pts` lines (a best effort now).
+- [ ] **M3.2a Throw, try, catch, finally and `Error`** (split from M3.2 by D-068).
+  - `throw`, `try`, `catch` and `finally` with JS semantics, where any value can be thrown; `return`, `break` and `continue` through `finally`.
+  - `Error` and its native subclasses with `message`, `name`, `cause` and `toString()`; classes extending them; the runtime's TypeError, RangeError and ReferenceError thrown as catchable `Error` objects.
+  - The catch binding as `unknown`, narrowed by `instanceof` and `typeof`, or cast with a checked `as`.
   - Uncaught exceptions are handled per decision O07.
+- [ ] **M3.2b Stacks** (split from M3.2 by D-068).
+  - `stack` with `.pts` file and line numbers, and `console.log` of errors with it as Node prints them.
+  - The stack-overflow guard: deep recursion throws `RangeError: Maximum call stack size exceeded` (`pts/tests/run/stack_overflow.pts`).
 - [ ] **M3.3 `any`, `unknown` and casts.**
   - `any` as a checked dynamic value using descriptors, with runtime checks at typed boundaries.
   - `unknown`; checked `as` downcasts; checked `x!`.

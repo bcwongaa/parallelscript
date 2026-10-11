@@ -168,6 +168,7 @@ static void format_number(text *out, double number) {
 }
 
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
+static void format_error(inspector *in, text *out, pts_error *error, size_t recurse_times);
 
 const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
 
@@ -377,7 +378,7 @@ static void reduce_to_single_string(inspector *in, text *out, text *output, size
   bool single_line = false;
   if (in->current_depth - recurse_times < 3 && entries == count) {
     size_t start = count + in->indentation + utf16_length(open, strlen(open)) + utf16_length(base->bytes, base->len) + 10;
-    single_line = below_break_length(output, count, start);
+    single_line = below_break_length(output, count, start) && (base->len == 0 || memchr(base->bytes, '\n', base->len) == NULL);
     for (size_t i = 0; single_line && i < count; i++) {
       single_line = memchr(output[i].bytes, '\n', output[i].len) == NULL;
     }
@@ -699,6 +700,143 @@ static bool circular_reference(inspector *in, text *out, const pts_object *objec
   return false;
 }
 
+/* ---------------------------------------------------------------- errors */
+
+static bool text_contains(const text *haystack, const char *needle, size_t len) {
+  if (len == 0) {
+    return true;
+  }
+  for (size_t i = 0; i + len <= haystack->len; i++) {
+    if (memcmp(haystack->bytes + i, needle, len) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* The index of the first needle in haystack at or after from, or -1. */
+static ptrdiff_t text_index(const text *haystack, const char *needle, size_t len, size_t from) {
+  for (size_t i = from; i + len <= haystack->len; i++) {
+    if (memcmp(haystack->bytes + i, needle, len) == 0) {
+      return (ptrdiff_t)i;
+    }
+  }
+  return -1;
+}
+
+/*
+ * Node's improveStack: a stack that starts with the error's name, a name ending in
+ * "Error", gets the class's name in its place where they differ: `HttpError: …` for a
+ * class HttpError whose name is "Error", `MyErr [Error]: …` for a class MyErr.
+ */
+static void improve_stack(text *stack, const char *class_name, const pts_string *name) {
+  size_t len = name->byte_len;
+  bool ends_with_error = len >= 5 && memcmp(name->bytes + len - 5, "Error", 5) == 0;
+  bool starts_with_name = stack->len >= len && memcmp(stack->bytes, name->bytes, len) == 0 &&
+                          (stack->len == len || stack->bytes[len] == ':' || stack->bytes[len] == '\n');
+  if (!ends_with_error || !starts_with_name || (strlen(class_name) == len && memcmp(class_name, name->bytes, len) == 0)) {
+    return;
+  }
+  text improved = {0};
+  text_puts(&improved, class_name);
+  text prefix = {.bytes = (char *)class_name, .len = strlen(class_name)};
+  if (!text_contains(&prefix, name->bytes, len)) {
+    text_printf(&improved, " [%.*s]", (int)len, name->bytes);
+  }
+  text_add(&improved, stack->bytes + len, stack->len - len);
+  free(stack->bytes);
+  *stack = improved;
+}
+
+/*
+ * Node's formatError: the error's stack (its name and message until stacks have frames,
+ * M3.2b), improved, in brackets if it has no frames, indented as the error is; then, as
+ * an object's, the properties of the classes derived from Error, its name if the stack
+ * doesn't show it, and `[cause]`. message is not enumerable in JS.
+ */
+static void format_error(inspector *in, text *out, pts_error *error, size_t recurse_times) {
+  pts_value stack_value = pts_error_get_stack(error);
+  pts_string *stack_string = pts_value_truthy(stack_value) ? pts_value_to_string(stack_value) : pts_error_to_string(error);
+  text stack = {0};
+  text_add(&stack, stack_string->bytes, stack_string->byte_len);
+
+  const pts_type *type = error->pts_header;
+  text *entries = new_entries(type->field_count + 1);
+  size_t count = 0;
+  if (!text_contains(&stack, error->name->bytes, error->name->byte_len)) {
+    text_puts(&entries[count], "name: ");
+    quote_string(&entries[count++], error->name);
+  }
+  bool too_deep = recurse_times > DEPTH;
+  recurse_times++;
+  push(&in->seen, &in->seen_len, &in->seen_cap, (const pts_object *)error);
+  in->current_depth = recurse_times;
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    const pts_field *field = &type->fields[i];
+    if (field->offset < sizeof(pts_error) || !has_field((const pts_object *)error, field)) {
+      continue; /* name, message and cause, which Error itself holds */
+    }
+    format_key(&entries[count], field->name);
+    text_puts(&entries[count], ": ");
+    in->indentation += 2;
+    format_slot(in, &entries[count++], field->kind, (const char *)error + field->offset, recurse_times);
+    in->indentation -= 2;
+  }
+  if (error->cause != PTS_VALUE_ABSENT) {
+    text_puts(&entries[count], "[cause]: ");
+    in->indentation += 2;
+    format_value(in, &entries[count++], error->cause, recurse_times);
+    in->indentation -= 2;
+  }
+  in->seen_len--;
+
+  improve_stack(&stack, type->name, error->name);
+  ptrdiff_t position = -1;
+  if (error->message->byte_len > 0) {
+    position = text_index(&stack, error->message->bytes, error->message->byte_len, 0);
+    if (position > 0) {
+      position += error->message->byte_len;
+    } else {
+      position = -1; /* Node's `indexOf(…) || -1` also discards a message at 0 */
+    }
+  }
+  text base = {0};
+  if (text_index(&stack, "\n    at", 7, position < 0 ? 0 : (size_t)position) < 0) {
+    text_puts(&base, "[");
+    text_add(&base, stack.bytes, stack.len);
+    text_puts(&base, "]");
+  } else {
+    for (size_t i = 0; i < stack.len; i++) {
+      text_add(&base, &stack.bytes[i], 1);
+      if (stack.bytes[i] == '\n') {
+        spaces(&base, in->indentation);
+      }
+    }
+  }
+  free(stack.bytes);
+
+  size_t reference = circular_index(in, (const pts_object *)error);
+  if (reference != 0) {
+    text tagged = {0};
+    text_printf(&tagged, "<ref *%zu> ", reference);
+    text_add(&tagged, base.bytes, base.len);
+    free(base.bytes);
+    base = tagged;
+  }
+  if (count == 0) {
+    text_add(out, base.bytes, base.len);
+  } else if (too_deep) {
+    text_printf(out, "[%s]", type->name);
+    for (size_t i = 0; i < count; i++) {
+      free(entries[i].bytes);
+    }
+  } else {
+    reduce_to_single_string(in, out, entries, count, count, &base, "{", "}", recurse_times);
+  }
+  free(entries);
+  free(base.bytes);
+}
+
 /*
  * Node's formatValue and formatRaw for an object or array: `Name { key: value, … }`,
  * `{ key: value, … }` for a plain object, `[ element, … ]` for an array; `[Name]` or
@@ -706,6 +844,10 @@ static bool circular_reference(inspector *in, text *out, const pts_object *objec
  */
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times) {
   if (circular_reference(in, out, object)) {
+    return;
+  }
+  if (pts_is_error(object)) {
+    format_error(in, out, (pts_error *)object, recurse_times);
     return;
   }
   const pts_type *type = object->type;
@@ -769,6 +911,17 @@ void pts_inspect_write(FILE *out, const pts_object *object) {
   } else {
     format_heap_object(&in, &result, object, 0);
   }
+  fwrite(result.bytes, 1, result.len, out);
+  free(result.bytes);
+  free(in.seen);
+  free(in.circular);
+}
+
+/* Writes value as console.log shows it nested in an object (strings quoted): for an uncaught exception. */
+void pts_inspect_value_write(FILE *out, pts_value value) {
+  inspector in = {0};
+  text result = {0};
+  format_value(&in, &result, value, 0);
   fwrite(result.bytes, 1, result.len, out);
   free(result.bytes);
   free(in.seen);

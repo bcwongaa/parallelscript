@@ -1,4 +1,4 @@
 console.log("fine");
-try {} finally {}
+debugger;
 
-// error: unsupported_statement.pts:2:1 - error PTS1001: try statement is not supported yet
+// error: unsupported_statement.pts:2:1 - error PTS1001: debugger statement is not supported yet
