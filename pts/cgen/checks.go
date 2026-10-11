@@ -28,7 +28,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				}
 			case *ir.CallBuiltin:
 				switch x.Builtin {
-				case ir.DynamicSet:
+				case ir.DynamicSet, ir.DynamicHas: // `k in o` finds methods in method tables too
 					e.declaredTypes = true
 				case ir.DynamicCall, ir.DynamicCallMethod, ir.JSONStringify: // JSON.stringify calls toJSON methods and replacers (D-080)
 					e.declaredTypes = true

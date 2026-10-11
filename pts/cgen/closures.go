@@ -101,6 +101,9 @@ func (e *emitter) closureDefinitions() {
 			e.line(1, ".parent = &pts_bound_function,")
 		}
 		e.line(1, ".size = %s,", size)
+		if f.Length > 0 && !f.Adapts && !f.Binds {
+			e.line(1, ".length = %d,", f.Length)
+		}
 		if e.declaredTypes {
 			e.line(1, ".call = %s,", closureDynamicEntry(name))
 			e.line(1, ".signature = %s,", e.signatureCheck(paramTypes(f.Params), f.Result))

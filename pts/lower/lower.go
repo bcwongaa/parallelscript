@@ -966,7 +966,7 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 		l.notSupportedYet(nameOf(node), "async functions are")
 		return nil
 	}
-	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node)}
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node)}
 	l.funcNodes[fn] = node
 	if class != nil {
 		fn.Params = []*ir.Local{l.newThis(fn, class)}
@@ -993,6 +993,39 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 // with a default, the local of the argument and its Given flag (D-055). The body starts
 // by binding a parameter with a default or a pattern (parameterPrologue). It reports why
 // it can't and returns nil.
+// functionProperty is the builtin that reads `f.name` or `f.length` (node) of a function
+// value f, or nil if node is no such read (D-098).
+func (l *lowerer) functionProperty(node *ast.Node) *ir.Builtin {
+	name := node.AsPropertyAccessExpression().Name().Text()
+	if name != "name" && name != "length" || ast.IsWriteAccess(node) {
+		return nil
+	}
+	t := l.typeAt(node.Expression())
+	if len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) == 0 || len(l.checker.GetPropertiesOfType(t)) > 0 && l.checker.GetPropertyOfType(t, name) != nil && !l.isDeclaredInDefaultLib(l.checker.GetPropertyOfType(t, name)) {
+		return nil // not a function, or one with a property of that name of its own
+	}
+	if name == "name" {
+		return ir.FunctionName
+	}
+	return ir.FunctionLength
+}
+
+// jsLength is a function's `length` in JS: how many parameters its declaration has
+// before the first with a default and the rest parameter, TS's `this` not counted (D-098).
+func jsLength(node *ast.Node) int {
+	n := 0
+	for _, param := range node.Parameters() {
+		declaration := param.AsParameterDeclaration()
+		if declaration.Initializer != nil || declaration.DotDotDotToken != nil {
+			break
+		}
+		if name := param.Name(); name.Kind != ast.KindIdentifier || name.Text() != "this" {
+			n++
+		}
+	}
+	return n
+}
+
 func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 	t := l.parameterType(node)
 	if t == nil {
@@ -2108,6 +2141,13 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if x, ok := l.constructorName(node); ok {
 		return x
+	}
+	if builtin := l.functionProperty(node); builtin != nil {
+		object := l.expression(node.Expression())
+		if object == nil {
+			return nil
+		}
+		return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{box(object)}}
 	}
 	if l.isAny(node.Expression()) {
 		return l.dynamicRead(node)

@@ -30,38 +30,39 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	ft := field.Type.(*ir.FuncType)
 	name := field.Name
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Result: ft.Result,
-		Closure: true, Outer: l.function, JSName: name}
+		Closure: true, Outer: l.function, JSName: name, Length: jsLength(node)}
 	l.funcNodes[fn] = node
 	outer := l.function
-	l.function = fn // parameters are locals of fn
-	fn.Params = []*ir.Local{l.newThis(fn, field.Class)}
-	failed := false
+	l.function = fn             // parameters are locals of fn
+	asFunction := !field.Method // `push(x) { … }` for a `push: (x: number) => void`, called without `this`
+	if asFunction && usesThis(node.Body()) {
+		l.function = outer
+		l.notSupportedYet(node.Name(), "a method that uses `this` as a property of a function type is")
+		return nil
+	}
+	if !asFunction {
+		fn.Params = []*ir.Local{l.newThis(fn, field.Class)}
+	}
+	differs := false // its parameters, as declared, aren't its field's
 	for _, param := range node.Parameters() {
 		locals := l.parameter(param)
 		if locals == nil {
-			failed = true
-			break
+			l.function = outer
+			return nil
 		}
 		for _, local := range locals {
-			if len(fn.Params) >= len(ft.Params) || local.Type != ft.Params[len(fn.Params)] {
-				l.notSupportedYet(param, fmt.Sprintf("a method whose parameter types differ from its object type's (%s) is", ft))
-				failed = true
-				break
-			}
+			differs = differs || len(fn.Params) >= len(ft.Params) || local.Type != ft.Params[len(fn.Params)]
 			fn.Params = append(fn.Params, local)
 		}
-		if failed {
-			break
-		}
 	}
-	for i := len(fn.Params); i < len(ft.Params) && !failed; i++ {
+	for i := len(fn.Params); i < len(ft.Params) && !differs; i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", ft.Params[i]))
 	}
 	l.function = outer
-	if failed {
-		return nil
-	}
 	l.inFunction(fn, func() { fn.Body = l.block(node.Body(), node.Body().Statements()) })
+	if differs { // `deposit(amount, memo)` for `deposit(amount: number, memo?: string)`: adapted to the field's type
+		return l.adapt(&ir.MakeClosure{Func: fn, FuncType: l.typeOfFunc(fn)}, ft, node)
+	}
 	return &ir.MakeClosure{Func: fn, FuncType: ft}
 }
 
@@ -178,6 +179,16 @@ func (l *lowerer) boundMethod(node *ast.Node, m method, receiver ir.Expr, bound 
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Result: m.result,
 		Closure: true, Outer: l.function, JSName: name, Captures: captured, Binds: binds}
 	params := m.params[len(bound):]
+	for _, param := range params { // a method value's length: its parameters before the first that may be left out
+		if isRest(param) {
+			break
+		}
+		if param == ir.Given {
+			fn.Length-- // the one before it
+			break
+		}
+		fn.Length++
+	}
 	l.inFunction(fn, func() {
 		args := make([]ir.Expr, 0, len(m.params))
 		for _, local := range captured[1:] {

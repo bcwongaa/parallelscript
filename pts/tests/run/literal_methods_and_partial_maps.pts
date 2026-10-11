@@ -1,0 +1,57 @@
+// Object literal methods whose parameters differ from their object type's, methods given
+// for properties of function types, and Partial<Record<K, V>> as hash-map objects (D-097).
+interface Account {
+  owner: string;
+  deposit(amount: number, memo?: string): number;
+  history(): string[];
+}
+function open(owner: string): Account {
+  let balance = 0;
+  const log: string[] = [];
+  return {
+    owner,
+    deposit(amount, memo) {
+      balance += amount;
+      log.push(memo === undefined ? `+${amount}` : `+${amount} (${memo})`);
+      return balance;
+    },
+    history() {
+      return log;
+    },
+  };
+}
+const a = open("ada");
+console.log(a.deposit(10), a.deposit(5, "gift"), a.history());
+
+function stats(): { push: (x: number) => void; mean: () => number } {
+  let n = 0;
+  let sum = 0;
+  return {
+    push(x: number) {
+      n++;
+      sum += x;
+    },
+    mean() {
+      return n === 0 ? 0 : sum / n;
+    },
+  };
+}
+const s = stats();
+[3, 4, 8].forEach((x) => s.push(x));
+console.log(s.mean());
+
+type Kind = "deposit" | "withdraw" | "transfer";
+const txs: { kind: Kind; amount: number }[] = [
+  { kind: "withdraw", amount: 5 },
+  { kind: "deposit", amount: 20 },
+  { kind: "withdraw", amount: 2 },
+];
+const byKind = txs.reduce<Partial<Record<Kind, number>>>((acc, t) => {
+  acc[t.kind] = (acc[t.kind] ?? 0) + t.amount;
+  return acc;
+}, {});
+console.log(byKind, "transfer" in byKind, byKind.deposit, Object.keys(byKind));
+// expect:
+// 10 15 [ '+10', '+5 (gift)' ]
+// 5
+// { withdraw: 7, deposit: 20 } false 20 [ 'withdraw', 'deposit' ]

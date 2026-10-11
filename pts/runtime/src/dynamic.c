@@ -327,8 +327,13 @@ pts_value pts_dynamic_get(pts_value object, pts_value key) {
     return key_is(key, "size") ? pts_value_from_number(pts_map_size((const pts_map *)target)) : PTS_VALUE_UNDEFINED;
   case PTS_KIND_OBJECT:
     return object_get(target, key);
+  case PTS_KIND_FUNCTION:
+    if (key_is(key, "name")) {
+      return pts_value_from_string(pts_value_function_name(object));
+    }
+    return key_is(key, "length") ? pts_value_from_number(pts_value_function_length(object)) : PTS_VALUE_UNDEFINED;
   default:
-    return PTS_VALUE_UNDEFINED; /* a function's name and length, and a boxed integer's methods */
+    return PTS_VALUE_UNDEFINED; /* a boxed integer's methods */
   }
 }
 

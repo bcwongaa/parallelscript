@@ -117,6 +117,17 @@ func (l *lowerer) mathCall(call *ast.CallExpression, name string) ir.Expr {
 	return result
 }
 
+// mathLength is the `length` of Math's function name in JS (D-098).
+func mathLength(name string) int {
+	switch name {
+	case "random":
+		return 0
+	case "max", "min", "hypot", "atan2", "pow", "imul":
+		return 2
+	}
+	return 1
+}
+
 // mathFunctionValue is a function of Math used as a value: a static closure of a function
 // that calls it, with its numbers as parameters (a rest parameter for Math.max, Math.min
 // and Math.hypot), made the first time.
@@ -125,7 +136,7 @@ func (l *lowerer) mathFunctionValue(node *ast.Node, name string) ir.Expr {
 	fn, ok := l.helpers[key]
 	if !ok {
 		at := l.pos(node)
-		fn = &ir.Func{Name: "Math." + name, Module: l.function.Module, Pos: at, Result: ir.Number, JSName: name}
+		fn = &ir.Func{Name: "Math." + name, Module: l.function.Module, Pos: at, Result: ir.Number, JSName: name, Length: mathLength(name)}
 		l.inFunction(fn, func() {
 			var result ir.Expr
 			if array, ok := variadicMath[name]; ok {

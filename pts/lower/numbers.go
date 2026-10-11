@@ -236,7 +236,7 @@ func (l *lowerer) conversionFunction(name string, node *ast.Node) ir.Expr {
 	fn, ok := l.helpers[key]
 	if !ok {
 		at := l.pos(node)
-		fn = &ir.Func{Name: name, Module: l.function.Module, Pos: at, Result: conversionFunctions[name], JSName: name}
+		fn = &ir.Func{Name: name, Module: l.function.Module, Pos: at, Result: conversionFunctions[name], JSName: name, Length: 1}
 		l.inFunction(fn, func() {
 			value := l.newLocal("value", ir.Value)
 			fn.Params = []*ir.Local{value}
@@ -270,7 +270,7 @@ func (l *lowerer) numberTestValue(node *ast.Node, name string) ir.Expr {
 	fn, ok := l.helpers[key]
 	if !ok {
 		at := l.pos(node)
-		fn = &ir.Func{Name: "Number." + name, Module: l.function.Module, Pos: at, Result: ir.Bool, JSName: name}
+		fn = &ir.Func{Name: "Number." + name, Module: l.function.Module, Pos: at, Result: ir.Bool, JSName: name, Length: 1}
 		l.inFunction(fn, func() {
 			value := l.newLocal("value", ir.Value)
 			fn.Params = []*ir.Local{value}

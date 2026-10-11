@@ -472,6 +472,9 @@ type Func struct {
 	Self *Local
 	// JSName is the function's `name` in JS, which console.log shows: "" if anonymous.
 	JSName string
+	// Length is the function's `length` in JS: how many parameters it declares before the
+	// first with a default and the rest parameter (D-098).
+	Length int
 	// Adapts marks an adapter: a closure that calls the function value it captures,
 	// adapting its arguments and result to another function type (D-041). Binds marks a
 	// function value that `bind` made of another, which it captures first (D-044). Both
@@ -1098,6 +1101,9 @@ var (
 	ValueValues  = &Builtin{Name: "Object.values", Params: []Type{Value}, Result: Value}
 	ValueEntries = &Builtin{Name: "Object.entries", Params: []Type{Value}, Result: Value}
 	ValueHasOwn  = &Builtin{Name: "Object.hasOwn", Params: []Type{Value, Value}, Result: Bool}
+	// FunctionName and FunctionLength are a function value's `name` and `length` (D-098).
+	FunctionName   = &Builtin{Name: "Function.name", Params: []Type{Value}, Result: String}
+	FunctionLength = &Builtin{Name: "Function.length", Params: []Type{Value}, Result: Number}
 	// ValueKeyArray is Object.keys of any value as a string[]; ObjectAssign is
 	// Object.assign(target, ...sources) with the sources as an any[]; ValueSameValue is
 	// Object.is (D-086).

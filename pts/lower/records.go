@@ -13,16 +13,30 @@ import (
 // (`Record<string, T>`, `{ [key: string]: T }`, `Record<number, T>`) to its IR type, a
 // hash-map object (D-059), or reports why it can't (at node) and returns nil; ok is false
 // for any other type.
+// isPartialRecord reports whether t is `Partial<Record<K, V>>`.
+func isPartialRecord(t *checker.Type) bool {
+	alias := t.Alias()
+	if alias == nil || alias.Symbol().Name != "Partial" || len(alias.TypeArguments()) != 1 {
+		return false
+	}
+	inner := alias.TypeArguments()[0].Alias()
+	return inner != nil && inner.Symbol().Name == "Record"
+}
+
 // hasOnlyNumericKeys reports whether t is an object type whose properties all have
-// array index names and one type (numericKeysValue).
+// array index names, or is `Partial<Record<K, V>>`, and whose properties have one type
+// (numericKeysValue).
 func (l *lowerer) hasOnlyNumericKeys(t *checker.Type) bool {
 	if !l.isObjectType(t) {
 		return false
 	}
 	properties := l.checker.GetPropertiesOfType(t)
+	// `Partial<Record<Kind, number>>` gets its keys as a program adds them, which JS lists
+	// in that order (D-097).
+	partialMap := isPartialRecord(t)
 	var value *checker.Type
 	for _, property := range properties {
-		if !isArrayIndex(property.Name) || property.Flags&ast.SymbolFlagsProperty == 0 {
+		if !partialMap && !isArrayIndex(property.Name) || property.Flags&ast.SymbolFlagsProperty == 0 {
 			return false
 		}
 		propertyType := l.checker.RemoveMissingOrUndefinedType(l.typeOfSymbol(property))

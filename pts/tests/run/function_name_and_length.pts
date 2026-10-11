@@ -1,0 +1,18 @@
+// A function value's name and length (D-098), through types and through any.
+function describeLab(name: string, floor = 1) { return `${name}@${floor}`; }
+const add = (a: number, b: number) => a + b;
+const anon = [(x: number) => x][0];
+const rest = (first: string, ...more: string[]) => first + more.join("");
+const obj = { greet(who: string) { return "hi " + who; } };
+const bound = describeLab.bind(null, "x");
+console.log(describeLab.name, describeLab.length, add.name, add.length, anon.name, anon.length, rest.length);
+console.log(obj.greet.name, obj.greet.length, bound.name, Math.max.name);
+const fns: ((...xs: number[]) => number)[] = [Math.max, (a: number, b: number) => a * b];
+console.log(fns.map((f) => f.length));
+const loose: any = add;
+console.log(loose.name, loose.length);
+// expect:
+// describeLab 1 add 2  1 1
+// greet 1 bound describeLab max
+// [ 2, 2 ]
+// add 2

@@ -202,6 +202,34 @@ const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"}
  * (anonymous)]`. An adapter shows as the function it adapts, and a bound function as
  * "bound " and the name of the function it binds; both capture that function first.
  */
+/* The closure that closure wraps, following adapters and bound functions (whose descriptors have no name), and whether one of them was a bound function. */
+static const pts_closure *wrapped_function(const pts_closure *closure, size_t *bound) {
+  while (closure->type->name == NULL) {
+    if (closure->type->parent == &pts_bound_function && bound != NULL) {
+      (*bound)++;
+    }
+    closure = ((const pts_closure *const *)(closure + 1))[0];
+  }
+  return closure;
+}
+
+pts_string *pts_value_function_name(pts_value function) {
+  size_t bound = 0;
+  const pts_closure *closure = wrapped_function((const pts_closure *)pts_value_as_object(function), &bound);
+  text name = {0};
+  for (size_t i = 0; i < bound; i++) {
+    text_puts(&name, "bound ");
+  }
+  text_puts(&name, closure->type->name);
+  pts_string *result = pts_string_from_utf8(name.bytes == NULL ? "" : name.bytes, name.len);
+  free(name.bytes);
+  return result;
+}
+
+double pts_value_function_length(pts_value function) {
+  return wrapped_function((const pts_closure *)pts_value_as_object(function), NULL)->type->length;
+}
+
 static void format_function(text *out, const pts_closure *closure) {
   text name = {0};
   while (closure->type->name == NULL) {

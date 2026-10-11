@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: a method whose parameter types differ from its object type's ((object5, number, string, given) => number)
 // The module pattern: an IIFE returns an object of functions that share private state.
 
 type TxKind = "deposit" | "withdraw" | "transfer-in" | "transfer-out";

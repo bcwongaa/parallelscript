@@ -154,7 +154,7 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 		defer func() { l.subst = outer }()
 	}
 	name := l.jsName(node)
-	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name}
+	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node)}
 	l.funcNodes[fn] = node
 	if !l.closureSignature(fn, node) {
 		return nil

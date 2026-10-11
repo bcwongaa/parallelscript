@@ -130,6 +130,7 @@ typedef struct pts_type {
   const struct pts_check *key_check; /* for a map or set: its keys' declared type (D-077) */
   pts_dynamic_function call;         /* a closure's dynamic entry, in a program that uses `any` (D-074) */
   const struct pts_check *signature; /* a closure's function type, which its code takes and returns (D-075) */
+  uint32_t length;                   /* a closure's function's `length` in JS (D-098) */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -854,6 +855,10 @@ pts_value pts_value_keys(pts_value value);
 pts_value pts_value_values(pts_value value);
 pts_value pts_value_entries(pts_value value);
 bool pts_value_has_own(pts_value value, pts_value key);
+
+/* A function value's `name` and `length` in JS (D-098): an adapter's or bound function's are those of the function it wraps, a bound one's name prefixed "bound ". */
+pts_string *pts_value_function_name(pts_value function);
+double pts_value_function_length(pts_value function);
 /* Object.keys of a value as a string[]; Object.assign(target, ...sources); Object.is (SameValue) (D-086). */
 struct pts_array *pts_value_key_array(pts_value value);
 void pts_object_assign(pts_value target, struct pts_array *sources);
