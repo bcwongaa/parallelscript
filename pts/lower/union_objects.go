@@ -19,6 +19,36 @@ func (l *lowerer) isUnionReceiver(node *ast.Node) bool {
 	return t.Flags()&checker.TypeFlagsUnion != 0 && isUnionValue(t)
 }
 
+// isMixedUnionReceiver reports whether a property access reads a member of a value of a
+// union of objects and other values (`x.length` for `x: string | string[]`), which is
+// found at run time, as through `any` (D-089).
+func (l *lowerer) isMixedUnionReceiver(node *ast.Node) bool {
+	if !l.isUnionReceiver(node) {
+		return false
+	}
+	for _, member := range l.checker.GetNonNullableType(l.typeAt(node.Expression())).Types() {
+		switch l.irType(member, node).(type) {
+		case *ir.Class, *ir.Interface:
+		case nil:
+			return false // reported
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// mixedUnionRead lowers a read of a property of a value of a union of objects and other
+// values: the property found at run time, converted to the type tsc gives it.
+func (l *lowerer) mixedUnionRead(node *ast.Node) ir.Expr {
+	t := l.irType(l.typeAt(node), node)
+	value := l.dynamicRead(node)
+	if t == nil || value == nil {
+		return nil
+	}
+	return l.convert(value, t, node)
+}
+
 // unionProperty returns the object of a property access on a union of object types,
 // as an interface with just that property, and the property's field: one that members
 // holding it as different types (all within its type) make Mixed, read by the field's

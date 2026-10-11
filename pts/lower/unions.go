@@ -407,14 +407,15 @@ func (l *lowerer) takesUnion(param ir.Type, u *ir.Union) bool {
 }
 
 // maybePassed is the argument and Given flag (D-055) for an optional parameter of type
-// param of x, a value of the union u that includes undefined: undefined means the
-// argument is left out, as in JS. x is read twice, so it must be a variable or constant.
-func (l *lowerer) maybePassed(x ir.Expr, u *ir.Union, param ir.Type, node *ast.Node) []ir.Expr {
-	if !isPure(x) {
-		l.notSupportedYet(node, fmt.Sprintf("passing a computed %s to an optional parameter is", u))
-		return nil
+// param of x, a value of a union that includes undefined or a dynamic value: undefined
+// means the argument is left out, as in JS. x is read twice, so it must be pure
+// (inTemporaries puts a computed one in a temporary).
+func (l *lowerer) maybePassed(x ir.Expr, param ir.Type, node *ast.Node) []ir.Expr {
+	present := x
+	if u, ok := x.Type().(*ir.Union); ok {
+		present = fromUnion(x, l.withoutUndefined(u))
 	}
-	value := l.convert(fromUnion(x, l.withoutUndefined(u)), param, node)
+	value := l.convert(present, param, node)
 	if value == nil {
 		return nil
 	}

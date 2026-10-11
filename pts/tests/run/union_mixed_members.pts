@@ -1,0 +1,31 @@
+// Members of a union of objects and other values are found at run time (D-089).
+function size(x: string | string[]): number {
+  return x.length;
+}
+console.log(size("abc"), size(["a", "b"]));
+
+function head(x: string | string[]): string | string[] {
+  return x.slice(0, 1);
+}
+console.log(head("xyz"), head(["p", "q"]));
+
+type Cell = number | string | boolean[];
+const cells: Cell[] = [1, "two", [true, false]];
+for (const c of cells) {
+  if (typeof c !== "number") {
+    console.log(c.length, c.toString());
+  }
+}
+
+class Tag {
+  constructor(public length: number) {}
+}
+const things: (Tag | string)[] = [new Tag(7), "four"];
+console.log(things.map((t) => t.length));
+
+// expect:
+// 3 2
+// x [ 'p' ]
+// 3 two
+// 2 true,false
+// [ 7, 4 ]

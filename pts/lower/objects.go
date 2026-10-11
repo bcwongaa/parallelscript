@@ -13,10 +13,13 @@ import (
 )
 
 // isObjectType reports whether t is an object type of the program that a shape can hold
-// (D-033): an interface, type literal or object literal type, or a mapped type with
-// properties only (`Partial<Point>`, D-065), not a class, a function type or a type of
-// the ES library (arrays, Map, Date, …).
+// (D-033): an interface, type literal or object literal type, a mapped type with
+// properties only (`Partial<Point>`, D-065), or an intersection of them, not a class, a
+// function type or a type of the ES library (arrays, Map, Date, …).
 func (l *lowerer) isObjectType(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsIntersection != 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.isObjectType(member) }) // `Named & Aged` (D-089)
+	}
 	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 || checker.IsTupleType(t) {
 		return false
 	}
@@ -478,6 +481,9 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 	own := l.typeAt(node)
 	contextual := l.literalContext(node)
+	if contextual == nil {
+		contextual = l.impliedType(node)
+	}
 	if contextual == nil || len(l.literalAccessors(own)) > 0 {
 		return own // a literal's accessors make objects of a shape of their own (D-045)
 	}
@@ -529,6 +535,44 @@ func (l *lowerer) literalContext(node *ast.Node) *checker.Type {
 		return nil
 	}
 	return l.checker.GetNonNullableType(contextual)
+}
+
+// impliedType is the type that a literal without a contextual type takes from the
+// literal it is an element or a property value of, or nil (D-089). tsc types
+// `[{ tags: ["a"] }, { tags: [] }]` as a `{ tags: string[] }[]`, though the second
+// element alone is a `{ tags: never[] }`: each element makes a value of the array's
+// element type, and each property value one of that property's type, at any depth.
+func (l *lowerer) impliedType(node *ast.Node) *checker.Type {
+	parent := node.Parent
+	switch {
+	case parent.Kind == ast.KindArrayLiteralExpression:
+		outer := l.literalTarget(parent)
+		if l.checker.IsArrayType(outer) {
+			return l.checker.GetElementTypeOfArrayType(outer)
+		}
+	case parent.Kind == ast.KindPropertyAssignment && parent.Initializer() == node:
+		outer := l.literalTarget(parent.Parent)
+		if property := l.checker.GetPropertyOfType(outer, parent.Name().Text()); property != nil && l.isObjectType(outer) {
+			return l.checker.GetNonNullableType(l.typeOfSymbol(property))
+		}
+	}
+	return nil
+}
+
+// literalTarget is the type of the value a literal makes: its contextual type, else the
+// type implied by the literal it is in (an array type, for an array literal), else its own, widened as a variable's would be
+// (`[{ a: 1 }, { b: 2 }]` makes `{ a: number; b?: undefined }`s and `{ a?: undefined; b: number }`s).
+func (l *lowerer) literalTarget(node *ast.Node) *checker.Type {
+	if node.Kind == ast.KindObjectLiteralExpression {
+		return l.literalType(node)
+	}
+	if contextual := l.contextualType(node); contextual != nil {
+		return contextual
+	}
+	if implied := l.impliedType(node); implied != nil && l.checker.IsArrayType(implied) {
+		return implied
+	}
+	return l.checker.GetWidenedType(l.typeAt(node))
 }
 
 // shorthandValue lowers the value of a shorthand property `{ x }`: the binding x.

@@ -2,9 +2,9 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
-	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -18,7 +18,7 @@ func (l *lowerer) objectFunctionCall(call *ast.CallExpression) (x ir.Expr, handl
 	if !l.isObjectStatic(callee, "assign", "freeze", "is", "fromEntries") {
 		return nil, false
 	}
-	if l.hasSpreadArgument(call) && callee.Name().Text() != "assign" {
+	if callee.Name().Text() != "assign" && l.hasSpreadArgument(call) {
 		return nil, true
 	}
 	switch callee.Name().Text() {
@@ -89,8 +89,7 @@ func (l *lowerer) typedObjectStatic(call *ast.CallExpression, name string) ir.Ex
 func (l *lowerer) objectAssign(call *ast.CallExpression) ir.Expr {
 	args := call.Arguments.Nodes
 	if target := ast.SkipParentheses(args[0]); target.Kind == ast.KindObjectLiteralExpression && len(target.AsObjectLiteralExpression().Properties.Nodes) == 0 {
-		l.report(diagnostic.At(args[0], diagnostic.NotSupportedYet, "`Object.assign` into a new `{}` is not supported yet; a spread, `{ ...a, ...b }`, is"))
-		return nil
+		return l.assignToNewObject(call)
 	}
 	target := l.expression(args[0])
 	if target == nil {
@@ -115,6 +114,38 @@ func (l *lowerer) objectAssign(call *ast.CallExpression) ir.Expr {
 	ref := &ir.LocalRef{Local: local}
 	assign := &ir.CallBuiltin{Builtin: ir.ObjectAssign, Args: []ir.Expr{box(ref), sources}}
 	return &ir.Bind{Local: local, Value: target, In: &ir.Sequence{X: assign, Y: ref}}
+}
+
+// assignToNewObject lowers `Object.assign({}, ...sources)` as the object literal
+// `{ ...sources }` it is equivalent to, an object of the shape of the type tsc gives it.
+func (l *lowerer) assignToNewObject(call *ast.CallExpression) ir.Expr {
+	node := call.AsNode()
+	sources := call.Arguments.Nodes[1:]
+	if i := slices.IndexFunc(sources, isSpreadElement); i >= 0 {
+		l.notSupportedYet(sources[i], "spread arguments of `Object.assign({}, …)` are")
+		return nil
+	}
+	t := l.typeAt(node)
+	if !l.isObjectType(t) {
+		l.notSupportedYet(node, fmt.Sprintf("`Object.assign({}, …)` of type %s is", l.checker.TypeToString(t)))
+		return nil
+	}
+	shape := l.shape(t, node)
+	if shape == nil {
+		return nil
+	}
+	var parts []spreadProperty
+	for _, argument := range sources {
+		part := spreadProperty{node: argument, source: l.expression(argument)}
+		if part.source == nil {
+			return nil
+		}
+		if part.names = l.spreadNames(part.source, l.typeAt(argument), argument); part.names == nil {
+			return nil
+		}
+		parts = append(parts, part)
+	}
+	return l.spreadObject(parts, shape, node)
 }
 
 // objectFromEntries lowers Object.fromEntries(pairs) of an array of [key, value] tuples

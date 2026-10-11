@@ -1,6 +1,6 @@
-// Unions (D-062, D-067): members of unions of objects and other values, writing a property
-// that a union's members hold as different types, methods of a union as values, and
-// unions of several numeric types, which the semantic pass can't type.
+// Unions (D-062, D-067): writing a property that a union's members hold as different
+// types, methods of a union as values, and unions of several numeric types, which the
+// semantic pass can't type.
 interface A {
   v: number;
   tag: "a";
@@ -8,9 +8,6 @@ interface A {
 interface B {
   v: string;
   tag: "b";
-}
-function len(either: string | string[]): number {
-  return either.length;
 }
 function set(x: A | B): void {
   x.v = 5;
@@ -26,7 +23,6 @@ function method(x: C | D): void {
 }
 function mixed(x: u8 | i16 | null): void {}
 
-// error: unions_not_yet.pts:13:10 - error PTS1001: reading `length` of a string | string[] (a union of objects and other values) is not supported yet
-// error: unions_not_yet.pts:16:3 - error PTS1001: writing `v` of a A | B, whose members hold it as different types, is not supported yet
-// error: unions_not_yet.pts:25:13 - error PTS1001: using the method `f` of a C | D (a union) as a value is not supported yet
-// error: unions_not_yet.pts:27:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet
+// error: unions_not_yet.pts:13:3 - error PTS1001: writing `v` of a A | B, whose members hold it as different types, is not supported yet
+// error: unions_not_yet.pts:22:13 - error PTS1001: using the method `f` of a C | D (a union) as a value is not supported yet
+// error: unions_not_yet.pts:24:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet

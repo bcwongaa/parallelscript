@@ -1,0 +1,37 @@
+// Intersections of object types are object types; Object.assign({}, …) is a spread (D-089).
+type Named = { name: string };
+type Aged = { age: number };
+type Person = Named & Aged;
+const ann: Person = { name: "Ann", age: 30 };
+console.log(ann, ann.name, ann.age + 1);
+
+function greet(n: Named): string {
+  return "hi " + n.name;
+}
+console.log(greet(ann));
+
+type WithId<T> = T & { id: number };
+const bo: WithId<Named> = { id: 7, name: "Bo" };
+console.log(bo);
+
+interface Config {
+  host: string;
+  port: number;
+  debug: boolean;
+}
+const defaults: Config = { host: "localhost", port: 80, debug: false };
+const merged = Object.assign({}, defaults, { port: 8080 });
+merged.debug = true;
+console.log(merged, defaults);
+const both = Object.assign({}, { a: 1 }, { b: "x" });
+console.log(both, both.a + 1, both.b);
+
+console.log([3, 1, 2].toString(), [[1, 2], [3]].toString(), ["a", "b"].toString());
+
+// expect:
+// { name: 'Ann', age: 30 } Ann 31
+// hi Ann
+// { id: 7, name: 'Bo' }
+// { host: 'localhost', port: 8080, debug: true } { host: 'localhost', port: 80, debug: false }
+// { a: 1, b: 'x' } 2 x
+// 3,1,2 1,2,3 a,b

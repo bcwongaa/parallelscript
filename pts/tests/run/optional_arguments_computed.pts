@@ -1,0 +1,37 @@
+// A computed T | undefined passed to an optional parameter leaves the argument out when
+// it is undefined, and is evaluated once, in order (D-089).
+function greet(name?: string, punctuation: string = "!"): string {
+  return `hi ${name ?? "anon"}${punctuation}`;
+}
+const nicknames = new Map<string, string>([["ann", "Annie"]]);
+let calls = 0;
+function next(): string {
+  calls++;
+  return "#" + calls;
+}
+console.log(greet(nicknames.get("ann")), greet(nicknames.get("bo")));
+console.log(greet(nicknames.get("ann"), next()), greet(nicknames.get("bo"), next()));
+
+function show(x?: number): string {
+  return x === undefined ? "none" : "got " + x;
+}
+const numbers = [1, 2, 3];
+console.log(show(numbers.find((x) => x > 1)), show(numbers.find((x) => x > 5)));
+
+class Label {
+  constructor(public text?: string) {}
+}
+console.log(new Label(nicknames.get("ann")), new Label(nicknames.get("cy")));
+
+function tag(prefix: string, word?: string): string {
+  return prefix + ":" + (word ?? "?");
+}
+const words = ["a"];
+console.log(tag(next(), words.pop()), tag(next(), words.pop()), calls);
+
+// expect:
+// hi Annie! hi anon!
+// hi Annie#1 hi anon#2
+// got 2 none
+// Label { text: 'Annie' } Label { text: undefined }
+// #3:a #4:? 4

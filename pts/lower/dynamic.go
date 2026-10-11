@@ -106,7 +106,7 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 		l.firstDynamicCall = call.AsNode()
 	}
 	args := []ir.Expr{}
-	method := ast.IsAccessExpression(callee) && l.isAny(callee.Expression())
+	method := ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee))
 	if method {
 		l.wantDynamicMember(callee)
 		object := l.expression(callee.Expression())

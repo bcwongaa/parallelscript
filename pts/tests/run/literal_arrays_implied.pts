@@ -1,0 +1,26 @@
+// Literals in an array literal without a contextual type make values of the element
+// type tsc infers for the array (D-089).
+const posts = [
+  { title: "a", tags: ["x", "y"] },
+  { title: "b", tags: [] },
+];
+console.log(posts.map((p) => p.tags.length), posts);
+
+const nested = [{ meta: { tags: ["a"], n: 1 } }, { meta: { tags: [], n: 2 } }];
+console.log(JSON.stringify(nested));
+
+const deep = [{ rows: [{ a: 1, xs: [] }] }, { rows: [{ a: 2, xs: [1, 2] }] }];
+console.log(deep[1].rows[0].xs.length, deep);
+
+const mixed = [{ a: 1 }, { b: "x" }];
+console.log(mixed, mixed[0].a, mixed[1].b);
+
+const tree = [{ id: 1, parent: null }, { id: 2, parent: 1 }];
+console.log(tree.filter((n) => n.parent !== null));
+
+// expect:
+// [ 2, 0 ] [ { title: 'a', tags: [ 'x', 'y' ] }, { title: 'b', tags: [] } ]
+// [{"meta":{"tags":["a"],"n":1}},{"meta":{"tags":[],"n":2}}]
+// 2 [ { rows: [ [Object] ] }, { rows: [ [Object] ] } ]
+// [ { a: 1 }, { b: 'x' } ] 1 x
+// [ { id: 2, parent: 1 } ]

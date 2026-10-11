@@ -229,6 +229,7 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 type lowerer struct {
 	program             *compiler.Program
 	checker             *checker.Checker
+	argumentTemps       []*ir.Bind // the call being lowered's arguments evaluated before it (withArgumentTemps)
 	info                *check.Info
 	locals              map[*ast.Symbol]*ir.Local        // nil for a declaration that failed to lower
 	owners              map[*ir.Local]*ir.Func           // the function each local belongs to
@@ -1105,6 +1106,10 @@ func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 
 // expression lowers an expression, or reports it and returns nil.
 func (l *lowerer) expression(node *ast.Node) ir.Expr {
+	return l.withArgumentTemps(func() ir.Expr { return l.expressionOf(node) })
+}
+
+func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 	if object, ok := l.chainObjects[node]; ok {
 		return object.value
 	}
@@ -1306,6 +1311,14 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)
 	}
+	if callee := ast.SkipParentheses(call.Expression); l.isMixedUnionReceiver(callee) {
+		t := l.irType(l.typeAt(node), node)
+		result := l.dynamicCall(call, callee) // `x.slice(1)` for `x: string | string[]` (D-089)
+		if t == nil || result == nil {
+			return nil
+		}
+		return l.convert(result, t, node)
+	}
 	if l.isUnionReceiver(ast.SkipParentheses(call.Expression)) {
 		return l.unionMethodCall(call)
 	}
@@ -1445,6 +1458,76 @@ func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr
 	return l.typedArguments(arguments, types)
 }
 
+// withArgumentTemps lowers an expression with lower, and evaluates the arguments of its
+// calls that inTemporaries put in temporaries before it: an argument that passes a
+// computed `T | undefined` to an optional parameter gives both the value and its Given flag.
+func (l *lowerer) withArgumentTemps(lower func() ir.Expr) ir.Expr {
+	outer := l.argumentTemps
+	l.argumentTemps = nil
+	x := lower()
+	temps := l.argumentTemps
+	l.argumentTemps = outer
+	if x == nil {
+		return nil
+	}
+	for i := len(temps) - 1; i >= 0; i-- {
+		temps[i].In = x
+		x = temps[i]
+	}
+	return x
+}
+
+// inTemporaries puts the arguments in values up to the one at last in temporaries that
+// withArgumentTemps evaluates before the call, in order, all but the pure ones, and
+// returns the arguments with the temporaries in their place; values if last is -1.
+func (l *lowerer) inTemporaries(values []ir.Expr, last int) []ir.Expr {
+	if last < 0 {
+		return values
+	}
+	values = slices.Clone(values)
+	for i, value := range values[:last+1] {
+		if _, spread := value.(*spreadValue); spread || isPure(value) {
+			continue
+		}
+		local := l.newLocal("arg", value.Type())
+		l.argumentTemps = append(l.argumentTemps, &ir.Bind{Local: local, Value: value})
+		values[i] = &ir.LocalRef{Local: local}
+	}
+	return values
+}
+
+// lastMaybePassed is the index in values of the last argument that is computed and that
+// passes a value or undefined to an optional parameter in params (`f(m.get(k))` for
+// `f(p?: T)`), so that it needs a temporary for its value and its Given flag; or -1.
+func (l *lowerer) lastMaybePassed(values []ir.Expr, params []ir.Type) int {
+	last, next := -1, 0
+	for i := 0; i < len(params) && next < len(values); i++ {
+		param, optional := params[i], hasDefault(params, i)
+		if isRest(param) {
+			break
+		}
+		if optional {
+			i++ // past the flag
+		}
+		value := values[next]
+		next++
+		if optional && !isPure(value) && l.maybeUndefinedFor(value.Type(), param) {
+			last = next - 1
+		}
+	}
+	return last
+}
+
+// maybeUndefinedFor reports whether a value of type t passed to an optional parameter of
+// type param may be undefined, which leaves the argument out: a union with undefined that
+// the parameter doesn't take as it is, or a dynamic value.
+func (l *lowerer) maybeUndefinedFor(t ir.Type, param ir.Type) bool {
+	if u, ok := t.(*ir.Union); ok {
+		return u.Has(ir.Undefined) && !l.takesUnion(param, u)
+	}
+	return t == ir.Value && param != ir.Value
+}
+
 // typedArguments lowers the arguments of a call, each converted to its parameter's type
 // in params, or reports one and returns nil. A parameter with a default, which its Given
 // flag follows in params, gets a true flag after its argument, or if the call leaves the
@@ -1551,6 +1634,7 @@ func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) i
 // convertArguments converts values, the arguments a call passes (each written at the node
 // of the same index in at), to params as typedArguments does.
 func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir.Type) []ir.Expr {
+	values = l.inTemporaries(values, l.lastMaybePassed(values, params))
 	args := make([]ir.Expr, 0, len(params))
 	next := 0
 	for i := 0; i < len(params); i++ {
@@ -1579,8 +1663,8 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
 			continue
 		}
-		if u, ok := arg.Type().(*ir.Union); optional && ok && u.Has(ir.Undefined) && !l.takesUnion(param, u) {
-			passed := l.maybePassed(arg, u, param, node) // `f(x)` with x: T | undefined for `f(p?: T)`
+		if optional && l.maybeUndefinedFor(arg.Type(), param) {
+			passed := l.maybePassed(arg, param, node) // `f(x)` with x: T | undefined for `f(p?: T)`
 			if passed == nil {
 				return nil
 			}
@@ -1817,6 +1901,9 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if l.isAny(node.Expression()) {
 		return l.dynamicRead(node)
+	}
+	if l.isMixedUnionReceiver(node) {
+		return l.mixedUnionRead(node)
 	}
 	if l.isUnionReceiver(node) {
 		object, field := l.unionProperty(node)

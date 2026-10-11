@@ -1,0 +1,30 @@
+// filter with a type guard makes an array of the narrower type (D-089).
+class Circle {
+  constructor(public r: number) {}
+}
+class Square {
+  constructor(public side: number) {}
+}
+type Shape = Circle | Square;
+const shapes: Shape[] = [new Circle(1), new Square(2), new Circle(3)];
+
+function isCircle(s: Shape): s is Circle {
+  return s instanceof Circle;
+}
+const circles: Circle[] = shapes.filter(isCircle);
+console.log(circles, circles.map((c) => c.r * 2));
+const squares = shapes.filter((s): s is Square => s instanceof Square);
+console.log(squares[0].side);
+
+const readings: (number | null)[] = [1.5, null, 3, null];
+const present = readings.filter((r): r is number => r !== null);
+console.log(present.reduce((a, b) => a + b, 0));
+
+const tokens: (string | undefined)[] = ["a", undefined, "b"];
+console.log(tokens.filter((t): t is string => t !== undefined).join("+"));
+
+// expect:
+// [ Circle { r: 1 }, Circle { r: 3 } ] [ 2, 6 ]
+// 2
+// 4.5
+// a+b

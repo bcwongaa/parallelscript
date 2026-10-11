@@ -67,6 +67,8 @@ func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 	}
 	if contextual := l.contextualType(node); contextual != nil && l.checker.IsArrayType(contextual) {
 		t = contextual
+	} else if contextual == nil {
+		t = l.literalTarget(node) // `[{ xs: [1] }, { xs: [] }]`'s second `xs`, and the widened `[{ a: 1 }, { b: 2 }]` (D-089)
 	}
 	if !l.checker.IsArrayType(t) {
 		l.notSupportedYet(node, fmt.Sprintf("array literals of type %s are", l.checker.TypeToString(t)))
@@ -275,6 +277,7 @@ var arrayMethods = map[string]struct {
 	"lastIndexOf": {ir.ArrayLastIndexOf, []arrayParam{elementParam, endParam}},
 	"includes":    {ir.ArrayIncludes, []arrayParam{elementParam, startParam}},
 	"join":        {ir.ArrayJoin, []arrayParam{{ir.String, &ir.StringConst{Value: ","}}}},
+	"toString":    {ir.ArrayJoin, []arrayParam{{ir.String, &ir.StringConst{Value: ","}}}}, // tsc passes it nothing
 	"reverse":     {ir.ArrayReverse, nil},
 	"sort":        {ir.ArraySort, nil},
 	"fill":        {ir.ArrayFill, []arrayParam{elementParam, startParam, endParam}},

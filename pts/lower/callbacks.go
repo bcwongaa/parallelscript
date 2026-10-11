@@ -19,12 +19,14 @@ var callbackMethods = map[string]bool{
 }
 
 // helperKey identifies a generated helper: the method (with its variant), the array
-// type and the callback type.
+// type, the callback type and, for a filter whose callback is a type guard, the
+// narrower array it makes.
 type helperKey struct {
 	method     string
 	array      *ir.Array
 	callback   *ir.FuncType
 	collection *ir.MapType
+	narrowed   *ir.Array
 }
 
 // callbackMethodCall lowers `a.m(callback, …)` for an array method m that takes a
@@ -62,11 +64,30 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 		}
 		operands = append(operands, initial)
 	}
-	helper := l.callbackHelper(helperKey{method: method, array: arrayType, callback: ft}, call.Expression)
+	key := helperKey{method: method, array: arrayType, callback: ft}
+	if name == "filter" {
+		key.narrowed = l.guardedFilterResult(call, arrayType)
+	}
+	helper := l.callbackHelper(key, call.Expression)
 	if helper == nil {
 		return nil
 	}
 	return &ir.Call{Func: helper, Args: operands}
+}
+
+// guardedFilterResult is the array `a.filter(guard)` makes when its callback is a type
+// guard that narrows a's union elements (`shapes.filter(isCircle)` is a Circle[]), or
+// nil when it makes an array of a's own type.
+func (l *lowerer) guardedFilterResult(call *ast.CallExpression, array *ir.Array) *ir.Array {
+	union, ok := array.Elem.(*ir.Union)
+	if !ok {
+		return nil
+	}
+	result, ok := l.irType(l.typeAt(call.AsNode()), call.AsNode()).(*ir.Array)
+	if !ok || result == array || !isNarrowing(union, result.Elem) {
+		return nil
+	}
+	return result
 }
 
 // arrayFromWithMapper lowers `Array.from(source, mapper)`: the mapper applied to each
@@ -150,6 +171,8 @@ func (h *helperBuilder) resultType() ir.Type {
 			return returns
 		}
 		return l.arrayOf(returns)
+	case base == "filter" && key.narrowed != nil:
+		return key.narrowed
 	case base == "filter":
 		return key.array
 	case base == "some" || base == "every":
@@ -191,9 +214,14 @@ func (h *helperBuilder) body() []ir.Stmt {
 			return []ir.Stmt{h.stmt(h.push(result, mapped))}
 		}, h.ret(&ir.LocalRef{Local: result}))
 	case "filter":
-		result := h.l.newLocal("result", h.key.array)
-		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.key.array})}, func(element, index ir.Expr) []ir.Stmt {
-			return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(h.push(result, element)))}
+		resultType := h.fn.Result.(*ir.Array)
+		result := h.l.newLocal("result", resultType)
+		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: resultType})}, func(element, index ir.Expr) []ir.Stmt {
+			kept := element
+			if h.key.narrowed != nil {
+				kept = &ir.FromUnion{X: element, To: resultType.Elem} // the guard held for it
+			}
+			return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(h.push(result, kept)))}
 		}, h.ret(&ir.LocalRef{Local: result}))
 	case "some", "every":
 		found := base == "some"
