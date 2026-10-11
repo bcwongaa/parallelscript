@@ -264,7 +264,7 @@ func isArrayIndex(name string) bool {
 // its properties in the order the literal writes them, or a hash-map object if its
 // contextual type or its own is one (D-059).
 func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
-	for _, t := range []*checker.Type{l.contextualType(node), l.typeAt(node)} {
+	for _, t := range []*checker.Type{l.literalContext(node), l.typeAt(node)} {
 		if t == nil {
 			continue
 		}
@@ -451,7 +451,7 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 // written for a `Segment` holds a `Point`, and otherwise the literal's own type.
 func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 	own := l.typeAt(node)
-	contextual := l.contextualType(node)
+	contextual := l.literalContext(node)
 	if contextual == nil || !l.isObjectType(contextual) {
 		return own
 	}
@@ -467,6 +467,16 @@ func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 		return own // a literal's accessors make objects of a shape of their own (D-045)
 	}
 	return contextual
+}
+
+// literalContext is the contextual type of an object literal without null and undefined:
+// a literal written for `Point | null` makes a Point.
+func (l *lowerer) literalContext(node *ast.Node) *checker.Type {
+	contextual := l.contextualType(node)
+	if contextual == nil {
+		return nil
+	}
+	return l.checker.GetNonNullableType(contextual)
 }
 
 // shorthandValue lowers the value of a shorthand property `{ x }`: the binding x.
@@ -513,7 +523,7 @@ func (l *lowerer) isObjectTypeMember(declaration *ast.Node) bool {
 // shapeProperty lowers the object of `o.p` for a property p of an object type and
 // returns it with p's field, or reports why it can't and returns nils.
 func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
-	if ast.IsOptionalChain(node) {
+	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil, nil
 	}
@@ -637,7 +647,7 @@ func providesMethod(t ir.Type, method *ir.InterfaceMethod) bool {
 // method that the class of the object o refers to has, found at run time.
 func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
-	if ast.IsOptionalChain(callee) {
+	if l.isUnloweredOptionalChain(callee) {
 		l.notSupportedYet(callee, "optional chaining `?.` is")
 		return nil
 	}

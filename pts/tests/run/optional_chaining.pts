@@ -1,0 +1,52 @@
+// Optional chaining (D-064): `?.` on properties, methods, calls of function values,
+// elements of arrays, strings, maps and hash-map objects; short-circuiting the rest of
+// the chain; chains of chains; `!` inside a chain.
+class Address {
+  constructor(public city: string, public zip: string | null) {}
+  label(): string {
+    return this.city + (this.zip ? " " + this.zip : "");
+  }
+}
+class Person {
+  constructor(public name: string, public address: Address | null, public friends: Person[] | undefined) {}
+  greet(): void {
+    console.log("hi from", this.name);
+  }
+}
+const ann = new Person("Ann", new Address("Oslo", "0150"), undefined);
+const bob = new Person("Bob", null, [ann]);
+for (const p of [ann, bob]) {
+  console.log(p.address?.city, p.address?.zip?.length, p.address?.label(), p.friends?.length, p.friends?.[0]?.name);
+}
+const maybe: Person | undefined = [ann, bob].find((p) => p.name === "Zed");
+maybe?.greet();
+[ann, bob].find((p) => p.name === "Ann")?.greet();
+const fn: ((x: number) => number) | null = [1].length > 2 ? (x: number) => x : null;
+console.log(fn?.(2));
+const double: ((x: number) => number) | undefined = (x: number) => x * 2;
+console.log(double?.(21));
+const words: string[] | null = ["a", "b"];
+console.log(words?.join("-"), words?.length ?? 0);
+let calls = 0;
+function count(): number {
+  calls++;
+  return calls;
+}
+const none: Address | null = bob.address;
+console.log(none?.label().length, none?.zip?.slice(count()), calls);
+
+const rec: Record<string, number> | null = { a: 1 };
+const m: Map<string, string> | undefined = new Map([["k", "v"]]);
+const arr: number[] | null = [10, 20];
+const s: string | undefined = "hey";
+console.log(rec?.["a"], rec?.["zz"], rec?.a, m?.get("k"), m?.get("q"), m?.size, arr?.[1], arr?.[7], s?.[1], s?.[9], s?.length);
+interface Inner { value: number }
+interface Outer { inner: Inner | null }
+const outers: (Outer | null)[] = [{ inner: { value: 3 } }, { inner: null }, null];
+for (const o of outers) {
+  const v = o?.inner?.value ?? -1;
+  if (o?.inner) console.log("has inner", o.inner.value);
+  console.log(v, o?.inner?.value);
+}
+const first = outers[0];
+console.log(first?.inner!.value, (first?.inner)?.value);

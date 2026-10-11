@@ -668,3 +668,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 
 - **Lowering** (D-063): `parameter` gives an optional parameter with a body a `T | undefined` local (`withUndefined`) bound by `parameterDefault` (default undefined), and a parameter with a default whose type includes undefined a `T` local (`withoutUndefined`) whose default also applies to an undefined argument; `parameterType` no longer rejects them. `convertArguments` passes a `T | undefined` value to an optional `T` parameter through `maybePassed`; `adaptedArguments` maps a left-out argument to undefined for a `T | undefined` parameter; `nullishAssignment` lowers `??=` (from `compoundAssignment`). cgen's `logical` takes `given` flags as booleans.
 - **Tests:** `pts/tests/run/optional_parameters.pts`.
+
+### 9.41 Optional chaining (M3.1b2)
+
+- **Lowering** (`pts/lower/chains.go`, D-064): `optionalChain` (dispatched from `expression` and `valueExpression` for an outermost chain not already being lowered, `chainRests`), `chainObjects` (the substituted object and its non-nullable checker type, used by `expression` and `typeAt`), `isUnloweredOptionalChain` (replaces the old PTS1001 checks; `chainDepth`). `convert` takes a dynamic value to a union as it is; `nonNull` uses `GetNonNullableType`; `literalContext` (`objects.go`) strips null and undefined from an object literal's context.
+- **Tests:** `pts/tests/run/optional_chaining.pts`.

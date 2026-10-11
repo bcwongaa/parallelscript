@@ -191,7 +191,7 @@ func (l *lowerer) arrayElement(node *ast.Node, op ir.ArrayOp) ir.Expr {
 
 // arrayElementOperands lowers the array and the index of a[i], or reports the access and returns nils.
 func (l *lowerer) arrayElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
-	if ast.IsOptionalChain(node) {
+	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil, nil
 	}
@@ -226,7 +226,7 @@ func (l *lowerer) arrayProperty(node *ast.Node) ir.Expr {
 
 // arrayObject lowers the array of `a.p` or `a.m(…)`, or reports why it can't and returns nil.
 func (l *lowerer) arrayObject(access *ast.Node) ir.Expr {
-	if ast.IsOptionalChain(access) {
+	if l.isUnloweredOptionalChain(access) {
 		l.notSupportedYet(access, "optional chaining `?.` is")
 		return nil
 	}
@@ -521,7 +521,7 @@ func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 	if x == nil || !isUnion(x.Type()) {
 		return x
 	}
-	t := l.irType(l.typeAt(node), node)
+	t := l.irType(l.checker.GetNonNullableType(l.typeAt(node)), node) // in a chain, tsc's type keeps the chain's undefined
 	if t == nil {
 		return nil
 	}

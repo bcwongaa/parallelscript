@@ -1,4 +1,4 @@
-// Unions (D-062): what waits for M3.1b (optional properties and parameters, `?.`) and
+// Unions (D-062): what waits for M3.1b3 (optional properties) and
 // M3.1c (members of unions of objects, `==` beyond null and undefined), and unions of
 // several numeric types, which the semantic pass can't type.
 interface Circle {
@@ -23,15 +23,10 @@ interface Opt {
   b?: string;
 }
 const o: Opt = { a: 1 };
-function maybeCircle(): Circle | null {
-  return null;
-}
-console.log(maybeCircle()?.r);
 function mixed(x: u8 | i16 | null): void {}
 
 // error: unions_not_yet.pts:13:10 - error PTS1001: reading `kind` of a Circle | Square (a union) is not supported yet
 // error: unions_not_yet.pts:16:10 - error PTS1001: reading `length` of a string | string[] (a union) is not supported yet
 // error: unions_not_yet.pts:19:10 - error PTS1001: the `==` operator on a union, other than with null or undefined, is not supported yet
 // error: unions_not_yet.pts:25:7 - error PTS1001: optional properties (`b?` in Opt) are not supported yet
-// error: unions_not_yet.pts:29:13 - error PTS1001: optional chaining `?.` is not supported yet
-// error: unions_not_yet.pts:30:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet
+// error: unions_not_yet.pts:26:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet

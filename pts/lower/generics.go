@@ -60,6 +60,9 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 // typeAt, typeOfSymbol, contextualType and returnTypeOf are the checker's answers,
 // instantiated for the instance being lowered.
 func (l *lowerer) typeAt(node *ast.Node) *checker.Type {
+	if t, ok := l.chainObjects[node]; ok {
+		return t.checkerType // the object of a `?.` that was neither null nor undefined (D-064)
+	}
 	return l.instantiate(l.checker.GetTypeAtLocation(node))
 }
 

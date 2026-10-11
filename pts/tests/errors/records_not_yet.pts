@@ -18,7 +18,6 @@ let name = "";
 for (name in rec) console.log(name);
 console.log(rec.toString());
 const fromPoint: Record<string, number> = point;
-console.log(rec?.["a"]);
 const list = [1, 2, 3];
 delete list[0];
 
@@ -31,5 +30,4 @@ delete list[0];
 // error: records_not_yet.pts:18:6 - error PTS1001: `for...in` without a declaration of its variable is not supported yet
 // error: records_not_yet.pts:19:13 - error PTS1001: the method `toString` of hash-map objects is not supported yet
 // error: records_not_yet.pts:20:43 - error PTS1001: using a `{x: number; y: number}` as a hash-map object (`Record<string, number>`) is not supported yet; a copy of its properties, `{ ...o }`, is one
-// error: records_not_yet.pts:21:13 - error PTS1001: optional chaining `?.` is not supported yet
-// error: records_not_yet.pts:23:1 - error PTS1002: `delete` works only on hash-map objects
+// error: records_not_yet.pts:22:1 - error PTS1002: `delete` works only on hash-map objects

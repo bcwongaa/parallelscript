@@ -326,9 +326,7 @@ func TestStringElementKeepsUndefinedWhereAnyValueFits(t *testing.T) {
 
 func TestOnlyDirectCallsOfImplementedMethodsLower(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(\"abc\"?.trim());\n")
-	assert.Equal(t, err.Message, "optional chaining `?.` is not supported yet")
-	err = lowerInvalid(t, "console.log(\"abc\".at(0));\n")
+	err := lowerInvalid(t, "console.log(\"abc\".at(0));\n")
 	assert.Equal(t, err.Message, "calling `\"abc\".at` is not supported yet")
 }
 

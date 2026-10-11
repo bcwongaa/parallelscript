@@ -132,7 +132,7 @@ func (l *lowerer) recordElement(node *ast.Node, op ir.MapOp) ir.Expr {
 // recordElementOperands lowers the object and the key of o[k] or o.k, or reports the
 // access and returns nils.
 func (l *lowerer) recordElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
-	if ast.IsOptionalChain(node) {
+	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil, nil
 	}

@@ -134,7 +134,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
+		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}}
 	result := &ir.Program{}
@@ -254,6 +254,9 @@ type lowerer struct {
 	helpers             map[helperKey]*ir.Func           // the helpers of the array methods that take callbacks; nil if one failed
 	mapTypes            []*ir.MapType                    // the map and set types met
 	unions              []*ir.Union                      // the union types met
+	chainObjects        map[*ast.Node]chainObject        // the objects of the `?.` links whose chains are being lowered
+	chainRests          map[*ast.Node]bool               // the optional chains being lowered past their `?.` test
+	chainDepth          int                              // how many optional chains are being lowered past their tests
 	mapsInProgress      map[*checker.Type]bool           // the map and set types whose key and value types are being mapped
 	this                map[*ir.Func]*ir.Local           // the `this` parameter of each constructor and method
 	lowered             []*ir.Func                       // the functions whose bodies are lowered
@@ -792,6 +795,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return value
 	case target == ir.Value:
 		return box(value)
+	case isUnion(target) && value.Type() == ir.Value:
+		return &ir.ToUnion{X: value, To: target.(*ir.Union)} // a dynamic value tsc types as the union, such as `a.find(…)`'s
 	case isUnion(target):
 		return l.toUnion(value, target.(*ir.Union), node)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
@@ -1056,6 +1061,12 @@ func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 
 // expression lowers an expression, or reports it and returns nil.
 func (l *lowerer) expression(node *ast.Node) ir.Expr {
+	if object, ok := l.chainObjects[node]; ok {
+		return object.value
+	}
+	if ast.IsOptionalChain(node) && ast.IsOutermostOptionalChain(node) && !l.chainRests[node] {
+		return l.optionalChain(node)
+	}
 	switch node.Kind {
 	case ast.KindNumericLiteral:
 		return l.numericLiteral(node, false)
@@ -1145,6 +1156,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 	inner := ast.SkipParentheses(node)
 	switch {
+	case ast.IsOptionalChain(inner) && ast.IsOutermostOptionalChain(inner) && !l.chainRests[inner]:
+		return l.optionalChain(inner)
 	case l.isEnumReverseMapping(inner):
 		return l.enumReverseMapping(inner, false)
 	case l.isStringElement(inner):
@@ -1278,12 +1291,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	switch {
 	case isUserFunction && fn == nil:
 		return nil // its declaration failed, which was reported
-	case !isUserFunction && builtin == nil && !ast.IsOptionalChain(node) && l.isValueCall(call.Expression):
+	case !isUserFunction && builtin == nil && !l.isUnloweredOptionalChain(node) && l.isValueCall(call.Expression):
 		return l.valueCall(call)
 	case !isUserFunction && (builtin == nil || properties[builtin]):
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
 		return nil
-	case ast.IsOptionalChain(node):
+	case l.isUnloweredOptionalChain(node):
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
@@ -1809,7 +1822,7 @@ func (l *lowerer) stringElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
 	case !l.isStringElement(node):
 		l.notSupportedYet(node, "element access other than indexing a string is")
 		return nil, nil
-	case ast.IsOptionalChain(node):
+	case l.isUnloweredOptionalChain(node):
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil, nil
 	}
@@ -2208,7 +2221,7 @@ func (l *lowerer) propertyPlace(node *ast.Node, accessors property) (place, bool
 	case getter != nil && (getter.Class != setter.Class || getter.Func.Result != setter.Func.Params[1].Type):
 		l.notSupportedYet(node, "a property whose getter and setter differ in class or type is")
 		return place{}, false
-	case ast.IsOptionalChain(node):
+	case l.isUnloweredOptionalChain(node):
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return place{}, false
 	}

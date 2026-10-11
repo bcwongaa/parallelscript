@@ -185,7 +185,7 @@ func (l *lowerer) isMapMethodCall(node *ast.Node) bool {
 func (l *lowerer) mapMethodCall(call *ast.CallExpression, checked bool) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
 	name := callee.AsPropertyAccessExpression().Name().Text()
-	if ast.IsOptionalChain(callee) {
+	if l.isUnloweredOptionalChain(callee) {
 		l.notSupportedYet(callee, "optional chaining `?.` is")
 		return nil
 	}

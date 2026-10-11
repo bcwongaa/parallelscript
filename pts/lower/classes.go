@@ -824,7 +824,7 @@ func (l *lowerer) propertyRead(node *ast.Node, accessors property) ir.Expr {
 		l.notSupportedYet(node, "reading a property that has no getter is")
 		return nil
 	}
-	if ast.IsOptionalChain(node) {
+	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
@@ -850,7 +850,7 @@ func (l *lowerer) fieldAccess(node *ast.Node, field *ir.Field) ir.Expr {
 
 // fieldObject lowers the instance o of a field access `o.f`, or reports it and returns nil.
 func (l *lowerer) fieldObject(node *ast.Node, field *ir.Field) ir.Expr {
-	if ast.IsOptionalChain(node) {
+	if l.isUnloweredOptionalChain(node) {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
