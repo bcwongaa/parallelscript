@@ -996,6 +996,33 @@ pts_value pts_value_entries(pts_value value) {
   return pts_value_from_object(entries);
 }
 
+pts_array *pts_value_key_array(pts_value value) { return own_keys(value); }
+
+void pts_object_assign(pts_value target, pts_array *sources) {
+  if (pts_value_is_nullish(target)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot convert undefined or null to object");
+  }
+  for (double s = 0; s < pts_array_length(sources); s++) {
+    pts_value source = pts_array_element(sources, s);
+    if (pts_value_is_nullish(source)) {
+      continue; /* JS skips them */
+    }
+    pts_array *keys = own_keys(source);
+    for (double i = 0; i < pts_array_length(keys); i++) {
+      pts_value key = pts_array_element(keys, i);
+      pts_dynamic_set(target, key, pts_dynamic_get(source, key));
+    }
+  }
+}
+
+bool pts_value_same_value(pts_value a, pts_value b) {
+  if (pts_value_is_number(a) && pts_value_is_number(b)) {
+    double x = pts_value_as_number(a), y = pts_value_as_number(b);
+    return x != x ? y != y : x == y && __builtin_signbit(x) == __builtin_signbit(y);
+  }
+  return pts_value_strict_equals(a, b);
+}
+
 bool pts_value_has_own(pts_value value, pts_value key) {
   pts_array *keys = own_keys(value);
   pts_value name = pts_value_from_string(pts_value_to_string(key));

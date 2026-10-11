@@ -115,7 +115,8 @@ func (l *lowerer) isRecordElement(node *ast.Node) bool {
 // Object.prototype, which tsc finds on every object type.
 func (l *lowerer) isObjectPrototypeMember(node *ast.Node) bool {
 	symbol := l.checker.GetSymbolAtLocation(node.AsPropertyAccessExpression().Name())
-	return symbol != nil && l.isDeclaredInDefaultLib(symbol)
+	// An index signature the library declares (Object.fromEntries' result) isn't one.
+	return symbol != nil && l.isDeclaredInDefaultLib(symbol) && symbol.Parent != nil && symbol.Parent.Name == "Object"
 }
 
 // recordElement lowers a read of o[k] or o.k for a hash-map object o: MapGet where any
@@ -395,9 +396,8 @@ func (l *lowerer) objectStaticCall(call *ast.CallExpression) ir.Expr {
 	if len(args) > 0 && l.isAny(args[0]) && !l.hasSpreadArgument(call) {
 		return l.dynamicObjectStatic(call, name)
 	}
-	if len(args) == 0 || !l.isRecordExpression(args[0]) {
-		l.notSupportedYet(call.Expression, fmt.Sprintf("`Object.%s` of anything but a hash-map object (`Record<string, T>`, an index signature) is", name))
-		return nil
+	if len(args) > 0 && !l.isRecordExpression(args[0]) {
+		return l.typedObjectStatic(call, name)
 	}
 	if l.hasSpreadArgument(call) {
 		return nil
@@ -466,9 +466,6 @@ func (l *lowerer) recordMethodCall(call *ast.CallExpression) ir.Expr {
 func (l *lowerer) forInStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	s := node.AsForInOrOfStatement()
 	switch {
-	case !l.isRecordExpression(s.Expression):
-		l.notSupportedYet(node, "`for...in` over anything but a hash-map object (`Record<string, T>`, an index signature) is")
-		return nil
 	case s.Initializer.Kind != ast.KindVariableDeclarationList || len(s.Initializer.AsVariableDeclarationList().Declarations.Nodes) != 1:
 		l.notSupportedYet(s.Initializer, "`for...in` without a declaration of its variable is")
 		return nil
@@ -488,15 +485,14 @@ func (l *lowerer) forInStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	at := l.pos(node)
 	recordLocal := l.newLocal("record", record.Type())
-	keys := l.mapItemsArray(mapIterable{&ir.LocalRef{Local: recordLocal}, mapKeys}, node)
+	key := l.newLocal(name.Text(), ir.String)
+	keys, present := l.forInKeys(&ir.LocalRef{Local: recordLocal}, &ir.LocalRef{Local: key}, s.Expression)
 	if keys == nil {
 		return nil
 	}
 	keysLocal, index := l.newLocal("keys", keys.Type()), l.newLocal("index", ir.Number)
-	key := l.newLocal(name.Text(), ir.String)
 	l.locals[symbol] = key
 	body := l.statementBlock(s.Statement)
-	present := l.recordHas(&ir.LocalRef{Local: recordLocal}, &ir.LocalRef{Local: key}, false)
 	loop := &ir.Loop{
 		At:     at,
 		Label:  label,
@@ -507,10 +503,37 @@ func (l *lowerer) forInStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 			&ir.If{At: at, Cond: present, Then: body},
 		}},
 	}
+	if present == nil { // an object's keys stay
+		loop.Body.Stmts[1] = body
+	}
 	return []ir.Stmt{&ir.Block{At: at, Stmts: []ir.Stmt{
 		&ir.LocalDecl{At: at, Local: recordLocal, Init: record},
 		&ir.LocalDecl{At: at, Local: keysLocal, Init: keys},
 		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
 		loop,
 	}}}
+}
+
+// forInKeys returns the keys `for (k in object)` visits, taken when it starts, and the test
+// that key, a key of them, is still one when its turn comes (nil if keys can't go away):
+// a hash-map object's keys in JS's order (D-059), or any other value's own enumerable
+// properties through its dynamic value (D-086). It reports (at node) and returns nil
+// keys for a value with none to take.
+func (l *lowerer) forInKeys(object ir.Expr, key ir.Expr, node *ast.Node) (keys ir.Expr, present ir.Expr) {
+	switch t := object.Type(); {
+	case isRecord(t):
+		keys := l.mapItemsArray(mapIterable{object, mapKeys}, node)
+		if keys == nil {
+			return nil, nil
+		}
+		return keys, l.recordHas(object, key, false)
+	case t == ir.Void:
+		l.notSupportedYet(node, "`for...in` over nothing is")
+		return nil, nil
+	}
+	keys = &ir.CallBuiltin{Builtin: ir.ValueKeyArray, Args: []ir.Expr{box(object)}}
+	if t := object.Type(); t == ir.Value || isUnion(t) {
+		present = &ir.CallBuiltin{Builtin: ir.ValueHasOwn, Args: []ir.Expr{box(object), box(key)}} // a hash-map object's may be deleted
+	}
+	return keys, present
 }

@@ -1,0 +1,54 @@
+// The Object functions and for...in of M3.5d (D-086), checked against Node.
+class Point {
+  z = 0;
+  #secret = 1;
+  constructor(public x: number, public y: number) {}
+  get length(): number {
+    return Math.hypot(this.x, this.y);
+  }
+}
+const p = new Point(3, 4);
+const literal = { name: "box", size: 2, get area(): number { return this.size * this.size; } };
+interface Options {
+  verbose?: boolean;
+  level: number;
+}
+const options: Options = { level: 1 };
+console.log(Object.keys(p), Object.values(p), Object.entries(p));
+console.log(Object.keys(literal), Object.values(literal), Object.entries(literal));
+console.log(Object.keys(options), Object.keys([7, 8, 9]), Object.keys("hi"), Object.values([1, 2]), Object.entries(["a", "b"]));
+console.log(Object.hasOwn(p, "x"), Object.hasOwn(p, "length"), Object.hasOwn(literal, "area"), Object.hasOwn(options, "verbose"));
+for (const [key, value] of Object.entries({ a: 1, b: 2 })) console.log(key, value * 10);
+const total = Object.values({ apples: 3, pears: 5 }).reduce((sum, n) => sum + n, 0);
+console.log(total);
+
+// for...in
+for (const k in p) console.log("p has", k);
+for (const k in literal) console.log("literal has", k);
+for (const i in ["x", "y"]) console.log("index", i, typeof i);
+const data: any = JSON.parse('{"one": 1, "two": {"three": 3}}');
+for (const k in data) console.log("data has", k, data[k]);
+
+// Object.assign
+class Settings {
+  color = "red";
+  width = 10;
+}
+const settings = new Settings();
+const same = Object.assign(settings, { width: 20 }, { color: "blue" });
+console.log(settings, same === settings);
+const target = { a: 1, b: 2 };
+Object.assign(target, { b: 3 }, null, undefined);
+console.log(target);
+
+// Object.is, Object.freeze and Object.fromEntries
+console.log(Object.is(NaN, NaN), Object.is(0, -0), Object.is(-0, -0), Object.is("a", "a"), Object.is(p, p), Object.is(p, new Point(3, 4)));
+const frozen = Object.freeze({ k: 1 });
+const frozenList = Object.freeze([1, 2, 3]);
+console.log(frozen, frozenList, frozen.k + frozenList[2]);
+const fromPairs = Object.fromEntries([["a", 1], ["b", 2]] as [string, number][]);
+console.log(fromPairs, fromPairs.b);
+const scores = new Map<string, number>([["ann", 3], ["bo", 5]]);
+console.log(Object.fromEntries(scores), Object.fromEntries(scores.entries()));
+const doubled = Object.fromEntries(Object.entries({ x: 1, y: 2 }).map(([k, v]) => [k, v * 2] as [string, number]));
+console.log(doubled);

@@ -1063,6 +1063,12 @@ var (
 	ValueValues  = &Builtin{Name: "Object.values", Params: []Type{Value}, Result: Value}
 	ValueEntries = &Builtin{Name: "Object.entries", Params: []Type{Value}, Result: Value}
 	ValueHasOwn  = &Builtin{Name: "Object.hasOwn", Params: []Type{Value, Value}, Result: Bool}
+	// ValueKeyArray is Object.keys of any value as a string[]; ObjectAssign is
+	// Object.assign(target, ...sources) with the sources as an any[]; ValueSameValue is
+	// Object.is (D-086).
+	ValueKeyArray  = &Builtin{Name: "Object.keys", Params: []Type{Value}, Result: StringArray}
+	ObjectAssign   = &Builtin{Name: "Object.assign", Params: []Type{Value, ValueArray}, Result: Void}
+	ValueSameValue = &Builtin{Name: "Object.is", Params: []Type{Value, Value}, Result: Bool}
 	// ValueIterable is what `for…of` iterates over for a dynamic value: an array or tuple
 	// itself, or a new array of the items of a string, set or map (D-078); its second
 	// argument is the iterated expression's source text, for V8's `TypeError: x is not

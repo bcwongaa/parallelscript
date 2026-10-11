@@ -1,0 +1,5 @@
+// Object.assign into a new `{}` would add properties; a spread makes the object instead.
+const a = { x: 1 };
+const merged = Object.assign({}, a);
+
+// error: objects_not_yet.pts:3:30 - error PTS1001: `Object.assign` into a new `{}` is not supported yet; a spread, `{ ...a, ...b }`, is

@@ -1,0 +1,20 @@
+// Object.assign writes through the target's declared types (D-086): it can't add a property or change one's type.
+class Settings {
+  color = "red";
+  width = 10;
+}
+const settings = new Settings();
+for (const source of [{ height: 5 }, { width: "wide" }, { width: 12 }] as any[]) {
+  try {
+    Object.assign(settings, source);
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+console.log(settings);
+
+// no-diff: JS adds the property and writes any value
+// expect:
+// TypeError Cannot add property height, object is not extensible
+// TypeError Cannot set property width of Settings: expected number, got string
+// Settings { color: 'red', width: 12 }

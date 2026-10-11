@@ -16,7 +16,7 @@ const (
 var throwingBuiltins = map[*ir.Builtin]bool{
 	ir.StringElementChecked: true, ir.StringRepeat: true, ir.StringPadStart: true, ir.StringPadEnd: true, ir.ThrowError: true,
 	ir.StringFromCodePoint: true, ir.NumberToFixed: true, ir.NumberToExponential: true, ir.NumberToPrecision: true,
-	ir.NumberToStringRadix: true, ir.I64ToStringRadix: true, ir.U64ToStringRadix: true,
+	ir.NumberToStringRadix: true, ir.I64ToStringRadix: true, ir.U64ToStringRadix: true, ir.ObjectAssign: true, ir.ValueKeyArray: true,
 }
 
 func effectsOf(expr ir.Expr) effects {
@@ -30,7 +30,7 @@ func effectsOf(expr ir.Expr) effects {
 		for _, arg := range x.Args {
 			f |= effectsOf(arg)
 		}
-		if x.Builtin == ir.ConsoleLog {
+		if x.Builtin == ir.ConsoleLog || x.Builtin == ir.ObjectAssign {
 			f |= writes
 		}
 		if throwingBuiltins[x.Builtin] {

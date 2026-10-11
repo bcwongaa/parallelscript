@@ -11,8 +11,6 @@ interface Tree {
 let tree: Tree = {};
 const ops: Record<string, () => number> = { one() { return 1; } };
 const point = { x: 1, y: 2 };
-console.log(Object.keys(point));
-for (const k in point) console.log(k);
 const rec: Record<string, number> = { a: 1 };
 let name = "";
 for (name in rec) console.log(name);
@@ -25,9 +23,7 @@ delete list[0];
 // error: records_not_yet.pts:7:5 - error PTS1001: index signatures with keys of type `data-${string}` are not supported yet
 // error: records_not_yet.pts:11:5 - error PTS1001: recursive hash-map object types (Tree) are not supported yet
 // error: records_not_yet.pts:12:45 - error PTS1001: methods and accessors in hash-map objects are not supported yet
-// error: records_not_yet.pts:14:13 - error PTS1001: `Object.keys` of anything but a hash-map object (`Record<string, T>`, an index signature) is not supported yet
-// error: records_not_yet.pts:15:1 - error PTS1001: `for...in` over anything but a hash-map object (`Record<string, T>`, an index signature) is not supported yet
-// error: records_not_yet.pts:18:6 - error PTS1001: `for...in` without a declaration of its variable is not supported yet
-// error: records_not_yet.pts:19:13 - error PTS1001: the method `toString` of hash-map objects is not supported yet
-// error: records_not_yet.pts:20:43 - error PTS1001: using a `{x: number; y: number}` as a hash-map object (`Record<string, number>`) is not supported yet; a copy of its properties, `{ ...o }`, is one
-// error: records_not_yet.pts:22:1 - error PTS1002: `delete` works only on hash-map objects
+// error: records_not_yet.pts:16:6 - error PTS1001: `for...in` without a declaration of its variable is not supported yet
+// error: records_not_yet.pts:17:13 - error PTS1001: the method `toString` of hash-map objects is not supported yet
+// error: records_not_yet.pts:18:43 - error PTS1001: using a `{x: number; y: number}` as a hash-map object (`Record<string, number>`) is not supported yet; a copy of its properties, `{ ...o }`, is one
+// error: records_not_yet.pts:20:1 - error PTS1002: `delete` works only on hash-map objects

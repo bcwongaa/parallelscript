@@ -1347,6 +1347,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isObjectStatic(ast.SkipParentheses(call.Expression), "keys", "values", "entries", "hasOwn") {
 		return l.objectStaticCall(call)
 	}
+	if x, handled := l.objectFunctionCall(call); handled {
+		return x
+	}
 	if l.isGlobalMember(ast.SkipParentheses(call.Expression), "JSON", "parse") {
 		return l.jsonParse(call)
 	}
@@ -2672,6 +2675,18 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	return &ir.Unary{Op: ir.Neg, X: x}
 }
 
+// coveringMember returns the member of the intersection t that has every property t
+// has, whose values are therefore t's values, or nil if none has.
+func (l *lowerer) coveringMember(t *checker.Type) *checker.Type {
+	properties := l.checker.GetPropertiesOfType(t)
+	for _, member := range t.Types() {
+		if !slices.ContainsFunc(properties, func(p *ast.Symbol) bool { return l.checker.GetPropertyOfType(member, p.Name) == nil }) {
+			return member
+		}
+	}
+	return nil
+}
+
 // builtin returns the runtime function a member access refers to, or nil if it isn't
 // a builtin member of the prelude or the ES library.
 func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
@@ -2720,6 +2735,11 @@ func box(value ir.Expr) ir.Expr {
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	t = l.instantiate(t)
+	if t.Flags()&checker.TypeFlagsIntersection != 0 {
+		if member := l.coveringMember(t); member != nil {
+			t = member // `Settings & { width: number }`, which Object.assign gives, is a Settings (D-086)
+		}
+	}
 	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
 		if generic == nil {
 			return nil // the class failed, which was reported

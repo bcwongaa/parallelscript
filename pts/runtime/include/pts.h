@@ -848,6 +848,10 @@ pts_value pts_value_keys(pts_value value);
 pts_value pts_value_values(pts_value value);
 pts_value pts_value_entries(pts_value value);
 bool pts_value_has_own(pts_value value, pts_value key);
+/* Object.keys of a value as a string[]; Object.assign(target, ...sources); Object.is (SameValue) (D-086). */
+struct pts_array *pts_value_key_array(pts_value value);
+void pts_object_assign(pts_value target, struct pts_array *sources);
+bool pts_value_same_value(pts_value a, pts_value b);
 /*
  * What `for…of` iterates over for a dynamic value (D-078): an array or tuple itself, read
  * live, or a new array of a string's code points, a set's elements or a map's [key,
