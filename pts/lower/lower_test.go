@@ -169,9 +169,9 @@ func TestALocalNamedNaNShadowsTheGlobal(t *testing.T) {
 
 func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, `console.log(+true);`)
+	err := lowerInvalid(t, "function f(): void {}\nconsole.log(+f());\n")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the prefix `+` operator on boolean is not supported yet")
+	assert.Equal(t, err.Message, "the prefix `+` operator on void is not supported yet")
 }
 
 func TestUnsupportedOperatorIsNamed(t *testing.T) {
@@ -196,10 +196,10 @@ func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 
 func TestEveryUnsupportedConstructIsReported(t *testing.T) {
 	t.Parallel()
-	_, errors := lowerSource(t, "for (const e of [1].entries()) {}\nconsole.log(+true);\n")
+	_, errors := lowerSource(t, "const weak = new WeakMap<object, number>();\nfunction f(): void {}\nconsole.log(+f());\n")
 	assert.Equal(t, len(errors), 2)
 	assert.Equal(t, errors[0].Line, 1)
-	assert.Equal(t, errors[1].Line, 2)
+	assert.Equal(t, errors[1].Line, 3)
 }
 
 func TestIntegerLocalsAndLiteralsTakeTheirDeclaredType(t *testing.T) {

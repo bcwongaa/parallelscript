@@ -393,6 +393,31 @@ enum { PTS_NUMBER_BUF_SIZE = 32 };
 size_t pts_number_format(double value, char *buf);
 
 /*
+ * Number.prototype's formatting methods (D-083): toFixed, toExponential and toPrecision
+ * round the exact value half up and throw RangeError for digits out of range;
+ * pts_number_to_exponential_shortest is toExponential() without an argument.
+ * toString(radix) throws RangeError for a radix outside 2..36; toLocaleString is Node's
+ * default English format.
+ */
+pts_string *pts_number_to_fixed(double x, double fraction_digits);
+pts_string *pts_number_to_exponential(double x, double fraction_digits);
+pts_string *pts_number_to_exponential_shortest(double x);
+pts_string *pts_number_to_precision(double x, double precision);
+pts_string *pts_number_to_string_radix(double x, double radix);
+pts_string *pts_number_to_locale_string(double x);
+/* The global parseInt (radix 0 for a left-out one) and parseFloat. */
+double pts_parse_int(pts_string *string, double radix);
+double pts_parse_float(pts_string *string);
+/* toString(radix) of a 64-bit integer, every digit exact. */
+pts_string *pts_i64_to_string_radix(int64_t value, double radix);
+pts_string *pts_u64_to_string_radix(uint64_t value, double radix);
+/* Number.isInteger, isSafeInteger, isFinite and isNaN of a number, and of a dynamic value (false unless it is a number). */
+static inline bool pts_number_is_integer(double x) { return __builtin_isfinite(x) && __builtin_trunc(x) == x; }
+static inline bool pts_number_is_safe_integer(double x) { return pts_number_is_integer(x) && __builtin_fabs(x) <= 9007199254740991.0; }
+static inline bool pts_number_is_finite(double x) { return __builtin_isfinite(x); }
+static inline bool pts_number_is_nan(double x) { return x != x; }
+
+/*
  * Number operators whose C spelling differs from JS. Generated C must be
  * compiled with -ffp-contract=off so a*b+c is never fused (JS rounds each step).
  * These use clang builtins rather than <math.h>, whose macros would collide
@@ -704,6 +729,12 @@ bool pts_value_truthy(pts_value value);
 
 /* typeof of a primitive value: "number" (64-bit integers too), "string", "boolean", "undefined" or "object" (null). */
 pts_string *pts_value_typeof(pts_value value);
+
+/* Number.isInteger, isSafeInteger, isFinite and isNaN of a dynamic value: false unless it is a number (D-083). */
+bool pts_value_is_integer(pts_value value);
+bool pts_value_is_safe_integer(pts_value value);
+bool pts_value_is_finite(pts_value value);
+bool pts_value_is_nan(pts_value value);
 
 /*
  * Unions (D-062) are pts_values. These read one as the member type the checker narrowed

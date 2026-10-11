@@ -257,11 +257,52 @@ static pts_value primitive_value_of(pts_value self, uint32_t argc, const pts_val
 }
 
 static pts_value primitive_to_string(pts_value self, uint32_t argc, const pts_value *argv) {
-  pts_value radix = argument(argc, argv, 0);
-  if (radix != PTS_VALUE_UNDEFINED && pts_value_to_number(radix) != 10) {
-    pts_throw_new(&pts_type_builtin_TypeError, "toString with a radix through `any` is not supported yet");
-  }
+  (void)argc, (void)argv;
   return pts_value_from_string(pts_value_to_string(self));
+}
+
+/* ---------------------------------------------------------------- numbers (D-083) */
+
+static double number_self(pts_value self) { return pts_value_to_number(self); }
+
+static pts_value number_to_string(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value radix = argument(argc, argv, 0);
+  if (radix == PTS_VALUE_UNDEFINED) {
+    return pts_value_from_string(pts_value_to_string(self));
+  }
+  double r = pts_value_to_number(radix);
+  if (pts_value_is_object(self)) { /* a boxed 64-bit integer: every digit exact */
+    pts_kind kind = pts_value_as_object(self)->type->kind;
+    return pts_value_from_string(kind == PTS_KIND_INT64 ? pts_i64_to_string_radix(pts_value_as_i64(self), r)
+                                                        : pts_u64_to_string_radix(pts_value_as_u64(self), r));
+  }
+  return pts_value_from_string(pts_number_to_string_radix(number_self(self), r));
+}
+
+static pts_value number_to_fixed(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_string(pts_number_to_fixed(number_self(self), number_argument(argc, argv, 0, 0)));
+}
+
+static pts_value number_to_precision(pts_value self, uint32_t argc, const pts_value *argv) {
+  if (argument(argc, argv, 0) == PTS_VALUE_UNDEFINED) {
+    return pts_value_from_string(pts_value_to_string(self));
+  }
+  return pts_value_from_string(pts_number_to_precision(number_self(self), number_argument(argc, argv, 0, 0)));
+}
+
+static pts_value number_to_exponential(pts_value self, uint32_t argc, const pts_value *argv) {
+  if (argument(argc, argv, 0) == PTS_VALUE_UNDEFINED) {
+    return pts_value_from_string(pts_number_to_exponential_shortest(number_self(self)));
+  }
+  return pts_value_from_string(pts_number_to_exponential(number_self(self), number_argument(argc, argv, 0, 0)));
+}
+
+static pts_value number_to_locale_string(pts_value self, uint32_t argc, const pts_value *argv) {
+  check_default_locale(argc, argv, 0, "toLocaleString");
+  if (argument(argc, argv, 1) != PTS_VALUE_UNDEFINED) {
+    pts_throw_new(&pts_type_builtin_TypeError, "toLocaleString with options through `any` is not supported yet");
+  }
+  return pts_value_from_string(pts_number_to_locale_string(number_self(self)));
 }
 
 static const named_method string_methods[] = {
@@ -301,7 +342,17 @@ static const named_method string_methods[] = {
     {NULL, NULL},
 };
 
-static const named_method primitive_methods[] = {
+static const named_method number_methods[] = {
+    {"toExponential", number_to_exponential},
+    {"toFixed", number_to_fixed},
+    {"toLocaleString", number_to_locale_string},
+    {"toPrecision", number_to_precision},
+    {"toString", number_to_string},
+    {"valueOf", primitive_value_of},
+    {NULL, NULL},
+};
+
+static const named_method boolean_methods[] = {
     {"toString", primitive_to_string},
     {"valueOf", primitive_value_of},
     {NULL, NULL},
@@ -993,7 +1044,7 @@ static builtin_method find(const named_method *methods, const char *name) {
 }
 
 bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, const pts_value *argv, pts_value *result) {
-  const named_method *methods = primitive_methods; /* numbers and booleans */
+  const named_method *methods = value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE ? boolean_methods : number_methods;
   if (pts_value_is_object(value)) {
     switch (pts_value_as_object(value)->type->kind) {
     case PTS_KIND_STRING:

@@ -1,0 +1,12 @@
+// Number's methods through `any` (D-083), checked against Node.
+const data: any = JSON.parse('{"price": 1234.5678, "count": 255, "tiny": 0.000012345, "flag": true}');
+console.log(data.price.toFixed(2), data.price.toFixed(), data.price.toPrecision(3), data.price.toPrecision(), data.tiny.toExponential(2), data.tiny.toExponential());
+console.log(data.count.toString(16), data.count.toString(2), data.count.toString(), data.price.toLocaleString(), data.price.toLocaleString("en-US"), data.count.valueOf());
+console.log(data.flag.toString(), data.flag.valueOf(), Number(data.price), +data.count, Number.isInteger(data.count), Number.isInteger(data.price));
+for (const f of [() => data.count.toFixed(101), () => data.count.toString(1), () => data.flag.toFixed(2)]) {
+  try {
+    f();
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}

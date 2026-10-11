@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	literalsPerPart    = 2000
-	literalsPerLog     = 8
-	randomPairsPerPart = 600
-	maxReportedDiffers = 10
+	literalsPerPart          = 2000
+	literalsPerLog           = 8
+	randomPairsPerPart       = 600
+	maxReportedDiffers       = 10
+	numberMethodCasesPerPart = 400
 )
 
 // specialOperands are the values where number operators are easiest to get wrong.
@@ -37,6 +38,8 @@ var numberCorpusParts = []struct {
 	{"special_operands", 3, emitSpecialOperands},
 	{"random_operands_1", 4, emitRandomOperands},
 	{"random_operands_2", 5, emitRandomOperands},
+	{"methods_1", 6, emitNumberMethods},
+	{"methods_2", 7, emitNumberMethods},
 }
 
 // TestGeneratedNumberCorpusMatchesNode is the large differential corpus for numbers:
@@ -109,6 +112,21 @@ func emitSpecialOperands(_ *rand.Rand, emit func(string)) {
 func emitRandomOperands(rng *rand.Rand, emit func(string)) {
 	for i := range randomPairsPerPart {
 		emit(operatorBlock(numberLiteral(randomNumber(rng, i)), numberLiteral(randomNumber(rng, i+1))))
+	}
+}
+
+// emitNumberMethods prints Number's formatting methods, and parseInt and parseFloat of
+// their results, for random numbers and arguments (D-083).
+func emitNumberMethods(rng *rand.Rand, emit func(string)) {
+	for i := range numberMethodCasesPerPart {
+		x := numberLiteral(randomNumber(rng, i))
+		if i%9 == 0 {
+			x = specialOperands[rng.IntN(len(specialOperands))]
+		}
+		radix := 2 + rng.IntN(35)
+		emit(fmt.Sprintf("{ const x = %s; console.log(x.toFixed(%d), x.toPrecision(%d), x.toExponential(%d), x.toExponential(), x.toString(%d), "+
+			"x.toLocaleString(), parseFloat(String(x)), parseInt(x.toString(%d), %d), parseInt(String(x))); }",
+			x, rng.IntN(21), 1+rng.IntN(21), rng.IntN(21), radix, radix, radix))
 	}
 }
 

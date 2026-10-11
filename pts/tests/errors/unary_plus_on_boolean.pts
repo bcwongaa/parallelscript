@@ -1,4 +1,0 @@
-// Unary plus converts only numbers so far; ToNumber of other values comes later.
-console.log(+true);
-
-// error: unary_plus_on_boolean.pts:2:13 - error PTS1001: the prefix `+` operator on boolean is not supported yet

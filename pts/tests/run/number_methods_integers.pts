@@ -1,0 +1,21 @@
+// Number's methods on the integer types (D-083): toString(radix) of a 64-bit integer is exact.
+const h: u64 = 18446744073709551615;
+console.log(h.toString(16), h.toString(2).length, h.toString());
+const n: i64 = -9223372036854775808;
+console.log(n.toString(16), n.toString(36), n.toString(10));
+const b: u8 = 255;
+console.log(b.toString(2), b.toFixed(2), b.toPrecision(2), b.toExponential(1), (b as i32).toLocaleString());
+const big: int = 1234567;
+console.log(big.toLocaleString(), Number(big) + 0.5, +big, Number.isInteger(big), Number.isSafeInteger(h));
+try {
+  h.toString(40);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+// expect:
+// ffffffffffffffff 64 18446744073709551615
+// -8000000000000000 -1y2p0ij32e8e8 -9223372036854775808
+// 11111111 255.00 2.6e+2 2.6e+2 255
+// 1,234,567 1234567.5 1234567 true false
+// toString() radix argument must be between 2 and 36

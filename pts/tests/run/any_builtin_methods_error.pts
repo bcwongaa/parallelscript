@@ -26,10 +26,9 @@ attempt("push data", () => { looseItems.push({ name: "c" }); });
 console.log(numbers, items.map((item) => item.name));
 const doubled: number[] = loose.map((n: number) => n * 2);
 console.log(doubled, doubled === loose, (loose.filter((n: number) => n > 1) as number[]).length);
-attempt("a radix", () => { const n: any = 255; n.toString(16); });
 attempt("a missing string method", () => { const s: any = "abc"; s.normalize(); });
 
-// no-diff: JS writes whatever it is given; radixes come with M3.5b and normalize with M6.1
+// no-diff: JS writes whatever it is given; normalize comes with M6.1
 // expect:
 // push a string -> TypeError: Cannot set property element of Array: expected number, got string
 // unshift null -> TypeError: Cannot set property element of Array: expected number, got null
@@ -39,5 +38,4 @@ attempt("a missing string method", () => { const s: any = "abc"; s.normalize(); 
 // push data -> TypeError: Cannot set property element of Array: expected Item, got Object
 // [ 1, 2, 3 ] [ 'a', 'b' ]
 // [ 2, 4, 6 ] false 2
-// a radix -> TypeError: toString with a radix through `any` is not supported yet
 // a missing string method -> TypeError: s.normalize is not a function

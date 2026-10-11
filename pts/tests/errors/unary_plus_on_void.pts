@@ -1,0 +1,5 @@
+// Unary plus converts every value but nothing: a call of a function that returns void.
+function f(): void {}
+console.log(+f());
+
+// error: unary_plus_on_void.pts:3:13 - error PTS1001: the prefix `+` operator on void is not supported yet

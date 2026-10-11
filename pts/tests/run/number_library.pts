@@ -1,0 +1,58 @@
+// The Number methods, statics and conversions of M3.5b (D-083), checked against Node.
+const values = [0, -0, 1, -1, 0.5, 1.5, 2.5, -2.5, 1.005, 1.45, 123.456, -123.456, 0.000001234, 1e-7, 1e21, 1.5e300, 5e-324, 999.995, 0.1 + 0.2, NaN, Infinity, -Infinity];
+for (const x of values) {
+  console.log(x, x.toFixed(), x.toFixed(2), x.toFixed(5), x.toPrecision(), x.toPrecision(1), x.toPrecision(3), x.toPrecision(12));
+  console.log(x.toExponential(), x.toExponential(0), x.toExponential(3), x.toString(), x.toString(2), x.toString(16), x.toString(36), x.toLocaleString());
+}
+console.log((25).toFixed(20), (0.1).toFixed(20), (1.23e-10).toFixed(20), (123.456).toFixed(100).length);
+console.log((255).toString(16), (-255).toString(36), (3.75).toString(2), (Math.PI).toString(7), (1e21).toString(2).length);
+console.log((1234567.891).toLocaleString(), (-0.0004).toLocaleString(), (1e-7).toLocaleString(), (98765.4321).toLocaleString("en-US"));
+console.log((5).valueOf(), (12.5).toString(10));
+for (const bad of [-1, 101, Infinity]) {
+  try {
+    (1).toFixed(bad);
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+for (const f of [() => (1).toPrecision(0), () => (1).toExponential(-1), () => (1).toString(1), () => (1).toString(37)]) {
+  try {
+    f();
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+console.log(NaN.toFixed(100), NaN.toExponential(200), Infinity.toPrecision(0));
+
+// parseInt and parseFloat
+const texts = ["42", "  42px", "-17", "+8", "0x1F", "-0X1f", "0b11", "  ", "", "abc", "1e3", "3.99", "-0", "12345678901234567890", "1_000", "  7"];
+for (const t of texts) {
+  console.log(JSON.stringify(t), parseInt(t), parseInt(t, 16), parseInt(t, 2), parseInt(t, 36), parseInt(t, 1), Number.parseInt(t, 8), parseFloat(t), Number.parseFloat(t));
+}
+console.log(parseFloat("3.5e2x"), parseFloat(".5"), parseFloat("-.5e-1"), parseFloat("Infinityx"), parseFloat("-Infinity"), parseFloat("1e"), parseFloat("1e+"), parseFloat("0x10"), parseFloat("inf"));
+console.log(parseInt("zz", 36), parseInt("ZZ", 36), parseInt("11111111111111111111111111111111111111111111111111111111", 2), parseInt("777777777777777777777", 8), parseInt("zzzzzzzzzzzzz", 36));
+
+// isNaN, isFinite and Number's predicates
+const things: unknown[] = [1, 1.5, NaN, Infinity, "5", "abc", true, null, undefined, 9007199254740991, 9007199254740992, -0];
+for (const t of things) {
+  console.log(Number.isInteger(t), Number.isSafeInteger(t), Number.isFinite(t), Number.isNaN(t));
+}
+console.log(isNaN(NaN), isNaN(5), isFinite(Infinity), isFinite(5), Number.isInteger(5), Number.isNaN(0 / 0));
+const anything: any = "12";
+console.log(isNaN(anything), isFinite(anything), Number.isFinite(anything), Number.isInteger(anything));
+
+// Number's constants
+console.log(Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER, Number.EPSILON, Number.MAX_VALUE, Number.MIN_VALUE);
+console.log(Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, 0.1 + 0.2 - 0.3 < Number.EPSILON);
+
+// Number(x), +x and Boolean(x)
+const s = "  12.5  ";
+console.log(Number(s), +s, -s, Number(""), Number("0x10"), Number("1e3"), Number("12px"), Number(true), Number(false), Number(null), Number(undefined), Number());
+console.log(+true, +false, +"", +"  ", -"3", +[5], +[1, 2], +{}, Number([]), Number([7]), Number(anything), +anything);
+console.log(Boolean(0), Boolean(1), Boolean(""), Boolean("x"), Boolean(null), Boolean(undefined), Boolean(NaN), Boolean({}), Boolean([]), Boolean());
+
+// String, Number and Boolean as values
+console.log(["1", "2.5", "x"].map(Number), [1, 2, 3].map(String), [0, 1, "", "a", null, 2].filter(Boolean));
+console.log("3,1,2".split(",").map(Number).reduce((a, b) => a + b, 0));
+const convert: (value: any) => number = Number;
+console.log(convert("8"), typeof Number, Number, String, Boolean);

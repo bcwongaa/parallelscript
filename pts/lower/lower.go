@@ -1232,6 +1232,9 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	if value, ok := libConstants[node.Text()]; ok && l.isDeclaredInDefaultLib(symbol) {
 		return &ir.NumberConst{Value: value}
 	}
+	if l.isConversionFunction(node) {
+		return l.conversionFunction(node.Text(), node)
+	}
 	if l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) {
 		l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
 	} else {
@@ -1352,6 +1355,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.stringCall(call)
 	}
 	if x, handled := l.stringLibraryCall(call); handled {
+		return x
+	}
+	if x, handled := l.numberLibraryCall(call); handled {
 		return x
 	}
 	if generic, ok := l.generics[callee]; ok {
@@ -1881,6 +1887,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	}
 	if name := l.mathMember(node); name != "" {
 		return l.mathConstant(node, name)
+	}
+	if x, ok := l.numberConstant(node); ok {
+		return x
 	}
 	builtin := l.builtin(node)
 	switch {
@@ -2639,12 +2648,12 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	if x == nil {
 		return nil
 	}
-	if x.Type() == ir.Value { // JS's ToNumber of an any (D-070)
-		x = toNumber(x)
-	}
-	if !ir.IsNumeric(x.Type()) {
+	if !convertsToNumber(x.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
 		return nil
+	}
+	if !ir.IsNumeric(x.Type()) {
+		x = toNumber(x) // JS's ToNumber (D-070, D-083)
 	}
 	switch expr.Operator {
 	case ast.KindPlusToken:

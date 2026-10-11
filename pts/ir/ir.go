@@ -960,6 +960,16 @@ func mathFunction(name string, n int) *Builtin {
 	return &Builtin{Name: "Math." + name, Params: params, Result: Number}
 }
 
+// numberMember is a member of Number.prototype; it takes the number, then params.
+func numberMember(name string, result Type, params ...Type) *Builtin {
+	return &Builtin{Name: "Number." + name, Params: append([]Type{Number}, params...), Result: result}
+}
+
+// numberTest is one of Number's predicates (isInteger, …) of a value of type t.
+func numberTest(name string, t Type) *Builtin {
+	return &Builtin{Name: "Number." + name, Params: []Type{t}, Result: Bool}
+}
+
 // stringMember is a member of String.prototype; it takes the string, then params.
 func stringMember(name string, result Type, params ...Type) *Builtin {
 	return &Builtin{Name: "String." + name, Params: append([]Type{String}, params...), Result: result}
@@ -1076,6 +1086,32 @@ var (
 	MathSign  = mathFunction("sign", 1)
 	MathMax   = mathFunction("max", 2)
 	MathMin   = mathFunction("min", 2)
+
+	// Number.prototype's formatting methods (D-083): toFixed, toExponential and toPrecision
+	// round half up and throw RangeError for digits out of range;
+	// NumberToExponentialShortest is toExponential(). NumberToStringRadix is toString(radix),
+	// which I64ToStringRadix and U64ToStringRadix do exactly for 64-bit integers.
+	NumberToFixed               = numberMember("toFixed", String, Number)
+	NumberToExponential         = numberMember("toExponential", String, Number)
+	NumberToExponentialShortest = numberMember("toExponential", String)
+	NumberToPrecision           = numberMember("toPrecision", String, Number)
+	NumberToStringRadix         = numberMember("toString", String, Number)
+	NumberToLocaleString        = numberMember("toLocaleString", String)
+	I64ToStringRadix            = &Builtin{Name: "Number.toString", Params: []Type{I64, Number}, Result: String}
+	U64ToStringRadix            = &Builtin{Name: "Number.toString", Params: []Type{U64, Number}, Result: String}
+	// Number.isInteger, isSafeInteger, isFinite and isNaN of a number, and of a dynamic
+	// value (false for anything but a number).
+	NumberIsInteger     = numberTest("isInteger", Number)
+	NumberIsSafeInteger = numberTest("isSafeInteger", Number)
+	NumberIsFinite      = numberTest("isFinite", Number)
+	NumberIsNaN         = numberTest("isNaN", Number)
+	ValueIsInteger      = numberTest("isInteger", Value)
+	ValueIsSafeInteger  = numberTest("isSafeInteger", Value)
+	ValueIsFinite       = numberTest("isFinite", Value)
+	ValueIsNaN          = numberTest("isNaN", Value)
+	// ParseInt is parseInt(string, radix), radix 0 if left out; ParseFloat is parseFloat.
+	ParseInt   = &Builtin{Name: "parseInt", Params: []Type{String, Number}, Result: Number}
+	ParseFloat = &Builtin{Name: "parseFloat", Params: []Type{String}, Result: Number}
 
 	// ThrowError throws an error of the class its first argument names, with the message
 	// its second gives; until exceptions arrive (M3.2), it ends the program as uncaught.

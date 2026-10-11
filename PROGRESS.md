@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.5b Numbers
+- **Next task:** M3.5c `Math` in full and the remaining `Array` methods
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.5b Numbers: `toFixed`, `toExponential`, `toPrecision` (exact half-up rounding), `toString(radix)` (V8's algorithm; exact for 64-bit integers), `toLocaleString` (Node's English format), `parseInt`/`parseFloat` (V8's values), `Number.isInteger`/`isSafeInteger`/`isFinite`/`isNaN`, global `isNaN`/`isFinite`, Number's constants, `Number(x)`, `Boolean(x)`, unary `+`/`-`/`~` on any value, `String`/`Number`/`Boolean` as values (`map(Number)`, `filter(Boolean)`), the number methods through `any`; equal to Node on 800 random numbers per corpus run (D-083, SPEC §9.60).
 - M3.5a Strings: `at`, `charAt`, `codePointAt`, `lastIndexOf`, `substr`, `concat`, `replace`/`replaceAll` with string patterns (replacement strings with `$` patterns, and callbacks through a generated helper), `localeCompare` in Node's default collation (per-code-point weights generated from Node's ICU, equal to Node's order on 300,000 random strings), `isWellFormed`/`toWellFormed`, `toLocaleUpperCase`/`toLocaleLowerCase`, `String.fromCharCode`/`fromCodePoint`, all through `any` too; a builtin method given arguments the runtime doesn't take is PTS1001 instead of dropping them (D-082, SPEC §9.59). M3.5 split by D-082; `normalize` moved to M6.1.
 - M3.4b JSON and word-frequency benchmarks: `pts/bench/json` (0.63× Node, 1.56× Go after fast paths in stringify and parse) and `pts/bench/word_freq` (0.79× Node, 0.35× Go) (D-081, `docs/BENCHMARKS.md`). M3.4 is complete.
 - M3.4a JSON.parse and JSON.stringify: parse into dynamic values (hash-map objects of `any`, which `Record<string, any>` now shares, `any[]`, numbers, strings) with V8's SyntaxError messages byte for byte; stringify of any value with toJSON, replacer functions and property lists, indents and V8's circular-structure TypeError (D-080, SPEC §9.57). M3.4 split by D-080.
@@ -84,7 +85,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.5b Numbers, then M3.5c (`Math` in full, the remaining array methods), M3.5d (`Object` functions, `for…in`), M3.5e (basic `Date`); see `docs/MASTER_PLAN.md`. Small gaps left (PTS1001): `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` with locales other than English or options.
+1. M3.5c (`Math` in full, the remaining array methods), then M3.5d (`Object` functions, `for…in`), M3.5e (basic `Date`); see `docs/MASTER_PLAN.md`. Small gaps left (PTS1001): `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` and `toLocaleString` with locales other than English or options.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -99,7 +100,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (159 run tests, one skipped (`generic_values_classes.pts`, a known issue); 58 error tests; 5 number-corpus and 13 string-corpus parts; about 45 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (162 run tests, one skipped (`generic_values_classes.pts`, a known issue); 58 error tests; 7 number-corpus and 13 string-corpus parts; about 45 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -130,6 +131,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M3.5b done.
 - 2026-10-12: M3.5a done (M3.5 split by D-082).
 - 2026-10-12: M3.4b done; M3.4 complete.
 - 2026-10-12: M3.4a done (M3.4 split by D-080).
