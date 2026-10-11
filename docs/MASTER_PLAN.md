@@ -152,7 +152,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
 - [x] **M2.7a binary-trees and nbody** (1675b7b76) (split from M2.7 by D-060). Add the binary-trees benchmark (GC stress).
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
-- [ ] **M2.7b String building** (split from M2.7 by D-060). Add a string-building benchmark; make building a string piece by piece (`s += x` in a loop) linear rather than quadratic.
+- [x] **M2.7b String building** (06e64fef2) (split from M2.7 by D-060). Add a string-building benchmark; make building a string piece by piece (`s += x` in a loop) linear rather than quadratic.
 - [ ] **M2.8 Milestone M2.**
 
 ## M3: The TypeScript feel
