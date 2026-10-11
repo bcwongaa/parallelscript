@@ -74,10 +74,12 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
 - The added numeric types are `int` (meaning i64) and `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64`, declared in a global prelude.
   - They start as aliases of `number` in the prelude, so the editor accepts them immediately.
   - The numeric rules below are enforced by the PTS semantic pass, and later surfaced in the language server.
-- **Literals take their type from context.** `const x: u8 = 200` is fine; `const y = 5` is `number`, as in TS.
+  - To the checker each is a number type of its own (D-048), so it can be an array element, a `Map` or `Set` key or value, a parameter or result of a function type, or a type argument (`u8[]`, `Map<string, int>`, `(n: int) => int`), and inferred types keep it: `ints.map(x => x * 2)` is an `int[]`. tsc relates every numeric type to every other, as it relates `number` to itself, so overloads match as they would for `number`: on a `u8[]`, `reduce(f, 0 as int)` takes `reduce`'s `T` overload (and fails the conversion rule); write `reduce<int>(f, 0)`.
+- **Literals take their type from context.** `const x: u8 = 200` is fine; `const y = 5` is `number`, as in TS. So does an array literal's element or an argument (`bytes.push(7)` for `bytes: u8[]`); without a context a literal is a `number`, so `[byte, 1]` is a `number[]`.
 - **Implicit conversions are lossless only.**
   - Allowed implicitly: any integer type to `number`, and a smaller integer type to a larger integer type of compatible sign.
   - Anything lossy needs `as`.
+  - A function converts to a function type only if the type's parameters convert to its own and its result to the type's, losslessly: a `(b: u8) => void` can't be a `(n: number) => void`.
   - Mixing `int` and `number` in arithmetic yields `number`.
 - **`as` between numeric types converts the value**, following Rust's rules: float to int truncates toward zero and saturates at the target type's range, and `NaN` becomes 0.
 - **Integer arithmetic.**
@@ -391,7 +393,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - Boxing: `i8 … u32` and `f32` box as numbers (exact as doubles); `int`/`i64` and `u64` box through `pts_value_from_i64`/`pts_value_from_u64`, which allocate a `pts_boxed_int64`/`pts_boxed_uint64` (kinds `PTS_KIND_INT64`/`PTS_KIND_UINT64`) only beyond ±2^53. `console.log` prints them exactly.
 - Covered since M1.4a1: assignments (the value converts to the local's type), compound assignments (typed as `x = x op value`), `++`/`--`, `?:`, `&&`/`||` and `switch` cases (both sides take one type, as a binary operator's operands do), the bitwise operators (D-018), `typeof` (always `"number"`).
 - Covered since M1.4a2: parameters (from their annotations), call arguments (converted to the parameter's type), returns (converted to the result type) and result types (annotated, or the common type of what the function returns, D-020).
-- Not yet covered (arrive with the features): integer types inside unions, arrays and generics (M2, M3).
+- Covered since M2.6a: integer types inside arrays, maps, sets, function types and object types, through the checker (§9.25).
+- Not yet covered (arrive with the features): integer types inside unions (M3.1) and generics (M2.6b).
 
 ### 9.5 Strings (M1.3a)
 
@@ -506,8 +509,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **IR** (D-038): `ir.Array{Elem}` (one per element type, `lower.arrayOf`), `ir.NewArray`, `ir.ArrayCall{Op, Args}` with the `ir.ArrayOp`s (length, elements checked or as dynamic values, stores, push, unshift, pop, shift, truncation).
 - **Lowering** (`pts/lower/arrays.go`): `arrayType` from the checker's array types (`never[]` elements are dynamic values); `arrayLiteral` takes its contextual array type; `arrayElement` picks the checked or dynamic read (`valueExpression`); `place` has `index` and `arrayLength` for stores, read once by `readAndStore` and `withObject`; `arrayMethodCall`, `arrayIsArray` (static), `nonNull` (`pop()!`), `forOfStatement` (an index loop that reads the length each iteration).
 - **C:** an array is a `pts_array *`; `pts/cgen/arrays.go` writes `pts_array_of`, `PTS_ARRAY_GET`/`PTS_ARRAY_GET_WORD` (pointer and dynamic elements, where a zero word is a hole), `PTS_ARRAY_SET`, `pts_array_push`/`unshift` of a compound literal, `PTS_ARRAY_POP`/`SHIFT`. Runtime: `pts.h` (arrays section), `array.c` (one descriptor per element kind, single-word element copies, acquire/release on the length and buffer), and `inspect.c` (`format_elements`, `group_array_elements`, `reduce_to_single_string`: Node's `formatArray`, `groupArrayElements` and `reduceToSingleString`; string widths count code points).
-- **Semantic pass:** arrays of integer types and f32 are PTS1001 (`integerElements`) until M2.6.
-- **Tests:** `pts/tests/run/arrays.pts`, `arrays_objects.pts`, `array_{index,hole,length,pop}_error.pts`, `pts/tests/errors/arrays_not_yet.pts`, `arrays_of_integers.pts`, `TestArrayElementsAndForOfLowerToArrayOperations`, `array_test.c` (growth, both ends, boxing, threads racing pushes against a reader).
+- **Semantic pass:** arrays of integer types and f32 were PTS1001 (`integerElements`) until M2.6a (§9.25).
+- **Tests:** `pts/tests/run/arrays.pts`, `arrays_objects.pts`, `array_{index,hole,length,pop}_error.pts`, `pts/tests/errors/arrays_not_yet.pts`, `TestArrayElementsAndForOfLowerToArrayOperations`, `array_test.c` (growth, both ends, boxing, threads racing pushes against a reader).
 
 ### 9.19 Array methods without callbacks (M2.4b)
 
@@ -548,6 +551,14 @@ Representation choices, runtime layouts, and anything a later session needs to k
 ### 9.24 Map and Set (M2.5c)
 
 - **IR** (D-046): `ir.MapType` (key, value, `Set`; one per type, `mapOf`), `ir.MapIterator` (a C struct in a local), `ir.MapCall` with the `ir.MapOp`s, `ir.NewMap`.
-- **Lowering** (`pts/lower/maps.go`): `mapType`/`libCollection` map the ES library's Map, Set and their readonly views; `newMap`; `mapMethodCall` (`get`, `get(…)!` through `nonNull`, `set`/`add`, `has`, `delete`, `clear`, `forEach`), `mapProperty` (`size`); `mapIterableOf` (a set, `keys()`, `values()`), `mapLoop`, `mapForOf` (`for…of`), `arrayFromMap` (`Array.from`, with a mapper); `mapHelper` generates `forEach` and `Array.from` helpers like D-042's. The semantic pass reports maps and sets of integer types (`integerCollection`).
+- **Lowering** (`pts/lower/maps.go`): `mapType`/`libCollection` map the ES library's Map, Set and their readonly views; `newMap`; `mapMethodCall` (`get`, `get(…)!` through `nonNull`, `set`/`add`, `has`, `delete`, `clear`, `forEach`), `mapProperty` (`size`); `mapIterableOf` (a set, `keys()`, `values()`), `mapLoop`, `mapForOf` (`for…of`), `arrayFromMap` (`Array.from`, with a mapper); `mapHelper` generates `forEach` and `Array.from` helpers like D-042's. Maps and sets of integer types arrived in M2.6a (§9.25).
 - **C:** `pts/cgen/maps.go` (`collectMaps` and `mapDescriptorDefinitions` write `pts_type_map_<n>`/`pts_type_set_<n>` with key and value kinds in the new `pts_type.key` and `element`; `newMap`, `mapCall`). Runtime: `map.c` (`pts_map`, `pts_map_table`, `pts_map_iterator`; `replace`, `follow`), `pts_value_of_slot` (`array.c`), `format_map_entries` (`inspect.c`).
-- **Tests:** `pts/tests/run/maps_sets.pts`, `maps_gc.pts`; `errors/maps_not_yet.pts`, `maps_of_integers.pts`; `map_test.c`; `TestForOfOverASetIteratesItsLiveTable`.
+- **Tests:** `pts/tests/run/maps_sets.pts`, `maps_gc.pts`; `errors/maps_not_yet.pts`; `map_test.c`; `TestForOfOverASetIteratesItsLiveTable`.
+
+### 9.25 Integer types as checker types (M2.6a)
+
+- **Checker** (D-048, fork edits in `docs/FORK.md`): `internal/checker/pts.go` makes each prelude alias `int`, `i8 … u32`, `u64`, `f32` an intrinsic type with `number`'s flags (`ptsNumericAliasType`, called from `getDeclaredTypeOfTypeAlias`; `i64` is declared as `int` in `pts/lib/prelude.d.ts`), and types arithmetic and unary operators by `numeric.Operation` (`ptsArithmeticType`, `ptsUnaryType`). `nodebuilderimpl.go` prints the types by name.
+- **Shared rules:** `pts/numeric` (the old `check.Numeric`, now `numeric.Type`, aliased as `check.Numeric`): `Unify`, `ImplicitlyConvertible`, `WithUntyped`, `Operation`, `IsUntyped`, `IntegerLiteralValue`.
+- **Semantic pass:** `check.NumericOf` and `check.IsNumber` read checker types; `annotationType`, parameters, `for…of` variables and identifiers without a recorded type use them; `contextualExpr` gives number-typed expressions their contextual type and checks the conversion; `functionConversion` checks function values against their contextual function type; `call` visits the callee and takes a generic function's result from tsc's type at the call.
+- **Lowering:** `irType` maps numeric checker types through `check.NumericOf`; `arrayValues` lowers `concat`'s array literal arguments with the receiver's type; `newMap` uses the contextual type for `new Map()`. The runtime already had element and key kinds for every numeric type.
+- **Tests:** `pts/tests/run/arrays_integers.pts`, `maps_integers.pts`, `function_values_integers.pts`; `errors/integer_elements_lossy.pts`; `pts/check/numeric_types_test.go`.

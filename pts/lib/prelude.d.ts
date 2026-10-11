@@ -7,13 +7,14 @@ interface Console {
 
 declare const console: Console;
 
-// Numeric types (docs/SPEC.md §3.2). To tsc they are all number; the PTS semantic
-// pass gives them their meaning. int is i64; f64 is number.
+// Numeric types (docs/SPEC.md §3.2), declared as aliases of number. The checker gives
+// each a number type of its own (D-048); the PTS semantic pass gives them their meaning.
+// int is i64; f64 is number.
 type int = number;
 type i8 = number;
 type i16 = number;
 type i32 = number;
-type i64 = number;
+type i64 = int;
 type u8 = number;
 type u16 = number;
 type u32 = number;

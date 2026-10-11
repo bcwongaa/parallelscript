@@ -1,0 +1,23 @@
+// Elements, keys, values and function types of the integer types and f32 follow the
+// numeric rules (D-048): literals must fit, and conversions must not lose anything.
+const bytes: u8[] = [1, 256];
+bytes.push(1.5);
+const n: number = 3;
+bytes.push(n);
+const wide: i32 = 5;
+bytes[0] = wide;
+const sizes = new Map<string, u16>();
+sizes.set("a", -1);
+const half: (n: number) => u8 = n => n / 2;
+const takesByte: (n: number) => void = (b: u8) => {};
+const amounts: u32[] = [];
+[1, 2].forEach((x: u32) => amounts.push(x));
+
+// error: integer_elements_lossy.pts:3:25 - error PTS2002: 256 doesn't fit in u8 (0 to 255)
+// error: integer_elements_lossy.pts:4:12 - error PTS2002: 1.5 is not an integer, so it can't be a u8
+// error: integer_elements_lossy.pts:6:12 - error PTS2001: a number doesn't convert to u8 implicitly
+// error: integer_elements_lossy.pts:8:12 - error PTS2001: a i32 doesn't convert to u8 implicitly
+// error: integer_elements_lossy.pts:10:16 - error PTS2002: -1 doesn't fit in u16 (0 to 65535)
+// error: integer_elements_lossy.pts:11:33 - error PTS2001: this function returns a number where its context expects a u8
+// error: integer_elements_lossy.pts:12:40 - error PTS2001: this function takes a u8 where its context passes a number
+// error: integer_elements_lossy.pts:14:16 - error PTS2001: this function takes a u32 where its context passes a number

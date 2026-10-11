@@ -1,5 +1,5 @@
 // Closures capture variables of the integer types, in cells too, and keep their
-// arithmetic; only the closures' own parameters and results are numbers for now (M2.6).
+// arithmetic (function types of the integer types: function_values_integers.pts).
 function counterOf(step: u8): () => number {
   let total: u8 = 250;
   return () => {

@@ -64,7 +64,12 @@ func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 	if arrayType == nil {
 		return nil
 	}
-	array := arrayType.(*ir.Array)
+	return l.arrayLiteralOf(node, arrayType.(*ir.Array))
+}
+
+// arrayLiteralOf lowers an array literal to a new array of type array, or reports why it
+// can't and returns nil.
+func (l *lowerer) arrayLiteralOf(node *ast.Node, array *ir.Array) ir.Expr {
 	elements := node.AsArrayLiteralExpression().Elements.Nodes
 	elems := make([]ir.Expr, len(elements))
 	for i, element := range elements {
@@ -295,7 +300,12 @@ func isUndefined(node *ast.Node) bool {
 func (l *lowerer) arrayValues(args []*ast.Node, array *ir.Array, arrays bool) []ir.Expr {
 	values := make([]ir.Expr, len(args))
 	for i, arg := range args {
-		value := l.expression(arg)
+		var value ir.Expr
+		if literal := ast.SkipParentheses(arg); arrays && literal.Kind == ast.KindArrayLiteralExpression {
+			value = l.arrayLiteralOf(literal, array) // tsc types [7] in a.concat([7]) number[], whatever a's elements are
+		} else {
+			value = l.expression(arg)
+		}
 		if value == nil {
 			return nil
 		}

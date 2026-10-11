@@ -22,6 +22,7 @@ import (
 	"github.com/microsoft/typescript-go/pts/frontend"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
+	"github.com/microsoft/typescript-go/pts/numeric"
 )
 
 // binaryOps maps TypeScript operator tokens to IR operators. == and != mean === and
@@ -1212,7 +1213,7 @@ func (l *lowerer) isDeclaredInPtsLib(symbol *ast.Symbol) bool {
 func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 	t := l.numericType(node)
 	if ir.IsInteger(t) {
-		value, _ := check.IntegerLiteralValue(node) // the pass checked it is an integer in range
+		value, _ := numeric.IntegerLiteralValue(node) // the pass checked it is an integer in range
 		if negated {
 			value.Neg(value)
 		}
@@ -2046,10 +2047,11 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		}
 		return nil
 	}
+	if n, ok := check.NumericOf(t); ok {
+		return numericTypes[n] // number, a prelude numeric type, or a union of them such as -1 | 0 | 1
+	}
 	flags := t.Flags()
 	switch {
-	case flags&checker.TypeFlagsNumberLike != 0:
-		return ir.Number
 	case flags&checker.TypeFlagsBooleanLike != 0:
 		return ir.Bool
 	case flags&checker.TypeFlagsStringLike != 0:
@@ -2058,8 +2060,6 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.Undefined
 	case flags&checker.TypeFlagsNull != 0:
 		return ir.Null
-	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsNumberLike):
-		return ir.Number // a union of number literals, such as -1 | 0 | 1, is a number at run time
 	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsStringLike):
 		return ir.String
 	}

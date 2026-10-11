@@ -124,12 +124,19 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `apply` where the types allow (an array argument for a function whose parameters all have its element type).
 - [x] **M2.5c `Map` and `Set`** (b932f06e8) (split from M2.5 by D-040).
   - `Map` and `Set` with insertion order and SameValueZero semantics: `get`, `set`, `has`, `delete`, `clear`, `size`, `forEach`, and `for…of` over them and their `keys()`, `values()` and `entries()`.
-- [ ] **M2.6 Generics and syntax.**
-  - Generics via monomorphization.
-  - Integer types and f32 as array elements and type arguments (`u8[]`, `Box<int>`), which need the semantic pass to follow type nodes, since the checker sees them as `number` (D-038).
-  - Enums (numeric and string); destructuring of objects and arrays with defaults; spread and rest in calls, arrays and objects.
-  - `Record<string, T>` and index signatures as hash maps.
-  - Map entries as pairs: `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046).
+- [ ] **M2.6a Integer types as checker types** (split from M2.6 by D-047).
+  - The prelude's integer types and f32 are distinct number types inside the checker (D-048), so they flow through every type tsc builds: array elements, `Map`/`Set` keys and values, function types, object types and type arguments (`u8[]`, `Map<string, int>`, `(n: int) => int`).
+  - The semantic pass types untyped literals and checks lossless conversion at the new boundaries (array literal elements, built-in method arguments, element assignments).
+- [ ] **M2.6b Generics** (split from M2.6 by D-047).
+  - Generic functions, methods and classes by monomorphization, with integer type arguments (`Box<int>`); generic interfaces and type aliases.
+- [ ] **M2.6c Enums** (split from M2.6 by D-047).
+  - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
+- [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).
+  - Tuples; destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`; default parameter values.
+  - Map entries as pairs: `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples.
+- [ ] **M2.6e Spread, rest and hash-map objects** (split from M2.6 by D-047).
+  - Spread and rest in calls, array literals and object literals; rest parameters.
+  - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
 - [ ] **M2.8 Milestone M2.**

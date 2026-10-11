@@ -7,7 +7,6 @@ package check
 import (
 	"context"
 	"math/big"
-	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -15,7 +14,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
-	"github.com/microsoft/typescript-go/pts/lib"
+	"github.com/microsoft/typescript-go/pts/numeric"
 )
 
 // Info is what the pass learned about a program.
@@ -102,6 +101,9 @@ func (c *pass) visit(node *ast.Node) {
 			c.checkBody(node, fn)
 		}
 		c.visitSignatureTypes(node)
+		if node.Kind == ast.KindArrowFunction || node.Kind == ast.KindFunctionExpression {
+			c.functionConversion(node)
+		}
 		return
 	case isSignature(node):
 		c.functionOf(node) // its parameter and result types
@@ -111,7 +113,7 @@ func (c *pass) visit(node *ast.Node) {
 		c.returnStatement(node)
 		return
 	case ast.IsExpression(node) && c.isNumber(node):
-		c.expr(node, nil)
+		c.contextualExpr(node)
 		return
 	case node.Kind == ast.KindCallExpression && c.calledFunction(node) != nil:
 		c.call(node, c.calledFunction(node))
@@ -122,6 +124,8 @@ func (c *pass) visit(node *ast.Node) {
 	case isSuperCall(node) && c.superConstructor(node) != nil:
 		c.call(node, c.superConstructor(node))
 		return
+	case ast.IsExpression(node) && !ast.IsPartOfTypeNode(node) && !ast.IsDeclarationName(node):
+		c.functionConversion(node)
 	}
 	node.ForEachChild(func(child *ast.Node) bool {
 		c.visit(child)
@@ -143,7 +147,7 @@ func (c *pass) visitSignatureTypes(node *ast.Node) {
 }
 
 func (c *pass) isNumber(node *ast.Node) bool {
-	return c.tc.GetTypeAtLocation(node).Flags()&checker.TypeFlagsNumberLike != 0
+	return IsNumber(c.tc.GetTypeAtLocation(node))
 }
 
 // variableDeclaration types a variable or a class field.
@@ -155,8 +159,9 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	name, initializer := node.Name(), node.Initializer()
 	named := name.Kind == ast.KindIdentifier || name.Kind == ast.KindPrivateIdentifier // not a destructuring pattern
 	if named && initializer == nil && c.isNumber(name) {
-		declared, _ := c.annotationType(node.Type()) // `let n: u8;`; without an annotation tsc wouldn't type it number
-		c.symbols[c.tc.GetSymbolAtLocation(name)] = declared
+		symbol := c.tc.GetSymbolAtLocation(name)
+		declared, _ := NumericOf(c.tc.GetTypeOfSymbol(symbol)) // `let n: u8;`, or b in `for (const b of bytes)`
+		c.symbols[symbol] = declared
 		c.info.types[name] = declared
 		return
 	}
@@ -312,7 +317,7 @@ func (c *pass) switchStatement(node *ast.Node) {
 
 // requireConvertible reports node if its type doesn't convert to target without `as`.
 func (c *pass) requireConvertible(node *ast.Node, from Numeric, target Numeric) {
-	if !ImplicitlyConvertible(from, target) {
+	if !numeric.ImplicitlyConvertible(from, target) {
 		c.report(node, diagnostic.NumericConversion,
 			"a %s doesn't convert to %s implicitly because the value could change; write `as %s` to convert it", from, target, target)
 	}
@@ -324,28 +329,7 @@ func (c *pass) annotationType(typeNode *ast.Node) (Numeric, bool) {
 	if typeNode == nil {
 		return 0, false
 	}
-	switch typeNode.Kind {
-	case ast.KindNumberKeyword:
-		return Number, true
-	case ast.KindParenthesizedType:
-		return c.annotationType(typeNode.Type())
-	case ast.KindTypeReference:
-		ref := typeNode.AsTypeReferenceNode()
-		symbol := c.tc.GetSymbolAtLocation(ref.TypeName)
-		if ref.TypeArguments != nil || symbol == nil || len(symbol.Declarations) == 0 {
-			return 0, false
-		}
-		declaration := symbol.Declarations[0]
-		if declaration.Kind != ast.KindTypeAliasDeclaration {
-			return 0, false
-		}
-		if lib.IsLibPath(ast.GetSourceFileOfNode(declaration).FileName()) {
-			n, ok := preludeNumerics[symbol.Name]
-			return n, ok
-		}
-		return c.annotationType(declaration.Type())
-	}
-	return 0, false
+	return NumericOf(c.tc.GetTypeFromTypeNode(typeNode))
 }
 
 // ---------------------------------------------------------------- expressions
@@ -386,7 +370,7 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 	case ast.KindBinaryExpression:
 		binary := node.AsBinaryExpression()
 		switch operator := binary.OperatorToken.Kind; {
-		case binaryOperatorIsArithmetic(node):
+		case numeric.IsArithmetic(node.AsBinaryExpression().OperatorToken.Kind):
 			return c.operands(node, expected)
 		case operator == ast.KindEqualsToken:
 			return c.assignment(node)
@@ -413,6 +397,9 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 			if n, ok := c.bindingType(symbol); ok {
 				return n
 			}
+			if n, ok := NumericOf(c.tc.GetTypeOfSymbol(symbol)); ok {
+				return n // its declared type, not the literal an equality may narrow it to
+			}
 		}
 		return Number
 	case ast.KindPropertyAccessExpression:
@@ -427,7 +414,28 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 		c.visit(child)
 		return false
 	})
+	if n, ok := NumericOf(c.tc.GetTypeAtLocation(node)); ok {
+		return n // e.g. an element of a u8[], or what a function value returns
+	}
 	return Number
+}
+
+// contextualExpr types a number-typed expression whose context may expect a numeric
+// type the pass doesn't otherwise follow, such as an element of an array literal or an
+// argument of a built-in method: the expression takes the contextual type, and must
+// convert to it.
+func (c *pass) contextualExpr(node *ast.Node) {
+	contextual := c.tc.GetContextualType(node, checker.ContextFlagsNone)
+	if contextual == nil {
+		c.expr(node, nil)
+		return
+	}
+	expected, ok := NumericOf(contextual)
+	if !ok {
+		c.expr(node, nil)
+		return
+	}
+	c.requireConvertible(node, c.expr(node, &expected), expected)
 }
 
 // literal types a numeric literal (negated if its parent is unary minus) from the
@@ -439,7 +447,7 @@ func (c *pass) literal(literal *ast.Node, at *ast.Node, negated bool, expected *
 		}
 		return Number
 	}
-	value, ok := IntegerLiteralValue(literal)
+	value, ok := numeric.IntegerLiteralValue(literal)
 	if !ok {
 		c.report(at, diagnostic.NumericLiteral, "%s is not an integer, so it can't be a %s; write `as %s` to convert it", scanner.GetTextOfNode(literal), *expected, *expected)
 		return *expected
@@ -458,7 +466,7 @@ func (c *pass) literal(literal *ast.Node, at *ast.Node, negated bool, expected *
 func (c *pass) operands(node *ast.Node, expected *Numeric) Numeric {
 	binary := node.AsBinaryExpression()
 	left, right := binary.Left, binary.Right
-	leftUntyped, rightUntyped := isUntyped(left), isUntyped(right)
+	leftUntyped, rightUntyped := numeric.IsUntyped(left), numeric.IsUntyped(right)
 	var operandType Numeric
 	switch {
 	case leftUntyped && rightUntyped:
@@ -475,7 +483,7 @@ func (c *pass) operands(node *ast.Node, expected *Numeric) Numeric {
 	default:
 		leftType, rightType := c.expr(left, nil), c.expr(right, nil)
 		var ok bool
-		if operandType, ok = unify(leftType, rightType); !ok {
+		if operandType, ok = numeric.Unify(leftType, rightType); !ok {
 			c.report(node, diagnostic.NumericMix, "`%s` can't mix %s and %s, because neither converts to the other without loss; convert one with `as`",
 				scanner.TokenToString(binary.OperatorToken.Kind), leftType, rightType)
 			operandType = leftType
@@ -509,7 +517,7 @@ func (c *pass) compoundAssignment(node *ast.Node) Numeric {
 // non-nil, for a switch's value). The type is recorded for node and returned.
 func (c *pass) pair(node *ast.Node, a *ast.Node, aType *Numeric, b *ast.Node, expected *Numeric, what string) Numeric {
 	var result Numeric
-	aUntyped, bUntyped := aType == nil && isUntyped(a), isUntyped(b)
+	aUntyped, bUntyped := aType == nil && numeric.IsUntyped(a), numeric.IsUntyped(b)
 	switch {
 	case aUntyped && bUntyped:
 		result = Number
@@ -531,7 +539,7 @@ func (c *pass) pair(node *ast.Node, a *ast.Node, aType *Numeric, b *ast.Node, ex
 		}
 		bType := c.expr(b, expected)
 		var ok bool
-		if result, ok = unify(*aType, bType); !ok {
+		if result, ok = numeric.Unify(*aType, bType); !ok {
 			c.report(node, diagnostic.NumericMix, "`%s` can't mix %s and %s, because neither converts to the other without loss; convert one with `as`", what, *aType, bType)
 			result = *aType
 		}
@@ -544,10 +552,7 @@ func ptr(n Numeric) *Numeric { return &n }
 // withUntyped types an untyped operand next to an operand of type typed: integer
 // constants take the typed side's type; other constants are numbers.
 func (c *pass) withUntyped(typed Numeric, untyped *ast.Node) Numeric {
-	operandType := typed
-	if typed.IsInteger() && !isIntegerConstant(untyped) {
-		operandType = Number
-	}
+	operandType := numeric.WithUntyped(typed, untyped)
 	c.expr(untyped, &operandType)
 	return operandType
 }
@@ -559,54 +564,6 @@ func (c *pass) isNamespace(node *ast.Node) bool {
 }
 
 // ---------------------------------------------------------------- syntax helpers
-
-// isUntyped reports whether node is a constant number expression with no type of its
-// own: literals, possibly negated, parenthesised or combined by arithmetic.
-func isUntyped(node *ast.Node) bool {
-	switch node.Kind {
-	case ast.KindNumericLiteral:
-		return true
-	case ast.KindParenthesizedExpression:
-		return isUntyped(node.Expression())
-	case ast.KindPrefixUnaryExpression:
-		unary := node.AsPrefixUnaryExpression()
-		return (unary.Operator == ast.KindMinusToken || unary.Operator == ast.KindPlusToken || unary.Operator == ast.KindTildeToken) && isUntyped(unary.Operand)
-	case ast.KindBinaryExpression:
-		binary := node.AsBinaryExpression()
-		return binaryOperatorIsArithmetic(node) && isUntyped(binary.Left) && isUntyped(binary.Right)
-	}
-	return false
-}
-
-// isIntegerConstant reports whether every literal in an untyped expression is an integer.
-func isIntegerConstant(node *ast.Node) bool {
-	if node.Kind == ast.KindNumericLiteral {
-		_, ok := IntegerLiteralValue(node)
-		return ok
-	}
-	integer := true
-	node.ForEachChild(func(child *ast.Node) bool {
-		integer = integer && (!ast.IsExpression(child) || isIntegerConstant(child))
-		return !integer
-	})
-	return integer
-}
-
-func binaryOperatorIsArithmetic(node *ast.Node) bool {
-	return isArithmetic(node.AsBinaryExpression().OperatorToken.Kind)
-}
-
-// isArithmetic reports whether a binary operator computes a number from two numbers:
-// the arithmetic and the bitwise operators.
-func isArithmetic(operator ast.Kind) bool {
-	switch operator {
-	case ast.KindPlusToken, ast.KindMinusToken, ast.KindAsteriskToken, ast.KindSlashToken, ast.KindPercentToken, ast.KindAsteriskAsteriskToken,
-		ast.KindAmpersandToken, ast.KindBarToken, ast.KindCaretToken,
-		ast.KindLessThanLessThanToken, ast.KindGreaterThanGreaterThanToken, ast.KindGreaterThanGreaterThanGreaterThanToken:
-		return true
-	}
-	return false
-}
 
 func isLogical(operator ast.Kind) bool {
 	return operator == ast.KindAmpersandAmpersandToken || operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken
@@ -637,19 +594,4 @@ func isComparison(node *ast.Node) bool {
 		return true
 	}
 	return false
-}
-
-// IntegerLiteralValue is the exact value of a numeric literal, if it is an integer.
-// It reads the source text, so integers above 2^53 keep every digit.
-func IntegerLiteralValue(literal *ast.Node) (*big.Int, bool) {
-	// Not literal.Text(): the scanner normalises that through a double.
-	text := strings.ReplaceAll(scanner.GetTextOfNode(literal), "_", "")
-	if value, ok := new(big.Int).SetString(text, 0); ok {
-		return value, true
-	}
-	rat, ok := new(big.Rat).SetString(text) // decimals and exponents, e.g. 1e3
-	if !ok || !rat.IsInt() {
-		return nil, false
-	}
-	return rat.Num(), true
 }

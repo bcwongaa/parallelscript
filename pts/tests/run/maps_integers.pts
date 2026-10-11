@@ -1,0 +1,36 @@
+// Maps and sets with keys and values of the integer types and f32 (D-048): keys compare
+// by value (SameValueZero), arguments take the key and value types, and values read back
+// with their type.
+const counts = new Map<string, u8>();
+for (const word of "a b a c a b".split(" ")) {
+  counts.set(word, (counts.has(word) ? counts.get(word)! : 0) + 1);
+}
+console.log(counts, counts.get("a")! * 100);
+
+const names: Map<int, string> = new Map();
+names.set(9007199254740993, "big").set(-1, "minus one").set(0, "zero");
+console.log(names.get(9007199254740993), names.get(9007199254740992), names.has(-1), names.size);
+names.delete(-1);
+names.forEach((name, id) => console.log(id + 1, name));
+
+const seen = new Set<u64>();
+seen.add(18446744073709551615).add(1).add(18446744073709551615);
+console.log(seen, seen.has(1), Array.from(seen, x => x + 1));
+for (const x of seen) {
+  console.log(x - 2);
+}
+
+const weights = new Map<f32, i16>();
+weights.set(0.5, -300);
+weights.set(0.1, 300);
+console.log(weights, weights.get(0.1)! * 200);
+
+// expect:
+// Map(3) { 'a' => 3, 'b' => 2, 'c' => 1 } 44
+// big undefined true 3
+// 9007199254740994 big
+// 1 zero
+// Set(2) { 18446744073709551615, 1 } true [ 0, 2 ]
+// 18446744073709551613
+// 18446744073709551615
+// Map(2) { 0.5 => -300, 0.10000000149011612 => 300 } -5536

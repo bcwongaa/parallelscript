@@ -108,22 +108,6 @@ func isFunction(t ir.Type) bool {
 	return ok
 }
 
-// hasOtherNumericTypes reports whether a function type takes or returns an integer type
-// or f32. Values of such types can't be made yet: the checker sees those types as
-// number, so the semantic pass can't check the conversions at their calls (M2.6).
-func hasOtherNumericTypes(ft *ir.FuncType) bool {
-	for _, t := range append([]ir.Type{ft.Result}, ft.Params...) {
-		if ir.IsNumeric(t) && t != ir.Number {
-			return true
-		}
-	}
-	return false
-}
-
-func (l *lowerer) integerSignature(node *ast.Node) {
-	l.notSupportedYet(node, "function values that take or return integer types or f32 are")
-}
-
 // ---------------------------------------------------------------- function values
 
 // functionExpression lowers an arrow function or function expression to a new closure
@@ -157,10 +141,6 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	}
 	l.inFunction(fn, func() { fn.Body = l.functionExpressionBody(node) })
 	ft := l.typeOfFunc(fn)
-	if hasOtherNumericTypes(ft) {
-		l.integerSignature(node)
-		return nil
-	}
 	return &ir.MakeClosure{Func: fn, FuncType: ft}
 }
 
@@ -300,10 +280,6 @@ func (l *lowerer) jsName(node *ast.Node) string {
 // nested one, held by the local its block made it in, or a top-level one's static closure.
 func (l *lowerer) functionValue(node *ast.Node, fn *ir.Func) ir.Expr {
 	ft := l.typeOfFunc(fn)
-	if hasOtherNumericTypes(ft) {
-		l.integerSignature(node)
-		return nil
-	}
 	if fn.Closure {
 		return l.closureOf(node, fn)
 	}
@@ -454,10 +430,6 @@ func (l *lowerer) thisLocal() *ir.Local {
 // returns nil if the types don't fit.
 func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr {
 	from := value.Type().(*ir.FuncType)
-	if hasOtherNumericTypes(from) || hasOtherNumericTypes(to) {
-		l.integerSignature(node)
-		return nil
-	}
 	if len(from.Params) > len(to.Params) {
 		l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which passes fewer arguments, is", from, to))
 		return nil

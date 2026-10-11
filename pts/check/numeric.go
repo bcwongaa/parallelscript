@@ -1,93 +1,73 @@
 package check
 
-import "math"
-
-// Numeric is the ParallelScript type of a value tsc types as number (docs/SPEC.md §3.2).
-type Numeric int
-
-const (
-	Number Numeric = iota // JS number, also spelled f64
-	I8
-	I16
-	I32
-	I64 // also spelled int
-	U8
-	U16
-	U32
-	U64
-	F32
+import (
+	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/pts/numeric"
 )
 
-// preludeNumerics maps the prelude's numeric type names to their types.
-var preludeNumerics = map[string]Numeric{
-	"int": I64, "i8": I8, "i16": I16, "i32": I32, "i64": I64,
-	"u8": U8, "u16": U16, "u32": U32, "u64": U64, "f32": F32, "f64": Number,
-}
+// Numeric is the ParallelScript type of a value tsc types as number (docs/SPEC.md §3.2).
+type Numeric = numeric.Type
 
-var numericNames = [...]string{Number: "number", I8: "i8", I16: "i16", I32: "i32", I64: "int", U8: "u8", U16: "u16", U32: "u32", U64: "u64", F32: "f32"}
+const (
+	Number = numeric.Number
+	I8     = numeric.I8
+	I16    = numeric.I16
+	I32    = numeric.I32
+	I64    = numeric.I64
+	U8     = numeric.U8
+	U16    = numeric.U16
+	U32    = numeric.U32
+	U64    = numeric.U64
+	F32    = numeric.F32
+)
 
-func (n Numeric) String() string { return numericNames[n] }
-
-func (n Numeric) IsInteger() bool { return n >= I8 && n <= U64 }
-
-func (n Numeric) IsSigned() bool { return n >= I8 && n <= I64 }
-
-// Bits is the width of an integer type.
-func (n Numeric) Bits() int {
-	switch n {
-	case I8, U8:
-		return 8
-	case I16, U16:
-		return 16
-	case I32, U32:
-		return 32
-	default:
-		return 64
-	}
-}
-
-// Min and Max bound an integer type's values; Max is a uint64 so u64's fits.
-func (n Numeric) Min() int64 {
-	if !n.IsSigned() {
-		return 0
-	}
-	return -1 << (n.Bits() - 1)
-}
-
-func (n Numeric) Max() uint64 {
-	if n.IsSigned() {
-		return 1<<(n.Bits()-1) - 1
-	}
-	return math.MaxUint64 >> (64 - n.Bits())
-}
-
-// ImplicitlyConvertible reports whether a value of type from may be used where to is
-// expected without `as`: the conversions the spec calls lossless.
-func ImplicitlyConvertible(from Numeric, to Numeric) bool {
-	switch {
-	case from == to:
-		return true
-	case to == Number:
-		return from.IsInteger() || from == F32 // every integer type converts to number, by the spec
-	case from.IsInteger() && to.IsInteger():
-		if from.IsSigned() == to.IsSigned() {
-			return from.Bits() < to.Bits()
+// IsNumber reports whether a checker type is a number: one of the numeric types, a number
+// literal, or a union of them (such as i64 | u64, which has no common type).
+func IsNumber(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		for _, member := range t.Types() {
+			if member.Flags()&checker.TypeFlagsNumberLike == 0 {
+				return false
+			}
 		}
-		return !from.IsSigned() && from.Bits() < to.Bits() // u8 → i16 keeps every value; i8 → u16 doesn't
+		return true
 	}
-	return false
+	return t.Flags()&checker.TypeFlagsNumberLike != 0
 }
 
-// unify is the type both operands of a binary operator convert to, if there is one:
-// the wider of two compatible types, or number when an integer meets a float.
-func unify(a Numeric, b Numeric) (Numeric, bool) {
+// NumericOf returns the numeric type of a checker type that is a number: number, one of
+// the prelude's numeric types (each a type of its own to the checker, D-048), a number
+// literal, or a union of them (their common type, if they have one).
+func NumericOf(t *checker.Type) (Numeric, bool) {
+	flags := t.Flags()
 	switch {
-	case ImplicitlyConvertible(a, b):
-		return b, true
-	case ImplicitlyConvertible(b, a):
-		return a, true
-	case a.IsInteger() && b.IsInteger():
-		return 0, false // e.g. i64 and u64: no lossless common type
+	case flags&checker.TypeFlagsNumber != 0:
+		if n, ok := numeric.Names[t.AsIntrinsicType().IntrinsicName()]; ok {
+			return n, true
+		}
+		return Number, true
+	case flags&checker.TypeFlagsNumberLike != 0:
+		return Number, true // a literal or a numeric enum
+	case flags&checker.TypeFlagsUnion != 0:
+		return unionNumeric(t.Types())
 	}
-	return Number, true // an integer or f32 meets number or f32
+	return 0, false
+}
+
+// unionNumeric is the common numeric type of the members of a union, if every member is
+// a number and they have one: a u8 | i32 is an i32.
+func unionNumeric(members []*checker.Type) (Numeric, bool) {
+	var result Numeric
+	for i, member := range members {
+		n, ok := NumericOf(member)
+		if !ok {
+			return 0, false
+		}
+		if i == 0 {
+			result = n
+		} else if result, ok = numeric.Unify(result, n); !ok {
+			return 0, false
+		}
+	}
+	return result, true
 }

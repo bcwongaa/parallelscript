@@ -1,7 +1,0 @@
-// Function types can't take or return the integer types or f32 yet: the checker sees
-// them as numbers, so calls through such values would escape the conversion rules (M2.6).
-function useHalving(f: (n: int) => number): void {}
-type Scale = (x: number) => f32;
-
-// error: function_types_of_integers.pts:3:24 - error PTS1001: function types that take or return int are not supported yet
-// error: function_types_of_integers.pts:4:14 - error PTS1001: function types that take or return f32 are not supported yet

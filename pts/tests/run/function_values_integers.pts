@@ -1,0 +1,41 @@
+// Function values that take and return the integer types and f32 (D-048): arrows get
+// their context's parameter types, results keep their type, and a function converts to a
+// function type whose numbers it takes and returns without loss.
+type Op = (a: int, b: int) => int;
+const ops: Op[] = [(a, b) => a + b, (a, b) => a * b, (a, b) => a / b];
+for (const op of ops) {
+  console.log(op(9007199254740993, 2));
+}
+
+function compose(f: (x: u8) => u8, g: (x: u8) => u8): (x: u8) => u8 {
+  return x => g(f(x));
+}
+const addTen = (x: u8) => x + 10;
+const double = (x: u8): u8 => x * 2;
+console.log(compose(addTen, double)(120), compose(double, addTen)(120));
+
+function twice(a: i16) {
+  return a * 2;
+}
+const halved: (n: i8) => number = twice; // takes an i8 and returns an i16, losslessly
+console.log(halved(-100), typeof twice(1));
+
+const scale: (x: f32) => f32 = x => x * 3;
+console.log(scale(0.1));
+
+let total: u32 = 0;
+const add = (n: u32) => {
+  total += n;
+};
+const amounts: u32[] = [4294967295, 2];
+amounts.forEach(add);
+console.log(total);
+
+// expect:
+// 9007199254740995
+// 18014398509481986
+// 4503599627370496
+// 4 250
+// -200 number
+// 0.30000001192092896
+// 1

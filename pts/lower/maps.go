@@ -85,7 +85,13 @@ func (l *lowerer) isMapConstructor(node *ast.Node) bool {
 // newMap lowers `new Map()`, `new Set()`, a copy `new Map(map)` or `new Set(set)`, and
 // `new Set(array)`. A Map of an array of entries needs tuples (M2.6).
 func (l *lowerer) newMap(node *ast.Node) ir.Expr {
-	t := l.irType(l.checker.GetTypeAtLocation(node), node)
+	checkerType := l.checker.GetTypeAtLocation(node)
+	if contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone); contextual != nil && len(node.Arguments()) == 0 && node.TypeArgumentList() == nil {
+		if _, ok := l.libCollection(contextual); ok {
+			checkerType = contextual // `new Map()` is a Map<any, any> to tsc; its context says what it holds
+		}
+	}
+	t := l.irType(checkerType, node)
 	if t == nil {
 		return nil
 	}

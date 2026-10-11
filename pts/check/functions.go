@@ -4,6 +4,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
+	"github.com/microsoft/typescript-go/pts/numeric"
 )
 
 // function is what the pass knows about a function declaration's numbers.
@@ -171,12 +172,13 @@ func (c *pass) signature(declaration *ast.Node) *function {
 	for _, param := range declaration.Parameters() {
 		var t *Numeric
 		if name := param.Name(); name.Kind == ast.KindIdentifier && c.isNumber(name) {
-			n, ok := c.annotationType(param.Type())
+			symbol := c.tc.GetSymbolAtLocation(name)
+			n, ok := NumericOf(c.tc.GetTypeOfSymbol(symbol)) // annotated, or typed by context: x in `bytes.map(x => …)` is a u8
 			if !ok {
 				n = Number
 			}
 			t = &n
-			c.symbols[c.tc.GetSymbolAtLocation(name)] = n
+			c.symbols[symbol] = n
 			c.info.types[name] = n
 		}
 		fn.params = append(fn.params, t)
@@ -200,7 +202,7 @@ func (c *pass) signature(declaration *ast.Node) *function {
 
 func (c *pass) returnsNumber(declaration *ast.Node) bool {
 	result := c.tc.GetReturnTypeOfSignature(c.tc.GetSignatureFromDeclaration(declaration))
-	return result.Flags()&checker.TypeFlagsNumberLike != 0
+	return IsNumber(result)
 }
 
 func (c *pass) setResult(declaration *ast.Node, fn *function, n Numeric) {
@@ -230,7 +232,7 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 	for i, t := range body.typed {
 		if i == 0 {
 			result = t
-		} else if unified, ok := unify(result, t); ok {
+		} else if unified, ok := numeric.Unify(result, t); ok {
 			result = unified
 		} else {
 			name, at := "the default export", declaration
@@ -241,7 +243,7 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 		}
 	}
 	for _, constant := range body.untyped {
-		if result.IsInteger() && !isIntegerConstant(constant) {
+		if result.IsInteger() && !numeric.IsIntegerConstant(constant) {
 			result = Number
 		}
 	}
@@ -270,7 +272,7 @@ func (c *pass) returnValue(value *ast.Node, node *ast.Node) {
 			return false
 		})
 	case body.fn.inferResult:
-		if isUntyped(value) {
+		if numeric.IsUntyped(value) {
 			body.untyped = append(body.untyped, value)
 		} else {
 			body.typed = append(body.typed, c.expr(value, nil))
@@ -283,6 +285,7 @@ func (c *pass) returnValue(value *ast.Node, node *ast.Node) {
 // call types a call of a declared function: each argument converts to its parameter's type.
 func (c *pass) call(node *ast.Node, declaration *ast.Node) Numeric {
 	fn := c.functionOf(declaration)
+	c.visit(node.Expression()) // the callee: a.filter(f) in a.filter(f).reverse()
 	for i, arg := range node.Arguments() {
 		if i < len(fn.params) && fn.params[i] != nil {
 			c.requireConvertible(arg, c.expr(arg, fn.params[i]), *fn.params[i])
@@ -290,8 +293,72 @@ func (c *pass) call(node *ast.Node, declaration *ast.Node) Numeric {
 			c.visit(arg)
 		}
 	}
-	if fn.result == nil {
-		return Number // a recursive call while the result type is being inferred; tsc requires an annotation there
+	if fn.result != nil {
+		return *fn.result
 	}
-	return *fn.result
+	if n, ok := NumericOf(c.tc.GetTypeAtLocation(node)); ok {
+		return n // a generic function's result, such as reduce's T
+	}
+	return Number // a recursive call while the result type is being inferred; tsc requires an annotation there
+}
+
+// functionConversion reports a function value (node) whose context expects a function
+// type that passes it arguments its parameters can't take without loss, or expects a
+// result its own doesn't convert to without loss. tsc relates every numeric type to every
+// other, but the lowering wraps such a value in an adapter that converts each argument
+// and the result (D-041), which must not change them.
+func (c *pass) functionConversion(node *ast.Node) {
+	contextual := c.tc.GetContextualType(node, checker.ContextFlagsNone)
+	if contextual == nil {
+		return
+	}
+	target := c.singleCallSignature(contextual)
+	source := c.singleCallSignature(c.tc.GetTypeAtLocation(node))
+	if target == nil || source == nil {
+		return
+	}
+	params, result := c.signatureNumerics(source)
+	for i, param := range target.Parameters() {
+		if i >= len(params) {
+			break
+		}
+		if from, ok := NumericOf(c.tc.GetTypeOfSymbol(param)); ok && params[i] != nil && !numeric.ImplicitlyConvertible(from, *params[i]) {
+			c.report(node, diagnostic.NumericConversion,
+				"this function takes a %s where its context passes a %s, which doesn't convert to %s implicitly because the value could change", *params[i], from, *params[i])
+			return
+		}
+	}
+	if to, ok := NumericOf(c.tc.GetReturnTypeOfSignature(target)); ok && result != nil && !numeric.ImplicitlyConvertible(*result, to) {
+		c.report(node, diagnostic.NumericConversion,
+			"this function returns a %s where its context expects a %s; a %s doesn't convert to %s implicitly because the value could change", *result, to, *result, to)
+	}
+}
+
+func (c *pass) singleCallSignature(t *checker.Type) *checker.Signature {
+	if signatures := c.tc.GetSignaturesOfType(t, checker.SignatureKindCall); len(signatures) == 1 {
+		return signatures[0]
+	}
+	return nil
+}
+
+// signatureNumerics returns the numeric types of a signature's parameters (nil for those
+// that aren't numbers) and result: the pass's own for a function it types, whose result it
+// may infer narrower than tsc does; otherwise tsc's.
+func (c *pass) signatureNumerics(signature *checker.Signature) ([]*Numeric, *Numeric) {
+	if declaration := signature.Declaration(); declaration != nil && (isFunctionWithBody(declaration) || isSignature(declaration)) {
+		fn := c.functionOf(declaration)
+		return fn.params, fn.result
+	}
+	var params []*Numeric
+	for _, param := range signature.Parameters() {
+		if n, ok := NumericOf(c.tc.GetTypeOfSymbol(param)); ok {
+			params = append(params, &n)
+		} else {
+			params = append(params, nil)
+		}
+	}
+	if n, ok := NumericOf(c.tc.GetReturnTypeOfSignature(signature)); ok {
+		return params, &n
+	}
+	return params, nil
 }

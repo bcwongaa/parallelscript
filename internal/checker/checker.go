@@ -10855,7 +10855,7 @@ func (c *Checker) checkPrefixUnaryExpression(node *ast.Node) *Type {
 			if c.maybeTypeOfKindConsideringBaseConstraint(operandType, TypeFlagsBigIntLike) {
 				c.error(expr.Operand, diagnostics.Operator_0_cannot_be_applied_to_type_1, scanner.TokenToString(expr.Operator), c.TypeToString(c.getBaseTypeOfLiteralType(operandType)))
 			}
-			return c.numberType
+			return c.ptsUnaryType(operandType) // PTS: number, or the operand's numeric type (D-048)
 		}
 		return c.getUnaryResultType(operandType)
 	case ast.KindExclamationToken:
@@ -10902,7 +10902,7 @@ func (c *Checker) getUnaryResultType(operandType *Type) *Type {
 		return c.bigintType
 	}
 	// If it's not a bigint type, implicit coercion will result in a number
-	return c.numberType
+	return c.ptsUnaryType(operandType) // PTS: number, or the operand's numeric type (D-048)
 }
 
 func (c *Checker) checkConditionalExpression(node *ast.Node, checkMode CheckMode) *Type {
@@ -12344,7 +12344,7 @@ func (c *Checker) checkBinaryLikeExpression(left *ast.Node, operatorToken *ast.N
 		var resultType *Type
 		// If both are any or unknown, allow operation; assume it will resolve to number
 		if c.isTypeAssignableToKind(leftType, TypeFlagsAnyOrUnknown) && c.isTypeAssignableToKind(rightType, TypeFlagsAnyOrUnknown) || !c.maybeTypeOfKind(leftType, TypeFlagsBigIntLike) && !c.maybeTypeOfKind(rightType, TypeFlagsBigIntLike) {
-			resultType = c.numberType
+			resultType = c.ptsArithmeticType(left, leftType, right, rightType) // PTS: number, or a numeric type of the operands' (D-048)
 		} else if c.bothAreBigIntLike(leftType, rightType) {
 			switch operator {
 			case ast.KindGreaterThanGreaterThanGreaterThanToken, ast.KindGreaterThanGreaterThanGreaterThanEqualsToken:
@@ -12385,7 +12385,7 @@ func (c *Checker) checkBinaryLikeExpression(left *ast.Node, operatorToken *ast.N
 		if c.isTypeAssignableToKindEx(leftType, TypeFlagsNumberLike, true /*strict*/) && c.isTypeAssignableToKindEx(rightType, TypeFlagsNumberLike, true /*strict*/) {
 			// Operands of an enum type are treated as having the primitive type Number.
 			// If both operands are of the Number primitive type, the result is of the Number primitive type.
-			resultType = c.numberType
+			resultType = c.ptsArithmeticType(left, leftType, right, rightType) // PTS: number, or a numeric type of the operands' (D-048)
 		} else if c.isTypeAssignableToKindEx(leftType, TypeFlagsBigIntLike, true /*strict*/) && c.isTypeAssignableToKindEx(rightType, TypeFlagsBigIntLike, true /*strict*/) {
 			// If both operands are of the BigInt primitive type, the result is of the BigInt primitive type.
 			resultType = c.bigintType
@@ -23765,6 +23765,7 @@ func (c *Checker) getDeclaredTypeOfTypeAlias(symbol *ast.Symbol) *Type {
 			if t == c.intrinsicMarkerType && symbol.Name == "BuiltinIteratorReturn" {
 				t = c.getBuiltinIteratorReturnType()
 			}
+			t = c.ptsNumericAliasType(symbol, declaration, t) // PTS: the prelude's numeric types (D-048)
 		} else {
 			errorNode := declaration.Name()
 			if errorNode == nil {

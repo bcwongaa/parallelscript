@@ -3218,6 +3218,9 @@ func (b *NodeBuilderImpl) typeToTypeNode(t *Type) *ast.TypeNode {
 	}
 	if t.flags&TypeFlagsNumber != 0 {
 		b.ctx.approximateLength += 6
+		if t != b.ch.numberType { // PTS: one of the prelude's numeric types prints as its name (D-048)
+			return b.f.NewTypeReferenceNode(b.f.NewIdentifier(t.AsIntrinsicType().intrinsicName), nil /*typeArguments*/)
+		}
 		return b.f.NewKeywordTypeNode(ast.KindNumberKeyword)
 	}
 	if t.flags&TypeFlagsBigInt != 0 {
