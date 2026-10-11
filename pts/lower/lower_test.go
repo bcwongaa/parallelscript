@@ -422,15 +422,29 @@ shout("hi");
   1: console.log(box(twice(2:u8)))
   10: shout("hi")
 }
-func twice.inner(m: i64) i64 {
-  3: return (m * 2:i64)
-}
 func twice(n: u8) i64 {
   4: return twice.inner(i64(n))
 }
 func shout(s: string) void {
   7: console.log(box(String.toUpperCase(s)))
   8: return
+}
+func twice.inner(m: i64) i64 {
+  3: return (m * 2:i64)
+}
+`)
+}
+
+func TestModuleScopeBindingsThatFunctionsUseBecomeGlobals(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const limit = 3;\nconst local = 1;\nfunction below(n: number) { return n < limit; }\nconsole.log(below(local));\n")
+	assert.Equal(t, got, `func main() void {
+  1: global limit: number = 3
+  2: let local: number = 1
+  4: console.log(box(below(local)))
+}
+func below(n: number) boolean {
+  3: return (n < limit)
 }
 `)
 }

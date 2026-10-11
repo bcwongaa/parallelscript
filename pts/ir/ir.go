@@ -75,6 +75,10 @@ type Func struct {
 type Local struct {
 	Name string
 	Type Type
+	// Global marks a module-scope binding of the top-level code that functions use. It
+	// lives for the whole program, and a use from a function before its declaration has
+	// run throws ReferenceError, as in JS.
+	Global bool
 }
 
 // Stmt is a statement. Every statement knows the source line it came from.

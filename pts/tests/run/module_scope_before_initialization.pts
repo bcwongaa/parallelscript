@@ -1,0 +1,12 @@
+// Using a module-scope binding before its declaration has run throws ReferenceError, as in Node.
+function early(): number {
+  return late;
+}
+console.log("before");
+console.log(early());
+let late = 1;
+
+// expect:
+// before
+// exit: 1
+// stderr: Uncaught ReferenceError: Cannot access 'late' before initialization

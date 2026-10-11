@@ -121,11 +121,17 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
 	l := &lowerer{program: program.TS, checker: c, info: info, file: program.Entry,
-		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, funcs: map[*ast.Symbol]*ir.Func{}}
+		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, module: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{}}
 	main := &ir.Func{Name: "main", Pos: ir.Pos{File: program.Entry.FileName(), Line: 1}, Result: ir.Void}
 	l.function = main
 	l.declareFunctions(program.Entry.AsNode(), "")
 	main.Body = l.block(program.Entry.AsNode(), program.Entry.Statements.Nodes)
+	// Function bodies come last, when every module-scope binding they may use is known.
+	for len(l.bodies) > 0 {
+		body := l.bodies[0]
+		l.bodies = l.bodies[1:]
+		l.functionBody(body)
+	}
 	return &ir.Program{Funcs: append([]*ir.Func{main}, l.lowered...), Main: main}, l.errors
 }
 
@@ -136,8 +142,10 @@ type lowerer struct {
 	file     *ast.SourceFile
 	locals   map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
 	owners   map[*ir.Local]*ir.Func    // the function each local belongs to
+	module   map[*ir.Local]bool        // the locals declared at module scope, which functions may use
 	funcs    map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
-	lowered  []*ir.Func                // the functions whose bodies are lowered, in source order
+	lowered  []*ir.Func                // the functions whose bodies are lowered
+	bodies   []*ast.Node               // function declarations whose bodies are still to be lowered
 	function *ir.Func                  // the function being lowered
 	targets  []jumpTarget              // the statements around the current one that break or continue can leave
 	errors   []diagnostic.Diagnostic
@@ -193,7 +201,7 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	case ast.KindLabeledStatement:
 		return l.labeledStatement(node)
 	case ast.KindFunctionDeclaration:
-		l.functionBody(node)
+		l.bodies = append(l.bodies, node)
 	case ast.KindReturnStatement:
 		return l.returnStatement(node)
 	case ast.KindBreakStatement:
@@ -446,6 +454,9 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	}
 	local := l.newLocal(name.Text(), localType)
 	l.locals[symbol] = local
+	if statement := node.Parent.Parent; statement.Kind == ast.KindVariableStatement && statement.Parent.Kind == ast.KindSourceFile {
+		l.module[local] = true
+	}
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: init}
 }
 
@@ -1097,14 +1108,19 @@ func (l *lowerer) newLocal(name string, t ir.Type) *ir.Local {
 	return local
 }
 
-// ownLocal returns local if it belongs to the function being lowered, and otherwise
-// reports the use at node and returns nil: functions don't capture variables yet.
+// ownLocal returns local if the function being lowered may use it: its own, or one at
+// module scope, which becomes a global. Otherwise it reports the use at node and returns
+// nil: functions don't capture other variables yet.
 func (l *lowerer) ownLocal(node *ast.Node, local *ir.Local) *ir.Local {
-	if local != nil && l.owners[local] != l.function {
-		l.notSupportedYet(node, "using `"+node.Text()+"` from outside the function is")
-		return nil
+	switch {
+	case local == nil || l.owners[local] == l.function:
+		return local
+	case l.module[local]:
+		local.Global = true
+		return local
 	}
-	return local
+	l.notSupportedYet(node, "using `"+node.Text()+"` from outside the function is")
+	return nil
 }
 
 // increment lowers ++ and -- (operator) on operand, prefix or postfix.

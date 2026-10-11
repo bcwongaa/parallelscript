@@ -1,0 +1,28 @@
+// Functions use and update module-scope bindings, wherever they are declared.
+const greeting = "hello";
+let calls = 0;
+let log = "";
+
+function record(word: string): number {
+  calls++;
+  log += word + " ";
+  return calls;
+}
+
+function shout(): string {
+  record(greeting);
+  return greeting.toUpperCase() + "!".repeat(calls);
+}
+
+console.log(record("a"), record("b"), shout());
+console.log(calls, log.trim());
+let lastId = 100;
+console.log(nextId(), nextId(), lastId);
+function nextId(): number {
+  return ++lastId;
+}
+
+// expect:
+// 1 2 HELLO!!!
+// 3 a b hello
+// 101 102 102

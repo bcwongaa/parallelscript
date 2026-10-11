@@ -55,7 +55,11 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 	case *ExprStmt:
 		pr.out.WriteString(FormatExpr(s.X) + "\n")
 	case *LocalDecl:
-		fmt.Fprintf(&pr.out, "let %s: %s", s.Local.Name, s.Local.Type)
+		keyword := "let"
+		if s.Local.Global {
+			keyword = "global"
+		}
+		fmt.Fprintf(&pr.out, "%s %s: %s", keyword, s.Local.Name, s.Local.Type)
 		if s.Init != nil {
 			pr.out.WriteString(" = " + FormatExpr(s.Init))
 		}

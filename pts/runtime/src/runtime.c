@@ -28,3 +28,7 @@ void pts_panic(const char *error_name, const char *format, ...) {
 }
 
 void pts_unreachable(void) { pts_panic("Error", "internal compiler error: a function ended without returning its value"); }
+
+void pts_throw_uninitialized(const char *name) {
+  pts_panic("ReferenceError", "Cannot access '%s' before initialization", name);
+}

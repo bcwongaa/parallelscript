@@ -421,6 +421,15 @@ _Noreturn void pts_panic(const char *error_name, const char *format, ...)
 /* Ends a function that must return a value, after its last statement: reaching it is a compiler bug. */
 _Noreturn void pts_unreachable(void);
 
+/* A function's use of a module-scope binding before its declaration has run: JS's ReferenceError. */
+_Noreturn void pts_throw_uninitialized(const char *name);
+
+static inline void pts_check_ready(bool ready, const char *name) {
+  if (!ready) {
+    pts_throw_uninitialized(name);
+  }
+}
+
 /* ---------------------------------------------------------------- lifecycle */
 
 void pts_runtime_init(int argc, char **argv);

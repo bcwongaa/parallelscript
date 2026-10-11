@@ -15,8 +15,9 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program)}
+	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{}, main: program.Main}
 	e.collectStrings(program)
+	e.collectGlobals(program.Main)
 	e.header(program)
 	for _, f := range program.Funcs {
 		e.function(f)
@@ -29,6 +30,10 @@ type emitter struct {
 	strings     map[string]string // string constant value → C name
 	stringOrder []string          // values in order of first use
 	funcNames   map[*ir.Func]string
+	globals     map[*ir.Local]string // module-scope bindings that functions use, by C name
+	globalOrder []*ir.Local
+	main        *ir.Func
+	current     *ir.Func
 	locals      map[*ir.Local]string
 	usedNames   map[string]bool
 	nextSuffix  map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
@@ -47,6 +52,13 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "%s", staticString(e.strings[value], value))
 	}
 	if len(e.stringOrder) > 0 {
+		e.line(0, "")
+	}
+	for _, global := range e.globalOrder {
+		e.line(0, "static %s%s;", declarator(global.Type), e.globals[global])
+		e.line(0, "static bool %s_ready; /* its declaration has run */", e.globals[global])
+	}
+	if len(e.globalOrder) > 0 {
 		e.line(0, "")
 	}
 	for _, f := range program.Funcs {
@@ -101,7 +113,18 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 	return fmt.Sprintf("%s%s(%s)", declarator(f.Result), e.funcNames[f], strings.Join(params, ", "))
 }
 
+// collectGlobals names the top-level code's locals that functions use: pts_global_<name>.
+func (e *emitter) collectGlobals(main *ir.Func) {
+	walk(main.Body.Stmts, func(stmt ir.Stmt) {
+		if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Local.Global {
+			e.globals[decl.Local] = "pts_global_" + cIdentifier(decl.Local.Name)
+			e.globalOrder = append(e.globalOrder, decl.Local)
+		}
+	}, func(ir.Expr) {})
+}
+
 func (e *emitter) function(f *ir.Func) {
+	e.current = f
 	e.locals = map[*ir.Local]string{}
 	e.usedNames = map[string]bool{}
 	e.nextSuffix = map[string]int{}
@@ -152,6 +175,11 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 		init := zeroValue(s.Local.Type, e.strings[""])
 		if s.Init != nil {
 			init = e.expr(s.Init)
+		}
+		if name, ok := e.globals[s.Local]; ok {
+			e.line(depth, "%s = %s;", name, init)
+			e.line(depth, "%s_ready = true;", name)
+			return
 		}
 		e.line(depth, "%s%s = %s;", declarator(s.Local.Type), e.declareLocal(s.Local), init)
 	case *ir.If:
@@ -336,13 +364,21 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.NullConst:
 		return "PTS_VALUE_NULL"
 	case *ir.LocalRef:
-		return e.locals[x.Local]
+		if check := e.readyCheck(x.Local); check != "" {
+			return "(" + check + ", " + e.local(x.Local) + ")"
+		}
+		return e.local(x.Local)
 	case *ir.Assign:
 		if x.Postfix {
 			old := e.temporary()
-			return fmt.Sprintf("({ %s%s = %s; %s = %s; %s; })", declarator(x.Local.Type), old, e.locals[x.Local], e.locals[x.Local], e.expr(x.Value), old)
+			check := e.readyCheck(x.Local)
+			if check != "" {
+				check += "; "
+			}
+			name := e.local(x.Local)
+			return fmt.Sprintf("({ %s%s%s = %s; %s = %s; %s; })", check, declarator(x.Local.Type), old, name, name, e.expr(x.Value), old)
 		}
-		return "(" + e.locals[x.Local] + " = " + e.expr(x.Value) + ")"
+		return "(" + e.assignment(x) + ")"
 	case *ir.Truthy:
 		return truthy(x.X.Type(), e.expr(x.X))
 	case *ir.Conditional:
@@ -373,11 +409,37 @@ func (e *emitter) expr(expr ir.Expr) string {
 	}
 }
 
+// assignment writes `x = value`, after the ready check if x is a global used from a function.
+func (e *emitter) assignment(assign *ir.Assign) string {
+	text := e.local(assign.Local) + " = " + e.expr(assign.Value)
+	if check := e.readyCheck(assign.Local); check != "" {
+		return check + ", " + text
+	}
+	return text
+}
+
+// local is the C name of a local, or of the global it became.
+func (e *emitter) local(local *ir.Local) string {
+	if name, ok := e.globals[local]; ok {
+		return name
+	}
+	return e.locals[local]
+}
+
+// readyCheck is the check that a global's declaration has run, needed where a function
+// other than the top-level code uses it; "" if none is needed.
+func (e *emitter) readyCheck(local *ir.Local) string {
+	if !local.Global || e.current == e.main {
+		return ""
+	}
+	return fmt.Sprintf("pts_check_ready(%s_ready, %s)", e.globals[local], cString(local.Name))
+}
+
 // effect writes an expression evaluated only for its effects (a statement or a for
 // loop's update), where an assignment needs no parentheses and x++ no old value.
 func (e *emitter) effect(expr ir.Expr) string {
 	if assign, ok := expr.(*ir.Assign); ok {
-		return e.locals[assign.Local] + " = " + e.expr(assign.Value)
+		return e.assignment(assign)
 	}
 	return e.expr(expr)
 }
