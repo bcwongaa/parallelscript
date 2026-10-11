@@ -221,7 +221,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Grow the differential corpus to at least 300 realistic programs. Use subagents to write them in batches by theme: algorithms, text processing, OOP, data transforms, closures and errors.
   - Fix the most common divergences; record every other one (a `// skip:` with its cause in the program, the causes in `PROGRESS.md`).
 - [ ] **M3.7b Corpus divergences** (split from M3.7 by D-089).
-  - Fix the recorded causes that two or more corpus programs share (most programs first), unskipping each program that then matches Node; causes left to later milestones by plan (iterators as values: M4.1) stay recorded.
+  - Fix the recorded causes that two or more corpus programs share (most programs first), unskipping each program that then matches Node; causes left to later milestones by plan (iterators as values: M4.1; typed arrays: M5.4, D-103) stay recorded.
 - [ ] **M3.8 Milestone M3.**
 
 ## M4: Async on one loop
@@ -250,6 +250,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Task placement for `parallel <expr>` (least-loaded, or round-robin with stealing of unstarted tasks); tasks never migrate.
 - [ ] **M5.3 The fork-join pool.** A Chase–Lev work-stealing pool, `join(a, b)`, adaptive splitting, and threads that help while they wait. Unit tests under ASan, UBSan and TSan where feasible.
 - [ ] **M5.4 `.par` views.**
+  - Typed arrays themselves (`Uint8Array`, `Int32Array`, `Float64Array`, …): fixed-length arrays of their element type with JS's modular writes, writes out of range ignored, `subarray` views, their methods, console.log and JSON as Node prints them (moved from M3.7b by D-103).
   - `.par` on arrays, typed arrays and `range`.
   - `map` (order-preserving), `filter`, `forEach`, `reduce`, `flatMap`, `some`, `every`, `find`, `count`, `sum`, `min`, `max`, `sort` and `sortBy` (parallel merge sort), and `toArray`.
   - `pts:parallel` exporting `range` and `join`.
