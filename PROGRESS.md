@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.6b3 Generic methods and nested generic functions
+- **Next task:** M2.6c Enums
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.6b3 Generic methods and nested generic functions: generic instance and static methods of classes (of generic class instances too) and generic functions nested in functions or methods are monomorphized; methods' instances take `this` and are called directly (D-051, SPEC §9.28). Fixed: a method overridden only by a generic class instance made after the call was lowered was called directly. Generic function values and generic methods of object literals and interfaces moved to M3.3 (D-051).
 - M2.6b2 Generic classes: one `ir.Class` per instance (named as the generic class, so `console.log` matches Node), with its own member tables found from the receiver's class; generic superclasses and subclasses, non-generic classes extending instances, instances from other modules, integer type arguments (D-050, SPEC §9.27). Static members of generic classes and `instanceof` of a generic class are PTS1001. M2.6b2 split by D-050.
 - M2.6b1 Generic functions and object types: generic function declarations at module scope are monomorphized, one instance per list of IR type arguments (inferred or written; integer types included), lowered with every checker type instantiated; generic calls inside instances, recursion (64 instances at most), constraints (`x.name` with `T extends Named`), generic functions from other modules; generic interfaces and type aliases (`Box<int>`, `Stack<T>` with methods) (D-049, SPEC §9.26). M2.6b split by D-049.
 - M2.6a Integer types as checker types: the forked checker makes the prelude's `int`, `i8 … u64`, `f32` number types of their own and types arithmetic by ParallelScript's rules (shared in the new `pts/numeric`), so `u8[]`, `Map<string, int>`, `Set<u64>`, `(n: int) => int` and inferred results (`ints.map(x => x * 2)` is an `int[]`) work; the semantic pass reads checker types, types literals by context (array elements, built-in method arguments) and checks function-type conversions (D-048, SPEC §9.25). M2.6 split by D-047.
@@ -51,7 +52,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.6b3 Generic methods and nested generic functions: a generic method (of a class, an object literal or an interface) needs instances per (receiver class, type arguments): extend `pts/lower/generics.go` so an instance can be a method (its `this`, its class's substitution plus its own type parameters), declared into the class instance's member tables or found by name; interface method tables then need one entry per instance, so generic methods through interfaces may stay PTS1001. Nested generic functions need each instance's closure made where the declaration's block is entered (`hoistedFunctions`). Then M2.6c enums, M2.6d tuples and destructuring, M2.6e spread/rest and hash-map objects.
+1. M2.6c Enums: numeric and string enums (and `const enum`), as Node runs them with `--experimental-transform-types` (D-009). tsc gives enum members literal types (`TypeFlagsEnumLiteral`; `check.NumericOf` already maps numeric ones to `number`). The enum object prints in Node as `{ '0': 'A', '1': 'B', A: 0, B: 1 }` (reverse mappings for numeric members). Then M2.6d tuples and destructuring, M2.6e spread/rest and hash-map objects. Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -66,7 +67,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (89 run tests, 1 skipped; 44 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (90 run tests, 1 skipped; 44 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -93,6 +94,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.6b3 done (generic function values moved to M3.3 by D-051).
 - 2026-10-11: M2.6b2 done (M2.6b2 split by D-050).
 - 2026-10-11: M2.6b1 done (M2.6b split by D-049).
 - 2026-10-11: M2.6a done (M2.6 split by D-047).
