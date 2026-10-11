@@ -1,0 +1,32 @@
+export abstract class Shape {
+  name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+  abstract area(): number;
+  report(): string {
+    return this.name + " " + this.area();
+  }
+}
+
+export class Rect extends Shape {
+  w: number;
+  h: number;
+  constructor(w: number, h: number) {
+    super("rect");
+    this.w = w;
+    this.h = h;
+  }
+  area(): number {
+    return this.w * this.h;
+  }
+}
+
+export default class Unit extends Rect {
+  constructor() {
+    super(1, 1);
+  }
+  report(): string {
+    return "unit: " + super.report();
+  }
+}

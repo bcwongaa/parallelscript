@@ -10,11 +10,7 @@ import (
 func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
 	for _, c := range p.Classes {
-		fields := make([]string, len(c.Fields))
-		for i, field := range c.Fields {
-			fields[i] = field.Name + ": " + field.Type.String()
-		}
-		fmt.Fprintf(&pr.out, "class %s { %s }\n", c.Name, strings.Join(fields, "; "))
+		pr.class(c)
 	}
 	for _, f := range p.Funcs {
 		params := make([]string, len(f.Params))
@@ -26,6 +22,27 @@ func (p *Program) String() string {
 		pr.out.WriteString("}\n")
 	}
 	return pr.out.String()
+}
+
+// class prints a class's header, fields and methods: "abstract class B extends A { x: number; virtual m }".
+func (pr *printer) class(c *Class) {
+	header := "class " + c.Name
+	if c.Abstract {
+		header = "abstract " + header
+	}
+	if c.Parent != nil {
+		header += " extends " + c.Parent.Name
+	}
+	var members []string
+	for _, field := range c.Fields {
+		members = append(members, field.Name+": "+field.Type.String())
+	}
+	for _, method := range c.Methods {
+		if method.Virtual {
+			members = append(members, "virtual "+method.Name)
+		}
+	}
+	fmt.Fprintf(&pr.out, "%s { %s }\n", header, strings.Join(members, "; "))
 }
 
 type printer struct {
@@ -191,6 +208,12 @@ func FormatExpr(expr Expr) string {
 		return e.Builtin.Name + formatArgs(e.Args)
 	case *Call:
 		return e.Func.QualifiedName() + formatArgs(e.Args)
+	case *VirtualCall:
+		return "virtual " + e.Method.Class.Name + "." + e.Method.Name + formatArgs(e.Args)
+	case *ClassCast:
+		return "(" + FormatExpr(e.X) + " as " + e.To.Name + ")"
+	case *InstanceOf:
+		return "(" + FormatExpr(e.X) + " instanceof " + e.Class.Name + ")"
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))
 	}

@@ -5,7 +5,7 @@ package ir
 
 // Program is a whole lowered program.
 type Program struct {
-	Classes []*Class
+	Classes []*Class // superclasses before their subclasses
 	Funcs   []*Func
 	Modules []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
 	Main    *Func     // runs the entry module's top-level code; also in Funcs
@@ -59,23 +59,102 @@ var (
 )
 
 // Class is a class declared in the program, and the type of a reference to one of its
-// instances (never null). An instance holds its Fields in order; Constructor and Methods
+// instances (never null), or to an instance of a subclass. An instance holds its
+// parent's fields, then its own Fields in order; Constructor and the methods' functions
 // take the instance as their first parameter, `this`.
 type Class struct {
 	Name        string
 	Module      *Module
-	Fields      []*Field
-	Constructor *Func // runs the field initialisers, then the constructor's body
-	Methods     []*Func
+	Parent      *Class // the superclass, or nil
+	Abstract    bool
+	Fields      []*Field  // the fields it declares, not those it inherits or redeclares
+	Constructor *Func     // runs the field initialisers, then the constructor's body; in a subclass, the initialisers run when super(...) returns
+	Methods     []*Method // the methods it declares, overrides included
 }
 
 func (c *Class) String() string { return c.Name }
+
+// IsSubclassOf reports whether c is ancestor or extends it, directly or not, so that
+// every instance of c is an instance of ancestor.
+func (c *Class) IsSubclassOf(ancestor *Class) bool {
+	for ; c != nil; c = c.Parent {
+		if c == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
+// AllFields are the fields of an instance in layout order: inherited ones first.
+func (c *Class) AllFields() []*Field {
+	if c.Parent == nil {
+		return c.Fields
+	}
+	return append(append([]*Field{}, c.Parent.AllFields()...), c.Fields...)
+}
+
+// Field returns the field name of an instance, its class's own or inherited, or nil.
+func (c *Class) Field(name string) *Field {
+	for ; c != nil; c = c.Parent {
+		for _, field := range c.Fields {
+			if field.Name == name {
+				return field
+			}
+		}
+	}
+	return nil
+}
+
+// Method returns the method name of an instance, its class's own or the nearest
+// ancestor's, or nil.
+func (c *Class) Method(name string) *Method {
+	for ; c != nil; c = c.Parent {
+		for _, method := range c.Methods {
+			if method.Name == name {
+				return method
+			}
+		}
+	}
+	return nil
+}
+
+// Slots are the virtual methods c declares that override nothing: each is an entry of
+// the method table of c and of every subclass.
+func (c *Class) Slots() []*Method {
+	var slots []*Method
+	for _, method := range c.Methods {
+		if method.Virtual && method.Overrides == nil {
+			slots = append(slots, method)
+		}
+	}
+	return slots
+}
 
 // Field is a field of a class's instances.
 type Field struct {
 	Name  string
 	Type  Type
 	Class *Class
+}
+
+// Method is a method a class declares. A virtual method, which is abstract, overridden
+// or an override, is called through the method table of its instance's class, unless
+// the caller knows which implementation runs; others are called directly.
+type Method struct {
+	Name      string
+	Class     *Class
+	Func      *Func   // takes `this` (an instance of Class) first; its Body is nil if the method is abstract
+	Overrides *Method // the nearest ancestor's method of the same name, or nil
+	Virtual   bool
+}
+
+// Slot is the method whose class's method table has the entry a virtual method fills:
+// the topmost method of the chain of overrides it is part of.
+func (m *Method) Slot() *Method {
+	for m.Overrides != nil {
+		m = m.Overrides
+	}
+	return m
 }
 
 // IsInteger reports whether t is one of the integer types.
@@ -327,6 +406,27 @@ type Call struct {
 	Args []Expr
 }
 
+// VirtualCall calls a virtual method on the instance Args[0], an instance of the
+// method's slot's class: the implementation the instance's class has, its own or
+// inherited, runs.
+type VirtualCall struct {
+	Method *Method
+	Args   []Expr
+}
+
+// ClassCast is X, an instance of one class, as an instance of another: an ancestor of
+// its static class, or a subclass the checker narrowed it to.
+type ClassCast struct {
+	X  Expr
+	To *Class
+}
+
+// InstanceOf is X instanceof Class, for an instance X.
+type InstanceOf struct {
+	X     Expr
+	Class *Class
+}
+
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
 
@@ -465,6 +565,9 @@ func (e *SetField) Type() Type     { return e.Field.Type }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
 func (e *Call) Type() Type         { return e.Func.Result }
+func (e *VirtualCall) Type() Type  { return e.Method.Func.Result }
+func (e *ClassCast) Type() Type    { return e.To }
+func (*InstanceOf) Type() Type     { return Bool }
 func (e *Unary) Type() Type        { return e.X.Type() }
 func (e *IntConst) Type() Type     { return e.Ty }
 func (e *Convert) Type() Type      { return e.To }

@@ -102,6 +102,16 @@ typedef struct pts_object {
 /* A new instance of type with every field zero (0, false, NULL; a pts_value field is 0, not undefined). */
 void *pts_object_new(const pts_type *type);
 
+/* Whether object, an instance, is one of type or of a subclass: JS's instanceof on classes. */
+static inline bool pts_instance_of(const void *object, const pts_type *type) {
+  for (const pts_type *t = ((const pts_object *)object)->type; t != NULL; t = t->parent) {
+    if (t == type) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* ---------------------------------------------------------------- strings */
 
 enum { PTS_STRING_ASCII = 1u << 0 };

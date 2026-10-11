@@ -97,6 +97,16 @@ static void methods_are_found_through_the_descriptor(void) {
   CHECK(lp->base.type->parent == &point_type);
 }
 
+static void instance_of_follows_the_parent_chain(void) {
+  labelled_point *lp = pts_object_new(&labelled_point_type);
+  point *p = pts_object_new(&point_type);
+  CHECK(pts_instance_of(lp, &labelled_point_type));
+  CHECK(pts_instance_of(lp, &point_type));
+  CHECK(pts_instance_of(p, &point_type));
+  CHECK(!pts_instance_of(p, &labelled_point_type));
+  CHECK(!pts_instance_of(lp, &node_type));
+}
+
 /* build_list makes a list of count nodes, each labelled with its value. */
 static node *build_list(int count, int tag) {
   node *head = NULL;
@@ -176,6 +186,7 @@ int main(int argc, char **argv) {
   new_objects_are_zeroed_and_typed();
   pointer_free_objects_are_allocated_atomic();
   methods_are_found_through_the_descriptor();
+  instance_of_follows_the_parent_chain();
   collection_keeps_everything_objects_point_to();
   unreachable_objects_are_collected();
   threads_allocate_while_others_collect();

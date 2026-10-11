@@ -16,8 +16,9 @@ import (
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
-		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}}
+		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{}}
 	e.nameClasses(program)
+	e.indexMethods(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -32,8 +33,9 @@ type emitter struct {
 	strings      map[string]string // string constant value → C name
 	stringOrder  []string          // values in order of first use
 	funcNames    map[*ir.Func]string
-	classNames   map[*ir.Class]string // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
-	globals      map[*ir.Local]string // module-scope bindings that other functions use, by C name
+	classNames   map[*ir.Class]string    // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
+	methods      map[*ir.Func]*ir.Method // the method each method's function implements
+	globals      map[*ir.Local]string    // module-scope bindings that other functions use, by C name
 	globalOrder  []*ir.Local
 	globalOwners map[*ir.Local]*ir.Func // the top-level code that declares each global
 	initOrder    map[*ir.Func]int       // each module's top-level code: its place in the order modules run
@@ -145,6 +147,9 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 			name = paramNames[i]
 		}
 		params[i] = e.declarator(param.Type) + name
+		if receiver := e.receiverClass(f); i == 0 && receiver != nil {
+			params[i] = e.declarator(receiver) + name
+		}
 	}
 	if len(params) == 0 {
 		params = []string{"void"}
@@ -181,9 +186,17 @@ func (e *emitter) function(f *ir.Func) {
 	for i, param := range f.Params {
 		paramNames[i] = e.declareLocal(param)
 	}
+	this := ""
+	if receiver := e.receiverClass(f); receiver != nil && receiver != f.Params[0].Type {
+		this, paramNames[0] = paramNames[0], "pts_this" // `this` as the slot's class, which its struct starts with
+	}
 	e.line(0, "")
 	e.at(f.Pos)
 	e.line(0, "static %s {", e.signature(f, paramNames))
+	if this != "" {
+		class := e.declarator(f.Params[0].Type)
+		e.line(1, "%s%s = (%s)pts_this;", class, this, strings.TrimSuffix(class, " "))
+	}
 	e.statements(f.Body.Stmts, 1)
 	if f.Result != ir.Void && !endsWithReturn(f.Body.Stmts) {
 		e.line(1, "pts_unreachable(); /* tsc checked that every path returns */")
@@ -437,7 +450,7 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.New:
 		return e.newInstance(x)
 	case *ir.FieldRef:
-		return e.fieldRef(e.expr(x.X), x.Field)
+		return e.fieldRef(e.expr(x.X), x.X.Type().(*ir.Class), x.Field)
 	case *ir.SetField:
 		return e.setField(x)
 	case *ir.Box:
@@ -446,7 +459,16 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.callBuiltin(x)
 	case *ir.Call:
 		args, prelude := e.operands(x.Args)
+		if receiver := e.receiverClass(x.Func); receiver != nil && receiver != x.Args[0].Type() {
+			args[0] = "(" + strings.TrimSuffix(e.declarator(receiver), " ") + ")(" + args[0] + ")"
+		}
 		return ordered(prelude, e.funcNames[x.Func]+"("+strings.Join(args, ", ")+")")
+	case *ir.VirtualCall:
+		return e.virtualCall(x)
+	case *ir.ClassCast:
+		return e.classCast(x)
+	case *ir.InstanceOf:
+		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 	case *ir.Binary:
 		return e.binary(x)
 	case *ir.Unary:
@@ -895,6 +917,14 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 			for _, arg := range x.Args {
 				expr(arg)
 			}
+		case *ir.VirtualCall:
+			for _, arg := range x.Args {
+				expr(arg)
+			}
+		case *ir.ClassCast:
+			expr(x.X)
+		case *ir.InstanceOf:
+			expr(x.X)
 		case *ir.Binary:
 			expr(x.X)
 			expr(x.Y)

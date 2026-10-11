@@ -30,25 +30,101 @@ func (c *pass) calledFunction(call *ast.Node) *ast.Node {
 		return nil
 	}
 	for _, declaration := range symbol.Declarations {
-		if isFunctionWithBody(declaration) {
+		if isFunctionWithBody(declaration) || isAbstractMethod(declaration) {
 			return declaration
 		}
 	}
 	return nil
 }
 
-// constructorOf returns the constructor a `new` expression runs, if its class declares one.
+// constructorOf returns the constructor a `new` expression runs, if its class or a superclass declares one.
 func (c *pass) constructorOf(node *ast.Node) *ast.Node {
 	symbol := c.target(node.Expression())
 	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindClassDeclaration {
 		return nil
 	}
-	for _, member := range symbol.ValueDeclaration.Members() {
-		if member.Kind == ast.KindConstructor && member.Body() != nil {
-			return member
+	return c.classConstructor(symbol.ValueDeclaration)
+}
+
+// superConstructor returns the constructor `super(args)` runs, if the superclass or one of its superclasses declares one.
+func (c *pass) superConstructor(call *ast.Node) *ast.Node {
+	return c.classConstructor(c.superclass(ast.GetContainingClass(call)))
+}
+
+// classConstructor returns the constructor that runs for a class: its own, or if it
+// declares none, its nearest superclass's; nil if none declares one.
+func (c *pass) classConstructor(class *ast.Node) *ast.Node {
+	for ; class != nil; class = c.superclass(class) {
+		for _, member := range class.Members() {
+			if member.Kind == ast.KindConstructor && member.Body() != nil {
+				return member
+			}
 		}
 	}
 	return nil
+}
+
+// superclass returns the declaration of the class a class extends, or nil.
+func (c *pass) superclass(class *ast.Node) *ast.Node {
+	heritage := ast.GetExtendsHeritageClauseElement(class)
+	if heritage == nil {
+		return nil
+	}
+	symbol := c.target(heritage.Expression())
+	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindClassDeclaration {
+		return nil
+	}
+	return symbol.ValueDeclaration
+}
+
+// inheritedMember returns the declaration of the instance member of the same name that
+// a class member redeclares or overrides, in the nearest superclass that has one, or nil.
+func (c *pass) inheritedMember(member *ast.Node) *ast.Node {
+	name := member.Name()
+	if name == nil || name.Kind != ast.KindIdentifier {
+		return nil
+	}
+	for class := c.superclass(member.Parent); class != nil; class = c.superclass(class) {
+		for _, other := range class.Members() {
+			if other.Name() != nil && other.Name().Kind == ast.KindIdentifier && other.Name().Text() == name.Text() && !ast.IsStatic(other) {
+				return other
+			}
+		}
+	}
+	return nil
+}
+
+// inheritedFieldType returns the numeric type of the inherited field that a field
+// declaration redeclares, if it does.
+func (c *pass) inheritedFieldType(node *ast.Node) (Numeric, bool) {
+	inherited := c.inheritedMember(node)
+	if inherited == nil || inherited.Kind != ast.KindPropertyDeclaration {
+		return 0, false
+	}
+	return c.bindingType(c.tc.GetMergedSymbol(inherited.Symbol()))
+}
+
+// overriddenResultType returns the numeric result type of the method that a method
+// declaration overrides, if it overrides one that returns a number.
+func (c *pass) overriddenResultType(declaration *ast.Node) (Numeric, bool) {
+	inherited := c.inheritedMember(declaration)
+	if inherited == nil || inherited.Kind != ast.KindMethodDeclaration {
+		return 0, false
+	}
+	if fn := c.functionOf(inherited); fn.result != nil {
+		return *fn.result, true
+	}
+	return 0, false
+}
+
+// isSuperCall reports whether node is `super(args)`.
+func isSuperCall(node *ast.Node) bool {
+	return node.Kind == ast.KindCallExpression && node.Expression().Kind == ast.KindSuperKeyword
+}
+
+// isAbstractMethod reports whether node declares an abstract method, which has no body.
+func isAbstractMethod(node *ast.Node) bool {
+	return node.Kind == ast.KindMethodDeclaration && ast.HasSyntacticModifier(node, ast.ModifierFlagsAbstract)
 }
 
 // isFunctionWithBody reports whether node declares a function, method or constructor with a body.
@@ -91,9 +167,16 @@ func (c *pass) signature(declaration *ast.Node) *function {
 		fn.params = append(fn.params, t)
 	}
 	if c.returnsNumber(declaration) {
-		if n, ok := c.annotationType(declaration.Type()); ok {
+		n, ok := c.annotationType(declaration.Type())
+		if !ok && declaration.Kind == ast.KindMethodDeclaration {
+			n, ok = c.overriddenResultType(declaration) // an override returns what the method it overrides does
+		}
+		switch {
+		case ok:
 			c.setResult(declaration, fn, n)
-		} else {
+		case declaration.Body() == nil:
+			c.setResult(declaration, fn, Number)
+		default:
 			fn.inferResult = true
 		}
 	}

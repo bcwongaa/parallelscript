@@ -1,0 +1,46 @@
+// Integer types through inheritance: inherited constructors and fields keep their types,
+// an override without a result annotation returns what the method it overrides does,
+// and a redeclared field keeps the inherited field's type.
+abstract class Meter {
+  ticks: u8;
+  limit: int = 9007199254740993;
+  constructor(start: u8) {
+    this.ticks = start;
+  }
+  abstract weight(scale: u8): u8;
+  advance(by: u8): u8 {
+    this.ticks += by * this.weight(1);
+    return this.ticks;
+  }
+}
+
+class Fast extends Meter {
+  limit = 9007199254740995;
+  weight(scale: u8): u8 {
+    return scale * 100;
+  }
+}
+
+class Faster extends Fast {
+  weight(scale: u8) {
+    return scale * 200;
+  }
+}
+
+class Fixed extends Fast {
+  weight(scale: u8) {
+    return 3; // a u8, as Meter.weight returns
+  }
+}
+
+const fast = new Fast(10);
+const faster: Meter = new Faster(250);
+console.log(fast.advance(1), fast.advance(2), faster.advance(1), faster.limit + 1);
+console.log(fast, faster);
+const fixed: Meter = new Fixed(0);
+console.log(fixed.advance(5), fixed.weight(9));
+
+// expect:
+// 110 54 194 9007199254740996
+// Fast { ticks: 54, limit: 9007199254740995 } Faster { ticks: 194, limit: 9007199254740995 }
+// 15 3

@@ -1,0 +1,55 @@
+// Instances of subclasses keep what both their inherited part and their own part point
+// to alive across collections: a chain of 100,000 links built amid garbage.
+class Link {
+  next: Link;
+  label: string;
+  constructor(label: string) {
+    this.next = this;
+    this.label = label;
+  }
+}
+
+class Named extends Link {
+  name: string;
+  constructor(name: string, next: Link) {
+    super("named");
+    this.next = next;
+    this.name = name;
+  }
+}
+
+class Tagged extends Named {
+  tag: Link;
+  constructor(name: string, next: Link, tag: Link) {
+    super(name, next);
+    this.tag = tag;
+  }
+}
+
+const end = new Link("end");
+let head: Link = end;
+let garbage = "";
+for (let i = 0; i < 100000; i++) {
+  garbage = "garbage " + i + garbage.slice(0, 20);
+  if (i % 3 === 0) {
+    head = new Tagged("t" + i, head, new Link("tag" + i));
+  } else {
+    head = new Named("n" + i, head);
+  }
+}
+
+let count = 0;
+let letters = 0;
+let tags = 0;
+let link: Link = head;
+while (link !== end) {
+  count++;
+  if (link instanceof Named) {
+    letters += link.name.length + link.label.length;
+  }
+  if (link instanceof Tagged) {
+    tags += link.tag.label.length;
+  }
+  link = link.next;
+}
+console.log(count, letters, tags, garbage.length);

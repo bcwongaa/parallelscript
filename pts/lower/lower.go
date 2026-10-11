@@ -124,7 +124,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	defer release()
 	l := &lowerer{program: program.TS, checker: c, info: info,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
-		classes: map[*ast.Symbol]*ir.Class{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Func{}, this: map[*ir.Func]*ir.Local{}}
+		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{},
+		this: map[*ir.Func]*ir.Local{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -139,12 +140,16 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		l.function = result.Modules[i].Init
 		l.declareClasses(file)
 	}
+	for _, file := range program.Modules {
+		l.declareSuperclasses(file)
+	}
+	l.classList = l.orderedClasses(program.Modules)
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareFunctions(file.AsNode(), "")
-		l.declareClassMembers(file)
 		l.declareModuleBindings(file)
 	}
+	l.declareClassMembers()
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.function.Body = l.block(file.AsNode(), file.Statements.Nodes)
@@ -156,13 +161,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		l.functionBody(body)
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
-	for _, file := range program.Modules {
-		for _, statement := range file.Statements.Nodes {
-			if class := l.classes[l.declaredSymbol(statement)]; statement.Kind == ast.KindClassDeclaration && class != nil {
-				result.Classes = append(result.Classes, class)
-			}
-		}
-	}
+	result.Classes = l.classList
 	return result, l.errors
 }
 
@@ -189,8 +188,10 @@ type lowerer struct {
 	moduleScope map[*ir.Local]bool        // the locals declared at module scope, which functions and other modules may use
 	funcs       map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
 	classes     map[*ast.Symbol]*ir.Class // every class declaration, made before any code is lowered; nil if it failed
-	fields      map[*ast.Node]*ir.Field   // the fields of those classes, by property declaration
-	methods     map[*ast.Node]*ir.Func    // their methods, by method declaration; nil if it failed
+	classNodes  map[*ir.Class]*ast.Node   // the declaration of each class
+	classList   []*ir.Class               // the classes that didn't fail, superclasses first
+	fields      map[*ast.Node]*ir.Field   // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
+	methods     map[*ast.Node]*ir.Method  // their methods, by method declaration; nil if it failed
 	this        map[*ir.Func]*ir.Local    // the `this` parameter of each constructor and method
 	lowered     []*ir.Func                // the functions whose bodies are lowered
 	bodies      []*ast.Node               // function declarations whose bodies are still to be lowered
@@ -234,6 +235,9 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	switch node.Kind {
 	case ast.KindExpressionStatement:
+		if isSuperCall(node.Expression()) {
+			return l.superCallStatement(node)
+		}
 		if x := l.expression(node.Expression()); x != nil {
 			return []ir.Stmt{&ir.ExprStmt{At: l.pos(node), X: x}}
 		}
@@ -647,6 +651,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return box(value)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
 		return &ir.Convert{X: value, To: target}
+	case isClass(value.Type()) && isClass(target):
+		return l.classCast(value, target.(*ir.Class), node)
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
@@ -910,9 +916,12 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 
 func (l *lowerer) call(node *ast.Node) ir.Expr {
 	call := node.AsCallExpression()
-	if call.Expression.Kind == ast.KindImportKeyword {
+	switch call.Expression.Kind {
+	case ast.KindImportKeyword:
 		l.notSupportedYet(node, "dynamic `import()` is")
 		return nil
+	case ast.KindSuperKeyword:
+		return l.superCall(node)
 	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if method, ok := l.methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
@@ -1236,6 +1245,8 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.concatenation(node)
 	case operator == ast.KindEqualsToken:
 		return l.assignment(node)
+	case operator == ast.KindInstanceOfKeyword:
+		return l.instanceOf(node)
 	case operator == ast.KindCommaToken:
 		x, y := l.expression(expr.Left), l.expression(expr.Right)
 		if x == nil || y == nil {
@@ -1275,6 +1286,9 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		if x == nil || y == nil {
 			return nil
 		}
+	}
+	if op == ir.Eq || op == ir.Ne {
+		x, y = commonClass(x, y)
 	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s and %s is", describe(node), x.Type(), y.Type()))
@@ -1398,7 +1412,7 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 	case ast.KindPropertyAccessExpression:
 		if field := l.fields[l.memberDeclaration(node)]; field != nil {
-			object := l.fieldObject(node)
+			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
 		}
 	}
@@ -1493,6 +1507,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 			return nil, nil
 		}
 	}
+	x, y = commonClass(x, y)
 	if x.Type() != y.Type() {
 		l.notSupportedYet(node, fmt.Sprintf("%s with operands of types %s and %s is", describe(node), x.Type(), y.Type()))
 		return nil, nil

@@ -36,11 +36,13 @@ func effectsOf(expr ir.Expr) effects {
 		}
 		return f
 	case *ir.Call:
-		f := writes | mayThrow // anything a function body does
-		for _, arg := range x.Args {
-			f |= effectsOf(arg)
-		}
-		return f
+		return callEffects(x.Args)
+	case *ir.VirtualCall:
+		return callEffects(x.Args)
+	case *ir.ClassCast:
+		return effectsOf(x.X)
+	case *ir.InstanceOf:
+		return effectsOf(x.X) // an instance's class never changes
 	case *ir.Binary:
 		f := effectsOf(x.X) | effectsOf(x.Y)
 		if ir.IsInteger(x.X.Type()) && (x.Op == ir.Div || x.Op == ir.Rem || x.Op == ir.Pow) {
@@ -77,6 +79,15 @@ func effectsOf(expr ir.Expr) effects {
 		return readsLocals | writes | effectsOf(x.X) | effectsOf(x.Value)
 	}
 	return 0 // constants
+}
+
+// callEffects are the effects of a call of a function of the program with args.
+func callEffects(args []ir.Expr) effects {
+	f := writes | mayThrow // anything a function body does
+	for _, arg := range args {
+		f |= effectsOf(arg)
+	}
+	return f
 }
 
 // orderMatters reports whether evaluating operands in some order other than left to

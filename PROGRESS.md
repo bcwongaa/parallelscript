@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.2c Inheritance
+- **Next task:** M2.2d Accessors, statics and privacy
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.2c Inheritance: `extends` (across modules too), `super(...)` with the subclass's field initialisers after it, implicit constructors that forward their arguments, `super.method()`, overriding with typed method tables (`pts_vtable_<C>`, two loads per virtual call) only for hierarchies that override, direct calls wherever no subclass of the static type overrides, abstract classes and methods, `instanceof`, narrowing to subclasses, redeclared fields, overrides inheriting numeric result types (D-028, SPEC §9.12).
 - M2.2b `console.log` of instances: Node's `util.inspect` for class instances, ported to the runtime over the type descriptors (line breaking, depth, circular references, string quoting), byte for byte equal to Node on the corpus (D-027).
 - M2.2a Class basics: classes at module scope with fields (declaration order, initialisers), constructors, methods, `new`, `this`, field reads and writes (compound, `++`), method calls, across modules, with the numeric rules (D-026, SPEC §9.11). M2.2 split by D-025.
 - M2.1 GC and the object model: `pts_type` descriptors carry the GC layout, size, fields and methods; `pts_object_new` allocates gcj-style (precise, thread-local) or atomic by layout; bdwgc built with gcj support (D-024, SPEC §9.10). C tests cover collection and threads allocating while another collects.
@@ -35,8 +36,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.2c Inheritance: `extends`, `super(...)` and `super.method()`, vtables and overriding, abstract classes, `instanceof`. `pts_type.parent` exists (D-024); a derived class's fields extend its base's layout (inherited fields first in the descriptor, as Node lists them); constructors already take `this` and don't allocate (D-026), so `super(...)` is a call of the base constructor on `this`. Method calls are direct today (`instanceMethodCall`); overriding needs dispatch through a per-class method table. `console.log` uses the instance's own descriptor, so derived instances print their own name.
-2. M2.2d accessors, statics and privacy (D-025), then M2.3 Object literals and interfaces.
+1. M2.2d Accessors, statics and privacy: getters and setters, static fields and methods, `private` and `#private`, parameter properties, and abstract fields (D-028: an abstract field's storage is in each subclass, so reads through the base need dispatch, like an accessor). Members are found by declaration (`memberDeclaration`); `ir.Class.Method`/`Field` look up instance members by name and will need to skip statics. Virtual methods are `ir.Method`s with slots; a getter that subclasses override can reuse that machinery.
+2. M2.3 Object literals and interfaces. Using a class instance where a structurally equal but unrelated class is expected is PTS1001 today (`classCast`); interface tables may cover it.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -51,7 +52,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (44 run tests, 1 skipped; 35 error tests; 5 number-corpus and 11 string-corpus parts; about 20 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (48 run tests, 1 skipped; 36 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -63,6 +64,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **Overrides must keep the overridden method's parameter and result types** (PTS1001 otherwise): no covariant class results, no overrides with fewer parameters (D-028). A base constructor that calls an overridden method reading a subclass field sees the field's zero value (`""`, 0, NULL for an object), where Node sees `undefined`, since the subclass's initialisers run after `super()` returns; `console.log(this)` there lists the subclass's fields too, where Node doesn't yet.
 - **Classes have no TDZ check:** `new C()` in a function called before `class C` has run works, where Node throws `ReferenceError`. And a class-typed field read before the constructor assigns it is NULL, so it crashes (tsc rejects most such reads; a method called from the constructor before the assignment can still do it). Both need the null and ready checks that come with unions (M3.1) or a class ready flag.
 - **Stack overflow crashes** with SIGSEGV (exit 139) instead of throwing `RangeError: Maximum call stack size exceeded`; `pts/tests/run/stack_overflow.pts` is skipped until it does. Needs a guard (a depth counter or an alternate-stack SIGSEGV handler); natural with exceptions (M3.2).
 - **Indexing a non-ASCII string is O(n)** (a scan from the start); ASCII strings are O(1). A lazy UTF-16 index needs a GC-traced field in `pts_string` (D-016): M2.1 or M8.
@@ -75,6 +77,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.2c done.
 - 2026-10-11: M2.2b done.
 - 2026-10-11: M2.2a done (M2.2 split by D-025).
 - 2026-10-11: M2.1 done.

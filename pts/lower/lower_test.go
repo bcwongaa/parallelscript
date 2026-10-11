@@ -525,3 +525,62 @@ func make() Point {
 }
 `)
 }
+
+func TestOverriddenMethodsAreCalledThroughTheMethodTable(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `abstract class Shape {
+  abstract area(): number;
+  twice(): number { return this.area() * 2; }
+}
+class Square extends Shape {
+  side = 1;
+  area(): number { return this.side * this.side; }
+}
+class Cube extends Square {
+  area(): number { return super.area() * 6; }
+}
+class Tile extends Square {}
+function measure(shape: Shape, tile: Tile, cube: Cube): number {
+  if (shape instanceof Square) {
+    shape.side += 1;
+  }
+  return shape.area() + tile.area() + cube.area() + tile.twice() + tile.side;
+}
+`)
+	// Only calls whose receiver could be of a class that overrides go through the table;
+	// receivers convert to the class that has the method (or its slot).
+	assert.Equal(t, got, `abstract class Shape { virtual area }
+class Square extends Shape { side: number; virtual area }
+class Cube extends Square { virtual area }
+class Tile extends Square {  }
+func main() void {
+}
+func Shape.constructor(this: Shape) void {
+}
+func Shape.twice(this: Shape) number {
+  3: return (virtual Shape.area(this) * 2)
+}
+func Square.constructor(this: Square) void {
+  5: Shape.constructor((this as Shape))
+  6: (this.side = 1)
+}
+func Square.area(this: Square) number {
+  7: return (this.side * this.side)
+}
+func Cube.constructor(this: Cube) void {
+  9: Square.constructor((this as Square))
+}
+func Cube.area(this: Cube) number {
+  10: return (Square.area((this as Square)) * 6)
+}
+func Tile.constructor(this: Tile) void {
+  12: Square.constructor((this as Square))
+}
+func measure(shape: Shape, tile: Tile, cube: Cube) number {
+  14: if (shape instanceof Square) {
+    15: (let object = (shape as Square) in (object.side = (object.side + 1)))
+  }
+  17: return ((((virtual Shape.area(shape) + Square.area((tile as Square))) + Cube.area(cube)) + Shape.twice((tile as Shape))) + tile.side)
+}
+`)
+}

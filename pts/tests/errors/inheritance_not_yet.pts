@@ -1,0 +1,39 @@
+// Inheritance that isn't supported yet is reported: overrides that change the
+// signature, using a class where a structurally equal one is expected, super(...)
+// inside an expression in a class with fields, and instanceof of a non-class.
+class Base {
+  n = 1;
+  m(x: number): number {
+    return x;
+  }
+}
+class Narrower extends Base {
+  m(x: int): int {
+    return x;
+  }
+}
+class Fewer extends Base {
+  m(): number {
+    return 2;
+  }
+}
+class Twin {
+  n = 1;
+  m(x: number): number {
+    return x;
+  }
+}
+const twin: Twin = new Base();
+class Fields extends Base {
+  f = 2;
+  constructor() {
+    console.log(super());
+  }
+}
+console.log(new Base() instanceof Error);
+
+// error: inheritance_not_yet.pts:11:3 - error PTS1001: overriding `Base.m` with other parameter or result types is not supported yet
+// error: inheritance_not_yet.pts:16:3 - error PTS1001: overriding `Base.m` with other parameter or result types is not supported yet
+// error: inheritance_not_yet.pts:26:20 - error PTS1001: using a `Base` as a `Twin` is not supported yet
+// error: inheritance_not_yet.pts:30:17 - error PTS1001: `super(...)` inside an expression in a class with fields is not supported yet
+// error: inheritance_not_yet.pts:33:35 - error PTS1001: `instanceof` of anything but a class of the program is not supported yet

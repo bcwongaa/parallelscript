@@ -99,6 +99,9 @@ func (c *pass) visit(node *ast.Node) {
 			c.checkBody(node, fn)
 		}
 		return
+	case isAbstractMethod(node):
+		c.functionOf(node) // its parameter and result types
+		return
 	case node.Kind == ast.KindReturnStatement && c.current != nil:
 		c.returnStatement(node)
 		return
@@ -110,6 +113,9 @@ func (c *pass) visit(node *ast.Node) {
 		return
 	case node.Kind == ast.KindNewExpression && c.constructorOf(node) != nil:
 		c.call(node, c.constructorOf(node))
+		return
+	case isSuperCall(node) && c.superConstructor(node) != nil:
+		c.call(node, c.superConstructor(node))
 		return
 	}
 	node.ForEachChild(func(child *ast.Node) bool {
@@ -144,6 +150,9 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	}
 	symbol := c.tc.GetSymbolAtLocation(name)
 	declared, annotated := c.annotationType(node.Type())
+	if !annotated && node.Kind == ast.KindPropertyDeclaration {
+		declared, annotated = c.inheritedFieldType(node) // a redeclared field keeps its type
+	}
 	if !annotated {
 		declared = c.expr(initializer, nil) // `let n = i` takes i's type; a bare literal is a number
 	} else {

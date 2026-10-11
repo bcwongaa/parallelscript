@@ -1,0 +1,177 @@
+// Inheritance: extends, super(...), super.method(), overriding through base references
+// and `this`, abstract classes, instanceof and narrowing.
+class Animal {
+  name: string;
+  legs = 4;
+  constructor(name: string) {
+    this.name = name;
+  }
+  speak(): string {
+    return this.name + " makes a sound";
+  }
+  describe(): string {
+    return this.name + " (" + this.legs + " legs): " + this.speak();
+  }
+}
+
+class Dog extends Animal {
+  tricks = 0;
+  constructor(name: string, tricks: number) {
+    super(name);
+    this.tricks = tricks;
+  }
+  speak(): string {
+    return this.name + " barks, then " + super.speak();
+  }
+  fetch(): string {
+    return this.name + " fetches";
+  }
+}
+
+// No constructor: it takes Dog's arguments and passes them on.
+class Puppy extends Dog {
+  sleepy = true;
+  override describe(): string {
+    return "puppy " + super.describe(); // Dog inherits describe from Animal
+  }
+}
+
+class Bird extends Animal {
+  legs = 2; // a redeclared field is the inherited one, with a new initialiser
+  speak(): string {
+    return this.name + " sings";
+  }
+}
+
+const cat = new Animal("Tom");
+const rex = new Dog("Rex", 3);
+const bit = new Puppy("Bit", 1);
+const tweety = new Bird("Tweety");
+console.log(cat.describe());
+console.log(rex.describe());
+console.log(bit.describe(), bit.tricks, bit.fetch());
+console.log(tweety.describe());
+console.log(cat, rex, bit, tweety);
+
+// A base reference dispatches on the instance's class.
+function introduce(animal: Animal): string {
+  return animal.speak();
+}
+console.log(introduce(cat), "|", introduce(rex), "|", introduce(bit), "|", introduce(tweety));
+console.log(tweety.speak(), bit.legs++, ++bit.legs, bit.legs);
+
+// A receiver with effects is evaluated once, before the arguments.
+let calls = 0;
+function next(): Animal {
+  calls++;
+  return calls % 2 === 1 ? rex : tweety;
+}
+console.log(next().speak(), next().speak(), calls);
+
+// instanceof walks the class chain; narrowing gives the subclass's members.
+const zoo: Animal = bit;
+console.log(rex instanceof Animal, cat instanceof Dog, bit instanceof Dog, rex instanceof Puppy, zoo instanceof Bird);
+if (zoo instanceof Dog) {
+  console.log(zoo.tricks, zoo.fetch());
+  zoo.tricks += 10;
+}
+console.log(bit.tricks);
+function legsOf(animal: Animal): number {
+  if (animal instanceof Bird) {
+    return animal.legs * 100;
+  }
+  return animal.legs;
+}
+console.log(legsOf(tweety), legsOf(rex));
+
+// References to related classes compare, and meet in their common ancestor.
+const same: Animal = rex;
+console.log(same === rex, rex !== bit, same === cat);
+const pick: Animal = cat.legs > 3 ? rex : tweety;
+console.log(pick.speak());
+
+// Abstract classes: abstract methods are always dispatched; a constructor may call them.
+abstract class Shape {
+  label: string;
+  constructor(label: string) {
+    this.label = label + ":" + this.kind();
+  }
+  abstract area(): number;
+  abstract kind(): string;
+  report(): string {
+    return this.label + " area " + this.area();
+  }
+}
+
+class Rect extends Shape {
+  w: number;
+  h: number;
+  constructor(w: number, h: number) {
+    super("rect");
+    this.w = w;
+    this.h = h;
+  }
+  area(): number {
+    return this.w * this.h;
+  }
+  kind(): string {
+    return "R";
+  }
+}
+
+class Square extends Rect {
+  constructor(side: number) {
+    super(side, side);
+  }
+  kind(): string {
+    return "S";
+  }
+}
+
+class Circle extends Shape {
+  r = 1;
+  area(): number {
+    return 3 * this.r * this.r;
+  }
+  kind(): string {
+    return "C";
+  }
+}
+
+const rect = new Rect(2, 3);
+const square = new Square(4);
+const circle = new Circle("circle");
+console.log(rect.report(), "/", square.report(), "/", circle.report());
+console.log(square, circle);
+console.log(square instanceof Rect, square instanceof Shape, circle instanceof Rect);
+
+// A method first declared in a subclass can be overridden further down, and a
+// class in the middle need not override anything.
+class Counter {
+  count = 0;
+  bump(): number {
+    this.count += this.step();
+    return this.count;
+  }
+  step(): number {
+    return 1;
+  }
+}
+class Middle extends Counter {
+  twice(): number {
+    return this.bump() + this.bump();
+  }
+  label(): string {
+    return "middle";
+  }
+}
+class Leaf extends Middle {
+  step(): number {
+    return 10;
+  }
+  label(): string {
+    return "leaf, not " + super.label();
+  }
+}
+const middle: Middle = new Leaf();
+console.log(middle.twice(), middle.label(), new Middle().twice(), new Middle().label());
