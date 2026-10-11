@@ -125,7 +125,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	l := &lowerer{program: program.TS, checker: c, info: info,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{},
-		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{}}
+		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
+		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -194,6 +195,10 @@ type lowerer struct {
 	methods            map[*ast.Node]*ir.Method  // their methods, getters and setters, by declaration; nil if it failed
 	methodDeclarations map[*ir.Method]*ast.Node  // the declaration of each method (for an accessor that implements an abstract field, the field's)
 	abstractFields     map[*ast.Node]property    // the getter and setter of each abstract field, by declaration
+	statics            map[*ast.Node]*ir.Local   // the variable of each static field, by declaration; nil if it failed
+	staticMethods      map[*ast.Node]*ir.Func    // the function of each static method, by declaration; nil if it failed
+	staticClasses      map[*ir.Func]*ir.Class    // the class of each static method, which `this` stands for in it
+	staticContext      *ir.Class                 // the class whose static initialisers are being lowered, or nil
 	this               map[*ir.Func]*ir.Local    // the `this` parameter of each constructor and method
 	lowered            []*ir.Func                // the functions whose bodies are lowered
 	bodies             []*ast.Node               // function declarations whose bodies are still to be lowered
@@ -258,8 +263,11 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	case ast.KindFunctionDeclaration:
 		l.bodies = append(l.bodies, node)
 	case ast.KindClassDeclaration:
-		if _, ok := l.classes[l.declaredSymbol(node)]; ok {
+		if class, ok := l.classes[l.declaredSymbol(node)]; ok {
 			l.bodies = append(l.bodies, node) // its constructor and methods
+			if class != nil {
+				return l.staticInitializers(node, class)
+			}
 		} else {
 			l.notSupportedYet(node, "classes inside functions or blocks are")
 		}
@@ -923,6 +931,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.superCall(node)
 	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
+	if fn, ok := l.staticMethods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
+		return l.staticCall(call, fn)
+	}
 	if method, ok := l.methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		if method == nil {
 			return nil // its declaration failed, which was reported
@@ -1145,6 +1156,12 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if field := l.fields[member]; field != nil {
 		return l.fieldAccess(node, field)
 	}
+	if static, ok := l.statics[member]; ok {
+		if local := l.staticField(node, static, false); local != nil {
+			return &ir.LocalRef{Local: local}
+		}
+		return nil
+	}
 	if accessors, ok := l.accessorProperty(node); ok {
 		return l.propertyRead(node, accessors)
 	}
@@ -1249,6 +1266,8 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.assignment(node)
 	case operator == ast.KindInstanceOfKeyword:
 		return l.instanceOf(node)
+	case operator == ast.KindInKeyword && expr.Left.Kind == ast.KindPrivateIdentifier:
+		return l.privateIn(node)
 	case operator == ast.KindCommaToken:
 		x, y := l.expression(expr.Left), l.expression(expr.Right)
 		if x == nil || y == nil {
@@ -1465,6 +1484,10 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		if field := l.fields[l.memberDeclaration(node)]; field != nil {
 			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
+		}
+		if static, ok := l.statics[l.memberDeclaration(node)]; ok {
+			local := l.staticField(node, static, true)
+			return place{local: local}, local != nil
 		}
 		if accessors, ok := l.accessorProperty(node); ok {
 			return l.propertyPlace(node, accessors)

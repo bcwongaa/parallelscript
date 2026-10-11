@@ -77,9 +77,9 @@ func (c *pass) superclass(class *ast.Node) *ast.Node {
 	return symbol.ValueDeclaration
 }
 
-// inheritedMember returns the declaration of the instance member of the same name and
-// kind that a class member redeclares or overrides, in the nearest superclass that has
-// one, or nil.
+// inheritedMember returns the declaration of the member of the same name and kind (and
+// static or not) that a class member redeclares or overrides, in the nearest superclass
+// that has one, or nil.
 func (c *pass) inheritedMember(member *ast.Node) *ast.Node {
 	name := member.Name()
 	if name == nil || name.Kind != ast.KindIdentifier {
@@ -87,7 +87,7 @@ func (c *pass) inheritedMember(member *ast.Node) *ast.Node {
 	}
 	for class := c.superclass(member.Parent); class != nil; class = c.superclass(class) {
 		for _, other := range class.Members() {
-			if other.Kind == member.Kind && other.Name() != nil && other.Name().Kind == ast.KindIdentifier && other.Name().Text() == name.Text() && !ast.IsStatic(other) {
+			if other.Kind == member.Kind && other.Name() != nil && other.Name().Kind == ast.KindIdentifier && other.Name().Text() == name.Text() && ast.IsStatic(other) == ast.IsStatic(member) {
 				return other
 			}
 		}

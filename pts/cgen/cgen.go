@@ -99,7 +99,7 @@ func functionNames(program *ir.Program) map[*ir.Func]string {
 		} else {
 			parts := strings.Split(f.Name, ".")
 			for i, part := range parts {
-				parts[i] = prefixedIdentifier(part)
+				parts[i] = memberIdentifier(part)
 			}
 			base = "pts_fn_" + modulePrefix(f.Module) + strings.Join(parts, "_")
 		}
@@ -165,7 +165,7 @@ func (e *emitter) collectGlobals(program *ir.Program) {
 		e.initOrder[module.Init] = i
 		walk(module.Init.Body.Stmts, func(stmt ir.Stmt) {
 			if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Local.Global {
-				e.globals[decl.Local] = uniqueGlobal(used, "pts_global_"+modulePrefix(module)+prefixedIdentifier(decl.Local.Name))
+				e.globals[decl.Local] = uniqueGlobal(used, "pts_global_"+modulePrefix(module)+qualifiedIdentifier(decl.Local.Name))
 				e.globalOrder = append(e.globalOrder, decl.Local)
 				e.globalOwners[decl.Local] = module.Init
 			}
@@ -513,7 +513,8 @@ func (e *emitter) readyCheck(local *ir.Local) string {
 	if order, isInit := e.initOrder[e.current]; isInit && order >= e.initOrder[owner] {
 		return ""
 	}
-	return fmt.Sprintf("pts_check_ready(%s_ready, %s)", e.globals[local], cString(local.Name))
+	name, _, _ := strings.Cut(local.Name, ".") // a static field "C.f" is unready because its class is, which JS reports
+	return fmt.Sprintf("pts_check_ready(%s_ready, %s)", e.globals[local], cString(name))
 }
 
 // effect writes an expression evaluated only for its effects (a statement or a for

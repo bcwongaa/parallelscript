@@ -1,0 +1,14 @@
+export class Registry {
+  static names = "";
+  static count = 0;
+  static add(name: string): number {
+    Registry.names += (Registry.count > 0 ? "," : "") + name;
+    return ++Registry.count;
+  }
+}
+
+export class Tagged extends Registry {
+  static tag = "#" + Registry.count;
+}
+
+Registry.add("module");

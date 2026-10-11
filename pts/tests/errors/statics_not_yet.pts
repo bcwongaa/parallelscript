@@ -1,0 +1,27 @@
+// Static members that aren't supported yet are reported: calling a static method that
+// uses `this` through a subclass (where `this` would be the subclass), assigning to an
+// inherited static field through a subclass (which would give it a field of its own),
+// `this` as a value in a static method, and statics of anything but a class name.
+class Base {
+  static count = 0;
+  static label(): string {
+    return "n=" + this.count;
+  }
+  static plain(): number {
+    return Base.count;
+  }
+  static self(): number {
+    const it = this;
+    return 1;
+  }
+}
+class Derived extends Base {}
+console.log(Derived.plain(), Derived.count);
+console.log(Derived.label());
+Derived.count = 3;
+console.log((Math.random() > 2 ? Base : Derived).count);
+
+// error: statics_not_yet.pts:20:13 - error PTS1001: calling a static method that uses `this` through a subclass is not supported yet
+// error: statics_not_yet.pts:21:1 - error PTS1001: assigning to an inherited static field through a subclass is not supported yet
+// error: statics_not_yet.pts:14:16 - error PTS1001: `this` as a value in a static member is not supported yet
+// error: statics_not_yet.pts:22:14 - error PTS1001: a static member of anything but a class name or `this` is not supported yet

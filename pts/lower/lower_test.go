@@ -634,3 +634,36 @@ func rename(named: Named, person: Person) string {
 }
 `)
 }
+
+func TestStaticFieldsAreGlobalsInitialisedWhereTheClassIs(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `console.log("first");
+class Ids {
+  static next = 1;
+  static { Ids.next *= 10; }
+  #secret = 0;
+  static take(): number { return this.next++; }
+  peek(): number { return this.#secret; }
+}
+console.log(Ids.take());
+`)
+	assert.Equal(t, got, `class Ids { #secret: number }
+func main() void {
+  1: console.log(box("first"))
+  3: global Ids.next: number = 1
+  4: {
+    4: (Ids.next = (Ids.next * 10))
+  }
+  9: console.log(box(Ids.take()))
+}
+func Ids.constructor(this: Ids) void {
+  5: (this.#secret = 0)
+}
+func Ids.take() number {
+  6: return old(Ids.next = (Ids.next + 1))
+}
+func Ids.peek(this: Ids) number {
+  7: return this.#secret
+}
+`)
+}

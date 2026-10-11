@@ -1,0 +1,15 @@
+// Reading a static field before its class's declaration has run throws ReferenceError,
+// as using the class there does in JS.
+function count(): number {
+  return Early.count;
+}
+console.log("start");
+console.log(count());
+class Early {
+  static count = 1;
+}
+
+// exit: 1
+// stderr: ReferenceError
+// expect:
+// start

@@ -94,7 +94,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.2d1 Accessors and parameter properties** (4ea61b042) (split from M2.2 by D-025, from M2.2d by D-029).
   - Getters and setters, overridable like methods; abstract fields (`abstract name: string`), dispatched like accessors (D-028).
   - Parameter properties; the `private`, `protected` and `readonly` modifiers.
-- [ ] **M2.2d2 Statics and `#private`** (split from M2.2 by D-025, from M2.2d by D-029).
+- [x] **M2.2d2 Statics and `#private`** (COMMIT) (split from M2.2 by D-025, from M2.2d by D-029).
   - Static fields, methods and blocks; `#private` fields and methods.
 - [ ] **M2.3 Object literals and interfaces.**
   - Object literals become anonymous struct types; optional properties are stored as `T | undefined`.

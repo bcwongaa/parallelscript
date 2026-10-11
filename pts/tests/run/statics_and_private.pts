@@ -1,0 +1,72 @@
+// Static fields, methods and blocks; #private fields and methods, which console.log
+// doesn't show.
+class Counter {
+  static created = 0;
+  static readonly label = "counter";
+  static step: number;
+  static {
+    Counter.step = 2;
+    this.created += 100;
+  }
+  #count = 0;
+  #history = "";
+  constructor() {
+    Counter.created++;
+  }
+  static describe(): string {
+    return this.label + " x" + Counter.created + " step " + this.step;
+  }
+  static reset(): void {
+    Counter.created = 0;
+  }
+  bump(): number {
+    this.#count += Counter.step;
+    this.#remember();
+    return this.#count;
+  }
+  #remember(): void {
+    this.#history += "+" + this.#count;
+  }
+  get history(): string {
+    return this.#history;
+  }
+  static isCounter(value: Counter): boolean {
+    return #count in value;
+  }
+}
+
+console.log(Counter.describe());
+const a = new Counter();
+const b = new Counter();
+console.log(a.bump(), a.bump(), b.bump(), a.history, Counter.created, Counter.describe());
+console.log(a, Counter.isCounter(b));
+Counter.reset();
+Counter.created += 5;
+console.log(Counter.created++, ++Counter.created, Counter.label);
+
+// Subclasses read inherited statics and have #private members of their own.
+class Child extends Counter {
+  static kind = "child";
+  #count = "own";
+  static summary(): string {
+    return Child.kind + " of " + Child.label + ", " + Child.created;
+  }
+  peek(): string {
+    return this.#count + " " + this.bump();
+  }
+}
+
+const c = new Child();
+console.log(Child.summary(), c.peek(), c, Child.created, Counter.created);
+
+// A static method used before its class's declaration in code order runs later.
+function total(): number {
+  return Late.base + Late.extra();
+}
+class Late {
+  static base = 40;
+  static extra(): number {
+    return 2;
+  }
+}
+console.log(total());

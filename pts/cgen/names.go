@@ -44,6 +44,34 @@ func prefixedIdentifier(name string) string {
 	return result
 }
 
+// memberIdentifier is prefixedIdentifier for a part of a C name that may be a class
+// member's name: a `#private` name #x becomes private_x.
+func memberIdentifier(name string) string {
+	if rest, ok := strings.CutPrefix(name, "#"); ok {
+		return "private_" + prefixedIdentifier(rest)
+	}
+	return prefixedIdentifier(name)
+}
+
+// qualifiedIdentifier is memberIdentifier for a qualified name such as a static field's,
+// "Counter.count", whose parts it joins with _.
+func qualifiedIdentifier(name string) string {
+	parts := strings.Split(name, ".")
+	for i, part := range parts {
+		parts[i] = memberIdentifier(part)
+	}
+	return strings.Join(parts, "_")
+}
+
+// fieldIdentifier is the C member name of a field: cIdentifier of its name, or for a
+// `#private` field #x, pts_private_x, which no other field's name can be.
+func fieldIdentifier(name string) string {
+	if rest, ok := strings.CutPrefix(name, "#"); ok {
+		return "pts_private_" + prefixedIdentifier(rest)
+	}
+	return cIdentifier(name)
+}
+
 // spelledOut writes name with the characters C doesn't allow spelled out; clean reports that there were none.
 func spelledOut(name string) (result string, clean bool) {
 	var c strings.Builder

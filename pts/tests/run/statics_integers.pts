@@ -1,0 +1,13 @@
+// Static fields and methods keep their integer types.
+class Budget {
+  static remaining: u8 = 250;
+  static limit: int = 9007199254740993;
+  static spend(amount: u8): u8 {
+    Budget.remaining -= amount;
+    return Budget.remaining;
+  }
+}
+console.log(Budget.spend(200), Budget.spend(100), Budget.limit + 2, Budget.remaining * 2);
+
+// expect:
+// 50 206 9007199254740995 156

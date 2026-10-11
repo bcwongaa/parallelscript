@@ -1,0 +1,11 @@
+// Static members are used across modules, by name and through a namespace import.
+import { Registry, Tagged } from "./statics_modules/registry.pts";
+import * as registry from "./statics_modules/registry.pts";
+
+Registry.add("main");
+registry.Registry.add("namespace");
+registry.Registry.count += 10;
+console.log(Registry.names, Registry.count, Tagged.tag, Tagged.count, registry.Tagged.names);
+
+// expect:
+// module,main,namespace 13 #0 13 module,main,namespace

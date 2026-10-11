@@ -54,7 +54,7 @@ func (e *emitter) classDeclarations(classes []*ir.Class) {
 			e.line(1, "pts_class_%s pts_base;", e.classNames[class.Parent])
 		}
 		for _, field := range class.Fields {
-			e.line(1, "%s%s;", e.declarator(field.Type), cIdentifier(field.Name))
+			e.line(1, "%s%s;", e.declarator(field.Type), fieldIdentifier(field.Name))
 		}
 		e.line(0, "};")
 	}
@@ -146,11 +146,11 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 	for _, class := range classes {
 		name := e.classNames[class]
 		fields, methods := "NULL", "NULL"
-		allFields := class.AllFields()
-		if len(allFields) > 0 {
+		visible := visibleFields(class)
+		if len(visible) > 0 {
 			fields = "pts_fields_" + name
 			e.line(0, "static const pts_field %s[] = {", fields)
-			for _, field := range allFields {
+			for _, field := range visible {
 				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(field.Name), name, fieldPath(class, field), fieldKind(field.Type))
 			}
 			e.line(0, "};")
@@ -174,7 +174,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			".name = " + cString(class.Name),
 			".parent = " + parent,
 			".size = sizeof(pts_class_" + name + ")",
-			fmt.Sprintf(".field_count = %d", len(allFields)),
+			fmt.Sprintf(".field_count = %d", len(visible)),
 			".fields = " + fields,
 			fmt.Sprintf(".method_count = %d", len(implemented)),
 			".methods = " + methods,
@@ -206,6 +206,18 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 	}
 }
 
+// visibleFields are the fields of an instance that console.log and JSON see: all but
+// the `#private` ones, inherited first.
+func visibleFields(class *ir.Class) []*ir.Field {
+	var fields []*ir.Field
+	for _, field := range class.AllFields() {
+		if !strings.HasPrefix(field.Name, "#") {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
 // implementedMethods are the methods a class declares that aren't abstract, accessors excluded.
 func implementedMethods(class *ir.Class) []*ir.Method {
 	var methods []*ir.Method
@@ -232,7 +244,7 @@ func slotName(slot *ir.Method) string {
 // fieldPath is the C member designator of a field in an instance of class: its name,
 // after pts_base. once per class between class and the one that declares it.
 func fieldPath(class *ir.Class, field *ir.Field) string {
-	return basePath(class, field.Class) + cIdentifier(field.Name)
+	return basePath(class, field.Class) + fieldIdentifier(field.Name)
 }
 
 // layout is the C expression of a class's GC layout: which words of an instance may hold

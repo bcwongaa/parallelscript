@@ -465,3 +465,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C:** slots `pts_get_<name>`/`pts_set_<name>` in the method tables (`slotName`); the descriptor's method table lists plain methods only.
 - **Semantic pass:** accessors are function-like (`isFunctionWithBody`); `accessorType` types an accessor property; a parameter property's field takes its parameter's numeric type (`bindingType`); `inheritedMember` matches by kind, so an overriding getter without an annotation returns the overridden getter's type.
 - **Tests:** `pts/tests/run/accessors{,_integers}.pts`, `pts/tests/errors/accessors_not_yet.pts`, `TestAccessorsAreCallsAndFieldsImplementAbstractFields`.
+
+### 9.14 Statics and `#private` (M2.2d2)
+
+- **Lowering** (D-031): `declareStaticMember` makes a static field's `ir.Local` (`<Class>.<field>`, `Global`, owned by the module's init) in `statics`, or a static method's function in `staticMethods` (its class in `staticClasses`). The class declaration statement lowers to `staticInitializers` (field `LocalDecl`s and static blocks, with `staticContext` set so that `this.f` works). `staticOwner` accepts `C`, `m.C` or `this` as the object; `staticField` and `staticCall` apply the two subclass restrictions (`usesThis` scans a static method's body). `isPrivateName` keeps `#` members out of overriding and redeclaration; `privateIn` lowers `#x in o`.
+- **C:** `qualifiedIdentifier`, `memberIdentifier` and `fieldIdentifier` (`names.go`) spell static and private names; `visibleFields` leaves `#private` fields out of the descriptor's field table; the ready check of a static field names its class.
+- **Semantic pass:** `inheritedMember` matches static with static.
+- **Tests:** `pts/tests/run/statics_{and_private,modules,integers,before_class}.pts`, `pts/tests/errors/statics_not_yet.pts`, `TestStaticFieldsAreGlobalsInitialisedWhereTheClassIs`.
