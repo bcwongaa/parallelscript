@@ -50,7 +50,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `number` arithmetic and comparisons with exact f64 semantics.
   - Number-to-string conversion matching JS exactly (a Ryu-style shortest round-trip, with JS rules for exponent and fixed notation).
   - A large differential test corpus for formatting.
-- [ ] **M1.2 Integer types.**
+- [x] **M1.2 Integer types.** (11e0412)
   - Prelude `int i8 … u64 f32 f64` declared as aliases in a PTS lib `.d.ts`.
   - A PTS semantic pass for literal typing from context, lossless-only implicit conversion and `as` conversions (Rust rules).
   - Integer arithmetic: wrapping, truncating `/`, `RangeError` on division by zero.
