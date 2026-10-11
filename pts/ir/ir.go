@@ -270,8 +270,23 @@ type Field struct {
 	// and writing it a setter.
 	Accessor bool
 	// Method marks a method of an object literal's shape (D-044): the field holds the
-	// method's closure, whose code takes the object first, as `this`.
-	Method bool
+	// method's closure, whose code takes the object first, as `this`. A Getter or Setter
+	// field holds the getter's or setter's closure of the shape's accessor property
+	// Property, and is named "get <Property>" or "set <Property>" (D-045).
+	Method   bool
+	Kind     MethodKind
+	Property string
+}
+
+// AccessorField returns the field of a shape that holds the getter (or setter) of its
+// accessor property name, or nil.
+func (c *Class) AccessorField(name string, kind MethodKind) *Field {
+	for _, field := range c.Fields {
+		if field.Kind == kind && field.Property == name {
+			return field
+		}
+	}
+	return nil
 }
 
 // MethodKind tells methods from the getters and setters of accessor properties.

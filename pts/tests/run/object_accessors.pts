@@ -1,0 +1,82 @@
+// Getters and setters in object literals: called directly, through interfaces and from the
+// literal's own methods, and printed as Node prints them; apply with an array literal.
+const temperature = {
+  celsius: 20,
+  get fahrenheit(): number {
+    return (this.celsius * 9) / 5 + 32;
+  },
+  set fahrenheit(f: number) {
+    this.celsius = ((f - 32) * 5) / 9;
+  },
+  get kelvin(): number {
+    return this.celsius + 273.15;
+  },
+  describe(): string {
+    return this.celsius + "C = " + this.fahrenheit + "F";
+  },
+};
+console.log(temperature.fahrenheit, temperature.kelvin, temperature.describe());
+temperature.fahrenheit = 212;
+console.log(temperature.celsius, temperature);
+temperature.fahrenheit += 18;
+console.log(temperature.celsius);
+interface Temperature {
+  celsius: number;
+  fahrenheit: number;
+}
+const t: Temperature = temperature;
+t.fahrenheit = 32;
+console.log(t.celsius, t.fahrenheit);
+function makeLog() {
+  const lines: string[] = [];
+  return {
+    set line(s: string) {
+      lines.push(s);
+    },
+    get count(): number {
+      return lines.length;
+    },
+    get all(): string {
+      return lines.join("|");
+    },
+  };
+}
+const log = makeLog();
+log.line = "a";
+log.line = "b";
+console.log(log.count, log.all, log);
+
+// apply passes an array literal's elements as the arguments.
+function volume(w: number, h: number, d: number): number {
+  return w * h * d;
+}
+console.log(volume.apply(null, [1, 2, 3]));
+const point = {
+  x: 1,
+  shift(dx: number, dy: number): string {
+    return this.x + dx + "," + dy;
+  },
+};
+console.log(point.shift.apply(point, [10, 20]));
+class Greeter {
+  constructor(public name: string) {}
+  greet(a: string, b: string): string {
+    return a + " " + this.name + b;
+  }
+}
+console.log(new Greeter("x").greet.apply(new Greeter("Ada"), ["Hi", "!"]));
+
+// expect:
+// 68 293.15 20C = 68F
+// 100 {
+//   celsius: 100,
+//   fahrenheit: [Getter/Setter],
+//   kelvin: [Getter],
+//   describe: [Function: describe]
+// }
+// 110
+// 0 32
+// 2 a|b { line: [Setter], count: [Getter], all: [Getter] }
+// 6
+// 11,20
+// Hi Ada!

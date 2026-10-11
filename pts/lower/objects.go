@@ -47,7 +47,7 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 		l.shapesByType[t] = nil
 		return nil
 	}
-	key := membersKey(fields, methods)
+	key := membersKey(fields, methods) + l.accessorsKey(t)
 	if existing, ok := l.shapesByKey[key]; ok {
 		l.shapesByType[t] = existing
 		return existing
@@ -56,6 +56,7 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	for _, method := range methods {
 		fields = append(fields, &ir.Field{Name: method.Name, Type: l.funcType(append([]ir.Type{shape}, method.Params...), method.Result), Method: true})
 	}
+	fields = l.accessorFields(t, shape, fields)
 	slices.SortFunc(fields, func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
 	for _, field := range fields {
 		field.Class = shape
@@ -64,6 +65,45 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 	l.shapesByKey[key] = shape
 	l.shapeList = append(l.shapeList, shape)
 	return shape
+}
+
+// accessorFields replaces the field of each accessor property that an object literal of
+// type t declares with the fields that hold its getter's and setter's closures (D-045).
+func (l *lowerer) accessorFields(t *checker.Type, shape *ir.Class, fields []*ir.Field) []*ir.Field {
+	for _, property := range l.literalAccessors(t) {
+		i := slices.IndexFunc(fields, func(field *ir.Field) bool { return field.Name == property.Name })
+		valueType := fields[i].Type
+		fields = slices.Delete(fields, i, i+1)
+		if ast.GetDeclarationOfKind(property, ast.KindGetAccessor) != nil {
+			fields = append(fields, &ir.Field{Name: "get " + property.Name, Type: l.funcType([]ir.Type{shape}, valueType), Method: true, Kind: ir.Getter, Property: property.Name})
+		}
+		if ast.GetDeclarationOfKind(property, ast.KindSetAccessor) != nil {
+			fields = append(fields, &ir.Field{Name: "set " + property.Name, Type: l.funcType([]ir.Type{shape, valueType}, ir.Void), Method: true, Kind: ir.Setter, Property: property.Name})
+		}
+	}
+	return fields
+}
+
+// literalAccessors are the properties of an object type that an object literal declares
+// with a getter or setter.
+func (l *lowerer) literalAccessors(t *checker.Type) []*ast.Symbol {
+	var accessors []*ast.Symbol
+	for _, property := range l.checker.GetPropertiesOfType(t) {
+		if property.Flags&ast.SymbolFlagsAccessor != 0 && property.Declarations[0].Parent.Kind == ast.KindObjectLiteralExpression {
+			accessors = append(accessors, property)
+		}
+	}
+	return accessors
+}
+
+// accessorsKey tells a shape whose objects have accessor properties from one whose
+// objects hold the same properties as values.
+func (l *lowerer) accessorsKey(t *checker.Type) string {
+	var key strings.Builder
+	for _, property := range l.literalAccessors(t) {
+		fmt.Fprintf(&key, "get/set %q;", property.Name)
+	}
+	return key.String()
 }
 
 // interfaceOf returns the interface an object type is, as the type of a binding: object
@@ -106,7 +146,7 @@ func (l *lowerer) objectMembers(t *checker.Type, node *ast.Node) ([]*ir.Field, [
 		case isArrayIndex(property.Name):
 			l.notSupportedYet(node, fmt.Sprintf("numeric property names (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
 			return nil, nil, false
-		case property.Flags&ast.SymbolFlagsAccessor == ast.SymbolFlagsSetAccessor:
+		case property.Flags&ast.SymbolFlagsAccessor == ast.SymbolFlagsSetAccessor && property.Declarations[0].Parent.Kind != ast.KindObjectLiteralExpression:
 			l.notSupportedYet(node, fmt.Sprintf("a property with a setter but no getter (`%s` in %s) is", property.Name, l.checker.TypeToString(t)))
 			return nil, nil, false
 		case property.Flags&ast.SymbolFlagsMethod != 0:
@@ -225,9 +265,15 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			if property.Name().Kind != ast.KindComputedPropertyName {
 				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
 			}
-		default:
-			l.notSupportedYet(property, "accessors in object literals are")
-			return nil
+		case ast.KindGetAccessor, ast.KindSetAccessor:
+			if property.Name().Kind != ast.KindComputedPropertyName {
+				kind := ir.Getter
+				if property.Kind == ast.KindSetAccessor {
+					kind = ir.Setter
+				}
+				fields[i] = shape.AccessorField(l.checker.GetSymbolAtLocation(property.Name()).Name, kind)
+				value = l.objectMethod(property, fields[i])
+			}
 		}
 		if property.Name().Kind == ast.KindComputedPropertyName {
 			l.notSupportedYet(property.Name(), "computed property names are")
@@ -236,7 +282,9 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		if value == nil {
 			return nil
 		}
-		fields[i] = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
+		if fields[i] == nil {
+			fields[i] = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
+		}
 		if values[i] = l.convert(value, fields[i].Type, property); values[i] == nil {
 			return nil
 		}
@@ -261,8 +309,8 @@ func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 		slices.Sort(names)
 		return names
 	}
-	if !slices.Equal(names(own), names(contextual)) {
-		return own
+	if !slices.Equal(names(own), names(contextual)) || len(l.literalAccessors(own)) > 0 {
+		return own // a literal's accessors make objects of a shape of their own (D-045)
 	}
 	return contextual
 }
@@ -324,8 +372,17 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	case *ir.Interface:
 		return object, t.Field(name)
 	case *ir.Class:
-		if t.Shape {
+		if t.Shape && t.AccessorField(name, ir.Getter) == nil && t.AccessorField(name, ir.Setter) == nil {
 			return object, t.Field(name)
+		}
+		if t.Shape {
+			// An accessor property of the object's own shape (`this.p` in its literal's methods)
+			// is read and written as through an interface, whose sites call getters and setters.
+			iface := l.interfaceOf(l.checker.GetTypeAtLocation(node.Expression()), node)
+			if iface == nil || iface.Field(name) == nil {
+				return nil, nil
+			}
+			return &ir.ClassCast{X: object, To: iface}, iface.Field(name)
 		}
 	}
 	l.notSupportedYet(node, fmt.Sprintf("a property of an object type on a %s is", object.Type()))
@@ -379,6 +436,10 @@ func providesProperty(t ir.Type, property *ir.Field) bool {
 	case *ir.Class:
 		if field := from.Field(property.Name); field != nil {
 			return field.Type == property.Type
+		}
+		getField, setField := from.AccessorField(property.Name, ir.Getter), from.AccessorField(property.Name, ir.Setter)
+		if from.Shape && (getField != nil || setField != nil) {
+			return (getField == nil || getField.Type.(*ir.FuncType).Result == property.Type) && (setField == nil || setField.Type.(*ir.FuncType).Params[1] == property.Type)
 		}
 		getter, setter := from.Method(property.Name, ir.Getter), from.Method(property.Name, ir.Setter)
 		return !from.Shape && getter != nil && getter.Func.Result == property.Type && (setter == nil || setter.Func.Params[1].Type == property.Type)
@@ -463,6 +524,13 @@ func (l *lowerer) markAccessorProperties() {
 		for _, method := range class.Methods {
 			if method.Kind != ir.Plain {
 				accessors[method.Name] = true
+			}
+		}
+	}
+	for _, shape := range l.shapeList {
+		for _, field := range shape.Fields {
+			if field.Kind != ir.Plain {
+				accessors[field.Property] = true
 			}
 		}
 	}

@@ -205,23 +205,27 @@ func (l *lowerer) isFunctionMethod(callee *ast.Node) bool {
 	return false
 }
 
-// functionMethodCall lowers `f.call(thisArg, args…)` and `f.bind(thisArg, args…)` (D-044).
-// For a method `o.m`, thisArg is the object it runs on; a function ignores it (it is
-// still evaluated). `apply` would need its arguments as a tuple, which isn't supported yet.
+// functionMethodCall lowers `f.call(thisArg, args…)`, `f.apply(thisArg, [args…])` and
+// `f.bind(thisArg, args…)` (D-044, D-045). For a method `o.m`, thisArg is the object it
+// runs on; a function ignores it (it is still evaluated). `apply` takes its arguments as
+// an array literal: other arrays would need tuple types (M2.6).
 func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
 	name := callee.AsPropertyAccessExpression().Name().Text()
-	if name == "apply" {
-		l.notSupportedYet(callee, "`apply` is")
-		return nil
-	}
 	if l.hasSpreadArgument(call) {
 		return nil
 	}
-	target := ast.SkipParentheses(callee.Expression())
 	args := call.Arguments.Nodes
+	if name == "apply" {
+		if args = appliedArguments(args); args == nil {
+			l.notSupportedYet(call.Arguments.Nodes[1], "`apply` with arguments that aren't an array literal is")
+			return nil
+		}
+		name = "call"
+	}
+	target := ast.SkipParentheses(callee.Expression())
 	if target.Kind == ast.KindPropertyAccessExpression && l.isInstanceMethod(target) {
-		return l.methodCallOrBind(call, target, name)
+		return l.methodCallOrBind(call, args, target, name)
 	}
 	fn := l.expression(target)
 	if fn == nil {
@@ -256,6 +260,25 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	})
 }
 
+// appliedArguments are the arguments `apply(thisArg, [a, b])` passes, as `call`'s:
+// thisArg, a, b; nil if the arguments aren't an array literal without spreads or holes.
+func appliedArguments(args []*ast.Node) []*ast.Node {
+	if len(args) < 2 {
+		return args
+	}
+	list := ast.SkipParentheses(args[1])
+	if len(args) > 2 || list.Kind != ast.KindArrayLiteralExpression {
+		return nil
+	}
+	elements := list.AsArrayLiteralExpression().Elements.Nodes
+	for _, element := range elements {
+		if element.Kind == ast.KindSpreadElement || element.Kind == ast.KindOmittedExpression {
+			return nil
+		}
+	}
+	return append([]*ast.Node{args[0]}, elements...)
+}
+
 // isInstanceMethod reports whether a property access names a method that runs on its
 // object: a class's instance method or a method of an object type.
 func (l *lowerer) isInstanceMethod(access *ast.Node) bool {
@@ -287,7 +310,7 @@ func sameReference(a *ast.Node, b *ast.Node) bool {
 // `o.m.bind(thisArg, args…)`, which makes a closure bound to thisArg. thisArg must be of
 // o's type: for a class's method, the method thisArg's class has runs; for a method of an
 // object type, thisArg must be o itself. o is evaluated for its effects, as JS reads o.m.
-func (l *lowerer) methodCallOrBind(call *ast.CallExpression, target *ast.Node, name string) ir.Expr {
+func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, target *ast.Node, name string) ir.Expr {
 	object := l.expression(target.Expression())
 	if object == nil {
 		return nil
@@ -296,7 +319,6 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, target *ast.Node, n
 	if !ok || m.call == nil {
 		return nil // reported
 	}
-	args := call.Arguments.Nodes
 	if len(args) == 0 {
 		l.notSupportedYet(call.Expression, "calling a method without an object (`this` undefined) is")
 		return nil

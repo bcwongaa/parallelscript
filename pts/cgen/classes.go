@@ -286,11 +286,12 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 	for i, order := range shape.Orders {
 		name := shapeDescriptorName(e.classNames[shape], i)
 		fields := "NULL"
-		if len(order) > 0 {
+		entries := shapeFieldEntries(shape, order)
+		if len(entries) > 0 {
 			fields = "pts_fields_" + name
 			e.line(0, "static const pts_field %s[] = {", fields)
-			for _, field := range order {
-				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(field.Name), e.classNames[shape], fieldIdentifier(field.Name), fieldKind(field.Type))
+			for _, entry := range entries {
+				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(entry.name), e.classNames[shape], fieldIdentifier(entry.field.Name), entry.kind)
 			}
 			e.line(0, "};")
 		}
@@ -299,7 +300,7 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 		e.line(1, ".gc_descr = %s,", layout(shape, e.classNames[shape]))
 		e.line(1, ".name = \"Object\", /* a plain object for console.log */")
 		e.line(1, ".size = sizeof(pts_class_%s),", e.classNames[shape])
-		e.line(1, ".field_count = %d,", len(order))
+		e.line(1, ".field_count = %d,", len(entries))
 		e.line(1, ".fields = %s,", fields)
 		if methods != "" {
 			e.line(1, ".method_count = %d,", len(methodFields(shape)))
@@ -310,7 +311,44 @@ func (e *emitter) shapeDescriptors(shape *ir.Class) {
 	}
 }
 
-// methodFields are the fields of a shape that hold its objects' methods (D-044).
+// fieldEntry is an entry of a descriptor's field table: a property's name, the field that
+// holds it (for an accessor property, its getter's or setter's closure) and its kind.
+type fieldEntry struct {
+	name  string
+	field *ir.Field
+	kind  string
+}
+
+// shapeFieldEntries are the field table of a shape's descriptor for one property order:
+// a field per property, and an entry that console.log shows as [Getter], [Setter] or
+// [Getter/Setter] for each accessor property, where its getter or setter comes first (D-045).
+func shapeFieldEntries(shape *ir.Class, order []*ir.Field) []fieldEntry {
+	var entries []fieldEntry
+	listed := map[string]bool{}
+	for _, field := range order {
+		if field.Kind == ir.Plain {
+			entries = append(entries, fieldEntry{field.Name, field, fieldKind(field.Type)})
+			continue
+		}
+		if listed[field.Property] {
+			continue
+		}
+		listed[field.Property] = true
+		getter, setter := shape.AccessorField(field.Property, ir.Getter), shape.AccessorField(field.Property, ir.Setter)
+		kind := "PTS_FIELD_GETTER_SETTER"
+		switch {
+		case setter == nil:
+			kind = "PTS_FIELD_GETTER"
+		case getter == nil:
+			kind = "PTS_FIELD_SETTER"
+		}
+		entries = append(entries, fieldEntry{field.Property, field, kind})
+	}
+	return entries
+}
+
+// methodFields are the fields of a shape that hold its objects' methods (D-044) and its
+// accessor properties' getters and setters (D-045).
 func methodFields(shape *ir.Class) []*ir.Field {
 	var methods []*ir.Field
 	for _, field := range shape.Fields {
@@ -335,6 +373,9 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 	for i, field := range methods {
 		ft := field.Type.(*ir.FuncType)
 		entries[i] = "pts_entry_" + name + "_" + memberIdentifier(field.Name)
+		if field.Kind != ir.Plain {
+			entries[i] = "pts_entry_" + name + "_" + strings.ToLower(methodKinds[field.Kind][len("PTS_"):]) + "_" + memberIdentifier(field.Property)
+		}
 		params := []string{"pts_object *this"}
 		args := []string{"method", "(pts_class_" + name + " *)this"}
 		for j, param := range ft.Params[1:] {
@@ -354,7 +395,11 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 	table := "pts_methods_" + name
 	e.line(0, "static const pts_method %s[] = {", table)
 	for i, field := range methods {
-		e.line(1, "{%s, PTS_METHOD, (pts_function)%s},", cString(field.Name), entries[i])
+		if field.Kind != ir.Plain {
+			e.line(1, "{%s, %s, (pts_function)%s},", cString(field.Property), methodKinds[field.Kind], entries[i])
+		} else {
+			e.line(1, "{%s, PTS_METHOD, (pts_function)%s},", cString(field.Name), entries[i])
+		}
 	}
 	e.line(0, "};")
 	return table

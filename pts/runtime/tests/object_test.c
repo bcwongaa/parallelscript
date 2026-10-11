@@ -192,6 +192,29 @@ static void method_sites_cache_the_index_per_layout(void) {
   CHECK(((double (*)(pts_object *))pts_method_find(c, &site, "norm1", PTS_METHOD))((pts_object *)c) == 7);
 }
 
+/* An object literal's accessor property x is listed in the field table for console.log, at its getter's closure field. */
+static const pts_field literal_fields[] = {{"x", offsetof(computed, hidden), PTS_FIELD_GETTER_SETTER}};
+
+static const pts_type literal_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "Object",
+    .size = sizeof(computed),
+    .field_count = 1,
+    .fields = literal_fields,
+    .method_count = 3,
+    .methods = computed_methods,
+};
+
+static void property_sites_skip_the_field_entries_of_accessor_properties(void) {
+  static pts_site site;
+  computed *c = pts_object_new(&literal_type);
+  c->hidden = 0.5;
+  CHECK(PTS_GET(double, c, &site, "x") == 5);
+  CHECK(site.cache == ((uint64_t)(uintptr_t)&literal_type | PTS_SITE_ACCESSOR));
+  CHECK(c->reads == 1);
+}
+
 static void property_sites_use_fields_or_accessors(void) {
   static pts_site read_site, write_site;
   point *p = pts_object_new(&point_type);
@@ -320,6 +343,7 @@ int main(int argc, char **argv) {
   field_addresses_are_cached_per_layout();
   method_sites_cache_the_index_per_layout();
   property_sites_use_fields_or_accessors();
+  property_sites_skip_the_field_entries_of_accessor_properties();
   threads_racing_on_a_site_read_the_right_fields();
   collection_keeps_everything_objects_point_to();
   unreachable_objects_are_collected();

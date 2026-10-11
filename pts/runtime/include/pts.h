@@ -53,7 +53,14 @@ typedef enum pts_field_kind {
   PTS_FIELD_U32,
   PTS_FIELD_U64,
   PTS_FIELD_F32,
+  /* An accessor property of an object literal (D-045): what console.log shows of it. Field lookups skip these entries. */
+  PTS_FIELD_GETTER,
+  PTS_FIELD_SETTER,
+  PTS_FIELD_GETTER_SETTER,
 } pts_field_kind;
+
+/* Whether a field entry stands for an accessor property rather than a value in the object. */
+static inline bool pts_field_is_accessor(pts_field_kind kind) { return kind >= PTS_FIELD_GETTER; }
 
 typedef struct pts_field {
   const char *name;

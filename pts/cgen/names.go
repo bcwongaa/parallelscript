@@ -69,6 +69,11 @@ func fieldIdentifier(name string) string {
 	if rest, ok := strings.CutPrefix(name, "#"); ok {
 		return "pts_private_" + prefixedIdentifier(rest)
 	}
+	for _, verb := range []string{"get", "set"} {
+		if rest, ok := strings.CutPrefix(name, verb+" "); ok {
+			return "pts_" + verb + "_" + prefixedIdentifier(rest) // an object literal's getter or setter (D-045)
+		}
+	}
 	return cIdentifier(name)
 }
 

@@ -291,6 +291,15 @@ static void format_slot(inspector *in, text *out, pts_field_kind kind, const voi
   case PTS_FIELD_U64:
     text_printf(out, "%" PRIu64, SLOT(uint64_t));
     return;
+  case PTS_FIELD_GETTER:
+    text_puts(out, "[Getter]");
+    return;
+  case PTS_FIELD_SETTER:
+    text_puts(out, "[Setter]");
+    return;
+  case PTS_FIELD_GETTER_SETTER:
+    text_puts(out, "[Getter/Setter]");
+    return;
   }
 #undef SLOT
 }
