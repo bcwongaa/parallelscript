@@ -92,18 +92,18 @@ Run from the repo root. Go, Node, Bun and clang are on PATH (see `CLAUDE.md` →
 A fresh clone needs the vendored C libraries: `git submodule update --init pts/third_party` (don't init `_submodules/TypeScript`; it's huge and only upstream's `TestSubmodule` uses it).
 Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); deleting it is always safe.
 
-| What | Command | Baseline (2026-10-11) |
+| What | Command | Baseline (2026-10-12) |
 |---|---|---|
 | Build everything | `go build ./...` | ok, about 3 min cold, seconds warm |
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (147 run tests, none skipped; 57 error tests; 5 number-corpus and 11 string-corpus parts; about 35 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (157 run tests, one skipped (`generic_values_classes.pts`, a known issue); 57 error tests; 5 number-corpus and 11 string-corpus parts; about 50 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `283456a`: about 5 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `7e478b66e`: about 5 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the table for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int).
