@@ -29,6 +29,7 @@ func Emit(program *ir.Program) string {
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
 	e.collectDeclaredTypes(program)
+	e.collectDynamicEntries(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
 	e.header(program)
@@ -90,6 +91,7 @@ type emitter struct {
 	declaredTypes    bool
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
+	dynamicCalls     bool // whether the program calls through `any`, so functions and methods have dynamic entries (D-074)
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -116,6 +118,7 @@ func (e *emitter) header(program *ir.Program) {
 	}
 	e.line(0, "")
 	e.entryFunctions()
+	e.dynamicEntryDeclarations(program)
 	e.checkDeclarations()
 	e.classDescriptors(program.Classes)
 	e.closureDefinitions()
@@ -123,6 +126,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.mapDescriptorDefinitions()
 	e.arrayDescriptorDefinitions()
 	e.checkDefinitions()
+	e.dynamicEntryDefinitions(program)
 	e.functionNameTable(program)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
@@ -1183,8 +1187,12 @@ func intLiteral(c *ir.IntConst) string {
 }
 
 func (e *emitter) box(value ir.Expr) string {
-	inner := e.expr(value)
-	switch value.Type() {
+	return boxAs(e.expr(value), value.Type())
+}
+
+// boxAs is inner, a C expression of type t, as a dynamic value.
+func boxAs(inner string, t ir.Type) string {
+	switch t {
 	case ir.Number:
 		return "pts_value_from_number(" + inner + ")"
 	case ir.Bool:
@@ -1200,13 +1208,13 @@ func (e *emitter) box(value ir.Expr) string {
 	case ir.I8, ir.I16, ir.I32, ir.U8, ir.U16, ir.U32, ir.F32:
 		return "pts_value_from_number(" + inner + ")" // exact as a double
 	}
-	switch value.Type().(type) {
+	switch t.(type) {
 	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.MapType:
 		return "pts_value_from_object(" + inner + ")"
 	case *ir.Union:
 		return inner // already a pts_value
 	default:
-		panic("cgen: cannot box " + value.Type().String())
+		panic("cgen: cannot box " + t.String())
 	}
 }
 
@@ -1289,6 +1297,10 @@ func builtinCall(builtin *ir.Builtin, args []string) string {
 		return fmt.Sprintf("pts_console_log(%d, (pts_value[]){%s})", len(args), strings.Join(args, ", "))
 	case ir.StringLength:
 		return "((double)(" + args[0] + ")->utf16_len)"
+	case ir.DynamicCall:
+		return fmt.Sprintf("pts_dynamic_call(%s, %s, %s)", args[0], args[1], dynamicCallArguments(args[2:]))
+	case ir.DynamicCallMethod:
+		return fmt.Sprintf("pts_dynamic_call_method(%s, %s, %s, %s)", args[0], args[1], args[2], dynamicCallArguments(args[3:]))
 	}
 	function, ok := builtinFunctions[builtin]
 	if !ok {

@@ -1,0 +1,54 @@
+// What calls through `any` check (D-074), where JS carries on: each argument must be of
+// its parameter's type (a missing one is undefined), and dynamic data passed for an object
+// type is copied into it. Function-typed parameters and builtin methods come later (M3.3c).
+interface Size {
+  w: number;
+  h: number;
+}
+function area(size: Size): number {
+  return size.w * size.h;
+}
+function greet(name: string): string {
+  return "hello " + name;
+}
+function apply(f: (x: number) => number, x: number): number {
+  return f(x);
+}
+class Account {
+  balance: int = 0;
+  deposit(amount: int): int {
+    this.balance += amount;
+    return this.balance;
+  }
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const anyArea: any = area;
+const anyGreet: any = greet;
+const account: any = new Account();
+const data: Record<string, any> = { w: 3, h: 4, d: 5 };
+console.log(anyArea(data), anyArea({ w: 2, h: 2 }));
+attempt("a number for a string", () => { anyGreet(5); });
+attempt("a missing argument", () => { anyGreet(); });
+attempt("a fraction for an int", () => { account.deposit(1.5); });
+attempt("data that isn't a Size", () => { anyArea({ w: 1 }); });
+attempt("a function argument", () => { const anyApply: any = apply; anyApply((x: number) => x + 1, 1); });
+attempt("a method of a string", () => { const s: any = "abc"; s.toUpperCase(); });
+console.log(account.deposit(7), account.balance);
+
+// no-diff: JS checks no arguments, and calling builtin methods through any comes in M3.3c3
+// expect:
+// 12 4
+// a number for a string -> TypeError: Expected string, got number
+// a missing argument -> TypeError: Expected string, got undefined
+// a fraction for an int -> TypeError: Expected i64, got number
+// data that isn't a Size -> TypeError: Expected {h: number; w: number}, got Object
+// a function argument -> TypeError: Expected (number) => number, got function
+// a method of a string -> TypeError: Calling the method toUpperCase of a string through `any` is not supported yet
+// 7 7

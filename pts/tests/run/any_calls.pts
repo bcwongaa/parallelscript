@@ -1,0 +1,63 @@
+// Calling function values and methods through `any` (D-074): each argument is converted
+// to its parameter's type, and the result comes back as a dynamic value.
+class Counter {
+  count = 0;
+  add(n: number, label?: string): number {
+    this.count += n;
+    if (label !== undefined) {
+      console.log(label, this.count);
+    }
+    return this.count;
+  }
+  reset(): void {
+    this.count = 0;
+  }
+  toString(): string {
+    return "Counter(" + this.count + ")";
+  }
+}
+function greet(name: string, punctuation = "!"): string {
+  return "hello " + name + punctuation;
+}
+function sum(...xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0);
+}
+
+// Functions with defaults, optional and rest parameters; extra arguments are ignored.
+const anyGreet: any = greet;
+console.log(anyGreet("ada"), anyGreet("bob", "?"), anyGreet("cy", undefined), anyGreet("di", ".", "extra"));
+const anySum: any = sum;
+console.log(anySum(1, 2, 3), anySum());
+
+// Methods of classes and of object literals, and properties that hold functions.
+const counter: any = new Counter();
+console.log(counter.add(2), counter.add(3, "now"), counter.reset(), counter.count, counter.toString());
+const k = 10;
+const shapes: any = {
+  factor: 3,
+  scale(x: number): number {
+    return x * this.factor;
+  },
+  double: (x: number) => x * 2,
+  offset: (x: number) => x + k,
+};
+console.log(shapes.scale(5), shapes.double(4), shapes["offset"](1));
+const callbacks: any[] = [greet, (x: number) => x * x, sum];
+console.log(callbacks[0]("eve"), callbacks[1](7), callbacks[2](4, 5));
+const err: any = new RangeError("too far");
+console.log(err.toString());
+
+// Calling what isn't a function, or a method of nothing, throws TypeError as JS does.
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+attempt("a number", () => { const n: any = 5; n(); });
+attempt("a missing method", () => { counter.nope(); });
+attempt("a field", () => { counter.count(); });
+attempt("null", () => { const o: any = null; o.f(); });
+attempt("undefined", () => { const o: any = undefined; o.f(1); });

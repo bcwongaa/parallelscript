@@ -745,3 +745,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Runtime** (D-073): the site functions and macros take the property's check (`pts_field_address`, `PTS_GET`, `PTS_SET`, `pts_property_find`, `pts_optional_get`, `pts_optional_set`; NULL where descriptors carry no declared types), `PTS_FIELD_SET` and `pts_field_set_slow`; `object.c`: `wrong_kind`, `exact`, `store_converted`, the guarded slow paths; `pts_check_same`, `pts_check_implies` (`convert.c`), `pts_storable`, `pts_call_setter` (`dynamic.c`).
 - **C:** `classes.go`: `siteCheck`, `fieldStore` writing `PTS_FIELD_SET` through interfaces; `checks.go`: `checkSite` (the checks of properties read and written through interfaces).
 - **Tests:** `pts/tests/run/any_views.pts`; `object_test.c`.
+
+### 9.51 Calls through `any` (M3.3c1)
+
+- **Runtime** (D-074): `pts_dynamic_function`, `pts_dynamic_method`, `pts_type.call`, `pts_method.dynamic` (`pts.h`); `dynamic.c`: `pts_dynamic_call`, `pts_dynamic_call_method`, `not_a_function`; Error's `to_string_dynamic` (`error.c`).
+- **IR:** `ir.DynamicCall`, `ir.DynamicCallMethod`.
+- **Lowering:** `dynamicCall`, `lowerer.firstDynamicCall`, `prepareDynamicTypes` (parameter types; was `prepareWrittenTypes`) (`dynamic.go`).
+- **C:** `dynamic_calls.go`: `emitter.dynamicCalls`, `collectDynamicEntries`, `checkParams`, `dynamicEntryDeclarations`, `dynamicEntryDefinitions`, `dynamicEntries`, `dynamicArguments`, `returnDynamic`, `dynamicMethodMember`, `dynamicCallArguments`; `boxAs` (`cgen.go`); every method of every class in method tables when the program calls through `any` (`collectInterfaceMembers`); `shapeEntryName`.
+- **Tests:** `pts/tests/run/any_calls.pts` (against Node), `any_calls_error.pts`; `errors/any_not_yet.pts`.

@@ -188,7 +188,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		}
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
-	l.prepareWrittenTypes(result.Funcs)
+	l.prepareDynamicTypes(result.Funcs)
 	result.Classes = append(orderedByParent(slices.Concat(l.errorClasses, l.classList, l.instanceClasses)), l.shapeList...)
 	result.Interfaces = l.interfaceList
 	result.InKeys = slices.Sorted(maps.Keys(l.inKeys))
@@ -253,7 +253,8 @@ type lowerer struct {
 	interfaceList       []*ir.Interface                  // the interfaces, in the order they were made
 	relaxedCasts        []relaxedCast                    // conversions to interfaces whose objects may hold optional properties otherwise (D-066)
 	inKeys              map[string]bool                  // the keys `in` looks up at run time (D-067)
-	dynamicWrite        *ast.Node                        // the first write through `any`, if any (D-072)
+	firstDynamicWrite   *ast.Node                        // the first write through `any`, if any (D-072)
+	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
 	funcTypes           []*ir.FuncType                   // the function types met
@@ -1265,8 +1266,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.superCall(node)
 	}
 	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
-		l.notSupportedYet(node, "calling a function or method through `any` is")
-		return nil
+		return l.dynamicCall(call, callee)
 	}
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)

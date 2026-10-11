@@ -455,6 +455,42 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
   }
 }
 
+/* ---------------------------------------------------------------- calls */
+
+static _Noreturn void not_a_function(const pts_string *text) {
+  pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not a function", (int)text->byte_len, text->bytes);
+}
+
+pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv) {
+  if (!pts_value_is_object(callee) || pts_value_as_object(callee)->type->kind != PTS_KIND_FUNCTION) {
+    not_a_function(text);
+  }
+  pts_closure *closure = (pts_closure *)pts_value_as_object(callee);
+  if (closure->type->call == NULL) { /* the program calls nothing through `any`, so this came from elsewhere */
+    pts_throw_new(&pts_type_builtin_TypeError, "Calling %.*s through `any` is not supported", (int)text->byte_len, text->bytes);
+  }
+  return closure->type->call(closure, argc, argv);
+}
+
+pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv) {
+  char buffer[MAX_KEY];
+  if (pts_value_is_nullish(object)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot read properties of %s (reading '%s')", object == PTS_VALUE_NULL ? "null" : "undefined",
+                  key_text(key, buffer));
+  }
+  if (!pts_value_is_object(object) || pts_value_as_object(object)->type->kind != PTS_KIND_OBJECT) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Calling the method %s of a %s through `any` is not supported yet", key_text(key, buffer),
+                  value_description(object));
+  }
+  pts_object *target = pts_value_as_object(object);
+  int64_t method = method_named(target->type, key_text(key, buffer), PTS_METHOD);
+  if (method >= 0 && target->type->methods[method].dynamic != NULL) {
+    return target->type->methods[method].dynamic(target, argc, argv);
+  }
+  /* A property that holds a function: called without `this`, which only methods take. */
+  return pts_dynamic_call(object_get(target, key), text, argc, argv);
+}
+
 /* ---------------------------------------------------------------- boundaries */
 
 void pts_throw_type_mismatch(pts_value value, const char *expected) {

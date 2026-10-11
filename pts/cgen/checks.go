@@ -27,8 +27,11 @@ func (e *emitter) collectChecks(program *ir.Program) {
 					targets = append(targets, x.To)
 				}
 			case *ir.CallBuiltin:
-				if x.Builtin == ir.DynamicSet {
+				switch x.Builtin {
+				case ir.DynamicSet:
 					e.declaredTypes = true
+				case ir.DynamicCall, ir.DynamicCallMethod:
+					e.declaredTypes, e.dynamicCalls = true, true
 				}
 			}
 		})

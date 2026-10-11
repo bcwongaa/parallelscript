@@ -1003,6 +1003,12 @@ var (
 	DynamicGet = &Builtin{Name: "get", Params: []Type{Value, Value}, Result: Value}
 	DynamicSet = &Builtin{Name: "set", Params: []Type{Value, Value, Value}, Result: Value}
 	DynamicHas = &Builtin{Name: "in", Params: []Type{Value, Value}, Result: Bool}
+	// DynamicCall calls a dynamic value (D-074): its arguments are the callee, the callee's
+	// source text (a string, for the TypeError if it isn't a function) and the call's
+	// arguments as dynamic values. DynamicCallMethod calls the method a key names of a
+	// dynamic value: the object, the key, the source text, then the arguments.
+	DynamicCall       = &Builtin{Name: "call", Result: Value}
+	DynamicCallMethod = &Builtin{Name: "call method", Result: Value}
 	// ValueAdd is + on dynamic values; ValueToNumber is JS's ToNumber; ValueLess and
 	// ValueLessEqual are < and <= with JS's conversions (> and >= swap the operands).
 	ValueAdd       = &Builtin{Name: "+", Params: []Type{Value, Value}, Result: Value}

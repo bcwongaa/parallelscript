@@ -86,12 +86,24 @@ typedef enum pts_method_kind {
   PTS_SETTER,
 } pts_method_kind;
 
+struct pts_object;
+struct pts_closure;
+
+/*
+ * Dynamic entries (D-074), for calls through `any`: they take the arguments as dynamic
+ * values, convert each to its parameter's type (TypeError if it isn't one; a missing
+ * argument is undefined) and return the result as a dynamic value (undefined for none).
+ */
+typedef uint64_t (*pts_dynamic_method)(struct pts_object *self, uint32_t argc, const uint64_t *argv);
+typedef uint64_t (*pts_dynamic_function)(struct pts_closure *self, uint32_t argc, const uint64_t *argv);
+
 typedef struct pts_method {
   const char *name;
   pts_method_kind kind;
   pts_function function; /* takes the object as a pts_object * first (D-036) */
   pts_field_kind result; /* what a getter returns, or a setter takes, for reads and writes through `any` (D-070) */
   const struct pts_check *check; /* its declared type, as pts_field.check (D-072) */
+  pts_dynamic_method dynamic;    /* a method's dynamic entry, in a program that calls methods through `any` */
 } pts_method;
 
 /*
@@ -113,6 +125,7 @@ typedef struct pts_type {
   pts_field_kind key;        /* for a map or set: what its keys are */
   /* For an array or hash-map object: its elements' declared type, as pts_field.check (D-072). */
   const struct pts_check *check;
+  pts_dynamic_function call; /* a closure's dynamic entry, in a program that calls through `any` (D-074) */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -733,6 +746,10 @@ pts_value pts_dynamic_get(pts_value object, pts_value key);
 pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value);
 /* `key in object`: TypeError if object isn't one. */
 bool pts_dynamic_has(pts_value object, pts_value key);
+/* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
+pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
+/* object[key](argv…) through `any`: a method, or a property that holds a function. */
+pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
 pts_value pts_value_add(pts_value left, pts_value right);
 double pts_value_to_number(pts_value value);
 bool pts_value_less(pts_value left, pts_value right);

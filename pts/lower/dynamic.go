@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -73,10 +74,50 @@ func (l *lowerer) dynamicPlace(node *ast.Node) (place, bool) {
 	if object == nil || key == nil {
 		return place{}, false
 	}
-	if l.dynamicWrite == nil {
-		l.dynamicWrite = node
+	if l.firstDynamicWrite == nil {
+		l.firstDynamicWrite = node
 	}
 	return place{object: box(object), key: key, dynamic: true}, true
+}
+
+// dynamicCall lowers a call whose callee is of type any, or is a method of a value of type
+// any (D-074): DynamicCall or DynamicCallMethod, with the arguments as dynamic values.
+func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Expr {
+	if l.firstDynamicCall == nil {
+		l.firstDynamicCall = call.AsNode()
+	}
+	args := []ir.Expr{}
+	method := ast.IsAccessExpression(callee) && l.isAny(callee.Expression())
+	if method {
+		object := l.expression(callee.Expression())
+		key := l.dynamicKey(callee)
+		if object == nil || key == nil {
+			return nil
+		}
+		args = append(args, box(object), key)
+	} else {
+		function := l.expression(callee)
+		if function == nil {
+			return nil
+		}
+		args = append(args, box(function))
+	}
+	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
+	for _, argument := range call.Arguments.Nodes {
+		if argument.Kind == ast.KindSpreadElement {
+			l.notSupportedYet(argument, "spreading arguments of a call through `any` is")
+			return nil
+		}
+		value := l.valueExpression(argument)
+		if value == nil {
+			return nil
+		}
+		args = append(args, box(value))
+	}
+	if method {
+		return &ir.CallBuiltin{Builtin: ir.DynamicCallMethod, Args: args}
+	}
+	return &ir.CallBuiltin{Builtin: ir.DynamicCall, Args: args}
 }
 
 // dynamicOperation lowers a binary operator with an operand of type any, as JS applies
@@ -218,17 +259,30 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 	return "an object type of no declaration"
 }
 
-// prepareWrittenTypes readies, in a program that writes through `any`, the declared types
-// of every class's and shape's fields and of the arrays and hash-map objects it makes to
-// take dynamic data, which a write converts to them (D-072): each interface among them
-// gets the shape its copies take. Types that dynamic values can't be converted to yet are
-// left as they are, and writing to them throws.
-func (l *lowerer) prepareWrittenTypes(funcs []*ir.Func) {
-	if l.dynamicWrite == nil {
+// prepareDynamicTypes readies the types that dynamic data may be converted to at run time
+// without a conversion in the program: in a program that writes through `any`, the
+// declared types of every class's and shape's fields and of the arrays and hash-map
+// objects it makes, which a write converts to (D-072), and in one that calls through
+// `any`, every function's parameter types, which a call converts to (D-074). Each
+// interface among them gets the shape its copies take. Types that dynamic values can't be
+// converted to yet are left as they are, and converting to them throws.
+func (l *lowerer) prepareDynamicTypes(funcs []*ir.Func) {
+	seen := map[ir.Type]bool{}
+	if l.firstDynamicCall != nil {
+		for _, f := range funcs {
+			for _, param := range f.Params {
+				if rest, ok := param.Type.(*ir.Rest); ok {
+					l.prepareDynamicTarget(rest.Array, l.firstDynamicCall, seen)
+				} else if param.Type != ir.Given {
+					l.prepareDynamicTarget(param.Type, l.firstDynamicCall, seen)
+				}
+			}
+		}
+	}
+	if l.firstDynamicWrite == nil {
 		return
 	}
-	seen := map[ir.Type]bool{}
-	prepare := func(t ir.Type) { l.prepareDynamicTarget(t, l.dynamicWrite, seen) }
+	prepare := func(t ir.Type) { l.prepareDynamicTarget(t, l.firstDynamicWrite, seen) }
 	for _, class := range slices.Concat(l.classList, l.instanceClasses) {
 		for _, field := range class.Fields {
 			prepare(field.Type)

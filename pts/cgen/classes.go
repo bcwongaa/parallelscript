@@ -91,8 +91,9 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 		}
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
-				if class.Method(method.Name, method.Kind) != method || method.Abstract || method.Kind == ir.Plain && !wanted[ir.Plain][method.Name] && !isToString(method) {
-					continue // overridden below, not implemented, or a method not called through interfaces or by join; every getter and setter is, for `any` (D-070)
+				callable := wanted[ir.Plain][method.Name] || isToString(method) || e.dynamicCalls && !strings.HasPrefix(method.Name, "#")
+				if class.Method(method.Name, method.Kind) != method || method.Abstract || method.Kind == ir.Plain && !callable {
+					continue // overridden below, not implemented, or a method not called through interfaces, by join or through `any` (D-074); every getter and setter is, for `any` (D-070)
 				}
 				e.interfaceMembers[class] = append(e.interfaceMembers[class], method)
 				if _, named := e.entryNames[method.Func]; !named {
@@ -277,6 +278,9 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 				if method.Kind != ir.Plain {
 					declared = e.declaredType(accessorType(method.Kind, method.Func.Params, method.Func.Result))
 				}
+				if method.Kind == ir.Plain {
+					declared = e.dynamicMethodMember(e.entryNames[method.Func])
+				}
 				e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result), declared)
 			}
 			e.line(0, "};")
@@ -428,7 +432,7 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 	entries := make([]string, len(methods))
 	for i, field := range methods {
 		ft := field.Type.(*ir.FuncType)
-		entries[i] = "pts_entry_" + name + "_" + memberIdentifier(field.Name)
+		entries[i] = shapeEntryName(name, field)
 		if field.Kind != ir.Plain {
 			entries[i] = "pts_entry_" + name + "_" + strings.ToLower(methodKinds[field.Kind][len("PTS_"):]) + "_" + memberIdentifier(field.Property)
 		}
@@ -459,11 +463,16 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 		if field.Kind != ir.Plain {
 			e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(field.Property), methodKinds[field.Kind], entries[i], accessorKind(field.Kind, params, ft.Result), e.declaredType(shapeAccessorType(field)))
 		} else {
-			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0},", cString(field.Name), entries[i])
+			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0%s},", cString(field.Name), entries[i], e.dynamicMethodMember(entries[i]))
 		}
 	}
 	e.line(0, "};")
 	return table
+}
+
+// shapeEntryName is the name of the entry point of a shape's method, which its field holds.
+func shapeEntryName(shape string, field *ir.Field) string {
+	return "pts_entry_" + shape + "_" + memberIdentifier(field.Name)
 }
 
 func shapeDescriptorName(shape string, order int) string {

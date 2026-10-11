@@ -101,6 +101,9 @@ func (e *emitter) closureDefinitions() {
 			e.line(1, ".parent = &pts_bound_function,")
 		}
 		e.line(1, ".size = %s,", size)
+		if e.dynamicCalls {
+			e.line(1, ".call = pts_dynamic_%s,", name)
+		}
 		e.line(0, "};")
 		code := e.funcNames[f]
 		if !f.Closure {

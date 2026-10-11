@@ -188,8 +188,12 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Class-typed properties of objects that went through `any`: an object is one of an object type as it is only if its fields' declared types imply the type's, so that a later write through an object's own wider type can't break the view.
 - [x] **M3.3b2b Guarded interface sites** (84fda4271) (split from M3.3b2 by D-072).
   - Interface sites that check a field's kind and declared type when they meet a new descriptor: a write through a view into a field whose declared type is narrower than the view's is checked; an optional property that an object's declared type leaves out is checked where it is read.
-- [ ] **M3.3c Calls through `any`** (split from M3.3 by D-070).
-  - Calling a function value or a method through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
+- [ ] **M3.3c1 Calls through `any`** (split from M3.3 by D-070, from M3.3c by D-074).
+  - Calling a function value or a method of the program's classes and object literals through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
+- [ ] **M3.3c2 Function types from `any`** (split from M3.3c by D-074).
+  - Converting `any` to function types (signatures in descriptors, adapters that call through the dynamic entry) and to object types with methods; reading a method through `any` as a bound function value; spreading the arguments of a call through `any`.
+- [ ] **M3.3c3 Builtin methods through `any`** (split from M3.3c by D-074).
+  - The methods of strings, arrays (with callbacks called through `any`), maps, sets and numbers called on dynamic values, as JSON's results need.
 - [ ] **M3.3d Generic function values** (split from M3.3 by D-070).
   - Generic function values and generic methods of object literals and interfaces, whose type parameters take dynamic values (moved from M2.6b3 by D-051).
 - [ ] **M3.4 JSON.**
