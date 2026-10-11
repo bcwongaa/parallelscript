@@ -130,13 +130,88 @@ func (l *lowerer) dynamicIncrement(target place, op ir.BinaryOp, postfix bool) i
 }
 
 // dynamicConversion converts value, a dynamic value from an expression tsc types as any or
-// unknown, to target with a check, or reports (at node) that it can't yet.
+// unknown, to target with a check (D-070), or for object types a check and perhaps a copy
+// (D-071); it reports (at node) the targets it can't convert to yet.
 func (l *lowerer) dynamicConversion(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
-	if !isCheckable(target) {
-		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", l.checker.TypeToString(l.typeAt(node)), target))
+	if what := l.prepareDynamicTarget(target, node, map[ir.Type]bool{}); what != "" {
+		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s (%s) is", l.checker.TypeToString(l.typeAt(node)), target, what))
 		return nil
 	}
 	return &ir.FromUnion{X: value, To: target}
+}
+
+// prepareDynamicTarget readies t, and the types of its properties and elements, to take
+// dynamic values converted to them: each interface gets a shape that dynamic data is
+// copied into (Interface.Copy, with its properties in declaration order). It returns what
+// a dynamic value can't be converted to yet, or "".
+func (l *lowerer) prepareDynamicTarget(t ir.Type, node *ast.Node, seen map[ir.Type]bool) string {
+	if seen[t] || isCheckable(t) || t == ir.Value {
+		return ""
+	}
+	seen[t] = true
+	switch t := t.(type) {
+	case *ir.Union:
+		for _, member := range t.Members {
+			if what := l.prepareDynamicTarget(member, node, seen); what != "" {
+				return what
+			}
+		}
+		return ""
+	case *ir.Array:
+		return l.prepareDynamicTarget(t.Elem, node, seen)
+	case *ir.MapType:
+		if what := l.prepareDynamicTarget(t.Key, node, seen); what != "" || t.Value == nil {
+			return what
+		}
+		return l.prepareDynamicTarget(t.Value, node, seen)
+	case *ir.Class: // a shape or tuple; classes are checkable
+		for _, field := range t.Fields {
+			if field.Method {
+				return "an object type with methods"
+			}
+			if what := l.prepareDynamicTarget(field.Type, node, seen); what != "" {
+				return what
+			}
+		}
+		return ""
+	case *ir.Interface:
+		if len(t.Methods) > 0 {
+			return "an object type with methods"
+		}
+		for _, field := range t.Fields {
+			if what := l.prepareDynamicTarget(field.Type, node, seen); what != "" {
+				return what
+			}
+		}
+		return l.copyShape(t, node)
+	case *ir.FuncType:
+		return "a function type"
+	}
+	return "a " + t.String()
+}
+
+// copyShape gives an interface the shape its copies of dynamic data take: the shape of
+// the object type it is, with its properties in the type's declaration order.
+func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
+	if iface.Copy != nil {
+		return ""
+	}
+	for checkerType, candidate := range l.interfacesByType {
+		if candidate != iface {
+			continue
+		}
+		shape := l.shape(checkerType, node)
+		if shape == nil {
+			return "an object type without a shape"
+		}
+		var order []*ir.Field
+		for _, property := range l.checker.GetPropertiesOfType(checkerType) {
+			order = append(order, shape.Field(property.Name))
+		}
+		iface.Copy, iface.CopyOrder = shape, shape.Order(order)
+		return ""
+	}
+	return "an object type of no declaration"
 }
 
 // dynamicWithDefault applies a pattern's default to part, a dynamic value (an any's

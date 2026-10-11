@@ -699,6 +699,49 @@ pts_value pts_value_add(pts_value left, pts_value right);
 double pts_value_to_number(pts_value value);
 bool pts_value_less(pts_value left, pts_value right);
 bool pts_value_less_equal(pts_value left, pts_value right);
+/*
+ * Runtime descriptions of the program's types (D-071), for converting dynamic values to
+ * them: cgen writes one per type a conversion from `any` or `unknown` reaches.
+ */
+typedef enum pts_check_kind {
+  PTS_CHECK_ANY = 1,  /* any value: any, unknown */
+  PTS_CHECK_NUMBER,   /* a number, or a boxed 64-bit integer */
+  PTS_CHECK_INTEGER,  /* an integer the integer type of kind `slot` holds exactly */
+  PTS_CHECK_STRING,
+  PTS_CHECK_BOOLEAN,
+  PTS_CHECK_NULL,
+  PTS_CHECK_UNDEFINED,
+  PTS_CHECK_INSTANCE, /* an instance of class `type` or of a subclass */
+  PTS_CHECK_OBJECT,   /* an object with `properties`; dynamic data is copied into an object of descriptor `type` */
+  PTS_CHECK_TUPLE,    /* a tuple of descriptor `type`, whose `properties` are its elements; an array is copied into one */
+  PTS_CHECK_ARRAY,    /* an array of `element`s */
+  PTS_CHECK_RECORD,   /* a hash-map object of descriptor `type` whose values are `element`s */
+  PTS_CHECK_MAP,      /* a Map of descriptor `type` */
+  PTS_CHECK_SET,      /* a Set of descriptor `type` */
+  PTS_CHECK_UNION,    /* one of `members` */
+} pts_check_kind;
+
+typedef struct pts_check_property {
+  const char *name;
+  const struct pts_check *check;
+  bool optional;
+  uint32_t offset; /* of its field in an object of the copy's descriptor */
+} pts_check_property;
+
+typedef struct pts_check {
+  pts_check_kind kind;
+  pts_field_kind slot; /* how a place of the type holds a value */
+  const char *name;    /* the type, for messages */
+  const pts_type *type;
+  const struct pts_check *element;
+  uint32_t count;
+  const pts_check_property *properties;
+  const struct pts_check *const *members;
+} pts_check;
+
+/* value as a value of the type check describes: itself if it is one, else a copy of it converted to one (dynamic data); TypeError if neither. */
+pts_value pts_value_convert(pts_value value, const pts_check *check);
+
 /* A value from `any` that isn't of the type expected where it goes. */
 _Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
 bool pts_value_is_integer_of(pts_value value, pts_field_kind kind);

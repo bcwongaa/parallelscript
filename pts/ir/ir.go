@@ -197,6 +197,11 @@ func (c *Class) Slots() []*Method {
 type Interface struct {
 	Fields  []*Field // their Class is nil
 	Methods []*InterfaceMethod
+	// Copy is the shape that dynamic data converted to the interface is copied into
+	// (D-071), whose objects list their properties in its order CopyOrder; nil if no
+	// conversion from a dynamic value reaches the interface.
+	Copy      *Class
+	CopyOrder int
 	// writing is set while String writes the interface, so that a recursive object type
 	// (`{ value: number; next?: List }`) writes its references to itself as "{...}".
 	writing bool

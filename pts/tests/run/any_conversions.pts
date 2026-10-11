@@ -1,0 +1,67 @@
+// Converting `any` and `unknown` to object types (D-071): a typed object that already
+// fits is the same object; dynamic data is checked and copied into the target's
+// representation; anything else throws TypeError.
+interface Address {
+  city: string;
+  zip?: number;
+}
+interface User {
+  name: string;
+  age: number;
+  tags: string[];
+  address: Address;
+}
+
+// An object literal keeps its own types through any, so it fits as it is.
+const data: any = { name: "Ada", age: 36, tags: ["math", "code"], address: { city: "London" } };
+const user: User = data;
+console.log(user.name, user.age + 1, user.tags.length, user.address.city, user.address.zip);
+user.tags.push("logic");
+console.log(data.tags.length, user === data);
+
+// Dynamic data: values of any, arrays of any and hash-map objects of any are copied.
+const loose: Record<string, any> = {};
+loose.name = "Grace";
+loose.age = 85;
+const anyTags: any[] = ["navy"];
+anyTags.push("cobol");
+loose.tags = anyTags;
+loose.address = { city: "Arlington", zip: 22201 };
+const copied: User = loose as any;
+console.log(copied);
+console.log(copied.tags.length);
+
+// Arrays, hash-map objects, tuples and unions.
+const numbers: number[] = [1, 2, 3] as any;
+console.log(numbers.map((n) => n * 2));
+const mixed: any[] = [1, 2.5, -3];
+const asNumbers: number[] = mixed as any;
+console.log(asNumbers.reduce((a, b) => a + b, 0));
+const scores: Record<string, number> = { a: 1, b: 2 } as any;
+console.log(scores, scores.a + scores.b);
+const pair: [number, string] = [7, "seven"] as any;
+console.log(pair, pair[0] + 1);
+const fromArray: [number, string] = mixed.slice(0, 1).concat(["one"]) as any;
+console.log(fromArray);
+const maybeUser: User | null = null as any;
+console.log(maybeUser);
+const users: User[] = [data, { name: "Bob", age: 1, tags: [], address: { city: "Paris", zip: 75000 } }] as any;
+console.log(users.length, users[1].address, users[0] === data);
+
+// A class instance through an interface it fits keeps its identity.
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+interface HasX {
+  x: number;
+}
+const point = new Point(1, 2);
+const viaAny: any = point;
+const hasX: HasX = viaAny;
+hasX.x = 10;
+console.log(point, hasX === viaAny);
+
+// `as` from unknown converts the same way.
+const unknownValue: unknown = { city: "Oslo" };
+const address = unknownValue as Address;
+console.log(address.city, address.zip === undefined);

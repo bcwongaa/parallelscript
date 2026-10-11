@@ -215,15 +215,11 @@ func (l *lowerer) isCheckedValueType(t *checker.Type) bool {
 	return t.Flags()&(checker.TypeFlagsStringLike|checker.TypeFlagsNumberLike|checker.TypeFlagsBooleanLike|checker.TypeFlagsNull|checker.TypeFlagsUndefined) != 0
 }
 
-// asFromValue lowers `x as T` for x of type unknown: a checked conversion to T (docs/SPEC.md §3.5).
+// asFromValue lowers `x as T` for x of type any or unknown: a checked conversion to T,
+// which copies dynamic data into an object type's representation (docs/SPEC.md §3.5, D-071).
 func (l *lowerer) asFromValue(node *ast.Node) ir.Expr {
-	t := l.typeAt(node)
-	if !l.isCheckedValueType(t) {
-		l.notSupportedYet(node, fmt.Sprintf("`as` from unknown to %s is", l.checker.TypeToString(t)))
-		return nil
-	}
 	x := l.expression(node.Expression())
-	target := l.irType(t, node)
+	target := l.irType(l.typeAt(node), node)
 	if numeric := l.numericType(node); numeric != nil {
 		target = numeric // `e as u8`
 	}
@@ -232,8 +228,10 @@ func (l *lowerer) asFromValue(node *ast.Node) ir.Expr {
 		return nil
 	case ir.IsNumeric(target) && target != ir.Number: // a checked number, then `as`'s rules
 		return &ir.Convert{X: &ir.FromUnion{X: x, To: ir.Number}, To: target}
+	case isCheckable(target):
+		return &ir.FromUnion{X: x, To: target}
 	}
-	return &ir.FromUnion{X: x, To: target}
+	return l.dynamicConversion(x, target, node.Expression())
 }
 
 // stringCall lowers `String(x)`: JS's ToString of x, or "" for `String()`.

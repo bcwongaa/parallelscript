@@ -1,19 +1,13 @@
-// What exceptions don't support yet (D-068): destructuring a caught value, `as` from
-// unknown to an object type, and replacing Error's stack.
+// What exceptions don't support yet (D-068): destructuring a caught value, and replacing
+// Error's stack.
 try {
   console.log("b");
 } catch ({ message }: any) {
   console.log(message);
-}
-try {
-  console.log("c");
-} catch (e) {
-  console.log((e as { code: number }).code);
 }
 class Traced extends Error {
   stack = "no trace";
 }
 
 // error: exceptions_not_yet.pts:5:10 - error PTS1001: destructuring a caught exception is not supported yet
-// error: exceptions_not_yet.pts:11:16 - error PTS1001: `as` from unknown to { code: number; } is not supported yet
-// error: exceptions_not_yet.pts:14:3 - error PTS1001: overriding `Error.stack` is not supported yet
+// error: exceptions_not_yet.pts:9:3 - error PTS1001: overriding `Error.stack` is not supported yet

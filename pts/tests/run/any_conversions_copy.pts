@@ -1,0 +1,35 @@
+// Dynamic data converted to a typed object type is a copy (D-071), where JS keeps the one
+// object; data that doesn't fit throws TypeError, where JS carries on.
+interface Item {
+  name: string;
+  price: number;
+}
+const anyNames: any[] = ["a", "b"];
+const names: string[] = anyNames as any;
+names.push("c");
+console.log(anyNames.length, names.length, (names as any) === anyNames);
+const loose: Record<string, any> = { name: "pen", price: 2, extra: true };
+const item: Item = loose as any;
+console.log(item);
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+  } catch (e: any) {
+    console.log(what, "->", e.message);
+  }
+}
+attempt("missing price", () => { const i: Item = { name: "x" } as any; console.log(i); });
+attempt("price is a string", () => { const i: Item = { name: "x", price: "1" } as any; console.log(i); });
+attempt("not an array", () => { const xs: number[] = "123" as any; console.log(xs); });
+attempt("an element", () => { const xs: number[] = [1, "2"] as any; console.log(xs); });
+attempt("tuple length", () => { const t: [number, number] = [1] as any; console.log(t); });
+
+// no-diff: JS converts nothing, so it keeps one array and prints what doesn't fit
+// expect:
+// 2 3 false
+// { name: 'pen', price: 2 }
+// missing price -> Expected {name: string; price: number}, got Object
+// price is a string -> Expected {name: string; price: number}, got Object
+// not an array -> Expected number[], got string
+// an element -> Expected number[], got Array
+// tuple length -> Expected [number, number], got Array

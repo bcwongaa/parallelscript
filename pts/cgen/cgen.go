@@ -16,7 +16,7 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{checks: map[ir.Type]string{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{}}
 	e.nameClasses(program)
@@ -24,6 +24,7 @@ func Emit(program *ir.Program) string {
 	e.collectClosures(program)
 	e.collectComparators(program)
 	e.collectMaps(program)
+	e.collectChecks(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
 	e.collectStrings(program)
@@ -78,6 +79,9 @@ type emitter struct {
 	volatile   map[*ir.Local]bool // locals a try block assigns that are declared outside it
 
 	hasFunctionNames bool // whether the program has a table of its functions' JS names (functionNameTable)
+
+	checks     map[ir.Type]string // the pts_check of each type dynamic values are converted to, and of the types in it (D-071)
+	checkOrder []ir.Type
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -108,6 +112,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.closureDefinitions()
 	e.comparatorFunctions()
 	e.mapDescriptorDefinitions()
+	e.checkDefinitions()
 	e.functionNameTable(program)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
@@ -930,6 +935,13 @@ func (e *emitter) fromValue(value string, t ir.Type) string {
 		return "pts_value_as_string(" + value + ")"
 	case t == ir.Bool:
 		return "pts_value_as_bool(" + value + ")"
+	}
+	if !hasValueTest(t) { // an object type: checked, and dynamic data copied into it (D-071)
+		converted := "pts_value_convert(" + value + ", &" + e.checks[t] + ")"
+		if isUnion(t) {
+			return converted
+		}
+		return "((" + e.cDeclaredType(t) + ")pts_value_as_object(" + converted + "))"
 	}
 	tmp := e.temporary()
 	var converted string

@@ -181,9 +181,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.3a `any` values** (2809a1e3b) (split from M3.3 by D-070).
   - `any` as a dynamic value: property and element reads, writes to dynamic places (fields of type `any`, hash-map objects, arrays of `any`), the operators with JS's conversions, `typeof`, equality, truthiness, templates, `console.log`, `catch (e: any)`.
   - Checked conversions from `any` (and `unknown`) to primitives, integer types, classes and unions of them (`TypeError` on mismatch); checked `x!`.
-- [ ] **M3.3b Runtime type checks** (split from M3.3 by D-070).
-  - Descriptors of the program's types for the runtime (interfaces, arrays, tuples, maps, sets, records, functions), and checked conversions from `any` and `unknown` to them; checked `as` downcasts to them.
-  - Writes through `any` into typed fields, checked by those descriptors.
+- [x] **M3.3b1 Runtime type checks** (split from M3.3 by D-070, from M3.3b by D-071).
+  - Descriptors of the program's types for the runtime (interfaces, arrays, tuples, maps, sets, records), and checked conversions from `any` and `unknown` to them; checked `as` downcasts to them. (Function types and object types with methods need signatures: M3.3c.)
+- [ ] **M3.3b2 Checked object writes** (split from M3.3b by D-071).
+  - Writes of objects through `any` into typed fields, checked by the fields' declared types, which descriptors then carry.
+  - Interface sites that check a field's kind when they meet a new descriptor, and class-typed properties of objects that went through `any`, so that a later write through an object's own wider type can't break the view.
 - [ ] **M3.3c Calls through `any`** (split from M3.3 by D-070).
   - Calling a function value or a method through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
 - [ ] **M3.3d Generic function values** (split from M3.3 by D-070).
