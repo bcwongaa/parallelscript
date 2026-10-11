@@ -603,6 +603,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 			return nil
 		}
 	}
+	if isUnion(iterable.Type()) {
+		iterable = box(iterable) // `index.get(k) ?? []`: a set or an array, iterated as a dynamic value (D-089)
+	}
 	// The loop reads element index of source while index is below its length.
 	var elemType ir.Type
 	var length func(source ir.Expr) ir.Expr

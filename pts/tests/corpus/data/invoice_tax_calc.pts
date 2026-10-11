@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: computed property names
 enum TaxClass {
   Standard = "standard",
   Reduced = "reduced",

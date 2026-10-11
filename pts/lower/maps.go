@@ -120,6 +120,9 @@ func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	} else {
 		from = l.expression(args[0])
 	}
+	if from != nil && mt.Set && from.Type() == ir.String {
+		from = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{from}} // `new Set("hello")`: its code points (D-089)
+	}
 	switch {
 	case from == nil:
 		return nil

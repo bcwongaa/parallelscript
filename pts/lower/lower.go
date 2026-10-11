@@ -1626,11 +1626,13 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 			elements[i] = &ir.FieldRef{X: x, Field: field}
 		}
 		return elements
-	case isTuple(x.Type()):
-		l.notSupportedYet(argument, "spreading a tuple that isn't in a variable into arguments is")
+	case isTuple(x.Type()): // `...p.dims`: a copy into an array (D-089)
+		if array := l.tupleArray(x, l.typeAt(argument.Expression()), argument.Expression()); array != nil {
+			return []ir.Expr{&spreadValue{array}}
+		}
 		return nil
-	case x.Type() == ir.Value: // a dynamic value's items (D-078)
-		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{x, &ir.StringConst{Value: scanner.GetTextOfNode(argument.Expression())}}}}}
+	case isUnion(x.Type()) || x.Type() == ir.Value: // a dynamic value's items (D-078), or a union's (`...(set ?? [])`, D-089)
+		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(argument.Expression())}}}}}
 	}
 	l.notSupportedYet(argument, fmt.Sprintf("spreading a %s into arguments is", x.Type()))
 	return nil

@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `for...of` over a Set<string> | value[]
 interface Activity {
   userId: string;
   date: string;

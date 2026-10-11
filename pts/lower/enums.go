@@ -30,6 +30,9 @@ func (l *lowerer) enumMember(node *ast.Node) (x ir.Expr, ok bool) {
 	case ast.KindPropertyAccessExpression:
 		name = node.AsPropertyAccessExpression().Name()
 	case ast.KindElementAccessExpression:
+		if l.enumOf(node.Expression()) == nil {
+			return nil, false // `totals[Color.Red]` reads totals (D-089)
+		}
 		name = node.AsElementAccessExpression().ArgumentExpression
 	default:
 		return nil, false

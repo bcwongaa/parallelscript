@@ -1,0 +1,33 @@
+// for…of and spreads over a union of a set and an array, and over tuples; new Set of a
+// string; computed property names that are constants; `totals[Color.Red]` (D-089).
+const index = new Map<string, Set<string>>([["vip", new Set(["a", "b"])]]);
+for (const e of index.get("vip") ?? []) console.log(e.toUpperCase());
+for (const e of index.get("none") ?? []) console.log(e);
+console.log([...(index.get("vip") ?? [])], [...(index.get("none") ?? [])].length);
+const m = new Map<string, number[]>();
+for (const n of m.get("x") ?? [1, 2]) console.log(n * 2);
+interface P { dims: [number, number, number] }
+const p: P = { dims: [3, 9, 1] };
+const [l] = [...p.dims].sort((a, b) => b - a);
+console.log(l, Math.max(...p.dims));
+console.log(new Set("hello").size, [...new Set("mississippi")].join(""), new Set("héé😀😀"));
+enum Light { Red = "red", Green = "green" }
+const durations: Record<Light, number> = { [Light.Red]: 30, [Light.Green]: 25 };
+console.log(durations, durations[Light.Red]);
+enum Z { D = "d" }
+const r: Record<Z, number> = { [Z.D]: 1 };
+console.log(r);
+const KEY = "k";
+console.log({ [KEY]: 5 }.k);
+
+// expect:
+// A
+// B
+// [ 'a', 'b' ] 0
+// 2
+// 4
+// 9 9
+// 4 misp Set(3) { 'h', 'é', '😀' }
+// { red: 30, green: 25 } 30
+// { d: 1 }
+// 5

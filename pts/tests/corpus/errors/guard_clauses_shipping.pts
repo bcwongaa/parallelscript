@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: computed property names
 // Shipping-cost calculator written with guard clauses and early returns;
 // impossible shipments throw, merely unusual ones return a reason.
 

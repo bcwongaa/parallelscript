@@ -8,6 +8,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/jsnum"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
@@ -326,14 +327,21 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 				value = l.objectMethod(property, fields[i])
 			}
 		}
+		var name string
 		if property.Name().Kind == ast.KindComputedPropertyName {
-			l.notSupportedYet(property.Name(), "computed property names are")
-			return nil
+			constant, ok := l.constantName(property.Name())
+			if !ok || shape.Field(constant) == nil {
+				l.notSupportedYet(property.Name(), "computed property names are")
+				return nil
+			}
+			name = constant // `{ [Color.Red]: 1 }` (D-089)
 		}
 		if value == nil {
 			return nil
 		}
-		if fields[i] == nil {
+		if fields[i] == nil && name != "" {
+			fields[i] = shape.Field(name)
+		} else if fields[i] == nil {
 			fields[i] = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
 		}
 		if values[i] = l.convert(value, fields[i].Type, property); values[i] == nil {
@@ -345,6 +353,19 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 }
 
 func isSpreadAssignment(node *ast.Node) bool { return node.Kind == ast.KindSpreadAssignment }
+
+// constantName is the property name a computed name `[e]` gives when tsc types e as one
+// string or number literal (an enum member, a constant): JS's string of its value.
+func (l *lowerer) constantName(name *ast.Node) (string, bool) {
+	t := l.typeAt(name.Expression())
+	switch {
+	case t.Flags()&checker.TypeFlagsStringLiteral != 0:
+		return t.AsLiteralType().Value().(string), true
+	case t.Flags()&checker.TypeFlagsNumberLiteral != 0:
+		return t.AsLiteralType().Value().(jsnum.Number).String(), true
+	}
+	return "", false
+}
 
 // spreadProperty is a property of an object literal with spreads: a spread's object and
 // the names it copies, or a property written with its field and value.

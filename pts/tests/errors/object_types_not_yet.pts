@@ -1,6 +1,6 @@
 // Object types and literals that arrive later are reported: members whose types differ, setter-only,
 // overloaded members, optional methods, a method called with another object as `this`,
-// methods beside a spread, numeric and computed keys. (`Generic` is fine since M3.3d2.)
+// methods beside a spread, numeric keys and computed accessor names. (`Generic` is fine since M3.3d2.)
 interface Point {
   x: number;
   y: number;
@@ -21,8 +21,6 @@ const m: Maybe = {};
 const withGetter = { get [`run`](): number { return 1; } };
 const spread = { ...p3, m() { return 1; } };
 const numeric = { 1: "one" };
-const key = "k";
-const computed = { [key]: 1 };
 interface WriteOnly {
   set w(value: number);
 }
@@ -47,7 +45,6 @@ function size(o: Sized): number {
 // error: object_types_not_yet.pts:21:26 - error PTS1001: computed property names are not supported yet
 // error: object_types_not_yet.pts:22:25 - error PTS1001: methods and accessors in an object literal with a spread are not supported yet
 // error: object_types_not_yet.pts:23:7 - error PTS1001: numeric property names
-// error: object_types_not_yet.pts:25:20 - error PTS1001: computed property names are not supported yet
-// error: object_types_not_yet.pts:29:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet
-// error: object_types_not_yet.pts:34:15 - error PTS1001: overloaded methods (`f` in Overloaded) are not supported yet
-// error: object_types_not_yet.pts:40:27 - error PTS1001: calling or binding a method of an object type with another object as `this` is not supported yet
+// error: object_types_not_yet.pts:27:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet
+// error: object_types_not_yet.pts:32:15 - error PTS1001: overloaded methods (`f` in Overloaded) are not supported yet
+// error: object_types_not_yet.pts:38:27 - error PTS1001: calling or binding a method of an object type with another object as `this` is not supported yet

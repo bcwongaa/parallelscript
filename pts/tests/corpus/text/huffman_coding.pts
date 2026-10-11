@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: a Set<string> of a string
 // Huffman coding: frequency table, tree construction with a binary heap, canonical codes,
 // encoding to a bit string, decoding, and the compression ratio.
 abstract class HuffNode {

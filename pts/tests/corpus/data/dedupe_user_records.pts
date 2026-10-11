@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
 interface RawUser {
   email: string;
   name?: string;

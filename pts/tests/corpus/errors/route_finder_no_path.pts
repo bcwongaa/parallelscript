@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
 // Breadth-first route finding on a transit network with closures; raises
 // UnknownStationError or NoRouteError, and caches results including failures.
 

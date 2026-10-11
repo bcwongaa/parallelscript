@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
 // DFS (recursive and iterative) for connected components, articulation points and bridges.
 
 class UndirectedGraph {
