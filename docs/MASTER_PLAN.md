@@ -74,7 +74,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M1.4b2 Modules** (34b33d66a) (added by D-008, split by D-021).
   - ES module `import`/`export` between `.pts` files with relative specifiers (D-L19), including `export default`, re-exports and namespace imports (`import * as m`).
   - Module initialisation in dependency order, each module once; import cycles behave as in Node for the cases tsc accepts.
-- [ ] **M1.5 Benchmarks setup.**
+- [x] **M1.5 Benchmarks setup.** (30c0871d4)
   - `pts/bench/` with a hyperfine script comparing ParallelScript against Node, Bun and Go.
   - Implement fib (Node and Bun run the same source; a `.go` twin). Record the results.
   - nbody moves to M2.7 (D-023): its standard form needs arrays or classes and `Math.sqrt`.
