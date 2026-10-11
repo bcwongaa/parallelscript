@@ -89,7 +89,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Reading and assigning fields, calling methods; the numeric rules on fields, parameters and results.
 - [x] **M2.2b `console.log` of instances** (c58de70a3) (split from M2.2 by D-025).
   - Node's format from the type descriptors, e.g. `Point { x: 1, y: 2 }`: nested instances, line breaking past 72/80 characters, depth 2 (`[Point]`), circular references (`<ref *1>`, `[Circular *1]`), strings quoted as Node quotes them.
-- [x] **M2.2c Inheritance** (COMMIT) (split from M2.2 by D-025).
+- [x] **M2.2c Inheritance** (37a3a31b9) (split from M2.2 by D-025).
   - Single inheritance with `extends`; `super(...)` and `super.method()`; vtables and overriding; abstract classes; `instanceof`.
 - [ ] **M2.2d Accessors, statics and privacy** (split from M2.2 by D-025).
   - Getters and setters; static fields and methods; `private` and `#private`; parameter properties.
