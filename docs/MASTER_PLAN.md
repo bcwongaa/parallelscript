@@ -110,7 +110,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.4b Array methods without callbacks** (7f08c4a94) (split from M2.4 by D-037).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
   - `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` without a comparator (stable, with JS default comparison), `flat`, `fill` and `Array.from` of an array.
-- [ ] **M2.5a Closures and arrow functions** (split from M2.5 by D-040).
+- [x] **M2.5a Closures and arrow functions** (3ae2a7eb5) (split from M2.5 by D-040).
   - Function values: function types, arrow functions and function expressions, function declarations used as values, calls of function values.
   - Closures with explicit environments in the IR: captured variables, shared where they may change; nested function declarations that capture; JS's per-iteration `let` bindings in loops.
   - `this` in arrow functions (lexical); `console.log`, `typeof` and `===` on function values.
