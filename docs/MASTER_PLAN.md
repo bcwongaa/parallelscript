@@ -178,7 +178,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.2b Stacks** (d0b802bb0) (split from M3.2 by D-068).
   - `stack` with `.pts` file and line numbers, and `console.log` of errors with it as Node prints them.
   - The stack-overflow guard: deep recursion throws `RangeError: Maximum call stack size exceeded` (`pts/tests/run/stack_overflow.pts`).
-- [ ] **M3.3a `any` values** (split from M3.3 by D-070).
+- [x] **M3.3a `any` values** (2809a1e3b) (split from M3.3 by D-070).
   - `any` as a dynamic value: property and element reads, writes to dynamic places (fields of type `any`, hash-map objects, arrays of `any`), the operators with JS's conversions, `typeof`, equality, truthiness, templates, `console.log`, `catch (e: any)`.
   - Checked conversions from `any` (and `unknown`) to primitives, integer types, classes and unions of them (`TypeError` on mismatch); checked `x!`.
 - [ ] **M3.3b Runtime type checks** (split from M3.3 by D-070).
