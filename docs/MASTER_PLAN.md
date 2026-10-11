@@ -133,7 +133,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.6b2 Generic classes** (ff965a933) (split from M2.6 by D-047, from M2.6b by D-049, from M2.6b2 by D-050).
   - Generic classes (`Box<int>`), one class per instance, printed with the class's name; generic superclasses and subclasses.
 - [ ] **M2.6b3 Generic methods and nested generic functions** (split from M2.6b2 by D-050).
-  - Generic methods of classes, object literals and interfaces; generic functions inside functions and blocks.
+  - Generic methods of classes (instance and static); generic functions inside functions and blocks. Generic methods of object literals and interfaces move to M3.3 (D-051).
 - [ ] **M2.6c Enums** (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
 - [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).
@@ -159,6 +159,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [ ] **M3.3 `any`, `unknown` and casts.**
   - `any` as a checked dynamic value using descriptors, with runtime checks at typed boundaries.
   - `unknown`; checked `as` downcasts; checked `x!`.
+  - Generic function values and generic methods of object literals and interfaces, whose type parameters take dynamic values (moved from M2.6b3 by D-051).
 - [ ] **M3.4 JSON.**
   - `JSON.parse` returning `any`; `JSON.stringify` with indent and replacer basics, matching Node byte for byte.
   - Add the JSON benchmark and the `Map`-heavy word-frequency benchmark.

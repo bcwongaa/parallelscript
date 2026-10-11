@@ -1,31 +1,52 @@
-// Generics arrive in parts (M2.6b1-M2.6b3, D-049, D-050): nested generic functions,
-// generic functions as values, generic methods and `instanceof` of a generic class are
-// reported, as is a function that would need ever more instances.
-function outer(): number {
-  function inner<T>(x: T): T {
-    return x;
-  }
-  return inner(1);
-}
+// Generics that aren't supported yet are reported (D-049, D-050, D-051): generic
+// functions as values, generic functions inside generic code, nested generic functions
+// that use their outer function's variables, generic methods as values and overriding
+// with one, `instanceof` of a generic class, and a function needing ever more instances.
 function identity<T>(x: T): T {
   return x;
 }
 const f = identity;
-function grow<T>(x: T, n: number): number {
-  return n === 0 ? 0 : grow([x], n - 1);
+function outer<T>(x: T): T {
+  function inner<U>(y: U): U {
+    return y;
+  }
+  return inner(x);
 }
-console.log(grow(1, 3));
+console.log(outer(1));
+function counter(start: number): number {
+  function add<T>(x: T): number {
+    return start + 1;
+  }
+  return add("x");
+}
 class Box<T> {
   constructor(public value: T) {}
   map<U>(f: (x: T) => U): U {
     return f(this.value);
   }
 }
+class Shouting {
+  say(): string {
+    return "hi";
+  }
+}
+class Echo extends Shouting {
+  say<T>(): string {
+    return "echo";
+  }
+}
 const box = new Box(1);
+console.log(box.map);
 console.log(box instanceof Box);
+function grow<T>(x: T, n: number): number {
+  return n === 0 ? 0 : grow([x], n - 1);
+}
+console.log(grow(1, 3));
 
-// error: generics_not_yet.pts:5:12 - error PTS1001: generic functions inside functions or blocks are not supported yet
-// error: generics_not_yet.pts:13:7 - error PTS1001: generic function types are not supported yet
-// error: generics_not_yet.pts:20:3 - error PTS1001: generic methods are not supported yet
-// error: generics_not_yet.pts:25:28 - error PTS1001: `instanceof` of a generic class is not supported yet
-// error: generics_not_yet.pts:15:24 - error PTS1001: a generic function with more than 64 instances (`grow`) is not supported yet
+// error: generics_not_yet.pts:8:7 - error PTS1001: generic function types are not supported yet
+// error: generics_not_yet.pts:34:3 - error PTS1001: overriding with a generic method is not supported yet
+// error: generics_not_yet.pts:39:13 - error PTS1001: generic methods as values are not supported yet
+// error: generics_not_yet.pts:40:28 - error PTS1001: `instanceof` of a generic class is not supported yet
+// error: generics_not_yet.pts:10:12 - error PTS1001: generic functions inside generic functions or classes are not supported yet
+// error: generics_not_yet.pts:18:12 - error PTS1001: using `start` from outside the function is not supported yet
+// error: generics_not_yet.pts:42:24 - error PTS1001: a generic function with more than 64 instances (`grow`) is not supported yet

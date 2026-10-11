@@ -135,7 +135,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
-		genericClasses: map[*ast.Symbol]*genericClass{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{}}
+		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -214,6 +214,7 @@ type lowerer struct {
 	moduleScope         map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
 	funcs               map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
 	generics            map[*ast.Symbol]*genericFunc    // every generic function declaration, whose instances calls make
+	genericStatics      map[*ast.Node]*genericFunc      // every generic static method, by declaration
 	instances           []*instance                     // the instances whose bodies are still to be lowered
 	subst               *substitution                   // the instance being lowered or declared, or nil
 	genericClasses      map[*ast.Symbol]*genericClass   // every generic class declaration, whose instances types make; nil if it failed
@@ -777,6 +778,9 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 	node.ForEachChild(func(child *ast.Node) bool {
 		qualified := outer
+		if child.Kind == ast.KindClassDeclaration && child.TypeParameterList() != nil && l.subst == nil {
+			return false // each instance declares what its methods declare
+		}
 		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil && l.isGeneric(child) {
 			name := "default"
 			if child.Name() != nil {
@@ -1085,6 +1089,15 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.functionMethodCall(call)
 	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
+	if generic := l.genericMethodAt(ast.SkipParentheses(call.Expression)); generic != nil {
+		if l.hasSpreadArgument(call) {
+			return nil
+		}
+		if generic.static != nil {
+			return l.genericCall(call, generic)
+		}
+		return l.genericMethodCall(call, generic)
+	}
 	if fn, ok := l.staticMethods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		return l.staticCall(call, fn)
 	}
@@ -1389,6 +1402,10 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	}
 	if accessors, ok := l.accessorProperty(node); ok {
 		return l.propertyRead(node, accessors)
+	}
+	if l.genericMethodAt(node) != nil {
+		l.notSupportedYet(node, "generic methods as values are")
+		return nil
 	}
 	if _, ok := l.membersAt(node).methods[member]; ok || l.isObjectTypeMethod(member) {
 		return l.methodValue(node)

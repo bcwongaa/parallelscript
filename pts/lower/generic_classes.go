@@ -13,13 +13,15 @@ import (
 // classMembers are the members of classes by declaration. A generic class's instances
 // each have their own (D-050); the other classes share the lowerer's.
 type classMembers struct {
-	fields         map[*ast.Node]*ir.Field  // by property declaration or parameter property (a redeclaration's is the inherited field)
-	methods        map[*ast.Node]*ir.Method // methods, getters and setters, by declaration; nil if it failed
-	abstractFields map[*ast.Node]property   // the getter and setter of each abstract field, by declaration
+	fields         map[*ast.Node]*ir.Field    // by property declaration or parameter property (a redeclaration's is the inherited field)
+	methods        map[*ast.Node]*ir.Method   // methods, getters and setters, by declaration; nil if it failed
+	abstractFields map[*ast.Node]property     // the getter and setter of each abstract field, by declaration
+	genericMethods map[*ast.Node]*genericFunc // generic methods, whose instances calls make
 }
 
 func newClassMembers() *classMembers {
-	return &classMembers{fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{}, abstractFields: map[*ast.Node]property{}}
+	return &classMembers{fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{}, abstractFields: map[*ast.Node]property{},
+		genericMethods: map[*ast.Node]*genericFunc{}}
 }
 
 // Generic classes are monomorphized like generic functions (D-049, D-050): each list of
@@ -218,7 +220,17 @@ func (l *lowerer) classInstanceBody(inst *classInstance) {
 	l.subst = inst.subst
 	defer func() { l.subst = nil }()
 	l.forgetLocals(inst.generic.node) // another instance's
+	outerBodies, outerFunction := l.bodies, l.function
+	l.bodies, l.function = nil, inst.generic.module
+	l.declareFunctions(inst.generic.node, inst.class.Name) // the functions its methods declare, in this instance
+	l.function = outerFunction
 	l.classBodiesOf(inst.generic.node, inst.class)
+	for len(l.bodies) > 0 {
+		body := l.bodies[0]
+		l.bodies = l.bodies[1:]
+		l.functionBody(body)
+	}
+	l.bodies = outerBodies
 }
 
 // genericClassReference is the class a reference to a generic class's declaration (in

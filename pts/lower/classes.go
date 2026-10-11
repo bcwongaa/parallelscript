@@ -172,6 +172,10 @@ func (l *lowerer) declareMethod(member *ast.Node, class *ir.Class) {
 	if member.Body() == nil && !abstract {
 		return // an overload signature
 	}
+	if l.isGeneric(member) {
+		l.declareGenericMethod(member, class)
+		return
+	}
 	name, kind := member.Name().Text(), methodKinds[member.Kind]
 	var method *ir.Method
 	if fn := l.declareFunction(member, class.Name+"."+accessorPrefixes[kind]+name, class); fn != nil {
@@ -232,6 +236,10 @@ func (l *lowerer) declareStaticMember(member *ast.Node, class *ir.Class) {
 	case ast.KindMethodDeclaration:
 		if member.Body() == nil {
 			return // an overload signature
+		}
+		if l.isGeneric(member) {
+			l.declareGenericMethod(member, class)
+			return
 		}
 		fn := l.declareFunction(member, class.Name+"."+member.Name().Text(), nil)
 		l.staticMethods[member] = fn

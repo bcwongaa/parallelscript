@@ -1,0 +1,51 @@
+// Generic methods (of generic classes too, and static ones) and generic functions nested in
+// functions or methods are monomorphized like generic functions (D-051). Nested functions
+// of a generic class's methods are declared again in each instance.
+class Box<T> {
+  constructor(public value: T) {}
+  map<U>(f: (x: T) => U): Box<U> {
+    return new Box(f(this.value));
+  }
+  pairWith<U>(other: U): string {
+    return `${this.value}&${other}`;
+  }
+}
+class Util {
+  prefix = ">";
+  wrap<T>(x: T): T[] {
+    return [x, x];
+  }
+  show<T>(x: T): string {
+    return this.prefix + x;
+  }
+  static twice<T>(x: T): T[] {
+    return [x, x];
+  }
+}
+const b = new Box(2).map(x => x * 1.5).map(x => `${x}!`);
+console.log(b, new Box("s").map(s => s.length), new Box(1).pairWith(true));
+const u = new Util();
+console.log(u.wrap(1), u.wrap("a"), u.show(3), Util.twice(true));
+function outer(): string {
+  function local<T>(x: T): string {
+    return `<${x}>`;
+  }
+  return local(1) + local("two");
+}
+console.log(outer());
+class Holder<T> {
+  constructor(public items: T[]) {}
+  describe(): string {
+    function show(x: T): string {
+      return `[${x}]`;
+    }
+    return this.items.map(show).join("");
+  }
+}
+console.log(new Holder([1, 2]).describe(), new Holder(["a"]).describe());
+
+// expect:
+// Box { value: '3!' } Box { value: 1 } 1&true
+// [ 1, 1 ] [ 'a', 'a' ] >3 [ true, true ]
+// <1><two>
+// [1][2] [a]

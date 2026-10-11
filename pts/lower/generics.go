@@ -21,13 +21,16 @@ import (
 // itself with ever larger type arguments (f<T> calling f<T[]>) would make without end.
 const maxInstances = 64
 
-// genericFunc is a generic function declaration and its instances so far.
+// genericFunc is a generic function or method declaration and its instances so far.
 type genericFunc struct {
 	node       *ast.Node
 	name       string          // its qualified IR name, which an instance's extends
 	module     *ir.Func        // the top-level code of its module
 	parameters []*checker.Type // its type parameters
 	instances  []*instance
+	class      *ir.Class     // for a method, the class whose instances it runs on (`this`)
+	static     *ir.Class     // for a static method, its class
+	outer      *substitution // for a method of a generic class's instance, the instance's
 }
 
 // instance is a generic function's instance for a list of type arguments.
@@ -84,8 +87,8 @@ func (l *lowerer) isGeneric(declaration *ast.Node) bool {
 // declareGeneric records a generic function declaration (named qualified) at module
 // scope, whose instances are made as calls need them. Nested ones are reported.
 func (l *lowerer) declareGeneric(node *ast.Node, qualified string) {
-	if isNestedFunction(node) {
-		l.notSupportedYet(nameOf(node), "generic functions inside functions or blocks are")
+	if l.subst != nil {
+		l.notSupportedYet(nameOf(node), "generic functions inside generic functions or classes are")
 		l.generics[l.declaredSymbol(node)] = nil
 		return
 	}
@@ -96,19 +99,95 @@ func (l *lowerer) declareGeneric(node *ast.Node, qualified string) {
 	l.generics[l.declaredSymbol(node)] = generic
 }
 
-// genericCall lowers a call of a generic function: a call of its instance for the type
-// arguments tsc inferred or the call gives.
+// genericCall lowers a call of a generic function or static method: a call of its
+// instance for the type arguments tsc inferred or the call gives.
 func (l *lowerer) genericCall(call *ast.CallExpression, generic *genericFunc) ir.Expr {
+	fn := l.calledInstance(call, generic)
+	if fn == nil {
+		return nil
+	}
+	return l.userCall(call, fn)
+}
+
+// genericMethodCall lowers `o.m(args)` for a generic method m of a class: a direct call
+// of m's instance for the call's type arguments, on o.
+func (l *lowerer) genericMethodCall(call *ast.CallExpression, generic *genericFunc) ir.Expr {
+	fn := l.calledInstance(call, generic)
+	if fn == nil {
+		return nil
+	}
+	receiverNode := call.Expression.Expression()
+	var receiver ir.Expr
+	if receiverNode.Kind == ast.KindSuperKeyword {
+		receiver = &ir.LocalRef{Local: l.thisLocal()}
+	} else if receiver = l.expression(receiverNode); receiver != nil {
+		receiver = l.asInstanceOf(receiver, generic.class, receiverNode)
+	}
+	args := l.arguments(call.Arguments.Nodes, fn.Params[1:])
+	if receiver == nil || args == nil {
+		return nil
+	}
+	return &ir.Call{Func: fn, Args: append([]ir.Expr{upcast(receiver, generic.class)}, args...)}
+}
+
+// calledInstance is the instance of a generic function or method that a call calls,
+// for the type arguments of tsc's resolved signature; nil if it failed (reported).
+func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc) *ir.Func {
 	arguments := l.checker.PtsTypeArgumentsOfSignature(l.checker.GetResolvedSignature(call.AsNode()))
 	if len(arguments) != len(generic.parameters) {
 		l.notSupportedYet(call.AsNode(), "this call of a generic function is")
 		return nil
 	}
-	fn := l.genericInstance(generic, arguments, call.AsNode())
-	if fn == nil {
+	return l.genericInstance(generic, arguments, call.AsNode())
+}
+
+// genericMethodAt returns the generic method a callee (`o.m` or `C.m`) names, or nil.
+func (l *lowerer) genericMethodAt(callee *ast.Node) *genericFunc {
+	if callee.Kind != ast.KindPropertyAccessExpression {
 		return nil
 	}
-	return l.userCall(call, fn)
+	member := l.memberDeclaration(callee)
+	if generic := l.membersAt(callee).genericMethods[member]; generic != nil {
+		return generic
+	}
+	return l.genericStatics[member]
+}
+
+// declareGenericMethod records a generic method (or a static one) of class, whose
+// instances calls make. One that overrides or is abstract is reported.
+func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
+	name := member.Name().Text()
+	switch {
+	case member.Kind != ast.KindMethodDeclaration || member.Body() == nil:
+		l.notSupportedYet(nameOf(member), "generic accessors and abstract generic methods are")
+		return
+	case !ast.IsStatic(member) && class.Parent != nil && (class.Parent.Method(name, ir.Plain) != nil || l.inheritedGenericMethod(class.Parent, name) != nil):
+		l.notSupportedYet(nameOf(member), "overriding with a generic method is")
+		return
+	}
+	generic := &genericFunc{node: member, name: class.Name + "." + name, module: class.Module.Init, class: class, outer: l.subst}
+	for _, parameter := range member.TypeParameters() {
+		generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
+	}
+	if ast.IsStatic(member) {
+		generic.class, generic.static = nil, class
+		l.genericStatics[member] = generic
+		return
+	}
+	l.declaringMembers().genericMethods[member] = generic
+}
+
+// inheritedGenericMethod returns the generic method of the given name that class declares
+// or inherits, or nil.
+func (l *lowerer) inheritedGenericMethod(class *ir.Class, name string) *genericFunc {
+	for ; class != nil; class = class.Parent {
+		for member, generic := range l.membersOf(class).genericMethods {
+			if generic.class == class && member.Name().Text() == name {
+				return generic
+			}
+		}
+	}
+	return nil
 }
 
 // genericInstance returns the function of a generic function's instance for some type
@@ -132,16 +211,23 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 		l.notSupportedYet(node, fmt.Sprintf("a generic function with more than %d instances (`%s`) is", maxInstances, generic.name))
 		return nil
 	}
-	inst := &instance{generic: generic, arguments: arguments,
-		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete}}
+	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete}
+	if outer := generic.outer; outer != nil {
+		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
+		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
+	}
+	inst := &instance{generic: generic, arguments: arguments, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	outerSubst, outerFunction, outerParams := l.subst, l.function, l.parameterLocals(generic.node)
 	l.subst, l.function = inst.subst, generic.module
-	inst.fn = l.declareFunction(generic.node, generic.name+"_"+typeArgumentsName(arguments), nil)
+	inst.fn = l.declareFunction(generic.node, generic.name+"_"+typeArgumentsName(arguments), generic.class)
 	l.subst, l.function = outerSubst, outerFunction
 	maps.Copy(l.locals, outerParams) // the instance being lowered may be another of this function's
 	if inst.fn != nil {
 		inst.fn.JSName = generic.name
+		if generic.static != nil {
+			l.staticClasses[inst.fn] = generic.static
+		}
 		l.instances = append(l.instances, inst)
 	}
 	return inst.fn

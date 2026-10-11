@@ -135,7 +135,9 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
   - Arithmetic on a value of a type parameter is done in `number`, as tsc types it, even when the instance's type argument is an integer type; `x as T` converts back by the numeric rules.
   - Generic interfaces and type aliases are instantiated like any other type (`Box<int>`).
   - A generic class has one class per instance (D-050), printed with the generic class's name (`Box { value: 1 }`); instances may extend classes and be extended (`class IntBox extends Box<int>`).
+  - Generic methods of classes, and generic functions nested in functions or methods, have instances too (D-051).
   - A function that would need ever more instances (`f<T>` calling `f<T[]>`) is a compile error after 64.
+  - Not yet: generic functions as values and generic methods of object literals and interfaces (M3.3), static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code.
 
 ### 3.8 Equality
 
@@ -580,3 +582,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 
 - **Lowering** (`pts/lower/generic_classes.go`, D-050): `declareClasses` records generic class declarations (`declareGenericClass`; static members are PTS1001); `irType` makes or finds an instance's class for a reference to one (`classInstanceOf`, keyed on the IR types of its type arguments), linking its superclass from the declaration's base type in the instance (`declareInstanceSuperclass`). Members are declared by `ensureMembers`, superclass first, into the instance's own `classMembers` (the tables of fields, methods and abstract fields that the other classes share in `l.members`); instances made before `declareClassMembers` are declared there, later ones at once. Lookups go through `membersAt`/`membersFor`, which find the instance the receiver's class (`receiverClass`; for `this`, its constraint's) is or extends. Constructors and methods are lowered per instance (`classInstanceBody`, `classBodiesOf`), with parameters bound again (`bindParameters`). A non-generic class may extend an instance (`declareSuperclass`); `new` and narrowing take the instance from the expression's type; `instanceof` of a generic class is PTS1001. `result.Classes` orders every class after its superclass (`orderedByParent`).
 - **Tests:** `pts/tests/run/generic_classes.pts` (with `run/generic_classes/queue.pts`), `generic_classes_integers.pts`; `errors/generics_not_yet.pts`, `class_features_not_yet.pts`.
+
+### 9.28 Generic methods and nested generic functions (M2.6b3)
+
+- **Lowering** (`pts/lower/generics.go`, D-051): `genericFunc` also describes a generic method: its `class` (`this`), `static` class, and `outer` substitution (a generic class instance's), which an instance's substitution extends. `declareMethod` and `declareStaticMember` hand generic methods to `declareGenericMethod`, which records them in the class's `classMembers.genericMethods` (statics in `l.genericStatics`); `call` finds them with `genericMethodAt` and lowers `genericMethodCall` (a direct `ir.Call` with the receiver first) or `genericCall`; `calledInstance` takes the resolved signature's type arguments. `declareGeneric` takes nested generic functions unless `l.subst` is set. `declareFunctions` skips generic classes, whose instances declare their methods' nested functions in `classInstanceBody`.
+- **Dispatch:** `callMethod` calls through the method table when a generic class extending the receiver's class redeclares the method (`mayBeOverriddenByAnInstance`), since the overriding instance may be made after the call is lowered (fix to M2.6b2).
+- **Tests:** `pts/tests/run/generic_methods.pts`; `generic_classes.pts` (late overriding instances); `errors/generics_not_yet.pts`.
