@@ -592,6 +592,9 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 		}
 	} else if missing := unprovided(value.Type(), target.(*ir.Interface)); missing == "" {
 		return &ir.ClassCast{X: value, To: target}
+	} else if holdsOptionally(value.Type(), target.(*ir.Interface)) {
+		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node})
+		return &ir.ClassCast{X: value, To: target}
 	} else {
 		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
 		return nil

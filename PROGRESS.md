@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.1b3b Objects without an optional property
+- **Next task:** M3.1c Unions of objects
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.1b3b Objects without an optional property: a value whose objects lack an optional property, or hold it as its type without undefined (`{ name }` or `{ verbose: true }` used as `{ name: string; verbose?: boolean }`, a class without the field), converts to the type; reads, writes and `in` of optional properties through interfaces go through `pts_optional_get`/`_set`/`_has`, which convert by the descriptor's field kind; adding a missing property or writing undefined to a field that can't hold it throws TypeError; a whole-program check (`checkRelaxedCasts`) rejects conversions whose values may refer to objects holding the property as another type (D-066, SPEC §9.43).
 - M3.1b3a Optional properties: `p?: T` in interfaces, type literals and mapped types (`Partial`, `Required`, `Pick`, `Omit`, `Readonly`, `Record<"a" | "b", T>` are now object types) as `T | undefined` fields marked optional; literals that leave them out store the absent value (`PTS_VALUE_ABSENT`, zero), which reads see as undefined, `console.log` skips and `in` tests; `"p" in o` for declared keys; destructuring defaults on object properties (declarations, parameters, assignments); spreads and rest properties copy only what an object has, `{ ...defaults, ...o }` keeps defaults for left-out properties; optional class fields and parameter properties (defined as undefined, as JS does) (D-065, SPEC §9.42). M3.1b3 split by D-065. Fixed: a recursive object type in a union (`next: Node | null`) sent `Interface.String` into infinite recursion.
 - M3.1b2 Optional chaining: `?.` on properties, methods, function values, and elements of arrays, strings, maps and hash-map objects, short-circuiting the rest of the chain, chains of chains, `!` inside chains, chains on dynamic values such as `find`'s; object literals typed by their non-nullable context (D-064, SPEC §9.41).
 - M3.1b1 Optional parameters: `x?: T` with D-055's value and flag (the body sees `T | undefined`), defaults applying to undefined arguments for parameters whose type includes undefined, passing `T | undefined` variables to optional parameters, adapters from `(a, b) => …` to function types with optional parameters, `??=` (D-063, SPEC §9.40). M3.1b split by D-063.
@@ -67,7 +68,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.1b3b: objects without an optional property. Today `objectCast` reports `unprovided` (PTS1001 "using a `{name: string}` as a `{name: string; verbose?: boolean | undefined}`…") when the source lacks an optional property of the target interface or holds it as `T` (a shape inferred from `{ verbose: true }`, a class without the field). Plan: interface fields read and written through sites that look at the descriptor's field kind (`pts_field_value_get`/`_set`-style runtime helpers caching offset and kind): a missing field reads as undefined and `in` is false; a `T` field is boxed on read and unboxed on write (TypeError for undefined, which it can't hold); writing a missing property throws `TypeError: Cannot add property p, object is not extensible`. `unprovided` then accepts such sources for optional properties. M3.1c's reads of properties shared by union members can reuse the same sites. Then M3.1c (members of unions of objects through D-035/D-036's sites, discriminants, `in` narrowing with a runtime field lookup, `==` with JS's conversions). Small gaps left (PTS1001): passing a computed `T | undefined` to an optional parameter; static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5).
+1. M3.1c: unions of objects. Today `propertyAccess` reports reading a property of a union (PTS1001 "reading `kind` of a Circle | Square (a union)", `errors/unions_not_yet.pts`). Ideas: when every object member of the union has the property with the same IR type, unbox the pointer and read it through an interface `{p: T}` site (D-035/D-036; method calls likewise through `InterfaceCall`); when the types differ, read through a converting site like D-066's `pts_optional_get` (by descriptor field kind, giving a pts_value of the union of the members' types). Discriminants mostly come free: tsc narrows `s.kind === "circle"` to `Circle`, and `narrowed`/`FromUnion` convert. `"p" in u` narrowing needs a runtime lookup (`pts_optional_has` already answers it for fields, getters and setters; methods need the descriptor's method table to list them). `==` with JS's conversions on unions of numbers, strings and booleans. Small gaps left (PTS1001): passing a computed `T | undefined` to an optional parameter; static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -82,7 +83,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (117 run tests, 1 skipped; 54 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (118 run tests, 1 skipped; 55 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -111,6 +112,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M3.1b3b done.
 - 2026-10-11: M3.1b3a done (M3.1b3 split by D-065).
 - 2026-10-11: M3.1b2 done.
 - 2026-10-11: M3.1b1 done (M3.1b split by D-063).

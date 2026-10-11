@@ -534,8 +534,13 @@ func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
 }
 
 // fieldRead writes a read of a field of object, a reference of type t (fieldRef), or of a
-// property through an interface that a getter may provide (D-036).
+// property through an interface that a getter may provide (D-036), or through an
+// interface, of an optional property, which may be absent (D-066).
 func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
+	if isOptionalThroughInterface(t, field) {
+		site := e.site()
+		return fmt.Sprintf("({ static pts_site %s; pts_optional_get(%s, &%s, %s); })", site, object, site, cString(field.Name))
+	}
 	if !field.Accessor {
 		return e.fieldRef(object, t, field)
 	}
@@ -544,18 +549,29 @@ func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
 }
 
 // hasField writes whether an object has an optional property: whether the field that
-// holds it isn't absent, or through an interface, whether a getter or setter provides it.
+// holds it isn't absent, or through an interface, whatever holds it (D-066).
 func (e *emitter) hasField(h *ir.HasField) string {
-	if !h.Field.Accessor {
-		return "(" + e.fieldRef(e.expr(h.X), h.X.Type(), h.Field) + " != PTS_VALUE_ABSENT)"
+	if isOptionalThroughInterface(h.X.Type(), h.Field) {
+		return fmt.Sprintf("pts_optional_has(%s, %s)", e.expr(h.X), cString(h.Field.Name))
 	}
-	site := e.site()
-	return fmt.Sprintf("({ static pts_site %s; PTS_HAS(%s, &%s, %s); })", site, e.expr(h.X), site, cString(h.Field.Name))
+	return "(" + e.fieldRef(e.expr(h.X), h.X.Type(), h.Field) + " != PTS_VALUE_ABSENT)"
+}
+
+// isOptionalThroughInterface reports whether field is an optional property read or
+// written through an interface (t), whose objects may hold it in several ways (D-066).
+func isOptionalThroughInterface(t ir.Type, field *ir.Field) bool {
+	_, ok := t.(*ir.Interface)
+	return ok && field.Optional
 }
 
 // fieldStore writes a store of value to a field of object, a reference of type t
-// (fieldRef), or to a property through an interface that a setter may provide (D-036).
+// (fieldRef), or to a property through an interface that a setter may provide (D-036),
+// or through an interface, to an optional property (D-066).
 func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value string) string {
+	if isOptionalThroughInterface(t, field) {
+		site, stored := e.site(), e.temporary()
+		return fmt.Sprintf("({ static pts_site %s; pts_value %s = %s; pts_optional_set(%s, &%s, %s, %s); %s; })", site, stored, value, object, site, cString(field.Name), stored, stored)
+	}
 	if !field.Accessor {
 		return e.fieldRef(object, t, field) + " = " + value
 	}
@@ -575,8 +591,11 @@ func (e *emitter) setField(s *ir.SetField) string {
 		old := e.temporary()
 		object := e.expr(s.X) // pure: the lowering binds anything else to a local first
 		t := s.X.Type()
-		return fmt.Sprintf("({ %s%s = %s; %s; %s; })", e.declarator(s.Field.Type), old, e.fieldRead(object, t, s.Field),
-			e.fieldStore(object, t, s.Field, e.expr(s.Value)), old)
+		read := e.fieldRead(object, t, s.Field)
+		if s.Field.Optional {
+			read = "pts_value_present(" + read + ")"
+		}
+		return fmt.Sprintf("({ %s%s = %s; %s; %s; })", e.declarator(s.Field.Type), old, read, e.fieldStore(object, t, s.Field, e.expr(s.Value)), old)
 	}
 	return "(" + e.storeField(s) + ")"
 }

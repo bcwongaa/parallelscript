@@ -200,13 +200,6 @@ static inline pts_property pts_property_find(const void *object, pts_site *site,
     pts_get.accessor != NULL ? ((T(*)(pts_object *))pts_get.accessor)(pts_get_object) : *(T *)pts_get.field; \
   })
 
-/* Whether object has its optional property name, found through site: a getter or setter, or a field that isn't absent. */
-#define PTS_HAS(object, site, name)                                                                   \
-  ({                                                                                                  \
-    pts_property pts_has = pts_property_find((pts_object *)(object), (site), (name), PTS_GETTER);     \
-    pts_has.accessor != NULL || *(pts_value *)pts_has.field != PTS_VALUE_ABSENT;                      \
-  })
-
 /* Writes value, of C type T, to the property name of object through site: to its field, or with its setter. */
 #define PTS_SET(T, object, site, name, value)                                                    \
   ({                                                                                             \
@@ -663,6 +656,46 @@ static inline bool pts_value_instance_of(pts_value value, const pts_type *type) 
 /* JS's ===: numbers by value (NaN unequal to itself, -0 equal to 0), strings by content, 64-bit integers by value, the rest by identity. */
 bool pts_value_strict_equals(pts_value a, pts_value b);
 
+/*
+ * Optional properties through interfaces (D-065, D-066). An object that an interface
+ * with an optional property refers to holds it in a field of the property's type (a
+ * pts_value, which may be absent), in a field of the one type besides undefined it may
+ * have (a double, say), behind a getter and setter of its type, or not at all. A site
+ * caches the first case by offset and getters and setters by index, as property sites do.
+ * A read gives the value as a pts_value, absent if the object doesn't have the property.
+ */
+pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const char *name);
+static inline pts_value pts_optional_get(const void *object, pts_site *site, const char *name) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    if (cache & PTS_SITE_ACCESSOR) {
+      return ((pts_value(*)(pts_object *))type->methods[PTS_SITE_INDEX(cache)].function)((pts_object *)object);
+    }
+    return *(const pts_value *)((const char *)object + (cache >> 48));
+  }
+  return pts_optional_get_slow((const pts_object *)object, site, name);
+}
+
+/* Writes value to an optional property: TypeError if the object can't hold it (no such property, or undefined for a field of another type). */
+void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name, pts_value value);
+static inline void pts_optional_set(void *object, pts_site *site, const char *name, pts_value value) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    if (cache & PTS_SITE_ACCESSOR) {
+      ((void (*)(pts_object *, pts_value))type->methods[PTS_SITE_INDEX(cache)].function)((pts_object *)object, value);
+    } else {
+      *(pts_value *)((char *)object + (cache >> 48)) = value;
+    }
+    return;
+  }
+  pts_optional_set_slow((pts_object *)object, site, name, value);
+}
+
+/* `"name" in object` for an optional property: a getter or setter, a field of another type, or a field that isn't absent. */
+bool pts_optional_has(const void *object, const char *name);
+
 /* ---------------------------------------------------------------- arrays */
 
 /*
@@ -803,6 +836,8 @@ static inline uint64_t pts_array_get_word(const pts_array *array, double index) 
 
 /* An element or field of the given kind, at slot, as a dynamic value (undefined for a hole). */
 pts_value pts_value_of_slot(pts_field_kind kind, const void *slot);
+/* Stores value, a value of the slot's kind's type (not undefined), in a slot of that kind. */
+void pts_store_value_in_slot(pts_field_kind kind, void *slot, pts_value value);
 
 /* ---------------------------------------------------------------- maps and sets */
 

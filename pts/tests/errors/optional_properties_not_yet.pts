@@ -1,0 +1,24 @@
+// An object type with an optional property can't be given values whose objects may hold
+// it as another type (D-066): a subclass's field, or a field of an object hidden behind
+// another interface.
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+const fromBase: Tagged = new Base();
+interface Ided {
+  id: number;
+}
+const shaped = { id: 2, tag: true };
+const viaIded: Ided = shaped;
+const fromIded: Tagged = viaIded;
+console.log(fromBase, fromIded, new Derived());
+
+// error: optional_properties_not_yet.pts:14:26 - error PTS1001: using a `Base` as a `{id: number; tag?: string | undefined}`, when it may refer to a `Derived` that holds `tag` as another type, is not supported yet
+// error: optional_properties_not_yet.pts:20:26 - error PTS1001: using a `{id: number}` as a `{id: number; tag?: string | undefined}`, when it may refer to a `{id: number; tag: boolean}` that holds `tag` as another type, is not supported yet

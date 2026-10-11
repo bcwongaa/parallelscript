@@ -188,6 +188,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	result.Classes = append(orderedByParent(append(l.classList, l.instanceClasses...)), l.shapeList...)
 	result.Interfaces = l.interfaceList
 	l.markAccessorProperties()
+	l.checkRelaxedCasts(result.Funcs)
 	markCells(result.Funcs)
 	return result, l.errors
 }
@@ -245,6 +246,7 @@ type lowerer struct {
 	interfacesByType    map[*checker.Type]*ir.Interface  // the interface of each object type met; nil if it has none
 	interfacesByKey     map[string]*ir.Interface         // the interfaces, by their members (membersKey)
 	interfaceList       []*ir.Interface                  // the interfaces, in the order they were made
+	relaxedCasts        []relaxedCast                    // conversions to interfaces whose objects may hold optional properties otherwise (D-066)
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
 	funcTypes           []*ir.FuncType                   // the function types met

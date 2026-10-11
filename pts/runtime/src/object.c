@@ -106,3 +106,83 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
   }
   pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
 }
+
+/* find_field returns the entry of type's field (not an accessor's) for the property name, or NULL. */
+static const pts_field *find_field(const pts_type *type, const char *name) {
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    if (!pts_field_is_accessor(type->fields[i].kind) && strcmp(type->fields[i].name, name) == 0) {
+      return &type->fields[i];
+    }
+  }
+  return NULL;
+}
+
+/* cache_offset caches at site that objects of type hold the property at offset, unless it doesn't fit beside the accessor flag. */
+static void cache_offset(pts_site *site, const pts_type *type, uint32_t offset) {
+  if (offset <= PTS_SITE_INDEX(UINT64_MAX)) {
+    cache_member(site, type, offset);
+  }
+}
+
+/* cache_accessor caches at site that objects of type have the getter or setter at index of their method table. */
+static void cache_accessor(pts_site *site, const pts_type *type, int64_t index) {
+  if (index < PTS_SITE_INDEX(UINT64_MAX)) {
+    cache_member(site, type, (uint64_t)index | PTS_SITE_ACCESSOR >> 48);
+  }
+}
+
+pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const char *name) {
+  const pts_type *type = object->type;
+  const pts_field *field = find_field(type, name);
+  if (field == NULL) {
+    int64_t getter = method_index(type, name, PTS_GETTER);
+    if (getter < 0) {
+      return PTS_VALUE_ABSENT; /* the compiler checked that no getter of another type provides it (D-066) */
+    }
+    cache_accessor(site, type, getter);
+    return ((pts_value(*)(pts_object *))type->methods[getter].function)((pts_object *)object);
+  }
+  const void *slot = (const char *)object + field->offset;
+  if (field->kind == PTS_FIELD_VALUE) {
+    cache_offset(site, type, field->offset);
+    return __atomic_load_n((const pts_value *)slot, __ATOMIC_RELAXED);
+  }
+  return pts_value_of_slot(field->kind, slot); /* a field of the property's type without undefined */
+}
+
+void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name, pts_value value) {
+  const pts_type *type = object->type;
+  const pts_field *field = find_field(type, name);
+  if (field == NULL) {
+    int64_t setter = method_index(type, name, PTS_SETTER);
+    if (setter >= 0) {
+      cache_accessor(site, type, setter);
+      ((void (*)(pts_object *, pts_value))type->methods[setter].function)(object, value);
+      return;
+    }
+    if (method_index(type, name, PTS_GETTER) >= 0) {
+      pts_panic("TypeError", "Cannot set property %s of #<%s> which has only a getter", name, type->name);
+    }
+    pts_panic("TypeError", "Cannot add property %s, object is not extensible", name);
+  }
+  void *slot = (char *)object + field->offset;
+  if (field->kind == PTS_FIELD_VALUE) {
+    cache_offset(site, type, field->offset);
+    __atomic_store_n((pts_value *)slot, value, __ATOMIC_RELAXED);
+    return;
+  }
+  if (value == PTS_VALUE_UNDEFINED) {
+    pts_panic("TypeError", "Cannot set property %s of %s to undefined: the object's type doesn't allow it", name, type->name);
+  }
+  pts_store_value_in_slot(field->kind, slot, value);
+}
+
+bool pts_optional_has(const void *object, const char *name) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  const pts_field *field = find_field(type, name);
+  if (field == NULL) {
+    return method_index(type, name, PTS_GETTER) >= 0 || method_index(type, name, PTS_SETTER) >= 0;
+  }
+  return field->kind != PTS_FIELD_VALUE ||
+         __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) != PTS_VALUE_ABSENT;
+}

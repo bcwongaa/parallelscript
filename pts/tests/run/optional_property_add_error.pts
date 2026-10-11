@@ -1,0 +1,18 @@
+// An object that lacks an optional property of the type it is used as can't gain it
+// (D-066): objects have fixed layouts (docs/SPEC.md §3.6), so the write throws TypeError,
+// as JS does for an object that isn't extensible.
+interface Options {
+  name: string;
+  level?: number;
+}
+const plain = { name: "p" };
+const options: Options = plain;
+console.log(options.level);
+options.level = 3;
+console.log("unreachable");
+
+// no-diff: JS adds the property
+// exit: 1
+// stderr: TypeError: Cannot add property level, object is not extensible
+// expect:
+// undefined

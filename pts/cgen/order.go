@@ -140,6 +140,9 @@ func effectsOf(expr ir.Expr) effects {
 		if x.Field.Accessor {
 			return callEffects([]ir.Expr{x.X, x.Value}) // a setter may run
 		}
+		if isOptionalThroughInterface(x.X.Type(), x.Field) {
+			return readsLocals | writes | mayThrow | effectsOf(x.X) | effectsOf(x.Value) // an object may not hold it (D-066)
+		}
 		return readsLocals | writes | effectsOf(x.X) | effectsOf(x.Value)
 	}
 	return 0 // constants

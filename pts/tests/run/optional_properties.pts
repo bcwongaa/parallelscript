@@ -1,7 +1,8 @@
 // Optional properties (D-065): `p?: T` in interfaces, type literals, mapped types
 // (`Partial`, `Pick`, `Omit`) and classes; literals that leave them out print as Node
 // prints them, without the key; reads see undefined; `in`; writes; destructuring with
-// defaults; spreads and rest properties copy only the properties an object has.
+// defaults; spreads and rest properties copy only the properties an object has; objects
+// that lack an optional property or hold it without undefined used as the type (D-066).
 interface Options {
   name: string;
   verbose?: boolean;
@@ -137,3 +138,38 @@ const account = new Account("ann");
 console.log(account, Account.limit, new Account("bob", 5), "note" in account);
 account.note = "vip";
 console.log(account);
+
+// Objects that lack an optional property, or hold it as its type without undefined.
+const plain = { name: "p" };
+const full = { name: "f", verbose: true };
+class Settings {
+  name = "s";
+  level = 3;
+}
+const fromPlain: Options = plain;
+const fromFull: Options = full;
+const fromClass: Options = new Settings();
+console.log(fromPlain.verbose, fromFull.verbose, fromClass.level, fromClass.verbose);
+console.log("verbose" in fromPlain, "verbose" in fromFull, "level" in fromClass, "verbose" in fromClass);
+function show(options: Options): void {
+  console.log(options.name, options.verbose ?? "-", options.level ?? "-", { ...options });
+}
+show(plain);
+show(full);
+show(new Settings());
+show({ name: "lit", level: 1 });
+fromFull.verbose = false;
+fromClass.level = 10;
+console.log(full, fromClass);
+interface HasName {
+  name: string;
+}
+function widen(n: HasName): Options {
+  return n;
+}
+const widened = widen({ name: "n" });
+console.log(widened.verbose, widened, widen(new Settings()).level);
+const mixed: Options[] = [plain, full, new Settings(), { name: "x", verbose: undefined }];
+for (const m of mixed) {
+  console.log(m.name, m.verbose === undefined, typeof m.level, "verbose" in m);
+}

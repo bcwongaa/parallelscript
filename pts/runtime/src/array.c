@@ -195,6 +195,69 @@ pts_value pts_value_of_slot(pts_field_kind kind, const void *slot) {
   pts_panic("Error", "an array of unknown element kind %d", (int)kind);
 }
 
+void pts_store_value_in_slot(pts_field_kind kind, void *slot, pts_value value) {
+  union {
+    double number;
+    float f32;
+    bool boolean;
+    pts_value value;
+    const void *pointer;
+    int8_t i8;
+    int16_t i16;
+    int32_t i32;
+    int64_t i64;
+    uint8_t u8;
+    uint16_t u16;
+    uint32_t u32;
+    uint64_t u64;
+  } element = {0};
+  switch (kind) {
+  case PTS_FIELD_NUMBER:
+    element.number = pts_value_as_number(value);
+    break;
+  case PTS_FIELD_F32:
+    element.f32 = (float)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_BOOL:
+    element.boolean = value == PTS_VALUE_TRUE;
+    break;
+  case PTS_FIELD_VALUE:
+    element.value = value;
+    break;
+  case PTS_FIELD_STRING:
+  case PTS_FIELD_OBJECT:
+    element.pointer = pts_value_as_object(value);
+    break;
+  case PTS_FIELD_I8:
+    element.i8 = (int8_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_I16:
+    element.i16 = (int16_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_I32:
+    element.i32 = (int32_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_I64:
+    element.i64 = pts_value_as_i64(value);
+    break;
+  case PTS_FIELD_U8:
+    element.u8 = (uint8_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_U16:
+    element.u16 = (uint16_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_U32:
+    element.u32 = (uint32_t)pts_value_as_number(value);
+    break;
+  case PTS_FIELD_U64:
+    element.u64 = pts_value_as_u64(value);
+    break;
+  default:
+    pts_panic("Error", "a slot of unknown kind %d", (int)kind);
+  }
+  element_store(slot, &element, pts_field_kind_size(kind));
+}
+
 pts_value pts_array_element(const pts_array *array, double index) {
   size_t size = pts_field_kind_size(array->type->element);
   const void *slot = pts_array_slot_or_null(array, index, size);

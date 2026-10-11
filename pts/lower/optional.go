@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -115,4 +116,157 @@ func (l *lowerer) propertyIn(expr *ast.BinaryExpression) ir.Expr {
 		return &ir.HasField{X: object, Field: field}
 	}
 	return &ir.Sequence{X: object, Y: &ir.BoolConst{Value: true}}
+}
+
+// relaxedCast is a conversion of values of type from to an interface that they don't
+// provide as it is, since their objects lack some of its optional properties or hold
+// them as the one type besides undefined (D-066).
+type relaxedCast struct {
+	from ir.Type
+	to   *ir.Interface
+	node *ast.Node
+}
+
+// holdsOptionally reports whether values of type t may be used as an interface whose
+// members they provide (providesProperty, providesMethod), except for optional properties
+// that they lack or hold in a field of the one type besides undefined they have; reads and
+// writes of those through the interface find what the object has (D-066).
+func holdsOptionally(t ir.Type, iface *ir.Interface) bool {
+	for _, property := range iface.Fields {
+		if !providesProperty(t, property) && !(property.Optional && holdsAsOptional(t, property)) {
+			return false
+		}
+	}
+	for _, method := range iface.Methods {
+		if !providesMethod(t, method) {
+			return false
+		}
+	}
+	return true
+}
+
+// holdsAsOptional reports whether values of type t have an optional property of an
+// interface in a field of the one type besides undefined the property has, or have no
+// member of its name at all.
+func holdsAsOptional(t ir.Type, property *ir.Field) bool {
+	plain := optionalMember(property.Type)
+	switch from := t.(type) {
+	case *ir.Class:
+		if field := from.Field(property.Name); field != nil {
+			return plain != nil && field.Type == plain && !field.Method
+		}
+		if from.Shape {
+			return from.AccessorField(property.Name, ir.Getter) == nil && from.AccessorField(property.Name, ir.Setter) == nil
+		}
+		return from.Method(property.Name, ir.Plain) == nil && from.Method(property.Name, ir.Getter) == nil && from.Method(property.Name, ir.Setter) == nil
+	case *ir.Interface:
+		if field := from.Field(property.Name); field != nil {
+			return plain != nil && field.Type == plain && !field.Optional
+		}
+		return from.Method(property.Name) == nil
+	}
+	return false
+}
+
+// optionalMember is the one type besides undefined of an optional property's type, t, if
+// it has one and that isn't a union: the type of a field the runtime can convert from and
+// to (D-066). Otherwise nil.
+func optionalMember(t ir.Type) ir.Type {
+	u, ok := t.(*ir.Union)
+	if !ok || len(u.Members) != 2 {
+		return nil
+	}
+	for _, member := range u.Members {
+		if member != ir.Undefined {
+			return member
+		}
+	}
+	return nil
+}
+
+// checkRelaxedCasts reports each relaxed conversion whose values may refer to an object
+// that holds one of the interface's optional properties some other way: an instance of
+// a subclass that declares it, or of a type converted to the interface converted from.
+// Every interface property read through a site then finds what the compiler allowed.
+func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
+	if len(l.relaxedCasts) == 0 {
+		return
+	}
+	sources := interfaceCasts(funcs)
+	for _, cast := range l.relaxedCasts {
+		for _, object := range l.concreteTypes(cast.from, sources, map[ir.Type]bool{}) {
+			if property := unheld(object, cast.to); property != nil {
+				l.notSupportedYet(cast.node, fmt.Sprintf("using a `%s` as a `%s`, when it may refer to a `%s` that holds `%s` as another type, is", cast.from, cast.to, objectTypeString(object), property.Name))
+				break
+			}
+		}
+	}
+}
+
+// unheld returns the property of an interface that objects of type t (a class or shape)
+// neither provide nor hold as an optional property may be held, or nil.
+func unheld(t ir.Type, iface *ir.Interface) *ir.Field {
+	for _, property := range iface.Fields {
+		if !providesProperty(t, property) && !(property.Optional && holdsAsOptional(t, property)) {
+			return property
+		}
+	}
+	return nil
+}
+
+// objectTypeString writes a class as its name and a shape as its fields.
+func objectTypeString(t ir.Type) string {
+	if shape, ok := t.(*ir.Class); ok && shape.Shape {
+		return strings.TrimPrefix(shape.ShapeString(), shape.Name)
+	}
+	return t.String()
+}
+
+// interfaceCasts lists, for each interface, the types of the values the program converts
+// to it.
+func interfaceCasts(funcs []*ir.Func) map[*ir.Interface][]ir.Type {
+	sources := map[*ir.Interface][]ir.Type{}
+	for _, fn := range funcs {
+		if fn.Body == nil {
+			continue
+		}
+		ir.Walk(fn.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			if cast, ok := x.(*ir.ClassCast); ok {
+				if iface, ok := cast.To.(*ir.Interface); ok && !slices.Contains(sources[iface], cast.X.Type()) {
+					sources[iface] = append(sources[iface], cast.X.Type())
+				}
+			}
+		})
+	}
+	return sources
+}
+
+// concreteTypes are the classes and shapes of the objects that values of type t may
+// refer to: a shape; a class and its subclasses; or for an interface, those of the types
+// converted to it (sources).
+func (l *lowerer) concreteTypes(t ir.Type, sources map[*ir.Interface][]ir.Type, seen map[ir.Type]bool) []ir.Type {
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	var types []ir.Type
+	switch from := t.(type) {
+	case *ir.Class:
+		if from.Shape {
+			return []ir.Type{from}
+		}
+		for _, class := range append(slices.Clone(l.classList), l.instanceClasses...) {
+			for ancestor := class; ancestor != nil; ancestor = ancestor.Parent {
+				if ancestor == from {
+					types = append(types, class)
+					break
+				}
+			}
+		}
+	case *ir.Interface:
+		for _, source := range sources[from] {
+			types = append(types, l.concreteTypes(source, sources, seen)...)
+		}
+	}
+	return types
 }
