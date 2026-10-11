@@ -33,6 +33,7 @@ attempt("data as a Dog", () => { kennel.resident = { name: "rex" }; });
 attempt("a Cat as Dog | null", () => { kennel.visitor = new Cat("tom"); });
 attempt("a number as string | null", () => { kennel.label = 5; });
 attempt("a function", () => { kennel.onOpen = () => {}; });
+attempt("a string as a function", () => { kennel.onOpen = "later"; });
 const labels: (string | null)[] = [];
 attempt("a number as an element", () => { (labels as any)[0] = 1; });
 const dogs: Dog[] = [];
@@ -73,7 +74,8 @@ console.log(view.pet.bark(), owner.pet.name);
 // data as a Dog -> TypeError: Cannot set property resident of Kennel: expected Dog, got Object
 // a Cat as Dog | null -> TypeError: Cannot set property visitor of Kennel: expected Dog | null, got Cat
 // a number as string | null -> TypeError: Cannot set property label of Kennel: expected null | string, got number
-// a function -> TypeError: Cannot set property onOpen of Kennel: expected () => void, got function
+// a function ok
+// a string as a function -> TypeError: Cannot set property onOpen of Kennel: expected () => void, got string
 // a number as an element -> TypeError: Cannot set property 0 of Array: expected null | string, got number
 // an Animal as an element -> TypeError: Cannot set property 0 of Array: expected Dog, got Animal
 // an Animal as a value -> TypeError: Cannot set property a of Object: expected Dog, got Animal
@@ -81,7 +83,7 @@ console.log(view.pet.bark(), owner.pet.name);
 //   resident: Dog { name: 'rex' },
 //   visitor: null,
 //   label: null,
-//   onOpen: [Function: onOpen]
+//   onOpen: [Function (anonymous)]
 // } [] [] {}
 // { city: 'Paris', zip: 75000 } false
 // data that isn't an Address -> TypeError: Cannot set property home of Person: expected {city: string; zip?: number | undefined}, got Object

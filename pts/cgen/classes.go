@@ -91,7 +91,7 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 		}
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
-				callable := wanted[ir.Plain][method.Name] || isToString(method) || e.dynamicCalls && !strings.HasPrefix(method.Name, "#")
+				callable := wanted[ir.Plain][method.Name] || isToString(method) || e.declaredTypes && !strings.HasPrefix(method.Name, "#")
 				if class.Method(method.Name, method.Kind) != method || method.Abstract || method.Kind == ir.Plain && !callable {
 					continue // overridden below, not implemented, or a method not called through interfaces, by join or through `any` (D-074); every getter and setter is, for `any` (D-070)
 				}
@@ -279,7 +279,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 					declared = e.declaredType(accessorType(method.Kind, method.Func.Params, method.Func.Result))
 				}
 				if method.Kind == ir.Plain {
-					declared = e.dynamicMethodMember(e.entryNames[method.Func])
+					declared = e.dynamicMethodMembers(e.entryNames[method.Func], paramTypes(method.Func.Params[1:]), method.Func.Result)
 				}
 				e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(method.Name), methodKinds[method.Kind], e.entryNames[method.Func], accessorKind(method.Kind, method.Func.Params, method.Func.Result), declared)
 			}
@@ -463,7 +463,7 @@ func (e *emitter) shapeMethodTable(shape *ir.Class) string {
 		if field.Kind != ir.Plain {
 			e.line(1, "{%s, %s, (pts_function)%s, %s%s},", cString(field.Property), methodKinds[field.Kind], entries[i], accessorKind(field.Kind, params, ft.Result), e.declaredType(shapeAccessorType(field)))
 		} else {
-			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0%s},", cString(field.Name), entries[i], e.dynamicMethodMember(entries[i]))
+			e.line(1, "{%s, PTS_METHOD, (pts_function)%s, 0%s},", cString(field.Name), entries[i], e.dynamicMethodMembers(entries[i], ft.Params[1:], ft.Result))
 		}
 	}
 	e.line(0, "};")

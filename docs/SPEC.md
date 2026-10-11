@@ -753,3 +753,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering:** `dynamicCall`, `lowerer.firstDynamicCall`, `prepareDynamicTypes` (parameter types; was `prepareWrittenTypes`) (`dynamic.go`).
 - **C:** `dynamic_calls.go`: `emitter.dynamicCalls`, `collectDynamicEntries`, `checkParams`, `dynamicEntryDeclarations`, `dynamicEntryDefinitions`, `dynamicEntries`, `dynamicArguments`, `returnDynamic`, `dynamicMethodMember`, `dynamicCallArguments`; `boxAs` (`cgen.go`); every method of every class in method tables when the program calls through `any` (`collectInterfaceMembers`); `shapeEntryName`.
 - **Tests:** `pts/tests/run/any_calls.pts` (against Node), `any_calls_error.pts`; `errors/any_not_yet.pts`.
+
+### 9.52 Function types and object types with methods from `any` (M3.3c2)
+
+- **Runtime** (D-075): `PTS_CHECK_FUNCTION`, `pts_check.adapt`, `pts_check_method` and `pts_check.methods`, `pts_type.signature`, `pts_method.signature`, `pts_adapter`, `pts_adapter_call`, `pts_dynamic_call_closure`, `pts_dynamic_call_spread`, `pts_dynamic_call_method_spread` (`pts.h`); `convert.c`: function checks in `convert`, methods in `descriptor_implies` and `properties_imply`, no copies into object types with methods; `dynamic.c`: bound methods (`bound_method`, `bound_method_type`, `bind_method`), `spread_length`, `spread_element`, `spread_arguments`.
+- **Lowering:** `prepareDynamicTarget` accepts function types and object types with methods (`dynamic.go`); spread arguments in `dynamicCall`.
+- **C:** `checks.go`: `canonicalFuncType`, `signatureCheck`, function-type checks with `.adapt`, methods in interfaces' checks; `dynamic_calls.go`: `adapterFunctionTypes`, `adapterDefinition`, `adapterMaker`, `dynamicMethodMembers` (dynamic entry and signature); closures' `.signature` (`closures.go`); `callBuiltin` and `spreadArgs` for spread arguments of dynamic calls (`cgen.go`); `emitter.dynamicCalls` folded into `declaredTypes`.
+- **Tests:** `pts/tests/run/any_functions.pts` (against Node), `any_functions_error.pts`; updated `any_writes_error.pts`, `any_calls_error.pts`, `errors/any_not_yet.pts`.

@@ -141,8 +141,24 @@ static bool type_extends(const pts_type *type, const pts_type *ancestor) {
   return false;
 }
 
-/* Whether every object of descriptor `type` has every property of the object type `super` as it is (by its declared types). */
+/* The method table entry of a method named name, or NULL. */
+static const pts_method *method_named(const pts_type *type, const char *name) {
+  for (uint32_t i = 0; i < type->method_count; i++) {
+    if (type->methods[i].kind == PTS_METHOD && strcmp(type->methods[i].name, name) == 0) {
+      return &type->methods[i];
+    }
+  }
+  return NULL;
+}
+
+/* Whether every object of descriptor `type` has every property and method of the object type `super` as it is (by its declared types). */
 static bool descriptor_implies(implying *s, const pts_type *type, const pts_check *super) {
+  for (uint32_t i = 0; i < super->method_count; i++) {
+    const pts_method *method = method_named(type, super->methods[i].name);
+    if (method == NULL || method->signature != super->methods[i].signature) {
+      return false; /* interfaces call a method through its exact function type (D-036) */
+    }
+  }
   for (uint32_t i = 0; i < super->count; i++) {
     const pts_check_property *property = &super->properties[i];
     const pts_field *field = field_named(type, property->name);
@@ -161,8 +177,17 @@ static bool descriptor_implies(implying *s, const pts_type *type, const pts_chec
   return true;
 }
 
-/* Whether every value of the object type `sub` has every property of the object type `super` as it is. */
+/* Whether every value of the object type `sub` has every property and method of the object type `super` as it is. */
 static bool properties_imply(implying *s, const pts_check *sub, const pts_check *super) {
+  for (uint32_t i = 0; i < super->method_count; i++) {
+    bool found = false;
+    for (uint32_t j = 0; j < sub->method_count && !found; j++) {
+      found = strcmp(sub->methods[j].name, super->methods[i].name) == 0 && sub->methods[j].signature == super->methods[i].signature;
+    }
+    if (!found) {
+      return false;
+    }
+  }
   for (uint32_t i = 0; i < super->count; i++) {
     const pts_check_property *property = &super->properties[i];
     const pts_check_property *own = NULL;
@@ -268,7 +293,7 @@ static void store(void *slot, pts_field_kind kind, pts_value value) { pts_store_
 
 /* A copy of an object or hash-map object as an object of the check's descriptor, each property converted. */
 static bool copy_object(converting *c, const pts_object *source, const pts_check *check, pts_value *out) {
-  if (check->type == NULL || (source->type->kind != PTS_KIND_OBJECT && source->type->kind != PTS_KIND_RECORD)) {
+  if (check->type == NULL || check->method_count > 0 || (source->type->kind != PTS_KIND_OBJECT && source->type->kind != PTS_KIND_RECORD)) {
     return false;
   }
   pts_object *copy = pts_object_new(check->type);
@@ -402,6 +427,20 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     return value == PTS_VALUE_UNDEFINED;
   case PTS_CHECK_INSTANCE:
     return pts_value_instance_of(value, check->type);
+  case PTS_CHECK_FUNCTION: {
+    if (!is_kind(value, PTS_KIND_FUNCTION)) {
+      return false;
+    }
+    pts_closure *closure = (pts_closure *)pts_value_as_object(value);
+    if (closure->type->signature == check) {
+      return true;
+    }
+    if (!copy || closure->type->call == NULL || check->adapt == NULL) {
+      return false;
+    }
+    *out = pts_value_from_object(check->adapt(closure)); /* a closure of another type, called through its dynamic entry */
+    return true;
+  }
   case PTS_CHECK_UNION:
     for (uint32_t i = 0; i < check->count; i++) {
       if (convert(c, value, check->members[i], false, out)) {

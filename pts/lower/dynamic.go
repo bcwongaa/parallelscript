@@ -104,9 +104,13 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	}
 	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
 	for _, argument := range call.Arguments.Nodes {
-		if argument.Kind == ast.KindSpreadElement {
-			l.notSupportedYet(argument, "spreading arguments of a call through `any` is")
-			return nil
+		if argument.Kind == ast.KindSpreadElement { // an array, whose elements the runtime spreads
+			value := l.valueExpression(argument.Expression())
+			if value == nil {
+				return nil
+			}
+			args = append(args, &ir.SpreadArg{X: value})
+			continue
 		}
 		value := l.valueExpression(argument)
 		if value == nil {
@@ -211,26 +215,23 @@ func (l *lowerer) prepareDynamicTarget(t ir.Type, node *ast.Node, seen map[ir.Ty
 		return l.prepareDynamicTarget(t.Value, node, seen)
 	case *ir.Class: // a shape or tuple; classes are checkable
 		for _, field := range t.Fields {
-			if field.Method {
-				return "an object type with methods"
-			}
 			if what := l.prepareDynamicTarget(field.Type, node, seen); what != "" {
 				return what
 			}
 		}
 		return ""
 	case *ir.Interface:
-		if len(t.Methods) > 0 {
-			return "an object type with methods"
-		}
 		for _, field := range t.Fields {
 			if what := l.prepareDynamicTarget(field.Type, node, seen); what != "" {
 				return what
 			}
 		}
+		if len(t.Methods) > 0 {
+			return "" // only objects with the methods convert to it; dynamic data has none (D-075)
+		}
 		return l.copyShape(t, node)
 	case *ir.FuncType:
-		return "a function type"
+		return "" // other closures are adapted (D-075)
 	}
 	return "a " + t.String()
 }

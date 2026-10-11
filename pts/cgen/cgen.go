@@ -19,7 +19,7 @@ func Emit(program *ir.Program) string {
 	e := &emitter{checks: map[ir.Type]string{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
-		arrayDescriptors: map[*ir.Array]string{}}
+		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
 	e.nameClasses(program)
 	e.externFunctions(program)
 	e.collectClosures(program)
@@ -85,13 +85,17 @@ type emitter struct {
 
 	checks     map[ir.Type]string // the pts_check of each type dynamic values are converted to, and of the types in it (D-071)
 	checkOrder []ir.Type
-	// declaredTypes is whether descriptors carry the declared types of fields, accessors,
-	// elements and hash-map values (D-072); arrayDescriptors name the program's descriptors
-	// of arrays whose element kind doesn't tell their element type.
+	// declaredTypes is whether the program uses dynamic values beyond primitives (converts
+	// them to types valueTest can't test, or writes or calls through `any`), so that
+	// descriptors carry the declared types of fields, accessors, elements and hash-map
+	// values (D-072), and functions and methods have dynamic entries (D-074) and signatures
+	// (D-075); arrayDescriptors name the program's descriptors of arrays whose element kind
+	// doesn't tell their element type, and funcTypes the one function type of each
+	// signature, by the identities of its parameter and result types.
 	declaredTypes    bool
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
-	dynamicCalls     bool // whether the program calls through `any`, so functions and methods have dynamic entries (D-074)
+	funcTypes        map[string]*ir.FuncType
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -1265,19 +1269,29 @@ var builtinFunctions = map[*ir.Builtin]string{
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 	args, prelude := e.operands(call.Args)
 	if spread := spreadArgs(call); spread != nil {
-		return ordered(prelude, fmt.Sprintf("pts_console_log_spread(%d, (pts_value[]){%s}, (bool[]){%s})", len(args), strings.Join(args, ", "), strings.Join(spread, ", ")))
+		fixed := len(args) - len(spread) // a dynamic call's callee, key and text
+		spreading := fmt.Sprintf("%d, (pts_value[]){%s}, (bool[]){%s}", len(spread), strings.Join(args[fixed:], ", "), strings.Join(spread, ", "))
+		switch call.Builtin {
+		case ir.DynamicCall:
+			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_spread(%s, %s, %s)", args[0], args[1], spreading))
+		case ir.DynamicCallMethod:
+			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_method_spread(%s, %s, %s, %s)", args[0], args[1], args[2], spreading))
+		}
+		return ordered(prelude, "pts_console_log_spread("+spreading+")")
 	}
 	return ordered(prelude, builtinCall(call.Builtin, args))
 }
 
-// spreadArgs says, for console.log with a spread argument (`...xs`), which arguments are
-// spread ("true") and which aren't; nil for any other call.
+// spreadArgs says, for console.log or a dynamic call with a spread argument (`...xs`),
+// which of its arguments are spread ("true") and which aren't; nil for any other call.
 func spreadArgs(call *ir.CallBuiltin) []string {
-	if call.Builtin != ir.ConsoleLog || !slices.ContainsFunc(call.Args, isSpreadArg) {
+	fixed := map[*ir.Builtin]int{ir.ConsoleLog: 0, ir.DynamicCall: 2, ir.DynamicCallMethod: 3}
+	n, ok := fixed[call.Builtin]
+	if !ok || !slices.ContainsFunc(call.Args, isSpreadArg) {
 		return nil
 	}
-	spread := make([]string, len(call.Args))
-	for i, arg := range call.Args {
+	spread := make([]string, len(call.Args)-n)
+	for i, arg := range call.Args[n:] {
 		spread[i] = strconv.FormatBool(isSpreadArg(arg))
 	}
 	return spread

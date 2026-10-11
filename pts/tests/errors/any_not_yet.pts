@@ -1,14 +1,12 @@
-// What `any` doesn't do yet (D-071, D-074): spreading the arguments of a call through it,
-// and converting it to function types and object types with methods (M3.3c2).
-interface Greeter {
-  greet(): string;
-}
-const data: any = { name: "x", greet: () => "hi" };
-console.log(data.greet(...[]));
-const greeter: Greeter = data;
-const callback: (n: number) => number = data;
-console.log(greeter, callback);
+// What `any` doesn't do yet (D-070, D-075): `Array.isArray` of a dynamic value (M3.3c3),
+// classes as values, and `new` of a dynamic value.
+class Point {}
+const data: any = [1, 2];
+console.log(Array.isArray(data));
+const maker: any = Point;
+const made = new maker();
+console.log(made);
 
-// error: any_not_yet.pts:7:24 - error PTS1001: spreading arguments of a call through `any` is not supported yet
-// error: any_not_yet.pts:8:26 - error PTS1001: converting any to {greet(): string} (an object type with methods) is not supported yet
-// error: any_not_yet.pts:9:41 - error PTS1001: converting any to (number) => number (a function type) is not supported yet
+// error: any_not_yet.pts:5:27 - error PTS1001: `Array.isArray` of a dynamic value is not supported yet
+// error: any_not_yet.pts:6:20 - error PTS1001: using `Point` is not supported yet
+// error: any_not_yet.pts:7:14 - error PTS1001: `new` of anything but a class of the program is not supported yet

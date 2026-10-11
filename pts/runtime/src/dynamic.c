@@ -4,6 +4,7 @@
  */
 #include "pts.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -179,6 +180,64 @@ static pts_value call_getter(pts_function getter, pts_field_kind kind, pts_objec
 #undef CALL
 }
 
+/* A method read through `any` (D-075): a closure that calls it on the object it was read from, through its dynamic entry. */
+typedef struct bound_method {
+  pts_closure closure;
+  pts_object *self;
+  const pts_method *method;
+} bound_method;
+
+static pts_value bound_method_call(pts_closure *closure, uint32_t argc, const pts_value *argv) {
+  const bound_method *bound = (const bound_method *)closure;
+  if (bound->method->dynamic == NULL) { /* a program that doesn't use `any` gives its methods no dynamic entries */
+    pts_throw_new(&pts_type_builtin_TypeError, "Calling the method %s through `any` is not supported here", bound->method->name);
+  }
+  return bound->method->dynamic(bound->self, argc, argv);
+}
+
+/* The descriptors of bound methods, named as their methods: one per method table entry, made when first needed and kept. */
+typedef struct bound_type {
+  pts_type type;
+  const pts_method *method;
+  struct bound_type *next;
+} bound_type;
+
+static pthread_mutex_t bound_types_lock = PTHREAD_MUTEX_INITIALIZER;
+static bound_type *bound_types;
+
+static const pts_type *bound_method_type(const pts_method *method) {
+  pthread_mutex_lock(&bound_types_lock);
+  bound_type *found = bound_types;
+  while (found != NULL && found->method != method) {
+    found = found->next;
+  }
+  if (found == NULL) {
+    found = malloc(sizeof *found); /* holds no collected pointers; the collector reads only its gc_descr */
+    if (found == NULL) {
+      pts_panic("RangeError", "Out of memory binding the method %s", method->name);
+    }
+    found->type = (pts_type){
+        .kind = PTS_KIND_FUNCTION,
+        .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(bound_method, self)),
+        .name = method->name,
+        .size = sizeof(bound_method),
+        .call = bound_method_call,
+    };
+    found->method = method;
+    found->next = bound_types;
+    bound_types = found;
+  }
+  pthread_mutex_unlock(&bound_types_lock);
+  return &found->type;
+}
+
+static pts_value bind_method(pts_object *object, const pts_method *method) {
+  bound_method *bound = pts_object_new(bound_method_type(method));
+  bound->self = object;
+  bound->method = method;
+  return pts_value_from_object(bound); /* no code: typed code gets it only through an adapter, its signature being NULL */
+}
+
 static pts_value object_get(pts_object *object, pts_value key) {
   const pts_type *type = object->type;
   char buffer[MAX_KEY];
@@ -191,8 +250,9 @@ static pts_value object_get(pts_object *object, pts_value key) {
   if (getter >= 0) {
     return call_getter(type->methods[getter].function, type->methods[getter].result, object);
   }
-  if (method_named(type, name, PTS_METHOD) >= 0) {
-    pts_throw_new(&pts_type_builtin_TypeError, "Reading the method %s of a %s through `any` is not supported yet", name, type->name);
+  int64_t method = method_named(type, name, PTS_METHOD);
+  if (method >= 0) {
+    return bind_method(object, &type->methods[method]);
   }
   return PTS_VALUE_UNDEFINED;
 }
@@ -461,15 +521,85 @@ static _Noreturn void not_a_function(const pts_string *text) {
   pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not a function", (int)text->byte_len, text->bytes);
 }
 
+pts_value pts_dynamic_call_closure(pts_closure *function, uint32_t argc, const pts_value *argv) {
+  if (function->type->call == NULL) { /* a program that doesn't use `any` gives its functions no dynamic entries */
+    pts_throw_new(&pts_type_builtin_TypeError, "Calling a function through `any` is not supported here");
+  }
+  return function->type->call(function, argc, argv);
+}
+
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv) {
   if (!pts_value_is_object(callee) || pts_value_as_object(callee)->type->kind != PTS_KIND_FUNCTION) {
     not_a_function(text);
   }
-  pts_closure *closure = (pts_closure *)pts_value_as_object(callee);
-  if (closure->type->call == NULL) { /* the program calls nothing through `any`, so this came from elsewhere */
-    pts_throw_new(&pts_type_builtin_TypeError, "Calling %.*s through `any` is not supported", (int)text->byte_len, text->bytes);
+  return pts_dynamic_call_closure((pts_closure *)pts_value_as_object(callee), argc, argv);
+}
+
+pts_value pts_adapter_call(pts_closure *self, uint32_t argc, const pts_value *argv) {
+  return pts_dynamic_call_closure(((pts_adapter *)self)->function, argc, argv);
+}
+
+/* How many elements an array or tuple spread into arguments has: TypeError for anything else. */
+static size_t spread_length(pts_value value) {
+  if (pts_value_is_object(value)) {
+    const pts_object *object = pts_value_as_object(value);
+    if (object->type->kind == PTS_KIND_ARRAY) {
+      return pts_array_length_of((const pts_array *)object);
+    }
+    if (object->type->kind == PTS_KIND_TUPLE) {
+      return object->type->field_count;
+    }
   }
-  return closure->type->call(closure, argc, argv);
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot spread %s into the arguments of a call through `any`", value_description(value));
+}
+
+/* Element i of an array or tuple spread into arguments. */
+static pts_value spread_element(pts_value value, size_t i) {
+  const pts_object *object = pts_value_as_object(value);
+  if (object->type->kind == PTS_KIND_ARRAY) {
+    return pts_array_element((const pts_array *)object, (double)i);
+  }
+  const pts_field *field = &object->type->fields[i]; /* a tuple's fields are its elements, in order */
+  return pts_value_of_slot(field->kind, (const char *)object + field->offset);
+}
+
+/* The arguments of a call with spread arguments, each spread one's elements in its place: a new array of count elements. */
+static pts_value *spread_arguments(uint32_t argc, const pts_value *argv, const bool *spread, uint32_t *count) {
+  size_t total = 0;
+  for (uint32_t i = 0; i < argc; i++) {
+    total += spread[i] ? spread_length(argv[i]) : 1;
+  }
+  if (total > UINT32_MAX) {
+    pts_throw_new(&pts_type_builtin_RangeError, "Maximum call stack size exceeded");
+  }
+  pts_value *values = GC_MALLOC(total * sizeof(pts_value) + 1);
+  if (values == NULL) {
+    pts_panic("RangeError", "Out of memory spreading %zu arguments", total);
+  }
+  size_t n = 0;
+  for (uint32_t i = 0; i < argc; i++) {
+    if (!spread[i]) {
+      values[n++] = argv[i];
+      continue;
+    }
+    for (size_t j = 0, length = spread_length(argv[i]); j < length && n < total; j++) { /* an array may have shrunk */
+      values[n++] = spread_element(argv[i], j);
+    }
+  }
+  *count = (uint32_t)n;
+  return values;
+}
+
+pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread) {
+  uint32_t count;
+  pts_value *values = spread_arguments(argc, argv, spread, &count);
+  return pts_dynamic_call(callee, text, count, values);
+}
+
+pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread) {
+  uint32_t count;
+  pts_value *values = spread_arguments(argc, argv, spread, &count);
+  return pts_dynamic_call_method(object, key, text, count, values);
 }
 
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv) {

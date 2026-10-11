@@ -103,7 +103,8 @@ typedef struct pts_method {
   pts_function function; /* takes the object as a pts_object * first (D-036) */
   pts_field_kind result; /* what a getter returns, or a setter takes, for reads and writes through `any` (D-070) */
   const struct pts_check *check; /* its declared type, as pts_field.check (D-072) */
-  pts_dynamic_method dynamic;    /* a method's dynamic entry, in a program that calls methods through `any` */
+  pts_dynamic_method dynamic;    /* a method's dynamic entry, in a program that uses `any` (D-074) */
+  const struct pts_check *signature; /* a method's function type, after `this` (D-075) */
 } pts_method;
 
 /*
@@ -125,7 +126,8 @@ typedef struct pts_type {
   pts_field_kind key;        /* for a map or set: what its keys are */
   /* For an array or hash-map object: its elements' declared type, as pts_field.check (D-072). */
   const struct pts_check *check;
-  pts_dynamic_function call; /* a closure's dynamic entry, in a program that calls through `any` (D-074) */
+  pts_dynamic_function call;         /* a closure's dynamic entry, in a program that uses `any` (D-074) */
+  const struct pts_check *signature; /* a closure's function type, which its code takes and returns (D-075) */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -750,6 +752,9 @@ bool pts_dynamic_has(pts_value object, pts_value key);
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method, or a property that holds a function. */
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
+/* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
+pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
+pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_value_add(pts_value left, pts_value right);
 double pts_value_to_number(pts_value value);
 bool pts_value_less(pts_value left, pts_value right);
@@ -774,7 +779,8 @@ typedef enum pts_check_kind {
   PTS_CHECK_MAP,      /* a Map of descriptor `type` */
   PTS_CHECK_SET,      /* a Set of descriptor `type` */
   PTS_CHECK_UNION,    /* one of `members` */
-  PTS_CHECK_OPAQUE,   /* a function type or an object type with methods, whose values the runtime can't check yet: only a place of this type holds one */
+  PTS_CHECK_FUNCTION, /* a closure of this function type (its descriptor's signature); another closure is wrapped by `adapt` */
+  PTS_CHECK_OPAQUE,   /* an object of an unknown type: only a place of this type holds one */
 } pts_check_kind;
 
 typedef struct pts_check_property {
@@ -783,6 +789,12 @@ typedef struct pts_check_property {
   bool optional;
   uint32_t offset; /* of its field in an object of the copy's descriptor */
 } pts_check_property;
+
+/* A method of an object type: its name and its function type after `this`, which a method table entry's signature must be. */
+typedef struct pts_check_method {
+  const char *name;
+  const struct pts_check *signature;
+} pts_check_method;
 
 typedef struct pts_check {
   pts_check_kind kind;
@@ -793,7 +805,23 @@ typedef struct pts_check {
   uint32_t count;
   const pts_check_property *properties;
   const struct pts_check *const *members;
+  uint32_t method_count;
+  const pts_check_method *methods;
+  struct pts_closure *(*adapt)(struct pts_closure *function); /* a function type's adapter of a closure of another type (D-075) */
 } pts_check;
+
+/*
+ * An adapter (D-075): a closure of a function type, written per type, whose code calls
+ * `function`, a closure of another type, through its dynamic entry with the arguments
+ * boxed, and converts the result. Its own dynamic entry is pts_adapter_call.
+ */
+typedef struct pts_adapter {
+  struct pts_closure closure;
+  struct pts_closure *function;
+} pts_adapter;
+pts_value pts_adapter_call(struct pts_closure *self, uint32_t argc, const pts_value *argv);
+/* function(argv…), a closure, through its dynamic entry: TypeError if it has none. */
+pts_value pts_dynamic_call_closure(struct pts_closure *function, uint32_t argc, const pts_value *argv);
 
 /* value as a value of the type check describes: itself if it is one, else a copy of it converted to one (dynamic data); TypeError if neither. */
 pts_value pts_value_convert(pts_value value, const pts_check *check);

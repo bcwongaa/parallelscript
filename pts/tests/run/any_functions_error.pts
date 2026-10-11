@@ -1,0 +1,57 @@
+// Where function types from `any` differ from JS (D-075): a function of another type is
+// adapted, so it isn't the same function, and its arguments and result are checked when
+// it is called; an object type's methods must be the object's methods with the same
+// types; a method read through `any` is bound to its object, as typed methods read as
+// values are (D-044), and each read makes a new function.
+interface Greeter {
+  greet(name: string): string;
+}
+class Robot {
+  constructor(public id: number) {}
+  greet(name: string): string {
+    return "beep " + name + " from " + this.id;
+  }
+  count(n: number): number {
+    return n + this.id;
+  }
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+const loose: any = (x: any) => x + "!";
+const adapted: (x: number) => string = loose;
+console.log(adapted(1), adapted === loose, adapted);
+const wrong: any = (s: string) => s.length;
+const asNumbers: (x: number) => number = wrong;
+attempt("an adapted function's argument", () => { asNumbers(5); });
+const asString: (x: string) => string = wrong;
+attempt("an adapted function's result", () => { asString("abc"); });
+attempt("a number as a function", () => { const f: () => void = 5 as any; f(); });
+
+const robot: any = new Robot(7);
+const greet = robot.greet;
+console.log(greet("Ada"), greet === robot.greet, robot.count(1));
+const greetAs: (name: string) => string = robot.greet;
+console.log(greetAs("Bob"));
+attempt("a method's argument", () => { greet(42); });
+attempt("methods of other types", () => { const g: Greeter = { greet: (n: number) => n } as any; console.log(g); });
+attempt("a property for a method", () => { const g: Greeter = { greet: (n: string) => n } as any; console.log(g); });
+attempt("data for an object type with methods", () => { const g: Greeter = { name: "x" } as any; console.log(g); });
+
+// no-diff: JS converts nothing, and a method read as a value loses `this`
+// expect:
+// 1! false [Function: loose]
+// an adapted function's argument -> TypeError: Expected string, got number
+// an adapted function's result -> TypeError: Expected string, got number
+// a number as a function -> TypeError: Expected () => void, got number
+// beep Ada from 7 false 8
+// beep Bob from 7
+// a method's argument -> TypeError: Expected string, got number
+// methods of other types -> TypeError: Expected {greet(string): string}, got Object
+// a property for a method -> TypeError: Expected {greet(string): string}, got Object
+// data for an object type with methods -> TypeError: Expected {greet(string): string}, got Object

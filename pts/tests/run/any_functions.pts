@@ -1,0 +1,57 @@
+// Function types and object types with methods from `any` (D-075): a function of the
+// target type is the same function, and one of another type is adapted to it; an object
+// with the methods is the same object.
+interface Shape {
+  name: string;
+  area(): number;
+  scale(by: number): Shape;
+}
+class Square implements Shape {
+  name = "square";
+  constructor(public side: number) {}
+  area(): number {
+    return this.side * this.side;
+  }
+  scale(by: number): Shape {
+    return new Square(this.side * by);
+  }
+}
+function applyTwice(f: (x: number) => number, x: number): number {
+  return f(f(x));
+}
+function describe(shape: Shape): string {
+  return shape.name + " of area " + shape.area();
+}
+
+const increment: any = (x: number) => x + 1;
+const typed: (x: number) => number = increment;
+console.log(typed(1), typed === increment, applyTwice(increment, 5));
+const triple: any = (x: any) => x * 3;
+console.log(applyTwice(triple, 2), [1, 2, 3].map(triple as (n: number) => number));
+const callbacks: Record<string, any> = { half: (x: number) => x / 2, negate: (x: any) => -x };
+for (const name of Object.keys(callbacks)) {
+  const f: (x: number) => number = callbacks[name];
+  console.log(name, f(8));
+}
+
+// Objects with methods.
+const square: any = new Square(3);
+const shape: Shape = square;
+console.log(shape === square, describe(square), describe(shape.scale(2)), square.area);
+const literal: any = {
+  name: "unit",
+  area(): number {
+    return 1;
+  },
+  scale(by: number): Shape {
+    return new Square(by);
+  },
+};
+console.log(describe(literal), describe(literal.scale(4)));
+
+// Spread arguments.
+const sum: any = (...xs: number[]) => xs.reduce((a, b) => a + b, 0);
+const more = [4, 5];
+console.log(sum(...[1, 2, 3]), sum(0, ...more), sum(...more, ...more));
+const max: any = (a: number, b: number) => (a > b ? a : b);
+console.log(max(...more));

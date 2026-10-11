@@ -7,30 +7,37 @@ import (
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
-// Calls through `any` (D-074). In a program that makes them, every function made a value
-// of has a dynamic entry, pts_dynamic_<f>, which its closures' descriptor holds (.call),
-// and every method in a method table has one (.dynamic). A dynamic entry converts each
-// argument to its parameter's type with a check (a missing one is undefined), calls the
-// function and returns its result as a dynamic value.
+// Calls through `any` (D-074) and function types from `any` (D-075). In a program that
+// uses dynamic values beyond primitives, every function made a value of has a dynamic
+// entry, pts_dynamic_<f>, which its closures' descriptor holds (.call) with its signature
+// (the check of its function type), and every method in a method table has one (.dynamic)
+// and a signature. A dynamic entry converts each argument to its parameter's type with a
+// check (a missing one is undefined), calls the function and returns its result as a
+// dynamic value. Each function type that dynamic values are converted to has an adapter:
+// a closure of the type that calls a closure of another type through its dynamic entry.
 
-// collectDynamicEntries names the checks that the dynamic entries' conversions need.
+// collectDynamicEntries names the checks that the dynamic entries' conversions need, and
+// the functions' and methods' signatures.
 func (e *emitter) collectDynamicEntries(program *ir.Program) {
-	if !e.dynamicCalls {
+	if !e.declaredTypes {
 		return
 	}
 	for _, f := range e.closureOrder {
 		e.checkParams(paramTypes(f.Params))
+		e.check(e.canonicalFuncType(paramTypes(f.Params), f.Result))
 	}
 	for _, class := range program.Classes {
 		for _, method := range e.interfaceMembers[class] {
 			if method.Kind == ir.Plain {
 				e.checkParams(paramTypes(method.Func.Params[1:]))
+				e.check(e.canonicalFuncType(paramTypes(method.Func.Params[1:]), method.Func.Result))
 			}
 		}
 		if class.Shape {
 			for _, field := range methodFields(class) {
-				if field.Kind == ir.Plain {
-					e.checkParams(field.Type.(*ir.FuncType).Params[1:])
+				if ft := field.Type.(*ir.FuncType); field.Kind == ir.Plain {
+					e.checkParams(ft.Params[1:])
+					e.check(e.canonicalFuncType(ft.Params[1:], ft.Result))
 				}
 			}
 		}
@@ -66,7 +73,10 @@ func (e *emitter) dynamicEntryDeclarations(program *ir.Program) {
 	e.dynamicEntries(program, func(name string, self string, _ func()) {
 		e.line(0, "static pts_value %s(%s, uint32_t argc, const pts_value *argv);", name, self)
 	})
-	if e.dynamicCalls {
+	for _, ft := range e.adapterFunctionTypes() {
+		e.line(0, "static pts_closure *%s(pts_closure *function);", adapterMaker(e.checks[ft]))
+	}
+	if e.declaredTypes {
 		e.line(0, "")
 	}
 }
@@ -79,7 +89,10 @@ func (e *emitter) dynamicEntryDefinitions(program *ir.Program) {
 		body()
 		e.line(0, "}")
 	})
-	if e.dynamicCalls {
+	for _, ft := range e.adapterFunctionTypes() {
+		e.adapterDefinition(ft)
+	}
+	if e.declaredTypes {
 		e.line(0, "")
 	}
 }
@@ -89,9 +102,10 @@ func (e *emitter) dynamicEntryDefinitions(program *ir.Program) {
 // of each class's method in a method table, which calls its entry point; and of each
 // shape's method, which calls the closure the object's field holds.
 func (e *emitter) dynamicEntries(program *ir.Program, write func(name string, self string, body func())) {
-	if !e.dynamicCalls {
+	if !e.declaredTypes {
 		return
 	}
+
 	for _, f := range e.closureOrder {
 		write("pts_dynamic_"+e.closureNames[f], "pts_closure *self", func() {
 			params := paramTypes(f.Params)
@@ -129,18 +143,103 @@ func (e *emitter) dynamicEntries(program *ir.Program, write func(name string, se
 	}
 }
 
+// adapterFunctionTypes are the function types that have checks, and so adapters.
+func (e *emitter) adapterFunctionTypes() []*ir.FuncType {
+	var types []*ir.FuncType
+	for _, t := range e.checkOrder {
+		if ft, ok := t.(*ir.FuncType); ok {
+			types = append(types, ft)
+		}
+	}
+	return types
+}
+
+// adapterDefinition writes a function type's adapters (D-075): their code, which boxes
+// its arguments (one not given, D-055, is undefined; a rest array's elements are spread),
+// calls the adapted closure through its dynamic entry and converts the result to the
+// type's; their descriptor; and the maker the type's check points to.
+func (e *emitter) adapterDefinition(ft *ir.FuncType) {
+	suffix := strings.TrimPrefix(e.checks[ft], "pts_check_")
+	used := map[string]bool{"self": true, "argv": true, "argc": true, "result": true}
+	params := []string{"pts_closure *self"}
+	var boxed []string
+	var rest string
+	for i, t := range ft.Params {
+		name := unique(used, fmt.Sprintf("arg%d", i+1))
+		params = append(params, e.declarator(t)+name)
+		switch {
+		case t == ir.Given:
+			boxed[len(boxed)-1] = name + " ? " + boxed[len(boxed)-1] + " : PTS_VALUE_UNDEFINED"
+		case isRest(t):
+			rest = name
+		default:
+			boxed = append(boxed, boxAs(name, t))
+		}
+	}
+	e.line(0, "static %spts_adapter_%s(%s) {", e.declarator(ft.Result), suffix, strings.Join(params, ", "))
+	call := fmt.Sprintf("pts_dynamic_call_closure(((pts_adapter *)self)->function, %d, %s)", len(boxed), "argv")
+	switch {
+	case rest != "":
+		e.line(1, "size_t argc = %d + pts_array_length_of(%s);", len(boxed), rest)
+		e.line(1, "pts_value argv[argc + 1];")
+		for i, value := range boxed {
+			e.line(1, "argv[%d] = %s;", i, value)
+		}
+		e.line(1, "for (size_t i = %d; i < argc; i++) {", len(boxed))
+		e.line(2, "argv[i] = pts_array_element(%s, (double)(i - %d));", rest, len(boxed))
+		e.line(1, "}")
+		call = "pts_dynamic_call_closure(((pts_adapter *)self)->function, (uint32_t)argc, argv)"
+	case len(boxed) > 0:
+		e.line(1, "pts_value argv[] = {%s};", strings.Join(boxed, ", "))
+	default:
+		call = "pts_dynamic_call_closure(((pts_adapter *)self)->function, 0, NULL)"
+	}
+	if ft.Result == ir.Void {
+		e.line(1, "%s;", call)
+	} else {
+		e.line(1, "pts_value result = %s;", call)
+		e.line(1, "return %s;", e.fromValue("result", ft.Result))
+	}
+	e.line(0, "}")
+	e.line(0, "static const pts_type pts_type_adapter_%s = {", suffix)
+	e.line(1, ".kind = PTS_KIND_FUNCTION,")
+	e.line(1, ".gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_adapter, function)),")
+	e.line(1, ".name = NULL, /* an adapter: console.log shows the function it adapts */")
+	e.line(1, ".size = sizeof(pts_adapter),")
+	e.line(1, ".call = pts_adapter_call,")
+	e.line(1, ".signature = &%s,", e.checks[ft])
+	e.line(0, "};")
+	e.line(0, "static pts_closure *%s(pts_closure *function) {", adapterMaker(e.checks[ft]))
+	e.line(1, "pts_adapter *adapter = pts_object_new(&pts_type_adapter_%s);", suffix)
+	e.line(1, "adapter->closure.code = (pts_function)pts_adapter_%s;", suffix)
+	e.line(1, "adapter->function = function;")
+	e.line(1, "return &adapter->closure;")
+	e.line(0, "}")
+}
+
+func isRest(t ir.Type) bool {
+	_, ok := t.(*ir.Rest)
+	return ok
+}
+
+// adapterMaker is the name of the function that makes adapters for the function type whose check is check.
+func adapterMaker(check string) string {
+	return "pts_adapt_" + strings.TrimPrefix(check, "pts_check_")
+}
+
 // dynamicEntryName is the name of the dynamic entry of the method whose entry point is entry.
 func dynamicEntryName(entry string) string {
 	return "pts_dynamic_" + strings.TrimPrefix(entry, "pts_")
 }
 
-// dynamicMethodMember is the initializer member of a method table entry that gives its
-// dynamic entry, or "" if the program calls no methods through `any`.
-func (e *emitter) dynamicMethodMember(entry string) string {
-	if !e.dynamicCalls {
+// dynamicMethodMembers are the initializer members of a method table entry that give its
+// dynamic entry and its signature (its function type after `this`), or "" if the program
+// doesn't use dynamic values beyond primitives.
+func (e *emitter) dynamicMethodMembers(entry string, params []ir.Type, result ir.Type) string {
+	if !e.declaredTypes {
 		return ""
 	}
-	return ", .dynamic = " + dynamicEntryName(entry)
+	return ", .dynamic = " + dynamicEntryName(entry) + ", .signature = " + e.signatureCheck(params, result)
 }
 
 // dynamicArguments writes the conversion of the dynamic arguments (argv, argc of them) to

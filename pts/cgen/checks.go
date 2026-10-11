@@ -31,7 +31,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				case ir.DynamicSet:
 					e.declaredTypes = true
 				case ir.DynamicCall, ir.DynamicCallMethod:
-					e.declaredTypes, e.dynamicCalls = true, true
+					e.declaredTypes = true
 				}
 			}
 		})
@@ -166,6 +166,12 @@ func (e *emitter) check(t ir.Type) string {
 	if name, ok := e.checks[t]; ok {
 		return name
 	}
+	if ft, ok := t.(*ir.FuncType); ok { // one check per signature, which closures' descriptors point to
+		if canonical := e.canonicalFuncType(ft.Params, ft.Result); canonical != ft {
+			e.checks[t] = e.check(canonical)
+			return e.checks[t]
+		}
+	}
 	name := fmt.Sprintf("pts_check_%d", len(e.checkOrder)+1)
 	e.checks[t] = name
 	e.checkOrder = append(e.checkOrder, t)
@@ -187,11 +193,15 @@ func (e *emitter) check(t ir.Type) string {
 			e.mapOrder = append(e.mapOrder, t)
 		}
 	case *ir.Interface:
-		if len(t.Methods) > 0 {
-			break // opaque
-		}
 		for _, field := range t.Fields {
 			e.check(field.Type)
+		}
+		for _, method := range t.Methods {
+			e.check(e.canonicalFuncType(method.Params, method.Result))
+		}
+	case *ir.FuncType: // its adapter converts the result
+		if t.Result != ir.Void && !hasValueTest(t.Result) {
+			e.check(t.Result)
 		}
 	case *ir.Class:
 		for _, field := range t.Fields {
@@ -263,14 +273,19 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 			members = append(members, ".element = &"+e.checks[t.Value])
 		}
 	case *ir.FuncType:
-		members[0] = ".kind = PTS_CHECK_OPAQUE"
+		members[0] = ".kind = PTS_CHECK_FUNCTION"
+		members = append(members, ".adapt = "+adapterMaker(name))
 	case *ir.Interface:
-		if len(t.Methods) > 0 {
-			members[0] = ".kind = PTS_CHECK_OPAQUE"
-			break
-		}
 		members[0] = ".kind = PTS_CHECK_OBJECT"
 		members = append(members, e.checkProperties(name, t.Fields, t.Copy, t.Copy != nil)...)
+		if len(t.Methods) > 0 {
+			e.line(0, "static const pts_check_method %s_methods[] = {", name)
+			for _, method := range t.Methods {
+				e.line(1, "{%s, &%s},", cString(method.Name), e.checks[e.canonicalFuncType(method.Params, method.Result)])
+			}
+			e.line(0, "};")
+			members = append(members, fmt.Sprintf(".method_count = %d", len(t.Methods)), ".methods = "+name+"_methods")
+		}
 		if t.Copy != nil {
 			members = append(members, ".type = &pts_type_"+shapeDescriptorName(e.classNames[t.Copy], t.CopyOrder))
 		}
@@ -291,6 +306,29 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 	}
 	e.line(0, "static const pts_check %s = {%s};", name, strings.Join(members, ", "))
 	return name
+}
+
+// canonicalFuncType is the program's one function type with these parameter and result
+// types, by their identities: closures' and methods' signatures are compared by identity
+// at run time (D-075), and the lowering's function types don't cover methods'.
+func (e *emitter) canonicalFuncType(params []ir.Type, result ir.Type) *ir.FuncType {
+	var key strings.Builder
+	fmt.Fprintf(&key, "%p", result)
+	for _, param := range params {
+		fmt.Fprintf(&key, ",%p", param)
+	}
+	if ft, ok := e.funcTypes[key.String()]; ok {
+		return ft
+	}
+	ft := &ir.FuncType{Params: params, Result: result}
+	e.funcTypes[key.String()] = ft
+	return ft
+}
+
+// signatureCheck is the C expression of the check of the function type with these
+// parameter and result types, which a closure's descriptor or a method table entry points to.
+func (e *emitter) signatureCheck(params []ir.Type, result ir.Type) string {
+	return "&" + e.checks[e.canonicalFuncType(params, result)]
 }
 
 // checkProperties writes the properties of an object type's check, with their offsets in

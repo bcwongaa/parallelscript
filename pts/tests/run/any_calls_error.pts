@@ -1,6 +1,7 @@
 // What calls through `any` check (D-074), where JS carries on: each argument must be of
-// its parameter's type (a missing one is undefined), and dynamic data passed for an object
-// type is copied into it. Function-typed parameters and builtin methods come later (M3.3c).
+// its parameter's type (a missing one is undefined), dynamic data passed for an object
+// type is copied into it, and a function of another type is adapted (D-075). Builtin
+// methods come later (M3.3c3).
 interface Size {
   w: number;
   h: number;
@@ -38,7 +39,8 @@ attempt("a number for a string", () => { anyGreet(5); });
 attempt("a missing argument", () => { anyGreet(); });
 attempt("a fraction for an int", () => { account.deposit(1.5); });
 attempt("data that isn't a Size", () => { anyArea({ w: 1 }); });
-attempt("a function argument", () => { const anyApply: any = apply; anyApply((x: number) => x + 1, 1); });
+attempt("a function argument", () => { const anyApply: any = apply; console.log(anyApply((x: number) => x + 1, 1)); });
+attempt("a number for a function", () => { const anyApply: any = apply; anyApply(1, 1); });
 attempt("a method of a string", () => { const s: any = "abc"; s.toUpperCase(); });
 console.log(account.deposit(7), account.balance);
 
@@ -49,6 +51,8 @@ console.log(account.deposit(7), account.balance);
 // a missing argument -> TypeError: Expected string, got undefined
 // a fraction for an int -> TypeError: Expected i64, got number
 // data that isn't a Size -> TypeError: Expected {h: number; w: number}, got Object
-// a function argument -> TypeError: Expected (number) => number, got function
+// 2
+// a function argument ok
+// a number for a function -> TypeError: Expected (number) => number, got number
 // a method of a string -> TypeError: Calling the method toUpperCase of a string through `any` is not supported yet
 // 7 7
