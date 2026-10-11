@@ -142,8 +142,8 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`.
 - [x] **M2.6d2b Default parameter values** (6b87b600b) (split from M2.6d2 by D-054).
   - `function f(x = 1)` for functions, methods and constructors, with left-out and `undefined` arguments.
-- [ ] **M2.6d3 Map entries as pairs** (split from M2.6d by D-053).
-  - `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples.
+- [x] **M2.6d3 Map entries as pairs** (df44ee46a) (split from M2.6d by D-053).
+  - `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples. Iterators as values move to M4.1 (D-056).
 - [ ] **M2.6e Spread, rest and hash-map objects** (split from M2.6 by D-047).
   - Spread and rest in calls, array literals and object literals; rest parameters.
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
@@ -179,6 +179,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 
 ## M4: Async on one loop
 - [ ] **M4.1 Generators.** An IR state-machine transform with heap frames; `function*`, `yield`, `yield*`; iterators, `for…of` over iterables and `Symbol.iterator`.
+  - Map and Set iterators as values (`const it = m.keys()`, `it.next()`, `new Set(m.keys())`) (moved from M2.6d3 by D-056).
 - [ ] **M4.2 Async and promises.**
   - The async/await state machine.
   - `Promise` with `then`, `catch`, `finally`, `all`, `allSettled`, `race`, `any`, `withResolvers` and `resolve`/`reject`.
