@@ -220,7 +220,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.7a Corpus** (9022029f3) (split from M3.7 by D-089).
   - Grow the differential corpus to at least 300 realistic programs. Use subagents to write them in batches by theme: algorithms, text processing, OOP, data transforms, closures and errors.
   - Fix the most common divergences; record every other one (a `// skip:` with its cause in the program, the causes in `PROGRESS.md`).
-- [ ] **M3.7b Corpus divergences** (split from M3.7 by D-089).
+- [x] **M3.7b Corpus divergences** (07fbe8581) (split from M3.7 by D-089).
   - Fix the recorded causes that two or more corpus programs share (most programs first), unskipping each program that then matches Node; causes left to later milestones by plan (iterators as values: M4.1; typed arrays: M5.4, D-103) stay recorded.
 - [ ] **M3.8 Milestone M3.**
 
