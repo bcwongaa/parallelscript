@@ -1,0 +1,55 @@
+// The String methods of M3.5a (D-082), checked against Node.
+const s = "hello world, hello there";
+console.log(s.lastIndexOf("hello"), s.lastIndexOf("hello", 12), s.lastIndexOf("o", -3), s.lastIndexOf("zz"), s.lastIndexOf(""));
+console.log(s.at(0), s.at(-1), s.at(100), s.at(-100), s.at(1.7));
+console.log(s.charAt(4), JSON.stringify(s.charAt(99)));
+console.log(s.codePointAt(0), "😀x".codePointAt(0), "😀x".codePointAt(1), "😀x".codePointAt(5));
+console.log(s.substr(6, 5), s.substr(-5), s.substr(-5, 2), JSON.stringify(s.substr(3, -1)));
+console.log(s.concat("!", "?"), "a".concat(), "x".concat(...["y", "z"]), "n".concat(String(1), String(true)));
+
+// replace and replaceAll with string patterns
+console.log(s.replace("hello", "bye"), "|", s.replaceAll("hello", "bye"));
+console.log("a.b.c".replaceAll(".", "/"), "aaa".replaceAll("a", "aa"), "abc".replaceAll("", "-"));
+console.log("price: 5".replace("5", "$$5"), "x-y".replace("-", "[$&$`$']"), "q".replace("q", "$1$<a>$"));
+console.log("nothing".replace("zz", "y"), "nothing".replaceAll("zz", "y"));
+
+// replace with callbacks
+console.log("a-b-c".replace("-", (m) => `(${m})`));
+console.log("a-b-c".replaceAll("-", (m, offset) => `[${offset}]`));
+console.log("one two".replaceAll("o", (m: string, offset: number, whole: string) => `${m.toUpperCase()}${offset}${whole.length}`));
+let calls = 0;
+const counted = "xxx".replaceAll("x", () => {
+  calls++;
+  return String(calls);
+});
+console.log(counted, calls);
+console.log("ab".replaceAll("", () => "."));
+const upper = (m: string): string => m.toUpperCase();
+console.log("tic tac".replace("t", upper), "tic tac".replaceAll("t", upper));
+
+// localeCompare
+const words = ["banana", "Apple", "apple", "cherry", "Banana", "éclair", "eclair", "Zebra", "zebra", "a b", "ab", "co-op", "coop", "10", "9", "résumé", "resume"];
+console.log([...words].sort((a, b) => a.localeCompare(b)).join(" "));
+console.log("a".localeCompare("b"), "b".localeCompare("a"), "a".localeCompare("a"), "a".localeCompare("A"), "a".localeCompare("B", "en-US"));
+console.log("ä".localeCompare("z", undefined), "Straße".localeCompare("Strasse"));
+
+// String.fromCharCode and String.fromCodePoint
+console.log(String.fromCharCode(72, 105), String.fromCharCode(), String.fromCharCode(0x1F600 + 65536 * 2).length);
+const codes = [80, 84, 83];
+console.log(String.fromCharCode(...codes), String.fromCharCode(0xd83d, 0xde00), String.fromCodePoint(0x1f600, 97));
+console.log(String.fromCodePoint(...codes), String.fromCodePoint());
+try {
+  String.fromCodePoint(0x110000);
+} catch (e) {
+  console.log(e instanceof RangeError, (e as Error).message);
+}
+try {
+  String.fromCodePoint(1.5);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+// well-formed strings
+const lone = "a\uD800b";
+console.log(lone.isWellFormed(), "ok😀".isWellFormed(), lone.toWellFormed() === "a�b", lone.toWellFormed().length);
+console.log("Hello".toLocaleUpperCase(), "Hello".toLocaleLowerCase());

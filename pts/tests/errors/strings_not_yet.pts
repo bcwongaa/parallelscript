@@ -1,0 +1,8 @@
+// String methods with arguments the runtime doesn't take yet (D-082).
+console.log("a".localeCompare("b", "sv"));
+console.log("a".localeCompare("b", undefined, { sensitivity: "base" }));
+console.log("i".toLocaleUpperCase("tr"));
+
+// error: strings_not_yet.pts:2:36 - error PTS1001: `localeCompare` with a locale other than English is not supported yet
+// error: strings_not_yet.pts:3:47 - error PTS1001: `localeCompare` with options is not supported yet
+// error: strings_not_yet.pts:4:35 - error PTS1001: this argument of `toLocaleUpperCase` is not supported yet

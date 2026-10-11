@@ -326,8 +326,8 @@ func TestStringElementKeepsUndefinedWhereAnyValueFits(t *testing.T) {
 
 func TestOnlyDirectCallsOfImplementedMethodsLower(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(\"abc\".at(0));\n")
-	assert.Equal(t, err.Message, "calling `\"abc\".at` is not supported yet")
+	err := lowerInvalid(t, "console.log(\"abc\".normalize());\n")
+	assert.Equal(t, err.Message, "calling `\"abc\".normalize` is not supported yet")
 }
 
 func TestJumpsNameTheLoopTheyLeave(t *testing.T) {

@@ -15,6 +15,7 @@ const (
 // throwingBuiltins are the builtins that can throw (beyond running out of memory).
 var throwingBuiltins = map[*ir.Builtin]bool{
 	ir.StringElementChecked: true, ir.StringRepeat: true, ir.StringPadStart: true, ir.StringPadEnd: true, ir.ThrowError: true,
+	ir.StringFromCodePoint: true,
 }
 
 func effectsOf(expr ir.Expr) effects {

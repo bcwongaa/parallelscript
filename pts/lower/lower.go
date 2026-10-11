@@ -67,26 +67,35 @@ var libConstants = map[string]float64{
 // builtins maps members of the prelude and of the ES library, by "Interface.member",
 // to the runtime functions that implement them.
 var builtins = map[string]*ir.Builtin{
-	"Console.log":        ir.ConsoleLog,
-	"String.length":      ir.StringLength,
-	"String.charCodeAt":  ir.StringCharCodeAt,
-	"String.slice":       ir.StringSlice,
-	"String.substring":   ir.StringSubstring,
-	"String.indexOf":     ir.StringIndexOf,
-	"String.includes":    ir.StringIncludes,
-	"String.startsWith":  ir.StringStartsWith,
-	"String.endsWith":    ir.StringEndsWith,
-	"String.toUpperCase": ir.StringToUpperCase,
-	"String.toLowerCase": ir.StringToLowerCase,
-	"String.trim":        ir.StringTrim,
-	"String.trimStart":   ir.StringTrimStart,
-	"String.trimEnd":     ir.StringTrimEnd,
-	"String.trimLeft":    ir.StringTrimStart, // deprecated aliases
-	"String.trimRight":   ir.StringTrimEnd,
-	"String.padStart":    ir.StringPadStart,
-	"String.padEnd":      ir.StringPadEnd,
-	"String.repeat":      ir.StringRepeat,
-	"String.split":       ir.StringSplit,
+	"Console.log":              ir.ConsoleLog,
+	"String.length":            ir.StringLength,
+	"String.charCodeAt":        ir.StringCharCodeAt,
+	"String.slice":             ir.StringSlice,
+	"String.substring":         ir.StringSubstring,
+	"String.indexOf":           ir.StringIndexOf,
+	"String.includes":          ir.StringIncludes,
+	"String.startsWith":        ir.StringStartsWith,
+	"String.endsWith":          ir.StringEndsWith,
+	"String.toUpperCase":       ir.StringToUpperCase,
+	"String.toLowerCase":       ir.StringToLowerCase,
+	"String.trim":              ir.StringTrim,
+	"String.trimStart":         ir.StringTrimStart,
+	"String.trimEnd":           ir.StringTrimEnd,
+	"String.trimLeft":          ir.StringTrimStart, // deprecated aliases
+	"String.trimRight":         ir.StringTrimEnd,
+	"String.padStart":          ir.StringPadStart,
+	"String.padEnd":            ir.StringPadEnd,
+	"String.repeat":            ir.StringRepeat,
+	"String.split":             ir.StringSplit,
+	"String.at":                ir.StringAt,
+	"String.charAt":            ir.StringCharAt,
+	"String.codePointAt":       ir.StringCodePointAt,
+	"String.lastIndexOf":       ir.StringLastIndexOf,
+	"String.substr":            ir.StringSubstr,
+	"String.isWellFormed":      ir.StringIsWellFormed,
+	"String.toWellFormed":      ir.StringToWellFormed,
+	"String.toLocaleUpperCase": ir.StringToUpperCase, // the default locale's mappings are the root's
+	"String.toLocaleLowerCase": ir.StringToLowerCase,
 }
 
 // properties are the builtins that are read rather than called.
@@ -103,15 +112,20 @@ var (
 // that leaves one out (or passes undefined) gets instead, per parameter after the
 // receiver; nil marks a required parameter. The constant nodes are shared.
 var leftOut = map[*ir.Builtin][]ir.Expr{
-	ir.StringSlice:      {fromStart, toEnd},
-	ir.StringSubstring:  {nil, toEnd},
-	ir.StringIndexOf:    {nil, fromStart},
-	ir.StringIncludes:   {nil, fromStart},
-	ir.StringStartsWith: {nil, fromStart},
-	ir.StringEndsWith:   {nil, toEnd},
-	ir.StringPadStart:   {nil, &ir.StringConst{Value: " "}},
-	ir.StringPadEnd:     {nil, &ir.StringConst{Value: " "}},
-	ir.StringSplit:      {nil, toEnd},
+	ir.StringSlice:       {fromStart, toEnd},
+	ir.StringSubstring:   {nil, toEnd},
+	ir.StringIndexOf:     {nil, fromStart},
+	ir.StringIncludes:    {nil, fromStart},
+	ir.StringStartsWith:  {nil, fromStart},
+	ir.StringEndsWith:    {nil, toEnd},
+	ir.StringPadStart:    {nil, &ir.StringConst{Value: " "}},
+	ir.StringPadEnd:      {nil, &ir.StringConst{Value: " "}},
+	ir.StringSplit:       {nil, toEnd},
+	ir.StringAt:          {fromStart},
+	ir.StringCharAt:      {fromStart},
+	ir.StringCodePointAt: {fromStart},
+	ir.StringLastIndexOf: {nil, fromStart},
+	ir.StringSubstr:      {fromStart, toEnd},
 }
 
 // numericTypes maps the semantic pass's numeric types to IR types.
@@ -133,7 +147,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
-		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray}, arraysInProgress: map[*checker.Type]bool{},
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
@@ -1337,6 +1351,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isStringFunction(call) {
 		return l.stringCall(call)
 	}
+	if x, handled := l.stringLibraryCall(call); handled {
+		return x
+	}
 	if generic, ok := l.generics[callee]; ok {
 		if generic == nil {
 			return nil // its declaration failed, which was reported
@@ -1616,6 +1633,14 @@ func (l *lowerer) methodCall(node *ast.Node, builtin *ir.Builtin) ir.Expr {
 	call := node.AsCallExpression()
 	receiver := l.expression(call.Expression.Expression())
 	if receiver == nil {
+		return nil
+	}
+	if extra := len(builtin.Params) - 1; len(call.Arguments.Nodes) > extra {
+		name := builtin.Name
+		if callee := ast.SkipParentheses(call.Expression); callee.Kind == ast.KindPropertyAccessExpression {
+			name = callee.Name().Text() // as written: toLocaleUpperCase is toUpperCase's builtin
+		}
+		l.notSupportedYet(call.Arguments.Nodes[extra], "this argument of `"+name+"` is")
 		return nil
 	}
 	args := []ir.Expr{receiver}
@@ -2633,15 +2658,22 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 // builtin returns the runtime function a member access refers to, or nil if it isn't
 // a builtin member of the prelude or the ES library.
 func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
+	return builtins[l.libMemberName(member)]
+}
+
+// libMemberName names the member of the prelude or the ES library a member access
+// refers to as "Interface.member" ("String.slice", "StringConstructor.fromCharCode"),
+// or is "" if it refers to something else.
+func (l *lowerer) libMemberName(member *ast.Node) string {
 	symbol := l.checker.GetSymbolAtLocation(member)
 	if symbol == nil || symbol.Parent == nil || symbol.ValueDeclaration == nil {
-		return nil
+		return ""
 	}
 	file := ast.GetSourceFileOfNode(symbol.ValueDeclaration)
 	if !lib.IsLibPath(file.FileName()) && !l.program.IsSourceFileDefaultLibrary(file.Path()) {
-		return nil
+		return ""
 	}
-	return builtins[symbol.Parent.Name+"."+symbol.Name]
+	return symbol.Parent.Name + "." + symbol.Name
 }
 
 func isClass(t ir.Type) bool {

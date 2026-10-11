@@ -156,6 +156,100 @@ static pts_value string_concat(pts_value self, uint32_t argc, const pts_value *a
   return pts_value_from_string(result);
 }
 
+static pts_value string_code_point_at(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_string_code_point_at(string_of(self), number_argument(argc, argv, 0, 0));
+}
+
+static pts_value string_last_index_of(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_number(
+      pts_string_last_index_of(string_of(self), string_argument(argc, argv, 0, NULL), number_argument(argc, argv, 1, __builtin_nan(""))));
+}
+
+static pts_value string_substr(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_string(pts_string_substr(string_of(self), number_argument(argc, argv, 0, __builtin_nan("")),
+                                                 number_argument(argc, argv, 1, __builtin_inf())));
+}
+
+/* Whether a locale argument is undefined or an English locale, whose collation and case mappings are the runtime's (D-082). */
+static bool is_default_locale(pts_value locale) {
+  if (locale == PTS_VALUE_UNDEFINED) {
+    return true;
+  }
+  if (!pts_value_is_object(locale) || pts_value_as_object(locale)->type->kind != PTS_KIND_STRING) {
+    return false;
+  }
+  const pts_string *tag = (const pts_string *)pts_value_as_object(locale);
+  return tag->byte_len >= 2 && (tag->bytes[0] | 0x20) == 'e' && (tag->bytes[1] | 0x20) == 'n' && (tag->byte_len == 2 || tag->bytes[2] == '-');
+}
+
+static void check_default_locale(uint32_t argc, const pts_value *argv, uint32_t i, const char *method) {
+  if (!is_default_locale(argument(argc, argv, i))) {
+    pts_throw_new(&pts_type_builtin_TypeError, "%s with a locale other than English through `any` is not supported yet", method);
+  }
+}
+
+static pts_value string_locale_compare(pts_value self, uint32_t argc, const pts_value *argv) {
+  check_default_locale(argc, argv, 1, "localeCompare");
+  if (argument(argc, argv, 2) != PTS_VALUE_UNDEFINED) {
+    pts_throw_new(&pts_type_builtin_TypeError, "localeCompare with options through `any` is not supported yet");
+  }
+  return pts_value_from_number(pts_string_locale_compare(string_of(self), string_argument(argc, argv, 0, NULL)));
+}
+
+static pts_value string_to_locale_upper_case(pts_value self, uint32_t argc, const pts_value *argv) {
+  check_default_locale(argc, argv, 0, "toLocaleUpperCase");
+  return pts_value_from_string(pts_string_to_upper_case(string_of(self)));
+}
+
+static pts_value string_to_locale_lower_case(pts_value self, uint32_t argc, const pts_value *argv) {
+  check_default_locale(argc, argv, 0, "toLocaleLowerCase");
+  return pts_value_from_string(pts_string_to_lower_case(string_of(self)));
+}
+
+/* replace and replaceAll with a callback: each match replaced by ToString of callback(match, position, string). */
+static pts_value replace_with_callback(pts_value self, pts_string *search, pts_closure *callback, bool all) {
+  pts_string *string = string_of(self);
+  double position = pts_string_index_of(string, search, 0);
+  if (position < 0) {
+    return self;
+  }
+  pts_string *result = pts_string_slice(string, 0, 0);
+  double end = 0, length = search->utf16_len;
+  while (position >= 0) {
+    pts_value args[] = {pts_value_from_string(search), pts_value_from_number(position), self};
+    pts_string *replacement = pts_value_to_string(pts_dynamic_call_closure(callback, 3, args));
+    result = pts_string_concat(pts_string_concat(result, pts_string_slice(string, end, position)), replacement);
+    end = position + length;
+    double next = position + (length == 0 ? 1 : length);
+    position = !all || next > string->utf16_len ? -1 : pts_string_index_of(string, search, next);
+  }
+  return pts_value_from_string(pts_string_concat(result, pts_string_slice(string, end, __builtin_inf())));
+}
+
+static pts_value string_replacing(pts_value self, uint32_t argc, const pts_value *argv, bool all) {
+  pts_string *search = string_argument(argc, argv, 0, NULL);
+  pts_value replacement = argument(argc, argv, 1);
+  if (is_function(replacement)) {
+    return replace_with_callback(self, search, (pts_closure *)pts_value_as_object(replacement), all);
+  }
+  pts_string *text = pts_value_to_string(replacement);
+  return pts_value_from_string(all ? pts_string_replace_all(string_of(self), search, text) : pts_string_replace(string_of(self), search, text));
+}
+
+static pts_value string_replace(pts_value self, uint32_t argc, const pts_value *argv) { return string_replacing(self, argc, argv, false); }
+
+static pts_value string_replace_all(pts_value self, uint32_t argc, const pts_value *argv) { return string_replacing(self, argc, argv, true); }
+
+static pts_value string_is_well_formed(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_value_from_bool(pts_string_is_well_formed(string_of(self)));
+}
+
+static pts_value string_to_well_formed(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_value_from_string(pts_string_to_well_formed(string_of(self)));
+}
+
 /* toString and valueOf of a primitive: itself, as a string for toString. */
 static pts_value primitive_value_of(pts_value self, uint32_t argc, const pts_value *argv) {
   (void)argc, (void)argv;
@@ -174,20 +268,30 @@ static const named_method string_methods[] = {
     {"at", string_at},
     {"charAt", string_char_at},
     {"charCodeAt", string_char_code_at},
+    {"codePointAt", string_code_point_at},
     {"concat", string_concat},
     {"endsWith", string_ends_with},
     {"includes", string_includes},
     {"indexOf", string_index_of},
+    {"isWellFormed", string_is_well_formed},
+    {"lastIndexOf", string_last_index_of},
+    {"localeCompare", string_locale_compare},
     {"padEnd", string_pad_end},
     {"padStart", string_pad_start},
     {"repeat", string_repeat},
+    {"replace", string_replace},
+    {"replaceAll", string_replace_all},
     {"slice", string_slice},
     {"split", string_split},
     {"startsWith", string_starts_with},
+    {"substr", string_substr},
     {"substring", string_substring},
+    {"toLocaleLowerCase", string_to_locale_lower_case},
+    {"toLocaleUpperCase", string_to_locale_upper_case},
     {"toLowerCase", string_to_lower_case},
     {"toString", primitive_value_of},
     {"toUpperCase", string_to_upper_case},
+    {"toWellFormed", string_to_well_formed},
     {"trim", string_trim},
     {"trimEnd", string_trim_end},
     {"trimLeft", string_trim_start},

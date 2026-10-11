@@ -1239,6 +1239,26 @@ pts_string *pts_string_pad_end(pts_string *string, double max_length, pts_string
 pts_string *pts_string_repeat(pts_string *string, double count);
 /* split on a string separator: at most limit pieces (Infinity if left out). Returns a string array. */
 pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit);
+/* at(index): the unit at index (from the end if negative) as a one-unit string, or undefined. */
+pts_value pts_string_at(pts_string *string, double index);
+/* charAt(index): the unit at index as a one-unit string, or "" out of range. */
+pts_string *pts_string_char_at(pts_string *string, double index);
+/* codePointAt(index): the code point starting at index (a lone surrogate's or a low half's unit), or undefined. */
+pts_value pts_string_code_point_at(pts_string *string, double index);
+/* lastIndexOf: a NaN position (left out) means the end. */
+double pts_string_last_index_of(pts_string *string, pts_string *search, double position);
+/* substr(start, length): a left-out length is Infinity. */
+pts_string *pts_string_substr(pts_string *string, double start, double length);
+/* replace and replaceAll with a string pattern and replacement ($$, $&, $` and $' substituted). */
+pts_string *pts_string_replace(pts_string *string, pts_string *search, pts_string *replacement);
+pts_string *pts_string_replace_all(pts_string *string, pts_string *search, pts_string *replacement);
+bool pts_string_is_well_formed(pts_string *string);
+pts_string *pts_string_to_well_formed(pts_string *string);
+/* localeCompare: -1, 0 or 1 in the order of Node's default collator (D-082). */
+double pts_string_locale_compare(pts_string *string, pts_string *that);
+/* String.fromCharCode and String.fromCodePoint of a number array; fromCodePoint throws RangeError for an invalid code point. */
+pts_string *pts_string_from_char_codes(pts_array *codes);
+pts_string *pts_string_from_code_points(pts_array *code_points);
 
 /* ---------------------------------------------------------------- console */
 

@@ -39,6 +39,8 @@ var stringCorpusParts = append(methodCorpusParts(8),
 	corpusPart{"case_bmp", 101, func(_ *rand.Rand, emit func(string)) { emitCaseMappings(0x80, 0xFFFF, emit) }},
 	corpusPart{"case_supplementary", 102, func(_ *rand.Rand, emit func(string)) { emitCaseMappings(0x10000, 0x1FFFF, emit) }},
 	corpusPart{"final_sigma", 103, emitFinalSigmaCases},
+	corpusPart{"locale_compare_1", 104, emitLocaleCompareCases},
+	corpusPart{"locale_compare_2", 105, emitLocaleCompareCases},
 )
 
 func methodCorpusParts(n int) []corpusPart {
@@ -96,6 +98,41 @@ func emitStringMethodCases(rng *rand.Rand, emit func(string)) {
 		show("padEnd", fmt.Sprintf("s.padEnd(%d, t)", rng.IntN(14)))
 		show("padEndSpace", fmt.Sprintf("s.padEnd(%d)", rng.IntN(14)))
 		show("repeat", fmt.Sprintf("s.repeat(%d)", rng.IntN(4)))
+		emit(fmt.Sprintf("{ const s = %s; const t = %s; console.log(s.lastIndexOf(t), s.lastIndexOf(t, %s), s.at(%s), s.charAt(%s), s.codePointAt(%s), s.isWellFormed()); }",
+			lit, needle, i, i, j, i))
+		show("substr", fmt.Sprintf("s.substr(%s, %s)", i, j))
+		show("replace", `s.replace(t, "<$&|$'>")`)
+		show("replaceAll", "s.replaceAll(t, \"_\")")
+		show("replaceAllCallback", "s.replaceAll(t, (m, i) => `${i}`)")
+		show("concat", "s.concat(t, s)")
+		show("toWellFormed", "s.toWellFormed()")
+	}
+}
+
+// collationLetters are what the localeCompare cases' words are made of: Latin letters in
+// both cases, with accents and combining marks, digits, punctuation, spaces, Greek,
+// Cyrillic, Han, Hangul, an emoji and a control character. Letters that ICU expands
+// (ß, æ) are left out: they compare as letters of their own (D-082).
+var collationLetters = []string{"a", "b", "c", "e", "z", "A", "B", "E", "Z", "é", "É", "è", "ê", "à", "ç", "ñ", "ü", "ö", "ø", "å",
+	"0", "1", "9", "-", "_", " ", ".", "'", ",", "α", "Α", "я", "Я", "中", "文", "한", "글", "각", "😀", "\\u0301", "\\u0001"}
+
+// emitLocaleCompareCases sorts lists of random words with localeCompare and compares
+// random pairs.
+func emitLocaleCompareCases(rng *rand.Rand, emit func(string)) {
+	word := func() string {
+		var w strings.Builder
+		for range 1 + rng.IntN(5) {
+			w.WriteString(collationLetters[rng.IntN(len(collationLetters))])
+		}
+		return `"` + w.String() + `"`
+	}
+	for range stringCasesPerPart {
+		words := make([]string, 12)
+		for i := range words {
+			words[i] = word()
+		}
+		emit(fmt.Sprintf("console.log([%s].sort((a, b) => a.localeCompare(b)).join(\"|\"));", strings.Join(words, ", ")))
+		emit(fmt.Sprintf("console.log(%s.localeCompare(%s), %s.localeCompare(%s));", words[0], words[1], words[2], strings.ToUpper(words[2])))
 	}
 }
 

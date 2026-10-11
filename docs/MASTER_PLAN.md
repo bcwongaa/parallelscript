@@ -204,9 +204,17 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `JSON.parse` returning `any`; `JSON.stringify` with indent and replacer basics, matching Node byte for byte.
 - [x] **M3.4b JSON and word-frequency benchmarks** (bbc4746e0) (split from M3.4 by D-080).
   - Add the JSON benchmark and the `Map`-heavy word-frequency benchmark.
-- [ ] **M3.5 Library breadth.**
-  - The remaining common `String`, `Array`, `Object` (`keys`/`values`/`entries`/`assign`/`freeze`) and `Number` methods (`toFixed`, `parseInt`, `parseFloat`, `isInteger` and so on).
-  - `Math` in full; basic `Date`.
+- [ ] **M3.5a Strings** (split from M3.5 by D-082).
+  - The remaining common `String` methods: `lastIndexOf`, `at`, `charAt`, `codePointAt`, `substr`, `concat`, `replace` and `replaceAll` with string patterns (replacement strings and callbacks), `localeCompare` (Node's default collation), `isWellFormed`/`toWellFormed`, `toLocaleUpperCase`/`toLocaleLowerCase`, `String.fromCharCode` and `String.fromCodePoint`; the same through `any`. `normalize` moves to M6.1 (D-082).
+- [ ] **M3.5b Numbers** (split from M3.5 by D-082).
+  - `Number` methods (`toFixed`, `toPrecision`, `toExponential`, `toString(radix)`) and statics (`isInteger`, `isSafeInteger`, `isFinite`, `isNaN`, `parseInt`, `parseFloat`, the constants); the globals `parseInt`, `parseFloat`, `isNaN`, `isFinite`; `Number(x)`, `Boolean(x)` and unary `+` on strings and other values; `String`, `Number` and `Boolean` as values (`map(Number)`, `filter(Boolean)`).
+- [ ] **M3.5c `Math` in full and the remaining `Array` methods** (split from M3.5 by D-082).
+  - Every `Math` function (`random` included), spread arguments of `Math.max`/`Math.min`.
+  - `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)` with `fill`, `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`.
+- [ ] **M3.5d `Object` functions and `for…in`** (split from M3.5 by D-082).
+  - `Object.keys`/`values`/`entries` of class instances and object literals, `Object.assign`, `Object.freeze`/`isFrozen`, `Object.is`, `Object.fromEntries`; `for…in` over typed objects and dynamic values.
+- [ ] **M3.5e Basic `Date`** (split from M3.5 by D-082).
+  - `new Date()` (now, milliseconds, ISO strings, components), `Date.now()`, `Date.UTC`, the getters (local and UTC), the common setters, `getTime`/`valueOf`, `toISOString`/`toJSON`, `toString`, `console.log` of dates as Node prints them.
 - [ ] **M3.6 `console.log` parity.** A full `util.inspect` port per decision O16: nesting, line breaking, `Map`/`Set`, class names, `%s`/`%d`/`%o` format strings, and `console.error`/`warn`/`info`.
 - [ ] **M3.7 Corpus.**
   - Grow the differential corpus to at least 300 realistic programs. Use subagents to write them in batches by theme: algorithms, text processing, OOP, data transforms, closures and errors.
@@ -256,6 +264,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 
 ## M6: Real programs
 - [ ] **M6.1 RegExp.** Vendor PCRE2 and support JS syntax and flags (decision O09): `test`, `exec`, `match`, `matchAll`, `replace`, `split`, named groups and `lastIndex`.
+  - `String.prototype.normalize` (moved from M3.5a by D-082), with Unicode's normalization tables (PCRE2 brings none).
 - [ ] **M6.2 `pts:http` server.** Optionally accepts connections on every loop (`SO_REUSEPORT`). Request/response API in the style of Node and Bun. Hello-world and JSON-echo benchmarks with `oha`.
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:

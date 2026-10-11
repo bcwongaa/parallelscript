@@ -273,6 +273,10 @@ var StringArray = &Array{Elem: String}
 // type of dynamic values.
 var ValueArray = &Array{Elem: Value}
 
+// NumberArray is number[], which String.fromCharCode and String.fromCodePoint take; the
+// lowering uses it as the one array type of numbers.
+var NumberArray = &Array{Elem: Number}
+
 func (a *Array) String() string {
 	if _, ok := a.Elem.(*FuncType); ok {
 		return "(" + a.Elem.String() + ")[]"
@@ -995,6 +999,25 @@ var (
 	// ArrayFromString is Array.from of a string: its code points.
 	StringSplit     = stringMember("split", StringArray, String, Number)
 	ArrayFromString = &Builtin{Name: "Array.from", Params: []Type{String}, Result: StringArray}
+
+	// The String.prototype methods of M3.5a (D-082). StringAt and StringCodePointAt are
+	// undefined out of range; a left-out lastIndexOf position is NaN, which means the end.
+	// StringReplace and StringReplaceAll take a string pattern and a replacement string;
+	// replacing with a callback is a generated helper.
+	StringAt            = stringMember("at", Value, Number)
+	StringCharAt        = stringMember("charAt", String, Number)
+	StringCodePointAt   = stringMember("codePointAt", Value, Number)
+	StringLastIndexOf   = stringMember("lastIndexOf", Number, String, Number)
+	StringSubstr        = stringMember("substr", String, Number, Number)
+	StringReplace       = stringMember("replace", String, String, String)
+	StringReplaceAll    = stringMember("replaceAll", String, String, String)
+	StringIsWellFormed  = stringMember("isWellFormed", Bool)
+	StringToWellFormed  = stringMember("toWellFormed", String)
+	StringLocaleCompare = stringMember("localeCompare", Number, String)
+	// StringFromCharCode and StringFromCodePoint are String.fromCharCode and
+	// String.fromCodePoint of an array of their arguments.
+	StringFromCharCode  = &Builtin{Name: "String.fromCharCode", Params: []Type{NumberArray}, Result: String}
+	StringFromCodePoint = &Builtin{Name: "String.fromCodePoint", Params: []Type{NumberArray}, Result: String}
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}

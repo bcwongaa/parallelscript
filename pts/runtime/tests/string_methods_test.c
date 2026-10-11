@@ -211,6 +211,105 @@ static void strings_convert_to_numbers_as_number_does(void) {
   CHECK(pts_string_to_number(pts_string_from_cstr(digits)) > 1 && pts_string_to_number(pts_string_from_cstr(digits)) < 2);
 }
 
+static const char *value_string(pts_value value) {
+  return value == PTS_VALUE_UNDEFINED ? "undefined" : ((pts_string *)pts_value_as_object(value))->bytes;
+}
+
+static void at_counts_from_the_end(void) {
+  CHECK_STR(value_string(pts_string_at(s("abc"), -1)), "c");
+  CHECK_STR(value_string(pts_string_at(s("abc"), 1.9)), "b");
+  CHECK_STR(value_string(pts_string_at(s("abc"), NO_START)), "a");
+  CHECK_STR(value_string(pts_string_at(s("abc"), -4)), "undefined");
+  CHECK_STR(value_string(pts_string_at(s("abc"), 3)), "undefined");
+  CHECK_STR(value_string(pts_string_at(s("a" GRIN), -1)), LOW);
+  CHECK_STR(pts_string_char_at(s("abc"), 5)->bytes, "");
+  CHECK_STR(pts_string_char_at(s("abc"), -1)->bytes, "");
+  CHECK_STR(pts_string_char_at(s("é" GRIN), 1)->bytes, HIGH);
+}
+
+static void code_point_at_joins_pairs(void) {
+  CHECK(pts_value_as_number(pts_string_code_point_at(s("é" GRIN), 1)) == 0x1F600);
+  CHECK(pts_value_as_number(pts_string_code_point_at(s("é" GRIN), 2)) == 0xDE00);
+  CHECK(pts_value_as_number(pts_string_code_point_at(s(HIGH "a"), 0)) == 0xD83D);
+  CHECK(pts_value_as_number(pts_string_code_point_at(s("A"), NO_START)) == 65);
+  CHECK(pts_string_code_point_at(s("A"), 1) == PTS_VALUE_UNDEFINED);
+}
+
+static void last_index_of_searches_backwards(void) {
+  CHECK(pts_string_last_index_of(s("abcabc"), s("bc"), NO_START) == 4);
+  CHECK(pts_string_last_index_of(s("abcabc"), s("bc"), 3) == 1);
+  CHECK(pts_string_last_index_of(s("abcabc"), s("bc"), -5) == -1);
+  CHECK(pts_string_last_index_of(s("abcabc"), s(""), NO_START) == 6);
+  CHECK(pts_string_last_index_of(s("abcabc"), s(""), 2) == 2);
+  CHECK(pts_string_last_index_of(s("ab"), s("abc"), NO_START) == -1);
+  CHECK(pts_string_last_index_of(s("é" GRIN "é" GRIN), s("é"), NO_START) == 3);
+  CHECK(pts_string_last_index_of(s("é" GRIN "é" GRIN), s(LOW), NO_START) == 5);
+  CHECK(pts_string_last_index_of(s("é" GRIN "é" GRIN), s(LOW), 4) == 2);
+}
+
+static void substr_takes_a_length(void) {
+  CHECK_STR(pts_string_substr(s("abcdef"), 1, 3)->bytes, "bcd");
+  CHECK_STR(pts_string_substr(s("abcdef"), -2, TO_END)->bytes, "ef");
+  CHECK_STR(pts_string_substr(s("abcdef"), 2, NAN)->bytes, "");
+  CHECK_STR(pts_string_substr(s("abcdef"), 4, 10)->bytes, "ef");
+  CHECK_STR(pts_string_substr(s("abcdef"), -INFINITY, 2)->bytes, "ab");
+  CHECK_STR(pts_string_substr(s("a" GRIN), 1, 1)->bytes, HIGH);
+}
+
+static void replace_substitutes_dollar_patterns(void) {
+  CHECK_STR(pts_string_replace(s("a-b-c"), s("-"), s("+"))->bytes, "a+b-c");
+  CHECK_STR(pts_string_replace(s("a-b"), s("x"), s("+"))->bytes, "a-b");
+  CHECK_STR(pts_string_replace(s("abc"), s("b"), s("[$&|$`|$'|$$|$1|$<n>|$]"))->bytes, "a[b|a|c|$|$1|$<n>|$]c");
+  CHECK_STR(pts_string_replace(s("abc"), s(""), s("^"))->bytes, "^abc");
+  CHECK_STR(pts_string_replace(s("abc"), s("c"), s("$"))->bytes, "ab$");
+  CHECK_STR(pts_string_replace_all(s("a-b-c"), s("-"), s("+"))->bytes, "a+b+c");
+  CHECK_STR(pts_string_replace_all(s("abc"), s(""), s("."))->bytes, ".a.b.c.");
+  CHECK_STR(pts_string_replace_all(s("aaa"), s("aa"), s("b"))->bytes, "ba");
+  CHECK_STR(pts_string_replace_all(s("x"), s("y"), s("z"))->bytes, "x");
+  CHECK_STR(pts_string_replace_all(s("a.b"), s("."), s("$`$'"))->bytes, "aabb");
+  CHECK_STR(pts_string_replace_all(s(GRIN), s(""), s("-"))->bytes, "-" HIGH "-" LOW "-");
+  CHECK_STR(pts_string_replace(s(HIGH), s(HIGH), s("x"))->bytes, "x");
+}
+
+static void well_formed_strings_have_no_lone_surrogates(void) {
+  CHECK(pts_string_is_well_formed(s("abc" GRIN)));
+  CHECK(!pts_string_is_well_formed(s("a" HIGH)));
+  CHECK(!pts_string_is_well_formed(s(LOW "a")));
+  CHECK_STR(pts_string_to_well_formed(s("a" HIGH "b" LOW GRIN))->bytes, "a\xEF\xBF\xBD" "b\xEF\xBF\xBD" GRIN);
+  pts_string *text = s("ok");
+  CHECK(pts_string_to_well_formed(text) == text);
+}
+
+static pts_array *numbers(const double *values, size_t n) { return pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], values, n); }
+
+static void strings_come_from_code_units_and_points(void) {
+  double codes[] = {72, 105, 65536 + 33, -1, 0xD83D, 0xDE00, 0xD83D};
+  pts_string *text = pts_string_from_char_codes(numbers(codes, 7));
+  CHECK_STR(text->bytes, "Hi!\xEF\xBF\xBF" GRIN HIGH);
+  CHECK(text->utf16_len == 7);
+  double points[] = {0x1F600, 97, 0xD83D, 0xDE00};
+  CHECK_STR(pts_string_from_code_points(numbers(points, 4))->bytes, GRIN "a" GRIN);
+  CHECK_STR(pts_string_from_char_codes(numbers(NULL, 0))->bytes, "");
+}
+
+static int locale_order(const char *a, const char *b) { return (int)pts_string_locale_compare(s(a), s(b)); }
+
+static void locale_compare_follows_the_root_collation(void) {
+  CHECK(locale_order("a", "B") == -1);
+  CHECK(locale_order("a", "A") == -1);
+  CHECK(locale_order("A", "a") == 1);
+  CHECK(locale_order("résumé", "resume") == 1);
+  CHECK(locale_order("resume", "Resume") == -1);
+  CHECK(locale_order("co-op", "coop") == -1);
+  CHECK(locale_order("10", "9") == -1);
+  CHECK(locale_order("a b", "ab") == -1);
+  CHECK(locale_order("", "a") == -1);
+  CHECK(locale_order("abc", "abc") == 0);
+  CHECK(locale_order("a\x01", "a") == 0); /* controls are ignorable */
+  CHECK(locale_order("\xED\x95\x9C", "\xE4\xB8\xAD") == -1); /* Hangul 한 before Han 中 */
+  CHECK(locale_order("z", "\xCE\xB1") == -1);                /* Latin before Greek */
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   strings_convert_to_numbers_as_number_does();
@@ -231,5 +330,13 @@ int main(int argc, char **argv) {
   case_mapping_is_unicode_aware();
   final_sigma_lowercases_at_the_end_of_a_word();
   value_to_string_follows_javascript();
+  at_counts_from_the_end();
+  code_point_at_joins_pairs();
+  last_index_of_searches_backwards();
+  substr_takes_a_length();
+  replace_substitutes_dollar_patterns();
+  well_formed_strings_have_no_lone_surrogates();
+  strings_come_from_code_units_and_points();
+  locale_compare_follows_the_root_collation();
   return pts_runtime_exit(CHECK_DONE());
 }

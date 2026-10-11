@@ -1,0 +1,9 @@
+// String methods of M3.5a through `any` (D-082), checked against Node.
+const data: any = JSON.parse('{"text": "a-b-c a-b", "n": 5}');
+const t = data.text;
+console.log(t.lastIndexOf("a"), t.lastIndexOf("b", 4), t.lastIndexOf(), t.codePointAt(1), t.codePointAt(99));
+console.log(t.substr(2, 3), t.substr(-3), t.isWellFormed(), t.toWellFormed());
+console.log(t.replace("-", "+"), t.replaceAll("-", "+"), t.replaceAll("-", "[$&]"), t.replace("zz", "y"));
+console.log(t.replace("-", (m: string, i: number) => `<${m}${i}>`), t.replaceAll("b", (m: string, i: number, s: string) => m.toUpperCase() + i + s.length));
+console.log(t.replaceAll("", "."), t.replace("a", 5), t.replaceAll("a", null));
+console.log(t.localeCompare("B"), t.localeCompare("a-b-c a-b"), t.localeCompare("a", "en-GB"), t.toLocaleUpperCase(), t.toLocaleLowerCase("en"));

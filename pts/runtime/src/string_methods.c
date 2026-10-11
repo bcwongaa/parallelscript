@@ -252,6 +252,32 @@ double pts_string_char_code_at(pts_string *string, double index) {
   return unit_at(string, (uint32_t)position);
 }
 
+pts_value pts_string_at(pts_string *string, double index) {
+  double position = to_integer_or_infinity(index);
+  return pts_string_element(string, position < 0 ? position + string->utf16_len : position);
+}
+
+pts_string *pts_string_char_at(pts_string *string, double index) {
+  double position = to_integer_or_infinity(index);
+  if (position < 0 || position >= string->utf16_len) {
+    return empty_string;
+  }
+  return string_of_unit(unit_at(string, (uint32_t)position));
+}
+
+pts_value pts_string_code_point_at(pts_string *string, double index) {
+  double position = to_integer_or_infinity(index);
+  if (position < 0 || position >= string->utf16_len) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  if (string->flags & PTS_STRING_ASCII) {
+    return pts_value_from_number((unsigned char)string->bytes[(uint32_t)position]);
+  }
+  utf16_position at = locate(string, (uint32_t)position);
+  unsigned length, code_point = pts_utf8_decode(string->bytes + at.offset, &length);
+  return pts_value_from_number(at.low_half ? pts_low_surrogate(code_point) : code_point); /* a whole pair gives its code point */
+}
+
 /* ---------------------------------------------------------------- substrings */
 
 pts_string *pts_string_slice(pts_string *string, double start, double end) {
@@ -262,6 +288,13 @@ pts_string *pts_string_slice(pts_string *string, double start, double end) {
 pts_string *pts_string_substring(pts_string *string, double start, double end) {
   uint32_t a = clamped_position(start, string->utf16_len), b = clamped_position(end, string->utf16_len);
   return a <= b ? units_between(string, a, b) : units_between(string, b, a);
+}
+
+pts_string *pts_string_substr(pts_string *string, double start, double length) {
+  uint32_t from = relative_position(start, string->utf16_len);
+  double count = to_integer_or_infinity(length);
+  uint32_t to = count <= 0 ? from : count >= string->utf16_len - from ? string->utf16_len : from + (uint32_t)count;
+  return units_between(string, from, to);
 }
 
 /* ---------------------------------------------------------------- searching */
@@ -343,6 +376,39 @@ bool pts_string_starts_with(pts_string *string, pts_string *search, double posit
 bool pts_string_ends_with(pts_string *string, pts_string *search, double end_position) {
   uint32_t end = clamped_position(end_position, string->utf16_len);
   return search->utf16_len <= end && matches_at(string, search, end - search->utf16_len);
+}
+
+/* The last index at or before `from` where search occurs in string, or -1. */
+static int64_t find_last(const pts_string *string, const pts_string *search, uint32_t from) {
+  if (search->utf16_len > string->utf16_len) {
+    return -1;
+  }
+  uint32_t limit = string->utf16_len - search->utf16_len < from ? string->utf16_len - search->utf16_len : from;
+  if (string->flags & search->flags & PTS_STRING_ASCII) {
+    for (int64_t index = limit; index >= 0; index--) {
+      if (memcmp(string->bytes + index, search->bytes, search->byte_len) == 0) {
+        return index;
+      }
+    }
+    return -1;
+  }
+  int64_t found = -1;
+  unit_cursor cursor = {string, 0, 0};
+  for (uint32_t index = 0;; index++) {
+    if (units_match(cursor, search)) {
+      found = index;
+    }
+    if (index == limit) {
+      return found;
+    }
+    cursor_next(&cursor);
+  }
+}
+
+/* A left-out position is NaN, which means the end, as undefined does. */
+double pts_string_last_index_of(pts_string *string, pts_string *search, double position) {
+  uint32_t from = position != position ? string->utf16_len : clamped_position(position, string->utf16_len);
+  return (double)find_last(string, search, from);
 }
 
 /* ---------------------------------------------------------------- trimming */
@@ -558,4 +624,174 @@ pts_array *pts_string_split(pts_string *string, pts_string *separator, double li
   pts_string *rest = units_between(string, start, string->utf16_len);
   pts_array_push(pieces, &rest, 1);
   return pieces;
+}
+
+/* ---------------------------------------------------------------- replacing */
+
+/*
+ * JS's GetSubstitution for a string pattern, which has no captures: $$ is "$", $& the
+ * match, $` the text before it and $' the text after it; every other $ stays as it is.
+ */
+static pts_string *substitution(pts_string *string, uint32_t position, const pts_string *search, pts_string *replacement) {
+  if (memchr(replacement->bytes, '$', replacement->byte_len) == NULL) {
+    return replacement;
+  }
+  pts_string *result = empty_string;
+  uint32_t copied = 0; /* bytes of replacement already in result */
+  for (uint32_t i = 0; i + 1 < replacement->byte_len; i++) {
+    if (replacement->bytes[i] != '$') {
+      continue;
+    }
+    pts_string *part;
+    switch (replacement->bytes[i + 1]) {
+    case '$':
+      part = (pts_string *)&ascii_chars['$'];
+      break;
+    case '&':
+      part = (pts_string *)search;
+      break;
+    case '`':
+      part = units_between(string, 0, position);
+      break;
+    case '\'':
+      part = units_between(string, position + search->utf16_len, string->utf16_len);
+      break;
+    default:
+      continue;
+    }
+    result = pts_string_concat(result, bytes_between(replacement, copied, i));
+    result = pts_string_concat(result, part);
+    copied = i + 2;
+    i++;
+  }
+  return pts_string_concat(result, bytes_between(replacement, copied, replacement->byte_len));
+}
+
+pts_string *pts_string_replace(pts_string *string, pts_string *search, pts_string *replacement) {
+  int64_t match = find(string, search, 0);
+  if (match < 0) {
+    return string;
+  }
+  uint32_t at = (uint32_t)match;
+  pts_string *before = units_between(string, 0, at);
+  pts_string *after = units_between(string, at + search->utf16_len, string->utf16_len);
+  return pts_string_concat(pts_string_concat(before, substitution(string, at, search, replacement)), after);
+}
+
+/* The next match of search after one at `match` for replaceAll: an empty search advances by one unit. -1 if none. */
+static int64_t next_match(const pts_string *string, const pts_string *search, uint32_t match) {
+  uint32_t from = match + (search->utf16_len == 0 ? 1 : search->utf16_len);
+  return from > string->utf16_len ? -1 : find(string, search, from);
+}
+
+pts_string *pts_string_replace_all(pts_string *string, pts_string *search, pts_string *replacement) {
+  int64_t match = find(string, search, 0);
+  if (match < 0) {
+    return string;
+  }
+  pts_string *result = empty_string;
+  uint32_t end = 0; /* of the last match */
+  for (; match >= 0; match = next_match(string, search, (uint32_t)match)) {
+    result = pts_string_concat(result, units_between(string, end, (uint32_t)match));
+    result = pts_string_concat(result, substitution(string, (uint32_t)match, search, replacement));
+    end = (uint32_t)match + search->utf16_len;
+  }
+  return pts_string_concat(result, units_between(string, end, string->utf16_len));
+}
+
+/* ---------------------------------------------------------------- well-formed strings */
+
+/* Whether a string has no lone surrogates, which WTF-8 writes as 0xED 0xA0-0xBF. */
+bool pts_string_is_well_formed(pts_string *string) {
+  if (string->flags & PTS_STRING_ASCII) {
+    return true;
+  }
+  for (uint32_t i = 0; i + 1 < string->byte_len; i++) {
+    if ((unsigned char)string->bytes[i] == 0xED && (unsigned char)string->bytes[i + 1] >= 0xA0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* The string with each lone surrogate replaced by U+FFFD, which takes as many bytes. */
+pts_string *pts_string_to_well_formed(pts_string *string) {
+  if (pts_string_is_well_formed(string)) {
+    return string;
+  }
+  pts_string *result = pts_string_alloc(string->byte_len);
+  memcpy(result->bytes, string->bytes, string->byte_len);
+  for (uint32_t i = 0; i + 1 < result->byte_len; i++) {
+    if ((unsigned char)result->bytes[i] == 0xED && (unsigned char)result->bytes[i + 1] >= 0xA0) {
+      pts_utf8_encode(0xFFFD, result->bytes + i);
+      i += PTS_SURROGATE_BYTES - 1;
+    }
+  }
+  pts_string_measure(result);
+  return result;
+}
+
+/* ---------------------------------------------------------------- strings from code units and code points */
+
+/* A string of n UTF-16 units: a high surrogate followed by a low one makes a pair, any other surrogate stays lone. */
+static pts_string *string_of_units(const uint16_t *units, size_t n) {
+  size_t byte_len = 0;
+  for (size_t i = 0; i < n; i++) {
+    byte_len += pts_utf8_length(units[i]); /* a pair's 4 bytes are at most its two halves' 6 */
+  }
+  pts_string *result = pts_string_alloc(byte_len);
+  char *out = result->bytes;
+  for (size_t i = 0; i < n; i++) {
+    unsigned unit = units[i];
+    if (unit >= 0xD800 && unit <= 0xDBFF && i + 1 < n && units[i + 1] >= 0xDC00 && units[i + 1] <= 0xDFFF) {
+      unit = 0x10000 + ((unit - 0xD800) << 10) + (units[i + 1] - 0xDC00u);
+      i++;
+    }
+    out += pts_utf8_encode(unit, out);
+  }
+  result->byte_len = (uint32_t)(out - result->bytes);
+  *out = '\0';
+  pts_string_measure(result);
+  return result;
+}
+
+static double number_element(const pts_array *numbers, size_t i) { return *(double *)pts_array_slot(numbers, (double)i, sizeof(double)); }
+
+/* JS's ToUint16. */
+static uint16_t to_uint16(double number) {
+  if (number != number || __builtin_isinf(number)) {
+    return 0;
+  }
+  double integer = __builtin_fmod(__builtin_trunc(number), 65536.0);
+  return (uint16_t)(integer < 0 ? integer + 65536.0 : integer);
+}
+
+pts_string *pts_string_from_char_codes(pts_array *codes) {
+  size_t n = pts_array_length_of(codes);
+  uint16_t *units = GC_MALLOC_ATOMIC(n * sizeof(uint16_t) + 1);
+  for (size_t i = 0; i < n; i++) {
+    units[i] = to_uint16(number_element(codes, i));
+  }
+  return string_of_units(units, n);
+}
+
+pts_string *pts_string_from_code_points(pts_array *code_points) {
+  size_t n = pts_array_length_of(code_points), count = 0;
+  uint16_t *units = GC_MALLOC_ATOMIC(2 * n * sizeof(uint16_t) + 1);
+  for (size_t i = 0; i < n; i++) {
+    double code_point = number_element(code_points, i);
+    if (!(code_point >= 0 && code_point <= 0x10FFFF) || code_point != __builtin_trunc(code_point)) {
+      char buf[PTS_NUMBER_BUF_SIZE];
+      pts_number_format(code_point, buf);
+      pts_throw_new(&pts_type_builtin_RangeError, "Invalid code point %s", buf);
+    }
+    unsigned cp = (unsigned)code_point;
+    if (cp >= 0x10000) {
+      units[count++] = (uint16_t)pts_high_surrogate(cp);
+      units[count++] = (uint16_t)pts_low_surrogate(cp);
+    } else {
+      units[count++] = (uint16_t)cp;
+    }
+  }
+  return string_of_units(units, count);
 }
