@@ -114,7 +114,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Function values: function types, arrow functions and function expressions, function declarations used as values, calls of function values.
   - Closures with explicit environments in the IR: captured variables, shared where they may change; nested function declarations that capture; JS's per-iteration `let` bindings in loops.
   - `this` in arrow functions (lexical); `console.log`, `typeof` and `===` on function values.
-- [ ] **M2.4c Array methods with callbacks** (split from M2.4 by D-037; after M2.5a, which brings function values, D-040).
+- [x] **M2.4c Array methods with callbacks** (b737989a8) (split from M2.4 by D-037; after M2.5a, which brings function values, D-040).
   - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
 - [ ] **M2.5b `this` in methods** (split from M2.5 by D-040).
   - Methods and accessors in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).

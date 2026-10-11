@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.4c Array methods with callbacks
+- **Next task:** M2.5b `this` in methods
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.4c Array methods with callbacks: `forEach`, `map`, `filter`, `flatMap`, `some`, `every`, `find`/`findIndex`/`findLast`/`findLastIndex` (`find(…)!` throws if none), `reduce`/`reduceRight` (with or without an initial value), `Array.from` with a mapper, `sort` with a comparator (stable), all matching Node; each method is a helper generated in IR per array and callback type, calling the callback with the arguments it takes (D-042, SPEC §9.21). Unions of number or string literals (`-1 | 0 | 1`) are numbers or strings.
 - M2.5a Closures and arrow functions: function types as `pts_closure *` values (descriptor, code, captures); arrow functions, function expressions (named ones see themselves) and nested function declarations (hoisted to their block) capture enclosing variables by value, or in shared cells when they may change; for loops copy `let` cells per iteration; arrows use their method's `this` (and `super.m()`); function declarations as values; calls of function values; adapters between function types (fewer parameters, void results, class parameter types) and arrow literals shaped by their context; `console.log` (`[Function: name]` with JS's NamedEvaluation names), `typeof`, `===` (D-041, SPEC §9.20). M2.5 split by D-040 (M2.4c next, then M2.5b `this` in methods, M2.5c `Map`/`Set`). Fixed: a closure using its variable in its own initialiser was silently dropped.
 - M2.4b Array methods without callbacks: `split`, `slice`, `splice`, `concat`, `indexOf`, `lastIndexOf`, `includes`, `join` (and arrays as strings), `reverse`, `sort` (stable, by the elements' strings), `flat` (constant depth), `fill`, `Array.from` of an array or a string, all matching Node; class instances convert to strings with their `toString()` (D-039, SPEC §9.19). Fixed: a recursive array type crashed the compiler (now PTS1001).
 - M2.4a Array basics: `T[]` arrays with typed, unboxed element buffers, race-safe per brief §2.5 (capacity in the buffer, buffers published before lengths, unwritten pointer slots read as holes); literals, `length` (and shrinking it), `a[i]` reads by D-015's rule and writes (in range or appending), `push`, `pop`, `shift`, `unshift`, `pop()!`/`shift()!`, `for...of` over arrays, `Array.isArray`, and `console.log` of arrays ported from Node (grouping into columns, `... n more items`, `[Array]`, cycles) (D-038, SPEC §9.18). M2.4 split by D-037 (callback methods after M2.5); arrays of integer types moved to M2.6.
@@ -44,8 +45,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.4c Array methods with callbacks: `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, `Array.from` with a mapper. Callbacks are `ir.FuncType` values (D-041); an arrow literal argument is lowered at its contextual type's shape (`contextualFuncType`), but `map`'s contextual type has the type parameter `U`, which `functionType` can't map yet: the lowering will need the instantiated signature (`GetResolvedSignature` of the call) to type the callback and the result array. Generated code can call the callback inline in a loop, or the runtime can call it per element kind.
-2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M2.5b `this` in methods: methods and accessors in object literals (`this` is the object; D-036 deferred them), methods as values (`o.m` is unbound in JS: `this` is undefined when it's called plainly, so a method that uses `this` fails), `bind`/`call`/`apply` where the types allow, maybe function `.name`/`.length`. Object-literal methods could be closures stored in the shape's fields and called with the object as an extra `this` argument, or methods of a per-literal class; decide with D-036's interface method tables in mind (`pts_method_find` over each descriptor's method table).
+2. M2.5c `Map` and `Set`.
+3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -59,7 +61,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (74 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (77 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -85,6 +87,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.4c done.
 - 2026-10-11: M2.5a done (M2.5 split by D-040).
 - 2026-10-11: M2.4b done.
 - 2026-10-11: M2.4a done (M2.4 split by D-037).
