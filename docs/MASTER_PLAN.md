@@ -183,7 +183,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Checked conversions from `any` (and `unknown`) to primitives, integer types, classes and unions of them (`TypeError` on mismatch); checked `x!`.
 - [x] **M3.3b1 Runtime type checks** (62e2e0485) (split from M3.3 by D-070, from M3.3b by D-071).
   - Descriptors of the program's types for the runtime (interfaces, arrays, tuples, maps, sets, records), and checked conversions from `any` and `unknown` to them; checked `as` downcasts to them. (Function types and object types with methods need signatures: M3.3c.)
-- [ ] **M3.3b2a Checked object writes** (split from M3.3b by D-071, from M3.3b2 by D-072).
+- [x] **M3.3b2a Checked object writes** (e633e282a) (split from M3.3b by D-071, from M3.3b2 by D-072).
   - Writes of objects through `any` into typed fields, checked by the fields' declared types, which descriptors then carry.
   - Class-typed properties of objects that went through `any`: an object is one of an object type as it is only if its fields' declared types imply the type's, so that a later write through an object's own wider type can't break the view.
 - [ ] **M3.3b2b Guarded interface sites** (split from M3.3b2 by D-072).
