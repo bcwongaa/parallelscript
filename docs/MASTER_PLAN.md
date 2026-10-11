@@ -30,7 +30,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `pts/runtime/` with a C11 runtime: values, strings, `console.log` of primitives, panics.
   - Vendor bdwgc and libuv as pinned submodules under `pts/third_party/`, with a CMake (or Make) build into a cache dir (decision O11).
   - The runtime builds and links on its own.
-- [ ] **M0.5 Pipeline end to end.**
+- [x] **M0.5 Pipeline end to end.** (746d6fb)
   - Write the IR package `pts/ir`, a lowering for the tiny subset needed, the C emitter with `#line`, and the driver that runs clang.
   - Write the `cmd/pts` CLI with `build`, `run` and `emit-c`.
   - `console.log("Hello, ParallelScript")` must compile and run end to end.
