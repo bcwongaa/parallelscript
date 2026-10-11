@@ -134,7 +134,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Generic classes (`Box<int>`), one class per instance, printed with the class's name; generic superclasses and subclasses.
 - [x] **M2.6b3 Generic methods and nested generic functions** (dc80bbef9) (split from M2.6b2 by D-050).
   - Generic methods of classes (instance and static); generic functions inside functions and blocks. Generic methods of object literals and interfaces move to M3.3 (D-051).
-- [ ] **M2.6c Enums** (split from M2.6 by D-047).
+- [x] **M2.6c Enums** (2ce1c5b4f) (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
 - [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).
   - Tuples; destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`; default parameter values.
