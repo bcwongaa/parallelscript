@@ -87,7 +87,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.2a Class basics** (d405e8fd2) (split from M2.2 by D-025).
   - Class declarations with fixed layouts: fields (declared and initialised, in declaration order), constructors, `new`, `this`, methods.
   - Reading and assigning fields, calling methods; the numeric rules on fields, parameters and results.
-- [ ] **M2.2b `console.log` of instances** (split from M2.2 by D-025).
+- [x] **M2.2b `console.log` of instances** (c58de70a3) (split from M2.2 by D-025).
   - Node's format from the type descriptors, e.g. `Point { x: 1, y: 2 }`: nested instances, line breaking past 72/80 characters, depth 2 (`[Point]`), circular references (`<ref *1>`, `[Circular *1]`), strings quoted as Node quotes them.
 - [ ] **M2.2c Inheritance** (split from M2.2 by D-025).
   - Single inheritance with `extends`; `super(...)` and `super.method()`; vtables and overriding; abstract classes; `instanceof`.
