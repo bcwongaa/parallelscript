@@ -1,15 +1,8 @@
 name: CI
 
+# PTS: upstream's CI runs only on demand in this fork; .github/workflows/pts.yml gates every push (docs/FORK.md).
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  merge_group:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

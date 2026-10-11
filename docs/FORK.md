@@ -3,7 +3,7 @@
 ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.com/microsoft/typescript-go).
 
 - **Base:** tag `typescript/v7.0.2` (remote `upstream`). Never push to `upstream`.
-- **New code** lives in new directories and needs no ledger entry: `cmd/pts/`, `pts/`, `docs/` additions, `examples/`, `tools/agent/`, `CLAUDE.md`, `PROGRESS.md`, `Makefile`.
+- **New code** lives in new directories or files and needs no ledger entry: `cmd/pts/`, `pts/`, `docs/` additions, `examples/`, `tools/agent/`, `CLAUDE.md`, `PROGRESS.md`, `Makefile`, `.github/workflows/pts.yml`.
 - **Upstream modifications** are minimal, marked with a `// PTS:` comment at the edit site (`# PTS:` in YAML and shell), and listed below. `git grep -n "PTS:" -- ':!pts' ':!cmd/pts' ':!docs'` must match this table.
 
 ## Rebasing onto a newer TypeScript release
@@ -25,8 +25,17 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/module/util.go` | `GetResolutionDiagnostic` allows `.pts`; `TryGetJSExtensionForFile` maps `.pts` → `.js`. | M0.3 | 139254b |
 | `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.pts'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b |
 | `.gitmodules` | Pinned submodules `pts/third_party/bdwgc` (v8.2.12) and `pts/third_party/libuv` (v1.53.0). Upstream's `_submodules/TypeScript` entry is unchanged. | M0.4 | 26476ae |
+| `.github/workflows/ci.yml` | `on:` reduced to `workflow_dispatch`: upstream's CI (hereby build, full test matrix, release build, extension, lint) runs only on demand. See below. | M0.7 | (this commit) |
+| `.github/dependabot.yml` | `open-pull-requests-limit: 0` for both ecosystems: no version-update PRs (the fork commits straight to `main`, D-O02). | M0.7 | (this commit) |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 
 ## Disabled or limited upstream workflows
 
-(Filled in by M0.7.)
+ParallelScript's gate is `.github/workflows/pts.yml` (M0.7): on every push it builds `pts`, runs `make test` with the Node differential tests required, `make test-upstream` (the upstream packages the fork touches, plus `TestLocal` baselines) and, in a second job, `make test-upstream-cli` (upstream's CLI and LSP suites, minus the one known failure).
+
+| Workflow | State | Why |
+|---|---|---|
+| `ci.yml` (CI) | Manual only (`workflow_dispatch`) | Runs about 75 minutes across Windows, macOS and custom `TypeScript-1ES-*` runners, needs the TypeScript submodule and npm, and fails on the known pre-existing upstream failure. Its release job was already limited to `microsoft/typescript-go`. Run it by hand before merging a new upstream tag. |
+| `codeql.yml` (Code Scanning) | Unchanged | Its job is already guarded by `if: github.repository == 'microsoft/typescript-go'`, so it is a no-op here. |
+| `copilot-setup-steps.yml` | Unchanged | Manual only upstream. |
+| `dependabot.yml` | Version-update PRs off | See the ledger above. |

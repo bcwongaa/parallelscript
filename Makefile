@@ -7,7 +7,10 @@ UPSTREAM_PACKAGES := ./internal/tspath/... ./internal/core/... ./internal/ast/..
 	./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... \
 	./internal/parser/... ./internal/scanner/... ./internal/binder/...
 
-.PHONY: build test test-diff test-upstream bench
+# A pre-existing upstream failure at the fork base (PROGRESS.md, Known issues).
+UPSTREAM_KNOWN_FAILURE := TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped
+
+.PHONY: build test test-diff test-upstream test-upstream-cli bench
 
 # The compiler, at pts-bin/pts (it finds the runtime sources from there).
 build:
@@ -25,6 +28,10 @@ test-diff:
 test-upstream:
 	$(GO) test $(UPSTREAM_PACKAGES)
 	$(GO) test ./internal/testrunner/ -run TestLocal
+
+# Upstream's CLI and language-server suites: slow (several minutes).
+test-upstream-cli:
+	$(GO) test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/... -skip '$(UPSTREAM_KNOWN_FAILURE)'
 
 bench:
 	@if [ -x pts/bench/run.sh ]; then pts/bench/run.sh; else echo "No benchmarks yet: pts/bench/run.sh arrives with M1.5."; fi
