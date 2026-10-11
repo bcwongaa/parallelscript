@@ -84,10 +84,15 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.1 GC and the object model.** (1c0570727)
   - Integrate bdwgc in thread-aware mode with thread-local allocation; use atomic allocation for pointer-free data.
   - Type descriptors for every runtime type (name, fields mapped to offsets, methods), to be reused by `console.log` and JSON.
-- [ ] **M2.2 Classes.**
-  - Fixed layouts and vtables; single inheritance; `super`; fields and methods; getters and setters; statics.
-  - `private` and `#private`; abstract classes; `instanceof`.
-  - `console.log` of instances in Node's format, e.g. `Point { x: 1, y: 2 }`.
+- [ ] **M2.2a Class basics** (split from M2.2 by D-025).
+  - Class declarations with fixed layouts: fields (declared and initialised, in declaration order), constructors, `new`, `this`, methods.
+  - Reading and assigning fields, calling methods; the numeric rules on fields, parameters and results.
+- [ ] **M2.2b `console.log` of instances** (split from M2.2 by D-025).
+  - Node's format from the type descriptors, e.g. `Point { x: 1, y: 2 }`: nested instances, line breaking past 72/80 characters, depth 2 (`[Point]`), circular references (`<ref *1>`, `[Circular *1]`), strings quoted as Node quotes them.
+- [ ] **M2.2c Inheritance** (split from M2.2 by D-025).
+  - Single inheritance with `extends`; `super(...)` and `super.method()`; vtables and overriding; abstract classes; `instanceof`.
+- [ ] **M2.2d Accessors, statics and privacy** (split from M2.2 by D-025).
+  - Getters and setters; static fields and methods; `private` and `#private`; parameter properties.
 - [ ] **M2.3 Object literals and interfaces.**
   - Object literals become anonymous struct types; optional properties are stored as `T | undefined`.
   - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise.

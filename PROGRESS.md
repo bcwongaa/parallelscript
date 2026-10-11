@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.2 Classes
+- **Next task:** M2.2a Class basics (M2.2 split by D-025)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
@@ -33,8 +33,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.2 Classes: fixed layouts and vtables, single inheritance, `super`, fields, methods, accessors, statics, `private`/`#private`, abstract classes, `instanceof`, and `console.log` of instances (`Point { x: 1, y: 2 }`). Emit each class's `pts_type` from cgen as static data (compute `gc_descr` in Go: bit i of the bitmap for pointer word i, `PTS_GC_ALL_WORDS` past 62 words; D-024, SPEC §9.10) and allocate with `pts_object_new`. Instances need a new IR type (a class type) and property access/assignment on it; `ownLocal`/`target` in `pts/lower` show how names resolve.
-2. M2.3 Object literals and interfaces.
+1. M2.2a Class basics (then M2.2b `console.log` of instances, M2.2c inheritance, M2.2d accessors, statics and privacy; D-025). Emit each class's `pts_type` from cgen as static data (compute `gc_descr` in Go: bit i of the bitmap for pointer word i, `PTS_GC_ALL_WORDS` past 62 words; D-024, SPEC §9.10) and allocate with `pts_object_new`. Instances need a new IR type (a class type) and property access/assignment on it; `ownLocal`/`target` in `pts/lower` show how names resolve.
+2. M2.2b–M2.2d, then M2.3 Object literals and interfaces.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
