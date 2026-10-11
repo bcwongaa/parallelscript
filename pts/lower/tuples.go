@@ -66,21 +66,24 @@ func isTuple(t ir.Type) bool {
 }
 
 // tupleLiteral lowers an array literal that makes a tuple of the given shape: its
-// elements, converted to the element types, in order.
+// elements, converted to the element types, in order; a spread tuple's in its place.
 func (l *lowerer) tupleLiteral(node *ast.Node, shape *ir.Class) ir.Expr {
-	elements := node.AsArrayLiteralExpression().Elements.Nodes
-	values := make([]ir.Expr, len(elements))
-	for i, element := range elements {
-		if element.Kind == ast.KindSpreadElement {
-			l.notSupportedYet(element, "spreading `...` into a tuple is")
+	values := make([]ir.Expr, 0, len(shape.Fields))
+	for _, element := range node.AsArrayLiteralExpression().Elements.Nodes {
+		parts := l.argumentValues(element) // a spread tuple passes its elements (D-057)
+		if parts == nil {
 			return nil
 		}
-		value := l.expression(element)
-		if value == nil {
-			return nil
-		}
-		if values[i] = l.convert(value, shape.Fields[i].Type, element); values[i] == nil {
-			return nil
+		for _, part := range parts {
+			if _, ok := part.(*spreadValue); ok {
+				l.notSupportedYet(element, "spreading an array into a tuple is")
+				return nil
+			}
+			value := l.convert(part, shape.Fields[len(values)].Type, element)
+			if value == nil {
+				return nil
+			}
+			values = append(values, value)
 		}
 	}
 	return &ir.NewObject{Shape: shape, Order: 0, Values: values}

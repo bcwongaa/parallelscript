@@ -654,6 +654,8 @@ const (
 	ArrayElementChecked                // a[i], which throws RangeError for an index out of range
 	ArraySetElement                    // a[i] = v, for i at most the length (which appends); its value is v
 	ArrayPush                          // a.push(v, …), whose value is the new length
+	ArrayPushAll                       // a.push(...b): the elements of b, a new array of a's type, at the end of a
+	ArrayUnshiftAll                    // a.unshift(...b): the elements of b, a new array of a's type, at the start of a
 	ArrayUnshift                       // a.unshift(v, …), whose value is the new length
 	ArrayPop                           // a.pop() as a dynamic value: undefined if a is empty
 	ArrayPopChecked                    // a.pop()!, which throws RangeError if a is empty
@@ -674,7 +676,7 @@ const (
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
-	ArraySetElement: "setElement", ArrayPush: "push", ArrayUnshift: "unshift", ArrayPop: "pop", ArrayPopChecked: "popChecked",
+	ArraySetElement: "setElement", ArrayPush: "push", ArrayPushAll: "pushAll", ArrayUnshift: "unshift", ArrayUnshiftAll: "unshiftAll", ArrayPop: "pop", ArrayPopChecked: "popChecked",
 	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
 	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
 	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith"}
@@ -981,7 +983,7 @@ func (e *CallValue) Type() Type { return e.Callee.Type().(*FuncType).Result }
 
 func (e *ArrayCall) Type() Type {
 	switch e.Op {
-	case ArrayLength, ArraySetLength, ArrayPush, ArrayUnshift, ArrayIndexOf, ArrayLastIndexOf:
+	case ArrayLength, ArraySetLength, ArrayPush, ArrayPushAll, ArrayUnshift, ArrayUnshiftAll, ArrayIndexOf, ArrayLastIndexOf:
 		return Number
 	case ArrayElement, ArrayPop, ArrayShift:
 		return Value

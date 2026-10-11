@@ -268,6 +268,9 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		return nil
 	}
 	properties := node.AsObjectLiteralExpression().Properties.Nodes
+	if slices.ContainsFunc(properties, isSpreadAssignment) {
+		return l.spreadObjectLiteral(properties, shape, node)
+	}
 	fields := make([]*ir.Field, len(properties))
 	values := make([]ir.Expr, len(properties))
 	for i, property := range properties {
@@ -277,9 +280,6 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			value = l.expression(property.Initializer())
 		case ast.KindShorthandPropertyAssignment:
 			value = l.shorthandValue(property)
-		case ast.KindSpreadAssignment:
-			l.notSupportedYet(property, "spreading `...` into an object literal is")
-			return nil
 		case ast.KindMethodDeclaration:
 			if property.Name().Kind != ast.KindComputedPropertyName {
 				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
@@ -309,6 +309,129 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		}
 	}
 	return &ir.NewObject{Shape: shape, Order: shape.Order(fields), Values: values}
+}
+
+func isSpreadAssignment(node *ast.Node) bool { return node.Kind == ast.KindSpreadAssignment }
+
+// spreadProperty is a property of an object literal with spreads: a spread's object and
+// the names it copies, or a property written with its field and value.
+type spreadProperty struct {
+	source ir.Expr
+	names  []string
+	field  *ir.Field
+	value  ir.Expr
+	node   *ast.Node
+}
+
+// spreadObjectLiteral lowers an object literal with spreads (`{ ...o, x: 1 }`, D-058): an
+// object of its shape whose properties come in the order JS defines them: each spread's
+// in the order it copies them (spreadNames), and each property written, where a later
+// value of a property replaces the earlier one in its place.
+func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, node *ast.Node) ir.Expr {
+	parts := make([]spreadProperty, len(properties))
+	for i, property := range properties {
+		part := &parts[i]
+		part.node = property
+		switch property.Kind {
+		case ast.KindSpreadAssignment:
+			if part.source = l.expression(property.Expression()); part.source == nil {
+				return nil
+			}
+			if part.names = l.spreadNames(part.source, l.typeAt(property.Expression()), property); part.names == nil {
+				return nil
+			}
+		case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
+			if property.Name().Kind == ast.KindComputedPropertyName {
+				l.notSupportedYet(property.Name(), "computed property names are")
+				return nil
+			}
+			part.field = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
+			if property.Kind == ast.KindPropertyAssignment {
+				part.value = l.expression(property.Initializer())
+			} else {
+				part.value = l.shorthandValue(property)
+			}
+			if part.value == nil {
+				return nil
+			}
+			if part.value = l.convert(part.value, part.field.Type, property); part.value == nil {
+				return nil
+			}
+		default:
+			l.notSupportedYet(property, "methods and accessors in an object literal with a spread are")
+			return nil
+		}
+	}
+	return l.spreadObject(parts, shape, node)
+}
+
+// spreadObject makes the object of an object literal with spreads from its properties,
+// evaluated in the order the literal writes them: an impure value or spread object goes
+// into a local first, and so do a spread's property reads when anything impure follows,
+// since it could change them.
+func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *ast.Node) ir.Expr {
+	lastImpure := -1
+	for i, part := range parts {
+		if part.source != nil && !isPure(part.source) || part.value != nil && !isPure(part.value) {
+			lastImpure = i
+		}
+	}
+	var locals []*ir.Local
+	var bound []ir.Expr
+	bind := func(name string, value ir.Expr) ir.Expr {
+		local := l.newLocal(name, value.Type())
+		locals, bound = append(locals, local), append(bound, value)
+		return &ir.LocalRef{Local: local}
+	}
+	var order []*ir.Field
+	values := map[*ir.Field]ir.Expr{}
+	set := func(field *ir.Field, value ir.Expr) {
+		if _, ok := values[field]; !ok {
+			order = append(order, field)
+		}
+		values[field] = value
+	}
+	for i, part := range parts {
+		if part.source == nil {
+			if !isPure(part.value) {
+				part.value = bind("value", part.value)
+			}
+			set(part.field, part.value)
+			continue
+		}
+		source := part.source
+		if !isPure(source) {
+			source = bind("spread", source)
+		}
+		for _, name := range part.names {
+			field := shape.Field(name)
+			read := propertyOf(source, name)
+			if field == nil || read == nil {
+				l.notSupportedYet(part.node, fmt.Sprintf("spreading the property `%s` of a %s is", name, source.Type()))
+				return nil
+			}
+			if read = l.convert(read, field.Type, part.node); read == nil {
+				return nil
+			}
+			if i < lastImpure {
+				read = bind(name, read)
+			}
+			set(field, read)
+		}
+	}
+	if len(order) != len(shape.Fields) {
+		l.notSupportedYet(node, "an object literal whose spreads don't give every property is")
+		return nil
+	}
+	objectValues := make([]ir.Expr, len(order))
+	for i, field := range order {
+		objectValues[i] = values[field]
+	}
+	var object ir.Expr = &ir.NewObject{Shape: shape, Order: shape.Order(order), Values: objectValues}
+	for i := len(locals) - 1; i >= 0; i-- {
+		object = &ir.Bind{Local: locals[i], Value: bound[i], In: object}
+	}
+	return object
 }
 
 // literalType is the object type an object literal makes an object of: its contextual

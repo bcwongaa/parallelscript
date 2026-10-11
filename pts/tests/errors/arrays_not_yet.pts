@@ -1,8 +1,8 @@
-// Array features that arrive later are reported: spread, `thisArg` arguments, `map` with a
+// Array features that arrive later are reported: spreading other element types, `thisArg` arguments, `map` with a
 // callback that returns nothing, for...of over other iterables (M4.1), tuples with optional elements, converting
 // arrays between element types, and recursive array types.
 const a = [1, 2, 3];
-const copy = [...a];
+const copy: number[] = [...new Set<u8>()];
 const mapped = a.map((x) => x, a);
 a.map((x) => {});
 const depth = 2;
@@ -25,7 +25,7 @@ const points: Point[] = pixels;
 type Nested = Nested[];
 const nested: Nested = [];
 
-// error: arrays_not_yet.pts:5:15 - error PTS1001: spreading `...` into an array literal is not supported yet
+// error: arrays_not_yet.pts:5:25 - error PTS1001: spreading a u8[] into a number[] is not supported yet
 // error: arrays_not_yet.pts:6:32 - error PTS1001: the `thisArg` argument of array methods is not supported yet
 // error: arrays_not_yet.pts:7:1 - error PTS1001: `map` with a callback that returns nothing is not supported yet
 // error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet

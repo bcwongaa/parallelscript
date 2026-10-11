@@ -226,6 +226,14 @@ double pts_array_push(pts_array *array, const void *values, size_t count) {
   return (double)(length + count);
 }
 
+double pts_array_push_all(pts_array *array, const pts_array *values) {
+  return pts_array_push(array, load_buffer(values)->elements, pts_array_length_of(values));
+}
+
+double pts_array_unshift_all(pts_array *array, const pts_array *values) {
+  return pts_array_unshift(array, load_buffer(values)->elements, pts_array_length_of(values));
+}
+
 double pts_array_unshift(pts_array *array, const void *values, size_t count) {
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);

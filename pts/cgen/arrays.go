@@ -44,6 +44,10 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("PTS_ARRAY_SET(%s, %s, %s, %s)", elem, args[0], args[1], args[2])
 	case ir.ArrayPush, ir.ArrayUnshift:
 		c = fmt.Sprintf("pts_array_%s(%s, (%s[]){%s}, %d)", call.Op, args[0], elem, strings.Join(args[1:], ", "), len(args)-1)
+	case ir.ArrayPushAll:
+		c = fmt.Sprintf("pts_array_push_all(%s, %s)", args[0], args[1])
+	case ir.ArrayUnshiftAll:
+		c = fmt.Sprintf("pts_array_unshift_all(%s, %s)", args[0], args[1])
 	case ir.ArrayPop, ir.ArrayShift:
 		c = fmt.Sprintf("pts_array_%s_value(%s)", call.Op, args[0])
 	case ir.ArrayPopChecked:
@@ -149,7 +153,7 @@ func arrayEffects(op ir.ArrayOp) effects {
 		return readsLocals
 	case ir.ArrayElementChecked:
 		return readsLocals | mayThrow
-	case ir.ArrayPush, ir.ArrayUnshift, ir.ArrayPop, ir.ArrayShift, ir.ArraySplice, ir.ArrayReverse, ir.ArrayFill:
+	case ir.ArrayPush, ir.ArrayPushAll, ir.ArrayUnshift, ir.ArrayUnshiftAll, ir.ArrayPop, ir.ArrayShift, ir.ArraySplice, ir.ArrayReverse, ir.ArrayFill:
 		return readsLocals | writes
 	}
 	return readsLocals | writes | mayThrow // also join and sort, which may call toString methods

@@ -217,10 +217,10 @@ func (l *lowerer) isFunctionMethod(callee *ast.Node) bool {
 func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
 	name := callee.AsPropertyAccessExpression().Name().Text()
-	if l.hasSpreadArgument(call) {
-		return nil
-	}
 	args := call.Arguments.Nodes
+	if (name != "call" || len(args) > 0 && isSpreadElement(args[0])) && l.hasSpreadArgument(call) {
+		return nil // `call` spreads its arguments as other calls do
+	}
 	var tuple *ast.Node // the tuple `apply` passes the elements of
 	if name == "apply" {
 		switch literal := appliedArguments(args); {

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -81,12 +82,12 @@ func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 // can't and returns nil.
 func (l *lowerer) arrayLiteralOf(node *ast.Node, array *ir.Array) ir.Expr {
 	elements := node.AsArrayLiteralExpression().Elements.Nodes
+	if slices.ContainsFunc(elements, isSpreadElement) {
+		return l.spreadArray(elements, array)
+	}
 	elems := make([]ir.Expr, len(elements))
 	for i, element := range elements {
 		switch element.Kind {
-		case ast.KindSpreadElement:
-			l.notSupportedYet(element, "spreading `...` into an array literal is")
-			return nil
 		case ast.KindOmittedExpression:
 			l.notSupportedYet(node, "arrays with holes are")
 			return nil
@@ -100,6 +101,71 @@ func (l *lowerer) arrayLiteralOf(node *ast.Node, array *ir.Array) ir.Expr {
 		}
 	}
 	return &ir.NewArray{Array: array, Elems: elems}
+}
+
+func isSpreadElement(node *ast.Node) bool { return node.Kind == ast.KindSpreadElement }
+
+// spreadArray lowers elements with spreads (`...x`, of an array literal or of push's
+// arguments) to a new array of type array (D-057): each element converted to the element
+// type, and in place of each spread, the elements of an array of that type, of a tuple
+// (a literal, or a variable read once per element), of a string (its code points) or of
+// a map or set (its entries or elements). It reports what it can't lower and returns nil.
+func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
+	var parts []ir.Expr
+	for _, element := range elements {
+		var values []ir.Expr
+		switch {
+		case element.Kind == ast.KindOmittedExpression:
+			l.notSupportedYet(element, "arrays with holes are")
+			return nil
+		case element.Kind != ast.KindSpreadElement:
+			values = l.argumentValues(element)
+		default:
+			values = l.spreadParts(element, array)
+		}
+		if values == nil {
+			return nil
+		}
+		for _, value := range values {
+			if s, ok := value.(*spreadValue); ok {
+				if s.x.Type() != array {
+					l.notSupportedYet(element, fmt.Sprintf("spreading a %s into a %s is", s.x.Type(), array))
+					return nil
+				}
+				parts = append(parts, s.x)
+				continue
+			}
+			converted := l.convert(value, array.Elem, element)
+			if converted == nil {
+				return nil
+			}
+			parts = append(parts, converted)
+		}
+	}
+	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
+}
+
+// spreadParts lowers a spread element `...x` into an array of type array: as an argument
+// is (argumentValues), or for a string or a map or set, a new array of its items.
+func (l *lowerer) spreadParts(element *ast.Node, array *ir.Array) []ir.Expr {
+	if it, ok := l.mapIterableOf(element.Expression()); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		items := l.mapItemsArray(it, element)
+		if items == nil {
+			return nil
+		}
+		return []ir.Expr{&spreadValue{items}}
+	}
+	if l.typeAt(element.Expression()).Flags()&checker.TypeFlagsStringLike != 0 {
+		s := l.expression(element.Expression())
+		if s == nil {
+			return nil
+		}
+		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{s}}}}
+	}
+	return l.argumentValues(element)
 }
 
 // isEmptyArrayLiteral reports whether x is the array of a literal without elements.
@@ -212,8 +278,8 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 		return nil
 	}
 	for _, argument := range call.Arguments.Nodes {
-		if argument.Kind == ast.KindSpreadElement {
-			l.notSupportedYet(argument, "spread arguments are")
+		if argument.Kind == ast.KindSpreadElement && name != "push" && name != "unshift" {
+			l.notSupportedYet(argument, fmt.Sprintf("spread arguments of `%s` are", name))
 			return nil
 		}
 	}
@@ -240,6 +306,16 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 			return nil
 		}
 		return &ir.ArrayCall{Op: method.op, Args: append([]ir.Expr{array}, operands...)}
+	case (name == "push" || name == "unshift") && slices.ContainsFunc(args, isSpreadElement):
+		values := l.spreadArray(args, arrayType) // a new array, of the values in order
+		if values == nil {
+			return nil
+		}
+		op := ir.ArrayPushAll
+		if name == "unshift" {
+			op = ir.ArrayUnshiftAll
+		}
+		return &ir.ArrayCall{Op: op, Args: []ir.Expr{array, values}}
 	case name == "push" || name == "unshift":
 		values := l.arrayValues(args, arrayType, false)
 		if values == nil {

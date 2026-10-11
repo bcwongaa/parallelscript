@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -123,8 +124,7 @@ func (l *lowerer) bindName(name *ast.Node, value ir.Expr, node *ast.Node) ir.Stm
 // default never applies, since a property's type can't hold undefined yet.
 func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.Node, rest bool) ir.Expr {
 	if rest {
-		l.notSupportedYet(element, "rest properties (`...`) in object patterns are")
-		return nil
+		return l.restProperties(source, element)
 	}
 	if property == nil {
 		property = element.Name()
@@ -134,6 +134,16 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 		return nil
 	}
 	name := property.Text()
+	if read := propertyOf(source, name); read != nil {
+		return read
+	}
+	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
+	return nil
+}
+
+// propertyOf reads the property name of source: a field of a class or shape, a class's
+// getter, or a field through an interface; nil if it has no such property.
+func propertyOf(source ir.Expr, name string) ir.Expr {
 	switch t := source.Type().(type) {
 	case *ir.Class:
 		if field := t.Field(name); field != nil && !field.Method {
@@ -150,8 +160,72 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 			return &ir.FieldRef{X: source, Field: field}
 		}
 	}
-	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
 	return nil
+}
+
+// spreadNames are the names of the properties that spreading source (`...o`, written at
+// node) copies, in the order JS copies them (D-058): a class instance's fields in the
+// order its constructors make them, or the properties of an object type in the order
+// objectType (source's type, or one tsc made from it) lists them. nil if it is no object,
+// or a tuple (reported).
+func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *ast.Node) []string {
+	var names []string
+	class, isClass := source.Type().(*ir.Class)
+	_, isInterface := source.Type().(*ir.Interface)
+	switch {
+	case isClass && !class.Shape:
+		for _, field := range class.AllFields() {
+			if !field.Method && !isPrivateName(field.Name) {
+				names = append(names, field.Name)
+			}
+		}
+	case isClass && !class.Tuple || isInterface:
+		for _, property := range l.checker.GetPropertiesOfType(objectType) {
+			names = append(names, property.Name)
+		}
+	default:
+		l.notSupportedYet(node, fmt.Sprintf("spreading a %s into an object is", source.Type()))
+		return nil
+	}
+	return names
+}
+
+// restProperties is the object a rest element of an object pattern (`...others`, element)
+// takes from source: a new object of its type's shape holding source's properties that
+// the pattern doesn't name, in the order a spread copies them (D-058).
+func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
+	restType := l.typeAt(element.Name())
+	shape := l.shape(restType, element)
+	if shape == nil {
+		return nil
+	}
+	names := l.spreadNames(source, restType, element) // tsc keeps source's order in restType
+	if names == nil {
+		return nil
+	}
+	var fields []*ir.Field
+	var values []ir.Expr
+	for _, name := range names {
+		field := shape.Field(name)
+		if field == nil {
+			continue // named by the pattern
+		}
+		read := propertyOf(source, name)
+		if read == nil {
+			l.notSupportedYet(element, fmt.Sprintf("rest properties holding the method `%s` are", name))
+			return nil
+		}
+		value := l.convert(read, field.Type, element)
+		if value == nil {
+			return nil
+		}
+		fields, values = append(fields, field), append(values, value)
+	}
+	if len(fields) != len(shape.Fields) {
+		l.notSupportedYet(element, "rest properties of this object are")
+		return nil
+	}
+	return &ir.NewObject{Shape: shape, Order: shape.Order(fields), Values: values}
 }
 
 // elementPart reads from source the element at index of an array or tuple pattern (or of

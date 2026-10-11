@@ -1,0 +1,11 @@
+// Spreads keep integer element and field types (D-058).
+const bytes: u8[] = [250, 5];
+const more: u8[] = [...bytes, 1];
+more.push(...bytes);
+const pixel: { r: u8; g: u8 } = { r: 200, g: 100 };
+const brighter = { ...pixel, g: pixel.g + pixel.g };
+const { r, ...rest } = brighter;
+console.log(more, brighter, r + r, rest);
+
+// expect:
+// [ 250, 5, 1, 250, 5 ] { r: 200, g: 200 } 144 { g: 200 }

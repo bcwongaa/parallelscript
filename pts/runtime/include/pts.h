@@ -636,6 +636,10 @@ void pts_array_set(pts_array *array, double index, const void *value);
 /* Appends (push) or prepends (unshift) count elements; both return the new length. */
 double pts_array_push(pts_array *array, const void *values, size_t count);
 double pts_array_unshift(pts_array *array, const void *values, size_t count);
+// a.push(...values) and a.unshift(...values), for values a new array of a's type that
+// nothing else holds (D-057).
+double pts_array_push_all(pts_array *array, const pts_array *values);
+double pts_array_unshift_all(pts_array *array, const pts_array *values);
 
 /* Removes the last (pop) or first (shift) element into *out; RangeError if array is empty. */
 void pts_array_pop(pts_array *array, void *out);

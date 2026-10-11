@@ -1,6 +1,6 @@
 // Object types and literals that arrive later are reported: members whose types differ, setter-only,
 // overloaded and generic members, optional properties (M3.1), a method called with another
-// object as `this`, spread, numeric and computed keys.
+// object as `this`, methods beside a spread, numeric and computed keys.
 interface Point {
   x: number;
   y: number;
@@ -19,7 +19,7 @@ const s: Sized = new Box();
 type Maybe = { value?: number };
 const m: Maybe = {};
 const withGetter = { get [`run`](): number { return 1; } };
-const spread = { ...p3 };
+const spread = { ...p3, m() { return 1; } };
 const numeric = { 1: "one" };
 const key = "k";
 const computed = { [key]: 1 };
@@ -45,7 +45,7 @@ function size(o: Sized): number {
 // error: object_types_not_yet.pts:18:18 - error PTS1001: using a `Box` as a `{size(): number}`, whose `size` it doesn't provide with the same types, is not supported yet
 // error: object_types_not_yet.pts:20:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
 // error: object_types_not_yet.pts:21:26 - error PTS1001: computed property names are not supported yet
-// error: object_types_not_yet.pts:22:18 - error PTS1001: spreading `...` into an object literal is not supported yet
+// error: object_types_not_yet.pts:22:25 - error PTS1001: methods and accessors in an object literal with a spread are not supported yet
 // error: object_types_not_yet.pts:23:7 - error PTS1001: numeric property names
 // error: object_types_not_yet.pts:25:20 - error PTS1001: computed property names are not supported yet
 // error: object_types_not_yet.pts:29:16 - error PTS1001: a property with a setter but no getter (`w` in WriteOnly) is not supported yet

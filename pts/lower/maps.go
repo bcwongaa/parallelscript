@@ -432,19 +432,25 @@ func (l *lowerer) callbackArgument(arg *ast.Node) ir.Expr {
 	return callback
 }
 
+// mapItemsArray is a new array of the items an iteration over a map or set yields, made
+// by a helper; nil if it fails (reported at node).
+func (l *lowerer) mapItemsArray(it mapIterable, node *ast.Node) ir.Expr {
+	mt := it.m.Type().(*ir.MapType)
+	helper := l.mapHelper(helperKey{method: arrayFromMethods[it.items], collection: mt}, node, l.arrayOf(l.mapItemType(mt, it.items)), nil)
+	if helper == nil {
+		return nil
+	}
+	return &ir.Call{Func: helper, Args: []ir.Expr{it.m}}
+}
+
 // arrayFromMap lowers `Array.from(it)` and `Array.from(it, mapper)` for a map or set, or
 // the keys, values or entries of one: an array of what the iteration yields, each mapped
 // with (item, index) if there is a mapper, through a helper.
 func (l *lowerer) arrayFromMap(call *ast.CallExpression, it mapIterable) ir.Expr {
 	mt := it.m.Type().(*ir.MapType)
-	elem := l.mapItemType(mt, it.items)
 	method := arrayFromMethods[it.items]
 	if len(call.Arguments.Nodes) < 2 {
-		helper := l.mapHelper(helperKey{method: method, collection: mt}, call.Expression, l.arrayOf(elem), nil)
-		if helper == nil {
-			return nil
-		}
-		return &ir.Call{Func: helper, Args: []ir.Expr{it.m}}
+		return l.mapItemsArray(it, call.Expression)
 	}
 	mapper := l.callbackArgument(call.Arguments.Nodes[1])
 	if mapper == nil {

@@ -1,0 +1,88 @@
+// Spread in literals and rest properties (D-058): arrays, tuples, strings, sets and maps
+// spread into array literals and push/unshift; tuples into tuples; objects and class
+// instances into object literals (later properties override in place, values in order);
+// rest properties in object patterns; spread arguments of call.
+const a = [1, 2];
+const b = [3];
+console.log([...a], [0, ...a, 9, ...b], [...a, ...a], [...[]], [..."héllo"]);
+const pair: [number, number] = [7, 8];
+console.log([...pair, 1], [...[4, 5]]);
+const tags = new Set(["x", "y"]);
+const ages = new Map([["ada", 36]]);
+console.log([...tags], [...ages], [...ages.keys()], [...ages.values(), 0]);
+const out: number[] = [];
+console.log(out.push(...a), out.push(0, ...b, ...a), out, out.unshift(...b), out);
+const words = ["p"];
+words.push(..."qr");
+console.log(words);
+const grid = [[1], [2]];
+console.log([...grid, [3]]);
+const duo: [number, string] = [7, "s"];
+const triple: [boolean, number, string] = [true, ...duo];
+const four: [number, string, number, string] = [...duo, ...duo];
+console.log(triple, four);
+const base = { x: 1, y: 2 };
+const moved = { ...base, x: 10 };
+const first = { z: 0, ...base };
+const both = { ...base, ...moved, w: 4 };
+console.log(moved, first, both, base);
+class Point {
+  label = "p";
+  constructor(public x: number, public y: number) {}
+  get size(): number {
+    return this.x + this.y;
+  }
+  norm(): number {
+    return 1;
+  }
+}
+const p = new Point(3, 4);
+const copy = { ...p };
+console.log(copy, { ...p, extra: true });
+let n = 0;
+function next(): number {
+  n++;
+  return n;
+}
+const counter = { count: 5 };
+const ordered = { a: next(), ...counter, b: next(), count: counter.count++ };
+console.log(ordered, counter, n);
+const { x, ...rest } = both;
+console.log(x, rest);
+const { label, ...coords } = p;
+console.log(label, coords);
+function strip({ y, ...others }: { x: number; y: number; z: number }) {
+  return others;
+}
+console.log(strip({ x: 1, y: 2, z: 3 }));
+function sum(...xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0);
+}
+function add(a: number, b: number): number {
+  return a + b;
+}
+const nums = [1, 2, 3];
+const couple: [number, number] = [4, 5];
+console.log(sum.call(null, ...nums), sum.call(null, 0, ...nums, 9), add.call(null, ...couple));
+
+// expect:
+// [ 1, 2 ] [ 0, 1, 2, 9, 3 ] [ 1, 2, 1, 2 ] [] [ 'h', 'é', 'l', 'l', 'o' ]
+// [ 7, 8, 1 ] [ 4, 5 ]
+// [ 'x', 'y' ] [ [ 'ada', 36 ] ] [ 'ada' ] [ 36, 0 ]
+// 2 6 [
+//   3, 1, 2, 0,
+//   3, 1, 2
+// ] 7 [
+//   3, 1, 2, 0,
+//   3, 1, 2
+// ]
+// [ 'p', 'q', 'r' ]
+// [ [ 1 ], [ 2 ], [ 3 ] ]
+// [ true, 7, 's' ] [ 7, 's', 7, 's' ]
+// { x: 10, y: 2 } { z: 0, x: 1, y: 2 } { x: 10, y: 2, w: 4 } { x: 1, y: 2 }
+// { x: 3, y: 4, label: 'p' } { x: 3, y: 4, label: 'p', extra: true }
+// { a: 1, count: 5, b: 2 } { count: 6 } 2
+// 10 { y: 2, w: 4 }
+// p { x: 3, y: 4 }
+// { x: 1, z: 3 }
+// 6 15 9
