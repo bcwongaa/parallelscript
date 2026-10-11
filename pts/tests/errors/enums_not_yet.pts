@@ -1,0 +1,13 @@
+// Enum features not supported yet (D-052): members whose values tsc can't compute, and
+// the enum object as a value.
+enum Computed {
+  Length = "x".length,
+  Fixed = 2,
+}
+enum Plain {
+  Zero,
+}
+console.log(Plain, Computed.Fixed);
+
+// error: enums_not_yet.pts:4:3 - error PTS1001: enum members whose values aren't constants are not supported yet
+// error: enums_not_yet.pts:10:13 - error PTS1001: using the enum object `Plain` as a value is not supported yet

@@ -1,0 +1,7 @@
+export enum Color {
+  Red = 1,
+  Green,
+}
+export const enum Size {
+  Small = "s",
+}

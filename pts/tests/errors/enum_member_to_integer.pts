@@ -1,0 +1,8 @@
+// A numeric enum's member is a number, which converts to an integer type only with `as` (D-052).
+enum Plain {
+  Zero,
+}
+const small: u8 = Plain.Zero;
+const converted: u8 = Plain.Zero as u8;
+
+// error: enum_member_to_integer.pts:5:19 - error PTS2001: a number doesn't convert to u8 implicitly

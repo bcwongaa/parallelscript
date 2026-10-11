@@ -1,0 +1,52 @@
+// Enums compile to constants (D-052): numeric, string and const enums, members by name or
+// by string key, enum types as numbers and strings, switch over members, a numeric enum's
+// reverse mapping (the last member with the value wins; undefined for none), and enums
+// imported from another module.
+import * as palette from "./enums/palette.pts";
+enum Color {
+  Red,
+  Green = 5,
+  Blue,
+}
+enum Direction {
+  Up = "UP",
+  Down = "DOWN",
+}
+const enum Flags {
+  None = 0,
+  A = 1 << 0,
+  B = 1 << 1,
+  AB = A | B,
+}
+enum Duplicates {
+  X = 1,
+  Y = 1,
+}
+function describe(c: Color): string {
+  switch (c) {
+    case Color.Red:
+      return "red";
+    case Color.Green:
+      return "green";
+    default:
+      return "other " + c;
+  }
+}
+let c: Color = Color.Blue;
+console.log(Color.Red, Color.Green, c, Color["Blue"], describe(Color.Green), describe(c));
+console.log(Direction.Up, Direction["Down"], Flags.AB, Flags.A | Flags.B);
+const name: string = Color[c];
+console.log(name, Color[5], Color[99], Duplicates[1], `${Color[0]}`);
+const dirs: Direction[] = [Direction.Down, Direction.Up];
+console.log(dirs, dirs.includes(Direction.Up), typeof Color.Red, typeof Direction.Up);
+c = Color.Red;
+console.log(c === Color.Red, c + 1);
+console.log(palette.Color.Green, palette.Color[2], palette.Size.Small);
+
+// expect:
+// 0 5 6 6 green other 6
+// UP DOWN 3 3
+// Blue Green undefined Y Red
+// [ 'DOWN', 'UP' ] true number string
+// true 1
+// 2 Green s

@@ -336,6 +336,8 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		return l.jump(node, node.AsBreakStatement().Label, false)
 	case ast.KindContinueStatement:
 		return l.jump(node, node.AsContinueStatement().Label, true)
+	case ast.KindEnumDeclaration:
+		l.enumDeclaration(node)
 	case ast.KindEmptyStatement, ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
 		// No runtime effect.
 	case ast.KindImportDeclaration, ast.KindExportDeclaration:
@@ -988,8 +990,17 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 	case ast.KindTemplateExpression:
 		return l.template(node)
 	case ast.KindPropertyAccessExpression:
+		if x, ok := l.enumMember(node); ok {
+			return x
+		}
 		return l.propertyAccess(node)
 	case ast.KindElementAccessExpression:
+		if x, ok := l.enumMember(node); ok {
+			return x
+		}
+		if l.isEnumReverseMapping(node) {
+			return l.enumReverseMapping(node, true)
+		}
 		if l.isArrayElement(node) {
 			return l.arrayElement(node, ir.ArrayElementChecked)
 		}
@@ -1017,6 +1028,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 	inner := ast.SkipParentheses(node)
 	switch {
+	case l.isEnumReverseMapping(inner):
+		return l.enumReverseMapping(inner, false)
 	case l.isStringElement(inner):
 		return l.stringElement(inner, ir.StringElement)
 	case l.isArrayElement(inner):
@@ -1071,6 +1084,10 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 	}
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0 {
 		l.notSupportedYet(node, "using the module namespace `"+scanner.GetTextOfNode(node)+"` as a value is")
+		return nil, true
+	}
+	if symbol != nil && symbol.Flags&ast.SymbolFlagsEnum != 0 {
+		l.notSupportedYet(node, "using the enum object `"+scanner.GetTextOfNode(node)+"` as a value is")
 		return nil, true
 	}
 	return nil, false

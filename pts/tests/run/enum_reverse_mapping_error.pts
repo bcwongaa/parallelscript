@@ -1,0 +1,13 @@
+// no-diff: where a string is required, a value no member of the enum has throws RangeError (D-015, D-052); Node gives undefined
+enum Color {
+  Red = 1,
+  Green,
+}
+console.log(Color[2]);
+const missing: string = Color[7];
+console.log(missing);
+
+// expect:
+// Green
+// exit: 1
+// stderr: RangeError: 7 is not a value of the enum Color
