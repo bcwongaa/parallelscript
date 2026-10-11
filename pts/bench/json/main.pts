@@ -1,0 +1,52 @@
+// JSON: stringify 50,000 typed records, parse the text back into dynamic values, read
+// them, and stringify the parsed data again, plain and indented; three rounds. Node and
+// Bun run this file too.
+interface Item {
+  id: number;
+  name: string;
+  tags: string[];
+  score: number;
+  active: boolean;
+  position: { x: number; y: number };
+}
+
+function makeItems(n: number, round: number): Item[] {
+  const items: Item[] = [];
+  for (let i = 0; i < n; i++) {
+    const k = i + round;
+    items.push({
+      id: k,
+      name: "item-" + k,
+      tags: ["t" + (k % 7), "group" + (k % 13)],
+      score: ((k * 37) % 1000) / 8,
+      active: k % 3 === 0,
+      position: { x: k % 100, y: (k * 7) % 100 },
+    });
+  }
+  return items;
+}
+
+function checksum(s: string): number {
+  let sum = 0;
+  for (let i = 0; i < s.length; i += 13) {
+    sum = (sum * 31 + s.charCodeAt(i)) % 1000003;
+  }
+  return sum;
+}
+
+const n = 50000;
+for (let round = 0; round < 3; round++) {
+  const text = JSON.stringify(makeItems(n, round));
+  const data = JSON.parse(text);
+  let score = 0;
+  let active = 0;
+  let tags = 0;
+  for (const item of data) {
+    score += item.score;
+    if (item.active) active++;
+    tags += item.tags.length + item.position.x;
+  }
+  const again = JSON.stringify(data);
+  const pretty = JSON.stringify(data, null, 2);
+  console.log(text.length, checksum(text), score, active, tags, again.length, pretty.length);
+}

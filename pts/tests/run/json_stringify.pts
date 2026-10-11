@@ -63,3 +63,23 @@ console.log(JSON.stringify([new User("ann", ["x"]), new User("bo", [], 3)]));
 console.log(JSON.stringify(JSON.parse('{"a":[1,{"b":"c"}],"d":"\\u00e9"}')));
 const tuple: [number, string] = [1, "t"];
 console.log(JSON.stringify({ tuple, big: 1 }));
+const withGetter = {
+  a: 1,
+  get b(): number {
+    return this.a + 1;
+  },
+};
+interface Options {
+  name: string;
+  verbose?: boolean;
+  level?: number;
+}
+const options: Options = { name: "x", level: 2 };
+class AppError extends Error {
+  code = 5;
+  constructor(message: string) {
+    super(message);
+  }
+}
+console.log(JSON.stringify(withGetter), JSON.stringify(options), JSON.stringify(new AppError("bad")));
+console.log(JSON.stringify({ when: "now", list: [options] }, (key, value) => (key === "level" ? undefined : value), "\t"));

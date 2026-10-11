@@ -45,3 +45,16 @@ Notes:
 - binary_trees: bdwgc (conservative, non-moving, non-generational) is the cost; ParallelScript uses 127 MB, Node 264 MB. Collecting only when the program has allocated as much as the heap holds (D-060) took it from about 2.9 s to 2.1 s. A generational or precise collector is M8 work.
 - nbody: loop indices are `number` (doubles), so every `bodies[i]` converts and bounds-checks a double; Go's are ints. Integer inference is M8 work; with `int` indices the gap narrows, as fib_int shows.
 - string_building: before D-061 every concatenation copied both strings, so this benchmark would have taken minutes.
+
+## M3 (in progress)
+
+Measured on 2026-10-12 (M3.4b), `pts/bench/run.sh json word_freq` with 2 warm-ups and 10 runs (σ under 5% except Bun's, up to 16%). New: json (stringify 50,000 typed records, parse them back as `any`, read them, stringify the parsed data plain and indented; three rounds) and word_freq (two million generated words counted in a `Map<string, number>`, sorted by count and word). See D-081. The full M3 table comes with M3.8.
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| json | 1145 ms | 727 ms | 481 ms | 1784 ms | 0.63× | 1.56× |
+| word_freq | 1629 ms | 1292 ms | 1139 ms | 567 ms | 0.79× | 0.35× |
+
+Notes:
+- json: parsed data is dynamic (hash-map objects of `any`, D-080), so reading it goes through `pts_dynamic_get`; stringify reads fields in place. The rest is number formatting (Ryu), allocation and marking by bdwgc, and hashing keys. Go's `encoding/json` reflects over structs and builds maps, hence its time.
+- word_freq: the `Map` hashes each word's bytes; the sort's comparator is a closure called through its function pointer with tuples; Go's map and `sort.Slice` are tighter.

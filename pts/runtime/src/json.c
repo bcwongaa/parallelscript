@@ -22,11 +22,14 @@ const pts_type pts_type_any_record = {
 
 /* ---------------------------------------------------------------- parse */
 
+enum { KEY_CACHE = 256 };
+
 typedef struct parser {
   const pts_string *source;
   const char *bytes;
-  size_t length; /* in bytes */
-  size_t at;     /* the byte being read */
+  size_t length;                 /* in bytes */
+  size_t at;                     /* the byte being read */
+  pts_string *keys[KEY_CACHE];   /* recent object keys without escapes, by a hash of their bytes: one string per repeated key */
 } parser;
 
 /* Whether the source is the text of a value that commonly reaches JSON.parse by mistake, which V8 names in full. */
@@ -185,13 +188,26 @@ static int32_t hex4(const parser *p, size_t at, size_t *bad) {
   return value;
 }
 
-/* A string whose opening quote is at p->at. */
-static pts_string *parse_string(parser *p) {
+/* The string of bytes, from the key cache if it is an object key seen before (strings are immutable, so one serves every object). */
+static pts_string *key_string(parser *p, const char *bytes, size_t n) {
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < n; i++) {
+    hash = (hash ^ (unsigned char)bytes[i]) * 16777619u;
+  }
+  pts_string **slot = &p->keys[hash % KEY_CACHE];
+  if (*slot != NULL && (*slot)->byte_len == n && memcmp((*slot)->bytes, bytes, n) == 0) {
+    return *slot;
+  }
+  return *slot = pts_string_from_utf8(bytes, n);
+}
+
+/* A string whose opening quote is at p->at; an object key if key. */
+static pts_string *parse_string(parser *p, bool key) {
   size_t start = ++p->at;
   while (p->at < p->length) { /* the common case: no escapes */
     unsigned char c = (unsigned char)p->bytes[p->at];
     if (c == '"') {
-      pts_string *s = pts_string_from_utf8(p->bytes + start, p->at - start);
+      pts_string *s = key ? key_string(p, p->bytes + start, p->at - start) : pts_string_from_utf8(p->bytes + start, p->at - start);
       p->at++;
       return s;
     }
@@ -365,7 +381,7 @@ static pts_value parse_object(parser *p) {
     if (p->at >= p->length || p->bytes[p->at] != '"') {
       fail_at(p, first ? "Expected property name or '}' in JSON" : "Expected double-quoted property name in JSON", p->at);
     }
-    pts_string *key = parse_string(p);
+    pts_string *key = parse_string(p, true);
     skip_whitespace(p);
     if (p->at >= p->length || p->bytes[p->at] != ':') {
       fail_at(p, "Expected ':' after property name in JSON", p->at);
@@ -395,7 +411,7 @@ static pts_value parse_value(parser *p) {
   char c = p->bytes[p->at];
   switch (c) {
   case '"':
-    return pts_value_from_string(parse_string(p));
+    return pts_value_from_string(parse_string(p, false));
   case '{':
     return parse_object(p);
   case '[':
@@ -415,7 +431,7 @@ static pts_value parse_value(parser *p) {
 }
 
 pts_value pts_json_parse(const pts_string *text) {
-  parser p = {text, text->bytes, text->byte_len, 0};
+  parser p = {.source = text, .bytes = text->bytes, .length = text->byte_len};
   pts_value value = parse_value(&p);
   skip_whitespace(&p);
   if (p.at < p.length) {
@@ -452,6 +468,15 @@ static void put_quoted(writer *w, const pts_string *s) {
   static const char hex[] = "0123456789abcdef";
   put(w, "\"", 1);
   const unsigned char *bytes = (const unsigned char *)s->bytes;
+  size_t plain = 0; /* the common case: nothing to escape */
+  while (plain < s->byte_len && bytes[plain] >= 0x20 && bytes[plain] != '"' && bytes[plain] != '\\' && bytes[plain] != 0xED) {
+    plain++;
+  }
+  if (plain == s->byte_len) {
+    put(w, s->bytes, s->byte_len);
+    put(w, "\"", 1);
+    return;
+  }
   size_t start = 0;
   for (size_t i = 0; i < s->byte_len; i++) {
     unsigned char c = bytes[i];
@@ -636,29 +661,73 @@ static void serialize_array(writer *w, pts_value value) {
   put(w, "]", 1);
 }
 
-/* The own enumerable properties (or the replacer's list) of an object, a hash-map object, a map or a set. */
+/* Writes one property of an object (value), unless it is undefined or a function; returns whether it wrote it. */
+static bool serialize_property(writer *w, pts_value object, pts_value key, const char *name, size_t name_length, pts_value value, bool first) {
+  size_t mark = w->out.length;
+  if (!first) {
+    put(w, ",", 1);
+  }
+  if (w->gap_length > 0) {
+    put_newline_indent(w);
+  }
+  pts_string name_string = {&pts_string_type, 0, (uint32_t)name_length, 0, (char *)name};
+  put_quoted(w, &name_string);
+  put(w, w->gap_length > 0 ? ": " : ":", w->gap_length > 0 ? 2 : 1);
+  if (!serialize(w, object, key, value)) {
+    w->out.length = mark; /* undefined and functions are left out */
+    return false;
+  }
+  return true;
+}
+
+/*
+ * The own enumerable properties of an object, a hash-map object, a map or a set, as
+ * Object.keys lists them (D-077) and reads through `any` see them, or the replacer's list.
+ * An object's fields and a hash-map object's entries are read in place.
+ */
 static void serialize_object(writer *w, pts_value value) {
-  pts_array *keys = w->keys != NULL ? w->keys : (pts_array *)pts_value_as_object(pts_value_keys(value));
-  size_t length = pts_array_length_of(keys);
   bool any = false;
   put(w, "{", 1);
   w->depth++;
-  for (size_t i = 0; i < length; i++) {
-    pts_value key = pts_array_element(keys, (double)i);
-    size_t mark = w->out.length;
-    if (any) {
-      put(w, ",", 1);
+  pts_object *object = pts_value_as_object(value);
+  const pts_type *type = object->type;
+  if (w->keys == NULL && type->kind == PTS_KIND_OBJECT && !pts_instance_of(object, &pts_type_builtin_Error)) {
+    for (uint32_t i = 0; i < type->field_count; i++) {
+      const pts_field *field = &type->fields[i];
+      pts_value key = PTS_VALUE_UNDEFINED; /* made only for a toJSON, a replacer or a getter */
+      pts_value property;
+      if (field->name[0] == '#') {
+        continue; /* private */
+      }
+      if (pts_field_is_accessor(field->kind)) { /* an object literal's getter */
+        key = pts_value_from_string(pts_string_from_cstr(field->name));
+        property = pts_dynamic_get(value, key);
+      } else {
+        property = pts_value_of_slot(field->kind, (const char *)object + field->offset);
+        if (field->kind == PTS_FIELD_VALUE && property == PTS_VALUE_ABSENT) {
+          continue; /* an optional property left out */
+        }
+      }
+      if (key == PTS_VALUE_UNDEFINED && (w->replacer != PTS_VALUE_UNDEFINED || pts_value_is_object(property))) {
+        key = pts_value_from_string(pts_string_from_cstr(field->name));
+      }
+      any |= serialize_property(w, value, key, field->name, strlen(field->name), property, !any);
     }
-    if (w->gap_length > 0) {
-      put_newline_indent(w);
+  } else if (w->keys == NULL && type->kind == PTS_KIND_RECORD) {
+    pts_map_iterator entries = pts_record_iterate((pts_map *)object);
+    while (pts_map_next(&entries)) {
+      pts_string *name = PTS_MAP_ITERATOR_KEY(pts_string *, entries);
+      pts_value property = pts_value_of_slot(type->element, &entries.value);
+      any |= serialize_property(w, value, pts_value_from_string(name), name->bytes, name->byte_len, property, !any);
     }
-    put_quoted(w, pts_value_as_string(key));
-    put(w, w->gap_length > 0 ? ": " : ":", w->gap_length > 0 ? 2 : 1);
-    if (!serialize(w, value, key, pts_dynamic_get(value, key))) {
-      w->out.length = mark; /* undefined and functions are left out */
-      continue;
+  } else {
+    pts_array *keys = w->keys != NULL ? w->keys : (pts_array *)pts_value_as_object(pts_value_keys(value));
+    size_t length = pts_array_length_of(keys);
+    for (size_t i = 0; i < length; i++) {
+      pts_value key = pts_array_element(keys, (double)i);
+      const pts_string *name = pts_value_as_string(key);
+      any |= serialize_property(w, value, key, name->bytes, name->byte_len, pts_dynamic_get(value, key), !any);
     }
-    any = true;
   }
   w->depth--;
   if (any && w->gap_length > 0) {
@@ -672,7 +741,7 @@ static bool serialize(writer *w, pts_value holder, pts_value key, pts_value valu
   pts_stack_check();
   pts_value key_string = pts_value_is_number(key) ? pts_value_from_string(pts_value_to_string(key)) : key;
   pts_value replaced;
-  if (call_to_json(value, key_string, &replaced)) {
+  if (pts_value_is_object(value) && call_to_json(value, key_string, &replaced)) {
     value = replaced;
   }
   if (w->replacer != PTS_VALUE_UNDEFINED) {

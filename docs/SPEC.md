@@ -801,3 +801,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering:** `json.go`: `jsonParse`, `jsonStringify`; `isGlobalMember` (`records.go`, which `isObjectStatic` now uses).
 - **C:** `Record<string, any>` uses the runtime's descriptor (`nameMapDescriptor`, `maps.go`); JSON.stringify turns on declared types (dynamic entries and full method tables) like calls through `any` (`collectChecks`).
 - **Tests:** `pts/tests/run/json_parse.pts`, `json_stringify.pts` (against Node), `json_checks.pts`.
+
+### 9.58 The JSON and word-frequency benchmarks (M3.4b)
+
+- **Benchmarks** (D-081): `pts/bench/json/` and `pts/bench/word_freq/` (`main.pts`, run by Node and Bun as is, and the Go twins `main.go`); numbers in `docs/BENCHMARKS.md`.
+- **Runtime:** JSON's fast paths in `json.c`: `serialize_object` reads an object's fields and a hash-map object's entries in place (`serialize_property`); `key_string` keeps one string per repeated key in a parse; `put_quoted` copies a string without escapes at once.
+- **Tests:** `pts/tests/run/json_stringify.pts` gained literal getters, absent optional properties, an Error subclass and a replacer that leaves a key out.

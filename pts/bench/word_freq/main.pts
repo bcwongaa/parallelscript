@@ -1,0 +1,41 @@
+// Word frequency: a generated text of two million words from a vocabulary of 20,000
+// (skewed, as real text is), split into words and counted in a Map, then the ten most
+// frequent and a checksum over every entry, sorted by count and word. Node and Bun run
+// this file too.
+const syllables = ["ka", "lo", "mi", "ne", "ru", "so", "ta", "vi", "ze", "po", "qua"];
+
+function word(i: number): string {
+  let w = syllables[i % 11];
+  let rest = Math.floor(i / 11);
+  while (rest > 0) {
+    w += syllables[rest % 11];
+    rest = Math.floor(rest / 11);
+  }
+  return w;
+}
+
+function text(words: number, vocabulary: number): string {
+  const parts: string[] = [];
+  let seed = 42;
+  for (let i = 0; i < words; i++) {
+    seed = (seed * 48271) % 2147483647;
+    const r = seed / 2147483647;
+    parts.push(word(Math.floor(r * r * vocabulary)));
+  }
+  return parts.join(" ");
+}
+
+const counts = new Map<string, number>();
+for (const w of text(2000000, 20000).split(" ")) {
+  counts.set(w, (counts.get(w) ?? 0) + 1);
+}
+const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+console.log(counts.size);
+for (const [w, n] of sorted.slice(0, 10)) {
+  console.log(w, n);
+}
+let sum = 0;
+for (let i = 0; i < sorted.length; i++) {
+  sum = (sum * 31 + sorted[i][1] * (i + 1)) % 1000003;
+}
+console.log(sum);
