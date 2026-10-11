@@ -22,7 +22,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Write `docs/agent/NOTES-tsgo.md`: where the scanner, parser, binder, checker, program, compiler host and LSP live; how to build a `Program` from Go and get a typed AST plus a checker; how upstream tests run, and which suites cover the parser and checker.
   - Write `docs/agent/NOTES-rayon.md`: `join`, Chase–Lev deques, adaptive splitting, and how a thread that starts work helps while it waits.
   - Keep both short and practical.
-- [ ] **M0.3 `.ps` in the front end.**
+- [x] **M0.3 `.ps` in the front end.** (139254b)
   - Make the minimal `// PTS:`-marked edits so `.ps` files parse and check as TS and resolve in imports (the `tspath` extension lists, script kind, the module resolver).
   - Add a Go test.
   - Make sure upstream tests for the touched packages still pass.
