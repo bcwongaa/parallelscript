@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.6e3 Hash-map objects
+- **Next task:** M2.7 binary-trees (benchmarks: binary-trees, string building, nbody)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.6e3 Hash-map objects: `Record<string, T>`, `Record<number, T>` and index signatures (also with required properties of their value type) are D-046's ordered hash table with a `PTS_KIND_RECORD` descriptor; `o[k]`/`o.k` reads (undefined where any value can go, `RangeError` elsewhere), writes, compound assignments, `delete`; the missing-key idioms `o[k] ?? d`, `o[k] || d`, `??=`, `||=`, `=== undefined`, `in`, `hasOwnProperty`, `Object.hasOwn` as in JS; literals (computed and numeric keys, spreads); `Object.keys`/`values`/`entries`, `for…in` and `console.log` in JS's key order (array indices first) (D-059, SPEC §9.36). Functions in literals take constant computed and numeric keys as names. M2.6 is complete.
 - M2.6e2 Spread in literals and rest properties: `[...a, x]` of arrays, tuples, strings, sets and maps; spreads in tuple literals; `push(...xs)`/`unshift(...xs)`; `{ ...o, x }` with JS's property order and evaluation order (class instances copy their fields only); rest properties in object patterns; `f.call(thisArg, ...xs)` (D-058, SPEC §9.35).
 - M2.6e1 Rest parameters and spread arguments: a rest parameter is one parameter of IR type `Rest` (`...T[]`) holding the array the caller builds; spreads of arrays into rest parameters and of tuples (literals or variables) into any parameters; `console.log(...xs)`; function types, interface methods, adapters, callbacks, `call`/`bind` with rest parameters (D-057, SPEC §9.34). M2.6e split into e1, e2 (spread in literals, rest properties) and e3 (hash-map objects).
 - M2.6d3 Map entries as pairs: a map's entries are `[K, V]` tuples (a set's `[T, T]`) in `for…of` over a map or `entries()` (names or patterns; `for (const [k, v] of map)` binds key and value without making a pair), `Array.from`, `new Map` of an array of pairs or of another map's entries; `f.apply(thisArg, tuple)` (D-056, SPEC §9.33). Iterators as values moved to M4.1.
@@ -59,7 +60,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.6e3 Hash-map objects: `Record<string, T>` and index signatures (`{ [key: string]: T }`) as hash maps (D-L10), with `o[k]` reads and writes, `o.k` for literal keys, `delete`, `k in o`, object literals of such types, `console.log` as Node prints them, and probably `Object.keys`/`values`/`entries` on them (D-L19 lists them; M3.5 has the rest of `Object`). The runtime's ordered hash table (`map.c`, D-046) keeps insertion order; JS orders integer-like keys first, which a hash-map object must reproduce for printing and iteration. Then M2.7 (benchmarks: binary-trees, string building, nbody) and M2.8 (milestone M2). Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code. Optional parameters without a default wait for unions (M3.1); their calling convention is already D-055's (value plus `given` flag).
+1. M2.7: add the binary-trees benchmark (GC stress), a string-building benchmark and nbody (moved from M1.5 by D-023; pull `Math.sqrt` forward from M3.5 if it isn't there yet), then M2.8 (milestone M2: checklist, CI, BENCHMARKS table, tag `m2`, Telegram). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -74,7 +75,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (105 run tests, 1 skipped; 52 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (109 run tests, 1 skipped; 53 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -103,6 +104,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.6e3 done; M2.6 complete.
 - 2026-10-11: M2.6e2 done.
 - 2026-10-11: M2.6e1 done (M2.6e split by D-057).
 - 2026-10-11: M2.6d3 done (iterators as values moved to M4.1 by D-056).

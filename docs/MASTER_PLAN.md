@@ -148,7 +148,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Rest parameters; spread in calls (arrays into rest parameters, tuples anywhere, `console.log(...xs)`).
 - [x] **M2.6e2 Spread in literals and rest properties** (7e52a176b) (split from M2.6e by D-057).
   - Spread in array literals (`[...a, x]`, of arrays, tuples, strings, sets and maps) and object literals (`{...o, x}`); rest properties in object patterns (`const { a, ...others } = o`); spread arguments of `call`/`apply`/`bind` and of builtins.
-- [ ] **M2.6e3 Hash-map objects** (split from M2.6e by D-057).
+- [x] **M2.6e3 Hash-map objects** (e9e356a9f) (split from M2.6e by D-057).
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
