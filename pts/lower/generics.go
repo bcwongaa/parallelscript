@@ -34,6 +34,7 @@ type genericFunc struct {
 	erased     *instance     // its erased copy, if made (D-078)
 	inTable    bool          // for an instance method, its erased copy is in its class's method table
 	dispatched bool          // abstract, or overridden: its calls find the receiver's class's method by name (D-101)
+	jsName     string        // its instances' name in JS, if its node has none (a const's arrow function, D-102)
 }
 
 // instance is a generic function's instance for a list of type arguments.
@@ -158,6 +159,65 @@ func (l *lowerer) contextualType(node *ast.Node) *checker.Type {
 
 func (l *lowerer) returnTypeOf(signature *checker.Signature) *checker.Type {
 	return l.instantiate(l.checker.GetReturnTypeOfSignature(signature))
+}
+
+// declareGenericConsts records each module-scope `const` of a statement that holds a
+// generic arrow function or anonymous function expression (`const make = <T>(x: T) =>
+// new Box(x)`) as a generic function whose calls by the const's name are monomorphized,
+// as a generic function declaration's are (D-102); the const itself holds the erased copy
+// that other uses of it see (D-078).
+func (l *lowerer) declareGenericConsts(statement *ast.Node) {
+	list := statement.AsVariableStatement().DeclarationList
+	if list.Flags&ast.NodeFlagsConst == 0 {
+		return
+	}
+	for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
+		initializer := declaration.Initializer()
+		if declaration.Name().Kind != ast.KindIdentifier || initializer == nil {
+			continue
+		}
+		fn := ast.SkipParentheses(initializer)
+		if fn.Kind != ast.KindArrowFunction && (fn.Kind != ast.KindFunctionExpression || fn.Name() != nil) || fn.TypeParameterList() == nil {
+			continue
+		}
+		generic := &genericFunc{node: fn, name: declaration.Name().Text(), module: l.function, jsName: declaration.Name().Text()}
+		for _, parameter := range fn.TypeParameters() {
+			generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
+		}
+		l.genericConsts[l.declaredSymbol(declaration)] = generic
+	}
+}
+
+// makesGenericInstances reports whether a generic const's function makes instances of
+// generic classes (`new Box(x)`), directly or by calling another such const: only then
+// are its calls monomorphized (D-102), since its erased copy would make them for any.
+// Others keep the erased copy, whose dynamic values follow JS where an instance's
+// narrowed branches couldn't type-check (`typeof x === "number" ? x + 1 : …` for a
+// string x).
+func (l *lowerer) makesGenericInstances(generic *genericFunc, seen map[*genericFunc]bool) bool {
+	if seen[generic] {
+		return false
+	}
+	seen[generic] = true
+	found := false
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		switch node.Kind {
+		case ast.KindNewExpression:
+			if symbol := l.typeAt(node).Symbol(); symbol != nil && l.genericClasses[symbol] != nil {
+				found = true
+			}
+		case ast.KindCallExpression:
+			if callee := ast.SkipParentheses(node.Expression()); callee.Kind == ast.KindIdentifier {
+				if other, ok := l.genericConsts[l.target(callee)]; ok && l.makesGenericInstances(other, seen) {
+					found = true
+				}
+			}
+		}
+		return found || node.ForEachChild(visit)
+	}
+	visit(generic.node.Body())
+	return found
 }
 
 // isGeneric reports whether a declaration has type parameters of its own, other than as
@@ -629,6 +689,8 @@ func (l *lowerer) declareInstance(inst *instance, name string) {
 		inst.fn.JSName = "default" // `export default function <T>() {}`
 		if name := generic.node.Name(); name != nil {
 			inst.fn.JSName = name.Text()
+		} else if generic.jsName != "" {
+			inst.fn.JSName = generic.jsName
 		}
 		if generic.static != nil {
 			l.staticClasses[inst.fn] = generic.static
@@ -647,9 +709,17 @@ func (l *lowerer) instanceBody(inst *instance) {
 	l.bindParameters(node, fn)
 	outerBodies, outerFunction := l.bodies, l.function
 	l.bodies, l.function = nil, inst.generic.module
-	l.declareFunctions(node.Body(), fn.Name)
+	if node.Body().Kind == ast.KindBlock {
+		l.declareFunctions(node.Body(), fn.Name)
+	}
 	l.function = outerFunction
-	l.inFunction(fn, func() { fn.Body = l.block(node.Body(), node.Body().Statements()) })
+	l.inFunction(fn, func() {
+		if node.Body().Kind != ast.KindBlock {
+			fn.Body = l.functionExpressionBody(node) // an arrow function's expression (D-102)
+			return
+		}
+		fn.Body = l.block(node.Body(), node.Body().Statements())
+	})
 	for len(l.bodies) > 0 {
 		body := l.bodies[0]
 		l.bodies = l.bodies[1:]

@@ -1,5 +1,6 @@
-// skip: an erased copy makes instances of a generic class for any (Box<any>), which don't
-// convert to another instance (Box<number>) (PROGRESS.md, known issues; D-078).
+// Calls of a module-scope const holding a generic arrow function are monomorphized, as a
+// generic function declaration's are, so the generic classes it makes are the call's
+// instances (D-102); other uses of the const see its erased copy (D-078).
 class Box<T> {
   constructor(public value: T) {}
   get(): T {
@@ -9,3 +10,16 @@ class Box<T> {
 const make = <T>(x: T): Box<T> => new Box(x);
 const b = make(5);
 console.log(b, b.get() + 1);
+const wrapAll = function <T>(xs: T[]): Box<T>[] {
+  return xs.map((x) => make(x));
+};
+console.log(wrapAll(["a", "b"]).map((box) => box.get().toUpperCase()));
+const pipe = <A, B>(f: (a: A) => B) => (xs: A[]): Box<B>[] => xs.map((x) => new Box(f(x)));
+console.log(pipe((n: number) => n * 2)([1, 2])[1].get() + 1);
+const maker: (x: string) => Box<string> = make;
+console.log(make.name, maker("z").value);
+// expect:
+// Box { value: 5 } 6
+// [ 'A', 'B' ]
+// 5
+// make z

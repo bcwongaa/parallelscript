@@ -144,7 +144,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
-		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{},
+		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, genericConsts: map[*ast.Symbol]*genericFunc{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
@@ -281,6 +281,7 @@ type lowerer struct {
 	firstDynamicWrite   *ast.Node                        // the first write through `any`, if any (D-072)
 	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
 	reports             int                              // how many diagnostics were reported, repeats included
+	genericConsts       map[*ast.Symbol]*genericFunc     // module-scope consts of generic arrow functions, whose calls are monomorphized (D-102)
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
@@ -920,6 +921,9 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 		if child.Kind == ast.KindClassDeclaration && child.TypeParameterList() != nil && l.subst == nil {
 			return false // each instance declares what its methods declare
 		}
+		if child.Kind == ast.KindVariableStatement && node.Kind == ast.KindSourceFile && l.subst == nil {
+			l.declareGenericConsts(child)
+		}
 		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil && l.isGeneric(child) {
 			name := "default"
 			if child.Name() != nil {
@@ -1393,6 +1397,14 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 	if _, ok := l.locals[symbol]; !ok {
 		l.declareAhead(symbol)
 	}
+	if generic, ok := l.genericConsts[symbol]; ok && l.makesGenericInstances(generic, map[*genericFunc]bool{}) {
+		if arguments := l.contextualTypeArguments(node, generic, l.typeAt(node)); arguments != nil {
+			if fn := l.genericInstance(generic, arguments, node); fn != nil {
+				return l.functionValue(node, fn), true // the instance its context implies, as a declaration's (D-078, D-102)
+			}
+			return nil, true
+		}
+	}
 	if local, ok := l.locals[symbol]; ok {
 		if local = l.ownLocal(node, local); local == nil {
 			return nil, true
@@ -1536,6 +1548,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 			return nil // its declaration failed, which was reported
 		}
 		return l.genericCall(call, generic)
+	}
+	if generic, ok := l.genericConsts[callee]; ok && ast.SkipParentheses(call.Expression).Kind == ast.KindIdentifier && l.makesGenericInstances(generic, map[*genericFunc]bool{}) {
+		return l.genericCall(call, generic) // `make(5)` for `const make = <T>(x: T) => …` (D-102)
 	}
 	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
