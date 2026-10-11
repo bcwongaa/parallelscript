@@ -190,7 +190,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Interface sites that check a field's kind and declared type when they meet a new descriptor: a write through a view into a field whose declared type is narrower than the view's is checked; an optional property that an object's declared type leaves out is checked where it is read.
 - [x] **M3.3c1 Calls through `any`** (8dfd01e0f) (split from M3.3 by D-070, from M3.3c by D-074).
   - Calling a function value or a method of the program's classes and object literals through `any`, with the arguments checked against its parameters; calling a non-function throws `TypeError`.
-- [ ] **M3.3c2 Function types from `any`** (split from M3.3c by D-074).
+- [x] **M3.3c2 Function types from `any`** (8478142e0) (split from M3.3c by D-074).
   - Converting `any` to function types (signatures in descriptors, adapters that call through the dynamic entry) and to object types with methods; reading a method through `any` as a bound function value; spreading the arguments of a call through `any`.
 - [ ] **M3.3c3 Builtin methods through `any`** (split from M3.3c by D-074).
   - The methods of strings, arrays (with callbacks called through `any`), maps, sets and numbers called on dynamic values, as JSON's results need.
