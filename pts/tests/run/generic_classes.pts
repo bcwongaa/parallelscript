@@ -1,0 +1,82 @@
+// Generic classes are monomorphized (D-050): each list of type arguments makes a class of
+// its own, which prints with the generic class's name. Instances extend classes and are
+// extended, implement interfaces, hold each other, and come from other modules.
+import { Queue } from "./generic_classes/queue.pts";
+
+class Box<T> {
+  count = 0;
+  constructor(public value: T) {}
+  get(): T {
+    this.count++;
+    return this.value;
+  }
+  set(value: T): void {
+    this.value = value;
+  }
+}
+const numberBox = new Box(5);
+const stringBox = new Box<string>("hi");
+console.log(numberBox, stringBox, numberBox.get() + 1, stringBox.get().toUpperCase(), numberBox.value);
+stringBox.set("yo");
+console.log(stringBox, new Box(new Box([true])));
+
+class Stack<T> {
+  private items: T[] = [];
+  push(x: T): Stack<T> {
+    this.items.push(x);
+    return this;
+  }
+  pop(): T {
+    return this.items.pop()!;
+  }
+  get size(): number {
+    return this.items.length;
+  }
+}
+const stack = new Stack<number>().push(1).push(2);
+console.log(stack.pop(), stack.size, stack);
+
+class Labeled<T> extends Box<T> {
+  constructor(
+    value: T,
+    public label: string,
+  ) {
+    super(value);
+  }
+  describe(): string {
+    return `${this.label}: ${this.get()}`;
+  }
+}
+class Doubler extends Box<number> {
+  double(): number {
+    return this.value * 2;
+  }
+}
+const labeled = new Labeled([1, 2], "list");
+console.log(labeled.describe(), labeled, new Doubler(21).double());
+
+interface Getter<T> {
+  get(): T;
+}
+function unwrap<T>(source: Getter<T>): T {
+  return source.get();
+}
+function fill<T>(value: T, n: number): Stack<T> {
+  const filled = new Stack<T>();
+  for (let i = 0; i < n; i++) filled.push(value);
+  return filled;
+}
+console.log(unwrap(numberBox), unwrap(labeled), fill("x", 3), fill(0, 1).size);
+
+const queue = new Queue<string>();
+queue.enqueue("a");
+queue.enqueue("b");
+console.log(queue.dequeue(), queue.length, queue);
+
+// expect:
+// Box { value: 5, count: 1 } Box { value: 'hi', count: 1 } 6 HI 5
+// Box { value: 'yo', count: 1 } Box { value: Box { value: [ true ], count: 0 }, count: 0 }
+// 2 1 Stack { items: [ 1 ] }
+// list: 1,2 Labeled { value: [ 1, 2 ], count: 1, label: 'list' } 42
+// 5 [ 1, 2 ] Stack { items: [ 'x', 'x', 'x' ] } 1
+// a 1 Queue {}

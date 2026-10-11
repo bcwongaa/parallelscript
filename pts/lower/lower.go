@@ -128,13 +128,14 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	defer release()
 	l := &lowerer{program: program.TS, checker: c, info: info,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
-		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, fields: map[*ast.Node]*ir.Field{}, methods: map[*ast.Node]*ir.Method{},
-		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
+		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
+		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}}
+		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
+		genericClasses: map[*ast.Symbol]*genericClass{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -166,19 +167,24 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	}
 	// Function bodies come last, when every module-scope binding they may use is known;
 	// then the instances of generic functions that the bodies call, and that they call.
-	for len(l.bodies) > 0 || len(l.instances) > 0 {
-		if len(l.bodies) > 0 {
+	for len(l.bodies) > 0 || len(l.instances) > 0 || len(l.classInstanceBodies) > 0 {
+		switch {
+		case len(l.bodies) > 0:
 			body := l.bodies[0]
 			l.bodies = l.bodies[1:]
 			l.functionBody(body)
-			continue
+		case len(l.instances) > 0:
+			inst := l.instances[0]
+			l.instances = l.instances[1:]
+			l.instanceBody(inst)
+		default:
+			inst := l.classInstanceBodies[0]
+			l.classInstanceBodies = l.classInstanceBodies[1:]
+			l.classInstanceBody(inst)
 		}
-		inst := l.instances[0]
-		l.instances = l.instances[1:]
-		l.instanceBody(inst)
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
-	result.Classes = append(l.classList, l.shapeList...)
+	result.Classes = append(orderedByParent(append(l.classList, l.instanceClasses...)), l.shapeList...)
 	result.Interfaces = l.interfaceList
 	l.markAccessorProperties()
 	markCells(result.Funcs)
@@ -210,13 +216,18 @@ type lowerer struct {
 	generics            map[*ast.Symbol]*genericFunc    // every generic function declaration, whose instances calls make
 	instances           []*instance                     // the instances whose bodies are still to be lowered
 	subst               *substitution                   // the instance being lowered or declared, or nil
+	genericClasses      map[*ast.Symbol]*genericClass   // every generic class declaration, whose instances types make; nil if it failed
+	classInstances      map[*ir.Class]*classInstance    // the generic class instance each instance's class is
+	instanceClasses     []*ir.Class                     // the classes of generic class instances, in the order they were made
+	classInstanceBodies []*classInstance                // the class instances whose constructors and methods are still to be lowered
+	membersDeclared     bool                            // the classes' members are declared, so a new class instance declares its own at once
+	membersStarted      map[*ir.Class]bool              // the classes whose members are declared, or being declared
 	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
 	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
 	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
-	fields              map[*ast.Node]*ir.Field         // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
-	methods             map[*ast.Node]*ir.Method        // their methods, getters and setters, by declaration; nil if it failed
+	members             *classMembers                   // the members of those classes that aren't generic, by declaration
+	declaring           *classMembers                   // where the members being declared go: members, or a generic class instance's own
 	methodDeclarations  map[*ir.Method]*ast.Node        // the declaration of each method (for an accessor that implements an abstract field, the field's)
-	abstractFields      map[*ast.Node]property          // the getter and setter of each abstract field, by declaration
 	statics             map[*ast.Node]*ir.Local         // the variable of each static field, by declaration; nil if it failed
 	staticMethods       map[*ast.Node]*ir.Func          // the function of each static method, by declaration; nil if it failed
 	staticClasses       map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
@@ -307,6 +318,9 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	case ast.KindFunctionDeclaration:
 		l.bodies = append(l.bodies, node)
 	case ast.KindClassDeclaration:
+		if _, ok := l.genericClasses[l.declaredSymbol(node)]; ok {
+			break // each instance lowers its constructor and methods
+		}
 		if class, ok := l.classes[l.declaredSymbol(node)]; ok {
 			l.bodies = append(l.bodies, node) // its constructor and methods
 			if class != nil {
@@ -800,6 +814,9 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) *ir.Func {
 	flags := ast.GetFunctionFlags(node)
 	switch {
+	case l.isGeneric(node) && node.Kind == ast.KindMethodDeclaration:
+		l.notSupportedYet(nameOf(node), "generic methods are")
+		return nil
 	case l.isGeneric(node):
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
@@ -1071,7 +1088,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if fn, ok := l.staticMethods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		return l.staticCall(call, fn)
 	}
-	if method, ok := l.methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
+	if method, ok := l.membersAt(ast.SkipParentheses(call.Expression)).methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		switch {
 		case method == nil:
 			return nil // its declaration failed, which was reported
@@ -1355,7 +1372,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return l.mapProperty(node)
 	}
 	member := l.memberDeclaration(node)
-	if field := l.fields[member]; field != nil {
+	if field := l.membersAt(node).fields[member]; field != nil {
 		return l.fieldAccess(node, field)
 	}
 	if static, ok := l.statics[member]; ok {
@@ -1373,7 +1390,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if accessors, ok := l.accessorProperty(node); ok {
 		return l.propertyRead(node, accessors)
 	}
-	if _, ok := l.methods[member]; ok || l.isObjectTypeMethod(member) {
+	if _, ok := l.membersAt(node).methods[member]; ok || l.isObjectTypeMethod(member) {
 		return l.methodValue(node)
 	}
 	if _, ok := l.staticMethods[member]; ok {
@@ -1744,7 +1761,7 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			array := l.arrayObject(node)
 			return place{object: array, arrayLength: true}, array != nil
 		}
-		if field := l.fields[l.memberDeclaration(node)]; field != nil {
+		if field := l.membersAt(node).fields[l.memberDeclaration(node)]; field != nil {
 			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
 		}
@@ -2075,6 +2092,12 @@ func box(value ir.Expr) ir.Expr {
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	t = l.instantiate(t)
+	if generic, ok := l.genericClasses[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
+		if generic == nil {
+			return nil // the class failed, which was reported
+		}
+		return l.classInstanceOf(generic, t, node)
+	}
 	if class, ok := l.classes[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
 		if class == nil {
 			return nil // the class failed, which was reported

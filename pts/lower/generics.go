@@ -154,9 +154,7 @@ func (l *lowerer) instanceBody(inst *instance) {
 	l.subst = inst.subst
 	defer func() { l.subst = nil }()
 	l.forgetLocals(node.Body()) // another instance's
-	for i, param := range node.Parameters() {
-		l.locals[l.checker.GetSymbolAtLocation(param.Name())] = fn.Params[i]
-	}
+	l.bindParameters(node, fn)
 	outerBodies, outerFunction := l.bodies, l.function
 	l.bodies, l.function = nil, inst.generic.module
 	l.declareFunctions(node.Body(), fn.Name)
@@ -212,4 +210,19 @@ func (l *lowerer) parameterLocals(node *ast.Node) map[*ast.Symbol]*ir.Local {
 		}
 	}
 	return locals
+}
+
+// bindParameters makes the locals of a function's parameters (after `this`, for a method
+// or constructor) those of its declaration's parameters again: the declaration of another
+// instance of a generic function or class may have bound them since.
+func (l *lowerer) bindParameters(declaration *ast.Node, fn *ir.Func) {
+	params := fn.Params
+	if l.this[fn] != nil {
+		params = params[1:]
+	}
+	for i, param := range declaration.Parameters() {
+		if i < len(params) && param.Name().Kind == ast.KindIdentifier {
+			l.locals[l.checker.GetSymbolAtLocation(param.Name())] = params[i]
+		}
+	}
 }

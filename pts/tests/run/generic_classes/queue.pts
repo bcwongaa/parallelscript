@@ -1,0 +1,12 @@
+export class Queue<T> {
+  #items: T[] = [];
+  enqueue(item: T): void {
+    this.#items.push(item);
+  }
+  dequeue(): T {
+    return this.#items.shift()!;
+  }
+  get length(): number {
+    return this.#items.length;
+  }
+}

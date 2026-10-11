@@ -86,7 +86,7 @@ type method struct {
 func (l *lowerer) methodOf(access *ast.Node, receiver ir.Expr) (m method, ok bool) {
 	member := l.memberDeclaration(access)
 	name := access.AsPropertyAccessExpression().Name().Text()
-	if classMethod, isMethod := l.methods[member]; isMethod {
+	if classMethod, isMethod := l.membersAt(access).methods[member]; isMethod {
 		if classMethod == nil || classMethod.Kind != ir.Plain {
 			return method{}, classMethod == nil
 		}
@@ -283,7 +283,7 @@ func appliedArguments(args []*ast.Node) []*ast.Node {
 // object: a class's instance method or a method of an object type.
 func (l *lowerer) isInstanceMethod(access *ast.Node) bool {
 	member := l.memberDeclaration(access)
-	if classMethod, ok := l.methods[member]; ok {
+	if classMethod, ok := l.membersAt(access).methods[member]; ok {
 		return classMethod == nil || classMethod.Kind == ir.Plain
 	}
 	return l.isObjectTypeMethod(member)
@@ -323,7 +323,7 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 		l.notSupportedYet(call.Expression, "calling a method without an object (`this` undefined) is")
 		return nil
 	}
-	if _, isClass := l.methods[l.memberDeclaration(target)]; !isClass && !sameReference(target.Expression(), args[0]) {
+	if _, isClass := l.membersAt(target).methods[l.memberDeclaration(target)]; !isClass && !sameReference(target.Expression(), args[0]) {
 		// JS runs o's own method, which may be a closure of o's, on the other object.
 		l.notSupportedYet(args[0], "calling or binding a method of an object type with another object as `this` is")
 		return nil

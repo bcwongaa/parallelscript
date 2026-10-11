@@ -134,6 +134,7 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
   - A generic function has one instance per distinct list of type arguments, inferred or written, as their runtime types (D-049): `identity(1)` and `identity(1.5)` share `identity<number>`, while `identity(byte)` with `byte: u8` is `identity<u8>`, whose values keep their type.
   - Arithmetic on a value of a type parameter is done in `number`, as tsc types it, even when the instance's type argument is an integer type; `x as T` converts back by the numeric rules.
   - Generic interfaces and type aliases are instantiated like any other type (`Box<int>`).
+  - A generic class has one class per instance (D-050), printed with the generic class's name (`Box { value: 1 }`); instances may extend classes and be extended (`class IntBox extends Box<int>`).
   - A function that would need ever more instances (`f<T>` calling `f<T[]>`) is a compile error after 64.
 
 ### 3.8 Equality
@@ -574,3 +575,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Object types:** `isObjectType` takes references to generic interfaces (`Box<string>`); `propertyType` and `interfaceMethod` read an instantiated member's type rather than its declaration's.
 - **Semantic pass:** `contextualPropertyType` falls back to the instantiated property type, so literals in a `Box<int>` take `int`.
 - **Tests:** `pts/tests/run/generics.pts` (with `run/generics/pairs.pts`), `generics_integers.pts`; `errors/generics_not_yet.pts`; `TestGenericFunctionsHaveAnInstancePerListOfTypeArguments`.
+
+### 9.27 Generic classes (M2.6b2)
+
+- **Lowering** (`pts/lower/generic_classes.go`, D-050): `declareClasses` records generic class declarations (`declareGenericClass`; static members are PTS1001); `irType` makes or finds an instance's class for a reference to one (`classInstanceOf`, keyed on the IR types of its type arguments), linking its superclass from the declaration's base type in the instance (`declareInstanceSuperclass`). Members are declared by `ensureMembers`, superclass first, into the instance's own `classMembers` (the tables of fields, methods and abstract fields that the other classes share in `l.members`); instances made before `declareClassMembers` are declared there, later ones at once. Lookups go through `membersAt`/`membersFor`, which find the instance the receiver's class (`receiverClass`; for `this`, its constraint's) is or extends. Constructors and methods are lowered per instance (`classInstanceBody`, `classBodiesOf`), with parameters bound again (`bindParameters`). A non-generic class may extend an instance (`declareSuperclass`); `new` and narrowing take the instance from the expression's type; `instanceof` of a generic class is PTS1001. `result.Classes` orders every class after its superclass (`orderedByParent`).
+- **Tests:** `pts/tests/run/generic_classes.pts` (with `run/generic_classes/queue.pts`), `generic_classes_integers.pts`; `errors/generics_not_yet.pts`, `class_features_not_yet.pts`.

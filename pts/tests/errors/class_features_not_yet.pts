@@ -15,7 +15,7 @@ class Private {
   "quoted" = 1;
 }
 class Generic<T> {
-  value: number = 1;
+  static made = 0;
 }
 class Indexd { [key: string]: number; }
 class Properties {
@@ -38,7 +38,7 @@ function local() {
 // error: class_features_not_yet.pts:7:14 - error PTS1001: static getters and setters are not supported yet
 // error: class_features_not_yet.pts:10:12 - error PTS1001: auto-accessors (`accessor`) are not supported yet
 // error: class_features_not_yet.pts:15:3 - error PTS1001: members with computed or quoted names are not supported yet
-// error: class_features_not_yet.pts:17:7 - error PTS1001: generic classes are not supported yet
+// error: class_features_not_yet.pts:18:10 - error PTS1001: static members of generic classes are not supported yet
 // error: class_features_not_yet.pts:20:16 - error PTS1001: index signatures in classes are not supported yet
 // error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters are not supported yet
 // error: class_features_not_yet.pts:25:3 - error PTS1001: optional fields are not supported yet

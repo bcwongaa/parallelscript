@@ -130,8 +130,10 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.6b1 Generic functions and object types** (849ee7586) (split from M2.6 by D-047, from M2.6b by D-049).
   - Generic function declarations by monomorphization: inferred and explicit type arguments, integer type arguments, generic calls in generic code, recursion.
   - Generic interfaces and type aliases (`Pair<string, int>`).
-- [ ] **M2.6b2 Generic classes and methods** (split from M2.6 by D-047, from M2.6b by D-049).
-  - Generic classes (`Box<int>`), one class per instantiation; generic methods of classes, object literals and interfaces; nested generic functions.
+- [ ] **M2.6b2 Generic classes** (split from M2.6 by D-047, from M2.6b by D-049, from M2.6b2 by D-050).
+  - Generic classes (`Box<int>`), one class per instance, printed with the class's name; generic superclasses and subclasses.
+- [ ] **M2.6b3 Generic methods and nested generic functions** (split from M2.6b2 by D-050).
+  - Generic methods of classes, object literals and interfaces; generic functions inside functions and blocks.
 - [ ] **M2.6c Enums** (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
 - [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).

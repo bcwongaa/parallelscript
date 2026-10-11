@@ -13,6 +13,10 @@ import (
 // still without superclass or members, so that any type can name any class.
 func (l *lowerer) declareClasses(file *ast.SourceFile) {
 	for _, statement := range file.Statements.Nodes {
+		if statement.Kind == ast.KindClassDeclaration && statement.TypeParameterList() != nil && statement.Name() != nil {
+			l.declareGenericClass(statement)
+			continue
+		}
 		if statement.Kind == ast.KindClassDeclaration {
 			class := l.declareClass(statement)
 			l.classes[l.declaredSymbol(statement)] = class
@@ -28,9 +32,6 @@ func (l *lowerer) declareClass(node *ast.Node) *ir.Class {
 	switch {
 	case node.Name() == nil:
 		l.notSupportedYet(node, "classes without a name are")
-		return nil
-	case node.TypeParameterList() != nil:
-		l.notSupportedYet(node.Name(), "generic classes are")
 		return nil
 	case ast.HasSyntacticModifier(node, ast.ModifierFlagsAmbient):
 		l.notSupportedYet(node.Name(), "`declare` is")
@@ -57,6 +58,16 @@ func (l *lowerer) declareSuperclass(node *ast.Node) {
 		return
 	}
 	parentSymbol := l.target(heritage.Expression())
+	if _, ok := l.genericClasses[parentSymbol]; ok { // C extends Box<int>: an instance of the generic class
+		bases := l.checker.GetBaseTypes(l.checker.GetDeclaredTypeOfSymbol(symbol))
+		if len(bases) == 1 {
+			class.Parent, _ = l.irType(bases[0], heritage).(*ir.Class)
+		}
+		if class.Parent == nil {
+			l.classes[symbol] = nil // reported with the generic class or its instance
+		}
+		return
+	}
 	parent, ok := l.classes[parentSymbol]
 	if parent != nil {
 		l.declareSuperclass(parentSymbol.ValueDeclaration) // tsc rejects cycles
@@ -101,12 +112,15 @@ func (l *lowerer) orderedClasses(files []*ast.SourceFile) []*ir.Class {
 // it links overrides to the methods they override.
 func (l *lowerer) declareClassMembers() {
 	for _, class := range l.classList {
-		l.function = class.Module.Init
-		l.declareMembers(l.classNodes[class], class)
+		l.ensureMembers(class)
 	}
-	for _, class := range l.classList {
+	for i := 0; i < len(l.instanceClasses); i++ { // instances made so far; declaring members may make more
+		l.ensureMembers(l.instanceClasses[i])
+	}
+	for _, class := range append(l.classList, l.instanceClasses...) {
 		l.linkOverrides(class)
 	}
+	l.membersDeclared = true
 }
 
 func (l *lowerer) declareMembers(node *ast.Node, class *ir.Class) {
@@ -164,7 +178,7 @@ func (l *lowerer) declareMethod(member *ast.Node, class *ir.Class) {
 		method = &ir.Method{Name: name, Kind: kind, Class: class, Func: fn, Abstract: abstract, Virtual: abstract}
 		l.addMethod(method, member)
 	}
-	l.methods[member] = method
+	l.declaringMembers().methods[member] = method
 }
 
 // addMethod adds a method to its class; declaration is where errors about it go.
@@ -189,7 +203,7 @@ func (l *lowerer) declareAbstractField(member *ast.Node, class *ir.Class) {
 		accessors.setter = &ir.Method{Name: name, Kind: ir.Setter, Class: class, Func: l.newSetter(class, class.Name+".set_"+name, t, pos), Abstract: true, Virtual: true}
 		l.addMethod(accessors.setter, member)
 	}
-	l.abstractFields[member] = accessors
+	l.declaringMembers().abstractFields[member] = accessors
 }
 
 // newSetter makes an IR function of class taking `this` and a value of type t, with no body yet.
@@ -366,7 +380,7 @@ func (l *lowerer) declareField(member *ast.Node, class *ir.Class) {
 		class.Fields = append(class.Fields, field)
 		l.implementAbstractAccessors(field, member)
 	}
-	l.fields[member] = field
+	l.declaringMembers().fields[member] = field
 }
 
 // implementAbstractAccessors implements, with a field a class declares, the abstract
@@ -498,16 +512,27 @@ func (l *lowerer) newThis(fn *ir.Func, class *ir.Class) *ir.Local {
 
 // classBodies lowers the constructor and the method bodies of a class, static methods' too.
 func (l *lowerer) classBodies(node *ast.Node) {
-	class := l.classes[l.declaredSymbol(node)]
-	if class == nil {
-		return
+	if class := l.classes[l.declaredSymbol(node)]; class != nil {
+		l.classBodiesOf(node, class)
 	}
+}
+
+// classBodiesOf lowers the bodies of the constructor and methods class has for a class
+// declaration (node). The parameters' locals are bound again, since another instance of
+// a generic class may have declared its own since.
+func (l *lowerer) classBodiesOf(node *ast.Node, class *ir.Class) {
 	if class.Constructor != nil {
+		for _, member := range node.Members() {
+			if member.Kind == ast.KindConstructor && member.Body() != nil {
+				l.bindParameters(member, class.Constructor)
+			}
+		}
 		l.inFunction(class.Constructor, func() { class.Constructor.Body = l.constructorBody(node, class) })
 	}
 	for _, member := range node.Members() {
 		if _, isMethod := methodKinds[member.Kind]; isMethod && member.Body() != nil {
-			if method := l.methods[member]; method != nil {
+			if method := l.membersOf(class).methods[member]; method != nil {
+				l.bindParameters(member, method.Func)
 				l.inFunction(method.Func, func() { method.Func.Body = l.block(member.Body(), member.Body().Statements()) })
 			}
 			if fn := l.staticMethods[member]; fn != nil {
@@ -555,13 +580,13 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 	var stmts []ir.Stmt
 	this := &ir.LocalRef{Local: l.this[class.Constructor]}
 	for _, param := range parameterProperties(node) {
-		field, arg := l.fields[param], l.locals[l.checker.GetSymbolAtLocation(param.Name())]
+		field, arg := l.membersOf(class).fields[param], l.locals[l.checker.GetSymbolAtLocation(param.Name())]
 		if field != nil && arg != nil {
 			stmts = append(stmts, &ir.ExprStmt{At: l.pos(param), X: &ir.SetField{X: this, Field: field, Value: &ir.LocalRef{Local: arg}}})
 		}
 	}
 	for _, member := range node.Members() {
-		field := l.fields[member]
+		field := l.membersOf(class).fields[member]
 		if member.Kind != ast.KindPropertyDeclaration || field == nil {
 			continue
 		}
@@ -614,6 +639,9 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 		return l.newMap(node)
 	}
 	class, ok := l.classes[l.target(node.Expression())]
+	if _, isGeneric := l.genericClasses[l.target(node.Expression())]; isGeneric {
+		class, ok = l.genericClassReference(node), true
+	}
 	switch {
 	case !ok:
 		l.notSupportedYet(node, "`new` of anything but a class of the program is")
@@ -750,18 +778,22 @@ type property struct {
 // one: through getter and setter declarations, or an abstract field. ok is false for
 // anything else; a property whose getter or setter failed has nil there (reported).
 func (l *lowerer) accessorProperty(node *ast.Node) (accessors property, ok bool) {
-	symbol := l.checker.GetSymbolAtLocation(node)
+	if node.Kind != ast.KindPropertyAccessExpression {
+		return property{}, false
+	}
+	symbol := l.memberSymbol(node)
 	if symbol == nil {
 		return property{}, false
 	}
+	members := l.membersFor(symbol.ValueDeclaration, node.Expression())
 	for _, declaration := range symbol.Declarations {
 		switch declaration.Kind {
 		case ast.KindGetAccessor:
-			accessors.getter, ok = l.methods[declaration], true
+			accessors.getter, ok = members.methods[declaration], true
 		case ast.KindSetAccessor:
-			accessors.setter, ok = l.methods[declaration], true
+			accessors.setter, ok = members.methods[declaration], true
 		case ast.KindPropertyDeclaration:
-			if abstract, isAbstract := l.abstractFields[declaration]; isAbstract {
+			if abstract, isAbstract := members.abstractFields[declaration]; isAbstract {
 				accessors, ok = abstract, true
 			}
 		}
@@ -836,7 +868,7 @@ func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr
 
 // isNarrowedTo reports whether the checker knows node to be an instance of class.
 func (l *lowerer) isNarrowedTo(node *ast.Node, class *ir.Class) bool {
-	narrowed, ok := l.classes[l.typeAt(node).Symbol()]
+	narrowed, ok := l.irType(l.typeAt(node), node).(*ir.Class)
 	return ok && narrowed != nil && narrowed.IsSubclassOf(class)
 }
 
@@ -875,7 +907,11 @@ func commonClass(x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
 // the class that declares it (and of its subclasses) have.
 func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	class := l.classes[l.declaredSymbol(ast.GetContainingClass(l.checker.GetSymbolAtLocation(expr.Left).ValueDeclaration))]
+	declaring := ast.GetContainingClass(l.checker.GetSymbolAtLocation(expr.Left).ValueDeclaration)
+	class := l.classes[l.declaredSymbol(declaring)]
+	if _, isGeneric := l.genericClasses[l.declaredSymbol(declaring)]; isGeneric {
+		class = l.currentClass() // `#f in o` is in the class's own code, so in the instance being lowered
+	}
 	x := l.expression(expr.Right)
 	switch {
 	case x == nil || class == nil:
@@ -891,6 +927,10 @@ func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	class, ok := l.classes[l.target(expr.Right)]
+	if _, isGeneric := l.genericClasses[l.target(expr.Right)]; isGeneric {
+		l.notSupportedYet(expr.Right, "`instanceof` of a generic class is")
+		return nil
+	}
 	if !ok {
 		l.notSupportedYet(expr.Right, "`instanceof` of anything but a class of the program is")
 		return nil
