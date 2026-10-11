@@ -62,7 +62,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M1.3b String methods** (58ce643) (split by D-013).
   - Indexing, `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase`, `trim*`, `padStart`/`padEnd`, `repeat`, with UTF-16 index semantics (O(1) for ASCII strings).
   - `split` on a string separator moves to M2.4, because it returns an array.
-- [ ] **M1.4a1 Statements and operators** (split from M1.4a by D-017).
+- [x] **M1.4a1 Statements and operators** (a441fe467) (split from M1.4a by D-017).
   - `let`/`const` (also without an initializer); `if`, `switch`, `for`, `while` and `do`; `break`/`continue` with labels; the ternary operator.
   - Every operator, including assignment, compound assignment, `++`/`--`, `**`, bitwise operators (JS int32 semantics for `number`), `typeof`, `void`, logical operators and comma, evaluated in JS's left-to-right order.
   - The numeric rules of `pts/check` on assignments, compound assignments, `switch` cases, the ternary and logical operators.
