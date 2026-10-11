@@ -1,0 +1,101 @@
+// Interface sites guard what conversions from `any` accept (D-072): an object is kept as
+// a view whose types its declared types imply, so a write through the view into a field
+// or setter of a narrower declared type is checked, and an optional property its declared
+// type leaves out is checked where it is read. JS checks neither.
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return this.name + " barks";
+  }
+}
+class Cat extends Animal {}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+
+// A Box is an AnimalBox as it is, since a Dog is an Animal; a Cat written through the
+// view would break the Box.
+class Box {
+  item: Dog = new Dog("rex");
+}
+interface AnimalBox {
+  item: Animal;
+}
+const box = new Box();
+const view: AnimalBox = box as any;
+console.log(view === (box as any));
+view.item = new Dog("fido");
+console.log(box.item.bark());
+attempt("a Cat through the view", () => { view.item = new Cat("tom"); });
+console.log(box.item.bark());
+
+// One site meets objects whose fields are declared as the view's property and one whose
+// field is narrower.
+class Pen {
+  item: Animal = new Cat("tom");
+}
+const views: AnimalBox[] = [new Pen(), view, new Pen()];
+for (const each of views) {
+  attempt("a Cat into a " + (each instanceof Pen ? "Pen" : "Box"), () => { each.item = new Cat("kit"); });
+}
+
+// The same for a setter of a narrower type.
+class Holder {
+  #pet: Dog = new Dog("a");
+  get pet(): Dog {
+    return this.#pet;
+  }
+  set pet(dog: Dog) {
+    this.#pet = dog;
+  }
+}
+interface PetHolder {
+  pet: Animal;
+}
+const holder: PetHolder = new Holder() as any;
+attempt("a Cat through a setter", () => { holder.pet = new Cat("tom"); });
+holder.pet = new Dog("b");
+console.log(holder.pet.name);
+
+// Point leaves label out, so a Frame is a LabelledFrame as it is; a Labelled point, which
+// declares label as a number, can't be read as one.
+class Point {
+  constructor(public x: number) {}
+}
+class Labelled extends Point {
+  label: number = 7;
+}
+class Frame {
+  corner: Point = new Point(1);
+}
+interface LabelledFrame {
+  corner: { x: number; label?: string };
+}
+const frame = new Frame();
+const labelled: LabelledFrame = frame as any;
+console.log(labelled === (frame as any), labelled.corner.x, labelled.corner.label);
+frame.corner = new Labelled(2);
+attempt("a label declared as a number", () => { console.log(labelled.corner.label); });
+console.log(labelled.corner.x);
+
+// no-diff: JS checks no types
+// expect:
+// true
+// fido barks
+// a Cat through the view -> TypeError: Cannot set property item of Box: expected Dog, got Cat
+// fido barks
+// a Cat into a Pen ok
+// a Cat into a Box -> TypeError: Cannot set property item of Box: expected Dog, got Cat
+// a Cat into a Pen ok
+// a Cat through a setter -> TypeError: Cannot set property pet of Holder: expected Dog, got Cat
+// b
+// true 1 undefined
+// a label declared as a number -> TypeError: Cannot read property label of Labelled as string | undefined: it is declared number
+// 2

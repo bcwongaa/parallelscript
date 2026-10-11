@@ -148,16 +148,41 @@ typedef struct pts_site {
 
 #define PTS_SITE_TYPE_MASK ((UINT64_C(1) << 48) - 1)
 
-void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name);
+/*
+ * In a program that converts or writes dynamic values (D-072), each site also passes the
+ * check of its property's type, so that the runtime can guard what conversions accept
+ * when the site meets a new descriptor: a read site checks the field's kind, a write site
+ * caches only fields whose declared type is the property's and converts a value written
+ * to a field of a narrower declared type, and an optional property's read site checks
+ * that the field's declared type implies the property's. Other programs pass NULL.
+ */
+void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *check);
 
 /* The address of the field of object that holds its property name, found through site's cache. */
-static inline void *pts_field_address(const void *object, pts_site *site, const char *name) {
+static inline void *pts_field_address(const void *object, pts_site *site, const char *name, const struct pts_check *check) {
   uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
   if ((uintptr_t)((const pts_object *)object)->type == (cache & PTS_SITE_TYPE_MASK)) {
     return (char *)object + (cache >> 48);
   }
-  return pts_field_address_slow((const pts_object *)object, site, name);
+  return pts_field_address_slow((const pts_object *)object, site, name, check);
 }
+
+/* Writes *value, of the C type check's kind holds, to the field of object that holds its property name, through site (D-072). */
+void pts_field_set_slow(pts_object *object, pts_site *site, const char *name, const struct pts_check *check, const void *value);
+
+/* Writes value, of C type T, through site to the field that holds the property name of object, whose type check describes (D-072). */
+#define PTS_FIELD_SET(T, object, site, name, check, value)                                \
+  ({                                                                                      \
+    pts_object *pts_fs_object = (pts_object *)(object);                                   \
+    T pts_fs_value = (value);                                                             \
+    uint64_t pts_fs_cache = __atomic_load_n(&(site)->cache, __ATOMIC_RELAXED);            \
+    if ((uintptr_t)pts_fs_object->type == (pts_fs_cache & PTS_SITE_TYPE_MASK)) {          \
+      *(T *)((char *)pts_fs_object + (pts_fs_cache >> 48)) = pts_fs_value;                \
+    } else {                                                                              \
+      pts_field_set_slow(pts_fs_object, (site), (name), (check), &pts_fs_value);           \
+    }                                                                                     \
+    pts_fs_value;                                                                         \
+  })
 
 /*
  * A place that calls a method through an interface (D-036) caches the index of the
@@ -186,10 +211,16 @@ typedef struct pts_property {
   void *field;
 } pts_property;
 
-pts_property pts_property_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind);
+/*
+ * A write (PTS_SETTER) given check and the value (D-072) that the slow path made itself,
+ * converted to a field or setter of a narrower declared type, finds { NULL, NULL }.
+ */
+pts_property pts_property_find_slow(const pts_object *object, pts_site *site, const char *name, pts_method_kind kind, const struct pts_check *check,
+                                    const void *value);
 
-/* Where object's property name is, to read (PTS_GETTER) or write (PTS_SETTER), found through site's cache. */
-static inline pts_property pts_property_find(const void *object, pts_site *site, const char *name, pts_method_kind kind) {
+/* Where object's property name is, to read (PTS_GETTER) or write (PTS_SETTER) value, found through site's cache. */
+static inline pts_property pts_property_find(const void *object, pts_site *site, const char *name, pts_method_kind kind, const struct pts_check *check,
+                                             const void *value) {
   const pts_type *type = ((const pts_object *)object)->type;
   uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
   if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
@@ -198,29 +229,29 @@ static inline pts_property pts_property_find(const void *object, pts_site *site,
     }
     return (pts_property){NULL, (char *)object + (cache >> 48)};
   }
-  return pts_property_find_slow((const pts_object *)object, site, name, kind);
+  return pts_property_find_slow((const pts_object *)object, site, name, kind, check, value);
 }
 
 /* Reads, through site, the property name of object, a value of C type T held by a field or a getter. */
-#define PTS_GET(T, object, site, name)                                                                     \
+#define PTS_GET(T, object, site, name, check)                                                              \
   ({                                                                                                       \
     pts_object *pts_get_object = (pts_object *)(object);                                                   \
-    pts_property pts_get = pts_property_find(pts_get_object, (site), (name), PTS_GETTER);                  \
+    pts_property pts_get = pts_property_find(pts_get_object, (site), (name), PTS_GETTER, (check), NULL);   \
     pts_get.accessor != NULL ? ((T(*)(pts_object *))pts_get.accessor)(pts_get_object) : *(T *)pts_get.field; \
   })
 
 /* Writes value, of C type T, to the property name of object through site: to its field, or with its setter. */
-#define PTS_SET(T, object, site, name, value)                                                    \
-  ({                                                                                             \
-    pts_object *pts_set_object = (pts_object *)(object);                                         \
-    T pts_set_value = (value);                                                                   \
-    pts_property pts_set = pts_property_find(pts_set_object, (site), (name), PTS_SETTER);        \
-    if (pts_set.accessor != NULL) {                                                              \
-      ((void (*)(pts_object *, T))pts_set.accessor)(pts_set_object, pts_set_value);             \
-    } else {                                                                                     \
-      *(T *)pts_set.field = pts_set_value;                                                       \
-    }                                                                                            \
-    pts_set_value;                                                                               \
+#define PTS_SET(T, object, site, name, check, value)                                                         \
+  ({                                                                                                         \
+    pts_object *pts_set_object = (pts_object *)(object);                                                     \
+    T pts_set_value = (value);                                                                               \
+    pts_property pts_set = pts_property_find(pts_set_object, (site), (name), PTS_SETTER, (check), &pts_set_value); \
+    if (pts_set.accessor != NULL) {                                                                          \
+      ((void (*)(pts_object *, T))pts_set.accessor)(pts_set_object, pts_set_value);                         \
+    } else if (pts_set.field != NULL) {                                                                      \
+      *(T *)pts_set.field = pts_set_value;                                                                   \
+    }                                                                                                        \
+    pts_set_value;                                                                                           \
   })
 
 /*
@@ -753,6 +784,13 @@ pts_value pts_value_convert(pts_value value, const pts_check *check);
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out);
 /* The declared type of a place of the given kind whose check is check: check, or for NULL, the type the kind holds. */
 const pts_check *pts_check_declared(pts_field_kind kind, const pts_check *check);
+/* Whether two checks describe the same type, and whether every value of type sub is one of type super (D-072). */
+bool pts_check_same(const pts_check *a, const pts_check *b);
+bool pts_check_implies(const pts_check *sub, const pts_check *super);
+/* The value to store for value written to a place of the given kind declared check (D-072): value, or value converted to an object type; TypeError if it doesn't fit. */
+pts_value pts_storable(pts_field_kind kind, const pts_check *check, pts_value value, const char *name, const pts_type *type);
+/* Calls a setter whose argument is of the given kind with value, which is of its type. */
+void pts_call_setter(pts_function setter, pts_field_kind kind, pts_object *object, pts_value value);
 
 /* A value from `any` that isn't of the type expected where it goes. */
 _Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
@@ -773,8 +811,8 @@ pts_string *pts_object_to_string(const pts_object *object);
  * caches the first case by offset and getters and setters by index, as property sites do.
  * A read gives the value as a pts_value, absent if the object doesn't have the property.
  */
-pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const char *name);
-static inline pts_value pts_optional_get(const void *object, pts_site *site, const char *name) {
+pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *check);
+static inline pts_value pts_optional_get(const void *object, pts_site *site, const char *name, const struct pts_check *check) {
   const pts_type *type = ((const pts_object *)object)->type;
   uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
   if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
@@ -783,12 +821,12 @@ static inline pts_value pts_optional_get(const void *object, pts_site *site, con
     }
     return *(const pts_value *)((const char *)object + (cache >> 48));
   }
-  return pts_optional_get_slow((const pts_object *)object, site, name);
+  return pts_optional_get_slow((const pts_object *)object, site, name, check);
 }
 
 /* Writes value to an optional property: TypeError if the object can't hold it (no such property, or undefined for a field of another type). */
-void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name, pts_value value);
-static inline void pts_optional_set(void *object, pts_site *site, const char *name, pts_value value) {
+void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name, const struct pts_check *check, pts_value value);
+static inline void pts_optional_set(void *object, pts_site *site, const char *name, const struct pts_check *check, pts_value value) {
   const pts_type *type = ((const pts_object *)object)->type;
   uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
   if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
@@ -799,7 +837,7 @@ static inline void pts_optional_set(void *object, pts_site *site, const char *na
     }
     return;
   }
-  pts_optional_set_slow((pts_object *)object, site, name, value);
+  pts_optional_set_slow((pts_object *)object, site, name, check, value);
 }
 
 /*

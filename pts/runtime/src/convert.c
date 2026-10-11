@@ -90,8 +90,8 @@ static const pts_check kind_checks[] = {
 
 const pts_check *pts_check_declared(pts_field_kind kind, const pts_check *check) { return check != NULL ? check : &kind_checks[kind]; }
 
-/* Whether two checks describe the same type: checks of the program's types are one per type, the runtime's of primitives may repeat them. */
-static bool same_type(const pts_check *a, const pts_check *b) {
+/* Checks of the program's types are one per type; the runtime's of primitives may repeat them. */
+bool pts_check_same(const pts_check *a, const pts_check *b) {
   if (a == b) {
     return true;
   }
@@ -152,8 +152,9 @@ static bool descriptor_implies(implying *s, const pts_type *type, const pts_chec
       }
       continue;
     }
-    const pts_method *getter = getter_named(type, property->name);
-    if (getter != NULL ? !place_implies(s, getter->result, pts_check_declared(getter->result, getter->check), property) : !property->optional) {
+    const pts_method *getter = getter_named(type, property->name); /* which sites call as returning the property's representation */
+    if (getter != NULL ? getter->result != property->check->slot || !implies(s, pts_check_declared(getter->result, getter->check), property->check)
+                       : !property->optional) {
       return false;
     }
   }
@@ -185,7 +186,7 @@ static bool properties_imply(implying *s, const pts_check *sub, const pts_check 
  * property that sub doesn't declare is implied too: sub's objects may lack it.
  */
 static bool implies(implying *s, const pts_check *sub, const pts_check *super) {
-  if (same_type(sub, super) || super->kind == PTS_CHECK_ANY) {
+  if (pts_check_same(sub, super) || super->kind == PTS_CHECK_ANY) {
     return true;
   }
   if (sub->kind == PTS_CHECK_UNION) {
@@ -230,6 +231,11 @@ static bool implies(implying *s, const pts_check *sub, const pts_check *super) {
   bool holds = sub->kind == PTS_CHECK_INSTANCE ? descriptor_implies(s, sub->type, super) : properties_imply(s, sub, super);
   s->depth--;
   return holds;
+}
+
+bool pts_check_implies(const pts_check *sub, const pts_check *super) {
+  implying s = {.depth = 0};
+  return implies(&s, sub, super);
 }
 
 /* Whether an object is one of an object type as it is: its descriptor's declared types imply the type's properties. */
@@ -310,7 +316,7 @@ static bool convert_tuple(converting *c, pts_object *object, const pts_check *ch
 /* An array: itself if it is declared with the element type, else a copy with each element converted. */
 static bool convert_array(converting *c, pts_array *array, const pts_check *check, bool copy, pts_value *out) {
   const pts_check *element = check->element;
-  if (array->type->element == element->slot && same_type(pts_check_declared(array->type->element, array->type->check), element)) {
+  if (array->type->element == element->slot && pts_check_same(pts_check_declared(array->type->element, array->type->check), element)) {
     *out = pts_value_from_object(array);
     return true;
   }

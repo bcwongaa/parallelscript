@@ -136,11 +136,11 @@ static void field_addresses_are_cached_per_layout(void) {
   tagged *t = pts_object_new(&tagged_type);
   p->x = 1.5;
   t->x = 2.5;
-  CHECK(pts_field_address(p, &site, "x") == &p->x);
+  CHECK(pts_field_address(p, &site, "x", NULL) == &p->x);
   CHECK(site.cache == ((uint64_t)(uintptr_t)&point_type | (uint64_t)offsetof(point, x) << 48));
-  CHECK(pts_field_address(t, &site, "x") == &t->x);
+  CHECK(pts_field_address(t, &site, "x", NULL) == &t->x);
   CHECK(site.cache == ((uint64_t)(uintptr_t)&tagged_type | (uint64_t)offsetof(tagged, x) << 48));
-  CHECK(*(double *)pts_field_address(p, &site, "x") == 1.5);
+  CHECK(*(double *)pts_field_address(p, &site, "x", NULL) == 1.5);
 }
 
 /* An object whose property x a getter and setter provide, over a field named hidden. */
@@ -210,7 +210,7 @@ static void property_sites_skip_the_field_entries_of_accessor_properties(void) {
   static pts_site site;
   computed *c = pts_object_new(&literal_type);
   c->hidden = 0.5;
-  CHECK(PTS_GET(double, c, &site, "x") == 5);
+  CHECK(PTS_GET(double, c, &site, "x", NULL) == 5);
   CHECK(site.cache == ((uint64_t)(uintptr_t)&literal_type | PTS_SITE_ACCESSOR));
   CHECK(c->reads == 1);
 }
@@ -221,14 +221,14 @@ static void property_sites_use_fields_or_accessors(void) {
   computed *c = pts_object_new(&computed_type);
   p->x = 1.5;
   c->hidden = 0.25;
-  CHECK(PTS_GET(double, c, &read_site, "x") == 2.5);
+  CHECK(PTS_GET(double, c, &read_site, "x", NULL) == 2.5);
   CHECK(read_site.cache == ((uint64_t)(uintptr_t)&computed_type | PTS_SITE_ACCESSOR));
-  CHECK(PTS_GET(double, p, &read_site, "x") == 1.5);
+  CHECK(PTS_GET(double, p, &read_site, "x", NULL) == 1.5);
   CHECK(read_site.cache == ((uint64_t)(uintptr_t)&point_type | (uint64_t)offsetof(point, x) << 48));
-  CHECK(PTS_SET(double, c, &write_site, "x", 40.0) == 40);
+  CHECK(PTS_SET(double, c, &write_site, "x", NULL, 40.0) == 40);
   CHECK(write_site.cache == ((uint64_t)(uintptr_t)&computed_type | PTS_SITE_ACCESSOR | UINT64_C(1) << 48));
-  CHECK(PTS_SET(double, c, &write_site, "x", 50.0) == 50);
-  CHECK(PTS_SET(double, p, &write_site, "x", 3.0) == 3);
+  CHECK(PTS_SET(double, c, &write_site, "x", NULL, 50.0) == 50);
+  CHECK(PTS_SET(double, p, &write_site, "x", NULL, 3.0) == 3);
   CHECK(c->hidden == 5 && p->x == 3);
   CHECK(c->reads == 1 && c->writes == 2);
 }
@@ -257,16 +257,16 @@ static void optional_sites_use_whatever_holds_the_property(void) {
   point *p = pts_object_new(&point_type);
   node *n = pts_object_new(&node_type);
   p->x = 1.5;
-  CHECK(pts_optional_get(o, &read_site, "x") == PTS_VALUE_ABSENT);
+  CHECK(pts_optional_get(o, &read_site, "x", NULL) == PTS_VALUE_ABSENT);
   CHECK(read_site.cache == ((uint64_t)(uintptr_t)&optional_x_type | (uint64_t)offsetof(optional_x, x) << 48));
-  CHECK(pts_optional_get(p, &read_site, "x") == pts_value_from_number(1.5));
-  CHECK(pts_optional_get(n, &read_site, "x") == PTS_VALUE_ABSENT);
+  CHECK(pts_optional_get(p, &read_site, "x", NULL) == pts_value_from_number(1.5));
+  CHECK(pts_optional_get(n, &read_site, "x", NULL) == PTS_VALUE_ABSENT);
   CHECK(!pts_object_has(o, "x") && pts_object_has(p, "x") && !pts_object_has(n, "x"));
-  pts_optional_set(o, &write_site, "x", PTS_VALUE_UNDEFINED);
+  pts_optional_set(o, &write_site, "x", NULL, PTS_VALUE_UNDEFINED);
   CHECK(o->x == PTS_VALUE_UNDEFINED && pts_object_has(o, "x"));
   CHECK(write_site.cache == ((uint64_t)(uintptr_t)&optional_x_type | (uint64_t)offsetof(optional_x, x) << 48));
-  pts_optional_set(o, &write_site, "x", pts_value_from_number(2));
-  pts_optional_set(p, &write_site, "x", pts_value_from_number(4));
+  pts_optional_set(o, &write_site, "x", NULL, pts_value_from_number(2));
+  pts_optional_set(p, &write_site, "x", NULL, pts_value_from_number(4));
   CHECK(o->x == pts_value_from_number(2) && p->x == 4);
 }
 
@@ -280,7 +280,7 @@ static void *reads_through_a_shared_site(void *arg) {
   t->x = 2;
   double sum = 0;
   for (int i = 0; i < 100000; i++) {
-    sum += *(double *)pts_field_address(i % 2 ? (void *)p : (void *)t, &shared_site, "x");
+    sum += *(double *)pts_field_address(i % 2 ? (void *)p : (void *)t, &shared_site, "x", NULL);
   }
   return (void *)(intptr_t)(sum == 150000 && arg == NULL);
 }

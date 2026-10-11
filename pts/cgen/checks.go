@@ -40,9 +40,9 @@ func (e *emitter) collectChecks(program *ir.Program) {
 }
 
 // collectDeclaredTypes names, if descriptors carry declared types, the checks of every
-// class's and shape's fields and accessors and of hash-map objects' values, and the
-// descriptors of the arrays the program makes whose element kind doesn't tell their
-// element type.
+// class's and shape's fields and accessors, of hash-map objects' values and of the
+// properties read and written through interfaces, and the descriptors of the arrays the
+// program makes whose element kind doesn't tell their element type.
 func (e *emitter) collectDeclaredTypes(program *ir.Program) {
 	if !e.declaredTypes {
 		return
@@ -72,6 +72,10 @@ func (e *emitter) collectDeclaredTypes(program *ir.Program) {
 				if x.Op == ir.ArrayFlat {
 					e.describeArray(x.To)
 				}
+			case *ir.FieldRef:
+				e.checkSite(x.X.Type(), x.Field)
+			case *ir.SetField:
+				e.checkSite(x.X.Type(), x.Field)
 			}
 		})
 	}
@@ -79,6 +83,14 @@ func (e *emitter) collectDeclaredTypes(program *ir.Program) {
 		if mt := e.mapOrder[i]; mt.Record {
 			e.check(mt.Value)
 		}
+	}
+}
+
+// checkSite names the check of a property that a site reads or writes through an
+// interface (t), which the site passes (siteCheck).
+func (e *emitter) checkSite(t ir.Type, field *ir.Field) {
+	if _, ok := t.(*ir.Interface); ok {
+		e.check(field.Type)
 	}
 }
 

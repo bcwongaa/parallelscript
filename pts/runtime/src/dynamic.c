@@ -288,12 +288,8 @@ static const char *value_description(pts_value value) {
   return (const char *)pts_value_typeof(value)->bytes;
 }
 
-/*
- * The value to store for value written to a place of the given kind declared check (a
- * field, setter, element or hash-map entry, D-072): value, or for an object type, value
- * converted to it, which copies dynamic data. TypeError if it doesn't fit.
- */
-static pts_value storable(pts_field_kind kind, const pts_check *check, pts_value value, const char *name, const pts_type *type) {
+/* For a field, setter, element or hash-map entry; converting to an object type copies dynamic data. */
+pts_value pts_storable(pts_field_kind kind, const pts_check *check, pts_value value, const char *name, const pts_type *type) {
   bool fits;
   switch (kind) {
   case PTS_FIELD_VALUE:
@@ -331,52 +327,56 @@ static pts_value storable(pts_field_kind kind, const pts_check *check, pts_value
   return value;
 }
 
+void pts_call_setter(pts_function setter, pts_field_kind kind, pts_object *object, pts_value value) {
+  union {
+    double number;
+    float f32;
+    bool boolean;
+    void *pointer;
+    int8_t i8;
+    int16_t i16;
+    int32_t i32;
+    int64_t i64;
+    uint8_t u8;
+    uint16_t u16;
+    uint32_t u32;
+    uint64_t u64;
+  } argument = {0};
+  pts_store_value_in_slot(kind, &argument, value);
+#define SET(T, member) ((void (*)(pts_object *, T))setter)(object, argument.member); return
+  switch (kind) { /* the argument in the setter's C type */
+  case PTS_FIELD_NUMBER: SET(double, number);
+  case PTS_FIELD_F32: SET(float, f32);
+  case PTS_FIELD_BOOL: SET(bool, boolean);
+  case PTS_FIELD_STRING:
+  case PTS_FIELD_OBJECT: SET(void *, pointer);
+  case PTS_FIELD_I8: SET(int8_t, i8);
+  case PTS_FIELD_I16: SET(int16_t, i16);
+  case PTS_FIELD_I32: SET(int32_t, i32);
+  case PTS_FIELD_I64: SET(int64_t, i64);
+  case PTS_FIELD_U8: SET(uint8_t, u8);
+  case PTS_FIELD_U16: SET(uint16_t, u16);
+  case PTS_FIELD_U32: SET(uint32_t, u32);
+  case PTS_FIELD_U64: SET(uint64_t, u64);
+  default: ((void (*)(pts_object *, pts_value))setter)(object, value); return;
+  }
+#undef SET
+}
+
 static void object_set(pts_object *object, pts_value key, pts_value value) {
   const pts_type *type = object->type;
   char buffer[MAX_KEY];
   const char *name = key_text(key, buffer);
   const pts_field *field = field_named(type, name);
   if (field != NULL) {
-    pts_store_value_in_slot(field->kind, (char *)object + field->offset, storable(field->kind, field->check, value, name, type));
+    pts_store_value_in_slot(field->kind, (char *)object + field->offset, pts_storable(field->kind, field->check, value, name, type));
     return;
   }
   int64_t setter = method_named(type, name, PTS_SETTER);
   if (setter >= 0) {
     pts_field_kind kind = type->methods[setter].result;
-    value = storable(kind, type->methods[setter].check, value, name, type);
-    union {
-      double number;
-      float f32;
-      bool boolean;
-      void *pointer;
-      int8_t i8;
-      int16_t i16;
-      int32_t i32;
-      int64_t i64;
-      uint8_t u8;
-      uint16_t u16;
-      uint32_t u32;
-      uint64_t u64;
-    } argument = {0};
-    pts_store_value_in_slot(kind, &argument, value);
-    pts_function function = type->methods[setter].function;
-#define SET(T, member) ((void (*)(pts_object *, T))function)(object, argument.member); return
-    switch (kind) { /* the argument in the setter's C type */
-    case PTS_FIELD_NUMBER: SET(double, number);
-    case PTS_FIELD_F32: SET(float, f32);
-    case PTS_FIELD_BOOL: SET(bool, boolean);
-    case PTS_FIELD_STRING: SET(void *, pointer);
-    case PTS_FIELD_I8: SET(int8_t, i8);
-    case PTS_FIELD_I16: SET(int16_t, i16);
-    case PTS_FIELD_I32: SET(int32_t, i32);
-    case PTS_FIELD_I64: SET(int64_t, i64);
-    case PTS_FIELD_U8: SET(uint8_t, u8);
-    case PTS_FIELD_U16: SET(uint16_t, u16);
-    case PTS_FIELD_U32: SET(uint32_t, u32);
-    case PTS_FIELD_U64: SET(uint64_t, u64);
-    default: ((void (*)(pts_object *, pts_value))function)(object, value); return;
-    }
-#undef SET
+    pts_call_setter(type->methods[setter].function, kind, object, pts_storable(kind, type->methods[setter].check, value, name, type));
+    return;
   }
   if (method_named(type, name, PTS_GETTER) >= 0) {
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
@@ -400,7 +400,7 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     pts_array *array = (pts_array *)target;
     pts_field_kind kind = array->type->element;
     if (key_is(key, "length")) {
-      storable(PTS_FIELD_NUMBER, NULL, value, "length", array->type);
+      pts_storable(PTS_FIELD_NUMBER, NULL, value, "length", array->type);
       pts_array_set_length(array, pts_value_as_number(value));
       return value;
     }
@@ -408,13 +408,13 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));
     }
     uint64_t element = 0;
-    pts_store_value_in_slot(kind, &element, storable(kind, array->type->check, value, key_text(key, buffer), array->type));
+    pts_store_value_in_slot(kind, &element, pts_storable(kind, array->type->check, value, key_text(key, buffer), array->type));
     pts_array_set(array, index, &element);
     return value;
   }
   case PTS_KIND_RECORD: {
     pts_map *record = (pts_map *)target;
-    pts_value stored = storable(record->type->element, record->type->check, value, key_text(key, buffer), record->type);
+    pts_value stored = pts_storable(record->type->element, record->type->check, value, key_text(key, buffer), record->type);
     pts_string *name = pts_value_to_string(key);
     uint64_t entry = 0;
     pts_store_value_in_slot(record->type->element, &entry, stored);

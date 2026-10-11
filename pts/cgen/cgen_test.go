@@ -312,7 +312,7 @@ func TestOnlyInterfacePropertiesThatAccessorsMayProvideCallThem(t *testing.T) {
 	program.Classes, program.Interfaces = []*ir.Class{shape}, []*ir.Interface{point}
 	// x is a field in every object (D-035); a getter or setter may provide y (D-036).
 	source := cgen.Emit(program)
-	assert.Assert(t, strings.Contains(source, `pts_field_address(p, &pts_site`) && strings.Contains(source, `PTS_GET(double, p, &pts_site`) &&
+	assert.Assert(t, strings.Contains(source, `pts_field_address(p, &pts_site`) && strings.Contains(source, `"x", NULL)`) && strings.Contains(source, `PTS_GET(double, p, &pts_site`) &&
 		strings.Contains(source, `PTS_SET(double, p, &pts_site`), source)
 	assert.Equal(t, run(t, program), "1 5\n")
 }

@@ -739,3 +739,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering:** `prepareWrittenTypes` and `lowerer.dynamicWrite` (`dynamic.go`): copy shapes for the interfaces written values may be converted to.
 - **C:** `checks.go`: `emitter.declaredTypes`, `collectDeclaredTypes`, `describeArray`, `arrayDescriptor`, `arrayDescriptorDefinitions`, `declaredType`, `checkDeclarations` (before the descriptors), opaque checks of function types and object types with methods; `classes.go`: `accessorType`, `shapeAccessorType`, declared types in field and method tables; `maps.go`: hash-map objects' `.check`; `arrays.go`: array literals and `flat` with descriptors.
 - **Tests:** `pts/tests/run/any_writes.pts` (against Node), `any_writes_error.pts`; `TestDescriptorsCarryDeclaredTypesOnlyInProgramsThatWriteThroughAny` (`cgen_test.go`); `convert_test.c`.
+
+### 9.50 Guarded interface sites (M3.3b2b)
+
+- **Runtime** (D-073): the site functions and macros take the property's check (`pts_field_address`, `PTS_GET`, `PTS_SET`, `pts_property_find`, `pts_optional_get`, `pts_optional_set`; NULL where descriptors carry no declared types), `PTS_FIELD_SET` and `pts_field_set_slow`; `object.c`: `wrong_kind`, `exact`, `store_converted`, the guarded slow paths; `pts_check_same`, `pts_check_implies` (`convert.c`), `pts_storable`, `pts_call_setter` (`dynamic.c`).
+- **C:** `classes.go`: `siteCheck`, `fieldStore` writing `PTS_FIELD_SET` through interfaces; `checks.go`: `checkSite` (the checks of properties read and written through interfaces).
+- **Tests:** `pts/tests/run/any_views.pts`; `object_test.c`.

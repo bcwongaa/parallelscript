@@ -605,7 +605,7 @@ func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
 	if !ok {
 		site := e.site()
 		pointer := strings.TrimSuffix(e.declarator(field.Type), " ") + " *"
-		return fmt.Sprintf("(*({ static pts_site %s; (%s)pts_field_address(%s, &%s, %s); }))", site, pointer, object, site, cString(field.Name))
+		return fmt.Sprintf("(*({ static pts_site %s; (%s)pts_field_address(%s, &%s, %s, %s); }))", site, pointer, object, site, cString(field.Name), e.siteCheck(field))
 	}
 	if !isIdentifier(object) {
 		object = "(" + object + ")"
@@ -619,13 +619,13 @@ func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
 func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
 	if isOptionalThroughInterface(t, field) {
 		site := e.site()
-		return fmt.Sprintf("({ static pts_site %s; pts_optional_get(%s, &%s, %s); })", site, object, site, cString(field.Name))
+		return fmt.Sprintf("({ static pts_site %s; pts_optional_get(%s, &%s, %s, %s); })", site, object, site, cString(field.Name), e.siteCheck(field))
 	}
 	if !field.Accessor {
 		return e.fieldRef(object, t, field)
 	}
 	site := e.site()
-	return fmt.Sprintf("({ static pts_site %s; PTS_GET(%s, %s, &%s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name))
+	return fmt.Sprintf("({ static pts_site %s; PTS_GET(%s, %s, &%s, %s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name), e.siteCheck(field))
 }
 
 // hasField writes whether an object has an optional property: whether the field that
@@ -651,13 +651,27 @@ func isOptionalThroughInterface(t ir.Type, field *ir.Field) bool {
 func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value string) string {
 	if isOptionalThroughInterface(t, field) {
 		site, stored := e.site(), e.temporary()
-		return fmt.Sprintf("({ static pts_site %s; pts_value %s = %s; pts_optional_set(%s, &%s, %s, %s); %s; })", site, stored, value, object, site, cString(field.Name), stored, stored)
+		return fmt.Sprintf("({ static pts_site %s; pts_value %s = %s; pts_optional_set(%s, &%s, %s, %s, %s); %s; })", site, stored, value, object, site, cString(field.Name), e.siteCheck(field), stored, stored)
 	}
-	if !field.Accessor {
+	_, throughInterface := t.(*ir.Interface)
+	if !field.Accessor && !(throughInterface && e.declaredTypes) {
 		return e.fieldRef(object, t, field) + " = " + value
 	}
-	site := e.site()
-	return fmt.Sprintf("({ static pts_site %s; PTS_SET(%s, %s, &%s, %s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name), value)
+	site, macro := e.site(), "PTS_FIELD_SET"
+	if field.Accessor {
+		macro = "PTS_SET"
+	}
+	return fmt.Sprintf("({ static pts_site %s; %s(%s, %s, &%s, %s, %s, %s); })", site, macro, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name), e.siteCheck(field), value)
+}
+
+// siteCheck is the C expression of the check that a site reading or writing a property
+// through an interface passes for the property's type (D-072): its pts_check in a program
+// whose descriptors carry declared types, else NULL.
+func (e *emitter) siteCheck(field *ir.Field) string {
+	if !e.declaredTypes {
+		return "NULL"
+	}
+	return "&" + e.checks[field.Type]
 }
 
 // site names a new cache for a place in the function that finds a member at run time.

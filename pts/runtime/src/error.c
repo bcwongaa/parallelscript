@@ -251,7 +251,7 @@ void pts_error_init(pts_error *error, pts_string *message, bool message_given, p
   error->pts_private_frames = capture_frames();
   if (options_given) {
     static pts_site cause_site;
-    error->cause = pts_optional_get(options, &cause_site, "cause");
+    error->cause = pts_optional_get(options, &cause_site, "cause", NULL);
   }
 }
 
