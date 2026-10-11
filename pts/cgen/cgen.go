@@ -48,7 +48,7 @@ type emitter struct {
 	entryOrder       []*ir.Method
 	closureNames     map[*ir.Func]string // the suffix of the C names of each function made a value of (D-041)
 	closureOrder     []*ir.Func
-	comparators      map[ir.Type]string // the function that calls comparators of each element type sorted with one
+	comparators      map[ir.Type]string     // the function that calls comparators of each element type sorted with one
 	mapDescriptors   map[*ir.MapType]string // the descriptor of each map and set type the program makes maps of
 	mapOrder         []*ir.MapType
 	comparatorOrder  []ir.Type

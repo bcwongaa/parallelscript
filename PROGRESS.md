@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.5c `Map` and `Set`
+- **Next task:** M2.6 Generics and syntax
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.5c `Map` and `Set`: an ordered hash table in the runtime (insertion order, SameValueZero keys, tables replaced rather than resized for race safety, iterators that follow replaced tables as JS's live iteration); `new Map`/`new Set` (empty, copies, a set of an array), `get` (and `get(k)!`), `set`/`add`, `has`, `delete`, `clear`, `size`, `forEach`, `Array.from` and `for…of` over sets, `keys()` and `values()`; `console.log` as Node (D-046, SPEC §9.24). Entries as pairs move to M2.6 (tuples). M2.5 is complete.
 - M2.5b2 Accessors in object literals and `apply`: getters and setters in literals as per-object closures, through interfaces too, printed `[Getter]`/`[Setter]`/`[Getter/Setter]` as Node does; `apply` with an array literal (D-045, SPEC §9.23).
 - M2.5b1 Methods in object literals and methods as values: literal methods are closures in shape fields called with the object as `this` (direct field access), reachable through interfaces by method-table entries; `o.m` as a value is bound to `o` (a documented difference: JS leaves it unbound); static methods as values; `bind` (with leading arguments) and `call` on methods and function values; tuple rest parameters in function types (D-044, SPEC §9.22). M2.5b split by D-043.
 - M2.4c Array methods with callbacks: `forEach`, `map`, `filter`, `flatMap`, `some`, `every`, `find`/`findIndex`/`findLast`/`findLastIndex` (`find(…)!` throws if none), `reduce`/`reduceRight` (with or without an initial value), `Array.from` with a mapper, `sort` with a comparator (stable), all matching Node; each method is a helper generated in IR per array and callback type, calling the callback with the arguments it takes (D-042, SPEC §9.21). Unions of number or string literals (`-1 | 0 | 1`) are numbers or strings.
@@ -47,7 +48,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.5c `Map` and `Set`: insertion order and SameValueZero keys (strings by content, numbers by value with NaN equal to NaN and -0 equal to 0, objects by identity); `get` returns `V | undefined` (a dynamic value, like `find`; `get(k)!` could throw like `find(…)!`), `set` returns the map, `has`, `delete`, `clear`, `size`, `forEach` (callbacks as in D-042, through generated helpers), `for…of` over a map needs `[k, v]` destructuring and tuples (M2.6), so `for (const k of m.keys())` and `values()` could come first, or entries as a pair type; `console.log` prints `Map(2) { 'a' => 1, 'b' => 2 }` and `Set(2) { 1, 2 }`. Race safety (D-L13): a hash table whose buckets and entries are replaced, never resized in place, like array buffers.
+1. M2.6 Generics and syntax: big; split it first. Its parts: generics by monomorphization; integer types and f32 as array elements, map keys/values and type arguments, and in function signatures (the semantic pass must follow type nodes, since the checker sees `u8` as `number`; see the PTS1001s in `errors/arrays_of_integers.pts`, `function_types_of_integers.pts`, `maps_of_integers.pts`); enums; destructuring with defaults; spread and rest (calls, arrays, objects); tuples (which unlock Map entries, `new Map(entries)`, `apply` with arrays, D-046); `Record<string, T>` and index signatures as hash maps (the `pts_map` runtime can serve them).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -62,7 +63,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (80 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (82 run tests, 1 skipped; 45 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -88,6 +89,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.5c done; M2.5 complete.
 - 2026-10-11: M2.5b2 done.
 - 2026-10-11: M2.5b1 done (M2.5b split by D-043).
 - 2026-10-11: M2.4c done.

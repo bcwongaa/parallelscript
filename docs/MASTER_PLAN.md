@@ -122,7 +122,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.5b2 Accessors in object literals and `apply`** (f4c1d040f) (split from M2.5b by D-043).
   - Getters and setters in object literals, through interfaces too, printed as Node prints them (`[Getter]`, `[Setter]`, `[Getter/Setter]`).
   - `apply` where the types allow (an array argument for a function whose parameters all have its element type).
-- [ ] **M2.5c `Map` and `Set`** (split from M2.5 by D-040).
+- [x] **M2.5c `Map` and `Set`** (b932f06e8) (split from M2.5 by D-040).
   - `Map` and `Set` with insertion order and SameValueZero semantics: `get`, `set`, `has`, `delete`, `clear`, `size`, `forEach`, and `for…of` over them and their `keys()`, `values()` and `entries()`.
 - [ ] **M2.6 Generics and syntax.**
   - Generics via monomorphization.

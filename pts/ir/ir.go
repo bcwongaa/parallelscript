@@ -932,7 +932,7 @@ func (e *MapCall) Type() Type {
 	}
 	return e.Map.Key // MapIteratorKey
 }
-func (e *CallValue) Type() Type     { return e.Callee.Type().(*FuncType).Result }
+func (e *CallValue) Type() Type { return e.Callee.Type().(*FuncType).Result }
 
 func (e *ArrayCall) Type() Type {
 	switch e.Op {
