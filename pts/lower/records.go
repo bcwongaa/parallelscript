@@ -229,17 +229,30 @@ func (l *lowerer) recordKey(node *ast.Node) ir.Expr {
 // type tsc gives node. nil if it fails (reported).
 func (l *lowerer) recordElementFallback(node *ast.Node, element *ast.Node, fallback *ast.Node, nullish bool) ir.Expr {
 	record, key := l.recordElementOperands(element)
-	result := l.irType(l.typeAt(node), node)
+	required := l.typeAt(node)
+	t := required
+	if nullish && !mayHoldUndefined(l.typeAt(element)) {
+		// tsc took the element to be there, so `o[k] ?? d` has its type, though the key may
+		// be missing (`names[n] ?? n`): d's type is added, as nullishCoalescing does.
+		t = l.checker.GetUnionType([]*checker.Type{t, l.typeAt(fallback)})
+	}
+	result := l.irType(t, node)
 	if record == nil || result == nil {
 		return nil
 	}
-	return l.recordFallback(record, key, nullish, result, node, func(t ir.Type) ir.Expr {
+	x := l.recordFallback(record, key, nullish, result, node, func(t ir.Type) ir.Expr {
 		value := l.expression(fallback)
 		if value == nil {
 			return nil
 		}
 		return l.convert(value, t, fallback)
 	})
+	if x != nil && t != required && !l.takesAnyValue(node) {
+		if requiredType := l.irType(required, node); requiredType != nil && requiredType != result {
+			return l.checkedConversion(x, requiredType, node)
+		}
+	}
+	return x
 }
 
 // recordFallback is, as type result, the value of the key in record if it has one (that

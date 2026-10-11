@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting number to string
 // Text wrapping (greedy and minimum-raggedness) plus full justification and centering.
 enum Align { Left, Right, Center, Justify }
 

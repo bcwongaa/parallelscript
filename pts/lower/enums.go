@@ -33,7 +33,10 @@ func (l *lowerer) enumMember(node *ast.Node) (x ir.Expr, ok bool) {
 		if l.enumOf(node.Expression()) == nil {
 			return nil, false // `totals[Color.Red]` reads totals (D-089)
 		}
-		name = node.AsElementAccessExpression().ArgumentExpression
+		name = ast.SkipParentheses(node.AsElementAccessExpression().ArgumentExpression)
+		if !ast.IsStringLiteralLike(name) {
+			return nil, false // `E[E.m]` is E's reverse mapping of m's value
+		}
 	default:
 		return nil, false
 	}

@@ -1,0 +1,16 @@
+// A numeric enum's reverse mapping of a member's value, `o[k] ?? d` for a hash-map
+// object whose key may be missing, and undefined for an optional argument of a library
+// method (D-099).
+enum Align { Left, Right, Center, Justify }
+console.log({ align: Align.Center, name: Align[Align.Center], last: Align[Align.Justify] });
+const rankNames: Record<number, string> = { 1: "A", 11: "J", 12: "Q", 13: "K" };
+const card = (rank: number, suit: string) => `${rankNames[rank] ?? rank}${suit}`;
+console.log(card(1, "♠"), card(7, "♥"), card(12, "♦"));
+function page(rows: number[], offset: number, limit: number | null) {
+  return [rows.slice(offset, limit === null ? undefined : offset + limit), "abcdef".slice(offset, limit ?? undefined)];
+}
+console.log(page([1, 2, 3, 4, 5], 1, null), page([1, 2, 3, 4, 5], 1, 2));
+// expect:
+// { align: 2, name: 'Center', last: 'Justify' }
+// A♠ 7♥ Q♦
+// [ [ 2, 3, 4, 5 ], 'bcdef' ] [ [ 2, 3 ], 'b' ]

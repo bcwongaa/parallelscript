@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: values of type Iterable<string>
+// skip: not supported yet: PTS1001: tuples with optional or rest elements ([string, number, FilingStatus, (number | undefined)?])
 interface Book {
   isbn: string;
   title: string;

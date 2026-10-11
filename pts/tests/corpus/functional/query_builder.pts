@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting undefined to number
 // A fluent, immutable query builder over in-memory rows, where each step stores closures.
 
 type Row = Record<string, string | number | boolean | null>;

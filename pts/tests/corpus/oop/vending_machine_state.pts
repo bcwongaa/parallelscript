@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting IdleState | SoldOutState to {label: string; cancel(VendingMachine): void; insert(VendingMachine, number): void; select(VendingM...
+// skip: not supported yet: PTS1001: converting IdleState | SoldOutState to {label: string; cancel(VendingMachine): void; insert(VendingMachine, number): void; select(VendingMachine, string): void}
 // Vending machine implemented with the state pattern.
 
 interface Slot {

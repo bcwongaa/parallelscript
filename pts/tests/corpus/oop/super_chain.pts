@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: using a `{body: string; headers: {}; status: number}` as a `{body: string; headers: Record<string, string>; status: number}`
+// skip: not supported yet: PTS1001: using a `{body: string; headers: {}; status: number}` as a `{body: string; headers: Record<string, string>; status: number}`, whose `headers` it doesn't provide with the...
 // super calls through a multi-level hierarchy: HTTP-like middleware handlers with layered behaviour.
 
 interface Req {

@@ -1862,6 +1862,8 @@ func (l *lowerer) methodCall(node *ast.Node, builtin *ir.Builtin) ir.Expr {
 				l.notSupportedYet(at, "leaving out this argument is")
 				return nil
 			}
+		} else if leftOut := leftOutArgument(builtin, i); leftOut != nil {
+			arg = l.orLeftOut(arg, leftOut)
 		}
 		if arg = l.convert(arg, param, at); arg == nil {
 			return nil
@@ -2947,7 +2949,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	if x == nil || y == nil {
 		return nil, nil
 	}
-	if t := l.numericType(node); t != nil {
+	if t := l.numericType(node); t != nil && !isNullish(x.Type()) && !isNullish(y.Type()) { // `c ? undefined : n` is a number | undefined
 		x, y = l.convert(x, t, a), l.convert(y, t, b)
 		if x == nil || y == nil {
 			return nil, nil
@@ -3186,6 +3188,9 @@ func (l *lowerer) libMemberName(member *ast.Node) string {
 	}
 	return symbol.Parent.Name + "." + symbol.Name
 }
+
+// isNullish reports whether t is the type of null or undefined.
+func isNullish(t ir.Type) bool { return t == ir.Null || t == ir.Undefined }
 
 func isClass(t ir.Type) bool {
 	_, ok := t.(*ir.Class)

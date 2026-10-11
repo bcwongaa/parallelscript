@@ -406,11 +406,35 @@ func (l *lowerer) arrayOperands(args []*ast.Node, params []arrayParam, array *ir
 		if value == nil {
 			return nil
 		}
+		if param.leftOut != nil {
+			value = l.orLeftOut(value, param.leftOut)
+		}
 		if operands[i] = l.convert(value, t, args[i]); operands[i] == nil {
 			return nil
 		}
 	}
 	return operands
+}
+
+// orLeftOut is value, an argument of a library method, or leftOut, what the method takes
+// for an argument left out, where value is undefined at run time (`a.slice(i, n ??
+// undefined)`, D-099): value itself unless it is of a union of one type and undefined.
+func (l *lowerer) orLeftOut(value ir.Expr, leftOut ir.Expr) ir.Expr {
+	u, ok := value.Type().(*ir.Union)
+	if !ok || len(u.Members) != 2 || !u.Has(ir.Undefined) {
+		return value
+	}
+	other := u.Members[0]
+	if other == ir.Undefined {
+		other = u.Members[1]
+	}
+	tmp := l.newLocal("argument", u)
+	ref := &ir.LocalRef{Local: tmp}
+	converted := l.convert(leftOut, other, nil)
+	if converted == nil {
+		return value
+	}
+	return &ir.Bind{Local: tmp, Value: value, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: converted, Else: fromUnion(ref, other)}}
 }
 
 // isUndefined reports whether node is the identifier undefined, which a left-out argument is.

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: `describeLab.name`
+// skip: not supported yet: PTS1001: `apply` with arguments that are neither an array literal nor a tuple
 // Function.prototype.call/apply/bind with classes, partial application via bind, and method borrowing.
 
 class Temperature {
