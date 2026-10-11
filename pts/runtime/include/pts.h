@@ -245,16 +245,36 @@ static inline bool pts_instance_of(const void *object, const pts_type *type) {
 
 /* ---------------------------------------------------------------- strings */
 
-enum { PTS_STRING_ASCII = 1u << 0 };
+enum {
+  PTS_STRING_ASCII = 1u << 0,
+  PTS_STRING_BUFFERED = 1u << 1, /* bytes is the start of a pts_string_buffer's data */
+};
 
-/* Immutable UTF-8 text. utf16_len is the JS `.length`. bytes is NUL-terminated. */
+/*
+ * Immutable UTF-8 text. utf16_len is the JS `.length`. bytes points at byte_len bytes:
+ * right after the header (NUL-terminated), in a static literal (NUL-terminated), or, if
+ * PTS_STRING_BUFFERED, at the start of an append buffer that longer strings share.
+ */
 typedef struct pts_string {
   const pts_type *type;
   uint32_t flags;
   uint32_t byte_len;
   uint32_t utf16_len;
-  char bytes[];
+  char *bytes;
 } pts_string;
+
+/*
+ * An append buffer (M2.7b): the bytes of strings built by concatenation, which are all
+ * prefixes of its first `used` bytes. Concatenating onto a string whose bytes end where
+ * `used` does claims the next bytes with a compare-and-swap and copies only the new part,
+ * so building a string piece by piece is linear. Claimed bytes never change, so racing
+ * threads never see a string's bytes change (D-L13).
+ */
+typedef struct pts_string_buffer {
+  size_t capacity;
+  size_t used;
+  char data[];
+} pts_string_buffer;
 
 extern const pts_type pts_string_type;
 
@@ -263,11 +283,9 @@ extern const pts_type pts_string_type;
  * the ASCII flag. `literal` must be a C string literal of exactly byte_len bytes.
  */
 #define PTS_STATIC_STRING(name, flags_, byte_len_, utf16_len_, literal)                          \
-  static const struct {                                                                          \
-    const pts_type *type;                                                                        \
-    uint32_t flags, byte_len, utf16_len;                                                         \
-    char bytes[(byte_len_) + 1];                                                                 \
-  } name##_storage = {&pts_string_type, (flags_), (byte_len_), (utf16_len_), literal};          \
+  static const char name##_bytes[(byte_len_) + 1] = literal;                                     \
+  static const pts_string name##_storage = {&pts_string_type, (flags_), (byte_len_), (utf16_len_), \
+                                            (char *)name##_bytes};                               \
   static pts_string *const name = (pts_string *)&name##_storage
 
 /* Copies `len` bytes of valid UTF-8 into a new GC string. */

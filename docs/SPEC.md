@@ -648,3 +648,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Benchmarks** (D-060): `pts/bench/binary_trees` (depth 18; leaves are their own children until null arrives in M3.1) and `pts/bench/nbody` (5,000,000 steps; unrounded energies), each with its Go twin; `pts/bench/run.sh` runs them under Node and Bun too.
 - **Math** (`pts/lower/math.go`): `mathMember` recognises the global Math; `mathCall` lowers `sqrt`, `abs`, `floor`, `ceil`, `round`, `trunc`, `sign` (`ir.MathSqrt` …, clang builtins or `pts_math_round`/`pts_math_sign` in `pts.h`) and folds `max`/`min` of any number of arguments into `pts_math_max`/`pts_math_min` of two; `mathConstant` lowers the eight constants. Tests: `pts/tests/run/math_basics.pts`, `errors/math_not_yet.pts`.
 - **Collector and compiler flags:** `pts_runtime_init` sets bdwgc's free-space divisor to 1 unless `GC_FREE_SPACE_DIVISOR` is set; `pts/toolchain` compiles with `-fno-math-errno`.
+
+### 9.38 String building (M2.7b)
+
+- **Runtime** (D-061): `pts_string.bytes` is a pointer; `pts_string_alloc` points it just past the header; `PTS_STATIC_STRING` and the one-character table in `string_methods.c` point it at static bytes. `pts_string_concat` (`string.c`) tries `appended` (claim the bytes after the left string in its `pts_string_buffer` with a CAS on `used`), else copies, into a new buffer (`new_buffer`, `buffered_string`) when the result is at least `BUFFERED_MIN_BYTES`.
+- **Benchmark:** `pts/bench/string_building` (`+=`, template literals and `join` of a million pieces, then a checksum through `charCodeAt`), with its Go twin.
+- **Tests:** `appending_leaves_earlier_strings_unchanged`, `building_a_string_piece_by_piece_reuses_its_buffer`, `racing_appends_never_mix_bytes` in `string_test.c`.

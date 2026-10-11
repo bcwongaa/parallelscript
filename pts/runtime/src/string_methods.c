@@ -12,19 +12,23 @@
 PTS_STATIC_STRING(empty_string, PTS_STRING_ASCII, 0, 0, "");
 
 /* The one-character ASCII strings, so that s[i] on ASCII text doesn't allocate. */
-typedef struct ascii_char_string {
-  const pts_type *type;
-  uint32_t flags, byte_len, utf16_len;
-  char bytes[2];
-} ascii_char_string;
+#define ASCII_BYTES(c) {(char)(c), 0}
+#define ASCII_BYTES_8(c)                                                                          \
+  ASCII_BYTES(c), ASCII_BYTES(c + 1), ASCII_BYTES(c + 2), ASCII_BYTES(c + 3), ASCII_BYTES(c + 4), \
+      ASCII_BYTES(c + 5), ASCII_BYTES(c + 6), ASCII_BYTES(c + 7)
+#define ASCII_BYTES_32(c) ASCII_BYTES_8(c), ASCII_BYTES_8(c + 8), ASCII_BYTES_8(c + 16), ASCII_BYTES_8(c + 24)
 
-#define ASCII_CHAR(c) {&pts_string_type, PTS_STRING_ASCII, 1, 1, {(char)(c), 0}}
+static const char ascii_bytes[128][2] = {
+    ASCII_BYTES_32(0), ASCII_BYTES_32(32), ASCII_BYTES_32(64), ASCII_BYTES_32(96),
+};
+
+#define ASCII_CHAR(c) {&pts_string_type, PTS_STRING_ASCII, 1, 1, (char *)ascii_bytes[c]}
 #define ASCII_CHARS_8(c)                                                                          \
   ASCII_CHAR(c), ASCII_CHAR(c + 1), ASCII_CHAR(c + 2), ASCII_CHAR(c + 3), ASCII_CHAR(c + 4),      \
       ASCII_CHAR(c + 5), ASCII_CHAR(c + 6), ASCII_CHAR(c + 7)
 #define ASCII_CHARS_32(c) ASCII_CHARS_8(c), ASCII_CHARS_8(c + 8), ASCII_CHARS_8(c + 16), ASCII_CHARS_8(c + 24)
 
-static const ascii_char_string ascii_chars[128] = {
+static const pts_string ascii_chars[128] = {
     ASCII_CHARS_32(0), ASCII_CHARS_32(32), ASCII_CHARS_32(64), ASCII_CHARS_32(96),
 };
 

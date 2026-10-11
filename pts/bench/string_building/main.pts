@@ -1,0 +1,39 @@
+// String building: a million small pieces appended with `+=`, template literals and
+// Array.prototype.join, then read back character by character. Node and Bun run this
+// file too.
+function appended(n: number): string {
+  let s = "";
+  for (let i = 0; i < n; i++) {
+    s += "item" + i + ";";
+  }
+  return s;
+}
+
+function report(n: number): string {
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    out += `line ${i}: ${i % 7 === 0 ? "seven" : "other"} ${i * 3}\n`;
+  }
+  return out;
+}
+
+function joined(n: number): string {
+  const parts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    parts.push("p" + (i % 100));
+  }
+  return parts.join(",");
+}
+
+function checksum(s: string): number {
+  let sum = 0;
+  for (let i = 0; i < s.length; i += 7) {
+    sum = (sum * 31 + s.charCodeAt(i)) % 1000003;
+  }
+  return sum;
+}
+
+const n = 1000000;
+for (const s of [appended(n), report(n), joined(n)]) {
+  console.log(s.length, checksum(s));
+}

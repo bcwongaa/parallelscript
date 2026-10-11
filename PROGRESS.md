@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.7b String building (benchmark, and linear-time `s += x`)
+- **Next task:** M2.8 Milestone M2
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.7b String building: strings point at their bytes (`char *bytes`), and a concatenation of 64 bytes or more goes to an append buffer that later concatenations onto its last string extend in place by claiming bytes with a CAS, so `s += x` in a loop is linear (50,000 appends: 3.3 s → 0.014 s; Node 0.1 s); `pts/bench/string_building` (a million pieces by `+=`, template literals and `join`; PTS about 1.0 s, Node 1.6 s, Bun 4.4 s, Go with `strings.Builder` 0.36 s) (D-061, SPEC §9.38). M2.7 is complete.
 - M2.7a binary-trees and nbody: `pts/bench/binary_trees` (depth 18) and `pts/bench/nbody` (5M steps) with Go twins; Math's `sqrt`, `abs`, `floor`, `ceil`, `round`, `trunc`, `sign`, `max`, `min` and constants pulled forward from M3.5; the collector runs when the program has allocated as much as the heap holds (free-space divisor 1, like GOGC=100), and the C is compiled with `-fno-math-errno` (D-060, SPEC §9.37). M2.7 split by D-060. Local numbers (5 runs, noisy shared machine): nbody PTS 785 ms, Node 843, Bun 837, Go 502; binary_trees PTS about 2.1 s after the GC change (2.6 s before), Node 1.2 s, Bun 1.6 s, Go 3.2 s.
 - M2.6e3 Hash-map objects: `Record<string, T>`, `Record<number, T>` and index signatures (also with required properties of their value type) are D-046's ordered hash table with a `PTS_KIND_RECORD` descriptor; `o[k]`/`o.k` reads (undefined where any value can go, `RangeError` elsewhere), writes, compound assignments, `delete`; the missing-key idioms `o[k] ?? d`, `o[k] || d`, `??=`, `||=`, `=== undefined`, `in`, `hasOwnProperty`, `Object.hasOwn` as in JS; literals (computed and numeric keys, spreads); `Object.keys`/`values`/`entries`, `for…in` and `console.log` in JS's key order (array indices first) (D-059, SPEC §9.36). Functions in literals take constant computed and numeric keys as names. M2.6 is complete.
 - M2.6e2 Spread in literals and rest properties: `[...a, x]` of arrays, tuples, strings, sets and maps; spreads in tuple literals; `push(...xs)`/`unshift(...xs)`; `{ ...o, x }` with JS's property order and evaluation order (class instances copy their fields only); rest properties in object patterns; `f.call(thisArg, ...xs)` (D-058, SPEC §9.35).
@@ -61,7 +62,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.7b: a string-building benchmark (`pts/bench/<name>/main.pts` + `main.go`; `+=` in a loop, template literals, `join`), and make `s += x` in a loop linear: `pts_string_concat` copies both strings every time, so 50,000 appends take 3.3 s where Node takes 0.1 s. A plan that keeps every reader of `->bytes` working: give `pts_string` a `char *bytes` pointer instead of the inline array (inline strings point just past their header), and let a concatenation whose result is large put it in an append buffer with spare capacity; a later concatenation onto the string that ends at the buffer's claimed end claims the space with a CAS and copies only the new part (all strings sharing a buffer are prefixes of each other, so bytes are never changed once claimed: race-safe per D-L13). Buffered strings' headers must be scanned (GC_MALLOC), inline ones stay atomic; `pts_throw_error` (`%s`) and `inspect.c`'s `strstr` rely on NUL-terminated bytes and need bounds. Then M2.8 (milestone M2: checklist, CI, BENCHMARKS table with fib, fib_int, nbody, binary_trees and the string benchmark, tag `m2`, Telegram). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention.
+1. M2.8 Milestone M2: run the checklist in `docs/MASTER_PLAN.md` (full suite green locally and in CI, PROGRESS updated, an M2 table in `docs/BENCHMARKS.md` from `make bench` with fib, fib_int, nbody, binary_trees and string_building, `git tag m2`, Telegram message). Then M3.1 (unions and narrowing, null and undefined, optional properties, `?.`, `??`, `==`). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5); optional parameters without a default wait for unions (M3.1), with D-055's calling convention; binary-trees uses self-referencing leaves until null exists (switch it to `| null` in M3.1).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -105,6 +106,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.7b done; M2.7 complete.
 - 2026-10-11: M2.7a done (M2.7 split by D-060).
 - 2026-10-11: M2.6e3 done; M2.6 complete.
 - 2026-10-11: M2.6e2 done.

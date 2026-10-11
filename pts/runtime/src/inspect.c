@@ -130,7 +130,7 @@ static void quote_string(text *out, const pts_string *string) {
   if (memchr(bytes, '\'', string->byte_len) != NULL) {
     if (memchr(bytes, '"', string->byte_len) == NULL) {
       quote = '"';
-    } else if (memchr(bytes, '`', string->byte_len) == NULL && strstr(bytes, "${") == NULL) {
+    } else if (memchr(bytes, '`', string->byte_len) == NULL && memmem(bytes, string->byte_len, "${", 2) == NULL) {
       quote = '`';
     }
   }

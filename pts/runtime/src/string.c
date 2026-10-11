@@ -12,15 +12,69 @@ pts_string *pts_string_alloc(size_t byte_len) {
   if (byte_len > PTS_STRING_MAX_BYTES) {
     pts_throw_invalid_string_length();
   }
-  /* Pointer-free payload (the type pointer is static), so bdwgc never scans it. */
+  /* Pointer-free for the collector (the type is static and bytes points into the string itself), so it is never scanned. */
   pts_string *string = GC_MALLOC_ATOMIC(sizeof(pts_string) + byte_len + 1);
   if (string == NULL) {
     pts_panic("RangeError", "Out of memory allocating a string of %zu bytes", byte_len);
   }
   string->type = &pts_string_type;
+  string->flags = 0;
   string->byte_len = (uint32_t)byte_len;
+  string->bytes = (char *)(string + 1);
   string->bytes[byte_len] = '\0';
   return string;
+}
+
+/* Concatenations at least this long go to an append buffer, with as much room again for what follows. */
+enum { BUFFERED_MIN_BYTES = 64, BUFFER_GROWTH = 2 };
+
+static pts_string_buffer *buffer_of(const pts_string *string) {
+  return (pts_string_buffer *)(string->bytes - offsetof(pts_string_buffer, data));
+}
+
+/* buffered_string is a new string header for the first byte_len bytes of buffer. */
+static pts_string *buffered_string(pts_string_buffer *buffer, size_t byte_len, uint32_t utf16_len, uint32_t flags) {
+  /* Scanned, unlike other strings: bytes keeps the buffer alive. */
+  pts_string *string = GC_MALLOC(sizeof(pts_string));
+  if (string == NULL) {
+    pts_panic("RangeError", "Out of memory allocating a string of %zu bytes", byte_len);
+  }
+  string->type = &pts_string_type;
+  string->flags = flags | PTS_STRING_BUFFERED;
+  string->byte_len = (uint32_t)byte_len;
+  string->utf16_len = utf16_len;
+  string->bytes = buffer->data;
+  return string;
+}
+
+/* new_buffer is an empty append buffer with room for capacity bytes, at most the longest string's. */
+static pts_string_buffer *new_buffer(size_t capacity) {
+  if (capacity > PTS_STRING_MAX_BYTES) {
+    capacity = PTS_STRING_MAX_BYTES;
+  }
+  pts_string_buffer *buffer = GC_MALLOC_ATOMIC(sizeof(pts_string_buffer) + capacity);
+  if (buffer == NULL) {
+    pts_panic("RangeError", "Out of memory allocating a string of %zu bytes", capacity);
+  }
+  buffer->capacity = capacity;
+  buffer->used = 0;
+  return buffer;
+}
+
+/* appended is left + right made by claiming the bytes after left in its append buffer,
+ * or NULL if left doesn't end where the buffer's claimed bytes do or the buffer is full. */
+static pts_string *appended(const pts_string *left, const pts_string *right) {
+  if (!(left->flags & PTS_STRING_BUFFERED)) {
+    return NULL;
+  }
+  pts_string_buffer *buffer = buffer_of(left);
+  size_t end = left->byte_len, byte_len = end + right->byte_len;
+  if (byte_len > buffer->capacity ||
+      !__atomic_compare_exchange_n(&buffer->used, &end, byte_len, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+    return NULL;
+  }
+  memcpy(buffer->data + left->byte_len, right->bytes, right->byte_len); /* right may be in this buffer, but before `end` */
+  return buffered_string(buffer, byte_len, left->utf16_len + right->utf16_len, left->flags & right->flags & PTS_STRING_ASCII);
 }
 
 void pts_string_measure(pts_string *string) {
@@ -61,10 +115,25 @@ pts_string *pts_string_concat(pts_string *left, pts_string *right) {
   }
   /* A high surrogate meeting a low one becomes the 4-byte encoding of their code point, as in JS. */
   bool join = pts_string_ends_with_high_surrogate(left) && pts_string_starts_with_low_surrogate(right);
+  pts_string *string;
+  if (!join && (string = appended(left, right)) != NULL) {
+    return string;
+  }
   size_t left_keep = left->byte_len - (join ? PTS_SURROGATE_BYTES : 0);
   size_t right_skip = join ? PTS_SURROGATE_BYTES : 0;
   size_t byte_len = left_keep + (join ? 4 : 0) + (right->byte_len - right_skip);
-  pts_string *string = pts_string_alloc(byte_len);
+  if (byte_len > PTS_STRING_MAX_BYTES) {
+    pts_throw_invalid_string_length();
+  }
+  uint32_t buffered = 0;
+  if (byte_len >= BUFFERED_MIN_BYTES) {
+    pts_string_buffer *buffer = new_buffer(BUFFER_GROWTH * byte_len);
+    buffer->used = byte_len;
+    string = buffered_string(buffer, byte_len, 0, 0);
+    buffered = PTS_STRING_BUFFERED;
+  } else {
+    string = pts_string_alloc(byte_len);
+  }
   char *out = string->bytes;
   memcpy(out, left->bytes, left_keep);
   out += left_keep;
@@ -74,7 +143,7 @@ pts_string *pts_string_concat(pts_string *left, pts_string *right) {
     out += pts_utf8_encode(0x10000u + ((high - 0xD800u) << 10) + (low - 0xDC00u), out);
   }
   memcpy(out, right->bytes + right_skip, right->byte_len - right_skip);
-  string->flags = left->flags & right->flags & PTS_STRING_ASCII;
+  string->flags = (left->flags & right->flags & PTS_STRING_ASCII) | buffered;
   string->utf16_len = left->utf16_len + right->utf16_len;
   return string;
 }

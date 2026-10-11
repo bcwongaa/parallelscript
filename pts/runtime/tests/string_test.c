@@ -2,6 +2,9 @@
 
 #include "check.h"
 
+#include <pthread.h>
+#include <stdio.h>
+
 static void ascii_string_is_flagged_and_measured(void) {
   pts_string *s = pts_string_from_cstr("hello");
   CHECK(s->flags & PTS_STRING_ASCII);
@@ -96,6 +99,82 @@ static void strings_survive_collection(void) {
   CHECK_STR(kept->bytes, "kept across GC");
 }
 
+static bool equals_cstr(const pts_string *string, const char *expected) {
+  return pts_string_equals(string, pts_string_from_cstr(expected));
+}
+
+/* long_string is a string long enough for concatenations onto it to go to an append buffer. */
+static pts_string *long_string(void) {
+  pts_string *string = pts_string_from_cstr("");
+  for (int i = 0; i < 10; i++) {
+    string = pts_string_concat(string, pts_string_from_cstr("0123456789"));
+  }
+  return string;
+}
+
+static void appending_leaves_earlier_strings_unchanged(void) {
+  pts_string *base = long_string();
+  pts_string *x = pts_string_concat(base, pts_string_from_cstr("x"));
+  pts_string *xy = pts_string_concat(x, pts_string_from_cstr("y"));
+  pts_string *xz = pts_string_concat(x, pts_string_from_cstr("z")); /* x no longer ends the buffer: a copy */
+  CHECK(xy->bytes == x->bytes && xz->bytes != x->bytes);
+  char digits[101], expected[128];
+  snprintf(digits, sizeof digits, "%.*s", (int)base->byte_len, base->bytes);
+  CHECK(base->byte_len == 100 && equals_cstr(base, digits));
+  snprintf(expected, sizeof expected, "%sx", digits);
+  CHECK(equals_cstr(x, expected));
+  snprintf(expected, sizeof expected, "%sxy", digits);
+  CHECK(equals_cstr(xy, expected) && xy->utf16_len == 102 && (xy->flags & PTS_STRING_ASCII));
+  snprintf(expected, sizeof expected, "%sxz", digits);
+  CHECK(equals_cstr(xz, expected));
+}
+
+static void building_a_string_piece_by_piece_reuses_its_buffer(void) {
+  pts_string *built = long_string();
+  pts_string *first = built;
+  for (int i = 0; i < 100000; i++) {
+    built = pts_string_concat(built, pts_string_from_cstr("é"));
+  }
+  CHECK(built->byte_len == 100 + 200000 && built->utf16_len == 100 + 100000 && !(built->flags & PTS_STRING_ASCII));
+  CHECK(built->bytes[100] == '\xC3' && built->bytes[built->byte_len - 1] == '\xA9');
+  pts_string *doubled = pts_string_concat(first, first);
+  CHECK(doubled->byte_len == 200 && memcmp(doubled->bytes, doubled->bytes + 100, 100) == 0);
+}
+
+enum { RACING_THREADS = 4, RACING_APPENDS = 20000 };
+
+static pts_string *shared_base;
+
+/* Each thread appends its own letter to the shared string and to what it built, and checks every result. */
+static void *append_racing(void *arg) {
+  char letter[2] = {(char)('a' + (intptr_t)arg), 0};
+  pts_string *suffix = pts_string_from_cstr(letter);
+  pts_string *built = shared_base;
+  bool intact = true;
+  for (int i = 0; i < RACING_APPENDS; i++) {
+    pts_string *once = pts_string_concat(shared_base, suffix);
+    intact = intact && once->byte_len == 101 && once->bytes[100] == letter[0] && memcmp(once->bytes, shared_base->bytes, 100) == 0;
+    built = pts_string_concat(built, suffix);
+  }
+  for (uint32_t i = 100; i < built->byte_len; i++) {
+    intact = intact && built->bytes[i] == letter[0];
+  }
+  return (void *)(intptr_t)(intact && built->byte_len == 100 + RACING_APPENDS);
+}
+
+static void racing_appends_never_mix_bytes(void) {
+  shared_base = long_string();
+  pthread_t threads[RACING_THREADS];
+  for (int i = 0; i < RACING_THREADS; i++) {
+    CHECK(pthread_create(&threads[i], NULL, append_racing, (void *)(intptr_t)i) == 0);
+  }
+  for (int i = 0; i < RACING_THREADS; i++) {
+    void *intact = NULL;
+    CHECK(pthread_join(threads[i], &intact) == 0);
+    CHECK(intact == (void *)1);
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   ascii_string_is_flagged_and_measured();
@@ -108,5 +187,8 @@ int main(int argc, char **argv) {
   sixty_four_bit_integers_print_exactly();
   output_replaces_lone_surrogates();
   strings_survive_collection();
+  appending_leaves_earlier_strings_unchanged();
+  building_a_string_piece_by_piece_reuses_its_buffer();
+  racing_appends_never_mix_bytes();
   return pts_runtime_exit(CHECK_DONE());
 }
