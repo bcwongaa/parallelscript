@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.3 Booleans and strings
+- **Next task:** M1.3a Booleans and string basics
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
@@ -24,7 +24,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.3 Booleans and strings (also fixes the lone-surrogate known issue).
+1. M1.3a Booleans and string basics (also fixes the lone-surrogate known issue); then M1.3b String methods (split by D-013; `split` itself moved to M2.4).
 2. M1.4a Control flow: when adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered").
 3. M1.4b Modules.
 

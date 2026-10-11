@@ -55,9 +55,13 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - A PTS semantic pass for literal typing from context, lossless-only implicit conversion and `as` conversions (Rust rules).
   - Integer arithmetic: wrapping, truncating `/`, `RangeError` on division by zero.
   - Error tests for every rule.
-- [ ] **M1.3 Booleans and strings.**
-  - Booleans; strings in UTF-8 with an ASCII flag and UTF-16 index semantics.
-  - Concatenation, template literals, `length`, indexing, `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase`, `trim*`, `padStart`/`padEnd`, `repeat`, and `split` on a string separator.
+- [ ] **M1.3a Booleans and string basics** (split by D-013).
+  - Booleans: `!`; strings in UTF-8 with an ASCII flag and UTF-16 semantics.
+  - Concatenation (`+` with a string and any primitive, with JS's ToString), template literals, `length`, `===`/`!==` and `<`/`<=`/`>`/`>=` on strings (UTF-16 code-unit order).
+  - `console.log` writes lone surrogates as U+FFFD, as Node does (the known issue).
+- [ ] **M1.3b String methods** (split by D-013).
+  - Indexing, `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase`, `trim*`, `padStart`/`padEnd`, `repeat`, with UTF-16 index semantics (O(1) for ASCII strings).
+  - `split` on a string separator moves to M2.4, because it returns an array.
 - [ ] **M1.4a Control flow.**
   - `let`/`const`; functions; recursion; `if`, `switch`, `for`, `while` and `do`; `break`/`continue` with labels; the ternary operator.
   - Every operator, including compound assignment, `**`, bitwise operators (JS int32 semantics for `number`), `typeof`, logical operators and comma.
@@ -84,6 +88,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise.
 - [ ] **M2.4 Arrays.**
   - Growable arrays that are race-safe per brief §2.5 (capacity inside the buffer).
+  - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
   - The core methods: `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` (stable, with JS default comparison), `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flat`, `flatMap`, `fill`, `Array.from` and `Array.isArray`.
 - [ ] **M2.5 Collections and closures.**
   - `Map` and `Set` with insertion order and SameValueZero semantics.
