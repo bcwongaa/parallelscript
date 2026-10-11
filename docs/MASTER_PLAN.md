@@ -124,7 +124,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `apply` where the types allow (an array argument for a function whose parameters all have its element type).
 - [x] **M2.5c `Map` and `Set`** (b932f06e8) (split from M2.5 by D-040).
   - `Map` and `Set` with insertion order and SameValueZero semantics: `get`, `set`, `has`, `delete`, `clear`, `size`, `forEach`, and `for…of` over them and their `keys()`, `values()` and `entries()`.
-- [ ] **M2.6a Integer types as checker types** (split from M2.6 by D-047).
+- [x] **M2.6a Integer types as checker types** (5ebc5408e) (split from M2.6 by D-047).
   - The prelude's integer types and f32 are distinct number types inside the checker (D-048), so they flow through every type tsc builds: array elements, `Map`/`Set` keys and values, function types, object types and type arguments (`u8[]`, `Map<string, int>`, `(n: int) => int`).
   - The semantic pass types untyped literals and checks lossless conversion at the new boundaries (array literal elements, built-in method arguments, element assignments).
 - [ ] **M2.6b Generics** (split from M2.6 by D-047).

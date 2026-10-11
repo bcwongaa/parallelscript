@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.6 Generics and syntax
+- **Next task:** M2.6b Generics
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.6a Integer types as checker types: the forked checker makes the prelude's `int`, `i8 … u64`, `f32` number types of their own and types arithmetic by ParallelScript's rules (shared in the new `pts/numeric`), so `u8[]`, `Map<string, int>`, `Set<u64>`, `(n: int) => int` and inferred results (`ints.map(x => x * 2)` is an `int[]`) work; the semantic pass reads checker types, types literals by context (array elements, built-in method arguments) and checks function-type conversions (D-048, SPEC §9.25). M2.6 split by D-047.
 - M2.5c `Map` and `Set`: an ordered hash table in the runtime (insertion order, SameValueZero keys, tables replaced rather than resized for race safety, iterators that follow replaced tables as JS's live iteration); `new Map`/`new Set` (empty, copies, a set of an array), `get` (and `get(k)!`), `set`/`add`, `has`, `delete`, `clear`, `size`, `forEach`, `Array.from` and `for…of` over sets, `keys()` and `values()`; `console.log` as Node (D-046, SPEC §9.24). Entries as pairs move to M2.6 (tuples). M2.5 is complete.
 - M2.5b2 Accessors in object literals and `apply`: getters and setters in literals as per-object closures, through interfaces too, printed `[Getter]`/`[Setter]`/`[Getter/Setter]` as Node does; `apply` with an array literal (D-045, SPEC §9.23).
 - M2.5b1 Methods in object literals and methods as values: literal methods are closures in shape fields called with the object as `this` (direct field access), reachable through interfaces by method-table entries; `o.m` as a value is bound to `o` (a documented difference: JS leaves it unbound); static methods as values; `bind` (with leading arguments) and `call` on methods and function values; tuple rest parameters in function types (D-044, SPEC §9.22). M2.5b split by D-043.
@@ -48,7 +49,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.6 Generics and syntax: big; split it first. Its parts: generics by monomorphization; integer types and f32 as array elements, map keys/values and type arguments, and in function signatures (the semantic pass must follow type nodes, since the checker sees `u8` as `number`; see the PTS1001s in `errors/arrays_of_integers.pts`, `function_types_of_integers.pts`, `maps_of_integers.pts`); enums; destructuring with defaults; spread and rest (calls, arrays, objects); tuples (which unlock Map entries, `new Map(entries)`, `apply` with arrays, D-046); `Record<string, T>` and index signatures as hash maps (the `pts_map` runtime can serve them).
+1. M2.6b Generics: monomorphize generic functions, methods and classes (and generic interfaces and type aliases, which `irType` doesn't take yet: `Box<number>` is PTS1001), keyed on checker type arguments, which now carry the integer types (D-048). The semantic pass's `functionOf` reads declared signatures; a generic one needs the instantiated signature (`GetResolvedSignature`) for its parameters' numeric types. Then M2.6c enums, M2.6d tuples and destructuring, M2.6e spread/rest and hash-map objects.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -63,7 +64,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (82 run tests, 1 skipped; 45 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (85 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -75,6 +76,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **Equality narrowing loses an integer type to tsc:** after `if (b === 5)` with `b: u8`, tsc types `b` in the branch as the literal `5`, so `[b + 1]` is a `number[]` to tsc while the semantic pass computes `b + 1` as a `u8` (the value is converted to number; nothing breaks). Fixing it means `replacePrimitivesWithLiterals` (`internal/checker/flow.go`) keeping D-048's types; not worth a fork edit yet.
 - **Captured variables have no TDZ check:** a closure that runs before the declaration of a variable it captures has run (e.g. a hoisted function called above a `const` it reads) sees the type's zero value, and a NULL string or object crashes, where Node throws `ReferenceError: Cannot access 'x' before initialization`. Needs a ready flag for the cells that the cell pass marks as captured early.
 - **Overrides must keep the overridden method's parameter and result types** (PTS1001 otherwise): no covariant class results, no overrides with fewer parameters (D-028). A base constructor that calls an overridden method reading a subclass field sees the field's zero value (`""`, 0, NULL for an object), where Node sees `undefined`, since the subclass's initialisers run after `super()` returns; `console.log(this)` there lists the subclass's fields too, where Node doesn't yet.
 - **Classes have no TDZ check:** `new C()` in a function called before `class C` has run works, where Node throws `ReferenceError`. And a class-typed field read before the constructor assigns it is NULL, so it crashes (tsc rejects most such reads; a method called from the constructor before the assignment can still do it). Both need the null and ready checks that come with unions (M3.1) or a class ready flag.
@@ -89,6 +91,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.6a done (M2.6 split by D-047).
 - 2026-10-11: M2.5c done; M2.5 complete.
 - 2026-10-11: M2.5b2 done.
 - 2026-10-11: M2.5b1 done (M2.5b split by D-043).
