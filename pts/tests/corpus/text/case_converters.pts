@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: this `Object.fromEntries`
 // Identifier case conversion: camelCase, PascalCase, snake_case, kebab-case, CONSTANT_CASE,
 // Title Case, with acronym-aware word splitting.
 type CaseStyle = "camel" | "pascal" | "snake" | "kebab" | "constant" | "title" | "dot";

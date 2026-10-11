@@ -427,6 +427,16 @@ func (l *lowerer) valueCall(call *ast.CallExpression) ir.Expr {
 	if callee == nil {
 		return nil
 	}
+	if isFunctionUnion(callee.Type()) { // `(() => number) | (() => string)`: through the members' dynamic entries (D-096)
+		if l.firstDynamicCall == nil {
+			l.firstDynamicCall = call.AsNode()
+		}
+		result := l.dynamicCallWith(call, call.Expression, ir.DynamicCall, []ir.Expr{box(callee)})
+		if result == nil {
+			return nil
+		}
+		return l.fromErased(result, call.AsNode())
+	}
 	ft, ok := callee.Type().(*ir.FuncType)
 	if !ok {
 		l.notSupportedYet(call.Expression, fmt.Sprintf("calling a %s is", callee.Type()))
@@ -443,10 +453,22 @@ func (l *lowerer) valueCall(call *ast.CallExpression) ir.Expr {
 	return result
 }
 
+// isFunctionUnion reports whether t is a union of function types (perhaps with others,
+// such as undefined, which tsc has ruled out where it is called).
+func isFunctionUnion(t ir.Type) bool {
+	u, ok := t.(*ir.Union)
+	return ok && slices.ContainsFunc(u.Members, isFunction)
+}
+
 // fromErased converts value, the dynamic result of a call of an erased copy (node), to
-// the type tsc gives the call, with a check (D-078).
+// the type tsc gives the call, with a check (D-078), or to the union of object types its
+// result goes to (objectUnionContext).
 func (l *lowerer) fromErased(value ir.Expr, node *ast.Node) ir.Expr {
-	target := l.irType(l.typeAt(node), node)
+	t := l.typeAt(node)
+	if contextual := l.objectUnionContext(node); contextual != nil && l.checker.IsTypeAssignableTo(t, contextual) {
+		t = contextual
+	}
+	target := l.irType(t, node)
 	switch {
 	case target == nil:
 		return nil

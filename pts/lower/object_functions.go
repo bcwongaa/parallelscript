@@ -153,7 +153,11 @@ func (l *lowerer) assignToNewObject(call *ast.CallExpression) ir.Expr {
 // converted to strings.
 func (l *lowerer) objectFromEntries(call *ast.CallExpression) ir.Expr {
 	node := call.AsNode()
-	record, ok := l.irType(l.typeAt(node), node).(*ir.MapType)
+	t := l.irType(l.typeAt(node), node)
+	if t == ir.Value {
+		t = l.recordOf(ir.Value) // of pairs tsc types as arrays (`[key(x), x]` in a callback), it is any
+	}
+	record, ok := t.(*ir.MapType)
 	if !ok || !record.Record {
 		l.notSupportedYet(node, "this `Object.fromEntries` is")
 		return nil
@@ -171,7 +175,7 @@ func (l *lowerer) objectFromEntries(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	array, ok := pairs.Type().(*ir.Array)
-	if !ok || !isTuple(array.Elem) || len(array.Elem.(*ir.Class).Fields) < 2 {
+	if !ok || !isArray(array.Elem) && (!isTuple(array.Elem) || len(array.Elem.(*ir.Class).Fields) < 2) {
 		l.notSupportedYet(call.Arguments.Nodes[0], fmt.Sprintf("`Object.fromEntries` of a %s is", pairs.Type()))
 		return nil
 	}
@@ -180,6 +184,18 @@ func (l *lowerer) objectFromEntries(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	return &ir.Call{Func: helper, Args: []ir.Expr{pairs}}
+}
+
+// pairParts are the key and value of element, a [key, value] tuple or an array, whose
+// elements past its end are undefined as in JS.
+func pairParts(element ir.Expr) (key ir.Expr, value ir.Expr) {
+	if tuple, ok := element.Type().(*ir.Class); ok {
+		return &ir.FieldRef{X: element, Field: tuple.Fields[0]}, &ir.FieldRef{X: element, Field: tuple.Fields[1]}
+	}
+	part := func(i float64) ir.Expr {
+		return &ir.ArrayCall{Op: ir.ArrayElement, Args: []ir.Expr{element, &ir.NumberConst{Value: i}}}
+	}
+	return part(0), part(1)
 }
 
 // fromEntriesHelper returns the helper that makes a hash-map object of type record from
@@ -195,10 +211,10 @@ func (l *lowerer) fromEntriesHelper(pairs *ir.Array, record *ir.MapType, node *a
 		h.array = l.newLocal("pairs", pairs)
 		h.fn.Params = []*ir.Local{h.array}
 		result := l.newLocal("result", record)
-		fields := pairs.Elem.(*ir.Class).Fields
 		h.fn.Body = &ir.Block{At: h.fn.Pos, Stmts: h.loop(false, []ir.Stmt{h.declare(result, &ir.NewMap{Map: record})}, func(element, _ ir.Expr) []ir.Stmt {
-			name := l.toString(&ir.FieldRef{X: element, Field: fields[0]}, node)
-			value := l.convert(&ir.FieldRef{X: element, Field: fields[1]}, record.Value, node)
+			key, value := pairParts(element)
+			name := l.toString(key, node)
+			value = l.convert(value, record.Value, node)
 			if name == nil || value == nil {
 				h.failed = true
 				return nil
@@ -212,4 +228,32 @@ func (l *lowerer) fromEntriesHelper(pairs *ir.Array, record *ir.MapType, node *a
 	}
 	l.helpers[key] = h.fn
 	return h.fn
+}
+
+// hasOwnPropertyCall reports whether call is `o.hasOwnProperty(k)` for an object o that
+// isn't a hash-map object, or `Object.prototype.hasOwnProperty.call(o, k)`, and returns
+// o and k.
+func (l *lowerer) hasOwnPropertyCall(call *ast.CallExpression) (object *ast.Node, key *ast.Node, ok bool) {
+	callee := ast.SkipParentheses(call.Expression)
+	args := call.Arguments.Nodes
+	if callee.Kind != ast.KindPropertyAccessExpression || slices.ContainsFunc(args, ast.IsSpreadElement) {
+		return nil, nil, false
+	}
+	switch {
+	case callee.Name().Text() == "hasOwnProperty" && len(args) == 1 && l.isObjectPrototypeMember(callee) && !l.isRecordExpression(callee.Expression()):
+		return callee.Expression(), args[0], true
+	case callee.Name().Text() == "call" && len(args) == 2 && l.libMemberName(ast.SkipParentheses(callee.Expression())) == "Object.hasOwnProperty":
+		return args[0], args[1], true
+	}
+	return nil, nil, false
+}
+
+// hasOwnProperty lowers the test whether object has an own property key, as
+// Object.hasOwn: through the object's dynamic value (D-086).
+func (l *lowerer) hasOwnProperty(object *ast.Node, key *ast.Node) ir.Expr {
+	o, k := l.valueExpression(object), l.expression(key)
+	if o == nil || k == nil {
+		return nil
+	}
+	return &ir.CallBuiltin{Builtin: ir.ValueHasOwn, Args: []ir.Expr{box(o), box(k)}}
 }

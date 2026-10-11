@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting {error: {kind: string; limit: number; total: number}; ok: boolean} | {ok: boolean; value: {lines: {qty: number; sku: string; su...
 // Either/Result as a discriminated union, with map/flatMap/mapErr and an order-processing pipeline.
 
 type Ok<T> = { ok: true; value: T };

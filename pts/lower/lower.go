@@ -1109,6 +1109,9 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	if result.Flags()&(checker.TypeFlagsVoid|checker.TypeFlagsNever) != 0 {
 		return ir.Void // a function that returns never only throws
 	}
+	if contextual := l.contextualResult(node, result); contextual != nil {
+		result = contextual // `(input) => c ? { ok: true, … } : { ok: false, … }` as a Parser (D-095)
+	}
 	return l.irType(result, nameOf(node))
 }
 
@@ -1382,6 +1385,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
+	}
+	if object, key, ok := l.hasOwnPropertyCall(call); ok {
+		return l.hasOwnProperty(object, key)
 	}
 	if x, handled := l.dateCall(call); handled {
 		return x
@@ -2914,7 +2920,11 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		y = l.convert(y, x.Type(), b)
 	}
 	if contextual := l.contextualType(node); contextual == nil || contextual.Flags()&checker.TypeFlagsUnion != 0 {
-		if u, ok := l.irType(l.typeAt(node), node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird
+		t := l.typeAt(node)
+		if objects := l.objectUnion(contextual); objects != nil && l.checker.IsTypeAssignableTo(t, objects) {
+			t = objects // `c ? { ok: true, … } : { ok: false, … }` where a Result goes (D-095)
+		}
+		if u, ok := l.irType(t, node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird
 			x, y = l.convert(x, u, a), l.convert(y, u, b)
 			if x == nil || y == nil {
 				return nil, nil
@@ -2932,7 +2942,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 			return nil, nil
 		}
 	}
-	if x.Type() != y.Type() && (x.Type() == ir.Value || y.Type() == ir.Value) { // `c ? String(e) : e` for an unknown e
+	if x.Type() != y.Type() && (x.Type() == ir.Value || y.Type() == ir.Value || l.irType(l.typeAt(node), node) == ir.Value) { // `c ? String(e) : e` for an unknown e
 		x, y = box(x), box(y)
 	}
 	if x.Type() != y.Type() && (isEmptyArrayLiteral(x) || isEmptyArrayLiteral(y)) { // `c ? [x] : []` (D-089)
@@ -3170,6 +3180,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if t.Flags()&checker.TypeFlagsIntersection != 0 {
 		if member := l.coveringMember(t); member != nil {
 			t = member // `Settings & { width: number }`, which Object.assign gives, is a Settings (D-086)
+		} else if !l.isObjectType(t) {
+			return ir.Value // `E & Error`, which `e instanceof Error` narrows an E of object types to: no class's objects are both (D-095)
 		}
 	}
 	if symbol := t.Symbol(); symbol != nil && symbol.Flags&ast.SymbolFlagsRegularEnum != 0 && t.Flags()&checker.TypeFlagsObject != 0 && len(symbol.Declarations) == 1 {

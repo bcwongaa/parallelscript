@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting {ok: boolean; value: number}[] to {error: value; ok: boolean} | {ok: boolean; value: number}[]
 // A Result<T, E> type used instead of exceptions, with helpers to convert
 // between thrown errors and results.
 

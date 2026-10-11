@@ -106,7 +106,11 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	if t.Flags()&checker.TypeFlagsNever != 0 {
 		return x // unreachable code, as tsc sees it
 	}
-	if narrow := l.irType(t, node); narrow != nil && isNarrowing(union, narrow) {
+	narrow := l.irType(t, node)
+	if narrow == ir.Value {
+		return box(x) // narrowed to a type only dynamic values hold (`E & Error` after `e instanceof Error`, D-095)
+	}
+	if narrow != nil && isNarrowing(union, narrow) {
 		if node.Kind == ast.KindIdentifier && l.isLoose(l.target(node)) {
 			if l.isTestedOperand(node) {
 				return x // tested for undefined: the union it holds

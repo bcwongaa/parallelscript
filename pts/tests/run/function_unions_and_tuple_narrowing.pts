@@ -1,0 +1,25 @@
+// Calls of a union of function types, through their dynamic entries, and tuple elements
+// narrowed by tests of the element itself (D-096).
+const getters: Record<string, (() => number) | (() => string)> = { a: () => 1, b: () => "two" };
+for (const k of Object.keys(getters)) console.log(k, getters[k]());
+type Check = ((x: unknown) => boolean) | ((x: unknown, path: string) => string);
+const checks: Check[] = [(x: unknown) => x === 1, (x: unknown, p: string) => p + String(x)];
+console.log(checks.map((check) => check(1, "at:")));
+
+type Entry = [string | number | boolean, string];
+function asString(found: Entry): string {
+  if (typeof found[0] !== "string") throw new TypeError(`${found[1]} is not a string`);
+  return found[0].toUpperCase();
+}
+console.log(asString(["host", "a"]));
+try {
+  asString([8080, "port"]);
+} catch (e) {
+  console.log((e as Error).message);
+}
+// expect:
+// a 1
+// b two
+// [ true, 'at:1' ]
+// HOST
+// port is not a string

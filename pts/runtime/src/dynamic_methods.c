@@ -1109,9 +1109,72 @@ bool pts_value_same_value(pts_value a, pts_value b) {
   return pts_value_strict_equals(a, b);
 }
 
+/* The builtin error class an error's class is or extends. */
+static const pts_type *builtin_error_type(const pts_object *error) {
+  static const pts_type *const builtins[] = {&pts_type_builtin_Error,          &pts_type_builtin_TypeError,
+                                             &pts_type_builtin_RangeError,     &pts_type_builtin_ReferenceError,
+                                             &pts_type_builtin_SyntaxError,    &pts_type_builtin_EvalError,
+                                             &pts_type_builtin_URIError};
+  for (const pts_type *t = error->type; t != NULL; t = t->parent) {
+    for (size_t i = 0; i < sizeof builtins / sizeof *builtins; i++) {
+      if (t == builtins[i]) {
+        return t;
+      }
+    }
+  }
+  return &pts_type_builtin_Error;
+}
+
+/* Whether a string's text is the C string text. */
+static bool string_is(const pts_string *string, const char *text) {
+  size_t len = strlen(text);
+  return string->byte_len == len && memcmp(string->bytes, text, len) == 0;
+}
+
+/* Whether value has the own property key that isn't enumerable: an array's or string's
+   length; an error's stack, message (when not empty), cause (when given) and name (when
+   its constructor or a field set it: when it isn't its builtin class's). */
+static bool has_hidden_own(pts_value value, const pts_string *key) {
+  if (!pts_value_is_object(value)) {
+    return false;
+  }
+  pts_object *object = pts_value_as_object(value);
+  switch (object->type->kind) {
+  case PTS_KIND_STRING:
+  case PTS_KIND_ARRAY:
+  case PTS_KIND_TUPLE:
+    return string_is(key, "length");
+  case PTS_KIND_OBJECT:
+    break;
+  default:
+    return false;
+  }
+  if (!pts_instance_of(object, &pts_type_builtin_Error)) {
+    return false;
+  }
+  pts_error *error = (pts_error *)object;
+  if (string_is(key, "stack")) {
+    return true;
+  }
+  if (string_is(key, "message")) {
+    return error->message != NULL && error->message->utf16_len > 0;
+  }
+  if (string_is(key, "cause")) {
+    return error->cause != PTS_VALUE_ABSENT;
+  }
+  if (string_is(key, "name")) {
+    const char *builtin = builtin_error_type(object)->name;
+    return error->name != NULL && !string_is(error->name, builtin);
+  }
+  return false;
+}
+
 bool pts_value_has_own(pts_value value, pts_value key) {
   pts_array *keys = own_keys(value);
   pts_value name = pts_value_from_string(pts_value_to_string(key));
+  if (has_hidden_own(value, pts_value_as_string(name))) {
+    return true;
+  }
   for (double i = 0; i < pts_array_length(keys); i++) {
     if (pts_value_strict_equals(pts_array_element(keys, i), name)) {
       return true;

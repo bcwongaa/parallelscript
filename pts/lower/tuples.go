@@ -129,7 +129,7 @@ func (l *lowerer) tupleElementRead(node *ast.Node, field *ir.Field) ir.Expr {
 	if object == nil {
 		return nil
 	}
-	return &ir.FieldRef{X: object, Field: field}
+	return l.narrowed(node, &ir.FieldRef{X: object, Field: field}) // `found[0]` after `typeof found[0] !== "string"`
 }
 
 // tupleArray copies the elements of x, a tuple of type t, into a new array of the union of

@@ -223,7 +223,88 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 	if slices.ContainsFunc(arguments, l.mentionsErased) {
 		return l.erasedInstance(generic, call.AsNode())
 	}
+	if fromResult := l.resultTypeArguments(call, generic, arguments); fromResult != nil {
+		arguments = fromResult
+	}
 	return l.genericInstance(generic, arguments, call.AsNode())
+}
+
+// objectUnionContext is the contextual type of an expression whose value goes where a
+// union with object types among its members goes (a `Result<T, E>`), or nil. Where tsc
+// types the expression as a narrower union of object types of its own (the literals a
+// conditional or a function returns, with each other's properties added as optional), or
+// a generic call's result as an instance of other type arguments, the value is made for
+// that union instead (D-095).
+func (l *lowerer) objectUnionContext(node *ast.Node) *checker.Type {
+	return l.objectUnion(l.contextualType(node))
+}
+
+// objectUnion is t if it is a union of object types, perhaps with null or undefined, else
+// nil (`U | readonly U[]`, a flatMap callback's result, is none).
+func (l *lowerer) objectUnion(t *checker.Type) *checker.Type {
+	if t == nil || t.Flags()&checker.TypeFlagsUnion == 0 || !slices.ContainsFunc(t.Types(), l.isObjectType) {
+		return nil
+	}
+	for _, member := range t.Types() {
+		if !l.isObjectType(member) && member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) == 0 {
+			return nil
+		}
+	}
+	return t
+}
+
+// contextualResult is the result type of the function type that fn, an arrow function or
+// function expression without a declared result type, goes where (`(input) => …` as a
+// `Parser<string>`), if that is an objectUnion that inferred, the result tsc inferred for
+// fn, is assignable to; else nil (D-095).
+func (l *lowerer) contextualResult(fn *ast.Node, inferred *checker.Type) *checker.Type {
+	if fn.Type() != nil || fn.Kind != ast.KindArrowFunction && fn.Kind != ast.KindFunctionExpression {
+		return nil
+	}
+	contextual := l.contextualType(fn)
+	if contextual == nil {
+		return nil
+	}
+	signatures := l.checker.GetSignaturesOfType(l.checker.GetNonNullableType(contextual), checker.SignatureKindCall)
+	if len(signatures) != 1 || len(signatures[0].TypeParameters()) > 0 {
+		return nil
+	}
+	result := l.objectUnion(l.returnTypeOf(signatures[0]))
+	if result == nil || !l.checker.IsTypeAssignableTo(inferred, result) {
+		return nil
+	}
+	return result
+}
+
+// resultTypeArguments are the type arguments of a generic call inferred from where its
+// result goes, where that is a union with object types among its members and the call
+// type-checks with them, or nil (D-095). For `return err({ kind: "empty" })` where a
+// `Result<number, ParseError>` goes, tsc infers `{ kind: "empty" }` from the argument,
+// whose instance makes an `Err` of another representation than the union's member
+// `Err<ParseError>`, which the result's instance makes; JS's values are the same.
+func (l *lowerer) resultTypeArguments(call *ast.CallExpression, generic *genericFunc, arguments []*checker.Type) []*checker.Type {
+	contextual := l.objectUnionContext(call.AsNode())
+	if contextual == nil {
+		return nil
+	}
+	signature := l.checker.GetSignatureFromDeclaration(generic.node)
+	inferred := l.checker.PtsInferTypeArgumentsFromResult(signature, contextual)
+	if inferred == nil || slices.Equal(inferred, arguments) || slices.ContainsFunc(inferred, l.mentionsErased) || signature.HasRestParameter() {
+		return nil
+	}
+	instantiated := func(t *checker.Type) *checker.Type {
+		return l.checker.PtsInstantiateType(t, generic.parameters, inferred)
+	}
+	if !l.checker.IsTypeAssignableTo(instantiated(l.checker.GetReturnTypeOfSignature(signature)), contextual) {
+		return nil
+	}
+	params := signature.Parameters()
+	for i, argument := range call.Arguments.Nodes {
+		if i >= len(params) || !l.checker.IsTypeAssignableTo(l.typeAt(argument), instantiated(l.typeOfSymbol(params[i]))) {
+			return nil
+		}
+	}
+	return inferred
 }
 
 // genericValue lowers a generic function declaration used as a value (node names it): in

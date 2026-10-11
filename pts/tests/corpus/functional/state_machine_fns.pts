@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting object3 to null | {credit: number; reason?: undefined; tag: string} | {credit?: number | undefined; reason: string; tag: string}
 // A state machine defined by transition functions: a vending machine and a traffic light.
 
 type VendState =

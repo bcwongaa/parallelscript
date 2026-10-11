@@ -1,0 +1,50 @@
+// Values made for the union of object types they go to (D-095): generic calls whose
+// arguments imply other type arguments, literals a function without a declared result
+// returns, conditionals and arrows of literals, recursive unions of literals.
+type Ok<T> = { ok: true; value: T };
+type Err<E> = { ok: false; error: E };
+type Result<T, E> = Ok<T> | Err<E>;
+function ok<T>(value: T): Ok<T> { return { ok: true, value }; }
+const err = <E>(error: E): Err<E> => ({ ok: false, error });
+
+type ParseError = { kind: "empty" } | { kind: "notNumber"; text: string };
+function parse(t: string): Result<number, ParseError> {
+  if (t.length === 0) return err({ kind: "empty" });
+  return Number.isNaN(Number(t)) ? err({ kind: "notNumber", text: t }) : ok(Number(t));
+}
+function unwrap<T, E>(r: Result<T, E>): T {
+  if (r.ok) return r.value;
+  const e = r.error;
+  throw e instanceof Error ? e : new Error(`unwrap on Err: ${JSON.stringify(e)}`);
+}
+console.log(parse(""), parse("x"), parse("4"));
+try {
+  console.log(unwrap(parse("12")), unwrap(parse("twelve")));
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+type Step = { ok: true; value: string; rest: string } | { ok: false; expected: string; at: string };
+type Parser = (input: string) => Step;
+const char = (c: string): Parser => (input) =>
+  input.startsWith(c) ? { ok: true, value: c, rest: input.slice(c.length) } : { ok: false, expected: c, at: input };
+console.log(char("a")("abc"), char("x")("abc"));
+
+type Ev = { type: "coin"; cents: number } | { type: "cancel" };
+function step(credit: number, e: Ev) {
+  if (e.type === "coin") return { tag: "collecting", credit: credit + e.cents };
+  if (credit > 0) return { tag: "refund", reason: "cancelled", credit };
+  return null;
+}
+console.log(step(0, { type: "coin", cents: 25 }), step(5, { type: "cancel" }), step(0, { type: "cancel" }));
+
+type Expr = { op: "lit"; value: number } | { op: "neg"; arg: Expr } | { op: "add"; args: Expr[] };
+let expr: Expr = { op: "lit", value: 1 };
+for (let i = 0; i < 3; i++) expr = i % 2 === 0 ? { op: "neg", arg: expr } : { op: "add", args: [expr, { op: "lit", value: i }] };
+console.log(JSON.stringify(expr));
+// expect:
+// { ok: false, error: { kind: 'empty' } } { ok: false, error: { kind: 'notNumber', text: 'x' } } { ok: true, value: 4 }
+// unwrap on Err: {"kind":"notNumber","text":"twelve"}
+// { ok: true, value: 'a', rest: 'bc' } { ok: false, expected: 'x', at: 'abc' }
+// { tag: 'collecting', credit: 25 } { tag: 'refund', reason: 'cancelled', credit: 5 } null
+// {"op":"neg","arg":{"op":"add","args":[{"op":"neg","arg":{"op":"lit","value":1}},{"op":"lit","value":1}]}}

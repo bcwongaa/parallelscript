@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling a (() => number) | (() => string)
 // Singleton configuration store with layered sources and typed getters.
 
 type ConfigValue = string | number | boolean | string[];

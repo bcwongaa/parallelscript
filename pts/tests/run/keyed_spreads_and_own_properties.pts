@@ -1,0 +1,37 @@
+// Computed keys of literal-union types in spread literals, Object.fromEntries of pairs
+// tsc types as arrays, and hasOwnProperty on any object (D-096).
+type Kind = "add" | "del" | "same";
+const ops: { kind: Kind }[] = [{ kind: "add" }, { kind: "same" }, { kind: "add" }];
+const counts = ops.reduce<Record<Kind, number>>((acc, op) => ({ ...acc, [op.kind]: acc[op.kind] + 1 }), { add: 0, del: 0, same: 0 });
+console.log(counts);
+
+function indexBy<T>(xs: T[], key: (x: T) => string) {
+  return Object.fromEntries(xs.map((x) => [key(x), x]));
+}
+console.log(indexBy([{ id: "a", n: 1 }, { id: "b", n: 2 }], (x) => x.id));
+const styles = ["upper", "lower"];
+console.log(Object.fromEntries([["id", "x1"], ...styles.map((s) => [s, s === "upper" ? "X1" : "x1"])]));
+console.log(Object.fromEntries([["k"], ["j", 2, 3]]));
+
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+const e = new HttpError("bad gateway", 502);
+const bare = new Error();
+console.log(e.hasOwnProperty("name"), e.hasOwnProperty("status"), e.hasOwnProperty("message"), e.hasOwnProperty("stack"));
+console.log(bare.hasOwnProperty("name"), bare.hasOwnProperty("message"), bare.hasOwnProperty("cause"), new Error("x", { cause: 1 }).hasOwnProperty("cause"));
+const plain = { message: "x", n: undefined };
+console.log(Object.prototype.hasOwnProperty.call(plain, "message"), Object.prototype.hasOwnProperty.call(plain, "zz"), plain.hasOwnProperty("n"));
+console.log([1, 2].hasOwnProperty(1), [1, 2].hasOwnProperty(2), [1, 2].hasOwnProperty("length"), "ab".hasOwnProperty(0), "ab".hasOwnProperty("length"));
+// expect:
+// { add: 2, del: 0, same: 1 }
+// { a: { id: 'a', n: 1 }, b: { id: 'b', n: 2 } }
+// { id: 'x1', upper: 'X1', lower: 'x1' }
+// { k: undefined, j: 2 }
+// true true true true
+// false false false true
+// true false true
+// true false true true true

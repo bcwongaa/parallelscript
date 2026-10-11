@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: calling a ((value, string) => {issues: {message: string; path: string}[]; valid: boolean} | {valid: boolean; value: boolean}) | ((value, s...
 // A validation combinator library that accumulates errors with paths, applied to nested input.
 
 type Issue = { path: string; message: string };

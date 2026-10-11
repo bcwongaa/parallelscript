@@ -125,3 +125,21 @@ func (c *Checker) PtsInstantiateType(t *Type, sources []*Type, targets []*Type) 
 func (c *Checker) PtsInstantiateSignatureInContextOf(signature *Signature, contextual *Signature) *Signature {
 	return c.instantiateSignatureInContextOf(signature, contextual, nil /*inferenceContext*/, nil /*compareTypes*/)
 }
+
+// PtsInferTypeArgumentsFromResult returns the type arguments tsc infers for a generic
+// signature's type parameters from its return type related to target alone, as for a call
+// whose result goes where a value of type target goes, or nil if it infers none for one
+// of them. ParallelScript instantiates a call so where the instance its arguments imply
+// makes values of another representation than target's (D-095).
+func (c *Checker) PtsInferTypeArgumentsFromResult(signature *Signature, target *Type) []*Type {
+	context := c.newInferenceContext(signature.typeParameters, signature, InferenceFlagsNone, nil)
+	c.inferTypes(context.inferences, target, c.getReturnTypeOfSignature(signature), InferencePriorityNone, false)
+	arguments := make([]*Type, len(context.inferences))
+	for i, inference := range context.inferences {
+		if len(inference.candidates) == 0 {
+			return nil
+		}
+		arguments[i] = c.getInferredType(context, i)
+	}
+	return arguments
+}

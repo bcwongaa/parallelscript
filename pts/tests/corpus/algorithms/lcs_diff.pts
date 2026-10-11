@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: computed property names
 // Longest common subsequence used to produce a line diff and a character-level similarity score.
 
 type DiffOp = { kind: "keep" | "add" | "del"; text: string };

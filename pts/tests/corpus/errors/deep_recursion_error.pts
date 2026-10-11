@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting {arg: {name: string; op: string} | {op: string; value: number} | {args: {name: string; op: string} | {op: string; value: number...
 // Walks a nested expression tree recursively; errors thrown deep inside
 // carry the path to the failing node and are caught at the top.
 

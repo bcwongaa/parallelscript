@@ -265,10 +265,12 @@ func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 	return key.String()
 }
 
-// typeKey identifies an IR type in membersKey: a class or interface by its identity.
+// typeKey identifies an IR type in membersKey: a class, interface or any type the
+// lowering makes one of (unionOf, mapOf) by its identity, since a recursive type prints
+// differently while its members are being made.
 func typeKey(t ir.Type) string {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.Rest:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.Rest, *ir.Union, *ir.MapType:
 		return fmt.Sprintf("%p", t)
 	}
 	return t.String()
@@ -391,8 +393,12 @@ type spreadProperty struct {
 // in the order it copies them (spreadNames), and each property written, where a later
 // value of a property replaces the earlier one in its place.
 func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, node *ast.Node) ir.Expr {
-	parts := make([]spreadProperty, len(properties))
-	for i, property := range properties {
+	keyed := len(properties) // the computed properties at the end whose keys are found at run time
+	for keyed > 0 && l.isKeyedProperty(properties[keyed-1], shape) {
+		keyed--
+	}
+	parts := make([]spreadProperty, keyed)
+	for i, property := range properties[:keyed] {
 		part := &parts[i]
 		part.node = property
 		switch property.Kind {
@@ -404,11 +410,18 @@ func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, n
 				return nil
 			}
 		case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
+			name := ""
 			if property.Name().Kind == ast.KindComputedPropertyName {
-				l.notSupportedYet(property.Name(), "computed property names are")
-				return nil
+				constant, ok := l.constantName(property.Name())
+				if !ok || shape.Field(constant) == nil {
+					l.notSupportedYet(property.Name(), "computed property names are")
+					return nil
+				}
+				name = constant
+			} else {
+				name = l.checker.GetSymbolAtLocation(property.Name()).Name
 			}
-			part.field = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
+			part.field = shape.Field(name)
 			if property.Kind == ast.KindPropertyAssignment {
 				part.value = l.expression(property.Initializer())
 			} else {
@@ -425,7 +438,53 @@ func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, n
 			return nil
 		}
 	}
-	return l.spreadObject(parts, shape, node)
+	object := l.spreadObject(parts, shape, node)
+	if object == nil || keyed == len(properties) {
+		return object
+	}
+	return l.withKeyedProperties(object, properties[keyed:])
+}
+
+// isKeyedProperty reports whether property of an object literal of the given shape has a
+// computed name whose type is a union of string literals that each name a field of the
+// shape (`[op.kind]: …` for a `Record<Kind, number>`).
+func (l *lowerer) isKeyedProperty(property *ast.Node, shape *ir.Class) bool {
+	if property.Kind != ast.KindPropertyAssignment || property.Name().Kind != ast.KindComputedPropertyName {
+		return false
+	}
+	if _, ok := l.constantName(property.Name()); ok {
+		return false
+	}
+	key := l.typeAt(property.Name().Expression())
+	if key.Flags()&checker.TypeFlagsUnion == 0 {
+		return false
+	}
+	for _, k := range key.Types() {
+		if k.Flags()&checker.TypeFlagsStringLiteral == 0 || shape.Field(k.AsLiteralType().Value().(string)) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// withKeyedProperties is object, made from the properties of its literal before keyed
+// (isKeyedProperty), with each of those written in turn by the key it computes, a checked
+// write found at run time (D-089). Every field exists already, so JS keeps their order.
+func (l *lowerer) withKeyedProperties(object ir.Expr, keyed []*ast.Node) ir.Expr {
+	local := l.newLocal("object", object.Type())
+	var result ir.Expr = &ir.LocalRef{Local: local}
+	for i := len(keyed) - 1; i >= 0; i-- {
+		key, value := l.valueExpression(keyed[i].Name().Expression()), l.expression(keyed[i].Initializer())
+		if key == nil || value == nil {
+			return nil
+		}
+		if l.firstDynamicWrite == nil {
+			l.firstDynamicWrite = keyed[i]
+		}
+		write := &ir.CallBuiltin{Builtin: ir.DynamicSet, Args: []ir.Expr{box(&ir.LocalRef{Local: local}), box(key), box(value)}}
+		result = &ir.Sequence{X: write, Y: result}
+	}
+	return &ir.Bind{Local: local, Value: object, In: result}
 }
 
 // spreadObject makes the object of an object literal with spreads from its properties,
@@ -562,9 +621,34 @@ func (l *lowerer) fitsLiteral(own *checker.Type, t *checker.Type) bool {
 func (l *lowerer) literalContext(node *ast.Node) *checker.Type {
 	contextual := l.contextualType(node)
 	if contextual == nil {
+		contextual = l.inferredResult(node)
+	}
+	if contextual == nil {
 		return nil
 	}
 	return l.checker.GetNonNullableType(contextual)
+}
+
+// inferredResult is the result type tsc inferred for the function that returns node (`return
+// node`, an arrow's body, or a branch of a conditional there) if the function declares
+// none, or nil. tsc infers the union of the literals it returns, each with the others'
+// properties added as optional (`{ tag: string; reason?: undefined }`), so each literal
+// makes an object of its member of it.
+func (l *lowerer) inferredResult(node *ast.Node) *checker.Type {
+	for node.Parent.Kind == ast.KindParenthesizedExpression || node.Parent.Kind == ast.KindConditionalExpression && node.Parent.AsConditionalExpression().Condition != node {
+		node = node.Parent
+	}
+	var fn *ast.Node
+	switch parent := node.Parent; {
+	case parent.Kind == ast.KindReturnStatement:
+		fn = ast.GetContainingFunction(parent)
+	case parent.Kind == ast.KindArrowFunction && parent.Body() == node:
+		fn = parent
+	}
+	if fn == nil || fn.Type() != nil {
+		return nil
+	}
+	return l.returnTypeOf(l.checker.GetSignatureFromDeclaration(fn))
 }
 
 // impliedType is the type that a literal without a contextual type takes from the

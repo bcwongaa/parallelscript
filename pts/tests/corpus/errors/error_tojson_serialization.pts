@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `Object.prototype.hasOwnProperty`
 // Serializes errors for an API response. Error's own `message` and `stack`
 // are not enumerable, so JSON.stringify needs help via toJSON.
 
