@@ -110,11 +110,17 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.4b Array methods without callbacks** (7f08c4a94) (split from M2.4 by D-037).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
   - `slice`, `splice`, `concat`, `indexOf`, `includes`, `join`, `reverse`, `sort` without a comparator (stable, with JS default comparison), `flat`, `fill` and `Array.from` of an array.
-- [ ] **M2.5 Collections and closures.**
-  - `Map` and `Set` with insertion order and SameValueZero semantics.
-  - Closures with explicit environments in the IR; arrow functions; `this` binding rules for methods and arrows.
-- [ ] **M2.4c Array methods with callbacks** (split from M2.4 by D-037; after M2.5, which brings function values).
+- [ ] **M2.5a Closures and arrow functions** (split from M2.5 by D-040).
+  - Function values: function types, arrow functions and function expressions, function declarations used as values, calls of function values.
+  - Closures with explicit environments in the IR: captured variables, shared where they may change; nested function declarations that capture; JS's per-iteration `let` bindings in loops.
+  - `this` in arrow functions (lexical); `console.log`, `typeof` and `===` on function values.
+- [ ] **M2.4c Array methods with callbacks** (split from M2.4 by D-037; after M2.5a, which brings function values, D-040).
   - `map`, `filter`, `reduce`, `forEach`, `find`, `findIndex`, `some`, `every`, `flatMap`, `sort` with a comparator, and `Array.from` with a mapper.
+- [ ] **M2.5b `this` in methods** (split from M2.5 by D-040).
+  - Methods and accessors in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).
+  - Methods as values, with JS's `this` rules for them; `bind`, `call` and `apply` where the types allow.
+- [ ] **M2.5c `Map` and `Set`** (split from M2.5 by D-040).
+  - `Map` and `Set` with insertion order and SameValueZero semantics: `get`, `set`, `has`, `delete`, `clear`, `size`, `forEach`, and `for…of` over them and their `keys()`, `values()` and `entries()`.
 - [ ] **M2.6 Generics and syntax.**
   - Generics via monomorphization.
   - Integer types and f32 as array elements and type arguments (`u8[]`, `Box<int>`), which need the semantic pass to follow type nodes, since the checker sees them as `number` (D-038).
