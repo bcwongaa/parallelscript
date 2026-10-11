@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting Handle | null to Handle
 // Opens and closes fake file handles inside loops; try/finally guarantees
 // every handle is released even with break, continue, return and throw.
 

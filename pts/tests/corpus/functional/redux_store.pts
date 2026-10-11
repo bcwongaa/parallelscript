@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting undefined | {done: boolean; id: number; text: string}[] to {done: boolean; id: number; text: string}[]
 // A Redux-like store: reducers over a discriminated action union, combineReducers, middleware and subscribers.
 
 interface Todo {

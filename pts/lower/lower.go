@@ -2059,10 +2059,10 @@ func (l *lowerer) asCast(node *ast.Node) ir.Expr {
 		return nil
 	case x.Type() == target:
 		return x // `Object.keys(o) as Key[]`: literal types aren't kept at run time
-	case l.checker.IsTypeAssignableTo(l.typeAt(node.Expression()), t):
+	case l.checker.IsTypeAssignableTo(l.typeAt(node.Expression()), t) && l.typeAt(node.Expression()).Flags()&checker.TypeFlagsNever == 0:
 		return l.convert(x, target, node)
 	}
-	return l.checkedCast(x, target, node)
+	return l.checkedCast(x, target, node) // a downcast, or x narrowed to never where tsc missed an assignment in a callback
 }
 
 // checkedCast converts x to target for `x as T` (node) as a dynamic value converts to
@@ -2095,7 +2095,7 @@ func (l *lowerer) isKeyedElement(node *ast.Node) bool {
 	case *ir.Class, *ir.Interface:
 		return true
 	case *ir.Union:
-		return !slices.ContainsFunc(receiver.Members, func(m ir.Type) bool { return !isObject(m) || isArray(m) })
+		return isUnionOfObjects(receiver)
 	}
 	return false
 }
@@ -2143,6 +2143,9 @@ func (l *lowerer) assertedLiteral(node *ast.Node, literal *ast.Node) ir.Expr {
 	t := l.irType(l.typeAt(node), node)
 	if t == nil {
 		return nil
+	}
+	if u, ok := t.(*ir.Union); ok && isPlainShape(x.Type()) && isUnionOfObjects(u) && !u.Has(x.Type()) && l.memberFor(x.Type(), u) == nil {
+		return &ir.ToUnion{X: x, To: u} // `{ type: "@@init" } as Action`: an object of no member's type, kept as it is, as in JS
 	}
 	return l.convert(x, t, node)
 }
@@ -3257,6 +3260,17 @@ func isClass(t ir.Type) bool {
 
 // isObject reports whether t is the type of a reference to an object: a class (or
 // shape), an interface or an array.
+// isPlainShape reports whether t is the shape of an object type other than a tuple.
+func isPlainShape(t ir.Type) bool {
+	class, ok := t.(*ir.Class)
+	return ok && class.Shape && !class.Tuple
+}
+
+// isUnionOfObjects reports whether every member of u is a class, shape or interface.
+func isUnionOfObjects(u *ir.Union) bool {
+	return !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !isObject(m) || isArray(m) })
+}
+
 func isObject(t ir.Type) bool {
 	_, isInterface := t.(*ir.Interface)
 	return isClass(t) || isInterface || isArray(t)

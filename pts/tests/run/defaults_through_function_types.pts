@@ -1,0 +1,29 @@
+// An arrow with a default given where a function type takes `T | undefined` (undefined
+// leaves the argument out, so the default applies), and an object literal asserted to a
+// union of object types it fits no member of (kept as it is, as in JS) (M3.7b).
+
+type Reducer<S, A> = (state: S | undefined, action: A) => S;
+type Action = { type: "add"; n: number } | { type: "reset" };
+
+const total: Reducer<number, Action> = (state = 0, action) => (action.type === "add" ? state + action.n : 0);
+const items: Reducer<number[], Action> = (state = [], action) => (action.type === "add" ? [...state, action.n] : []);
+const label: Reducer<string, Action> = (state = "start", action) => state + ":" + action.type;
+
+function run<S>(reducer: Reducer<S, Action>, actions: Action[]): S {
+  let state = reducer(undefined, { type: "@@init" } as unknown as Action);
+  for (const action of actions) state = reducer(state, action);
+  return state;
+}
+
+function initial<A extends { type: string }>(): A {
+  return { type: "@@init" } as A;
+}
+
+const actions: Action[] = [{ type: "add", n: 2 }, { type: "add", n: 5 }, { type: "reset" }, { type: "add", n: 1 }];
+console.log(run(total, actions), run(items, actions), run(label, actions.slice(0, 2)));
+const init = initial<Action>();
+console.log(init, init.type, total(undefined, init), items([7], init));
+
+// expect:
+// 1 [ 1 ] start:@@init:add:add
+// { type: '@@init' } @@init 0 []

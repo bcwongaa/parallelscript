@@ -80,12 +80,25 @@ func (l *lowerer) unionOf(members []ir.Type) *ir.Union {
 }
 
 // isNarrowing reports whether to, the type of a value of union type from, is narrower:
-// one of from's members, or a union of some of them.
+// one of from's members or a subclass of one (`p instanceof King` for `p: Piece | null`),
+// or a union of such types.
 func isNarrowing(from *ir.Union, to ir.Type) bool {
 	if u, ok := to.(*ir.Union); ok {
-		return u != from && !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !from.Has(m) })
+		return u != from && !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !isNarrowedMember(from, m) })
 	}
-	return from.Has(to)
+	return isNarrowedMember(from, to)
+}
+
+// isNarrowedMember reports whether t is a member of from or a subclass of a class member.
+func isNarrowedMember(from *ir.Union, t ir.Type) bool {
+	if from.Has(t) {
+		return true
+	}
+	class, ok := t.(*ir.Class)
+	return ok && !class.Shape && slices.ContainsFunc(from.Members, func(m ir.Type) bool {
+		ancestor, ok := m.(*ir.Class)
+		return ok && !ancestor.Shape && class.IsSubclassOf(ancestor)
+	})
 }
 
 // narrowed is x, the lowered reference node (a variable, property or element), as the
@@ -423,11 +436,31 @@ func (l *lowerer) asUnion(node *ast.Node, t *checker.Type) ir.Expr {
 // includes undefined, which an element read out of range gives there, as anywhere a value
 // of any type can go (D-015, D-067).
 func (l *lowerer) contextTakesUndefined(node *ast.Node) bool {
+	if fallback := fallbackOf(node); fallback != nil {
+		// tsc types y in `x ?? y` and `x || y` by x where nothing types the whole, but
+		// the result never holds x's undefined, so y's context is the whole's.
+		return l.contextTakesUndefined(fallback)
+	}
 	contextual := l.contextualType(node)
 	if contextual == nil || contextual.Flags()&checker.TypeFlagsUnion == 0 || !isUnionValue(contextual) {
 		return false
 	}
 	return slices.ContainsFunc(contextual.Types(), func(t *checker.Type) bool { return t.Flags()&checker.TypeFlagsUndefined != 0 })
+}
+
+// fallbackOf is the `x ?? y` or `x || y` whose right operand y is node, or nil.
+func fallbackOf(node *ast.Node) *ast.Node {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	if node.Parent.Kind != ast.KindBinaryExpression {
+		return nil
+	}
+	binary := node.Parent.AsBinaryExpression()
+	if operator := binary.OperatorToken.Kind; binary.Right != node || operator != ast.KindQuestionQuestionToken && operator != ast.KindBarBarToken {
+		return nil
+	}
+	return node.Parent
 }
 
 // withUndefined is t | undefined.

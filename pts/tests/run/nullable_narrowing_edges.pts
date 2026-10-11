@@ -1,0 +1,54 @@
+// Unions narrowed in ways the lowering missed (M3.7b): `as` on a variable tsc narrowed to
+// never (an assignment in a callback it doesn't follow), `instanceof` narrowing to a
+// subclass of a union's member, and a string element as the fallback of `??` and `||`.
+
+class Handle {
+  constructor(readonly name: string) {}
+  read(): string {
+    return "read " + this.name;
+  }
+}
+
+function withHandle(f: (h: Handle) => void): void {
+  f(new Handle("h1"));
+}
+
+let leaked: Handle | null = null;
+withHandle((h) => {
+  leaked = h;
+});
+if (leaked !== null) console.log((leaked as Handle).read());
+
+class Piece {
+  constructor(readonly color: string) {}
+}
+class King extends Piece {
+  check(): string {
+    return this.color + " king";
+  }
+}
+
+const board: (Piece | null)[] = [new Piece("w"), null, new King("b"), new King("w")];
+for (const p of board) {
+  if (p instanceof King && p.color === "w") console.log("white king:", p.check());
+  else if (p instanceof King) console.log("other:", p.check(), p.color);
+}
+function kingOrNull(p: Piece | null): King | null {
+  return p instanceof King ? p : null;
+}
+console.log(board.map(kingOrNull).map((k) => (k === null ? "-" : k.color)).join(""));
+
+const marks = new Map<string, string>([["1", "*"]]);
+const rows = ["abc", "def"];
+let line = "";
+for (let c = 0; c < 3; c++) line += marks.get(String(c)) ?? rows[0][c];
+let other = "";
+for (let c = 0; c < 3; c++) other += marks.get(String(c)) || rows[1][c];
+console.log(line, other);
+
+// expect:
+// read h1
+// other: b king b
+// white king: w king
+// --bw
+// a*c d*f

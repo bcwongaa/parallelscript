@@ -678,6 +678,15 @@ func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, no
 			i += 2
 			continue
 		}
+		if optional && !passedOrNot && l.maybeUndefinedFor(params[i].Type, t) { // `(state = [], a) => …` for `(state: S | undefined, a: A) => …`
+			passed := l.maybePassed(&ir.LocalRef{Local: params[i]}, t, node) // undefined leaves the argument out (D-055)
+			if passed == nil {
+				return nil
+			}
+			args = append(args, passed...)
+			i++
+			continue
+		}
 		if passedOrNot && !optional {
 			l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which may leave out an argument it needs, is", from, to))
 			return nil
