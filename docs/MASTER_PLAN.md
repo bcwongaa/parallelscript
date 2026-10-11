@@ -167,7 +167,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032); literals that leave them out.
 - [x] **M3.1b3b Objects without an optional property** (22fe4325d) (split from M3.1b3 by D-065).
   - An object that lacks an optional property of the object type it converts to, or holds it as `T` rather than `T | undefined` (a `{ name }` variable passed as `Options`, a class without the property, `{ verbose: true }` inferred as `{ verbose: boolean }`): interface sites that read and write a field by the descriptor's field kind (a missing property reads as undefined; writing it throws `TypeError` as a non-extensible object does), which M3.1c's reads of union members can reuse.
-- [ ] **M3.1c Unions of objects** (split from M3.1 by D-062).
+- [x] **M3.1c Unions of objects** (split from M3.1 by D-062).
   - Reading properties and calling methods shared by a union's members; discriminants; `in` narrowing.
   - `==` with JS semantics beyond null and undefined.
 - [ ] **M3.2 Exceptions.**

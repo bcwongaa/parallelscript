@@ -240,11 +240,14 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 	var key strings.Builder
 	for _, field := range fields {
-		optional := ""
+		marks := ""
 		if field.Optional {
-			optional = "?"
+			marks = "?"
 		}
-		fmt.Fprintf(&key, "%q%s:%s;", field.Name, optional, typeKey(field.Type))
+		if field.Mixed {
+			marks += "~"
+		}
+		fmt.Fprintf(&key, "%q%s:%s;", field.Name, marks, typeKey(field.Type))
 	}
 	for _, method := range methods {
 		fmt.Fprintf(&key, "%q(", method.Name)
@@ -468,24 +471,52 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 // literalType is the object type an object literal makes an object of: its contextual
 // type if that is an object type with the same properties but for optional ones the
 // literal leaves out (D-065), so that `{ from: pixel }` written for a `Segment` holds a
-// `Point`, and otherwise the literal's own type.
+// `Point`, or for a union of object types, the one member it fits that way (D-067); and
+// otherwise the literal's own type.
 func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 	own := l.typeAt(node)
 	contextual := l.literalContext(node)
-	if contextual == nil || !l.isObjectType(contextual) || len(l.literalAccessors(own)) > 0 {
+	if contextual == nil || len(l.literalAccessors(own)) > 0 {
 		return own // a literal's accessors make objects of a shape of their own (D-045)
 	}
+	if contextual.Flags()&checker.TypeFlagsUnion == 0 {
+		if l.fitsLiteral(own, contextual) {
+			return contextual
+		}
+		return own
+	}
+	var fitting *checker.Type
+	for _, member := range contextual.Types() {
+		if l.fitsLiteral(own, member) && l.checker.IsTypeAssignableTo(own, member) {
+			if fitting != nil {
+				return own // more than one
+			}
+			fitting = member
+		}
+	}
+	if fitting == nil {
+		return own
+	}
+	return fitting
+}
+
+// fitsLiteral reports whether an object literal of type own can make an object of the
+// object type t: t has every property own has, and own every required property t has.
+func (l *lowerer) fitsLiteral(own *checker.Type, t *checker.Type) bool {
+	if !l.isObjectType(t) {
+		return false
+	}
 	for _, property := range l.checker.GetPropertiesOfType(own) {
-		if l.checker.GetPropertyOfType(contextual, property.Name) == nil {
-			return own
+		if l.checker.GetPropertyOfType(t, property.Name) == nil {
+			return false
 		}
 	}
-	for _, property := range l.checker.GetPropertiesOfType(contextual) {
+	for _, property := range l.checker.GetPropertiesOfType(t) {
 		if property.Flags&ast.SymbolFlagsOptional == 0 && l.checker.GetPropertyOfType(own, property.Name) == nil {
-			return own
+			return false
 		}
 	}
-	return contextual
+	return true
 }
 
 // literalContext is the contextual type of an object literal without null and undefined:

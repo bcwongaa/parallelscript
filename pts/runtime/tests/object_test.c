@@ -261,9 +261,9 @@ static void optional_sites_use_whatever_holds_the_property(void) {
   CHECK(read_site.cache == ((uint64_t)(uintptr_t)&optional_x_type | (uint64_t)offsetof(optional_x, x) << 48));
   CHECK(pts_optional_get(p, &read_site, "x") == pts_value_from_number(1.5));
   CHECK(pts_optional_get(n, &read_site, "x") == PTS_VALUE_ABSENT);
-  CHECK(!pts_optional_has(o, "x") && pts_optional_has(p, "x") && !pts_optional_has(n, "x"));
+  CHECK(!pts_object_has(o, "x") && pts_object_has(p, "x") && !pts_object_has(n, "x"));
   pts_optional_set(o, &write_site, "x", PTS_VALUE_UNDEFINED);
-  CHECK(o->x == PTS_VALUE_UNDEFINED && pts_optional_has(o, "x"));
+  CHECK(o->x == PTS_VALUE_UNDEFINED && pts_object_has(o, "x"));
   CHECK(write_site.cache == ((uint64_t)(uintptr_t)&optional_x_type | (uint64_t)offsetof(optional_x, x) << 48));
   pts_optional_set(o, &write_site, "x", pts_value_from_number(2));
   pts_optional_set(p, &write_site, "x", pts_value_from_number(4));

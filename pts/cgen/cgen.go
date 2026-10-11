@@ -533,6 +533,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.hasField(x)
 	case *ir.IsAbsent:
 		return "(" + e.expr(x.X) + " == PTS_VALUE_ABSENT)"
+	case *ir.HasKey:
+		return fmt.Sprintf("pts_object_has(%s, %s)", e.expr(x.X), cString(x.Name))
 	case *ir.SetField:
 		return e.setField(x)
 	case *ir.Box:
@@ -704,10 +706,18 @@ func (e *emitter) fromUnion(x *ir.FromUnion) string {
 		return "((" + cType(t) + ")pts_value_as_number(" + value + "))" // exact as a double
 	case t == ir.Bool:
 		return "(" + value + " == PTS_VALUE_TRUE)"
+	case isClass(t):
+		return "((" + e.cDeclaredType(t) + ")pts_value_as_instance(" + value + ", " + e.descriptor(t.(*ir.Class)) + "))"
 	case t == ir.String || isObject(t):
 		return "((" + e.cDeclaredType(t) + ")pts_value_as_object(" + value + "))"
 	}
 	return value // null, undefined, or a smaller union: the same pts_value
+}
+
+// isClass reports whether t is a class, not a shape: a union narrowed to one is checked (D-067).
+func isClass(t ir.Type) bool {
+	class, ok := t.(*ir.Class)
+	return ok && !class.Shape
 }
 
 func isUnion(t ir.Type) bool {
@@ -940,6 +950,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.StringRepeat:         "pts_string_repeat",
 	ir.ValueTypeOf:          "pts_value_typeof",
 	ir.ValueStrictEquals:    "pts_value_strict_equals",
+	ir.ValueLooseEquals:     "pts_value_loose_equals",
 	ir.ThrowError:           "pts_throw_error",
 }
 

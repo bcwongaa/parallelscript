@@ -191,8 +191,29 @@ static void value_to_string_follows_javascript(void) {
   CHECK(pts_value_to_string(pts_value_from_string(text)) == text);
 }
 
+/* JS's StringToNumber: the literal forms Number(s) accepts, NaN for the rest (D-067). */
+static void strings_convert_to_numbers_as_number_does(void) {
+  CHECK(pts_string_to_number(pts_string_from_cstr("")) == 0);
+  CHECK(pts_string_to_number(pts_string_from_cstr(" \t\n ")) == 0);
+  CHECK(pts_string_to_number(pts_string_from_cstr("  0x1F  ")) == 31);
+  CHECK(pts_string_to_number(pts_string_from_cstr("0b101")) == 5);
+  CHECK(pts_string_to_number(pts_string_from_cstr("-Infinity")) == -INFINITY);
+  CHECK(pts_string_to_number(pts_string_from_cstr("5.")) == 5);
+  CHECK(pts_string_to_number(pts_string_from_cstr(".5e1")) == 5);
+  CHECK(isnan(pts_string_to_number(pts_string_from_cstr("1_000"))));
+  CHECK(isnan(pts_string_to_number(pts_string_from_cstr("-0x1"))));
+  CHECK(isnan(pts_string_to_number(pts_string_from_cstr("inf"))));
+  CHECK(isnan(pts_string_to_number(pts_string_from_cstr("1e"))));
+  char digits[302];
+  memset(digits, '1', 296);
+  memcpy(digits + 296, "e-295", 5); /* longer than the stack buffer */
+  digits[301] = '\0';
+  CHECK(pts_string_to_number(pts_string_from_cstr(digits)) > 1 && pts_string_to_number(pts_string_from_cstr(digits)) < 2);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
+  strings_convert_to_numbers_as_number_does();
   element_reads_one_code_unit_or_undefined();
   ascii_elements_do_not_allocate();
   element_equals_compares_one_unit();

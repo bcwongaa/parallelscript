@@ -136,6 +136,8 @@ func effectsOf(expr ir.Expr) effects {
 		return readsLocals | effectsOf(x.X)
 	case *ir.IsAbsent:
 		return effectsOf(x.X)
+	case *ir.HasKey:
+		return readsLocals | effectsOf(x.X)
 	case *ir.SetField:
 		if x.Field.Accessor {
 			return callEffects([]ir.Expr{x.X, x.Value}) // a setter may run

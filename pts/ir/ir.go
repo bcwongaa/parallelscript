@@ -15,6 +15,9 @@ type Program struct {
 	Funcs      []*Func
 	Modules    []*Module // in the order their top-level code runs (ES module evaluation order); the entry module is last
 	Main       *Func     // runs the entry module's top-level code; also in Funcs
+	// InKeys are the keys that `in` looks up at run time (HasKey): the methods, getters and
+	// setters of these names go in the descriptors' method tables (D-067).
+	InKeys []string
 }
 
 // Module is one source file of the program.
@@ -363,6 +366,10 @@ type Field struct {
 	// (D-065): an object may leave it out, and its field then holds the absent value, which
 	// every read (FieldRef) sees as undefined.
 	Optional bool
+	// Mixed marks an interface's property that its objects hold in fields of different
+	// types, all members of its type (a union's members', D-067): it is read by the field's
+	// kind and can't be written.
+	Mixed bool
 }
 
 // AccessorField returns the field of a shape that holds the getter (or setter) of its
@@ -612,6 +619,12 @@ type NullConst struct{}
 
 // GivenConst is the flag a call passes after an argument for a parameter with a default.
 type GivenConst struct{ Value bool }
+
+// HasKey is `"Name" in X` looked up at run time in the object X refers to (D-067).
+type HasKey struct {
+	X    Expr
+	Name string
+}
 
 // IsAbsent is whether X, an optional field's value read Raw, is the absent value.
 type IsAbsent struct{ X Expr }
@@ -950,6 +963,8 @@ var (
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
 	// ValueStrictEquals is === on boxed values, with JS's rules for numbers and strings.
 	ValueStrictEquals = &Builtin{Name: "===", Params: []Type{Value, Value}, Result: Bool}
+	// ValueLooseEquals is == on boxed values, with JS's conversions (D-067).
+	ValueLooseEquals = &Builtin{Name: "==", Params: []Type{Value, Value}, Result: Bool}
 
 	// The Math functions of numbers, with JS's semantics (NaN and -0 included). MathMax
 	// and MathMin take two numbers; Math.max(a, b, c) applies MathMax twice.
@@ -1059,6 +1074,7 @@ func (e *NewObject) Type() Type     { return e.Shape }
 func (e *FieldRef) Type() Type      { return e.Field.Type }
 func (*HasField) Type() Type        { return Bool }
 func (*IsAbsent) Type() Type        { return Bool }
+func (*HasKey) Type() Type          { return Bool }
 func (e *SetField) Type() Type      { return e.Field.Type }
 func (*Box) Type() Type             { return Value }
 func (e *RestArgs) Type() Type      { return e.X.Type().(*Rest).Array }

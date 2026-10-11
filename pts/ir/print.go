@@ -283,6 +283,8 @@ func FormatExpr(expr Expr) string {
 		return "has(" + FormatExpr(e.X) + "." + e.Field.Name + ")"
 	case *IsAbsent:
 		return "absent(" + FormatExpr(e.X) + ")"
+	case *HasKey:
+		return strconv.Quote(e.Name) + " in " + FormatExpr(e.X)
 	case *SetField:
 		set := "(" + FormatExpr(e.X) + "." + e.Field.Name + " = " + FormatExpr(e.Value) + ")"
 		if e.Postfix {

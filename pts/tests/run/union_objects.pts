@@ -1,0 +1,87 @@
+// Unions of objects (D-067): properties and methods their members share, read through an
+// interface built for the access (by the field's kind where members hold a property as
+// different types); discriminants, `in` and type guards narrowing them; literals taking
+// the member they fit; `?:` of two classes typed as their union; element reads giving
+// undefined where a union with undefined is expected.
+interface Circle { kind: "circle"; r: number; label?: string }
+interface Square { kind: "square"; side: number; label?: string }
+type Shape = Circle | Square;
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle":
+      return Math.round(Math.PI * s.r * s.r);
+    case "square":
+      return s.side * s.side;
+  }
+}
+const shapes: Shape[] = [{ kind: "circle", r: 2 }, { kind: "square", side: 3, label: "sq" }];
+for (const s of shapes) {
+  console.log(s.kind, area(s), s.label ?? "-", "r" in s, "side" in s);
+  if ("r" in s) console.log("radius", s.r);
+  else console.log("side", s.side);
+}
+shapes[0].label = "round";
+console.log(shapes);
+class Hound { constructor(public name: string, public age: number) {} speak(): string { return this.name + " barks"; } }
+class Kitty { constructor(public name: string, public lives: number) {} speak(): string { return this.name + " meows"; } }
+const pets: (Hound | Kitty)[] = [new Hound("rex", 3), new Kitty("tom", 9)];
+for (const p of pets) {
+  console.log(p.name, p.speak(), p instanceof Hound ? p.age : p.lives, "age" in p);
+  p.name = p.name.toUpperCase();
+}
+console.log(pets);
+interface A { v: number; tag: "a" }
+interface B { v: string; tag: "b" }
+function show(x: A | B): string {
+  const v = x.v;
+  return typeof v === "number" ? "num " + (v + 1) : "str " + v.length;
+}
+console.log(show({ v: 41, tag: "a" }), show({ v: "hey", tag: "b" }));
+function isCircle(s: Shape): s is Circle { return s.kind === "circle"; }
+console.log(shapes.map(s => isCircle(s) ? s.r : -1));
+abstract class Animal {
+  constructor(public name: string) {}
+  describe(): string { return "I am " + this.name; }
+  abstract sound(): string;
+}
+class Dog extends Animal { sound(): string { return "woof"; } fetch(): string { return "fetching"; } }
+class Bird extends Animal { sound(): string { return "tweet"; } wings = 2; }
+function pickPet(i: number): Dog | Bird { return i === 0 ? new Dog("d") : new Bird("b"); }
+for (const i of [0, 1]) {
+  const a = pickPet(i);
+  console.log(a.name, a.describe(), a.sound(), "fetch" in a, "wings" in a, "name" in a, "sound" in a);
+  a.name = a.name + "!";
+  console.log(a);
+  if ("fetch" in a) console.log(a.fetch());
+}
+interface Point { x: number; y: number }
+class Vec { constructor(public x: number, public y: number) {} len(): number { return Math.sqrt(this.x * this.x + this.y * this.y); } }
+function px(p: Point | Vec): number { return p.x + p.y; }
+console.log(px({ x: 1, y: 2 }), px(new Vec(3, 4)));
+type Wrapped = { inner: Point; id: number } | { inner: Point; name: string };
+const ws: Wrapped[] = [{ inner: { x: 1, y: 1 }, id: 7 }, { inner: { x: 5, y: 6 }, name: "w" }];
+for (const w of ws) {
+  w.inner.x += 10;
+  console.log(w.inner.x, "id" in w ? w.id : w.name);
+}
+console.log(ws);
+function first(list: (Dog | Bird)[]): Dog | Bird | undefined { return list[0]; }
+console.log(first([new Bird("z")])?.name, first([])?.name, first([new Dog("q")])?.sound());
+type Result = { ok: true; value: number } | { ok: false; error: string };
+function run(n: number): Result { return n > 0 ? { ok: true, value: n * 2 } : { ok: false, error: "bad " + n }; }
+for (const n of [3, -1]) {
+  const r = run(n);
+  if (r.ok) console.log("value", r.value);
+  else console.log("error", r.error);
+  console.log(r.ok, r);
+}
+const pair: [number, string] = [1, "a"];
+function get(): number | undefined { return pair[0]; }
+function at(xs: string[], i: number): string | undefined { return xs[i]; }
+const s = "hey";
+function ch(i: number): string | undefined { return s[i]; }
+const rec: Record<string, number> = { a: 1 };
+function look(k: string): number | undefined { return rec[k]; }
+console.log(get(), at(["x"], 0), at(["x"], 5), ch(1), ch(9), look("a"), look("zz"));
+let slot: string | undefined = ["q"][3];
+console.log(slot);

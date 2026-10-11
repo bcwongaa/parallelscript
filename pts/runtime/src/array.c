@@ -538,8 +538,7 @@ bool pts_array_includes(const pts_array *array, const void *value, double from) 
 static __thread const pts_array *joining[64];
 static __thread size_t joining_depth;
 
-/* object_string is JS's ToString of an object: its class's toString() if it has one interfaces can call, else "[object Object]". */
-static pts_string *object_string(const pts_object *object) {
+pts_string *pts_object_to_string(const pts_object *object) {
   if (object->type->kind == PTS_KIND_ARRAY) {
     return pts_array_join((const pts_array *)object, NULL);
   }
@@ -563,14 +562,14 @@ static pts_string *element_string(pts_field_kind kind, const void *slot) {
   case PTS_FIELD_STRING:
     return *(pts_string **)&element;
   case PTS_FIELD_OBJECT:
-    return object_string(*(const pts_object **)&element);
+    return pts_object_to_string(*(const pts_object **)&element);
   case PTS_FIELD_VALUE: {
     pts_value value = *(pts_value *)&element;
     if (value == PTS_VALUE_UNDEFINED || value == PTS_VALUE_NULL) {
       return pts_string_from_cstr("");
     }
     if (pts_value_is_object(value) && pts_value_as_object(value)->type->kind != PTS_KIND_STRING) {
-      return object_string(pts_value_as_object(value));
+      return pts_object_to_string(pts_value_as_object(value));
     }
     return pts_value_to_string(value);
   }

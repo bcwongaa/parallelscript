@@ -1,25 +1,32 @@
-// Unions (D-062): what waits for M3.1c (members of unions of objects, `==` beyond null
-// and undefined), and unions of several numeric types, which the semantic pass can't type.
-interface Circle {
-  kind: "circle";
-  r: number;
+// Unions (D-062, D-067): members of unions of objects and other values, writing a property
+// that a union's members hold as different types, methods of a union as values, and
+// unions of several numeric types, which the semantic pass can't type.
+interface A {
+  v: number;
+  tag: "a";
 }
-interface Square {
-  kind: "square";
-  side: number;
-}
-function area(s: Circle | Square): number {
-  return s.kind === "circle" ? 1 : 2;
+interface B {
+  v: string;
+  tag: "b";
 }
 function len(either: string | string[]): number {
   return either.length;
 }
-function eq(loose: string | number): boolean {
-  return loose == 1;
+function set(x: A | B): void {
+  x.v = 5;
+}
+interface C {
+  f(n: number): number;
+}
+interface D {
+  f(n: number): number;
+}
+function method(x: C | D): void {
+  const f = x.f;
 }
 function mixed(x: u8 | i16 | null): void {}
 
-// error: unions_not_yet.pts:12:10 - error PTS1001: reading `kind` of a Circle | Square (a union) is not supported yet
-// error: unions_not_yet.pts:15:10 - error PTS1001: reading `length` of a string | string[] (a union) is not supported yet
-// error: unions_not_yet.pts:18:10 - error PTS1001: the `==` operator on a union, other than with null or undefined, is not supported yet
-// error: unions_not_yet.pts:20:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet
+// error: unions_not_yet.pts:13:10 - error PTS1001: reading `length` of a string | string[] (a union of objects and other values) is not supported yet
+// error: unions_not_yet.pts:16:3 - error PTS1001: writing `v` of a A | B, whose members hold it as different types, is not supported yet
+// error: unions_not_yet.pts:25:13 - error PTS1001: using the method `f` of a C | D (a union) as a value is not supported yet
+// error: unions_not_yet.pts:27:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet

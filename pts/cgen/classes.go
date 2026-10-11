@@ -50,6 +50,9 @@ func (e *emitter) indexMethods(program *ir.Program) {
 // entry points, named pts_entry_<function>.
 func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 	wanted := map[ir.MethodKind]map[string]bool{ir.Plain: {}, ir.Getter: {}, ir.Setter: {}}
+	for _, key := range program.InKeys {
+		wanted[ir.Plain][key], wanted[ir.Getter][key], wanted[ir.Setter][key] = true, true, true
+	}
 	for _, iface := range program.Interfaces {
 		for _, method := range iface.Methods {
 			wanted[ir.Plain][method.Name] = true
@@ -552,16 +555,17 @@ func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
 // holds it isn't absent, or through an interface, whatever holds it (D-066).
 func (e *emitter) hasField(h *ir.HasField) string {
 	if isOptionalThroughInterface(h.X.Type(), h.Field) {
-		return fmt.Sprintf("pts_optional_has(%s, %s)", e.expr(h.X), cString(h.Field.Name))
+		return fmt.Sprintf("pts_object_has(%s, %s)", e.expr(h.X), cString(h.Field.Name))
 	}
 	return "(" + e.fieldRef(e.expr(h.X), h.X.Type(), h.Field) + " != PTS_VALUE_ABSENT)"
 }
 
 // isOptionalThroughInterface reports whether field is an optional property read or
-// written through an interface (t), whose objects may hold it in several ways (D-066).
+// written through an interface (t), whose objects may hold it in several ways (D-066), or
+// one a union's members hold as different types (D-067), read the same way.
 func isOptionalThroughInterface(t ir.Type, field *ir.Field) bool {
 	_, ok := t.(*ir.Interface)
-	return ok && field.Optional
+	return ok && (field.Optional || field.Mixed)
 }
 
 // fieldStore writes a store of value to a field of object, a reference of type t

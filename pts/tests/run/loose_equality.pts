@@ -1,0 +1,29 @@
+// `==` and `!=` on unions with JS's conversions (D-067): null equals undefined only,
+// booleans compare as numbers, strings convert to numbers as Number(s) does (whitespace,
+// hex, octal, binary, exponents, Infinity, NaN for anything else), objects compare by
+// identity with objects and as their strings with other values.
+type Loose = string | number | boolean | null | undefined;
+const values: Loose[] = [
+  "", " ", " 12 ", "12", "12.0", "1e3", "1000", ".5", "5.", "0x1f", "0X1F", "0o17", "0b101", "0b2",
+  "Infinity", "-Infinity", "+5", "-0", "1_000", "abc", "1e", "--1", "\t\n7\r", "0", "1", "true",
+  0, -0, 1, 5, 7, 12, 31, 13, 0.5, 1000, Infinity, -Infinity, NaN, true, false, null, undefined,
+];
+for (let i = 0; i < values.length; i++) {
+  let row = "";
+  for (const b of values) {
+    row += values[i] == b ? "1" : ".";
+  }
+  console.log(i, typeof values[i], row);
+}
+class Named {
+  constructor(public name: string) {}
+  toString(): string {
+    return this.name;
+  }
+}
+type WithObject = Named | string | number | null;
+const ann = new Named("ann");
+const objects: WithObject[] = [ann, new Named("ann"), "ann", "12", 12, null];
+for (const a of objects) {
+  console.log(objects.map((b) => (a == b ? "1" : ".")).join(""), objects.map((b) => (a != b ? "1" : ".")).join(""));
+}

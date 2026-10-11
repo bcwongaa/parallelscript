@@ -277,6 +277,10 @@ void pts_throw_non_null(pts_value value) {
   pts_panic("TypeError", "Non-null assertion on %s", value == PTS_VALUE_NULL ? "null" : "undefined");
 }
 
+void pts_throw_not_instance(const pts_type *type) {
+  pts_panic("TypeError", "The value narrowed to %s is not an instance of it", type->name);
+}
+
 bool pts_value_strict_equals(pts_value a, pts_value b) {
   if (pts_value_is_number(a) || pts_value_is_number(b)) {
     return pts_value_is_number(a) && pts_value_is_number(b) && pts_value_as_number(a) == pts_value_as_number(b);
@@ -300,6 +304,69 @@ bool pts_value_strict_equals(pts_value a, pts_value b) {
     return ((const pts_boxed_uint64 *)x)->value == ((const pts_boxed_uint64 *)y)->value;
   default:
     return false;
+  }
+}
+
+/* What == compares a value as: JS's types, with 64-bit integers among the numbers. */
+typedef enum loose_kind { LOOSE_NULLISH, LOOSE_BOOLEAN, LOOSE_NUMBER, LOOSE_STRING, LOOSE_OBJECT } loose_kind;
+
+static loose_kind loose_kind_of(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return LOOSE_NUMBER;
+  }
+  if (pts_value_is_nullish(value)) {
+    return LOOSE_NULLISH;
+  }
+  if (value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE) {
+    return LOOSE_BOOLEAN;
+  }
+  switch (pts_value_as_object(value)->type->kind) {
+  case PTS_KIND_STRING:
+    return LOOSE_STRING;
+  case PTS_KIND_INT64:
+  case PTS_KIND_UINT64:
+    return LOOSE_NUMBER;
+  default:
+    return LOOSE_OBJECT;
+  }
+}
+
+/* as_number is JS's ToNumber of a number or string value. */
+static double as_number(pts_value value) {
+  if (pts_value_is_number(value)) {
+    return pts_value_as_number(value);
+  }
+  const pts_object *object = pts_value_as_object(value);
+  switch (object->type->kind) {
+  case PTS_KIND_STRING:
+    return pts_string_to_number((const pts_string *)object);
+  case PTS_KIND_INT64:
+    return (double)((const pts_boxed_int64 *)object)->value;
+  default:
+    return (double)((const pts_boxed_uint64 *)object)->value;
+  }
+}
+
+bool pts_value_loose_equals(pts_value a, pts_value b) {
+  for (;;) { /* JS's IsLooselyEqual, which converts one side and compares again */
+    loose_kind x = loose_kind_of(a), y = loose_kind_of(b);
+    if (x == y) {
+      return x == LOOSE_NULLISH || pts_value_strict_equals(a, b);
+    }
+    if (x == LOOSE_NULLISH || y == LOOSE_NULLISH) {
+      return false;
+    }
+    if (x == LOOSE_BOOLEAN || y == LOOSE_BOOLEAN) {
+      pts_value *boolean = x == LOOSE_BOOLEAN ? &a : &b;
+      *boolean = pts_value_from_number(*boolean == PTS_VALUE_TRUE ? 1 : 0);
+      continue;
+    }
+    if (x == LOOSE_OBJECT || y == LOOSE_OBJECT) {
+      pts_value *object = x == LOOSE_OBJECT ? &a : &b;
+      *object = pts_value_from_string(pts_object_to_string(pts_value_as_object(*object)));
+      continue;
+    }
+    return as_number(a) == as_number(b); /* a number and a string */
   }
 }
 

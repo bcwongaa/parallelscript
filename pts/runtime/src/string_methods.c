@@ -8,6 +8,8 @@
 #include "string_internal.h"
 
 #include <inttypes.h>
+#include <math.h>
+#include <stdlib.h>
 
 PTS_STATIC_STRING(empty_string, PTS_STRING_ASCII, 0, 0, "");
 
@@ -395,6 +397,96 @@ pts_string *pts_string_trim_start(pts_string *string) {
 }
 
 pts_string *pts_string_trim_end(pts_string *string) { return bytes_between(string, 0, trailing_whitespace_start(string, 0)); }
+
+/* ---------------------------------------------------------------- conversion to a number */
+
+/* is_decimal_literal reports whether s (n bytes) is JS's StrUnsignedDecimalLiteral without Infinity: digits, a point, an exponent. */
+static bool is_decimal_literal(const char *s, size_t n) {
+  size_t i = 0, digits = 0;
+  while (i < n && s[i] >= '0' && s[i] <= '9') {
+    i++, digits++;
+  }
+  if (i < n && s[i] == '.') {
+    i++;
+    while (i < n && s[i] >= '0' && s[i] <= '9') {
+      i++, digits++;
+    }
+  }
+  if (digits == 0) {
+    return false;
+  }
+  if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+    i++;
+    if (i < n && (s[i] == '+' || s[i] == '-')) {
+      i++;
+    }
+    size_t exponent_digits = 0;
+    while (i < n && s[i] >= '0' && s[i] <= '9') {
+      i++, exponent_digits++;
+    }
+    if (exponent_digits == 0) {
+      return false;
+    }
+  }
+  return i == n;
+}
+
+/* non_decimal_integer is the value of the digits of s (n bytes) in base 2, 8 or 16, or NaN if one isn't a digit of it. */
+static double non_decimal_integer(const char *s, size_t n, unsigned base) {
+  if (n == 0) {
+    return NAN;
+  }
+  double value = 0;
+  for (size_t i = 0; i < n; i++) {
+    unsigned c = (unsigned char)s[i], digit = c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : 99;
+    if (digit >= base) {
+      return NAN;
+    }
+    value = value * base + digit;
+  }
+  return value;
+}
+
+double pts_string_to_number(const pts_string *string) {
+  uint32_t start = leading_whitespace_end(string);
+  const char *s = string->bytes + start;
+  size_t n = trailing_whitespace_start(string, start) - start;
+  if (n == 0) {
+    return 0;
+  }
+  if (n > 2 && s[0] == '0') {
+    switch (s[1]) {
+    case 'x':
+    case 'X':
+      return non_decimal_integer(s + 2, n - 2, 16);
+    case 'o':
+    case 'O':
+      return non_decimal_integer(s + 2, n - 2, 8);
+    case 'b':
+    case 'B':
+      return non_decimal_integer(s + 2, n - 2, 2);
+    default:
+      break;
+    }
+  }
+  double sign = 1;
+  size_t i = 0;
+  if (s[0] == '+' || s[0] == '-') {
+    sign = s[0] == '-' ? -1 : 1;
+    i = 1;
+  }
+  if (n - i == 8 && memcmp(s + i, "Infinity", 8) == 0) {
+    return sign * INFINITY;
+  }
+  if (!is_decimal_literal(s + i, n - i)) {
+    return NAN;
+  }
+  char buffer[128];
+  char *copy = n < sizeof buffer ? buffer : GC_MALLOC_ATOMIC(n + 1);
+  memcpy(copy, s, n);
+  copy[n] = '\0';
+  return strtod(copy, NULL); /* correctly rounded, and the literal is checked, so strtod's own extensions never apply */
+}
 
 /* ---------------------------------------------------------------- padding and repeating */
 

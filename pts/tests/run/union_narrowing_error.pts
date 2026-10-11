@@ -1,0 +1,24 @@
+// A type guard that lies can't make a union's value read fields its object doesn't have
+// (D-067): narrowing a union to a class checks the object is an instance of it, and
+// throws TypeError otherwise, where JS reads undefined.
+class Cat {
+  lives = 9;
+}
+class Dog {
+  barks = true;
+}
+function isCat(pet: Cat | Dog): pet is Cat {
+  return true;
+}
+const pets: (Cat | Dog)[] = [new Cat(), new Dog()];
+for (const pet of pets) {
+  if (isCat(pet)) {
+    console.log(pet.lives);
+  }
+}
+
+// no-diff: JS reads the dog's missing lives as undefined
+// exit: 1
+// stderr: TypeError: The value narrowed to Cat is not an instance of it
+// expect:
+// 9

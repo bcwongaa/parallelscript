@@ -128,6 +128,21 @@ func (l *lowerer) memberFor(t ir.Type, u *ir.Union) ir.Type {
 	for _, m := range u.Members {
 		if fits(m) {
 			if found != nil {
+				return providedMember(t, u) // several object members: the one t provides as it is
+			}
+			found = m
+		}
+	}
+	return found
+}
+
+// providedMember is the one interface member of u whose members values of type t provide
+// as they are (`unprovided`), or nil.
+func providedMember(t ir.Type, u *ir.Union) ir.Type {
+	var found ir.Type
+	for _, m := range u.Members {
+		if iface, ok := m.(*ir.Interface); ok && unprovided(t, iface) == "" {
+			if found != nil {
 				return nil
 			}
 			found = m
@@ -190,6 +205,16 @@ func (l *lowerer) nullishTest(op ir.BinaryOp, operand *ast.Node, matches ir.Type
 // dynamic values, with JS's rules.
 func unionEquality(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr {
 	var test ir.Expr = &ir.CallBuiltin{Builtin: ir.ValueStrictEquals, Args: []ir.Expr{box(x), box(y)}}
+	if op == ir.Ne {
+		test = &ir.Unary{Op: ir.Not, X: test}
+	}
+	return test
+}
+
+// looseEquality lowers x == y (or !=) where either is a union: both are compared as
+// dynamic values, with JS's conversions (D-067).
+func looseEquality(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr {
+	var test ir.Expr = &ir.CallBuiltin{Builtin: ir.ValueLooseEquals, Args: []ir.Expr{box(x), box(y)}}
 	if op == ir.Ne {
 		test = &ir.Unary{Op: ir.Not, X: test}
 	}
@@ -312,6 +337,17 @@ func (l *lowerer) asUnion(node *ast.Node, t *checker.Type) ir.Expr {
 		return nil
 	}
 	return l.convert(x, u, node)
+}
+
+// contextTakesUndefined reports whether the context of an expression expects a union that
+// includes undefined, which an element read out of range gives there, as anywhere a value
+// of any type can go (D-015, D-067).
+func (l *lowerer) contextTakesUndefined(node *ast.Node) bool {
+	contextual := l.contextualType(node)
+	if contextual == nil || contextual.Flags()&checker.TypeFlagsUnion == 0 || !isUnionValue(contextual) {
+		return false
+	}
+	return slices.ContainsFunc(contextual.Types(), func(t *checker.Type) bool { return t.Flags()&checker.TypeFlagsUndefined != 0 })
 }
 
 // withUndefined is t | undefined.

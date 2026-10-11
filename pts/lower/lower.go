@@ -6,6 +6,7 @@ package lower
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"path/filepath"
 	"slices"
@@ -136,7 +137,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}}
+		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -187,6 +188,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	result.Funcs = append(result.Funcs, l.lowered...)
 	result.Classes = append(orderedByParent(append(l.classList, l.instanceClasses...)), l.shapeList...)
 	result.Interfaces = l.interfaceList
+	result.InKeys = slices.Sorted(maps.Keys(l.inKeys))
 	l.markAccessorProperties()
 	l.checkRelaxedCasts(result.Funcs)
 	markCells(result.Funcs)
@@ -247,6 +249,7 @@ type lowerer struct {
 	interfacesByKey     map[string]*ir.Interface         // the interfaces, by their members (membersKey)
 	interfaceList       []*ir.Interface                  // the interfaces, in the order they were made
 	relaxedCasts        []relaxedCast                    // conversions to interfaces whose objects may hold optional properties otherwise (D-066)
+	inKeys              map[string]bool                  // the keys `in` looks up at run time (D-067)
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
 	funcTypes           []*ir.FuncType                   // the function types met
@@ -807,6 +810,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return l.adapt(value, target.(*ir.FuncType), node)
 	case isObject(value.Type()) && isObject(target) && !isArray(value.Type()) && !isArray(target):
 		return l.objectCast(value, target, node)
+	case isUnion(value.Type()) && isUpcastOfMembers(value.Type().(*ir.Union), target):
+		return &ir.FromUnion{X: value, To: target} // `Dog | Bird` as an Animal
 	case isEmptyArrayLiteral(value) && isArray(target):
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
 	case isObject(value.Type()) && isRecord(target):
@@ -1116,6 +1121,12 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		if x, ok := l.enumMember(node); ok {
 			return x
 		}
+		if (l.isArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && l.contextTakesUndefined(node) {
+			if x := l.valueExpression(node); x != nil {
+				return l.convert(x, l.irType(l.contextualType(node), node), node) // `return list[9]` for a T | undefined: undefined, as in JS
+			}
+			return nil
+		}
 		if l.isEnumReverseMapping(node) {
 			return l.enumReverseMapping(node, true)
 		}
@@ -1238,6 +1249,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if l.isFunctionMethod(ast.SkipParentheses(call.Expression)) {
 		return l.functionMethodCall(call)
+	}
+	if l.isUnionReceiver(ast.SkipParentheses(call.Expression)) {
+		return l.unionMethodCall(call)
 	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if generic := l.genericMethodAt(ast.SkipParentheses(call.Expression)); generic != nil {
@@ -1723,9 +1737,12 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
 // `import * as m`) or a builtin property; objects don't exist yet.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
-	if receiver := l.typeAt(node.Expression()); isUnionValue(receiver) && !l.isMemberOfAll(node) && !ast.IsOptionalChain(node) {
-		l.notSupportedYet(node, fmt.Sprintf("reading `%s` of a %s (a union) is", node.AsPropertyAccessExpression().Name().Text(), l.checker.TypeToString(receiver)))
-		return nil
+	if l.isUnionReceiver(node) {
+		object, field := l.unionProperty(node)
+		if field == nil {
+			return nil
+		}
+		return &ir.FieldRef{X: object, Field: field}
 	}
 	if shape := l.tupleShapeOf(node.Expression()); shape != nil && node.AsPropertyAccessExpression().Name().Text() == "length" {
 		object := l.expression(node.Expression())
@@ -1922,8 +1939,7 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return nil
 	}
 	if loose := operator == ast.KindEqualsEqualsToken || operator == ast.KindExclamationEqualsToken; loose && (isUnion(x.Type()) || isUnion(y.Type())) {
-		l.notSupportedYet(node, describe(node)+" on a union, other than with null or undefined, is") // JS converts between types
-		return nil
+		return looseEquality(op, x, y)
 	}
 	return l.operation(node, op, x, y, expr.Left, expr.Right)
 }
@@ -2194,6 +2210,14 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			array := l.arrayObject(node)
 			return place{object: array, arrayLength: true}, array != nil
 		}
+		if l.isUnionReceiver(node) {
+			object, field := l.unionProperty(node)
+			if field != nil && field.Mixed {
+				l.notSupportedYet(node, fmt.Sprintf("writing `%s` of a %s, whose members hold it as different types, is", field.Name, l.checker.TypeToString(l.typeAt(node.Expression()))))
+				return place{}, false
+			}
+			return place{object: object, field: field}, field != nil
+		}
 		if field := l.membersAt(node).fields[l.memberDeclaration(node)]; field != nil {
 			object := l.fieldObject(node, field)
 			return place{object: object, field: field}, object != nil
@@ -2341,6 +2365,15 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		x, y = l.convert(x, t, a), l.convert(y, t, b)
 		if x == nil || y == nil {
 			return nil, nil
+		}
+	}
+	if contextual := l.contextualType(node); contextual == nil || contextual.Flags()&checker.TypeFlagsUnion != 0 {
+		if u, ok := l.irType(l.typeAt(node), node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird
+			x, y = l.convert(x, u, a), l.convert(y, u, b)
+			if x == nil || y == nil {
+				return nil, nil
+			}
+			return x, y
 		}
 	}
 	x, y = commonClass(x, y)

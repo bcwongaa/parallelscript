@@ -92,14 +92,13 @@ func (l *lowerer) withDefault(part ir.Expr, initializer *ast.Node, name *ast.Nod
 	return &ir.Bind{Local: value, Value: part, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref, Only: ir.Undefined}, Then: fallback, Else: present}}
 }
 
-// propertyIn lowers `"p" in o` for a constant key p that o's type declares: whether o has
-// p, which only an optional property may leave out (D-065), so it is true for any other.
-// A key o's type doesn't declare waits for `in` on unions (M3.1c).
+// propertyIn lowers `"p" in o` for a constant key p: whether o has p. A property o's type
+// declares only an optional one may leave out (D-065), so it is true for any other; a key
+// of a union, or one the type doesn't declare, is looked up at run time (keyIn, D-067).
 func (l *lowerer) propertyIn(expr *ast.BinaryExpression) ir.Expr {
 	name := expr.Left.Text()
-	if l.checker.GetPropertyOfType(l.typeAt(expr.Right), name) == nil {
-		l.notSupportedYet(expr.Left, fmt.Sprintf("`in` with a key that %s doesn't declare is", l.checker.TypeToString(l.typeAt(expr.Right))))
-		return nil
+	if t := l.typeAt(expr.Right); isUnionValue(t) || l.checker.GetPropertyOfType(t, name) == nil {
+		return l.keyIn(expr)
 	}
 	object := l.expression(expr.Right)
 	if object == nil {
@@ -256,11 +255,8 @@ func (l *lowerer) concreteTypes(t ir.Type, sources map[*ir.Interface][]ir.Type, 
 			return []ir.Type{from}
 		}
 		for _, class := range append(slices.Clone(l.classList), l.instanceClasses...) {
-			for ancestor := class; ancestor != nil; ancestor = ancestor.Parent {
-				if ancestor == from {
-					types = append(types, class)
-					break
-				}
+			if isSubclassOf(class, from) {
+				types = append(types, class)
 			}
 		}
 	case *ir.Interface:

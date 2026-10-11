@@ -177,11 +177,14 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
   pts_store_value_in_slot(field->kind, slot, value);
 }
 
-bool pts_optional_has(const void *object, const char *name) {
+bool pts_object_has(const void *object, const char *name) {
+  if (name[0] == '#') {
+    return false; /* a `#private` field's name is no string key */
+  }
   const pts_type *type = ((const pts_object *)object)->type;
   const pts_field *field = find_field(type, name);
   if (field == NULL) {
-    return method_index(type, name, PTS_GETTER) >= 0 || method_index(type, name, PTS_SETTER) >= 0;
+    return method_index(type, name, PTS_GETTER) >= 0 || method_index(type, name, PTS_SETTER) >= 0 || method_index(type, name, PTS_METHOD) >= 0;
   }
   return field->kind != PTS_FIELD_VALUE ||
          __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) != PTS_VALUE_ABSENT;

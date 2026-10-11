@@ -649,12 +649,29 @@ static inline pts_value pts_value_non_null(pts_value value) {
   }
   return value;
 }
+_Noreturn void pts_throw_not_instance(const pts_type *type);
+/*
+ * A union narrowed to a class: value, which must be an instance of type or of a subclass.
+ * Narrowing by `in`, by a discriminant or by a type guard may be wrong at run time, so
+ * this throws TypeError rather than read fields that aren't there (D-067).
+ */
+static inline pts_object *pts_value_as_instance(pts_value value, const pts_type *type) {
+  pts_object *object = pts_value_as_object(value);
+  if (__builtin_expect(!pts_value_is_object(value) || (object->type != type && !pts_instance_of(object, type)), 0)) {
+    pts_throw_not_instance(type);
+  }
+  return object;
+}
 /* instanceof on a union: whether value is an instance of type or of a subclass. */
 static inline bool pts_value_instance_of(pts_value value, const pts_type *type) {
   return pts_value_is_object(value) && pts_instance_of(pts_value_as_object(value), type);
 }
 /* JS's ===: numbers by value (NaN unequal to itself, -0 equal to 0), strings by content, 64-bit integers by value, the rest by identity. */
 bool pts_value_strict_equals(pts_value a, pts_value b);
+/* JS's ==: === for values of one type, null equal to undefined, and numbers compared with strings, booleans and objects converted to them (D-067). */
+bool pts_value_loose_equals(pts_value a, pts_value b);
+/* JS's ToString of an object: an array's join, its class's toString() if it has one interfaces can call, else "[object Object]". */
+pts_string *pts_object_to_string(const pts_object *object);
 
 /*
  * Optional properties through interfaces (D-065, D-066). An object that an interface
@@ -693,8 +710,12 @@ static inline void pts_optional_set(void *object, pts_site *site, const char *na
   pts_optional_set_slow((pts_object *)object, site, name, value);
 }
 
-/* `"name" in object` for an optional property: a getter or setter, a field of another type, or a field that isn't absent. */
-bool pts_optional_has(const void *object, const char *name);
+/*
+ * `"name" in object`: whether it has a field of that name that isn't absent, or a
+ * method, getter or setter in its method table, which lists those that interfaces may
+ * call and those `in` tests (D-067).
+ */
+bool pts_object_has(const void *object, const char *name);
 
 /* ---------------------------------------------------------------- arrays */
 
@@ -973,6 +994,8 @@ pts_string *pts_string_to_lower_case(pts_string *string);
 pts_string *pts_string_trim(pts_string *string);
 pts_string *pts_string_trim_start(pts_string *string);
 pts_string *pts_string_trim_end(pts_string *string);
+/* JS's StringToNumber (Number(s)): NaN unless s, without surrounding whitespace, is empty, a decimal literal, Infinity or a 0x, 0o or 0b integer. */
+double pts_string_to_number(const pts_string *string);
 pts_string *pts_string_pad_start(pts_string *string, double max_length, pts_string *fill);
 pts_string *pts_string_pad_end(pts_string *string, double max_length, pts_string *fill);
 /* Throws RangeError: Invalid count value for a negative or infinite count. */
