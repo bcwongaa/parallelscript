@@ -91,9 +91,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Node's format from the type descriptors, e.g. `Point { x: 1, y: 2 }`: nested instances, line breaking past 72/80 characters, depth 2 (`[Point]`), circular references (`<ref *1>`, `[Circular *1]`), strings quoted as Node quotes them.
 - [x] **M2.2c Inheritance** (37a3a31b9) (split from M2.2 by D-025).
   - Single inheritance with `extends`; `super(...)` and `super.method()`; vtables and overriding; abstract classes; `instanceof`.
-- [ ] **M2.2d Accessors, statics and privacy** (split from M2.2 by D-025).
-  - Getters and setters; static fields and methods; `private` and `#private`; parameter properties.
-  - Abstract fields (`abstract name: string`), dispatched like accessors (D-028).
+- [ ] **M2.2d1 Accessors and parameter properties** (split from M2.2 by D-025, from M2.2d by D-029).
+  - Getters and setters, overridable like methods; abstract fields (`abstract name: string`), dispatched like accessors (D-028).
+  - Parameter properties; the `private`, `protected` and `readonly` modifiers.
+- [ ] **M2.2d2 Statics and `#private`** (split from M2.2 by D-025, from M2.2d by D-029).
+  - Static fields, methods and blocks; `#private` fields and methods.
 - [ ] **M2.3 Object literals and interfaces.**
   - Object literals become anonymous struct types; optional properties are stored as `T | undefined`.
   - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise.
