@@ -156,7 +156,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.8 Milestone M2.** (m2)
 
 ## M3: The TypeScript feel
-- [ ] **M3.1a Union values** (split from M3.1 by D-062).
+- [x] **M3.1a Union values** (903deeb69) (split from M3.1 by D-062).
   - Unions as tagged values; `null` and `undefined` as distinct values.
   - Narrowing via `typeof`, `instanceof`, equality, truthiness and user-defined type guards (the checker narrows; the backend converts and emits tag tests); `??`, `!`, `==` with null and undefined.
 - [ ] **M3.1b Optional properties, parameters and chaining** (split from M3.1 by D-062).
