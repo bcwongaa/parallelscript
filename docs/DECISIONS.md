@@ -244,3 +244,27 @@ Id scheme:
 - **Decision:** ParallelScript source files use **`.pts`**, the brief's original extension. Everything D-O01 and D-001 say about `.ps` now applies to `.pts`: `ExtensionPts` in `tspath`, its own group in the grouped extension lists, extensionless imports try `.pts` first (untraced), and `.gitattributes` maps `*.pts` to TypeScript. The `.ps` extension is no longer recognised.
 - **Reason:** Owner instruction after M0.4, before any `.ps` programs existed outside the front-end tests.
 - **Alternatives rejected:** Accepting both `.ps` and `.pts` (two extensions for one language, with `.ps` clashing with PostScript).
+
+### D-005 · Fixed front-end options and an embedded prelude
+- **Date:** 2026-10-11
+- **Decision:** `pts` type-checks every program with fixed options: `strict`, target and module `ESNext`, `moduleResolution: bundler`, `allowImportingTsExtensions`, `moduleDetection: force` (every file is a module, so top-level names never clash with globals), `lib: ["esnext"]` (no DOM) and `types: []` (no `@types` from a `node_modules` nearby). A `tsconfig.json` is not read. ParallelScript's own declarations (`pts/lib/*.d.ts`, the prelude now) are embedded in the binary and served by a wrapping file system at `ptslib:///…`; the prelude is a root file of every program. The prelude declares only what the compiler can lower, starting with `console.log`.
+- **Reason:** The language has one dialect, so its options aren't user settings (tie-breaker 5). Without the DOM lib, `document` and friends are type errors instead of link errors. Embedding keeps the declarations in step with the compiler that implements them, and a URL root can't clash with real paths. Upstream's lib loading needs no edit.
+- **Alternatives rejected:** Reading `tsconfig.json` (options would change semantics; can come later for `include` lists). Registering the prelude in upstream's `LibMap` and generated lib tables (upstream edits plus regeneration). Reading the declarations from `PTS_HOME` on disk (a second thing to keep in sync).
+
+### D-006 · One diagnostic format, PTS codes and CLI exit codes
+- **Date:** 2026-10-11
+- **Decision:** tsc's errors and ParallelScript's own are printed alike, one per line: `file:line:col - error CODE: message`, with the file relative to the working directory when below it. tsc errors keep `TSnnnn`. ParallelScript's codes: `PTS1001` "… is not supported yet" (valid TypeScript the compiler can't lower yet; any construct the lowering doesn't handle gets it automatically) and `PTS1002` for features left out by design (D-L12, e.g. `var`). Semantic errors are only reported when there are no syntax errors, as in tsc. `pts` exits 0 on success, 1 on compile or toolchain errors, 2 on a malformed command line; `pts run` exits with the program's own code, or 128 + the signal number if it was killed.
+- **Reason:** Error tests (M0.6) match message substrings, so one stable plain-text format is enough; a code-frame "pretty" mode can come with M7.3. A blanket `PTS1001` makes the supported subset explicit and fail-safe.
+- **Alternatives rejected:** Upstream's pretty formatter (hard-codes the `TS` prefix). Numeric codes in tsc's range (would read as tsc errors).
+
+### D-007 · Names and `#line` in generated C
+- **Date:** 2026-10-11
+- **Decision:** IR functions become `static` C functions named `pts_fn_<name>`; top-level code is `pts_fn_main`, called from a generated `main` between `pts_runtime_init` and `pts_runtime_exit`. Locals keep their source name unless it is a C keyword, a lowercase macro the headers may define (`errno`, `stdin`, …), all-caps (likely a macro), starts with `_`, `pts_`, `PTS_` or `GC_`, or has characters C doesn't allow (`$` → `_S`, others `_uXXXX`); such names get a trailing `_`. Names are made unique per function with `_2`, `_3`, …. `#line N "<absolute .pts path>"` precedes each function and each statement whose line differs from the line the C compiler already presumes, so there are no redundant directives. String literals are `PTS_STATIC_STRING` constants `pts_str_N`, one per distinct value, written as readable UTF-8 with octal escapes for anything unprintable and `\?` against trigraphs.
+- **Reason:** Readable C (brief §2.3) and exact source mapping: gdb stops at `hello.pts:1` and shows the `.pts` line. Absolute paths make the mapping independent of where clang ran.
+- **Alternatives rejected:** Prefixing every local (unreadable). Relative paths in `#line` (resolved against the temporary build directory). A `#line` before every statement (noise).
+
+### D-008 · Plan change: modules get their own task (M1.4b)
+- **Date:** 2026-10-11
+- **Decision:** `MASTER_PLAN.md` had no task for relative imports between `.pts` files, which D-L19 requires. M1.4 becomes M1.4a (unchanged scope) and a new M1.4b covers ES module imports and exports between `.pts` files, module initialisation order, and top-level bindings that functions capture becoming C globals.
+- **Reason:** Real programs (and the M6 examples) need modules; M1.4 brings functions, after which module-level state is needed anyway.
+- **Alternatives rejected:** Folding modules into M1.4 (already the largest M1 task).

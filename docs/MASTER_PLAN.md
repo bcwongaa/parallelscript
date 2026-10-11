@@ -58,10 +58,14 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [ ] **M1.3 Booleans and strings.**
   - Booleans; strings in UTF-8 with an ASCII flag and UTF-16 index semantics.
   - Concatenation, template literals, `length`, indexing, `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase`, `trim*`, `padStart`/`padEnd`, `repeat`, and `split` on a string separator.
-- [ ] **M1.4 Control flow.**
+- [ ] **M1.4a Control flow.**
   - `let`/`const`; functions; recursion; `if`, `switch`, `for`, `while` and `do`; `break`/`continue` with labels; the ternary operator.
   - Every operator, including compound assignment, `**`, bitwise operators (JS int32 semantics for `number`), `typeof`, logical operators and comma.
   - Unsupported-feature compile errors: `var`, `eval`, `with`, `arguments` and the rest of the brief's list.
+- [ ] **M1.4b Modules** (added by D-008).
+  - ES module `import`/`export` between `.pts` files with relative specifiers (D-L19), including `export default`, re-exports and namespace imports (`import * as m`).
+  - Module initialisation in dependency order, each module once; import cycles behave as in Node for the cases tsc accepts.
+  - Top-level bindings that functions capture become C globals (until then they are locals of `pts_fn_main`).
 - [ ] **M1.5 Benchmarks setup.**
   - `pts/bench/` with a hyperfine script comparing ParallelScript against Node, Bun and Go.
   - Implement fib and nbody (with `.ts` and `.go` twins). Record the results.
