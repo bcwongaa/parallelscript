@@ -1,6 +1,6 @@
 // Function values that arrive later are reported: generic, async and generator functions
-// (M2.6, M4), `this` parameters, overloaded and recursive function types, optional
-// parameters without a default (M3.1), and functions as strings.
+// (M2.6, M4), `this` parameters, overloaded and recursive function types, and functions
+// as strings.
 const identity = <T>(x: T): T => x;
 const later = async () => 1;
 const numbers = function* () {
@@ -13,7 +13,6 @@ type Overloaded = { (x: number): number; (x: string): string };
 function useOverloaded(o: Overloaded): void {}
 type Recursive = (f: Recursive) => number;
 function useRecursive(r: Recursive): void {}
-const useOptional = (x?: number): number => 1;
 const text = "" + (() => 1);
 
 // error: closures_not_yet.pts:4:7 - error PTS1001: generic function types are not supported yet
@@ -22,5 +21,4 @@ const text = "" + (() => 1);
 // error: closures_not_yet.pts:9:28 - error PTS1001: `this` parameters are not supported yet
 // error: closures_not_yet.pts:13:24 - error PTS1001: overloaded function types (Overloaded) are not supported yet
 // error: closures_not_yet.pts:15:23 - error PTS1001: recursive function types (Recursive) are not supported yet
-// error: closures_not_yet.pts:16:22 - error PTS1001: optional parameters without a default are not supported yet
-// error: closures_not_yet.pts:17:19 - error PTS1001: converting () => number to a string is not supported yet
+// error: closures_not_yet.pts:16:19 - error PTS1001: converting () => number to a string is not supported yet

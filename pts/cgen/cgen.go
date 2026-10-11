@@ -667,7 +667,7 @@ func (e *emitter) unary(u *ir.Unary) string {
 func (e *emitter) logical(l *ir.Logical) string {
 	x, y := e.expr(l.X), e.expr(l.Y)
 	t := l.X.Type()
-	if t == ir.Bool {
+	if t == ir.Bool || t == ir.Given {
 		return "(" + x + " " + l.Op.String() + " " + y + ")"
 	}
 	tmp := e.temporary()

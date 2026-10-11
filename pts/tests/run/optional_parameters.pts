@@ -1,0 +1,49 @@
+// Optional parameters (D-063): `x?: T` takes D-055's value and given flag, and the body sees
+// T | undefined; an undefined argument for a parameter whose type includes undefined means
+// its default; `??=` on unions.
+function greet(name?: string, punctuation?: string): string {
+  return "Hello, " + (name ?? "world") + (punctuation === undefined ? "!" : punctuation);
+}
+console.log(greet(), greet("Ann"), greet("Bob", "?"), greet(undefined, "."));
+function scaled(x: number, factor: number | undefined = 2): number {
+  return x * factor;
+}
+const nothing: number | undefined = [1].length > 5 ? 1 : undefined;
+console.log(scaled(3), scaled(3, 10), scaled(3, undefined), scaled(3, nothing));
+function count(xs: number[], from?: number): number {
+  let n = 0;
+  for (let i = from ?? 0; i < xs.length; i++) n++;
+  return n;
+}
+console.log(count([1, 2, 3]), count([1, 2, 3], 1));
+const describe = (label: string, detail?: number) => (detail === undefined ? label : label + "#" + detail);
+console.log(describe("a"), describe("b", 2));
+let cache: string | undefined;
+cache ??= "computed";
+cache ??= "never";
+console.log(cache);
+class Opts {
+  limit: number | null = null;
+  apply(limit?: number): number {
+    this.limit ??= limit ?? 10;
+    return this.limit;
+  }
+}
+const opts = new Opts();
+console.log(opts.apply(), opts.apply(5), opts);
+function forward(name?: string): string {
+  const mark = name === undefined ? undefined : "~";
+  return greet(name, mark);
+}
+console.log(forward(), forward("Cy"));
+interface Formatter {
+  format(value: number, digits?: number): string;
+}
+const formatter: Formatter = {
+  format(value: number, digits?: number): string {
+    return digits === undefined ? "" + value : value + "/" + digits;
+  },
+};
+console.log(formatter.format(1), formatter.format(2, 3));
+const callback: (a: number, b?: string) => string = (a, b) => a + (b ?? "-");
+console.log(callback(1), callback(2, "x"), [1, 2].map((n) => callback(n)));

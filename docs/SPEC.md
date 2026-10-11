@@ -663,3 +663,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Semantic pass:** `NumericContext` (`pts/check/numeric.go`) types numbers in union contexts; identifiers narrowed to a numeric member take its type; `function.returned` checks returns of union results.
 - **C:** `pts_value` for unions in `declarator`, `fieldKind` (`PTS_FIELD_VALUE`), `holdsPointer`, `zeroValue` (undefined), `box`, `truthy`, `toString`; `fromUnion` unboxes. Runtime: `pts_value_as_i64`/`as_u64` (`integer.c`), `pts_value_is_nullish`, `pts_value_non_null` (inline; `pts_throw_non_null`), `pts_value_strict_equals` (`string.c`), `pts_value_instance_of`.
 - **Tests:** `pts/tests/run/unions.pts`, `unions_integers.pts`, `non_null_error.pts`; `errors/unions_not_yet.pts`; binary-trees uses `TreeNode | null` children.
+
+### 9.40 Optional parameters (M3.1b1)
+
+- **Lowering** (D-063): `parameter` gives an optional parameter with a body a `T | undefined` local (`withUndefined`) bound by `parameterDefault` (default undefined), and a parameter with a default whose type includes undefined a `T` local (`withoutUndefined`) whose default also applies to an undefined argument; `parameterType` no longer rejects them. `convertArguments` passes a `T | undefined` value to an optional `T` parameter through `maybePassed`; `adaptedArguments` maps a left-out argument to undefined for a `T | undefined` parameter; `nullishAssignment` lowers `??=` (from `compoundAssignment`). cgen's `logical` takes `given` flags as booleans.
+- **Tests:** `pts/tests/run/optional_parameters.pts`.

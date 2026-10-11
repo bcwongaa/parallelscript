@@ -919,18 +919,20 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 		l.bindings[l.function] = append(l.bindings[l.function], binding)
 		return []*ir.Local{binding.arg}
 	}
-	if node.Initializer() == nil {
+	optional := node.AsParameterDeclaration().QuestionToken != nil
+	if node.Initializer() == nil && !(optional && node.Parent.Body() != nil) {
 		if name.Kind != ast.KindIdentifier {
 			l.bindings[l.function] = append(l.bindings[l.function], &parameterBinding{node: node, value: local})
 		}
-		if node.AsParameterDeclaration().QuestionToken != nil { // of an abstract method, whose calls pass the flag too
+		if optional { // of an abstract method, whose calls pass the flag too
 			return []*ir.Local{local, l.newLocal(local.Name+"_given", ir.Given)}
 		}
 		return []*ir.Local{local}
 	}
-	if u, ok := t.(*ir.Union); ok && u.Has(ir.Undefined) {
-		l.notSupportedYet(node, "defaults of parameters whose type includes undefined are") // an undefined argument means the default
-		return nil
+	if node.Initializer() == nil { // `x?: T`: the call passes a T and whether it did; the body sees T | undefined
+		local.Type = l.withUndefined(t)
+	} else if u, ok := t.(*ir.Union); ok && u.Has(ir.Undefined) { // an undefined argument means the default
+		local.Type = l.withoutUndefined(u)
 	}
 	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
 	l.bindings[l.function] = append(l.bindings[l.function], binding)
@@ -966,9 +968,6 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	switch {
 	case param.DotDotDotToken != nil && !l.checker.IsArrayType(l.typeOfSymbol(node.Symbol())):
 		l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", l.checker.TypeToString(l.typeOfSymbol(node.Symbol()))))
-		return nil
-	case param.QuestionToken != nil && node.Parent.Body() != nil:
-		l.notSupportedYet(node, "optional parameters without a default are")
 		return nil
 	}
 	var t *checker.Type
@@ -1465,6 +1464,14 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
 			continue
 		}
+		if u, ok := arg.Type().(*ir.Union); optional && ok && u.Has(ir.Undefined) && !l.takesUnion(param, u) {
+			passed := l.maybePassed(arg, u, param, node) // `f(x)` with x: T | undefined for `f(p?: T)`
+			if passed == nil {
+				return nil
+			}
+			args = append(args, passed...)
+			continue
+		}
 		if arg = l.convert(arg, param, node); arg == nil {
 			return nil
 		}
@@ -1957,6 +1964,9 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	}
 	if target.key != nil && (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) {
 		return l.recordElementOrSet(target, expr.Right, operator == ast.KindQuestionQuestionToken)
+	}
+	if operator == ast.KindQuestionQuestionToken {
+		return l.readAndStore(target, func(target place) ir.Expr { return l.nullishAssignment(target, expr.Right) })
 	}
 	return l.readAndStore(target, func(target place) ir.Expr {
 		current, t := l.narrowed(expr.Left, target.read()), target.valueType()

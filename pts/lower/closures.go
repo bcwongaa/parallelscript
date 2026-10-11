@@ -590,6 +590,15 @@ func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, no
 			continue
 		}
 		passedOrNot := hasDefault(to.Params, i)
+		if u, ok := t.(*ir.Union); passedOrNot && !optional && ok && u.Has(ir.Undefined) { // `(a, b) => …` for `(a: T, b?: U) => …`
+			arg := l.convert(&ir.LocalRef{Local: params[i]}, u, node)
+			if arg == nil {
+				return nil
+			}
+			args = append(args, &ir.Conditional{Cond: &ir.LocalRef{Local: params[i+1]}, Then: arg, Else: &ir.ToUnion{X: &ir.UndefinedConst{}, To: u}})
+			i += 2
+			continue
+		}
 		if passedOrNot && !optional {
 			l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which may leave out an argument it needs, is", from, to))
 			return nil

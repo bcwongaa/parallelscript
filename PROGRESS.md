@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.1b Optional properties, parameters and chaining
+- **Next task:** M3.1b2 Optional chaining
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.1b1 Optional parameters: `x?: T` with D-055's value and flag (the body sees `T | undefined`), defaults applying to undefined arguments for parameters whose type includes undefined, passing `T | undefined` variables to optional parameters, adapters from `(a, b) => …` to function types with optional parameters, `??=` (D-063, SPEC §9.40). M3.1b split by D-063.
 - M3.1a Union values: `ir.Union` as a one-word `pts_value` (numbers unboxed, i64/u64 boxed beyond 2^53, references as pointers); null and undefined; tsc's narrowing applied wherever a union variable, property or element is read; `===`/`!==` (word compares with null/undefined, JS's rules otherwise), `==`/`!=` with null and undefined, `typeof`, truthiness, `??`, `||`/`&&` with union operands or results, checked `x!` (TypeError), `instanceof` on unions, `as` upcasts to unions, union fields starting undefined; the semantic pass types numbers in union contexts by the union's numeric member (D-062, SPEC §9.39). binary-trees now uses `TreeNode | null` children (about 2.2 s, as before). M3.1 split by D-062.
 - M2.8 Milestone M2: checklist run, CI green on `057198d`, M2 table in `docs/BENCHMARKS.md` (binary_trees 0.64× Node and 1.48× Go; fib 2.77× Node; nbody 1.10× Node; string_building 1.63× Node), tag `m2`, Telegram report.
 - M2.7b String building: strings point at their bytes (`char *bytes`), and a concatenation of 64 bytes or more goes to an append buffer that later concatenations onto its last string extend in place by claiming bytes with a CAS, so `s += x` in a loop is linear (50,000 appends: 3.3 s → 0.014 s; Node 0.1 s); `pts/bench/string_building` (a million pieces by `+=`, template literals and `join`; PTS about 1.0 s, Node 1.6 s, Bun 4.4 s, Go with `strings.Builder` 0.36 s) (D-061, SPEC §9.38). M2.7 is complete.
@@ -64,7 +65,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.1b: optional properties (`p?: T` as a union field with undefined; literals that leave them out set undefined; interfaces with optional properties: a class or shape without the property can't provide it until M3.1c's dynamic lookups, so decide whether a missing field reads as undefined through a site), optional parameters without a default (D-055's value plus `given` flag; the body binds `x = given ? x_arg : undefined`, and an abstract method's `?` parameter already passes the flag), defaults of parameters whose type includes undefined (an argument that is undefined at run time means the default: `x = given && x_arg !== undefined ? x_arg : default`), and `?.` on properties, calls and elements (result `T | undefined`; short-circuits the whole chain). Then M3.1c (members of unions of objects through D-035/D-036's sites, discriminants, `in` narrowing with a runtime field lookup, `==` with JS's conversions). Small gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5).
+1. M3.1b2: `?.` on properties, calls (`o?.m()`, `f?.()`) and elements, short-circuiting the whole chain: lower the outermost chain node (`ast.IsOutermostOptionalChain`), find the outermost link with a `?.` below it, lower its object into a temporary, and lower the rest of the chain with that object node substituted by the temporary as its non-nullable type (`checker.GetNonNullableType`); the result is tsc's `T | undefined`; the many `ast.IsOptionalChain` PTS1001 checks must let the substituted rest through. Then M3.1b3 (optional properties: a union field; a literal that leaves one out must print as Node does, without the key, so consider an "absent" pts_value that reads as undefined and that inspect skips), then M3.1c (members of unions of objects through D-035/D-036's sites, discriminants, `in` narrowing, `==` with JS's conversions). Small gaps left (PTS1001): passing a computed `T | undefined` to an optional parameter; static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `Object.keys` and `for…in` on objects other than hash-map objects (M3.5).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -79,7 +80,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (113 run tests, 1 skipped; 55 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (114 run tests, 1 skipped; 55 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -108,6 +109,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M3.1b1 done (M3.1b split by D-063).
 - 2026-10-11: M3.1a done (M3.1 split by D-062).
 - 2026-10-11: M2.8 done; tagged `m2`.
 - 2026-10-11: M2.7b done; M2.7 complete.

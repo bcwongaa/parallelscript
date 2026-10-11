@@ -301,17 +301,30 @@ func (l *lowerer) parameterPrologue(fn *ir.Func) []ir.Stmt {
 }
 
 // parameterDefault is the value of a parameter with a default: the argument if the call
-// passed it, and otherwise the default; nil if the default fails to lower (reported).
+// passed it, and otherwise the default; nil if the default fails to lower (reported). An
+// optional parameter (`x?: T`) defaults to undefined. If the argument's type includes
+// undefined, an argument that is undefined means the default too, as in JS (D-063).
 func (l *lowerer) parameterDefault(binding *parameterBinding) ir.Expr {
-	initializer := binding.node.Initializer()
-	value := l.expression(initializer)
-	if value == nil {
+	at := binding.node
+	var value ir.Expr = &ir.UndefinedConst{}
+	if initializer := binding.node.Initializer(); initializer != nil {
+		at = initializer
+		if value = l.expression(initializer); value == nil {
+			return nil
+		}
+	}
+	if value = l.convert(value, binding.value.Type, at); value == nil {
 		return nil
 	}
-	if value = l.convert(value, binding.value.Type, initializer); value == nil {
+	var passed ir.Expr = &ir.LocalRef{Local: binding.arg}
+	var cond ir.Expr = &ir.LocalRef{Local: binding.given}
+	if u, ok := binding.arg.Type.(*ir.Union); ok && u.Has(ir.Undefined) && binding.value.Type != u {
+		cond = &ir.Logical{Op: ir.And, X: cond, Y: &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: passed, Only: ir.Undefined}}}
+		passed = fromUnion(passed, binding.value.Type)
+	} else if passed = l.convert(passed, binding.value.Type, at); passed == nil {
 		return nil
 	}
-	return &ir.Conditional{Cond: &ir.LocalRef{Local: binding.given}, Then: &ir.LocalRef{Local: binding.arg}, Else: value}
+	return &ir.Conditional{Cond: cond, Then: passed, Else: value}
 }
 
 // isDestructuringSource reports whether node is the value a pattern destructures (or a

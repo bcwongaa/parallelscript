@@ -313,3 +313,69 @@ func (l *lowerer) asUnion(node *ast.Node, t *checker.Type) ir.Expr {
 	}
 	return l.convert(x, u, node)
 }
+
+// withUndefined is t | undefined.
+func (l *lowerer) withUndefined(t ir.Type) ir.Type {
+	if u, ok := t.(*ir.Union); ok {
+		if u.Has(ir.Undefined) {
+			return u
+		}
+		return l.unionOf(append(slices.Clone(u.Members), ir.Undefined))
+	}
+	if t == ir.Undefined {
+		return t
+	}
+	return l.unionOf([]ir.Type{t, ir.Undefined})
+}
+
+// withoutUndefined is u without undefined: its one other member, or a smaller union.
+func (l *lowerer) withoutUndefined(u *ir.Union) ir.Type {
+	members := slices.DeleteFunc(slices.Clone(u.Members), func(m ir.Type) bool { return m == ir.Undefined })
+	if len(members) == 1 {
+		return members[0]
+	}
+	return l.unionOf(members)
+}
+
+// nullishAssignment builds `x ??= value` for the place target (read once): x unless it
+// is null or undefined, else x = value, which is evaluated only then.
+func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
+	current, t := target.read(), target.valueType()
+	if !isUnion(t) && t != ir.Null && t != ir.Undefined {
+		return current // never null or undefined
+	}
+	value := l.expression(valueNode)
+	if value == nil {
+		return nil
+	}
+	if value = l.convert(value, t, valueNode); value == nil {
+		return nil
+	}
+	if t == ir.Null || t == ir.Undefined {
+		return target.store(value, false)
+	}
+	return &ir.Conditional{Cond: &ir.IsNullish{X: current}, Then: target.store(value, false), Else: current}
+}
+
+// takesUnion reports whether a parameter of type param takes values of the union u as
+// they are.
+func (l *lowerer) takesUnion(param ir.Type, u *ir.Union) bool {
+	p, ok := param.(*ir.Union)
+	return ok && !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !p.Has(m) })
+}
+
+// maybePassed is the argument and Given flag (D-055) for an optional parameter of type
+// param of x, a value of the union u that includes undefined: undefined means the
+// argument is left out, as in JS. x is read twice, so it must be a variable or constant.
+func (l *lowerer) maybePassed(x ir.Expr, u *ir.Union, param ir.Type, node *ast.Node) []ir.Expr {
+	if !isPure(x) {
+		l.notSupportedYet(node, fmt.Sprintf("passing a computed %s to an optional parameter is", u))
+		return nil
+	}
+	value := l.convert(fromUnion(x, l.withoutUndefined(u)), param, node)
+	if value == nil {
+		return nil
+	}
+	missing := &ir.IsNullish{X: x, Only: ir.Undefined}
+	return []ir.Expr{&ir.Conditional{Cond: missing, Then: &ir.LeftOut{T: param}, Else: value}, &ir.Unary{Op: ir.Not, X: missing}}
+}

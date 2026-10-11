@@ -159,9 +159,12 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.1a Union values** (903deeb69) (split from M3.1 by D-062).
   - Unions as tagged values; `null` and `undefined` as distinct values.
   - Narrowing via `typeof`, `instanceof`, equality, truthiness and user-defined type guards (the checker narrows; the backend converts and emits tag tests); `??`, `!`, `==` with null and undefined.
-- [ ] **M3.1b Optional properties, parameters and chaining** (split from M3.1 by D-062).
-  - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032); optional parameters without a default; defaults of parameters whose type includes undefined.
+- [ ] **M3.1b1 Optional parameters** (split from M3.1 by D-062, from M3.1b by D-063).
+  - Optional parameters without a default; defaults of parameters whose type includes undefined; `??=`.
+- [ ] **M3.1b2 Optional chaining** (split from M3.1b by D-063).
   - Optional chaining `?.` on properties, calls and elements.
+- [ ] **M3.1b3 Optional properties** (split from M3.1b by D-063).
+  - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032); literals that leave them out.
 - [ ] **M3.1c Unions of objects** (split from M3.1 by D-062).
   - Reading properties and calling methods shared by a union's members; discriminants; `in` narrowing.
   - `==` with JS semantics beyond null and undefined.

@@ -23,9 +23,6 @@ interface Opt {
   b?: string;
 }
 const o: Opt = { a: 1 };
-function optional(x?: number): number {
-  return 1;
-}
 function maybeCircle(): Circle | null {
   return null;
 }
@@ -36,6 +33,5 @@ function mixed(x: u8 | i16 | null): void {}
 // error: unions_not_yet.pts:16:10 - error PTS1001: reading `length` of a string | string[] (a union) is not supported yet
 // error: unions_not_yet.pts:19:10 - error PTS1001: the `==` operator on a union, other than with null or undefined, is not supported yet
 // error: unions_not_yet.pts:25:7 - error PTS1001: optional properties (`b?` in Opt) are not supported yet
-// error: unions_not_yet.pts:26:19 - error PTS1001: optional parameters without a default are not supported yet
-// error: unions_not_yet.pts:32:13 - error PTS1001: optional chaining `?.` is not supported yet
-// error: unions_not_yet.pts:33:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet
+// error: unions_not_yet.pts:29:13 - error PTS1001: optional chaining `?.` is not supported yet
+// error: unions_not_yet.pts:30:16 - error PTS1001: unions of several numeric types (u8 | i16 | null) are not supported yet
