@@ -73,6 +73,12 @@ func effectsOf(expr ir.Expr) effects {
 			f |= effectsOf(arg)
 		}
 		return f
+	case *ir.NewObject:
+		var f effects
+		for _, value := range x.Values {
+			f |= effectsOf(value)
+		}
+		return f
 	case *ir.FieldRef:
 		return readsLocals | effectsOf(x.X)
 	case *ir.SetField:

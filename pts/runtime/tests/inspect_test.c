@@ -71,9 +71,39 @@ static void deep_instances_print_their_name(void) {
   free(text);
 }
 
+/* An object literal's descriptor is named "Object", which Node prints without a name. */
+static const pts_type plain_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(chain, next) | PTS_GC_WORD(chain, label)),
+    .name = "Object",
+    .size = sizeof(chain),
+    .field_count = 3,
+    .fields = chain_fields,
+};
+
+static const pts_type empty_plain_type = {.kind = PTS_KIND_OBJECT, .gc_descr = PTS_GC_NO_POINTERS, .name = "Object", .size = sizeof(pts_object)};
+
+static void plain_objects_print_without_a_name(void) {
+  chain *a = pts_object_new(&plain_type), *b = pts_object_new(&plain_type), *c = pts_object_new(&plain_type);
+  a->label = b->label = c->label = pts_string_from_cstr("x");
+  a->next = b;
+  b->next = c;
+  c->next = pts_object_new(&empty_plain_type);
+  char *text = inspected(a);
+  CHECK_STR(text, "{\n  next: { next: { next: {}, label: 'x', big: 0 }, label: 'x', big: 0 },\n  label: 'x',\n  big: 0\n}");
+  free(text);
+  b->next = b;
+  c->next = a;
+  a->next = c;
+  text = inspected(a);
+  CHECK_STR(text, "<ref *1> {\n  next: { next: [Circular *1], label: 'x', big: 0 },\n  label: 'x',\n  big: 0\n}"); /* as Node prints it */
+  free(text);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   circular_references_are_numbered();
   deep_instances_print_their_name();
+  plain_objects_print_without_a_name();
   return CHECK_DONE();
 }

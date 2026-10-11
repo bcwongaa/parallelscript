@@ -82,8 +82,11 @@ func (c *pass) report(node *ast.Node, code string, format string, args ...any) {
 // visit checks node and everything below it.
 func (c *pass) visit(node *ast.Node) {
 	switch {
-	case node.Kind == ast.KindVariableDeclaration || node.Kind == ast.KindPropertyDeclaration:
+	case node.Kind == ast.KindVariableDeclaration || node.Kind == ast.KindPropertyDeclaration || node.Kind == ast.KindPropertySignature:
 		c.variableDeclaration(node)
+		return
+	case node.Kind == ast.KindObjectLiteralExpression:
+		c.objectLiteral(node)
 		return
 	case node.Kind == ast.KindExportAssignment:
 		c.exportDefault(node)
@@ -162,6 +165,47 @@ func (c *pass) variableDeclaration(node *ast.Node) {
 	c.info.types[name] = declared
 }
 
+// objectLiteral types the number-typed properties of an object literal: each takes the
+// numeric type of the property of the literal's contextual type, if it has one (and
+// must convert to it), and otherwise its value's type.
+func (c *pass) objectLiteral(node *ast.Node) {
+	contextual := c.tc.GetContextualType(node, checker.ContextFlagsNone)
+	for _, property := range node.AsObjectLiteralExpression().Properties.Nodes {
+		var value *ast.Node
+		switch property.Kind {
+		case ast.KindPropertyAssignment:
+			value = property.Initializer()
+		case ast.KindShorthandPropertyAssignment:
+			value = property.Name()
+		}
+		if value == nil || !c.isNumber(value) {
+			c.visit(property)
+			continue
+		}
+		var n Numeric
+		if expected, ok := c.contextualPropertyType(contextual, property); ok {
+			n = expected
+			c.requireConvertible(value, c.expr(value, &n), n)
+		} else {
+			n = c.expr(value, nil)
+		}
+		c.symbols[c.tc.GetMergedSymbol(property.Symbol())] = n
+		c.info.types[property.Name()] = n
+	}
+}
+
+// contextualPropertyType returns the numeric type of the property of a literal's
+// contextual type that a property of the literal gives a value.
+func (c *pass) contextualPropertyType(contextual *checker.Type, property *ast.Node) (Numeric, bool) {
+	if contextual == nil || property.Symbol() == nil {
+		return 0, false
+	}
+	if symbol := c.tc.GetPropertyOfType(contextual, property.Symbol().Name); symbol != nil {
+		return c.bindingType(symbol)
+	}
+	return 0, false
+}
+
 // exportDefault types `export default value`, which is a binding of its own in JS.
 func (c *pass) exportDefault(node *ast.Node) {
 	if c.declared[node] {
@@ -181,7 +225,8 @@ func (c *pass) exportDefault(node *ast.Node) {
 func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
 	if declaration := symbol.ValueDeclaration; declaration != nil {
 		switch {
-		case declaration.Kind == ast.KindPropertyDeclaration:
+		case declaration.Kind == ast.KindPropertyDeclaration || declaration.Kind == ast.KindPropertySignature ||
+			declaration.Kind == ast.KindPropertyAssignment || declaration.Kind == ast.KindShorthandPropertyAssignment:
 			symbol = c.tc.GetMergedSymbol(declaration.Symbol()) // not the instance's own copy of the member
 		case declaration.Kind == ast.KindGetAccessor || declaration.Kind == ast.KindSetAccessor:
 			return c.accessorType(symbol)
@@ -194,7 +239,8 @@ func (c *pass) bindingType(symbol *ast.Symbol) (Numeric, bool) {
 		return n, true
 	}
 	if declaration := symbol.ValueDeclaration; declaration != nil && !c.declared[declaration] &&
-		(declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindPropertyDeclaration || declaration.Kind == ast.KindExportAssignment) {
+		(declaration.Kind == ast.KindVariableDeclaration || declaration.Kind == ast.KindPropertyDeclaration || declaration.Kind == ast.KindPropertySignature ||
+			declaration.Kind == ast.KindExportAssignment) {
 		outer := c.current
 		c.current = nil // the declaration's own code, not the function's
 		c.visit(declaration)

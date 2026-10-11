@@ -667,3 +667,27 @@ func Ids.peek(this: Ids) number {
 }
 `)
 }
+
+func TestObjectTypesWithTheSamePropertiesShareAShape(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `interface Point { x: number; y: number }
+function swap(p: { y: number; x: number }): Point {
+  return { y: p.x, x: p.y };
+}
+const q = swap({ x: 1, y: 2 });
+q.x += 1;
+console.log({ label: "q", at: q });
+`)
+	// One struct for the three spellings of {x, y}; each literal keeps its own order.
+	assert.Equal(t, got, `shape object1 {x: number; y: number}
+shape object2 {at: {x: number; y: number}; label: string}
+func main() void {
+  5: let q: {x: number; y: number} = swap(object1{x: 1, y: 2})
+  6: (q.x = (q.x + 1))
+  7: console.log(box(object2{label: "q", at: q}))
+}
+func swap(p: {x: number; y: number}) {x: number; y: number} {
+  3: return object1{y: p.x, x: p.y}
+}
+`)
+}

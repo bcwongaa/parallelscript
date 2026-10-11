@@ -25,7 +25,11 @@ var fieldKinds = map[ir.Type]string{
 func (e *emitter) nameClasses(program *ir.Program) {
 	used := map[string]bool{}
 	for _, class := range program.Classes {
-		e.classNames[class] = unique(used, modulePrefix(class.Module)+prefixedIdentifier(class.Name))
+		prefix := ""
+		if class.Module != nil { // not a shape
+			prefix = modulePrefix(class.Module)
+		}
+		e.classNames[class] = unique(used, prefix+prefixedIdentifier(class.Name))
 	}
 }
 
@@ -141,9 +145,14 @@ func basePath(class *ir.Class, ancestor *ir.Class) string {
 }
 
 // classDescriptors writes each class's pts_type with its field and method tables, and
-// for a class with virtual methods, the implementation of each slot.
+// for a class with virtual methods, the implementation of each slot; a shape has a
+// pts_type for each of its property orders.
 func (e *emitter) classDescriptors(classes []*ir.Class) {
 	for _, class := range classes {
+		if class.Shape {
+			e.shapeDescriptors(class)
+			continue
+		}
 		name := e.classNames[class]
 		fields, methods := "NULL", "NULL"
 		visible := visibleFields(class)
@@ -204,6 +213,52 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 		e.line(0, "};")
 		e.line(0, "")
 	}
+}
+
+// shapeDescriptors writes a pts_type for each property order of a shape's objects:
+// pts_type_<shape> for the first, pts_type_<shape>_<n> for the nth.
+func (e *emitter) shapeDescriptors(shape *ir.Class) {
+	for i, order := range shape.Orders {
+		name := shapeDescriptorName(e.classNames[shape], i)
+		fields := "NULL"
+		if len(order) > 0 {
+			fields = "pts_fields_" + name
+			e.line(0, "static const pts_field %s[] = {", fields)
+			for _, field := range order {
+				e.line(1, "{%s, offsetof(pts_class_%s, %s), %s},", cString(field.Name), e.classNames[shape], fieldIdentifier(field.Name), fieldKind(field.Type))
+			}
+			e.line(0, "};")
+		}
+		e.line(0, "static const pts_type pts_type_%s = {", name)
+		e.line(1, ".kind = PTS_KIND_OBJECT,")
+		e.line(1, ".gc_descr = %s,", layout(shape, e.classNames[shape]))
+		e.line(1, ".name = \"Object\", /* a plain object for console.log */")
+		e.line(1, ".size = sizeof(pts_class_%s),", e.classNames[shape])
+		e.line(1, ".field_count = %d,", len(order))
+		e.line(1, ".fields = %s,", fields)
+		e.line(0, "};")
+		e.line(0, "")
+	}
+}
+
+func shapeDescriptorName(shape string, order int) string {
+	if order == 0 {
+		return shape
+	}
+	return fmt.Sprintf("%s_%d", shape, order+1)
+}
+
+// newObject writes an object literal: a zeroed object of its shape, then each
+// property's value stored in the literal's order.
+func (e *emitter) newObject(n *ir.NewObject) string {
+	object := e.temporary()
+	var c strings.Builder
+	fmt.Fprintf(&c, "({ %s%s = pts_object_new(&pts_type_%s); ", e.declarator(n.Shape), object, shapeDescriptorName(e.classNames[n.Shape], n.Order))
+	for i, field := range n.Shape.Orders[n.Order] {
+		fmt.Fprintf(&c, "%s->%s = %s; ", object, fieldIdentifier(field.Name), e.expr(n.Values[i]))
+	}
+	fmt.Fprintf(&c, "%s; })", object)
+	return c.String()
 }
 
 // visibleFields are the fields of an instance that console.log and JSON see: all but

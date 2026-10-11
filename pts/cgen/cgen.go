@@ -449,6 +449,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.bind(x)
 	case *ir.New:
 		return e.newInstance(x)
+	case *ir.NewObject:
+		return e.newObject(x)
 	case *ir.FieldRef:
 		return e.fieldRef(e.expr(x.X), x.X.Type().(*ir.Class), x.Field)
 	case *ir.SetField:
@@ -955,6 +957,10 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 		case *ir.New:
 			for _, arg := range x.Args {
 				expr(arg)
+			}
+		case *ir.NewObject:
+			for _, value := range x.Values {
+				expr(value)
 			}
 		case *ir.FieldRef:
 			expr(x.X)

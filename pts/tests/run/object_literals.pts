@@ -1,0 +1,63 @@
+// Object literals: anonymous struct types, printed as Node prints plain objects, used
+// through interfaces, type aliases and type literals that describe them exactly.
+interface Point {
+  x: number;
+  y: number;
+}
+type Size = { readonly width: number; readonly height: number };
+
+function add(a: Point, b: Point): Point {
+  return { x: a.x + b.x, y: a.y + b.y };
+}
+
+function area(size: { width: number; height: number }): number {
+  return size.width * size.height;
+}
+
+const origin: Point = { x: 0, y: 0 };
+const p = add(origin, { y: 2, x: 1 });
+const size: Size = { width: 3, height: 4 };
+console.log(p, p.x, p.y, area(size), size);
+
+// Properties are read and written; compound assignments and ++ work on them.
+p.x += 10;
+p.y++;
+console.log(p, ++p.x, p.y--, p);
+
+// Shorthand properties, quoted keys, strings that need escaping, the empty object.
+const name = "it's";
+const count = 2;
+const record = { name, count, "with-dash": true, 'quoted': "a\nb", nested: {} };
+console.log(record, {});
+
+// Property order follows each literal, even when two share a type.
+const a: Point = { x: 1, y: 2 };
+const b: Point = { y: 2, x: 1 };
+console.log(a, b, a === b, a === a, typeof a, a ? "truthy" : "falsy");
+
+// Nesting: beyond depth 2 an object prints as [Object]; long ones break lines.
+const deep = { level1: { level2: { level3: { level4: 1 } } }, sibling: { value: "s" } };
+console.log(deep);
+const wide = { first: "aaaaaaaaaaaa", second: "bbbbbbbbbbbb", third: "cccccccccccc", fourth: 4 };
+console.log(wide);
+console.log({ inner: wide, other: { list: "x" } });
+
+// Objects hold class instances and classes hold objects.
+class Shelf {
+  dims: Size = { width: 1, height: 2 };
+  label: { text: string; at: Point };
+  constructor(text: string) {
+    this.label = { text, at: { x: 5, y: 6 } };
+  }
+}
+const shelf = new Shelf("books");
+const holder = { shelf, tag: "h" };
+console.log(shelf, holder, holder.shelf.label.at.x);
+
+// An object passed around stays the same object.
+function grow(target: Point): void {
+  target.x *= 2;
+}
+grow(a);
+grow(a);
+console.log(a);

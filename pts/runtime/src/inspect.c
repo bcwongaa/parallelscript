@@ -301,7 +301,19 @@ static bool below_break_length(text *entries, size_t count, size_t start) {
   return true;
 }
 
-/* Node's formatRaw and reduceToSingleString for a class instance: `Name { key: value, … }`. */
+/*
+ * The opening brace of an object: `Name {`, or `{` for a plain object, which Node
+ * recognises by its constructor's name being "Object" (object literals' descriptors use it).
+ */
+static const char *opening_brace(const pts_type *type, char *buffer, size_t size) {
+  if (strcmp(type->name, "Object") == 0) {
+    return "{";
+  }
+  snprintf(buffer, size, "%s {", type->name);
+  return buffer;
+}
+
+/* Node's formatRaw and reduceToSingleString for an object: `Name { key: value, … }`, or `{ key: value, … }` for a plain one. */
 static void format_object(inspector *in, text *out, const pts_object *object, size_t recurse_times) {
   const pts_type *type = object->type;
   for (size_t i = 0; i < in->seen_len; i++) {
@@ -315,8 +327,10 @@ static void format_object(inspector *in, text *out, const pts_object *object, si
       return;
     }
   }
+  char buffer[256];
+  const char *brace = opening_brace(type, buffer, sizeof buffer);
   if (type->field_count == 0) {
-    text_printf(out, "%s {}", type->name);
+    text_printf(out, "%s}", brace);
     return;
   }
   if (recurse_times > DEPTH) {
@@ -344,16 +358,15 @@ static void format_object(inspector *in, text *out, const pts_object *object, si
   if (reference != 0) {
     text_printf(&base, "<ref *%zu> ", reference);
   }
-  size_t brace = strlen(type->name) + 2; /* "Name {" */
   bool single_line = in->current_depth - recurse_times < 3 &&
-                     below_break_length(entries, type->field_count, type->field_count + in->indentation + brace + (base.len ? base.len - 1 : 0) + 10);
+                     below_break_length(entries, type->field_count, type->field_count + in->indentation + strlen(brace) + (base.len ? base.len - 1 : 0) + 10);
   for (uint32_t i = 0; single_line && i < type->field_count; i++) {
     single_line = memchr(entries[i].bytes, '\n', entries[i].len) == NULL;
   }
   if (base.len) {
     text_add(out, base.bytes, base.len);
   }
-  text_printf(out, "%s {", type->name);
+  text_puts(out, brace);
   for (uint32_t i = 0; i < type->field_count; i++) {
     if (single_line) {
       text_puts(out, i == 0 ? " " : ", ");

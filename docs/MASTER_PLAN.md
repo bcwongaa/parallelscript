@@ -96,7 +96,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Parameter properties; the `private`, `protected` and `readonly` modifiers.
 - [x] **M2.2d2 Statics and `#private`** (e3957937a) (split from M2.2 by D-025, from M2.2d by D-029).
   - Static fields, methods and blocks; `#private` fields and methods.
-- [ ] **M2.3a Object literals and exact object types** (split from M2.3 by D-032).
+- [x] **M2.3a Object literals and exact object types** (COMMIT) (split from M2.3 by D-032).
   - Object literals become anonymous struct types; `console.log` prints them as Node does (`{ x: 1 }`, `[Object]`).
   - Object types (interfaces, type literals, aliases) whose values are exactly such literals; the numeric rules through properties.
 - [ ] **M2.3b Interfaces** (split from M2.3 by D-032).

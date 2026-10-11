@@ -10,7 +10,11 @@ import (
 func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
 	for _, c := range p.Classes {
-		pr.class(c)
+		if c.Shape {
+			fmt.Fprintf(&pr.out, "shape %s %s\n", c.Name, c)
+		} else {
+			pr.class(c)
+		}
 	}
 	for _, f := range p.Funcs {
 		params := make([]string, len(f.Params))
@@ -208,6 +212,12 @@ func FormatExpr(expr Expr) string {
 		return "(let " + e.Local.Name + " = " + FormatExpr(e.Value) + " in " + FormatExpr(e.In) + ")"
 	case *New:
 		return "new " + e.Class.Name + formatArgs(e.Args)
+	case *NewObject:
+		properties := make([]string, len(e.Values))
+		for i, field := range e.Shape.Orders[e.Order] {
+			properties[i] = field.Name + ": " + FormatExpr(e.Values[i])
+		}
+		return e.Shape.Name + "{" + strings.Join(properties, ", ") + "}"
 	case *FieldRef:
 		return FormatExpr(e.X) + "." + e.Field.Name
 	case *SetField:

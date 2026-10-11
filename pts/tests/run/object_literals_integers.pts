@@ -1,0 +1,17 @@
+// Properties of object types keep their integer types: literal values take them from
+// the context, and arithmetic on them wraps.
+type Pixel = { r: u8; g: u8; level: int };
+
+function brighten(p: Pixel, by: u8): u8 {
+  p.r += by;
+  return p.r;
+}
+
+const px: Pixel = { r: 250, g: 7, level: 9007199254740993 };
+console.log(brighten(px, 10), px.g * 40, px.level + 1, px);
+const counts = { small: 3, big: 2.5 };
+console.log(counts.small * 2, counts);
+
+// expect:
+// 4 24 9007199254740994 { r: 4, g: 7, level: 9007199254740993 }
+// 6 { small: 3, big: 2.5 }

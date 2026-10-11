@@ -472,3 +472,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C:** `qualifiedIdentifier`, `memberIdentifier` and `fieldIdentifier` (`names.go`) spell static and private names; `visibleFields` leaves `#private` fields out of the descriptor's field table; the ready check of a static field names its class.
 - **Semantic pass:** `inheritedMember` matches static with static.
 - **Tests:** `pts/tests/run/statics_{and_private,modules,integers,before_class}.pts`, `pts/tests/errors/statics_not_yet.pts`, `TestStaticFieldsAreGlobalsInitialisedWhereTheClassIs`.
+
+### 9.15 Object literals and exact object types (M2.3a)
+
+- **IR** (D-033): `ir.Class.Shape` and `.Orders` (each distinct property order of a shape's objects; `Order(fields)` interns one); `ir.NewObject{Shape, Order, Values}`. A shape prints as `{x: number; y: number}`; `Program.Classes` lists the shapes after the classes.
+- **Lowering** (`pts/lower/objects.go`): `isObjectType` decides which checker types are shapes, `shape` interns them (`shapesByType`, `shapesByKey`, `shapeList`), `propertyType` takes a property's numeric type from the semantic pass. `objectLiteral` lowers a literal (`shorthandValue` for `{ x }`); `isShapeProperty` and `shapeProperty` lower `o.p` and assignments to it.
+- **C:** shapes are structs like classes (`pts_class_object<n>`); `shapeDescriptors` writes a descriptor per order, named "Object"; `newObject` allocates and stores the values in order. `inspect.c` prints a descriptor named "Object" without a name.
+- **Semantic pass:** property signatures are typed like fields; `objectLiteral` types literal properties against `contextualPropertyType`.
+- **Tests:** `pts/tests/run/object_literals{,_integers}.pts`, `pts/tests/errors/object_types_not_yet.pts`, `pts/tests/errors/object_literal_conversions.pts`, `TestObjectTypesWithTheSamePropertiesShareAShape`, `inspect_test.c` (plain objects).

@@ -1,0 +1,29 @@
+// Object types and literals that arrive later are reported: values of another object
+// type or of a class where an object type is expected (M2.3b), optional properties
+// (M3.1), methods, spread, numeric and computed keys.
+interface Point {
+  x: number;
+  y: number;
+}
+const p3 = { x: 1, y: 2, z: 3 };
+const p: Point = p3;
+class Vec {
+  x = 0;
+  y = 0;
+}
+const v: Point = new Vec();
+type Maybe = { value?: number };
+const m: Maybe = {};
+const withMethod = { run(): number { return 1; } };
+const spread = { ...p3 };
+const numeric = { 1: "one" };
+const key = "k";
+const computed = { [key]: 1 };
+
+// error: object_types_not_yet.pts:9:18 - error PTS1001: using a `{x: number; y: number; z: number}` as a `{x: number; y: number}` is not supported yet
+// error: object_types_not_yet.pts:14:18 - error PTS1001: using a `Vec` as a `{x: number; y: number}` is not supported yet
+// error: object_types_not_yet.pts:16:7 - error PTS1001: optional properties (`value?` in Maybe) are not supported yet
+// error: object_types_not_yet.pts:17:7 - error PTS1001: methods and accessors in object types
+// error: object_types_not_yet.pts:18:18 - error PTS1001: spreading `...` into an object literal is not supported yet
+// error: object_types_not_yet.pts:19:7 - error PTS1001: numeric property names
+// error: object_types_not_yet.pts:21:20 - error PTS1001: computed property names are not supported yet

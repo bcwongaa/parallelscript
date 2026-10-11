@@ -3,6 +3,11 @@
 // pts/lower produces it from the checked TypeScript AST and pts/cgen turns it into C.
 package ir
 
+import (
+	"slices"
+	"strings"
+)
+
 // Program is a whole lowered program.
 type Program struct {
 	Classes []*Class // superclasses before their subclasses
@@ -64,15 +69,41 @@ var (
 // take the instance as their first parameter, `this`.
 type Class struct {
 	Name        string
-	Module      *Module
-	Parent      *Class // the superclass, or nil
+	Module      *Module // nil for a shape
+	Parent      *Class  // the superclass, or nil
 	Abstract    bool
 	Fields      []*Field  // the fields it declares, not those it inherits or redeclares
 	Constructor *Func     // runs the field initialisers, then the constructor's body; in a subclass, the initialisers run when super(...) returns
 	Methods     []*Method // the methods it declares, overrides included
+
+	// Shape marks the anonymous struct type of an object type (D-033): only Fields, in
+	// name order. Its objects print without a class name, each listing its properties in
+	// one of Orders, the order the object literal that made it wrote them.
+	Shape  bool
+	Orders [][]*Field
 }
 
-func (c *Class) String() string { return c.Name }
+func (c *Class) String() string {
+	if !c.Shape {
+		return c.Name
+	}
+	members := make([]string, len(c.Fields))
+	for i, field := range c.Fields {
+		members[i] = field.Name + ": " + field.Type.String()
+	}
+	return "{" + strings.Join(members, "; ") + "}"
+}
+
+// Order returns the index in Orders of a property order of a shape, adding it if new.
+func (c *Class) Order(fields []*Field) int {
+	for i, order := range c.Orders {
+		if slices.Equal(order, fields) {
+			return i
+		}
+	}
+	c.Orders = append(c.Orders, fields)
+	return len(c.Orders) - 1
+}
 
 // IsSubclassOf reports whether c is ancestor or extends it, directly or not, so that
 // every instance of c is an instance of ancestor.
@@ -406,6 +437,14 @@ type New struct {
 	Args  []Expr
 }
 
+// NewObject makes an object of a shape from an object literal: Values are the
+// properties' values in Shape.Orders[Order], evaluated in that order.
+type NewObject struct {
+	Shape  *Class
+	Order  int
+	Values []Expr
+}
+
 // FieldRef reads a field of the instance X.
 type FieldRef struct {
 	X     Expr
@@ -581,6 +620,7 @@ func (e *Logical) Type() Type      { return e.X.Type() }
 func (e *Sequence) Type() Type     { return e.Y.Type() }
 func (e *Bind) Type() Type         { return e.In.Type() }
 func (e *New) Type() Type          { return e.Class }
+func (e *NewObject) Type() Type    { return e.Shape }
 func (e *FieldRef) Type() Type     { return e.Field.Type }
 func (e *SetField) Type() Type     { return e.Field.Type }
 func (*Box) Type() Type            { return Value }
