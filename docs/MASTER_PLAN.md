@@ -130,7 +130,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.6b1 Generic functions and object types** (849ee7586) (split from M2.6 by D-047, from M2.6b by D-049).
   - Generic function declarations by monomorphization: inferred and explicit type arguments, integer type arguments, generic calls in generic code, recursion.
   - Generic interfaces and type aliases (`Pair<string, int>`).
-- [ ] **M2.6b2 Generic classes** (split from M2.6 by D-047, from M2.6b by D-049, from M2.6b2 by D-050).
+- [x] **M2.6b2 Generic classes** (ff965a933) (split from M2.6 by D-047, from M2.6b by D-049, from M2.6b2 by D-050).
   - Generic classes (`Box<int>`), one class per instance, printed with the class's name; generic superclasses and subclasses.
 - [ ] **M2.6b3 Generic methods and nested generic functions** (split from M2.6b2 by D-050).
   - Generic methods of classes, object literals and interfaces; generic functions inside functions and blocks.
