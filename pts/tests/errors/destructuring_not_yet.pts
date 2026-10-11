@@ -1,5 +1,5 @@
 // Destructuring that isn't supported yet (D-054): rest properties in object patterns
-// (M2.6e), computed property names, and destructuring a Map's or Set's items (M2.6d3).
+// (M2.6e), computed property names, and strings' characters (a set's items here).
 const { a, ...others } = { a: 1, b: 2 };
 const key = "a";
 const { [key]: value } = { a: 1 };
@@ -9,4 +9,4 @@ for (const [first] of seen) {
 
 // error: destructuring_not_yet.pts:3:12 - error PTS1001: rest properties (`...`) in object patterns are not supported yet
 // error: destructuring_not_yet.pts:5:9 - error PTS1001: computed property names in object patterns are not supported yet
-// error: destructuring_not_yet.pts:7:12 - error PTS1001: destructuring a Map's or Set's items is not supported yet
+// error: destructuring_not_yet.pts:7:13 - error PTS1001: destructuring a string with an array pattern is not supported yet

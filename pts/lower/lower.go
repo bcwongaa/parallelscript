@@ -1303,6 +1303,20 @@ func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr
 // flag follows in params, gets a true flag after its argument, or if the call leaves the
 // argument out or passes undefined, LeftOut and a false flag (D-055).
 func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.Expr {
+	values := make([]ir.Expr, 0, len(arguments))
+	for _, argument := range arguments[:min(len(arguments), arity(params))] { // tsc rejects more
+		value := l.expression(argument)
+		if value == nil {
+			return nil
+		}
+		values = append(values, value)
+	}
+	return l.convertArguments(values, arguments, params)
+}
+
+// convertArguments converts values, the arguments a call passes (each written at the node
+// of the same index in at), to params as typedArguments does.
+func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir.Type) []ir.Expr {
 	args := make([]ir.Expr, 0, len(params))
 	next := 0
 	for i := 0; i < len(params); i++ {
@@ -1310,21 +1324,17 @@ func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.E
 		if optional {
 			i++ // past the flag
 		}
-		if optional && next >= len(arguments) {
+		if optional && next >= len(values) {
 			args = append(args, notPassed(param)...)
 			continue
 		}
-		argument := arguments[next] // tsc checked the count; rest parameters aren't lowered yet
+		arg, node := values[next], at[next] // tsc checked the count; rest parameters aren't lowered yet
 		next++
-		arg := l.expression(argument)
-		switch {
-		case arg == nil:
-			return nil
-		case optional && arg.Type() == ir.Undefined:
+		if optional && arg.Type() == ir.Undefined {
 			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
 			continue
 		}
-		if arg = l.convert(arg, param, argument); arg == nil {
+		if arg = l.convert(arg, param, node); arg == nil {
 			return nil
 		}
 		args = append(args, arg)

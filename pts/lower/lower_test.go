@@ -1013,3 +1013,37 @@ func greet(name: string, greeting_arg: string, greeting_given: given) string {
 }
 `)
 }
+
+func TestMapEntriesDestructuredInForOfMakeNoPairs(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const ages = new Map<string, number>();
+for (const [name, age] of ages) {
+  console.log(name, age);
+}
+for (const entry of ages) {
+  console.log(entry);
+}
+`)
+	assert.Equal(t, got, `shape tuple1{0: string; 1: number}
+func main() void {
+  1: let ages: Map<string, number> = new Map<string, number>()
+  2: {
+    2: let map: Map<string, number> = ages
+    2: let iteration: map iterator = map.iterate(map)
+    2: #1: while map.next(iteration) {
+      2: let name: string = map.key(iteration)
+      2: let age: number = map.value(iteration)
+      3: console.log(box(name), box(age))
+    }
+  }
+  5: {
+    5: let map: Map<string, number> = ages
+    5: let iteration: map iterator = map.iterate(map)
+    5: #2: while map.next(iteration) {
+      5: let entry: [string, number] = tuple1{0: map.key(iteration), 1: map.value(iteration)}
+      6: console.log(box(entry))
+    }
+  }
+}
+`)
+}

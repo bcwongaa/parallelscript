@@ -1,0 +1,18 @@
+// Entries of maps with integer keys and values are pairs of those types (D-056).
+const scores = new Map<string, u8>([["a", 200], ["b", 100]]);
+let total: u16 = 0;
+for (const [name, score] of scores) {
+  total += score;
+  console.log(name, score + score);
+}
+const ids = new Map<int, string>([[9007199254740993, "big"]]);
+for (const pair of ids) {
+  console.log(pair, pair[0] + 1);
+}
+console.log(total, Array.from(scores.entries()));
+
+// expect:
+// a 144
+// b 200
+// [ 9007199254740993, 'big' ] 9007199254740994
+// 300 [ [ 'a', 200 ], [ 'b', 100 ] ]

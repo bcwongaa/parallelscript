@@ -82,8 +82,9 @@ func (l *lowerer) isMapConstructor(node *ast.Node) bool {
 	return callee.Kind == ast.KindIdentifier && (callee.Text() == "Map" || callee.Text() == "Set") && l.isDeclaredInDefaultLib(l.target(callee))
 }
 
-// newMap lowers `new Map()`, `new Set()`, a copy `new Map(map)` or `new Set(set)`, and
-// `new Set(array)`. A Map of an array of entries needs tuples (M2.6).
+// newMap lowers `new Map()`, `new Set()`, a copy (`new Map(map)`, `new Map(m.entries())`,
+// `new Set(set)`), `new Set(array)` and `new Map(entries)` of an array of [key, value]
+// pairs.
 func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	checkerType := l.typeAt(node)
 	if contextual := l.contextualType(node); contextual != nil && len(node.Arguments()) == 0 && node.TypeArgumentList() == nil {
@@ -103,23 +104,71 @@ func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	if list := ast.SkipParentheses(args[0]); isUndefined(args[0]) || list.Kind == ast.KindArrayLiteralExpression && len(list.AsArrayLiteralExpression().Elements.Nodes) == 0 {
 		return &ir.NewMap{Map: mt} // no entries
 	}
-	from := l.expression(args[0])
+	if it, ok := l.mapIterableOf(args[0]); ok {
+		switch {
+		case it.m == nil:
+			return nil // reported
+		case it.m.Type() == mt && it.items == mapItemsOf(mt):
+			return &ir.NewMap{Map: mt, From: it.m}
+		}
+		l.notSupportedYet(args[0], fmt.Sprintf("a %s of the %s of a %s is", mt, itemWords[it.items], it.m.Type()))
+		return nil
+	}
+	var from ir.Expr
+	if list := ast.SkipParentheses(args[0]); list.Kind == ast.KindArrayLiteralExpression && !mt.Set {
+		from = l.arrayLiteralOf(list, l.arrayOf(l.pairOf(mt))) // tsc types `[["a", true]]` by its elements
+	} else {
+		from = l.expression(args[0])
+	}
 	switch {
 	case from == nil:
 		return nil
-	case from.Type() == mt:
-		return &ir.NewMap{Map: mt, From: from}
 	case mt.Set && isArray(from.Type()):
 		if from = l.convert(from, l.arrayOf(mt.Key), args[0]); from == nil {
 			return nil
 		}
 		return &ir.NewMap{Map: mt, From: from}
-	case isArray(from.Type()):
-		l.notSupportedYet(args[0], "a Map of an array of entries is")
-		return nil
+	case from.Type() == l.arrayOf(l.pairOf(mt)):
+		return &ir.Call{Func: l.mapOfEntries(mt, node), Args: []ir.Expr{from}}
 	}
 	l.notSupportedYet(args[0], fmt.Sprintf("a %s of a %s is", mt, from.Type()))
 	return nil
+}
+
+// mapOfEntries returns the helper that makes a map of type mt from an array of its
+// [key, value] pairs, setting each in order as `new Map(entries)` does, making it the
+// first time.
+func (l *lowerer) mapOfEntries(mt *ir.MapType, node *ast.Node) *ir.Func {
+	key := helperKey{method: "Map.of entries", collection: mt}
+	if helper, ok := l.helpers[key]; ok {
+		return helper
+	}
+	at, pair := l.pos(node), l.pairOf(mt)
+	fn := &ir.Func{Name: "Map.of", Module: l.function.Module, Pos: at, Result: mt}
+	l.inFunction(fn, func() {
+		entries := l.newLocal("entries", l.arrayOf(pair))
+		fn.Params = []*ir.Local{entries}
+		m, index, entry := l.newLocal("map", mt), l.newLocal("index", ir.Number), l.newLocal("entry", pair)
+		set := &ir.MapCall{Op: ir.MapSet, Map: mt, Args: []ir.Expr{&ir.LocalRef{Local: m},
+			&ir.FieldRef{X: &ir.LocalRef{Local: entry}, Field: pair.Fields[0]}, &ir.FieldRef{X: &ir.LocalRef{Local: entry}, Field: pair.Fields[1]}}}
+		fn.Body = &ir.Block{At: at, Stmts: []ir.Stmt{
+			&ir.LocalDecl{At: at, Local: m, Init: &ir.NewMap{Map: mt}},
+			&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
+			&ir.Loop{
+				At:     at,
+				Label:  &ir.Label{},
+				Cond:   &ir.Binary{Op: ir.Lt, X: &ir.LocalRef{Local: index}, Y: &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: entries}}}},
+				Update: &ir.Assign{Local: index, Value: &ir.Binary{Op: ir.Add, X: &ir.LocalRef{Local: index}, Y: &ir.NumberConst{Value: 1}}},
+				Body: &ir.Block{At: at, Stmts: []ir.Stmt{
+					&ir.LocalDecl{At: at, Local: entry, Init: &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: entries}, &ir.LocalRef{Local: index}}}},
+					&ir.ExprStmt{At: at, X: set},
+				}},
+			},
+			&ir.Return{At: at, Value: &ir.LocalRef{Local: m}},
+		}}
+	})
+	l.helpers[key] = fn
+	return fn
 }
 
 // isMapMethodCall reports whether node calls a method of a Map or Set.
@@ -170,7 +219,7 @@ func (l *lowerer) mapMethodCall(call *ast.CallExpression, checked bool) ir.Expr 
 	case name == "forEach":
 		return l.mapForEach(call, m)
 	case name == "keys" || name == "values" || name == "entries":
-		l.notSupportedYet(callee, fmt.Sprintf("`%s()` outside `for...of` and `Array.from` is", name))
+		l.notSupportedYet(callee, fmt.Sprintf("`%s()` as a value (an iterator) is", name))
 		return nil
 	default:
 		l.notSupportedYet(callee, fmt.Sprintf("the %s method `%s` is", collectionName(mt), name))
@@ -204,31 +253,56 @@ func (l *lowerer) mapProperty(node *ast.Node) ir.Expr {
 	return &ir.MapCall{Op: ir.MapSize, Args: []ir.Expr{m}, Map: m.Type().(*ir.MapType)}
 }
 
-// mapIterable is what a `for...of` or `Array.from` iterates over a map or set: the map,
-// and whether it yields the keys (a set's elements, `keys()`) or the values (`values()`).
-type mapIterable struct {
-	m    ir.Expr
-	keys bool
+// mapItems is what an iteration over a map or set yields: its keys (a set's elements),
+// its values, or its entries, [key, value] pairs (tuples, D-053; a set's are
+// [element, element]).
+type mapItems int
+
+const (
+	mapValues mapItems = iota
+	mapKeys
+	mapEntries
+)
+
+// itemWords name each kind of items.
+var itemWords = [...]string{mapValues: "values", mapKeys: "keys", mapEntries: "entries"}
+
+// mapItemsOf is what iterating over a map of type mt yields: its entries, or a set's elements.
+func mapItemsOf(mt *ir.MapType) mapItems {
+	if mt.Set {
+		return mapKeys
+	}
+	return mapEntries
 }
 
-// mapIterableOf lowers node if it is a set, or `keys()` or `values()` of a map or set;
-// ok is false for anything else. It reports a map iterated directly or `entries()`, whose
-// items are [key, value] pairs (tuples, M2.6).
+// mapMethodItems are the items the iteration methods of maps and sets yield.
+var mapMethodItems = map[string]mapItems{"keys": mapKeys, "values": mapValues, "entries": mapEntries}
+
+// arrayFromMethods name the helpers of `Array.from` over each kind of items.
+var arrayFromMethods = [...]string{mapValues: "Array.from values", mapKeys: "Array.from keys", mapEntries: "Array.from entries"}
+
+// mapIterable is what a `for...of`, `Array.from` or `new Map` iterates over a map or set:
+// the map, and the items it yields.
+type mapIterable struct {
+	m     ir.Expr
+	items mapItems
+}
+
+// mapIterableOf lowers node if it is a map or set, or `keys()`, `values()` or `entries()`
+// of one; ok is false for anything else. A map yields its entries and a set its elements.
 func (l *lowerer) mapIterableOf(node *ast.Node) (iterable mapIterable, ok bool) {
 	node = ast.SkipParentheses(node)
 	if l.isMapMethodCall(node) {
 		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
-		name := callee.AsPropertyAccessExpression().Name().Text()
-		if name == "keys" || name == "values" || name == "entries" {
+		if items, ok := mapMethodItems[callee.AsPropertyAccessExpression().Name().Text()]; ok {
 			m := l.expression(callee.Expression())
 			if m == nil {
 				return mapIterable{}, true
 			}
-			if name == "entries" {
-				l.notSupportedYet(node, "iterating over `entries()` (pairs need tuples) is")
-				return mapIterable{}, true
+			if items == mapValues && m.Type().(*ir.MapType).Set {
+				items = mapKeys // a set's values are its elements
 			}
-			return mapIterable{m, name == "keys" || m.Type().(*ir.MapType).Set}, true
+			return mapIterable{m, items}, true
 		}
 	}
 	if !l.isMapExpression(node) {
@@ -238,20 +312,38 @@ func (l *lowerer) mapIterableOf(node *ast.Node) (iterable mapIterable, ok bool) 
 	if m == nil {
 		return mapIterable{}, true
 	}
-	if !m.Type().(*ir.MapType).Set {
-		l.notSupportedYet(node, "iterating over a Map directly (its [key, value] pairs need tuples; use `keys()` or `values()`) is")
-		return mapIterable{}, true
-	}
-	return mapIterable{m, true}, true
+	return mapIterable{m, mapItemsOf(m.Type().(*ir.MapType))}, true
 }
 
-// itemType is the type of what an iteration yields.
-func (it mapIterable) itemType() ir.Type {
-	mt := it.m.Type().(*ir.MapType)
-	if it.keys {
+// mapItemType is the type of the items an iteration over a map of type mt yields.
+func (l *lowerer) mapItemType(mt *ir.MapType, items mapItems) ir.Type {
+	switch items {
+	case mapKeys:
 		return mt.Key
+	case mapEntries:
+		return l.pairOf(mt)
 	}
 	return mt.Value
+}
+
+// pairOf is the tuple of a map's entries, [key, value], or of a set's, [element, element].
+func (l *lowerer) pairOf(mt *ir.MapType) *ir.Class {
+	if mt.Set {
+		return l.tupleOf([]ir.Type{mt.Key, mt.Key})
+	}
+	return l.tupleOf([]ir.Type{mt.Key, mt.Value})
+}
+
+// mapItem is the item an iteration over a map of type mt is at: its key, its value, or a
+// new [key, value] pair.
+func (l *lowerer) mapItem(iteration *ir.Local, mt *ir.MapType, items mapItems) ir.Expr {
+	switch items {
+	case mapKeys:
+		return current(iteration, mt, true)
+	case mapValues:
+		return current(iteration, mt, false)
+	}
+	return &ir.NewObject{Shape: l.pairOf(mt), Values: []ir.Expr{current(iteration, mt, true), current(iteration, mt, mt.Set)}}
 }
 
 // mapLoop builds `let map = m; let iteration = iterate(map); while next(iteration) {
@@ -275,17 +367,26 @@ func current(iteration *ir.Local, mt *ir.MapType, keys bool) ir.Expr {
 	return &ir.MapCall{Op: op, Args: []ir.Expr{&ir.LocalRef{Local: iteration}}, Map: mt}
 }
 
-// mapForOf lowers the loop of `for (const x of it)` over a set, or the keys or values of a
-// map or set: x is declared from the iteration at the start of each iteration's body.
-func (l *lowerer) mapForOf(node *ast.Node, label *ir.Label, it mapIterable, item *ir.Local, statement *ast.Node) []ir.Stmt {
+// mapForOf lowers the loop of `for (const x of it)` over a map or set, or the keys,
+// values or entries of one: x (name), or the names of a pattern, are declared from the
+// iteration's item at the start of each iteration's body. `for (const [k, v] of map)`
+// binds the key and value without making a pair (destructure).
+func (l *lowerer) mapForOf(node *ast.Node, label *ir.Label, it mapIterable, name *ast.Node, statement *ast.Node) []ir.Stmt {
 	at := l.pos(node)
 	mt := it.m.Type().(*ir.MapType)
 	failed := false
 	stmts := l.mapLoop(at, label, it.m, func(iteration *ir.Local) []ir.Stmt {
-		value := l.convert(current(iteration, mt, it.keys), item.Type, node)
-		body := l.statementBlock(statement)
-		failed = value == nil
-		return append([]ir.Stmt{&ir.LocalDecl{At: at, Local: item, Init: value}}, body.Stmts...)
+		item := l.mapItem(iteration, mt, it.items)
+		var bound []ir.Stmt
+		if name.Kind == ast.KindIdentifier {
+			if stmt := l.bindName(name, item, name.Parent); stmt != nil {
+				bound = []ir.Stmt{stmt}
+			}
+		} else {
+			bound, _ = l.destructure(name, item, l.pos(name))
+		}
+		failed = bound == nil
+		return append(bound, l.statementBlock(statement).Stmts...)
 	})
 	if failed {
 		return nil
@@ -331,19 +432,13 @@ func (l *lowerer) callbackArgument(arg *ast.Node) ir.Expr {
 	return callback
 }
 
-// arrayFromMap lowers `Array.from(it)` and `Array.from(it, mapper)` for a set, or the keys
-// or values of a map or set: an array of what the iteration yields, each mapped with
-// (item, index) if there is a mapper, through a helper.
+// arrayFromMap lowers `Array.from(it)` and `Array.from(it, mapper)` for a map or set, or
+// the keys, values or entries of one: an array of what the iteration yields, each mapped
+// with (item, index) if there is a mapper, through a helper.
 func (l *lowerer) arrayFromMap(call *ast.CallExpression, it mapIterable) ir.Expr {
 	mt := it.m.Type().(*ir.MapType)
-	elem := mt.Key
-	if !it.keys {
-		elem = mt.Value
-	}
-	method := "Array.from values"
-	if it.keys {
-		method = "Array.from keys"
-	}
+	elem := l.mapItemType(mt, it.items)
+	method := arrayFromMethods[it.items]
 	if len(call.Arguments.Nodes) < 2 {
 		helper := l.mapHelper(helperKey{method: method, collection: mt}, call.Expression, l.arrayOf(elem), nil)
 		if helper == nil {
@@ -363,7 +458,7 @@ func (l *lowerer) arrayFromMap(call *ast.CallExpression, it mapIterable) ir.Expr
 	helper := l.mapHelper(helperKey{method: method + " mapped", callback: ft, collection: mt}, call.Expression, l.arrayOf(ft.Result),
 		func(fn *ir.Func, iteration *ir.Local, result *ir.Local) ([]ir.Expr, bool) {
 			index := &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: result}}} // the items pushed so far
-			return []ir.Expr{current(iteration, mt, it.keys), index}, true
+			return []ir.Expr{l.mapItem(iteration, mt, it.items), index}, true
 		})
 	if helper == nil {
 		return nil
@@ -404,7 +499,7 @@ func (l *lowerer) mapHelper(key helperKey, node *ast.Node, result ir.Type, args 
 		stmts = append(stmts, l.mapLoop(at, &ir.Label{}, &ir.LocalRef{Local: fn.Params[0]}, func(iteration *ir.Local) []ir.Stmt {
 			var value ir.Expr
 			if callback == nil {
-				value = current(iteration, mt, key.method == "Array.from keys")
+				value = l.mapItem(iteration, mt, mapItems(slices.Index(arrayFromMethods[:], key.method)))
 			} else {
 				all, _ := args(fn, iteration, collected)
 				callArgs := l.callbackArguments(all, key.callback, node)

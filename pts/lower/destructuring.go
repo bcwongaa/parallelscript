@@ -26,6 +26,9 @@ type parameterBinding struct {
 // destructure binds the names of a binding pattern to the parts of value, declaring their
 // locals. It reports what it can't lower and returns false.
 func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir.Stmt, bool) {
+	if names := namesOfTuple(pattern, value); names != nil {
+		return l.bindTupleValues(names, value.(*ir.NewObject).Values)
+	}
 	whole := l.newLocal("destructured", value.Type())
 	stmts := []ir.Stmt{&ir.LocalDecl{At: at, Local: whole, Init: value}}
 	for i, element := range pattern.AsBindingPattern().Elements.Nodes {
@@ -55,6 +58,39 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 			return nil, false
 		}
 		stmts = append(stmts, stmt)
+	}
+	return stmts, true
+}
+
+// namesOfTuple returns the names of an array pattern that binds a tuple made in place
+// (`const [a, b] = [x, y]`, or the [key, value] pair of a map's entry) one name per
+// element, or nil for any other pattern or value. Such a pattern needs no tuple: each name
+// takes its element's value (a default on a tuple's element never applies, D-054).
+func namesOfTuple(pattern *ast.Node, value ir.Expr) []*ast.Node {
+	tuple, ok := value.(*ir.NewObject)
+	elements := pattern.AsBindingPattern().Elements.Nodes
+	if !ok || !tuple.Shape.Tuple || pattern.Kind != ast.KindArrayBindingPattern || len(elements) != len(tuple.Values) {
+		return nil
+	}
+	for _, element := range elements {
+		if element.Kind != ast.KindBindingElement || element.Name() == nil || element.Name().Kind != ast.KindIdentifier || element.AsBindingElement().DotDotDotToken != nil {
+			return nil
+		}
+	}
+	names := make([]*ast.Node, len(elements))
+	for i, element := range elements {
+		names[i] = element.Name()
+	}
+	return names
+}
+
+// bindTupleValues binds each of names to the value at its index, in order.
+func (l *lowerer) bindTupleValues(names []*ast.Node, values []ir.Expr) ([]ir.Stmt, bool) {
+	stmts := make([]ir.Stmt, len(names))
+	for i, name := range names {
+		if stmts[i] = l.bindName(name, values[i], name.Parent); stmts[i] == nil {
+			return nil, false
+		}
 	}
 	return stmts, true
 }

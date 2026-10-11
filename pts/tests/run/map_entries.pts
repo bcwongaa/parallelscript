@@ -1,0 +1,83 @@
+// Map and Set entries as [key, value] pairs (D-056): for...of over a map or its entries(),
+// destructured or not, Array.from, new Map of pairs or of another map's entries; apply with
+// a tuple.
+const ages = new Map<string, number>([["ada", 36], ["alan", 41]]);
+ages.set("grace", 85);
+for (const [name, age] of ages) {
+  console.log(name, age);
+}
+for (const entry of ages.entries()) {
+  console.log(entry, entry[0], entry.length);
+}
+for (const [name] of ages) {
+  console.log(name);
+}
+for (const [, age] of ages) {
+  console.log(age);
+}
+const pairs = Array.from(ages);
+console.log(pairs, Array.from(ages.entries()), Array.from(ages, ([k, v], i) => k + v + i));
+const copy = new Map(ages);
+const copy2 = new Map(ages.entries());
+copy.set("x", 1);
+console.log(copy, copy2, ages.size);
+const inferred = new Map([["a", true], ["b", false]]);
+console.log(inferred);
+const list: [string, number][] = [["p", 1], ["q", 2], ["p", 3]];
+const fromList = new Map(list);
+console.log(fromList);
+const tags = new Set(["x", "y"]);
+for (const [a, b] of tags.entries()) {
+  console.log(a, b);
+}
+console.log(Array.from(tags.entries()));
+const nested = new Map<string, [number, number]>([["origin", [0, 0]]]);
+for (const [key, [x, y]] of nested) {
+  console.log(key, x, y);
+}
+const [first, second] = [10, "twenty"];
+console.log(first, second);
+function volume(w: number, h: number, d = 1): number {
+  return w * h * d;
+}
+const dims: [number, number, number] = [2, 3, 4];
+const flat: [number, number] = [5, 6];
+console.log(volume.apply(null, dims), volume.apply(null, flat), volume.apply(null, [1, 2]));
+class Greeter {
+  constructor(public greeting: string) {}
+  greet(name: string, punctuation: string): string {
+    return this.greeting + ", " + name + punctuation;
+  }
+}
+const g = new Greeter("Hi");
+const words: [string, string] = ["Ada", "!"];
+console.log(g.greet.apply(g, words), g.greet.apply(new Greeter("Yo"), words));
+const pick = (s: string, n: number) => s.repeat(n);
+const args: [string, number] = ["ab", 3];
+console.log(pick.apply(undefined, args));
+
+// expect:
+// ada 36
+// alan 41
+// grace 85
+// [ 'ada', 36 ] ada 2
+// [ 'alan', 41 ] alan 2
+// [ 'grace', 85 ] grace 2
+// ada
+// alan
+// grace
+// 36
+// 41
+// 85
+// [ [ 'ada', 36 ], [ 'alan', 41 ], [ 'grace', 85 ] ] [ [ 'ada', 36 ], [ 'alan', 41 ], [ 'grace', 85 ] ] [ 'ada360', 'alan411', 'grace852' ]
+// Map(4) { 'ada' => 36, 'alan' => 41, 'grace' => 85, 'x' => 1 } Map(3) { 'ada' => 36, 'alan' => 41, 'grace' => 85 } 3
+// Map(2) { 'a' => true, 'b' => false }
+// Map(2) { 'p' => 3, 'q' => 2 }
+// x x
+// y y
+// [ [ 'x', 'x' ], [ 'y', 'y' ] ]
+// origin 0 0
+// 10 twenty
+// 24 30 2
+// Hi, Ada! Yo, Ada!
+// ababab

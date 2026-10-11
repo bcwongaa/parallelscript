@@ -213,7 +213,7 @@ func (l *lowerer) isFunctionMethod(callee *ast.Node) bool {
 // functionMethodCall lowers `f.call(thisArg, args…)`, `f.apply(thisArg, [args…])` and
 // `f.bind(thisArg, args…)` (D-044, D-045). For a method `o.m`, thisArg is the object it
 // runs on; a function ignores it (it is still evaluated). `apply` takes its arguments as
-// an array literal: other arrays would need tuple types (M2.6).
+// an array literal or a tuple (`appliedTuple`).
 func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
 	name := callee.AsPropertyAccessExpression().Name().Text()
@@ -221,16 +221,22 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	args := call.Arguments.Nodes
+	var tuple *ast.Node // the tuple `apply` passes the elements of
 	if name == "apply" {
-		if args = appliedArguments(args); args == nil {
-			l.notSupportedYet(call.Arguments.Nodes[1], "`apply` with arguments that aren't an array literal is")
+		switch literal := appliedArguments(args); {
+		case literal != nil:
+			args = literal
+		case len(args) == 2 && l.tupleShapeOf(args[1]) != nil:
+			args, tuple = args[:1], args[1]
+		default:
+			l.notSupportedYet(call.Arguments.Nodes[1], "`apply` with arguments that are neither an array literal nor a tuple is")
 			return nil
 		}
 		name = "call"
 	}
 	target := ast.SkipParentheses(callee.Expression())
 	if target.Kind == ast.KindPropertyAccessExpression && l.isInstanceMethod(target) {
-		return l.methodCallOrBind(call, args, target, name)
+		return l.methodCallOrBind(call, args, tuple, target, name)
 	}
 	fn := l.expression(target)
 	if fn == nil {
@@ -248,13 +254,13 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 		}
 		args = args[1:]
 	}
-	values := l.typedArguments(args, passedParams(ft.Params, name, len(args)))
+	values, applied := l.callArguments(args, tuple, passedParams(ft.Params, name, len(args)))
 	if values == nil {
 		return nil
 	}
 	if name == "call" {
-		return l.withReceiver(fn, func(f ir.Expr) ir.Expr { // JS evaluates f before thisArg
-			return discard(thisArg, &ir.CallValue{Callee: f, Args: values})
+		return l.withReceiver(fn, func(f ir.Expr) ir.Expr { // JS evaluates f, then thisArg, then the arguments
+			return discard(thisArg, applied(&ir.CallValue{Callee: f, Args: values}))
 		})
 	}
 	m := method{name: "", receiver: ft, params: ft.Params, result: ft.Result, call: func(f ir.Expr, args []ir.Expr) ir.Expr {
@@ -263,6 +269,28 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	return l.withReceiver(fn, func(f ir.Expr) ir.Expr {
 		return discard(thisArg, l.boundMethod(callee, m, f, values, "bound", true))
 	})
+}
+
+// callArguments lowers the arguments a `call` passes after thisArg, converted to params:
+// rest, or the elements of tuple (`apply` with a tuple; rest is empty then), which applied
+// evaluates, into a local, around the call that uses them.
+func (l *lowerer) callArguments(rest []*ast.Node, tuple *ast.Node, params []ir.Type) (values []ir.Expr, applied func(ir.Expr) ir.Expr) {
+	if tuple == nil {
+		return l.typedArguments(rest, params), func(call ir.Expr) ir.Expr { return call }
+	}
+	value := l.expression(tuple)
+	if value == nil {
+		return nil, nil
+	}
+	shape := value.Type().(*ir.Class)
+	local := l.newLocal("applied", shape)
+	elements, at := make([]ir.Expr, len(shape.Fields)), make([]*ast.Node, len(shape.Fields))
+	for i, field := range shape.Fields {
+		elements[i], at[i] = &ir.FieldRef{X: &ir.LocalRef{Local: local}, Field: field}, tuple
+	}
+	return l.convertArguments(elements, at, params), func(call ir.Expr) ir.Expr {
+		return &ir.Bind{Local: local, Value: value, In: call}
+	}
 }
 
 // appliedArguments are the arguments `apply(thisArg, [a, b])` passes, as `call`'s:
@@ -331,7 +359,7 @@ func passedParams(params []ir.Type, name string, n int) []ir.Type {
 // `o.m.bind(thisArg, args…)`, which makes a closure bound to thisArg. thisArg must be of
 // o's type: for a class's method, the method thisArg's class has runs; for a method of an
 // object type, thisArg must be o itself. o is evaluated for its effects, as JS reads o.m.
-func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, target *ast.Node, name string) ir.Expr {
+func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, tuple *ast.Node, target *ast.Node, name string) ir.Expr {
 	object := l.expression(target.Expression())
 	if object == nil {
 		return nil
@@ -357,14 +385,17 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 		return nil
 	}
 	rest := args[1:]
-	values := l.typedArguments(rest, passedParams(m.params, name, len(rest)))
+	values, applied := l.callArguments(rest, tuple, passedParams(m.params, name, len(rest)))
 	if values == nil {
 		return nil
 	}
 	var result ir.Expr
-	if name == "call" {
+	switch {
+	case name == "call" && tuple != nil:
+		result = l.withReceiver(receiver, func(r ir.Expr) ir.Expr { return applied(m.call(r, values)) }) // thisArg before the tuple
+	case name == "call":
 		result = m.call(receiver, values)
-	} else {
+	default:
 		result = l.boundMethod(call.Expression, m, receiver, values, "bound "+m.name, false)
 	}
 	return discard(object, result)

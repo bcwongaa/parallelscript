@@ -459,21 +459,10 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
 	if it, ok := l.mapIterableOf(s.Expression); ok {
-		if declaration.Name().Kind != ast.KindIdentifier {
-			l.notSupportedYet(declaration.Name(), "destructuring a Map's or Set's items is")
-			return nil
-		}
 		if it.m == nil {
 			return nil // reported
 		}
-		symbol := l.checker.GetSymbolAtLocation(declaration.Name())
-		t := l.bindingType(symbol, declaration.Name())
-		if t == nil {
-			return nil
-		}
-		item := l.newLocal(declaration.Name().Text(), t)
-		l.locals[symbol] = item
-		return l.mapForOf(node, label, it, item, s.Statement)
+		return l.mapForOf(node, label, it, declaration.Name(), s.Statement)
 	}
 	iterable := l.expression(s.Expression)
 	if iterable == nil {

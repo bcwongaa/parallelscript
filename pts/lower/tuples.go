@@ -31,12 +31,19 @@ func (l *lowerer) tupleType(t *checker.Type, node *ast.Node) ir.Type {
 	defer delete(l.tuplesInProgress, t)
 	elements := l.checker.GetTypeArguments(t)[:len(flags)]
 	types := make([]ir.Type, len(elements))
-	keys := make([]string, len(elements))
 	for i, element := range elements {
 		if types[i] = l.irType(element, node); types[i] == nil {
 			return nil
 		}
-		keys[i] = typeKey(types[i])
+	}
+	return l.tupleOf(types)
+}
+
+// tupleOf is the shape of the tuples whose elements have the given types.
+func (l *lowerer) tupleOf(types []ir.Type) *ir.Class {
+	keys := make([]string, len(types))
+	for i, elementType := range types {
+		keys[i] = typeKey(elementType)
 	}
 	key := strings.Join(keys, ",")
 	if shape, ok := l.tuples[key]; ok {
