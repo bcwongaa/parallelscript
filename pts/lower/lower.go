@@ -136,7 +136,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, patterns: map[*ir.Func][]patternParameter{}}
+		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -210,53 +210,54 @@ type lowerer struct {
 	program             *compiler.Program
 	checker             *checker.Checker
 	info                *check.Info
-	locals              map[*ast.Symbol]*ir.Local       // nil for a declaration that failed to lower
-	owners              map[*ir.Local]*ir.Func          // the function each local belongs to
-	moduleScope         map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
-	funcs               map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
-	generics            map[*ast.Symbol]*genericFunc    // every generic function declaration, whose instances calls make
-	genericStatics      map[*ast.Node]*genericFunc      // every generic static method, by declaration
-	instances           []*instance                     // the instances whose bodies are still to be lowered
-	subst               *substitution                   // the instance being lowered or declared, or nil
-	genericClasses      map[*ast.Symbol]*genericClass   // every generic class declaration, whose instances types make; nil if it failed
-	classInstances      map[*ir.Class]*classInstance    // the generic class instance each instance's class is
-	instanceClasses     []*ir.Class                     // the classes of generic class instances, in the order they were made
-	classInstanceBodies []*classInstance                // the class instances whose constructors and methods are still to be lowered
-	membersDeclared     bool                            // the classes' members are declared, so a new class instance declares its own at once
-	membersStarted      map[*ir.Class]bool              // the classes whose members are declared, or being declared
-	tuples              map[string]*ir.Class            // the shape of each tuple type met, by its element types
-	tuplesInProgress    map[*checker.Type]bool          // the tuple types whose element types are being mapped
-	patterns            map[*ir.Func][]patternParameter // the parameters of each function written as patterns
-	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
-	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
-	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
-	members             *classMembers                   // the members of those classes that aren't generic, by declaration
-	declaring           *classMembers                   // where the members being declared go: members, or a generic class instance's own
-	methodDeclarations  map[*ir.Method]*ast.Node        // the declaration of each method (for an accessor that implements an abstract field, the field's)
-	statics             map[*ast.Node]*ir.Local         // the variable of each static field, by declaration; nil if it failed
-	staticMethods       map[*ast.Node]*ir.Func          // the function of each static method, by declaration; nil if it failed
-	staticClasses       map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
-	staticContext       *ir.Class                       // the class whose static initialisers are being lowered, or nil
-	shapesByType        map[*checker.Type]*ir.Class     // the shape of each object type met; nil if it has none
-	shapesByKey         map[string]*ir.Class            // the shapes, by their fields (membersKey)
-	shapeList           []*ir.Class                     // the shapes, in the order they were made
-	interfacesByType    map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
-	interfacesByKey     map[string]*ir.Interface        // the interfaces, by their members (membersKey)
-	interfaceList       []*ir.Interface                 // the interfaces, in the order they were made
-	arrays              map[ir.Type]*ir.Array           // the array type of each element type met
-	arraysInProgress    map[*checker.Type]bool          // the array types whose element type is being mapped
-	funcTypes           []*ir.FuncType                  // the function types met
-	funcTypesInProgress map[*checker.Type]bool          // the function types whose parameter and result types are being mapped
-	arrows              map[*ir.Func]bool               // the closures' functions that are arrow functions, whose `this` is their outer function's
-	funcNodes           map[*ir.Func]*ast.Node          // the declaration, function expression or source file of each function
-	helpers             map[helperKey]*ir.Func          // the helpers of the array methods that take callbacks; nil if one failed
-	mapTypes            []*ir.MapType                   // the map and set types met
-	mapsInProgress      map[*checker.Type]bool          // the map and set types whose key and value types are being mapped
-	this                map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
-	lowered             []*ir.Func                      // the functions whose bodies are lowered
-	bodies              []*ast.Node                     // function declarations whose bodies are still to be lowered
-	function            *ir.Func                        // the function being lowered
-	targets             []jumpTarget                    // the statements around the current one that break or continue can leave
+	locals              map[*ast.Symbol]*ir.Local        // nil for a declaration that failed to lower
+	owners              map[*ir.Local]*ir.Func           // the function each local belongs to
+	moduleScope         map[*ir.Local]bool               // the locals declared at module scope, which functions and other modules may use
+	funcs               map[*ast.Symbol]*ir.Func         // every function declaration, made before any body is lowered; nil if it failed
+	generics            map[*ast.Symbol]*genericFunc     // every generic function declaration, whose instances calls make
+	genericStatics      map[*ast.Node]*genericFunc       // every generic static method, by declaration
+	instances           []*instance                      // the instances whose bodies are still to be lowered
+	subst               *substitution                    // the instance being lowered or declared, or nil
+	genericClasses      map[*ast.Symbol]*genericClass    // every generic class declaration, whose instances types make; nil if it failed
+	classInstances      map[*ir.Class]*classInstance     // the generic class instance each instance's class is
+	instanceClasses     []*ir.Class                      // the classes of generic class instances, in the order they were made
+	classInstanceBodies []*classInstance                 // the class instances whose constructors and methods are still to be lowered
+	membersDeclared     bool                             // the classes' members are declared, so a new class instance declares its own at once
+	membersStarted      map[*ir.Class]bool               // the classes whose members are declared, or being declared
+	tuples              map[string]*ir.Class             // the shape of each tuple type met, by its element types
+	tuplesInProgress    map[*checker.Type]bool           // the tuple types whose element types are being mapped
+	bindings            map[*ir.Func][]*parameterBinding // the parameters each function's body starts by binding: those with defaults or patterns
+	paramLocals         map[*ir.Func][]*ir.Local         // the local each function's body sees for each parameter it declares; nil for a pattern
+	classes             map[*ast.Symbol]*ir.Class        // every class declaration, made before any code is lowered; nil if it failed
+	classNodes          map[*ir.Class]*ast.Node          // the declaration of each class
+	classList           []*ir.Class                      // the classes that didn't fail, superclasses first
+	members             *classMembers                    // the members of those classes that aren't generic, by declaration
+	declaring           *classMembers                    // where the members being declared go: members, or a generic class instance's own
+	methodDeclarations  map[*ir.Method]*ast.Node         // the declaration of each method (for an accessor that implements an abstract field, the field's)
+	statics             map[*ast.Node]*ir.Local          // the variable of each static field, by declaration; nil if it failed
+	staticMethods       map[*ast.Node]*ir.Func           // the function of each static method, by declaration; nil if it failed
+	staticClasses       map[*ir.Func]*ir.Class           // the class of each static method, which `this` stands for in it
+	staticContext       *ir.Class                        // the class whose static initialisers are being lowered, or nil
+	shapesByType        map[*checker.Type]*ir.Class      // the shape of each object type met; nil if it has none
+	shapesByKey         map[string]*ir.Class             // the shapes, by their fields (membersKey)
+	shapeList           []*ir.Class                      // the shapes, in the order they were made
+	interfacesByType    map[*checker.Type]*ir.Interface  // the interface of each object type met; nil if it has none
+	interfacesByKey     map[string]*ir.Interface         // the interfaces, by their members (membersKey)
+	interfaceList       []*ir.Interface                  // the interfaces, in the order they were made
+	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
+	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
+	funcTypes           []*ir.FuncType                   // the function types met
+	funcTypesInProgress map[*checker.Type]bool           // the function types whose parameter and result types are being mapped
+	arrows              map[*ir.Func]bool                // the closures' functions that are arrow functions, whose `this` is their outer function's
+	funcNodes           map[*ir.Func]*ast.Node           // the declaration, function expression or source file of each function
+	helpers             map[helperKey]*ir.Func           // the helpers of the array methods that take callbacks; nil if one failed
+	mapTypes            []*ir.MapType                    // the map and set types met
+	mapsInProgress      map[*checker.Type]bool           // the map and set types whose key and value types are being mapped
+	this                map[*ir.Func]*ir.Local           // the `this` parameter of each constructor and method
+	lowered             []*ir.Func                       // the functions whose bodies are lowered
+	bodies              []*ast.Node                      // function declarations whose bodies are still to be lowered
+	function            *ir.Func                         // the function being lowered
+	targets             []jumpTarget                     // the statements around the current one that break or continue can leave
 	errors              []diagnostic.Diagnostic
 }
 
@@ -871,11 +872,11 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 	l.function = fn // parameters are locals of fn
 	defer func() { l.function = outer }()
 	for _, param := range node.Parameters() {
-		local := l.parameter(param)
-		if local == nil {
+		locals := l.parameter(param)
+		if locals == nil {
 			return nil
 		}
-		fn.Params = append(fn.Params, local)
+		fn.Params = append(fn.Params, locals...)
 	}
 	if node.Kind == ast.KindConstructor {
 		fn.Result = ir.Void
@@ -885,33 +886,58 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 	return fn
 }
 
-// parameter makes the local for a parameter, or reports why it can't and returns nil.
-func (l *lowerer) parameter(node *ast.Node) *ir.Local {
+// parameter makes the parameters of fn for a parameter (node): its local, or for one
+// with a default, the local of the argument and its Given flag (D-055). The body starts
+// by binding a parameter with a default or a pattern (parameterPrologue). It reports why
+// it can't and returns nil.
+func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 	t := l.parameterType(node)
 	if t == nil {
 		return nil
 	}
 	name := node.Name()
-	if name.Kind != ast.KindIdentifier { // a pattern, which the body starts by destructuring
-		local := l.newLocal("destructured", t)
-		l.patterns[l.function] = append(l.patterns[l.function], patternParameter{pattern: name, local: local})
-		return local
+	var local *ir.Local // what the body sees
+	if name.Kind == ast.KindIdentifier {
+		local = l.newLocal(name.Text(), t)
+		l.locals[parameterSymbol(node)] = local
+		l.paramLocals[l.function] = append(l.paramLocals[l.function], local)
+	} else {
+		local = l.newLocal("destructured", t) // a pattern, which the body starts by destructuring
+		l.paramLocals[l.function] = append(l.paramLocals[l.function], nil)
 	}
-	local := l.newLocal(name.Text(), t)
-	l.locals[l.checker.GetSymbolAtLocation(name)] = local
-	return local
+	if node.Initializer() == nil {
+		if name.Kind != ast.KindIdentifier {
+			l.bindings[l.function] = append(l.bindings[l.function], &parameterBinding{node: node, value: local})
+		}
+		return []*ir.Local{local}
+	}
+	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
+	l.bindings[l.function] = append(l.bindings[l.function], binding)
+	return []*ir.Local{binding.arg, binding.given}
 }
 
-// parameterType is the IR type of a parameter, or nil if it has none or is of a kind not
-// supported yet (reported).
+// parameterSymbol is the symbol of a parameter named by an identifier, which references
+// to it resolve to. A parameter property's declaration has the property's symbol, and
+// the parameter's is among its constructor's locals.
+func parameterSymbol(node *ast.Node) *ast.Symbol {
+	if ast.IsParameterPropertyDeclaration(node, node.Parent) {
+		return node.Parent.Locals()[node.Name().Text()]
+	}
+	return node.Symbol()
+}
+
+// parameterType is the IR type of a parameter's value, once a default it has applies;
+// nil if it has none or is of a kind not supported yet (reported). An optional parameter
+// of a signature (`m(x?: number)` in an interface) takes a value of the type without
+// undefined, and a Given flag (D-055).
 func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
 	switch {
 	case param.DotDotDotToken != nil:
 		l.notSupportedYet(node, "rest parameters are")
 		return nil
-	case param.QuestionToken != nil || param.Initializer != nil:
-		l.notSupportedYet(node, "optional parameters are")
+	case param.QuestionToken != nil && node.Parent.Body() != nil:
+		l.notSupportedYet(node, "optional parameters without a default are")
 		return nil
 	}
 	if param.Name().Kind != ast.KindIdentifier {
@@ -920,7 +946,20 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	if t := l.numericType(param.Name()); t != nil {
 		return t
 	}
-	return l.irType(l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name())), param.Name())
+	t := l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name()))
+	if passedOrNot(node) {
+		t = l.checker.RemoveMissingOrUndefinedType(t)
+	}
+	return l.irType(t, param.Name())
+}
+
+// passedOrNot reports whether a parameter declaration (node) holds undefined only when
+// the call leaves its argument out, which it may: one with a question mark, and one with
+// a default and no type, which takes the contextual type `T | undefined` of an optional
+// parameter (tsc removes the undefined in the body).
+func passedOrNot(node *ast.Node) bool {
+	param := node.AsParameterDeclaration()
+	return param.QuestionToken != nil || param.Initializer != nil && param.Type == nil
 }
 
 // resultType is the IR type a function returns: Void, the numeric type the semantic
@@ -1255,20 +1294,64 @@ func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr
 }
 
 // typedArguments lowers the arguments of a call, each converted to its parameter's type
-// in params, or reports one and returns nil.
+// in params, or reports one and returns nil. A parameter with a default, which its Given
+// flag follows in params, gets a true flag after its argument, or if the call leaves the
+// argument out or passes undefined, LeftOut and a false flag (D-055).
 func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.Expr {
-	args := make([]ir.Expr, len(params))
-	for i, param := range params {
-		argument := arguments[i] // tsc checked the count; optional and rest parameters aren't lowered yet
+	args := make([]ir.Expr, 0, len(params))
+	next := 0
+	for i := 0; i < len(params); i++ {
+		param, optional := params[i], hasDefault(params, i)
+		if optional {
+			i++ // past the flag
+		}
+		if optional && next >= len(arguments) {
+			args = append(args, notPassed(param)...)
+			continue
+		}
+		argument := arguments[next] // tsc checked the count; rest parameters aren't lowered yet
+		next++
 		arg := l.expression(argument)
-		if arg == nil {
+		switch {
+		case arg == nil:
+			return nil
+		case optional && arg.Type() == ir.Undefined:
+			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
+			continue
+		}
+		if arg = l.convert(arg, param, argument); arg == nil {
 			return nil
 		}
-		if args[i] = l.convert(arg, param, argument); args[i] == nil {
-			return nil
+		args = append(args, arg)
+		if optional {
+			args = append(args, &ir.GivenConst{Value: true})
 		}
 	}
 	return args
+}
+
+// hasDefault reports whether params[i] is a parameter with a default, which its Given
+// flag follows (D-055).
+func hasDefault(params []ir.Type, i int) bool {
+	return i+1 < len(params) && params[i+1] == ir.Given
+}
+
+// notPassed is what a call passes for a parameter of type t with a default when it
+// leaves the argument out: LeftOut and a false flag.
+func notPassed(t ir.Type) []ir.Expr {
+	return []ir.Expr{&ir.LeftOut{T: t}, &ir.GivenConst{Value: false}}
+}
+
+// arity is the number of arguments a function with parameter types params takes, its
+// Given flags aside.
+func arity(params []ir.Type) int {
+	n := 0
+	for _, param := range params {
+		if param != ir.Given {
+			n++
+		}
+	}
+	return n
 }
 
 func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {

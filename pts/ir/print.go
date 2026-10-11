@@ -211,6 +211,10 @@ func FormatExpr(expr Expr) string {
 		return "undefined"
 	case *NullConst:
 		return "null"
+	case *GivenConst:
+		return "given(" + strconv.FormatBool(e.Value) + ")"
+	case *LeftOut:
+		return "left-out " + e.T.String()
 	case *LocalRef:
 		return e.Local.Name
 	case *IntConst:

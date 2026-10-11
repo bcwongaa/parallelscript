@@ -983,3 +983,33 @@ func wrap_string.inner(y: string) string closure [] {
 }
 `)
 }
+
+func TestParametersWithDefaultsTakeAFlagThatSaysWhetherTheCallPassedThem(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function greet(name: string, greeting = "Hello"): string {
+  return greeting + name;
+}
+greet("a");
+greet("a", undefined);
+greet("a", "b");
+const shaped: (s: string, g: string) => string = (s, g = "x") => g + s;
+const value: (s: string, g?: string) => string = greet;
+value("c");
+`)
+	assert.Equal(t, got, `func main() void {
+  4: greet("a", left-out string, given(false))
+  5: greet("a", left-out string, given(false))
+  6: greet("a", "b", given(true))
+  7: let shaped: (string, string) => string = closure shaped
+  8: let value: (string, string, given) => string = closure greet
+  9: call value("c", left-out string, given(false))
+}
+func shaped(s: string, g: string) string closure [] {
+  7: return (g ++ s)
+}
+func greet(name: string, greeting_arg: string, greeting_given: given) string {
+  1: let greeting: string = (greeting_given ? greeting_arg : "Hello")
+  2: return (greeting ++ name)
+}
+`)
+}

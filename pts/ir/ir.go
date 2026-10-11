@@ -65,6 +65,11 @@ var (
 
 	// MapIterator is an iteration over a map or set (D-046), held in a local.
 	MapIterator = &Primitive{"map iterator"}
+
+	// Given is the type of the flag that follows each parameter with a default in a
+	// parameter list (D-055): whether the call passed the argument, rather than leaving it
+	// out or passing undefined. A C bool.
+	Given = &Primitive{"given"}
 )
 
 // Class is a class declared in the program, and the type of a reference to one of its
@@ -554,6 +559,13 @@ type UndefinedConst struct{}
 
 type NullConst struct{}
 
+// GivenConst is the flag a call passes after an argument for a parameter with a default.
+type GivenConst struct{ Value bool }
+
+// LeftOut is what a call passes for an argument it leaves out (or passes undefined for):
+// the zero value of T, which the callee replaces with the parameter's default (D-055).
+type LeftOut struct{ T Type }
+
 // LocalRef reads a local.
 type LocalRef struct{ Local *Local }
 
@@ -906,6 +918,8 @@ func (*BoolConst) Type() Type       { return Bool }
 func (*StringConst) Type() Type     { return String }
 func (*UndefinedConst) Type() Type  { return Undefined }
 func (*NullConst) Type() Type       { return Null }
+func (*GivenConst) Type() Type      { return Given }
+func (e *LeftOut) Type() Type       { return e.T }
 func (e *LocalRef) Type() Type      { return e.Local.Type }
 func (e *Assign) Type() Type        { return e.Local.Type }
 func (*Truthy) Type() Type          { return Bool }

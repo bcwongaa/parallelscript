@@ -171,15 +171,13 @@ func (c *pass) signature(declaration *ast.Node) *function {
 	fn := &function{}
 	for _, param := range declaration.Parameters() {
 		var t *Numeric
-		if name := param.Name(); name.Kind == ast.KindIdentifier && c.isNumber(name) {
+		if name := param.Name(); name.Kind == ast.KindIdentifier {
 			symbol := c.tc.GetSymbolAtLocation(name)
-			n, ok := NumericOf(c.tc.GetTypeOfSymbol(symbol)) // annotated, or typed by context: x in `bytes.map(x => …)` is a u8
-			if !ok {
-				n = Number
+			if n, ok := c.parameterNumeric(symbol); ok { // annotated, or typed by context: x in `bytes.map(x => …)` is a u8
+				t = &n
+				c.symbols[symbol] = n
+				c.info.types[name] = n
 			}
-			t = &n
-			c.symbols[symbol] = n
-			c.info.types[name] = n
 		}
 		fn.params = append(fn.params, t)
 	}
@@ -200,6 +198,31 @@ func (c *pass) signature(declaration *ast.Node) *function {
 	return fn
 }
 
+// parameterNumeric returns the numeric type of a parameter, if it is a number: for an
+// optional parameter (`x?: u8` in a signature, or `x = 1` where the context's is
+// optional), of the value a call passes.
+func (c *pass) parameterNumeric(symbol *ast.Symbol) (Numeric, bool) {
+	t := c.tc.GetTypeOfSymbol(symbol)
+	if declaration := symbol.ValueDeclaration; declaration != nil && declaration.Kind == ast.KindParameter && passedOrNot(declaration) {
+		t = c.tc.RemoveMissingOrUndefinedType(t)
+	}
+	if !IsNumber(t) {
+		return 0, false
+	}
+	if n, ok := NumericOf(t); ok {
+		return n, true
+	}
+	return Number, true
+}
+
+// passedOrNot reports whether a parameter declaration holds undefined only when the
+// call leaves its argument out: one with a question mark, and one with a default and no
+// type, which takes the contextual type `T | undefined` of an optional parameter.
+func passedOrNot(declaration *ast.Node) bool {
+	param := declaration.AsParameterDeclaration()
+	return param.QuestionToken != nil || param.Initializer != nil && param.Type == nil
+}
+
 func (c *pass) returnsNumber(declaration *ast.Node) bool {
 	result := c.tc.GetReturnTypeOfSignature(c.tc.GetSignatureFromDeclaration(declaration))
 	return IsNumber(result)
@@ -217,6 +240,7 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 	outer := c.current
 	body := &functionBody{fn: fn}
 	c.current = body
+	c.parameterDefaults(declaration, fn)
 	if declaration.Body().Kind == ast.KindBlock {
 		for _, statement := range declaration.Body().Statements() {
 			c.visit(statement)
@@ -253,6 +277,21 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 	c.setResult(declaration, fn, result)
 }
 
+// parameterDefaults types the default values of a function's parameters: a number
+// parameter's default must convert to its type.
+func (c *pass) parameterDefaults(declaration *ast.Node, fn *function) {
+	for i, param := range declaration.Parameters() {
+		value := param.Initializer()
+		switch {
+		case value == nil:
+		case fn.params[i] != nil:
+			c.requireConvertible(value, c.expr(value, fn.params[i]), *fn.params[i])
+		default:
+			c.visit(value)
+		}
+	}
+}
+
 // returnStatement types `return value` in a function that returns a number.
 func (c *pass) returnStatement(node *ast.Node) {
 	c.returnValue(node.Expression(), node)
@@ -287,7 +326,7 @@ func (c *pass) call(node *ast.Node, declaration *ast.Node) Numeric {
 	fn := c.functionOf(declaration)
 	c.visit(node.Expression()) // the callee: a.filter(f) in a.filter(f).reverse()
 	for i, arg := range node.Arguments() {
-		if i < len(fn.params) && fn.params[i] != nil {
+		if i < len(fn.params) && fn.params[i] != nil && c.tc.GetTypeAtLocation(arg).Flags()&checker.TypeFlagsUndefined == 0 { // undefined means a parameter's default
 			c.requireConvertible(arg, c.expr(arg, fn.params[i]), *fn.params[i])
 		} else {
 			c.visit(arg)
@@ -351,7 +390,7 @@ func (c *pass) signatureNumerics(signature *checker.Signature) ([]*Numeric, *Num
 	}
 	var params []*Numeric
 	for _, param := range signature.Parameters() {
-		if n, ok := NumericOf(c.tc.GetTypeOfSymbol(param)); ok {
+		if n, ok := c.parameterNumeric(param); ok {
 			params = append(params, &n)
 		} else {
 			params = append(params, nil)

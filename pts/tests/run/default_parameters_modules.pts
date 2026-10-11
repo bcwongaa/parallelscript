@@ -1,0 +1,7 @@
+// A default parameter value is evaluated in its function's module, where it may use that
+// module's private bindings (D-055).
+import { tag, Box } from "./default_parameters_modules/tags.pts";
+console.log(tag("a"), tag("b"), tag("c", "!"), tag("d"), new Box(), new Box(-1));
+
+// expect:
+// a#100 b#101 c! d#102 Box { value: 3 } Box { value: -1 }

@@ -487,6 +487,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return "PTS_VALUE_UNDEFINED"
 	case *ir.NullConst:
 		return "PTS_VALUE_NULL"
+	case *ir.GivenConst:
+		return strconv.FormatBool(x.Value)
+	case *ir.LeftOut:
+		return zeroValue(x.T, e.strings[""])
 	case *ir.LocalRef:
 		if check := e.readyCheck(x.Local); check != "" {
 			return "(" + check + ", " + e.local(x.Local) + ")"
@@ -943,6 +947,8 @@ func cType(t ir.Type) string {
 		return "float"
 	case ir.MapIterator:
 		return "pts_map_iterator"
+	case ir.Given:
+		return "bool"
 	default:
 		panic("cgen: no C type for " + t.String())
 	}
@@ -985,6 +991,10 @@ func (e *emitter) collectStrings(program *ir.Program) {
 			switch x := expr.(type) {
 			case *ir.StringConst:
 				e.intern(x.Value)
+			case *ir.LeftOut:
+				if x.T == ir.String {
+					e.intern("")
+				}
 			case *ir.ToString:
 				for _, word := range toStringWords[x.X.Type()] {
 					e.intern(word)

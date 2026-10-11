@@ -1,0 +1,34 @@
+// Parameters that may be undefined in the body wait for unions (M3.1): optional ones
+// without a default, and defaults of a type that includes undefined. A class method
+// without a default can't provide an interface method whose parameter is optional, and
+// an override must keep the overridden method's defaults.
+function opt(x?: number): number {
+  return 1;
+}
+function both(a: number | undefined = 5): number {
+  return 1;
+}
+interface Labelled {
+  label(suffix?: string): string;
+}
+class Plain {
+  label(suffix: string): string {
+    return suffix;
+  }
+}
+const labelled: Labelled = new Plain();
+class Base {
+  n(x = 1): number {
+    return x;
+  }
+}
+class Derived extends Base {
+  n(x: number): number {
+    return x;
+  }
+}
+
+// error: default_parameters_not_yet.pts:5:14 - error PTS1001: optional parameters without a default are not supported yet
+// error: default_parameters_not_yet.pts:8:15 - error PTS1001: values of type number | undefined are not supported yet
+// error: default_parameters_not_yet.pts:19:28 - error PTS1001: using a `Plain` as a `{label(string, given): string}`, whose `label` it doesn't provide with the same types, is not supported yet
+// error: default_parameters_not_yet.pts:26:3 - error PTS1001: overriding `Base.n` with other parameter or result types is not supported yet

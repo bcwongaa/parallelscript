@@ -106,3 +106,11 @@ class Grid extends Shape {
 const shapes: Shape = new Circle();
 const grid: Shape = new Grid();
 console.log(shapes.report(), shapes.report(), grid.report(), shapes.kind, grid.size, shapes, grid);
+
+// A parameter property's parameter is a plain variable in the constructor too.
+class Label {
+  constructor(public text: string, readonly size: number) {
+    console.log(text, size, this.text.length * size);
+  }
+}
+console.log(new Label("tag", 2));

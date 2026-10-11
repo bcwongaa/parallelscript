@@ -1,0 +1,175 @@
+// Default parameter values (D-055): functions, arrows, methods, constructors and parameter
+// properties; left-out and undefined arguments; defaults that use earlier parameters,
+// `this` and outer variables, evaluated in order when the call doesn't pass them; function
+// values with optional parameters, callbacks, bind, call and apply.
+function greet(name: string, greeting = "Hello"): string {
+  return `${greeting}, ${name}!`;
+}
+console.log(greet("Ada"), greet("Ada", "Hi"), greet("Ada", undefined));
+
+function area(w: number, h = w): number {
+  return w * h;
+}
+console.log(area(3), area(3, 4));
+
+function log(s: string): string {
+  console.log("eval", s);
+  return s;
+}
+function order(a = log("a"), b = log("b")) {
+  return a + b;
+}
+console.log(order(log("x")));
+console.log(order(undefined, log("y")));
+
+function lazy(a: number, get = () => a * 3) {
+  return get();
+}
+function later(x = 1) {
+  const read = () => x;
+  x = x + 10;
+  return read();
+}
+function outer() {
+  let base = 10;
+  function inner(x = base) {
+    return x;
+  }
+  base = 20;
+  return inner() + inner(1);
+}
+const arrow = (x: number, y = 10) => x + y;
+const fact = function f(n: number, acc = 1): number {
+  return n <= 1 ? acc : f(n - 1, acc * n);
+};
+console.log(lazy(2), lazy(2, () => 0), later(), later(5), outer(), arrow(1), arrow(1, 2), fact(5), fact);
+
+function pattern({ a, b }: { a: number; b: string } = { a: 1, b: "one" }) {
+  return `${a}:${b}`;
+}
+function sum([a, b = 10]: number[] = [1], { c }: { c: number } = { c: 100 }) {
+  return a + b + c;
+}
+console.log(pattern(), pattern({ a: 2, b: "two" }), sum(), sum([5]), sum([5, 6], { c: 7 }), sum(undefined, { c: 1 }));
+
+class Point {
+  constructor(public x = 0, public y = x) {}
+  scaled(by = 2): Point {
+    return new Point(this.x * by, this.y * by);
+  }
+  static origin(label = "origin"): string {
+    return label;
+  }
+}
+class Point3 extends Point {
+  z: number;
+  constructor(x = 1, z = 9) {
+    super(x);
+    this.z = z;
+  }
+}
+class Named extends Point {}
+console.log(new Point(), new Point(3), new Point(3, 4), new Point(1, 2).scaled(), new Point(1, 2).scaled(10));
+console.log(Point.origin(), Point.origin("o"), new Point3(), new Point3(5, 6), new Named(), new Named(7));
+
+class Account {
+  balance = 100;
+  withdraw(amount = this.balance / 2): number {
+    this.balance -= amount;
+    return this.balance;
+  }
+  twice() {
+    const take = (x = this.balance / 4) => this.withdraw(x);
+    return take() + take(1);
+  }
+}
+const account = new Account();
+console.log(account.withdraw(), account.withdraw(10), account.withdraw(), account.twice());
+
+class Base {
+  constructor(public tag = "base") {}
+  describe(prefix = "B"): string {
+    return prefix + ":" + this.tag;
+  }
+}
+class Child extends Base {
+  describe(prefix = "C"): string {
+    return super.describe() + "/" + super.describe(prefix);
+  }
+}
+const items: Base[] = [new Base(), new Child(), new Child("kid")];
+for (const item of items) {
+  console.log(item.describe(), item.describe("x"));
+}
+
+interface Shape {
+  label(suffix?: string): string;
+}
+class Square implements Shape {
+  label(suffix = "sq"): string {
+    return "square-" + suffix;
+  }
+}
+const shapes: Shape[] = [new Square(), { label(suffix = "lit") { return "literal-" + suffix; } }];
+for (const s of shapes) {
+  console.log(s.label(), s.label("z"));
+}
+
+class Box<T> {
+  constructor(public value: T, public count = 1) {}
+  repeat(times = this.count): T[] {
+    const out: T[] = [];
+    for (let i = 0; i < times; i++) out.push(this.value);
+    return out;
+  }
+}
+function wrap<T>(x: T, list: T[] = []): T[] {
+  list.push(x);
+  return list;
+}
+console.log(new Box("a"), new Box(2, 3), new Box("z", 2).repeat(), new Box(true).repeat(2), wrap(1), wrap("a", ["b"]));
+
+function power(base: number, exp = 2): number {
+  return base ** exp;
+}
+const same = power;
+const optional: (b: number, e?: number) => number = power;
+const one: (b: number) => number = power;
+const two: (b: number, e: number) => number = power;
+console.log(same(3), same(3, 3), optional(4), optional(4, 0.5), one(5), two(2, 10), power);
+console.log([1, 2, 3].map(power), [1, 2, 3].map((x, i = 5) => x * i));
+console.log(["a", "b"].map((s: string, i: number, all: string[], extra = "!") => s + i + extra));
+const counts = new Map<string, number>();
+counts.set("k", 1);
+counts.forEach((v: number, k: string, all: Map<string, number>, extra = "none") => console.log(v, k, extra));
+const points = [{ x: 1 }, { x: 2 }];
+console.log(points.map(({ x } = { x: 0 }) => x * 10));
+const seven = power.bind(null, 7);
+console.log(seven(), seven(1), power.bind(null, 7, 3)(), power.call(null, 6), power.call(null, 6, 1), power.apply(null, [9]));
+
+// expect:
+// Hello, Ada! Hi, Ada! Hello, Ada!
+// 9 12
+// eval x
+// eval b
+// xb
+// eval y
+// eval a
+// ay
+// 6 0 11 15 21 11 3 120 [Function: f]
+// 1:one 2:two 111 115 18 12
+// Point { x: 0, y: 0 } Point { x: 3, y: 3 } Point { x: 3, y: 4 } Point { x: 2, y: 4 } Point { x: 10, y: 20 }
+// origin o Point3 { x: 1, y: 1, z: 9 } Point3 { x: 5, y: 5, z: 6 } Named { x: 0, y: 0 } Named { x: 7, y: 7 }
+// 50 40 20 29
+// B:base x:base
+// B:base/C:base B:base/x:base
+// B:kid/C:kid B:kid/x:kid
+// square-sq square-z
+// literal-lit literal-z
+// Box { value: 'a', count: 1 } Box { value: 2, count: 3 } [ 'z', 'z' ] [ true, true ] [ 1 ] [ 'b', 'a' ]
+// 9 27 16 2 25 1024 [Function: power]
+// [ 1, 2, 9 ] [ 0, 2, 6 ]
+// [ 'a0!', 'b1!' ]
+// 1 k none
+// [ 10, 20 ]
+// 49 7 343 36 6 81

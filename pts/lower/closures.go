@@ -50,14 +50,21 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	case signature.HasRestParameter() && !restIsTuple || len(parameters) > 0 && parameters[len(parameters)-1].CheckFlags&ast.CheckFlagsRestParameter != 0:
 		l.notSupportedYet(node, "rest parameters are")
 		return nil
-	case !restIsTuple && signature.MinArgumentCount() < len(parameters) || hasOptionalParameter(parameters):
-		l.notSupportedYet(node, "optional parameters are")
-		return nil
 	}
-	params := make([]ir.Type, len(parameters))
+	params := make([]ir.Type, 0, len(parameters))
 	for i, param := range parameters {
-		if params[i] = l.irType(l.typeOfSymbol(param), node); params[i] == nil {
+		t := l.typeOfSymbol(param)
+		optional := !restIsTuple && i >= signature.MinArgumentCount() || isOptionalParameter(param)
+		if optional {
+			t = l.checker.RemoveMissingOrUndefinedType(t)
+		}
+		paramType := l.irType(t, node)
+		if paramType == nil {
 			return nil
+		}
+		params = append(params, paramType)
+		if optional {
+			params = append(params, ir.Given) // D-055
 		}
 	}
 	result := l.returnTypeOf(signature)
@@ -71,14 +78,16 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	return l.funcType(params, resultType)
 }
 
-// hasOptionalParameter reports whether one of a signature's (expanded) parameters is optional.
-func hasOptionalParameter(parameters []*ast.Symbol) bool {
-	for _, param := range parameters {
-		if param.CheckFlags&ast.CheckFlagsOptionalParameter != 0 {
-			return true
-		}
+// isOptionalParameter reports whether a call may leave out a parameter of a signature,
+// or pass undefined for it: one with a default or a question mark, or an optional
+// element of a tuple rest parameter.
+func isOptionalParameter(param *ast.Symbol) bool {
+	if param.CheckFlags&ast.CheckFlagsOptionalParameter != 0 {
+		return true
 	}
-	return false
+	declaration := param.ValueDeclaration
+	return declaration != nil && declaration.Kind == ast.KindParameter &&
+		(declaration.Initializer() != nil || declaration.AsParameterDeclaration().QuestionToken != nil)
 }
 
 // funcType is the one function type that takes params and returns result.
@@ -156,11 +165,11 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 			l.notSupportedYet(param, "`this` parameters are")
 			return false
 		}
-		local := l.parameter(param)
-		if local == nil {
+		locals := l.parameter(param)
+		if locals == nil {
 			return false
 		}
-		fn.Params = append(fn.Params, local)
+		fn.Params = append(fn.Params, locals...)
 	}
 	if fn.Result = l.resultType(node); fn.Result == nil {
 		return false
@@ -169,6 +178,7 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 	if context == nil {
 		return true
 	}
+	l.bindAlwaysPassed(fn, context)
 	for i := len(fn.Params); i < len(context.Params); i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", context.Params[i]))
 	}
@@ -182,8 +192,10 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 }
 
 // contextualFuncType is the function type node's context expects, if it is one that
-// node's function can take the shape of: the same parameter types, then perhaps more.
-// It reports nothing: a context that doesn't map just doesn't shape the function.
+// node's function can take the shape of: the same parameter types, then perhaps more,
+// where a parameter with a default may be one the context always passes, but not the
+// other way round. It reports nothing: a context that doesn't map just doesn't shape the
+// function.
 func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	contextual := l.contextualType(node)
 	if contextual == nil {
@@ -192,15 +204,48 @@ func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	reported := l.errors
 	ft, ok := l.functionType(contextual, node)
 	l.errors = reported
-	if !ok || ft == nil || len(ft.Params) < len(l.function.Params) {
+	if !ok || ft == nil {
 		return nil
 	}
-	for i, param := range l.function.Params {
-		if ft.Params[i] != param.Type {
+	params := l.function.Params
+	j := 0 // in ft.Params
+	for i, param := range params {
+		if param.Type == ir.Given {
+			continue // with its parameter
+		}
+		if j >= len(ft.Params) || ft.Params[j] != param.Type {
 			return nil
+		}
+		passedOrNot := hasDefault(ft.Params, j)
+		if passedOrNot && (i+1 == len(params) || params[i+1].Type != ir.Given) {
+			return nil // the context may leave out an argument the function needs
+		}
+		j++
+		if passedOrNot {
+			j++
 		}
 	}
 	return ft
+}
+
+// bindAlwaysPassed drops the Given flags of fn's parameters with defaults that the
+// function type ft, which fn takes the shape of, always passes: their defaults never
+// apply, so each is its argument.
+func (l *lowerer) bindAlwaysPassed(fn *ir.Func, ft *ir.FuncType) {
+	var params []*ir.Local
+	for _, param := range fn.Params {
+		if param.Type != ir.Given || len(params) < len(ft.Params) && ft.Params[len(params)] == ir.Given {
+			params = append(params, param)
+			continue
+		}
+		for _, binding := range l.bindings[fn] {
+			if binding.given == param {
+				params[len(params)-1] = binding.value
+				binding.arg, binding.given = nil, nil
+			}
+		}
+	}
+	fn.Params = params
 }
 
 // functionExpressionBody lowers the body of an arrow function or function expression into
@@ -426,29 +471,21 @@ func (l *lowerer) thisLocal() *ir.Local {
 // adapt converts a function value to another function type that takes the same
 // parameters and perhaps more, or ones that convert to its own, and returns nothing or
 // what its result converts to (D-041). The value becomes an adapter: a closure that calls
-// it with the parameters it takes and converts its result. It reports (at node) and
-// returns nil if the types don't fit.
+// it with the parameters it takes and converts its result. A parameter with a default
+// that the other type doesn't pass is left out, and one it always passes is passed
+// (D-055). It reports (at node) and returns nil if the types don't fit.
 func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr {
 	from := value.Type().(*ir.FuncType)
-	if len(from.Params) > len(to.Params) {
-		l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which passes fewer arguments, is", from, to))
-		return nil
-	}
 	wrapped := l.newLocal("adapted", from)
 	fn := &ir.Func{Name: l.closureName("adapter", node), Module: l.function.Module, Pos: l.pos(node), Result: to.Result,
 		Closure: true, Outer: l.function, Adapts: true, Captures: []*ir.Local{wrapped}}
 	failed := false
 	l.inFunction(fn, func() {
-		args := make([]ir.Expr, len(from.Params))
 		for i, t := range to.Params {
-			param := l.newLocal(fmt.Sprintf("arg%d", i+1), t)
-			fn.Params = append(fn.Params, param)
-			if i < len(from.Params) {
-				args[i] = l.convert(&ir.LocalRef{Local: param}, from.Params[i], node)
-				failed = failed || args[i] == nil
-			}
+			fn.Params = append(fn.Params, l.newLocal(fmt.Sprintf("arg%d", i+1), t))
 		}
-		if failed {
+		args := l.adaptedArguments(fn.Params, from, to, node)
+		if failed = args == nil; failed {
 			return
 		}
 		call := ir.Expr(&ir.CallValue{Callee: &ir.LocalRef{Local: wrapped}, Args: args})
@@ -471,6 +508,47 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 	return &ir.Bind{Local: wrapped, Value: value, In: &ir.MakeClosure{Func: fn, FuncType: to}}
 }
 
+// adaptedArguments are the arguments an adapter from the function type from to the
+// function type to passes the function it wraps, from its own parameters params (of the
+// types of to's), or nil if they don't fit (reported at node).
+func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, node *ast.Node) []ir.Expr {
+	args := make([]ir.Expr, 0, len(from.Params))
+	i := 0 // in params
+	for j := 0; j < len(from.Params); j++ {
+		t, optional := from.Params[j], hasDefault(from.Params, j)
+		if optional {
+			j++ // past the flag
+		}
+		if i >= len(params) {
+			if !optional {
+				l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which passes fewer arguments, is", from, to))
+				return nil
+			}
+			args = append(args, notPassed(t)...)
+			continue
+		}
+		passedOrNot := hasDefault(to.Params, i)
+		if passedOrNot && !optional {
+			l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which may leave out an argument it needs, is", from, to))
+			return nil
+		}
+		arg := l.convert(&ir.LocalRef{Local: params[i]}, t, node)
+		if arg == nil {
+			return nil
+		}
+		args = append(args, arg)
+		i++
+		switch {
+		case passedOrNot:
+			args = append(args, &ir.LocalRef{Local: params[i]}) // its flag
+			i++
+		case optional:
+			args = append(args, &ir.GivenConst{Value: true})
+		}
+	}
+	return args
+}
+
 // ---------------------------------------------------------------- cells
 
 // markCells decides which captured locals live in cells (D-041): those assigned after
@@ -485,6 +563,9 @@ func markCells(funcs []*ir.Func) {
 		}
 	}
 	for _, fn := range funcs {
+		if fn.Body == nil {
+			continue // it failed to lower (reported)
+		}
 		pass := &cellPass{captured: captured, declared: map[*ir.Local]bool{}}
 		for _, local := range append(append(slices.Clone(fn.Params), fn.Captures...), fn.Self) {
 			pass.declared[local] = true

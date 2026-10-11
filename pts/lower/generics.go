@@ -293,7 +293,7 @@ func (l *lowerer) forgetLocals(node *ast.Node) {
 func (l *lowerer) parameterLocals(node *ast.Node) map[*ast.Symbol]*ir.Local {
 	locals := map[*ast.Symbol]*ir.Local{}
 	for _, param := range node.Parameters() {
-		symbol := l.checker.GetSymbolAtLocation(param.Name())
+		symbol := parameterSymbol(param)
 		if local, ok := l.locals[symbol]; ok {
 			locals[symbol] = local
 		}
@@ -305,13 +305,9 @@ func (l *lowerer) parameterLocals(node *ast.Node) map[*ast.Symbol]*ir.Local {
 // or constructor) those of its declaration's parameters again: the declaration of another
 // instance of a generic function or class may have bound them since.
 func (l *lowerer) bindParameters(declaration *ast.Node, fn *ir.Func) {
-	params := fn.Params
-	if l.this[fn] != nil {
-		params = params[1:]
-	}
-	for i, param := range declaration.Parameters() {
-		if i < len(params) && param.Name().Kind == ast.KindIdentifier {
-			l.locals[l.checker.GetSymbolAtLocation(param.Name())] = params[i]
+	for i, local := range l.paramLocals[fn] {
+		if local != nil {
+			l.locals[parameterSymbol(declaration.Parameters()[i])] = local
 		}
 	}
 }

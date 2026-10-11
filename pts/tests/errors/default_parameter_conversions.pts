@@ -1,0 +1,15 @@
+// A default value must convert to its parameter's numeric type without loss (D-055).
+function byte(x: u8 = 300): u8 {
+  return x;
+}
+function whole(x: u8 = 1.5): u8 {
+  return x;
+}
+let n = 1.5;
+function wide(x: int = n): int {
+  return x;
+}
+
+// error: default_parameter_conversions.pts:2:23 - error PTS2002: 300 doesn't fit in u8 (0 to 255)
+// error: default_parameter_conversions.pts:5:24 - error PTS2002: 1.5 is not an integer, so it can't be a u8; write `as u8` to convert it
+// error: default_parameter_conversions.pts:9:24 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it

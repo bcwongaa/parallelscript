@@ -588,7 +588,7 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 	var stmts []ir.Stmt
 	this := &ir.LocalRef{Local: l.this[class.Constructor]}
 	for _, param := range parameterProperties(node) {
-		field, arg := l.membersOf(class).fields[param], l.locals[l.checker.GetSymbolAtLocation(param.Name())]
+		field, arg := l.membersOf(class).fields[param], l.locals[parameterSymbol(param)]
 		if field != nil && arg != nil {
 			stmts = append(stmts, &ir.ExprStmt{At: l.pos(param), X: &ir.SetField{X: this, Field: field, Value: &ir.LocalRef{Local: arg}}})
 		}
@@ -623,7 +623,7 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
 	outer, outerTargets := l.function, l.targets
 	l.function, l.targets = fn, nil
-	prologue := l.parameterPatterns(fn) // declares the names the body uses
+	prologue := l.parameterPrologue(fn) // declares the names the body uses
 	lower()
 	if len(prologue) > 0 && fn.Body != nil {
 		fn.Body.Stmts = append(prologue, fn.Body.Stmts...)

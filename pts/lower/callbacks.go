@@ -310,22 +310,48 @@ func (h *helperBuilder) call(element, index ir.Expr) ir.Expr {
 	return h.callWith([]ir.Expr{element, index, &ir.LocalRef{Local: h.array}})
 }
 
-// callWith calls the callback with the first of args, as many as it takes, each converted to its parameter's type.
+// callWith calls the callback with the first of args, as many as it takes (callbackArguments).
 func (h *helperBuilder) callWith(args []ir.Expr) ir.Expr {
-	params := h.key.callback.Params
-	if len(params) > len(args) {
-		h.l.notSupportedYet(h.node, fmt.Sprintf("a callback of type %s, which takes more parameters than the method passes, is", h.key.callback))
+	converted := h.l.callbackArguments(args, h.key.callback, h.node)
+	if converted == nil {
 		h.failed = true
-		params = params[:len(args)]
-	}
-	converted := make([]ir.Expr, len(params))
-	for i, param := range params {
-		if converted[i] = h.l.convert(args[i], param, h.node); converted[i] == nil {
-			h.failed = true
-			converted[i] = args[i]
-		}
 	}
 	return &ir.CallValue{Callee: &ir.LocalRef{Local: h.callback}, Args: converted}
+}
+
+// callbackArguments are the arguments a builtin method that passes args calls a callback
+// of type ft with: the first of args, as many as it takes, each converted to its
+// parameter's type; a parameter with a default that args don't reach is left out (D-055).
+// They are nil if the callback takes more than args or one doesn't convert (reported at node).
+func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.Node) []ir.Expr {
+	params := ft.Params
+	converted := make([]ir.Expr, 0, len(params))
+	next := 0
+	for i := 0; i < len(params); i++ {
+		param, optional := params[i], hasDefault(params, i)
+		if optional {
+			i++ // past the flag
+		}
+		switch {
+		case next < len(args):
+		case optional:
+			converted = append(converted, notPassed(param)...)
+			continue
+		default:
+			l.notSupportedYet(node, fmt.Sprintf("a callback of type %s, which takes more parameters than the method passes, is", ft))
+			return nil
+		}
+		arg := l.convert(args[next], param, node)
+		if arg == nil {
+			return nil
+		}
+		next++
+		converted = append(converted, arg)
+		if optional {
+			converted = append(converted, &ir.GivenConst{Value: true})
+		}
+	}
+	return converted
 }
 
 // appendAll pushes each element of an array value onto result (flatMap's flattening).

@@ -407,18 +407,10 @@ func (l *lowerer) mapHelper(key helperKey, node *ast.Node, result ir.Type, args 
 				value = current(iteration, mt, key.method == "Array.from keys")
 			} else {
 				all, _ := args(fn, iteration, collected)
-				params := key.callback.Params
-				if len(params) > len(all) {
-					l.notSupportedYet(node, fmt.Sprintf("a callback of type %s, which takes more parameters than the method passes, is", key.callback))
+				callArgs := l.callbackArguments(all, key.callback, node)
+				if callArgs == nil {
 					failed = true
 					return nil
-				}
-				callArgs := make([]ir.Expr, len(params))
-				for i, param := range params {
-					if callArgs[i] = l.convert(all[i], param, node); callArgs[i] == nil {
-						failed = true
-						return nil
-					}
 				}
 				value = &ir.CallValue{Callee: &ir.LocalRef{Local: callback}, Args: callArgs}
 			}

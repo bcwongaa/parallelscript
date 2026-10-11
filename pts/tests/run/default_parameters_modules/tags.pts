@@ -1,0 +1,8 @@
+const prefix = "#";
+let issued = 0;
+export function tag(label: string, id = prefix + (100 + issued++)): string {
+  return label + id;
+}
+export class Box {
+  constructor(public value = issued) {}
+}

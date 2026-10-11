@@ -1,0 +1,25 @@
+// Default parameter values of integer types (D-055): an untyped default takes the
+// parameter's type, and integer arithmetic wraps as usual.
+function scale(x: u8, by: u8 = 2): u8 {
+  return x * by;
+}
+function wide(n: int = 1 << 20): int {
+  return n * 4096;
+}
+const shift = (a: i32, b: i32 = -5): i32 => a + b;
+function mixed(a: number, b: int = 7): number {
+  return a + b;
+}
+class Counter {
+  constructor(public step: u16 = 1) {}
+  bump(times: u16 = 3): u16 {
+    return this.step * times;
+  }
+}
+const scaled: (x: u8, y?: u8) => u8 = scale;
+console.log(scale(10), scale(10, 3), scale(200), wide(), wide(3), shift(1), shift(1, 1));
+console.log(mixed(0.5), mixed(0.5, 2), new Counter().bump(), new Counter(5).bump(2), scaled(4), scaled(4, 4));
+
+// expect:
+// 20 30 144 4294967296 12288 -4 2
+// 7.5 2.5 3 10 8 16

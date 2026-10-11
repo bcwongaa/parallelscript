@@ -13,11 +13,14 @@ import (
 // (a field), or an array's element (a checked read, D-015, unless the element has a
 // default for when the array is too short), recursively for nested patterns.
 
-// patternParameter is a parameter written as a pattern: the local the argument arrives
-// in, which the function's body starts by destructuring.
-type patternParameter struct {
-	pattern *ast.Node
-	local   *ir.Local
+// parameterBinding is a parameter that its function's body starts by binding: one with
+// a default, which value takes if the call left the argument out or passed undefined
+// (given is false), and arg otherwise (D-055); or one written as a pattern, which the
+// body destructures from value (the argument itself, if the parameter has no default).
+type parameterBinding struct {
+	node       *ast.Node // the parameter declaration
+	value      *ir.Local
+	arg, given *ir.Local // nil without a default
 }
 
 // destructure binds the names of a binding pattern to the parts of value, declaring their
@@ -152,18 +155,43 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 	return nil
 }
 
-// parameterPatterns destructures the parameters of fn written as patterns, at the start
-// of its body, declaring their names' locals before the body is lowered.
-func (l *lowerer) parameterPatterns(fn *ir.Func) []ir.Stmt {
+// parameterPrologue binds the parameters of fn that need it, in order, at the start of
+// its body, declaring their names' locals before the body is lowered: a parameter with a
+// default takes it when the call didn't pass the argument, which runs in the function's
+// scope after the parameters before it are bound, as in JS; a pattern is destructured.
+func (l *lowerer) parameterPrologue(fn *ir.Func) []ir.Stmt {
 	var stmts []ir.Stmt
-	for _, parameter := range l.patterns[fn] {
-		destructured, ok := l.destructure(parameter.pattern, &ir.LocalRef{Local: parameter.local}, l.pos(parameter.pattern))
-		if !ok {
-			continue // reported
+	for _, binding := range l.bindings[fn] {
+		if binding.given != nil {
+			value := l.parameterDefault(binding)
+			if value == nil {
+				continue // reported
+			}
+			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: value})
 		}
-		stmts = append(stmts, destructured...)
+		if pattern := binding.node.Name(); pattern.Kind != ast.KindIdentifier {
+			destructured, ok := l.destructure(pattern, &ir.LocalRef{Local: binding.value}, l.pos(pattern))
+			if !ok {
+				continue // reported
+			}
+			stmts = append(stmts, destructured...)
+		}
 	}
 	return stmts
+}
+
+// parameterDefault is the value of a parameter with a default: the argument if the call
+// passed it, and otherwise the default; nil if the default fails to lower (reported).
+func (l *lowerer) parameterDefault(binding *parameterBinding) ir.Expr {
+	initializer := binding.node.Initializer()
+	value := l.expression(initializer)
+	if value == nil {
+		return nil
+	}
+	if value = l.convert(value, binding.value.Type, initializer); value == nil {
+		return nil
+	}
+	return &ir.Conditional{Cond: &ir.LocalRef{Local: binding.given}, Then: &ir.LocalRef{Local: binding.arg}, Else: value}
 }
 
 // isDestructuringSource reports whether node is the value a pattern destructures (or a

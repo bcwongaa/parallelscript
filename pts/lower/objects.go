@@ -215,6 +215,9 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 			return nil
 		}
 		method.Params = append(method.Params, paramType)
+		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
+			method.Params = append(method.Params, ir.Given) // D-055
+		}
 	}
 	if method.Result = l.resultType(declarations[0]); method.Result == nil {
 		return nil

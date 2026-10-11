@@ -34,18 +34,23 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	l.function = fn // parameters are locals of fn
 	fn.Params = []*ir.Local{l.newThis(fn, field.Class)}
 	failed := false
-	for i, param := range node.Parameters() {
-		local := l.parameter(param)
-		if local == nil {
+	for _, param := range node.Parameters() {
+		locals := l.parameter(param)
+		if locals == nil {
 			failed = true
 			break
 		}
-		if i+1 >= len(ft.Params) || local.Type != ft.Params[i+1] {
-			l.notSupportedYet(param, fmt.Sprintf("a method whose parameter types differ from its object type's (%s) is", ft))
-			failed = true
+		for _, local := range locals {
+			if len(fn.Params) >= len(ft.Params) || local.Type != ft.Params[len(fn.Params)] {
+				l.notSupportedYet(param, fmt.Sprintf("a method whose parameter types differ from its object type's (%s) is", ft))
+				failed = true
+				break
+			}
+			fn.Params = append(fn.Params, local)
+		}
+		if failed {
 			break
 		}
-		fn.Params = append(fn.Params, local)
 	}
 	for i := len(fn.Params); i < len(ft.Params) && !failed; i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", ft.Params[i]))
@@ -243,8 +248,8 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 		}
 		args = args[1:]
 	}
-	values := l.typedArguments(args, ft.Params[:min(len(args), len(ft.Params))])
-	if values == nil && len(args) > 0 {
+	values := l.typedArguments(args, passedParams(ft.Params, name, len(args)))
+	if values == nil {
 		return nil
 	}
 	if name == "call" {
@@ -306,6 +311,22 @@ func sameReference(a *ast.Node, b *ast.Node) bool {
 	return false
 }
 
+// passedParams are the parameters (of types params) that `call` passes all of, or that
+// `bind` with n arguments binds: the first n, each with its Given flag if it has one.
+func passedParams(params []ir.Type, name string, n int) []ir.Type {
+	if name == "call" {
+		return params
+	}
+	end := 0
+	for ; end < len(params) && n > 0; n-- {
+		end++
+		if hasDefault(params, end-1) {
+			end++
+		}
+	}
+	return params[:end]
+}
+
 // methodCallOrBind lowers `o.m.call(thisArg, args…)`, which calls m on thisArg, and
 // `o.m.bind(thisArg, args…)`, which makes a closure bound to thisArg. thisArg must be of
 // o's type: for a class's method, the method thisArg's class has runs; for a method of an
@@ -336,8 +357,8 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 		return nil
 	}
 	rest := args[1:]
-	values := l.typedArguments(rest, m.params[:min(len(rest), len(m.params))])
-	if values == nil && len(rest) > 0 {
+	values := l.typedArguments(rest, passedParams(m.params, name, len(rest)))
+	if values == nil {
 		return nil
 	}
 	var result ir.Expr
