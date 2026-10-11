@@ -143,8 +143,7 @@ void pts_array_index_error(const pts_array *array, double index) {
   pts_panic("RangeError", "Array index %s is out of range (length %zu)", buf, pts_array_length_of(array));
 }
 
-/* box boxes the element at slot, of the given kind, as a dynamic value. */
-static pts_value box(pts_field_kind kind, const void *slot) {
+pts_value pts_value_of_slot(pts_field_kind kind, const void *slot) {
   union {
     double number;
     float f32;
@@ -199,7 +198,7 @@ static pts_value box(pts_field_kind kind, const void *slot) {
 pts_value pts_array_element(const pts_array *array, double index) {
   size_t size = pts_field_kind_size(array->type->element);
   const void *slot = pts_array_slot_or_null(array, index, size);
-  return slot == NULL ? PTS_VALUE_UNDEFINED : box(array->type->element, slot);
+  return slot == NULL ? PTS_VALUE_UNDEFINED : pts_value_of_slot(array->type->element, slot);
 }
 
 void pts_array_set(pts_array *array, double index, const void *value) {
@@ -286,7 +285,7 @@ pts_value pts_array_pop_value(pts_array *array) {
   }
   uint64_t element;
   pts_array_pop(array, &element);
-  return box(array->type->element, &element);
+  return pts_value_of_slot(array->type->element, &element);
 }
 
 pts_value pts_array_shift_value(pts_array *array) {
@@ -295,7 +294,7 @@ pts_value pts_array_shift_value(pts_array *array) {
   }
   uint64_t element;
   pts_array_shift(array, &element);
-  return box(array->type->element, &element);
+  return pts_value_of_slot(array->type->element, &element);
 }
 
 double pts_array_set_length(pts_array *array, double length) {
@@ -505,7 +504,7 @@ static pts_string *element_string(pts_field_kind kind, const void *slot) {
     return pts_value_to_string(value);
   }
   default:
-    return pts_value_to_string(box(kind, &element));
+    return pts_value_to_string(pts_value_of_slot(kind, &element));
   }
 }
 

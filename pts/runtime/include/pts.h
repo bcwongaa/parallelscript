@@ -35,6 +35,8 @@ typedef enum pts_kind {
   PTS_KIND_OBJECT = 4, /* an instance of a class or object type, described by its type's fields */
   PTS_KIND_ARRAY = 5,  /* an array (pts_array) of elements of its type's element kind */
   PTS_KIND_FUNCTION = 6, /* a function value: a closure (pts_closure); the type's name is the function's */
+  PTS_KIND_MAP = 7,      /* a Map (pts_map) from keys of its type's key kind to values of its element kind */
+  PTS_KIND_SET = 8,      /* a Set (pts_map) of values of its type's key kind */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -98,7 +100,8 @@ typedef struct pts_type {
   const pts_field *fields; /* in declaration order, inherited ones first */
   uint32_t method_count;
   const pts_method *methods; /* what interfaces call: methods, getters and setters, inherited ones included */
-  pts_field_kind element;    /* for an array: what its elements are */
+  pts_field_kind element;    /* for an array: what its elements are; for a map: what its values are */
+  pts_field_kind key;        /* for a map or set: what its keys are */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -701,6 +704,86 @@ static inline uint64_t pts_array_get_word(const pts_array *array, double index) 
     pts_array_shift((array), &pts_shifted); \
     pts_shifted;                           \
   })
+
+/* An element or field of the given kind, at slot, as a dynamic value (undefined for a hole). */
+pts_value pts_value_of_slot(pts_field_kind kind, const void *slot);
+
+/* ---------------------------------------------------------------- maps and sets */
+
+/*
+ * Map and Set (D-046) are one ordered hash table: entries in insertion order, each a key,
+ * a value (unused by a Set) and the key's hash, which is PTS_MAP_DELETED once the entry is
+ * deleted; and an open-addressing index from hashes to entries. Keys compare with
+ * SameValueZero. Keys and values are held as one word each, zero-extended, and written
+ * with one store, and a table is never resized in place: growing, compacting or clearing
+ * publishes a new table (release) after filling it, and readers bound every access by the
+ * table they loaded, so racing threads may miss updates but never read out of bounds
+ * (D-L13).
+ */
+typedef struct pts_map_entry {
+  uint64_t key;
+  uint64_t value;
+  uint64_t hash;
+} pts_map_entry;
+
+#define PTS_MAP_DELETED UINT64_MAX
+
+typedef struct pts_map_table {
+  size_t capacity;            /* entries it has room for */
+  size_t used;                /* entries appended, deleted ones included */
+  size_t index_mask;          /* the index has index_mask + 1 slots */
+  struct pts_map_table *next; /* the table that replaced this one, for iterators to follow */
+  uint32_t *index;            /* entry number + 1, or 0 for an empty slot */
+  pts_map_entry entries[];
+} pts_map_table;
+
+typedef struct pts_map {
+  const pts_type *type;
+  pts_map_table *table;
+  size_t size; /* live entries */
+} pts_map;
+
+/* An iteration over a map or set, as JS's iterators: it sees entries added meanwhile and skips deleted ones. */
+typedef struct pts_map_iterator {
+  pts_map *map;
+  pts_map_table *table;
+  size_t position; /* the next entry to look at in table */
+  uint64_t key, value;
+} pts_map_iterator;
+
+/* A new, empty map or set of the given type (PTS_KIND_MAP or PTS_KIND_SET). */
+pts_map *pts_map_new(const pts_type *type);
+/* new Map(map), new Set(set): a copy, in the same order. */
+pts_map *pts_map_copy(const pts_type *type, const pts_map *source);
+/* new Set(array): the array's elements, each once, in order. */
+pts_map *pts_set_of_array(const pts_type *type, const pts_array *array);
+static inline double pts_map_size(const pts_map *map) { return (double)__atomic_load_n(&map->size, __ATOMIC_ACQUIRE); }
+bool pts_map_has(const pts_map *map, const void *key);
+/* Copies the value of key into *value and returns true, or returns false if map has no such key. */
+bool pts_map_get(const pts_map *map, const void *key, void *value);
+/* map.get(key) as a dynamic value: undefined if map has no such key. */
+pts_value pts_map_get_value(const pts_map *map, const void *key);
+_Noreturn void pts_map_key_error(void);
+/* map.set(key, value), set.add(key) (value NULL): returns map. */
+pts_map *pts_map_set(pts_map *map, const void *key, const void *value);
+bool pts_map_delete(pts_map *map, const void *key);
+void pts_map_clear(pts_map *map);
+pts_map_iterator pts_map_iterate(pts_map *map);
+/* Moves to the next live entry, whose key and value it then holds; false at the end. */
+bool pts_map_next(pts_map_iterator *iterator);
+
+/* map.get(key)! for generated code: the value, of C type T, or RangeError if there is none. */
+#define PTS_MAP_GET(T, map, key)                     \
+  ({                                                 \
+    T pts_got;                                       \
+    if (!pts_map_get((map), (key), &pts_got)) {      \
+      pts_map_key_error();                           \
+    }                                                \
+    pts_got;                                         \
+  })
+/* The key and value an iterator holds, as their C types. */
+#define PTS_MAP_ITERATOR_KEY(T, iterator) (*(T *)&(iterator).key)
+#define PTS_MAP_ITERATOR_VALUE(T, iterator) (*(T *)&(iterator).value)
 
 /* ---------------------------------------------------------------- String.prototype */
 
