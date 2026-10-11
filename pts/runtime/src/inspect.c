@@ -580,7 +580,8 @@ static bool is_numeric_tuple(const pts_object *tuple, size_t count) {
 /* format_tuple_elements formats a tuple's elements as format_elements formats an array's; count is set to the entries made. */
 static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_t *count, size_t recurse_times) {
   const pts_type *type = tuple->type;
-  size_t shown = type->field_count < in->max_array_length ? type->field_count : in->max_array_length;
+  size_t length = pts_tuple_length(tuple);
+  size_t shown = length < in->max_array_length ? length : in->max_array_length;
   text *entries = new_entries(shown + 1);
   for (uint32_t i = 0; i < shown; i++) {
     in->indentation += 2;
@@ -588,8 +589,8 @@ static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_
     in->indentation -= 2;
   }
   *count = shown;
-  if (type->field_count > shown) {
-    size_t remaining = type->field_count - shown;
+  if (length > shown) {
+    size_t remaining = length - shown;
     text_printf(&entries[(*count)++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
   }
   return entries;
@@ -1082,7 +1083,7 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   bool is_array = type->kind == PTS_KIND_ARRAY || is_tuple;
   bool is_map = type->kind == PTS_KIND_MAP || type->kind == PTS_KIND_SET;
   bool is_record = type->kind == PTS_KIND_RECORD;
-  size_t length = is_array && !is_tuple ? pts_array_length_of((const pts_array *)object) : type->field_count;
+  size_t length = is_tuple ? pts_tuple_length(object) : is_array ? pts_array_length_of((const pts_array *)object) : type->field_count;
   if (is_record) {
     length = (size_t)pts_map_size((const pts_map *)object);
   } else if (!is_array && !is_map) {
@@ -1117,7 +1118,7 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
                              : format_fields(in, object, &count, recurse_times);
   if (hidden_length) {
     text entry = hidden_entry("length");
-    text_printf(&entry, "%zu", is_tuple ? (size_t)type->field_count : length);
+    text_printf(&entry, "%zu", length);
     output = append(output, &count, entry);
   }
   if (accessors) {

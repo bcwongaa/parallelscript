@@ -211,6 +211,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	l.markAccessorProperties()
 	l.checkRelaxedCasts(result.Funcs)
 	markCells(result.Funcs)
+	l.unexplainedFailure()
 	return result, l.errors
 }
 
@@ -279,6 +280,8 @@ type lowerer struct {
 	inKeys              map[string]bool                  // the keys `in` looks up at run time (D-067)
 	firstDynamicWrite   *ast.Node                        // the first write through `any`, if any (D-072)
 	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
+	reports             int                              // how many diagnostics were reported, repeats included
+	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
 	funcTypes           []*ir.FuncType                   // the function types met
@@ -330,6 +333,7 @@ func (l *lowerer) unsupported(node *ast.Node, format string, args ...any) {
 
 // report records an error once: each instance of a generic function lowers its body again (D-049).
 func (l *lowerer) report(d diagnostic.Diagnostic) {
+	l.reports++
 	if !slices.Contains(l.errors, d) {
 		l.errors = append(l.errors, d)
 	}
@@ -1197,7 +1201,22 @@ func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 
 // expression lowers an expression, or reports it and returns nil.
 func (l *lowerer) expression(node *ast.Node) ir.Expr {
-	return l.withArgumentTemps(func() ir.Expr { return l.expressionOf(node) })
+	reports := l.reports
+	x := l.withArgumentTemps(func() ir.Expr { return l.expressionOf(node) })
+	if x == nil && l.reports == reports && l.unexplained == nil {
+		l.unexplained = node // reported at the end if nothing else is (unexplainedFailure)
+	}
+	return x
+}
+
+// unexplainedFailure reports the first expression whose lowering failed without saying
+// why, if the program has no other error: a use of a declaration that failed fails
+// quietly, but without an error to explain it, the statement holding it would be dropped
+// from a program that builds.
+func (l *lowerer) unexplainedFailure() {
+	if l.unexplained != nil && len(l.errors) == 0 {
+		l.report(diagnostic.At(l.unexplained, diagnostic.NotSupportedYet, "%s (which the compiler failed to lower without saying why) is not supported yet", describe(l.unexplained)))
+	}
 }
 
 func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
@@ -1692,6 +1711,21 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 	switch {
 	case x == nil:
 		return nil
+	case isArray(x.Type()) && isArrayLiteralValue(x): // `...[10, 20] as [number, ...number[]]`: its elements
+		return append([]ir.Expr{}, x.(*ir.NewArray).Elems...)
+	case isArray(x.Type()) && isPure(x) && isRestTuple(l.typeAt(argument.Expression())): // its leading elements, which tsc says are there, then the rest
+		required := 0
+		for _, flag := range l.typeAt(argument.Expression()).TargetTupleType().ElementFlags() {
+			if flag&checker.ElementFlagsRequired != 0 {
+				required++
+			}
+		}
+		values := make([]ir.Expr, 0, required+1)
+		for i := range required {
+			values = append(values, &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{x, &ir.NumberConst{Value: float64(i)}}})
+		}
+		rest := &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, &ir.NumberConst{Value: float64(required)}, &ir.NumberConst{Value: math.Inf(1)}}}
+		return append(values, &spreadValue{rest})
 	case isArray(x.Type()):
 		return []ir.Expr{&spreadValue{x}}
 	case isTuple(x.Type()) && isNewObject(x): // `...[a, b]`
@@ -1712,6 +1746,12 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 	}
 	l.notSupportedYet(argument, fmt.Sprintf("spreading a %s into arguments is", x.Type()))
 	return nil
+}
+
+// isArrayLiteralValue reports whether x makes an array of the elements it lists.
+func isArrayLiteralValue(x ir.Expr) bool {
+	made, ok := x.(*ir.NewArray)
+	return ok && made.Length == nil
 }
 
 func isNewObject(x ir.Expr) bool {
@@ -2171,6 +2211,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		object := l.expression(node.Expression())
 		if object == nil {
 			return nil
+		}
+		if hasOptionalElements(shape) {
+			return &ir.CallBuiltin{Builtin: ir.TupleLength, Args: []ir.Expr{box(object)}}
 		}
 		return discard(object, &ir.NumberConst{Value: float64(len(shape.Fields))})
 	}

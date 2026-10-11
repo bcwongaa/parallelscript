@@ -1101,6 +1101,8 @@ var (
 	ValueValues  = &Builtin{Name: "Object.values", Params: []Type{Value}, Result: Value}
 	ValueEntries = &Builtin{Name: "Object.entries", Params: []Type{Value}, Result: Value}
 	ValueHasOwn  = &Builtin{Name: "Object.hasOwn", Params: []Type{Value, Value}, Result: Bool}
+	// TupleLength is the length of a tuple with optional elements (D-100).
+	TupleLength = &Builtin{Name: "tuple length", Params: []Type{Value}, Result: Number}
 	// FunctionName and FunctionLength are a function value's `name` and `length` (D-098).
 	FunctionName   = &Builtin{Name: "Function.name", Params: []Type{Value}, Result: String}
 	FunctionLength = &Builtin{Name: "Function.length", Params: []Type{Value}, Result: Number}

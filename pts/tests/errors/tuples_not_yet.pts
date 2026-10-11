@@ -1,7 +1,7 @@
-// Tuple features not supported yet (D-053): optional and rest elements, an index that
-// isn't a constant, and converting a tuple to an array where a copy could be told apart
+// Tuple features not supported yet (D-053): an index that isn't a constant, and
+// converting a tuple to an array where a copy could be told apart
 // from it (D-094).
-const opt: [string, number?] = ["a"];
+// (optional and rest elements work since D-100)
 const t: [string, number] = ["a", 1];
 let i = 1;
 console.log(t[i]);
@@ -9,6 +9,5 @@ const pair: [string, string] = ["a", "b"];
 const strings: string[] = pair;
 console.log(pair, strings);
 
-// error: tuples_not_yet.pts:4:7 - error PTS1001: tuples with optional or rest elements ([string, (number | undefined)?]) are not supported yet
 // error: tuples_not_yet.pts:9:27 - error PTS1001: using a [string, string] as a string[] where it may be changed or kept
 // error: tuples_not_yet.pts:7:15 - error PTS1001: a tuple's elements at an index that isn't a constant are not supported yet

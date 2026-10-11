@@ -552,7 +552,7 @@ pts_string *pts_object_to_string(const pts_object *object) {
   }
   if (object->type->kind == PTS_KIND_TUPLE) { /* an array to JS: its elements joined by commas (D-089) */
     pts_string *joined = pts_string_from_cstr("");
-    for (uint32_t i = 0; i < object->type->field_count; i++) {
+    for (size_t i = 0, length = pts_tuple_length(object); i < length; i++) {
       const pts_field *field = &object->type->fields[i];
       pts_value element = pts_value_of_slot(field->kind, (const char *)object + field->offset);
       if (i > 0) {

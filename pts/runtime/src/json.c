@@ -625,7 +625,7 @@ static bool serialize(writer *w, pts_value holder, pts_value key, pts_value valu
 static void serialize_array(writer *w, pts_value value) {
   pts_object *object = pts_value_as_object(value);
   bool tuple = object->type->kind == PTS_KIND_TUPLE;
-  size_t length = tuple ? object->type->field_count : pts_array_length_of((pts_array *)object);
+  size_t length = tuple ? pts_tuple_length(object) : pts_array_length_of((pts_array *)object);
   if (length == 0) {
     put(w, "[]", 2);
     return;
@@ -814,7 +814,7 @@ static bool serialize(writer *w, pts_value holder, pts_value key, pts_value valu
 static pts_array *property_list(pts_value replacer) {
   pts_array *list = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
   pts_object *object = pts_value_as_object(replacer);
-  size_t length = object->type->kind == PTS_KIND_TUPLE ? object->type->field_count : pts_array_length_of((pts_array *)object);
+  size_t length = object->type->kind == PTS_KIND_TUPLE ? pts_tuple_length(object) : pts_array_length_of((pts_array *)object);
   for (size_t i = 0; i < length; i++) {
     pts_value item = pts_dynamic_get(replacer, pts_value_from_number((double)i));
     if (!pts_value_is_number(item) && !pts_value_is_string(item)) {

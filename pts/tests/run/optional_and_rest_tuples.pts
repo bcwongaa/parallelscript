@@ -1,0 +1,33 @@
+// Tuples with optional elements (fields that hold the absent value for an element left
+// out) and with rest elements (arrays), and spreading them into parameters (D-100).
+type Instr = [string, number?];
+const program: Instr[] = [["PUSH", 2], ["DUP"], ["PUSH", 3], ["ADD"]];
+for (const instr of program) {
+  const [op, arg] = instr;
+  console.log(op, arg, instr.length, instr[1] === undefined, JSON.stringify(instr), String(instr));
+}
+console.log(program, program[1].map((x) => typeof x));
+const t: [string, number, boolean?] = ["a", 1];
+console.log(t.length, t);
+t[2] = true;
+console.log(t, t.length);
+
+function sumAll(first: number, ...rest: number[]): number {
+  return rest.reduce((a, b) => a + b, first);
+}
+const nums: [number, ...number[]] = [10, 20, 30];
+console.log(sumAll(...nums), sumAll(...[1, 2, 3] as [number, ...number[]]), nums.length, nums[2]);
+function pairUp(...args: [number, ...string[]]): string {
+  return args.join("-");
+}
+console.log(pairUp(1, "a", "b"), pairUp(2));
+// expect:
+// PUSH 2 2 false ["PUSH",2] PUSH,2
+// DUP undefined 1 true ["DUP"] DUP
+// PUSH 3 2 false ["PUSH",3] PUSH,3
+// ADD undefined 1 true ["ADD"] ADD
+// [ [ 'PUSH', 2 ], [ 'DUP' ], [ 'PUSH', 3 ], [ 'ADD' ] ] [ 'string' ]
+// 2 [ 'a', 1 ]
+// [ 'a', 1, true ] 3
+// 60 6 3 30
+// 1-a-b 2

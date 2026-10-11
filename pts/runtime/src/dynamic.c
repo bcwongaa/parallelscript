@@ -315,7 +315,7 @@ pts_value pts_dynamic_get(pts_value object, pts_value key) {
   }
   case PTS_KIND_TUPLE:
     if (key_is(key, "length")) {
-      return pts_value_from_number(target->type->field_count);
+      return pts_value_from_number(pts_tuple_length(target));
     }
     return array_index(key, &index) ? object_get(target, key) : PTS_VALUE_UNDEFINED;
   case PTS_KIND_RECORD: {
@@ -537,7 +537,7 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
   case PTS_KIND_ARRAY:
     return key_is(key, "length") || (array_index(key, &index) && index < pts_array_length((const pts_array *)target));
   case PTS_KIND_TUPLE:
-    return key_is(key, "length") || (array_index(key, &index) && index < target->type->field_count);
+    return key_is(key, "length") || (array_index(key, &index) && index < pts_tuple_length(target));
   case PTS_KIND_RECORD: {
     pts_string *name = pts_value_to_string(key);
     return pts_map_has((const pts_map *)target, &name);
@@ -573,6 +573,8 @@ pts_value pts_adapter_call(pts_closure *self, uint32_t argc, const pts_value *ar
   return pts_dynamic_call_closure(((pts_adapter *)self)->function, argc, argv);
 }
 
+double pts_value_tuple_length(pts_value tuple) { return (double)pts_tuple_length(pts_value_as_object(tuple)); }
+
 size_t pts_spread_length(pts_value value) {
   if (pts_value_is_object(value)) {
     const pts_object *object = pts_value_as_object(value);
@@ -580,7 +582,7 @@ size_t pts_spread_length(pts_value value) {
       return pts_array_length_of((const pts_array *)object);
     }
     if (object->type->kind == PTS_KIND_TUPLE) {
-      return object->type->field_count;
+      return pts_tuple_length(object);
     }
   }
   pts_throw_new(&pts_type_builtin_TypeError, "Cannot spread %s into the arguments of a call through `any`", pts_value_description(value));

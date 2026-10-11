@@ -1364,6 +1364,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueValues:                 "pts_value_values",
 	ir.ValueEntries:                "pts_value_entries",
 	ir.ValueHasOwn:                 "pts_value_has_own",
+	ir.TupleLength:                 "pts_value_tuple_length",
 	ir.FunctionName:                "pts_value_function_name",
 	ir.FunctionLength:              "pts_value_function_length",
 	ir.ValueKeyArray:               "pts_value_key_array",

@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: tuples with optional or rest elements (Instr)
 // A small stack-based virtual machine that raises typed errors for stack
 // underflow, unknown opcodes, bad jumps and runaway programs.
 

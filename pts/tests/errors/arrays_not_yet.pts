@@ -12,7 +12,7 @@ for (n of a) {
 }
 const it = a.entries();
 
-const pair: [number, string?] = [1];
+// (tuples with optional elements work since D-100)
 class Pixel {
   constructor(public x: number, public y: number) {}
 }
@@ -31,6 +31,5 @@ const nested: Nested = [];
 // error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet
 // error: arrays_not_yet.pts:11:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
 // error: arrays_not_yet.pts:13:7 - error PTS1001: values of type ArrayIterator<[number, number]> are not supported yet
-// error: arrays_not_yet.pts:15:7 - error PTS1001: tuples with optional or rest elements ([number, (string | undefined)?]) are not supported yet
 // error: arrays_not_yet.pts:24:25 - error PTS1001: using a Pixel[] as a {x: number; y: number}[] where it may be changed or kept
 // error: arrays_not_yet.pts:26:7 - error PTS1001: recursive array types (Nested) are not supported yet

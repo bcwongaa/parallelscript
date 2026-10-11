@@ -327,7 +327,7 @@ static bool convert_tuple(converting *c, pts_object *object, const pts_check *ch
   }
   bool array = object->type->kind == PTS_KIND_ARRAY;
   if (!copy || (!array && object->type->kind != PTS_KIND_TUPLE) ||
-      (array ? pts_array_length((const pts_array *)object) : object->type->field_count) != check->count) {
+      (array ? pts_array_length((const pts_array *)object) : (double)pts_tuple_length(object)) != check->count) {
     return false;
   }
   pts_object *tuple = pts_object_new(check->type);

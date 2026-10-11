@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: tuples with optional or rest elements ([string, number, FilingStatus, (number | undefined)?])
 interface Bracket {
   upTo: number | null;
   rate: number;

@@ -730,6 +730,23 @@ typedef uint64_t pts_value;
  */
 #define PTS_VALUE_ABSENT ((pts_value)0)
 
+/* A tuple's length: its elements up to the first optional one left out, which holds
+   PTS_VALUE_ABSENT (D-100); every element of a tuple without optional elements. */
+static inline size_t pts_tuple_length(const void *tuple) {
+  const pts_type *type = ((const pts_object *)tuple)->type;
+  for (uint32_t i = 0; i < type->field_count; i++) {
+    const pts_field *field = &type->fields[i];
+    if (field->kind == PTS_FIELD_VALUE &&
+        __atomic_load_n((const pts_value *)((const char *)tuple + field->offset), __ATOMIC_RELAXED) == PTS_VALUE_ABSENT) {
+      return i;
+    }
+  }
+  return type->field_count;
+}
+
+/* pts_tuple_length of a tuple as a dynamic value. */
+double pts_value_tuple_length(pts_value tuple);
+
 static inline pts_value pts_value_from_number(double number) {
   uint64_t bits;
   if (number != number) {

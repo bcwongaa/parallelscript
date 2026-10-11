@@ -52,7 +52,15 @@ func isArray(t ir.Type) bool {
 
 // isArrayExpression reports whether tsc types node as an array.
 func (l *lowerer) isArrayExpression(node *ast.Node) bool {
-	return l.checker.IsArrayType(l.typeAt(node))
+	t := l.typeAt(node)
+	return l.checker.IsArrayType(t) || isRestTuple(t) // `[number, ...number[]]` is an array (D-100)
+}
+
+// isRestTuple reports whether t is a tuple type with a rest element.
+func isRestTuple(t *checker.Type) bool {
+	return checker.IsTupleType(t) && slices.ContainsFunc(t.TargetTupleType().ElementFlags(), func(f checker.ElementFlags) bool {
+		return f&checker.ElementFlagsVariable != 0
+	})
 }
 
 // arrayLiteral lowers `[a, b, c]`: an array of the literal's contextual type if that is
@@ -63,11 +71,13 @@ func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 		t = contextual // [1, "a"] where a [number, string] goes
 	}
 	if checker.IsTupleType(t) {
-		shape, ok := l.irType(t, node).(*ir.Class)
-		if !ok {
-			return nil // reported
+		switch made := l.irType(t, node).(type) {
+		case *ir.Class:
+			return l.tupleLiteral(node, made)
+		case *ir.Array:
+			return l.arrayLiteralOf(node, made) // a tuple with a rest element (D-100)
 		}
-		return l.tupleLiteral(node, shape)
+		return nil // reported
 	}
 	if contextual := l.contextualType(node); contextual != nil && l.checker.IsArrayType(contextual) {
 		t = contextual
