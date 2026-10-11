@@ -58,10 +58,17 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 		c.integerElements(node, node.AsArrayTypeNode().ElementType)
 	case ast.KindFunctionType:
 		c.integerSignature(node)
+	case ast.KindNewExpression:
+		if callee := node.Expression(); callee.Kind == ast.KindIdentifier && isCollectionName(callee.Text()) && node.TypeArgumentList() != nil {
+			c.integerCollection(node, node.TypeArguments())
+		}
 	case ast.KindTypeReference:
 		ref := node.AsTypeReferenceNode()
 		if name := ref.TypeName; name.Kind == ast.KindIdentifier && (name.Text() == "Array" || name.Text() == "ReadonlyArray") && ref.TypeArguments != nil && len(ref.TypeArguments.Nodes) == 1 {
 			c.integerElements(node, ref.TypeArguments.Nodes[0])
+		}
+		if name := ref.TypeName; name.Kind == ast.KindIdentifier && ref.TypeArguments != nil && isCollectionName(name.Text()) {
+			c.integerCollection(node, ref.TypeArguments.Nodes)
 		}
 	}
 }
@@ -71,6 +78,21 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 func (c *pass) integerElements(node *ast.Node, element *ast.Node) {
 	if n, ok := c.annotationType(element); ok && n != Number {
 		c.report(node, diagnostic.NotSupportedYet, "arrays of %s are not supported yet", n)
+	}
+}
+
+func isCollectionName(name string) bool {
+	return name == "Map" || name == "Set" || name == "ReadonlyMap" || name == "ReadonlySet"
+}
+
+// integerCollection reports a Map or Set type whose keys or values are of an integer type
+// or f32, which they can't hold yet: the checker sees them as numbers (M2.6, D-046).
+func (c *pass) integerCollection(node *ast.Node, arguments []*ast.Node) {
+	for _, argument := range arguments {
+		if n, ok := c.annotationType(argument); ok && n != Number {
+			c.report(node, diagnostic.NotSupportedYet, "maps and sets of %s are not supported yet", n)
+			return
+		}
 	}
 }
 

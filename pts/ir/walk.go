@@ -66,6 +66,13 @@ func children(x Expr) []Expr {
 		return x.Args
 	case *ArrayCall:
 		return x.Args
+	case *MapCall:
+		return x.Args
+	case *NewMap:
+		if x.From != nil {
+			return []Expr{x.From}
+		}
+		return nil
 	case *NewArray:
 		return x.Elems
 	case *ClassCast:

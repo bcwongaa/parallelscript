@@ -283,6 +283,13 @@ func FormatExpr(expr Expr) string {
 		return e.Array.String() + "[" + strings.Join(elems, ", ") + "]"
 	case *ArrayCall:
 		return "array." + e.Op.String() + formatArgs(e.Args)
+	case *MapCall:
+		return "map." + e.Op.String() + formatArgs(e.Args)
+	case *NewMap:
+		if e.From != nil {
+			return "new " + e.Map.String() + "(" + FormatExpr(e.From) + ")"
+		}
+		return "new " + e.Map.String() + "()"
 	case *ClassCast:
 		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:

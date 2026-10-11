@@ -1,0 +1,14 @@
+// Map features that need tuples and destructuring (M2.6) are reported: entries as
+// [key, value] pairs, maps of entries, iterators as values; and integer keys or values.
+const m = new Map<string, number>();
+const fromEntries = new Map<string, number>([["a", 1]]);
+for (const entry of m) {
+}
+for (const entry of m.entries()) {
+}
+const keys = m.keys();
+
+// error: maps_not_yet.pts:4:45 - error PTS1001: values of type [string, number] are not supported yet
+// error: maps_not_yet.pts:5:21 - error PTS1001: iterating over a Map directly (its [key, value] pairs need tuples; use `keys()` or `values()`) is not supported yet
+// error: maps_not_yet.pts:7:21 - error PTS1001: iterating over `entries()` (pairs need tuples) is not supported yet
+// error: maps_not_yet.pts:9:7 - error PTS1001: values of type MapIterator<string> are not supported yet

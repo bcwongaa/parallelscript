@@ -1,0 +1,7 @@
+// Maps and sets of the integer types and f32 arrive with generics (M2.6, D-046): the
+// checker sees their keys and values as numbers.
+const bytes = new Map<string, u8>();
+const ids: Set<int> = new Set();
+
+// error: maps_of_integers.pts:3:15 - error PTS1001: maps and sets of u8 are not supported yet
+// error: maps_of_integers.pts:4:12 - error PTS1001: maps and sets of int are not supported yet

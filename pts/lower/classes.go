@@ -610,6 +610,9 @@ func (l *lowerer) thisExpression(node *ast.Node) ir.Expr {
 
 // newExpression lowers `new C(args)` for a class of the program.
 func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
+	if l.isMapConstructor(node) {
+		return l.newMap(node)
+	}
 	class, ok := l.classes[l.target(node.Expression())]
 	switch {
 	case !ok:

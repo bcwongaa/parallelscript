@@ -62,6 +62,9 @@ var (
 	U32 = &Primitive{"u32"}
 	U64 = &Primitive{"u64"}
 	F32 = &Primitive{"f32"}
+
+	// MapIterator is an iteration over a map or set (D-046), held in a local.
+	MapIterator = &Primitive{"map iterator"}
 )
 
 // Class is a class declared in the program, and the type of a reference to one of its
@@ -231,6 +234,21 @@ func (a *Array) String() string {
 		return "(" + a.Elem.String() + ")[]"
 	}
 	return a.Elem.String() + "[]"
+}
+
+// MapType is the type of a reference to a Map from Key to Value, or if Set, to a Set of
+// Key (Value nil) (D-046). The lowering makes one per key and value type, so map types
+// compare by identity too.
+type MapType struct {
+	Key, Value Type
+	Set        bool
+}
+
+func (m *MapType) String() string {
+	if m.Set {
+		return "Set<" + m.Key.String() + ">"
+	}
+	return "Map<" + m.Key.String() + ", " + m.Value.String() + ">"
 }
 
 // FuncType is the type of a function value (D-041): a reference to a closure whose code
@@ -637,6 +655,43 @@ type ArrayCall struct {
 	To   *Array // the result of ArrayFlat
 }
 
+// MapOp is an operation on a map or set.
+type MapOp int
+
+const (
+	MapSize          MapOp = iota // m.size
+	MapGet                        // m.get(k) as a dynamic value: undefined if m has no such key
+	MapGetChecked                 // m.get(k)!, which throws RangeError if m has no such key
+	MapSet                        // m.set(k, v), or s.add(k) on a set: m
+	MapHas                        // m.has(k)
+	MapDelete                     // m.delete(k): whether m had k
+	MapClear                      // m.clear()
+	MapIterate                    // an iteration over m, for a local of type MapIterator
+	MapNext                       // moves the iteration in the local Args[0] to its next entry: false at the end
+	MapIteratorKey                // the key of the entry the iteration in Args[0] is at
+	MapIteratorValue              // the value of that entry
+)
+
+var mapOpText = [...]string{MapSize: "size", MapGet: "get", MapGetChecked: "getChecked", MapSet: "set", MapHas: "has", MapDelete: "delete",
+	MapClear: "clear", MapIterate: "iterate", MapNext: "next", MapIteratorKey: "key", MapIteratorValue: "value"}
+
+func (op MapOp) String() string { return mapOpText[op] }
+
+// MapCall applies Op to the map Args[0], of type Map (for the iteration ops, to the
+// iteration in the local Args[0], over a map of type Map), and the keys and values after it.
+type MapCall struct {
+	Op   MapOp
+	Args []Expr
+	Map  *MapType
+}
+
+// NewMap makes a map or set of type Map: empty, or with the entries of From, a map of
+// the same type, or for a set, an array of its key type.
+type NewMap struct {
+	Map  *MapType
+	From Expr
+}
+
 // FieldRef reads a field of the instance X, or through an interface, a property of the
 // object X refers to.
 type FieldRef struct {
@@ -856,6 +911,27 @@ func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
 func (e *InterfaceCall) Type() Type { return e.Method.Result }
 func (e *NewArray) Type() Type      { return e.Array }
 func (e *MakeClosure) Type() Type   { return e.FuncType }
+func (e *NewMap) Type() Type        { return e.Map }
+
+func (e *MapCall) Type() Type {
+	switch e.Op {
+	case MapSize:
+		return Number
+	case MapGet:
+		return Value
+	case MapGetChecked, MapIteratorValue:
+		return e.Map.Value
+	case MapSet:
+		return e.Map
+	case MapHas, MapDelete, MapNext:
+		return Bool
+	case MapClear:
+		return Void
+	case MapIterate:
+		return MapIterator
+	}
+	return e.Map.Key // MapIteratorKey
+}
 func (e *CallValue) Type() Type     { return e.Callee.Type().(*FuncType).Result }
 
 func (e *ArrayCall) Type() Type {

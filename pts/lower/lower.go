@@ -131,7 +131,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
-		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{}}
+		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
+		mapsInProgress: map[*checker.Type]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -221,6 +222,8 @@ type lowerer struct {
 	arrows              map[*ir.Func]bool               // the closures' functions that are arrow functions, whose `this` is their outer function's
 	funcNodes           map[*ir.Func]*ast.Node          // the declaration, function expression or source file of each function
 	helpers             map[helperKey]*ir.Func          // the helpers of the array methods that take callbacks; nil if one failed
+	mapTypes            []*ir.MapType                   // the map and set types met
+	mapsInProgress      map[*checker.Type]bool          // the map and set types whose key and value types are being mapped
 	this                map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
 	lowered             []*ir.Func                      // the functions whose bodies are lowered
 	bodies              []*ast.Node                     // function declarations whose bodies are still to be lowered
@@ -1037,6 +1040,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isArrayMethodCall(node) {
 		return l.arrayMethodCall(call, false)
 	}
+	if l.isMapMethodCall(node) {
+		return l.mapMethodCall(call, false)
+	}
 	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "isArray") {
 		return l.arrayIsArray(call)
 	}
@@ -1289,6 +1295,9 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if l.isArrayExpression(node.Expression()) {
 		return l.arrayProperty(node)
+	}
+	if l.isMapExpression(node.Expression()) {
+		return l.mapProperty(node)
 	}
 	member := l.memberDeclaration(node)
 	if field := l.fields[member]; field != nil {
@@ -1856,7 +1865,7 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 		return discard(x, &ir.BoolConst{Value: false})
 	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
 		return &ir.Truthy{X: x}
-	case isObject(t) || isFunction(t):
+	case isObject(t) || isFunction(t) || isMap(t):
 		return discard(x, &ir.BoolConst{Value: true}) // an object or function, never null
 	}
 	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
@@ -1876,7 +1885,7 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 	switch {
 	case ir.IsNumeric(x.Type()):
 		word, ok = "number", true
-	case isObject(x.Type()):
+	case isObject(x.Type()) || isMap(x.Type()):
 		word, ok = "object", true
 	case isFunction(x.Type()):
 		word, ok = "function", true
@@ -1927,7 +1936,7 @@ func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 	}
 	switch op {
 	case ir.Eq, ir.Ne:
-		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isObject(x) || isFunction(x)
+		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isObject(x) || isFunction(x) || isMap(x)
 	case ir.Lt, ir.Le, ir.Gt, ir.Ge:
 		return ir.IsNumeric(x) || x == ir.String
 	}
@@ -2018,6 +2027,12 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	}
 	if l.checker.IsArrayType(t) {
 		return l.arrayType(t, node)
+	}
+	if mt, ok := l.mapType(t, node); ok {
+		if mt == nil {
+			return nil // reported
+		}
+		return mt
 	}
 	if ft, ok := l.functionType(t, node); ok {
 		if ft == nil {

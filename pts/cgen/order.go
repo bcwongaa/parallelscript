@@ -42,6 +42,17 @@ func effectsOf(expr ir.Expr) effects {
 		return callEffects(x.Args)
 	case *ir.CallValue:
 		return callEffects(append([]ir.Expr{x.Callee}, x.Args...))
+	case *ir.MapCall:
+		f := mapEffects(x.Op)
+		for _, arg := range x.Args {
+			f |= effectsOf(arg)
+		}
+		return f
+	case *ir.NewMap:
+		if x.From != nil {
+			return readsLocals | effectsOf(x.From)
+		}
+		return 0
 	case *ir.MakeClosure:
 		if len(x.Func.Captures) > 0 {
 			return readsLocals // the captured values

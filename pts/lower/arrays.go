@@ -386,6 +386,12 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 		l.notSupportedYet(args[2], "the `thisArg` argument of `Array.from` is")
 		return nil
 	}
+	if it, ok := l.mapIterableOf(args[0]); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		return l.arrayFromMap(call, it)
+	}
 	x := l.expression(args[0])
 	switch {
 	case x == nil:
@@ -412,6 +418,9 @@ func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 			return l.arrayMethodCall(inner.AsCallExpression(), true)
 		}
 	}
+	if l.isMapMethodCall(inner) && ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text() == "get" {
+		return l.mapMethodCall(inner.AsCallExpression(), true)
+	}
 	return l.expression(inner)
 }
 
@@ -432,6 +441,19 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if declaration.Name().Kind != ast.KindIdentifier {
 		l.notSupportedYet(declaration.Name(), "destructuring is")
 		return nil
+	}
+	if it, ok := l.mapIterableOf(s.Expression); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		symbol := l.checker.GetSymbolAtLocation(declaration.Name())
+		t := l.bindingType(symbol, declaration.Name())
+		if t == nil {
+			return nil
+		}
+		item := l.newLocal(declaration.Name().Text(), t)
+		l.locals[symbol] = item
+		return l.mapForOf(node, label, it, item, s.Statement)
 	}
 	iterable := l.expression(s.Expression)
 	if iterable == nil {

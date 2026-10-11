@@ -38,6 +38,8 @@ static void write_value(FILE *out, pts_value value) {
     case PTS_KIND_OBJECT:
     case PTS_KIND_ARRAY:
     case PTS_KIND_FUNCTION:
+    case PTS_KIND_MAP:
+    case PTS_KIND_SET:
       pts_inspect_write(out, object);
       return;
     }

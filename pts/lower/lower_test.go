@@ -921,3 +921,26 @@ func make(step: number) {count: number; inc(): number} {
 }
 `)
 }
+
+func TestForOfOverASetIteratesItsLiveTable(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const seen = new Set<string>();
+seen.add("a");
+for (const item of seen) {
+  console.log(item);
+}
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let seen: Set<string> = new Set<string>()
+  2: map.set(seen, "a")
+  3: {
+    3: let map: Set<string> = seen
+    3: let iteration: map iterator = map.iterate(map)
+    3: #1: while map.next(iteration) {
+      3: let item: string = map.key(iteration)
+      4: console.log(box(item))
+    }
+  }
+}
+`)
+}

@@ -1,0 +1,243 @@
+// Map and Set: SameValueZero keys, insertion order, live iteration, and Node's printing.
+const ages = new Map<string, number>();
+ages.set("ada", 36).set("alan", 41);
+ages.set("grace", 85);
+console.log(ages.size, ages.get("ada"), ages.get("nobody"), ages.has("alan"), ages.has("x"));
+console.log(ages);
+ages.set("ada", 37);
+console.log(ages.delete("alan"), ages.delete("alan"), ages.get("ada")! + 1, ages);
+for (const name of ages.keys()) {
+  console.log("name", name, ages.get(name)!);
+}
+for (const age of ages.values()) {
+  console.log("age", age);
+}
+ages.forEach((age, name) => console.log(name + "=" + age));
+const words = "the cat and the hat and the bat".split(" ");
+const counts = new Map<string, number>();
+for (const word of words) {
+  counts.set(word, (counts.has(word) ? counts.get(word)! : 0) + 1);
+}
+console.log(counts, Array.from(counts.keys()), Array.from(counts.values(), (n, i) => n * 10 + i));
+const unique = new Set(words);
+console.log(unique, unique.size, unique.has("cat"), Array.from(unique));
+const s = new Set<number>();
+s.add(NaN).add(0).add(-0).add(NaN).add(1);
+console.log(s, s.has(-0), s.has(NaN));
+for (const x of s) {
+  console.log("x", x);
+}
+s.forEach((v, k, set) => console.log(v, k, set.size));
+const copy = new Set(s);
+copy.clear();
+console.log(copy, s.size, new Map<string, number>(), new Map(counts).size);
+const nested = new Map<string, Set<number>>();
+nested.set("a", new Set([1, 2]));
+console.log(nested, { m: new Map<string, number>([]) });
+const big = new Set<number>();
+for (let i = 0; i < 120; i++) big.add(i);
+console.log(big);
+
+// Objects are keys by identity; maps hold any value.
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+const p1 = new Point(1, 2);
+const labels = new Map<Point, string>();
+labels.set(p1, "first").set(new Point(1, 2), "second");
+console.log(labels.size, labels.get(p1), labels.has(new Point(1, 2)), labels);
+const handlers = new Map<string, (n: number) => number>();
+handlers.set("double", (n) => n * 2).set("square", (n) => n * n);
+console.log(handlers.get("square")!(7), handlers);
+const groups = new Map<string, string[]>();
+for (const word of ["apple", "avocado", "banana", "blueberry", "cherry"]) {
+  const letter = word[0];
+  if (!groups.has(letter)) {
+    groups.set(letter, []);
+  }
+  groups.get(letter)!.push(word);
+}
+console.log(groups);
+
+// Iteration sees entries added during it, skips those deleted before they're reached,
+// and continues after the map grows or is cleared.
+const live = new Map<number, string>();
+live.set(1, "a").set(2, "b").set(3, "c");
+live.forEach((value, key) => {
+  if (key === 1) {
+    live.delete(2);
+    live.set(4, "d");
+  }
+  if (key < 10) {
+    live.set(key + 100, "added");
+  }
+  console.log("visit", key, value);
+});
+console.log(live.size);
+const growing = new Set<number>([0]);
+for (const n of growing) {
+  if (n < 50) {
+    growing.add(n + 1);
+  }
+}
+console.log(growing.size);
+
+// Nested maps and sets print nested, as `[Map]` beyond depth 2.
+const self = new Map<string, Map<string, number>>();
+const inner = new Map<string, number>();
+inner.set("x", 1);
+self.set("inner", inner);
+console.log(self, [new Set([1])], [new Map<string, number>()]);
+const deep = { a: { b: { c: new Map<string, number>(), d: inner } } };
+console.log(deep);
+
+// expect:
+// 3 36 undefined true false
+// Map(3) { 'ada' => 36, 'alan' => 41, 'grace' => 85 }
+// true false 38 Map(2) { 'ada' => 37, 'grace' => 85 }
+// name ada 37
+// name grace 85
+// age 37
+// age 85
+// ada=37
+// grace=85
+// Map(5) { 'the' => 3, 'cat' => 1, 'and' => 2, 'hat' => 1, 'bat' => 1 } [ 'the', 'cat', 'and', 'hat', 'bat' ] [ 30, 11, 22, 13, 14 ]
+// Set(5) { 'the', 'cat', 'and', 'hat', 'bat' } 5 true [ 'the', 'cat', 'and', 'hat', 'bat' ]
+// Set(3) { NaN, 0, 1 } true true
+// x NaN
+// x 0
+// x 1
+// NaN NaN 3
+// 0 0 3
+// 1 1 3
+// Set(0) {} 3 Map(0) {} 5
+// Map(1) { 'a' => Set(2) { 1, 2 } } { m: Map(0) {} }
+// Set(120) {
+//   0,
+//   1,
+//   2,
+//   3,
+//   4,
+//   5,
+//   6,
+//   7,
+//   8,
+//   9,
+//   10,
+//   11,
+//   12,
+//   13,
+//   14,
+//   15,
+//   16,
+//   17,
+//   18,
+//   19,
+//   20,
+//   21,
+//   22,
+//   23,
+//   24,
+//   25,
+//   26,
+//   27,
+//   28,
+//   29,
+//   30,
+//   31,
+//   32,
+//   33,
+//   34,
+//   35,
+//   36,
+//   37,
+//   38,
+//   39,
+//   40,
+//   41,
+//   42,
+//   43,
+//   44,
+//   45,
+//   46,
+//   47,
+//   48,
+//   49,
+//   50,
+//   51,
+//   52,
+//   53,
+//   54,
+//   55,
+//   56,
+//   57,
+//   58,
+//   59,
+//   60,
+//   61,
+//   62,
+//   63,
+//   64,
+//   65,
+//   66,
+//   67,
+//   68,
+//   69,
+//   70,
+//   71,
+//   72,
+//   73,
+//   74,
+//   75,
+//   76,
+//   77,
+//   78,
+//   79,
+//   80,
+//   81,
+//   82,
+//   83,
+//   84,
+//   85,
+//   86,
+//   87,
+//   88,
+//   89,
+//   90,
+//   91,
+//   92,
+//   93,
+//   94,
+//   95,
+//   96,
+//   97,
+//   98,
+//   99,
+//   ... 20 more items
+// }
+// 2 first false Map(2) {
+//   Point { x: 1, y: 2 } => 'first',
+//   Point { x: 1, y: 2 } => 'second'
+// }
+// 49 Map(2) {
+//   'double' => [Function (anonymous)],
+//   'square' => [Function (anonymous)]
+// }
+// Map(3) {
+//   'a' => [ 'apple', 'avocado' ],
+//   'b' => [ 'banana', 'blueberry' ],
+//   'c' => [ 'cherry' ]
+// }
+// visit 1 a
+// visit 3 c
+// visit 4 d
+// visit 101 added
+// visit 103 added
+// visit 104 added
+// 6
+// 51
+// Map(1) { 'inner' => Map(1) { 'x' => 1 } } [ Set(1) { 1 } ] [ Map(0) {} ]
+// { a: { b: { c: Map(0) {}, d: [Map] } } }

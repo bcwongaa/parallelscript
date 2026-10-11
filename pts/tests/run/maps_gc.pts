@@ -1,0 +1,31 @@
+// Maps and sets survive collections: many entries of strings and objects are added,
+// deleted and read while garbage is made.
+class Entry {
+  constructor(
+    public name: string,
+    public tags: string[],
+  ) {}
+}
+const index = new Map<string, Entry>();
+const seen = new Set<string>();
+for (let i = 0; i < 100000; i++) {
+  const name = "entry" + i;
+  index.set(name, new Entry(name, ["t" + (i % 7), "u" + (i % 3)]));
+  seen.add("t" + (i % 1000));
+  if (i % 3 === 0) {
+    index.delete("entry" + (i - 1));
+  }
+}
+let garbage = 0;
+for (let round = 0; round < 30; round++) {
+  const temp = new Map<number, string>();
+  for (let k = 0; k < 3000; k++) {
+    temp.set(k, "x" + k + round);
+  }
+  garbage += temp.size;
+}
+const e = index.get("entry99999")!;
+console.log(index.size, seen.size, garbage, e.name, e.tags, index.has("entry2"), index.has("entry3"));
+
+// expect:
+// 66667 1000 90000 entry99999 [ 't4', 'u0' ] false true

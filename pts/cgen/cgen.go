@@ -17,10 +17,11 @@ import (
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
-		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}}
+		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{}}
 	e.nameClasses(program)
 	e.collectClosures(program)
 	e.collectComparators(program)
+	e.collectMaps(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
 	e.collectStrings(program)
@@ -48,6 +49,8 @@ type emitter struct {
 	closureNames     map[*ir.Func]string // the suffix of the C names of each function made a value of (D-041)
 	closureOrder     []*ir.Func
 	comparators      map[ir.Type]string // the function that calls comparators of each element type sorted with one
+	mapDescriptors   map[*ir.MapType]string // the descriptor of each map and set type the program makes maps of
+	mapOrder         []*ir.MapType
 	comparatorOrder  []ir.Type
 	captureFields    map[*ir.Local][]captureField // the members of closure structs that hold each captured local
 	globals          map[*ir.Local]string         // module-scope bindings that other functions use, by C name
@@ -93,6 +96,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.classDescriptors(program.Classes)
 	e.closureDefinitions()
 	e.comparatorFunctions()
+	e.mapDescriptorDefinitions()
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
 	for _, module := range program.Modules {
@@ -533,6 +537,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return ordered(prelude, e.funcNames[x.Func]+"("+strings.Join(args, ", ")+")")
 	case *ir.MakeClosure:
 		return e.makeClosure(x)
+	case *ir.NewMap:
+		return e.newMap(x)
+	case *ir.MapCall:
+		return e.mapCall(x)
 	case *ir.CallValue:
 		return e.callValue(x)
 	case *ir.VirtualCall:
@@ -827,7 +835,7 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_number(" + inner + ")" // exact as a double
 	}
 	switch value.Type().(type) {
-	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.MapType:
 		return "pts_value_from_object(" + inner + ")"
 	default:
 		panic("cgen: cannot box " + value.Type().String())
@@ -933,6 +941,8 @@ func cType(t ir.Type) string {
 		return "uint64_t"
 	case ir.F32:
 		return "float"
+	case ir.MapIterator:
+		return "pts_map_iterator"
 	default:
 		panic("cgen: no C type for " + t.String())
 	}
@@ -950,6 +960,8 @@ func (e *emitter) declarator(t ir.Type) string {
 		return "pts_array *"
 	case *ir.FuncType:
 		return "pts_closure *"
+	case *ir.MapType:
+		return "pts_map *"
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {

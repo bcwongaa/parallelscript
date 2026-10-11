@@ -21,9 +21,10 @@ var callbackMethods = map[string]bool{
 // helperKey identifies a generated helper: the method (with its variant), the array
 // type and the callback type.
 type helperKey struct {
-	method   string
-	array    *ir.Array
-	callback *ir.FuncType
+	method     string
+	array      *ir.Array
+	callback   *ir.FuncType
+	collection *ir.MapType
 }
 
 // callbackMethodCall lowers `a.m(callback, …)` for an array method m that takes a
@@ -61,7 +62,7 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 		}
 		operands = append(operands, initial)
 	}
-	helper := l.callbackHelper(helperKey{method, arrayType, ft}, call.Expression)
+	helper := l.callbackHelper(helperKey{method: method, array: arrayType, callback: ft}, call.Expression)
 	if helper == nil {
 		return nil
 	}
@@ -83,7 +84,7 @@ func (l *lowerer) arrayFromWithMapper(call *ast.CallExpression, source ir.Expr) 
 		l.notSupportedYet(call.Arguments.Nodes[1], fmt.Sprintf("a mapping function of type %s is", mapper.Type()))
 		return nil
 	}
-	helper := l.callbackHelper(helperKey{"map", source.Type().(*ir.Array), ft}, call.Expression)
+	helper := l.callbackHelper(helperKey{method: "map", array: source.Type().(*ir.Array), callback: ft}, call.Expression)
 	if helper == nil {
 		return nil
 	}

@@ -129,6 +129,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Integer types and f32 as array elements and type arguments (`u8[]`, `Box<int>`), which need the semantic pass to follow type nodes, since the checker sees them as `number` (D-038).
   - Enums (numeric and string); destructuring of objects and arrays with defaults; spread and rest in calls, arrays and objects.
   - `Record<string, T>` and index signatures as hash maps.
+  - Map entries as pairs: `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046).
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.
 - [ ] **M2.8 Milestone M2.**

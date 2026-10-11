@@ -229,6 +229,8 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     return;
   case PTS_KIND_OBJECT:
   case PTS_KIND_ARRAY:
+  case PTS_KIND_MAP:
+  case PTS_KIND_SET:
     format_heap_object(in, out, object, recurse_times);
     return;
   case PTS_KIND_FUNCTION:
@@ -404,6 +406,34 @@ static text *new_entries(size_t count) {
   if (entries == NULL) {
     pts_panic("RangeError", "Out of memory formatting a value for console.log");
   }
+  return entries;
+}
+
+/*
+ * Node's formatMap and formatSet: `key => value` entries of a map, or a set's values, in
+ * insertion order, at most MAX_ARRAY_LENGTH and then `... n more items`. count is the size
+ * on entry and the number of entries on return.
+ */
+static text *format_map_entries(inspector *in, pts_map *map, size_t *count, size_t recurse_times) {
+  size_t shown = *count < MAX_ARRAY_LENGTH ? *count : MAX_ARRAY_LENGTH;
+  text *entries = new_entries(shown + 1);
+  bool is_set = map->type->kind == PTS_KIND_SET;
+  in->indentation += 2;
+  pts_map_iterator iterator = pts_map_iterate(map);
+  size_t i = 0;
+  for (; i < shown && pts_map_next(&iterator); i++) {
+    format_slot(in, &entries[i], map->type->key, &iterator.key, recurse_times);
+    if (!is_set) {
+      text_puts(&entries[i], " => ");
+      format_slot(in, &entries[i], map->type->element, &iterator.value, recurse_times);
+    }
+  }
+  in->indentation -= 2;
+  if (*count > i) {
+    size_t remaining = *count - i;
+    text_printf(&entries[i++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
+  }
+  *count = i;
   return entries;
 }
 
@@ -589,10 +619,16 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   }
   const pts_type *type = object->type;
   bool is_array = type->kind == PTS_KIND_ARRAY;
+  bool is_map = type->kind == PTS_KIND_MAP || type->kind == PTS_KIND_SET;
   size_t length = is_array ? pts_array_length_of((const pts_array *)object) : type->field_count;
   char buffer[256];
   const char *open = is_array ? "[" : opening_brace(type, buffer, sizeof buffer);
   const char *close = is_array ? "]" : "}";
+  if (is_map) {
+    length = (size_t)pts_map_size((const pts_map *)object);
+    snprintf(buffer, sizeof buffer, "%s(%zu) {", type->name, length); /* Node's `Map(2) {` */
+    open = buffer;
+  }
   if (length == 0) {
     text_printf(out, "%s%s", open, close);
     return;
@@ -605,7 +641,9 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   push(&in->seen, &in->seen_len, &in->seen_cap, object);
   in->current_depth = recurse_times;
   size_t count = length;
-  text *output = is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times) : format_fields(in, object, recurse_times);
+  text *output = is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
+                 : is_map ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
+                          : format_fields(in, object, recurse_times);
   in->seen_len--;
 
   text base = {0};

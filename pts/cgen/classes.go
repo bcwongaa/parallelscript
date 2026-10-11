@@ -492,7 +492,7 @@ func fieldKind(t ir.Type) string {
 // shape), an interface, an array or a function (a closure).
 func isObject(t ir.Type) bool {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.MapType:
 		return true
 	}
 	return false
