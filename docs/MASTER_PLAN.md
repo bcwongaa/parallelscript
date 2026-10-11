@@ -208,8 +208,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - The remaining common `String` methods: `lastIndexOf`, `at`, `charAt`, `codePointAt`, `substr`, `concat`, `replace` and `replaceAll` with string patterns (replacement strings and callbacks), `localeCompare` (Node's default collation), `isWellFormed`/`toWellFormed`, `toLocaleUpperCase`/`toLocaleLowerCase`, `String.fromCharCode` and `String.fromCodePoint`; the same through `any`. `normalize` moves to M6.1 (D-082).
 - [x] **M3.5b Numbers** (59a142879) (split from M3.5 by D-082).
   - `Number` methods (`toFixed`, `toPrecision`, `toExponential`, `toString(radix)`) and statics (`isInteger`, `isSafeInteger`, `isFinite`, `isNaN`, `parseInt`, `parseFloat`, the constants); the globals `parseInt`, `parseFloat`, `isNaN`, `isFinite`; `Number(x)`, `Boolean(x)` and unary `+` on strings and other values; `String`, `Number` and `Boolean` as values (`map(Number)`, `filter(Boolean)`).
-- [ ] **M3.5c `Math` in full and the remaining `Array` methods** (split from M3.5 by D-082).
-  - Every `Math` function (`random` included), spread arguments of `Math.max`/`Math.min`.
+- [ ] **M3.5c1 `Math` in full** (split from M3.5 by D-082, from M3.5c by D-084).
+  - Every `Math` function (`random` included) with V8's results, spread arguments of `Math.max`/`Math.min`, Math's functions as values.
+- [ ] **M3.5c2 The remaining `Array` methods** (split from M3.5 by D-082, from M3.5c by D-084).
   - `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)` with `fill`, `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`.
 - [ ] **M3.5d `Object` functions and `for…in`** (split from M3.5 by D-082).
   - `Object.keys`/`values`/`entries` of class instances and object literals, `Object.assign`, `Object.freeze`/`isFrozen`, `Object.is`, `Object.fromEntries`; `for…in` over typed objects and dynamic values.

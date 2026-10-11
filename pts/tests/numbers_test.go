@@ -40,6 +40,7 @@ var numberCorpusParts = []struct {
 	{"random_operands_2", 5, emitRandomOperands},
 	{"methods_1", 6, emitNumberMethods},
 	{"methods_2", 7, emitNumberMethods},
+	{"math", 8, emitMathFunctions},
 }
 
 // TestGeneratedNumberCorpusMatchesNode is the large differential corpus for numbers:
@@ -127,6 +128,21 @@ func emitNumberMethods(rng *rand.Rand, emit func(string)) {
 		emit(fmt.Sprintf("{ const x = %s; console.log(x.toFixed(%d), x.toPrecision(%d), x.toExponential(%d), x.toExponential(), x.toString(%d), "+
 			"x.toLocaleString(), parseFloat(String(x)), parseInt(x.toString(%d), %d), parseInt(String(x))); }",
 			x, rng.IntN(21), 1+rng.IntN(21), rng.IntN(21), radix, radix, radix))
+	}
+}
+
+// emitMathFunctions prints every function of Math of random numbers, which must agree
+// with Node's (fdlibm's) to the last bit (D-084).
+func emitMathFunctions(rng *rand.Rand, emit func(string)) {
+	for i := range numberMethodCasesPerPart {
+		x, y := numberLiteral(randomNumber(rng, i)), numberLiteral(randomNumber(rng, i+1))
+		if i%3 == 0 { // near the ranges where the functions do their work
+			x = numberLiteral((rng.Float64() - 0.5) * math.Pow(10, float64(rng.IntN(5))))
+		}
+		emit(fmt.Sprintf("{ const x = %s; const y = %s; console.log(Math.sin(x), Math.cos(x), Math.tan(x), Math.asin(x), Math.acos(x), Math.atan(x), "+
+			"Math.sinh(x), Math.cosh(x), Math.tanh(x), Math.asinh(x), Math.acosh(x), Math.atanh(x), Math.exp(x), Math.expm1(x), Math.log(x), "+
+			"Math.log1p(x), Math.log10(x), Math.log2(x), Math.cbrt(x), Math.atan2(x, y), Math.pow(x, y), Math.hypot(x, y), Math.fround(x), "+
+			"Math.imul(x, y), Math.clz32(x)); }", x, y))
 	}
 }
 

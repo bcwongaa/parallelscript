@@ -823,3 +823,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **IR:** `ir.NumberToFixed`, `NumberToExponential`, `NumberToExponentialShortest`, `NumberToPrecision`, `NumberToStringRadix`, `NumberToLocaleString`, `I64ToStringRadix`, `U64ToStringRadix`, `NumberIsInteger`/`IsSafeInteger`/`IsFinite`/`IsNaN` and their `Value` twins, `ParseInt`, `ParseFloat`.
 - **Lowering:** `numbers.go`: `numberLibraryCall` (`numberMemberCall`, `numberMethodCall`, `numberTest`, `parseNumber`, `numberConversion`, `toNumberOrReport`), `numberConstant`, `conversionFunction` (String, Number and Boolean as values, from `identifier`); unary operators convert with `convertsToNumber`/`toNumber` (`prefixUnary`).
 - **Tests:** `pts/tests/run/number_library.pts`, `any_number_methods.pts` (against Node), `number_methods_integers.pts`, `pts/tests/errors/unary_plus_on_void.pts`, the `methods_*` parts of the generated number corpus (`numbers_test.go`), C tests in `number_test.c`.
+
+### 9.61 Math (M3.5c1)
+
+- **Runtime** (D-084): `ieee754.c` (V8 13.6's fdlibm in C: `pts_ieee754_sin` … `pts_ieee754_atan2`); `math.c`: `pts_math_max_of`, `pts_math_min_of`, `pts_math_hypot`, `pts_math_random` (xorshift128+ per thread); `pts_math_fround`, `pts_math_imul`, `pts_math_clz32` inline in `pts.h`.
+- **IR:** `ir.MathAcos` … `ir.MathTanh`, `MathAtan2`, `MathPow`, `MathImul`, `MathClz32`, `MathFround`, `MathRandom`, `MathMaxOf`, `MathMinOf`, `MathHypot`.
+- **Lowering:** `math.go`: `mathFunctions`, `variadicMath`, `mathCall` (ToNumber of each argument, spreads through `restArray`), `mathFunctionValue` (Math's functions as values).
+- **Tests:** `pts/tests/run/math_library.pts` (against Node), `pts/tests/errors/math_not_yet.pts`, the `math` part of the generated number corpus.

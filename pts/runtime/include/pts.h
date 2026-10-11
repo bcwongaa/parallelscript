@@ -435,6 +435,28 @@ static inline double pts_number_pow(double x, double y) {
   return __builtin_pow(x, y);
 }
 
+/* Math's functions as V8 computes them: fdlibm (ieee754.c, D-084). */
+double pts_ieee754_acos(double x);
+double pts_ieee754_acosh(double x);
+double pts_ieee754_asin(double x);
+double pts_ieee754_asinh(double x);
+double pts_ieee754_atan(double x);
+double pts_ieee754_atan2(double y, double x);
+double pts_ieee754_atanh(double x);
+double pts_ieee754_cbrt(double x);
+double pts_ieee754_cos(double x);
+double pts_ieee754_cosh(double x);
+double pts_ieee754_exp(double x);
+double pts_ieee754_expm1(double x);
+double pts_ieee754_log(double x);
+double pts_ieee754_log10(double x);
+double pts_ieee754_log1p(double x);
+double pts_ieee754_log2(double x);
+double pts_ieee754_sin(double x);
+double pts_ieee754_sinh(double x);
+double pts_ieee754_tan(double x);
+double pts_ieee754_tanh(double x);
+
 /* Math.round: the nearest integer, halves rounded up; -0 for -0.5 <= x < 0, as in JS. */
 static inline double pts_math_round(double x) {
   if (x != x || __builtin_isinf(x) || x == 0) {
@@ -490,6 +512,22 @@ static inline int32_t pts_number_to_int32(double d) {
   }
   return (int32_t)(uint32_t)modulo;
 }
+
+/* Math.fround, Math.imul and Math.clz32 (D-084). */
+static inline double pts_math_fround(double x) { return (double)(float)x; }
+static inline double pts_math_imul(double x, double y) {
+  return (double)(int32_t)((uint32_t)pts_number_to_int32(x) * (uint32_t)pts_number_to_int32(y));
+}
+static inline double pts_math_clz32(double x) {
+  uint32_t bits = (uint32_t)pts_number_to_int32(x);
+  return bits == 0 ? 32 : __builtin_clz(bits);
+}
+/* Math.max, Math.min and Math.hypot of their arguments as a number array, and Math.random. */
+struct pts_array;
+double pts_math_max_of(struct pts_array *values);
+double pts_math_min_of(struct pts_array *values);
+double pts_math_hypot(struct pts_array *values);
+double pts_math_random(void);
 
 static inline uint32_t pts_number_shift_count(double count) { return (uint32_t)pts_number_to_int32(count) & 31; }
 static inline double pts_number_bitand(double x, double y) { return pts_number_to_int32(x) & pts_number_to_int32(y); }

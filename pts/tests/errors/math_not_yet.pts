@@ -1,10 +1,4 @@
-// The rest of Math arrives in M3.5.
-console.log(Math.random());
-console.log(Math.hypot(3, 4));
-const sqrt = Math.sqrt;
-console.log(Math.max(..."123".split("").map(Number)));
+// Math's functions and constants are supported; the Math object itself isn't a value yet.
+const m = Math;
 
-// error: math_not_yet.pts:2:13 - error PTS1001: `Math.random` is not supported yet
-// error: math_not_yet.pts:3:13 - error PTS1001: `Math.hypot` is not supported yet
-// error: math_not_yet.pts:4:14 - error PTS1001: `Math.sqrt` as a value is not supported yet
-// error: math_not_yet.pts:5:22 - error PTS1001: spread arguments are not supported yet
+// error: math_not_yet.pts:2:7 - error PTS1001: values of type Math are not supported yet

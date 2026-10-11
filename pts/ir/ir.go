@@ -1086,6 +1086,36 @@ var (
 	MathSign  = mathFunction("sign", 1)
 	MathMax   = mathFunction("max", 2)
 	MathMin   = mathFunction("min", 2)
+	// The rest of Math (D-084): fdlibm's functions as V8 has them, pow as **, and
+	// random. MathMaxOf, MathMinOf and MathHypot take their arguments as one array.
+	MathAcos   = mathFunction("acos", 1)
+	MathAcosh  = mathFunction("acosh", 1)
+	MathAsin   = mathFunction("asin", 1)
+	MathAsinh  = mathFunction("asinh", 1)
+	MathAtan   = mathFunction("atan", 1)
+	MathAtanh  = mathFunction("atanh", 1)
+	MathAtan2  = mathFunction("atan2", 2)
+	MathCbrt   = mathFunction("cbrt", 1)
+	MathClz32  = mathFunction("clz32", 1)
+	MathCos    = mathFunction("cos", 1)
+	MathCosh   = mathFunction("cosh", 1)
+	MathExp    = mathFunction("exp", 1)
+	MathExpm1  = mathFunction("expm1", 1)
+	MathFround = mathFunction("fround", 1)
+	MathImul   = mathFunction("imul", 2)
+	MathLog    = mathFunction("log", 1)
+	MathLog10  = mathFunction("log10", 1)
+	MathLog1p  = mathFunction("log1p", 1)
+	MathLog2   = mathFunction("log2", 1)
+	MathPow    = mathFunction("pow", 2)
+	MathRandom = mathFunction("random", 0)
+	MathSin    = mathFunction("sin", 1)
+	MathSinh   = mathFunction("sinh", 1)
+	MathTan    = mathFunction("tan", 1)
+	MathTanh   = mathFunction("tanh", 1)
+	MathMaxOf  = &Builtin{Name: "Math.max", Params: []Type{NumberArray}, Result: Number}
+	MathMinOf  = &Builtin{Name: "Math.min", Params: []Type{NumberArray}, Result: Number}
+	MathHypot  = &Builtin{Name: "Math.hypot", Params: []Type{NumberArray}, Result: Number}
 
 	// Number.prototype's formatting methods (D-083): toFixed, toExponential and toPrecision
 	// round half up and throw RangeError for digits out of range;

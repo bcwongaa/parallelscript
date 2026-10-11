@@ -1,0 +1,28 @@
+// The rest of Math (D-084), checked against Node: fdlibm's results digit for digit.
+const xs = [0, -0, 0.5, -0.5, 1, -1, 2, 3.7, -3.7, 10, 100, 1e-10, 1e10, 1e300, -1e300, Math.PI, Math.E, 0.1, 710, -745, NaN, Infinity, -Infinity];
+for (const x of xs) {
+  console.log(x, Math.sin(x), Math.cos(x), Math.tan(x), Math.asin(x), Math.acos(x), Math.atan(x));
+  console.log(Math.sinh(x), Math.cosh(x), Math.tanh(x), Math.asinh(x), Math.acosh(x), Math.atanh(x));
+  console.log(Math.exp(x), Math.expm1(x), Math.log(x), Math.log1p(x), Math.log10(x), Math.log2(x), Math.cbrt(x));
+  console.log(Math.fround(x), Math.clz32(x), Math.atan2(x, 2), Math.atan2(2, x), Math.pow(x, 3), Math.pow(2, x), Math.hypot(x, 3));
+}
+for (let i = 1; i < 200; i += 7) {
+  const x = i * 0.37 - 30;
+  console.log(Math.sin(x), Math.cos(x * 3), Math.exp(x / 7), Math.log(i), Math.cbrt(x), Math.atan2(x, i), Math.hypot(x, i, 0.5));
+}
+console.log(Math.imul(3, 4), Math.imul(-5, 12), Math.imul(0xffffffff, 5), Math.imul(2147483647, 2), Math.clz32(1), Math.clz32(0), Math.clz32(-1), Math.clz32(0.5));
+console.log(Math.hypot(), Math.hypot(3), Math.hypot(3, 4), Math.hypot(NaN, Infinity), Math.hypot(-3, NaN), Math.hypot(1e200, 1e200), Math.hypot(0, -0));
+const values = [3, 9, -2, 7.5];
+console.log(Math.max(...values), Math.min(...values), Math.max(1, ...values, 20), Math.min(...values, -10), Math.hypot(...values), Math.max(...[]), Math.min(...[]));
+console.log([1, 4, 9, 16].map(Math.sqrt), [1.5, -2.5, 3.49].map(Math.round), [0.5, 1].map(Math.sin));
+const pick: (...values: number[]) => number = Math.max;
+console.log(pick(4, 8, 2), [[1, 5], [7, 3]].map((pair) => Math.max(...pair)), Math.max, Math.sqrt);
+let inRange = true;
+for (let i = 0; i < 10000; i++) {
+  const r = Math.random();
+  if (!(r >= 0 && r < 1)) inRange = false;
+}
+const a = Math.random(), b = Math.random();
+console.log(inRange, a !== b, typeof Math.random());
+const anything: any = "16";
+console.log(Math.sqrt(anything), Math.max(anything, 3), Math.floor(anything / 3));
