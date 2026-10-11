@@ -52,6 +52,10 @@ func FormatExpr(expr Expr) string {
 		return e.Local.Name
 	case *Box:
 		return "box(" + FormatExpr(e.X) + ")"
+	case *Binary:
+		return "(" + FormatExpr(e.X) + " " + e.Op.String() + " " + FormatExpr(e.Y) + ")"
+	case *Unary:
+		return "(" + e.Op.String() + FormatExpr(e.X) + ")"
 	case *CallBuiltin:
 		args := make([]string, len(e.Args))
 		for i, arg := range e.Args {

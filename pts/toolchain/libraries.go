@@ -57,12 +57,26 @@ var libuvLibrary = library{
 	keyFiles: []string{"pts/third_party/libuv/include/uv/version.h"},
 }
 
+// Ryu's shortest round-trip double-to-string conversion (d2s), for Number::toString.
+// It has no version header, so the cache key hashes the sources it compiles.
+var ryuLibrary = library{
+	name:     "ryu",
+	dir:      "pts/third_party/ryu",
+	sources:  []string{"ryu/d2s.c"},
+	includes: []string{"pts/third_party/ryu"},
+	keyFiles: []string{
+		"pts/third_party/ryu/ryu/d2s.c", "pts/third_party/ryu/ryu/ryu.h", "pts/third_party/ryu/ryu/common.h",
+		"pts/third_party/ryu/ryu/d2s.h", "pts/third_party/ryu/ryu/d2s_full_table.h",
+		"pts/third_party/ryu/ryu/d2s_intrinsics.h", "pts/third_party/ryu/ryu/digit_table.h",
+	},
+}
+
 // runtimeLibrary is the ParallelScript runtime itself.
 var runtimeLibrary = library{
 	name:     "ptsrt",
 	dir:      "pts/runtime",
 	glob:     "src/*.c",
-	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include"},
+	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu"},
 	flags:    []string{"-std=c11", "-Wall", "-Wextra", "-Werror=implicit-function-declaration"},
 	keyDirs:  []string{"pts/runtime/include", "pts/runtime/src"},
 }

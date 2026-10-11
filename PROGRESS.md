@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.1 Numbers
+- **Next task:** M1.2 Integer types
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.1 Numbers: arithmetic, unary minus/plus, comparisons and equality on numbers (and equality on booleans), `NaN`/`Infinity`; Ryu (`pts/third_party/ryu` v2.0) for Number::toString; `-ffp-contract=off`; generated differential corpus against Node (D-011, SPEC §9.3).
 - M0.8 Milestone M0: checklist run, CI green (run 38105342986 on `057efbe`), hello-world baseline numbers in `docs/BENCHMARKS.md`, tag `m0`, Telegram report.
 - M0.7 CI: `.github/workflows/pts.yml` (PTS tests with the Node differential required, touched upstream suites, upstream CLI/LSP suites); upstream `ci.yml` on demand only, dependabot version PRs off (D-010, `docs/FORK.md`).
 - M0.6 Test harness: corpus in `pts/tests/run` and `pts/tests/errors` with directive comments (format in `pts/tests/README.md`, D-009); `TestRun`, `TestRunMatchesNode` (Node differential) and `TestErrors` in `go test ./pts/tests/`; root `Makefile` with `build`, `test`, `test-diff`, `test-upstream`, `bench`.
@@ -22,9 +23,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.1 Numbers: arithmetic and comparisons on `number` (IR `Binary`/`Unary`, `fmod` for `%`, `pow` with JS's NaN cases for `**`: glibc `pow` matched Node bit for bit on 200k inputs), `NaN`/`Infinity`, Ryu for Number::toString (vendored `pts/third_party/ryu` at v2.0), a generated differential corpus for formatting and arithmetic.
-2. M1.2 Integer types.
-3. M1.3 Booleans and strings.
+1. M1.2 Integer types: prelude aliases `int i8 … u64 f32 f64`, a PTS semantic pass (literal typing from context, lossless-only implicit conversion, Rust `as`), wrapping integer arithmetic, truncating `/`, `RangeError` on division by zero, error tests for every rule. Note that `f32`/`f64` are floats.
+2. M1.3 Booleans and strings.
+3. M1.4a Control flow.
 
 ## Build and test commands
 
@@ -38,7 +39,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests); `make test-diff` for the Node differential tests alone | ok (7 run tests, 1 skipped as a known issue; 6 error tests) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number corpus); `make test-diff` for the Node differential tests alone | ok (10 run tests, 1 skipped as a known issue; 7 error tests; 5 generated number-corpus parts) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -59,6 +60,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.1 done.
 - 2026-10-11: M0.8 done; tagged `m0`.
 - 2026-10-11: M0.7 done.
 - 2026-10-11: M0.6 done.

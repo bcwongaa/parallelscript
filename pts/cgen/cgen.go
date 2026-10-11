@@ -123,9 +123,30 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.box(x.X)
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
+	case *ir.Binary:
+		return e.binary(x)
+	case *ir.Unary:
+		return "(-" + e.expr(x.X) + ")"
 	default:
 		panic(fmt.Sprintf("cgen: unexpected expression %T", expr))
 	}
+}
+
+// cOperators are the binary operators C spells like JS (for the operand types the IR allows).
+var cOperators = map[ir.BinaryOp]string{
+	ir.Add: "+", ir.Sub: "-", ir.Mul: "*", ir.Div: "/",
+	ir.Lt: "<", ir.Le: "<=", ir.Gt: ">", ir.Ge: ">=", ir.Eq: "==", ir.Ne: "!=",
+}
+
+func (e *emitter) binary(b *ir.Binary) string {
+	x, y := e.expr(b.X), e.expr(b.Y)
+	switch b.Op {
+	case ir.Rem:
+		return "pts_number_rem(" + x + ", " + y + ")"
+	case ir.Pow:
+		return "pts_number_pow(" + x + ", " + y + ")"
+	}
+	return "(" + x + " " + cOperators[b.Op] + " " + y + ")"
 }
 
 func (e *emitter) box(value ir.Expr) string {
@@ -234,6 +255,11 @@ func walkExprs(stmts []ir.Stmt, visit func(ir.Expr)) {
 			for _, arg := range x.Args {
 				walk(arg)
 			}
+		case *ir.Binary:
+			walk(x.X)
+			walk(x.Y)
+		case *ir.Unary:
+			walk(x.X)
 		}
 	}
 	for _, stmt := range stmts {

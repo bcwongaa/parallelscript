@@ -121,11 +121,56 @@ func TestUnsupportedStatementIsReportedAtItsPosition(t *testing.T) {
 	assert.Equal(t, err.Format("/p"), "main.pts:2:3 - error PTS1001: if statement is not supported yet")
 }
 
+func TestArithmeticFollowsTypeScriptPrecedence(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "console.log(1 + 2 * 3 - 4 / 5 % 6 ** 2 ** 0.5);")
+	assert.Equal(t, got, "func main() void {\n  1: console.log(box(((1 + (2 * 3)) - ((4 / 5) % (6 ** (2 ** 0.5))))))\n}\n")
+}
+
+func TestComparisonsYieldBooleans(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const a = 1;
+const small: boolean = a < 2;
+console.log(a <= 2, a > 2, a >= 2, a === 1, a !== 1, a == 1, a != 1, small === true, small != false);
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let a: number = 1
+  2: let small: boolean = (a < 2)
+  3: console.log(box((a <= 2)), box((a > 2)), box((a >= 2)), box((a === 1)), box((a !== 1)), box((a === 1)), box((a !== 1)), box((small === true)), box((small !== false)))
+}
+`)
+}
+
+func TestUnaryMinusNegatesAndUnaryPlusIsDropped(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "console.log(-1, -(-2), +3, -0);")
+	assert.Equal(t, got, "func main() void {\n  1: console.log(box((-1)), box((-(-2))), box(3), box((-0)))\n}\n")
+}
+
+func TestNaNAndInfinityAreConstants(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "console.log(NaN, Infinity, -Infinity);")
+	assert.Equal(t, got, "func main() void {\n  1: console.log(box(NaN), box(+Inf), box((-+Inf)))\n}\n")
+}
+
+func TestALocalNamedNaNShadowsTheGlobal(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const NaN = 1;\nconsole.log(NaN);\n")
+	assert.Equal(t, got, "func main() void {\n  1: let NaN: number = 1\n  2: console.log(box(NaN))\n}\n")
+}
+
+func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
+	t.Parallel()
+	err := lowerInvalid(t, `console.log("a" + 1);`)
+	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
+	assert.Equal(t, err.Message, "the `+` operator on string and number is not supported yet")
+}
+
 func TestUnsupportedOperatorIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(1 + 2);")
+	err := lowerInvalid(t, "console.log(!true);")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the `+` operator is not supported yet")
+	assert.Equal(t, err.Message, "the prefix `!` operator is not supported yet")
 }
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
@@ -150,7 +195,7 @@ func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
 
 func TestEveryUnsupportedConstructIsReported(t *testing.T) {
 	t.Parallel()
-	_, errors := lowerSource(t, "while (false) {}\nconsole.log(1 + 2);\n")
+	_, errors := lowerSource(t, "while (false) {}\nconsole.log(1 << 2);\n")
 	assert.Equal(t, len(errors), 2)
 	assert.Equal(t, errors[0].Line, 1)
 	assert.Equal(t, errors[1].Line, 2)

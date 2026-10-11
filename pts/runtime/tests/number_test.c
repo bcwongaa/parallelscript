@@ -37,6 +37,36 @@ static void formats_like_javascript(void) {
   check_format(123.456, "123.456");
 }
 
+static bool same(double a, double b) { return memcmp(&a, &b, sizeof a) == 0 || (a != a && b != b); }
+
+/* Expected values are what Node computes. */
+static void remainder_follows_javascript(void) {
+  CHECK(same(pts_number_rem(5.5, 2), 1.5));
+  CHECK(same(pts_number_rem(-5.5, 2), -1.5));
+  CHECK(same(pts_number_rem(5.5, -2), 1.5));
+  CHECK(same(pts_number_rem(-0.0, 3), -0.0));
+  CHECK(same(pts_number_rem(4, 2), 0.0));
+  CHECK(same(pts_number_rem(-4, 2), -0.0));
+  CHECK(same(pts_number_rem(5, INFINITY), 5));
+  CHECK(same(pts_number_rem(5, 0), NAN));
+  CHECK(same(pts_number_rem(INFINITY, 2), NAN));
+  CHECK(same(pts_number_rem(NAN, 2), NAN));
+}
+
+static void power_follows_javascript(void) {
+  CHECK(same(pts_number_pow(2, 10), 1024));
+  CHECK(same(pts_number_pow(1, NAN), NAN));
+  CHECK(same(pts_number_pow(1, INFINITY), NAN));
+  CHECK(same(pts_number_pow(-1, -INFINITY), NAN));
+  CHECK(same(pts_number_pow(NAN, 0), 1));
+  CHECK(same(pts_number_pow(0, -1), INFINITY));
+  CHECK(same(pts_number_pow(-0.0, -1), -INFINITY));
+  CHECK(same(pts_number_pow(-0.0, 3), -0.0));
+  CHECK(same(pts_number_pow(-8, 1.0 / 3), NAN));
+  CHECK(same(pts_number_pow(0.5, INFINITY), 0));
+  CHECK(same(pts_number_pow(2, -INFINITY), 0));
+}
+
 /* Reads one hex bit pattern per line and prints Number::toString, for the Go differential test. */
 static int format_stdin(void) {
   char line[64];
@@ -57,5 +87,7 @@ int main(int argc, char **argv) {
     return pts_runtime_exit(format_stdin());
   }
   formats_like_javascript();
+  remainder_follows_javascript();
+  power_follows_javascript();
   return pts_runtime_exit(CHECK_DONE());
 }

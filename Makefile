@@ -21,9 +21,9 @@ build:
 test:
 	$(GO) test ./pts/... ./cmd/pts/
 
-# Only the differential tests; fails if node is missing.
+# Only the differential tests (every test named *MatchesNode); fails if node is missing.
 test-diff:
-	PTS_REQUIRE_NODE=1 $(GO) test -count=1 -run 'TestRunMatchesNode' ./pts/tests/
+	PTS_REQUIRE_NODE=1 $(GO) test -count=1 -run 'MatchesNode' ./pts/tests/
 
 test-upstream:
 	$(GO) test $(UPSTREAM_PACKAGES)

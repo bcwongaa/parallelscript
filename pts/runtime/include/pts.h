@@ -83,6 +83,24 @@ pts_string *pts_number_to_string(double value);
 enum { PTS_NUMBER_BUF_SIZE = 32 };
 size_t pts_number_format(double value, char *buf);
 
+/*
+ * Number operators whose C spelling differs from JS. Generated C must be
+ * compiled with -ffp-contract=off so a*b+c is never fused (JS rounds each step).
+ * These use clang builtins rather than <math.h>, whose macros would collide
+ * with user names in generated C.
+ */
+
+/* `x % y`: the remainder of truncating division, with the dividend's sign (exactly C fmod). */
+static inline double pts_number_rem(double x, double y) { return __builtin_fmod(x, y); }
+
+/* `x ** y`: C pow, except that JS says NaN for x ** NaN and (+-1) ** +-Infinity. */
+static inline double pts_number_pow(double x, double y) {
+  if (y != y || (__builtin_isinf(y) && (x == 1 || x == -1))) {
+    return __builtin_nan("");
+  }
+  return __builtin_pow(x, y);
+}
+
 /* ---------------------------------------------------------------- dynamic values */
 
 /*

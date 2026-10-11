@@ -4,39 +4,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "ryu/ryu.h"
+
 /* The longest Number::toString output is 25 bytes, e.g. "-1.2345678901234567e-308". */
 _Static_assert(PTS_NUMBER_BUF_SIZE >= 26, "number buffer too small");
 
-enum { MAX_SIGNIFICANT_DIGITS = 17 };
+enum { MAX_SIGNIFICANT_DIGITS = 17, RYU_BUF_SIZE = 25 };
 
 /*
  * Finds the shortest decimal digit string that round-trips to `value` (> 0,
- * finite). Writes the digits (no dot, no leading zeros) and returns their
- * count; *point is the position of the decimal point relative to the first
- * digit, i.e. value = 0.DIGITS * 10^point.
+ * finite) and, among those, the one closest to it (ties to even), as
+ * ECMAScript Number::toString requires. Writes the digits (no dot, no leading
+ * or trailing zeros) and returns their count; *point is the position of the
+ * decimal point relative to the first digit, i.e. value = 0.DIGITS * 10^point.
  *
- * printf's %.*e is correctly rounded, so the first precision that round-trips
- * gives the shortest digits closest to the value, which is what ECMAScript
- * Number::toString requires. M1.1 replaces this with a Ryu-style algorithm.
+ * Ryu does the work; its output is "D[.DDD]E[-]X", which is parsed back here.
  */
 static int shortest_digits(double value, char digits[MAX_SIGNIFICANT_DIGITS + 1], int *point) {
-  char scientific[40];
-  for (int precision = 0; precision < MAX_SIGNIFICANT_DIGITS; precision++) {
-    snprintf(scientific, sizeof scientific, "%.*e", precision, value);
-    if (strtod(scientific, NULL) == value || precision == MAX_SIGNIFICANT_DIGITS - 1) {
-      break;
-    }
-  }
-  /* scientific is "D.DDDDe[+-]XX" or "De[+-]XX". */
+  char scientific[RYU_BUF_SIZE];
+  int len = d2s_buffered_n(value, scientific);
+  scientific[len] = '\0';
   int count = 0;
   const char *cursor = scientific;
-  for (; *cursor != 'e'; cursor++) {
+  for (; *cursor != 'E'; cursor++) {
     if (*cursor != '.') {
       digits[count++] = *cursor;
     }
-  }
-  while (count > 1 && digits[count - 1] == '0') {
-    count--;
   }
   digits[count] = '\0';
   *point = atoi(cursor + 1) + 1;

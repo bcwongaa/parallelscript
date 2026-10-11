@@ -6,11 +6,13 @@ package lower
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"unicode"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/jsnum"
 	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
@@ -18,6 +20,31 @@ import (
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
+
+// binaryOps maps TypeScript operator tokens to IR operators. == and != mean === and
+// !== here because lowering only accepts operands of one primitive type.
+var binaryOps = map[ast.Kind]ir.BinaryOp{
+	ast.KindPlusToken:                    ir.Add,
+	ast.KindMinusToken:                   ir.Sub,
+	ast.KindAsteriskToken:                ir.Mul,
+	ast.KindSlashToken:                   ir.Div,
+	ast.KindPercentToken:                 ir.Rem,
+	ast.KindAsteriskAsteriskToken:        ir.Pow,
+	ast.KindLessThanToken:                ir.Lt,
+	ast.KindLessThanEqualsToken:          ir.Le,
+	ast.KindGreaterThanToken:             ir.Gt,
+	ast.KindGreaterThanEqualsToken:       ir.Ge,
+	ast.KindEqualsEqualsEqualsToken:      ir.Eq,
+	ast.KindExclamationEqualsEqualsToken: ir.Ne,
+	ast.KindEqualsEqualsToken:            ir.Eq,
+	ast.KindExclamationEqualsToken:       ir.Ne,
+}
+
+// libConstants are the global constants of the ES library that lower to number constants.
+var libConstants = map[string]float64{
+	"NaN":      math.NaN(),
+	"Infinity": math.Inf(1),
+}
 
 // preludeBuiltins maps prelude members, by "Interface.member", to the runtime functions that implement them.
 var preludeBuiltins = map[string]*ir.Builtin{
@@ -29,7 +56,7 @@ var preludeBuiltins = map[string]*ir.Builtin{
 func Program(ctx context.Context, program *frontend.Program) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{checker: c, file: program.Entry, locals: map[*ast.Symbol]*ir.Local{}}
+	l := &lowerer{program: program.TS, checker: c, file: program.Entry, locals: map[*ast.Symbol]*ir.Local{}}
 	main := &ir.Func{
 		Name:   "main",
 		Pos:    ir.Pos{File: program.Entry.FileName(), Line: 1},
@@ -40,6 +67,7 @@ func Program(ctx context.Context, program *frontend.Program) (*ir.Program, []dia
 }
 
 type lowerer struct {
+	program *compiler.Program
 	checker *checker.Checker
 	file    *ast.SourceFile
 	locals  map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
@@ -185,13 +213,18 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.expression(node.Expression())
 	case ast.KindCallExpression:
 		return l.call(node)
+	case ast.KindBinaryExpression:
+		return l.binary(node)
+	case ast.KindPrefixUnaryExpression:
+		return l.prefixUnary(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
 }
 
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
-	if local, ok := l.locals[l.checker.GetSymbolAtLocation(node)]; ok {
+	symbol := l.checker.GetSymbolAtLocation(node)
+	if local, ok := l.locals[symbol]; ok {
 		if local == nil {
 			return nil
 		}
@@ -199,6 +232,9 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	}
 	if node.Text() == "undefined" {
 		return &ir.UndefinedConst{} // a local named undefined was found above
+	}
+	if value, ok := libConstants[node.Text()]; ok && l.isDeclaredInDefaultLib(symbol) {
+		return &ir.NumberConst{Value: value}
 	}
 	l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
 	return nil
@@ -228,6 +264,58 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		args = append(args, box(arg))
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: args}
+}
+
+func (l *lowerer) isDeclaredInDefaultLib(symbol *ast.Symbol) bool {
+	return symbol != nil && symbol.ValueDeclaration != nil &&
+		l.program.IsSourceFileDefaultLibrary(ast.GetSourceFileOfNode(symbol.ValueDeclaration).Path())
+}
+
+func (l *lowerer) binary(node *ast.Node) ir.Expr {
+	expr := node.AsBinaryExpression()
+	op, ok := binaryOps[expr.OperatorToken.Kind]
+	if !ok {
+		l.notSupportedYet(node, describe(node)+" is")
+		return nil
+	}
+	x := l.expression(expr.Left)
+	y := l.expression(expr.Right)
+	if x == nil || y == nil {
+		return nil
+	}
+	if !acceptsOperands(op, x.Type(), y.Type()) {
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s and %s is", describe(node), x.Type(), y.Type()))
+		return nil
+	}
+	return &ir.Binary{Op: op, X: x, Y: y}
+}
+
+// acceptsOperands reports whether the IR can apply op to operands of these types.
+func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
+	if op == ir.Eq || op == ir.Ne {
+		return x == y && (x == ir.Number || x == ir.Bool)
+	}
+	return x == ir.Number && y == ir.Number
+}
+
+func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
+	expr := node.AsPrefixUnaryExpression()
+	if expr.Operator != ast.KindMinusToken && expr.Operator != ast.KindPlusToken {
+		l.notSupportedYet(node, describe(node)+" is")
+		return nil
+	}
+	x := l.expression(expr.Operand)
+	if x == nil {
+		return nil
+	}
+	if x.Type() != ir.Number {
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
+		return nil
+	}
+	if expr.Operator == ast.KindPlusToken {
+		return x // +x is x for a number
+	}
+	return &ir.Unary{Op: ir.Neg, X: x}
 }
 
 // builtin returns the runtime function a callee refers to, or nil if it isn't a prelude builtin.

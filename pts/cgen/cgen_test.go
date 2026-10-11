@@ -176,3 +176,31 @@ func TestEveryPrimitiveTypeCanBeAStoredLocal(t *testing.T) {
 	nested := &ir.Block{At: at(6), Stmts: []ir.Stmt{logAt(7, refs...)}}
 	assert.Equal(t, run(t, programOf(append(stmts, nested, logAt(8))...)), "1.5 true text undefined null\n\n")
 }
+
+func binary(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr { return &ir.Binary{Op: op, X: x, Y: y} }
+
+func TestOperatorsEmitParenthesizedC(t *testing.T) {
+	t.Parallel()
+	expr := binary(ir.Lt, binary(ir.Add, num(1), &ir.Unary{Op: ir.Neg, X: num(2)}), binary(ir.Rem, num(7), binary(ir.Pow, num(2), num(3))))
+	got := cgen.Emit(programOf(logAt(1, expr)))
+	assert.Assert(t, strings.Contains(got, "pts_value_from_bool(((1.0 + (-2.0)) < pts_number_rem(7.0, pts_number_pow(2.0, 3.0))))"), got)
+}
+
+func TestNumberOperatorsFollowJavaScript(t *testing.T) {
+	t.Parallel()
+	nan, inf, negZero := num(math.NaN()), num(math.Inf(1)), num(math.Copysign(0, -1))
+	program := programOf(
+		logAt(1, binary(ir.Add, num(0.1), num(0.2)), binary(ir.Sub, num(0), num(0)), binary(ir.Mul, negZero, num(5)),
+			binary(ir.Div, num(1), negZero), binary(ir.Div, num(0), num(0))),
+		logAt(2, binary(ir.Rem, num(-5.5), num(2)), binary(ir.Rem, num(5), inf), binary(ir.Rem, negZero, num(3)), binary(ir.Rem, num(1), num(0))),
+		logAt(3, binary(ir.Pow, num(2), num(0.5)), binary(ir.Pow, num(1), inf), binary(ir.Pow, nan, num(0)), binary(ir.Pow, negZero, num(-1))),
+		logAt(4, binary(ir.Eq, nan, nan), binary(ir.Ne, nan, nan), binary(ir.Eq, num(0), negZero), binary(ir.Lt, nan, num(1)), binary(ir.Ge, inf, inf)),
+		logAt(5, binary(ir.Eq, &ir.BoolConst{Value: true}, &ir.BoolConst{Value: true}), &ir.Unary{Op: ir.Neg, X: num(0)}),
+	)
+	assert.Equal(t, run(t, program), `0.30000000000000004 0 -0 -Infinity NaN
+-1.5 5 -0 NaN
+1.4142135623730951 NaN 1 -Infinity
+false true true false true
+true -0
+`)
+}

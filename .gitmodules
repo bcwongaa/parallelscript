@@ -9,3 +9,6 @@
 [submodule "pts/third_party/libuv"]
 	path = pts/third_party/libuv
 	url = https://github.com/libuv/libuv.git
+[submodule "pts/third_party/ryu"]
+	path = pts/third_party/ryu
+	url = https://github.com/ulfjack/ryu

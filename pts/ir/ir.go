@@ -117,6 +117,55 @@ type CallBuiltin struct {
 	Args    []Expr
 }
 
+// BinaryOp is an operator on two primitive values.
+type BinaryOp int
+
+const (
+	Add BinaryOp = iota // number + number
+	Sub
+	Mul
+	Div
+	Rem // JS %: truncating remainder
+	Pow // JS **
+	Lt
+	Le
+	Gt
+	Ge
+	Eq // === on two values of the same primitive type
+	Ne
+)
+
+var binaryOpText = [...]string{Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%", Pow: "**", Lt: "<", Le: "<=", Gt: ">", Ge: ">=", Eq: "===", Ne: "!=="}
+
+func (op BinaryOp) String() string { return binaryOpText[op] }
+
+// IsComparison reports whether the operator yields a boolean.
+func (op BinaryOp) IsComparison() bool { return op >= Lt }
+
+// Binary applies Op to X and Y. Arithmetic and ordering take numbers; Eq and Ne take
+// two values of the same type.
+type Binary struct {
+	Op   BinaryOp
+	X, Y Expr
+}
+
+// UnaryOp is an operator on one primitive value.
+type UnaryOp int
+
+const (
+	Neg UnaryOp = iota // -number
+)
+
+var unaryOpText = [...]string{Neg: "-"}
+
+func (op UnaryOp) String() string { return unaryOpText[op] }
+
+// Unary applies Op to X.
+type Unary struct {
+	Op UnaryOp
+	X  Expr
+}
+
 func (*NumberConst) Type() Type    { return Number }
 func (*BoolConst) Type() Type      { return Bool }
 func (*StringConst) Type() Type    { return String }
@@ -125,3 +174,11 @@ func (*NullConst) Type() Type      { return Null }
 func (e *LocalRef) Type() Type     { return e.Local.Type }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
+func (*Unary) Type() Type          { return Number }
+
+func (e *Binary) Type() Type {
+	if e.Op.IsComparison() {
+		return Bool
+	}
+	return Number
+}

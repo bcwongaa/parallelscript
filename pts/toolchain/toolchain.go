@@ -41,11 +41,13 @@ func (p Profile) String() string {
 	return "release"
 }
 
+// flags compile the runtime and programs. -ffp-contract=off keeps clang from fusing
+// a*b+c into one FMA, which JS's step-by-step rounding forbids.
 func (p Profile) flags() []string {
 	if p == Sanitize {
-		return []string{"-O1", "-g", "-fno-omit-frame-pointer", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"}
+		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-omit-frame-pointer", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"}
 	}
-	return []string{"-O2", "-g"}
+	return []string{"-O2", "-g", "-ffp-contract=off"}
 }
 
 // Toolchain compiles C against the ParallelScript runtime.
@@ -96,6 +98,7 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 		flags []string
 	}{
 		{runtimeLibrary, profile.flags()},
+		{ryuLibrary, vendoredFlags},
 		{libuvLibrary, vendoredFlags},
 		{bdwgcLibrary, vendoredFlags},
 	}

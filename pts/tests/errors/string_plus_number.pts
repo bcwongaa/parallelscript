@@ -1,0 +1,4 @@
+// String concatenation arrives with M1.3.
+console.log("total: " + 1);
+
+// error: string_plus_number.pts:2:13 - error PTS1001: the `+` operator on string and number is not supported yet

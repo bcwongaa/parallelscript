@@ -3,6 +3,7 @@
 `go test ./pts/tests/` (or `make test`) runs every file here in parallel.
 
 - **`run/*.pts`**: programs that must build and run. `TestRun` compares their stdout and exit code with what they expect. `TestRunMatchesNode` (the differential test, D-O04) runs each plain-TypeScript program under Node too and requires the same stdout and exit code; stderr is never compared.
+- **Generated corpora**: `TestGeneratedNumberCorpusMatchesNode` (`numbers_test.go`) writes programs with thousands of number literals and operator applications and compares them with Node line by line. Differential tests are named `…MatchesNode`, so `make test-diff` runs them all.
 - **`errors/*.pts`**: programs that must fail to compile. `TestErrors` requires each `// error:` text to appear in the compiler's errors, formatted as `file.pts:line:col - error CODE: message`.
 
 ## Directives

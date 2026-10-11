@@ -1,3 +1,4 @@
-console.log(1 + 2);
+// Bitwise operators arrive with M1.4a.
+console.log(1 << 2);
 
-// error: PTS1001: the `+` operator is not supported yet
+// error: PTS1001: the `<<` operator is not supported yet

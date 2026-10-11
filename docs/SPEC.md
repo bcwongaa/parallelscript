@@ -345,9 +345,18 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
+- **Added in M1.1:** `+ - * / % **`, unary `-` and `+`, and `< <= > >=` on numbers; `=== !== == !=` on two numbers or two booleans (`ir.Binary`, `ir.Unary`); `NaN` and `Infinity`.
 - **IR types** are singletons compared by identity: `ir.Number` (C `double`), `ir.Bool` (`bool`), `ir.String` (`pts_string *`), `ir.Undefined` and `ir.Null` (a `pts_value` holding the constant, so boxing them is free), `ir.Value` (boxed `pts_value`), `ir.Void`. Boxing is an explicit `ir.Box` node.
 - **Statements** carry an `ir.Pos` (absolute file, 1-based line); `cgen` turns positions into `#line` directives.
 - **Builtins:** a call lowers to `ir.CallBuiltin` only if the callee resolves to a member declared in a PTS lib file and listed in `lower.preludeBuiltins` (keyed `"Interface.member"`, e.g. `"Console.log"`). A user binding that shadows `console` is therefore never mistaken for the builtin.
 - **Top-level code** is the IR function `main` (C `pts_fn_main`); top-level `let`/`const` are its C locals. M1.4b turns bindings that functions capture into globals.
 - **String literals** reach the IR exactly as the TS scanner decodes them: UTF-8, except that a lone surrogate is its 3-byte encoding (WTF-8, `stringutil.EncodeJSStringRune`). `cgen` computes `utf16_len` and the ASCII flag at compile time.
 - **Adding a construct:** handle it in `pts/lower` (with a lowering test on the printed IR), add the IR node and its printer case, and the `cgen` case (with a compile-and-run test). Run `go test ./pts/... ./cmd/pts/`.
+
+### 9.3 Numbers (M1.1)
+
+- `number` is C `double`. `+ - * /` and the comparisons are the C operators (fully parenthesised in generated C); `%` is `pts_number_rem` (C `fmod`) and `**` is `pts_number_pow` (C `pow` plus JS's NaN cases), both inline in `pts.h` (D-011).
+- Everything is compiled with `-ffp-contract=off` (in `toolchain.Profile.flags`), so no expression is fused into an FMA. x86-64 evaluates doubles in SSE2 registers (`FLT_EVAL_METHOD` 0), so there is no excess precision either.
+- Constants: `cgen` writes the shortest round-trip decimal with a `.0` or exponent (`1.0`, `1e+21`); `-0` is `(-0.0)`; `NaN` and `Infinity` are `__builtin_nan("")` and `__builtin_inf()`.
+- Number::toString (`pts_number_format`) takes the shortest digits from Ryu (`pts/third_party/ryu`, `libryu.a`) and applies ECMAScript's notation rules itself.
+- Tests: `pts/runtime/tests/number_test.c` (formatting, `%` and `**` edge cases, and the 25,000-value comparison with `jsnum`), `pts/tests/run/{arithmetic,comparisons,special_numbers}.pts`, and `TestGeneratedNumberCorpusMatchesNode` (`pts/tests/numbers_test.go`): 4,000 literals and every operator on 16 special operands and 1,200 random pairs, compared line by line with Node.
