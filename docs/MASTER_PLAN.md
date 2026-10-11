@@ -71,7 +71,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Unsupported-feature compile errors: `var`, `eval`, `with`, `arguments` and the rest of the brief's list.
 - [x] **M1.4b1 Module-scope bindings in functions** (464de5e4a) (split from M1.4b by D-021).
   - Top-level bindings that functions use become C globals (until then they are locals of the top-level code), with JS's "Cannot access before initialization" check.
-- [ ] **M1.4b2 Modules** (added by D-008, split by D-021).
+- [x] **M1.4b2 Modules** (34b33d66a) (added by D-008, split by D-021).
   - ES module `import`/`export` between `.pts` files with relative specifiers (D-L19), including `export default`, re-exports and namespace imports (`import * as m`).
   - Module initialisation in dependency order, each module once; import cycles behave as in Node for the cases tsc accepts.
 - [ ] **M1.5 Benchmarks setup.**
