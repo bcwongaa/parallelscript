@@ -119,7 +119,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.5b1 Methods in object literals and methods as values** (ebd3326a3) (split from M2.5 by D-040, from M2.5b by D-043).
   - Methods in object literals, with `this` bound to the object (moved from M2.3b2 by D-036).
   - Methods as values, with JS's `this` rules for them; `bind` and `call` where the types allow.
-- [ ] **M2.5b2 Accessors in object literals and `apply`** (split from M2.5b by D-043).
+- [x] **M2.5b2 Accessors in object literals and `apply`** (f4c1d040f) (split from M2.5b by D-043).
   - Getters and setters in object literals, through interfaces too, printed as Node prints them (`[Getter]`, `[Setter]`, `[Getter/Setter]`).
   - `apply` where the types allow (an array argument for a function whose parameters all have its element type).
 - [ ] **M2.5c `Map` and `Set`** (split from M2.5 by D-040).

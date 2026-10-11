@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.5b2 Accessors in object literals and `apply`
+- **Next task:** M2.5c `Map` and `Set`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.5b2 Accessors in object literals and `apply`: getters and setters in literals as per-object closures, through interfaces too, printed `[Getter]`/`[Setter]`/`[Getter/Setter]` as Node does; `apply` with an array literal (D-045, SPEC §9.23).
 - M2.5b1 Methods in object literals and methods as values: literal methods are closures in shape fields called with the object as `this` (direct field access), reachable through interfaces by method-table entries; `o.m` as a value is bound to `o` (a documented difference: JS leaves it unbound); static methods as values; `bind` (with leading arguments) and `call` on methods and function values; tuple rest parameters in function types (D-044, SPEC §9.22). M2.5b split by D-043.
 - M2.4c Array methods with callbacks: `forEach`, `map`, `filter`, `flatMap`, `some`, `every`, `find`/`findIndex`/`findLast`/`findLastIndex` (`find(…)!` throws if none), `reduce`/`reduceRight` (with or without an initial value), `Array.from` with a mapper, `sort` with a comparator (stable), all matching Node; each method is a helper generated in IR per array and callback type, calling the callback with the arguments it takes (D-042, SPEC §9.21). Unions of number or string literals (`-1 | 0 | 1`) are numbers or strings.
 - M2.5a Closures and arrow functions: function types as `pts_closure *` values (descriptor, code, captures); arrow functions, function expressions (named ones see themselves) and nested function declarations (hoisted to their block) capture enclosing variables by value, or in shared cells when they may change; for loops copy `let` cells per iteration; arrows use their method's `this` (and `super.m()`); function declarations as values; calls of function values; adapters between function types (fewer parameters, void results, class parameter types) and arrow literals shaped by their context; `console.log` (`[Function: name]` with JS's NamedEvaluation names), `typeof`, `===` (D-041, SPEC §9.20). M2.5 split by D-040 (M2.4c next, then M2.5b `this` in methods, M2.5c `Map`/`Set`). Fixed: a closure using its variable in its own initialiser was silently dropped.
@@ -46,9 +47,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.5b2 Accessors in object literals and `apply`: getters/setters in literals as per-object closures (like D-044's methods) in hidden fields, with `PTS_GETTER`/`PTS_SETTER` method-table entries so `PTS_GET`/`PTS_SET` through interfaces find them (`markAccessorProperties` must count shapes' accessors), direct access on shape-typed `this`, and `console.log` printing `[Getter]`, `[Setter]`, `[Getter/Setter]` (a field kind for accessor entries that `pts_field_address_slow` must skip). `apply(thisArg, array)` for functions whose parameters all take the array's element type.
-2. M2.5c `Map` and `Set`.
-3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M2.5c `Map` and `Set`: insertion order and SameValueZero keys (strings by content, numbers by value with NaN equal to NaN and -0 equal to 0, objects by identity); `get` returns `V | undefined` (a dynamic value, like `find`; `get(k)!` could throw like `find(…)!`), `set` returns the map, `has`, `delete`, `clear`, `size`, `forEach` (callbacks as in D-042, through generated helpers), `for…of` over a map needs `[k, v]` destructuring and tuples (M2.6), so `for (const k of m.keys())` and `values()` could come first, or entries as a pair type; `console.log` prints `Map(2) { 'a' => 1, 'b' => 2 }` and `Set(2) { 1, 2 }`. Race safety (D-L13): a hash table whose buckets and entries are replaced, never resized in place, like array buffers.
+2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -62,7 +62,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (79 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (80 run tests, 1 skipped; 43 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -88,6 +88,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.5b2 done.
 - 2026-10-11: M2.5b1 done (M2.5b split by D-043).
 - 2026-10-11: M2.4c done.
 - 2026-10-11: M2.5a done (M2.5 split by D-040).
