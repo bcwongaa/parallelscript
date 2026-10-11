@@ -43,7 +43,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M0.7 CI.** (6ee609b)
   - A GitHub Actions workflow (`.github/workflows/pts.yml`) that installs clang, builds `pts`, runs the PTS tests, the differential tests and the touched upstream Go tests on every push.
   - Disable or limit the upstream workflows that cannot run in this repo (release, CodeQL and similar); leave a note in `docs/FORK.md`.
-- [ ] **M0.8 Milestone M0.** Run the checklist (benchmarks n/a). The Telegram message also states the plan ahead.
+- [x] **M0.8 Milestone M0.** (m0) Run the checklist (benchmarks n/a). The Telegram message also states the plan ahead.
 
 ## M1: Core language
 - [ ] **M1.1 Numbers.**
