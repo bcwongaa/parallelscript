@@ -20,14 +20,15 @@ type library struct {
 var vendoredFlags = []string{"-O2", "-g", "-fPIC", "-w"}
 
 // bdwgc as one translation unit (extra/gc.c), configured like its CMake defaults
-// for a threaded build with parallel marking and thread-local allocation (D-L13).
+// for a threaded build with parallel marking, thread-local allocation and gcj-style
+// allocation, which objects use (D-L13, D-024).
 var bdwgcLibrary = library{
 	name:     "gc",
 	dir:      "pts/third_party/bdwgc",
 	sources:  []string{"extra/gc.c"},
 	includes: []string{"pts/third_party/bdwgc/include"},
 	defines: []string{
-		"GC_THREADS", "PARALLEL_MARK", "THREAD_LOCAL_ALLOC", "GC_BUILTIN_ATOMIC",
+		"GC_THREADS", "PARALLEL_MARK", "THREAD_LOCAL_ALLOC", "GC_BUILTIN_ATOMIC", "GC_GCJ_SUPPORT", "GC_ENABLE_SUSPEND_THREAD",
 		"ALL_INTERIOR_POINTERS", "NO_EXECUTE_PERMISSION", "HANDLE_FORK", "ENABLE_DISCLAIM",
 		"GC_ATOMIC_UNCOLLECTABLE", "HAVE_DLADDR", "HAVE_DL_ITERATE_PHDR", "USE_MMAP", "USE_MUNMAP",
 		"_REENTRANT", "NDEBUG",

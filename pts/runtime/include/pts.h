@@ -20,6 +20,7 @@
 
 #define GC_THREADS
 #include <gc.h>
+#include <gc_mark.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,17 +32,73 @@ typedef enum pts_kind {
   PTS_KIND_STRING = 1,
   PTS_KIND_INT64 = 2,  /* a boxed int64_t (pts_boxed_int64) */
   PTS_KIND_UINT64 = 3, /* a boxed uint64_t (pts_boxed_uint64) */
+  PTS_KIND_OBJECT = 4, /* an instance of a class or object type, described by its type's fields */
 } pts_kind;
 
-/* Every runtime type has a descriptor; every heap object starts with a pointer to one. */
+/* What a field of an object holds, so that console.log and JSON can read it. */
+typedef enum pts_field_kind {
+  PTS_FIELD_NUMBER = 1, /* double */
+  PTS_FIELD_BOOL,       /* bool */
+  PTS_FIELD_STRING,     /* pts_string * */
+  PTS_FIELD_VALUE,      /* pts_value */
+  PTS_FIELD_OBJECT,     /* pts_object *, of the field's static type or a subtype */
+  PTS_FIELD_I8,
+  PTS_FIELD_I16,
+  PTS_FIELD_I32,
+  PTS_FIELD_I64,
+  PTS_FIELD_U8,
+  PTS_FIELD_U16,
+  PTS_FIELD_U32,
+  PTS_FIELD_U64,
+  PTS_FIELD_F32,
+} pts_field_kind;
+
+typedef struct pts_field {
+  const char *name;
+  uint32_t offset; /* from the start of the object, header included */
+  pts_field_kind kind;
+} pts_field;
+
+typedef struct pts_method {
+  const char *name;
+  void (*function)(void); /* cast to the method's own signature to call it */
+} pts_method;
+
+/*
+ * Every runtime type has a descriptor, and every heap object starts with a pointer
+ * to its type's. The descriptor is also the object's layout for the collector:
+ * bdwgc's gcj-style allocation reads gc_descr from the descriptor's second word.
+ */
 typedef struct pts_type {
   pts_kind kind;
-  const char *name;
+  GC_word gc_descr;              /* which words of an instance may hold pointers (PTS_GC_*) */
+  const char *name;              /* the class name, as console.log shows it */
+  const struct pts_type *parent; /* the superclass, or NULL */
+  uint32_t size;                 /* of an instance in bytes, header included */
+  uint32_t field_count;
+  const pts_field *fields; /* in declaration order, inherited ones first */
+  uint32_t method_count;
+  const pts_method *methods;
 } pts_type;
+
+_Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
+
+/*
+ * Mark descriptors for pts_type.gc_descr. PTS_GC_NO_POINTERS: the instance holds no
+ * pointers, so it is allocated atomic and never scanned. PTS_GC_POINTER_WORDS(bits):
+ * the words whose bit is set (bit i for word i, the header being word 0) may hold
+ * pointers; instances of up to 62 words. PTS_GC_ALL_WORDS(size): every word may (any size).
+ */
+#define PTS_GC_NO_POINTERS ((GC_word)0)
+#define PTS_GC_POINTER_WORDS(bits) (((GC_word)__builtin_bitreverse64((uint64_t)(bits))) | GC_DS_BITMAP)
+#define PTS_GC_ALL_WORDS(size) ((GC_word)(size) | GC_DS_LENGTH)
 
 typedef struct pts_object {
   const pts_type *type;
 } pts_object;
+
+/* A new instance of type with every field zero (0, false, NULL; a pts_value field is 0, not undefined). */
+void *pts_object_new(const pts_type *type);
 
 /* ---------------------------------------------------------------- strings */
 

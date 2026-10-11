@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-const pts_type pts_string_type = {PTS_KIND_STRING, "string"};
+const pts_type pts_string_type = {.kind = PTS_KIND_STRING, .gc_descr = PTS_GC_NO_POINTERS, .name = "string"};
 
 _Noreturn void pts_throw_invalid_string_length(void) { pts_panic("RangeError", "Invalid string length"); }
 

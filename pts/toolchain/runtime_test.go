@@ -52,8 +52,9 @@ func run(t *testing.T, exe string, stdin string, args ...string) runResult {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), exe, args...)
 	cmd.Stdin = strings.NewReader(stdin)
-	// bdwgc's heap looks like leaks to LeakSanitizer.
-	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=detect_leaks=0")
+	// bdwgc's heap looks like leaks to LeakSanitizer, and bdwgc can't see the fake stack
+	// frames ASan keeps locals in to detect use after return, so it would miss those roots.
+	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

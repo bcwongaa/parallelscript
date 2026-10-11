@@ -1,5 +1,6 @@
 #include "pts.h"
 
+#include <gc_gcj.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@ void pts_runtime_init(int argc, char **argv) {
   (void)argv;
   GC_INIT();
   GC_allow_register_threads();
+  GC_init_gcj_malloc(GC_GCJ_RESERVED_MARK_PROC_INDEX, NULL); /* objects: see pts_object_new */
 }
 
 int pts_runtime_exit(int code) {

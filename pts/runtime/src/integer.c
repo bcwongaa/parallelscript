@@ -1,7 +1,9 @@
 #include "pts.h"
 
-const pts_type pts_int64_type = {PTS_KIND_INT64, "int"};
-const pts_type pts_uint64_type = {PTS_KIND_UINT64, "u64"};
+const pts_type pts_int64_type = {
+    .kind = PTS_KIND_INT64, .gc_descr = PTS_GC_NO_POINTERS, .name = "int", .size = sizeof(pts_boxed_int64)};
+const pts_type pts_uint64_type = {
+    .kind = PTS_KIND_UINT64, .gc_descr = PTS_GC_NO_POINTERS, .name = "u64", .size = sizeof(pts_boxed_uint64)};
 
 /* The largest magnitude up to which every integer is exactly a double. */
 #define EXACT_DOUBLE_LIMIT (INT64_C(1) << 53)
