@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting Leaf[] to HNode[]
 // Huffman coding: build the tree with a priority queue, encode, decode and measure compression.
 
 abstract class HNode {

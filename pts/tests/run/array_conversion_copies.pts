@@ -1,0 +1,58 @@
+// An array converts to an array type of other elements by a copy where nothing can tell
+// the copy from the array (D-094): a new array, a const holding one that is used once,
+// and an argument for a parameter that the function only reads.
+abstract class Shape {
+  abstract area(): number;
+}
+class Square extends Shape {
+  constructor(readonly side: number) { super(); }
+  area() { return this.side * this.side; }
+}
+class Circle extends Shape {
+  constructor(readonly r: number) { super(); }
+  area() { return 3 * this.r * this.r; }
+}
+
+function total(shapes: Shape[]): number {
+  let sum = 0;
+  for (const s of shapes) sum += s.area();
+  return sum + shapes.length + shapes.filter((s) => s.area() > 4).length;
+}
+function largest(shapes: readonly Shape[], names: readonly string[]): string {
+  const areas = shapes.map((s) => shapes.indexOf(s) + s.area());
+  return names[areas.indexOf(Math.max(...areas))];
+}
+
+const squares = [new Square(3), new Square(1)];
+console.log(total(squares), total([new Square(2), new Circle(2)]));
+const mixed = [new Square(2), new Circle(1)];
+console.log(largest(mixed, ["square", "circle"] as const));
+
+const queue: Shape[] = squares.map((s) => new Square(s.side + 1));
+queue.push(new Circle(3));
+console.log(queue.length, total(queue), squares.length);
+
+const slots = [1, 2, 3].map((n) => new Square(n));
+let current: (Shape | null)[] = slots;
+current.push(null);
+console.log(current.length, current[3]);
+
+const parsed = ["1", "x", "3"].map((s) => Number(s)).filter((n) => !Number.isNaN(n));
+const values: (number | string)[] = parsed;
+values.push("end");
+console.log(values);
+
+const pairs: [string, number | null][] = [["a", 1], ["b", null], ["c", 3]];
+const known = pairs.filter((p): p is [string, number] => p[1] !== null);
+console.log(known.map(([k, v]) => k + v).join(" "));
+
+const [command, argument] = "halt".split(" ");
+console.log(command, argument === undefined);
+// expect:
+// 13 19
+// square
+// 3 52 2
+// 4 null
+// [ 1, 3, 'end' ]
+// a1 c3
+// halt true

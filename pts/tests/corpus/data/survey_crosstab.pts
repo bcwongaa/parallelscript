@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting {age: string; comment: string | undefined; id: number; plan: string; satisfaction: number; wouldRecommend: boolean}[] to {age: ...
 type Satisfaction = 1 | 2 | 3 | 4 | 5;
 type AgeBand = "18-29" | "30-44" | "45-64" | "65+";
 

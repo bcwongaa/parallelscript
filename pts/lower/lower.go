@@ -875,6 +875,14 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
 	case isDynamicArray(value.Type()) && isArray(target):
 		return l.dynamicConversion(box(value), target, node) // an any[] (`new Array(n).fill(0)`, `Array.from(…, () => [])`) copied and checked, as dynamic data is (D-071)
+	case (isArray(value.Type()) || isTuple(value.Type())) && isArray(target) && (l.isNewArray(node) || l.isReadOnlyArgument(node)):
+		if isTuple(value.Type()) {
+			return l.tupleAsArray(value, target.(*ir.Array), node)
+		}
+		return l.dynamicConversion(box(value), target, node) // `leaves.map(…)` as an HNode[]: a copy no one can tell from the array (D-094)
+	case (isArray(value.Type()) || isTuple(value.Type())) && isArray(target):
+		l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is", value.Type(), target))
+		return nil
 	case isObject(value.Type()) && isRecord(target):
 		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "using a `%s` as a hash-map object (`%s`) is not supported yet; a copy of its properties, `{ ...o }`, is one", value.Type(), target))
 		return nil

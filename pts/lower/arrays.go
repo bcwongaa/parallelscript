@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -667,4 +668,170 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
 		loop,
 	}}}
+}
+
+// newArrayMembers are the library functions and methods (as libMemberName names them)
+// whose result is a new array that nothing else holds.
+var newArrayMembers = map[string]bool{
+	"ArrayConstructor.from": true, "ArrayConstructor.of": true, "String.split": true,
+	"ObjectConstructor.keys": true, "ObjectConstructor.values": true, "ObjectConstructor.entries": true,
+}
+
+// newArrayMethods are the methods of arrays whose result is a new array.
+var newArrayMethods = map[string]bool{
+	"map": true, "filter": true, "slice": true, "concat": true, "flat": true, "flatMap": true, "splice": true,
+	"toSorted": true, "toReversed": true, "toSpliced": true, "with": true,
+}
+
+// sameArrayMethods are the methods of arrays that return the array they are called on.
+var sameArrayMethods = map[string]bool{"sort": true, "reverse": true, "fill": true, "copyWithin": true}
+
+// isNewArray reports whether node makes an array that nothing else holds, which a copy
+// can't be told apart from (D-094): an array literal, a call of a function or method that
+// makes a new array, or a const whose only use is node and whose initializer is one.
+func (l *lowerer) isNewArray(node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindArrayLiteralExpression:
+		return true
+	case ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression:
+		return l.isNewArray(node.Expression())
+	case ast.KindNewExpression:
+		return l.typeAt(node).Symbol() != nil && l.typeAt(node).Symbol().Name == "Array"
+	case ast.KindCallExpression:
+		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
+		if callee.Kind != ast.KindPropertyAccessExpression {
+			return false
+		}
+		member := l.libMemberName(callee)
+		if newArrayMembers[member] {
+			return true
+		}
+		owner, method, _ := strings.Cut(member, ".")
+		if owner != "Array" && owner != "ReadonlyArray" {
+			return false
+		}
+		return newArrayMethods[method] || sameArrayMethods[method] && l.isNewArray(callee.Expression())
+	case ast.KindIdentifier:
+		return l.isSingleUseConst(node)
+	}
+	return false
+}
+
+// isSingleUseConst reports whether node names a local const whose initializer makes a
+// new array (isNewArray) and which node is the only use of.
+func (l *lowerer) isSingleUseConst(node *ast.Node) bool {
+	symbol := l.checker.GetSymbolAtLocation(node)
+	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindVariableDeclaration {
+		return false
+	}
+	declaration := symbol.ValueDeclaration
+	if declaration.Parent.Flags&ast.NodeFlagsConst == 0 || declaration.Initializer() == nil || !l.isNewArray(declaration.Initializer()) {
+		return false
+	}
+	uses := 0
+	var visit func(n *ast.Node) bool
+	visit = func(n *ast.Node) bool {
+		if n.Kind == ast.KindIdentifier && n != declaration.Name() && n.Text() == node.Text() && l.checker.GetSymbolAtLocation(n) == symbol {
+			uses++
+		}
+		return uses > 1 || n.ForEachChild(visit)
+	}
+	ast.GetSourceFileOfNode(node).AsNode().ForEachChild(visit)
+	return uses == 1
+}
+
+// readOnlyArrayMethods are the methods of arrays that don't change the array.
+var readOnlyArrayMethods = map[string]bool{
+	"at": true, "concat": true, "entries": true, "every": true, "filter": true, "find": true, "findIndex": true,
+	"findLast": true, "findLastIndex": true, "flat": true, "flatMap": true, "forEach": true, "includes": true,
+	"indexOf": true, "join": true, "keys": true, "lastIndexOf": true, "map": true, "reduce": true, "reduceRight": true,
+	"slice": true, "some": true, "toReversed": true, "toSorted": true, "toSpliced": true, "toString": true,
+	"values": true, "with": true,
+}
+
+// isReadOnlyArgument reports whether node is an argument of a call of a function of the
+// program whose parameter for it the function only reads (onlyReads), so a copy passed
+// there can't be told apart from the array (D-094).
+func (l *lowerer) isReadOnlyArgument(node *ast.Node) bool {
+	call := node.Parent
+	if call == nil || call.Kind != ast.KindCallExpression && call.Kind != ast.KindNewExpression {
+		return false
+	}
+	index := slices.Index(call.Arguments(), node)
+	signature := l.checker.GetResolvedSignature(call)
+	if index < 0 || signature == nil || signature.Declaration() == nil {
+		return false
+	}
+	fn := signature.Declaration()
+	if !ast.IsFunctionLike(fn) || fn.Body() == nil || index >= len(fn.Parameters()) {
+		return false // a library function has no body
+	}
+	param := fn.Parameters()[index]
+	if param.AsParameterDeclaration().DotDotDotToken != nil || param.Name().Kind != ast.KindIdentifier || ast.IsParameterPropertyDeclaration(param, fn) {
+		return false
+	}
+	return l.onlyReads(fn, l.checker.GetSymbolAtLocation(param.Name()))
+}
+
+// onlyReads reports whether every use of the array parameter param in the body of fn
+// reads it: its elements, its length, the methods that don't change it, `for…of` and
+// spreads, in fn itself or in callbacks of array methods, which can't keep it.
+func (l *lowerer) onlyReads(fn *ast.Node, param *ast.Symbol) bool {
+	readOnly := true
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		if node.Kind == ast.KindIdentifier && node.Text() == param.Name && l.checker.GetSymbolAtLocation(node) == param {
+			readOnly = l.isInCallbacksOf(node, fn) && isArrayRead(node)
+			return !readOnly
+		}
+		return node.ForEachChild(visit)
+	}
+	visit(fn.Body())
+	return readOnly
+}
+
+// isInCallbacksOf reports whether node is in fn, directly or in functions passed to array
+// methods there (`as.map(() => bs.map(…))`), which run before the method returns.
+func (l *lowerer) isInCallbacksOf(node *ast.Node, fn *ast.Node) bool {
+	for inner := ast.GetContainingFunction(node); inner != fn; inner = ast.GetContainingFunction(inner) {
+		if inner == nil || inner.Parent == nil || inner.Parent.Kind != ast.KindCallExpression || !slices.Contains(inner.Parent.Arguments(), inner) {
+			return false
+		}
+		call := inner.Parent
+		callee := ast.SkipParentheses(call.Expression())
+		owner, _, _ := strings.Cut(l.libMemberName(callee), ".")
+		if callee.Kind != ast.KindPropertyAccessExpression || owner != "Array" && owner != "ReadonlyArray" {
+			return false
+		}
+	}
+	return true
+}
+
+// isArrayRead reports whether the identifier of an array is used only to read it there.
+func isArrayRead(identifier *ast.Node) bool {
+	node := identifier
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	parent := node.Parent
+	switch parent.Kind {
+	case ast.KindElementAccessExpression:
+		return parent.Expression() == node && !ast.IsWriteAccess(parent)
+	case ast.KindPropertyAccessExpression:
+		if parent.Expression() != node || ast.IsWriteAccess(parent) {
+			return false
+		}
+		name := parent.Name().Text()
+		isCalled := parent.Parent.Kind == ast.KindCallExpression && parent.Parent.Expression() == parent
+		return name == "length" && !isCalled || isCalled && readOnlyArrayMethods[name]
+	case ast.KindForOfStatement:
+		return parent.Expression() == node
+	case ast.KindSpreadElement:
+		return true
+	}
+	return false
 }

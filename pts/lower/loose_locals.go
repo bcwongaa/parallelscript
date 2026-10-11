@@ -126,11 +126,12 @@ func isNullishLiteral(node *ast.Node) bool {
 	return node.Kind == ast.KindNullKeyword || node.Kind == ast.KindVoidExpression || node.Kind == ast.KindIdentifier && node.Text() == "undefined"
 }
 
-// isLoose reports whether a variable is a loose local: one whose initializer reads an
-// element (or that an array pattern binds from an array), of a type without undefined,
-// that the program tests for undefined.
+// isLoose reports whether a variable is a loose local: one of a type without undefined
+// that an array pattern binds from an array (`const [op, arg] = line.split(" ")`, where
+// JS binds undefined past the end and a program may use arg only where it is there), or
+// whose initializer reads an element and that the program tests for undefined.
 func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
-	if symbol == nil || !l.undefinedTested[symbol] || symbol.ValueDeclaration == nil {
+	if symbol == nil || symbol.ValueDeclaration == nil || !l.undefinedTested[symbol] && symbol.ValueDeclaration.Kind != ast.KindBindingElement {
 		return false
 	}
 	loose, known := l.looseSymbols[symbol]

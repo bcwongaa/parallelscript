@@ -1,0 +1,17 @@
+// An array converts to an array type of other elements only where a copy can't be told
+// from it (D-094): not where the function it is passed to changes or keeps it, nor where
+// the array is used again.
+class Animal { constructor(readonly name: string) {} }
+class Dog extends Animal {}
+function sortByName(animals: Animal[]) { animals.sort((a, b) => a.name.localeCompare(b.name)); }
+class Zoo { constructor(readonly animals: Animal[]) {} }
+const dogs = [new Dog("b"), new Dog("a")];
+sortByName(dogs);
+new Zoo(dogs);
+const pups = [new Dog("c")];
+const all: Animal[] = pups;
+console.log(all, pups);
+
+// error: array_conversions_kept.pts:9:12 - error PTS1001: using a Dog[] as a Animal[] where it may be changed or kept
+// error: array_conversions_kept.pts:10:9 - error PTS1001: using a Dog[] as a Animal[] where it may be changed or kept
+// error: array_conversions_kept.pts:12:23 - error PTS1001: using a Dog[] as a Animal[] where it may be changed or kept

@@ -141,14 +141,20 @@ func (l *lowerer) tupleArray(x ir.Expr, t *checker.Type, node *ast.Node) ir.Expr
 	if elem == nil {
 		return nil
 	}
+	return l.tupleAsArray(x, l.arrayOf(elem), node)
+}
+
+// tupleAsArray copies the elements of x, a tuple, into a new array of type array.
+func (l *lowerer) tupleAsArray(x ir.Expr, array *ir.Array, node *ast.Node) ir.Expr {
+	shape := x.Type().(*ir.Class)
 	tuple := l.newLocal("tuple", shape)
 	elems := make([]ir.Expr, len(shape.Fields))
 	for i := range elems {
-		if elems[i] = l.convert(&ir.FieldRef{X: &ir.LocalRef{Local: tuple}, Field: shape.Field(strconv.Itoa(i))}, elem, node); elems[i] == nil {
+		if elems[i] = l.convert(&ir.FieldRef{X: &ir.LocalRef{Local: tuple}, Field: shape.Field(strconv.Itoa(i))}, array.Elem, node); elems[i] == nil {
 			return nil
 		}
 	}
-	return &ir.Bind{Local: tuple, Value: x, In: &ir.NewArray{Array: l.arrayOf(elem), Elems: elems}}
+	return &ir.Bind{Local: tuple, Value: x, In: &ir.NewArray{Array: array, Elems: elems}}
 }
 
 // tupleCopyMethods are the array methods a tuple has as an array of its elements: the

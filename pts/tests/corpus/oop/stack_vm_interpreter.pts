@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting Arith | Dup | Halt | Jump | Load | Print | Push | Store[] to Instr[]
 // A small stack virtual machine with instruction classes, an assembler and a disassembler.
 
 class VMError extends Error {

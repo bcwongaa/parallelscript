@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting [number, null | number][] to [number, number][]
 type Sample = { t: number; value: number | null };
 
 interface FillReport {
