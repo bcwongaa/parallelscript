@@ -219,3 +219,20 @@ func TestStringOperationsFollowJavaScript(t *testing.T) {
 	)
 	assert.Equal(t, run(t, program), "n=0.5 falsenull undefined 9223372036854775808 -5\n7 true true true true false\n😀\n")
 }
+
+func TestStringBuiltinsCallTheRuntime(t *testing.T) {
+	t.Parallel()
+	call := func(builtin *ir.Builtin, args ...ir.Expr) ir.Expr {
+		return &ir.CallBuiltin{Builtin: builtin, Args: args}
+	}
+	box := func(x ir.Expr) ir.Expr { return &ir.Box{X: x} }
+	text := str("Héllo")
+	program := programOf(
+		logAt(1, call(ir.StringElement, text, num(1)), call(ir.StringElement, text, num(9)), box(call(ir.StringElementChecked, text, num(4))),
+			box(call(ir.StringElementEquals, text, num(0), str("H"))), box(call(ir.StringCharCodeAt, text, num(1)))),
+		logAt(2, box(call(ir.StringSlice, text, num(-3), num(math.Inf(1)))), box(call(ir.StringIndexOf, text, str("l"), num(math.NaN()))),
+			box(call(ir.StringToUpperCase, text)), box(call(ir.StringPadStart, str("7"), num(3), str("0"))), box(call(ir.StringRepeat, str("ab"), num(2)))),
+		logAt(3, box(&ir.ToString{X: call(ir.StringElement, text, num(9))})),
+	)
+	assert.Equal(t, run(t, program), "é undefined o true 233\nllo 2 HÉLLO 007 abab\nundefined\n")
+}

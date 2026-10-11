@@ -1,0 +1,4 @@
+// A builtin method can only be called; function values arrive with M1.4a and M2.5.
+const trim = "x".trim;
+
+// error: PTS1001: values of type () => string are not supported yet

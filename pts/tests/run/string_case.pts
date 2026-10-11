@@ -1,0 +1,14 @@
+// toUpperCase and toLowerCase use Unicode's full case mappings, as Node's ICU does:
+// one character may become several, and a capital sigma ending a word becomes ς.
+console.log("straße".toUpperCase(), "ﬁnancial".toUpperCase(), "ŉ".toUpperCase(), "ΐ".toUpperCase().length);
+console.log("İstanbul".toLowerCase(), "İ".toLowerCase().length, "ǅungla".toUpperCase(), "ǅungla".toLowerCase());
+console.log("ΟΔΥΣΣΕΥΣ".toLowerCase(), "Σ".toLowerCase(), "ΑΣ.".toLowerCase(), "ΑΣ.Β".toLowerCase());
+console.log("𐐀𐐁".toLowerCase(), "𐐨𐐩".toUpperCase(), "Ǆ ǆ".toLowerCase(), "µ".toUpperCase(), "ÿ".toUpperCase());
+console.log("ꭰ".toUpperCase(), "Ꭰ".toLowerCase(), "ẞ".toLowerCase(), "Kelvin K".toLowerCase());
+
+// expect:
+// STRASSE FINANCIAL ʼN 3
+// i̇stanbul 2 ǄUNGLA ǆungla
+// οδυσσευς σ ας. ασ.β
+// 𐐨𐐩 𐐀𐐁 ǆ ǆ Μ Ÿ
+// Ꭰ ꭰ ß kelvin k

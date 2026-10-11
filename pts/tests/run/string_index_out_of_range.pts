@@ -1,0 +1,12 @@
+// s[i] out of range is undefined in JS, which a string can't hold: where a string is
+// required, the read throws RangeError instead (D-015).
+// no-diff: Node prints "undefined"; this is a documented difference (docs/SPEC.md §8)
+const s = "abc";
+console.log("before", s[5]);
+const c: string = s[5];
+console.log(c);
+
+// expect:
+// before undefined
+// exit: 1
+// stderr: Uncaught RangeError: String index 5 is out of range (length 3)

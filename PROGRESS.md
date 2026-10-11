@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.3b String methods
+- **Next task:** M1.4a Control flow
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M1.3b String methods: `s[i]` (JS's `undefined` where the context takes any value, `RangeError` where a `string` is required, D-015), `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`/`toLowerCase` (full Unicode mappings and Final_Sigma from tables generated out of Node's ICU), `trim*`, `padStart`/`padEnd`, `repeat`, with UTF-16 indices (D-016, SPEC §9.6). Generated differential corpus `TestGeneratedStringCorpusMatchesNode`. Fixed quadratic local naming in `cgen` for many same-named locals.
 - M1.3a Booleans and string basics: `!`, concatenation with ToString, template literals, `.length`, string equality and ordering (UTF-16 order), lone surrogates kept as WTF-8, joined on concatenation and printed as U+FFFD (D-014, SPEC §9.5). The lone-surrogate known issue is fixed.
 - M1.2 Integer types: prelude aliases; the semantic pass `pts/check` (numeric types from annotations, untyped literals typed by context, lossless-only implicit conversions, PTS2001–PTS2003); wrapping integer arithmetic, truncating `/`, `RangeError` on division by zero and negative exponents; Rust `as`; exact 64-bit printing (D-012, SPEC §9.4).
 - M1.1 Numbers: arithmetic, unary minus/plus, comparisons and equality on numbers (and equality on booleans), `NaN`/`Infinity`; Ryu (`pts/third_party/ryu` v2.0) for Number::toString; `-ffp-contract=off`; generated differential corpus against Node (D-011, SPEC §9.3).
@@ -25,9 +26,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.3b String methods: indexing and the methods listed in `docs/MASTER_PLAN.md`, as builtins keyed `"String.<method>"` in `lower.builtins`. Calls to builtins other than `console.log` need per-builtin argument handling in `lower.call` (today every argument is boxed for `console.log`). `s[i]` out of range is `undefined` in JS, which a `string` can't hold until unions (M3.1): decide (e.g. a typed result of `string | undefined` later; for now maybe a runtime check) and log it.
-2. M1.4a Control flow: when adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered").
-3. M1.4b Modules.
+1. M1.4a Control flow. When adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered"). Once calls can have side effects, `cgen` must evaluate arguments in JS order: C leaves the order of function arguments (and of a compound literal's initialisers, as in `pts_console_log`'s argument array) unspecified, so lower effectful arguments into temporaries. With functions, the generated corpora can put each case in a function: tsc's flow analysis and clang both slow down sharply on one huge top-level function (`pts/tests/README.md`).
+2. M1.4b Modules.
+3. M1.5 Benchmarks setup.
 
 ## Build and test commands
 
@@ -41,7 +42,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number corpus); `make test-diff` for the Node differential tests alone | ok (18 run tests; 18 error tests; 5 generated number-corpus parts) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (26 run tests; 20 error tests; 5 number-corpus and 11 string-corpus parts; about 17 s) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -53,6 +54,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **Indexing a non-ASCII string is O(n)** (a scan from the start); ASCII strings are O(1). A lazy UTF-16 index needs a GC-traced field in `pts_string` (D-016): M2.1 or M8.
 - **Integer constant expressions wrap at run time** instead of failing to compile: `const b: u8 = 200 + 56` is 0 (D-012). A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Upstream, pre-existing:** `go test ./internal/execute/tsctests/ -run TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped` fails at the fork base too (verified with the PTS edits stashed). The help header's padding depends on the real version string, which changed on the 7.1 nightly branch after the baseline was written. Not ours; CI excludes it (M0.7).
 
@@ -62,6 +64,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M1.3b done.
 - 2026-10-11: M1.3a done.
 - 2026-10-11: M1.2 done.
 - 2026-10-11: M1.1 done.

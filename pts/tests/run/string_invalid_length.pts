@@ -1,0 +1,8 @@
+// A string longer than the maximum length throws RangeError, as in Node.
+console.log("x".repeat(2 ** 20).length);
+console.log("x".padStart(Infinity));
+
+// expect:
+// 1048576
+// exit: 1
+// stderr: Uncaught RangeError: Invalid string length

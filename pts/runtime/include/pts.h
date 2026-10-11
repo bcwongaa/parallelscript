@@ -311,6 +311,42 @@ static inline double pts_value_as_number(pts_value v) {
 
 static inline pts_object *pts_value_as_object(pts_value v) { return (pts_object *)(uintptr_t)v; }
 
+/* JS's ToString of a primitive value. */
+pts_string *pts_value_to_string(pts_value value);
+
+/* ---------------------------------------------------------------- String.prototype */
+
+/*
+ * String.prototype methods, with JS semantics: indices count UTF-16 code units and
+ * index arguments go through ToIntegerOrInfinity, so NaN stands for a left-out index
+ * that means 0 and Infinity for one that means the length. Results that would exceed
+ * the maximum string length throw RangeError: Invalid string length.
+ */
+
+/* s[index]: the one-unit string at an integer index in range, or undefined (D-015). */
+pts_value pts_string_element(pts_string *string, double index);
+/* s[index] where a string is required: throws RangeError for an index out of range. */
+pts_string *pts_string_element_checked(pts_string *string, double index);
+/* s[index] === other, without making the one-unit string. */
+bool pts_string_element_equals(pts_string *string, double index, pts_string *other);
+
+double pts_string_char_code_at(pts_string *string, double index);
+pts_string *pts_string_slice(pts_string *string, double start, double end);
+pts_string *pts_string_substring(pts_string *string, double start, double end);
+double pts_string_index_of(pts_string *string, pts_string *search, double position);
+bool pts_string_includes(pts_string *string, pts_string *search, double position);
+bool pts_string_starts_with(pts_string *string, pts_string *search, double position);
+bool pts_string_ends_with(pts_string *string, pts_string *search, double end_position);
+pts_string *pts_string_to_upper_case(pts_string *string);
+pts_string *pts_string_to_lower_case(pts_string *string);
+pts_string *pts_string_trim(pts_string *string);
+pts_string *pts_string_trim_start(pts_string *string);
+pts_string *pts_string_trim_end(pts_string *string);
+pts_string *pts_string_pad_start(pts_string *string, double max_length, pts_string *fill);
+pts_string *pts_string_pad_end(pts_string *string, double max_length, pts_string *fill);
+/* Throws RangeError: Invalid count value for a negative or infinite count. */
+pts_string *pts_string_repeat(pts_string *string, double count);
+
 /* ---------------------------------------------------------------- console */
 
 /* console.log(args...): Node's formatting for primitives, joined by spaces. */

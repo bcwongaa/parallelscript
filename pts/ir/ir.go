@@ -144,17 +144,47 @@ type Box struct{ X Expr }
 // Builtin is a runtime function with a fixed signature.
 type Builtin struct {
 	Name   string // as written in TypeScript
+	Params []Type // the receiver first for a member; nil for console.log
 	Result Type
+}
+
+// stringMember is a member of String.prototype; it takes the string, then params.
+func stringMember(name string, result Type, params ...Type) *Builtin {
+	return &Builtin{Name: "String." + name, Params: append([]Type{String}, params...), Result: result}
 }
 
 var (
 	// ConsoleLog is console.log; it takes any number of Value arguments.
 	ConsoleLog = &Builtin{Name: "console.log", Result: Void}
-	// StringLength is a string's .length (UTF-16 code units); it takes the string.
-	StringLength = &Builtin{Name: "String.length", Result: Number}
+	// StringLength is a string's .length (UTF-16 code units).
+	StringLength = stringMember("length", Number)
+
+	// s[i] (D-015): StringElement is undefined for an index out of range, StringElementChecked
+	// throws RangeError instead, and StringElementEquals is s[i] === t.
+	StringElement        = stringMember("element", Value, Number)
+	StringElementChecked = stringMember("elementChecked", String, Number)
+	StringElementEquals  = stringMember("elementEquals", Bool, Number, String)
+
+	// The String.prototype methods. Indices count UTF-16 code units; a left-out index is
+	// NaN where JS treats undefined as 0 and Infinity where it means the length.
+	StringCharCodeAt  = stringMember("charCodeAt", Number, Number)
+	StringSlice       = stringMember("slice", String, Number, Number)
+	StringSubstring   = stringMember("substring", String, Number, Number)
+	StringIndexOf     = stringMember("indexOf", Number, String, Number)
+	StringIncludes    = stringMember("includes", Bool, String, Number)
+	StringStartsWith  = stringMember("startsWith", Bool, String, Number)
+	StringEndsWith    = stringMember("endsWith", Bool, String, Number)
+	StringToUpperCase = stringMember("toUpperCase", String)
+	StringToLowerCase = stringMember("toLowerCase", String)
+	StringTrim        = stringMember("trim", String)
+	StringTrimStart   = stringMember("trimStart", String)
+	StringTrimEnd     = stringMember("trimEnd", String)
+	StringPadStart    = stringMember("padStart", String, Number, String)
+	StringPadEnd      = stringMember("padEnd", String, Number, String)
+	StringRepeat      = stringMember("repeat", String, Number)
 )
 
-// ToString is JS's ToString of a primitive value: "true", "null", Number::toString, …
+// ToString is JS's ToString of a primitive value, static or boxed: "true", "null", Number::toString, …
 type ToString struct{ X Expr }
 
 // CallBuiltin calls a runtime function.

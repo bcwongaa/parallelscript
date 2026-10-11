@@ -312,6 +312,7 @@ The compatibility principle (§1.1) holds except for these:
 - Properties cannot be added to or deleted from objects after construction (§3.6).
 - `any` is checked at the boundary into typed code (§3.4); casts are checked at runtime (§3.5).
 - The features in §3.10 are compile errors.
+- Reading a string index out of range (`s[i]`) gives `undefined` where the context can hold any value (printing, concatenation, template literals, `===`/`!==` with a string), but throws `RangeError` where a `string` is required, e.g. `const c: string = s[9]` (D-015).
 
 ---
 
@@ -346,6 +347,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
+- **Added in M1.3b:** `s[i]` on strings (three builtins by context, D-015) and calls of the String methods listed in §9.6, as `ir.CallBuiltin` with the receiver first; the arguments convert to the builtin's `Params`, and left-out ones get the values in `lower.leftOut`. A builtin method can only be called directly (`s.trim` as a value or `s?.trim()` is `PTS1001`).
 - **Added in M1.3a:** `+` with a string (the other side through `ir.ToString`), template literals, `.length` on strings (the builtin `String.length`), `=== !== < <= > >=` on strings, and `!` on booleans.
 - **Added in M1.2:** the numeric types on `let`/`const` annotations, numeric `as`, and every operator above on them (`ir.IntConst`, `ir.Convert`).
 - **Added in M1.1:** `+ - * / % **`, unary `-` and `+`, and `< <= > >=` on numbers; `=== !== == !=` on two numbers or two booleans (`ir.Binary`, `ir.Unary`); `NaN` and `Infinity`.
@@ -379,3 +381,14 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - Concatenation is `ir.Binary{Op: Concat}` → `pts_string_concat`. Template literals lower to a chain of concatenations, leaving out empty parts.
 - Equality is `pts_string_equals` (byte equality, which the canonical representation makes exact); ordering is `pts_string_compare` (UTF-16 code units, memcmp for two ASCII strings).
 - `.length` is `utf16_len`, computed when the string is made, so O(1).
+
+### 9.6 String methods (M1.3b)
+
+- **Indexing** (D-015): `s[i]` lowers to `String.element` (`pts_string_element`, a `pts_value` that is `undefined` out of range) where the context takes any value, `String.elementEquals` for `===`/`!==`/`==`/`!=` with a string, and `String.elementChecked` (throws `RangeError`) elsewhere. A valid index is an integer in range; `-0` is index 0. `ir.ToString` of a `Value` is `pts_value_to_string`.
+- **Methods** (D-016): `charCodeAt`, `slice`, `substring`, `indexOf`, `includes`, `startsWith`, `endsWith`, `toUpperCase`, `toLowerCase`, `trim`, `trimStart`, `trimEnd` (and `trimLeft`/`trimRight`), `padStart`, `padEnd`, `repeat`. Each is a runtime function `pts_string_<method>` (`pts/runtime/src/string_methods.c`, `string_case.c`). Index arguments are doubles; the runtime applies ToIntegerOrInfinity, so a left-out index is `NaN` (means 0) or `Infinity` (means the length).
+- **UTF-16 indices:** an ASCII string's units are its bytes (O(1)); a non-ASCII string is scanned from the start (`locate` in `string_methods.c`). One-character ASCII results are static strings, so `s[i]` on ASCII text doesn't allocate. Cutting a surrogate pair leaves lone surrogates (3-byte WTF-8); padding and repeating join halves at seams like `pts_string_concat`.
+- **Searching:** `memmem` on the bytes, then counting units up to the match; a search string that starts with a lone low surrogate or ends with a lone high one is compared unit by unit, because it can match half of a pair.
+- **Case mapping:** full Unicode mappings and Final_Sigma, from `pts/runtime/src/case_tables.h`, generated from Node's ICU by `node pts/runtime/gen/case_tables.mjs > pts/runtime/src/case_tables.h` (Unicode 17.0, ICU 78.3, Node 24.21). Regenerate when Node's Unicode version changes; the generated corpus test fails until then.
+- **Whitespace** for `trim*` is JS's WhiteSpace and LineTerminator: U+0009–U+000D, U+0020, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF.
+- **Errors** (V8's messages): `RangeError: Invalid count value: <count>` from `repeat`, `RangeError: Invalid string length` beyond 2^30 bytes.
+- **Tests:** `pts/runtime/tests/string_methods_test.c`; `pts/tests/run/string_*.pts`; `TestGeneratedStringCorpusMatchesNode` (`pts/tests/strings_test.go`): 400 random cases of every method on strings with lone surrogates and special index arguments, the upper- and lowercase of every code point in planes 0 and 1, and Final_Sigma contexts, compared line by line with Node.

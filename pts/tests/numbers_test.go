@@ -48,7 +48,7 @@ func TestGeneratedNumberCorpusMatchesNode(t *testing.T) {
 	for _, part := range numberCorpusParts {
 		t.Run(part.name, func(t *testing.T) {
 			t.Parallel()
-			source, statements := numberCorpus(rand.New(rand.NewPCG(part.seed, 11)), part.generate)
+			source, statements := generateCorpus(rand.New(rand.NewPCG(part.seed, 11)), part.generate)
 			path := filepath.Join(t.TempDir(), "number_"+part.name+".pts")
 			assert.NilError(t, os.WriteFile(path, []byte(source), 0o644))
 			compareWithNode(t, node, path, source, statements)
@@ -77,8 +77,8 @@ func compareWithNode(t *testing.T, node string, path string, source string, stat
 	assert.Equal(t, differ, 0, "lines that differ from Node")
 }
 
-// numberCorpus returns a program and, for each line it prints, the code that prints it.
-func numberCorpus(rng *rand.Rand, generate func(rng *rand.Rand, emit func(string))) (string, []string) {
+// generateCorpus returns a program and, for each line it prints, the code that prints it.
+func generateCorpus(rng *rand.Rand, generate func(rng *rand.Rand, emit func(string))) (string, []string) {
 	var source strings.Builder
 	var statements []string
 	generate(rng, func(code string) {

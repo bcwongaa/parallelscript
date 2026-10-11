@@ -1,0 +1,5 @@
+// Optional chaining arrives with unions (M3.1).
+const s = "x";
+console.log(s?.trim());
+
+// error: PTS1001: optional chaining `?.` is not supported yet

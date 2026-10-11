@@ -1,0 +1,15 @@
+// s[i] is JS's: undefined out of range where any value fits (console.log, string
+// conversion, comparison with a string), a one-character string otherwise.
+const s = "abc";
+console.log(s[0], s[2], s[3], s[-1], s[1.5], s[-0], (s[1]));
+console.log(`<${s[1]}${s[9]}>`, s[0] + s[5], "x" + s[2]);
+console.log(s[0] === "a", s[1] === "a", s[9] === "a", "c" === s[2], s[9] !== "c", s[0] != "a", s[1] == "b");
+const c = s[1];
+const word: string = s[0] + s[1];
+console.log(c, word, c.length, s[2].toUpperCase());
+
+// expect:
+// a c undefined undefined undefined a b
+// <bundefined> aundefined xc
+// true false false true true false true
+// b ab 1 C

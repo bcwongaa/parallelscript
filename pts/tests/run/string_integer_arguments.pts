@@ -1,0 +1,11 @@
+// Integer-typed indices convert to number for s[i] and the String methods.
+const s = "parallel";
+const i: int = 2;
+const n: u8 = 5;
+const big: u64 = 18446744073709551615;
+console.log(s[i], s.charCodeAt(i), s.slice(i, n), s.substring(n), s.indexOf("l", n), s.padStart(n + 5, "-"));
+console.log(s[big], s.slice(big), s.repeat(i), s.startsWith("ra", i));
+
+// expect:
+// r 114 ral lel 5 --parallel
+// undefined  parallelparallel true

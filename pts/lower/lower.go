@@ -50,8 +50,49 @@ var libConstants = map[string]float64{
 // builtins maps members of the prelude and of the ES library, by "Interface.member",
 // to the runtime functions that implement them.
 var builtins = map[string]*ir.Builtin{
-	"Console.log":   ir.ConsoleLog,
-	"String.length": ir.StringLength,
+	"Console.log":        ir.ConsoleLog,
+	"String.length":      ir.StringLength,
+	"String.charCodeAt":  ir.StringCharCodeAt,
+	"String.slice":       ir.StringSlice,
+	"String.substring":   ir.StringSubstring,
+	"String.indexOf":     ir.StringIndexOf,
+	"String.includes":    ir.StringIncludes,
+	"String.startsWith":  ir.StringStartsWith,
+	"String.endsWith":    ir.StringEndsWith,
+	"String.toUpperCase": ir.StringToUpperCase,
+	"String.toLowerCase": ir.StringToLowerCase,
+	"String.trim":        ir.StringTrim,
+	"String.trimStart":   ir.StringTrimStart,
+	"String.trimEnd":     ir.StringTrimEnd,
+	"String.trimLeft":    ir.StringTrimStart, // deprecated aliases
+	"String.trimRight":   ir.StringTrimEnd,
+	"String.padStart":    ir.StringPadStart,
+	"String.padEnd":      ir.StringPadEnd,
+	"String.repeat":      ir.StringRepeat,
+}
+
+// properties are the builtins that are read rather than called.
+var properties = map[*ir.Builtin]bool{ir.StringLength: true}
+
+// Arguments for left-out index parameters. The runtime applies ToIntegerOrInfinity, so
+// NaN gives 0, as undefined does in JS, and Infinity gives the length.
+var (
+	fromStart = &ir.NumberConst{Value: math.NaN()}
+	toEnd     = &ir.NumberConst{Value: math.Inf(1)}
+)
+
+// leftOut gives, for each builtin method with optional parameters, the argument a call
+// that leaves one out (or passes undefined) gets instead, per parameter after the
+// receiver; nil marks a required parameter. The constant nodes are shared.
+var leftOut = map[*ir.Builtin][]ir.Expr{
+	ir.StringSlice:      {fromStart, toEnd},
+	ir.StringSubstring:  {nil, toEnd},
+	ir.StringIndexOf:    {nil, fromStart},
+	ir.StringIncludes:   {nil, fromStart},
+	ir.StringStartsWith: {nil, fromStart},
+	ir.StringEndsWith:   {nil, toEnd},
+	ir.StringPadStart:   {nil, &ir.StringConst{Value: " "}},
+	ir.StringPadEnd:     {nil, &ir.StringConst{Value: " "}},
 }
 
 // numericTypes maps the semantic pass's numeric types to IR types.
@@ -249,9 +290,21 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.template(node)
 	case ast.KindPropertyAccessExpression:
 		return l.propertyAccess(node)
+	case ast.KindElementAccessExpression:
+		return l.stringElement(node, ir.StringElementChecked)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
+}
+
+// valueExpression lowers an expression whose context takes any value, such as an
+// argument of console.log. There s[i] keeps JS's undefined for an index out of range
+// (D-015); everything else lowers as usual.
+func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
+	if inner := ast.SkipParentheses(node); l.isStringElement(inner) {
+		return l.stringElement(inner, ir.StringElement)
+	}
+	return l.expression(node)
 }
 
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
@@ -276,26 +329,89 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	call := node.AsCallExpression()
 	builtin := l.builtin(call.Expression)
 	switch {
-	case builtin != ir.ConsoleLog:
+	case builtin == nil || properties[builtin]:
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
 		return nil
-	case call.QuestionDotToken != nil:
-		l.notSupportedYet(node, "optional call `?.()` is")
+	case ast.IsOptionalChain(node):
+		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
-	args := make([]ir.Expr, 0, len(call.Arguments.Nodes))
 	for _, argument := range call.Arguments.Nodes {
 		if argument.Kind == ast.KindSpreadElement {
 			l.notSupportedYet(argument, "spread arguments are")
 			return nil
 		}
-		arg := l.expression(argument)
+	}
+	if builtin == ir.ConsoleLog {
+		return l.consoleLog(call)
+	}
+	return l.methodCall(node, builtin)
+}
+
+func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {
+	args := make([]ir.Expr, 0, len(call.Arguments.Nodes))
+	for _, argument := range call.Arguments.Nodes {
+		arg := l.valueExpression(argument)
 		if arg == nil {
 			return nil
 		}
 		args = append(args, box(arg))
 	}
+	return &ir.CallBuiltin{Builtin: ir.ConsoleLog, Args: args}
+}
+
+// methodCall lowers a call of a builtin method: the receiver, then each argument
+// converted to its parameter's type, or what a left-out argument means.
+func (l *lowerer) methodCall(node *ast.Node, builtin *ir.Builtin) ir.Expr {
+	call := node.AsCallExpression()
+	receiver := l.expression(call.Expression.Expression())
+	if receiver == nil {
+		return nil
+	}
+	args := []ir.Expr{receiver}
+	for i, param := range builtin.Params[1:] {
+		at, arg := node, ir.Expr(nil)
+		if i < len(call.Arguments.Nodes) {
+			at = call.Arguments.Nodes[i]
+			if arg = l.argument(at); arg == nil {
+				return nil
+			}
+		}
+		if arg == nil || arg.Type() == ir.Undefined {
+			if arg = leftOutArgument(builtin, i); arg == nil {
+				l.notSupportedYet(at, "leaving out this argument is")
+				return nil
+			}
+		}
+		if arg = l.convert(arg, param, at); arg == nil {
+			return nil
+		}
+		args = append(args, arg)
+	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: args}
+}
+
+// argument lowers an argument of a builtin method. An undefined argument means the
+// parameter's default, so it must be one whose evaluation has no effects.
+func (l *lowerer) argument(node *ast.Node) ir.Expr {
+	arg := l.expression(node)
+	if arg == nil || arg.Type() != ir.Undefined {
+		return arg
+	}
+	switch arg.(type) {
+	case *ir.UndefinedConst, *ir.LocalRef:
+		return arg
+	}
+	l.notSupportedYet(node, "passing this undefined value is")
+	return nil
+}
+
+// leftOutArgument is what the i-th parameter after the receiver gets when a call leaves it out, or nil if it is required.
+func leftOutArgument(builtin *ir.Builtin, i int) ir.Expr {
+	if defaults := leftOut[builtin]; i < len(defaults) {
+		return defaults[i]
+	}
+	return nil
 }
 
 func (l *lowerer) isDeclaredInDefaultLib(symbol *ast.Symbol) bool {
@@ -348,7 +464,7 @@ func (l *lowerer) template(node *ast.Node) ir.Expr {
 	var result ir.Expr = &ir.StringConst{Value: template.Head.Text()}
 	for _, span := range template.TemplateSpans.Nodes {
 		span := span.AsTemplateSpan()
-		x := l.expression(span.Expression)
+		x := l.valueExpression(span.Expression)
 		if x == nil {
 			return nil
 		}
@@ -377,7 +493,7 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 	switch t := x.Type(); {
 	case t == ir.String:
 		return x
-	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined:
+	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined || t == ir.Value:
 		return &ir.ToString{X: x}
 	}
 	l.notSupportedYet(node, fmt.Sprintf("converting %s to a string is", x.Type()))
@@ -387,7 +503,7 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 // propertyAccess lowers a property read; only builtin properties exist so far.
 func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	builtin := l.builtin(node)
-	if builtin == nil || builtin == ir.ConsoleLog {
+	if !properties[builtin] {
 		l.notSupportedYet(node, "`"+scanner.GetTextOfNode(node)+"` is")
 		return nil
 	}
@@ -396,6 +512,76 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{receiver}}
+}
+
+// isStringElement reports whether node is s[i] for a string s and a number i.
+func (l *lowerer) isStringElement(node *ast.Node) bool {
+	if node.Kind != ast.KindElementAccessExpression {
+		return false
+	}
+	access := node.AsElementAccessExpression()
+	return l.hasTypeFlags(access.Expression, checker.TypeFlagsStringLike) && l.hasTypeFlags(access.ArgumentExpression, checker.TypeFlagsNumberLike)
+}
+
+func (l *lowerer) hasTypeFlags(node *ast.Node, flags checker.TypeFlags) bool {
+	return l.checker.GetTypeAtLocation(node).Flags()&flags != 0
+}
+
+// stringElement lowers s[i] with one of the StringElement builtins (D-015).
+func (l *lowerer) stringElement(node *ast.Node, builtin *ir.Builtin) ir.Expr {
+	s, i := l.stringElementOperands(node)
+	if s == nil {
+		return nil
+	}
+	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{s, i}}
+}
+
+// stringElementOperands lowers the string and the index of s[i], or reports the access and returns nils.
+func (l *lowerer) stringElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
+	switch {
+	case !l.isStringElement(node):
+		l.notSupportedYet(node, "element access other than indexing a string is")
+		return nil, nil
+	case ast.IsOptionalChain(node):
+		l.notSupportedYet(node, "optional chaining `?.` is")
+		return nil, nil
+	}
+	access := node.AsElementAccessExpression()
+	s := l.expression(access.Expression)
+	i := l.expression(access.ArgumentExpression)
+	if s == nil || i == nil {
+		return nil, nil
+	}
+	if i = l.convert(i, ir.Number, access.ArgumentExpression); i == nil {
+		return nil, nil
+	}
+	return s, i
+}
+
+// elementComparedWithString recognises s[i] compared with a string (either way round)
+// and returns the two sides.
+func (l *lowerer) elementComparedWithString(expr *ast.BinaryExpression) (element *ast.Node, other *ast.Node, ok bool) {
+	element, other = ast.SkipParentheses(expr.Left), expr.Right
+	if !l.isStringElement(element) {
+		element, other = ast.SkipParentheses(expr.Right), expr.Left
+	}
+	ok = l.isStringElement(element) && l.hasTypeFlags(other, checker.TypeFlagsStringLike)
+	return element, other, ok
+}
+
+// elementEquality lowers s[i] === t (or !==) so that an index out of range makes it
+// false (true for !==), as undefined does in JS (D-015).
+func (l *lowerer) elementEquality(op ir.BinaryOp, element *ast.Node, other *ast.Node) ir.Expr {
+	s, i := l.stringElementOperands(element)
+	t := l.expression(other)
+	if s == nil || t == nil {
+		return nil
+	}
+	var equals ir.Expr = &ir.CallBuiltin{Builtin: ir.StringElementEquals, Args: []ir.Expr{s, i, t}}
+	if op == ir.Ne {
+		equals = &ir.Unary{Op: ir.Not, X: equals}
+	}
+	return equals
 }
 
 func (l *lowerer) binary(node *ast.Node) ir.Expr {
@@ -407,6 +593,11 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	if !ok {
 		l.notSupportedYet(node, describe(node)+" is")
 		return nil
+	}
+	if op == ir.Eq || op == ir.Ne {
+		if element, other, ok := l.elementComparedWithString(expr); ok {
+			return l.elementEquality(op, element, other)
+		}
 	}
 	x := l.expression(expr.Left)
 	y := l.expression(expr.Right)
@@ -429,8 +620,8 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 // concatenation lowers `+` with a string operand: both sides become strings.
 func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
-	x := l.expression(expr.Left)
-	y := l.expression(expr.Right)
+	x := l.valueExpression(expr.Left)
+	y := l.valueExpression(expr.Right)
 	if x == nil || y == nil {
 		return nil
 	}

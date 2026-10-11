@@ -290,3 +290,46 @@ func TestStringLengthComparisonAndNot(t *testing.T) {
 }
 `)
 }
+
+func TestLeftOutMethodArgumentsGetWhatUndefinedMeans(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const s = "abc";
+console.log(s.slice(), s.slice(1), s.slice(undefined, 2), s.indexOf("b"), s.endsWith("c"), s.padStart(5));
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let s: string = "abc"
+  2: console.log(box(String.slice(s, NaN, +Inf)), box(String.slice(s, 1, +Inf)), box(String.slice(s, NaN, 2)), box(String.indexOf(s, "b", NaN)), box(String.endsWith(s, "c", +Inf)), box(String.padStart(s, 5, " ")))
+}
+`)
+}
+
+func TestMethodArgumentsConvertToTheirParameterTypes(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const i: int = 1;
+console.log("abc".charCodeAt(i), "abc".repeat(i + 1), "abc".trimLeft(), "abc".trimRight().toUpperCase());
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let i: i64 = 1:i64
+  2: console.log(box(String.charCodeAt("abc", number(i))), box(String.repeat("abc", number((i + 1:i64)))), box(String.trimStart("abc")), box(String.toUpperCase(String.trimEnd("abc"))))
+}
+`)
+}
+
+func TestStringElementKeepsUndefinedWhereAnyValueFits(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const s = \"abc\";\nconsole.log(s[0], (s[1]), `${s[2]}`, s[3] + \"!\", s[0] === \"a\", \"b\" !== s[1]);\nconst c = s[0];\n")
+	assert.Equal(t, got, `func main() void {
+  1: let s: string = "abc"
+  2: console.log(String.element(s, 0), String.element(s, 1), box(str(String.element(s, 2))), box((str(String.element(s, 3)) ++ "!")), box(String.elementEquals(s, 0, "a")), box((!String.elementEquals(s, 1, "b"))))
+  3: let c: string = String.elementChecked(s, 0)
+}
+`)
+}
+
+func TestOnlyDirectCallsOfImplementedMethodsLower(t *testing.T) {
+	t.Parallel()
+	err := lowerInvalid(t, "console.log(\"abc\"?.trim());\n")
+	assert.Equal(t, err.Message, "optional chaining `?.` is not supported yet")
+	err = lowerInvalid(t, "console.log(\"abc\".at(0));\n")
+	assert.Equal(t, err.Message, "calling `\"abc\".at` is not supported yet")
+}

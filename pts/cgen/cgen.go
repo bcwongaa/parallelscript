@@ -30,6 +30,7 @@ type emitter struct {
 	stringOrder []string          // values in order of first use
 	locals      map[*ir.Local]string
 	usedNames   map[string]bool
+	nextSuffix  map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
 }
 
 func (e *emitter) header(program *ir.Program) {
@@ -64,6 +65,7 @@ func functionName(f *ir.Func) string {
 func (e *emitter) function(f *ir.Func) {
 	e.locals = map[*ir.Local]string{}
 	e.usedNames = map[string]bool{}
+	e.nextSuffix = map[string]int{}
 	e.line(0, "")
 	e.at(f.Pos)
 	e.line(0, "static %s {", signature(f))
@@ -95,8 +97,10 @@ func (e *emitter) statements(stmts []ir.Stmt, depth int) {
 func (e *emitter) declareLocal(local *ir.Local) string {
 	base := cIdentifier(local.Name)
 	name := base
-	for i := 2; e.usedNames[name]; i++ {
-		name = fmt.Sprintf("%s_%d", base, i)
+	for e.usedNames[name] {
+		suffix := max(e.nextSuffix[base], 2)
+		e.nextSuffix[base] = suffix + 1
+		name = fmt.Sprintf("%s_%d", base, suffix)
 	}
 	e.usedNames[name] = true
 	e.locals[local] = name
@@ -202,6 +206,8 @@ func (e *emitter) toString(value ir.Expr) string {
 		return "pts_string_from_i64(" + x + ")"
 	case ir.U64:
 		return "pts_string_from_u64(" + x + ")"
+	case ir.Value:
+		return "pts_value_to_string(" + x + ")"
 	default:
 		return "pts_number_to_string(" + x + ")" // numbers, f32 and the narrower integers, exact as doubles
 	}
@@ -256,6 +262,28 @@ func (e *emitter) box(value ir.Expr) string {
 	}
 }
 
+// builtinFunctions are the runtime functions that take a builtin's arguments as they are.
+var builtinFunctions = map[*ir.Builtin]string{
+	ir.StringElement:        "pts_string_element",
+	ir.StringElementChecked: "pts_string_element_checked",
+	ir.StringElementEquals:  "pts_string_element_equals",
+	ir.StringCharCodeAt:     "pts_string_char_code_at",
+	ir.StringSlice:          "pts_string_slice",
+	ir.StringSubstring:      "pts_string_substring",
+	ir.StringIndexOf:        "pts_string_index_of",
+	ir.StringIncludes:       "pts_string_includes",
+	ir.StringStartsWith:     "pts_string_starts_with",
+	ir.StringEndsWith:       "pts_string_ends_with",
+	ir.StringToUpperCase:    "pts_string_to_upper_case",
+	ir.StringToLowerCase:    "pts_string_to_lower_case",
+	ir.StringTrim:           "pts_string_trim",
+	ir.StringTrimStart:      "pts_string_trim_start",
+	ir.StringTrimEnd:        "pts_string_trim_end",
+	ir.StringPadStart:       "pts_string_pad_start",
+	ir.StringPadEnd:         "pts_string_pad_end",
+	ir.StringRepeat:         "pts_string_repeat",
+}
+
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 	args := make([]string, len(call.Args))
 	for i, arg := range call.Args {
@@ -269,9 +297,12 @@ func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 		return fmt.Sprintf("pts_console_log(%d, (pts_value[]){%s})", len(args), strings.Join(args, ", "))
 	case ir.StringLength:
 		return "((double)(" + args[0] + ")->utf16_len)"
-	default:
+	}
+	function, ok := builtinFunctions[call.Builtin]
+	if !ok {
 		panic("cgen: unexpected builtin " + call.Builtin.Name)
 	}
+	return function + "(" + strings.Join(args, ", ") + ")"
 }
 
 // numberLiteral writes a double as a C constant that parses back to exactly the same value.
