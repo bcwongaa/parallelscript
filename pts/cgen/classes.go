@@ -543,6 +543,16 @@ func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
 	return fmt.Sprintf("({ static pts_site %s; PTS_GET(%s, %s, &%s, %s); })", site, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name))
 }
 
+// hasField writes whether an object has an optional property: whether the field that
+// holds it isn't absent, or through an interface, whether a getter or setter provides it.
+func (e *emitter) hasField(h *ir.HasField) string {
+	if !h.Field.Accessor {
+		return "(" + e.fieldRef(e.expr(h.X), h.X.Type(), h.Field) + " != PTS_VALUE_ABSENT)"
+	}
+	site := e.site()
+	return fmt.Sprintf("({ static pts_site %s; PTS_HAS(%s, &%s, %s); })", site, e.expr(h.X), site, cString(h.Field.Name))
+}
+
 // fieldStore writes a store of value to a field of object, a reference of type t
 // (fieldRef), or to a property through an interface that a setter may provide (D-036).
 func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value string) string {

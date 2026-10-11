@@ -492,6 +492,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return strconv.FormatBool(x.Value)
 	case *ir.LeftOut:
 		return zeroValue(x.T, e.strings[""])
+	case *ir.Absent:
+		return "PTS_VALUE_ABSENT"
 	case *ir.LocalRef:
 		if check := e.readyCheck(x.Local); check != "" {
 			return "(" + check + ", " + e.local(x.Local) + ")"
@@ -523,7 +525,14 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.NewObject:
 		return e.newObject(x)
 	case *ir.FieldRef:
+		if x.Field.Optional && !x.Raw {
+			return "pts_value_present(" + e.fieldRead(e.expr(x.X), x.X.Type(), x.Field) + ")"
+		}
 		return e.fieldRead(e.expr(x.X), x.X.Type(), x.Field)
+	case *ir.HasField:
+		return e.hasField(x)
+	case *ir.IsAbsent:
+		return "(" + e.expr(x.X) + " == PTS_VALUE_ABSENT)"
 	case *ir.SetField:
 		return e.setField(x)
 	case *ir.Box:

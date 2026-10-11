@@ -115,6 +115,10 @@ func children(x Expr) []Expr {
 		return x.Values
 	case *FieldRef:
 		return []Expr{x.X}
+	case *HasField:
+		return []Expr{x.X}
+	case *IsAbsent:
+		return []Expr{x.X}
 	case *SetField:
 		return []Expr{x.X, x.Value}
 	}

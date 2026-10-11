@@ -1,0 +1,139 @@
+// Optional properties (D-065): `p?: T` in interfaces, type literals, mapped types
+// (`Partial`, `Pick`, `Omit`) and classes; literals that leave them out print as Node
+// prints them, without the key; reads see undefined; `in`; writes; destructuring with
+// defaults; spreads and rest properties copy only the properties an object has.
+interface Options {
+  name: string;
+  verbose?: boolean;
+  level?: number;
+}
+const a: Options = { name: "a" };
+const b: Options = { name: "b", verbose: true };
+const c: Options = { level: 3, name: "c", verbose: undefined };
+console.log(a, b, c);
+console.log(a.verbose, b.verbose, c.level, a.level ?? 10, typeof a.level, a.verbose === undefined);
+console.log("verbose" in a, "verbose" in b, "verbose" in c, "name" in a);
+a.level = 5;
+console.log(a);
+a.level = undefined;
+console.log(a, "level" in a);
+function describe(o: Options): string {
+  const mood = o.verbose ? "verbose" : "quiet";
+  if (o.level !== undefined) {
+    return o.name + " " + mood + " " + (o.level + 1);
+  }
+  return o.name + " " + mood;
+}
+console.log(describe(a), describe(b), describe(c), describe({ name: "d" }));
+function make(name: string): Options {
+  return { name };
+}
+const list: Options[] = [{ name: "e" }, { name: "f", level: 2 }, make("g")];
+console.log(list, `${list[0].verbose} ${list[1].level}`);
+const d: Options = { name: "d" };
+d.verbose ??= false; // properties assigned later print in the order the type declares them (D-065)
+d.level ??= 4;
+console.log(d);
+
+// Destructuring: a default applies when the property is undefined or left out.
+const { verbose = false, level = 1 } = b;
+console.log(verbose, level);
+const { name, ...rest } = list[1];
+console.log(name, rest);
+let lvl = 0;
+let nm = "";
+({ level: lvl = 9, name: nm } = list[0]);
+console.log(lvl, nm);
+function area({ x = 1, y = 2 }: Partial<Point>): number {
+  return x * y;
+}
+interface Point {
+  x: number;
+  y: number;
+}
+console.log(area({}), area({ x: 3 }), area({ y: 5, x: 2 }));
+
+// Spreads copy the properties an object has; a later object's left-out property keeps the earlier value.
+const copy = { ...a, ...list[0] };
+console.log(copy);
+const merged = { ...b, ...make("h") };
+console.log(merged);
+const defaults = { name: "x", verbose: false, level: 0 };
+console.log({ ...defaults, ...b }, { ...defaults, ...list[1] });
+function update(options: Options, patch: Partial<Options>): Options {
+  return { ...options, ...patch };
+}
+console.log(update(b, { level: 7 }), update(b, {}), update(b, { name: "z", verbose: false }));
+
+// Mapped types.
+interface User {
+  id: number;
+  name: string;
+  email?: string;
+  age?: number;
+}
+const u: User = { id: 1, name: "ann" };
+const r: Required<Pick<User, "id" | "name">> = { id: 2, name: "bo" };
+const o: Omit<User, "email"> = { id: 3, name: "cy", age: 4 };
+const ro: Readonly<User> = { id: 5, name: "di", email: "d@x" };
+const rec: Record<"a" | "b", number> = { a: 1, b: 2 };
+const empty: Partial<User> = {};
+console.log(u, r, o, ro, rec, rec.a + rec.b, empty, empty.age);
+const wide: User = { id: 10, name: "a rather long name for wrapping", email: "someone@example.com", age: 42 };
+const users: User[] = [wide, { id: 11, name: "short" }, { id: 12, name: "with age", age: 9 }];
+console.log(users);
+for (const user of users) {
+  console.log(user.name, "email" in user ? "has email" : "no email", user.age === undefined ? "?" : user.age);
+}
+
+// Generic, nested and recursive object types.
+interface Box<T> {
+  value?: T;
+  tag: string;
+}
+const box: Box<number> = { tag: "n" };
+const box2: Box<string> = { tag: "s", value: "hi" };
+console.log(box, box2, box.value === undefined, box2.value?.length);
+interface Inner {
+  depth?: number;
+}
+interface Outer {
+  inner?: Inner;
+  id: number;
+}
+const outer: Outer = { id: 1, inner: {} };
+const outer2: Outer = { id: 2 };
+console.log(outer, outer2, outer.inner?.depth, outer2.inner?.depth ?? -1);
+type ListNode = { value: number; next?: ListNode };
+const chain: ListNode = { value: 1, next: { value: 2, next: { value: 3 } } };
+let node: ListNode | undefined = chain;
+let total = 0;
+while (node !== undefined) {
+  total += node.value;
+  node = node.next;
+}
+console.log(total, chain, chain.next?.next?.value, chain.next?.next?.next?.value);
+type Tree = { value: number; left?: Tree | null; right?: Tree };
+const tree: Tree = { value: 1, left: null, right: { value: 2 } };
+function sum(t: Tree | null | undefined): number {
+  return t ? t.value + sum(t.left) + sum(t.right) : 0;
+}
+console.log(tree, sum(tree));
+interface Named {
+  name: string;
+  nick?: string;
+}
+const named: Named = { name: "x" };
+const sameNamed: { name: string; nick?: string } = named;
+console.log(sameNamed, sameNamed === named);
+
+// Classes define optional fields as undefined, as JS does.
+class Account {
+  static limit?: number;
+  note?: string;
+  constructor(public owner: string, public balance?: number) {}
+}
+const account = new Account("ann");
+console.log(account, Account.limit, new Account("bob", 5), "note" in account);
+account.note = "vip";
+console.log(account);

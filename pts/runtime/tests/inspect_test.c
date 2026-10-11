@@ -100,10 +100,49 @@ static void plain_objects_print_without_a_name(void) {
   free(text);
 }
 
+typedef struct options {
+  const pts_type *type;
+  pts_value verbose;
+  pts_value level;
+} options;
+
+static const pts_field options_fields[] = {
+    {"verbose", offsetof(options, verbose), PTS_FIELD_VALUE},
+    {"level", offsetof(options, level), PTS_FIELD_VALUE},
+};
+
+static const pts_type options_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(options, verbose) | PTS_GC_WORD(options, level)),
+    .name = "Object",
+    .size = sizeof(options),
+    .field_count = 2,
+    .fields = options_fields,
+};
+
+/* An optional property an object leaves out (D-065) isn't printed; undefined is. */
+static void absent_properties_are_not_printed(void) {
+  options *o = pts_object_new(&options_type);
+  char *text = inspected(o);
+  CHECK_STR(text, "{}");
+  free(text);
+  o->level = pts_value_from_number(3);
+  text = inspected(o);
+  CHECK_STR(text, "{ level: 3 }");
+  free(text);
+  o->verbose = PTS_VALUE_UNDEFINED;
+  text = inspected(o);
+  CHECK_STR(text, "{ verbose: undefined, level: 3 }");
+  free(text);
+  CHECK(pts_value_present(PTS_VALUE_ABSENT) == PTS_VALUE_UNDEFINED);
+  CHECK(pts_value_present(o->level) == o->level);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   circular_references_are_numbered();
   deep_instances_print_their_name();
   plain_objects_print_without_a_name();
+  absent_properties_are_not_printed();
   return CHECK_DONE();
 }

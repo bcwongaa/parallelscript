@@ -163,8 +163,10 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Optional parameters without a default; defaults of parameters whose type includes undefined; `??=`.
 - [x] **M3.1b2 Optional chaining** (a5de69521) (split from M3.1b by D-063).
   - Optional chaining `?.` on properties, calls and elements.
-- [ ] **M3.1b3 Optional properties** (split from M3.1b by D-063).
+- [x] **M3.1b3a Optional properties** (split from M3.1b by D-063, from M3.1b3 by D-065).
   - Optional properties, stored as `T | undefined` (moved from M2.3 by D-032); literals that leave them out.
+- [ ] **M3.1b3b Objects without an optional property** (split from M3.1b3 by D-065).
+  - An object that lacks an optional property of the object type it converts to, or holds it as `T` rather than `T | undefined` (a `{ name }` variable passed as `Options`, a class without the property, `{ verbose: true }` inferred as `{ verbose: boolean }`): interface sites that read and write a field by the descriptor's field kind (a missing property reads as undefined; writing it throws `TypeError` as a non-extensible object does), which M3.1c's reads of union members can reuse.
 - [ ] **M3.1c Unions of objects** (split from M3.1 by D-062).
   - Reading properties and calling methods shared by a union's members; discriminants; `in` narrowing.
   - `==` with JS semantics beyond null and undefined.

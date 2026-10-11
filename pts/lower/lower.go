@@ -1751,7 +1751,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
-	if l.isShapeProperty(member) {
+	if l.isShapeProperty(member) || l.isMappedProperty(node) {
 		if object, field := l.shapeProperty(node); field != nil {
 			return &ir.FieldRef{X: object, Field: field}
 		}
@@ -1878,6 +1878,8 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 		return l.privateIn(node)
 	case operator == ast.KindInKeyword && l.isRecordExpression(expr.Right):
 		return l.inRecord(expr)
+	case operator == ast.KindInKeyword && ast.IsStringLiteralLike(expr.Left):
+		return l.propertyIn(expr)
 	case operator == ast.KindQuestionQuestionToken && !l.isRecordElement(ast.SkipParentheses(expr.Left)):
 		return l.nullishCoalescing(node)
 	case (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) && l.isRecordElement(ast.SkipParentheses(expr.Left)):
@@ -2198,7 +2200,7 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 			local := l.staticField(node, static, true)
 			return place{local: local}, local != nil
 		}
-		if l.isShapeProperty(l.memberDeclaration(node)) {
+		if l.isShapeProperty(l.memberDeclaration(node)) || l.isMappedProperty(node) {
 			object, field := l.shapeProperty(node)
 			return place{object: object, field: field}, field != nil
 		}
@@ -2428,7 +2430,7 @@ func discard(x ir.Expr, then ir.Expr) ir.Expr {
 // isPure reports whether evaluating x can't have effects: a constant or a local.
 func isPure(x ir.Expr) bool {
 	switch x.(type) {
-	case *ir.LocalRef, *ir.NumberConst, *ir.BoolConst, *ir.StringConst, *ir.IntConst, *ir.NullConst, *ir.UndefinedConst:
+	case *ir.LocalRef, *ir.NumberConst, *ir.BoolConst, *ir.StringConst, *ir.IntConst, *ir.NullConst, *ir.UndefinedConst, *ir.Absent:
 		return true
 	}
 	return false

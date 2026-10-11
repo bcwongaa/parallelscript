@@ -1,5 +1,7 @@
-// The `in` operator on objects of fixed layouts arrives with the narrowing it serves (M3.1).
+// The `in` operator with a computed key on objects of fixed layouts arrives with the
+// narrowing it serves (M3.1c).
 const point = { x: 1, y: 2 };
-console.log("x" in point);
+const key: string = "x";
+console.log(key in point);
 
 // error: PTS1001: the `in` operator is not supported yet

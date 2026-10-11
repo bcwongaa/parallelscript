@@ -225,7 +225,7 @@ func (l *lowerer) newSetter(class *ir.Class, name string, t ir.Type, pos ir.Pos)
 func (l *lowerer) declareStaticMember(member *ast.Node, class *ir.Class) {
 	switch member.Kind {
 	case ast.KindPropertyDeclaration:
-		t := l.bindingType(l.declaredSymbol(member), member.Name())
+		t := l.fieldType(member)
 		if t == nil {
 			return
 		}
@@ -370,7 +370,7 @@ func parameterProperties(node *ast.Node) []*ast.Node {
 // declareField makes the field a property declaration declares. A field that redeclares
 // an inherited one (to give it another initialiser) is the inherited field.
 func (l *lowerer) declareField(member *ast.Node, class *ir.Class) {
-	t := l.bindingType(l.declaredSymbol(member), member.Name())
+	t := l.fieldType(member)
 	if t == nil {
 		return
 	}
@@ -389,6 +389,17 @@ func (l *lowerer) declareField(member *ast.Node, class *ir.Class) {
 		l.implementAbstractAccessors(field, member)
 	}
 	l.declaringMembers().fields[member] = field
+}
+
+// fieldType is the type of a field a property declaration or parameter property
+// declares: an optional one (`x?: T`) is T | undefined, and JS defines it as undefined
+// like any field declared without a value, so a class's objects never leave it out (D-065).
+func (l *lowerer) fieldType(member *ast.Node) ir.Type {
+	t := l.bindingType(l.declaredSymbol(member), member.Name())
+	if t != nil && ast.HasQuestionToken(member) {
+		return l.withUndefined(t)
+	}
+	return t
 }
 
 // implementAbstractAccessors implements, with a field a class declares, the abstract
@@ -485,8 +496,6 @@ func unsupportedMember(member *ast.Node) string {
 		return "members with computed or quoted names are"
 	case ast.IsStatic(member) && (member.Kind == ast.KindGetAccessor || member.Kind == ast.KindSetAccessor):
 		return "static getters and setters are"
-	case member.Kind == ast.KindPropertyDeclaration && member.PostfixToken() != nil:
-		return "optional fields are"
 	case ast.HasSyntacticModifier(member, ast.ModifierFlagsAccessor):
 		return "auto-accessors (`accessor`) are"
 	}
@@ -589,8 +598,11 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 	this := &ir.LocalRef{Local: l.this[class.Constructor]}
 	for _, param := range parameterProperties(node) {
 		field, arg := l.membersOf(class).fields[param], l.locals[parameterSymbol(param)]
-		if field != nil && arg != nil {
-			stmts = append(stmts, &ir.ExprStmt{At: l.pos(param), X: &ir.SetField{X: this, Field: field, Value: &ir.LocalRef{Local: arg}}})
+		if field == nil || arg == nil {
+			continue
+		}
+		if value := l.convert(&ir.LocalRef{Local: arg}, field.Type, param); value != nil {
+			stmts = append(stmts, &ir.ExprStmt{At: l.pos(param), X: &ir.SetField{X: this, Field: field, Value: value}})
 		}
 	}
 	for _, member := range node.Members() {

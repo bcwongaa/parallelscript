@@ -1,0 +1,54 @@
+// Optional properties of integer types (D-065): literals, reads typed by the property's
+// numeric member, defaults in patterns, `??` and `??=`, classes and mapped types.
+interface Stats {
+  hits?: int;
+  misses?: u8;
+  ratio?: f32;
+  big?: u64;
+}
+const s: Stats = { hits: 9007199254740993, misses: 255 };
+console.log(s, s.hits, s.misses);
+const { hits = 0, misses = 1, ratio = 0.5, big = 18446744073709551615 } = s;
+console.log(hits + 1, misses, ratio, big);
+const t: Stats = {};
+const { hits: doubled = 7 } = t;
+console.log(doubled * 2, t);
+s.big = 18446744073709551615;
+s.ratio = 1.5;
+console.log(s);
+if (s.misses !== undefined) {
+  const wrapped: u8 = s.misses + 1;
+  console.log(wrapped);
+}
+function total(st: Stats): int {
+  return (st.hits ?? 0) + (st.misses ?? 0);
+}
+console.log(total(s), total({}), total({ misses: 3 }));
+t.hits ??= 40;
+t.hits ??= 50;
+console.log(t, t.hits / 3);
+class Tally {
+  count?: int;
+  constructor(public start?: i32) {}
+}
+const tally = new Tally(4);
+tally.count = 3;
+console.log(tally, (tally.count ?? 0) + (tally.start ?? 0), new Tally());
+const p: Partial<{ x: int; y: int }> = { y: 2 };
+console.log(p, p.y! * 3);
+
+// expect:
+// { hits: 9007199254740993, misses: 255 } 9007199254740993 255
+// 9007199254740994 255 0.5 18446744073709551615
+// 14 {}
+// {
+//   hits: 9007199254740993,
+//   misses: 255,
+//   ratio: 1.5,
+//   big: 18446744073709551615
+// }
+// 0
+// 9007199254741248 0 3
+// { hits: 40 } 13
+// Tally { start: 4, count: 3 } 7 Tally { start: undefined, count: undefined }
+// { y: 2 } 6

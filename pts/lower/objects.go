@@ -13,17 +13,20 @@ import (
 )
 
 // isObjectType reports whether t is an object type of the program that a shape can hold
-// (D-033): an interface, type literal or object literal type, not a class, a function
-// type or a type of the ES library (arrays, Map, Date, …).
+// (D-033): an interface, type literal or object literal type, or a mapped type with
+// properties only (`Partial<Point>`, D-065), not a class, a function type or a type of
+// the ES library (arrays, Map, Date, …).
 func (l *lowerer) isObjectType(t *checker.Type) bool {
 	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 || checker.IsTupleType(t) {
 		return false
 	}
 	isGenericInterface := t.ObjectFlags()&checker.ObjectFlagsReference != 0 && t.Target().ObjectFlags()&checker.ObjectFlagsClass == 0 // Box<string>
-	if t.ObjectFlags()&(checker.ObjectFlagsAnonymous|checker.ObjectFlagsInterface) == 0 && !isGenericInterface {
+	// A mapped type (`Partial<Point>`) is declared in the library, but of the program's properties.
+	isMapped := t.ObjectFlags()&checker.ObjectFlagsMapped != 0
+	if t.ObjectFlags()&(checker.ObjectFlagsAnonymous|checker.ObjectFlagsInterface) == 0 && !isGenericInterface && !isMapped {
 		return false
 	}
-	if symbol := t.Symbol(); symbol != nil {
+	if symbol := t.Symbol(); symbol != nil && !isMapped {
 		for _, declaration := range symbol.Declarations {
 			if l.program.IsSourceFileDefaultLibrary(ast.GetSourceFileOfNode(declaration).Path()) {
 				return false
@@ -137,14 +140,16 @@ func (l *lowerer) interfaceOf(t *checker.Type, node *ast.Node) *ir.Interface {
 
 // objectMembers makes a field (of no class yet) for each property of an object type and
 // an interface method for each of its methods, both in name order, or reports a member it
-// can't hold and returns false. A property may be declared with accessors.
+// can't hold and returns false. A property may be declared with accessors, or be optional
+// (D-065).
 func (l *lowerer) objectMembers(t *checker.Type, node *ast.Node) ([]*ir.Field, []*ir.InterfaceMethod, bool) {
 	var fields []*ir.Field
 	var methods []*ir.InterfaceMethod
 	for _, property := range l.checker.GetPropertiesOfType(t) {
+		optional := property.Flags&ast.SymbolFlagsOptional != 0
 		switch {
-		case property.Flags&ast.SymbolFlagsOptional != 0:
-			l.notSupportedYet(node, fmt.Sprintf("optional properties (`%s?` in %s) are", property.Name, l.checker.TypeToString(t)))
+		case optional && property.Flags&ast.SymbolFlagsProperty == 0:
+			l.notSupportedYet(node, fmt.Sprintf("optional methods and accessors (`%s?` in %s) are", property.Name, l.checker.TypeToString(t)))
 			return nil, nil, false
 		case isArrayIndex(property.Name):
 			l.notSupportedYet(node, fmt.Sprintf("numeric property names (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
@@ -164,7 +169,10 @@ func (l *lowerer) objectMembers(t *checker.Type, node *ast.Node) ([]*ir.Field, [
 		if fieldType == nil {
 			return nil, nil, false
 		}
-		fields = append(fields, &ir.Field{Name: property.Name, Type: fieldType})
+		if optional {
+			fieldType = l.withUndefined(fieldType)
+		}
+		fields = append(fields, &ir.Field{Name: property.Name, Type: fieldType, Optional: optional})
 	}
 	slices.SortFunc(fields, func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortFunc(methods, func(a, b *ir.InterfaceMethod) int { return strings.Compare(a.Name, b.Name) })
@@ -232,7 +240,11 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 	var key strings.Builder
 	for _, field := range fields {
-		fmt.Fprintf(&key, "%q:%s;", field.Name, typeKey(field.Type))
+		optional := ""
+		if field.Optional {
+			optional = "?"
+		}
+		fmt.Fprintf(&key, "%q%s:%s;", field.Name, optional, typeKey(field.Type))
 	}
 	for _, method := range methods {
 		fmt.Fprintf(&key, "%q(", method.Name)
@@ -320,6 +332,7 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			return nil
 		}
 	}
+	fields, values = l.withLeftOut(l.literalType(node), shape, fields, values)
 	return &ir.NewObject{Shape: shape, Order: shape.Order(fields), Values: values}
 }
 
@@ -422,7 +435,12 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 				l.notSupportedYet(part.node, fmt.Sprintf("spreading the property `%s` of a %s is", name, source.Type()))
 				return nil
 			}
-			if read = l.convert(read, field.Type, part.node); read == nil {
+			if earlier, ok := values[field]; ok && isOptionalRead(read) {
+				read = l.spreadOver(read.(*ir.FieldRef), earlier, field, part.node)
+			} else {
+				read = l.convert(copiedRead(read, field), field.Type, part.node)
+			}
+			if read == nil {
 				return nil
 			}
 			if i < lastImpure {
@@ -431,13 +449,14 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			set(field, read)
 		}
 	}
-	if len(order) != len(shape.Fields) {
-		l.notSupportedYet(node, "an object literal whose spreads don't give every property is")
-		return nil
-	}
 	objectValues := make([]ir.Expr, len(order))
 	for i, field := range order {
 		objectValues[i] = values[field]
+	}
+	order, objectValues = l.withLeftOut(l.literalType(node), shape, order, objectValues)
+	if len(order) != len(shape.Fields) {
+		l.notSupportedYet(node, "an object literal whose spreads don't give every property is")
+		return nil
 	}
 	var object ir.Expr = &ir.NewObject{Shape: shape, Order: shape.Order(order), Values: objectValues}
 	for i := len(locals) - 1; i >= 0; i-- {
@@ -447,24 +466,24 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 }
 
 // literalType is the object type an object literal makes an object of: its contextual
-// type if that is an object type with the same properties, so that `{ from: pixel }`
-// written for a `Segment` holds a `Point`, and otherwise the literal's own type.
+// type if that is an object type with the same properties but for optional ones the
+// literal leaves out (D-065), so that `{ from: pixel }` written for a `Segment` holds a
+// `Point`, and otherwise the literal's own type.
 func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 	own := l.typeAt(node)
 	contextual := l.literalContext(node)
-	if contextual == nil || !l.isObjectType(contextual) {
-		return own
-	}
-	names := func(t *checker.Type) []string {
-		var names []string
-		for _, property := range l.checker.GetPropertiesOfType(t) {
-			names = append(names, property.Name)
-		}
-		slices.Sort(names)
-		return names
-	}
-	if !slices.Equal(names(own), names(contextual)) || len(l.literalAccessors(own)) > 0 {
+	if contextual == nil || !l.isObjectType(contextual) || len(l.literalAccessors(own)) > 0 {
 		return own // a literal's accessors make objects of a shape of their own (D-045)
+	}
+	for _, property := range l.checker.GetPropertiesOfType(own) {
+		if l.checker.GetPropertyOfType(contextual, property.Name) == nil {
+			return own
+		}
+	}
+	for _, property := range l.checker.GetPropertiesOfType(contextual) {
+		if property.Flags&ast.SymbolFlagsOptional == 0 && l.checker.GetPropertyOfType(own, property.Name) == nil {
+			return own
+		}
 	}
 	return contextual
 }
@@ -501,6 +520,13 @@ func (l *lowerer) isShapeProperty(member *ast.Node) bool {
 		return l.isObjectTypeMember(member)
 	}
 	return false
+}
+
+// isMappedProperty reports whether a property access reads a property of a mapped object
+// type (`Partial<Point>`), which has no declaration of its own (D-065).
+func (l *lowerer) isMappedProperty(node *ast.Node) bool {
+	symbol := l.memberSymbol(node)
+	return symbol != nil && symbol.CheckFlags&ast.CheckFlagsMapped != 0 && l.isObjectType(l.typeAt(node.Expression()))
 }
 
 // isObjectTypeMethod reports whether a member declaration declares a method of an object
@@ -594,12 +620,13 @@ func unprovided(t ir.Type, iface *ir.Interface) string {
 }
 
 // providesProperty reports whether values of type t have a property of the same name and
-// type as an interface's.
+// type as an interface's. Only an optional property can be left out, so only an optional
+// property provides one.
 func providesProperty(t ir.Type, property *ir.Field) bool {
 	switch from := t.(type) {
 	case *ir.Class:
 		if field := from.Field(property.Name); field != nil {
-			return field.Type == property.Type
+			return field.Type == property.Type && (!field.Optional || property.Optional)
 		}
 		getField, setField := from.AccessorField(property.Name, ir.Getter), from.AccessorField(property.Name, ir.Setter)
 		if from.Shape && (getField != nil || setField != nil) {
@@ -609,7 +636,7 @@ func providesProperty(t ir.Type, property *ir.Field) bool {
 		return !from.Shape && getter != nil && getter.Func.Result == property.Type && (setter == nil || setter.Func.Params[1].Type == property.Type)
 	case *ir.Interface:
 		field := from.Field(property.Name)
-		return field != nil && field.Type == property.Type
+		return field != nil && field.Type == property.Type && (!field.Optional || property.Optional)
 	}
 	return false
 }

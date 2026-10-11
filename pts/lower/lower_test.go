@@ -176,7 +176,7 @@ func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
 
 func TestUnsupportedOperatorIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "const point = { x: 1 };\nconsole.log(\"x\" in point);")
+	err := lowerInvalid(t, "const point = { x: 1 };\nconst key: string = \"x\";\nconsole.log(key in point);")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
 	assert.Equal(t, err.Message, "the `in` operator is not supported yet")
 }
@@ -689,6 +689,22 @@ func main() void {
 }
 func swap(p: {x: number; y: number}) {x: number; y: number} {
   3: return (object1{y: p.x, x: p.y} as {x: number; y: number})
+}
+`)
+}
+
+func TestLeftOutOptionalPropertiesAreAbsent(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `interface Options { name: string; level?: number }
+const o: Options = { name: "a" };
+console.log(o.level, "level" in o, { ...o });
+`)
+	// The literal stores the absent value in the property it leaves out; a read sees
+	// undefined, `in` tests for absent, and a spread copies the field as it is (D-065).
+	assert.Equal(t, got, `shape object1{level?: number | undefined; name: string}
+func main() void {
+  2: let o: {level?: number | undefined; name: string} = (object1{name: "a", level: absent} as {level?: number | undefined; name: string})
+  3: console.log(box(o.level), box(has(o.level)), box(object1{name: o.name, level: o.raw level}))
 }
 `)
 }

@@ -188,9 +188,17 @@ func (c *Class) Slots() []*Method {
 type Interface struct {
 	Fields  []*Field // their Class is nil
 	Methods []*InterfaceMethod
+	// writing is set while String writes the interface, so that a recursive object type
+	// (`{ value: number; next?: List }`) writes its references to itself as "{...}".
+	writing bool
 }
 
 func (i *Interface) String() string {
+	if i.writing {
+		return "{...}"
+	}
+	i.writing = true
+	defer func() { i.writing = false }()
 	members := []string{}
 	if len(i.Fields) > 0 {
 		members = append(members, fieldList(i.Fields))
@@ -326,7 +334,11 @@ func (c *Class) ShapeString() string { return c.Name + "{" + fieldList(c.Fields)
 func fieldList(fields []*Field) string {
 	members := make([]string, len(fields))
 	for i, field := range fields {
-		members[i] = field.Name + ": " + field.Type.String()
+		if field.Optional {
+			members[i] = field.Name + "?: " + field.Type.String()
+		} else {
+			members[i] = field.Name + ": " + field.Type.String()
+		}
 	}
 	return strings.Join(members, "; ")
 }
@@ -347,6 +359,10 @@ type Field struct {
 	Method   bool
 	Kind     MethodKind
 	Property string
+	// Optional marks an optional property (`p?: T`) of an object type, of type T | undefined
+	// (D-065): an object may leave it out, and its field then holds the absent value, which
+	// every read (FieldRef) sees as undefined.
+	Optional bool
 }
 
 // AccessorField returns the field of a shape that holds the getter (or setter) of its
@@ -597,6 +613,13 @@ type NullConst struct{}
 // GivenConst is the flag a call passes after an argument for a parameter with a default.
 type GivenConst struct{ Value bool }
 
+// IsAbsent is whether X, an optional field's value read Raw, is the absent value.
+type IsAbsent struct{ X Expr }
+
+// Absent is what an object stores in an optional property it leaves out (D-065); it has
+// T, the field's type, for the IR's sake.
+type Absent struct{ T Type }
+
 // LeftOut is what a call passes for an argument it leaves out (or passes undefined for):
 // the zero value of T, which the callee replaces with the parameter's default (D-055).
 type LeftOut struct{ T Type }
@@ -760,6 +783,16 @@ type NewMap struct {
 // FieldRef reads a field of the instance X, or through an interface, a property of the
 // object X refers to.
 type FieldRef struct {
+	X     Expr
+	Field *Field
+	// Raw reads an optional field as it is, the absent value included, to store it in
+	// another optional field (a spread copies only the properties an object has).
+	Raw bool
+}
+
+// HasField is whether X has the optional property Field: whether its field holds a value
+// rather than the absent one (`"p" in o`, D-065).
+type HasField struct {
 	X     Expr
 	Field *Field
 }
@@ -1013,6 +1046,7 @@ func (*UndefinedConst) Type() Type  { return Undefined }
 func (*NullConst) Type() Type       { return Null }
 func (*GivenConst) Type() Type      { return Given }
 func (e *LeftOut) Type() Type       { return e.T }
+func (e *Absent) Type() Type        { return e.T }
 func (e *LocalRef) Type() Type      { return e.Local.Type }
 func (e *Assign) Type() Type        { return e.Local.Type }
 func (*Truthy) Type() Type          { return Bool }
@@ -1023,6 +1057,8 @@ func (e *Bind) Type() Type          { return e.In.Type() }
 func (e *New) Type() Type           { return e.Class }
 func (e *NewObject) Type() Type     { return e.Shape }
 func (e *FieldRef) Type() Type      { return e.Field.Type }
+func (*HasField) Type() Type        { return Bool }
+func (*IsAbsent) Type() Type        { return Bool }
 func (e *SetField) Type() Type      { return e.Field.Type }
 func (*Box) Type() Type             { return Value }
 func (e *RestArgs) Type() Type      { return e.X.Type().(*Rest).Array }

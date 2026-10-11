@@ -422,6 +422,10 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 				c.visit(node.Expression())
 				return n // a field, or m.x for a namespace import m
 			}
+			if n, ok := NumericContext(c.tc.GetTypeAtLocation(node)); ok {
+				c.visit(node.Expression())
+				return n // a property of a union type (`hits?: int`), narrowed to its numeric member here
+			}
 		}
 	}
 	node.ForEachChild(func(child *ast.Node) bool {

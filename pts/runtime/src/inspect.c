@@ -474,7 +474,20 @@ static text *format_record_entries(inspector *in, pts_map *record, size_t *count
   return entries;
 }
 
-/* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order. */
+/* Whether object has a field's property: a field of an optional property may hold the absent value instead (D-065). */
+static bool has_field(const pts_object *object, const pts_field *field) {
+  return field->kind != PTS_FIELD_VALUE || *(const pts_value *)((const char *)object + field->offset) != PTS_VALUE_ABSENT;
+}
+
+/* present_field_count is the number of properties an object's fields hold (has_field). */
+static size_t present_field_count(const pts_object *object) {
+  size_t count = 0;
+  for (uint32_t i = 0; i < object->type->field_count; i++) {
+    count += has_field(object, &object->type->fields[i]);
+  }
+  return count;
+}
+
 /* is_numeric_tuple is is_numeric_array for a tuple's elements. */
 static bool is_numeric_tuple(const pts_object *tuple) {
   const pts_type *type = tuple->type;
@@ -509,16 +522,23 @@ static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_
   return entries;
 }
 
-static text *format_fields(inspector *in, const pts_object *object, size_t recurse_times) {
+/* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order. */
+static text *format_fields(inspector *in, const pts_object *object, size_t *count, size_t recurse_times) {
   const pts_type *type = object->type;
   text *entries = new_entries(type->field_count);
+  size_t n = 0;
   for (uint32_t i = 0; i < type->field_count; i++) {
-    format_key(&entries[i], type->fields[i].name);
-    text_puts(&entries[i], ": ");
+    if (!has_field(object, &type->fields[i])) {
+      continue;
+    }
+    format_key(&entries[n], type->fields[i].name);
+    text_puts(&entries[n], ": ");
     in->indentation += 2;
-    format_slot(in, &entries[i], type->fields[i].kind, (const char *)object + type->fields[i].offset, recurse_times);
+    format_slot(in, &entries[n], type->fields[i].kind, (const char *)object + type->fields[i].offset, recurse_times);
     in->indentation -= 2;
+    n++;
   }
+  *count = n;
   return entries;
 }
 
@@ -696,6 +716,8 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   size_t length = is_array && !is_tuple ? pts_array_length_of((const pts_array *)object) : type->field_count;
   if (is_record) {
     length = (size_t)pts_map_size((const pts_map *)object);
+  } else if (!is_array && !is_map) {
+    length = present_field_count(object);
   }
   char buffer[256];
   const char *open = is_array ? "[" : opening_brace(type, buffer, sizeof buffer);
@@ -721,7 +743,7 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
                  : is_array ? format_elements(in, (const pts_array *)object, length, &count, recurse_times)
                  : is_map    ? format_map_entries(in, (pts_map *)object, &count, recurse_times)
                  : is_record ? format_record_entries(in, (pts_map *)object, &count, recurse_times)
-                             : format_fields(in, object, recurse_times);
+                             : format_fields(in, object, &count, recurse_times);
   in->seen_len--;
 
   text base = {0};

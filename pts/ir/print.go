@@ -215,6 +215,8 @@ func FormatExpr(expr Expr) string {
 		return "given(" + strconv.FormatBool(e.Value) + ")"
 	case *LeftOut:
 		return "left-out " + e.T.String()
+	case *Absent:
+		return "absent"
 	case *LocalRef:
 		return e.Local.Name
 	case *IntConst:
@@ -273,7 +275,14 @@ func FormatExpr(expr Expr) string {
 		}
 		return e.Shape.Name + "{" + strings.Join(properties, ", ") + "}"
 	case *FieldRef:
+		if e.Raw {
+			return FormatExpr(e.X) + ".raw " + e.Field.Name
+		}
 		return FormatExpr(e.X) + "." + e.Field.Name
+	case *HasField:
+		return "has(" + FormatExpr(e.X) + "." + e.Field.Name + ")"
+	case *IsAbsent:
+		return "absent(" + FormatExpr(e.X) + ")"
 	case *SetField:
 		set := "(" + FormatExpr(e.X) + "." + e.Field.Name + " = " + FormatExpr(e.Value) + ")"
 		if e.Postfix {

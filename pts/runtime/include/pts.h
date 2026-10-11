@@ -200,6 +200,13 @@ static inline pts_property pts_property_find(const void *object, pts_site *site,
     pts_get.accessor != NULL ? ((T(*)(pts_object *))pts_get.accessor)(pts_get_object) : *(T *)pts_get.field; \
   })
 
+/* Whether object has its optional property name, found through site: a getter or setter, or a field that isn't absent. */
+#define PTS_HAS(object, site, name)                                                                   \
+  ({                                                                                                  \
+    pts_property pts_has = pts_property_find((pts_object *)(object), (site), (name), PTS_GETTER);     \
+    pts_has.accessor != NULL || *(pts_value *)pts_has.field != PTS_VALUE_ABSENT;                      \
+  })
+
 /* Writes value, of C type T, to the property name of object through site: to its field, or with its setter. */
 #define PTS_SET(T, object, site, name, value)                                                    \
   ({                                                                                             \
@@ -581,6 +588,12 @@ typedef uint64_t pts_value;
 #define PTS_VALUE_FALSE ((pts_value)0x06)
 #define PTS_VALUE_TRUE ((pts_value)0x07)
 #define PTS_VALUE_UNDEFINED ((pts_value)0x0a)
+/*
+ * What an optional property's field holds when the object leaves the property out
+ * (D-065): console.log skips it, `in` tells it apart, and reads see undefined. It is
+ * zero, so a new object's fields start out absent, like an array's holes.
+ */
+#define PTS_VALUE_ABSENT ((pts_value)0)
 
 static inline pts_value pts_value_from_number(double number) {
   uint64_t bits;
@@ -633,6 +646,8 @@ pts_string *pts_value_typeof(pts_value value);
 int64_t pts_value_as_i64(pts_value value);
 uint64_t pts_value_as_u64(pts_value value);
 static inline bool pts_value_is_nullish(pts_value v) { return v == PTS_VALUE_NULL || v == PTS_VALUE_UNDEFINED; }
+/* A read of an optional property's field: its value, or undefined if the object left it out. */
+static inline pts_value pts_value_present(pts_value v) { return v == PTS_VALUE_ABSENT ? PTS_VALUE_UNDEFINED : v; }
 _Noreturn void pts_throw_non_null(pts_value value);
 /* `x!`: value, or TypeError if it is null or undefined. */
 static inline pts_value pts_value_non_null(pts_value value) {

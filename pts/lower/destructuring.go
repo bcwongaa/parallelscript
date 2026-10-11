@@ -41,7 +41,9 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 		binding := element.AsBindingElement()
 		var part ir.Expr
 		if pattern.Kind == ast.KindObjectBindingPattern {
-			part = l.propertyPart(&ir.LocalRef{Local: whole}, element, binding.PropertyName, binding.DotDotDotToken != nil)
+			if part = l.propertyPart(&ir.LocalRef{Local: whole}, element, binding.PropertyName, binding.DotDotDotToken != nil); part != nil {
+				part = l.withDefault(part, binding.Initializer, binding.Name())
+			}
 		} else {
 			part = l.elementPart(&ir.LocalRef{Local: whole}, element, i, binding.Initializer, binding.DotDotDotToken != nil)
 		}
@@ -120,8 +122,7 @@ func (l *lowerer) bindName(name *ast.Node, value ir.Expr, node *ast.Node) ir.Stm
 }
 
 // propertyPart reads from source the property that an element of an object pattern (or
-// of an object literal being assigned to) names: property, or the element's own name. A
-// default never applies, since a property's type can't hold undefined yet.
+// of an object literal being assigned to) names: property, or the element's own name.
 func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.Node, rest bool) ir.Expr {
 	if rest {
 		return l.restProperties(source, element)
@@ -220,7 +221,7 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 			l.notSupportedYet(element, fmt.Sprintf("rest properties holding the method `%s` are", name))
 			return nil
 		}
-		value := l.convert(read, field.Type, element)
+		value := l.convert(copiedRead(read, field), field.Type, element)
 		if value == nil {
 			return nil
 		}
@@ -430,6 +431,9 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, boo
 			if part = l.propertyPart(source, element, element.Name(), false); part == nil {
 				return nil, false
 			}
+			if part = l.withDefault(part, element.AsShorthandPropertyAssignment().ObjectAssignmentInitializer, element.Name()); part == nil {
+				return nil, false
+			}
 			store := l.assignShorthand(element, part)
 			if store == nil {
 				return nil, false
@@ -438,10 +442,13 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, boo
 			continue
 		case ast.KindPropertyAssignment: // `{ x: target }`
 			target, property = element.Initializer(), element.Name()
+			var fallback *ast.Node
 			if binary := ast.SkipParentheses(target); ast.IsBinaryExpression(binary) && binary.AsBinaryExpression().OperatorToken.Kind == ast.KindEqualsToken {
-				target = binary.AsBinaryExpression().Left // a default, which can't apply to a property (D-054)
+				target, fallback = binary.AsBinaryExpression().Left, binary.AsBinaryExpression().Right
 			}
-			part = l.propertyPart(source, element, property, false)
+			if part = l.propertyPart(source, element, property, false); part != nil {
+				part = l.withDefault(part, fallback, target)
+			}
 		case ast.KindSpreadAssignment:
 			part = l.propertyPart(source, element, nil, true)
 		default: // an array literal's element: a target, or `target = default`
