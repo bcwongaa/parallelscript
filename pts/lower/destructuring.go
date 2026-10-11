@@ -163,6 +163,9 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	if read := propertyOf(source, name); read != nil {
 		return read
 	}
+	if m, ok := l.objectTypeMethod(source.Type(), name); ok {
+		return l.boundMethod(property, m, source, nil, name, false) // bound to the object, as `o.m` is (D-044)
+	}
 	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
 	return nil
 }

@@ -108,9 +108,19 @@ func (l *lowerer) methodOf(access *ast.Node, receiver ir.Expr) (m method, ok boo
 	if !l.isObjectTypeMethod(member) {
 		return method{}, false
 	}
-	switch t := receiver.Type().(type) {
+	if m, ok := l.objectTypeMethod(receiver.Type(), name); ok {
+		return m, true
+	}
+	l.notSupportedYet(access, fmt.Sprintf("calling a method of an object type on a %s is", receiver.Type()))
+	return method{}, true
+}
+
+// objectTypeMethod is the method name of values of t, a shape (a literal's method field)
+// or an interface, if it has one.
+func (l *lowerer) objectTypeMethod(t ir.Type, name string) (method, bool) {
+	switch t := t.(type) {
 	case *ir.Class:
-		if field := t.Field(name); t.Shape && field != nil && field.Method {
+		if field := t.Field(name); t.Shape && field != nil && field.Method && field.Kind == ir.Plain {
 			ft := field.Type.(*ir.FuncType)
 			return method{name, t, ft.Params[1:], ft.Result, func(receiver ir.Expr, args []ir.Expr) ir.Expr {
 				return l.withReceiver(receiver, func(object ir.Expr) ir.Expr {
@@ -125,8 +135,7 @@ func (l *lowerer) methodOf(access *ast.Node, receiver ir.Expr) (m method, ok boo
 			}}, true
 		}
 	}
-	l.notSupportedYet(access, fmt.Sprintf("calling a method of an object type on a %s is", receiver.Type()))
-	return method{}, true
+	return method{}, false
 }
 
 // methodValue lowers `o.m` for a method m used as a value (D-044): a static method is a

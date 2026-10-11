@@ -119,7 +119,7 @@ func (e *emitter) dynamicEntries(program *ir.Program, write func(name string, se
 	}
 
 	for _, f := range e.closureOrder {
-		write("pts_dynamic_"+e.closureNames[f], "pts_closure *self", func() {
+		write(closureDynamicEntry(e.closureNames[f]), "pts_closure *self", func() {
 			params := paramTypes(f.Params)
 			args := append([]string{"self"}, e.dynamicArguments(params)...)
 			code := "((" + e.functionPointer(&ir.FuncType{Params: params, Result: f.Result}) + ")self->code)"
@@ -368,4 +368,11 @@ func dynamicCallArguments(args []string) string {
 		return "0, NULL"
 	}
 	return fmt.Sprintf("%d, (pts_value[]){%s}", len(args), strings.Join(args, ", "))
+}
+
+// closureDynamicEntry is the name of the dynamic entry of the closures whose name (a
+// function's, without pts_fn_) is name, kept apart from the runtime's pts_dynamic_ functions
+// (a program's function `get` would otherwise clash with pts_dynamic_get).
+func closureDynamicEntry(name string) string {
+	return "pts_dynamic_fn_" + name
 }

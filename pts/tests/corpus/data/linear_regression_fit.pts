@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: destructuring the property `predict` of a {intercept: number; r: number; r2: number; slope: number; predict(number): number}
 interface Point {
   x: number;
   y: number;

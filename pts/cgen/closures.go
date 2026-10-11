@@ -102,7 +102,7 @@ func (e *emitter) closureDefinitions() {
 		}
 		e.line(1, ".size = %s,", size)
 		if e.declaredTypes {
-			e.line(1, ".call = pts_dynamic_%s,", name)
+			e.line(1, ".call = %s,", closureDynamicEntry(name))
 			e.line(1, ".signature = %s,", e.signatureCheck(paramTypes(f.Params), f.Result))
 		}
 		e.line(0, "};")

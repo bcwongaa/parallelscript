@@ -240,8 +240,6 @@ func (l *lowerer) dateMethodCall(call *ast.CallExpression, callee *ast.Node, nam
 	return nil
 }
 
-
-
 // dateTime is the time value of a lowered date.
 func (l *lowerer) dateTime(date ir.Expr) ir.Expr {
 	return &ir.Call{Func: l.dates.get, Args: []ir.Expr{date, &ir.NumberConst{Value: 0}}}

@@ -1,0 +1,39 @@
+// Function values given for methods of object types, and methods destructured from
+// objects (D-094).
+interface Monoid<T> {
+  identity: T;
+  combine(a: T, b: T): T;
+}
+function fold<T>(xs: T[], m: Monoid<T>): T {
+  let acc = m.identity;
+  for (const x of xs) acc = m.combine(acc, x);
+  return acc;
+}
+console.log(fold([1, 2, 3], { identity: 0, combine: (a, b) => a + b }));
+console.log(fold([1, 5, 3], { identity: -Infinity, combine: Math.max }));
+console.log(fold(["a", "b"], { identity: "", combine: function (a, b) { return a + b; } }));
+
+interface Shape { name: string; label(suffix: string): string }
+const join = (x: string) => "[" + x + "]";
+const square: Shape = { name: "square", label: join };
+console.log(square.label("sq"), square);
+const base = { name: "circle" };
+const circle: Shape = { ...base, label: (s) => s.toUpperCase() };
+console.log(circle.label("c"));
+
+interface Fit { slope: number; predict(x: number): number }
+function fit(slope: number): Fit {
+  return { slope, predict: (x) => slope * x };
+}
+const f = fit(2);
+console.log(f.predict(21), f);
+const { predict } = f;
+console.log(predict(4));
+// expect:
+// 6
+// 5
+// ab
+// [sq] { name: 'square', label: [Function: join] }
+// C
+// 42 { slope: 2, predict: [Function: predict] }
+// 8

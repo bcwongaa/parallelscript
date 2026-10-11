@@ -542,6 +542,23 @@ func (l *lowerer) thisLocal() *ir.Local {
 // that the other type doesn't pass is left out, and one it always passes is passed
 // (D-055). It reports (at node) and returns nil if the types don't fit.
 func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr {
+	return l.adaptSkipping(value, to, 0, node)
+}
+
+// functionAsMethod is a function value given for a method field of a shape (`{ combine: (a, b)
+// => a + b }` for a `combine(a, b)` method), whose function type takes `this` first
+// (D-044): an adapter that leaves `this` out, as JS calls an arrow without it.
+func (l *lowerer) functionAsMethod(value ir.Expr, field *ir.Field, node *ast.Node) ir.Expr {
+	if !isFunction(value.Type()) {
+		l.notSupportedYet(node, fmt.Sprintf("a %s as the method %s is", value.Type(), field.Name))
+		return nil
+	}
+	return l.adaptSkipping(value, field.Type.(*ir.FuncType), 1, node)
+}
+
+// adaptSkipping is adapt for an adapter whose first skip parameters the wrapped
+// function doesn't take.
+func (l *lowerer) adaptSkipping(value ir.Expr, to *ir.FuncType, skip int, node *ast.Node) ir.Expr {
 	from := value.Type().(*ir.FuncType)
 	wrapped := l.newLocal("adapted", from)
 	fn := &ir.Func{Name: l.closureName("adapter", node), Module: l.function.Module, Pos: l.pos(node), Result: to.Result,
@@ -551,7 +568,7 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 		for i, t := range to.Params {
 			fn.Params = append(fn.Params, l.newLocal(fmt.Sprintf("arg%d", i+1), t))
 		}
-		args := l.adaptedArguments(fn.Params, from, to, node)
+		args := l.adaptedArguments(fn.Params[skip:], from, &ir.FuncType{Params: to.Params[skip:], Result: to.Result}, node)
 		if failed = args == nil; failed {
 			return
 		}

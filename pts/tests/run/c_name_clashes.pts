@@ -1,0 +1,15 @@
+// Functions named as the runtime's functions, in a program that converts dynamic values,
+// so closures have dynamic entries (their C names once clashed with pts_dynamic_get).
+const store = new Map<string, number>([["a", 1]]);
+const get = (k: string) => store.get(k) ?? 0;
+const set = (k: string, v: number) => { store.set(k, v); };
+function has(k: string): boolean { return store.has(k); }
+function call(f: (k: string) => number, k: string): number { return f(k); }
+const data = JSON.parse('{"key": "a", "value": 5}') as { key: string; value: number };
+set(data.key, data.value);
+console.log(get("a"), has("b"), call(get, "a"));
+const loose: any = get;
+console.log(loose("a"));
+// expect:
+// 5 false 5
+// 5

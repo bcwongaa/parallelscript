@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting object2 to string
 // A dependency-injection container with factory closures, singletons, and cycle detection.
 
 type Factory<T> = (c: Container) => T;

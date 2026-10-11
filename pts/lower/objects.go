@@ -344,7 +344,7 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		} else if fields[i] == nil {
 			fields[i] = shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name)
 		}
-		if values[i] = l.convert(value, fields[i].Type, property); values[i] == nil {
+		if values[i] = l.propertyValue(value, fields[i], property); values[i] == nil {
 			return nil
 		}
 	}
@@ -353,6 +353,15 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 }
 
 func isSpreadAssignment(node *ast.Node) bool { return node.Kind == ast.KindSpreadAssignment }
+
+// propertyValue is value, written by the property assignment or method declaration
+// property of an object literal, converted to the field it goes in.
+func (l *lowerer) propertyValue(value ir.Expr, field *ir.Field, property *ast.Node) ir.Expr {
+	if field.Method && field.Kind == ir.Plain && property.Kind != ast.KindMethodDeclaration {
+		return l.functionAsMethod(value, field, property)
+	}
+	return l.convert(value, field.Type, property)
+}
 
 // constantName is the property name a computed name `[e]` gives when tsc types e as one
 // string or number literal (an enum member, a constant): JS's string of its value.
@@ -408,7 +417,7 @@ func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, n
 			if part.value == nil {
 				return nil
 			}
-			if part.value = l.convert(part.value, part.field.Type, property); part.value == nil {
+			if part.value = l.propertyValue(part.value, part.field, property); part.value == nil {
 				return nil
 			}
 		default:
