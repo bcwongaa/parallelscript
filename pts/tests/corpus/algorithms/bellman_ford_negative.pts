@@ -1,0 +1,108 @@
+// Bellman-Ford on currency exchange rates: detect arbitrage (negative cycles) using -log(rate).
+
+class NegativeCycleError extends Error {
+  constructor(readonly cycle: string[]) {
+    super("negative cycle detected");
+    this.name = "NegativeCycleError";
+  }
+}
+
+interface Rate {
+  from: string;
+  to: string;
+  rate: number;
+}
+
+function bellmanFord(nodes: string[], edges: { from: string; to: string; w: number }[], source: string) {
+  const dist = new Map<string, number>(nodes.map((n) => [n, Infinity]));
+  const pred = new Map<string, string>();
+  dist.set(source, 0);
+  let rounds = 0;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    let changed = false;
+    for (const { from, to, w } of edges) {
+      const df = dist.get(from)!;
+      if (df + w < dist.get(to)! - 1e-12) {
+        dist.set(to, df + w);
+        pred.set(to, from);
+        changed = true;
+      }
+    }
+    rounds++;
+    if (!changed) break;
+  }
+  for (const { from, to, w } of edges) {
+    if (dist.get(from)! + w < dist.get(to)! - 1e-12) {
+      // Walk back n steps to land inside the cycle, then collect it.
+      pred.set(to, from);
+      let x = to;
+      for (let i = 0; i < nodes.length; i++) x = pred.get(x)!;
+      const cycle = [x];
+      let y = pred.get(x)!;
+      while (y !== x) {
+        cycle.push(y);
+        y = pred.get(y)!;
+      }
+      cycle.push(x);
+      throw new NegativeCycleError(cycle.reverse());
+    }
+  }
+  return { dist, pred, rounds };
+}
+
+function analyse(label: string, rates: Rate[]): void {
+  const nodes = [...new Set(rates.flatMap((r) => [r.from, r.to]))].sort();
+  const edges = rates.map((r) => ({ from: r.from, to: r.to, w: -Math.log(r.rate) }));
+  console.log(`== ${label}: ${nodes.length} currencies, ${edges.length} quotes`);
+  try {
+    const { dist, rounds } = bellmanFord(nodes, edges, "USD");
+    console.log("converged after", rounds, "rounds");
+    for (const [cur, d] of dist) {
+      const best = Math.exp(-d);
+      console.log(`  1 USD -> ${best.toFixed(4)} ${cur}`);
+    }
+  } catch (err) {
+    if (err instanceof NegativeCycleError) {
+      const lookup = new Map(rates.map((r) => [`${r.from}>${r.to}`, r.rate]));
+      let amount = 1;
+      for (let i = 0; i + 1 < err.cycle.length; i++) {
+        amount *= lookup.get(`${err.cycle[i]}>${err.cycle[i + 1]}`) ?? NaN;
+      }
+      console.log(`${err.name}: ${err.message}`);
+      console.log("  cycle:", err.cycle.join(" -> "));
+      console.log(`  profit per unit: ${((amount - 1) * 100).toFixed(3)}%`);
+    } else {
+      throw err;
+    }
+  }
+}
+
+const fair: Rate[] = [
+  { from: "USD", to: "EUR", rate: 0.92 },
+  { from: "EUR", to: "USD", rate: 1.08 },
+  { from: "EUR", to: "GBP", rate: 0.86 },
+  { from: "GBP", to: "EUR", rate: 1.15 },
+  { from: "USD", to: "JPY", rate: 149.5 },
+  { from: "JPY", to: "USD", rate: 0.0066 },
+  { from: "GBP", to: "JPY", rate: 188.0 },
+  { from: "USD", to: "CHF", rate: 0.88 },
+  { from: "CHF", to: "EUR", rate: 1.03 },
+];
+analyse("fair market", fair);
+
+const skewed: Rate[] = [...fair, { from: "JPY", to: "CHF", rate: 0.0068 }];
+analyse("skewed market", skewed);
+
+// Plain shortest paths with negative edges but no negative cycle.
+const tasks = ["s", "a", "b", "c", "d"];
+const deps = [
+  { from: "s", to: "a", w: 4 },
+  { from: "s", to: "b", w: 5 },
+  { from: "a", to: "c", w: -3 },
+  { from: "b", to: "a", w: -2 },
+  { from: "c", to: "d", w: 2 },
+  { from: "b", to: "d", w: 6 },
+];
+const res = bellmanFord(tasks, deps, "s");
+console.log(res.dist);
+console.log("predecessors:", Object.fromEntries(res.pred));

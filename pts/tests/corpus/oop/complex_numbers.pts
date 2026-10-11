@@ -1,0 +1,121 @@
+// Immutable complex number class with operator-like methods, toString/valueOf and roots of unity.
+
+class Complex {
+  static readonly ZERO = new Complex(0, 0);
+  static readonly ONE = new Complex(1, 0);
+  static readonly I = new Complex(0, 1);
+
+  constructor(readonly re: number, readonly im: number) {}
+
+  static fromPolar(r: number, theta: number): Complex {
+    return new Complex(r * Math.cos(theta), r * Math.sin(theta));
+  }
+
+  static parse(s: string): Complex {
+    const t = s.replaceAll(" ", "");
+    const split = Math.max(t.lastIndexOf("+"), t.lastIndexOf("-"));
+    if (!t.endsWith("i")) return new Complex(Number(t), 0);
+    if (split <= 0) {
+      const coef = t.slice(0, -1);
+      return new Complex(0, coef === "" || coef === "+" ? 1 : coef === "-" ? -1 : Number(coef));
+    }
+    const imPart = t.slice(split, -1);
+    return new Complex(Number(t.slice(0, split)), imPart === "+" ? 1 : imPart === "-" ? -1 : Number(imPart));
+  }
+
+  add(o: Complex | number): Complex {
+    const c = Complex.of(o);
+    return new Complex(this.re + c.re, this.im + c.im);
+  }
+  sub(o: Complex | number): Complex {
+    const c = Complex.of(o);
+    return new Complex(this.re - c.re, this.im - c.im);
+  }
+  mul(o: Complex | number): Complex {
+    const c = Complex.of(o);
+    return new Complex(this.re * c.re - this.im * c.im, this.re * c.im + this.im * c.re);
+  }
+  div(o: Complex | number): Complex {
+    const c = Complex.of(o);
+    const d = c.re * c.re + c.im * c.im;
+    if (d === 0) throw new RangeError("division by zero");
+    return new Complex((this.re * c.re + this.im * c.im) / d, (this.im * c.re - this.re * c.im) / d);
+  }
+  pow(n: number): Complex {
+    let result = Complex.ONE;
+    for (let i = 0; i < Math.abs(n); i++) result = result.mul(this);
+    return n < 0 ? Complex.ONE.div(result) : result;
+  }
+  get abs(): number {
+    return Math.hypot(this.re, this.im);
+  }
+  get arg(): number {
+    return Math.atan2(this.im, this.re);
+  }
+  conj(): Complex {
+    return new Complex(this.re, -this.im);
+  }
+  equals(o: Complex, eps = 1e-9): boolean {
+    return Math.abs(this.re - o.re) < eps && Math.abs(this.im - o.im) < eps;
+  }
+  private static of(x: Complex | number): Complex {
+    return typeof x === "number" ? new Complex(x, 0) : x;
+  }
+  private static fmt(x: number): string {
+    const r = Math.round(x * 1e6) / 1e6;
+    return Object.is(r, -0) ? "0" : String(r);
+  }
+  toString(): string {
+    const re = Complex.fmt(this.re);
+    const im = Complex.fmt(this.im);
+    if (im === "0") return re;
+    const imAbs = im.startsWith("-") ? im.slice(1) : im;
+    const imStr = imAbs === "1" ? "i" : `${imAbs}i`;
+    if (re === "0") return im.startsWith("-") ? `-${imStr}` : imStr;
+    return `${re} ${im.startsWith("-") ? "-" : "+"} ${imStr}`;
+  }
+  valueOf(): number {
+    return this.abs;
+  }
+}
+
+const a = new Complex(3, 4);
+const b = Complex.parse("1 - 2i");
+console.log(`a = ${a}, b = ${b}`);
+console.log(`a + b = ${a.add(b)}`);
+console.log(`a - b = ${a.sub(b)}`);
+console.log(`a * b = ${a.mul(b)}`);
+console.log(`a / b = ${a.div(b)}`);
+console.log(`|a| = ${a.abs}, arg(a) = ${a.arg.toFixed(4)}`);
+console.log(`conj(b) = ${b.conj()}, i^2 = ${Complex.I.pow(2)}, i^-1 = ${Complex.I.pow(-1)}`);
+console.log("a > b by magnitude:", +a > +b, a.valueOf(), Number(b).toFixed(4));
+console.log("sorted:", [a, b, Complex.I, new Complex(-5, 0)].sort((x, y) => x.valueOf() - y.valueOf()).join(", "));
+
+for (const s of ["2+3i", "-i", "4.5", "-1.5-0.5i", "7i", "i"]) {
+  console.log(s.padEnd(10), "->", Complex.parse(s).toString());
+}
+
+const n = 6;
+const roots = Array.from({ length: n }, (_, k) => Complex.fromPolar(1, (2 * Math.PI * k) / n));
+roots.forEach((r, k) => console.log(`root ${k}: ${r}  ^${n} = ${r.pow(n)}`));
+const sum = roots.reduce((s, r) => s.add(r), Complex.ZERO);
+console.log("sum of roots ~ 0:", sum.equals(Complex.ZERO), sum.abs < 1e-12);
+
+// Mandelbrot membership for a few points
+const inSet = (c: Complex): number => {
+  let z = Complex.ZERO;
+  for (let i = 0; i < 50; i++) {
+    z = z.mul(z).add(c);
+    if (z.abs > 2) return i;
+  }
+  return -1;
+};
+console.log([new Complex(0, 0), new Complex(-1, 0), new Complex(0.5, 0.5), new Complex(-0.75, 0.1), Complex.I].map(inSet));
+try {
+  a.div(Complex.ZERO);
+} catch (e) {
+  console.log(String(e));
+}
+console.log(a);
+console.log([a, b]);
+console.log(String(a) + "!", a + "", `${[a, b]}`);

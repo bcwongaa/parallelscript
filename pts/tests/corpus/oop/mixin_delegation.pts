@@ -1,0 +1,139 @@
+// Mixin-style composition via interfaces and delegation (no class-expression mixins).
+
+interface Timestamped {
+  readonly createdAt: number;
+  touch(at: number): void;
+  get updatedAt(): number;
+}
+
+interface Taggable {
+  addTag(tag: string): void;
+  hasTag(tag: string): boolean;
+  get tags(): string[];
+}
+
+interface Versioned<T> {
+  commit(snapshot: T): number;
+  revert(): T | undefined;
+  get version(): number;
+}
+
+class TimestampBehavior implements Timestamped {
+  private updated: number;
+  constructor(readonly createdAt: number) {
+    this.updated = createdAt;
+  }
+  touch(at: number): void {
+    if (at < this.updated) throw new Error(`time went backwards: ${at} < ${this.updated}`);
+    this.updated = at;
+  }
+  get updatedAt(): number {
+    return this.updated;
+  }
+}
+
+class TagBehavior implements Taggable {
+  private set = new Set<string>();
+  addTag(tag: string): void {
+    this.set.add(tag.trim().toLowerCase());
+  }
+  hasTag(tag: string): boolean {
+    return this.set.has(tag.toLowerCase());
+  }
+  get tags(): string[] {
+    return [...this.set].sort();
+  }
+}
+
+class VersionBehavior<T> implements Versioned<T> {
+  private history: T[] = [];
+  commit(snapshot: T): number {
+    this.history.push(JSON.parse(JSON.stringify(snapshot)) as T);
+    return this.history.length;
+  }
+  revert(): T | undefined {
+    this.history.pop();
+    return this.history[this.history.length - 1];
+  }
+  get version(): number {
+    return this.history.length;
+  }
+}
+
+interface ArticleData {
+  title: string;
+  body: string;
+  sections: string[];
+}
+
+class Article implements Timestamped, Taggable, Versioned<ArticleData> {
+  private time: TimestampBehavior;
+  private tagging = new TagBehavior();
+  private versions = new VersionBehavior<ArticleData>();
+  data: ArticleData;
+
+  constructor(title: string, now: number) {
+    this.time = new TimestampBehavior(now);
+    this.data = { title, body: "", sections: [] };
+    this.versions.commit(this.data);
+  }
+
+  // Timestamped, delegated
+  get createdAt(): number { return this.time.createdAt; }
+  get updatedAt(): number { return this.time.updatedAt; }
+  touch(at: number): void { this.time.touch(at); }
+
+  // Taggable, delegated
+  addTag(tag: string): void { this.tagging.addTag(tag); }
+  hasTag(tag: string): boolean { return this.tagging.hasTag(tag); }
+  get tags(): string[] { return this.tagging.tags; }
+
+  // Versioned, delegated
+  commit(snapshot: ArticleData): number { return this.versions.commit(snapshot); }
+  revert(): ArticleData | undefined {
+    const prev = this.versions.revert();
+    if (prev) this.data = { ...prev, sections: [...prev.sections] };
+    return prev;
+  }
+  get version(): number { return this.versions.version; }
+
+  edit(at: number, change: Partial<ArticleData>): void {
+    this.touch(at);
+    this.data = { ...this.data, ...change };
+    this.commit(this.data);
+  }
+}
+
+function describe(x: Timestamped & Taggable): string {
+  return `created ${x.createdAt}, updated ${x.updatedAt}, tags [${x.tags.join(", ")}]`;
+}
+
+function isVersioned(x: object): x is Versioned<unknown> {
+  return "commit" in x && "revert" in x;
+}
+
+const a = new Article("Mixins in TS", 1000);
+a.addTag(" Patterns ");
+a.addTag("typescript");
+a.addTag("TypeScript");
+a.edit(1100, { body: "Composition beats inheritance." });
+a.edit(1250, { sections: ["Intro", "Delegation"] });
+a.data.sections.push("Mutated after commit");
+a.edit(1300, { title: "Mixins via delegation" });
+console.log(describe(a));
+console.log("version", a.version, a.data);
+console.log("hasTag patterns:", a.hasTag("PATTERNS"), "hasTag go:", a.hasTag("go"));
+console.log("revert ->", a.revert());
+console.log("revert ->", a.revert());
+console.log("now", a.version, JSON.stringify(a.data));
+try {
+  a.touch(900);
+} catch (e) {
+  console.log(String(e));
+}
+const things: object[] = [a, new TagBehavior(), new VersionBehavior<number>(), { commit: 1 }];
+console.log(things.map(isVersioned));
+const tb = new TimestampBehavior(5);
+tb.touch(7);
+console.log(tb, tb.updatedAt);
+console.log(new TagBehavior());

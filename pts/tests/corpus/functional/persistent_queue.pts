@@ -1,0 +1,117 @@
+// skip: diverges: TypeError converting a literal object to a recursive union of object types (Expected null | {rest: …; top: number}, got Object)
+// A purely functional FIFO queue built from two immutable stacks, with a simulation of a print shop.
+
+type Stack<T> = { readonly top: T; readonly rest: Stack<T> } | null;
+
+const push = <T>(s: Stack<T>, x: T): Stack<T> => ({ top: x, rest: s });
+const reverseStack = <T>(s: Stack<T>): Stack<T> => {
+  let out: Stack<T> = null;
+  for (let cur = s; cur !== null; cur = cur.rest) out = push(out, cur.top);
+  return out;
+};
+const stackToArray = <T>(s: Stack<T>): T[] => {
+  const out: T[] = [];
+  for (let cur = s; cur !== null; cur = cur.rest) out.push(cur.top);
+  return out;
+};
+
+class Queue<T> {
+  private constructor(private readonly front: Stack<T>, private readonly back: Stack<T>, readonly size: number) {}
+
+  static empty<T>(): Queue<T> {
+    return new Queue<T>(null, null, 0);
+  }
+
+  static from<T>(xs: readonly T[]): Queue<T> {
+    return xs.reduce((q, x) => q.enqueue(x), Queue.empty<T>());
+  }
+
+  enqueue(x: T): Queue<T> {
+    return new Queue(this.front, push(this.back, x), this.size + 1);
+  }
+
+  dequeue(): [T, Queue<T>] | null {
+    if (this.front !== null) return [this.front.top, new Queue(this.front.rest, this.back, this.size - 1)];
+    if (this.back === null) return null;
+    const flipped = reverseStack(this.back);
+    if (flipped === null) return null;
+    return [flipped.top, new Queue(flipped.rest, null, this.size - 1)];
+  }
+
+  peek(): T | undefined {
+    const d = this.dequeue();
+    return d ? d[0] : undefined;
+  }
+
+  toArray(): T[] {
+    return [...stackToArray(this.front), ...stackToArray(this.back).reverse()];
+  }
+
+  map<U>(f: (x: T) => U): Queue<U> {
+    return Queue.from(this.toArray().map(f));
+  }
+
+  toString(): string {
+    return `Queue(${this.toArray().join(", ")})`;
+  }
+}
+
+const q0 = Queue.empty<number>();
+const q1 = q0.enqueue(1).enqueue(2).enqueue(3);
+const d1 = q1.dequeue();
+console.log(String(q0), String(q1), "size", q1.size);
+if (d1) {
+  const [x, q2] = d1;
+  const q3 = q2.enqueue(4);
+  console.log("dequeued", x, "->", String(q2), "then", String(q3));
+  console.log("q1 unchanged:", String(q1), "peek q3:", q3.peek());
+}
+console.log("empty dequeue:", q0.dequeue(), "peek:", q0.peek());
+console.log("mapped:", String(Queue.from(["a", "b", "c"]).map((s) => s.toUpperCase())));
+
+// Print shop simulation: jobs arrive at times, one printer, measure waits
+interface Job {
+  id: string;
+  arrives: number;
+  pages: number;
+}
+const jobs: Job[] = [
+  { id: "J1", arrives: 0, pages: 12 },
+  { id: "J2", arrives: 3, pages: 4 },
+  { id: "J3", arrives: 4, pages: 30 },
+  { id: "J4", arrives: 20, pages: 2 },
+  { id: "J5", arrives: 21, pages: 8 },
+  { id: "J6", arrives: 60, pages: 5 },
+];
+const PAGES_PER_TICK = 2;
+
+let queue = Queue.empty<Job>();
+let clock = 0;
+let busyUntil = 0;
+let pending = [...jobs];
+const finished: Array<{ id: string; waited: number; done: number }> = [];
+const snapshots: string[] = [];
+while (pending.length > 0 || queue.size > 0 || clock < busyUntil) {
+  const arriving = pending.filter((j) => j.arrives === clock);
+  pending = pending.filter((j) => j.arrives !== clock);
+  queue = arriving.reduce((q, j) => q.enqueue(j), queue);
+  if (clock >= busyUntil) {
+    const next = queue.dequeue();
+    if (next) {
+      const [job, rest] = next;
+      queue = rest;
+      busyUntil = clock + Math.ceil(job.pages / PAGES_PER_TICK);
+      finished.push({ id: job.id, waited: clock - job.arrives, done: busyUntil });
+    }
+  }
+  if (clock % 5 === 0 && queue.size > 0) snapshots.push(`t=${clock} waiting=[${queue.map((j) => j.id).toArray().join(",")}]`);
+  clock++;
+}
+console.log(snapshots);
+console.table(finished);
+const avgWait = finished.reduce((s, f) => s + f.waited, 0) / finished.length;
+console.log("average wait: %s ticks, finished at t=%d", avgWait.toFixed(2), busyUntil);
+const big = Queue.from(Array.from({ length: 10000 }, (_, i) => i));
+let drained = 0;
+for (let cur = big.dequeue(); cur; cur = cur[1].dequeue()) drained += cur[0];
+console.log("drained sum:", drained, "original size still:", big.size);

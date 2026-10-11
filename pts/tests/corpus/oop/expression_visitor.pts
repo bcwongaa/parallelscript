@@ -1,0 +1,150 @@
+// skip: not supported yet: PTS1001: generic accessors and abstract generic methods
+// Visitor pattern over a small arithmetic expression AST.
+
+interface Visitor<R> {
+  visitNum(n: Num): R;
+  visitVar(v: Var): R;
+  visitBinary(b: Binary): R;
+  visitCall(c: Call): R;
+}
+
+abstract class Expr {
+  abstract accept<R>(v: Visitor<R>): R;
+}
+
+class Num extends Expr {
+  constructor(readonly value: number) {
+    super();
+  }
+  accept<R>(v: Visitor<R>): R {
+    return v.visitNum(this);
+  }
+}
+
+class Var extends Expr {
+  constructor(readonly name: string) {
+    super();
+  }
+  accept<R>(v: Visitor<R>): R {
+    return v.visitVar(this);
+  }
+}
+
+type Op = "+" | "-" | "*" | "/" | "^";
+
+class Binary extends Expr {
+  constructor(readonly op: Op, readonly left: Expr, readonly right: Expr) {
+    super();
+  }
+  accept<R>(v: Visitor<R>): R {
+    return v.visitBinary(this);
+  }
+}
+
+class Call extends Expr {
+  constructor(readonly fn: string, readonly args: Expr[]) {
+    super();
+  }
+  accept<R>(v: Visitor<R>): R {
+    return v.visitCall(this);
+  }
+}
+
+class Printer implements Visitor<string> {
+  visitNum(n: Num): string { return String(n.value); }
+  visitVar(v: Var): string { return v.name; }
+  visitBinary(b: Binary): string {
+    return `(${b.left.accept(this)} ${b.op} ${b.right.accept(this)})`;
+  }
+  visitCall(c: Call): string {
+    return `${c.fn}(${c.args.map((a) => a.accept(this)).join(", ")})`;
+  }
+}
+
+class Evaluator implements Visitor<number> {
+  constructor(private env: Map<string, number>) {}
+  visitNum(n: Num): number {
+    return n.value;
+  }
+  visitVar(v: Var): number {
+    const value = this.env.get(v.name);
+    if (value === undefined) throw new ReferenceError(`unbound variable ${v.name}`);
+    return value;
+  }
+  visitBinary(b: Binary): number {
+    const l = b.left.accept(this);
+    const r = b.right.accept(this);
+    switch (b.op) {
+      case "+": return l + r;
+      case "-": return l - r;
+      case "*": return l * r;
+      case "/": return l / r;
+      case "^": return l ** r;
+    }
+  }
+  visitCall(c: Call): number {
+    const args = c.args.map((a) => a.accept(this));
+    switch (c.fn) {
+      case "max": return Math.max(...args);
+      case "min": return Math.min(...args);
+      case "sqrt": return Math.sqrt(args[0]);
+      case "abs": return Math.abs(args[0]);
+      default: throw new Error(`unknown function ${c.fn}`);
+    }
+  }
+}
+
+class Simplifier implements Visitor<Expr> {
+  visitNum(n: Num): Expr { return n; }
+  visitVar(v: Var): Expr { return v; }
+  visitBinary(b: Binary): Expr {
+    const l = b.left.accept(this);
+    const r = b.right.accept(this);
+    if (l instanceof Num && r instanceof Num) return new Num(new Binary(b.op, l, r).accept(new Evaluator(new Map())));
+    if (b.op === "*" && ((l instanceof Num && l.value === 0) || (r instanceof Num && r.value === 0))) return new Num(0);
+    if (b.op === "*" && l instanceof Num && l.value === 1) return r;
+    if ((b.op === "*" || b.op === "/") && r instanceof Num && r.value === 1) return l;
+    if (b.op === "+" && l instanceof Num && l.value === 0) return r;
+    if ((b.op === "+" || b.op === "-") && r instanceof Num && r.value === 0) return l;
+    return new Binary(b.op, l, r);
+  }
+  visitCall(c: Call): Expr { return new Call(c.fn, c.args.map((a) => a.accept(this))); }
+}
+
+class VarCollector implements Visitor<Set<string>> {
+  visitNum(): Set<string> { return new Set(); }
+  visitVar(v: Var): Set<string> { return new Set([v.name]); }
+  visitBinary(b: Binary): Set<string> { return new Set([...b.left.accept(this), ...b.right.accept(this)]); }
+  visitCall(c: Call): Set<string> {
+    const out = new Set<string>();
+    c.args.forEach((a) => a.accept(this).forEach((n) => out.add(n)));
+    return out;
+  }
+}
+
+const n = (v: number) => new Num(v);
+const x = new Var("x"), y = new Var("y");
+const exprs: Expr[] = [
+  new Binary("+", new Binary("*", n(2), x), new Binary("*", n(0), y)),
+  new Binary("/", new Call("max", [x, y, n(3)]), new Binary("-", n(5), n(4))),
+  new Binary("^", new Binary("+", x, n(1)), n(2)),
+  new Call("sqrt", [new Binary("+", new Binary("*", x, x), new Binary("*", y, y))]),
+  new Binary("*", n(1), new Binary("+", new Var("z"), new Binary("*", n(3), n(4)))),
+];
+
+const printer = new Printer();
+const env = new Map<string, number>([["x", 3], ["y", 4]]);
+const evaluator = new Evaluator(env);
+for (const e of exprs) {
+  const simple = e.accept(new Simplifier());
+  const vars = [...e.accept(new VarCollector())].sort();
+  let value: string;
+  try {
+    value = e.accept(evaluator).toString();
+  } catch (err) {
+    value = err instanceof ReferenceError ? `error: ${err.message}` : "?";
+  }
+  console.log(e.accept(printer));
+  console.log("  simplified:", simple.accept(printer), " vars:", vars, " value:", value);
+}
+console.log(exprs[2]);

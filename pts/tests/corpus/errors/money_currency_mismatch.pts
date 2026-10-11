@@ -1,0 +1,107 @@
+// A Money value type stored in integer cents that refuses to mix
+// currencies and reports allocation and conversion problems.
+
+type Currency = "USD" | "EUR" | "JPY" | "GBP";
+
+class CurrencyMismatchError extends Error {
+  constructor(readonly left: Currency, readonly right: Currency, op: string) {
+    super(`cannot ${op} ${left} and ${right}`);
+    this.name = "CurrencyMismatchError";
+  }
+}
+
+class MissingRateError extends Error {
+  constructor(readonly from: Currency, readonly to: Currency) {
+    super(`no exchange rate ${from}->${to}`);
+    this.name = "MissingRateError";
+  }
+}
+
+const DECIMALS: Record<Currency, number> = { USD: 2, EUR: 2, GBP: 2, JPY: 0 };
+
+class Money {
+  private constructor(readonly minor: number, readonly currency: Currency) {}
+
+  static of(amount: number, currency: Currency): Money {
+    if (!Number.isFinite(amount)) throw new RangeError(`amount must be finite, got ${amount}`);
+    const factor = Math.pow(10, DECIMALS[currency]);
+    return new Money(Math.round(amount * factor), currency);
+  }
+
+  private same(other: Money, op: string): void {
+    if (other.currency !== this.currency) throw new CurrencyMismatchError(this.currency, other.currency, op);
+  }
+
+  plus(other: Money): Money {
+    this.same(other, "add");
+    return new Money(this.minor + other.minor, this.currency);
+  }
+
+  minus(other: Money): Money {
+    this.same(other, "subtract");
+    return new Money(this.minor - other.minor, this.currency);
+  }
+
+  allocate(ratios: number[]): Money[] {
+    if (ratios.length === 0) throw new RangeError("need at least one ratio");
+    if (ratios.some((r) => r < 0)) throw new RangeError(`negative ratio in [${ratios.join(", ")}]`);
+    const total = ratios.reduce((a, b) => a + b, 0);
+    if (total === 0) throw new RangeError("ratios sum to zero");
+    const shares = ratios.map((r) => Math.floor((this.minor * r) / total));
+    let remainder = this.minor - shares.reduce((a, b) => a + b, 0);
+    for (let i = 0; remainder > 0; i = (i + 1) % shares.length, remainder--) shares[i]++;
+    return shares.map((m) => new Money(m, this.currency));
+  }
+
+  convert(to: Currency, rates: Map<string, number>): Money {
+    if (to === this.currency) return this;
+    const rate = rates.get(`${this.currency}->${to}`);
+    if (rate === undefined) throw new MissingRateError(this.currency, to);
+    const amount = (this.minor / Math.pow(10, DECIMALS[this.currency])) * rate;
+    return Money.of(amount, to);
+  }
+
+  toString(): string {
+    const d = DECIMALS[this.currency];
+    const sign = this.minor < 0 ? "-" : "";
+    return `${sign}${(Math.abs(this.minor) / Math.pow(10, d)).toFixed(d)} ${this.currency}`;
+  }
+}
+
+const rates = new Map<string, number>([
+  ["USD->EUR", 0.92],
+  ["EUR->USD", 1.087],
+  ["USD->JPY", 151.3],
+  ["GBP->USD", 1.27],
+]);
+
+const steps: Array<[string, () => string]> = [
+  ["10.10 + 5.255 USD", () => Money.of(10.1, "USD").plus(Money.of(5.255, "USD")).toString()],
+  ["USD + EUR", () => Money.of(1, "USD").plus(Money.of(1, "EUR")).toString()],
+  ["3 - 7.5 EUR", () => Money.of(3, "EUR").minus(Money.of(7.5, "EUR")).toString()],
+  ["100 USD / 3", () => Money.of(100, "USD").allocate([1, 1, 1]).join(" | ")],
+  ["1000 JPY 70/20/10", () => Money.of(1000, "JPY").allocate([70, 20, 10]).join(" | ")],
+  ["allocate []", () => Money.of(5, "USD").allocate([]).join()],
+  ["allocate [0,0]", () => Money.of(5, "USD").allocate([0, 0]).join()],
+  ["allocate [1,-1]", () => Money.of(5, "USD").allocate([1, -1]).join()],
+  ["25 USD -> JPY", () => Money.of(25, "USD").convert("JPY", rates).toString()],
+  ["25 EUR -> GBP", () => Money.of(25, "EUR").convert("GBP", rates).toString()],
+  ["40 GBP -> USD -> EUR", () => Money.of(40, "GBP").convert("USD", rates).convert("EUR", rates).toString()],
+  ["NaN USD", () => Money.of(Number.NaN, "USD").toString()],
+  ["GBP - USD", () => Money.of(2, "GBP").minus(Money.of(2, "GBP").convert("USD", rates)).toString()],
+];
+
+const tally: Record<string, number> = {};
+for (const [label, fn] of steps) {
+  try {
+    console.log(`${label.padEnd(22)} = ${fn()}`);
+    tally.ok = (tally.ok ?? 0) + 1;
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "unknown";
+    tally[name] = (tally[name] ?? 0) + 1;
+    console.log(`${label.padEnd(22)} ! ${name}: ${(e as Error).message}`);
+    if (e instanceof CurrencyMismatchError) console.log("   ", { left: e.left, right: e.right });
+  }
+}
+console.log(tally);
+console.log(Money.of(19.99, "EUR"));

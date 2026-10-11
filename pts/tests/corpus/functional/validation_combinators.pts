@@ -1,0 +1,107 @@
+// skip: not supported yet: PTS1001: calling a ((value, string) => {issues: {message: string; path: string}[]; valid: boolean} | {valid: boolean; value: boolean}) | ((value, s...
+// A validation combinator library that accumulates errors with paths, applied to nested input.
+
+type Issue = { path: string; message: string };
+type Validation<T> = { valid: true; value: T } | { valid: false; issues: Issue[] };
+type Decoder<T> = (input: unknown, path: string) => Validation<T>;
+
+const pass = <T>(value: T): Validation<T> => ({ valid: true, value });
+const fail = <T>(path: string, message: string): Validation<T> => ({ valid: false, issues: [{ path, message }] });
+
+const str: Decoder<string> = (x, p) => (typeof x === "string" ? pass(x) : fail(p, `expected string, got ${typeof x}`));
+const num: Decoder<number> = (x, p) => (typeof x === "number" && !Number.isNaN(x) ? pass(x) : fail(p, `expected number, got ${JSON.stringify(x)}`));
+const bool: Decoder<boolean> = (x, p) => (typeof x === "boolean" ? pass(x) : fail(p, "expected boolean"));
+
+function refine<T>(d: Decoder<T>, pred: (v: T) => boolean, message: string): Decoder<T> {
+  return (x, p) => {
+    const r = d(x, p);
+    return r.valid && !pred(r.value) ? fail(p, message) : r;
+  };
+}
+
+function optional<T>(d: Decoder<T>, fallback: T): Decoder<T> {
+  return (x, p) => (x === undefined || x === null ? pass(fallback) : d(x, p));
+}
+
+function literal<L extends string>(...options: L[]): Decoder<L> {
+  return (x, p) =>
+    typeof x === "string" && (options as string[]).includes(x) ? pass(x as L) : fail(p, `expected one of ${options.join("|")}`);
+}
+
+function array<T>(d: Decoder<T>): Decoder<T[]> {
+  return (x, p) => {
+    if (!Array.isArray(x)) return fail(p, "expected array");
+    const out: T[] = [];
+    const issues: Issue[] = [];
+    x.forEach((item: unknown, i: number) => {
+      const r = d(item, `${p}[${i}]`);
+      if (r.valid) out.push(r.value);
+      else issues.push(...r.issues);
+    });
+    return issues.length ? { valid: false, issues } : pass(out);
+  };
+}
+
+type Shape<T> = { [K in keyof T]: Decoder<T[K]> };
+
+function object<T>(shape: Shape<T>): Decoder<T> {
+  return (x, p) => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return fail(p, "expected object");
+    const record = x as Record<string, unknown>;
+    const entries: Array<[string, unknown]> = [];
+    const issues: Issue[] = [];
+    for (const key of Object.keys(shape) as Array<keyof T & string>) {
+      const r = shape[key](record[key], p ? `${p}.${key}` : key);
+      if (r.valid) entries.push([key, r.value]);
+      else issues.push(...r.issues);
+    }
+    return issues.length ? { valid: false, issues } : pass(Object.fromEntries(entries) as T);
+  };
+}
+
+const email = refine(str, (s) => s.includes("@") && s.indexOf("@") < s.lastIndexOf("."), "invalid email");
+const nonEmpty = refine(str, (s) => s.trim().length > 0, "must not be empty");
+const port = refine(num, (n) => Number.isInteger(n) && n > 0 && n < 65536, "port out of range");
+
+interface Server {
+  host: string;
+  port: number;
+  tls: boolean;
+}
+interface AppConfig {
+  name: string;
+  admin: string;
+  mode: "dev" | "staging" | "prod";
+  servers: Server[];
+  tags: string[];
+}
+
+const serverD = object<Server>({ host: nonEmpty, port, tls: optional(bool, false) });
+const configD = object<AppConfig>({
+  name: nonEmpty,
+  admin: email,
+  mode: literal("dev", "staging", "prod"),
+  servers: array(serverD),
+  tags: optional(array(str), []),
+});
+
+const inputs = [
+  '{"name":"api","admin":"ops@example.com","mode":"prod","servers":[{"host":"a.example.com","port":443,"tls":true},{"host":"b","port":8080}]}',
+  '{"name":" ","admin":"nobody","mode":"test","servers":[{"host":"","port":70000},{"port":"80"}],"tags":["x",3]}',
+  '{"name":"worker","admin":"w@x.io","mode":"dev","servers":"none"}',
+  "[1,2,3]",
+  '{"name":"min","admin":"m@m.co","mode":"staging","servers":[],"tags":null}',
+];
+
+inputs.forEach((json, i) => {
+  const r = configD(JSON.parse(json), "");
+  if (r.valid) {
+    console.log(`#${i} ok:`, r.value);
+  } else {
+    console.log(`#${i} ${r.issues.length} issue(s):`);
+    for (const { path, message } of r.issues) console.log(`   ${(path || "<root>").padEnd(18)} ${message}`);
+  }
+});
+
+const ports = array(port)([80, 443, -1, 22.5, "8080", 65535], "ports");
+console.log(ports.valid ? ports.value : ports.issues.map((x) => x.path).join(", "));

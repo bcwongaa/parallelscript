@@ -1,0 +1,121 @@
+// Sudoku solver: constraint bitmasks, most-constrained-cell heuristic, and backtracking statistics.
+
+class SudokuError extends Error {
+  constructor(message: string, readonly cell?: [number, number]) {
+    super(message);
+    this.name = "SudokuError";
+  }
+}
+
+class Sudoku {
+  private grid: number[];
+  private rows = new Array<number>(9).fill(0);
+  private cols = new Array<number>(9).fill(0);
+  private boxes = new Array<number>(9).fill(0);
+  guesses = 0;
+  backtracks = 0;
+
+  constructor(puzzle: string) {
+    const cleaned = puzzle.split("\n").join("").split(" ").join("");
+    if (cleaned.length !== 81) throw new SudokuError(`expected 81 cells, got ${cleaned.length}`);
+    this.grid = [...cleaned].map((ch) => (ch === "." ? 0 : Number(ch)));
+    this.grid.forEach((v, i) => {
+      if (v === 0) return;
+      const r = Math.floor(i / 9);
+      const c = i % 9;
+      if (!this.canPlace(r, c, v)) throw new SudokuError(`conflict at r${r + 1}c${c + 1}`, [r, c]);
+      this.set(i, v);
+    });
+  }
+
+  private box(r: number, c: number): number {
+    return Math.floor(r / 3) * 3 + Math.floor(c / 3);
+  }
+  private canPlace(r: number, c: number, v: number): boolean {
+    const bit = 1 << v;
+    return !(this.rows[r] & bit) && !(this.cols[c] & bit) && !(this.boxes[this.box(r, c)] & bit);
+  }
+  private set(i: number, v: number): void {
+    const r = Math.floor(i / 9);
+    const c = i % 9;
+    this.grid[i] = v;
+    this.rows[r] |= 1 << v;
+    this.cols[c] |= 1 << v;
+    this.boxes[this.box(r, c)] |= 1 << v;
+  }
+  private clear(i: number): void {
+    const v = this.grid[i];
+    const r = Math.floor(i / 9);
+    const c = i % 9;
+    this.grid[i] = 0;
+    this.rows[r] &= ~(1 << v);
+    this.cols[c] &= ~(1 << v);
+    this.boxes[this.box(r, c)] &= ~(1 << v);
+  }
+  private candidates(i: number): number[] {
+    const r = Math.floor(i / 9);
+    const c = i % 9;
+    const used = this.rows[r] | this.cols[c] | this.boxes[this.box(r, c)];
+    const out: number[] = [];
+    for (let v = 1; v <= 9; v++) if (!(used & (1 << v))) out.push(v);
+    return out;
+  }
+
+  solve(): boolean {
+    let bestCell = -1;
+    let bestCands: number[] = [];
+    for (let i = 0; i < 81; i++) {
+      if (this.grid[i] !== 0) continue;
+      const cands = this.candidates(i);
+      if (cands.length === 0) return false;
+      if (bestCell === -1 || cands.length < bestCands.length) {
+        bestCell = i;
+        bestCands = cands;
+        if (cands.length === 1) break;
+      }
+    }
+    if (bestCell === -1) return true;
+    for (const v of bestCands) {
+      this.guesses++;
+      this.set(bestCell, v);
+      if (this.solve()) return true;
+      this.clear(bestCell);
+      this.backtracks++;
+    }
+    return false;
+  }
+
+  toString(): string {
+    const lines: string[] = [];
+    for (let r = 0; r < 9; r++) {
+      if (r > 0 && r % 3 === 0) lines.push("------+-------+------");
+      const row = this.grid.slice(r * 9, r * 9 + 9).map((v) => (v ? String(v) : "."));
+      lines.push([row.slice(0, 3), row.slice(3, 6), row.slice(6)].map((g) => g.join(" ")).join(" | "));
+    }
+    return lines.join("\n");
+  }
+
+  get filled(): number {
+    return this.grid.filter((v) => v !== 0).length;
+  }
+}
+
+const puzzles: Record<string, string> = {
+  easy: `53..7.... 6..195... .98....6. 8...6...3 4..8.3..1 7...2...6 .6....28. ...419..5 ....8..79`,
+  hard: `8........ ..36..... .7..9.2.. .5...7... ....457.. ...1...3. ..1....68 ..85...1. .9....4..`,
+  broken: `55..7.... 6..195... .98....6. 8...6...3 4..8.3..1 7...2...6 .6....28. ...419..5 ....8..79`,
+  short: `123`,
+};
+
+for (const [name, text] of Object.entries(puzzles)) {
+  try {
+    const s = new Sudoku(text);
+    console.log(`== ${name}: ${s.filled} givens`);
+    const ok = s.solve();
+    console.log(`solved=${ok} guesses=${s.guesses} backtracks=${s.backtracks}`);
+    console.log(`${s}`);
+  } catch (e) {
+    if (e instanceof SudokuError) console.log(`== ${name}: ${e.name}: ${e.message}`, e.cell ?? "");
+    else throw e;
+  }
+}

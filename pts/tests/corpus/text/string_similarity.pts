@@ -1,0 +1,105 @@
+// String similarity metrics: Jaro, Jaro-Winkler, Dice bigram coefficient, Jaccard on tokens,
+// Hamming distance and longest common substring; used to deduplicate company names.
+function jaro(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  const window = Math.max(0, Math.floor(Math.max(a.length, b.length) / 2) - 1);
+  const aMatch: boolean[] = new Array(a.length).fill(false);
+  const bMatch: boolean[] = new Array(b.length).fill(false);
+  let matches = 0;
+  for (let i = 0; i < a.length; i++) {
+    const lo = Math.max(0, i - window), hi = Math.min(b.length - 1, i + window);
+    for (let j = lo; j <= hi; j++) {
+      if (!bMatch[j] && a[i] === b[j]) { aMatch[i] = bMatch[j] = true; matches++; break; }
+    }
+  }
+  if (matches === 0) return 0;
+  let t = 0, k = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (!aMatch[i]) continue;
+    while (!bMatch[k]) k++;
+    if (a[i] !== b[k]) t++;
+    k++;
+  }
+  return (matches / a.length + matches / b.length + (matches - t / 2) / matches) / 3;
+}
+
+function jaroWinkler(a: string, b: string, p = 0.1): number {
+  const j = jaro(a, b);
+  let prefix = 0;
+  while (prefix < Math.min(4, a.length, b.length) && a[prefix] === b[prefix]) prefix++;
+  return j + prefix * p * (1 - j);
+}
+
+function bigrams(s: string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (let i = 0; i < s.length - 1; i++) {
+    const g = s.slice(i, i + 2);
+    m.set(g, (m.get(g) ?? 0) + 1);
+  }
+  return m;
+}
+
+function dice(a: string, b: string): number {
+  const A = bigrams(a.toLowerCase()), B = bigrams(b.toLowerCase());
+  let overlap = 0, total = 0;
+  for (const [g, n] of A) { overlap += Math.min(n, B.get(g) ?? 0); total += n; }
+  for (const n of B.values()) total += n;
+  return total === 0 ? (a === b ? 1 : 0) : (2 * overlap) / total;
+}
+
+function jaccard(a: string, b: string): number {
+  const A = new Set(a.toLowerCase().split(" ")), B = new Set(b.toLowerCase().split(" "));
+  const inter = [...A].filter((x) => B.has(x)).length;
+  return inter / (A.size + B.size - inter);
+}
+
+function hamming(a: string, b: string): number | null {
+  if (a.length !== b.length) return null;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
+  return d;
+}
+
+function longestCommonSubstring(a: string, b: string): string {
+  let best = "", prev: number[] = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    const cur: number[] = new Array(b.length + 1).fill(0);
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        cur[j] = prev[j - 1] + 1;
+        if (cur[j] > best.length) best = a.slice(i - cur[j], i);
+      }
+    }
+    prev = cur;
+  }
+  return best;
+}
+
+const f3 = (x: number) => x.toFixed(3);
+const pairs: [string, string][] = [
+  ["MARTHA", "MARHTA"], ["DWAYNE", "DUANE"], ["DIXON", "DICKSONX"], ["karolin", "kathrin"],
+  ["night", "nacht"], ["ParallelScript", "Parallel Script"], ["abc", "xyz"], ["", ""],
+];
+console.log("a".padEnd(16), "b".padEnd(16), "jaro  jw    dice  ham  lcs");
+for (const [a, b] of pairs) {
+  console.log(a.padEnd(16), b.padEnd(16), f3(jaro(a, b)), f3(jaroWinkler(a, b)), f3(dice(a, b)), String(hamming(a, b)).padEnd(4), JSON.stringify(longestCommonSubstring(a, b)));
+}
+
+const companies = [
+  "Acme Corporation", "ACME Corp", "Acme Corp.", "Globex Corporation", "Globex Corp", "Initech",
+  "Initech Inc", "Umbrella Corporation", "Umbrela Corp", "Hooli", "Hooli XYZ", "Stark Industries",
+];
+const clean = (s: string) => s.toLowerCase().split(".").join("").split(" inc").join("").split(" corporation").join("").split(" corp").join("").trim();
+const clusters: string[][] = [];
+for (const name of companies) {
+  const home = clusters.find((c) => jaroWinkler(clean(c[0]), clean(name)) >= 0.9);
+  if (home) home.push(name);
+  else clusters.push([name]);
+}
+clusters.forEach((c, i) => console.log(`cluster ${i + 1}:`, c));
+
+const query = "global corp";
+const ranked = companies.map((c) => ({ c, score: +dice(query, c).toFixed(3), jac: +jaccard(query, c).toFixed(3) })).sort((x, y) => y.score - x.score);
+console.log(ranked.slice(0, 4));
+console.log(bigrams("banana"));

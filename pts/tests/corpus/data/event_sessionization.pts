@@ -1,0 +1,85 @@
+interface Event {
+  user: string;
+  ts: string;
+  type: "page_view" | "click" | "purchase" | "logout";
+  page?: string;
+  amount?: number;
+}
+
+interface Session {
+  user: string;
+  start: Date;
+  end: Date;
+  events: Event[];
+}
+
+const SESSION_GAP_MIN = 30;
+
+const events: Event[] = [
+  { user: "u1", ts: "2024-06-01T09:00:00Z", type: "page_view", page: "/home" },
+  { user: "u2", ts: "2024-06-01T09:02:00Z", type: "page_view", page: "/home" },
+  { user: "u1", ts: "2024-06-01T09:05:30Z", type: "click", page: "/products" },
+  { user: "u1", ts: "2024-06-01T09:12:00Z", type: "purchase", amount: 49.99 },
+  { user: "u2", ts: "2024-06-01T09:50:00Z", type: "page_view", page: "/pricing" },
+  { user: "u1", ts: "2024-06-01T10:30:00Z", type: "page_view", page: "/home" },
+  { user: "u1", ts: "2024-06-01T10:31:15Z", type: "logout" },
+  { user: "u3", ts: "2024-06-01T11:00:00Z", type: "page_view", page: "/blog" },
+  { user: "u2", ts: "2024-06-01T10:15:00Z", type: "click", page: "/signup" },
+  { user: "u2", ts: "2024-06-01T10:16:00Z", type: "purchase", amount: 120 },
+  { user: "u3", ts: "2024-06-01T11:45:00Z", type: "page_view", page: "/blog/2" },
+  { user: "u3", ts: "2024-06-01T11:58:00Z", type: "click", page: "/blog/2#comments" },
+  { user: "u1", ts: "2024-06-01T10:35:00Z", type: "page_view", page: "/home" },
+];
+
+function sessionize(all: Event[]): Session[] {
+  const sorted = [...all].sort((a, b) => a.user.localeCompare(b.user) || Date.parse(a.ts) - Date.parse(b.ts));
+  const sessions: Session[] = [];
+  let current: Session | null = null;
+  for (const e of sorted) {
+    const at = new Date(e.ts);
+    const gapMin = current ? (at.getTime() - current.end.getTime()) / 60000 : Infinity;
+    if (current === null || current.user !== e.user || gapMin > SESSION_GAP_MIN) {
+      current = { user: e.user, start: at, end: at, events: [e] };
+      sessions.push(current);
+    } else {
+      current.end = at;
+      current.events.push(e);
+    }
+    if (e.type === "logout") current = null;
+  }
+  return sessions;
+}
+
+const sessions = sessionize(events);
+console.log(`${events.length} events -> ${sessions.length} sessions`);
+sessions.forEach((s, i) => {
+  const mins = (s.end.getTime() - s.start.getTime()) / 60000;
+  const revenue = s.events.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+  const pages = s.events.filter((e) => e.page !== undefined).map((e) => e.page);
+  console.log(
+    `#${i + 1} ${s.user} ${s.start.toISOString().slice(11, 16)}-${s.end.toISOString().slice(11, 16)} ${mins.toFixed(1)}min ${s.events.length} ev rev=${revenue}`,
+    pages,
+  );
+});
+
+const perUser = new Map<string, { sessions: number; revenue: number; converted: boolean }>();
+for (const s of sessions) {
+  const stats = perUser.get(s.user) ?? { sessions: 0, revenue: 0, converted: false };
+  stats.sessions++;
+  for (const e of s.events) {
+    if (e.type === "purchase") {
+      stats.revenue += e.amount ?? 0;
+      stats.converted = true;
+    }
+  }
+  perUser.set(s.user, stats);
+}
+console.log(perUser);
+
+const durations = sessions.map((s) => (s.end.getTime() - s.start.getTime()) / 1000);
+console.log("durations (s):", durations, "avg:", (durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1));
+const bounce = sessions.filter((s) => s.events.length === 1).length / sessions.length;
+console.log("bounce rate:", (bounce * 100).toFixed(1) + "%");
+const funnel = ["page_view", "click", "purchase"].map((step) => [step, new Set(events.filter((e) => e.type === step).map((e) => e.user)).size]);
+console.log(funnel);
+console.log(sessions[0]);

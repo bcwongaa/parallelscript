@@ -1,0 +1,131 @@
+// Chain of responsibility: support tickets routed through bot, tier-1, tier-2 and engineering handlers.
+
+type Severity = 1 | 2 | 3 | 4;
+
+interface Ticket {
+  id: number;
+  customer: string;
+  subject: string;
+  severity: Severity;
+  enterprise: boolean;
+}
+
+interface Resolution {
+  ticket: number;
+  by: string;
+  action: string;
+  minutes: number;
+}
+
+abstract class SupportHandler {
+  private next: SupportHandler | null = null;
+  handled = 0;
+
+  constructor(readonly name: string) {}
+
+  setNext(h: SupportHandler): SupportHandler {
+    this.next = h;
+    return h;
+  }
+
+  handle(t: Ticket, path: string[] = []): Resolution {
+    path.push(this.name);
+    const r = this.tryHandle(t);
+    if (r !== null) {
+      this.handled++;
+      return { ticket: t.id, by: path.join(" > "), action: r[0], minutes: r[1] };
+    }
+    if (this.next === null) {
+      return { ticket: t.id, by: path.join(" > "), action: "UNRESOLVED", minutes: 0 };
+    }
+    return this.next.handle(t, path);
+  }
+
+  protected abstract tryHandle(t: Ticket): [string, number] | null;
+}
+
+class FaqBot extends SupportHandler {
+  private faq = new Map<string, string>([
+    ["password", "sent reset link"],
+    ["invoice", "emailed invoice copy"],
+    ["hours", "replied with opening hours"],
+  ]);
+  protected tryHandle(t: Ticket): [string, number] | null {
+    if (t.severity > 1) return null;
+    for (const [keyword, answer] of this.faq) {
+      if (t.subject.toLowerCase().includes(keyword)) return [answer, 1];
+    }
+    return null;
+  }
+}
+
+class TierOne extends SupportHandler {
+  constructor(private capacity: number) {
+    super("tier1");
+  }
+  protected tryHandle(t: Ticket): [string, number] | null {
+    if (t.severity >= 3 || this.handled >= this.capacity) return null;
+    return [`walked ${t.customer} through "${t.subject}"`, 15 * t.severity];
+  }
+}
+
+class TierTwo extends SupportHandler {
+  protected tryHandle(t: Ticket): [string, number] | null {
+    if (t.severity === 4 && !t.enterprise) return null;
+    if (t.severity === 4) return ["escalated hotfix for enterprise", 240];
+    return [`diagnosed: ${t.subject.split(" ").slice(0, 2).join(" ")}...`, 45];
+  }
+}
+
+class Engineering extends SupportHandler {
+  readonly bugs: string[] = [];
+  protected tryHandle(t: Ticket): [string, number] | null {
+    if (t.severity < 4) return null;
+    this.bugs.push(`BUG-${t.id}`);
+    return [`filed BUG-${t.id}`, 480];
+  }
+}
+
+const bot = new FaqBot("bot");
+const t1 = new TierOne(2);
+const t2 = new TierTwo("tier2");
+const eng = new Engineering("eng");
+bot.setNext(t1).setNext(t2).setNext(eng);
+
+const subjects: [string, Severity, boolean][] = [
+  ["Forgot password", 1, false],
+  ["Where is my invoice", 1, true],
+  ["App crashes on login", 3, false],
+  ["Cannot export CSV", 2, false],
+  ["Data loss after upgrade", 4, true],
+  ["Slow dashboard", 2, true],
+  ["Opening hours?", 2, false],
+  ["Payment double charged", 4, false],
+  ["Weird font", 1, false],
+];
+const tickets: Ticket[] = subjects.map(([subject, severity, enterprise], i) => ({
+  id: 100 + i,
+  customer: ["acme", "globex", "initech"][i % 3],
+  subject,
+  severity,
+  enterprise,
+}));
+
+const resolutions = tickets.map((t) => bot.handle(t));
+for (const r of resolutions) {
+  console.log(`#${r.ticket} [${r.by}] ${r.action} (${r.minutes}m)`);
+}
+const handlers = [bot, t1, t2, eng];
+console.log(handlers.map((h) => `${h.name}:${h.handled}`).join(" "));
+const minutesByHandler = resolutions.reduce((acc, r) => {
+  const last = r.by.split(" > ").pop() ?? "?";
+  acc.set(last, (acc.get(last) ?? 0) + r.minutes);
+  return acc;
+}, new Map<string, number>());
+console.log(minutesByHandler);
+console.log("bugs:", eng.bugs);
+const unresolved = resolutions.filter((r) => r.action === "UNRESOLVED");
+console.log("unresolved:", unresolved.length);
+const solo = new TierTwo("solo");
+console.log(solo.handle({ id: 1, customer: "x", subject: "tiny issue", severity: 4, enterprise: false }));
+console.log(tickets[4]);

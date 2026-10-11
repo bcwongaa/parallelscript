@@ -1,0 +1,137 @@
+// skip: not supported yet: PTS1001: recursive function types (() => Thunk<any>)
+// Trampolining deep recursion: thunks returned instead of direct calls, run by a loop.
+
+type Thunk<T> = { kind: "more"; next: () => Thunk<T> } | { kind: "done"; value: T };
+
+const done = <T>(value: T): Thunk<T> => ({ kind: "done", value });
+const more = <T>(next: () => Thunk<T>): Thunk<T> => ({ kind: "more", next });
+
+let bounces = 0;
+function trampoline<T>(t: Thunk<T>): T {
+  let cur = t;
+  while (cur.kind === "more") {
+    bounces++;
+    cur = cur.next();
+  }
+  return cur.value;
+}
+
+function sumTo(n: number, acc = 0): Thunk<number> {
+  return n === 0 ? done(acc) : more(() => sumTo(n - 1, acc + n));
+}
+
+function isEven(n: number): Thunk<boolean> {
+  return n === 0 ? done(true) : more(() => isOdd(n - 1));
+}
+function isOdd(n: number): Thunk<boolean> {
+  return n === 0 ? done(false) : more(() => isEven(n - 1));
+}
+
+console.log("sumTo(10) =", trampoline(sumTo(10)));
+console.log("sumTo(200000) =", trampoline(sumTo(200000)));
+console.log("isEven(100001) =", trampoline(isEven(100001)), "isOdd(77777) =", trampoline(isOdd(77777)));
+console.log("bounces so far:", bounces);
+
+// Naive recursion overflows on very deep input; the trampolined version does not.
+function naiveSum(n: number): number {
+  return n === 0 ? 0 : n + naiveSum(n - 1);
+}
+console.log("naiveSum(1000) =", naiveSum(1000));
+
+// Ackermann with an explicit continuation stack, trampolined
+function ackermann(m: number, n: number): number {
+  const stack: number[] = [m];
+  let value = n;
+  const step = (): Thunk<number> => {
+    if (stack.length === 0) return done(value);
+    const top = stack.pop()!;
+    if (top === 0) {
+      value = value + 1;
+    } else if (value === 0) {
+      stack.push(top - 1);
+      value = 1;
+    } else {
+      stack.push(top - 1, top);
+      value = value - 1;
+    }
+    return more(step);
+  };
+  return trampoline(step());
+}
+const ackTable: string[] = [];
+for (let m = 0; m <= 3; m++) {
+  const row: number[] = [];
+  for (let n = 0; n <= 4; n++) row.push(ackermann(m, n));
+  ackTable.push(`A(${m}, 0..4) = ${row.join(" ")}`);
+}
+console.log(ackTable.join("\n"));
+
+// Trampolined tree fold over a very deep (degenerate) tree
+interface TreeNode {
+  value: number;
+  children: TreeNode[];
+}
+function deepChain(depth: number): TreeNode {
+  let node: TreeNode = { value: depth, children: [] };
+  for (let i = depth - 1; i >= 1; i--) node = { value: i, children: [node] };
+  return node;
+}
+function sumTree(root: TreeNode): number {
+  const pending: TreeNode[] = [root];
+  let total = 0;
+  const go = (): Thunk<number> => {
+    const n = pending.pop();
+    if (!n) return done(total);
+    total += n.value;
+    pending.push(...n.children);
+    return more(go);
+  };
+  return trampoline(go());
+}
+const chain = deepChain(50000);
+console.log("deep tree sum:", sumTree(chain));
+const wide: TreeNode = { value: 1, children: Array.from({ length: 5 }, (_, i) => ({ value: i * 10, children: [{ value: 1, children: [] }] })) };
+console.log("wide tree sum:", sumTree(wide));
+
+// CPS factorial on a trampoline: continuations are closures
+function factCps(n: number, k: (x: number) => Thunk<number>): Thunk<number> {
+  if (n <= 1) return more(() => k(1));
+  return more(() => factCps(n - 1, (r) => more(() => k(n * r))));
+}
+console.log("fact(10) =", trampoline(factCps(10, done)), "fact(20) =", trampoline(factCps(20, done)));
+console.log("fact(171) =", trampoline(factCps(171, done)));
+
+// Flatten an arbitrarily nested array without native recursion
+type Nested = number | Nested[];
+function flatten(input: Nested[]): number[] {
+  const out: number[] = [];
+  const work: Nested[][] = [input];
+  const idx: number[] = [0];
+  const step = (): Thunk<number[]> => {
+    while (work.length > 0) {
+      const arr = work[work.length - 1];
+      const i = idx[idx.length - 1];
+      if (i >= arr.length) {
+        work.pop();
+        idx.pop();
+        continue;
+      }
+      idx[idx.length - 1] = i + 1;
+      const item = arr[i];
+      if (typeof item === "number") out.push(item);
+      else {
+        work.push(item);
+        idx.push(0);
+        return more(step);
+      }
+    }
+    return done(out);
+  };
+  return trampoline(step());
+}
+console.log(flatten([1, [2, [3, [4, [5]]]], [], [[6, 7], 8], 9]));
+let deepNest: Nested[] = [0];
+for (let i = 1; i <= 10000; i++) deepNest = [i, deepNest];
+const flat = flatten(deepNest);
+console.log("deep flatten:", flat.length, flat.slice(0, 5), flat.slice(-3));
+console.log("total bounces > 300000:", bounces > 300000);

@@ -1,0 +1,93 @@
+interface Sale {
+  id: number;
+  region: string;
+  product: string;
+  units: number;
+  unitPrice: number;
+  month: number;
+}
+
+const sales: Sale[] = [
+  { id: 1, region: "North", product: "Widget", units: 12, unitPrice: 9.99, month: 1 },
+  { id: 2, region: "South", product: "Gadget", units: 5, unitPrice: 24.5, month: 1 },
+  { id: 3, region: "North", product: "Gadget", units: 3, unitPrice: 24.5, month: 2 },
+  { id: 4, region: "East", product: "Widget", units: 20, unitPrice: 9.99, month: 2 },
+  { id: 5, region: "West", product: "Doohickey", units: 7, unitPrice: 14.25, month: 3 },
+  { id: 6, region: "South", product: "Widget", units: 9, unitPrice: 9.99, month: 3 },
+  { id: 7, region: "East", product: "Doohickey", units: 2, unitPrice: 14.25, month: 1 },
+  { id: 8, region: "North", product: "Widget", units: 15, unitPrice: 9.99, month: 3 },
+  { id: 9, region: "West", product: "Gadget", units: 11, unitPrice: 24.5, month: 2 },
+  { id: 10, region: "South", product: "Doohickey", units: 4, unitPrice: 14.25, month: 2 },
+];
+
+function groupBy<T, K extends string | number>(items: T[], key: (item: T) => K): Map<K, T[]> {
+  const out = new Map<K, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const bucket = out.get(k);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      out.set(k, [item]);
+    }
+  }
+  return out;
+}
+
+interface Summary {
+  count: number;
+  units: number;
+  revenue: number;
+  avgOrder: number;
+}
+
+function summarize(rows: Sale[]): Summary {
+  const units = rows.reduce((acc, r) => acc + r.units, 0);
+  const revenue = rows.reduce((acc, r) => acc + r.units * r.unitPrice, 0);
+  return {
+    count: rows.length,
+    units,
+    revenue: Math.round(revenue * 100) / 100,
+    avgOrder: Math.round((revenue / rows.length) * 100) / 100,
+  };
+}
+
+const byRegion = groupBy(sales, (s) => s.region);
+console.log("Regions:", [...byRegion.keys()]);
+
+const regionSummaries: Record<string, Summary> = {};
+for (const [region, rows] of byRegion) {
+  regionSummaries[region] = summarize(rows);
+}
+console.log(regionSummaries);
+
+const ranked = Object.entries(regionSummaries).sort((a, b) => b[1].revenue - a[1].revenue);
+console.log("Ranking by revenue:");
+ranked.forEach(([region, s], i) => {
+  console.log(`  ${i + 1}. ${region.padEnd(6)} $${s.revenue.toFixed(2).padStart(8)} (${s.count} orders)`);
+});
+
+const byProduct = groupBy(sales, (s) => s.product);
+for (const [product, rows] of byProduct) {
+  const s = summarize(rows);
+  console.log("%s: %d units, revenue %s", product, s.units, s.revenue.toFixed(2));
+}
+
+const byMonth = groupBy(sales, (s) => s.month);
+const monthNames = ["", "Jan", "Feb", "Mar"];
+const monthly = [...byMonth.entries()]
+  .sort((a, b) => a[0] - b[0])
+  .map(([m, rows]) => ({ month: monthNames[m], ...summarize(rows) }));
+console.log(monthly);
+
+let running = 0;
+for (const m of monthly) {
+  running += m.revenue;
+  console.log(`${m.month} cumulative: ${running.toFixed(2)}`);
+}
+
+const best = sales.reduce((a, b) => (a.units * a.unitPrice >= b.units * b.unitPrice ? a : b));
+console.log("Best single sale:", best);
+const totalRevenue = sales.reduce((acc, s) => acc + s.units * s.unitPrice, 0);
+console.log("Total revenue:", totalRevenue.toFixed(2), "share of best:", ((best.units * best.unitPrice) / totalRevenue * 100).toFixed(1) + "%");
+console.log(byRegion.get("West"));

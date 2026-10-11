@@ -1,0 +1,79 @@
+interface Variant {
+  name: string;
+  visitors: number;
+  conversions: number;
+  revenue: number;
+}
+
+interface Comparison {
+  variant: string;
+  rate: number;
+  lift: number;
+  z: number;
+  pValue: number;
+  significant: boolean;
+  ci95: [number, number];
+}
+
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * ax);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-ax * ax);
+  return sign * y;
+}
+
+const normalCdf = (z: number): number => 0.5 * (1 + erf(z / Math.SQRT2));
+
+function compare(control: Variant, test: Variant, alpha = 0.05): Comparison {
+  const p1 = control.conversions / control.visitors;
+  const p2 = test.conversions / test.visitors;
+  const pooled = (control.conversions + test.conversions) / (control.visitors + test.visitors);
+  const se = Math.sqrt(pooled * (1 - pooled) * (1 / control.visitors + 1 / test.visitors));
+  const z = (p2 - p1) / se;
+  const pValue = 2 * (1 - normalCdf(Math.abs(z)));
+  const seDiff = Math.sqrt((p1 * (1 - p1)) / control.visitors + (p2 * (1 - p2)) / test.visitors);
+  return {
+    variant: test.name,
+    rate: p2,
+    lift: (p2 - p1) / p1,
+    z,
+    pValue,
+    significant: pValue < alpha,
+    ci95: [p2 - p1 - 1.96 * seDiff, p2 - p1 + 1.96 * seDiff],
+  };
+}
+
+const variants: Variant[] = [
+  { name: "control", visitors: 10432, conversions: 312, revenue: 15880.4 },
+  { name: "green-button", visitors: 10388, conversions: 359, revenue: 17702.15 },
+  { name: "short-form", visitors: 10501, conversions: 330, revenue: 16100 },
+  { name: "free-ship", visitors: 5220, conversions: 201, revenue: 8711.9 },
+];
+
+const [control, ...tests] = variants;
+console.log(`control rate ${((control.conversions / control.visitors) * 100).toFixed(3)}%`);
+const results = tests.map((t) => compare(control, t));
+for (const r of results) {
+  console.log(
+    `${r.variant.padEnd(13)} rate ${(r.rate * 100).toFixed(3)}% lift ${(r.lift * 100).toFixed(2).padStart(6)}% z ${r.z.toFixed(3).padStart(6)} p ${r.pValue.toFixed(4)} ${r.significant ? "SIGNIFICANT" : "n.s."}`,
+  );
+  console.log(`   95% CI of diff: [${r.ci95.map((x) => (x * 100).toFixed(3) + "pp").join(", ")}]`);
+}
+
+const bonferroni = 0.05 / tests.length;
+console.log("bonferroni alpha:", bonferroni.toFixed(4), results.filter((r) => r.pValue < bonferroni).map((r) => r.variant));
+const rpv = variants.map((v) => ({ name: v.name, rpv: Number((v.revenue / v.visitors).toFixed(4)), aov: Number((v.revenue / v.conversions).toFixed(2)) }));
+console.log(rpv);
+console.log(results[0]);
+console.log([0, 0.5, 1, 1.96, 2.576, -1.645].map((z) => normalCdf(z).toFixed(5)));
+
+function sampleSize(baseRate: number, mde: number): number {
+  const p2 = baseRate * (1 + mde);
+  const pBar = (baseRate + p2) / 2;
+  const zA = 1.96;
+  const zB = 0.8416;
+  const num = (zA * Math.sqrt(2 * pBar * (1 - pBar)) + zB * Math.sqrt(baseRate * (1 - baseRate) + p2 * (1 - p2))) ** 2;
+  return Math.ceil(num / (p2 - baseRate) ** 2);
+}
+for (const mde of [0.05, 0.1, 0.2]) console.log(`MDE ${mde * 100}% -> ${sampleSize(0.03, mde)} per arm`);

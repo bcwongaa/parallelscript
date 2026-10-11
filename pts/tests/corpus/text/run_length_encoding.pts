@@ -1,0 +1,118 @@
+// Run-length encoding in three flavours (count-prefix text, escaped binary-style, and
+// RLE of bitmap rows), with compression ratios and verification.
+interface Codec {
+  name: string;
+  encode(s: string): string;
+  decode(s: string): string;
+}
+
+const simple: Codec = {
+  name: "count-prefix",
+  encode(s) {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      let j = i;
+      while (j < s.length && s[j] === s[i]) j++;
+      out += `${j - i}${s[i]}`;
+      i = j;
+    }
+    return out;
+  },
+  decode(s) {
+    let out = "", num = "";
+    for (const c of s) {
+      if (c >= "0" && c <= "9") num += c;
+      else { out += c.repeat(Number(num)); num = ""; }
+    }
+    return out;
+  },
+};
+
+const ESC = "~";
+const escaped: Codec = {
+  name: "escaped",
+  encode(s) {
+    let out = "";
+    let i = 0;
+    while (i < s.length) {
+      let j = i;
+      while (j < s.length && s[j] === s[i] && j - i < 99) j++;
+      const run = j - i;
+      if (run >= 4 || s[i] === ESC) out += `${ESC}${String(run).padStart(2, "0")}${s[i]}`;
+      else out += s[i].repeat(run);
+      i = j;
+    }
+    return out;
+  },
+  decode(s) {
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === ESC) {
+        out += s[i + 3].repeat(Number(s.slice(i + 1, i + 3)));
+        i += 3;
+      } else out += s[i];
+    }
+    return out;
+  },
+};
+
+function encodeBits(row: string): number[] {
+  const runs: number[] = [];
+  let expect = ".";
+  let i = 0;
+  while (i < row.length) {
+    let j = i;
+    while (j < row.length && row[j] === expect) j++;
+    runs.push(j - i);
+    i = j;
+    expect = expect === "." ? "#" : ".";
+  }
+  return runs;
+}
+
+function decodeBits(runs: number[]): string {
+  return runs.map((n, k) => (k % 2 === 0 ? "." : "#").repeat(n)).join("");
+}
+
+const texts = [
+  "WWWWWWWWWWWWBWWWWWWWWWWWWBBBWWWWWWWWWWWWWWWWWWWWWWWWBWWWWWWWWWWWWWW",
+  "abcdef",
+  "aaabbbcccd",
+  "~~~~tilde~",
+  "x".repeat(250),
+  "",
+];
+for (const codec of [simple, escaped]) {
+  console.log(`== ${codec.name}`);
+  for (const t of texts) {
+    const enc = codec.encode(t);
+    const ratio = t.length ? (enc.length / t.length).toFixed(2) : "n/a";
+    const ok = codec.decode(enc) === t;
+    console.log(`  ${String(t.length).padStart(3)} -> ${String(enc.length).padStart(3)} (${ratio}) ${ok ? "ok" : "FAIL"} ${enc.length > 40 ? enc.slice(0, 40) + "…" : enc}`);
+  }
+}
+
+const glyph = [
+  "................",
+  "....######......",
+  "...##....##.....",
+  "..##......##....",
+  "..##########....",
+  "..##......##....",
+  "..##......##....",
+  "................",
+];
+const encodedGlyph = glyph.map(encodeBits);
+console.log(encodedGlyph);
+console.log(encodedGlyph.map(decodeBits).every((row, i) => row === glyph[i]));
+const totalRuns = encodedGlyph.reduce((s, r) => s + r.length, 0);
+console.log({ rows: glyph.length, pixels: glyph.length * 16, runs: totalRuns, bytes: totalRuns });
+
+const counts = new Map<string, number>();
+const runs = simple.encode(texts[0]).split("W").join("W ").split("B").join("B ").split(" ").filter(Boolean);
+for (const tok of runs) {
+  const c = tok.slice(-1), n = Number(tok.slice(0, -1));
+  counts.set(c, Math.max(counts.get(c) ?? 0, n));
+}
+console.log("longest runs:", counts);
+console.log(simple.decode("3a2b1c10d"), escaped.decode("ab~05zcd"));

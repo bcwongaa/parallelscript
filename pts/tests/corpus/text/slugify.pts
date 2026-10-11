@@ -1,0 +1,93 @@
+// Slug generation for blog titles: transliteration of accents, collapsing separators,
+// length limits on word boundaries and de-duplication.
+const TRANSLIT: Record<string, string> = {
+  à: "a", á: "a", â: "a", ä: "ae", ã: "a", å: "a", æ: "ae", ç: "c", è: "e", é: "e", ê: "e", ë: "e",
+  ì: "i", í: "i", î: "i", ï: "i", ñ: "n", ò: "o", ó: "o", ô: "o", ö: "oe", õ: "o", ø: "o", œ: "oe",
+  ù: "u", ú: "u", û: "u", ü: "ue", ý: "y", ÿ: "y", ß: "ss", "&": "and", "@": "at", "+": "plus",
+};
+
+interface SlugOptions {
+  separator?: string;
+  maxLength?: number;
+  lower?: boolean;
+}
+
+function slugify(title: string, opts: SlugOptions = {}): string {
+  const { separator = "-", maxLength = 60, lower = true } = opts;
+  let out = "";
+  let pendingSep = false;
+  for (const raw of title) {
+    const lowerCh = raw.toLowerCase();
+    let ch = lowerCh in TRANSLIT ? TRANSLIT[lowerCh] : raw;
+    if (lowerCh in TRANSLIT && raw !== lowerCh) ch = ch.charAt(0).toUpperCase() + ch.slice(1);
+    for (const c of ch) {
+      const isAlnum = (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9");
+      if (isAlnum) {
+        if (pendingSep && out.length > 0) out += separator;
+        pendingSep = false;
+        out += lower ? c.toLowerCase() : c;
+      } else if (c === "'" || c === "’") {
+        continue;
+      } else {
+        pendingSep = true;
+      }
+    }
+  }
+  if (out.length <= maxLength) return out;
+  const cut = out.slice(0, maxLength + 1);
+  const lastSep = cut.lastIndexOf(separator);
+  return lastSep > 0 ? cut.slice(0, lastSep) : out.slice(0, maxLength);
+}
+
+class SlugRegistry {
+  private readonly used = new Map<string, number>();
+  private readonly history: { title: string; slug: string }[] = [];
+
+  register(title: string, opts?: SlugOptions): string {
+    const base = slugify(title, opts) || "untitled";
+    const count = this.used.get(base) ?? 0;
+    this.used.set(base, count + 1);
+    const slug = count === 0 ? base : `${base}-${count + 1}`;
+    this.history.push({ title, slug });
+    return slug;
+  }
+
+  get size(): number {
+    return this.history.length;
+  }
+
+  entries(): ReadonlyArray<{ title: string; slug: string }> {
+    return this.history;
+  }
+}
+
+const titles = [
+  "Hello, World!",
+  "  10 Tips & Tricks for TypeScript  ",
+  "Crème Brûlée: A Love Story",
+  "Über-fast Straße Builds",
+  "Don't Panic — It's Only Garbage Collection",
+  "C++ vs. Rust vs. Go @ Scale",
+  "___multiple___underscores___",
+  "Ça va? Très bien, merci.",
+  "Hello, World!",
+  "hello world",
+  "!!!",
+  "Smørrebrød og Æblekage",
+];
+
+const reg = new SlugRegistry();
+for (const t of titles) console.log(`${JSON.stringify(t).padEnd(48)} ${reg.register(t)}`);
+console.log("registered:", reg.size);
+
+const long = "A Remarkably Long Title That Goes On And On About Compilers, Garbage Collectors and Threads";
+for (const max of [80, 40, 20, 7, 3]) console.log(String(max).padStart(2), slugify(long, { maxLength: max }));
+console.log(slugify("Keep The Case", { lower: false, separator: "_" }));
+console.log(slugify("dots.and/slashes\\here", { separator: "." }));
+console.log(reg.entries().filter((e) => e.slug.endsWith("-2") || e.slug.endsWith("-3")));
+const bySlugLength = [...reg.entries()].sort((a, b) => a.slug.length - b.slug.length).map((e) => e.slug);
+console.log(bySlugLength);
+const small = new SlugRegistry();
+small.register("Hi there");
+small.register("hi-there!");
+console.log(small);

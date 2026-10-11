@@ -1,0 +1,132 @@
+// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
+// An LRU cache with per-entry TTL and a fake clock, plus a cached() higher-order wrapper.
+
+interface Clock {
+  now(): number;
+}
+
+class ManualClock implements Clock {
+  private t = 0;
+  now(): number {
+    return this.t;
+  }
+  advance(ms: number): void {
+    this.t += ms;
+  }
+}
+
+interface Entry<V> {
+  value: V;
+  expiresAt: number;
+}
+
+class LruCache<K, V> {
+  #map = new Map<K, Entry<V>>();
+  #hits = 0;
+  #misses = 0;
+  readonly evicted: K[] = [];
+
+  constructor(private readonly capacity: number, private readonly ttlMs: number, private readonly clock: Clock) {
+    if (capacity < 1) throw new RangeError("capacity must be >= 1");
+  }
+
+  get(key: K): V | undefined {
+    const e = this.#map.get(key);
+    if (!e) {
+      this.#misses++;
+      return undefined;
+    }
+    if (e.expiresAt <= this.clock.now()) {
+      this.#map.delete(key);
+      this.#misses++;
+      return undefined;
+    }
+    this.#map.delete(key);
+    this.#map.set(key, e);
+    this.#hits++;
+    return e.value;
+  }
+
+  set(key: K, value: V, ttlMs = this.ttlMs): void {
+    this.#map.delete(key);
+    this.#map.set(key, { value, expiresAt: this.clock.now() + ttlMs });
+    while (this.#map.size > this.capacity) {
+      const oldest = this.#map.keys().next().value as K;
+      this.#map.delete(oldest);
+      this.evicted.push(oldest);
+    }
+  }
+
+  get stats() {
+    const total = this.#hits + this.#misses;
+    return { size: this.#map.size, hits: this.#hits, misses: this.#misses, hitRate: total ? +(this.#hits / total).toFixed(3) : 0 };
+  }
+
+  keys(): K[] {
+    return [...this.#map.keys()];
+  }
+}
+
+function cached<A extends string | number, R>(cache: LruCache<A, R>, fn: (a: A) => R): (a: A) => R {
+  return (a) => {
+    const hit = cache.get(a);
+    if (hit !== undefined) return hit;
+    const v = fn(a);
+    cache.set(a, v);
+    return v;
+  };
+}
+
+const clock = new ManualClock();
+const cache = new LruCache<string, number>(3, 1000, clock);
+
+cache.set("a", 1);
+cache.set("b", 2);
+cache.set("c", 3);
+console.log("get a:", cache.get("a"), "keys:", cache.keys());
+cache.set("d", 4);
+console.log("after d:", cache.keys(), "evicted:", cache.evicted);
+console.log("get b:", cache.get("b"));
+clock.advance(600);
+cache.set("e", 5, 100);
+console.log("keys:", cache.keys(), "evicted:", cache.evicted);
+clock.advance(200);
+console.log("e expired:", cache.get("e"), "a alive:", cache.get("a"));
+clock.advance(300);
+console.log("a expired:", cache.get("a"), "c:", cache.get("c"), "d:", cache.get("d"));
+console.log(cache.stats);
+
+// Expensive lookups wrapped in cached()
+let computations = 0;
+const slowSquare = (n: number) => {
+  computations++;
+  let acc = 0;
+  for (let i = 0; i < n; i++) acc += n;
+  return acc;
+};
+const sqCache = new LruCache<number, number>(4, 5000, clock);
+const fastSquare = cached(sqCache, slowSquare);
+const queries = [12, 7, 12, 3, 9, 7, 25, 12, 3, 3, 40, 7];
+const answers = queries.map((q) => {
+  clock.advance(250);
+  return fastSquare(q);
+});
+console.log("answers:", answers);
+console.log("computations:", computations, "of", queries.length, sqCache.stats);
+console.log("lru order:", sqCache.keys(), "evicted:", sqCache.evicted);
+
+// Word lookups with a cache keyed by string
+const dictionary: Record<string, string> = { ts: "TypeScript", js: "JavaScript", gc: "garbage collector", ir: "intermediate representation" };
+let dictReads = 0;
+const expand = cached(new LruCache<string, string>(2, 10000, clock), (abbr: string) => {
+  dictReads++;
+  return abbr in dictionary ? dictionary[abbr] : abbr.toUpperCase();
+});
+console.log(["ts", "gc", "ts", "ir", "gc", "xyz", "xyz"].map(expand).join(" | "), "reads:", dictReads);
+
+try {
+  new LruCache<string, string>(0, 1, clock);
+} catch (e) {
+  console.log(e instanceof RangeError, (e as Error).message);
+}
+console.log(cache);

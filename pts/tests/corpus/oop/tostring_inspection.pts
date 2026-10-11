@@ -1,0 +1,83 @@
+// skip: not supported yet: PTS1001: `Object.prototype.toString`
+// Overriding toString and printing class instances in many ways: console.log, templates, join, format strings.
+
+class Money {
+  constructor(readonly cents: number, readonly currency: string = "USD") {}
+  toString(): string {
+    const sign = this.cents < 0 ? "-" : "";
+    const abs = Math.abs(this.cents);
+    return `${sign}${this.currency} ${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+  }
+  toJSON(): { amount: number; currency: string } {
+    return { amount: this.cents / 100, currency: this.currency };
+  }
+}
+
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+
+class Person {
+  nickname: string | undefined = undefined;
+  readonly tags: string[] = [];
+  manager: Person | null = null;
+  constructor(public name: string, public age: number, public salary: Money) {}
+  toString(): string {
+    return `${this.name} (${this.age})`;
+  }
+}
+
+class Team {
+  readonly members = new Map<string, Person>();
+  readonly skills = new Set<string>();
+  readonly meta: Record<string, unknown> = {};
+  constructor(public name: string) {}
+}
+
+class Empty {}
+
+class WithStatic {
+  static instances = 3;
+  value = 1;
+}
+
+class Deep {
+  constructor(public level: number, public child: Deep | null) {}
+}
+
+const m = new Money(123456);
+const neg = new Money(-5, "EUR");
+console.log(m);
+console.log(String(m), `${neg}`, "" + m, [m, neg].join(" | "));
+console.log("%s and %s", m, neg);
+console.log("%o", new Point(1, 2));
+console.log("%j", new Point(1, 2));
+console.log("point: %O!", new Point(3, 4));
+console.log(JSON.stringify({ price: m, list: [neg] }));
+
+const boss = new Person("Grace", 61, new Money(2500000));
+const dev = new Person("Linus", 34, new Money(1800000));
+dev.manager = boss;
+dev.tags.push("kernel", "git");
+dev.nickname = "torvalds";
+console.log(dev);
+console.log(`${dev} reports to ${dev.manager}`);
+console.log([boss, dev].map(String));
+console.log([boss, dev].map((p) => p.toString()).sort().join(", "));
+
+const team = new Team("core");
+team.members.set(dev.name, dev);
+team.skills.add("c").add("rust");
+team.meta["founded"] = 1991;
+team.meta["tags"] = ["os", { nested: true }];
+console.log(team);
+console.log(new Empty(), new WithStatic(), [new Empty()]);
+console.log(new Deep(1, new Deep(2, new Deep(3, new Deep(4, null)))));
+console.log({ point: new Point(0, -0), money: [m] });
+console.log([new Point(1, 1), new Point(2, 2), new Point(3, 3)]);
+console.log(String(new Point(5, 5)), `${new Empty()}`, new Point(1, 2).toString());
+console.log(Object.prototype.toString.call(dev), typeof dev, dev instanceof Person);
+const err = new RangeError("bad range");
+console.log(`${err}`, String(err), err.toString(), err.message);
+console.log([1, "two", null, undefined, true, m].join("/"));
+console.log(`${[1, [2, [3, [4]]]]}`, String({}), `${null} ${undefined}`);

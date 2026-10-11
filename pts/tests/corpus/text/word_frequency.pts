@@ -1,0 +1,85 @@
+// Word frequency, bigram and trigram counts over a short corpus, with stop-word filtering.
+const corpus = `It was the best of times, it was the worst of times, it was the age of wisdom,
+it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity,
+it was the season of Light, it was the season of Darkness, it was the spring of hope,
+it was the winter of despair, we had everything before us, we had nothing before us.`;
+
+const STOP_WORDS = new Set(["it", "was", "the", "of", "we", "had", "us", "a", "an"]);
+
+function words(text: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (const ch of text.toLowerCase()) {
+    if ((ch >= "a" && ch <= "z") || ch === "'") cur += ch;
+    else if (cur) { out.push(cur); cur = ""; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function countBy<T>(items: T[], key: (t: T) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const it of items) {
+    const k = key(it);
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return m;
+}
+
+function ngrams(ws: string[], n: number): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i + n <= ws.length; i++) out.push(ws.slice(i, i + n));
+  return out;
+}
+
+function top(m: Map<string, number>, k: number): [string, number][] {
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, k);
+}
+
+function bar(n: number, max: number, width = 20): string {
+  return "#".repeat(Math.round((n / max) * width));
+}
+
+const all = words(corpus);
+console.log("total words:", all.length, "unique:", new Set(all).size);
+console.log("first ten:", all.slice(0, 10));
+
+const freq = countBy(all, (w) => w);
+const topAll = top(freq, 8);
+const max = topAll[0][1];
+console.log("Top words (all):");
+for (const [w, n] of topAll) console.log(`  ${w.padEnd(12)}${String(n).padStart(3)} ${bar(n, max)}`);
+
+const content = all.filter((w) => !STOP_WORDS.has(w));
+const contentFreq = countBy(content, (w) => w);
+console.log("Top content words:", top(contentFreq, 6));
+
+const bigrams = countBy(ngrams(all, 2), (g) => g.join(" "));
+console.log("Top bigrams:");
+for (const [g, n] of top(bigrams, 5)) console.log("  %s  %d", JSON.stringify(g), n);
+
+const trigrams = countBy(ngrams(all, 3), (g) => g.join(" "));
+console.log("Top trigrams:", Object.fromEntries(top(trigrams, 4)));
+
+const byLength = new Map<number, string[]>();
+for (const w of new Set(all)) {
+  const list = byLength.get(w.length) ?? [];
+  list.push(w);
+  byLength.set(w.length, list);
+}
+const lengths = [...byLength.keys()].sort((a, b) => a - b);
+for (const len of lengths) console.log(`${len}: ${(byLength.get(len) ?? []).sort().join(", ")}`);
+
+const avg = all.reduce((s, w) => s + w.length, 0) / all.length;
+console.log("average word length:", avg.toFixed(3));
+const longest = all.reduce((a, b) => (b.length > a.length ? b : a), "");
+console.log("longest word: %s (%d letters)", longest, longest.length);
+const hapax = [...freq].filter(([, n]) => n === 1).map(([w]) => w);
+console.log("hapax legomena:", hapax.length, hapax.slice(0, 5));
+
+const letterFreq = countBy([...all.join("")], (c) => c);
+const letters = top(letterFreq, 26);
+console.log(letters.map(([c, n]) => `${c}${n}`).join(" "));
+const vowels = letters.filter(([c]) => "aeiou".includes(c)).reduce((s, [, n]) => s + n, 0);
+console.log("vowel ratio: %s%%", ((vowels / all.join("").length) * 100).toFixed(1));
+console.log(new Map([...contentFreq].filter(([, n]) => n > 1)));

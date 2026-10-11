@@ -1,0 +1,96 @@
+// LZW compression and decompression over strings, with variable code widths, dictionary
+// growth statistics and a packed bit-stream size estimate.
+interface LzwStats {
+  inputChars: number;
+  codes: number;
+  dictSize: number;
+  bits: number;
+  maxWidth: number;
+}
+
+class LzwCodec {
+  static readonly MAX_DICT = 4096;
+
+  compress(input: string): { codes: number[]; stats: LzwStats } {
+    const dict = new Map<string, number>();
+    for (let i = 0; i < 256; i++) dict.set(String.fromCharCode(i), i);
+    let w = "";
+    const codes: number[] = [];
+    let bits = 0;
+    const widthFor = (size: number) => Math.max(9, Math.ceil(Math.log2(size + 1)));
+    for (const c of input) {
+      if (c.charCodeAt(0) > 255) throw new RangeError(`character ${JSON.stringify(c)} outside Latin-1`);
+      const wc = w + c;
+      if (dict.has(wc)) {
+        w = wc;
+      } else {
+        codes.push(dict.get(w) ?? 0);
+        bits += widthFor(dict.size);
+        if (dict.size < LzwCodec.MAX_DICT) dict.set(wc, dict.size);
+        w = c;
+      }
+    }
+    if (w) {
+      codes.push(dict.get(w) ?? 0);
+      bits += widthFor(dict.size);
+    }
+    return { codes, stats: { inputChars: input.length, codes: codes.length, dictSize: dict.size, bits, maxWidth: widthFor(dict.size) } };
+  }
+
+  decompress(codes: number[]): string {
+    if (codes.length === 0) return "";
+    const dict: string[] = [];
+    for (let i = 0; i < 256; i++) dict.push(String.fromCharCode(i));
+    let w = dict[codes[0]];
+    let out = w;
+    for (const k of codes.slice(1)) {
+      let entry: string;
+      if (k < dict.length) entry = dict[k];
+      else if (k === dict.length) entry = w + w[0];
+      else throw new Error(`bad code ${k} (dictionary has ${dict.length})`);
+      out += entry;
+      if (dict.length < LzwCodec.MAX_DICT) dict.push(w + entry[0]);
+      w = entry;
+    }
+    return out;
+  }
+}
+
+const codec = new LzwCodec();
+const inputs: Record<string, string> = {
+  classic: "TOBEORNOTTOBEORTOBEORNOT",
+  repeats: "ab".repeat(40),
+  prose: "it was the best of times it was the worst of times it was the age of wisdom it was the age of foolishness",
+  short: "x",
+  empty: "",
+  latin1: "façade naïve café crème brûlée façade naïve café",
+  kwkwk: "aaaaaaaaaaaaaaa",
+};
+for (const [name, text] of Object.entries(inputs)) {
+  const { codes, stats } = codec.compress(text);
+  const restored = codec.decompress(codes);
+  const ratio = stats.inputChars ? ((stats.bits / (stats.inputChars * 8)) * 100).toFixed(1) + "%" : "n/a";
+  console.log(`${name.padEnd(8)} ${String(stats.inputChars).padStart(4)} chars -> ${String(stats.codes).padStart(3)} codes, ${String(stats.bits).padStart(4)} bits (${ratio}) ok=${restored === text}`);
+}
+const classic = codec.compress(inputs.classic);
+console.log(classic.codes.join(" "));
+console.log(classic.stats);
+console.log(codec.decompress([84, 79, 66, 69, 79, 82, 78, 79, 84, 256, 258, 260, 265, 259, 261, 263]));
+console.log(codec.compress(inputs.kwkwk).codes);
+try {
+  codec.decompress([65, 300]);
+} catch (e) {
+  console.log((e as Error).message);
+}
+try {
+  codec.compress("emoji 🚀 not allowed");
+} catch (e) {
+  if (e instanceof RangeError) console.log("RangeError:", e.message);
+}
+const growth: number[] = [];
+let sample = "";
+for (let i = 0; i < 6; i++) {
+  sample += "abcabcabd".repeat(i + 1);
+  growth.push(codec.compress(sample).stats.dictSize - 256);
+}
+console.log("dictionary growth:", growth);

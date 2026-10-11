@@ -1,0 +1,91 @@
+// Value objects whose constructors throw on invalid input, plus static
+// factories that return null or a reason instead of throwing.
+
+class InvalidIsbnError extends Error {
+  constructor(readonly input: string, readonly reason: string) {
+    super(`'${input}' is not a valid ISBN-13: ${reason}`);
+    this.name = "InvalidIsbnError";
+  }
+}
+
+class Isbn {
+  readonly digits: string;
+
+  constructor(input: string) {
+    const digits = input.split("-").join("").split(" ").join("");
+    if (digits.length !== 13) throw new InvalidIsbnError(input, `expected 13 digits, got ${digits.length}`);
+    for (const ch of digits) {
+      if (ch < "0" || ch > "9") throw new InvalidIsbnError(input, `non-digit '${ch}'`);
+    }
+    if (!digits.startsWith("978") && !digits.startsWith("979")) throw new InvalidIsbnError(input, "bad prefix");
+    const sum = digits
+      .slice(0, 12)
+      .split("")
+      .reduce((s, ch, i) => s + Number(ch) * (i % 2 === 0 ? 1 : 3), 0);
+    const check = (10 - (sum % 10)) % 10;
+    if (check !== Number(digits[12])) throw new InvalidIsbnError(input, `check digit should be ${check}`);
+    this.digits = digits;
+  }
+
+  static tryParse(input: string): Isbn | null {
+    try {
+      return new Isbn(input);
+    } catch (e) {
+      if (e instanceof InvalidIsbnError) return null;
+      throw e;
+    }
+  }
+
+  static explain(input: string): string {
+    try {
+      new Isbn(input);
+      return "ok";
+    } catch (e) {
+      return e instanceof InvalidIsbnError ? e.reason : "unknown";
+    }
+  }
+
+  format(): string {
+    const d = this.digits;
+    return `${d.slice(0, 3)}-${d.slice(3, 4)}-${d.slice(4, 8)}-${d.slice(8, 12)}-${d.slice(12)}`;
+  }
+}
+
+class Book {
+  private static count = 0;
+  readonly serial: number;
+  constructor(readonly title: string, readonly isbn: Isbn, readonly pages: number) {
+    if (title.trim() === "") throw new TypeError("title must not be blank");
+    if (!Number.isInteger(pages) || pages <= 0) throw new RangeError(`pages must be a positive integer, got ${pages}`);
+    this.serial = ++Book.count;
+  }
+  static get created(): number {
+    return Book.count;
+  }
+}
+
+const inputs = ["978-0-306-40615-7", "9780306406158", "978 1 4028 9462 6", "123-4-5678-9012-3", "978-0-306-4061X-7", "97803064", "979-10-90636-07-1"];
+for (const s of inputs) {
+  const parsed = Isbn.tryParse(s);
+  console.log(s.padEnd(20), parsed ? parsed.format() : `invalid (${Isbn.explain(s)})`);
+}
+
+const catalog: Book[] = [];
+const specs: Array<[string, string, number]> = [
+  ["Mythical Man-Month", "978-0-201-83595-3", 322],
+  ["", "978-0-306-40615-7", 100],
+  ["Untitled draft", "978-0-306-40615-7", 0],
+  ["Broken ISBN", "978-0-306-40615-8", 50],
+  ["Refactoring", "978-0-13-475759-9", 448.5],
+  ["Clean Architecture", "978-0-13-449416-6", 432],
+];
+for (const [title, isbn, pages] of specs) {
+  try {
+    catalog.push(new Book(title, new Isbn(isbn), pages));
+  } catch (e) {
+    const err = e as Error;
+    console.log(`skipped ${JSON.stringify(title)}: ${err.name}: ${err.message}`);
+  }
+}
+console.log("created", Book.created, "books:", catalog.map((b) => `#${b.serial} ${b.title}`));
+console.log(catalog[0]);

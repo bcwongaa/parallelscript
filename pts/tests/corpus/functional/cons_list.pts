@@ -1,0 +1,96 @@
+// skip: not supported yet: PTS1001: converting {kind: string} | {head: value; kind: string; tail: {kind: string} | {...}} to {kind: string} | {head: number; kind: string; tai...
+// A persistent functional linked list with cons/map/filter/fold and structural sharing.
+
+type List<T> = { readonly kind: "nil" } | { readonly kind: "cons"; readonly head: T; readonly tail: List<T> };
+
+const NIL: List<never> = { kind: "nil" };
+const cons = <T>(head: T, tail: List<T>): List<T> => ({ kind: "cons", head, tail });
+
+function list<T>(...xs: T[]): List<T> {
+  return xs.reduceRight<List<T>>((acc, x) => cons(x, acc), NIL);
+}
+
+function foldl<T, A>(l: List<T>, f: (acc: A, x: T) => A, init: A): A {
+  let acc = init;
+  let cur = l;
+  while (cur.kind === "cons") {
+    acc = f(acc, cur.head);
+    cur = cur.tail;
+  }
+  return acc;
+}
+
+function foldr<T, A>(l: List<T>, f: (x: T, acc: A) => A, init: A): A {
+  return l.kind === "nil" ? init : f(l.head, foldr(l.tail, f, init));
+}
+
+const toArray = <T>(l: List<T>): T[] => foldl<T, T[]>(l, (acc, x) => (acc.push(x), acc), []);
+const show = <T>(l: List<T>): string => "(" + toArray(l).map((x) => String(x)).join(" ") + ")";
+const reverse = <T>(l: List<T>): List<T> => foldl<T, List<T>>(l, (acc, x) => cons(x, acc), NIL);
+const map = <T, U>(l: List<T>, f: (x: T) => U): List<U> => foldr<T, List<U>>(l, (x, acc) => cons(f(x), acc), NIL);
+const filter = <T>(l: List<T>, p: (x: T) => boolean): List<T> => foldr<T, List<T>>(l, (x, acc) => (p(x) ? cons(x, acc) : acc), NIL);
+const length = <T>(l: List<T>): number => foldl(l, (n: number) => n + 1, 0);
+const append = <T>(a: List<T>, b: List<T>): List<T> => foldr(a, (x: T, acc: List<T>) => cons(x, acc), b);
+const flatMap = <T, U>(l: List<T>, f: (x: T) => List<U>): List<U> => foldr<T, List<U>>(l, (x, acc) => append(f(x), acc), NIL);
+
+function nth<T>(l: List<T>, n: number): T | undefined {
+  let cur = l;
+  for (let i = 0; cur.kind === "cons"; i++, cur = cur.tail) {
+    if (i === n) return cur.head;
+  }
+  return undefined;
+}
+
+function take<T>(l: List<T>, n: number): List<T> {
+  return n <= 0 || l.kind === "nil" ? NIL : cons(l.head, take(l.tail, n - 1));
+}
+
+function zip<A, B>(a: List<A>, b: List<B>): List<[A, B]> {
+  return a.kind === "nil" || b.kind === "nil" ? NIL : cons<[A, B]>([a.head, b.head], zip(a.tail, b.tail));
+}
+
+function insertSorted(l: List<number>, x: number): List<number> {
+  if (l.kind === "nil" || x <= l.head) return cons(x, l);
+  return cons(l.head, insertSorted(l.tail, x));
+}
+const insertionSort = (l: List<number>): List<number> => foldl(l, insertSorted, NIL as List<number>);
+
+const nums = list(5, 3, 8, 1, 9, 2, 7);
+console.log("nums:", show(nums));
+console.log("length:", length(nums), "sum:", foldl(nums, (a: number, x) => a + x, 0));
+console.log("reverse:", show(reverse(nums)));
+console.log("doubled:", show(map(nums, (x) => x * 2)));
+console.log("odds:", show(filter(nums, (x) => x % 2 === 1)));
+console.log("sorted:", show(insertionSort(nums)));
+console.log("nth 3:", nth(nums, 3), "nth 30:", nth(nums, 30));
+console.log("take 3:", show(take(nums, 3)));
+console.log("append:", show(append(list(1, 2), list(3, 4))));
+console.log("flatMap:", show(flatMap(list(1, 2, 3), (x) => list(x, x * 10))));
+console.log("zip:", toArray(zip(list("a", "b", "c"), nums)));
+
+// Structural sharing: prepending reuses the original list
+const base = list("x", "y", "z");
+const extended = cons("w", base);
+console.log("shared tail:", extended.kind === "cons" && extended.tail === base);
+console.log("base unchanged:", show(base), "extended:", show(extended));
+
+// Lists print as nested objects
+console.log(list(1, 2));
+console.log(JSON.stringify(list("a")));
+console.log("NIL:", NIL, "empty sum:", foldl(NIL as List<number>, (a: number, x: number) => a + x, 0));
+
+// A stack-safe deep build and fold
+let big: List<number> = NIL;
+for (let i = 1; i <= 50000; i++) big = cons(i, big);
+console.log("big length:", length(big), "big sum:", foldl(big, (a: number, x) => a + x, 0));
+
+// Words to frequency list using an association list
+type Assoc = List<[string, number]>;
+function bump(al: Assoc, key: string): Assoc {
+  if (al.kind === "nil") return list<[string, number]>([key, 1]);
+  const [k, v] = al.head;
+  return k === key ? cons<[string, number]>([k, v + 1], al.tail) : cons(al.head, bump(al.tail, key));
+}
+const text = "the cat and the hat and the bat";
+const freq = foldl(list(...text.split(" ")), bump, NIL as Assoc);
+console.log(toArray(freq).map(([k, v]) => `${k}=${v}`).join(", "));

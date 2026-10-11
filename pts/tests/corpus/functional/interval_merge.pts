@@ -1,0 +1,94 @@
+// Interval arithmetic with pure functions: merging, intersecting, subtracting and scheduling free slots.
+
+type Interval = readonly [start: number, end: number];
+
+const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const show = (xs: readonly Interval[]) => xs.map(([s, e]) => `${fmt(s)}-${fmt(e)}`).join(" ") || "(none)";
+const t = (hhmm: string): number => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+};
+const iv = (a: string, b: string): Interval => [t(a), t(b)];
+
+const merge = (xs: readonly Interval[]): Interval[] =>
+  [...xs]
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    .reduce<Interval[]>((acc, cur) => {
+      const last = acc.at(-1);
+      if (last && cur[0] <= last[1]) return [...acc.slice(0, -1), [last[0], Math.max(last[1], cur[1])]];
+      return [...acc, cur];
+    }, []);
+
+function intersect(a: readonly Interval[], b: readonly Interval[]): Interval[] {
+  const out: Interval[] = [];
+  let i = 0;
+  let j = 0;
+  const A = merge(a);
+  const B = merge(b);
+  while (i < A.length && j < B.length) {
+    const lo = Math.max(A[i][0], B[j][0]);
+    const hi = Math.min(A[i][1], B[j][1]);
+    if (lo < hi) out.push([lo, hi]);
+    if (A[i][1] < B[j][1]) i++;
+    else j++;
+  }
+  return out;
+}
+
+const subtract = (from: Interval, busy: readonly Interval[]): Interval[] =>
+  merge(busy).reduce<Interval[]>(
+    (free, [bs, be]) =>
+      free.flatMap(([fs, fe]): Interval[] => {
+        if (be <= fs || bs >= fe) return [[fs, fe]];
+        const parts: Interval[] = [];
+        if (bs > fs) parts.push([fs, bs]);
+        if (be < fe) parts.push([be, fe]);
+        return parts;
+      }),
+    [from],
+  );
+
+const totalMinutes = (xs: readonly Interval[]) => merge(xs).reduce((s, [a, b]) => s + (b - a), 0);
+
+const calendars: Record<string, Interval[]> = {
+  ana: [iv("09:00", "10:30"), iv("12:00", "13:00"), iv("10:00", "11:00"), iv("15:30", "16:00")],
+  raj: [iv("08:30", "09:15"), iv("11:00", "12:30"), iv("14:00", "15:00"), iv("14:30", "15:45")],
+  lee: [iv("13:00", "13:30"), iv("16:30", "18:00")],
+};
+const workday = iv("09:00", "17:30");
+
+for (const [who, cal] of Object.entries(calendars)) {
+  const merged = merge(cal);
+  console.log(`${who.padEnd(4)} busy ${show(merged)}  (${totalMinutes(cal)} min)`);
+  console.log(`     free ${show(subtract(workday, cal))}`);
+}
+
+const everyoneBusy = Object.values(calendars).flat();
+const commonFree = subtract(workday, everyoneBusy);
+console.log("common free:", show(commonFree));
+const meetingLength = 30;
+const slots = commonFree.filter(([s, e]) => e - s >= meetingLength).map(([s]): Interval => [s, s + meetingLength]);
+console.log(`first ${meetingLength}-min slots:`, show(slots));
+
+console.log("ana ∩ raj busy:", show(intersect(calendars.ana, calendars.raj)));
+console.log("raj ∩ lee busy:", show(intersect(calendars.raj, calendars.lee)));
+
+// Overlap counting with a sweep line
+const events = everyoneBusy.flatMap(([s, e]) => [[s, 1], [e, -1]] as Array<[number, number]>).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+let current = 0;
+let peak = 0;
+let peakAt = 0;
+for (const [time, delta] of events) {
+  current += delta;
+  if (current > peak) {
+    peak = current;
+    peakAt = time;
+  }
+}
+console.log(`peak concurrent meetings: ${peak} at ${fmt(peakAt)}`);
+
+// Edge cases
+console.log(merge([]), merge([[5, 5]]), merge([[1, 3], [3, 4], [10, 12], [2, 2]]));
+console.log(subtract([0, 10], []), subtract([0, 10], [[0, 10]]), subtract([0, 10], [[-5, 2], [4, 6], [9, 20]]));
+console.log(intersect([[0, 5]], [[5, 10]]), intersect([[0, 10]], [[2, 3], [4, 5]]));
+console.log("utilization:", calendars, "ok");

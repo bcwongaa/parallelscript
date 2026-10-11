@@ -1,0 +1,146 @@
+// A recursive-descent calculator that reports parse errors with positions
+// and evaluation errors such as division by zero.
+
+class ParseError extends Error {
+  constructor(message: string, readonly pos: number) {
+    super(message);
+    this.name = "ParseError";
+  }
+}
+
+class EvalError2 extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EvalError";
+  }
+}
+
+type Token = { type: "num"; value: number; pos: number } | { type: "op"; value: string; pos: number } | { type: "end"; pos: number };
+
+function tokenize(src: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === " ") {
+      i++;
+    } else if ((c >= "0" && c <= "9") || c === ".") {
+      const start = i;
+      while (i < src.length && ((src[i] >= "0" && src[i] <= "9") || src[i] === ".")) i++;
+      const text = src.slice(start, i);
+      const value = Number(text);
+      if (Number.isNaN(value)) throw new ParseError(`malformed number '${text}'`, start);
+      tokens.push({ type: "num", value, pos: start });
+    } else if ("+-*/%()^".includes(c)) {
+      tokens.push({ type: "op", value: c, pos: i });
+      i++;
+    } else {
+      throw new ParseError(`unexpected character '${c}'`, i);
+    }
+  }
+  tokens.push({ type: "end", pos: src.length });
+  return tokens;
+}
+
+class Parser {
+  private i = 0;
+  constructor(private readonly tokens: Token[]) {}
+
+  private peek(): Token {
+    return this.tokens[this.i];
+  }
+
+  private isOp(op: string): boolean {
+    const t = this.peek();
+    return t.type === "op" && t.value === op;
+  }
+
+  parse(): number {
+    const v = this.expr();
+    const t = this.peek();
+    if (t.type !== "end") throw new ParseError("unexpected token after expression", t.pos);
+    return v;
+  }
+
+  private expr(): number {
+    let v = this.term();
+    while (this.isOp("+") || this.isOp("-")) {
+      const op = (this.tokens[this.i++] as { value: string }).value;
+      const r = this.term();
+      v = op === "+" ? v + r : v - r;
+    }
+    return v;
+  }
+
+  private term(): number {
+    let v = this.power();
+    while (this.isOp("*") || this.isOp("/") || this.isOp("%")) {
+      const tok = this.tokens[this.i++];
+      const r = this.power();
+      if (tok.type === "op" && tok.value !== "*" && r === 0) {
+        throw new EvalError2(`${tok.value === "/" ? "division" : "modulo"} by zero at ${tok.pos}`);
+      }
+      v = tok.type === "op" && tok.value === "*" ? v * r : tok.type === "op" && tok.value === "/" ? v / r : v % r;
+    }
+    return v;
+  }
+
+  private power(): number {
+    const base = this.unary();
+    if (this.isOp("^")) {
+      this.i++;
+      return Math.pow(base, this.power());
+    }
+    return base;
+  }
+
+  private unary(): number {
+    if (this.isOp("-")) {
+      this.i++;
+      return -this.unary();
+    }
+    return this.primary();
+  }
+
+  private primary(): number {
+    const t = this.peek();
+    if (t.type === "num") {
+      this.i++;
+      return t.value;
+    }
+    if (t.type === "op" && t.value === "(") {
+      this.i++;
+      const v = this.expr();
+      if (!this.isOp(")")) throw new ParseError("expected ')'", this.peek().pos);
+      this.i++;
+      return v;
+    }
+    throw new ParseError(t.type === "end" ? "unexpected end of input" : `unexpected '${t.value}'`, t.pos);
+  }
+}
+
+function calculate(src: string): number {
+  return new Parser(tokenize(src)).parse();
+}
+
+const exprs = ["1 + 2 * 3", "(1 + 2) * 3", "2 ^ 3 ^ 2", "-4 + 10 / 4", "7 % 3 + 0.5", "10 / (5 - 5)", "8 % 0",
+  "2 * (3 + 4", "3 + * 4", "12 & 4", "1..5 + 2", "", "4 4", "-(-(-2))", "1 / 3"];
+
+let errors = 0;
+for (const src of exprs) {
+  try {
+    console.log(`${JSON.stringify(src).padEnd(14)} = ${calculate(src)}`);
+  } catch (e) {
+    errors++;
+    if (e instanceof ParseError) {
+      console.log(`${JSON.stringify(src).padEnd(14)} ! ${e.name} at ${e.pos}: ${e.message}`);
+      console.log(" ".repeat(16 + e.pos) + "^");
+    } else if (e instanceof EvalError2) {
+      console.log(`${JSON.stringify(src).padEnd(14)} ! ${e.name}: ${e.message}`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log(`${exprs.length - errors} ok, ${errors} errors`);
+console.log(tokenize("3*(4+5)").map((t) => (t.type === "end" ? "$" : String(t.value))).join(" "));

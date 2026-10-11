@@ -1,0 +1,111 @@
+type Quarter = "Q1" | "Q2" | "Q3" | "Q4";
+
+interface Row {
+  rep: string;
+  quarter: Quarter;
+  category: "Hardware" | "Software" | "Services";
+  amount: number;
+}
+
+const rows: Row[] = [
+  { rep: "Alice", quarter: "Q1", category: "Hardware", amount: 1200 },
+  { rep: "Bob", quarter: "Q1", category: "Software", amount: 800 },
+  { rep: "Alice", quarter: "Q2", category: "Services", amount: 450.5 },
+  { rep: "Carol", quarter: "Q2", category: "Hardware", amount: 2300 },
+  { rep: "Bob", quarter: "Q3", category: "Hardware", amount: 990 },
+  { rep: "Carol", quarter: "Q3", category: "Software", amount: 1500.25 },
+  { rep: "Alice", quarter: "Q4", category: "Software", amount: 640 },
+  { rep: "Bob", quarter: "Q4", category: "Services", amount: 300 },
+  { rep: "Carol", quarter: "Q1", category: "Services", amount: 720.75 },
+  { rep: "Alice", quarter: "Q1", category: "Software", amount: 210 },
+  { rep: "Dave", quarter: "Q2", category: "Hardware", amount: 1800 },
+];
+
+class Pivot<R> {
+  private cells = new Map<string, number>();
+  private rowKeys = new Set<string>();
+  private colKeys = new Set<string>();
+
+  constructor(
+    private readonly rowOf: (r: R) => string,
+    private readonly colOf: (r: R) => string,
+    private readonly valueOf: (r: R) => number,
+  ) {}
+
+  add(records: R[]): this {
+    for (const r of records) {
+      const rk = this.rowOf(r);
+      const ck = this.colOf(r);
+      this.rowKeys.add(rk);
+      this.colKeys.add(ck);
+      const key = rk + "|" + ck;
+      this.cells.set(key, (this.cells.get(key) ?? 0) + this.valueOf(r));
+    }
+    return this;
+  }
+
+  get rows(): string[] {
+    return [...this.rowKeys].sort();
+  }
+
+  get cols(): string[] {
+    return [...this.colKeys].sort();
+  }
+
+  cell(row: string, col: string): number {
+    return this.cells.get(row + "|" + col) ?? 0;
+  }
+
+  rowTotal(row: string): number {
+    return this.cols.reduce((acc, c) => acc + this.cell(row, c), 0);
+  }
+
+  colTotal(col: string): number {
+    return this.rows.reduce((acc, r) => acc + this.cell(r, col), 0);
+  }
+
+  render(width = 10): string {
+    const lines: string[] = [];
+    const header = "".padEnd(8) + this.cols.map((c) => c.padStart(width)).join("") + "Total".padStart(width);
+    lines.push(header);
+    lines.push("-".repeat(header.length));
+    for (const r of this.rows) {
+      const cells = this.cols.map((c) => this.cell(r, c).toFixed(2).padStart(width)).join("");
+      lines.push(r.padEnd(8) + cells + this.rowTotal(r).toFixed(2).padStart(width));
+    }
+    lines.push("-".repeat(header.length));
+    const grand = this.rows.reduce((acc, r) => acc + this.rowTotal(r), 0);
+    lines.push("Total".padEnd(8) + this.cols.map((c) => this.colTotal(c).toFixed(2).padStart(width)).join("") + grand.toFixed(2).padStart(width));
+    return lines.join("\n");
+  }
+
+  toObject(): Record<string, Record<string, number>> {
+    const out: Record<string, Record<string, number>> = {};
+    for (const r of this.rows) {
+      const inner: Record<string, number> = {};
+      for (const c of this.cols) {
+        const v = this.cell(r, c);
+        if (v !== 0) inner[c] = v;
+      }
+      out[r] = inner;
+    }
+    return out;
+  }
+}
+
+const byRepQuarter = new Pivot<Row>((r) => r.rep, (r) => r.quarter, (r) => r.amount).add(rows);
+console.log(byRepQuarter.render());
+console.log();
+const byCategory = new Pivot<Row>((r) => r.category, (r) => r.quarter, (r) => r.amount).add(rows);
+console.log(byCategory.render(11));
+console.log();
+console.log(byRepQuarter.toObject());
+
+const counts = new Pivot<Row>((r) => r.rep, (r) => r.category, () => 1).add(rows);
+console.log(JSON.stringify(counts.toObject(), null, 2));
+console.log("Reps:", byRepQuarter.rows, "Quarters:", byRepQuarter.cols);
+
+const topCell = byRepQuarter.rows
+  .flatMap((r) => byRepQuarter.cols.map((c) => ({ rep: r, quarter: c, value: byRepQuarter.cell(r, c) })))
+  .sort((a, b) => b.value - a.value)[0];
+console.log("Largest cell:", topCell);

@@ -1,0 +1,76 @@
+// skip: not supported yet: PTS1001: converting {age: string; comment: string | undefined; id: number; plan: string; satisfaction: number; wouldRecommend: boolean}[] to {age: ...
+type Satisfaction = 1 | 2 | 3 | 4 | 5;
+type AgeBand = "18-29" | "30-44" | "45-64" | "65+";
+
+interface Response {
+  id: number;
+  age: AgeBand;
+  plan: "free" | "pro" | "team";
+  satisfaction: Satisfaction;
+  wouldRecommend: boolean;
+  comment?: string;
+}
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+}
+
+const rnd = lcg(31337);
+const ages: AgeBand[] = ["18-29", "30-44", "45-64", "65+"];
+const plans: Response["plan"][] = ["free", "pro", "team"];
+const responses: Response[] = Array.from({ length: 120 }, (_, i) => {
+  const plan = plans[Math.floor(rnd() * 3)];
+  const bias = plan === "team" ? 1 : plan === "pro" ? 0.5 : 0;
+  const sat = Math.min(5, Math.max(1, Math.round(1 + rnd() * 4 + bias - 0.3))) as Satisfaction;
+  return {
+    id: i + 1,
+    age: ages[Math.floor(rnd() * 4)],
+    plan,
+    satisfaction: sat,
+    wouldRecommend: sat >= 4 ? rnd() < 0.9 : rnd() < 0.2,
+    comment: rnd() < 0.1 ? "needs dark mode" : undefined,
+  };
+});
+
+function crosstab<R, A extends string, B extends string>(rows: R[], fa: (r: R) => A, fb: (r: R) => B, as: readonly A[], bs: readonly B[]): number[][] {
+  const grid = as.map(() => bs.map(() => 0));
+  for (const r of rows) grid[as.indexOf(fa(r))][bs.indexOf(fb(r))]++;
+  return grid;
+}
+
+const sats = ["1", "2", "3", "4", "5"] as const;
+const table = crosstab(responses, (r) => r.plan, (r) => String(r.satisfaction) as (typeof sats)[number], plans, sats);
+console.log("plan   " + sats.map((s) => s.padStart(5)).join("") + "    n   mean");
+plans.forEach((p, i) => {
+  const row = table[i];
+  const n = row.reduce((a, b) => a + b, 0);
+  const mean = row.reduce((a, c, j) => a + c * (j + 1), 0) / n;
+  console.log(`${p.padEnd(6)} ${row.map((c) => String(c).padStart(5)).join("")} ${String(n).padStart(4)}  ${mean.toFixed(2)}`);
+});
+
+const ageByRec = crosstab(responses, (r) => r.age, (r) => (r.wouldRecommend ? "yes" : "no"), ages, ["yes", "no"] as const);
+console.log(Object.fromEntries(ages.map((a, i) => [a, { yes: ageByRec[i][0], no: ageByRec[i][1] }])));
+
+const promoters = responses.filter((r) => r.satisfaction === 5).length;
+const detractors = responses.filter((r) => r.satisfaction <= 2).length;
+console.log("NPS-ish:", Math.round(((promoters - detractors) / responses.length) * 100));
+const colTotals = sats.map((_, j) => table.reduce((s, row) => s + row[j], 0));
+console.log("column totals:", colTotals, "sum:", colTotals.reduce((a, b) => a + b, 0));
+
+let chi = 0;
+const n = responses.length;
+const rowTotals = table.map((r) => r.reduce((a, b) => a + b, 0));
+table.forEach((row, i) =>
+  row.forEach((obs, j) => {
+    const exp = (rowTotals[i] * colTotals[j]) / n;
+    if (exp > 0) chi += (obs - exp) ** 2 / exp;
+  }),
+);
+console.log("chi-square:", chi.toFixed(3), "df:", (plans.length - 1) * (sats.length - 1));
+const comments = responses.filter((r) => r.comment !== undefined);
+console.log(comments.length, "comments", comments.slice(0, 2));
+console.log(responses[0], responses[119].id);

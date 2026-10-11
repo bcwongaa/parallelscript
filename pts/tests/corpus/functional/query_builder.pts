@@ -1,0 +1,120 @@
+// skip: not supported yet: PTS1001: converting undefined to number
+// A fluent, immutable query builder over in-memory rows, where each step stores closures.
+
+type Row = Record<string, string | number | boolean | null>;
+type Predicate = (r: Row) => boolean;
+type Op = "=" | "!=" | ">" | ">=" | "<" | "<=" | "like" | "in";
+
+const ops: Record<Op, (a: Row[string], b: unknown) => boolean> = {
+  "=": (a, b) => a === b,
+  "!=": (a, b) => a !== b,
+  ">": (a, b) => typeof a === "number" && typeof b === "number" && a > b,
+  ">=": (a, b) => typeof a === "number" && typeof b === "number" && a >= b,
+  "<": (a, b) => typeof a === "number" && typeof b === "number" && a < b,
+  "<=": (a, b) => typeof a === "number" && typeof b === "number" && a <= b,
+  like: (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase().includes(b.split("%").join("").toLowerCase()),
+  in: (a, b) => Array.isArray(b) && b.includes(a),
+};
+
+class Query {
+  private constructor(
+    private readonly source: readonly Row[],
+    private readonly filters: readonly Predicate[] = [],
+    private readonly sorters: ReadonlyArray<(a: Row, b: Row) => number> = [],
+    private readonly projection: readonly string[] | null = null,
+    private readonly limitN: number | null = null,
+    private readonly offsetN = 0,
+    private readonly description: readonly string[] = [],
+  ) {}
+
+  static from(rows: readonly Row[]): Query {
+    return new Query(rows);
+  }
+
+  private with(changes: Partial<{ filters: readonly Predicate[]; sorters: ReadonlyArray<(a: Row, b: Row) => number>; projection: readonly string[]; limitN: number; offsetN: number }>, desc: string): Query {
+    return new Query(
+      this.source,
+      changes.filters ?? this.filters,
+      changes.sorters ?? this.sorters,
+      changes.projection ?? this.projection,
+      changes.limitN ?? this.limitN,
+      changes.offsetN ?? this.offsetN,
+      [...this.description, desc],
+    );
+  }
+
+  where(field: string, op: Op, value: unknown): Query {
+    const test = ops[op];
+    return this.with({ filters: [...this.filters, (r) => test(r[field] ?? null, value)] }, `WHERE ${field} ${op} ${JSON.stringify(value)}`);
+  }
+
+  orWhere(...alternatives: Array<[string, Op, unknown]>): Query {
+    const preds = alternatives.map(([f, op, v]) => (r: Row) => ops[op](r[f] ?? null, v));
+    return this.with({ filters: [...this.filters, (r) => preds.some((p) => p(r))] }, `WHERE (${alternatives.map((a) => a.join(" ")).join(" OR ")})`);
+  }
+
+  orderBy(field: string, dir: "asc" | "desc" = "asc"): Query {
+    const sign = dir === "asc" ? 1 : -1;
+    const cmp = (a: Row, b: Row) => {
+      const x = a[field] ?? null;
+      const y = b[field] ?? null;
+      if (x === y) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return (x < y ? -1 : 1) * sign;
+    };
+    return this.with({ sorters: [...this.sorters, cmp] }, `ORDER BY ${field} ${dir.toUpperCase()}`);
+  }
+
+  select(...fields: string[]): Query {
+    return this.with({ projection: fields }, `SELECT ${fields.join(", ")}`);
+  }
+
+  limit(n: number, offset = 0): Query {
+    return this.with({ limitN: n, offsetN: offset }, `LIMIT ${n} OFFSET ${offset}`);
+  }
+
+  run(): Row[] {
+    let rows = this.source.filter((r) => this.filters.every((f) => f(r)));
+    if (this.sorters.length) rows = [...rows].sort((a, b) => this.sorters.reduce((acc, s) => acc || s(a, b), 0));
+    rows = rows.slice(this.offsetN, this.limitN === null ? undefined : this.offsetN + this.limitN);
+    const proj = this.projection;
+    return proj ? rows.map((r) => Object.fromEntries(proj.map((f) => [f, r[f] ?? null]))) : rows;
+  }
+
+  explain(): string {
+    return this.description.join(" ") || "(scan)";
+  }
+
+  count(): number {
+    return this.source.filter((r) => this.filters.every((f) => f(r))).length;
+  }
+}
+
+const employees: Row[] = [
+  { id: 1, name: "Amara Okoye", dept: "eng", salary: 125000, remote: true, manager: null },
+  { id: 2, name: "Bruno Diaz", dept: "sales", salary: 72000, remote: false, manager: 7 },
+  { id: 3, name: "Chiara Ricci", dept: "eng", salary: 98000, remote: false, manager: 1 },
+  { id: 4, name: "Dmitri Volkov", dept: "ops", salary: 81000, remote: true, manager: 7 },
+  { id: 5, name: "Emeka Obi", dept: "eng", salary: 143000, remote: true, manager: 1 },
+  { id: 6, name: "Fatima Zahra", dept: "sales", salary: 69000, remote: true, manager: 2 },
+  { id: 7, name: "Gustav Lind", dept: "ops", salary: 110000, remote: false, manager: null },
+];
+
+const base = Query.from(employees);
+const remoteEng = base.where("dept", "=", "eng").where("remote", "=", true);
+const queries: Query[] = [
+  remoteEng.select("name", "salary"),
+  base.where("salary", ">=", 80000).orderBy("salary", "desc").select("name", "dept", "salary").limit(3),
+  base.orWhere(["dept", "=", "ops"], ["name", "like", "%obi%"]).orderBy("name").select("id", "name"),
+  base.where("manager", "=", null).select("name"),
+  base.where("dept", "in", ["sales", "ops"]).orderBy("dept").orderBy("salary").select("dept", "name", "salary"),
+  base.orderBy("manager").select("name", "manager").limit(3, 2),
+  base.where("salary", "<", 50000),
+];
+for (const q of queries) {
+  console.log(q.explain());
+  console.log(q.run());
+}
+console.log("remote eng count:", remoteEng.count(), "base untouched:", base.explain(), base.count());
+console.table(base.where("remote", "!=", true).select("id", "name", "dept").run());

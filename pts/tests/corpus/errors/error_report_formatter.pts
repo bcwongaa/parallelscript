@@ -1,0 +1,83 @@
+// skip: not supported yet: PTS1001: calling `t.hasOwnProperty`
+// Formats errors for a log file without stack traces: name, message, own
+// fields, and the cause chain, plus String()/toString()/template behaviour.
+
+class HttpError extends Error {
+  override name = "HttpError";
+  constructor(readonly status: number, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+  }
+}
+
+class TimeoutError extends Error {
+  constructor(readonly ms: number) {
+    super(`timed out after ${ms}ms`);
+  }
+  get name(): string {
+    return "TimeoutError";
+  }
+}
+
+class Anonymous extends Error {}
+
+class Quiet extends Error {
+  constructor() {
+    super();
+    this.name = "Quiet";
+  }
+}
+
+function fields(e: Error): string {
+  const parts: string[] = [];
+  if (e instanceof HttpError) parts.push(`status=${e.status}`);
+  if (e instanceof TimeoutError) parts.push(`ms=${e.ms}`);
+  return parts.length > 0 ? ` {${parts.join(", ")}}` : "";
+}
+
+function format(e: unknown, indent = 0): string[] {
+  const pad = " ".repeat(indent);
+  if (!(e instanceof Error)) return [`${pad}<thrown ${typeof e}> ${JSON.stringify(e)}`];
+  const head = `${pad}${e.name}${e.message ? ": " + e.message : ""}${fields(e)}`;
+  return e.cause === undefined ? [head] : [head, ...format(e.cause, indent + 2)];
+}
+
+const errors: unknown[] = [
+  new HttpError(502, "bad gateway", { cause: new TimeoutError(3000) }),
+  new TimeoutError(250),
+  new Anonymous("who am I"),
+  new Quiet(),
+  new Error(""),
+  new HttpError(500, "upstream", { cause: new HttpError(404, "missing", { cause: "config key" }) }),
+  new RangeError("index 9"),
+  { message: "not an error" },
+];
+
+let n = 0;
+for (const e of errors) {
+  n++;
+  for (const line of format(e)) console.log(`${String(n).padStart(2)}| ${line}`);
+}
+
+console.log("--- string conversions ---");
+for (const e of errors) {
+  if (e instanceof Error) {
+    console.log(JSON.stringify([String(e), `${e}`, e.toString(), e.name, e.message]));
+  }
+}
+
+const quiet = new Quiet();
+const anon = new Anonymous("x");
+console.log(quiet.message === "", anon.name, anon instanceof Anonymous, Object.keys(anon).length);
+const http = new HttpError(418, "teapot");
+console.log(http.name, Object.keys(http), http.status);
+const t = new TimeoutError(10);
+console.log(t.name, Object.keys(t), "name" in t, t.hasOwnProperty("name"));
+
+function levelFor(e: unknown): "warn" | "error" | "fatal" {
+  if (e instanceof HttpError) return e.status >= 500 ? "error" : "warn";
+  if (e instanceof TimeoutError) return "warn";
+  return e instanceof Error ? "error" : "fatal";
+}
+const levels = new Map<string, number>();
+for (const e of errors) levels.set(levelFor(e), (levels.get(levelFor(e)) ?? 0) + 1);
+console.log(levels);

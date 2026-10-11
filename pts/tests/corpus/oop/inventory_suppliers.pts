@@ -1,0 +1,130 @@
+// Inventory with suppliers, reorder points and purchase orders.
+
+interface Supplier {
+  name: string;
+  leadDays: number;
+  prices: Record<string, number>;
+}
+
+class Product {
+  constructor(
+    readonly sku: string,
+    readonly name: string,
+    public stock: number,
+    readonly reorderPoint: number,
+    readonly reorderQty: number,
+  ) {}
+
+  get needsReorder(): boolean {
+    return this.stock <= this.reorderPoint;
+  }
+}
+
+interface OrderLine {
+  sku: string;
+  qty: number;
+  unit: number;
+}
+
+class PurchaseOrder {
+  private static seq = 1;
+  readonly number: string;
+  readonly lines: OrderLine[] = [];
+
+  constructor(readonly supplier: Supplier) {
+    this.number = "PO-" + String(PurchaseOrder.seq++).padStart(4, "0");
+  }
+
+  add(line: OrderLine): void {
+    this.lines.push(line);
+  }
+
+  get total(): number {
+    return this.lines.reduce((t, l) => t + l.qty * l.unit, 0);
+  }
+}
+
+class Inventory {
+  private products = new Map<string, Product>();
+
+  constructor(private suppliers: Supplier[]) {}
+
+  add(p: Product): void {
+    this.products.set(p.sku, p);
+  }
+
+  sell(sku: string, qty: number): boolean {
+    const p = this.products.get(sku);
+    if (!p || p.stock < qty) return false;
+    p.stock -= qty;
+    return true;
+  }
+
+  cheapestSupplier(sku: string): Supplier | undefined {
+    let best: Supplier | undefined;
+    for (const s of this.suppliers) {
+      if (s.prices[sku] === undefined) continue;
+      const price = s.prices[sku];
+      if (!best || price < (best.prices[sku] ?? Infinity) || (price === best.prices[sku] && s.leadDays < best.leadDays)) {
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  planOrders(): PurchaseOrder[] {
+    const orders = new Map<string, PurchaseOrder>();
+    for (const p of this.products.values()) {
+      if (!p.needsReorder) continue;
+      const s = this.cheapestSupplier(p.sku);
+      if (!s) {
+        console.log(`no supplier for ${p.sku}`);
+        continue;
+      }
+      let po = orders.get(s.name);
+      if (!po) {
+        po = new PurchaseOrder(s);
+        orders.set(s.name, po);
+      }
+      po.add({ sku: p.sku, qty: p.reorderQty, unit: s.prices[p.sku] });
+    }
+    return [...orders.values()];
+  }
+
+  snapshot(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [sku, p] of this.products) out[sku] = p.stock;
+    return out;
+  }
+}
+
+const suppliers: Supplier[] = [
+  { name: "Acme", leadDays: 5, prices: { BOLT: 0.1, NUT: 0.05, GEAR: 4.5 } },
+  { name: "Globex", leadDays: 2, prices: { BOLT: 0.1, GEAR: 4.25, BELT: 12 } },
+  { name: "Initech", leadDays: 9, prices: { NUT: 0.04, SPRING: 0.75 } },
+];
+const inv = new Inventory(suppliers);
+inv.add(new Product("BOLT", "Hex bolt", 500, 200, 1000));
+inv.add(new Product("NUT", "Hex nut", 450, 300, 2000));
+inv.add(new Product("GEAR", "Spur gear", 12, 10, 25));
+inv.add(new Product("BELT", "Drive belt", 3, 2, 5));
+inv.add(new Product("SPRING", "Coil spring", 40, 50, 100));
+inv.add(new Product("WIDGET", "Widget", 1, 5, 10));
+
+const sales: [string, number][] = [["BOLT", 320], ["NUT", 200], ["GEAR", 3], ["BELT", 1], ["BELT", 5], ["NUT", 9999]];
+for (const [sku, qty] of sales) {
+  console.log(`sell ${qty} ${sku}: ${inv.sell(sku, qty) ? "ok" : "refused"}`);
+}
+console.log(inv.snapshot());
+
+const orders = inv.planOrders();
+for (const po of orders) {
+  console.log(`${po.number} -> ${po.supplier.name} (lead ${po.supplier.leadDays}d) total $${po.total.toFixed(2)}`);
+  for (const line of po.lines) {
+    console.log(`   ${line.sku.padEnd(7)} x${String(line.qty).padStart(5)} @ ${line.unit}`);
+  }
+}
+const grand = orders.reduce((s, o) => s + o.total, 0);
+console.log("grand total", grand.toFixed(2));
+console.log(orders[0].lines);
+console.log(orders.map((o) => o.number), orders.length);

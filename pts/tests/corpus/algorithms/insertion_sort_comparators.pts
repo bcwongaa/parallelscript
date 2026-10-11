@@ -1,0 +1,124 @@
+// skip: not supported yet: PTS1001: converting number to string
+// Insertion sort and binary insertion sort with a variety of comparators.
+
+type Cmp<T> = (a: T, b: T) => number;
+
+interface SortResult<T> {
+  items: T[];
+  shifts: number;
+}
+
+function insertionSort<T>(input: readonly T[], cmp: Cmp<T>): SortResult<T> {
+  const items = [...input];
+  let shifts = 0;
+  for (let i = 1; i < items.length; i++) {
+    const cur = items[i];
+    let j = i - 1;
+    while (j >= 0 && cmp(items[j], cur) > 0) {
+      items[j + 1] = items[j];
+      j--;
+      shifts++;
+    }
+    items[j + 1] = cur;
+  }
+  return { items, shifts };
+}
+
+function binaryInsertionSort<T>(input: readonly T[], cmp: Cmp<T>): T[] {
+  const out: T[] = [];
+  for (const x of input) {
+    let lo = 0;
+    let hi = out.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (cmp(out[mid], x) <= 0) lo = mid + 1;
+      else hi = mid;
+    }
+    out.splice(lo, 0, x);
+  }
+  return out;
+}
+
+const numeric: Cmp<number> = (a, b) => a - b;
+const absolute: Cmp<number> = (a, b) => Math.abs(a) - Math.abs(b);
+const evensFirst: Cmp<number> = (a, b) => (a & 1) - (b & 1) || a - b;
+const reverse = <T,>(c: Cmp<T>): Cmp<T> => (a, b) => c(b, a);
+
+const nums = [12, -7, 3, 0, -15, 8, 3, -1, 22, 5];
+console.log("numeric:", insertionSort(nums, numeric));
+console.log("absolute:", insertionSort(nums, absolute).items.join(", "));
+console.log("evens first:", insertionSort(nums, evensFirst).items);
+console.log("descending:", insertionSort(nums, reverse(numeric)).items);
+console.log("binary insertion:", binaryInsertionSort(nums, numeric));
+
+const caseInsensitive: Cmp<string> = (a, b) => {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+const naturalOrder: Cmp<string> = (a, b) => {
+  const split = (s: string): (string | number)[] => {
+    const parts: (string | number)[] = [];
+    let buf = "";
+    let digits = false;
+    for (const ch of s) {
+      const isDigit = ch >= "0" && ch <= "9";
+      if (buf && isDigit !== digits) {
+        parts.push(digits ? Number(buf) : buf);
+        buf = "";
+      }
+      buf += ch;
+      digits = isDigit;
+    }
+    if (buf) parts.push(digits ? Number(buf) : buf);
+    return parts;
+  };
+  const pa = split(a);
+  const pb = split(b);
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    const x = pa[i];
+    const y = pb[i];
+    if (typeof x === "number" && typeof y === "number") {
+      if (x !== y) return x - y;
+    } else {
+      const sx = String(x);
+      const sy = String(y);
+      if (sx !== sy) return sx < sy ? -1 : 1;
+    }
+  }
+  return pa.length - pb.length;
+};
+
+const files = ["file10.txt", "File2.txt", "file1.txt", "file20.txt", "file3.txt", "readme", "File11.txt"];
+console.log("default sort:", [...files].sort());
+console.log("case-insensitive:", insertionSort(files, caseInsensitive).items);
+console.log("natural:", insertionSort(files.map((f) => f.toLowerCase()), naturalOrder).items);
+
+type Card = { rank: number; suit: "S" | "H" | "D" | "C" };
+const suitOrder: Record<Card["suit"], number> = { S: 0, H: 1, D: 2, C: 3 };
+const hand: Card[] = [
+  { rank: 12, suit: "H" },
+  { rank: 3, suit: "S" },
+  { rank: 12, suit: "S" },
+  { rank: 7, suit: "D" },
+  { rank: 1, suit: "C" },
+  { rank: 7, suit: "H" },
+];
+const rankNames: Record<number, string> = { 1: "A", 11: "J", 12: "Q", 13: "K" };
+const fmt = (c: Card) => `${rankNames[c.rank] ?? c.rank}${c.suit}`;
+const bySuitThenRank = insertionSort(hand, (a, b) => suitOrder[a.suit] - suitOrder[b.suit] || a.rank - b.rank);
+console.log("hand by suit:", bySuitThenRank.items.map(fmt).join(" "), `(shifts=${bySuitThenRank.shifts})`);
+const byRank = insertionSort(hand, (a, b) => b.rank - a.rank);
+console.log("hand by rank desc:", byRank.items.map(fmt), byRank.shifts);
+console.log(byRank.items[0]);
+
+for (const n of [5, 10, 20]) {
+  const worst = Array.from({ length: n }, (_, i) => n - i);
+  const best = Array.from({ length: n }, (_, i) => i);
+  console.log(
+    "n=%d worst shifts=%d best shifts=%d",
+    n,
+    insertionSort(worst, numeric).shifts,
+    insertionSort(best, numeric).shifts,
+  );
+}

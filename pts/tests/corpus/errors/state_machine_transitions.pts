@@ -1,0 +1,97 @@
+// skip: not supported yet: PTS1001: numeric property names (`0` in Partial<Record<OrderState, OrderState>>)
+// An order-lifecycle state machine that rejects invalid transitions.
+
+enum OrderState {
+  Draft,
+  Submitted,
+  Paid,
+  Shipped,
+  Delivered,
+  Cancelled,
+  Refunded,
+}
+
+type Event = "submit" | "pay" | "ship" | "deliver" | "cancel" | "refund";
+
+class InvalidTransitionError extends Error {
+  constructor(readonly from: OrderState, readonly event: Event) {
+    super(`cannot '${event}' an order that is ${OrderState[from]}`);
+    this.name = "InvalidTransitionError";
+  }
+}
+
+class GuardFailedError extends Error {
+  constructor(readonly event: Event, reason: string) {
+    super(`guard for '${event}' failed: ${reason}`);
+    this.name = "GuardFailedError";
+  }
+}
+
+const transitions: Record<Event, Partial<Record<OrderState, OrderState>>> = {
+  submit: { [OrderState.Draft]: OrderState.Submitted },
+  pay: { [OrderState.Submitted]: OrderState.Paid },
+  ship: { [OrderState.Paid]: OrderState.Shipped },
+  deliver: { [OrderState.Shipped]: OrderState.Delivered },
+  cancel: { [OrderState.Draft]: OrderState.Cancelled, [OrderState.Submitted]: OrderState.Cancelled },
+  refund: { [OrderState.Paid]: OrderState.Refunded, [OrderState.Delivered]: OrderState.Refunded },
+};
+
+class Order {
+  #state: OrderState = OrderState.Draft;
+  readonly history: string[] = [];
+
+  constructor(readonly id: string, private amount: number) {}
+
+  get state(): string {
+    return OrderState[this.#state];
+  }
+
+  fire(event: Event): void {
+    const next = transitions[event][this.#state];
+    if (next === undefined) throw new InvalidTransitionError(this.#state, event);
+    if (event === "pay" && this.amount <= 0) throw new GuardFailedError(event, "amount must be positive");
+    this.history.push(`${OrderState[this.#state]} -${event}-> ${OrderState[next]}`);
+    this.#state = next;
+  }
+}
+
+function run(id: string, amount: number, events: Event[]): Order {
+  const order = new Order(id, amount);
+  console.log(`order ${id} (amount ${amount}):`);
+  for (const ev of events) {
+    try {
+      order.fire(ev);
+      console.log(`  ${ev.padEnd(8)} ok   -> ${order.state}`);
+    } catch (e) {
+      if (e instanceof InvalidTransitionError) {
+        console.log(`  ${ev.padEnd(8)} FAIL ${e.message} (state stays ${OrderState[e.from]})`);
+      } else if (e instanceof GuardFailedError) {
+        console.log(`  ${ev.padEnd(8)} FAIL ${e.message}`);
+        break;
+      } else {
+        throw e;
+      }
+    }
+  }
+  return order;
+}
+
+const orders = [
+  run("o-1", 20, ["submit", "pay", "ship", "deliver"]),
+  run("o-2", 15, ["pay", "submit", "cancel", "pay"]),
+  run("o-3", 0, ["submit", "pay", "ship"]),
+  run("o-4", 99, ["submit", "pay", "deliver", "ship", "deliver", "refund", "refund"]),
+];
+
+for (const o of orders) {
+  console.log(o.id, o.state, o.history);
+}
+
+const reachable = new Set<string>();
+for (const table of Object.values(transitions)) {
+  for (const target of Object.values(table)) {
+    if (target !== undefined) reachable.add(OrderState[target]);
+  }
+}
+console.log("reachable states:", [...reachable].sort());
+console.log(transitions.cancel);

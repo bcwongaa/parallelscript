@@ -1,0 +1,122 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+// Course scheduling: Kahn's topological sort, DFS cycle detection, and semester planning.
+
+class CycleError extends Error {
+  constructor(public readonly cycle: string[]) {
+    super(`dependency cycle: ${cycle.join(" -> ")}`);
+    this.name = "CycleError";
+  }
+}
+
+type Catalog = Record<string, string[]>; // course -> prerequisites
+
+function kahn(catalog: Catalog): string[] {
+  const indeg = new Map<string, number>();
+  const users = new Map<string, string[]>();
+  for (const [course, prereqs] of Object.entries(catalog)) {
+    indeg.set(course, indeg.get(course) ?? 0);
+    for (const p of prereqs) {
+      indeg.set(p, indeg.get(p) ?? 0);
+      indeg.set(course, (indeg.get(course) ?? 0) + 1);
+      users.set(p, [...(users.get(p) ?? []), course]);
+    }
+  }
+  const ready = [...indeg].filter(([, d]) => d === 0).map(([c]) => c).sort();
+  const order: string[] = [];
+  while (ready.length) {
+    const c = ready.shift()!;
+    order.push(c);
+    for (const u of users.get(c) ?? []) {
+      const d = indeg.get(u)! - 1;
+      indeg.set(u, d);
+      if (d === 0) {
+        ready.push(u);
+        ready.sort();
+      }
+    }
+  }
+  if (order.length !== indeg.size) throw new CycleError(findCycle(catalog) ?? []);
+  return order;
+}
+
+function findCycle(catalog: Catalog): string[] | null {
+  const enum Color { White, Grey, Black }
+  const color = new Map<string, Color>();
+  const stack: string[] = [];
+  const visit = (c: string): string[] | null => {
+    color.set(c, Color.Grey);
+    stack.push(c);
+    for (const p of catalog[c] ?? []) {
+      const col = color.get(p) ?? Color.White;
+      if (col === Color.Grey) return [...stack.slice(stack.indexOf(p)), p];
+      if (col === Color.White) {
+        const found = visit(p);
+        if (found) return found;
+      }
+    }
+    stack.pop();
+    color.set(c, Color.Black);
+    return null;
+  };
+  for (const c of Object.keys(catalog).sort()) {
+    if ((color.get(c) ?? Color.White) === Color.White) {
+      const cyc = visit(c);
+      if (cyc) return cyc;
+    }
+  }
+  return null;
+}
+
+function semesters(catalog: Catalog, maxPerTerm: number): string[][] {
+  const order = kahn(catalog);
+  const level = new Map<string, number>();
+  for (const c of order) {
+    const pre = catalog[c] ?? [];
+    level.set(c, pre.length ? Math.max(...pre.map((p) => level.get(p)! + 1)) : 0);
+  }
+  const terms: string[][] = [];
+  const taken = new Map<string, number>();
+  for (const c of [...order].sort((a, b) => level.get(a)! - level.get(b)! || (a < b ? -1 : 1))) {
+    const earliest = Math.max(0, ...(catalog[c] ?? []).map((p) => taken.get(p)! + 1));
+    let t = earliest;
+    while ((terms[t]?.length ?? 0) >= maxPerTerm) t++;
+    while (terms.length <= t) terms.push([]);
+    terms[t].push(c);
+    taken.set(c, t);
+  }
+  return terms;
+}
+
+const cs: Catalog = {
+  "CS101": [],
+  "CS102": ["CS101"],
+  "MATH120": [],
+  "MATH220": ["MATH120"],
+  "CS201": ["CS102", "MATH120"],
+  "CS210": ["CS102"],
+  "CS301": ["CS201", "MATH220"],
+  "CS320": ["CS210", "CS201"],
+  "CS350": ["CS301"],
+  "CS399": ["CS320", "CS350"],
+};
+
+const order = kahn(cs);
+console.log("order:", order.join(", "));
+console.log("valid:", order.every((c, i) => cs[c].every((p) => order.indexOf(p) < i)));
+semesters(cs, 2).forEach((t, i) => console.log(`term ${i + 1}:`, t));
+console.log("3 per term:", semesters(cs, 3));
+
+const broken: Catalog = { ...cs, "CS101": ["CS399"] };
+try {
+  kahn(broken);
+} catch (e) {
+  if (e instanceof CycleError) {
+    console.log(e.name, "-", e.message);
+    console.log("cycle length:", e.cycle.length - 1);
+  } else {
+    throw e;
+  }
+}
+console.log("cycle in original?", findCycle(cs));
+const selfLoop: Catalog = { A: ["A"] };
+console.log("self loop:", findCycle(selfLoop));

@@ -1,0 +1,138 @@
+// skip: diverges: a line Node prints is missing (cause not found yet)
+// Parking garage with levels, spot sizes and hourly billing.
+
+enum SpotSize {
+  Small,
+  Medium,
+  Large,
+}
+
+abstract class Vehicle {
+  constructor(readonly plate: string) {}
+  abstract get size(): SpotSize;
+  get label(): string {
+    return `${this.constructor.name}(${this.plate})`;
+  }
+}
+
+class Motorcycle extends Vehicle {
+  get size(): SpotSize {
+    return SpotSize.Small;
+  }
+}
+class Car extends Vehicle {
+  get size(): SpotSize {
+    return SpotSize.Medium;
+  }
+}
+class Bus extends Vehicle {
+  get size(): SpotSize {
+    return SpotSize.Large;
+  }
+}
+
+class Spot {
+  occupant: Vehicle | null = null;
+  since = 0;
+  constructor(readonly level: number, readonly index: number, readonly size: SpotSize) {}
+  fits(v: Vehicle): boolean {
+    return this.occupant === null && v.size <= this.size;
+  }
+  get code(): string {
+    return `L${this.level}-${String(this.index).padStart(2, "0")}`;
+  }
+}
+
+class GarageFullError extends Error {}
+
+class Garage {
+  private spots: Spot[] = [];
+  private byPlate = new Map<string, Spot>();
+  private revenue = 0;
+  static readonly RATES: Record<string, number> = { Small: 1, Medium: 2.5, Large: 6 };
+
+  constructor(layout: SpotSize[][]) {
+    layout.forEach((sizes, level) => {
+      sizes.forEach((size, index) => this.spots.push(new Spot(level + 1, index + 1, size)));
+    });
+  }
+
+  park(v: Vehicle, hour: number): Spot {
+    // prefer the smallest spot that fits
+    const candidates = this.spots.filter((s) => s.fits(v)).sort((a, b) => a.size - b.size || a.level - b.level || a.index - b.index);
+    const spot = candidates[0];
+    if (spot === undefined) throw new GarageFullError(`no room for ${v.label}`);
+    spot.occupant = v;
+    spot.since = hour;
+    this.byPlate.set(v.plate, spot);
+    return spot;
+  }
+
+  leave(plate: string, hour: number): number {
+    const spot = this.byPlate.get(plate);
+    if (!spot || !spot.occupant) return 0;
+    const hours = Math.max(1, Math.ceil(hour - spot.since));
+    const rate = Garage.RATES[SpotSize[spot.occupant.size]];
+    const fee = hours * rate;
+    this.revenue += fee;
+    spot.occupant = null;
+    this.byPlate.delete(plate);
+    return fee;
+  }
+
+  occupancy(): string {
+    const used = this.spots.filter((s) => s.occupant !== null).length;
+    return `${used}/${this.spots.length} (${((used / this.spots.length) * 100).toFixed(0)}%)`;
+  }
+
+  get total(): number {
+    return this.revenue;
+  }
+
+  map(): string[] {
+    const levels = new Map<number, string>();
+    for (const s of this.spots) {
+      const ch = s.occupant ? s.occupant.constructor.name[0] : ".SML"[s.size + 1];
+      levels.set(s.level, (levels.get(s.level) ?? "") + ch);
+    }
+    return [...levels.entries()].map(([l, row]) => `level ${l}: ${row}`);
+  }
+}
+
+const S = SpotSize.Small, M = SpotSize.Medium, L = SpotSize.Large;
+const garage = new Garage([
+  [S, S, M, M, M, L],
+  [M, M, M, L],
+]);
+
+const arrivals: [Vehicle, number][] = [
+  [new Car("CAR-1"), 8],
+  [new Motorcycle("MOTO-1"), 8.25],
+  [new Bus("BUS-1"), 9],
+  [new Bus("BUS-2"), 9.5],
+  [new Bus("BUS-3"), 9.75],
+  [new Car("CAR-2"), 10],
+  [new Motorcycle("MOTO-2"), 10],
+  [new Motorcycle("MOTO-3"), 10.5],
+];
+for (const [v, hour] of arrivals) {
+  try {
+    const spot = garage.park(v, hour);
+    console.log(`${v.label.padEnd(20)} -> ${spot.code} (${SpotSize[spot.size]})`);
+  } catch (e) {
+    if (e instanceof GarageFullError) console.log("FULL:", e.message);
+  }
+}
+console.log("occupancy", garage.occupancy());
+garage.map().forEach((line) => console.log(line));
+
+const departures: [string, number][] = [["CAR-1", 12.5], ["BUS-1", 9.2], ["MOTO-2", 15], ["NOPE", 1]];
+for (const [plate, hour] of departures) {
+  console.log(`${plate} pays ${garage.leave(plate, hour).toFixed(2)}`);
+}
+console.log("occupancy", garage.occupancy(), "revenue", garage.total);
+garage.park(new Bus("BUS-3"), 16);
+garage.map().forEach((line) => console.log(line));
+console.log(SpotSize, SpotSize.Large, SpotSize[0]);
+console.log(new Car("XYZ"));
+console.log(Garage.RATES);

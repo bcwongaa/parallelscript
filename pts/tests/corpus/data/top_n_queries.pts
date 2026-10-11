@@ -1,0 +1,67 @@
+interface Track {
+  title: string;
+  artist: string;
+  genre: string;
+  plays: number;
+  durationSec: number;
+  year: number;
+}
+
+const tracks: Track[] = [
+  { title: "Glass Rivers", artist: "Nyla", genre: "indie", plays: 48213, durationSec: 214, year: 2019 },
+  { title: "Static Bloom", artist: "The Wires", genre: "rock", plays: 91200, durationSec: 256, year: 2021 },
+  { title: "Low Tide", artist: "Nyla", genre: "indie", plays: 12999, durationSec: 189, year: 2020 },
+  { title: "Paper Suns", artist: "Okoro", genre: "jazz", plays: 7710, durationSec: 402, year: 2018 },
+  { title: "Overpass", artist: "The Wires", genre: "rock", plays: 91200, durationSec: 199, year: 2022 },
+  { title: "Velvet Static", artist: "DJ Arc", genre: "electronic", plays: 150322, durationSec: 333, year: 2023 },
+  { title: "Kites", artist: "Okoro", genre: "jazz", plays: 22014, durationSec: 287, year: 2021 },
+  { title: "Run Lights", artist: "DJ Arc", genre: "electronic", plays: 80455, durationSec: 241, year: 2020 },
+  { title: "Harbor", artist: "Mae Lin", genre: "folk", plays: 5021, durationSec: 222, year: 2017 },
+  { title: "Fieldnotes", artist: "Mae Lin", genre: "folk", plays: 6630, durationSec: 198, year: 2023 },
+  { title: "Neon Psalm", artist: "DJ Arc", genre: "electronic", plays: 99999, durationSec: 305, year: 2021 },
+];
+
+function topN<T>(items: readonly T[], n: number, score: (t: T) => number): T[] {
+  const heap: T[] = [];
+  if (n <= 0) return heap;
+  for (const item of items) {
+    if (heap.length < n) {
+      heap.push(item);
+      heap.sort((a, b) => score(a) - score(b));
+    } else if (score(item) > score(heap[0])) {
+      heap[0] = item;
+      heap.sort((a, b) => score(a) - score(b));
+    }
+  }
+  return heap.reverse();
+}
+
+const fmtDur = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+console.log("Top 5 by plays:");
+topN(tracks, 5, (t) => t.plays).forEach((t, i) => console.log(`${i + 1}. ${t.title} — ${t.artist} (${t.plays.toLocaleString()})`));
+
+console.log("Longest 3:", topN(tracks, 3, (t) => t.durationSec).map((t) => `${t.title} ${fmtDur(t.durationSec)}`));
+
+const byGenre = new Map<string, Track[]>();
+for (const t of tracks) byGenre.set(t.genre, [...(byGenre.get(t.genre) ?? []), t]);
+for (const [genre, list] of [...byGenre].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  const best = topN(list, 1, (t) => t.plays)[0];
+  console.log(`${genre.padEnd(11)} best: ${best.title.padEnd(14)} plays=${best.plays}`);
+}
+
+const artistPlays = tracks.reduce<Record<string, number>>((acc, t) => ({ ...acc, [t.artist]: (acc[t.artist] ?? 0) + t.plays }), {});
+const topArtists = Object.entries(artistPlays)
+  .sort(([, a], [, b]) => b - a)
+  .slice(0, 3);
+console.log(topArtists);
+
+const tieBreak = [...tracks].sort((a, b) => b.plays - a.plays || b.year - a.year || a.title.localeCompare(b.title)).slice(0, 4);
+console.log(tieBreak.map(({ title, plays, year }) => ({ title, plays, year })));
+
+const bottom = topN(tracks, 2, (t) => -t.plays);
+console.log("least played:", bottom.map((t) => t.title));
+const recentHits = tracks.filter((t) => t.year >= 2021).sort((a, b) => b.plays - a.plays).slice(0, 3);
+console.log(recentHits.map((t) => [t.title, t.year]));
+console.log(topN(tracks, 0, (t) => t.plays), topN([] as Track[], 3, (t) => t.plays));
+console.log(tracks.findLast((t) => t.genre === "rock")?.title, tracks.findLastIndex((t) => t.plays > 90000));

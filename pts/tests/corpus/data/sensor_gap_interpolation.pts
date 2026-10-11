@@ -1,0 +1,95 @@
+// skip: not supported yet: PTS1001: converting [number, null | number][] to [number, number][]
+type Sample = { t: number; value: number | null };
+
+interface FillReport {
+  filled: number;
+  leading: number;
+  trailing: number;
+  longestGap: number;
+}
+
+const series: Sample[] = [
+  { t: 0, value: null },
+  { t: 1, value: 10.0 },
+  { t: 2, value: 10.4 },
+  { t: 3, value: null },
+  { t: 4, value: null },
+  { t: 5, value: 12.1 },
+  { t: 6, value: 11.8 },
+  { t: 7, value: null },
+  { t: 8, value: 9.9 },
+  { t: 9, value: 300.0 },
+  { t: 10, value: 10.2 },
+  { t: 11, value: null },
+  { t: 12, value: null },
+  { t: 13, value: null },
+  { t: 14, value: 13.0 },
+  { t: 15, value: null },
+];
+
+function linearFill(xs: Sample[]): { out: number[]; report: FillReport } {
+  const known = xs.map((s, i) => [i, s.value] as const).filter((p): p is readonly [number, number] => p[1] !== null);
+  const out: number[] = new Array(xs.length).fill(NaN);
+  const report: FillReport = { filled: 0, leading: 0, trailing: 0, longestGap: 0 };
+  if (known.length === 0) return { out, report };
+  for (const [i, v] of known) out[i] = v;
+  const [firstIdx, firstVal] = known[0];
+  const [lastIdx, lastVal] = known[known.length - 1];
+  for (let i = 0; i < firstIdx; i++) {
+    out[i] = firstVal;
+    report.leading++;
+  }
+  for (let i = lastIdx + 1; i < xs.length; i++) {
+    out[i] = lastVal;
+    report.trailing++;
+  }
+  for (let k = 0; k + 1 < known.length; k++) {
+    const [i0, v0] = known[k];
+    const [i1, v1] = known[k + 1];
+    const gap = i1 - i0 - 1;
+    report.longestGap = Math.max(report.longestGap, gap);
+    for (let i = i0 + 1; i < i1; i++) {
+      out[i] = v0 + ((v1 - v0) * (i - i0)) / (i1 - i0);
+      report.filled++;
+    }
+  }
+  return { out, report };
+}
+
+function forwardFill(xs: Sample[]): (number | null)[] {
+  let last: number | null = null;
+  return xs.map((s) => {
+    if (s.value !== null) last = s.value;
+    return last;
+  });
+}
+
+function medianFilter(xs: number[], w: number): number[] {
+  const half = Math.floor(w / 2);
+  return xs.map((_, i) => {
+    const win = xs.slice(Math.max(0, i - half), i + half + 1).sort((a, b) => a - b);
+    return win[Math.floor(win.length / 2)];
+  });
+}
+
+const { out, report } = linearFill(series);
+console.log(report);
+console.log(out.map((v) => Number(v.toFixed(3))));
+console.log(forwardFill(series));
+const despiked = medianFilter(out, 3);
+console.log(despiked.map((v) => v.toFixed(2)).join(" "));
+const spikes = out.map((v, i) => ({ i, v, m: despiked[i] })).filter((p) => Math.abs(p.v - p.m) > 5);
+console.log("spikes:", spikes);
+const missingRuns: Array<[number, number]> = [];
+let runStart = -1;
+series.forEach((s, i) => {
+  if (s.value === null && runStart < 0) runStart = i;
+  if ((s.value !== null || i === series.length - 1) && runStart >= 0) {
+    missingRuns.push([runStart, s.value === null ? i : i - 1]);
+    runStart = -1;
+  }
+});
+console.log("missing runs:", missingRuns);
+console.log(`coverage ${(((series.length - series.filter((s) => s.value === null).length) / series.length) * 100).toFixed(1)}%`);
+console.log(linearFill([{ t: 0, value: null }]), linearFill([{ t: 0, value: 4 }, { t: 1, value: null }]).out);
+console.log([NaN, -0, 0, 1e21, 1.5e-7, 123456789.123].map((v) => [String(v), v.toFixed(2)]));

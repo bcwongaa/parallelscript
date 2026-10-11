@@ -1,0 +1,114 @@
+// skip: not supported yet: PTS1001: converting value to {age: number; goals: number; name: string; position: string; rating?: number | undefined; team: string}
+// Composable comparators: by key, reversed, nulls last, then-by chains, used to sort a roster.
+
+type Comparator<T> = (a: T, b: T) => number;
+
+const natural: Comparator<number | string> = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const by = <T, K extends number | string>(key: (x: T) => K, cmp: Comparator<K> = natural): Comparator<T> => (a, b) => cmp(key(a), key(b));
+const reverse = <T>(cmp: Comparator<T>): Comparator<T> => (a, b) => cmp(b, a);
+const thenBy = <T>(...cmps: Comparator<T>[]): Comparator<T> => (a, b) => {
+  for (const c of cmps) {
+    const r = c(a, b);
+    if (r !== 0) return r;
+  }
+  return 0;
+};
+const nullsLast = <T, K extends number | string>(key: (x: T) => K | null | undefined, cmp: Comparator<K> = natural): Comparator<T> =>
+  (a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    if (ka == null && kb == null) return 0;
+    if (ka == null) return 1;
+    if (kb == null) return -1;
+    return cmp(ka, kb);
+  };
+const caseInsensitive: Comparator<string> = (a, b) => natural(a.toLowerCase(), b.toLowerCase());
+const byOrder = <T>(key: (x: T) => string, order: readonly string[]): Comparator<T> => {
+  const rank = new Map(order.map((v, i) => [v, i] as const));
+  return by((x: T) => rank.get(key(x)) ?? order.length);
+};
+
+interface Player {
+  name: string;
+  team: string;
+  position: "GK" | "DF" | "MF" | "FW";
+  goals: number;
+  age: number;
+  rating?: number;
+}
+
+const roster: Player[] = [
+  { name: "silva", team: "Porto", position: "MF", goals: 7, age: 27, rating: 7.4 },
+  { name: "Andersen", team: "Aarhus", position: "DF", goals: 1, age: 31 },
+  { name: "baker", team: "Leeds", position: "FW", goals: 14, age: 24, rating: 8.1 },
+  { name: "Costa", team: "Porto", position: "FW", goals: 14, age: 29, rating: 7.9 },
+  { name: "dubois", team: "Lyon", position: "GK", goals: 0, age: 33, rating: 7.0 },
+  { name: "Evans", team: "Leeds", position: "MF", goals: 7, age: 22 },
+  { name: "Fischer", team: "Aarhus", position: "FW", goals: 9, age: 27, rating: 7.4 },
+  { name: "garcia", team: "Lyon", position: "DF", goals: 2, age: 27, rating: 6.8 },
+];
+
+const show = (label: string, ps: Player[], fmt: (p: Player) => string) => console.log(`${label}: ${ps.map(fmt).join(", ")}`);
+const sorted = (cmp: Comparator<Player>) => [...roster].sort(cmp);
+
+show("by name (case-sensitive)", sorted(by((p) => p.name)), (p) => p.name);
+show("by name (case-insensitive)", sorted(by((p) => p.name, caseInsensitive)), (p) => p.name);
+show("top scorers, younger first", sorted(thenBy(reverse(by((p) => p.goals)), by((p) => p.age))), (p) => `${p.name}(${p.goals},${p.age})`);
+show("rating desc, unrated last", sorted(thenBy(nullsLast((p) => (p.rating === undefined ? undefined : -p.rating)), by((p) => p.name, caseInsensitive))), (p) => `${p.name}:${p.rating ?? "-"}`);
+show("formation order", sorted(thenBy(byOrder((p) => p.position, ["GK", "DF", "MF", "FW"]), reverse(by((p) => p.goals)))), (p) => `${p.position}:${p.name}`);
+show("team then age desc", sorted(thenBy(by((p) => p.team), reverse(by((p) => p.age)))), (p) => `${p.team}/${p.age}`);
+
+// Stability: equal keys keep original relative order
+const stable = sorted(by((p) => p.age));
+console.log("age 27 in original order:", stable.filter((p) => p.age === 27).map((p) => p.name));
+
+// Using comparators for min/max/binary search
+const maxBy = <T>(xs: readonly T[], cmp: Comparator<T>): T | undefined => xs.reduce<T | undefined>((m, x) => (m === undefined || cmp(x, m) > 0 ? x : m), undefined);
+const minBy = <T>(xs: readonly T[], cmp: Comparator<T>): T | undefined => maxBy(xs, reverse(cmp));
+console.log("oldest:", maxBy(roster, by((p) => p.age))?.name, "youngest:", minBy(roster, by((p) => p.age))?.name, "none:", maxBy([], natural));
+
+function binarySearch<T>(xs: readonly T[], target: T, cmp: Comparator<T>): number {
+  let lo = 0;
+  let hi = xs.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const c = cmp(xs[mid], target);
+    if (c === 0) return mid;
+    if (c < 0) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -(lo + 1);
+}
+const ages = roster.map((p) => p.age).sort((a, b) => a - b);
+console.log(ages, [22, 27, 30, 40, 1].map((t) => binarySearch(ages, t, natural)));
+
+// Sorting strings with numeric parts naturally ("file10" after "file9")
+const chunks = (s: string): Array<string | number> => {
+  const out: Array<string | number> = [];
+  let buf = "";
+  let numeric = false;
+  for (const ch of s) {
+    const isDigit = ch >= "0" && ch <= "9";
+    if (buf !== "" && isDigit !== numeric) {
+      out.push(numeric ? Number(buf) : buf);
+      buf = "";
+    }
+    buf += ch;
+    numeric = isDigit;
+  }
+  if (buf !== "") out.push(numeric ? Number(buf) : buf);
+  return out;
+};
+const naturalString: Comparator<string> = (a, b) => {
+  const ca = chunks(a);
+  const cb = chunks(b);
+  for (let i = 0; i < Math.min(ca.length, cb.length); i++) {
+    const x = ca[i];
+    const y = cb[i];
+    const r = typeof x === typeof y ? natural(x, y) : typeof x === "number" ? -1 : 1;
+    if (r !== 0) return r;
+  }
+  return ca.length - cb.length;
+};
+const files = ["file10.txt", "file2.txt", "file1.txt", "File3.txt", "file2b.txt", "file02.txt", "a100", "a20"];
+console.log([...files].sort(), [...files].sort(naturalString));

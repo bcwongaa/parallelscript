@@ -1,0 +1,100 @@
+// skip: not supported yet: PTS1001: recursive tuple types ([Tree, Tree])
+// Matrix chain multiplication: optimal parenthesization by DP, verified by actually multiplying.
+
+class Matrix {
+  constructor(readonly rows: number, readonly cols: number, readonly data: number[]) {
+    if (data.length !== rows * cols) throw new RangeError(`bad data length ${data.length}`);
+  }
+  static filled(rows: number, cols: number, f: (r: number, c: number) => number): Matrix {
+    const d: number[] = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) d.push(f(r, c));
+    return new Matrix(rows, cols, d);
+  }
+  at(r: number, c: number): number {
+    return this.data[r * this.cols + c];
+  }
+  times(o: Matrix, counter: { mults: number }): Matrix {
+    if (this.cols !== o.rows) throw new RangeError(`cannot multiply ${this.shape} by ${o.shape}`);
+    return Matrix.filled(this.rows, o.cols, (r, c) => {
+      let s = 0;
+      for (let k = 0; k < this.cols; k++) {
+        s += this.at(r, k) * o.at(k, c);
+        counter.mults++;
+      }
+      return s;
+    });
+  }
+  get shape(): string {
+    return `${this.rows}x${this.cols}`;
+  }
+  checksum(): number {
+    return this.data.reduce((s, v, i) => (s + v * (i + 1)) % 1000003, 0);
+  }
+}
+
+function chainOrder(dims: number[]): { cost: number[][]; split: number[][] } {
+  const n = dims.length - 1;
+  const cost = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const split = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  for (let len = 2; len <= n; len++) {
+    for (let i = 0; i + len - 1 < n; i++) {
+      const j = i + len - 1;
+      cost[i][j] = Infinity;
+      for (let k = i; k < j; k++) {
+        const c = cost[i][k] + cost[k + 1][j] + dims[i] * dims[k + 1] * dims[j + 1];
+        if (c < cost[i][j]) {
+          cost[i][j] = c;
+          split[i][j] = k;
+        }
+      }
+    }
+  }
+  return { cost, split };
+}
+
+function parens(split: number[][], i: number, j: number, names: string[]): string {
+  if (i === j) return names[i];
+  const k = split[i][j];
+  return `(${parens(split, i, k, names)}${parens(split, k + 1, j, names)})`;
+}
+
+type Tree = number | [Tree, Tree];
+function tree(split: number[][], i: number, j: number): Tree {
+  if (i === j) return i;
+  const k = split[i][j];
+  return [tree(split, i, k), tree(split, k + 1, j)];
+}
+
+function evaluate(t: Tree, ms: Matrix[], counter: { mults: number }): Matrix {
+  if (typeof t === "number") return ms[t];
+  return evaluate(t[0], ms, counter).times(evaluate(t[1], ms, counter), counter);
+}
+
+const dims = [30, 35, 15, 5, 10, 20, 25];
+const names = dims.slice(1).map((_, i) => String.fromCharCode(65 + i));
+const { cost, split } = chainOrder(dims);
+const n = dims.length - 1;
+console.log("matrices:", names.map((nm, i) => `${nm}:${dims[i]}x${dims[i + 1]}`).join(" "));
+console.log("optimal cost:", cost[0][n - 1]);
+console.log("order:", parens(split, 0, n - 1, names));
+console.log("tree:", JSON.stringify(tree(split, 0, n - 1)));
+console.log("cost table (upper triangle):");
+for (let i = 0; i < n; i++) {
+  console.log(cost[i].map((c, j) => (j < i ? "".padStart(7) : String(c).padStart(7))).join(""));
+}
+
+const ms = names.map((_, i) => Matrix.filled(dims[i], dims[i + 1], (r, c) => ((r * 7 + c * 3 + i) % 5) - 2));
+const optimal = { mults: 0 };
+const leftToRight = { mults: 0 };
+const best = evaluate(tree(split, 0, n - 1), ms, optimal);
+let naive = ms[0];
+for (let i = 1; i < ms.length; i++) naive = naive.times(ms[i], leftToRight);
+console.log("result shape:", best.shape, "checksums equal:", best.checksum() === naive.checksum());
+console.log({ optimal: optimal.mults, leftToRight: leftToRight.mults, speedup: +(leftToRight.mults / optimal.mults).toFixed(2) });
+try {
+  ms[0].times(ms[2], { mults: 0 });
+} catch (e) {
+  console.log(e instanceof RangeError, (e as Error).message);
+}
+const small = Matrix.filled(2, 2, (r, c) => r + c);
+console.log(small);

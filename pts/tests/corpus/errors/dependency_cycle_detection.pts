@@ -1,0 +1,102 @@
+// Resolves a build order with topological sorting and throws a CycleError
+// that names the cycle, or a MissingDependencyError for unknown packages.
+
+class CycleError extends Error {
+  constructor(readonly cycle: string[]) {
+    super(`dependency cycle: ${cycle.join(" -> ")}`);
+    this.name = "CycleError";
+  }
+}
+
+class MissingDependencyError extends Error {
+  constructor(readonly pkg: string, readonly missing: string) {
+    super(`${pkg} depends on unknown package ${missing}`);
+    this.name = "MissingDependencyError";
+  }
+}
+
+type Graph = Record<string, string[]>;
+
+function buildOrder(graph: Graph): string[] {
+  const state = new Map<string, "visiting" | "done">();
+  const order: string[] = [];
+  const stack: string[] = [];
+
+  function visit(node: string): void {
+    const s = state.get(node);
+    if (s === "done") return;
+    if (s === "visiting") {
+      const start = stack.indexOf(node);
+      throw new CycleError([...stack.slice(start), node]);
+    }
+    state.set(node, "visiting");
+    stack.push(node);
+    for (const dep of graph[node]) {
+      if (!(dep in graph)) throw new MissingDependencyError(node, dep);
+      visit(dep);
+    }
+    stack.pop();
+    state.set(node, "done");
+    order.push(node);
+  }
+
+  for (const node of Object.keys(graph).sort()) visit(node);
+  return order;
+}
+
+const projects: Record<string, Graph> = {
+  webapp: {
+    app: ["ui", "api-client", "logger"],
+    ui: ["components", "logger"],
+    components: ["styles"],
+    styles: [],
+    "api-client": ["http", "logger"],
+    http: [],
+    logger: [],
+  },
+  cyclic: {
+    a: ["b"],
+    b: ["c"],
+    c: ["d", "e"],
+    d: [],
+    e: ["b"],
+  },
+  selfloop: {
+    core: ["core"],
+  },
+  missing: {
+    cli: ["parser", "colors"],
+    parser: [],
+  },
+  empty: {},
+};
+
+const results: Record<string, string> = {};
+for (const [name, graph] of Object.entries(projects)) {
+  try {
+    const order = buildOrder(graph);
+    results[name] = order.length === 0 ? "(nothing to build)" : order.join(", ");
+    console.log(`${name}: build order`);
+    order.forEach((pkg, i) => console.log(`  ${i + 1}. ${pkg} (${graph[pkg].length} deps)`));
+  } catch (e) {
+    if (e instanceof CycleError) {
+      results[name] = `cycle of length ${e.cycle.length - 1}`;
+      console.log(`${name}: ${e.message}`);
+      console.log("  involved:", new Set(e.cycle));
+    } else if (e instanceof MissingDependencyError) {
+      results[name] = `missing ${e.missing}`;
+      console.log(`${name}: ${e.name}: ${e.message}`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log(results);
+
+function dependents(graph: Graph, target: string): string[] {
+  return Object.entries(graph)
+    .filter(([, deps]) => deps.includes(target))
+    .map(([n]) => n)
+    .sort();
+}
+console.log("who needs logger:", dependents(projects.webapp, "logger"));

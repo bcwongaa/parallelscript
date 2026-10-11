@@ -1,0 +1,72 @@
+// skip: not supported yet: PTS1001: the reviver argument of `JSON.parse`
+interface LineItem {
+  sku: string;
+  qty: number;
+  price: number;
+}
+
+interface OrderDoc {
+  id: string;
+  placedAt: string;
+  customer: { name: string; email: string; vip?: boolean };
+  items: LineItem[];
+  notes: string | null;
+}
+
+const payload = `[
+  {"id":"ord-1","placedAt":"2024-04-02T10:15:00Z","customer":{"name":"Mia","email":"mia@x.io","vip":true},
+   "items":[{"sku":"PEN-01","qty":3,"price":1.5},{"sku":"NB-10","qty":1,"price":7.25}],"notes":null},
+  {"id":"ord-2","placedAt":"2024-04-03T08:00:00Z","customer":{"name":"Leo","email":"leo@x.io"},
+   "items":[{"sku":"INK-03","qty":2,"price":12}],"notes":"leave at door"},
+  {"id":"ord-3","placedAt":"2024-04-03T19:45:30Z","customer":{"name":"Zoe","email":"zoe@x.io","vip":false},
+   "items":[{"sku":"PEN-01","qty":10,"price":1.5},{"sku":"CLIP-2","qty":100,"price":0.02},{"sku":"NB-10","qty":2,"price":7.25}],"notes":""}
+]`;
+
+const orders = JSON.parse(payload) as OrderDoc[];
+console.log("Parsed", orders.length, "orders");
+console.log(orders[0]);
+console.log(orders[2].items);
+
+function orderTotal(o: OrderDoc): number {
+  return o.items.reduce((s, i) => s + i.qty * i.price, 0);
+}
+
+const enriched = orders.map((o) => ({
+  id: o.id,
+  customer: o.customer.name,
+  vip: o.customer.vip ?? false,
+  lines: o.items.length,
+  total: Number(orderTotal(o).toFixed(2)),
+  hasNotes: !!o.notes,
+}));
+console.log(enriched);
+
+console.log(JSON.stringify(enriched.slice(0, 1), null, 2));
+console.log(JSON.stringify(enriched, ["id", "total"]));
+console.log(JSON.stringify(orders[1].customer, null, "\t"));
+
+const replacer = (key: string, value: unknown): unknown => {
+  if (key === "email") return "***";
+  if (typeof value === "number" && key === "price") return `$${value.toFixed(2)}`;
+  return value;
+};
+console.log(JSON.stringify(orders[0], replacer));
+
+const skuQty: Record<string, number> = {};
+for (const o of orders) {
+  for (const it of o.items) {
+    skuQty[it.sku] = (skuQty[it.sku] ?? 0) + it.qty;
+  }
+}
+console.log(skuQty);
+const back = JSON.parse(JSON.stringify(skuQty)) as Record<string, number>;
+console.log(Object.entries(back).map(([k, v]) => `${k}=${v}`).join("&"));
+
+const revived = JSON.parse(payload, (key, value) => {
+  if (key === "placedAt" && typeof value === "string") return value.slice(0, 10);
+  return value;
+}) as OrderDoc[];
+console.log(revived.map((o) => o.placedAt));
+console.log(JSON.stringify({ when: new Date("2024-04-03T19:45:30Z"), list: [undefined, 1, null], u: undefined }));
+console.log(JSON.stringify("quote\"and\\slash\nnewline"));
+console.log(JSON.parse("[1, 2.5e3, -0.125, true, null, \"s\"]"));

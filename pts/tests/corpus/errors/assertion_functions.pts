@@ -1,0 +1,100 @@
+// Assertion functions (`asserts x is T`) used to validate untyped JSON input.
+
+class AssertionFailed extends Error {
+  constructor(readonly path: string, readonly expected: string, readonly actual: unknown) {
+    super(`${path}: expected ${expected}, got ${describe(actual)}`);
+    this.name = "AssertionFailed";
+  }
+}
+
+function describe(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return `array(${v.length})`;
+  if (typeof v === "string") return `string "${v}"`;
+  return typeof v;
+}
+
+function assertObject(v: unknown, path: string): asserts v is Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    throw new AssertionFailed(path, "object", v);
+  }
+}
+
+function assertString(v: unknown, path: string): asserts v is string {
+  if (typeof v !== "string") throw new AssertionFailed(path, "string", v);
+}
+
+function assertNumber(v: unknown, path: string): asserts v is number {
+  if (typeof v !== "number" || Number.isNaN(v)) throw new AssertionFailed(path, "number", v);
+}
+
+function assertArray(v: unknown, path: string): asserts v is unknown[] {
+  if (!Array.isArray(v)) throw new AssertionFailed(path, "array", v);
+}
+
+function assert(cond: boolean, message: string): asserts cond {
+  if (!cond) throw new Error(`assertion failed: ${message}`);
+}
+
+interface LineItem {
+  sku: string;
+  qty: number;
+  price: number;
+}
+
+interface Order {
+  id: string;
+  customer: string;
+  items: LineItem[];
+}
+
+function parseOrder(json: string): Order {
+  const data: unknown = JSON.parse(json);
+  assertObject(data, "$");
+  assertString(data.id, "$.id");
+  assertString(data.customer, "$.customer");
+  assertArray(data.items, "$.items");
+  const items: LineItem[] = data.items.map((raw, i) => {
+    const p = `$.items[${i}]`;
+    assertObject(raw, p);
+    assertString(raw.sku, `${p}.sku`);
+    assertNumber(raw.qty, `${p}.qty`);
+    assertNumber(raw.price, `${p}.price`);
+    assert(raw.qty > 0, `${p}.qty must be positive`);
+    return { sku: raw.sku, qty: raw.qty, price: raw.price };
+  });
+  return { id: data.id, customer: data.customer, items };
+}
+
+const inputs = [
+  '{"id":"A1","customer":"Ann","items":[{"sku":"pen","qty":3,"price":1.25},{"sku":"pad","qty":1,"price":4.5}]}',
+  '{"id":"A2","customer":"Ben","items":{"sku":"pen"}}',
+  '{"id":7,"customer":"Cy","items":[]}',
+  '{"id":"A4","customer":"Di","items":[{"sku":"ink","qty":"2","price":3}]}',
+  '{"id":"A5","customer":"Ed","items":[{"sku":"ink","qty":0,"price":3}]}',
+  '[1,2,3]',
+  '{"id":"A7","customer":null,"items":[]}',
+  '{"id":"A8","customer":"Flo","items":[{"sku":"cup","qty":2,"price":7.99},null]}',
+  '{"id":"A9","customer":"Gus","items":[{"sku":"mug","qty":4,"price":2}]}',
+];
+
+const accepted: Order[] = [];
+for (const json of inputs) {
+  try {
+    const order = parseOrder(json);
+    accepted.push(order);
+    const total = order.items.reduce((s, it) => s + it.qty * it.price, 0);
+    console.log(`order ${order.id} for ${order.customer}: ${order.items.length} items, total ${total.toFixed(2)}`);
+  } catch (e) {
+    if (e instanceof AssertionFailed) {
+      console.log(`rejected: ${e.message}`);
+      console.log("   ", { path: e.path, expected: e.expected });
+    } else if (e instanceof Error) {
+      console.log(`rejected (${e.name}): ${e.message}`);
+    }
+  }
+}
+
+console.log(accepted.length, "accepted");
+console.log(accepted);
+console.dir(accepted.map((o) => o.items.map((i) => i.sku)), { depth: 0 });

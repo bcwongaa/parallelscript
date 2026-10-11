@@ -1,0 +1,87 @@
+// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Uint8Array<ArrayBufferLike>)
+// A hexdump utility (like `xxd`) for UTF-8 encoded text, with grouping options, a reverse
+// parser, byte statistics, and a CRC-32 checksum.
+function utf8(s: string): Uint8Array {
+  const bytes: number[] = [];
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 0x80) bytes.push(cp);
+    else if (cp < 0x800) bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    else if (cp < 0x10000) bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    else bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+  }
+  return Uint8Array.from(bytes);
+}
+
+interface DumpOptions { width: number; group: number; upper: boolean }
+
+function hexdump(data: Uint8Array, opts: Partial<DumpOptions> = {}): string {
+  const { width = 16, group = 2, upper = false } = opts;
+  const lines: string[] = [];
+  for (let off = 0; off < data.length; off += width) {
+    const chunk = data.subarray(off, off + width);
+    let hex = "";
+    for (let i = 0; i < width; i++) {
+      hex += i < chunk.length ? chunk[i].toString(16).padStart(2, "0") : "  ";
+      if ((i + 1) % group === 0 && i + 1 < width) hex += " ";
+    }
+    if (upper) hex = hex.toUpperCase();
+    const ascii = Array.from(chunk, (b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".")).join("");
+    lines.push(`${off.toString(16).padStart(8, "0")}: ${hex}  ${ascii}`);
+  }
+  return lines.join("\n");
+}
+
+function parseDump(dump: string): Uint8Array {
+  const out: number[] = [];
+  for (const line of dump.split("\n")) {
+    const colon = line.indexOf(":");
+    const hexPart = line.slice(colon + 1, line.lastIndexOf("  ")).split(" ").join("");
+    for (let i = 0; i + 1 < hexPart.length; i += 2) out.push(parseInt(hexPart.slice(i, i + 2), 16));
+  }
+  return new Uint8Array(out);
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const b of data) crc = CRC_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const text = "Hello, ParallelScript!\nUnicode: café, Ωμέγα, 日本, 🚀\tTabs & bytes\u0000end";
+const bytes = utf8(text);
+console.log(`chars=${text.length} codepoints=${[...text].length} bytes=${bytes.length}`);
+const dump = hexdump(bytes);
+console.log(dump);
+console.log(hexdump(bytes.subarray(0, 12), { width: 8, group: 4, upper: true }));
+const back = parseDump(dump);
+console.log("reverse parse matches:", back.length === bytes.length && back.every((b, i) => b === bytes[i]));
+
+const classes = { ascii: 0, lead: 0, continuation: 0, control: 0 };
+for (const b of bytes) {
+  if (b < 0x20) classes.control++;
+  else if (b < 0x80) classes.ascii++;
+  else if (b < 0xc0) classes.continuation++;
+  else classes.lead++;
+}
+console.log(classes);
+const histogram = new Map<number, number>();
+for (const b of bytes) histogram.set(b, (histogram.get(b) ?? 0) + 1);
+const common = [...histogram].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 5).map(([b, n]) => `0x${b.toString(16)}(${JSON.stringify(String.fromCharCode(b))})x${n}`);
+console.log(common.join(" "));
+
+for (const s of ["", "a", "abc", "The quick brown fox jumps over the lazy dog", "123456789"]) {
+  console.log(`crc32(${JSON.stringify(s)}) = ${crc32(utf8(s)).toString(16).padStart(8, "0")}`);
+}
+console.log(bytes.subarray(0, 8), bytes.slice(-3), Array.from(bytes.subarray(30, 34)));
+console.log(CRC_TABLE.length, CRC_TABLE[1].toString(16), CRC_TABLE instanceof Uint32Array);

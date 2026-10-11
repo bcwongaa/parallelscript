@@ -1,0 +1,123 @@
+// skip: not supported yet: PTS1001: converting undefined | {done: boolean; id: number; text: string}[] to {done: boolean; id: number; text: string}[]
+// A Redux-like store: reducers over a discriminated action union, combineReducers, middleware and subscribers.
+
+interface Todo {
+  id: number;
+  text: string;
+  done: boolean;
+}
+
+type Filter = "all" | "active" | "done";
+
+type Action =
+  | { type: "todo/add"; text: string }
+  | { type: "todo/toggle"; id: number }
+  | { type: "todo/remove"; id: number }
+  | { type: "filter/set"; filter: Filter }
+  | { type: "counter/bump"; by?: number };
+
+interface State {
+  todos: Todo[];
+  filter: Filter;
+  bumps: number;
+}
+
+type Reducer<S, A> = (state: S | undefined, action: A) => S;
+
+let nextId = 1;
+const todosReducer: Reducer<Todo[], Action> = (state = [], action) => {
+  switch (action.type) {
+    case "todo/add":
+      return [...state, { id: nextId++, text: action.text, done: false }];
+    case "todo/toggle":
+      return state.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t));
+    case "todo/remove":
+      return state.filter((t) => t.id !== action.id);
+    default:
+      return state;
+  }
+};
+
+const filterReducer: Reducer<Filter, Action> = (state = "all", action) =>
+  action.type === "filter/set" ? action.filter : state;
+
+const bumpReducer: Reducer<number, Action> = (state = 0, action) =>
+  action.type === "counter/bump" ? state + (action.by ?? 1) : state;
+
+function combineReducers<S, A>(reducers: { [K in keyof S]: Reducer<S[K], A> }): Reducer<S, A> {
+  return (state, action) => {
+    const entries: Array<[keyof S, unknown]> = [];
+    let changed = state === undefined;
+    for (const key of Object.keys(reducers) as Array<keyof S>) {
+      const prev = state?.[key];
+      const value = reducers[key](prev, action);
+      entries.push([key, value]);
+      if (value !== prev) changed = true;
+    }
+    return changed || state === undefined ? (Object.fromEntries(entries) as S) : state;
+  };
+}
+
+type Dispatch<A> = (action: A) => A;
+type StoreMiddleware<S, A> = (api: { getState: () => S }) => (next: Dispatch<A>) => Dispatch<A>;
+
+function createStore<S, A extends { type: string }>(reducer: Reducer<S, A>, middlewares: StoreMiddleware<S, A>[] = []) {
+  let state = reducer(undefined, { type: "@@init" } as A);
+  const listeners: Array<(s: S) => void> = [];
+  const base: Dispatch<A> = (action) => {
+    const prev = state;
+    state = reducer(state, action);
+    if (state !== prev) listeners.forEach((l) => l(state));
+    return action;
+  };
+  const api = { getState: () => state };
+  const dispatch = middlewares.reduceRight<Dispatch<A>>((next, mw) => mw(api)(next), base);
+  return {
+    dispatch,
+    getState: () => state,
+    subscribe(l: (s: S) => void): () => void {
+      listeners.push(l);
+      return () => {
+        const i = listeners.indexOf(l);
+        if (i >= 0) listeners.splice(i, 1);
+      };
+    },
+  };
+}
+
+const actionLog: string[] = [];
+const logger: StoreMiddleware<State, Action> = (api) => (next) => (action) => {
+  const before = api.getState().todos.length;
+  const result = next(action);
+  actionLog.push(`${action.type} todos ${before}->${api.getState().todos.length}`);
+  return result;
+};
+const blockEmpty: StoreMiddleware<State, Action> = () => (next) => (action) =>
+  action.type === "todo/add" && action.text.trim() === "" ? action : next(action);
+
+const store = createStore(combineReducers<State, Action>({ todos: todosReducer, filter: filterReducer, bumps: bumpReducer }), [logger, blockEmpty]);
+
+let renders = 0;
+const unsubscribe = store.subscribe((s) => {
+  renders++;
+  const visible = s.todos.filter((t) => (s.filter === "all" ? true : s.filter === "done" ? t.done : !t.done));
+  console.log(`render #${renders} [${s.filter}] ${visible.map((t) => (t.done ? "[x] " : "[ ] ") + t.text).join(" | ")}`);
+});
+
+console.log("initial:", store.getState());
+store.dispatch({ type: "todo/add", text: "write parser" });
+store.dispatch({ type: "todo/add", text: "test parser" });
+store.dispatch({ type: "todo/add", text: "   " });
+store.dispatch({ type: "todo/add", text: "ship it" });
+store.dispatch({ type: "todo/toggle", id: 1 });
+store.dispatch({ type: "filter/set", filter: "active" });
+store.dispatch({ type: "filter/set", filter: "active" });
+store.dispatch({ type: "counter/bump" });
+store.dispatch({ type: "counter/bump", by: 5 });
+store.dispatch({ type: "todo/remove", id: 2 });
+unsubscribe();
+store.dispatch({ type: "filter/set", filter: "done" });
+console.log("renders:", renders);
+console.log(store.getState());
+console.log(actionLog);
+console.log(JSON.stringify(store.getState(), null, 2));

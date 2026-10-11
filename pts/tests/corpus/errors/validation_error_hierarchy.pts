@@ -1,0 +1,125 @@
+// skip: by design (D-068): an error's name is a field of its own, so Object.keys of an error doesn't list a name the constructor set
+// A small user-registration service with a custom error hierarchy.
+
+class AppError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+  }
+  describe(): string {
+    return `[${this.code}] ${this.name}: ${this.message}`;
+  }
+}
+
+class ValidationError extends AppError {
+  readonly field: string;
+  readonly value: unknown;
+  constructor(field: string, value: unknown, message: string) {
+    super("E_VALIDATION", message);
+    this.name = "ValidationError";
+    this.field = field;
+    this.value = value;
+  }
+}
+
+class ConflictError extends AppError {
+  constructor(public readonly key: string) {
+    super("E_CONFLICT", `duplicate key '${key}'`);
+    this.name = "ConflictError";
+  }
+}
+
+class NotFoundError extends AppError {
+  constructor(what: string, id: number) {
+    super("E_NOT_FOUND", `${what} #${id} does not exist`);
+    this.name = "NotFoundError";
+  }
+}
+
+interface User {
+  id: number;
+  email: string;
+  age: number;
+}
+
+class UserService {
+  private users: Map<number, User> = new Map();
+  private byEmail: Map<string, number> = new Map();
+  private nextId = 1;
+
+  register(email: string, age: number): User {
+    if (!email.includes("@") || email.startsWith("@") || email.endsWith("@")) {
+      throw new ValidationError("email", email, `'${email}' is not an email address`);
+    }
+    if (!Number.isInteger(age) || age < 13 || age > 130) {
+      throw new ValidationError("age", age, `age must be an integer in [13, 130], got ${age}`);
+    }
+    const normalized = email.toLowerCase();
+    if (this.byEmail.has(normalized)) {
+      throw new ConflictError(normalized);
+    }
+    const user: User = { id: this.nextId++, email: normalized, age };
+    this.users.set(user.id, user);
+    this.byEmail.set(normalized, user.id);
+    return user;
+  }
+
+  get(id: number): User {
+    const u = this.users.get(id);
+    if (u === undefined) throw new NotFoundError("user", id);
+    return u;
+  }
+}
+
+const service = new UserService();
+const attempts: Array<[string, number]> = [
+  ["alice@example.com", 31],
+  ["bob.example.com", 40],
+  ["carol@example.com", 12.5],
+  ["ALICE@example.com", 22],
+  ["dave@example.com", 131],
+  ["erin@example.com", 45],
+  ["@nobody", 20],
+];
+
+let ok = 0;
+const failures: Record<string, number> = {};
+for (const [email, age] of attempts) {
+  try {
+    const user = service.register(email, age);
+    ok++;
+    console.log("registered", user);
+  } catch (e: unknown) {
+    if (e instanceof ValidationError) {
+      console.log(`invalid ${e.field} (${JSON.stringify(e.value)}): ${e.message}`);
+    } else if (e instanceof ConflictError) {
+      console.log(`conflict on ${e.key}`);
+    } else {
+      throw e;
+    }
+    if (e instanceof AppError) {
+      failures[e.code] = (failures[e.code] ?? 0) + 1;
+      console.log("  ->", e.describe());
+    }
+  }
+}
+
+console.log("ok:", ok, "failures:", failures);
+
+for (const id of [1, 2, 7]) {
+  try {
+    const u = service.get(id);
+    console.log("%s is %d years old", u.email, u.age);
+  } catch (e) {
+    if (e instanceof NotFoundError) {
+      console.log(e.name, "|", e.message, "|", e.code);
+      console.log("is AppError:", e instanceof AppError, "is Error:", e instanceof Error);
+    }
+  }
+}
+
+const sample = new ValidationError("zip", "ABCDE", "zip must be numeric");
+console.log(Object.keys(sample));
+console.log(sample.name, sample.code, sample.field, String(sample));

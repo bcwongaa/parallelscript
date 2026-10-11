@@ -1,0 +1,129 @@
+// Factory registry: build widgets from JSON-like specs via registered constructors.
+
+interface WidgetSpec {
+  type: string;
+  id: string;
+  props?: Record<string, string | number | boolean>;
+  children?: WidgetSpec[];
+}
+
+abstract class Widget {
+  readonly children: Widget[] = [];
+  constructor(readonly id: string) {}
+  abstract render(indent: number): string[];
+  count(): number {
+    return 1 + this.children.reduce((n, c) => n + c.count(), 0);
+  }
+}
+
+class Label extends Widget {
+  constructor(id: string, private text: string) {
+    super(id);
+  }
+  render(indent: number): string[] {
+    return [`${" ".repeat(indent)}Label#${this.id} "${this.text}"`];
+  }
+}
+
+class Button extends Widget {
+  constructor(id: string, private caption: string, private enabled: boolean) {
+    super(id);
+  }
+  render(indent: number): string[] {
+    const state = this.enabled ? "" : " (disabled)";
+    return [`${" ".repeat(indent)}Button#${this.id} [${this.caption}]${state}`];
+  }
+}
+
+class Panel extends Widget {
+  constructor(id: string, private direction: "row" | "column") {
+    super(id);
+  }
+  render(indent: number): string[] {
+    const lines = [`${" ".repeat(indent)}Panel#${this.id} ${this.direction} {`];
+    for (const c of this.children) lines.push(...c.render(indent + 2));
+    lines.push(`${" ".repeat(indent)}}`);
+    return lines;
+  }
+}
+
+type Factory = (spec: WidgetSpec) => Widget;
+
+class UnknownWidgetError extends Error {
+  constructor(readonly type: string) {
+    super(`no factory registered for "${type}"`);
+  }
+}
+
+class WidgetRegistry {
+  private factories = new Map<string, Factory>();
+  private created: Record<string, number> = {};
+
+  register(type: string, factory: Factory): this {
+    this.factories.set(type, factory);
+    return this;
+  }
+
+  types(): string[] {
+    return [...this.factories.keys()].sort();
+  }
+
+  create(spec: WidgetSpec): Widget {
+    const factory = this.factories.get(spec.type);
+    if (!factory) throw new UnknownWidgetError(spec.type);
+    const w = factory(spec);
+    this.created[spec.type] = (this.created[spec.type] ?? 0) + 1;
+    for (const child of spec.children ?? []) {
+      try {
+        w.children.push(this.create(child));
+      } catch (e) {
+        if (e instanceof UnknownWidgetError) {
+          console.log(`skipping ${child.id}: ${e.message}`);
+        } else {
+          throw e;
+        }
+      }
+    }
+    return w;
+  }
+
+  get stats(): Record<string, number> {
+    return { ...this.created };
+  }
+}
+
+const str = (p: WidgetSpec["props"], k: string, d: string): string => {
+  const v = p?.[k];
+  return typeof v === "string" ? v : d;
+};
+
+const registry = new WidgetRegistry()
+  .register("label", (s) => new Label(s.id, str(s.props, "text", "")))
+  .register("button", (s) => new Button(s.id, str(s.props, "caption", "OK"), s.props?.["enabled"] !== false))
+  .register("panel", (s) => new Panel(s.id, str(s.props, "direction", "column") === "row" ? "row" : "column"));
+
+const specText = `{
+  "type": "panel", "id": "root",
+  "children": [
+    {"type": "label", "id": "title", "props": {"text": "Settings"}},
+    {"type": "panel", "id": "buttons", "props": {"direction": "row"}, "children": [
+      {"type": "button", "id": "save", "props": {"caption": "Save"}},
+      {"type": "button", "id": "cancel", "props": {"caption": "Cancel", "enabled": false}},
+      {"type": "slider", "id": "volume"}
+    ]},
+    {"type": "label", "id": "footer", "props": {"text": 42}}
+  ]
+}`;
+
+const spec = JSON.parse(specText) as WidgetSpec;
+const root = registry.create(spec);
+root.render(0).forEach((l) => console.log(l));
+console.log("widgets:", root.count());
+console.log("registered:", registry.types());
+console.log("created:", registry.stats);
+try {
+  registry.create({ type: "chart", id: "c1" });
+} catch (e) {
+  console.log(e instanceof UnknownWidgetError ? `${e.type} -> ${e.message}` : e);
+}
+console.log(root.children[0]);

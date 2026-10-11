@@ -1,0 +1,109 @@
+// Run-length encoding and an LZ77-style compressor with a sliding window, plus round-trip checks.
+
+interface Token {
+  offset: number;
+  length: number;
+  next: string;
+}
+
+function rleEncode(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    let j = i;
+    while (j < s.length && s[j] === s[i]) j++;
+    const run = j - i;
+    out += run > 1 ? `${run}${s[i]}` : s[i];
+    i = j;
+  }
+  return out;
+}
+
+function rleDecode(s: string): string {
+  let out = "";
+  let num = "";
+  for (const ch of s) {
+    if (ch >= "0" && ch <= "9") num += ch;
+    else {
+      out += ch.repeat(num ? parseInt(num, 10) : 1);
+      num = "";
+    }
+  }
+  return out;
+}
+
+function lz77(input: string, windowSize = 32, lookahead = 15): Token[] {
+  const tokens: Token[] = [];
+  let pos = 0;
+  while (pos < input.length) {
+    let bestLen = 0;
+    let bestOff = 0;
+    const start = Math.max(0, pos - windowSize);
+    for (let cand = start; cand < pos; cand++) {
+      let len = 0;
+      while (len < lookahead && pos + len < input.length - 1 && input[cand + len] === input[pos + len]) len++;
+      if (len > bestLen) {
+        bestLen = len;
+        bestOff = pos - cand;
+      }
+    }
+    tokens.push({ offset: bestOff, length: bestLen, next: input.charAt(pos + bestLen) });
+    pos += bestLen + 1;
+  }
+  return tokens;
+}
+
+function unlz77(tokens: Token[]): string {
+  const out: string[] = [];
+  for (const { offset, length, next } of tokens) {
+    const from = out.length - offset;
+    for (let k = 0; k < length; k++) out.push(out[from + k]);
+    out.push(next);
+  }
+  return out.join("");
+}
+
+const tokenString = (t: Token): string => (t.length ? `<${t.offset},${t.length}>${t.next}` : t.next);
+
+const rleSamples = ["WWWWWWWWWWWWBWWWWWWWWWWWWBBBWWWWWWWWWWWWWWWWWWWWWWWWBWWWWWWWWWWWWWW", "abc", "aabcccccaaa", "", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"];
+for (const s of rleSamples) {
+  const enc = rleEncode(s);
+  console.log(`rle ${s.length} -> ${enc.length}: ${JSON.stringify(enc)} ok=${rleDecode(enc) === s}`);
+}
+
+const texts = [
+  "abracadabra abracadabra",
+  "to be or not to be, that is the question",
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+  "she sells sea shells by the sea shore",
+];
+for (const t of texts) {
+  const toks = lz77(t);
+  const back = unlz77(toks);
+  console.log(`lz77 "${t}"`);
+  console.log(`  ${toks.length} tokens, ok=${back === t}:`, toks.map(tokenString).join(" "));
+}
+console.log(lz77("abcabcabcabcx").slice(0, 4));
+
+// Compare sizes assuming 2 bytes per back-reference and 1 per literal.
+const cost = (toks: Token[]) => toks.reduce((s, t) => s + (t.length ? 3 : 1), 0);
+const report = texts.map((t) => ({ len: t.length, lz: cost(lz77(t)), rle: rleEncode(t).length }));
+console.table(report);
+for (const w of [4, 8, 16, 64]) {
+  const t = texts[1];
+  console.log("window %d -> %d tokens", w, lz77(t, w).length);
+}
+
+// Delta + RLE for a sensor stream.
+const stream = [100, 100, 100, 101, 102, 103, 103, 103, 103, 90, 90, 91, 92, 93, 94];
+const deltas = stream.map((v, i) => (i === 0 ? v : v - stream[i - 1]));
+const runs: [number, number][] = [];
+for (const d of deltas) {
+  const last = runs.at(-1);
+  if (last && last[0] === d) last[1]++;
+  else runs.push([d, 1]);
+}
+console.log("deltas:", deltas);
+console.log("delta runs:", runs);
+const rebuilt = runs.flatMap(([d, n]) => new Array<number>(n).fill(d)).reduce<number[]>((acc, d, i) => [...acc, i === 0 ? d : acc[i - 1] + d], []);
+console.log("rebuilt matches:", rebuilt.join() === stream.join());

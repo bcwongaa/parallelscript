@@ -1,0 +1,96 @@
+// Recursive transformation of JSON values with a visitor of closures: redaction, renaming, stats.
+
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+
+interface Visitor {
+  key?: (k: string, path: string[]) => string | null;
+  value?: (v: Json, path: string[]) => Json;
+}
+
+function transform(input: Json, visitor: Visitor, path: string[] = []): Json {
+  const visited = visitor.value ? visitor.value(input, path) : input;
+  if (Array.isArray(visited)) return visited.map((item, i) => transform(item, visitor, [...path, String(i)]));
+  if (visited !== null && typeof visited === "object") {
+    const out: { [key: string]: Json } = {};
+    for (const [k, child] of Object.entries(visited)) {
+      const newKey = visitor.key ? visitor.key(k, path) : k;
+      if (newKey === null) continue;
+      out[newKey] = transform(child, visitor, [...path, newKey]);
+    }
+    return out;
+  }
+  return visited;
+}
+
+function walk(input: Json, fn: (v: Json, path: string[]) => void, path: string[] = []): void {
+  fn(input, path);
+  if (Array.isArray(input)) input.forEach((item, i) => walk(item, fn, [...path, String(i)]));
+  else if (input !== null && typeof input === "object") for (const [k, child] of Object.entries(input)) walk(child, fn, [...path, k]);
+}
+
+const raw = `{
+  "user_id": 1042,
+  "user_name": "mkowalski",
+  "password_hash": "$2b$10$abcdefghijk",
+  "contact": { "email_address": "m@example.pl", "phone_number": "+48 555 0101", "verified": true },
+  "sessions": [
+    { "session_token": "tok-aaa", "ip_address": "10.0.0.4", "started_at": 1700000000, "active": false },
+    { "session_token": "tok-bbb", "ip_address": "10.0.0.9", "started_at": 1700003600, "active": true }
+  ],
+  "preferences": { "dark_mode": true, "font_size": 14, "languages": ["pl", "en"], "nickname": null }
+}`;
+const doc = JSON.parse(raw) as Json;
+
+const camel = (s: string) => s.split("_").map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1))).join("");
+const sensitive = ["password", "token", "phone"];
+
+const redactor: Visitor = {
+  key: (k) => (k.startsWith("password") ? null : camel(k)),
+  value: (v, path) => {
+    const last = path[path.length - 1] ?? "";
+    if (typeof v === "string" && sensitive.some((s) => last.toLowerCase().includes(s))) return `***${v.slice(-3)}`;
+    if (typeof v === "string" && last === "ipAddress") return v.split(".").slice(0, 2).join(".") + ".x.x";
+    return v;
+  },
+};
+
+const clean = transform(doc, redactor);
+console.log(JSON.stringify(clean, null, 2));
+
+// Stats over the tree using walk with closures
+const counts: Record<string, number> = {};
+let maxDepth = 0;
+const leafPaths: string[] = [];
+walk(doc, (v, path) => {
+  const t = v === null ? "null" : Array.isArray(v) ? "array" : typeof v;
+  counts[t] = (counts[t] ?? 0) + 1;
+  maxDepth = Math.max(maxDepth, path.length);
+  if (v === null || typeof v !== "object") leafPaths.push(path.join("."));
+});
+console.log(counts, "max depth:", maxDepth);
+console.log(leafPaths.filter((p) => p.startsWith("sessions.1") || p.startsWith("preferences")));
+
+// Numeric transform: scale numbers, but only under preferences
+const scaled = transform(doc, {
+  value: (v, path) => (typeof v === "number" && path[0] === "preferences" ? v * 2 : v),
+});
+console.log(JSON.stringify((scaled as { [k: string]: Json })["preferences"]));
+
+// Pick by paths
+function getPath(j: Json, path: string): Json | undefined {
+  let cur: Json | undefined = j;
+  for (const seg of path.split(".")) {
+    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
+    if (Array.isArray(cur)) {
+      const i = Number(seg);
+      cur = Number.isInteger(i) && i >= 0 && i < cur.length ? cur[i] : undefined;
+    } else {
+      cur = seg in cur ? cur[seg] : undefined;
+    }
+  }
+  return cur;
+}
+for (const p of ["contact.email_address", "sessions.1.ip_address", "sessions.5.active", "preferences.languages", "user_name.length"]) {
+  console.log(p.padEnd(24), "->", getPath(doc, p));
+}
+console.log(transform([1, [2, [3, { a_b: [4] }]]], { key: camel, value: (v) => (typeof v === "number" ? v * 100 : v) }));

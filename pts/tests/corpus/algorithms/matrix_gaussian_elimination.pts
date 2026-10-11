@@ -1,0 +1,130 @@
+// Dense matrix class: multiply, transpose, determinant and inverse via Gaussian elimination with partial pivoting.
+
+class SingularMatrixError extends Error {
+  constructor() {
+    super("matrix is singular");
+    this.name = "SingularMatrixError";
+  }
+}
+
+class Mat {
+  readonly n: number;
+  readonly m: number;
+  private readonly a: number[][];
+
+  constructor(rows: number[][]) {
+    this.n = rows.length;
+    this.m = rows.length ? rows[0].length : 0;
+    this.a = rows.map((r) => [...r]);
+  }
+
+  static identity(n: number): Mat {
+    return new Mat(Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))));
+  }
+
+  get(i: number, j: number): number {
+    return this.a[i][j];
+  }
+
+  mul(o: Mat): Mat {
+    if (this.m !== o.n) throw new Error(`shape mismatch ${this.n}x${this.m} * ${o.n}x${o.m}`);
+    const out: number[][] = [];
+    for (let i = 0; i < this.n; i++) {
+      out.push([]);
+      for (let j = 0; j < o.m; j++) {
+        let s = 0;
+        for (let k = 0; k < this.m; k++) s += this.a[i][k] * o.a[k][j];
+        out[i].push(s);
+      }
+    }
+    return new Mat(out);
+  }
+
+  transpose(): Mat {
+    return new Mat(Array.from({ length: this.m }, (_, j) => this.a.map((row) => row[j])));
+  }
+
+  private eliminate(rhs?: number[][]): { det: number; reduced: number[][]; right?: number[][] } {
+    const a = this.a.map((r) => [...r]);
+    const b = rhs?.map((r) => [...r]);
+    let det = 1;
+    for (let col = 0; col < this.n; col++) {
+      let pivot = col;
+      for (let r = col + 1; r < this.n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
+      if (Math.abs(a[pivot][col]) < 1e-12) return { det: 0, reduced: a, right: b };
+      if (pivot !== col) {
+        [a[pivot], a[col]] = [a[col], a[pivot]];
+        if (b) [b[pivot], b[col]] = [b[col], b[pivot]];
+        det = -det;
+      }
+      const p = a[col][col];
+      det *= p;
+      for (let r = 0; r < this.n; r++) {
+        if (r === col) continue;
+        const f = a[r][col] / p;
+        if (f === 0) continue;
+        for (let c = col; c < this.m; c++) a[r][c] -= f * a[col][c];
+        if (b) for (let c = 0; c < b[r].length; c++) b[r][c] -= f * b[col][c];
+      }
+    }
+    return { det, reduced: a, right: b };
+  }
+
+  determinant(): number {
+    return this.eliminate().det;
+  }
+
+  inverse(): Mat {
+    const { det, reduced, right } = this.eliminate(Mat.identity(this.n).a);
+    if (det === 0 || !right) throw new SingularMatrixError();
+    return new Mat(right.map((row, i) => row.map((v) => v / reduced[i][i])));
+  }
+
+  solve(b: number[]): number[] {
+    return this.inverse().mul(new Mat(b.map((v) => [v]))).a.map((r) => r[0]);
+  }
+
+  toString(digits = 3): string {
+    return this.a.map((r) => r.map((v) => (Object.is(v, -0) ? 0 : v).toFixed(digits).padStart(digits + 5)).join(" ")).join("\n");
+  }
+}
+
+const A = new Mat([
+  [2, 1, -1],
+  [-3, -1, 2],
+  [-2, 1, 2],
+]);
+console.log("A =\n" + A.toString(0));
+console.log("det(A) =", A.determinant());
+console.log("A^T =\n" + A.transpose().toString(0));
+const inv = A.inverse();
+console.log("A^-1 =\n" + inv.toString());
+console.log("A * A^-1 =\n" + A.mul(inv).toString(2));
+console.log("solve Ax = [8, -11, -3]:", A.solve([8, -11, -3]).map((v) => Math.round(v * 1e9) / 1e9));
+
+const hilbert = new Mat(Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => 1 / (i + j + 1))));
+console.log("hilbert(4) det:", hilbert.determinant().toExponential(4));
+console.log("hilbert inverse first row:", [0, 1, 2, 3].map((j) => Math.round(hilbert.inverse().get(0, j))));
+
+const singular = new Mat([[1, 2, 3], [2, 4, 6], [1, 0, 1]]);
+console.log("singular det:", singular.determinant());
+try {
+  singular.inverse();
+} catch (e) {
+  console.log("caught:", e instanceof SingularMatrixError, String(e));
+}
+try {
+  A.mul(new Mat([[1, 2]]));
+} catch (e) {
+  console.log("caught:", (e as Error).message);
+}
+
+const rot = (deg: number): Mat => {
+  const t = (deg * Math.PI) / 180;
+  return new Mat([[Math.cos(t), -Math.sin(t)], [Math.sin(t), Math.cos(t)]]);
+};
+let r = Mat.identity(2);
+for (let i = 0; i < 12; i++) r = r.mul(rot(30));
+console.log("12 rotations of 30deg:\n" + r.toString(6));
+console.log("rotation det:", rot(77).determinant().toFixed(12));
+console.log(new Mat([[1, 2], [3, 4]]));

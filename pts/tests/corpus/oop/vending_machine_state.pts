@@ -1,0 +1,144 @@
+// skip: not supported yet: PTS1001: converting IdleState | SoldOutState to {label: string; cancel(VendingMachine): void; insert(VendingMachine, number): void; select(VendingM...
+// Vending machine implemented with the state pattern.
+
+interface Slot {
+  name: string;
+  price: number;
+  count: number;
+}
+
+interface MachineState {
+  readonly label: string;
+  insert(m: VendingMachine, cents: number): void;
+  select(m: VendingMachine, code: string): void;
+  cancel(m: VendingMachine): void;
+}
+
+class IdleState implements MachineState {
+  readonly label = "idle";
+  insert(m: VendingMachine, cents: number): void {
+    m.credit += cents;
+    m.setState(new HasCreditState());
+  }
+  select(m: VendingMachine, code: string): void {
+    m.say(`insert money first (${code})`);
+  }
+  cancel(m: VendingMachine): void {
+    m.say("nothing to cancel");
+  }
+}
+
+class HasCreditState implements MachineState {
+  readonly label = "credit";
+  insert(m: VendingMachine, cents: number): void {
+    m.credit += cents;
+  }
+  select(m: VendingMachine, code: string): void {
+    const slot = m.slot(code);
+    if (!slot) {
+      m.say(`unknown code ${code}`);
+      return;
+    }
+    if (slot.count === 0) {
+      m.say(`${slot.name} sold out`);
+      return;
+    }
+    if (m.credit < slot.price) {
+      m.say(`${slot.name} costs ${VendingMachine.money(slot.price)}, credit ${VendingMachine.money(m.credit)}`);
+      return;
+    }
+    slot.count--;
+    m.credit -= slot.price;
+    m.sales.push(slot.name);
+    m.say(`vend ${slot.name}`);
+    m.returnChange();
+    m.setState(m.isEmpty() ? new SoldOutState() : new IdleState());
+  }
+  cancel(m: VendingMachine): void {
+    m.returnChange();
+    m.setState(new IdleState());
+  }
+}
+
+class SoldOutState implements MachineState {
+  readonly label = "sold-out";
+  insert(m: VendingMachine, cents: number): void {
+    m.say(`machine empty, returning ${VendingMachine.money(cents)}`);
+  }
+  select(m: VendingMachine): void {
+    m.say("machine empty");
+  }
+  cancel(): void {}
+}
+
+class VendingMachine {
+  credit = 0;
+  readonly sales: string[] = [];
+  private state: MachineState = new IdleState();
+  private slots: Map<string, Slot>;
+  private coins = [25, 10, 5];
+
+  constructor(slots: Record<string, Slot>) {
+    this.slots = new Map(Object.entries(slots));
+  }
+
+  static money(cents: number): string {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+
+  slot(code: string): Slot | undefined {
+    return this.slots.get(code);
+  }
+  setState(s: MachineState): void {
+    this.say(`  [${this.state.label} -> ${s.label}]`);
+    this.state = s;
+  }
+  say(msg: string): void {
+    console.log(msg);
+  }
+  isEmpty(): boolean {
+    return [...this.slots.values()].every((s) => s.count === 0);
+  }
+  returnChange(): void {
+    if (this.credit === 0) return;
+    const out: number[] = [];
+    let left = this.credit;
+    for (const c of this.coins) {
+      while (left >= c) {
+        out.push(c);
+        left -= c;
+      }
+    }
+    this.say(`change ${VendingMachine.money(this.credit)}: ${JSON.stringify(out)}`);
+    this.credit = 0;
+  }
+
+  insert(c: number): this {
+    this.state.insert(this, c);
+    return this;
+  }
+  select(code: string): this {
+    this.state.select(this, code);
+    return this;
+  }
+  cancel(): this {
+    this.state.cancel(this);
+    return this;
+  }
+}
+
+const vm = new VendingMachine({
+  A1: { name: "Cola", price: 125, count: 1 },
+  A2: { name: "Chips", price: 90, count: 2 },
+  B1: { name: "Gum", price: 35, count: 0 },
+});
+
+vm.select("A1");
+vm.insert(100).select("A1").insert(25).select("A1");
+vm.insert(100).select("B1").select("Z9").select("A2");
+vm.insert(50).cancel();
+vm.cancel();
+vm.insert(100).select("A1").select("A2");
+vm.insert(25);
+console.log("sales:", vm.sales);
+console.log("empty:", vm.isEmpty(), "credit:", vm.credit);

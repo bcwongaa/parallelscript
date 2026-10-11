@@ -1,0 +1,130 @@
+// skip: not supported yet: PTS1001: values of type ComponentClass<Position>
+// Tiny entity-component-system game loop: movement, collisions, health and a scoring system.
+
+class Position {
+  constructor(public x: number, public y: number) {}
+}
+class Velocity {
+  constructor(public dx: number, public dy: number) {}
+}
+class Health {
+  constructor(public hp: number, readonly max: number) {}
+  get alive(): boolean {
+    return this.hp > 0;
+  }
+}
+class Tag {
+  constructor(readonly kind: "player" | "enemy" | "coin") {}
+}
+
+type Component = Position | Velocity | Health | Tag;
+type ComponentClass<C extends Component> = new (...args: never[]) => C;
+
+class World {
+  private nextId = 1;
+  private components = new Map<string, Map<number, Component>>();
+  readonly events: string[] = [];
+  tick = 0;
+
+  spawn(...parts: Component[]): number {
+    const id = this.nextId++;
+    for (const p of parts) {
+      const key = p.constructor.name;
+      if (!this.components.has(key)) this.components.set(key, new Map());
+      this.components.get(key)!.set(id, p);
+    }
+    return id;
+  }
+
+  get<C extends Component>(id: number, cls: ComponentClass<C>): C | undefined {
+    return this.components.get(cls.name)?.get(id) as C | undefined;
+  }
+
+  query<C extends Component>(cls: ComponentClass<C>): Array<[number, C]> {
+    const store = this.components.get(cls.name);
+    return store ? [...store.entries()].map(([id, c]) => [id, c as C]) : [];
+  }
+
+  destroy(id: number): void {
+    for (const store of this.components.values()) store.delete(id);
+  }
+}
+
+interface System {
+  update(w: World): void;
+}
+
+class MovementSystem implements System {
+  constructor(private width: number, private height: number) {}
+  update(w: World): void {
+    for (const [id, v] of w.query(Velocity)) {
+      const p = w.get(id, Position);
+      if (!p) continue;
+      p.x += v.dx;
+      p.y += v.dy;
+      if (p.x < 0 || p.x >= this.width) { v.dx = -v.dx; p.x = Math.max(0, Math.min(this.width - 1, p.x)); }
+      if (p.y < 0 || p.y >= this.height) { v.dy = -v.dy; p.y = Math.max(0, Math.min(this.height - 1, p.y)); }
+    }
+  }
+}
+
+class CollisionSystem implements System {
+  score = 0;
+  update(w: World): void {
+    const player = w.query(Tag).find(([, t]) => t.kind === "player");
+    if (!player) return;
+    const [pid] = player;
+    const pp = w.get(pid, Position)!;
+    for (const [id, tag] of w.query(Tag)) {
+      if (id === pid) continue;
+      const p = w.get(id, Position);
+      if (!p || Math.abs(p.x - pp.x) > 1 || Math.abs(p.y - pp.y) > 1) continue;
+      if (tag.kind === "coin") {
+        this.score += 10;
+        w.events.push(`t${w.tick}: player picked coin ${id}`);
+        w.destroy(id);
+      } else {
+        const h = w.get(pid, Health);
+        if (h) {
+          h.hp -= 15;
+          w.events.push(`t${w.tick}: enemy ${id} hits player (hp ${h.hp}/${h.max})`);
+        }
+      }
+    }
+  }
+}
+
+class ReaperSystem implements System {
+  update(w: World): void {
+    for (const [id, h] of w.query(Health)) {
+      if (!h.alive) {
+        w.events.push(`t${w.tick}: entity ${id} died`);
+        w.destroy(id);
+      }
+    }
+  }
+}
+
+const world = new World();
+world.spawn(new Tag("player"), new Position(5, 5), new Velocity(1, 0), new Health(40, 40));
+world.spawn(new Tag("enemy"), new Position(0, 0), new Velocity(1, 1));
+world.spawn(new Tag("enemy"), new Position(9, 9), new Velocity(-1, 0));
+world.spawn(new Tag("enemy"), new Position(4, 0), new Velocity(0, 1), new Health(10, 10));
+for (let i = 0; i < 4; i++) world.spawn(new Tag("coin"), new Position(2 + i * 2, 5));
+
+const collisions = new CollisionSystem();
+const systems: System[] = [new MovementSystem(10, 10), collisions, new ReaperSystem()];
+for (world.tick = 1; world.tick <= 20; world.tick++) {
+  systems.forEach((s) => s.update(world));
+  if (world.tick % 5 === 0) {
+    const p = world.get(1, Position);
+    console.log(`tick ${world.tick}: player at ${p ? `${p.x},${p.y}` : "-"} hp=${world.get(1, Health)?.hp ?? 0}`);
+  }
+  if (world.query(Tag).every(([, t]) => t.kind !== "player")) break;
+}
+world.events.forEach((e) => console.log(e));
+console.log("score:", collisions.score, "ticks:", world.tick);
+const remaining = world.query(Tag).map(([id, t]) => `${t.kind}#${id}@${world.get(id, Position)?.x},${world.get(id, Position)?.y}`);
+console.log(remaining);
+console.log(world.query(Health));
+console.log(world.get(1, Velocity), world.get(99, Position));

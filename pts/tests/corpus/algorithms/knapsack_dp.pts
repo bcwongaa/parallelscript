@@ -1,0 +1,97 @@
+// 0/1 knapsack, unbounded knapsack and a fractional greedy comparison for a hiking pack.
+
+interface Item {
+  name: string;
+  weight: number; // hundreds of grams
+  value: number;
+}
+
+const gear: Item[] = [
+  { name: "tent", weight: 22, value: 90 },
+  { name: "stove", weight: 8, value: 40 },
+  { name: "water filter", weight: 3, value: 55 },
+  { name: "camera", weight: 9, value: 30 },
+  { name: "book", weight: 5, value: 10 },
+  { name: "first aid", weight: 4, value: 60 },
+  { name: "rain jacket", weight: 6, value: 45 },
+  { name: "chair", weight: 12, value: 15 },
+  { name: "headlamp", weight: 1, value: 25 },
+  { name: "snacks", weight: 7, value: 35 },
+];
+
+function knapsack01(items: Item[], capacity: number): { best: number; chosen: Item[]; table: number[][] } {
+  const n = items.length;
+  const table: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(capacity + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    const { weight, value } = items[i - 1];
+    for (let c = 0; c <= capacity; c++) {
+      table[i][c] = table[i - 1][c];
+      if (weight <= c && table[i - 1][c - weight] + value > table[i][c]) {
+        table[i][c] = table[i - 1][c - weight] + value;
+      }
+    }
+  }
+  const chosen: Item[] = [];
+  let c = capacity;
+  for (let i = n; i > 0; i--) {
+    if (table[i][c] !== table[i - 1][c]) {
+      chosen.push(items[i - 1]);
+      c -= items[i - 1].weight;
+    }
+  }
+  return { best: table[n][capacity], chosen: chosen.reverse(), table };
+}
+
+function unbounded(items: Item[], capacity: number): { best: number; counts: Record<string, number> } {
+  const dp = new Array<number>(capacity + 1).fill(0);
+  const pick = new Array<number>(capacity + 1).fill(-1);
+  for (let c = 1; c <= capacity; c++) {
+    items.forEach((it, i) => {
+      if (it.weight <= c && dp[c - it.weight] + it.value > dp[c]) {
+        dp[c] = dp[c - it.weight] + it.value;
+        pick[c] = i;
+      }
+    });
+  }
+  const counts: Record<string, number> = {};
+  let c = capacity;
+  while (c > 0 && pick[c] >= 0) {
+    const it = items[pick[c]];
+    counts[it.name] = (counts[it.name] ?? 0) + 1;
+    c -= it.weight;
+  }
+  return { best: dp[capacity], counts };
+}
+
+function fractional(items: Item[], capacity: number): number {
+  const sorted = [...items].sort((a, b) => b.value / b.weight - a.value / a.weight);
+  let room = capacity;
+  let total = 0;
+  for (const it of sorted) {
+    if (room <= 0) break;
+    const take = Math.min(1, room / it.weight);
+    total += take * it.value;
+    room -= take * it.weight;
+  }
+  return total;
+}
+
+for (const cap of [10, 25, 40, 60]) {
+  const { best, chosen } = knapsack01(gear, cap);
+  const w = chosen.reduce((s, it) => s + it.weight, 0);
+  console.log(`capacity ${cap}: value ${best}, weight ${w}, fractional bound ${fractional(gear, cap).toFixed(2)}`);
+  console.log("   ", chosen.map((it) => it.name).join(", "));
+}
+
+const small = knapsack01(gear.slice(0, 4), 12);
+console.log("table for first 4 items, capacity 12:");
+small.table.forEach((row, i) => console.log(String(i).padStart(2), row.map((v) => String(v).padStart(3)).join("")));
+
+const ub = unbounded(gear, 20);
+console.log("unbounded, capacity 20:", ub);
+
+const ratio = gear
+  .map((g) => ({ name: g.name, ratio: Math.round((g.value / g.weight) * 100) / 100 }))
+  .sort((a, b) => b.ratio - a.ratio)
+  .slice(0, 5);
+console.log("best value density:", ratio);

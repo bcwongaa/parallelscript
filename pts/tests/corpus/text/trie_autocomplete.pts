@@ -1,0 +1,128 @@
+// A trie for autocomplete: insertion with weights, prefix search ranked by weight,
+// deletion with pruning, wildcard matching and longest-common-prefix.
+class TrieNode {
+  children = new Map<string, TrieNode>();
+  weight = 0;
+  terminal = false;
+}
+
+class Trie {
+  private root = new TrieNode();
+  private count = 0;
+
+  get size(): number { return this.count; }
+
+  insert(word: string, weight = 1): void {
+    let node = this.root;
+    for (const ch of word) {
+      let next = node.children.get(ch);
+      if (!next) {
+        next = new TrieNode();
+        node.children.set(ch, next);
+      }
+      node = next;
+    }
+    if (!node.terminal) this.count++;
+    node.terminal = true;
+    node.weight += weight;
+  }
+
+  private find(prefix: string): TrieNode | undefined {
+    let node: TrieNode | undefined = this.root;
+    for (const ch of prefix) {
+      node = node.children.get(ch);
+      if (!node) return undefined;
+    }
+    return node;
+  }
+
+  has(word: string): boolean {
+    return this.find(word)?.terminal ?? false;
+  }
+
+  complete(prefix: string, limit = 5): { word: string; weight: number }[] {
+    const start = this.find(prefix);
+    if (!start) return [];
+    const results: { word: string; weight: number }[] = [];
+    const walk = (node: TrieNode, acc: string) => {
+      if (node.terminal) results.push({ word: acc, weight: node.weight });
+      for (const [ch, child] of node.children) walk(child, acc + ch);
+    };
+    walk(start, prefix);
+    return results.sort((a, b) => b.weight - a.weight || a.word.localeCompare(b.word)).slice(0, limit);
+  }
+
+  delete(word: string): boolean {
+    const path: [TrieNode, string][] = [];
+    let node = this.root;
+    for (const ch of word) {
+      const next = node.children.get(ch);
+      if (!next) return false;
+      path.push([node, ch]);
+      node = next;
+    }
+    if (!node.terminal) return false;
+    node.terminal = false;
+    node.weight = 0;
+    this.count--;
+    for (let i = path.length - 1; i >= 0; i--) {
+      const [parent, ch] = path[i];
+      const child = parent.children.get(ch);
+      if (child && !child.terminal && child.children.size === 0) parent.children.delete(ch);
+      else break;
+    }
+    return true;
+  }
+
+  match(pattern: string): string[] {
+    const out: string[] = [];
+    const go = (node: TrieNode, i: number, acc: string) => {
+      if (i === pattern.length) { if (node.terminal) out.push(acc); return; }
+      const ch = pattern[i];
+      if (ch === "?") for (const [c, child] of node.children) go(child, i + 1, acc + c);
+      else {
+        const child = node.children.get(ch);
+        if (child) go(child, i + 1, acc + ch);
+      }
+    };
+    go(this.root, 0, "");
+    return out.sort();
+  }
+
+  longestCommonPrefix(): string {
+    let node = this.root, prefix = "";
+    while (node.children.size === 1 && !node.terminal) {
+      const [[ch, child]] = [...node.children];
+      prefix += ch;
+      node = child;
+    }
+    return prefix;
+  }
+
+  nodeCount(): number {
+    const count = (n: TrieNode): number => 1 + [...n.children.values()].reduce((s, c) => s + count(c), 0);
+    return count(this.root);
+  }
+}
+
+const searches = `type typeof typescript typed types tuple tuple tuple true try throw this then
+then then thread threads threat three throw throw typescript typescript typeof the the the the`;
+const trie = new Trie();
+for (const w of searches.split("\n").join(" ").split(" ")) trie.insert(w);
+console.log("distinct words:", trie.size, "nodes:", trie.nodeCount());
+for (const p of ["t", "ty", "type", "th", "thr", "tu", "x", ""]) {
+  console.log(`${JSON.stringify(p).padEnd(7)}`, trie.complete(p, 4).map((r) => `${r.word}(${r.weight})`).join(" "));
+}
+console.log(trie.complete("thre"));
+console.log("has 'the':", trie.has("the"), "has 'th':", trie.has("th"), "has 'threads':", trie.has("threads"));
+console.log("match t??e:", trie.match("t??e"), "match th???:", trie.match("th???"));
+console.log("delete threads:", trie.delete("threads"), "again:", trie.delete("threads"), "delete th:", trie.delete("th"));
+console.log("after delete:", trie.size, trie.nodeCount(), trie.complete("thread"));
+const prefixTrie = new Trie();
+["interstellar", "internet", "interval", "internal"].forEach((w) => prefixTrie.insert(w));
+console.log("LCP:", prefixTrie.longestCommonPrefix());
+prefixTrie.insert("in");
+console.log("LCP after 'in':", prefixTrie.longestCommonPrefix());
+const tiny = new Trie();
+tiny.insert("ab", 2);
+console.log(tiny);

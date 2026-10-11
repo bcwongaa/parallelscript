@@ -1,0 +1,100 @@
+interface ApiAuthor {
+  id: string;
+  handle: string;
+  profile: { displayName: string; followers: number };
+}
+
+interface ApiComment {
+  id: string;
+  author: ApiAuthor;
+  text: string;
+  replies?: ApiComment[];
+}
+
+interface ApiPost {
+  id: string;
+  title: string;
+  author: ApiAuthor;
+  comments: ApiComment[];
+}
+
+type AuthorEntry = { handle: string; displayName: string; followers: number };
+
+interface NormalizedState {
+  authors: Record<string, AuthorEntry>;
+  posts: Record<string, { title: string; authorId: string; commentIds: string[] }>;
+  comments: Record<string, { authorId: string; text: string; parentId: string | null; depth: number }>;
+}
+
+const response = JSON.parse(`{
+  "data": [
+    {"id":"p1","title":"Normalizing data","author":{"id":"u1","handle":"kim","profile":{"displayName":"Kim Lee","followers":1200}},
+     "comments":[
+       {"id":"c1","author":{"id":"u2","handle":"raj","profile":{"displayName":"Raj P","followers":87}},"text":"Great read",
+        "replies":[{"id":"c2","author":{"id":"u1","handle":"kim","profile":{"displayName":"Kim Lee","followers":1200}},"text":"Thanks!"}]},
+       {"id":"c3","author":{"id":"u3","handle":"sol","profile":{"displayName":"Sol M","followers":5}},"text":"What about arrays?"}
+     ]},
+    {"id":"p2","title":"Flat maps","author":{"id":"u2","handle":"raj","profile":{"displayName":"Raj P","followers":88}},
+     "comments":[
+       {"id":"c4","author":{"id":"u3","handle":"sol","profile":{"displayName":"Sol M","followers":5}},"text":"+1",
+        "replies":[{"id":"c5","author":{"id":"u2","handle":"raj","profile":{"displayName":"Raj P","followers":88}},"text":"ty",
+          "replies":[{"id":"c6","author":{"id":"u1","handle":"kim","profile":{"displayName":"Kim Lee","followers":1201}},"text":"nested!"}]}]}
+     ]}
+  ]
+}`) as { data: ApiPost[] };
+
+const state: NormalizedState = { authors: {}, posts: {}, comments: {} };
+
+function addAuthor(a: ApiAuthor): string {
+  const prev: AuthorEntry | undefined = state.authors[a.id];
+  if (prev === undefined || prev.followers < a.profile.followers) {
+    state.authors[a.id] = { handle: a.handle, displayName: a.profile.displayName, followers: a.profile.followers };
+  }
+  return a.id;
+}
+
+function addComment(c: ApiComment, parentId: string | null, depth: number): string {
+  const authorId = addAuthor(c.author);
+  state.comments[c.id] = { authorId, text: c.text, parentId, depth };
+  for (const r of c.replies ?? []) addComment(r, c.id, depth + 1);
+  return c.id;
+}
+
+for (const p of response.data) {
+  const authorId = addAuthor(p.author);
+  const commentIds = p.comments.map((c) => addComment(c, null, 0));
+  state.posts[p.id] = { title: p.title, authorId, commentIds };
+}
+
+console.log("authors:", Object.keys(state.authors).length, "posts:", Object.keys(state.posts).length, "comments:", Object.keys(state.comments).length);
+console.log(state.authors);
+console.log(state.posts);
+console.log(state.comments);
+
+function renderThread(commentId: string): string[] {
+  const c = state.comments[commentId];
+  const who = state.authors[c.authorId].handle;
+  const lines = [`${"  ".repeat(c.depth)}@${who}: ${c.text}`];
+  const children = Object.entries(state.comments)
+    .filter(([, v]) => v.parentId === commentId)
+    .map(([k]) => k);
+  for (const child of children) lines.push(...renderThread(child));
+  return lines;
+}
+
+for (const [postId, post] of Object.entries(state.posts)) {
+  console.log(`== ${post.title} (${postId}) by ${state.authors[post.authorId].displayName}`);
+  for (const cid of post.commentIds) {
+    for (const line of renderThread(cid)) console.log(line);
+  }
+}
+
+const commentsPerAuthor = Object.values(state.comments).reduce<Record<string, number>>((acc, c) => {
+  const h = state.authors[c.authorId].handle;
+  acc[h] = (acc[h] ?? 0) + 1;
+  return acc;
+}, {});
+console.log(commentsPerAuthor);
+const maxDepth = Math.max(...Object.values(state.comments).map((c) => c.depth));
+console.log("max depth:", maxDepth);
+console.log(JSON.stringify(state.posts));

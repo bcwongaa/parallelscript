@@ -1,0 +1,118 @@
+// skip: not supported yet: PTS1001: generic accessors and abstract generic methods
+// Generic Result and Option classes used to validate and parse user records without exceptions.
+
+abstract class Option<T> {
+  static some<T>(v: T): Option<T> {
+    return new Some(v);
+  }
+  static none<T>(): Option<T> {
+    return new None<T>();
+  }
+  static from<T>(v: T | null | undefined): Option<T> {
+    return v === null || v === undefined ? new None<T>() : new Some(v);
+  }
+  abstract isSome(): boolean;
+  abstract map<U>(f: (v: T) => U): Option<U>;
+  abstract flatMap<U>(f: (v: T) => Option<U>): Option<U>;
+  abstract getOrElse(d: T): T;
+  abstract toString(): string;
+}
+
+class Some<T> extends Option<T> {
+  constructor(private readonly value: T) {
+    super();
+  }
+  isSome(): boolean { return true; }
+  map<U>(f: (v: T) => U): Option<U> { return new Some(f(this.value)); }
+  flatMap<U>(f: (v: T) => Option<U>): Option<U> { return f(this.value); }
+  getOrElse(): T { return this.value; }
+  toString(): string { return `Some(${JSON.stringify(this.value)})`; }
+}
+
+class None<T> extends Option<T> {
+  isSome(): boolean { return false; }
+  map<U>(): Option<U> { return new None<U>(); }
+  flatMap<U>(): Option<U> { return new None<U>(); }
+  getOrElse(d: T): T { return d; }
+  toString(): string { return "None"; }
+}
+
+class Result<T, E> {
+  private constructor(private readonly ok: boolean, private readonly value?: T, private readonly error?: E) {}
+  static ok<T, E>(v: T): Result<T, E> {
+    return new Result<T, E>(true, v);
+  }
+  static err<T, E>(e: E): Result<T, E> {
+    return new Result<T, E>(false, undefined, e);
+  }
+  get isOk(): boolean {
+    return this.ok;
+  }
+  map<U>(f: (v: T) => U): Result<U, E> {
+    return this.ok ? Result.ok<U, E>(f(this.value as T)) : Result.err<U, E>(this.error as E);
+  }
+  andThen<U>(f: (v: T) => Result<U, E>): Result<U, E> {
+    return this.ok ? f(this.value as T) : Result.err<U, E>(this.error as E);
+  }
+  mapErr<F>(f: (e: E) => F): Result<T, F> {
+    return this.ok ? Result.ok<T, F>(this.value as T) : Result.err<T, F>(f(this.error as E));
+  }
+  match<R>(onOk: (v: T) => R, onErr: (e: E) => R): R {
+    return this.ok ? onOk(this.value as T) : onErr(this.error as E);
+  }
+  static all<T, E>(results: Result<T, E>[]): Result<T[], E[]> {
+    const errors: E[] = [];
+    const values: T[] = [];
+    for (const r of results) r.match((v) => values.push(v), (e) => errors.push(e));
+    return errors.length ? Result.err(errors) : Result.ok(values);
+  }
+}
+
+interface User {
+  name: string;
+  age: number;
+  email: string;
+}
+
+type FieldError = { field: string; problem: string };
+
+const parseAge = (s: string): Result<number, FieldError> => {
+  const n = Number(s);
+  if (!Number.isInteger(n)) return Result.err({ field: "age", problem: `"${s}" is not an integer` });
+  if (n < 0 || n > 150) return Result.err({ field: "age", problem: `${n} out of range` });
+  return Result.ok(n);
+};
+const parseEmail = (s: string): Result<string, FieldError> =>
+  s.includes("@") && !s.startsWith("@") && !s.endsWith("@")
+    ? Result.ok(s.toLowerCase())
+    : Result.err({ field: "email", problem: `bad email ${s}` });
+
+function parseUser(line: string): Result<User, FieldError> {
+  const [name = "", ageStr = "", email = ""] = line.split(",").map((p) => p.trim());
+  if (!name) return Result.err({ field: "name", problem: "empty" });
+  return parseAge(ageStr).andThen((age) => parseEmail(email).map((em) => ({ name, age, email: em })));
+}
+
+const lines = ["Ada, 36, ADA@example.com", "Bob, 2x, bob@x.io", ", 20, a@b.c", "Cy, 200, cy@z.org", "Dee, 41, dee.example.com", "Eve, 29, eve@q.net"];
+const parsed = lines.map(parseUser);
+parsed.forEach((r, i) =>
+  console.log(r.match((u) => `ok   ${u.name} <${u.email}> ${u.age}`, (e) => `err  line ${i + 1}: ${e.field} ${e.problem}`)),
+);
+const okOnly = Result.all(parsed.filter((r) => r.isOk));
+console.log(okOnly.match((users) => users.map((u) => u.name), () => []));
+const everything = Result.all(parsed);
+console.log(everything.mapErr((es) => es.map((e) => e.field)).match((v) => `${v.length} users`, (fields) => fields.join("|")));
+
+const directory = new Map<string, string>([["ada", "London"], ["eve", "Paris"]]);
+const cityOf = (name: string): Option<string> => Option.from(directory.get(name.toLowerCase()));
+for (const n of ["Ada", "Bob", "Eve"]) {
+  const city = cityOf(n);
+  console.log(n, city.toString(), city.map((c) => c.length).toString(), city.getOrElse("unknown"));
+}
+const chained = Option.some(" 42 ")
+  .map((s) => s.trim())
+  .flatMap((s) => (s.length > 0 ? Option.some(Number(s)) : Option.none<number>()))
+  .map((n) => n * 2);
+console.log(`${chained}`, Option.from<number>(null).toString(), Option.from(0).isSome());
+console.log(parsed[0]);
+console.log(Option.some({ a: [1, 2] }));

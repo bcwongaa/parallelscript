@@ -1,0 +1,106 @@
+// Recursion with closures over a file-system tree: sizes, search, rendering, pruning and path maps.
+
+interface FileNode {
+  kind: "file";
+  name: string;
+  size: number;
+}
+interface DirNode {
+  kind: "dir";
+  name: string;
+  children: FsNode[];
+}
+type FsNode = FileNode | DirNode;
+
+const file = (name: string, size: number): FileNode => ({ kind: "file", name, size });
+const dir = (name: string, ...children: FsNode[]): DirNode => ({ kind: "dir", name, children });
+
+const root = dir(
+  "project",
+  file("README.md", 2400),
+  file("package.json", 820),
+  dir("src", file("index.ts", 5300), file("util.ts", 1900), dir("components", file("Button.tsx", 3100), file("Modal.tsx", 7800), dir("icons"))),
+  dir("test", file("index.test.ts", 4100), file("fixtures.json", 125000)),
+  dir("node_modules", dir("left-pad", file("index.js", 600), file("package.json", 400)), dir("lodash", file("lodash.js", 544000))),
+  dir(".git", file("HEAD", 23), dir("objects", file("ab12", 9000), file("cd34", 15000))),
+);
+
+function fold<R>(node: FsNode, onFile: (f: FileNode, path: string) => R, onDir: (d: DirNode, results: R[], path: string) => R, path = ""): R {
+  const here = path ? `${path}/${node.name}` : node.name;
+  if (node.kind === "file") return onFile(node, here);
+  return onDir(node, node.children.map((c) => fold(c, onFile, onDir, here)), here);
+}
+
+const totalSize = (n: FsNode) => fold(n, (f) => f.size, (_d, rs) => rs.reduce((a, b) => a + b, 0));
+const countFiles = (n: FsNode) => fold(n, () => 1, (_d, rs) => rs.reduce((a, b) => a + b, 0));
+const maxDepth = (n: FsNode): number => fold(n, () => 0, (_d, rs) => 1 + Math.max(0, ...rs));
+
+const human = (bytes: number): string => {
+  const units = ["B", "KB", "MB", "GB"];
+  let v = bytes;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u++;
+  }
+  return `${u === 0 ? v : v.toFixed(1)} ${units[u]}`;
+};
+
+console.log("total:", human(totalSize(root)), "files:", countFiles(root), "depth:", maxDepth(root));
+
+// Render as an indented tree, with sizes for directories
+function render(node: FsNode, prefix = "", isLast = true, isRoot = true): string[] {
+  const connector = isRoot ? "" : isLast ? "└── " : "├── ";
+  const label = node.kind === "file" ? `${node.name} (${human(node.size)})` : `${node.name}/ [${human(totalSize(node))}]`;
+  const lines = [prefix + connector + label];
+  if (node.kind === "dir") {
+    const childPrefix = isRoot ? "" : prefix + (isLast ? "    " : "│   ");
+    node.children.forEach((c, i) => lines.push(...render(c, childPrefix, i === node.children.length - 1, false)));
+  }
+  return lines;
+}
+
+// Pruning: drop ignored directories and empty dirs, returning a new tree
+const ignored = new Set(["node_modules", ".git"]);
+function prune(node: FsNode, keep: (n: FsNode) => boolean): FsNode | null {
+  if (!keep(node)) return null;
+  if (node.kind === "file") return node;
+  const kids = node.children.map((c) => prune(c, keep)).filter((c): c is FsNode => c !== null);
+  return kids.length === 0 ? null : { ...node, children: kids };
+}
+const cleaned = prune(root, (n) => !(n.kind === "dir" && ignored.has(n.name)));
+if (cleaned) console.log(render(cleaned).join("\n"));
+console.log("original still has", root.children.length, "children; cleaned has", cleaned?.kind === "dir" ? cleaned.children.length : 0);
+
+// Search with a closure-accumulated result list
+function findAll(node: FsNode, pred: (f: FileNode, path: string) => boolean): string[] {
+  const hits: string[] = [];
+  const visit = (n: FsNode, path: string) => {
+    const here = path ? `${path}/${n.name}` : n.name;
+    if (n.kind === "file") {
+      if (pred(n, here)) hits.push(here);
+    } else n.children.forEach((c) => visit(c, here));
+  };
+  visit(node, "");
+  return hits;
+}
+console.log(findAll(root, (f) => f.name.endsWith(".ts") || f.name.endsWith(".tsx")));
+console.log(findAll(root, (f) => f.size > 100000));
+console.log(findAll(root, (_f, p) => p.includes("/test/")));
+
+// Path -> size map and per-extension totals via fold
+const pathSizes = fold<Map<string, number>>(
+  root,
+  (f, p) => new Map([[p, f.size]]),
+  (_d, maps) => new Map(maps.flatMap((m) => [...m])),
+);
+console.log("paths:", pathSizes.size, "biggest:", [...pathSizes].sort((a, b) => b[1] - a[1])[0]);
+const byExt = [...pathSizes].reduce<Record<string, number>>((acc, [p, size]) => {
+  const name = p.split("/").pop() ?? "";
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "(none)";
+  acc[ext] = (acc[ext] ?? 0) + size;
+  return acc;
+}, {});
+console.log(Object.entries(byExt).sort((a, b) => b[1] - a[1]).map(([e, s]) => `${e}=${human(s)}`).join(", "));
+const empties = fold<string[]>(root, () => [], (d, rs, p) => (d.children.length === 0 ? [p, ...rs.flat()] : rs.flat()));
+console.log("empty dirs:", empties);

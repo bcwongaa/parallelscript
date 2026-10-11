@@ -1,0 +1,94 @@
+// skip: not supported yet: PTS1001: converting value to string[]
+// Generic compose/pipe utilities applied to a text-cleaning and number-crunching pipeline.
+
+type Unary<A, B> = (a: A) => B;
+
+function pipe<A, B>(f1: Unary<A, B>): Unary<A, B>;
+function pipe<A, B, C>(f1: Unary<A, B>, f2: Unary<B, C>): Unary<A, C>;
+function pipe<A, B, C, D>(f1: Unary<A, B>, f2: Unary<B, C>, f3: Unary<C, D>): Unary<A, D>;
+function pipe<A, B, C, D, E>(f1: Unary<A, B>, f2: Unary<B, C>, f3: Unary<C, D>, f4: Unary<D, E>): Unary<A, E>;
+function pipe(...fns: Unary<unknown, unknown>[]): Unary<unknown, unknown> {
+  return (x: unknown) => fns.reduce((acc, f) => f(acc), x);
+}
+
+function compose<A, B, C>(f: Unary<B, C>, g: Unary<A, B>): Unary<A, C> {
+  return (x: A) => f(g(x));
+}
+
+const composeAll = <T>(...fns: Array<Unary<T, T>>): Unary<T, T> =>
+  fns.reduceRight<Unary<T, T>>((acc, f) => (x: T) => f(acc(x)), (x: T) => x);
+
+const trim = (s: string): string => s.trim();
+const lower = (s: string): string => s.toLowerCase();
+const collapseSpaces = (s: string): string => s.split(" ").filter((w) => w.length > 0).join(" ");
+const words = (s: string): string[] => s.split(" ");
+const countWords = (ws: string[]): Map<string, number> => {
+  const m = new Map<string, number>();
+  for (const w of ws) m.set(w, (m.get(w) ?? 0) + 1);
+  return m;
+};
+
+const normalize = pipe(trim, lower, collapseSpaces);
+const wordFreq = pipe(normalize, words, countWords);
+
+const text = "   The quick  brown Fox jumps over   the lazy dog THE end  ";
+console.log(JSON.stringify(normalize(text)));
+const freq = wordFreq(text);
+console.log(freq);
+const top = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
+console.log("top:", top);
+
+const inc = (n: number): number => n + 1;
+const sq = (n: number): number => n * n;
+const half = (n: number): number => n / 2;
+
+const incThenSq = compose(sq, inc);
+const sqThenInc = compose(inc, sq);
+console.log("incThenSq(4) =", incThenSq(4), "sqThenInc(4) =", sqThenInc(4));
+
+const chain = composeAll(half, sq, inc);
+console.log("composeAll(half, sq, inc)(5) =", chain(5));
+
+const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1);
+const evens = (xs: number[]): number[] => xs.filter((x) => x % 2 === 0);
+const squares = (xs: number[]): number[] => xs.map(sq);
+const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+
+const sumOfEvenSquares = pipe(range, evens, squares, sum);
+for (const n of [1, 5, 10, 20]) {
+  console.log(`sumOfEvenSquares(${n}) = ${sumOfEvenSquares(n)}`);
+}
+
+interface User {
+  name: string;
+  age: number;
+  tags: string[];
+}
+
+const users: User[] = [
+  { name: "mara", age: 34, tags: ["admin", "ops"] },
+  { name: "ivan", age: 19, tags: ["dev"] },
+  { name: "lena", age: 27, tags: ["dev", "ops"] },
+  { name: "otto", age: 52, tags: [] },
+];
+
+const adults = (us: User[]): User[] => us.filter((u) => u.age >= 21);
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const displayNames = (us: User[]): string[] => us.map((u) => `${capitalize(u.name)} (${u.age})`);
+const bulletList = (lines: string[]): string => lines.map((l) => ` - ${l}`).join("\n");
+
+const report = pipe(adults, displayNames, bulletList);
+console.log(report(users));
+
+const tagIndex = pipe(
+  (us: User[]) => us.flatMap((u) => u.tags.map((t) => [t, u.name] as [string, string])),
+  (pairs: [string, string][]) =>
+    pairs.reduce<Record<string, string[]>>((acc, [t, n]) => {
+      (acc[t] ??= []).push(n);
+      return acc;
+    }, {}),
+);
+console.log(tagIndex(users));
+
+const identity = pipe((x: number) => x);
+console.log("identity(7) =", identity(7), typeof identity);

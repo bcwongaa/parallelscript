@@ -81,21 +81,39 @@ func TestRunMatchesNode(t *testing.T) {
 	for _, path := range testFiles(t, "run") {
 		t.Run(testName(path), func(t *testing.T) {
 			t.Parallel()
-			spec := ensureSpec(t, path)
-			modules, err := testModules(path)
-			assert.NilError(t, err)
-			switch {
-			case spec.noDiff != "":
-				t.Skip("no-diff: " + spec.noDiff)
-			case !isPlainTypeScript(strings.Join(slices.Collect(maps.Values(modules)), "\n")):
-				t.Skip("uses ParallelScript features")
-			}
-			want := runNode(t, node, modules, filepath.Base(path))
-			got := runPts(t, path)
-			assert.Equal(t, got.stdout, want.stdout, "pts and Node print different output")
-			assert.Equal(t, got.exitCode, want.exitCode, "pts and Node exit differently; pts stderr:\n%s\nNode stderr:\n%s", got.stderr, want.stderr)
+			assertMatchesNode(t, node, path)
 		})
 	}
+}
+
+// TestCorpusMatchesNode is the differential test over the corpus of realistic
+// programs, corpus/<theme>/*.pts (M3.7), which expect only what Node prints.
+func TestCorpusMatchesNode(t *testing.T) {
+	t.Parallel()
+	node := findNode(t)
+	for _, path := range testFiles(t, filepath.Join("corpus", "*")) {
+		t.Run(filepath.Base(filepath.Dir(path))+"/"+testName(path), func(t *testing.T) {
+			t.Parallel()
+			assertMatchesNode(t, node, path)
+		})
+	}
+}
+
+func assertMatchesNode(t *testing.T, node string, path string) {
+	t.Helper()
+	spec := ensureSpec(t, path)
+	modules, err := testModules(path)
+	assert.NilError(t, err)
+	switch {
+	case spec.noDiff != "":
+		t.Skip("no-diff: " + spec.noDiff)
+	case !isPlainTypeScript(strings.Join(slices.Collect(maps.Values(modules)), "\n")):
+		t.Skip("uses ParallelScript features")
+	}
+	want := runNode(t, node, modules, filepath.Base(path))
+	got := runPts(t, path)
+	assert.Equal(t, got.stdout, want.stdout, "pts and Node print different output")
+	assert.Equal(t, got.exitCode, want.exitCode, "pts and Node exit differently; pts stderr:\n%s\nNode stderr:\n%s", got.stderr, want.stderr)
 }
 
 func TestErrors(t *testing.T) {
@@ -196,7 +214,7 @@ func runPts(t *testing.T, path string) runResult {
 	build.once.Do(func() {
 		heavyJobs <- struct{}{}
 		defer func() { <-heavyJobs }()
-		build.exe = filepath.Join(buildDir, testName(path))
+		build.exe = filepath.Join(buildDir, filepath.Base(filepath.Dir(path))+"_"+testName(path)) // corpus themes reuse names
 		build.err = driver.Build(context.Background(), path, build.exe)
 	})
 	assert.NilError(t, build.err)

@@ -1,0 +1,127 @@
+// Quicksort with Lomuto and Hoare partitioning, counting swaps and comparisons.
+
+interface Stats {
+  comparisons: number;
+  swaps: number;
+  maxDepth: number;
+}
+
+abstract class Sorter {
+  stats: Stats = { comparisons: 0, swaps: 0, maxDepth: 0 };
+  abstract readonly name: string;
+
+  protected swap(a: number[], i: number, j: number): void {
+    if (i === j) return;
+    const t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+    this.stats.swaps++;
+  }
+
+  protected less(x: number, y: number): boolean {
+    this.stats.comparisons++;
+    return x < y;
+  }
+
+  sort(input: number[]): number[] {
+    const a = [...input];
+    this.stats = { comparisons: 0, swaps: 0, maxDepth: 0 };
+    this.quick(a, 0, a.length - 1, 1);
+    return a;
+  }
+
+  protected abstract quick(a: number[], lo: number, hi: number, depth: number): void;
+}
+
+class LomutoSorter extends Sorter {
+  readonly name: string = "lomuto";
+  protected quick(a: number[], lo: number, hi: number, depth: number): void {
+    if (lo >= hi) return;
+    this.stats.maxDepth = Math.max(this.stats.maxDepth, depth);
+    const pivot = a[hi];
+    let i = lo;
+    for (let j = lo; j < hi; j++) {
+      if (this.less(a[j], pivot)) {
+        this.swap(a, i, j);
+        i++;
+      }
+    }
+    this.swap(a, i, hi);
+    this.quick(a, lo, i - 1, depth + 1);
+    this.quick(a, i + 1, hi, depth + 1);
+  }
+}
+
+class HoareSorter extends Sorter {
+  readonly name = "hoare";
+  protected quick(a: number[], lo: number, hi: number, depth: number): void {
+    if (lo >= hi) return;
+    this.stats.maxDepth = Math.max(this.stats.maxDepth, depth);
+    const pivot = a[(lo + hi) >> 1];
+    let i = lo - 1;
+    let j = hi + 1;
+    for (;;) {
+      do i++; while (this.less(a[i], pivot));
+      do j--; while (this.less(pivot, a[j]));
+      if (i >= j) break;
+      this.swap(a, i, j);
+    }
+    this.quick(a, lo, j, depth + 1);
+    this.quick(a, j + 1, hi, depth + 1);
+  }
+}
+
+class MedianOfThreeSorter extends LomutoSorter {
+  override readonly name = "median3";
+  protected override quick(a: number[], lo: number, hi: number, depth: number): void {
+    if (hi - lo >= 2) {
+      const mid = (lo + hi) >> 1;
+      if (this.less(a[mid], a[lo])) this.swap(a, mid, lo);
+      if (this.less(a[hi], a[lo])) this.swap(a, hi, lo);
+      if (this.less(a[mid], a[hi])) this.swap(a, mid, hi);
+    }
+    super.quick(a, lo, hi, depth);
+  }
+}
+
+function seeded(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const rnd = seeded(42);
+const inputs: Record<string, number[]> = {
+  random: Array.from({ length: 40 }, () => Math.floor(rnd() * 100)),
+  sorted: Array.from({ length: 40 }, (_, i) => i),
+  reversed: Array.from({ length: 40 }, (_, i) => 40 - i),
+  duplicates: Array.from({ length: 40 }, (_, i) => i % 3),
+};
+
+console.log("random input:", inputs.random.slice(0, 12).join(","), "...");
+const sorters: Sorter[] = [new LomutoSorter(), new HoareSorter(), new MedianOfThreeSorter()];
+const rows: { input: string; sorter: string; cmp: number; swaps: number; depth: number }[] = [];
+for (const [label, data] of Object.entries(inputs)) {
+  const expected = [...data].sort((x, y) => x - y);
+  for (const s of sorters) {
+    const out = s.sort(data);
+    const ok = out.every((v, i) => v === expected[i]);
+    if (!ok) throw new Error(`${s.name} failed on ${label}`);
+    rows.push({ input: label, sorter: s.name, cmp: s.stats.comparisons, swaps: s.stats.swaps, depth: s.stats.maxDepth });
+  }
+}
+console.table(rows);
+const best = new Map<string, string>();
+for (const label of Object.keys(inputs)) {
+  const group = rows.filter((r) => r.input === label);
+  group.sort((a, b) => a.cmp - b.cmp);
+  best.set(label, group[0].sorter);
+}
+console.log("fewest comparisons:", best);
+console.log(sorters[2]);
+console.log("sorted random:", sorters[1].sort(inputs.random));

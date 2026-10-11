@@ -1,0 +1,111 @@
+enum PayType {
+  Hourly,
+  Salaried,
+  Contractor,
+}
+
+interface Timesheet {
+  employee: string;
+  type: PayType;
+  rate: number;
+  hours: number[];
+  state: "CA" | "TX" | "NY";
+}
+
+interface Paycheck {
+  employee: string;
+  type: string;
+  regular: number;
+  overtime: number;
+  doubleTime: number;
+  gross: number;
+  withholding: number;
+  net: number;
+}
+
+const FED_RATE = 0.12;
+const STATE_RATE: Record<Timesheet["state"], number> = { CA: 0.06, TX: 0, NY: 0.055 };
+
+function splitHours(t: Timesheet): { regular: number; overtime: number; doubleTime: number } {
+  let regular = 0;
+  let overtime = 0;
+  let doubleTime = 0;
+  for (const h of t.hours) {
+    if (t.state === "CA") {
+      const reg = Math.min(h, 8);
+      const ot = Math.min(Math.max(h - 8, 0), 4);
+      regular += reg;
+      overtime += ot;
+      doubleTime += Math.max(h - 12, 0);
+    } else {
+      regular += h;
+    }
+  }
+  if (t.state !== "CA" && regular > 40) {
+    overtime = regular - 40;
+    regular = 40;
+  }
+  return { regular, overtime, doubleTime };
+}
+
+function computePay(t: Timesheet): Paycheck {
+  let regularPay = 0;
+  let otPay = 0;
+  let dtPay = 0;
+  switch (t.type) {
+    case PayType.Hourly: {
+      const h = splitHours(t);
+      regularPay = h.regular * t.rate;
+      otPay = h.overtime * t.rate * 1.5;
+      dtPay = h.doubleTime * t.rate * 2;
+      break;
+    }
+    case PayType.Salaried:
+      regularPay = t.rate / 52;
+      break;
+    case PayType.Contractor:
+      regularPay = t.hours.reduce((a, b) => a + b, 0) * t.rate;
+      break;
+    default: {
+      const never: never = t.type;
+      throw new Error(`unknown pay type ${never}`);
+    }
+  }
+  const gross = Math.round((regularPay + otPay + dtPay) * 100) / 100;
+  const withholding = t.type === PayType.Contractor ? 0 : Math.round(gross * (FED_RATE + STATE_RATE[t.state]) * 100) / 100;
+  return {
+    employee: t.employee,
+    type: PayType[t.type],
+    regular: Math.round(regularPay * 100) / 100,
+    overtime: Math.round(otPay * 100) / 100,
+    doubleTime: Math.round(dtPay * 100) / 100,
+    gross,
+    withholding,
+    net: Math.round((gross - withholding) * 100) / 100,
+  };
+}
+
+const sheets: Timesheet[] = [
+  { employee: "Ari", type: PayType.Hourly, rate: 22.5, hours: [8, 9, 10, 8, 13], state: "CA" },
+  { employee: "Bo", type: PayType.Hourly, rate: 18, hours: [10, 10, 10, 10, 6], state: "TX" },
+  { employee: "Cy", type: PayType.Salaried, rate: 98000, hours: [9, 9, 9, 9, 9], state: "NY" },
+  { employee: "Di", type: PayType.Contractor, rate: 75, hours: [4, 0, 6, 8, 2], state: "CA" },
+  { employee: "Ed", type: PayType.Hourly, rate: 31.25, hours: [7.5, 7.5, 7.5, 7.5, 7.5], state: "NY" },
+];
+
+const checks = sheets.map(computePay);
+console.log("Employee  Type        Regular   OT       DT       Gross     W/H      Net");
+for (const c of checks) {
+  const f = (n: number) => n.toFixed(2).padStart(8);
+  console.log(`${c.employee.padEnd(9)} ${c.type.padEnd(10)} ${f(c.regular)} ${f(c.overtime)} ${f(c.doubleTime)} ${f(c.gross)} ${f(c.withholding)} ${f(c.net)}`);
+}
+const totals = checks.reduce(
+  (acc, c) => ({ gross: acc.gross + c.gross, withholding: acc.withholding + c.withholding, net: acc.net + c.net }),
+  { gross: 0, withholding: 0, net: 0 },
+);
+console.log(Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, v.toFixed(2)])));
+console.log(checks[0]);
+console.log(PayType, PayType.Contractor, PayType[1]);
+console.log(sheets.map((s) => [s.employee, splitHours(s)]));
+const otHeavy = checks.filter((c) => c.overtime + c.doubleTime > 0.1 * c.gross).map((c) => c.employee);
+console.log("overtime-heavy:", otHeavy);

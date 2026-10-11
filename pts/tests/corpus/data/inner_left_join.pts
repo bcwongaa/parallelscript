@@ -1,0 +1,92 @@
+interface Customer {
+  id: number;
+  name: string;
+  city: string;
+}
+
+interface Order {
+  orderId: string;
+  customerId: number;
+  total: number;
+  status: "paid" | "pending" | "refunded";
+}
+
+const customers: Customer[] = [
+  { id: 1, name: "Ada Lovelace", city: "London" },
+  { id: 2, name: "Grace Hopper", city: "Arlington" },
+  { id: 3, name: "Alan Turing", city: "Manchester" },
+  { id: 4, name: "Edsger Dijkstra", city: "Austin" },
+];
+
+const orders: Order[] = [
+  { orderId: "A-100", customerId: 1, total: 120.5, status: "paid" },
+  { orderId: "A-101", customerId: 2, total: 75, status: "pending" },
+  { orderId: "A-102", customerId: 1, total: 33.25, status: "refunded" },
+  { orderId: "A-103", customerId: 3, total: 410, status: "paid" },
+  { orderId: "A-104", customerId: 9, total: 18.99, status: "paid" },
+  { orderId: "A-105", customerId: 2, total: 64.1, status: "paid" },
+];
+
+function indexBy<T, K>(items: readonly T[], key: (t: T) => K): Map<K, T> {
+  return new Map(items.map((t) => [key(t), t] as [K, T]));
+}
+
+function innerJoin<L, R, K>(left: L[], right: R[], lk: (l: L) => K, rk: (r: R) => K): Array<[L, R]> {
+  const idx = new Map<K, R[]>();
+  for (const r of right) {
+    const k = rk(r);
+    const list = idx.get(k) ?? [];
+    list.push(r);
+    idx.set(k, list);
+  }
+  const out: Array<[L, R]> = [];
+  for (const l of left) {
+    for (const r of idx.get(lk(l)) ?? []) out.push([l, r]);
+  }
+  return out;
+}
+
+function leftJoin<L, R, K>(left: L[], right: R[], lk: (l: L) => K, rk: (r: R) => K): Array<[L, R | null]> {
+  const pairs: Array<[L, R | null]> = [];
+  for (const l of left) {
+    const matches = right.filter((r) => rk(r) === lk(l));
+    if (matches.length === 0) pairs.push([l, null]);
+    else for (const m of matches) pairs.push([l, m]);
+  }
+  return pairs;
+}
+
+const joined = innerJoin(orders, customers, (o) => o.customerId, (c) => c.id);
+console.log("Inner join (orders x customers):", joined.length, "rows");
+for (const [o, c] of joined) {
+  console.log(`  ${o.orderId} ${c.name.padEnd(16)} ${o.status.padEnd(9)} ${o.total.toFixed(2)}`);
+}
+
+const custLeft = leftJoin(customers, orders, (c) => c.id, (o) => o.customerId);
+console.log("Left join (customers -> orders):");
+for (const [c, o] of custLeft) {
+  console.log(`  ${c.name} -> ${o?.orderId ?? "(no orders)"} ${o ? o.total : "-"}`);
+}
+
+const orphans = orders.filter((o) => !customers.some((c) => c.id === o.customerId));
+console.log("Orphan orders:", orphans);
+
+const byId = indexBy(customers, (c) => c.id);
+const spend = new Map<string, number>();
+for (const o of orders) {
+  if (o.status !== "paid") continue;
+  const cust = byId.get(o.customerId);
+  const name = cust?.name ?? `unknown#${o.customerId}`;
+  spend.set(name, (spend.get(name) ?? 0) + o.total);
+}
+console.log(spend);
+
+const flat = joined.map(([o, c]) => ({ ...o, ...c }));
+console.log(flat[0]);
+console.log(JSON.stringify(flat.slice(0, 2), ["orderId", "name", "total"]));
+const cityTotals = flat.reduce<Record<string, number>>((acc, row) => {
+  acc[row.city] = (acc[row.city] ?? 0) + row.total;
+  return acc;
+}, {});
+console.log(cityTotals);
+console.log(Object.keys(cityTotals).sort().join(", "));

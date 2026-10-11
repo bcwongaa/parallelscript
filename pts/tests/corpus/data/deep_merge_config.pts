@@ -1,0 +1,73 @@
+// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
+type ConfigValue = string | number | boolean | null | ConfigValue[] | ConfigObject;
+interface ConfigObject {
+  [key: string]: ConfigValue;
+}
+
+function isPlainObject(v: ConfigValue | undefined): v is ConfigObject {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+type ArrayStrategy = "replace" | "concat" | "unique";
+
+function deepMerge(base: ConfigObject, override: ConfigObject, arrays: ArrayStrategy = "replace"): ConfigObject {
+  const out: ConfigObject = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = out[key];
+    if (isPlainObject(existing) && isPlainObject(value)) {
+      out[key] = deepMerge(existing, value, arrays);
+    } else if (Array.isArray(existing) && Array.isArray(value) && arrays !== "replace") {
+      const combined = [...existing, ...value];
+      out[key] = arrays === "concat" ? combined : combined.filter((v, i) => combined.findIndex((w) => JSON.stringify(w) === JSON.stringify(v)) === i);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function getPath(obj: ConfigObject, path: string): ConfigValue | undefined {
+  let cur: ConfigValue | undefined = obj;
+  for (const part of path.split(".")) {
+    if (!isPlainObject(cur)) return undefined;
+    cur = part in cur ? cur[part] : undefined;
+  }
+  return cur;
+}
+
+function flattenKeys(obj: ConfigObject, prefix = ""): Array<[string, ConfigValue]> {
+  return Object.entries(obj).flatMap(([k, v]): Array<[string, ConfigValue]> => {
+    const p = prefix ? `${prefix}.${k}` : k;
+    return isPlainObject(v) ? flattenKeys(v, p) : [[p, v]];
+  });
+}
+
+const defaults: ConfigObject = {
+  server: { host: "0.0.0.0", port: 8080, tls: { enabled: false, cert: null } },
+  log: { level: "info", outputs: ["stdout"] },
+  features: { search: true, beta: false },
+  workers: 4,
+};
+
+const production: ConfigObject = {
+  server: { port: 443, tls: { enabled: true, cert: "/etc/ssl/app.pem" } },
+  log: { level: "warn", outputs: ["file", "stdout"] },
+  workers: 16,
+};
+
+const envOverrides: ConfigObject = JSON.parse('{"log":{"level":"debug"},"features":{"beta":true,"newCheckout":true},"server":{"tls":{"cert":null}}}');
+
+const merged = deepMerge(deepMerge(defaults, production), envOverrides);
+console.log(JSON.stringify(merged, null, 2));
+console.log(deepMerge(defaults, production, "concat").log);
+console.log(deepMerge(defaults, production, "unique").log);
+
+for (const p of ["server.port", "server.tls.enabled", "log.outputs", "features.newCheckout", "nope.x", "workers.count"]) {
+  console.log(p.padEnd(22), "=>", getPath(merged, p));
+}
+
+const flat = flattenKeys(merged);
+for (const [k, v] of flat) console.log(`${k}=${JSON.stringify(v)}`);
+console.log(defaults.workers, (defaults.server as ConfigObject).port, "base untouched");
+const changedKeys = flat.filter(([k, v]) => JSON.stringify(getPath(defaults, k)) !== JSON.stringify(v)).map(([k]) => k);
+console.log("changed vs defaults:", changedKeys);

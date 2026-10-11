@@ -1,0 +1,149 @@
+// skip: not supported yet: PTS1001: converting ListNode | null to ListNode | null
+// Generic linked list, stack, queue and deque classes used for a few small tasks.
+
+class ListNode<T> {
+  next: ListNode<T> | null = null;
+  prev: ListNode<T> | null = null;
+  constructor(public value: T) {}
+}
+
+class LinkedList<T> {
+  protected head: ListNode<T> | null = null;
+  protected tail: ListNode<T> | null = null;
+  protected count = 0;
+
+  get size(): number { return this.count; }
+  isEmpty(): boolean { return this.count === 0; }
+  pushBack(v: T): void {
+    const n = new ListNode(v);
+    if (this.tail) {
+      this.tail.next = n;
+      n.prev = this.tail;
+      this.tail = n;
+    } else {
+      this.head = this.tail = n;
+    }
+    this.count++;
+  }
+  pushFront(v: T): void {
+    const n = new ListNode(v);
+    if (this.head) {
+      n.next = this.head;
+      this.head.prev = n;
+      this.head = n;
+    } else {
+      this.head = this.tail = n;
+    }
+    this.count++;
+  }
+  popFront(): T | undefined {
+    const h = this.head;
+    if (!h) return undefined;
+    this.head = h.next;
+    if (this.head) this.head.prev = null;
+    else this.tail = null;
+    this.count--;
+    return h.value;
+  }
+  popBack(): T | undefined {
+    const t = this.tail;
+    if (!t) return undefined;
+    this.tail = t.prev;
+    if (this.tail) this.tail.next = null;
+    else this.head = null;
+    this.count--;
+    return t.value;
+  }
+  toArray(): T[] {
+    const out: T[] = [];
+    for (let n = this.head; n !== null; n = n.next) out.push(n.value);
+    return out;
+  }
+  reverse(): void {
+    let n = this.head;
+    [this.head, this.tail] = [this.tail, this.head];
+    while (n) {
+      const next = n.next;
+      [n.next, n.prev] = [n.prev, n.next];
+      n = next;
+    }
+  }
+  map<U>(f: (v: T) => U): LinkedList<U> {
+    const out = new LinkedList<U>();
+    for (let n = this.head; n; n = n.next) out.pushBack(f(n.value));
+    return out;
+  }
+}
+
+class Stack<T> {
+  private list = new LinkedList<T>();
+  push(v: T): void { this.list.pushBack(v); }
+  pop(): T | undefined { return this.list.popBack(); }
+  peek(): T | undefined {
+    const v = this.list.popBack();
+    if (v !== undefined) this.list.pushBack(v);
+    return v;
+  }
+  get size(): number { return this.list.size; }
+}
+
+class Queue<T> {
+  private list = new LinkedList<T>();
+  enqueue(v: T): void { this.list.pushBack(v); }
+  dequeue(): T | undefined { return this.list.popFront(); }
+  get size(): number { return this.list.size; }
+}
+
+class Deque<T> extends LinkedList<T> {
+  peekFront(): T | undefined { return this.head?.value; }
+  peekBack(): T | undefined { return this.tail?.value; }
+}
+
+// Balanced brackets with a stack
+function balanced(s: string): boolean {
+  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+  const st = new Stack<string>();
+  for (const ch of s) {
+    if ("([{".includes(ch)) st.push(ch);
+    else if (ch in pairs && st.pop() !== pairs[ch]) return false;
+  }
+  return st.size === 0;
+}
+for (const s of ["(a[b]{c})", "(]", "((", "{[()()]}", ""]) console.log(JSON.stringify(s), balanced(s));
+
+// Hot potato with a queue
+const q = new Queue<string>();
+["ann", "bob", "cid", "dee", "eve"].forEach((p) => q.enqueue(p));
+const out: string[] = [];
+while (q.size > 1) {
+  for (let i = 0; i < 3; i++) q.enqueue(q.dequeue()!);
+  out.push(q.dequeue()!);
+}
+console.log("eliminated:", out, "winner:", q.dequeue());
+
+// Sliding window maximum with a deque of indices
+function windowMax(xs: number[], k: number): number[] {
+  const dq = new Deque<number>();
+  const res: number[] = [];
+  xs.forEach((x, i) => {
+    while (!dq.isEmpty() && (dq.peekFront() ?? 0) <= i - k) dq.popFront();
+    while (!dq.isEmpty() && xs[dq.peekBack() ?? 0] <= x) dq.popBack();
+    dq.pushBack(i);
+    if (i >= k - 1) res.push(xs[dq.peekFront() ?? 0]);
+  });
+  return res;
+}
+console.log(windowMax([1, 3, -1, -3, 5, 3, 6, 7], 3));
+
+const list = new LinkedList<number>();
+[5, 1, 4].forEach((n) => list.pushBack(n));
+list.pushFront(9);
+console.log(list.toArray(), list.size);
+list.reverse();
+console.log(list.toArray(), list.map((n) => `#${n}`).toArray());
+console.log(list.popFront(), list.popBack(), list.toArray());
+const st = new Stack<{ op: string }>();
+st.push({ op: "a" });
+st.push({ op: "b" });
+console.log(st.peek(), st.size, st.pop(), st.pop(), st.pop());
+console.log(new Deque<number>().peekFront());

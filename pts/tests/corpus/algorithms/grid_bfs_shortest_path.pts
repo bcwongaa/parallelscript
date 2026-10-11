@@ -1,0 +1,108 @@
+// skip: not supported yet: PTS1001: converting string | undefined to string
+// BFS shortest path through a text maze, with path reconstruction and distance map.
+
+type Point = { r: number; c: number };
+
+const MAZE = [
+  "S.#.......",
+  ".##.####..",
+  "....#..#.#",
+  "#.#.#.##..",
+  "..#...#..#",
+  ".####.#.#.",
+  "......#..E",
+];
+
+class Grid {
+  readonly rows: number;
+  readonly cols: number;
+  constructor(private readonly lines: string[]) {
+    this.rows = lines.length;
+    this.cols = lines[0].length;
+  }
+  find(ch: string): Point {
+    for (let r = 0; r < this.rows; r++) {
+      const c = this.lines[r].indexOf(ch);
+      if (c >= 0) return { r, c };
+    }
+    throw new Error(`no ${ch} in grid`);
+  }
+  open(p: Point): boolean {
+    return p.r >= 0 && p.c >= 0 && p.r < this.rows && p.c < this.cols && this.lines[p.r][p.c] !== "#";
+  }
+  neighbours(p: Point): Point[] {
+    const deltas: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    return deltas.map(([dr, dc]) => ({ r: p.r + dr, c: p.c + dc })).filter((q) => this.open(q));
+  }
+  render(marks: Map<string, string>): string {
+    const out: string[] = [];
+    for (let r = 0; r < this.rows; r++) {
+      let line = "";
+      for (let c = 0; c < this.cols; c++) line += marks.get(`${r},${c}`) ?? this.lines[r][c];
+      out.push(line);
+    }
+    return out.join("\n");
+  }
+}
+
+const key = (p: Point): string => `${p.r},${p.c}`;
+
+function bfs(g: Grid, start: Point): { dist: Map<string, number>; prev: Map<string, Point> } {
+  const dist = new Map<string, number>([[key(start), 0]]);
+  const prev = new Map<string, Point>();
+  const queue: Point[] = [start];
+  let head = 0;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    const d = dist.get(key(cur)) ?? 0;
+    for (const n of g.neighbours(cur)) {
+      if (dist.has(key(n))) continue;
+      dist.set(key(n), d + 1);
+      prev.set(key(n), cur);
+      queue.push(n);
+    }
+  }
+  return { dist, prev };
+}
+
+const grid = new Grid(MAZE);
+const start = grid.find("S");
+const end = grid.find("E");
+console.log("start", start, "end", end, `size ${grid.rows}x${grid.cols}`);
+
+const { dist, prev } = bfs(grid, start);
+console.log("reachable cells:", dist.size);
+const path: Point[] = [];
+let cur: Point | undefined = end;
+while (cur) {
+  path.unshift(cur);
+  cur = prev.get(key(cur));
+}
+console.log("shortest distance:", dist.get(key(end)));
+console.log("path length:", path.length, "first steps:", path.slice(0, 4));
+
+const marks = new Map<string, string>();
+for (const p of path.slice(1, -1)) marks.set(key(p), "*");
+console.log(grid.render(marks));
+
+// Distance heat map with digits mod 10.
+const heat = new Map<string, string>();
+for (const [k, d] of dist) heat.set(k, String(d % 10));
+console.log("distance map (mod 10):");
+console.log(grid.render(heat));
+
+const farthest = [...dist.entries()].reduce((best, e) => (e[1] > best[1] ? e : best));
+console.log("farthest cell from S:", farthest);
+
+const unreachable: string[] = [];
+for (let r = 0; r < grid.rows; r++) {
+  for (let c = 0; c < grid.cols; c++) {
+    if (grid.open({ r, c }) && !dist.has(`${r},${c}`)) unreachable.push(`${r},${c}`);
+  }
+}
+console.log("unreachable open cells:", unreachable.length ? unreachable : "none");
+const turns = path.slice(2).filter((p, i) => {
+  const a = path[i];
+  return a.r !== p.r && a.c !== p.c;
+}).length;
+console.log(`path makes ${turns} turns`);

@@ -67,7 +67,7 @@ func qualifiedIdentifier(name string) string {
 // `#private` field #x, pts_private_x, which no other field's name can be.
 func fieldIdentifier(name string) string {
 	if name != "" && name[0] >= '0' && name[0] <= '9' {
-		return "pts_element_" + name // a tuple's element (D-053)
+		return "pts_element_" + prefixedIdentifier(name) // a tuple's element (D-053), or a quoted name such as "20-39"
 	}
 	if rest, ok := strings.CutPrefix(name, "#"); ok {
 		return "pts_private_" + prefixedIdentifier(rest)

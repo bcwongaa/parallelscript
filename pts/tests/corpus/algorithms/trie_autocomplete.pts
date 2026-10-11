@@ -1,0 +1,116 @@
+// Trie with insertion counts, prefix search, autocomplete ranked by frequency, and deletion.
+
+class TrieNode {
+  children = new Map<string, TrieNode>();
+  count = 0; // times this exact word was inserted
+  passing = 0; // words passing through this node
+}
+
+class Trie {
+  private root = new TrieNode();
+  private _words = 0;
+
+  get words(): number {
+    return this._words;
+  }
+
+  insert(word: string): void {
+    let node = this.root;
+    node.passing++;
+    for (const ch of word) {
+      let next = node.children.get(ch);
+      if (!next) {
+        next = new TrieNode();
+        node.children.set(ch, next);
+      }
+      next.passing++;
+      node = next;
+    }
+    if (node.count === 0) this._words++;
+    node.count++;
+  }
+
+  private walk(prefix: string): TrieNode | undefined {
+    let node: TrieNode | undefined = this.root;
+    for (const ch of prefix) {
+      node = node.children.get(ch);
+      if (!node) return undefined;
+    }
+    return node;
+  }
+
+  has(word: string): boolean {
+    return (this.walk(word)?.count ?? 0) > 0;
+  }
+
+  countPrefix(prefix: string): number {
+    return this.walk(prefix)?.passing ?? 0;
+  }
+
+  complete(prefix: string, limit = 5): { word: string; freq: number }[] {
+    const start = this.walk(prefix);
+    if (!start) return [];
+    const found: { word: string; freq: number }[] = [];
+    const dfs = (node: TrieNode, acc: string): void => {
+      if (node.count > 0) found.push({ word: acc, freq: node.count });
+      for (const [ch, child] of [...node.children].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) dfs(child, acc + ch);
+    };
+    dfs(start, prefix);
+    return found.sort((a, b) => b.freq - a.freq || (a.word < b.word ? -1 : 1)).slice(0, limit);
+  }
+
+  remove(word: string): boolean {
+    if (!this.has(word)) return false;
+    const path: [TrieNode, string][] = [];
+    let node = this.root;
+    for (const ch of word) {
+      path.push([node, ch]);
+      node = node.children.get(ch)!;
+    }
+    const removed = node.count;
+    node.count = 0;
+    this._words--;
+    this.root.passing -= removed;
+    for (let i = path.length - 1; i >= 0; i--) {
+      const [parent, ch] = path[i];
+      const child = parent.children.get(ch)!;
+      child.passing -= removed;
+      if (child.passing === 0) parent.children.delete(ch);
+    }
+    return true;
+  }
+
+  longestCommonPrefix(): string {
+    let node = this.root;
+    let out = "";
+    while (node.children.size === 1 && node.count === 0) {
+      const [[ch, next]] = [...node.children];
+      out += ch;
+      node = next;
+    }
+    return out;
+  }
+}
+
+const corpus = `the theory of the thermal theatre then thereafter there their they them theme
+there they went to the theatre and their theme was the theory of then and there`;
+const trie = new Trie();
+for (const w of corpus.split("\n").join(" ").split(" ")) if (w) trie.insert(w);
+console.log("distinct words:", trie.words);
+for (const p of ["the", "ther", "thea", "x", "t", ""]) {
+  console.log(`prefix ${JSON.stringify(p)} (${trie.countPrefix(p)} words):`, trie.complete(p, 4).map((c) => `${c.word}:${c.freq}`).join(" "));
+}
+console.log("has 'theme'?", trie.has("theme"), "has 'them'?", trie.has("them"), "has 'th'?", trie.has("th"));
+console.log("remove 'the':", trie.remove("the"), "again:", trie.remove("the"));
+console.log("after removal:", trie.complete("the", 3), "words:", trie.words);
+console.log("count 'the' prefix now:", trie.countPrefix("the"));
+
+const lcp = new Trie();
+["interstellar", "internet", "interval", "internal", "interview"].forEach((w) => lcp.insert(w));
+console.log("longest common prefix:", lcp.longestCommonPrefix());
+lcp.insert("int");
+console.log("after adding 'int':", lcp.longestCommonPrefix());
+const tiny = new Trie();
+tiny.insert("ab");
+console.log(tiny);
+console.log(JSON.stringify(lcp.complete("inter", 10)));

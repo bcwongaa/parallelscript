@@ -1,0 +1,127 @@
+// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
+// Decorator-style wrappers around a data source (caching, retry, metrics, logging).
+
+interface DataSource {
+  fetch(key: string): string;
+}
+
+class FlakyDatabase implements DataSource {
+  private calls = 0;
+  constructor(private data: Record<string, string>, private failEvery: number) {}
+  fetch(key: string): string {
+    this.calls++;
+    if (this.calls % this.failEvery === 0) {
+      throw new Error(`db timeout on call ${this.calls}`);
+    }
+    if (!(key in this.data)) throw new RangeError(`missing key ${key}`);
+    return this.data[key];
+  }
+  get callCount(): number {
+    return this.calls;
+  }
+}
+
+abstract class SourceDecorator implements DataSource {
+  constructor(protected readonly inner: DataSource) {}
+  fetch(key: string): string {
+    return this.inner.fetch(key);
+  }
+}
+
+class LoggingSource extends SourceDecorator {
+  readonly lines: string[] = [];
+  constructor(inner: DataSource, private tag: string) {
+    super(inner);
+  }
+  override fetch(key: string): string {
+    try {
+      const v = super.fetch(key);
+      this.lines.push(`[${this.tag}] ${key} -> ${v}`);
+      return v;
+    } catch (e) {
+      this.lines.push(`[${this.tag}] ${key} !! ${(e as Error).message}`);
+      throw e;
+    }
+  }
+}
+
+class RetryingSource extends SourceDecorator {
+  retries = 0;
+  constructor(inner: DataSource, private attempts: number) {
+    super(inner);
+  }
+  override fetch(key: string): string {
+    let lastError: unknown;
+    for (let i = 0; i < this.attempts; i++) {
+      try {
+        return this.inner.fetch(key);
+      } catch (e) {
+        if (e instanceof RangeError) throw e;
+        lastError = e;
+        this.retries++;
+      }
+    }
+    throw lastError;
+  }
+}
+
+class CachingSource extends SourceDecorator {
+  private cache = new Map<string, string>();
+  hits = 0;
+  misses = 0;
+  constructor(inner: DataSource, private capacity: number) {
+    super(inner);
+  }
+  override fetch(key: string): string {
+    const cached = this.cache.get(key);
+    if (cached !== undefined) {
+      this.hits++;
+      this.cache.delete(key);
+      this.cache.set(key, cached);
+      return cached;
+    }
+    this.misses++;
+    const v = super.fetch(key);
+    this.cache.set(key, v);
+    if (this.cache.size > this.capacity) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+    return v;
+  }
+  get keys(): string[] {
+    return [...this.cache.keys()];
+  }
+}
+
+class UpperCaseSource extends SourceDecorator {
+  override fetch(key: string): string {
+    return super.fetch(key).toUpperCase();
+  }
+}
+
+const db = new FlakyDatabase({ a: "apple", b: "banana", c: "cherry", d: "date" }, 3);
+const logged = new LoggingSource(db, "db");
+const retrying = new RetryingSource(logged, 3);
+const cached = new CachingSource(retrying, 2);
+const source: DataSource = new UpperCaseSource(cached);
+
+const keys = ["a", "b", "a", "c", "b", "d", "zz", "a", "c", "c"];
+const results: string[] = [];
+for (const k of keys) {
+  try {
+    results.push(source.fetch(k));
+  } catch (e) {
+    results.push(`<${e instanceof RangeError ? "missing" : "failed"}>`);
+  }
+}
+console.log(results);
+console.log("log:");
+logged.lines.forEach((l) => console.log("  " + l));
+console.log(`db calls=${db.callCount} retries=${retrying.retries} hits=${cached.hits} misses=${cached.misses}`);
+console.log("cache keys:", cached.keys);
+
+const chain: DataSource[] = [source, cached, retrying, logged, db];
+console.log(chain.map((s) => (s instanceof SourceDecorator ? "decorator" : "base")).join(" > "));
+console.log(chain.filter((s) => s instanceof SourceDecorator).length, "decorators");
+console.log(cached.hits / (cached.hits + cached.misses));

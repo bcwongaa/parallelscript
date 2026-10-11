@@ -1,0 +1,107 @@
+// skip: not supported yet: PTS1001: converting Map<value, value> to Map<string, boolean | number | string> | null
+// An INI-style configuration parser that reports precise line/column errors.
+
+class ConfigSyntaxError extends Error {
+  constructor(message: string, readonly line: number, readonly column: number, readonly source: string) {
+    super(`${message} at ${line}:${column}`);
+    this.name = "ConfigSyntaxError";
+  }
+
+  pointer(): string {
+    const text = this.source.split("\n")[this.line - 1] ?? "";
+    return `${text}\n${" ".repeat(this.column - 1)}^`;
+  }
+}
+
+type Value = string | number | boolean;
+type Sections = Map<string, Map<string, Value>>;
+
+function parseValue(raw: string, line: number, col: number, source: string): Value {
+  if (raw === "true" || raw === "false") return raw === "true";
+  if (raw.startsWith('"')) {
+    if (!raw.endsWith('"') || raw.length < 2) {
+      throw new ConfigSyntaxError("unterminated string", line, col + raw.length, source);
+    }
+    return raw.slice(1, -1);
+  }
+  const n = Number(raw);
+  if (raw.length > 0 && !Number.isNaN(n)) return n;
+  throw new ConfigSyntaxError(`invalid value '${raw}'`, line, col, source);
+}
+
+function parseConfig(source: string): Sections {
+  const sections: Sections = new Map();
+  let current: Map<string, Value> | null = null;
+  const lines = source.split("\n");
+  lines.forEach((rawLine, idx) => {
+    const lineNo = idx + 1;
+    const indent = rawLine.length - rawLine.trimStart().length;
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) return;
+    if (line.startsWith("[")) {
+      const close = line.indexOf("]");
+      if (close < 0) throw new ConfigSyntaxError("expected ']'", lineNo, indent + line.length + 1, source);
+      const name = line.slice(1, close).trim();
+      if (name === "") throw new ConfigSyntaxError("empty section name", lineNo, indent + 2, source);
+      if (sections.has(name)) throw new ConfigSyntaxError(`duplicate section [${name}]`, lineNo, indent + 1, source);
+      current = new Map();
+      sections.set(name, current);
+      return;
+    }
+    const eq = line.indexOf("=");
+    if (eq < 0) throw new ConfigSyntaxError("expected '='", lineNo, indent + line.length + 1, source);
+    const key = line.slice(0, eq).trim();
+    if (key === "") throw new ConfigSyntaxError("missing key", lineNo, indent + 1, source);
+    if (current === null) throw new ConfigSyntaxError(`key '${key}' outside of a section`, lineNo, indent + 1, source);
+    const after = line.slice(eq + 1);
+    const valueCol = indent + eq + 2 + (after.length - after.trimStart().length);
+    const target: Map<string, Value> = current;
+    target.set(key, parseValue(after.trim(), lineNo, valueCol, source));
+  });
+  return sections;
+}
+
+const documents: Record<string, string> = {
+  good: `# server settings
+[server]
+host = "localhost"
+port = 8080
+debug = false
+
+[limits]
+  max_body = 1048576
+  ratio = 0.75`,
+  missingBracket: `[server
+host = "x"`,
+  badValue: `[server]
+port = 80
+timeout = 30s`,
+  noSection: `name = "orphan"`,
+  unterminated: `[a]
+title = "hello`,
+  duplicate: `[a]
+x = 1
+[b]
+[a]`,
+  noEquals: `[a]
+  just some words`,
+};
+
+for (const [name, src] of Object.entries(documents)) {
+  try {
+    const cfg = parseConfig(src);
+    console.log(`${name}: parsed ${cfg.size} section(s)`);
+    for (const [section, entries] of cfg) {
+      console.log(`  [${section}]`, Object.fromEntries(entries));
+    }
+    console.log(cfg);
+  } catch (e) {
+    if (e instanceof ConfigSyntaxError) {
+      console.log(`${name}: ${e.name}: ${e.message}`);
+      for (const l of e.pointer().split("\n")) console.log("  | " + l);
+      console.log("  location:", { line: e.line, column: e.column });
+    } else {
+      throw e;
+    }
+  }
+}

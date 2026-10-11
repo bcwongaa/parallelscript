@@ -1,0 +1,90 @@
+// skip: not supported yet: PTS1001: converting value to {}
+// Sanitizes values for an image-resize request, throwing TypeError for wrong
+// kinds of input and RangeError for values outside allowed bounds.
+
+type Fit = "cover" | "contain" | "fill";
+const FITS: readonly Fit[] = ["cover", "contain", "fill"];
+
+interface ResizeRequest {
+  width: number;
+  height: number;
+  quality: number;
+  fit: Fit;
+  background: string;
+}
+
+function toInt(name: string, raw: unknown, min: number, max: number): number {
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw)) throw new RangeError(`${name} must be finite`);
+    if (!Number.isInteger(raw)) throw new TypeError(`${name} must be an integer, got ${raw}`);
+  } else if (typeof raw !== "string") {
+    throw new TypeError(`${name} must be a number or numeric string, got ${raw === null ? "null" : typeof raw}`);
+  }
+  const n = typeof raw === "number" ? raw : parseInt(raw, 10);
+  if (Number.isNaN(n) || String(n) !== String(raw).trim()) throw new TypeError(`${name} is not an integer: ${JSON.stringify(raw)}`);
+  if (n < min || n > max) throw new RangeError(`${name} ${n} out of range [${min}, ${max}]`);
+  return n;
+}
+
+function toHexColor(raw: unknown): string {
+  if (typeof raw !== "string") throw new TypeError("background must be a string");
+  let s = raw.trim().toLowerCase();
+  if (s.startsWith("#")) s = s.slice(1);
+  if (s.length === 3) s = s.split("").map((c) => c + c).join("");
+  if (s.length !== 6) throw new RangeError(`background '${raw}' must have 3 or 6 hex digits`);
+  for (const c of s) {
+    if (!"0123456789abcdef".includes(c)) throw new TypeError(`background '${raw}' has non-hex digit '${c}'`);
+  }
+  return "#" + s;
+}
+
+function sanitize(input: Record<string, unknown>): ResizeRequest {
+  const fit = input.fit ?? "cover";
+  if (typeof fit !== "string" || !FITS.includes(fit as Fit)) {
+    throw new TypeError(`fit must be one of ${FITS.join("|")}`);
+  }
+  return {
+    width: toInt("width", input.width, 1, 4096),
+    height: toInt("height", input.height ?? input.width, 1, 4096),
+    quality: toInt("quality", input.quality ?? 80, 1, 100),
+    fit: fit as Fit,
+    background: toHexColor(input.background ?? "#fff"),
+  };
+}
+
+const requests: Record<string, unknown>[] = [
+  { width: 800, height: 600 },
+  { width: "1024", quality: "95", fit: "contain", background: "#1E90FF" },
+  { width: 0, height: 10 },
+  { width: 10.5 },
+  { width: "12px" },
+  { width: 300, fit: "stretch" },
+  { width: 300, background: "#12" },
+  { width: 300, background: "zzz" },
+  { width: null },
+  { width: Infinity },
+  { width: 200, quality: 101 },
+  { width: " 64 ", background: "ABC" },
+];
+
+let typeErrors = 0;
+let rangeErrors = 0;
+for (const req of requests) {
+  const label = JSON.stringify(req);
+  try {
+    const clean = sanitize(req);
+    console.log("OK  ", label);
+    console.log("    ", clean);
+  } catch (e) {
+    if (e instanceof RangeError) {
+      rangeErrors++;
+      console.log("RANGE", label, "-", e.message);
+    } else if (e instanceof TypeError) {
+      typeErrors++;
+      console.log("TYPE ", label, "-", e.message);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log({ typeErrors, rangeErrors, ok: requests.length - typeErrors - rangeErrors });

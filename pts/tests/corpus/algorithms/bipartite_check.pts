@@ -1,0 +1,102 @@
+// Bipartite checking by BFS two-colouring, with odd-cycle witnesses and a matching on the result.
+
+type Side = "L" | "R";
+
+interface BipartiteResult {
+  ok: true;
+  sides: Map<number, Side>;
+}
+interface OddCycle {
+  ok: false;
+  cycle: number[];
+}
+
+function twoColour(n: number, edges: [number, number][]): BipartiteResult | OddCycle {
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  for (const [a, b] of edges) {
+    adj[a].push(b);
+    adj[b].push(a);
+  }
+  const side = new Map<number, Side>();
+  const parent = new Array<number>(n).fill(-1);
+  const depth = new Array<number>(n).fill(0);
+  for (let s = 0; s < n; s++) {
+    if (side.has(s)) continue;
+    side.set(s, "L");
+    const q = [s];
+    while (q.length) {
+      const u = q.shift()!;
+      for (const v of adj[u]) {
+        if (!side.has(v)) {
+          side.set(v, side.get(u) === "L" ? "R" : "L");
+          parent[v] = u;
+          depth[v] = depth[u] + 1;
+          q.push(v);
+        } else if (side.get(v) === side.get(u)) {
+          // Climb from both ends to the lowest common ancestor.
+          let a = u;
+          let b = v;
+          const left: number[] = [];
+          const right: number[] = [];
+          while (depth[a] > depth[b]) { left.push(a); a = parent[a]; }
+          while (depth[b] > depth[a]) { right.push(b); b = parent[b]; }
+          while (a !== b) { left.push(a); right.push(b); a = parent[a]; b = parent[b]; }
+          return { ok: false, cycle: [...left, a, ...right.reverse()] };
+        }
+      }
+    }
+  }
+  return { ok: true, sides: side };
+}
+
+function describe(name: string, n: number, edges: [number, number][]): BipartiteResult | OddCycle {
+  const r = twoColour(n, edges);
+  if (r.ok) {
+    const left = [...r.sides].filter(([, s]) => s === "L").map(([v]) => v);
+    const right = [...r.sides].filter(([, s]) => s === "R").map(([v]) => v);
+    console.log(`${name}: bipartite L=${JSON.stringify(left)} R=${JSON.stringify(right)}`);
+  } else {
+    console.log(`${name}: NOT bipartite, odd cycle of length ${r.cycle.length}:`, r.cycle);
+  }
+  return r;
+}
+
+const square: [number, number][] = [[0, 1], [1, 2], [2, 3], [3, 0]];
+const triangle: [number, number][] = [[0, 1], [1, 2], [2, 0]];
+const pentagonWithTail: [number, number][] = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0], [4, 5], [5, 6]];
+const forest: [number, number][] = [[0, 1], [0, 2], [3, 4], [5, 6], [6, 7]];
+
+describe("square", 4, square);
+describe("triangle", 3, triangle);
+describe("pentagon+tail", 7, pentagonWithTail);
+const f = describe("forest", 9, forest);
+if (f.ok) console.log(f.sides);
+
+// Job assignment: workers (L) to tasks (R) via augmenting paths (Kuhn's algorithm).
+const workers = ["ann", "bob", "cat", "dan", "eve"];
+const tasks = ["paint", "wire", "plumb", "roof"];
+const can: Record<string, string[]> = {
+  ann: ["paint", "wire"],
+  bob: ["wire"],
+  cat: ["plumb", "paint"],
+  dan: ["wire", "roof"],
+  eve: ["roof"],
+};
+const taskOwner = new Map<string, string>();
+function tryAssign(w: string, seen: Set<string>): boolean {
+  for (const t of can[w]) {
+    if (seen.has(t)) continue;
+    seen.add(t);
+    const owner = taskOwner.get(t);
+    if (owner === undefined || tryAssign(owner, seen)) {
+      taskOwner.set(t, w);
+      return true;
+    }
+  }
+  return false;
+}
+const matched = workers.filter((w) => tryAssign(w, new Set()));
+console.log("matched workers:", matched.length, "of", workers.length);
+console.log("assignment:", new Map([...taskOwner].sort()));
+const idle = workers.filter((w) => ![...taskOwner.values()].includes(w));
+console.log("idle:", idle, "unfilled tasks:", tasks.filter((t) => !taskOwner.has(t)));

@@ -1,0 +1,94 @@
+// skip: not supported yet: PTS1001: tuples with optional or rest elements ([number, ...number[]])
+// Default parameters, rest parameters and spread in calls, arrays and objects.
+
+interface RequestOptions {
+  method?: "GET" | "POST" | "PUT";
+  headers?: Record<string, string>;
+  timeout?: number;
+  retries?: number;
+}
+
+const DEFAULTS: Required<RequestOptions> = { method: "GET", headers: { accept: "*/*" }, timeout: 5000, retries: 0 };
+
+function buildRequest(url: string, { method = "GET", headers = {}, timeout = DEFAULTS.timeout, retries }: RequestOptions = {}) {
+  return {
+    url,
+    method,
+    headers: { ...DEFAULTS.headers, ...headers },
+    timeout,
+    retries: retries ?? DEFAULTS.retries,
+  };
+}
+
+console.log(buildRequest("/a"));
+console.log(buildRequest("/b", { method: "POST", headers: { "content-type": "json" } }));
+console.log(buildRequest("/c", { timeout: 0, retries: 3, headers: { accept: "text/html" } }));
+
+// Defaults can refer to earlier parameters and to closures
+let calls = 0;
+const nextId = () => ++calls;
+function makeTask(title: string, id: number = nextId(), slug: string = title.toLowerCase().split(" ").join("-"), tags: string[] = []) {
+  return { id, title, slug, tags };
+}
+console.log(makeTask("Write Docs"));
+console.log(makeTask("Fix Bug", 99));
+console.log(makeTask("Ship It", undefined, undefined, ["release"]));
+console.log(makeTask("Review PR"), "calls:", calls);
+
+// Rest parameters of mixed positions
+function logLine(level: "info" | "warn", ...parts: Array<string | number>): string {
+  return `[${level.toUpperCase()}] ${parts.join(" ")}`;
+}
+console.log(logLine("info"));
+console.log(logLine("warn", "disk", 91, "% full"));
+
+function sumAll(first: number, ...rest: number[]): number {
+  return rest.reduce((a, b) => a + b, first);
+}
+console.log(sumAll(1), sumAll(1, 2, 3), sumAll(...[10, 20, 30, 40] as [number, ...number[]]));
+
+// Tuple rest types
+function tagged<T extends unknown[]>(tag: string, ...values: T): [string, ...T] {
+  return [tag, ...values];
+}
+console.log(tagged("point", 1, 2), tagged("empty"), tagged("mixed", "a", true, null));
+
+// Spread to copy/merge arrays and objects immutably
+const base = [3, 1, 2];
+const sorted = [...base].sort((a, b) => a - b);
+const withEnds = [0, ...sorted, 99];
+console.log({ base, sorted, withEnds });
+
+interface Profile {
+  name: string;
+  email: string;
+  prefs: { theme: "light" | "dark"; fontSize: number };
+}
+const original: Profile = { name: "Rae", email: "rae@x.org", prefs: { theme: "light", fontSize: 14 } };
+const shallow = { ...original, name: "Rae M." };
+const deep = { ...original, prefs: { ...original.prefs, theme: "dark" as const } };
+console.log(shallow.prefs === original.prefs, deep.prefs === original.prefs);
+console.log(original, deep);
+
+const { email, ...withoutEmail } = original;
+console.log(email, withoutEmail);
+const [head, second, ...tail] = "a b c d e".split(" ");
+console.log(head, second, tail);
+
+// Spread of strings, Sets and Maps
+console.log([..."héllo"], [...new Set([3, 3, 1, 2, 1])], [...new Map([["k", 1]])]);
+const merged = new Map([...new Map([["a", 1], ["b", 2]]), ...new Map([["b", 20], ["c", 30]])]);
+console.log(merged);
+
+// Arity and defaults: length counts parameters before the first default
+function f1(a: number, b = 2, c?: number) {
+  return a + b + (c ?? 0);
+}
+const f2 = (...xs: number[]) => xs.length;
+console.log(f1.length, f2.length, buildRequest.length, makeTask.length, f1(1), f1(1, undefined, 3));
+
+// Variadic compose with rest
+const pipeAll = (...fns: Array<(n: number) => number>) => (x: number) => fns.reduce((v, f) => f(v), x);
+console.log(pipeAll()(5), pipeAll((x) => x + 1, (x) => x * 10)(5));
+const maxArgs = (...xs: number[]) => (xs.length ? Math.max(...xs) : null);
+console.log(maxArgs(), maxArgs(4, 8, 2), Math.max(...[]), Math.min());

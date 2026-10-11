@@ -1,0 +1,103 @@
+// skip: not supported yet: PTS1001: converting value to {at: number; user: string}
+// A typed event emitter whose `on` returns an unsubscribe closure.
+
+type Events = {
+  login: { user: string; at: number };
+  logout: { user: string; reason: "timeout" | "manual" };
+  message: { from: string; to: string; text: string };
+};
+
+type Handler<T> = (payload: T) => void;
+
+class Emitter<E extends Record<string, object>> {
+  private handlers = new Map<keyof E, Set<Handler<any>>>();
+  private emitted = 0;
+
+  on<K extends keyof E>(event: K, handler: Handler<E[K]>): () => boolean {
+    let set = this.handlers.get(event);
+    if (!set) {
+      set = new Set();
+      this.handlers.set(event, set);
+    }
+    set.add(handler);
+    return () => this.handlers.get(event)?.delete(handler) ?? false;
+  }
+
+  once<K extends keyof E>(event: K, handler: Handler<E[K]>): () => boolean {
+    const off = this.on(event, (p) => {
+      off();
+      handler(p);
+    });
+    return off;
+  }
+
+  emit<K extends keyof E>(event: K, payload: E[K]): number {
+    this.emitted++;
+    const set = this.handlers.get(event);
+    if (!set) return 0;
+    let n = 0;
+    for (const h of [...set]) {
+      h(payload);
+      n++;
+    }
+    return n;
+  }
+
+  listenerCount(event: keyof E): number {
+    return this.handlers.get(event)?.size ?? 0;
+  }
+
+  get totalEmitted(): number {
+    return this.emitted;
+  }
+}
+
+const bus = new Emitter<Events>();
+const audit: string[] = [];
+
+const offLogin = bus.on("login", ({ user, at }) => audit.push(`login ${user} @${at}`));
+bus.on("logout", (p) => audit.push(`logout ${p.user} (${p.reason})`));
+bus.once("login", (p) => audit.push(`first login was ${p.user}`));
+
+const inbox = new Map<string, string[]>();
+const offMsg = bus.on("message", (m) => {
+  const list = inbox.get(m.to) ?? [];
+  list.push(`${m.from}: ${m.text}`);
+  inbox.set(m.to, list);
+});
+
+console.log("listeners:", bus.listenerCount("login"), bus.listenerCount("logout"), bus.listenerCount("message"));
+console.log("delivered:", bus.emit("login", { user: "kim", at: 100 }));
+console.log("delivered:", bus.emit("login", { user: "lee", at: 140 }));
+console.log("listeners after once:", bus.listenerCount("login"));
+
+bus.emit("message", { from: "kim", to: "lee", text: "hi" });
+bus.emit("message", { from: "lee", to: "kim", text: "hello!" });
+bus.emit("message", { from: "kim", to: "lee", text: "lunch?" });
+console.log(inbox);
+
+console.log("offMsg:", offMsg(), "again:", offMsg());
+console.log("delivered after off:", bus.emit("message", { from: "x", to: "y", text: "lost" }));
+bus.emit("logout", { user: "kim", reason: "manual" });
+offLogin();
+console.log("delivered:", bus.emit("login", { user: "max", at: 300 }));
+bus.emit("logout", { user: "lee", reason: "timeout" });
+
+console.log(audit);
+console.log("total emitted: %d", bus.totalEmitted);
+
+// Unsubscribing from inside a handler during emit does not skip siblings
+const order: string[] = [];
+const local = new Emitter<{ tick: { n: number } }>();
+const offs: Array<() => boolean> = [];
+for (const name of ["a", "b", "c"]) {
+  offs.push(
+    local.on("tick", ({ n }) => {
+      order.push(`${name}${n}`);
+      if (name === "a") offs.forEach((o) => o());
+    }),
+  );
+}
+local.emit("tick", { n: 1 });
+local.emit("tick", { n: 2 });
+console.log(order, local.listenerCount("tick"));

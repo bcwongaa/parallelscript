@@ -1,0 +1,81 @@
+interface Runner {
+  bib: number;
+  name: string;
+  ageGroup: "U20" | "20-39" | "40-59" | "60+";
+  country: string;
+  finishSec: number | null;
+  penalties: number;
+}
+
+const runners: Runner[] = [
+  { bib: 12, name: "Ayo", ageGroup: "20-39", country: "NGA", finishSec: 8123, penalties: 0 },
+  { bib: 7, name: "Bea", ageGroup: "40-59", country: "ESP", finishSec: 9050, penalties: 1 },
+  { bib: 33, name: "Cyr", ageGroup: "20-39", country: "FRA", finishSec: 8123, penalties: 0 },
+  { bib: 4, name: "Dov", ageGroup: "60+", country: "ISR", finishSec: null, penalties: 0 },
+  { bib: 19, name: "Eun", ageGroup: "U20", country: "KOR", finishSec: 8800, penalties: 2 },
+  { bib: 21, name: "Fai", ageGroup: "40-59", country: "NZL", finishSec: 8999, penalties: 0 },
+  { bib: 2, name: "Gus", ageGroup: "20-39", country: "ESP", finishSec: 7999, penalties: 3 },
+  { bib: 45, name: "Hoa", ageGroup: "60+", country: "VNM", finishSec: 10400, penalties: 0 },
+  { bib: 8, name: "Ivo", ageGroup: "U20", country: "HRV", finishSec: null, penalties: 1 },
+  { bib: 15, name: "Jia", ageGroup: "40-59", country: "CHN", finishSec: 9050, penalties: 0 },
+];
+
+type Comparator<T> = (a: T, b: T) => number;
+
+function by<T, K extends string | number>(key: (t: T) => K, dir: "asc" | "desc" = "asc"): Comparator<T> {
+  const sign = dir === "asc" ? 1 : -1;
+  return (a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    return ka < kb ? -sign : ka > kb ? sign : 0;
+  };
+}
+
+function thenBy<T>(...cmps: Comparator<T>[]): Comparator<T> {
+  return (a, b) => {
+    for (const c of cmps) {
+      const r = c(a, b);
+      if (r !== 0) return r;
+    }
+    return 0;
+  };
+}
+
+const PENALTY_SEC = 30;
+const adjusted = (r: Runner): number => (r.finishSec === null ? Number.POSITIVE_INFINITY : r.finishSec + r.penalties * PENALTY_SEC);
+const AGE_ORDER: Record<Runner["ageGroup"], number> = { U20: 0, "20-39": 1, "40-59": 2, "60+": 3 };
+
+function hms(sec: number): string {
+  if (!Number.isFinite(sec)) return "DNF";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+const overall = [...runners].sort(thenBy(by(adjusted), by((r) => r.bib)));
+console.log("Overall:");
+overall.forEach((r, i) => console.log(`${String(i + 1).padStart(2)}. #${String(r.bib).padEnd(3)} ${r.name} ${r.country} ${hms(adjusted(r))}${r.penalties ? ` (+${r.penalties}p)` : ""}`));
+
+const byGroup = [...runners].sort(thenBy(by((r) => AGE_ORDER[r.ageGroup]), by(adjusted), by((r) => r.name, "desc")));
+let lastGroup = "";
+for (const r of byGroup) {
+  if (r.ageGroup !== lastGroup) {
+    console.log(`[${r.ageGroup}]`);
+    lastGroup = r.ageGroup;
+  }
+  console.log(`   ${r.name} ${hms(adjusted(r))}`);
+}
+
+const byCountry = [...runners].sort(thenBy(by((r) => r.country), by((r) => r.finishSec ?? Infinity, "desc")));
+console.log(byCountry.map((r) => `${r.country}:${r.name}`).join(" "));
+
+const stable = runners.map((r, i) => ({ r, i })).sort((x, y) => (x.r.finishSec ?? 0) - (y.r.finishSec ?? 0) || x.i - y.i);
+console.log(stable.map((x) => x.r.bib));
+const words = ["banana", "Apple", "cherry", "apple", "Banana", "date", "Cherry"];
+console.log([...words].sort());
+console.log([...words].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()) || (a < b ? -1 : 1)));
+console.log([10, 9, 1, 100, 25].sort(), [10, 9, 1, 100, 25].sort((a, b) => a - b));
+console.log([...runners].sort(by((r) => r.penalties, "desc"))[0]);
+const toSorted = runners.map((r) => r.name).toSorted((a, b) => b.localeCompare(a));
+console.log(toSorted, runners[0].name);

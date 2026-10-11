@@ -1,0 +1,90 @@
+// A State monad threading a pure PRNG seed through computations: dice, shuffles, and simulations.
+
+type State<S, A> = (s: S) => [A, S];
+
+const of = <S, A>(a: A): State<S, A> => (s) => [a, s];
+const mapS = <S, A, B>(m: State<S, A>, f: (a: A) => B): State<S, B> => (s) => {
+  const [a, s1] = m(s);
+  return [f(a), s1];
+};
+const chain = <S, A, B>(m: State<S, A>, f: (a: A) => State<S, B>): State<S, B> => (s) => {
+  const [a, s1] = m(s);
+  return f(a)(s1);
+};
+const sequence = <S, A>(ms: State<S, A>[]): State<S, A[]> => (s) => {
+  const out: A[] = [];
+  let cur = s;
+  for (const m of ms) {
+    const [a, next] = m(cur);
+    out.push(a);
+    cur = next;
+  }
+  return [out, cur];
+};
+const replicate = <S, A>(n: number, m: State<S, A>): State<S, A[]> => sequence(Array.from({ length: n }, () => m));
+
+// xorshift32 as a pure step: seed -> [uint32, nextSeed]
+const nextInt: State<number, number> = (seed) => {
+  let x = seed | 0;
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
+  const u = x >>> 0;
+  return [u, u];
+};
+const nextFloat = mapS(nextInt, (u) => u / 4294967296);
+const between = (lo: number, hi: number) => mapS(nextFloat, (f) => lo + Math.floor(f * (hi - lo + 1)));
+const die = between(1, 6);
+const coin = mapS(nextFloat, (f) => (f < 0.5 ? "H" : "T"));
+
+function shuffle<T>(xs: readonly T[]): State<number, T[]> {
+  return (seed) => {
+    const arr = [...xs];
+    let s = seed;
+    for (let i = arr.length - 1; i > 0; i--) {
+      const [j, s1] = between(0, i)(s);
+      s = s1;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return [arr, s];
+  };
+}
+
+const seed = 2463534242;
+const [rolls, afterRolls] = replicate(12, die)(seed);
+console.log("rolls:", rolls.join(" "), "next seed:", afterRolls);
+const [rollsAgain] = replicate(12, die)(seed);
+console.log("deterministic:", rolls.join() === rollsAgain.join());
+
+const twoDice = chain(die, (a) => mapS(die, (b) => [a, b, a + b] as const));
+const [pairs] = replicate(5, twoDice)(afterRolls);
+console.log(pairs);
+
+const [flips] = replicate(20, coin)(7);
+console.log("flips:", flips.join(""), "heads:", flips.filter((f) => f === "H").length);
+
+const deck = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K"].flatMap((r) => ["s", "h"].map((suit) => r + suit));
+const [shuffled, afterShuffle] = shuffle(deck)(99);
+console.log("hand:", shuffled.slice(0, 5).join(" "), "deck size:", shuffled.length, "unique:", new Set(shuffled).size);
+
+// Monte Carlo estimate of the chance that 3d6 >= 15
+const threeD6 = mapS(replicate(3, die), (ds) => ds.reduce((a, b) => a + b, 0));
+const [totals] = replicate(20000, threeD6)(afterShuffle);
+const hits = totals.filter((t) => t >= 15).length;
+console.log("P(3d6 >= 15) ~", (hits / totals.length).toFixed(3), "(exact 0.093)");
+const histogram = new Map<number, number>();
+for (const t of totals) histogram.set(t, (histogram.get(t) ?? 0) + 1);
+const rows = [...histogram].sort((a, b) => a[0] - b[0]);
+for (const [total, count] of rows) {
+  if (total % 3 === 0) console.log(`${String(total).padStart(2)} ${"#".repeat(Math.round(count / 100))} ${count}`);
+}
+
+// A random walk simulation using chain/of
+const step = (pos: number): State<number, number> => mapS(coin, (c) => pos + (c === "H" ? 1 : -1));
+function walk(n: number, start: number): State<number, number[]> {
+  if (n === 0) return of([start]);
+  return chain(step(start), (p) => mapS(walk(n - 1, p), (rest) => [start, ...rest]));
+}
+const [path] = walk(25, 0)(31337);
+console.log("walk:", path.join(","));
+console.log("max distance:", Math.max(...path.map(Math.abs)), "final:", path[path.length - 1]);

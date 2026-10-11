@@ -1,0 +1,122 @@
+// skip: not supported yet: PTS1001: values of type ReadonlyMap<string, string>
+// Builder for immutable HTTP-like request objects (no networking).
+
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+class HttpRequest {
+  constructor(
+    readonly method: Method,
+    readonly url: string,
+    readonly headers: ReadonlyMap<string, string>,
+    readonly query: readonly [string, string][],
+    readonly body: string | null,
+    readonly timeoutMs: number,
+  ) {}
+
+  get fullUrl(): string {
+    if (this.query.length === 0) return this.url;
+    const qs = this.query.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+    return `${this.url}?${qs}`;
+  }
+
+  toString(): string {
+    const lines = [`${this.method} ${this.fullUrl}`];
+    for (const [k, v] of [...this.headers].sort((a, b) => (a[0] < b[0] ? -1 : 1))) lines.push(`${k}: ${v}`);
+    if (this.body !== null) lines.push("", this.body);
+    return lines.join("\n");
+  }
+}
+
+class BuildError extends Error {
+  override name = "BuildError";
+}
+
+class RequestBuilder {
+  private method: Method = "GET";
+  private headers = new Map<string, string>();
+  private query: [string, string][] = [];
+  private body: string | null = null;
+  private timeoutMs = 30000;
+
+  constructor(private url: string) {}
+
+  static get(url: string): RequestBuilder {
+    return new RequestBuilder(url);
+  }
+  static post(url: string): RequestBuilder {
+    return new RequestBuilder(url).withMethod("POST");
+  }
+
+  withMethod(m: Method): RequestBuilder {
+    this.method = m;
+    return this;
+  }
+  header(name: string, value: string): RequestBuilder {
+    this.headers.set(name.toLowerCase(), value);
+    return this;
+  }
+  param(name: string, value: string | number | boolean): RequestBuilder {
+    this.query.push([name, String(value)]);
+    return this;
+  }
+  json(data: unknown): RequestBuilder {
+    this.body = JSON.stringify(data);
+    return this.header("Content-Type", "application/json");
+  }
+  timeout(ms: number): RequestBuilder {
+    if (!Number.isInteger(ms) || ms <= 0) throw new BuildError(`bad timeout ${ms}`);
+    this.timeoutMs = ms;
+    return this;
+  }
+  bearer(token: string): RequestBuilder {
+    return this.header("Authorization", `Bearer ${token}`);
+  }
+
+  build(): HttpRequest {
+    if (!this.url.startsWith("http://") && !this.url.startsWith("https://")) {
+      throw new BuildError(`unsupported url ${this.url}`);
+    }
+    if ((this.method === "GET" || this.method === "DELETE") && this.body !== null) {
+      throw new BuildError(`${this.method} cannot have a body`);
+    }
+    return new HttpRequest(this.method, this.url, new Map(this.headers), [...this.query], this.body, this.timeoutMs);
+  }
+}
+
+const search = RequestBuilder.get("https://api.example.com/search")
+  .param("q", "red shoes & socks")
+  .param("page", 2)
+  .param("inStock", true)
+  .header("Accept", "application/json")
+  .timeout(5000)
+  .build();
+console.log(search.toString());
+console.log("timeout:", search.timeoutMs);
+console.log("---");
+
+const create = RequestBuilder.post("https://api.example.com/orders")
+  .bearer("abc.def.ghi")
+  .json({ items: [{ sku: "X1", qty: 2 }], note: "gift", rush: false })
+  .build();
+console.log(String(create));
+console.log("---");
+console.log(JSON.parse(create.body ?? "null"));
+
+const attempts: Array<() => HttpRequest> = [
+  () => RequestBuilder.get("ftp://files.example.com").build(),
+  () => RequestBuilder.get("https://x.io").json({ a: 1 }).build(),
+  () => RequestBuilder.get("https://x.io").timeout(1.5).build(),
+  () => new RequestBuilder("http://x.io/items/42").withMethod("DELETE").build(),
+];
+for (const attempt of attempts) {
+  try {
+    const req = attempt();
+    console.log("built:", req.method, req.fullUrl);
+  } catch (e) {
+    if (e instanceof BuildError) console.log(`${e.name}: ${e.message}`);
+    else throw e;
+  }
+}
+console.log(search.headers);
+console.log(search.query);
+console.log(create.headers.get("content-type"), create.headers.has("Content-Type"));

@@ -1,0 +1,140 @@
+// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
+// LRU cache with TTL expiry, a fake clock, statistics and eviction callbacks; used to memoize lookups.
+
+interface Clock {
+  now(): number;
+}
+
+class FakeClock implements Clock {
+  private t = 0;
+  now(): number {
+    return this.t;
+  }
+  advance(ms: number): void {
+    this.t += ms;
+  }
+}
+
+interface Entry<V> {
+  value: V;
+  expires: number;
+}
+
+type EvictReason = "capacity" | "expired" | "manual";
+
+class LRUCache<K, V> {
+  private map = new Map<K, Entry<V>>();
+  private hits = 0;
+  private misses = 0;
+  readonly evictions: Array<[K, EvictReason]> = [];
+
+  constructor(
+    private readonly capacity: number,
+    private readonly ttl: number,
+    private readonly clock: Clock,
+    private readonly onEvict?: (key: K, value: V, reason: EvictReason) => void,
+  ) {
+    if (capacity < 1) throw new RangeError("capacity must be >= 1");
+  }
+
+  get(key: K): V | undefined {
+    const e = this.map.get(key);
+    if (e === undefined) {
+      this.misses++;
+      return undefined;
+    }
+    if (e.expires <= this.clock.now()) {
+      this.evict(key, e, "expired");
+      this.misses++;
+      return undefined;
+    }
+    this.map.delete(key);
+    this.map.set(key, e);
+    this.hits++;
+    return e.value;
+  }
+
+  set(key: K, value: V, ttl = this.ttl): void {
+    if (this.map.has(key)) this.map.delete(key);
+    this.map.set(key, { value, expires: this.clock.now() + ttl });
+    while (this.map.size > this.capacity) {
+      const [oldKey, oldEntry] = this.map.entries().next().value!;
+      this.evict(oldKey, oldEntry, "capacity");
+    }
+  }
+
+  delete(key: K): boolean {
+    const e = this.map.get(key);
+    if (!e) return false;
+    this.evict(key, e, "manual");
+    return true;
+  }
+
+  private evict(key: K, e: Entry<V>, reason: EvictReason): void {
+    this.map.delete(key);
+    this.evictions.push([key, reason]);
+    this.onEvict?.(key, e.value, reason);
+  }
+
+  memoize<A extends K>(fn: (a: A) => V): (a: A) => V {
+    return (a: A) => {
+      const cached = this.get(a);
+      if (cached !== undefined) return cached;
+      const v = fn(a);
+      this.set(a, v);
+      return v;
+    };
+  }
+
+  keys(): K[] {
+    return [...this.map.keys()];
+  }
+
+  get stats(): { hits: number; misses: number; size: number; hitRate: string } {
+    const total = this.hits + this.misses;
+    return { hits: this.hits, misses: this.misses, size: this.map.size, hitRate: total ? (this.hits / total).toFixed(3) : "n/a" };
+  }
+}
+
+const clock = new FakeClock();
+const evictLog: string[] = [];
+const cache = new LRUCache<string, number>(3, 1000, clock, (k, v, why) => evictLog.push(`${k}=${v}:${why}`));
+
+cache.set("a", 1);
+cache.set("b", 2);
+cache.set("c", 3);
+console.log(cache.get("a"), cache.keys());
+cache.set("d", 4);
+console.log("after d:", cache.keys());
+clock.advance(600);
+cache.set("e", 5, 100);
+console.log(cache.get("b"), cache.get("c"), cache.keys());
+clock.advance(500);
+console.log("t=1100:", cache.get("a"), cache.get("d"), cache.get("e"), cache.keys());
+console.log(cache.delete("c"), cache.delete("zzz"), cache.keys());
+console.log(evictLog);
+console.log(cache.stats);
+
+let computeCalls = 0;
+const slowSquare = (n: number): number => {
+  computeCalls++;
+  let s = 0;
+  for (let i = 0; i < n; i++) s += n;
+  return s;
+};
+const memoClock = new FakeClock();
+const memo = new LRUCache<number, number>(4, 50, memoClock);
+const fastSquare = memo.memoize(slowSquare);
+const inputs = [3, 4, 3, 5, 6, 7, 3, 4, 8, 8, 8];
+const results = inputs.map((n, i) => {
+  memoClock.advance(i % 3 === 0 ? 20 : 5);
+  return fastSquare(n);
+});
+console.log(results, "computed", computeCalls, "times");
+console.log(memo.stats, memo.keys());
+console.log(memo.evictions.map(([k, r]) => `${k}:${r}`).join(" "));
+try {
+  new LRUCache<string, string>(0, 1, clock);
+} catch (e) {
+  console.log(e instanceof RangeError ? e.message : "?");
+}

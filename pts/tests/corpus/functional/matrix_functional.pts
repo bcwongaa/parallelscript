@@ -1,0 +1,107 @@
+// Matrices as nested arrays with pure functions: transpose, multiply, power, determinant, inverse.
+
+type Matrix = number[][];
+type Vector = number[];
+
+const shape = (m: Matrix): [number, number] => [m.length, m.length === 0 ? 0 : m[0].length];
+const identity = (n: number): Matrix => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+const transpose = (m: Matrix): Matrix => (m.length === 0 ? [] : m[0].map((_, j) => m.map((row) => row[j])));
+const dot = (a: Vector, b: Vector): number => a.reduce((s, x, i) => s + x * b[i], 0);
+const zipWith = (f: (a: number, b: number) => number) => (a: Matrix, b: Matrix): Matrix => a.map((row, i) => row.map((x, j) => f(x, b[i][j])));
+const add = zipWith((a, b) => a + b);
+const sub = zipWith((a, b) => a - b);
+const scale = (k: number) => (m: Matrix): Matrix => m.map((row) => row.map((x) => x * k));
+
+function multiply(a: Matrix, b: Matrix): Matrix {
+  const [, ac] = shape(a);
+  const [br] = shape(b);
+  if (ac !== br) throw new RangeError(`cannot multiply ${shape(a).join("x")} by ${shape(b).join("x")}`);
+  const bt = transpose(b);
+  return a.map((row) => bt.map((col) => dot(row, col)));
+}
+
+function power(m: Matrix, n: number): Matrix {
+  if (n === 0) return identity(m.length);
+  if (n % 2 === 0) {
+    const half = power(m, n / 2);
+    return multiply(half, half);
+  }
+  return multiply(m, power(m, n - 1));
+}
+
+const minor = (m: Matrix, row: number, col: number): Matrix =>
+  m.filter((_, i) => i !== row).map((r) => r.filter((_, j) => j !== col));
+
+function det(m: Matrix): number {
+  const [n] = shape(m);
+  if (n === 1) return m[0][0];
+  if (n === 2) return m[0][0] * m[1][1] - m[0][1] * m[1][0];
+  return m[0].reduce((acc, x, j) => acc + (j % 2 === 0 ? 1 : -1) * x * det(minor(m, 0, j)), 0);
+}
+
+function inverse(m: Matrix): Matrix {
+  const d = det(m);
+  if (Math.abs(d) < 1e-12) throw new Error("matrix is singular");
+  const cofactors = m.map((row, i) => row.map((_, j) => ((i + j) % 2 === 0 ? 1 : -1) * det(minor(m, i, j))));
+  return scale(1 / d)(transpose(cofactors));
+}
+
+const fmt = (m: Matrix, digits = 2): string => {
+  const cells = m.map((row) => row.map((x) => (Object.is(x, -0) ? 0 : x).toFixed(digits)));
+  const width = Math.max(...cells.flat().map((c) => c.length));
+  return cells.map((row) => "| " + row.map((c) => c.padStart(width)).join(" ") + " |").join("\n");
+};
+
+const A: Matrix = [
+  [2, -1, 0],
+  [1, 3, 2],
+  [0, 1, 4],
+];
+const B: Matrix = [
+  [1, 0, 2],
+  [0, 1, 0],
+  [3, 0, 1],
+];
+console.log("A =\n" + fmt(A, 0));
+console.log("A^T =", transpose(A));
+console.log("A + B =", add(A, B), "A - B =", sub(A, B));
+console.log("A * B =\n" + fmt(multiply(A, B), 0));
+console.log("det(A) =", det(A), "det(B) =", det(B), "det(I4) =", det(identity(4)));
+const Ainv = inverse(A);
+console.log("inv(A) =\n" + fmt(Ainv, 4));
+console.log("A * inv(A) =\n" + fmt(multiply(A, Ainv), 6));
+
+// Fibonacci via matrix power
+const F: Matrix = [
+  [1, 1],
+  [1, 0],
+];
+console.log("fib via [[1,1],[1,0]]^n:", [1, 2, 5, 10, 20, 40, 70].map((n) => power(F, n)[0][1]));
+
+// Rotation matrices compose by multiplication
+const rot = (deg: number): Matrix => {
+  const r = (deg * Math.PI) / 180;
+  return [
+    [Math.cos(r), -Math.sin(r)],
+    [Math.sin(r), Math.cos(r)],
+  ];
+};
+const applyTo = (m: Matrix, v: Vector): Vector => m.map((row) => +dot(row, v).toFixed(10));
+console.log("rotate (1,0) by 90:", applyTo(rot(90), [1, 0]), "by 30 three times:", applyTo(power(rot(30), 3), [1, 0]));
+
+// Solve a linear system A x = b
+const b: Vector = [1, 13, 14];
+const x = applyTo(Ainv, b);
+console.log("solution x =", x, "check A x =", applyTo(A, x));
+
+for (const [label, fn] of [
+  ["2x3 * 2x3", () => multiply([[1, 2, 3], [4, 5, 6]], [[1, 2, 3], [4, 5, 6]])],
+  ["singular", () => inverse([[1, 2], [2, 4]])],
+] as Array<[string, () => Matrix]>) {
+  try {
+    fn();
+  } catch (e) {
+    console.log(`${label}: ${(e as Error).name}: ${(e as Error).message}`);
+  }
+}
+console.log(shape([]), shape([[1, 2, 3]]), transpose([[1, 2, 3]]), identity(0));

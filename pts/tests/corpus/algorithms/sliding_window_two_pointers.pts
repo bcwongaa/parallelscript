@@ -1,0 +1,124 @@
+// Two-pointer and sliding-window techniques on strings and sensor readings.
+
+function longestUniqueSubstring(s: string): { length: number; text: string } {
+  const lastSeen = new Map<string, number>();
+  let start = 0;
+  let best = { length: 0, text: "" };
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const prev = lastSeen.get(ch);
+    if (prev !== undefined && prev >= start) start = prev + 1;
+    lastSeen.set(ch, i);
+    if (i - start + 1 > best.length) best = { length: i - start + 1, text: s.slice(start, i + 1) };
+  }
+  return best;
+}
+
+function minWindow(s: string, t: string): string {
+  const need = new Map<string, number>();
+  for (const ch of t) need.set(ch, (need.get(ch) ?? 0) + 1);
+  let missing = t.length;
+  let bestStart = 0;
+  let bestLen = Infinity;
+  let left = 0;
+  for (let right = 0; right < s.length; right++) {
+    const c = s[right];
+    if ((need.get(c) ?? 0) > 0) missing--;
+    need.set(c, (need.get(c) ?? 0) - 1);
+    while (missing === 0) {
+      if (right - left + 1 < bestLen) {
+        bestLen = right - left + 1;
+        bestStart = left;
+      }
+      const l = s[left];
+      need.set(l, (need.get(l) ?? 0) + 1);
+      if ((need.get(l) ?? 0) > 0) missing++;
+      left++;
+    }
+  }
+  return bestLen === Infinity ? "" : s.substr(bestStart, bestLen);
+}
+
+function twoSumSorted(a: number[], target: number): [number, number] | null {
+  let i = 0;
+  let j = a.length - 1;
+  while (i < j) {
+    const s = a[i] + a[j];
+    if (s === target) return [i, j];
+    if (s < target) i++;
+    else j--;
+  }
+  return null;
+}
+
+function threeSum(nums: number[]): number[][] {
+  const a = [...nums].sort((x, y) => x - y);
+  const out: number[][] = [];
+  for (let i = 0; i < a.length - 2; i++) {
+    if (i > 0 && a[i] === a[i - 1]) continue;
+    let lo = i + 1;
+    let hi = a.length - 1;
+    while (lo < hi) {
+      const s = a[i] + a[lo] + a[hi];
+      if (s === 0) {
+        out.push([a[i], a[lo], a[hi]]);
+        while (lo < hi && a[lo] === a[lo + 1]) lo++;
+        while (lo < hi && a[hi] === a[hi - 1]) hi--;
+        lo++;
+        hi--;
+      } else if (s < 0) lo++;
+      else hi--;
+    }
+  }
+  return out;
+}
+
+function movingAverage(xs: number[], k: number): number[] {
+  const out: number[] = [];
+  let sum = 0;
+  xs.forEach((x, i) => {
+    sum += x;
+    if (i >= k) sum -= xs[i - k];
+    if (i >= k - 1) out.push(Math.round((sum / k) * 100) / 100);
+  });
+  return out;
+}
+
+function slidingMax(xs: number[], k: number): number[] {
+  const dq: number[] = [];
+  const out: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    while (dq.length && dq[0] <= i - k) dq.shift();
+    while (dq.length && xs[dq[dq.length - 1]] <= xs[i]) dq.pop();
+    dq.push(i);
+    if (i >= k - 1) out.push(xs[dq[0]]);
+  }
+  return out;
+}
+
+for (const s of ["abcabcbb", "bbbbb", "pwwkew", "", "dvdf", "parallelscript"]) {
+  console.log(JSON.stringify(s), "->", longestUniqueSubstring(s));
+}
+console.log("min window:", [["ADOBECODEBANC", "ABC"], ["a", "aa"], ["thisisateststring", "tist"]].map(([s, t]) => `${s}/${t}=${JSON.stringify(minWindow(s, t))}`));
+const sorted = [1, 3, 4, 6, 8, 11, 15];
+console.log("two-sum 14:", twoSumSorted(sorted, 14), "two-sum 100:", twoSumSorted(sorted, 100));
+console.log("three-sum:", threeSum([-1, 0, 1, 2, -1, -4, -2, 3, 0, 0]));
+
+const temps = [21.5, 22.1, 23.4, 25.0, 24.2, 22.8, 21.9, 20.5, 19.8, 22.3, 24.7, 26.1];
+console.log("3-hour average:", movingAverage(temps, 3));
+console.log("4-hour max:", slidingMax(temps, 4));
+const spikes = temps.map((t, i) => ({ hour: i, t, delta: i ? +(t - temps[i - 1]).toFixed(1) : 0 })).filter((r) => Math.abs(r.delta) >= 1.5);
+console.log("spikes:", spikes);
+
+// Count subarrays with sum exactly k using prefix sums.
+const arr = [1, 2, 3, -2, 5, -3, 1, 4];
+const k = 3;
+const seen = new Map<number, number>([[0, 1]]);
+let prefix = 0;
+let count = 0;
+for (const x of arr) {
+  prefix += x;
+  count += seen.get(prefix - k) ?? 0;
+  seen.set(prefix, (seen.get(prefix) ?? 0) + 1);
+}
+console.log(`subarrays summing to ${k}: ${count}`, seen);

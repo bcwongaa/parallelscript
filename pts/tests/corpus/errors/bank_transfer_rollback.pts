@@ -1,0 +1,128 @@
+// Bank ledger with transfers that roll back all changes when any step fails.
+
+class InsufficientFundsError extends Error {
+  constructor(readonly account: string, readonly needed: number, readonly available: number) {
+    super(`account ${account} needs ${needed.toFixed(2)} but has ${available.toFixed(2)}`);
+    this.name = "InsufficientFundsError";
+  }
+}
+
+class AccountFrozenError extends Error {
+  constructor(readonly account: string) {
+    super(`account ${account} is frozen`);
+    this.name = "AccountFrozenError";
+  }
+}
+
+class UnknownAccountError extends Error {
+  constructor(readonly account: string) {
+    super(`no account named ${account}`);
+    this.name = "UnknownAccountError";
+  }
+}
+
+interface Account {
+  id: string;
+  balanceCents: number;
+  frozen: boolean;
+}
+
+type Change = { id: string; before: number };
+
+class Ledger {
+  private accounts = new Map<string, Account>();
+  private journal: string[] = [];
+
+  open(id: string, cents: number, frozen = false): void {
+    this.accounts.set(id, { id, balanceCents: cents, frozen });
+  }
+
+  private account(id: string): Account {
+    const a = this.accounts.get(id);
+    if (!a) throw new UnknownAccountError(id);
+    return a;
+  }
+
+  private adjust(id: string, delta: number, changes: Change[]): void {
+    const a = this.account(id);
+    if (a.frozen) throw new AccountFrozenError(id);
+    if (a.balanceCents + delta < 0) {
+      throw new InsufficientFundsError(id, -delta / 100, a.balanceCents / 100);
+    }
+    changes.push({ id, before: a.balanceCents });
+    a.balanceCents += delta;
+  }
+
+  // Moves money from one account to several others, all or nothing.
+  transfer(from: string, to: Array<[string, number]>, feeCents = 25): boolean {
+    const changes: Change[] = [];
+    const total = to.reduce((s, [, c]) => s + c, 0) + feeCents;
+    try {
+      for (const [dest, cents] of to) {
+        this.adjust(dest, cents, changes);
+      }
+      this.adjust(from, -total, changes);
+      this.adjust("bank-fees", feeCents, changes);
+      this.journal.push(`${from} -> ${to.map(([d, c]) => `${d}:${c}`).join(",")} (fee ${feeCents})`);
+      return true;
+    } catch (e) {
+      for (const ch of changes.reverse()) {
+        this.account(ch.id).balanceCents = ch.before;
+      }
+      const reason = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      this.journal.push(`ROLLBACK ${changes.length} change(s): ${reason}`);
+      if (e instanceof UnknownAccountError) throw e;
+      return false;
+    }
+  }
+
+  snapshot(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [id, a] of [...this.accounts].sort((x, y) => x[0].localeCompare(y[0]))) {
+      out[id] = (a.balanceCents / 100).toFixed(2) + (a.frozen ? " (frozen)" : "");
+    }
+    return out;
+  }
+
+  history(): readonly string[] {
+    return this.journal;
+  }
+}
+
+const ledger = new Ledger();
+ledger.open("alice", 100_00);
+ledger.open("bob", 20_00);
+ledger.open("carol", 5_00);
+ledger.open("dan", 0, true);
+ledger.open("bank-fees", 0);
+
+const plans: Array<[string, Array<[string, number]>]> = [
+  ["alice", [["bob", 30_00], ["carol", 10_00]]],
+  ["bob", [["carol", 60_00]]],
+  ["carol", [["alice", 1_00], ["dan", 2_00]]],
+  ["alice", [["carol", 5_00], ["zed", 1_00]]],
+  ["bob", [["alice", 49_75]]],
+  ["bob", [["alice", 0]]],
+];
+
+for (const [from, to] of plans) {
+  try {
+    const okay = ledger.transfer(from, to);
+    console.log(`${from} transfer ${okay ? "committed" : "rolled back"}`);
+  } catch (e) {
+    if (e instanceof UnknownAccountError) {
+      console.log(`${from} transfer aborted: unknown account '${e.account}'`);
+    } else {
+      throw e;
+    }
+  }
+  console.log("  ", ledger.snapshot());
+}
+
+console.log("journal:");
+ledger.history().forEach((line, i) => console.log(`${i + 1}) ${line}`));
+
+const total = Object.values(ledger.snapshot())
+  .map((s) => parseFloat(s))
+  .reduce((a, b) => a + b, 0);
+console.log("money is conserved:", total.toFixed(2) === "125.00", total);

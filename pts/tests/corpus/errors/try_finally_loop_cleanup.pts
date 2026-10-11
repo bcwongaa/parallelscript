@@ -1,0 +1,106 @@
+// skip: not supported yet: PTS1001: converting Handle | null to Handle
+// Opens and closes fake file handles inside loops; try/finally guarantees
+// every handle is released even with break, continue, return and throw.
+
+class Handle {
+  static open = 0;
+  static log: string[] = [];
+  private closed = false;
+  constructor(readonly name: string) {
+    Handle.open++;
+    Handle.log.push(`open ${name}`);
+  }
+  read(): string {
+    if (this.closed) throw new Error(`read on closed handle ${this.name}`);
+    return `<${this.name}>`;
+  }
+  close(): void {
+    if (this.closed) throw new Error(`double close of ${this.name}`);
+    this.closed = true;
+    Handle.open--;
+    Handle.log.push(`close ${this.name}`);
+  }
+}
+
+function withHandle<T>(name: string, fn: (h: Handle) => T): T {
+  const h = new Handle(name);
+  try {
+    return fn(h);
+  } finally {
+    h.close();
+  }
+}
+
+function report(title: string): void {
+  console.log(`${title}: open=${Handle.open} log=${Handle.log.join(", ")}`);
+  Handle.log = [];
+}
+
+const files = ["a.txt", "skip.tmp", "b.txt", "stop.lock", "c.txt"];
+const contents: string[] = [];
+for (const f of files) {
+  const h = new Handle(f);
+  try {
+    if (f.endsWith(".tmp")) continue;
+    if (f.endsWith(".lock")) break;
+    contents.push(h.read());
+  } finally {
+    h.close();
+  }
+}
+console.log(contents);
+report("loop with continue/break");
+
+function firstMatching(names: string[], suffix: string): string | null {
+  for (const n of names) {
+    const h = new Handle(n);
+    try {
+      if (n.endsWith(suffix)) return h.read();
+    } finally {
+      h.close();
+    }
+  }
+  return null;
+}
+console.log(firstMatching(files, ".lock"), firstMatching(files, ".zip"));
+report("early return");
+
+const sizes: Record<string, number> = {};
+for (const f of ["x.bin", "corrupt.bin", "y.bin"]) {
+  try {
+    sizes[f] = withHandle(f, (h) => {
+      if (f.startsWith("corrupt")) throw new Error(`checksum mismatch in ${f}`);
+      return h.read().length;
+    });
+  } catch (e) {
+    sizes[f] = -1;
+    console.log("caught:", (e as Error).message);
+  }
+}
+console.log(sizes);
+report("withHandle + throw");
+
+const nested = withHandle("outer", (o) =>
+  withHandle("inner", (i) => {
+    return [o.read(), i.read()].join("+");
+  }),
+);
+console.log(nested);
+report("nested");
+
+let leaked: Handle | null = null;
+try {
+  withHandle("escape", (h) => {
+    leaked = h;
+    return 0;
+  });
+  if (leaked !== null) (leaked as Handle).read();
+} catch (e) {
+  console.log("after scope:", (e as Error).message);
+}
+try {
+  withHandle("twice", (h) => h.close());
+} catch (e) {
+  console.log("cleanup error:", (e as Error).message);
+}
+report("misuse");

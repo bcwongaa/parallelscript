@@ -1,0 +1,92 @@
+// A regex-free glob matcher supporting *, ?, [abc], [a-z], [!x], {a,b} alternation and
+// ** for path segments, used to filter a file tree.
+function expandBraces(pattern: string): string[] {
+  const open = pattern.indexOf("{");
+  if (open < 0) return [pattern];
+  let depth = 0, close = -1;
+  for (let i = open; i < pattern.length; i++) {
+    if (pattern[i] === "{") depth++;
+    else if (pattern[i] === "}" && --depth === 0) { close = i; break; }
+  }
+  if (close < 0) return [pattern];
+  const options: string[] = [];
+  let start = open + 1;
+  depth = 0;
+  for (let i = open + 1; i < close; i++) {
+    if (pattern[i] === "{") depth++;
+    else if (pattern[i] === "}") depth--;
+    else if (pattern[i] === "," && depth === 0) { options.push(pattern.slice(start, i)); start = i + 1; }
+  }
+  options.push(pattern.slice(start, close));
+  const prefix = pattern.slice(0, open), suffix = pattern.slice(close + 1);
+  return options.flatMap((o) => expandBraces(prefix + o + suffix));
+}
+
+function matchClass(pattern: string, pi: number, ch: string): { ok: boolean; next: number } | null {
+  let i = pi + 1;
+  const negate = pattern[i] === "!" || pattern[i] === "^";
+  if (negate) i++;
+  let ok = false;
+  let first = true;
+  while (i < pattern.length && (pattern[i] !== "]" || first)) {
+    first = false;
+    if (pattern[i + 1] === "-" && i + 2 < pattern.length && pattern[i + 2] !== "]") {
+      if (ch >= pattern[i] && ch <= pattern[i + 2]) ok = true;
+      i += 3;
+    } else {
+      if (ch === pattern[i]) ok = true;
+      i++;
+    }
+  }
+  if (i >= pattern.length) return null;
+  return { ok: ok !== negate, next: i + 1 };
+}
+
+function matchSegment(p: string, s: string): boolean {
+  let pi = 0, si = 0, starP = -1, starS = 0;
+  while (si < s.length) {
+    if (pi < p.length && p[pi] === "[") {
+      const r = matchClass(p, pi, s[si]);
+      if (r && r.ok) { pi = r.next; si++; continue; }
+    } else if (pi < p.length && (p[pi] === "?" || p[pi] === s[si])) { pi++; si++; continue; }
+    else if (pi < p.length && p[pi] === "*") { starP = pi++; starS = si; continue; }
+    if (starP >= 0) { pi = starP + 1; si = ++starS; continue; }
+    return false;
+  }
+  while (pi < p.length && p[pi] === "*") pi++;
+  return pi === p.length;
+}
+
+function matchParts(pp: string[], sp: string[]): boolean {
+  if (pp.length === 0) return sp.length === 0;
+  const [head, ...rest] = pp;
+  if (head === "**") {
+    for (let k = 0; k <= sp.length; k++) if (matchParts(rest, sp.slice(k))) return true;
+    return false;
+  }
+  return sp.length > 0 && matchSegment(head, sp[0]) && matchParts(rest, sp.slice(1));
+}
+
+function glob(pattern: string, path: string): boolean {
+  return expandBraces(pattern).some((p) => matchParts(p.split("/"), path.split("/")));
+}
+
+const files = [
+  "src/main.ts", "src/util/strings.ts", "src/util/strings.test.ts", "src/gc/heap.c", "src/gc/heap.h",
+  "README.md", "docs/SPEC.md", "docs/agent/NOTES.md", "build/out.o", "test/a1.pts", "test/b2.pts",
+  "test/c10.pts", ".gitignore", "package.json",
+];
+const patterns = [
+  "*.md", "**/*.md", "src/**/*.ts", "src/*/*.{c,h}", "test/[ab]?.pts", "test/[!a]*.pts",
+  "**/*.test.ts", "{src,test}/**", "docs/**/[A-Z]*.md", ".*", "src/util/str?ngs.ts", "**",
+];
+for (const p of patterns) {
+  const hits = files.filter((f) => glob(p, f));
+  console.log(`${p.padEnd(20)} ${hits.length} ${JSON.stringify(hits)}`);
+}
+console.log(expandBraces("a{b,c{d,e}}f{1,2}"));
+console.log(expandBraces("{x,y,z}.{js,ts}").length, expandBraces("no-braces"));
+const segTests: [string, string][] = [["a*b*c", "aXXbYYc"], ["*.*", "file"], ["[a-c]x", "bx"], ["[]]", "]"], ["h?llo", "hallo"], ["[0-9][0-9]", "4a"]];
+console.log(segTests.map(([p, s]) => ({ p, s, ok: matchSegment(p, s) })));
+const ignored = new Set(files.filter((f) => ["build/**", "*.json", ".*"].some((p) => glob(p, f))));
+console.log(ignored, files.length - ignored.size);

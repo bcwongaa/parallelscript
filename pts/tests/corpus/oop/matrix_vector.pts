@@ -1,0 +1,149 @@
+// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Float64Array<ArrayBufferLike>)
+// Vector and Matrix classes: arithmetic, determinant, inverse via Gauss-Jordan, transforms.
+
+class Vec {
+  constructor(readonly values: number[]) {}
+  static of(...xs: number[]): Vec {
+    return new Vec(xs);
+  }
+  get length(): number {
+    return this.values.length;
+  }
+  at(i: number): number {
+    return this.values[i];
+  }
+  plus(o: Vec): Vec {
+    this.check(o);
+    return new Vec(this.values.map((x, i) => x + o.at(i)));
+  }
+  scale(k: number): Vec {
+    return new Vec(this.values.map((x) => x * k));
+  }
+  dot(o: Vec): number {
+    this.check(o);
+    return this.values.reduce((s, x, i) => s + x * o.at(i), 0);
+  }
+  get norm(): number {
+    return Math.sqrt(this.dot(this));
+  }
+  private check(o: Vec): void {
+    if (o.length !== this.length) throw new Error(`dimension mismatch ${this.length} vs ${o.length}`);
+  }
+  toString(): string {
+    return `(${this.values.map((x) => +x.toFixed(3)).join(", ")})`;
+  }
+}
+
+class Matrix {
+  private constructor(readonly rows: number, readonly cols: number, private data: Float64Array) {}
+
+  static from(rows: number[][]): Matrix {
+    const r = rows.length, c = rows[0].length;
+    const data = new Float64Array(r * c);
+    rows.forEach((row, i) => row.forEach((v, j) => (data[i * c + j] = v)));
+    return new Matrix(r, c, data);
+  }
+  static identity(n: number): Matrix {
+    const m = new Matrix(n, n, new Float64Array(n * n));
+    for (let i = 0; i < n; i++) m.set(i, i, 1);
+    return m;
+  }
+  get(i: number, j: number): number {
+    return this.data[i * this.cols + j];
+  }
+  set(i: number, j: number, v: number): void {
+    this.data[i * this.cols + j] = v;
+  }
+  times(o: Matrix): Matrix {
+    if (this.cols !== o.rows) throw new Error("shape mismatch");
+    const out = new Matrix(this.rows, o.cols, new Float64Array(this.rows * o.cols));
+    for (let i = 0; i < this.rows; i++)
+      for (let j = 0; j < o.cols; j++) {
+        let s = 0;
+        for (let k = 0; k < this.cols; k++) s += this.get(i, k) * o.get(k, j);
+        out.set(i, j, s);
+      }
+    return out;
+  }
+  apply(v: Vec): Vec {
+    const out: number[] = [];
+    for (let i = 0; i < this.rows; i++) {
+      let s = 0;
+      for (let j = 0; j < this.cols; j++) s += this.get(i, j) * v.at(j);
+      out.push(s);
+    }
+    return new Vec(out);
+  }
+  transpose(): Matrix {
+    const t = new Matrix(this.cols, this.rows, new Float64Array(this.data.length));
+    for (let i = 0; i < this.rows; i++) for (let j = 0; j < this.cols; j++) t.set(j, i, this.get(i, j));
+    return t;
+  }
+  determinant(): number {
+    if (this.rows !== this.cols) throw new Error("not square");
+    if (this.rows === 1) return this.get(0, 0);
+    if (this.rows === 2) return this.get(0, 0) * this.get(1, 1) - this.get(0, 1) * this.get(1, 0);
+    let det = 0;
+    for (let j = 0; j < this.cols; j++) det += (j % 2 === 0 ? 1 : -1) * this.get(0, j) * this.minor(0, j).determinant();
+    return det;
+  }
+  private minor(row: number, col: number): Matrix {
+    const rows: number[][] = [];
+    for (let i = 0; i < this.rows; i++) {
+      if (i === row) continue;
+      const r: number[] = [];
+      for (let j = 0; j < this.cols; j++) if (j !== col) r.push(this.get(i, j));
+      rows.push(r);
+    }
+    return Matrix.from(rows);
+  }
+  inverse(): Matrix | null {
+    const n = this.rows;
+    const a = Matrix.from(this.toArray().map((row, i) => [...row, ...Matrix.identity(n).toArray()[i]]));
+    for (let c = 0; c < n; c++) {
+      let pivot = c;
+      for (let r = c + 1; r < n; r++) if (Math.abs(a.get(r, c)) > Math.abs(a.get(pivot, c))) pivot = r;
+      if (Math.abs(a.get(pivot, c)) < 1e-12) return null;
+      for (let j = 0; j < 2 * n; j++) {
+        const tmp = a.get(c, j);
+        a.set(c, j, a.get(pivot, j));
+        a.set(pivot, j, tmp);
+      }
+      const p = a.get(c, c);
+      for (let j = 0; j < 2 * n; j++) a.set(c, j, a.get(c, j) / p);
+      for (let r = 0; r < n; r++) {
+        if (r === c) continue;
+        const f = a.get(r, c);
+        for (let j = 0; j < 2 * n; j++) a.set(r, j, a.get(r, j) - f * a.get(c, j));
+      }
+    }
+    return Matrix.from(a.toArray().map((row) => row.slice(n)));
+  }
+  toArray(): number[][] {
+    return Array.from({ length: this.rows }, (_, i) => Array.from(this.data.subarray(i * this.cols, (i + 1) * this.cols)));
+  }
+  toString(): string {
+    return this.toArray().map((r) => "[" + r.map((x) => (Math.abs(x) < 1e-10 ? 0 : x).toFixed(3).padStart(8)).join("") + " ]").join("\n");
+  }
+}
+
+const v = Vec.of(3, 4), w = Vec.of(1, -2);
+console.log(`v=${v} w=${w} v+w=${v.plus(w)} 2v=${v.scale(2)} v.w=${v.dot(w)} |v|=${v.norm}`);
+const rot90 = Matrix.from([[0, -1], [1, 0]]);
+console.log("rot90(v) =", rot90.apply(v).toString(), "rot180(v) =", `${rot90.times(rot90).apply(v)}`);
+const m = Matrix.from([[2, 0, 1], [1, 3, 2], [1, 1, 1]]);
+console.log(m.toString());
+console.log("det:", m.determinant());
+const inv = m.inverse();
+if (inv) {
+  console.log("inverse:\n" + inv);
+  console.log("m * inv:\n" + m.times(inv));
+}
+console.log("singular inverse:", Matrix.from([[1, 2], [2, 4]]).inverse());
+console.log("transpose:\n" + Matrix.from([[1, 2, 3], [4, 5, 6]]).transpose());
+try {
+  v.plus(Vec.of(1, 2, 3));
+} catch (e) {
+  console.log((e as Error).message);
+}
+console.log(m.toArray(), v);

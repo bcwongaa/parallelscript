@@ -1,0 +1,114 @@
+// Retries calls to a deterministic flaky service with exponential backoff
+// (simulated clock, no real waiting).
+
+class TransientError extends Error {
+  constructor(message: string, readonly attempt: number) {
+    super(message);
+    this.name = "TransientError";
+  }
+}
+
+class PermanentError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "PermanentError";
+  }
+}
+
+class RetriesExhaustedError extends Error {
+  readonly attempts: number;
+  readonly errors: Error[];
+  constructor(op: string, errors: Error[]) {
+    super(`${op} failed after ${errors.length} attempts`);
+    this.name = "RetriesExhaustedError";
+    this.attempts = errors.length;
+    this.errors = errors;
+  }
+}
+
+class FakeClock {
+  now = 0;
+  sleep(ms: number): void {
+    this.now += ms;
+  }
+}
+
+// Fails according to a script: "T" transient, "P" permanent, "." success.
+class ScriptedService {
+  private calls = 0;
+  constructor(private readonly name: string, private readonly script: string) {}
+  call(payload: number): number {
+    const step = this.script[Math.min(this.calls, this.script.length - 1)];
+    this.calls++;
+    if (step === "T") throw new TransientError(`${this.name} timed out`, this.calls);
+    if (step === "P") throw new PermanentError(`${this.name} rejected payload ${payload}`, 400);
+    return payload * payload;
+  }
+  get callCount(): number {
+    return this.calls;
+  }
+}
+
+interface RetryPolicy {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  factor: number;
+}
+
+function withRetry<T>(op: string, clock: FakeClock, policy: RetryPolicy, fn: () => T): T {
+  const errors: Error[] = [];
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+    try {
+      const value = fn();
+      console.log(`  [t=${clock.now}ms] ${op} attempt ${attempt}: ok`);
+      return value;
+    } catch (e) {
+      if (!(e instanceof Error)) throw e;
+      errors.push(e);
+      if (e instanceof PermanentError) {
+        console.log(`  [t=${clock.now}ms] ${op} attempt ${attempt}: permanent (${e.status}), giving up`);
+        throw e;
+      }
+      const delay = Math.min(policy.maxDelayMs, policy.baseDelayMs * Math.pow(policy.factor, attempt - 1));
+      console.log(`  [t=${clock.now}ms] ${op} attempt ${attempt}: ${e.message}; retry in ${delay}ms`);
+      if (attempt < policy.maxAttempts) clock.sleep(delay);
+    }
+  }
+  throw new RetriesExhaustedError(op, errors);
+}
+
+const policy: RetryPolicy = { maxAttempts: 5, baseDelayMs: 100, maxDelayMs: 1000, factor: 2.5 };
+const scenarios: Array<[string, string, number]> = [
+  ["inventory", ".", 3],
+  ["pricing", "TT.", 4],
+  ["payments", "TP", 5],
+  ["shipping", "TTTTTT", 6],
+  ["search", "TTTT.", 7],
+];
+
+const summary: Array<{ service: string; outcome: string; calls: number; elapsedMs: number }> = [];
+for (const [name, script, payload] of scenarios) {
+  const clock = new FakeClock();
+  const svc = new ScriptedService(name, script);
+  console.log(`${name}:`);
+  let outcome: string;
+  try {
+    const v = withRetry(`${name}.call`, clock, policy, () => svc.call(payload));
+    outcome = `value ${v}`;
+  } catch (e) {
+    if (e instanceof RetriesExhaustedError) {
+      const attemptsSeen = e.errors.map((x) => (x instanceof TransientError ? x.attempt : -1));
+      outcome = `exhausted (${e.attempts}) ${JSON.stringify(attemptsSeen)}`;
+    } else if (e instanceof PermanentError) {
+      outcome = `rejected: ${e.message}`;
+    } else {
+      outcome = "unexpected";
+    }
+  }
+  summary.push({ service: name, outcome, calls: svc.callCount, elapsedMs: clock.now });
+}
+
+console.table(summary);
+const totalWait = summary.reduce((s, r) => s + r.elapsedMs, 0);
+console.log("total simulated wait: %d ms over %i services", totalWait, summary.length);

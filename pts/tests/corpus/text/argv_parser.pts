@@ -1,0 +1,146 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+// A command-line argument parser over fixed argv arrays: long/short flags, bundled shorts,
+// --key=value, typed options, defaults, positionals, "--" terminator and help text.
+type OptType = "boolean" | "string" | "number" | "list";
+
+interface OptSpec {
+  name: string;
+  short?: string;
+  type: OptType;
+  description: string;
+  default?: boolean | string | number | string[];
+  required?: boolean;
+}
+
+type ParsedValue = boolean | string | number | string[];
+
+interface ParseResult {
+  options: Record<string, ParsedValue>;
+  positionals: string[];
+  rest: string[];
+}
+
+class UsageError extends Error {
+  constructor(message: string, readonly arg?: string) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
+
+class ArgParser {
+  private readonly specs: OptSpec[] = [];
+  constructor(private readonly program: string) {}
+  option(spec: OptSpec): this {
+    this.specs.push(spec);
+    return this;
+  }
+  private find(key: string): OptSpec {
+    const spec = key.length === 1 ? this.specs.find((s) => s.short === key) : this.specs.find((s) => s.name === key);
+    if (!spec) throw new UsageError(`unknown option ${key.length === 1 ? "-" : "--"}${key}`, key);
+    return spec;
+  }
+  private convert(spec: OptSpec, raw: string): ParsedValue {
+    if (spec.type === "number") {
+      const n = Number(raw);
+      if (raw.trim() === "" || Number.isNaN(n)) throw new UsageError(`--${spec.name} expects a number, got '${raw}'`);
+      return n;
+    }
+    return raw;
+  }
+  parse(argv: readonly string[]): ParseResult {
+    const options: Record<string, ParsedValue> = {};
+    for (const s of this.specs) {
+      if (s.default !== undefined) options[s.name] = Array.isArray(s.default) ? [...s.default] : s.default;
+      else if (s.type === "boolean") options[s.name] = false;
+      else if (s.type === "list") options[s.name] = [];
+    }
+    const positionals: string[] = [];
+    let i = 0;
+    const takeValue = (spec: OptSpec, inline: string | undefined): string => {
+      if (inline !== undefined) return inline;
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("-")) throw new UsageError(`option --${spec.name} needs a value`);
+      i++;
+      return next;
+    };
+    const assign = (spec: OptSpec, inline: string | undefined) => {
+      if (spec.type === "boolean") {
+        if (inline !== undefined) throw new UsageError(`--${spec.name} does not take a value`);
+        options[spec.name] = true;
+      } else if (spec.type === "list") {
+        const cur = options[spec.name];
+        const list = Array.isArray(cur) ? cur : [];
+        list.push(...takeValue(spec, inline).split(","));
+        options[spec.name] = list;
+      } else {
+        options[spec.name] = this.convert(spec, takeValue(spec, inline));
+      }
+    };
+    for (; i < argv.length; i++) {
+      const arg = argv[i];
+      if (arg === "--") return this.finish(options, positionals, argv.slice(i + 1));
+      if (arg.startsWith("--no-")) {
+        const spec = this.find(arg.slice(5));
+        if (spec.type !== "boolean") throw new UsageError(`--no-${spec.name} only applies to flags`);
+        options[spec.name] = false;
+      } else if (arg.startsWith("--")) {
+        const eq = arg.indexOf("=");
+        assign(this.find(eq < 0 ? arg.slice(2) : arg.slice(2, eq)), eq < 0 ? undefined : arg.slice(eq + 1));
+      } else if (arg.startsWith("-") && arg.length > 1) {
+        const letters = arg.slice(1);
+        for (let k = 0; k < letters.length; k++) {
+          const spec = this.find(letters[k]);
+          if (spec.type !== "boolean" && k < letters.length - 1) {
+            assign(spec, letters.slice(k + 1));
+            break;
+          }
+          assign(spec, undefined);
+        }
+      } else positionals.push(arg);
+    }
+    return this.finish(options, positionals, []);
+  }
+  private finish(options: Record<string, ParsedValue>, positionals: string[], rest: string[]): ParseResult {
+    const missing = this.specs.filter((s) => s.required && !(s.name in options));
+    if (missing.length) throw new UsageError(`missing required: ${missing.map((s) => "--" + s.name).join(", ")}`);
+    return { options, positionals, rest };
+  }
+  help(): string {
+    const lines = [`usage: ${this.program} [options] <files...>`, "", "options:"];
+    for (const s of this.specs) {
+      const flag = `${s.short ? `-${s.short}, ` : "    "}--${s.name}${s.type === "boolean" ? "" : ` <${s.type}>`}`;
+      const def = s.default !== undefined ? ` (default: ${JSON.stringify(s.default)})` : s.required ? " (required)" : "";
+      lines.push(`  ${flag.padEnd(26)}${s.description}${def}`);
+    }
+    return lines.join("\n");
+  }
+}
+
+const parser = new ArgParser("pts")
+  .option({ name: "output", short: "o", type: "string", description: "output file", required: true })
+  .option({ name: "opt-level", short: "O", type: "number", description: "optimisation level", default: 2 })
+  .option({ name: "verbose", short: "v", type: "boolean", description: "chatty output" })
+  .option({ name: "debug", short: "g", type: "boolean", description: "emit debug info", default: true })
+  .option({ name: "define", short: "D", type: "list", description: "preprocessor defines" })
+  .option({ name: "target", type: "string", description: "target triple", default: "x86_64-linux" });
+
+console.log(parser.help());
+const argvs: string[][] = [
+  ["build", "main.pts", "-o", "app", "-vO3"],
+  ["-o=x", "--target=aarch64-macos", "--no-debug", "-D", "A=1,B", "--define", "C", "a.pts", "b.pts"],
+  ["-gvo", "out", "--", "--not-an-option", "-x"],
+  ["main.pts"],
+  ["-o", "a", "--opt-level", "fast"],
+  ["-o", "a", "--colour"],
+  ["-o"],
+  ["--verbose=yes", "-o", "z"],
+];
+for (const argv of argvs) {
+  try {
+    const r = parser.parse(argv);
+    console.log(argv.join(" "), "=>", r);
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    console.log(argv.join(" "), "=>", `${e.name}: ${e.message}`, e.arg ?? "");
+  }
+}

@@ -1,0 +1,117 @@
+// A document editor using the command pattern. A macro runs several
+// commands as one transaction and undoes the applied ones if any fails.
+
+class CommandError extends Error {
+  constructor(readonly command: string, message: string) {
+    super(`${command}: ${message}`);
+    this.name = "CommandError";
+  }
+}
+
+interface Command {
+  readonly label: string;
+  apply(doc: string[]): void;
+  undo(doc: string[]): void;
+}
+
+class InsertLine implements Command {
+  constructor(private at: number, private text: string) {}
+  get label(): string {
+    return `insert@${this.at}`;
+  }
+  apply(doc: string[]): void {
+    if (this.at < 0 || this.at > doc.length) throw new CommandError(this.label, `line ${this.at} out of range 0..${doc.length}`);
+    doc.splice(this.at, 0, this.text);
+  }
+  undo(doc: string[]): void {
+    doc.splice(this.at, 1);
+  }
+}
+
+class DeleteLine implements Command {
+  private removed: string | null = null;
+  constructor(private at: number) {}
+  get label(): string {
+    return `delete@${this.at}`;
+  }
+  apply(doc: string[]): void {
+    if (this.at < 0 || this.at >= doc.length) throw new CommandError(this.label, "no such line");
+    this.removed = doc.splice(this.at, 1)[0];
+  }
+  undo(doc: string[]): void {
+    if (this.removed === null) throw new CommandError(this.label, "nothing to undo");
+    doc.splice(this.at, 0, this.removed);
+  }
+}
+
+class ReplaceText implements Command {
+  private before: string | null = null;
+  constructor(private at: number, private find: string, private repl: string) {}
+  get label(): string {
+    return `replace@${this.at}`;
+  }
+  apply(doc: string[]): void {
+    const line = doc[this.at];
+    if (line === undefined) throw new CommandError(this.label, "no such line");
+    if (!line.includes(this.find)) throw new CommandError(this.label, `'${this.find}' not found`);
+    this.before = line;
+    doc[this.at] = line.split(this.find).join(this.repl);
+  }
+  undo(doc: string[]): void {
+    if (this.before !== null) doc[this.at] = this.before;
+  }
+}
+
+class Editor {
+  readonly doc: string[];
+  private history: Command[][] = [];
+  constructor(lines: string[]) {
+    this.doc = [...lines];
+  }
+
+  run(name: string, commands: Command[]): boolean {
+    const applied: Command[] = [];
+    try {
+      for (const c of commands) {
+        c.apply(this.doc);
+        applied.push(c);
+      }
+      this.history.push(applied);
+      console.log(`macro '${name}' committed (${applied.map((c) => c.label).join(", ")})`);
+      return true;
+    } catch (e) {
+      for (const c of applied.reverse()) c.undo(this.doc);
+      console.log(`macro '${name}' rolled back after ${applied.length} step(s): ${e instanceof Error ? e.message : e}`);
+      return false;
+    }
+  }
+
+  undoLast(): void {
+    const last = this.history.pop();
+    if (last === undefined) throw new CommandError("undo", "history is empty");
+    for (const c of [...last].reverse()) c.undo(this.doc);
+  }
+}
+
+const ed = new Editor(["# Title", "hello world", "goodbye world"]);
+const show = () => console.log(ed.doc);
+
+ed.run("greet", [new InsertLine(1, "intro"), new ReplaceText(2, "world", "there")]);
+show();
+ed.run("broken", [new DeleteLine(0), new InsertLine(0, "# New"), new ReplaceText(3, "moon", "sun")]);
+show();
+ed.run("out of range", [new InsertLine(2, "x"), new DeleteLine(9)]);
+show();
+ed.run("cleanup", [new DeleteLine(3), new ReplaceText(0, "Title", "Notes")]);
+show();
+const results: string[] = [];
+for (let i = 0; i < 4; i++) {
+  try {
+    ed.undoLast();
+    results.push(`undo ${i}: ${ed.doc.length} lines`);
+  } catch (e) {
+    results.push(`undo ${i}: ${(e as CommandError).message}`);
+  }
+}
+console.log(results);
+show();

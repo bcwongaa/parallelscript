@@ -1,0 +1,118 @@
+// Lazy sequences built from thunks: an infinite stream type with memoized tails.
+
+type Stream<T> = { head: T; tail: () => Stream<T> } | null;
+
+function cons<T>(head: T, tailFn: () => Stream<T>): Stream<T> {
+  let cached: Stream<T> | undefined;
+  let forced = false;
+  return {
+    head,
+    tail: () => {
+      if (!forced) {
+        cached = tailFn();
+        forced = true;
+      }
+      return cached ?? null;
+    },
+  };
+}
+
+let evaluations = 0;
+function from(n: number, step = 1): Stream<number> {
+  evaluations++;
+  return cons(n, () => from(n + step, step));
+}
+
+function take<T>(s: Stream<T>, n: number): T[] {
+  const out: T[] = [];
+  let cur = s;
+  while (cur !== null && out.length < n) {
+    out.push(cur.head);
+    cur = cur.tail();
+  }
+  return out;
+}
+
+function mapS<T, U>(s: Stream<T>, f: (x: T) => U): Stream<U> {
+  return s === null ? null : cons(f(s.head), () => mapS(s.tail(), f));
+}
+
+function filterS<T>(s: Stream<T>, pred: (x: T) => boolean): Stream<T> {
+  let cur = s;
+  while (cur !== null && !pred(cur.head)) cur = cur.tail();
+  if (cur === null) return null;
+  const found = cur;
+  return cons(found.head, () => filterS(found.tail(), pred));
+}
+
+function zipWith<A, B, C>(a: Stream<A>, b: Stream<B>, f: (x: A, y: B) => C): Stream<C> {
+  if (a === null || b === null) return null;
+  return cons(f(a.head, b.head), () => zipWith(a.tail(), b.tail(), f));
+}
+
+function takeWhile<T>(s: Stream<T>, pred: (x: T) => boolean): Stream<T> {
+  if (s === null || !pred(s.head)) return null;
+  return cons(s.head, () => takeWhile(s.tail(), pred));
+}
+
+function fromArray<T>(xs: readonly T[], i = 0): Stream<T> {
+  return i >= xs.length ? null : cons(xs[i], () => fromArray(xs, i + 1));
+}
+
+function iterate<T>(seed: T, f: (x: T) => T): Stream<T> {
+  return cons(seed, () => iterate(f(seed), f));
+}
+
+const naturals = from(1);
+console.log("first 10 naturals:", take(naturals, 10));
+console.log("evaluations so far:", evaluations);
+take(naturals, 10);
+console.log("evaluations after re-walking (memoized):", evaluations);
+
+const squares = mapS(naturals, (n) => n * n);
+console.log("odd squares:", take(filterS(squares, (n) => n % 2 === 1), 8));
+
+// Fibonacci as a self-referential stream
+const fibs: Stream<number> = cons(0, () => cons(1, () => zipWith(fibs, fibs === null ? null : fibs.tail(), (a, b) => a + b)));
+console.log("fibs:", take(fibs, 20).join(" "));
+
+// Sieve of Eratosthenes on streams
+function sieve(s: Stream<number>): Stream<number> {
+  if (s === null) return null;
+  const p = s.head;
+  return cons(p, () => sieve(filterS(s.tail(), (n) => n % p !== 0)));
+}
+console.log("primes:", take(sieve(from(2)), 25));
+
+const powersOfTwo = iterate(1, (x) => x * 2);
+console.log("powers below 5000:", take(takeWhile(powersOfTwo, (x) => x < 5000), 100));
+
+// Collatz trajectory, stopping at 1
+const collatz = (n: number) => takeWhile(iterate(n, (x) => (x % 2 === 0 ? x / 2 : 3 * x + 1)), (x) => x !== 1);
+for (const start of [6, 7, 27]) {
+  const path = take(collatz(start), 200);
+  console.log(`collatz(${start}): ${path.length} steps, peak ${Math.max(...path)}`);
+}
+
+// Pairing words with indices lazily
+const words = fromArray(["alpha", "beta", "gamma", "delta"]);
+const indexed = zipWith(from(0), words, (i, w) => ({ i, w, len: w.length }));
+console.log(take(indexed, 10));
+
+// Newton's method sqrt as a converging stream
+function sqrtStream(x: number): Stream<number> {
+  return iterate(x, (g) => (g + x / g) / 2);
+}
+function within(eps: number, s: Stream<number>): number {
+  let cur = s;
+  while (cur !== null) {
+    const next = cur.tail();
+    if (next === null || Math.abs(next.head - cur.head) < eps) return next ? next.head : cur.head;
+    cur = next;
+  }
+  return NaN;
+}
+for (const x of [2, 10, 144, 0.25]) {
+  console.log(`sqrt(${x}) ~ ${within(1e-12, sqrtStream(x)).toFixed(10)}`);
+}
+console.log("empty stream:", take(fromArray([]), 3), take(null, 1));

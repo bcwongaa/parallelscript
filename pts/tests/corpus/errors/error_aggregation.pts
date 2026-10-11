@@ -1,0 +1,102 @@
+// skip: not supported yet: PTS1001: values of type AggregateError
+// Runs a batch of independent jobs, collects every failure, and throws one
+// aggregate error at the end listing them all.
+
+class JobError extends Error {
+  constructor(readonly jobId: string, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "JobError";
+  }
+}
+
+class BatchError extends Error {
+  readonly errors: JobError[];
+  constructor(errors: JobError[], total: number) {
+    super(`${errors.length} of ${total} jobs failed`);
+    this.name = "BatchError";
+    this.errors = errors;
+  }
+
+  byKind(): Map<string, string[]> {
+    const groups = new Map<string, string[]>();
+    for (const e of this.errors) {
+      const kind = e.cause instanceof Error ? e.cause.name : typeof e.cause;
+      const list = groups.get(kind) ?? [];
+      list.push(e.jobId);
+      groups.set(kind, list);
+    }
+    return groups;
+  }
+}
+
+interface Job {
+  id: string;
+  input: string;
+}
+
+function processJob(job: Job): number {
+  if (job.input.length === 0) throw new TypeError("empty input");
+  const parsed: unknown = JSON.parse(job.input);
+  if (!Array.isArray(parsed)) throw new TypeError(`expected an array, got ${typeof parsed}`);
+  let sum = 0;
+  for (const x of parsed) {
+    if (typeof x !== "number") throw new TypeError(`non-numeric element ${JSON.stringify(x)}`);
+    if (x < 0) throw new RangeError(`negative element ${x}`);
+    sum += x;
+  }
+  return sum;
+}
+
+function runBatch(jobs: Job[]): Map<string, number> {
+  const results = new Map<string, number>();
+  const failures: JobError[] = [];
+  for (const job of jobs) {
+    try {
+      results.set(job.id, processJob(job));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      failures.push(new JobError(job.id, `job ${job.id}: ${msg}`, { cause: e }));
+    }
+  }
+  if (failures.length > 0) throw new BatchError(failures, jobs.length);
+  return results;
+}
+
+const batches: Job[][] = [
+  [
+    { id: "a", input: "[1,2,3]" },
+    { id: "b", input: "[10, 20]" },
+  ],
+  [
+    { id: "c", input: "[1, -2]" },
+    { id: "d", input: "{}" },
+    { id: "e", input: "[4, 5]" },
+    { id: "f", input: "" },
+    { id: "g", input: '[1, "two"]' },
+    { id: "h", input: "[1, 2" },
+    { id: "i", input: "[-1]" },
+  ],
+];
+
+for (const [n, batch] of batches.entries()) {
+  console.log(`batch ${n}:`);
+  try {
+    const res = runBatch(batch);
+    console.log("  all ok", res);
+  } catch (e) {
+    if (!(e instanceof BatchError)) throw e;
+    console.log(`  ${e.name}: ${e.message}`);
+    for (const je of e.errors) {
+      const cause = je.cause as Error;
+      console.log(`   - [${je.jobId}] ${cause.name}${cause instanceof SyntaxError ? "" : ": " + cause.message}`);
+    }
+    console.log("  grouped:", e.byKind());
+    const ids = e.errors.map((x) => x.jobId);
+    console.log("  succeeded:", batch.filter((j) => !ids.includes(j.id)).map((j) => j.id));
+  }
+}
+
+const builtin = new AggregateError([new Error("x"), new TypeError("y")], "two problems");
+console.log(builtin.name, builtin.message, builtin.errors.length);
+console.log(builtin.errors.map((x: Error) => `${x.name}:${x.message}`));
+console.log(builtin instanceof Error, builtin instanceof AggregateError);

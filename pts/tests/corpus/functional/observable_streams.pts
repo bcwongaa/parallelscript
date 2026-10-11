@@ -1,0 +1,135 @@
+// skip: not supported yet: PTS1001: values of type void
+// A minimal synchronous Observable with map/filter/scan/take/merge operators.
+
+interface Observer<T> {
+  next: (value: T) => void;
+  complete?: () => void;
+}
+
+type Unsubscribe = () => void;
+
+class Observable<T> {
+  constructor(private readonly producer: (obs: Observer<T>) => Unsubscribe | void) {}
+
+  subscribe(observer: Observer<T> | ((value: T) => void)): Unsubscribe {
+    const obs: Observer<T> = typeof observer === "function" ? { next: observer } : observer;
+    let closed = false;
+    const safe: Observer<T> = {
+      next: (v) => {
+        if (!closed) obs.next(v);
+      },
+      complete: () => {
+        if (!closed) {
+          closed = true;
+          obs.complete?.();
+        }
+      },
+    };
+    const teardown = this.producer(safe);
+    return () => {
+      closed = true;
+      if (teardown) teardown();
+    };
+  }
+
+  pipe<R>(op: (src: Observable<T>) => Observable<R>): Observable<R> {
+    return op(this);
+  }
+
+  static of<T>(...values: T[]): Observable<T> {
+    return new Observable<T>((o) => {
+      for (const v of values) o.next(v);
+      o.complete?.();
+    });
+  }
+}
+
+const map = <T, R>(f: (x: T, i: number) => R) => (src: Observable<T>) =>
+  new Observable<R>((o) => {
+    let i = 0;
+    return src.subscribe({ next: (v) => o.next(f(v, i++)), complete: o.complete });
+  });
+
+const filter = <T>(pred: (x: T) => boolean) => (src: Observable<T>) =>
+  new Observable<T>((o) => src.subscribe({ next: (v) => pred(v) && o.next(v), complete: o.complete }));
+
+const scan = <T, A>(f: (acc: A, x: T) => A, seed: A) => (src: Observable<T>) =>
+  new Observable<A>((o) => {
+    let acc = seed;
+    return src.subscribe({ next: (v) => o.next((acc = f(acc, v))), complete: o.complete });
+  });
+
+const take = <T>(n: number) => (src: Observable<T>) =>
+  new Observable<T>((o) => {
+    let seen = 0;
+    let unsub: Unsubscribe = () => {};
+    unsub = src.subscribe({
+      next: (v) => {
+        if (seen++ < n) o.next(v);
+        if (seen === n) {
+          o.complete?.();
+          unsub();
+        }
+      },
+      complete: o.complete,
+    });
+    return unsub;
+  });
+
+// A Subject: multicast, manually driven
+class Subject<T> extends Observable<T> {
+  private observers = new Set<Observer<T>>();
+  constructor() {
+    super((o) => {
+      this.observers.add(o);
+      return () => this.observers.delete(o);
+    });
+  }
+  emit(v: T): void {
+    for (const o of [...this.observers]) o.next(v);
+  }
+  end(): void {
+    for (const o of [...this.observers]) o.complete?.();
+    this.observers.clear();
+  }
+  get count(): number {
+    return this.observers.size;
+  }
+}
+
+const out: string[] = [];
+Observable.of(1, 2, 3, 4, 5, 6, 7, 8)
+  .pipe(filter((x: number) => x % 2 === 0))
+  .pipe(map((x: number, i) => `#${i}:${x * x}`))
+  .subscribe({ next: (s) => out.push(s), complete: () => out.push("done") });
+console.log(out.join(" "));
+
+const prices = new Subject<{ sym: string; px: number }>();
+const log: string[] = [];
+const unsubAvg = prices
+  .pipe(filter((p) => p.sym === "ACME"))
+  .pipe(scan((acc: { n: number; sum: number }, p) => ({ n: acc.n + 1, sum: acc.sum + p.px }), { n: 0, sum: 0 }))
+  .pipe(map((a) => (a.sum / a.n).toFixed(2)))
+  .subscribe((avg) => log.push(`avg ACME ${avg}`));
+prices.pipe(take(3)).subscribe({
+  next: (p) => log.push(`first3 ${p.sym}@${p.px}`),
+  complete: () => log.push("first3 complete"),
+});
+const ticks: Array<[string, number]> = [["ACME", 10], ["INIT", 99], ["ACME", 12], ["ACME", 11.5], ["INIT", 101], ["ACME", 13]];
+ticks.forEach(([sym, px], i) => {
+  if (i === 4) unsubAvg();
+  prices.emit({ sym, px });
+});
+prices.end();
+console.log(log);
+console.log("observers left:", prices.count);
+
+// Running statistics over a stream of key presses
+const keys = new Subject<string>();
+const words: string[] = [];
+keys
+  .pipe(scan((acc: { buf: string; word: string | null }, k: string) => (k === " " ? { buf: "", word: acc.buf } : { buf: acc.buf + k, word: null }), { buf: "", word: null as string | null }))
+  .pipe(filter((s) => s.word !== null && s.word.length > 0))
+  .subscribe((s) => words.push(s.word ?? ""));
+for (const ch of "the  quick brown fox ") keys.emit(ch);
+console.log(words);

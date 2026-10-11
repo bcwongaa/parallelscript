@@ -1,0 +1,124 @@
+// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
+// Dijkstra's shortest paths over a city road network using a binary-heap priority queue.
+
+interface Edge {
+  to: string;
+  km: number;
+}
+
+class MinQueue<T> {
+  private heap: { item: T; key: number }[] = [];
+  get length(): number {
+    return this.heap.length;
+  }
+  push(item: T, key: number): void {
+    const h = this.heap;
+    h.push({ item, key });
+    let i = h.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p].key <= h[i].key) break;
+      [h[p], h[i]] = [h[i], h[p]];
+      i = p;
+    }
+  }
+  pop(): { item: T; key: number } | undefined {
+    const h = this.heap;
+    if (h.length === 0) return undefined;
+    const top = h[0];
+    const last = h.pop()!;
+    if (h.length) {
+      h[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < h.length && h[l].key < h[m].key) m = l;
+        if (r < h.length && h[r].key < h[m].key) m = r;
+        if (m === i) break;
+        [h[m], h[i]] = [h[i], h[m]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+class RoadMap {
+  private adj = new Map<string, Edge[]>();
+  road(a: string, b: string, km: number): this {
+    if (!this.adj.has(a)) this.adj.set(a, []);
+    if (!this.adj.has(b)) this.adj.set(b, []);
+    this.adj.get(a)!.push({ to: b, km });
+    this.adj.get(b)!.push({ to: a, km });
+    return this;
+  }
+  get cities(): string[] {
+    return [...this.adj.keys()];
+  }
+  shortest(from: string): { dist: Map<string, number>; via: Map<string, string>; pops: number } {
+    const dist = new Map<string, number>();
+    const via = new Map<string, string>();
+    for (const c of this.cities) dist.set(c, Infinity);
+    dist.set(from, 0);
+    const q = new MinQueue<string>();
+    q.push(from, 0);
+    let pops = 0;
+    while (q.length) {
+      const { item: u, key: d } = q.pop()!;
+      pops++;
+      if (d > (dist.get(u) ?? Infinity)) continue;
+      for (const { to, km } of this.adj.get(u) ?? []) {
+        const nd = d + km;
+        if (nd < (dist.get(to) ?? Infinity)) {
+          dist.set(to, nd);
+          via.set(to, u);
+          q.push(to, nd);
+        }
+      }
+    }
+    return { dist, via, pops };
+  }
+}
+
+const map = new RoadMap()
+  .road("Amsterdam", "Utrecht", 45)
+  .road("Amsterdam", "Haarlem", 20)
+  .road("Haarlem", "Leiden", 33)
+  .road("Leiden", "Den Haag", 18)
+  .road("Den Haag", "Rotterdam", 27)
+  .road("Utrecht", "Rotterdam", 61)
+  .road("Utrecht", "Arnhem", 64)
+  .road("Rotterdam", "Breda", 52)
+  .road("Breda", "Eindhoven", 58)
+  .road("Arnhem", "Eindhoven", 87)
+  .road("Utrecht", "Den Bosch", 55)
+  .road("Den Bosch", "Eindhoven", 35)
+  .road("Den Bosch", "Breda", 49)
+  .road("Groningen", "Zwolle", 104);
+
+const { dist, via, pops } = map.shortest("Amsterdam");
+console.log(`settled after ${pops} heap pops`);
+const rows = [...dist.entries()].sort((a, b) => a[1] - b[1]);
+for (const [city, d] of rows) {
+  const route: string[] = [];
+  let c: string | undefined = city;
+  while (c !== undefined) {
+    route.unshift(c);
+    c = via.get(c);
+  }
+  const shown = Number.isFinite(d) ? `${d} km` : "unreachable";
+  console.log(`${city.padEnd(10)} ${shown.padStart(12)}  ${Number.isFinite(d) ? route.join(" > ") : "-"}`);
+}
+console.log(dist);
+
+const fromEindhoven = map.shortest("Eindhoven").dist;
+const pairs: [string, string][] = [["Amsterdam", "Eindhoven"], ["Leiden", "Arnhem"], ["Zwolle", "Breda"]];
+for (const [a, b] of pairs) {
+  const viaA = map.shortest(a).dist.get(b);
+  console.log("%s -> %s: %s", a, b, viaA);
+}
+const avg = [...fromEindhoven.values()].filter(Number.isFinite).reduce((s, d, _i, arr) => s + d / arr.length, 0);
+console.log("average reachable distance from Eindhoven:", avg.toFixed(2));
+console.log("max:", Math.max(...fromEindhoven.values()));

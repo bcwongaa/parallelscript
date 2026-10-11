@@ -1,0 +1,84 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+enum Currency {
+  USD = "USD",
+  EUR = "EUR",
+  GBP = "GBP",
+  JPY = "JPY",
+  CHF = "CHF",
+}
+
+const DECIMALS: Record<string, number> = { USD: 2, EUR: 2, GBP: 2, JPY: 0, CHF: 2 };
+
+class RateTable {
+  private rates = new Map<string, number>();
+
+  constructor(private readonly base: Currency, quotes: Array<[Currency, number]>) {
+    this.rates.set(base, 1);
+    for (const [c, r] of quotes) this.rates.set(c, r);
+  }
+
+  rate(from: Currency, to: Currency): number {
+    const f = this.rates.get(from);
+    const t = this.rates.get(to);
+    if (f === undefined || t === undefined) throw new Error(`no rate for ${from}->${to}`);
+    return t / f;
+  }
+
+  convert(amount: number, from: Currency, to: Currency): number {
+    const raw = amount * this.rate(from, to);
+    const d = DECIMALS[to];
+    return Math.round(raw * 10 ** d) / 10 ** d;
+  }
+
+  currencies(): Currency[] {
+    return [...this.rates.keys()] as Currency[];
+  }
+}
+
+function format(amount: number, c: Currency): string {
+  const d = DECIMALS[c];
+  const [whole, frac] = Math.abs(amount).toFixed(d).split(".");
+  const groups: string[] = [];
+  for (let i = whole.length; i > 0; i -= 3) groups.unshift(whole.slice(Math.max(0, i - 3), i));
+  const grouped = groups.join(",");
+  return `${amount < 0 ? "-" : ""}${grouped}${frac ? "." + frac : ""} ${c}`;
+}
+
+const table = new RateTable(Currency.USD, [
+  [Currency.EUR, 0.9213],
+  [Currency.GBP, 0.7891],
+  [Currency.JPY, 151.37],
+  [Currency.CHF, 0.9042],
+]);
+
+const cs = table.currencies();
+console.log("      " + cs.map((c) => c.padStart(10)).join(""));
+for (const from of cs) {
+  const row = cs.map((to) => table.rate(from, to).toFixed(4).padStart(10)).join("");
+  console.log(from.padEnd(6) + row);
+}
+
+const amounts = [1, 99.99, 1234.5, 1000000];
+for (const a of amounts) {
+  console.log(cs.map((c) => format(table.convert(a, Currency.USD, c), c)).join(" | "));
+}
+
+const roundTrip = table.convert(table.convert(100, Currency.EUR, Currency.JPY), Currency.JPY, Currency.EUR);
+console.log("100 EUR -> JPY -> EUR =", roundTrip);
+
+const wallet: Array<{ currency: Currency; amount: number }> = [
+  { currency: Currency.EUR, amount: 250 },
+  { currency: Currency.JPY, amount: 18000 },
+  { currency: Currency.GBP, amount: -40.25 },
+  { currency: Currency.CHF, amount: 12.5 },
+];
+const inUsd = wallet.map((w) => ({ ...w, usd: table.convert(w.amount, w.currency, Currency.USD) }));
+console.log(inUsd);
+const total = inUsd.reduce((s, w) => s + w.usd, 0);
+console.log("wallet total:", format(Math.round(total * 100) / 100, Currency.USD));
+console.log(Object.values(Currency), Currency.GBP, Currency["JPY"]);
+try {
+  table.convert(1, "XYZ" as Currency, Currency.USD);
+} catch (e) {
+  console.log((e as Error).message);
+}

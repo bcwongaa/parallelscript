@@ -1,0 +1,98 @@
+// skip: not supported yet: PTS1001: computed property names
+// Shipping-cost calculator written with guard clauses and early returns;
+// impossible shipments throw, merely unusual ones return a reason.
+
+enum Zone {
+  Domestic = "domestic",
+  Continental = "continental",
+  Overseas = "overseas",
+}
+
+interface Parcel {
+  id: string;
+  weightKg: number;
+  dims: [number, number, number];
+  zone: Zone;
+  express?: boolean;
+  fragile?: boolean;
+  declaredValue?: number;
+}
+
+class ShippingError extends Error {
+  constructor(readonly parcelId: string, message: string) {
+    super(`${parcelId}: ${message}`);
+    this.name = "ShippingError";
+  }
+}
+
+const RATES: Record<Zone, { base: number; perKg: number; maxKg: number }> = {
+  [Zone.Domestic]: { base: 4.5, perKg: 1.2, maxKg: 30 },
+  [Zone.Continental]: { base: 9, perKg: 2.75, maxKg: 25 },
+  [Zone.Overseas]: { base: 18, perKg: 6.1, maxKg: 20 },
+};
+
+function quote(p: Parcel): { cost: number; notes: string[] } | string {
+  if (p.weightKg <= 0) throw new ShippingError(p.id, "weight must be positive");
+  if (p.dims.some((d) => d <= 0)) throw new ShippingError(p.id, `invalid dimensions ${p.dims.join("x")}`);
+  const rate = RATES[p.zone];
+  if (p.weightKg > rate.maxKg) return `too heavy for ${p.zone} (${p.weightKg} > ${rate.maxKg} kg)`;
+
+  const [l, w, h] = [...p.dims].sort((a, b) => b - a);
+  if (l > 150) return `longest side ${l} cm exceeds 150 cm`;
+
+  const notes: string[] = [];
+  const volumetric = (l * w * h) / 5000;
+  const billable = Math.max(p.weightKg, volumetric);
+  if (billable > p.weightKg) notes.push(`volumetric weight ${volumetric.toFixed(2)} kg used`);
+
+  let cost = rate.base + billable * rate.perKg;
+  if (p.express) {
+    if (p.zone === Zone.Overseas) return "no express service overseas";
+    cost *= 1.5;
+    notes.push("express +50%");
+  }
+  if (p.fragile) {
+    cost += 3;
+    notes.push("fragile handling +3.00");
+  }
+  if (p.declaredValue !== undefined) {
+    if (p.declaredValue < 0) throw new ShippingError(p.id, "declared value cannot be negative");
+    const insurance = Math.max(1, p.declaredValue * 0.01);
+    cost += insurance;
+    notes.push(`insurance ${insurance.toFixed(2)}`);
+  }
+  return { cost: Math.round(cost * 100) / 100, notes };
+}
+
+const parcels: Parcel[] = [
+  { id: "A", weightKg: 2, dims: [30, 20, 10], zone: Zone.Domestic },
+  { id: "B", weightKg: 1, dims: [100, 50, 40], zone: Zone.Continental, fragile: true },
+  { id: "C", weightKg: 22, dims: [40, 40, 40], zone: Zone.Overseas },
+  { id: "D", weightKg: 5, dims: [160, 10, 10], zone: Zone.Domestic },
+  { id: "E", weightKg: 0, dims: [10, 10, 10], zone: Zone.Domestic },
+  { id: "F", weightKg: 3, dims: [20, 20, 20], zone: Zone.Overseas, express: true },
+  { id: "G", weightKg: 4, dims: [25, 25, 25], zone: Zone.Continental, express: true, declaredValue: 250 },
+  { id: "H", weightKg: 1, dims: [10, -5, 10], zone: Zone.Domestic },
+  { id: "I", weightKg: 1, dims: [10, 10, 10], zone: Zone.Domestic, declaredValue: -20 },
+  { id: "J", weightKg: 12.5, dims: [60, 40, 30], zone: Zone.Domestic, fragile: true, declaredValue: 40 },
+];
+
+let revenue = 0;
+const refused: string[] = [];
+for (const p of parcels) {
+  try {
+    const q = quote(p);
+    if (typeof q === "string") {
+      refused.push(p.id);
+      console.log(`${p.id}: refused - ${q}`);
+      continue;
+    }
+    revenue += q.cost;
+    console.log(`${p.id}: ${q.cost.toFixed(2)}`, q.notes.length > 0 ? q.notes : "");
+  } catch (e) {
+    if (!(e instanceof ShippingError)) throw e;
+    console.log(`error ${e.message} (parcel ${e.parcelId})`);
+  }
+}
+console.log("revenue %s, refused %o", revenue.toFixed(2), refused);
+console.log(RATES);

@@ -1,0 +1,92 @@
+// Word break: can a string be segmented, how many ways, and list all segmentations.
+
+class Dictionary {
+  readonly words: Set<string>;
+  readonly maxLen: number;
+  constructor(list: string[]) {
+    this.words = new Set(list.map((w) => w.toLowerCase()));
+    this.maxLen = Math.max(0, ...[...this.words].map((w) => w.length));
+  }
+  has(w: string): boolean {
+    return this.words.has(w);
+  }
+}
+
+function canBreak(s: string, dict: Dictionary): boolean {
+  const ok = new Array<boolean>(s.length + 1).fill(false);
+  ok[0] = true;
+  for (let end = 1; end <= s.length; end++) {
+    for (let start = Math.max(0, end - dict.maxLen); start < end; start++) {
+      if (ok[start] && dict.has(s.slice(start, end))) {
+        ok[end] = true;
+        break;
+      }
+    }
+  }
+  return ok[s.length];
+}
+
+function countWays(s: string, dict: Dictionary): number {
+  const ways = new Array<number>(s.length + 1).fill(0);
+  ways[0] = 1;
+  for (let end = 1; end <= s.length; end++) {
+    for (let start = Math.max(0, end - dict.maxLen); start < end; start++) {
+      if (ways[start] > 0 && dict.has(s.substring(start, end))) ways[end] += ways[start];
+    }
+  }
+  return ways[s.length];
+}
+
+function allBreaks(s: string, dict: Dictionary, memo = new Map<number, string[][]>()): string[][] {
+  const go = (i: number): string[][] => {
+    if (i === s.length) return [[]];
+    const cached = memo.get(i);
+    if (cached) return cached;
+    const result: string[][] = [];
+    for (let j = i + 1; j <= Math.min(s.length, i + dict.maxLen); j++) {
+      const w = s.slice(i, j);
+      if (!dict.has(w)) continue;
+      for (const rest of go(j)) result.push([w, ...rest]);
+    }
+    memo.set(i, result);
+    return result;
+  };
+  return go(0);
+}
+
+function minWords(s: string, dict: Dictionary): string[] | undefined {
+  const best: (string[] | undefined)[] = new Array(s.length + 1).fill(undefined);
+  best[0] = [];
+  for (let end = 1; end <= s.length; end++) {
+    for (let start = 0; start < end; start++) {
+      const prefix = best[start];
+      const w = s.slice(start, end);
+      if (prefix && dict.has(w) && (!best[end] || prefix.length + 1 < best[end]!.length)) {
+        best[end] = [...prefix, w];
+      }
+    }
+  }
+  return best[s.length];
+}
+
+const dict = new Dictionary([
+  "cat", "cats", "and", "sand", "dog", "dogs", "pine", "apple", "pen", "applepen", "pineapple",
+  "a", "an", "the", "rain", "bow", "rainbow", "now", "here", "no", "where", "nowhere",
+]);
+console.log("dictionary size:", dict.words.size, "longest word:", dict.maxLen);
+
+const inputs = ["catsanddog", "pineapplepenapple", "catsandog", "nowhere", "therainbowisnowhere", "", "anapple"];
+for (const s of inputs) {
+  const label = JSON.stringify(s);
+  console.log(`${label}: breakable=${canBreak(s, dict)} ways=${countWays(s, dict)}`);
+  const all = allBreaks(s, dict);
+  for (const parts of all.slice(0, 4)) console.log("   ", parts.join(" "));
+  if (all.length > 4) console.log(`    ... and ${all.length - 4} more`);
+}
+
+console.log("fewest words:", inputs.map((s) => minWords(s, dict)?.join("|") ?? null));
+const memo = new Map<number, string[][]>();
+allBreaks("pineapplepenapple", dict, memo);
+console.log("memo after pineapplepenapple:", memo);
+const hyphen = "therainbow".split("").reduce((acc, ch, i) => (i > 0 && i % 3 === 0 ? acc + "-" + ch : acc + ch), "");
+console.log(hyphen, canBreak(hyphen.split("-").join(""), dict));

@@ -1,0 +1,148 @@
+// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
+// LRU caches: one built on Map insertion order, one on a hand-written doubly linked list, plus LFU.
+
+interface Cache<K, V> {
+  get(key: K): V | undefined;
+  put(key: K, value: V): void;
+  readonly size: number;
+  keys(): K[];
+}
+
+class MapLRU<K, V> implements Cache<K, V> {
+  private store = new Map<K, V>();
+  evictions: K[] = [];
+  constructor(private readonly capacity: number) {}
+  get(key: K): V | undefined {
+    if (!this.store.has(key)) return undefined;
+    const v = this.store.get(key) as V;
+    this.store.delete(key);
+    this.store.set(key, v);
+    return v;
+  }
+  put(key: K, value: V): void {
+    if (this.store.has(key)) this.store.delete(key);
+    else if (this.store.size >= this.capacity) {
+      const oldest = this.store.keys().next().value as K;
+      this.store.delete(oldest);
+      this.evictions.push(oldest);
+    }
+    this.store.set(key, value);
+  }
+  get size(): number {
+    return this.store.size;
+  }
+  keys(): K[] {
+    return [...this.store.keys()];
+  }
+}
+
+class ListNode<K, V> {
+  prev: ListNode<K, V> | null = null;
+  next: ListNode<K, V> | null = null;
+  constructor(public key: K, public value: V) {}
+}
+
+class LinkedLRU<K, V> implements Cache<K, V> {
+  private index = new Map<K, ListNode<K, V>>();
+  private head: ListNode<K, V> | null = null; // most recent
+  private tail: ListNode<K, V> | null = null; // least recent
+  hits = 0;
+  misses = 0;
+  constructor(private readonly capacity: number) {}
+
+  private unlink(n: ListNode<K, V>): void {
+    if (n.prev) n.prev.next = n.next;
+    else this.head = n.next;
+    if (n.next) n.next.prev = n.prev;
+    else this.tail = n.prev;
+    n.prev = n.next = null;
+  }
+  private pushFront(n: ListNode<K, V>): void {
+    n.next = this.head;
+    if (this.head) this.head.prev = n;
+    this.head = n;
+    if (!this.tail) this.tail = n;
+  }
+  get(key: K): V | undefined {
+    const n = this.index.get(key);
+    if (!n) {
+      this.misses++;
+      return undefined;
+    }
+    this.hits++;
+    this.unlink(n);
+    this.pushFront(n);
+    return n.value;
+  }
+  put(key: K, value: V): void {
+    const existing = this.index.get(key);
+    if (existing) {
+      existing.value = value;
+      this.unlink(existing);
+      this.pushFront(existing);
+      return;
+    }
+    if (this.index.size >= this.capacity && this.tail) {
+      this.index.delete(this.tail.key);
+      this.unlink(this.tail);
+    }
+    const n = new ListNode(key, value);
+    this.index.set(key, n);
+    this.pushFront(n);
+  }
+  get size(): number {
+    return this.index.size;
+  }
+  keys(): K[] {
+    const out: K[] = [];
+    for (let n = this.head; n; n = n.next) out.push(n.key);
+    return out.reverse();
+  }
+}
+
+const ops: (["get", string] | ["put", string, number])[] = [
+  ["put", "a", 1], ["put", "b", 2], ["get", "a"], ["put", "c", 3], ["put", "d", 4],
+  ["get", "b"], ["get", "c"], ["put", "a", 10], ["put", "e", 5], ["get", "d"], ["get", "a"],
+];
+const caches: [string, Cache<string, number>][] = [["map", new MapLRU(3)], ["linked", new LinkedLRU(3)]];
+for (const [name, cache] of caches) {
+  const trace: string[] = [];
+  for (const op of ops) {
+    if (op[0] === "get") trace.push(`${op[1]}=${cache.get(op[1]) ?? "miss"}`);
+    else cache.put(op[1], op[2]);
+  }
+  console.log(`${name.padEnd(6)} gets: ${trace.join(" ")}  final order: ${cache.keys().join(",")}`);
+}
+const m = caches[0][1];
+if (m instanceof MapLRU) console.log("evicted:", m.evictions);
+const l = caches[1][1];
+if (l instanceof LinkedLRU) console.log(`hits=${l.hits} misses=${l.misses} ratio=${(l.hits / (l.hits + l.misses)).toFixed(2)}`);
+
+// Memoize an expensive function with a bounded cache.
+const fibCache = new LinkedLRU<number, number>(50);
+function fib(n: number): number {
+  if (n < 2) return n;
+  const c = fibCache.get(n);
+  if (c !== undefined) return c;
+  const v = fib(n - 1) + fib(n - 2);
+  fibCache.put(n, v);
+  return v;
+}
+console.log("fib(70) =", fib(70), "cache size:", fibCache.size, "hits:", fibCache.hits);
+
+const pages = "1 2 3 4 1 2 5 1 2 3 4 5".split(" ");
+for (const cap of [3, 4]) {
+  const c = new MapLRU<string, true>(cap);
+  let faults = 0;
+  for (const p of pages) {
+    if (c.get(p) === undefined) {
+      faults++;
+      c.put(p, true);
+    }
+  }
+  console.log(`capacity ${cap}: ${faults} page faults, resident`, c.keys());
+}
+const small = new MapLRU<string, { id: number }>(2);
+small.put("x", { id: 1 });
+small.put("y", { id: 2 });
+console.log(small);

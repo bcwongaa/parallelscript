@@ -1,0 +1,98 @@
+// skip: diverges: an object printed without properties Node shows (cause not found yet)
+// A tiny form-validation library: rules are composed into schemas and every
+// failing rule is collected, instead of stopping at the first error.
+
+interface FieldError {
+  field: string;
+  rule: string;
+  message: string;
+}
+
+type Rule<T> = { name: string; check: (value: T) => string | null };
+
+class FormValidationError extends Error {
+  constructor(readonly errors: FieldError[]) {
+    super(`form has ${errors.length} error${errors.length === 1 ? "" : "s"}`);
+    this.name = "FormValidationError";
+  }
+
+  forField(field: string): string[] {
+    return this.errors.filter((e) => e.field === field).map((e) => e.message);
+  }
+}
+
+const required = (): Rule<string> => ({
+  name: "required",
+  check: (v) => (v.trim().length === 0 ? "is required" : null),
+});
+const minLength = (n: number): Rule<string> => ({
+  name: "minLength",
+  check: (v) => (v.length < n ? `must be at least ${n} characters` : null),
+});
+const maxLength = (n: number): Rule<string> => ({
+  name: "maxLength",
+  check: (v) => (v.length > n ? `must be at most ${n} characters` : null),
+});
+const contains = (needle: string, label: string): Rule<string> => ({
+  name: "contains",
+  check: (v) => (v.includes(needle) ? null : `must contain ${label}`),
+});
+const numeric = (min: number, max: number): Rule<string> => ({
+  name: "numeric",
+  check: (v) => {
+    const n = Number(v);
+    if (v.trim() === "" || Number.isNaN(n)) return "must be a number";
+    if (n < min || n > max) return `must be between ${min} and ${max}`;
+    return null;
+  },
+});
+
+type Schema<K extends string> = Record<K, Rule<string>[]>;
+
+function validate<K extends string>(schema: Schema<K>, form: Record<K, string>): Record<K, string> {
+  const errors: FieldError[] = [];
+  for (const field of Object.keys(schema) as K[]) {
+    const value = form[field];
+    for (const rule of schema[field]) {
+      const problem = rule.check(value);
+      if (problem !== null) {
+        errors.push({ field, rule: rule.name, message: `${field} ${problem}` });
+        if (rule.name === "required") break;
+      }
+    }
+  }
+  if (errors.length > 0) throw new FormValidationError(errors);
+  const cleaned = { ...form };
+  for (const field of Object.keys(cleaned) as K[]) cleaned[field] = cleaned[field].trim();
+  return cleaned;
+}
+
+type SignupField = "username" | "email" | "age" | "password";
+const signup: Schema<SignupField> = {
+  username: [required(), minLength(3), maxLength(12)],
+  email: [required(), contains("@", "an @"), contains(".", "a dot")],
+  age: [required(), numeric(13, 120)],
+  password: [required(), minLength(8), contains("!", "a '!'")],
+};
+
+const submissions: Record<SignupField, string>[] = [
+  { username: "ada", email: "ada@math.org", age: "36", password: "engine!42" },
+  { username: "", email: "nope", age: "abc", password: "short" },
+  { username: "averyveryverylongname", email: "x@y", age: "7", password: "longenough" },
+  { username: "  grace  ", email: "grace@navy.mil ", age: " 85 ", password: "cobol!!!" },
+];
+
+for (const [i, form] of submissions.entries()) {
+  try {
+    const cleaned = validate(signup, form);
+    console.log(`submission ${i}: valid`, cleaned);
+  } catch (e) {
+    if (!(e instanceof FormValidationError)) throw e;
+    console.log(`submission ${i}: ${e.message}`);
+    for (const err of e.errors) console.log(`  - [${err.rule}] ${err.message}`);
+    console.log("  password problems:", e.forField("password"));
+  }
+}
+
+const ruleUsage = Object.entries(signup).map(([field, rules]) => [field, rules.map((r) => r.name).join("+")]);
+console.table(ruleUsage);

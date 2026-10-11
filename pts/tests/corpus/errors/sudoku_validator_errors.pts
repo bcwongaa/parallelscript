@@ -1,0 +1,96 @@
+// Validates Sudoku grids and reports every conflict; a malformed grid
+// throws immediately, a grid with conflicts throws a ConflictsFound error.
+
+class MalformedGridError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MalformedGridError";
+  }
+}
+
+interface Conflict {
+  unit: "row" | "col" | "box";
+  index: number;
+  digit: number;
+  cells: Array<[number, number]>;
+}
+
+class ConflictsFound extends Error {
+  constructor(readonly conflicts: Conflict[]) {
+    super(`${conflicts.length} conflict(s) found`);
+    this.name = "ConflictsFound";
+  }
+}
+
+function parseGrid(rows: string[]): number[][] {
+  if (rows.length !== 9) throw new MalformedGridError(`expected 9 rows, got ${rows.length}`);
+  return rows.map((row, r) => {
+    const cells = row.replace(" ", "").replace(" ", "").split("");
+    if (cells.length !== 9) throw new MalformedGridError(`row ${r + 1} has ${cells.length} cells`);
+    return cells.map((ch, c) => {
+      if (ch === ".") return 0;
+      const d = ch.charCodeAt(0) - 48;
+      if (d < 1 || d > 9) throw new MalformedGridError(`invalid character '${ch}' at r${r + 1}c${c + 1}`);
+      return d;
+    });
+  });
+}
+
+function validate(grid: number[][]): number {
+  const conflicts: Conflict[] = [];
+  const check = (unit: Conflict["unit"], index: number, cells: Array<[number, number]>) => {
+    const seen = new Map<number, Array<[number, number]>>();
+    for (const [r, c] of cells) {
+      const d = grid[r][c];
+      if (d === 0) continue;
+      const list = seen.get(d) ?? [];
+      list.push([r, c]);
+      seen.set(d, list);
+    }
+    for (const [digit, where] of seen) {
+      if (where.length > 1) conflicts.push({ unit, index, digit, cells: where });
+    }
+  };
+  for (let i = 0; i < 9; i++) {
+    check("row", i, Array.from({ length: 9 }, (_, c): [number, number] => [i, c]));
+    check("col", i, Array.from({ length: 9 }, (_, r): [number, number] => [r, i]));
+    const br = Math.floor(i / 3) * 3;
+    const bc = (i % 3) * 3;
+    check("box", i, Array.from({ length: 9 }, (_, k): [number, number] => [br + Math.floor(k / 3), bc + (k % 3)]));
+  }
+  if (conflicts.length > 0) throw new ConflictsFound(conflicts);
+  return grid.flat().filter((d) => d === 0).length;
+}
+
+const puzzles: Record<string, string[]> = {
+  valid: ["53. .7. ...", "6.. 195 ...", ".98 ... .6.", "8.. .6. ..3", "4.. 8.3 ..1", "7.. .2. ..6", ".6. ... 28.", "... 419 ..5", "... .8. .79"],
+  conflicts: ["55. .7. ...", "6.. 195 ...", ".98 ... .6.", "8.. .6. ..3", "4.. 8.3 ..1", "7.. .2. ..6", ".6. ... 28.", "... 419 ..5", "5.. .8. .79"],
+  shortRow: ["53. .7. ..", "6.. 195 ...", ".98 ... .6.", "8.. .6. ..3", "4.. 8.3 ..1", "7.. .2. ..6", ".6. ... 28.", "... 419 ..5", "... .8. .79"],
+  badChar: ["53. .7. ...", "6.. 195 ...", ".98 ... .6.", "8.. .0. ..3", "4.. 8.3 ..1", "7.. .2. ..6", ".6. ... 28.", "... 419 ..5", "... .8. .79"],
+  tooFew: ["123 456 789"],
+  manyConflicts: ["123 456 789", "123 456 789", "... ... ...", "... ... ...", "... ... ...", "... ... ...", "... ... ...", "... ... ...", "... ... ..."],
+};
+
+const conflictsByUnit: Record<Conflict["unit"], number> = { row: 0, col: 0, box: 0 };
+
+for (const [name, rows] of Object.entries(puzzles)) {
+  try {
+    const grid = parseGrid(rows);
+    const empty = validate(grid);
+    console.log(`${name}: valid, ${empty} empty cells, ${81 - empty} givens`);
+  } catch (e) {
+    if (e instanceof ConflictsFound) {
+      console.log(`${name}: ${e.message}`);
+      for (const c of e.conflicts) {
+        console.log(`  ${c.unit} ${c.index + 1}: digit ${c.digit} at ${c.cells.map(([r, k]) => `r${r + 1}c${k + 1}`).join(", ")}`);
+      }
+      console.log("  first conflict:", e.conflicts[0]);
+      for (const c of e.conflicts) conflictsByUnit[c.unit]++;
+    } else if (e instanceof MalformedGridError) {
+      console.log(`${name}: malformed - ${e.message}`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log("conflicts by unit:", conflictsByUnit);

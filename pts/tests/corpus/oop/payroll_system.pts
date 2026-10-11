@@ -1,0 +1,124 @@
+// skip: not supported yet: PTS1001: using a `Employee` as a `Salaried`
+// Employee payroll with salaried, hourly and commissioned staff.
+
+enum Department {
+  Engineering = "ENG",
+  Sales = "SALES",
+  Support = "SUP",
+}
+
+interface Payable {
+  monthlyPay(): number;
+}
+
+abstract class Employee implements Payable {
+  private static nextId = 100;
+  readonly id: number;
+
+  constructor(readonly name: string, readonly dept: Department) {
+    this.id = Employee.nextId++;
+  }
+
+  abstract monthlyPay(): number;
+  abstract get kind(): string;
+
+  taxRate(): number {
+    const pay = this.monthlyPay();
+    if (pay > 10000) return 0.32;
+    if (pay > 5000) return 0.24;
+    return 0.12;
+  }
+
+  netPay(): number {
+    return this.monthlyPay() * (1 - this.taxRate());
+  }
+}
+
+class Salaried extends Employee {
+  constructor(name: string, dept: Department, private annual: number) {
+    super(name, dept);
+  }
+  monthlyPay(): number {
+    return this.annual / 12;
+  }
+  get kind(): string {
+    return "salaried";
+  }
+  raise(percent: number): void {
+    this.annual = Math.round(this.annual * (1 + percent / 100));
+  }
+}
+
+class Hourly extends Employee {
+  constructor(name: string, dept: Department, private rate: number, private hours: number) {
+    super(name, dept);
+  }
+  monthlyPay(): number {
+    const regular = Math.min(this.hours, 160);
+    const overtime = Math.max(0, this.hours - 160);
+    return regular * this.rate + overtime * this.rate * 1.5;
+  }
+  get kind(): string {
+    return "hourly";
+  }
+}
+
+class Commissioned extends Salaried {
+  constructor(name: string, annual: number, private sales: number[]) {
+    super(name, Department.Sales, annual);
+  }
+  override monthlyPay(): number {
+    const commission = this.sales.reduce((a, b) => a + b, 0) * 0.05;
+    return super.monthlyPay() + commission;
+  }
+  override get kind(): string {
+    return "commissioned";
+  }
+}
+
+const staff: Employee[] = [
+  new Salaried("Ada", Department.Engineering, 132000),
+  new Salaried("Grace", Department.Engineering, 98000),
+  new Hourly("Linus", Department.Support, 32.5, 172),
+  new Hourly("Ken", Department.Support, 28, 120),
+  new Commissioned("Don", 48000, [12000, 30500, 7800]),
+  new Commissioned("Peggy", 52000, []),
+];
+
+const rows = staff.map((e) => ({
+  id: e.id,
+  name: e.name,
+  dept: e.dept,
+  kind: e.kind,
+  gross: Number(e.monthlyPay().toFixed(2)),
+  net: Number(e.netPay().toFixed(2)),
+}));
+console.table(rows);
+
+const byDept: Record<string, number> = {};
+for (const e of staff) {
+  byDept[e.dept] = (byDept[e.dept] ?? 0) + e.monthlyPay();
+}
+for (const [dept, total] of Object.entries(byDept)) {
+  console.log(`${dept}: ${total.toFixed(2)}`);
+}
+
+const top = staff.reduce((best, e) => (e.monthlyPay() > best.monthlyPay() ? e : best));
+console.log("top earner:", top.name, top.kind);
+
+for (const e of staff) {
+  if (e instanceof Salaried && !(e instanceof Commissioned)) {
+    e.raise(10);
+  }
+}
+console.log("after raises:");
+staff
+  .filter((e) => e instanceof Salaried)
+  .sort((a, b) => b.monthlyPay() - a.monthlyPay())
+  .forEach((e) => console.log("  %s %d %s", e.name.padEnd(6), e.id, e.monthlyPay().toFixed(2)));
+
+const payroll = staff.reduce((s, e) => s + e.netPay(), 0);
+console.log("total net payroll: %s", payroll.toFixed(2));
+console.log(Object.values(Department));
+console.log(staff[2]);
+console.log(staff[4]);

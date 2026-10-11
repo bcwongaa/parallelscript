@@ -1,0 +1,127 @@
+// A hand-written URL parser: scheme, userinfo, host, port, path, query and fragment,
+// default ports, IPv6 literals, relative reference resolution and path normalisation.
+interface ParsedUrl {
+  scheme: string;
+  username: string;
+  password: string;
+  host: string;
+  port: number | null;
+  path: string;
+  query: string;
+  fragment: string;
+}
+
+class UrlError extends Error {
+  constructor(readonly input: string, reason: string) {
+    super(`Invalid URL '${input}': ${reason}`);
+    this.name = "UrlError";
+  }
+}
+
+const DEFAULT_PORTS: Record<string, number> = { http: 80, https: 443, ftp: 21, ws: 80, wss: 443 };
+
+function normalizePath(path: string): string {
+  const out: string[] = [];
+  const segments = path.split("/");
+  segments.forEach((seg, i) => {
+    if (seg === "..") { if (out.length > 1) out.pop(); if (i === segments.length - 1) out.push(""); }
+    else if (seg === ".") { if (i === segments.length - 1) out.push(""); }
+    else out.push(seg);
+  });
+  const joined = out.join("/");
+  return joined.startsWith("/") ? joined : "/" + joined;
+}
+
+function parseUrl(input: string): ParsedUrl {
+  const colon = input.indexOf(":");
+  if (colon <= 0) throw new UrlError(input, "missing scheme");
+  const scheme = input.slice(0, colon).toLowerCase();
+  for (const c of scheme) {
+    if (!((c >= "a" && c <= "z") || (c >= "0" && c <= "9") || "+-.".includes(c))) throw new UrlError(input, `bad scheme character '${c}'`);
+  }
+  let rest = input.slice(colon + 1);
+  let fragment = "", query = "";
+  const hash = rest.indexOf("#");
+  if (hash >= 0) { fragment = rest.slice(hash + 1); rest = rest.slice(0, hash); }
+  const q = rest.indexOf("?");
+  if (q >= 0) { query = rest.slice(q + 1); rest = rest.slice(0, q); }
+  let username = "", password = "", host = "", port: number | null = null, path = rest;
+  if (rest.startsWith("//")) {
+    const slash = rest.indexOf("/", 2);
+    const authority = slash < 0 ? rest.slice(2) : rest.slice(2, slash);
+    path = slash < 0 ? "/" : rest.slice(slash);
+    let hostPort = authority;
+    const at = authority.lastIndexOf("@");
+    if (at >= 0) {
+      const userinfo = authority.slice(0, at);
+      hostPort = authority.slice(at + 1);
+      const sep = userinfo.indexOf(":");
+      username = sep < 0 ? userinfo : userinfo.slice(0, sep);
+      password = sep < 0 ? "" : userinfo.slice(sep + 1);
+    }
+    let portText = "";
+    if (hostPort.startsWith("[")) {
+      const close = hostPort.indexOf("]");
+      if (close < 0) throw new UrlError(input, "unterminated IPv6 literal");
+      host = hostPort.slice(0, close + 1);
+      portText = hostPort.slice(close + 1).startsWith(":") ? hostPort.slice(close + 2) : "";
+    } else {
+      const pc = hostPort.lastIndexOf(":");
+      host = pc < 0 ? hostPort : hostPort.slice(0, pc);
+      portText = pc < 0 ? "" : hostPort.slice(pc + 1);
+    }
+    host = host.toLowerCase();
+    if (!host && scheme !== "file") throw new UrlError(input, "empty host");
+    if (portText) {
+      const n = Number(portText);
+      if (!Number.isInteger(n) || n < 0 || n > 65535) throw new UrlError(input, `bad port '${portText}'`);
+      port = n === DEFAULT_PORTS[scheme] ? null : n;
+    }
+    path = normalizePath(path);
+  }
+  return { scheme, username, password, host, port, path, query, fragment };
+}
+
+function format(u: ParsedUrl): string {
+  const auth = u.host || u.scheme === "file" ? "//" + (u.username ? u.username + (u.password ? ":" + u.password : "") + "@" : "") + u.host + (u.port !== null ? `:${u.port}` : "") : "";
+  return `${u.scheme}:${auth}${u.path}${u.query ? "?" + u.query : ""}${u.fragment ? "#" + u.fragment : ""}`;
+}
+
+function resolve(base: ParsedUrl, ref: string): string {
+  if (ref.includes("://")) return format(parseUrl(ref));
+  if (ref.startsWith("//")) return format(parseUrl(base.scheme + ":" + ref));
+  if (ref.startsWith("#")) return format({ ...base, fragment: ref.slice(1) });
+  if (ref.startsWith("?")) return format({ ...base, query: ref.slice(1), fragment: "" });
+  const [pathPart, queryPart = ""] = ref.split("?");
+  const dir = ref.startsWith("/") ? "" : base.path.slice(0, base.path.lastIndexOf("/") + 1);
+  return format({ ...base, path: normalizePath(dir + pathPart), query: queryPart, fragment: "" });
+}
+
+const inputs = [
+  "https://user:p%40ss@Example.COM:8443/a/b/../c/./d.html?x=1&y=2#top",
+  "http://example.com:80/",
+  "HTTP://example.com",
+  "ftp://files.example.org/pub/README",
+  "http://[::1]:3000/api/v1/",
+  "mailto:someone@example.com?subject=hi",
+  "file:///etc/hosts",
+  "https://example.com:99999/",
+  "://nope",
+  "ht tp://x.y",
+  "https://",
+];
+for (const s of inputs) {
+  try {
+    const u = parseUrl(s);
+    console.log(format(u).padEnd(60), u.port ?? "-", JSON.stringify(u.host));
+  } catch (e) {
+    if (e instanceof UrlError) console.log("error:", e.message);
+    else throw e;
+  }
+}
+console.log(parseUrl(inputs[0]));
+const base = parseUrl("https://docs.example.com/guide/intro/start.html?v=2#s1");
+for (const ref of ["next.html", "../api/index.html", "/root.txt", "?v=3", "#s9", "//cdn.example.net/lib.js", "https://other.org/x", "./a/./b/../c?q=1", "../../../../up"]) {
+  console.log(`${ref.padEnd(26)} -> ${resolve(base, ref)}`);
+}
+console.log(["/a/b/../../c", "/./x/", "/a/..", "/../a"].map(normalizePath));

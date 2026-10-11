@@ -1,0 +1,120 @@
+// Substring search algorithms compared: naive, Knuth-Morris-Pratt, Boyer-Moore-Horspool
+// and Rabin-Karp, with comparison counts and a highlighter for matches.
+interface SearchResult {
+  algorithm: string;
+  positions: number[];
+  comparisons: number;
+}
+
+type Searcher = (text: string, pattern: string) => SearchResult;
+
+const naive: Searcher = (text, pattern) => {
+  const positions: number[] = [];
+  let comparisons = 0;
+  for (let i = 0; i + pattern.length <= text.length; i++) {
+    let j = 0;
+    while (j < pattern.length) {
+      comparisons++;
+      if (text[i + j] !== pattern[j]) break;
+      j++;
+    }
+    if (j === pattern.length) positions.push(i);
+  }
+  return { algorithm: "naive", positions, comparisons };
+};
+
+function failureTable(p: string): number[] {
+  const fail = new Array<number>(p.length).fill(0);
+  for (let i = 1, k = 0; i < p.length; i++) {
+    while (k > 0 && p[i] !== p[k]) k = fail[k - 1];
+    if (p[i] === p[k]) k++;
+    fail[i] = k;
+  }
+  return fail;
+}
+
+const kmp: Searcher = (text, pattern) => {
+  const fail = failureTable(pattern);
+  const positions: number[] = [];
+  let comparisons = 0;
+  for (let i = 0, k = 0; i < text.length; i++) {
+    while (k > 0 && (comparisons++, text[i] !== pattern[k])) k = fail[k - 1];
+    comparisons++;
+    if (text[i] === pattern[k]) k++;
+    if (k === pattern.length) {
+      positions.push(i - k + 1);
+      k = fail[k - 1];
+    }
+  }
+  return { algorithm: "kmp", positions, comparisons };
+};
+
+const horspool: Searcher = (text, pattern) => {
+  const m = pattern.length;
+  const shift = new Map<string, number>();
+  for (let i = 0; i < m - 1; i++) shift.set(pattern[i], m - 1 - i);
+  const positions: number[] = [];
+  let comparisons = 0;
+  let i = 0;
+  while (i + m <= text.length) {
+    let j = m - 1;
+    while (j >= 0) {
+      comparisons++;
+      if (text[i + j] !== pattern[j]) break;
+      j--;
+    }
+    if (j < 0) positions.push(i);
+    i += shift.get(text[i + m - 1]) ?? m;
+  }
+  return { algorithm: "horspool", positions, comparisons };
+};
+
+const rabinKarp: Searcher = (text, pattern) => {
+  const BASE = 256, MOD = 1_000_003;
+  const m = pattern.length;
+  let high = 1;
+  for (let i = 0; i < m - 1; i++) high = (high * BASE) % MOD;
+  let ph = 0, th = 0;
+  for (let i = 0; i < m && i < text.length; i++) {
+    ph = (ph * BASE + pattern.charCodeAt(i)) % MOD;
+    th = (th * BASE + text.charCodeAt(i)) % MOD;
+  }
+  const positions: number[] = [];
+  let comparisons = 0;
+  for (let i = 0; i + m <= text.length; i++) {
+    if (ph === th) {
+      comparisons += m;
+      if (text.substring(i, i + m) === pattern) positions.push(i);
+    }
+    if (i + m < text.length) {
+      th = (((th - text.charCodeAt(i) * high) % MOD + MOD) * BASE + text.charCodeAt(i + m)) % MOD;
+    }
+  }
+  return { algorithm: "rabin-karp", positions, comparisons };
+};
+
+function highlight(text: string, positions: number[], len: number): string {
+  let out = "", last = 0;
+  for (const p of positions) {
+    if (p < last) continue;
+    out += text.slice(last, p) + "[" + text.slice(p, p + len) + "]";
+    last = p + len;
+  }
+  return out + text.slice(last);
+}
+
+const text = "abracadabra abracadabra! a cadaver, a candelabra, abraham's abracadabra";
+const patterns = ["abra", "cada", "a", "abracadabra", "zzz", "ra!", "aa"];
+const algos: Searcher[] = [naive, kmp, horspool, rabinKarp];
+for (const p of patterns) {
+  const results = algos.map((a) => a(text, p));
+  const agree = results.every((r) => JSON.stringify(r.positions) === JSON.stringify(results[0].positions));
+  console.log(`${JSON.stringify(p).padEnd(14)} hits=${results[0].positions.length} agree=${agree} ` + results.map((r) => `${r.algorithm}:${r.comparisons}`).join(" "));
+}
+console.log(highlight(text, kmp(text, "abra").positions, 4));
+console.log(failureTable("abacabab"), failureTable("aaaa"), failureTable("abcd"));
+console.log(horspool("GCATCGCAGAGAGTATACAGTACG", "GCAGAGAG"));
+const dna = "ACGT".repeat(50) + "ACGTTGCA" + "ACGT".repeat(50);
+const best = algos.map((a) => a(dna, "ACGTTGCA")).sort((x, y) => x.comparisons - y.comparisons);
+console.table(best.map(({ algorithm, positions, comparisons }) => ({ algorithm, at: positions.join(","), comparisons })));
+console.log(text.indexOf("cada"), text.lastIndexOf("abra"), text.includes("cadaver"), text.split("abra").length - 1);

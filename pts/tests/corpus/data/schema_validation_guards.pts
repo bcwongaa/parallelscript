@@ -1,0 +1,100 @@
+interface Address {
+  street: string;
+  city: string;
+  zip: string;
+}
+
+interface Person {
+  name: string;
+  age: number;
+  email: string;
+  tags: string[];
+  address?: Address;
+}
+
+class ValidationError extends Error {
+  constructor(public readonly path: string, message: string) {
+    super(`${path}: ${message}`);
+    this.name = "ValidationError";
+  }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function expectString(v: unknown, path: string): string {
+  if (typeof v !== "string") throw new ValidationError(path, `expected string, got ${v === null ? "null" : typeof v}`);
+  return v;
+}
+
+function expectNumber(v: unknown, path: string, min?: number, max?: number): number {
+  if (typeof v !== "number" || Number.isNaN(v)) throw new ValidationError(path, `expected number, got ${JSON.stringify(v)}`);
+  if (min !== undefined && v < min) throw new ValidationError(path, `must be >= ${min}`);
+  if (max !== undefined && v > max) throw new ValidationError(path, `must be <= ${max}`);
+  return v;
+}
+
+function parseAddress(v: unknown, path: string): Address {
+  if (!isRecord(v)) throw new ValidationError(path, "expected object");
+  const zip = expectString(v.zip, `${path}.zip`);
+  if (zip.length !== 5 || !zip.split("").every((c) => c >= "0" && c <= "9")) {
+    throw new ValidationError(`${path}.zip`, `invalid zip ${JSON.stringify(zip)}`);
+  }
+  return { street: expectString(v.street, `${path}.street`), city: expectString(v.city, `${path}.city`), zip };
+}
+
+function parsePerson(v: unknown, path = "$"): Person {
+  if (!isRecord(v)) throw new ValidationError(path, "expected object");
+  const email = expectString(v.email, `${path}.email`);
+  if (!email.includes("@") || email.startsWith("@") || email.endsWith("@")) {
+    throw new ValidationError(`${path}.email`, "not an email");
+  }
+  if (!Array.isArray(v.tags)) throw new ValidationError(`${path}.tags`, "expected array");
+  const tags = v.tags.map((t: unknown, i: number) => expectString(t, `${path}.tags[${i}]`));
+  const person: Person = {
+    name: expectString(v.name, `${path}.name`).trim(),
+    age: expectNumber(v.age, `${path}.age`, 0, 150),
+    email: email.toLowerCase(),
+    tags,
+  };
+  if ("address" in v && v.address !== undefined) person.address = parseAddress(v.address, `${path}.address`);
+  return person;
+}
+
+const inputs: string[] = [
+  `{"name":" Rosa ","age":34,"email":"Rosa@Mail.com","tags":["admin"],"address":{"street":"1 Elm","city":"Akron","zip":"44301"}}`,
+  `{"name":"Sam","age":"34","email":"sam@mail.com","tags":[]}`,
+  `{"name":"Tia","age":201,"email":"tia@mail.com","tags":[]}`,
+  `{"name":"Uri","age":40,"email":"uri.mail.com","tags":[]}`,
+  `{"name":"Vic","age":22,"email":"vic@mail.com","tags":["a",7]}`,
+  `{"name":"Wen","age":51,"email":"wen@mail.com","tags":["x"],"address":{"street":"9 Oak","city":"Reno","zip":"89A01"}}`,
+  `[1,2,3]`,
+  `{"name":null,"age":5,"email":"n@n.io","tags":[]}`,
+  `{"name":"Xu","age":29,"email":"xu@mail.com","tags":["ops","oncall"]}`,
+  `{"name":"Yan", "age": 3`,
+];
+
+const valid: Person[] = [];
+const errors: string[] = [];
+inputs.forEach((text, i) => {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    valid.push(parsePerson(parsed, `input[${i}]`));
+  } catch (e) {
+    if (e instanceof ValidationError) {
+      errors.push(`${e.name} ${e.message}`);
+    } else if (e instanceof SyntaxError) {
+      errors.push(`input[${i}]: malformed JSON (${e.name})`);
+    } else {
+      throw e;
+    }
+  }
+});
+
+console.log(`${valid.length} valid, ${errors.length} invalid`);
+for (const p of valid) console.log(p);
+for (const e of errors) console.log(e);
+const err = new ValidationError("$.x", "boom");
+console.log(err instanceof Error, err instanceof ValidationError, err.path, err.name, String(err));
+console.log(valid.map((p) => p.address?.city ?? "(no address)"));

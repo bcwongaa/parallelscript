@@ -1,0 +1,109 @@
+// Word ladder solver: BFS over one-letter edits using wildcard buckets, shortest paths,
+// all shortest paths, connected components and the hardest pair in a small dictionary.
+const WORDS = `cold cord card ward warm word worm wore core corn born barn burn turn torn tern team teal
+tell tall tale male mile mild wild wind wine wise wish fish dish dash cash case cast cost most mist
+lost lose lone line lane cane cone code rode rods gods goes does dose rose rise wire fire hire here
+head heal heap leap lead load road roam foam form farm harm hard herd heed seed feed fees fled flee`;
+
+const dict = [...new Set(WORDS.split("\n").join(" ").split(" ").filter(Boolean))];
+
+function buildBuckets(words: string[]): Map<string, string[]> {
+  const buckets = new Map<string, string[]>();
+  for (const w of words) {
+    for (let i = 0; i < w.length; i++) {
+      const key = w.slice(0, i) + "_" + w.slice(i + 1);
+      const list = buckets.get(key);
+      if (list) list.push(w);
+      else buckets.set(key, [w]);
+    }
+  }
+  return buckets;
+}
+
+const buckets = buildBuckets(dict);
+
+function neighbours(w: string): string[] {
+  const out = new Set<string>();
+  for (let i = 0; i < w.length; i++) {
+    for (const n of buckets.get(w.slice(0, i) + "_" + w.slice(i + 1)) ?? []) if (n !== w) out.add(n);
+  }
+  return [...out].sort();
+}
+
+function bfs(start: string): Map<string, number> {
+  const dist = new Map<string, number>([[start, 0]]);
+  const queue = [start];
+  for (let head = 0; head < queue.length; head++) {
+    const w = queue[head];
+    for (const n of neighbours(w)) {
+      if (!dist.has(n)) {
+        dist.set(n, (dist.get(w) ?? 0) + 1);
+        queue.push(n);
+      }
+    }
+  }
+  return dist;
+}
+
+function ladder(from: string, to: string): string[] | null {
+  if (from.length !== to.length) throw new Error(`length mismatch: ${from}/${to}`);
+  const prev = new Map<string, string | null>([[from, null]]);
+  const queue = [from];
+  while (queue.length) {
+    const w = queue.shift()!;
+    if (w === to) break;
+    for (const n of neighbours(w)) if (!prev.has(n)) { prev.set(n, w); queue.push(n); }
+  }
+  if (!prev.has(to)) return null;
+  const path: string[] = [];
+  for (let cur: string | null = to; cur !== null; cur = prev.get(cur) ?? null) path.unshift(cur);
+  return path;
+}
+
+function allShortest(from: string, to: string): string[][] {
+  const dist = bfs(from);
+  const target = dist.get(to);
+  if (target === undefined) return [];
+  const results: string[][] = [];
+  const walk = (w: string, path: string[]) => {
+    if (w === from) { results.push([...path].reverse()); return; }
+    for (const n of neighbours(w)) if (dist.get(n) === (dist.get(w) ?? 0) - 1) walk(n, [...path, n]);
+  };
+  walk(to, [to]);
+  return results.sort((a, b) => a.join().localeCompare(b.join()));
+}
+
+console.log(`dictionary: ${dict.length} words, ${buckets.size} buckets`);
+console.log("neighbours of 'cold':", neighbours("cold"), "of 'fish':", neighbours("fish"));
+for (const [a, b] of [["cold", "warm"], ["head", "tail"], ["fish", "cash"], ["wild", "fire"], ["seed", "fled"], ["lost", "most"]] as [string, string][]) {
+  try {
+    const path = ladder(a, b);
+    console.log(`${a} -> ${b}: ${path ? `${path.length - 1} steps: ${path.join(" > ")}` : "no ladder"}`);
+  } catch (e) {
+    console.log("error:", (e as Error).message);
+  }
+}
+const paths = allShortest("cold", "warm");
+console.log(`${paths.length} shortest cold->warm ladders`);
+for (const p of paths.slice(0, 4)) console.log("  " + p.join(" "));
+try { ladder("cat", "dogs"); } catch (e) { console.log("error:", (e as Error).message); }
+
+const seen = new Set<string>();
+const components: string[][] = [];
+for (const w of dict) {
+  if (seen.has(w)) continue;
+  const comp = [...bfs(w).keys()];
+  comp.forEach((x) => seen.add(x));
+  components.push(comp.sort());
+}
+components.sort((a, b) => b.length - a.length);
+console.log("components:", components.map((c) => c.length));
+console.log("isolated:", components.filter((c) => c.length === 1).flat());
+
+let hardest = { from: "", to: "", steps: 0 };
+for (const w of components[0]) {
+  for (const [other, d] of bfs(w)) if (d > hardest.steps || (d === hardest.steps && w + other < hardest.from + hardest.to)) hardest = { from: w, to: other, steps: d };
+}
+console.log("hardest pair:", hardest);
+const degree = dict.map((w) => [w, neighbours(w).length] as const).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+console.log("most connected:", degree.slice(0, 5));

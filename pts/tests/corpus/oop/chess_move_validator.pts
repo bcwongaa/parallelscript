@@ -1,0 +1,151 @@
+// skip: not supported yet: PTS1001: converting Piece | null to Piece
+// Chess move validator for a subset of rules (no castling/en passant), with check detection.
+
+type Color = "white" | "black";
+type Square = [number, number]; // file 0-7, rank 0-7
+
+abstract class Piece {
+  constructor(readonly color: Color) {}
+  abstract get symbol(): string;
+  abstract canMove(board: Board, from: Square, to: Square): boolean;
+  get letter(): string {
+    return this.color === "white" ? this.symbol.toUpperCase() : this.symbol;
+  }
+}
+
+function slide(board: Board, from: Square, to: Square, dirs: Square[]): boolean {
+  const df = Math.sign(to[0] - from[0]);
+  const dr = Math.sign(to[1] - from[1]);
+  if (!dirs.some(([f, r]) => f === df && r === dr)) return false;
+  const steps = Math.max(Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1]));
+  if (df !== 0 && dr !== 0 && Math.abs(to[0] - from[0]) !== Math.abs(to[1] - from[1])) return false;
+  for (let i = 1; i < steps; i++) {
+    if (board.at([from[0] + df * i, from[1] + dr * i])) return false;
+  }
+  return true;
+}
+
+const ORTHO: Square[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const DIAG: Square[] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+class Rook extends Piece {
+  get symbol() { return "r"; }
+  canMove(b: Board, f: Square, t: Square) { return slide(b, f, t, ORTHO); }
+}
+class Bishop extends Piece {
+  get symbol() { return "b"; }
+  canMove(b: Board, f: Square, t: Square) { return slide(b, f, t, DIAG); }
+}
+class Queen extends Piece {
+  get symbol() { return "q"; }
+  canMove(b: Board, f: Square, t: Square) { return slide(b, f, t, [...ORTHO, ...DIAG]); }
+}
+class Knight extends Piece {
+  get symbol() { return "n"; }
+  canMove(_b: Board, f: Square, t: Square) {
+    const dx = Math.abs(t[0] - f[0]), dy = Math.abs(t[1] - f[1]);
+    return dx * dy === 2;
+  }
+}
+class King extends Piece {
+  get symbol() { return "k"; }
+  canMove(_b: Board, f: Square, t: Square) {
+    return Math.max(Math.abs(t[0] - f[0]), Math.abs(t[1] - f[1])) === 1;
+  }
+}
+class Pawn extends Piece {
+  get symbol() { return "p"; }
+  canMove(b: Board, f: Square, t: Square) {
+    const dir = this.color === "white" ? 1 : -1;
+    const startRank = this.color === "white" ? 1 : 6;
+    const dx = t[0] - f[0], dy = t[1] - f[1];
+    const target = b.at(t);
+    if (dx === 0 && dy === dir) return !target;
+    if (dx === 0 && dy === 2 * dir && f[1] === startRank) return !target && !b.at([f[0], f[1] + dir]);
+    if (Math.abs(dx) === 1 && dy === dir) return target !== null && target.color !== this.color;
+    return false;
+  }
+}
+
+const parse = (s: string): Square => [s.charCodeAt(0) - 97, Number(s[1]) - 1];
+const name = (sq: Square): string => String.fromCharCode(97 + sq[0]) + (sq[1] + 1);
+
+class Board {
+  private grid: (Piece | null)[][] = Array.from({ length: 8 }, () => new Array<Piece | null>(8).fill(null));
+  turn: Color = "white";
+
+  place(sq: string, p: Piece): this {
+    const [f, r] = parse(sq);
+    this.grid[r][f] = p;
+    return this;
+  }
+  at([f, r]: Square): Piece | null {
+    return this.grid[r][f];
+  }
+  findKing(color: Color): Square {
+    for (let r = 0; r < 8; r++)
+      for (let f = 0; f < 8; f++) {
+        const p = this.grid[r][f];
+        if (p instanceof King && p.color === color) return [f, r];
+      }
+    throw new Error(`no ${color} king`);
+  }
+  inCheck(color: Color): boolean {
+    const k = this.findKing(color);
+    for (let r = 0; r < 8; r++)
+      for (let f = 0; f < 8; f++) {
+        const p = this.grid[r][f];
+        if (p && p.color !== color && p.canMove(this, [f, r], k)) return true;
+      }
+    return false;
+  }
+  validate(move: string): string | null {
+    const [a, b] = move.split("-").map(parse);
+    if ([...a, ...b].some((v) => v < 0 || v > 7 || Number.isNaN(v))) return "off board";
+    const p = this.at(a);
+    if (!p) return "empty square";
+    if (p.color !== this.turn) return `not ${p.color}'s turn`;
+    const target = this.at(b);
+    if (target && target.color === p.color) return "own piece";
+    if (!p.canMove(this, a, b)) return `illegal ${p.constructor.name.toLowerCase()} move`;
+    this.grid[b[1]][b[0]] = p;
+    this.grid[a[1]][a[0]] = null;
+    const exposed = this.inCheck(p.color);
+    this.grid[a[1]][a[0]] = p;
+    this.grid[b[1]][b[0]] = target;
+    return exposed ? "leaves king in check" : null;
+  }
+  play(move: string): boolean {
+    const err = this.validate(move);
+    const label = `${this.turn.padEnd(5)} ${move}`;
+    if (err) {
+      console.log(`${label}: rejected (${err})`);
+      return false;
+    }
+    const [a, b] = move.split("-").map(parse);
+    const captured = this.at(b);
+    this.grid[b[1]][b[0]] = this.at(a);
+    this.grid[a[1]][a[0]] = null;
+    this.turn = this.turn === "white" ? "black" : "white";
+    const check = this.inCheck(this.turn) ? " +check" : "";
+    console.log(`${label}: ok${captured ? " captures " + captured.letter + " on " + name(b) : ""}${check}`);
+    return true;
+  }
+  render(): string {
+    return this.grid.map((row, r) => `${r + 1} ` + row.map((p) => p?.letter ?? ".").join("")).reverse().join("\n") + "\n  abcdefgh";
+  }
+}
+
+const board = new Board()
+  .place("e1", new King("white")).place("d1", new Queen("white")).place("a1", new Rook("white"))
+  .place("c1", new Bishop("white")).place("g1", new Knight("white"))
+  .place("e2", new Pawn("white")).place("d2", new Pawn("white")).place("f2", new Pawn("white"))
+  .place("e8", new King("black")).place("d8", new Queen("black")).place("b8", new Knight("black"))
+  .place("e7", new Pawn("black")).place("d7", new Pawn("black")).place("h8", new Rook("black"));
+
+const moves = ["e2-e4", "e7-e5", "d1-h5", "b8-c6", "h5-f7", "e8-f7", "a1-a5", "f1-f3", "g1-f3", "d8-h4",
+  "e1-e2", "f3-h4", "d7-d5", "e4-d5", "f7-f6", "h4-f5", "c6-d4", "z9-a1"];
+const ok = moves.filter((m) => board.play(m)).length;
+console.log(board.render());
+console.log(`${ok}/${moves.length} moves accepted, ${board.turn} to move, in check: ${board.inCheck(board.turn)}`);
+console.log(board.at(parse("d5")), name(board.findKing("black")));

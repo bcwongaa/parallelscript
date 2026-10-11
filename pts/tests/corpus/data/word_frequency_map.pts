@@ -1,0 +1,66 @@
+const reviews: string[] = [
+  "The battery life is great, but the screen is dim.",
+  "Great screen! Battery could be better.",
+  "Terrible battery. The screen is fine; the speakers are great.",
+  "Speakers are loud and clear. Battery is great for a day.",
+  "the SCREEN cracked after a week; customer support was great though",
+  "Battery, battery, battery: that is all that matters.",
+];
+
+const STOP = new Set(["the", "is", "but", "be", "a", "for", "and", "are", "that", "all", "was", "after", "could", "though"]);
+const PUNCT = [".", ",", "!", ";", ":", "?"];
+
+function tokenize(text: string): string[] {
+  let cleaned = text.toLowerCase();
+  for (const p of PUNCT) cleaned = cleaned.split(p).join(" ");
+  return cleaned.split(" ").filter((w) => w.length > 0);
+}
+
+function frequencies(words: string[]): Map<string, number> {
+  const freq = new Map<string, number>();
+  for (const w of words) freq.set(w, (freq.get(w) ?? 0) + 1);
+  return freq;
+}
+
+const allWords = reviews.flatMap(tokenize);
+console.log("tokens:", allWords.length, "distinct:", new Set(allWords).size);
+
+const content = allWords.filter((w) => !STOP.has(w));
+const freq = frequencies(content);
+const sorted = [...freq.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+console.log("Top words:");
+for (const [word, n] of sorted.slice(0, 8)) {
+  console.log(`  ${word.padEnd(10)} ${String(n).padStart(2)} ${"▇".repeat(n)}`);
+}
+
+const docFreq = new Map<string, number>();
+for (const r of reviews) {
+  for (const w of new Set(tokenize(r))) docFreq.set(w, (docFreq.get(w) ?? 0) + 1);
+}
+const idf = (w: string): number => Math.log(reviews.length / (docFreq.get(w) ?? 1));
+reviews.forEach((r, i) => {
+  const tf = frequencies(tokenize(r).filter((w) => !STOP.has(w)));
+  const scored = [...tf].map(([w, n]) => [w, Number((n * idf(w)).toFixed(3))] as [string, number]);
+  scored.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  console.log(`review ${i + 1} keywords:`, scored.slice(0, 3));
+});
+
+const bigrams = new Map<string, number>();
+for (const r of reviews) {
+  const toks = tokenize(r);
+  for (let i = 0; i + 1 < toks.length; i++) {
+    const key = `${toks[i]} ${toks[i + 1]}`;
+    bigrams.set(key, (bigrams.get(key) ?? 0) + 1);
+  }
+}
+const commonBigrams = [...bigrams].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]);
+console.log(commonBigrams);
+
+const letterCounts: Record<string, number> = {};
+for (const ch of allWords.join("")) letterCounts[ch] = (letterCounts[ch] ?? 0) + 1;
+const vowels = "aeiou".split("").map((v) => `${v}=${letterCounts[v] ?? 0}`);
+console.log(vowels.join(" "));
+console.log(Object.keys(letterCounts).length, "distinct letters");
+const lengths = frequencies(allWords.map((w) => String(w.length)));
+console.log(new Map([...lengths].sort((a, b) => Number(a[0]) - Number(b[0]))));
+console.log(freq.get("battery"), freq.get("nonexistent"), freq.has("screen"));

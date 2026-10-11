@@ -1,0 +1,130 @@
+// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
+// DFS (recursive and iterative) for connected components, articulation points and bridges.
+
+class UndirectedGraph {
+  private adj = new Map<string, Set<string>>();
+
+  addEdge(a: string, b: string): this {
+    this.node(a).add(b);
+    this.node(b).add(a);
+    return this;
+  }
+
+  private node(n: string): Set<string> {
+    let s = this.adj.get(n);
+    if (!s) {
+      s = new Set();
+      this.adj.set(n, s);
+    }
+    return s;
+  }
+
+  addVertex(n: string): this {
+    this.node(n);
+    return this;
+  }
+
+  get vertices(): string[] {
+    return [...this.adj.keys()];
+  }
+
+  neighbours(n: string): string[] {
+    return [...(this.adj.get(n) ?? [])].sort();
+  }
+
+  componentsIterative(): string[][] {
+    const seen = new Set<string>();
+    const comps: string[][] = [];
+    for (const v of this.vertices.sort()) {
+      if (seen.has(v)) continue;
+      const comp: string[] = [];
+      const stack = [v];
+      seen.add(v);
+      while (stack.length) {
+        const cur = stack.pop()!;
+        comp.push(cur);
+        for (const n of this.neighbours(cur)) {
+          if (!seen.has(n)) {
+            seen.add(n);
+            stack.push(n);
+          }
+        }
+      }
+      comps.push(comp.sort());
+    }
+    return comps;
+  }
+
+  dfsOrder(start: string): string[] {
+    const order: string[] = [];
+    const visited = new Set<string>();
+    const visit = (v: string): void => {
+      visited.add(v);
+      order.push(v);
+      for (const n of this.neighbours(v)) if (!visited.has(n)) visit(n);
+    };
+    visit(start);
+    return order;
+  }
+
+  criticalParts(): { articulation: string[]; bridges: [string, string][] } {
+    const disc = new Map<string, number>();
+    const low = new Map<string, number>();
+    const art = new Set<string>();
+    const bridges: [string, string][] = [];
+    let time = 0;
+    const dfs = (u: string, parent: string | null): void => {
+      disc.set(u, time);
+      low.set(u, time);
+      time++;
+      let children = 0;
+      for (const v of this.neighbours(u)) {
+        if (v === parent) continue;
+        if (disc.has(v)) {
+          low.set(u, Math.min(low.get(u)!, disc.get(v)!));
+        } else {
+          children++;
+          dfs(v, u);
+          low.set(u, Math.min(low.get(u)!, low.get(v)!));
+          if (parent !== null && low.get(v)! >= disc.get(u)!) art.add(u);
+          if (low.get(v)! > disc.get(u)!) bridges.push(u < v ? [u, v] : [v, u]);
+        }
+      }
+      if (parent === null && children > 1) art.add(u);
+    };
+    for (const v of this.vertices.sort()) if (!disc.has(v)) dfs(v, null);
+    return { articulation: [...art].sort(), bridges: bridges.sort() };
+  }
+}
+
+const g = new UndirectedGraph()
+  .addEdge("a", "b")
+  .addEdge("b", "c")
+  .addEdge("c", "a")
+  .addEdge("c", "d")
+  .addEdge("d", "e")
+  .addEdge("e", "f")
+  .addEdge("f", "d")
+  .addEdge("x", "y")
+  .addEdge("y", "z")
+  .addVertex("lonely")
+  .addEdge("m", "n");
+
+console.log("vertices:", g.vertices.length, g.vertices.join(" "));
+const comps = g.componentsIterative();
+console.log("components:", comps.length);
+comps.forEach((c, i) => console.log(`  #${i + 1} size=${c.length}`, c));
+console.log("dfs from a:", g.dfsOrder("a").join(" -> "));
+console.log("dfs from z:", g.dfsOrder("z"));
+const crit = g.criticalParts();
+console.log("critical:", crit);
+console.log(JSON.stringify(crit));
+
+const sizes = comps.map((c) => c.length);
+const summary = {
+  largest: Math.max(...sizes),
+  smallest: Math.min(...sizes),
+  isolated: comps.filter((c) => c.length === 1).flat(),
+  degree: Object.fromEntries(g.vertices.sort().map((v) => [v, g.neighbours(v).length])),
+};
+console.log(summary);

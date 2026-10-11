@@ -1,0 +1,146 @@
+// Command pattern with undo/redo on a tiny text buffer.
+
+interface Command {
+  readonly label: string;
+  execute(doc: TextDocument): void;
+  undo(doc: TextDocument): void;
+}
+
+class TextDocument {
+  text = "";
+  cursor = 0;
+
+  insertAt(pos: number, s: string): void {
+    this.text = this.text.slice(0, pos) + s + this.text.slice(pos);
+  }
+  removeAt(pos: number, len: number): string {
+    const removed = this.text.substring(pos, pos + len);
+    this.text = this.text.slice(0, pos) + this.text.slice(pos + len);
+    return removed;
+  }
+  show(): string {
+    return this.text.slice(0, this.cursor) + "|" + this.text.slice(this.cursor);
+  }
+}
+
+class InsertCommand implements Command {
+  private at = 0;
+  constructor(private readonly s: string) {}
+  get label(): string {
+    return `insert "${this.s}"`;
+  }
+  execute(doc: TextDocument): void {
+    this.at = doc.cursor;
+    doc.insertAt(this.at, this.s);
+    doc.cursor = this.at + this.s.length;
+  }
+  undo(doc: TextDocument): void {
+    doc.removeAt(this.at, this.s.length);
+    doc.cursor = this.at;
+  }
+}
+
+class DeleteBackCommand implements Command {
+  private removed = "";
+  private at = 0;
+  constructor(private readonly count: number) {}
+  get label(): string {
+    return `backspace x${this.count}`;
+  }
+  execute(doc: TextDocument): void {
+    const n = Math.min(this.count, doc.cursor);
+    this.at = doc.cursor - n;
+    this.removed = doc.removeAt(this.at, n);
+    doc.cursor = this.at;
+  }
+  undo(doc: TextDocument): void {
+    doc.insertAt(this.at, this.removed);
+    doc.cursor = this.at + this.removed.length;
+  }
+}
+
+class MoveCommand implements Command {
+  private from = 0;
+  constructor(private readonly to: number) {}
+  get label(): string {
+    return `move to ${this.to}`;
+  }
+  execute(doc: TextDocument): void {
+    this.from = doc.cursor;
+    doc.cursor = Math.max(0, Math.min(this.to, doc.text.length));
+  }
+  undo(doc: TextDocument): void {
+    doc.cursor = this.from;
+  }
+}
+
+class UpperCaseWordCommand implements Command {
+  readonly label = "uppercase word";
+  private before = "";
+  execute(doc: TextDocument): void {
+    this.before = doc.text;
+    const start = doc.text.lastIndexOf(" ", doc.cursor - 1) + 1;
+    let end = doc.text.indexOf(" ", doc.cursor);
+    if (end < 0) end = doc.text.length;
+    doc.text = doc.text.slice(0, start) + doc.text.slice(start, end).toUpperCase() + doc.text.slice(end);
+  }
+  undo(doc: TextDocument): void {
+    doc.text = this.before;
+  }
+}
+
+class Editor {
+  private undoStack: Command[] = [];
+  private redoStack: Command[] = [];
+  constructor(readonly doc: TextDocument) {}
+
+  run(cmd: Command): void {
+    cmd.execute(this.doc);
+    this.undoStack.push(cmd);
+    this.redoStack.length = 0;
+    this.trace(cmd.label);
+  }
+  undo(): boolean {
+    const cmd = this.undoStack.pop();
+    if (!cmd) return false;
+    cmd.undo(this.doc);
+    this.redoStack.push(cmd);
+    this.trace(`undo ${cmd.label}`);
+    return true;
+  }
+  redo(): boolean {
+    const cmd = this.redoStack.pop();
+    if (cmd === undefined) return false;
+    cmd.execute(this.doc);
+    this.undoStack.push(cmd);
+    this.trace(`redo ${cmd.label}`);
+    return true;
+  }
+  private trace(what: string): void {
+    console.log(`${what.padEnd(24)} ${JSON.stringify(this.doc.show())}`);
+  }
+  get history(): string[] {
+    return this.undoStack.map((c) => c.label);
+  }
+}
+
+const ed = new Editor(new TextDocument());
+ed.run(new InsertCommand("hello world"));
+ed.run(new MoveCommand(5));
+ed.run(new InsertCommand(","));
+ed.run(new MoveCommand(99));
+ed.run(new InsertCommand("!!!"));
+ed.run(new DeleteBackCommand(2));
+ed.run(new MoveCommand(2));
+ed.run(new UpperCaseWordCommand());
+ed.undo();
+ed.undo();
+ed.redo();
+ed.run(new DeleteBackCommand(10));
+console.log("redo possible?", ed.redo());
+let undone = 0;
+while (ed.undo()) undone++;
+console.log("undid", undone, "commands; text is", JSON.stringify(ed.doc.text));
+for (let i = 0; i < 3; i++) ed.redo();
+console.log("history:", ed.history);
+console.log(ed.doc);

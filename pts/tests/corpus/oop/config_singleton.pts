@@ -1,0 +1,128 @@
+// skip: not supported yet: PTS1001: calling a (() => number) | (() => string)
+// Singleton configuration store with layered sources and typed getters.
+
+type ConfigValue = string | number | boolean | string[];
+
+class ConfigError extends Error {
+  constructor(key: string, expected: string, actual: unknown) {
+    super(`config "${key}": expected ${expected}, got ${typeof actual}`);
+    this.name = "ConfigError";
+  }
+}
+
+class AppConfig {
+  private static instance: AppConfig | null = null;
+  private static creations = 0;
+  private layers: Array<{ name: string; values: Map<string, ConfigValue> }> = [];
+  private readonly frozenKeys = new Set<string>();
+
+  private constructor() {
+    AppConfig.creations++;
+  }
+
+  static get(): AppConfig {
+    if (AppConfig.instance === null) {
+      AppConfig.instance = new AppConfig();
+    }
+    return AppConfig.instance;
+  }
+
+  static get timesCreated(): number {
+    return AppConfig.creations;
+  }
+
+  static reset(): void {
+    AppConfig.instance = null;
+  }
+
+  addLayer(name: string, values: Record<string, ConfigValue>): void {
+    for (const k of Object.keys(values)) {
+      if (this.frozenKeys.has(k)) {
+        console.log(`layer ${name}: ignoring frozen key ${k}`);
+      }
+    }
+    const filtered = Object.entries(values).filter(([k]) => !this.frozenKeys.has(k));
+    this.layers.push({ name, values: new Map(filtered) });
+  }
+
+  freeze(key: string): void {
+    this.frozenKeys.add(key);
+  }
+
+  private lookup(key: string): [ConfigValue, string] | undefined {
+    for (let i = this.layers.length - 1; i >= 0; i--) {
+      const layer = this.layers[i];
+      if (layer.values.has(key)) return [layer.values.get(key)!, layer.name];
+    }
+    return undefined;
+  }
+
+  string(key: string, fallback?: string): string {
+    const found = this.lookup(key);
+    if (!found) {
+      if (fallback !== undefined) return fallback;
+      throw new ConfigError(key, "string", undefined);
+    }
+    if (typeof found[0] !== "string") throw new ConfigError(key, "string", found[0]);
+    return found[0];
+  }
+
+  number(key: string, fallback = 0): number {
+    const v = this.lookup(key)?.[0];
+    if (v === undefined) return fallback;
+    if (typeof v === "number") return v;
+    if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) return Number(v);
+    throw new ConfigError(key, "number", v);
+  }
+
+  flag(key: string): boolean {
+    const v = this.lookup(key)?.[0];
+    return v === true || v === "true" || v === "1" || v === 1;
+  }
+
+  list(key: string): string[] {
+    const v = this.lookup(key)?.[0];
+    if (v === undefined) return [];
+    if (Array.isArray(v)) return v;
+    return String(v).split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  }
+
+  explain(key: string): string {
+    const found = this.lookup(key);
+    return found ? `${key} = ${JSON.stringify(found[0])} (from ${found[1]})` : `${key} is unset`;
+  }
+
+  dump(): Record<string, ConfigValue> {
+    const out: Record<string, ConfigValue> = {};
+    for (const layer of this.layers) {
+      layer.values.forEach((v, k) => (out[k] = v));
+    }
+    return out;
+  }
+}
+
+const cfg = AppConfig.get();
+cfg.addLayer("defaults", { host: "localhost", port: 8080, debug: false, plugins: ["auth", "logs"], workers: "4" });
+cfg.freeze("host");
+cfg.addLayer("file", { port: 9090, host: "0.0.0.0", debug: "true", plugins: "auth, metrics , ,cache" });
+AppConfig.get().addLayer("env", { workers: "eight", timeout: 2.5 });
+
+console.log(AppConfig.get() === cfg, AppConfig.timesCreated);
+for (const key of ["host", "port", "debug", "plugins", "workers", "timeout", "missing"]) {
+  console.log(cfg.explain(key));
+}
+console.log("host:", cfg.string("host"), "port:", cfg.number("port"), "debug:", cfg.flag("debug"));
+console.log("plugins:", cfg.list("plugins"), cfg.list("missing"));
+console.log("timeout:", cfg.number("timeout", 30), "retries:", cfg.number("retries", 3));
+for (const action of [() => cfg.number("workers"), () => cfg.string("port"), () => cfg.string("nope")]) {
+  try {
+    console.log(action());
+  } catch (e) {
+    if (e instanceof ConfigError) console.log(e.name + ":", e.message);
+  }
+}
+console.log(cfg.string("nope", "default-value"));
+console.log(cfg.dump());
+AppConfig.reset();
+const fresh = AppConfig.get();
+console.log(fresh === cfg, AppConfig.timesCreated, fresh.dump());

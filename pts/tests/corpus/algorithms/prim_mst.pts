@@ -1,0 +1,93 @@
+// Prim's minimum spanning tree on an adjacency matrix, with an ASCII report and verification.
+
+const INF = Number.POSITIVE_INFINITY;
+const labels = ["A", "B", "C", "D", "E", "F", "G"];
+
+// 0 means no edge.
+const matrix: number[][] = [
+  [0, 2, 0, 6, 0, 0, 0],
+  [2, 0, 3, 8, 5, 0, 0],
+  [0, 3, 0, 0, 7, 0, 0],
+  [6, 8, 0, 0, 9, 4, 0],
+  [0, 5, 7, 9, 0, 1, 2],
+  [0, 0, 0, 4, 1, 0, 6],
+  [0, 0, 0, 0, 2, 6, 0],
+];
+
+interface TreeEdge {
+  parent: string;
+  child: string;
+  weight: number;
+}
+
+function prim(m: number[][], root = 0): { edges: TreeEdge[]; order: string[] } {
+  const n = m.length;
+  const key = new Array<number>(n).fill(INF);
+  const parent = new Array<number>(n).fill(-1);
+  const inTree = new Array<boolean>(n).fill(false);
+  key[root] = 0;
+  const order: string[] = [];
+  for (let step = 0; step < n; step++) {
+    let u = -1;
+    for (let v = 0; v < n; v++) {
+      if (!inTree[v] && (u === -1 || key[v] < key[u])) u = v;
+    }
+    if (key[u] === INF) break;
+    inTree[u] = true;
+    order.push(labels[u]);
+    for (let v = 0; v < n; v++) {
+      const w = m[u][v];
+      if (w > 0 && !inTree[v] && w < key[v]) {
+        key[v] = w;
+        parent[v] = u;
+      }
+    }
+  }
+  const edges = parent
+    .map((p, v): TreeEdge | null => (p >= 0 ? { parent: labels[p], child: labels[v], weight: m[p][v] } : null))
+    .filter((e): e is TreeEdge => e !== null);
+  return { edges, order };
+}
+
+const { edges, order } = prim(matrix);
+console.log("visit order:", order.join(" "));
+console.table(edges);
+const total = edges.reduce((s, e) => s + e.weight, 0);
+console.log(`total weight = ${total}`);
+
+// Same tree from every root?
+const totals = labels.map((_, r) => prim(matrix, r).edges.reduce((s, e) => s + e.weight, 0));
+console.log("totals from each root:", totals, "all equal:", new Set(totals).size === 1);
+
+// Degree of each vertex in the MST.
+const degree: Record<string, number> = {};
+for (const l of labels) degree[l] = 0;
+for (const e of edges) {
+  degree[e.parent]++;
+  degree[e.child]++;
+}
+console.log("degrees:", degree);
+const leaves = Object.entries(degree).filter(([, d]) => d === 1).map(([l]) => l);
+console.log("leaves:", leaves);
+
+// Print the tree as an indented outline.
+const children = new Map<string, TreeEdge[]>();
+for (const e of edges) {
+  const list = children.get(e.parent) ?? [];
+  list.push(e);
+  children.set(e.parent, list);
+}
+function outline(node: string, depth: number): void {
+  for (const e of children.get(node) ?? []) {
+    console.log(`${"  ".repeat(depth)}${node} --${e.weight}--> ${e.child}`);
+    outline(e.child, depth + 1);
+  }
+}
+outline("A", 0);
+
+// A disconnected graph yields a spanning forest fragment.
+const split = matrix.map((row) => [...row, 0]);
+split.push(new Array<number>(8).fill(0));
+labels.push("H");
+const partial = prim(split);
+console.log("with isolated H:", partial.order, partial.edges.length, "edges");

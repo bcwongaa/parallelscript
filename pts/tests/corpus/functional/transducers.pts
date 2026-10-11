@@ -1,0 +1,98 @@
+// skip: not supported yet: PTS1001: values of type Iterable<number>
+// Transducers: composable reducer transformers for single-pass collection processing.
+
+type Reducer<A, T> = (acc: A, x: T) => A;
+type Transducer<T, U> = <A>(next: Reducer<A, U>) => Reducer<A, T>;
+
+const mapT = <T, U>(f: (x: T) => U): Transducer<T, U> => (next) => (acc, x) => next(acc, f(x));
+const filterT = <T>(p: (x: T) => boolean): Transducer<T, T> => (next) => (acc, x) => (p(x) ? next(acc, x) : acc);
+const tapT = <T>(f: (x: T) => void): Transducer<T, T> => (next) => (acc, x) => {
+  f(x);
+  return next(acc, x);
+};
+const flatMapT = <T, U>(f: (x: T) => U[]): Transducer<T, U> => (next) => (acc, x) => f(x).reduce(next, acc);
+const dedupeT = <T>(): Transducer<T, T> => (next) => {
+  let first = true;
+  let prev: T | undefined;
+  return (acc, x) => {
+    if (!first && x === prev) return acc;
+    first = false;
+    prev = x;
+    return next(acc, x);
+  };
+};
+
+function comp<A, B, C>(t1: Transducer<A, B>, t2: Transducer<B, C>): Transducer<A, C>;
+function comp<A, B, C, D>(t1: Transducer<A, B>, t2: Transducer<B, C>, t3: Transducer<C, D>): Transducer<A, D>;
+function comp<A, B, C, D, E>(t1: Transducer<A, B>, t2: Transducer<B, C>, t3: Transducer<C, D>, t4: Transducer<D, E>): Transducer<A, E>;
+function comp(...ts: Array<Transducer<any, any>>): Transducer<any, any> {
+  return (next) => ts.reduceRight((r, t) => t(r), next);
+}
+
+function transduce<T, U, A>(xf: Transducer<T, U>, rf: Reducer<A, U>, init: A, xs: Iterable<T>): A {
+  const step = xf(rf);
+  let acc = init;
+  for (const x of xs) acc = step(acc, x);
+  return acc;
+}
+
+const intoArray = <T>(acc: T[], x: T): T[] => {
+  acc.push(x);
+  return acc;
+};
+const sum = (acc: number, x: number) => acc + x;
+
+const touched: number[] = [];
+const xf = comp(
+  tapT<number>((x) => touched.push(x)),
+  filterT((x: number) => x % 3 !== 0),
+  mapT((x: number) => x * x),
+  filterT((x: number) => x < 200),
+);
+const nums = Array.from({ length: 20 }, (_, i) => i + 1);
+console.log("into array:", transduce(xf, intoArray, [] as number[], nums));
+console.log("summed:", transduce(xf, sum, 0, nums));
+console.log("elements touched across both runs:", touched.length);
+
+// Text processing: lines -> words -> normalized -> dedupe adjacent -> count
+const text = `It was the best of times
+it was the the worst of times
+it was the age of wisdom wisdom`;
+const words = comp(
+  flatMapT((line: string) => line.split(" ")),
+  mapT((w: string) => w.toLowerCase()),
+  filterT((w: string) => w.length > 2),
+  dedupeT<string>(),
+);
+const counts = transduce(words, (m: Map<string, number>, w: string) => m.set(w, (m.get(w) ?? 0) + 1), new Map<string, number>(), text.split("\n"));
+console.log(counts);
+console.log("as string:", transduce(words, (s: string, w: string) => (s ? `${s} ${w}` : w), "", text.split("\n")));
+
+// Transducing over a Set and a string
+const letters = transduce(comp(filterT((c: string) => c !== " "), mapT((c: string) => c.toUpperCase())), intoArray, [] as string[], "a b c a");
+console.log(letters, transduce(mapT((n: number) => n * 10), intoArray, [] as number[], new Set([1, 2, 2, 3])));
+
+// Grouping reducer with transducer preprocessing
+interface Reading {
+  sensor: string;
+  value: number;
+  ok: boolean;
+}
+const readings: Reading[] = [
+  { sensor: "t1", value: 21.5, ok: true },
+  { sensor: "t2", value: -999, ok: false },
+  { sensor: "t1", value: 22.1, ok: true },
+  { sensor: "h1", value: 40, ok: true },
+  { sensor: "t2", value: 19.8, ok: true },
+  { sensor: "h1", value: 42.5, ok: true },
+];
+const valid = comp(filterT((r: Reading) => r.ok), mapT((r: Reading) => ({ ...r, value: Math.round(r.value) })));
+const grouped = transduce(
+  valid,
+  (acc: Record<string, number[]>, r: { sensor: string; value: number }) => ({ ...acc, [r.sensor]: [...(acc[r.sensor] ?? []), r.value] }),
+  {} as Record<string, number[]>,
+  readings,
+);
+console.log(grouped);
+const avg = Object.entries(grouped).map(([k, vs]) => `${k}=${(vs.reduce(sum, 0) / vs.length).toFixed(1)}`);
+console.log(avg.join(", "));

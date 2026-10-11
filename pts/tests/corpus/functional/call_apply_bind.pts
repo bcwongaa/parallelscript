@@ -1,0 +1,120 @@
+// skip: not supported yet: PTS1001: `describeLab.name`
+// Function.prototype.call/apply/bind with classes, partial application via bind, and method borrowing.
+
+class Temperature {
+  constructor(private celsius: number, public readonly label: string) {}
+
+  describe(prefix: string, unit: "C" | "F" = "C"): string {
+    const v = unit === "C" ? this.celsius : (this.celsius * 9) / 5 + 32;
+    return `${prefix}${this.label}: ${v.toFixed(1)}°${unit}`;
+  }
+
+  adjust(delta: number): this {
+    this.celsius += delta;
+    return this;
+  }
+
+  get value(): number {
+    return this.celsius;
+  }
+}
+
+const office = new Temperature(21.5, "office");
+const lab = new Temperature(-3, "lab");
+
+console.log(office.describe.call(lab, "[call] "));
+console.log(office.describe.apply(lab, ["[apply] ", "F"]));
+const describeLab = office.describe.bind(lab);
+console.log(describeLab("[bound] "), describeLab("[bound] ", "F"));
+const describeOfficeF = office.describe.bind(office, "[partial] ");
+console.log(describeOfficeF(), describeOfficeF("F"));
+console.log("bound name:", describeLab.name, "bound length:", describeOfficeF.length);
+
+// Extracting a method loses `this`; binding restores it
+const unbound = office.describe;
+try {
+  unbound("[unbound] ");
+} catch (e) {
+  console.log("unbound call failed:", e instanceof TypeError);
+}
+
+// apply with spread-like arrays for variadic functions
+function maxOf(...xs: number[]): number {
+  return xs.length === 0 ? -Infinity : Math.max(...xs);
+}
+const readings = [12, 7, 33, 19, 4];
+console.log("max via apply:", maxOf.apply(null, readings), "via spread:", maxOf(...readings));
+console.log("Math.min.apply:", Math.min.apply(null, readings));
+
+// Bound partials of plain functions
+function volume(l: number, w: number, h: number): number {
+  return l * w * h;
+}
+const areaTimes2 = volume.bind(null, 2);
+const square3 = volume.bind(null, 3, 3);
+console.log(areaTimes2(4, 5), square3(10), square3.length, areaTimes2.length);
+
+// Method borrowing between unrelated objects via an interface
+interface Named {
+  first: string;
+  last: string;
+}
+const formatter = {
+  sep: ", ",
+  fullName(this: Named & { sep?: string }, title?: string): string {
+    return `${title ? title + " " : ""}${this.last}${this.sep ?? " "}${this.first}`;
+  },
+};
+const people: Named[] = [
+  { first: "Grace", last: "Hopper" },
+  { first: "Alan", last: "Turing" },
+];
+console.log(people.map((p) => formatter.fullName.call(p)));
+console.log(formatter.fullName.call({ first: "Ada", last: "Lovelace", sep: " / " }, "Countess"));
+console.log(formatter.fullName.call({ ...people[0], sep: " | " }, "Dr."));
+
+// Chained calls through bound adjust
+const adjustLab = lab.adjust.bind(lab);
+adjustLab(5).adjust(1.25);
+console.log("lab now:", lab.value, lab.describe(""));
+
+// Callbacks that need `this`: arrow functions vs bind
+class Ticker {
+  count = 0;
+  readonly log: string[] = [];
+  constructor(private name: string) {}
+  tick(): void {
+    this.count++;
+    this.log.push(`${this.name}#${this.count}`);
+  }
+  runWithArrow(times: number): void {
+    Array.from({ length: times }).forEach(() => this.tick());
+  }
+  runWithBind(times: number): void {
+    const t = this.tick.bind(this);
+    for (let i = 0; i < times; i++) t();
+  }
+}
+const ticker = new Ticker("tk");
+ticker.runWithArrow(2);
+ticker.runWithBind(3);
+console.log(ticker.count, ticker.log);
+console.log(ticker);
+
+// forEach's thisArg
+class Collector {
+  items: string[] = [];
+  add(x: string): void {
+    this.items.push(x.toUpperCase());
+  }
+}
+const col = new Collector();
+["a", "b", "c"].forEach(function (this: Collector, x: string) {
+  this.add(x);
+}, col);
+console.log(col.items);
+
+// bind on an already-bound function keeps the first this
+const rebound = describeLab.bind(office);
+console.log(rebound("[rebound] "));
+console.log(typeof volume.call, typeof volume.apply, typeof describeLab);

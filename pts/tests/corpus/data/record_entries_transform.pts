@@ -1,0 +1,74 @@
+// skip: not supported yet: PTS1001: spreading a Record<string, number> into an object
+type Currency = "USD" | "EUR" | "GBP" | "JPY";
+
+const priceList: Record<string, number> = {
+  apple: 0.5,
+  banana: 0.25,
+  cherry: 3.2,
+  durian: 12,
+  elderberry: 6.75,
+};
+
+const rates: Record<Currency, number> = { USD: 1, EUR: 0.92, GBP: 0.79, JPY: 151.3 };
+
+function mapValues<V, W>(rec: Record<string, V>, fn: (v: V, k: string) => W): Record<string, W> {
+  return Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, fn(v, k)]));
+}
+
+function filterEntries<V>(rec: Record<string, V>, pred: (v: V, k: string) => boolean): Record<string, V> {
+  return Object.fromEntries(Object.entries(rec).filter(([k, v]) => pred(v, k)));
+}
+
+function invert(rec: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(rec).map(([k, v]) => [v, k]));
+}
+
+console.log(Object.keys(priceList));
+console.log(Object.values(priceList));
+console.log(Object.entries(priceList).length);
+
+const withTax = mapValues(priceList, (v) => Math.round(v * 1.08 * 100) / 100);
+console.log(withTax);
+const expensive = filterEntries(priceList, (v) => v > 3);
+console.log(expensive);
+const upperKeys = Object.fromEntries(Object.entries(priceList).map(([k, v]) => [k.toUpperCase(), v]));
+console.log(upperKeys);
+
+for (const cur of Object.keys(rates) as Currency[]) {
+  const converted = mapValues(priceList, (v) => (v * rates[cur]).toFixed(cur === "JPY" ? 0 : 2));
+  console.log(cur, JSON.stringify(converted));
+}
+
+const codes: Record<string, string> = { us: "United States", fr: "France", jp: "Japan" };
+console.log(invert(codes));
+
+const nested: Record<string, Record<string, number>> = {
+  alice: { math: 90, art: 75 },
+  bob: { math: 60, art: 88, music: 92 },
+  cleo: { music: 70 },
+};
+const bySubject: Record<string, Record<string, number>> = {};
+for (const [student, grades] of Object.entries(nested)) {
+  for (const [subject, g] of Object.entries(grades)) {
+    bySubject[subject] = { ...(bySubject[subject] ?? {}), [student]: g };
+  }
+}
+console.log(bySubject);
+
+const merged = { ...priceList, banana: 0.3, fig: 2.1 };
+console.log(merged);
+const removed: Record<string, number> = { ...merged };
+delete removed["durian"];
+console.log(Object.keys(removed).join(","), "durian" in removed, "durian" in merged);
+
+const counts = Object.entries(nested).reduce<Record<string, number>>((acc, [k, v]) => {
+  acc[k] = Object.keys(v).length;
+  return acc;
+}, {});
+console.log(counts);
+const sortedByValue = Object.fromEntries(Object.entries(priceList).sort(([, a], [, b]) => b - a));
+console.log(sortedByValue);
+console.log(Object.entries({ x: 1, y: [2, 3], z: { w: null } }));
+console.log(Object.fromEntries(new Map([["k1", 1], ["k2", 2]])));
+const numericKeys: Record<string, string> = { "10": "ten", "2": "two", b: "bee", a: "ay", "1": "one" };
+console.log(Object.keys(numericKeys), numericKeys);

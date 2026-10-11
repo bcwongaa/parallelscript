@@ -1,0 +1,110 @@
+// skip: by design (D-038): destructures an array past its end into a string (RangeError; JS gives undefined)
+// Parses 5-field cron expressions (lists, ranges, steps, names, macros), describes them in
+// English, and computes the next few run times from a fixed UTC start date.
+interface CronField { name: string; min: number; max: number; names?: string[] }
+
+const FIELDS: CronField[] = [
+  { name: "minute", min: 0, max: 59 },
+  { name: "hour", min: 0, max: 23 },
+  { name: "day", min: 1, max: 31 },
+  { name: "month", min: 1, max: 12, names: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"] },
+  { name: "weekday", min: 0, max: 6, names: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] },
+];
+const MACROS: Record<string, string> = {
+  "@yearly": "0 0 1 1 *", "@monthly": "0 0 1 * *", "@weekly": "0 0 * * 0", "@daily": "0 0 * * *", "@hourly": "0 * * * *",
+};
+
+class CronError extends Error {
+  constructor(readonly field: string, message: string) {
+    super(`${field}: ${message}`);
+  }
+}
+
+interface Schedule { sets: Set<number>[]; wildcard: boolean[] }
+
+function parseValue(text: string, f: CronField): number {
+  const idx = f.names ? f.names.indexOf(text.toUpperCase()) : -1;
+  const v = idx >= 0 ? idx + f.min : Number(text);
+  if (!Number.isInteger(v) || v < f.min || v > f.max) throw new CronError(f.name, `value '${text}' out of range ${f.min}-${f.max}`);
+  return v;
+}
+
+function parseField(text: string, f: CronField): Set<number> {
+  const out = new Set<number>();
+  for (const part of text.split(",")) {
+    const [rangeText, stepText] = part.split("/");
+    const step = stepText === undefined ? 1 : Number(stepText);
+    if (!Number.isInteger(step) || step < 1) throw new CronError(f.name, `bad step '${stepText}'`);
+    let lo: number, hi: number;
+    if (rangeText === "*") [lo, hi] = [f.min, f.max];
+    else if (rangeText.includes("-")) {
+      const [a, b] = rangeText.split("-");
+      [lo, hi] = [parseValue(a, f), parseValue(b, f)];
+      if (lo > hi) throw new CronError(f.name, `range ${rangeText} is backwards`);
+    } else {
+      lo = parseValue(rangeText, f);
+      hi = stepText === undefined ? lo : f.max;
+    }
+    for (let v = lo; v <= hi; v += step) out.add(v);
+  }
+  return out;
+}
+
+function parseCron(expr: string): Schedule {
+  const expanded = MACROS[expr] ?? expr;
+  const parts = expanded.trim().split(" ").filter(Boolean);
+  if (parts.length !== 5) throw new CronError("expression", `expected 5 fields, got ${parts.length}`);
+  return { sets: parts.map((p, i) => parseField(p, FIELDS[i])), wildcard: parts.map((p) => p === "*") };
+}
+
+function describeSet(set: Set<number>, f: CronField): string {
+  const vals = [...set].sort((a, b) => a - b);
+  const label = (v: number) => (f.names ? f.names[v - f.min].charAt(0) + f.names[v - f.min].slice(1).toLowerCase() : String(v));
+  if (vals.length > 2 && vals.every((v, i) => i === 0 || v - vals[i - 1] === vals[1] - vals[0])) {
+    const stepSize = vals[1] - vals[0];
+    if (stepSize === 1) return `${label(vals[0])} through ${label(vals[vals.length - 1])}`;
+    return `every ${stepSize} ${f.name}s from ${label(vals[0])}`;
+  }
+  return vals.map(label).join(", ");
+}
+
+function describe(s: Schedule): string {
+  const [min, hour, day, month, wd] = s.sets;
+  const time = min.size === 1 && hour.size === 1
+    ? `at ${String([...hour][0]).padStart(2, "0")}:${String([...min][0]).padStart(2, "0")}`
+    : `${s.wildcard[0] ? "every minute" : `at minute ${describeSet(min, FIELDS[0])}`}${s.wildcard[1] ? "" : ` past hour ${describeSet(hour, FIELDS[1])}`}`;
+  const parts = [time];
+  if (!s.wildcard[2]) parts.push(`on day ${describeSet(day, FIELDS[2])} of the month`);
+  if (!s.wildcard[4]) parts.push(`on ${describeSet(wd, FIELDS[4])}`);
+  if (!s.wildcard[3]) parts.push(`in ${describeSet(month, FIELDS[3])}`);
+  return parts.join(", ");
+}
+
+function nextRuns(s: Schedule, from: Date, count: number): string[] {
+  const out: string[] = [];
+  const t = new Date(from.getTime());
+  t.setUTCSeconds(0, 0);
+  t.setUTCMinutes(t.getUTCMinutes() + 1);
+  for (let guard = 0; out.length < count && guard < 600000; guard++) {
+    const [min, hour, day, month, wd] = s.sets;
+    const dayOk = s.wildcard[2] || s.wildcard[4] ? day.has(t.getUTCDate()) && wd.has(t.getUTCDay()) : day.has(t.getUTCDate()) || wd.has(t.getUTCDay());
+    if (month.has(t.getUTCMonth() + 1) && dayOk && hour.has(t.getUTCHours()) && min.has(t.getUTCMinutes())) out.push(t.toISOString().slice(0, 16).replace("T", " "));
+    t.setUTCMinutes(t.getUTCMinutes() + 1);
+  }
+  return out;
+}
+
+const start = new Date("2024-02-27T22:58:30Z");
+const exprs = ["*/15 9-17 * * MON-FRI", "0 0 1 1 *", "30 4 1,15 * *", "@weekly", "0 12 * JUN-AUG SAT,SUN", "5 */6 * * *", "0 0 29 2 *", "61 * * * *", "* * *", "0 0 * * 1/0", "0 0 10-5 * *"];
+for (const e of exprs) {
+  try {
+    const s = parseCron(e);
+    console.log(`${e.padEnd(24)} ${describe(s)}`);
+    console.log(`${"".padEnd(24)} next: ${nextRuns(s, start, 3).join(" | ")}`);
+  } catch (err) {
+    if (err instanceof CronError) console.log(`${e.padEnd(24)} invalid (${err.field}) ${err.message}`);
+    else throw err;
+  }
+}
+console.log(parseCron("0-10/5,30 * * * *").sets[0]);
+console.log(start.toISOString(), start.getUTCDay(), FIELDS[4]);

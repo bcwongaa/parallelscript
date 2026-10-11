@@ -1,0 +1,140 @@
+// skip: not supported yet: PTS1001: overriding `CellContent.evaluate` with other parameter or result types
+// Spreadsheet with cell objects, simple formulas, dependency tracking, recalculation and cycle detection.
+
+type CellValue = number | string | null;
+
+abstract class CellContent {
+  abstract evaluate(sheet: Sheet, visiting: Set<string>): CellValue;
+  abstract get refs(): string[];
+  abstract get source(): string;
+}
+
+class Literal extends CellContent {
+  constructor(private readonly value: number | string) {
+    super();
+  }
+  evaluate(): CellValue {
+    return this.value;
+  }
+  get refs(): string[] {
+    return [];
+  }
+  get source(): string {
+    return String(this.value);
+  }
+}
+
+class Formula extends CellContent {
+  constructor(private readonly fn: string, private readonly args: string[], private readonly text: string) {
+    super();
+  }
+  get refs(): string[] {
+    return this.args.flatMap((a) => Sheet.expand(a));
+  }
+  get source(): string {
+    return this.text;
+  }
+  evaluate(sheet: Sheet, visiting: Set<string>): CellValue {
+    const values = this.refs.map((r) => sheet.valueAt(r, visiting));
+    const nums = values.filter((v): v is number => typeof v === "number");
+    switch (this.fn) {
+      case "SUM": return nums.reduce((a, b) => a + b, 0);
+      case "AVG": return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      case "MAX": return nums.length ? Math.max(...nums) : null;
+      case "COUNT": return nums.length;
+      case "CONCAT": return values.map((v) => v ?? "").join("");
+      case "MUL": return nums.reduce((a, b) => a * b, 1);
+      default: throw new SyntaxError(`unknown function ${this.fn}`);
+    }
+  }
+}
+
+class CycleError extends Error {}
+
+class Sheet {
+  private cells = new Map<string, CellContent>();
+  evaluations = 0;
+
+  static expand(ref: string): string[] {
+    if (!ref.includes(":")) return [ref];
+    const [from, to] = ref.split(":");
+    const c1 = from.charCodeAt(0), c2 = to.charCodeAt(0);
+    const r1 = Number(from.slice(1)), r2 = Number(to.slice(1));
+    const out: string[] = [];
+    for (let c = c1; c <= c2; c++) for (let r = r1; r <= r2; r++) out.push(String.fromCharCode(c) + r);
+    return out;
+  }
+
+  set(ref: string, input: string): void {
+    if (input.startsWith("=")) {
+      const open = input.indexOf("(");
+      const fn = input.slice(1, open).toUpperCase();
+      const args = input.slice(open + 1, input.lastIndexOf(")")).split(",").map((s) => s.trim()).filter(Boolean);
+      this.cells.set(ref, new Formula(fn, args, input));
+    } else {
+      const n = Number(input);
+      this.cells.set(ref, new Literal(input.trim() !== "" && !Number.isNaN(n) ? n : input));
+    }
+  }
+
+  valueAt(ref: string, visiting: Set<string> = new Set()): CellValue {
+    const cell = this.cells.get(ref);
+    if (!cell) return null;
+    if (visiting.has(ref)) throw new CycleError(`cycle through ${[...visiting, ref].join(" -> ")}`);
+    visiting.add(ref);
+    this.evaluations++;
+    try {
+      return cell.evaluate(this, visiting);
+    } finally {
+      visiting.delete(ref);
+    }
+  }
+
+  display(ref: string): string {
+    try {
+      const v = this.valueAt(ref);
+      if (v === null) return "";
+      return typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : v;
+    } catch (e) {
+      return e instanceof CycleError ? "#CYCLE" : `#ERR`;
+    }
+  }
+
+  dependents(ref: string): string[] {
+    return [...this.cells.entries()].filter(([, c]) => c.refs.includes(ref)).map(([k]) => k).sort();
+  }
+
+  render(cols: string, rows: number): string[] {
+    const lines = ["   |" + [...cols].map((c) => c.padStart(9)).join("")];
+    for (let r = 1; r <= rows; r++) {
+      lines.push(String(r).padStart(3) + "|" + [...cols].map((c) => this.display(c + r).slice(0, 8).padStart(9)).join(""));
+    }
+    return lines;
+  }
+}
+
+const s = new Sheet();
+const inputs: Record<string, string> = {
+  A1: "Item", B1: "Qty", C1: "Price", D1: "Total",
+  A2: "pens", B2: "12", C2: "1.25", D2: "=MUL(B2, C2)",
+  A3: "paper", B3: "3", C3: "4.5", D3: "=MUL(B3,C3)",
+  A4: "ink", B4: "2", C4: "19.99", D4: "=MUL(B4, C4)",
+  A5: "sum", B5: "=SUM(B2:B4)", C5: "=AVG(C2:C4)", D5: "=SUM(D2:D4)",
+  A6: "=CONCAT(A2, A3)", B6: "=COUNT(A1:D5)", C6: "=MAX(C2:C4)", D6: "=FOO(A1)",
+};
+for (const [k, v] of Object.entries(inputs)) s.set(k, v);
+s.render("ABCD", 6).forEach((l) => console.log(l));
+console.log("dependents of B2:", s.dependents("B2"), "of D3:", s.dependents("D3"));
+s.set("B2", "20");
+console.log("after B2=20:", s.display("D2"), s.display("D5"), s.display("B5"));
+s.set("A7", "=SUM(B7)");
+s.set("B7", "=SUM(C7)");
+s.set("C7", "=SUM(A7)");
+console.log("cycle:", s.display("A7"));
+try {
+  s.valueAt("B7");
+} catch (e) {
+  console.log((e as Error).message, e instanceof CycleError);
+}
+console.log(Sheet.expand("A1:B3"), Sheet.expand("C9"));
+console.log("evaluations:", s.evaluations);

@@ -1,0 +1,137 @@
+// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
+// Restaurant order pipeline: menu, orders through kitchen stations, status transitions and bills.
+
+type Station = "grill" | "fry" | "cold" | "bar";
+type OrderStatus = "placed" | "cooking" | "ready" | "served" | "paid";
+
+interface MenuItem {
+  code: string;
+  name: string;
+  price: number;
+  station: Station;
+  prepMinutes: number;
+}
+
+class InvalidTransition extends Error {
+  constructor(from: OrderStatus, to: OrderStatus) {
+    super(`cannot go from ${from} to ${to}`);
+    this.name = "InvalidTransition";
+  }
+}
+
+const NEXT: Record<OrderStatus, OrderStatus | null> = {
+  placed: "cooking",
+  cooking: "ready",
+  ready: "served",
+  served: "paid",
+  paid: null,
+};
+
+class Order {
+  private static seq = 0;
+  readonly id = ++Order.seq;
+  status: OrderStatus = "placed";
+  readonly items: Array<{ item: MenuItem; qty: number; note?: string }> = [];
+  readonly timeline: string[] = [];
+
+  constructor(readonly table: number) {}
+
+  add(item: MenuItem, qty = 1, note?: string): Order {
+    this.items.push(note === undefined ? { item, qty } : { item, qty, note });
+    return this;
+  }
+
+  advance(to: OrderStatus, minute: number): void {
+    if (NEXT[this.status] !== to) throw new InvalidTransition(this.status, to);
+    this.status = to;
+    this.timeline.push(`${minute}:${to}`);
+  }
+
+  get stations(): Set<Station> {
+    return new Set(this.items.map((i) => i.item.station));
+  }
+
+  get prepTime(): number {
+    // stations work in parallel; each station handles its items sequentially
+    const perStation = new Map<Station, number>();
+    for (const { item, qty } of this.items) {
+      perStation.set(item.station, (perStation.get(item.station) ?? 0) + item.prepMinutes * qty);
+    }
+    return Math.max(0, ...perStation.values());
+  }
+}
+
+class Bill {
+  constructor(private order: Order, private taxRate: number, private tipPercent: number) {}
+  lines(): string[] {
+    const out = this.order.items.map(({ item, qty, note }) =>
+      `${String(qty).padStart(2)} x ${item.name.padEnd(16)} ${(item.price * qty).toFixed(2).padStart(7)}${note ? `  (${note})` : ""}`,
+    );
+    const sub = this.subtotal;
+    const tax = sub * this.taxRate;
+    const tip = sub * (this.tipPercent / 100);
+    out.push(`${"subtotal".padStart(21)} ${sub.toFixed(2).padStart(7)}`);
+    out.push(`${"tax".padStart(21)} ${tax.toFixed(2).padStart(7)}`);
+    out.push(`${`tip ${this.tipPercent}%`.padStart(21)} ${tip.toFixed(2).padStart(7)}`);
+    out.push(`${"TOTAL".padStart(21)} ${(sub + tax + tip).toFixed(2).padStart(7)}`);
+    return out;
+  }
+  get subtotal(): number {
+    return this.order.items.reduce((s, { item, qty }) => s + item.price * qty, 0);
+  }
+}
+
+const menu = new Map<string, MenuItem>(
+  [
+    { code: "BRG", name: "Cheeseburger", price: 12.5, station: "grill", prepMinutes: 9 },
+    { code: "STK", name: "Ribeye", price: 29, station: "grill", prepMinutes: 15 },
+    { code: "FRY", name: "Fries", price: 4.25, station: "fry", prepMinutes: 5 },
+    { code: "SAL", name: "Caesar salad", price: 9.75, station: "cold", prepMinutes: 4 },
+    { code: "LEM", name: "Lemonade", price: 3.5, station: "bar", prepMinutes: 1 },
+    { code: "IPA", name: "IPA", price: 7, station: "bar", prepMinutes: 1 },
+  ].map((m): [string, MenuItem] => [m.code, m as MenuItem]),
+);
+const m = (code: string): MenuItem => {
+  const item = menu.get(code);
+  if (!item) throw new Error(`not on menu: ${code}`);
+  return item;
+};
+
+const orders = [
+  new Order(4).add(m("BRG"), 2, "no onions").add(m("FRY"), 2).add(m("LEM"), 2),
+  new Order(7).add(m("STK"), 1, "medium rare").add(m("SAL")).add(m("IPA"), 3),
+  new Order(2).add(m("SAL"), 2).add(m("LEM")),
+];
+
+let clock = 0;
+for (const o of orders) {
+  o.advance("cooking", clock);
+  o.advance("ready", clock + o.prepTime);
+  clock += 2;
+}
+orders.sort((a, b) => a.prepTime - b.prepTime);
+for (const o of orders) {
+  console.log(`order ${o.id} table ${o.table}: stations ${[...o.stations].join("/")}, prep ${o.prepTime} min, ${o.status}`);
+}
+orders[0].advance("served", 20);
+try {
+  orders[0].advance("served", 21);
+} catch (e) {
+  console.log(e instanceof InvalidTransition ? `${e.name}: ${e.message}` : e);
+}
+try {
+  orders[1].advance("paid", 22);
+} catch (e) {
+  console.log(String(e));
+}
+orders[0].advance("paid", 40);
+console.log("timeline", orders[0].timeline);
+const bill = new Bill(orders.find((o) => o.table === 7)!, 0.0875, 18);
+bill.lines().forEach((l) => console.log(l));
+console.log(orders.map((o) => ({ id: o.id, table: o.table, status: o.status })));
+console.log(orders[2].items[0]);
+try {
+  m("PIZ");
+} catch (e) {
+  console.log((e as Error).message);
+}

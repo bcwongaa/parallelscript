@@ -1,0 +1,80 @@
+// Sieve of Eratosthenes, segmented sieve, factorization and classic number-theory curiosities.
+
+function sieve(limit: number): boolean[] {
+  const isPrime = new Array<boolean>(limit + 1).fill(true);
+  isPrime[0] = false;
+  if (limit >= 1) isPrime[1] = false;
+  for (let p = 2; p * p <= limit; p++) {
+    if (!isPrime[p]) continue;
+    for (let m = p * p; m <= limit; m += p) isPrime[m] = false;
+  }
+  return isPrime;
+}
+
+function primesUpTo(limit: number): number[] {
+  return sieve(limit).reduce<number[]>((acc, ok, n) => (ok ? [...acc, n] : acc), []);
+}
+
+function segmented(lo: number, hi: number): number[] {
+  const base = primesUpTo(Math.floor(Math.sqrt(hi)));
+  const mark = new Array<boolean>(hi - lo + 1).fill(true);
+  for (const p of base) {
+    const start = Math.max(p * p, Math.ceil(lo / p) * p);
+    for (let m = start; m <= hi; m += p) mark[m - lo] = false;
+  }
+  return mark.flatMap((ok, i) => (ok && lo + i > 1 ? [lo + i] : []));
+}
+
+function factorize(n: number): Map<number, number> {
+  const f = new Map<number, number>();
+  for (let d = 2; d * d <= n; d++) {
+    while (n % d === 0) {
+      f.set(d, (f.get(d) ?? 0) + 1);
+      n /= d;
+    }
+  }
+  if (n > 1) f.set(n, (f.get(n) ?? 0) + 1);
+  return f;
+}
+
+const superscript: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹" };
+const pretty = (f: Map<number, number>): string =>
+  [...f].map(([p, e]) => (e === 1 ? `${p}` : `${p}${[...String(e)].map((d) => superscript[d]).join("")}`)).join(" × ");
+
+function sumDivisors(n: number): number {
+  let s = 1;
+  for (const [p, e] of factorize(n)) s *= (p ** (e + 1) - 1) / (p - 1);
+  return s;
+}
+
+const small = primesUpTo(100);
+console.log(`${small.length} primes below 100:`, small.join(" "));
+console.log("primes in [1000, 1100]:", segmented(1000, 1100));
+console.log("count below 100000:", primesUpTo(100000).length);
+
+for (const n of [360, 1001, 9973, 65536, 123456, 999999, 2147483646]) {
+  console.log(`${n} = ${pretty(factorize(n))}`);
+}
+console.log(factorize(720720));
+
+const classify = (n: number): "perfect" | "abundant" | "deficient" => {
+  const proper = sumDivisors(n) - n;
+  return proper === n ? "perfect" : proper > n ? "abundant" : "deficient";
+};
+const perfect = Array.from({ length: 10000 }, (_, i) => i + 2).filter((n) => classify(n) === "perfect");
+console.log("perfect numbers below 10000:", perfect);
+const counts = { perfect: 0, abundant: 0, deficient: 0 };
+for (let n = 2; n <= 1000; n++) counts[classify(n)]++;
+console.log("classification 2..1000:", counts);
+
+const primeSet = new Set(primesUpTo(1000));
+const twins = [...primeSet].filter((p) => primeSet.has(p + 2)).map((p) => [p, p + 2]);
+console.log("twin primes below 200:", twins.filter(([p]) => p < 200));
+const goldbach = [28, 100, 998].map((even) => {
+  const p = [...primeSet].find((q) => primeSet.has(even - q))!;
+  return `${even} = ${p} + ${even - p}`;
+});
+console.log(goldbach);
+const gaps = primesUpTo(1000).map((p, i, arr) => (i ? p - arr[i - 1] : 0)).slice(1);
+const maxGap = Math.max(...gaps);
+console.log("largest gap below 1000:", maxGap, "after", primesUpTo(1000)[gaps.indexOf(maxGap)]);

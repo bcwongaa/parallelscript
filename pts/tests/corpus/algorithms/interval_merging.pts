@@ -1,0 +1,103 @@
+// Interval problems: merge, insert, intersect, meeting rooms, and free-time finding for a calendar.
+
+type Interval = [start: number, end: number];
+
+const fmtTime = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const fmt = ([s, e]: Interval): string => `${fmtTime(s)}-${fmtTime(e)}`;
+const parse = (s: string): Interval => {
+  const [a, b] = s.split("-").map((t) => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  });
+  return [a, b];
+};
+
+function merge(list: Interval[]): Interval[] {
+  const sorted = [...list].sort((a, b) => a[0] - b[0]);
+  const out: Interval[] = [];
+  for (const [s, e] of sorted) {
+    const last = out.at(-1);
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+function insert(list: Interval[], add: Interval): Interval[] {
+  const before = list.filter(([, e]) => e < add[0]);
+  const after = list.filter(([s]) => s > add[1]);
+  const overlapping = list.filter(([s, e]) => !(e < add[0] || s > add[1]));
+  const merged: Interval = overlapping.reduce<Interval>(
+    (acc, [s, e]) => [Math.min(acc[0], s), Math.max(acc[1], e)],
+    add,
+  );
+  return [...before, merged, ...after];
+}
+
+function intersect(a: Interval[], b: Interval[]): Interval[] {
+  const out: Interval[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const lo = Math.max(a[i][0], b[j][0]);
+    const hi = Math.min(a[i][1], b[j][1]);
+    if (lo < hi) out.push([lo, hi]);
+    if (a[i][1] < b[j][1]) i++;
+    else j++;
+  }
+  return out;
+}
+
+function roomsNeeded(meetings: Interval[]): { rooms: number; peakAt: number } {
+  const events: [number, number][] = meetings.flatMap(([s, e]): [number, number][] => [[s, 1], [e, -1]]);
+  events.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  let cur = 0;
+  let rooms = 0;
+  let peakAt = 0;
+  for (const [t, d] of events) {
+    cur += d;
+    if (cur > rooms) {
+      rooms = cur;
+      peakAt = t;
+    }
+  }
+  return { rooms, peakAt };
+}
+
+function freeSlots(busy: Interval[], day: Interval, minLength: number): Interval[] {
+  const free: Interval[] = [];
+  let cursor = day[0];
+  for (const [s, e] of merge(busy)) {
+    if (s - cursor >= minLength) free.push([cursor, s]);
+    cursor = Math.max(cursor, e);
+  }
+  if (day[1] - cursor >= minLength) free.push([cursor, day[1]]);
+  return free;
+}
+
+const raw = [[1, 3], [2, 6], [8, 10], [15, 18], [17, 20], [9, 9]] as Interval[];
+console.log("merged:", merge(raw));
+console.log("insert [4,8]:", insert(merge(raw), [4, 8]));
+console.log("insert [21,22]:", insert(merge(raw), [21, 22]));
+console.log("intersect:", intersect([[0, 2], [5, 10], [13, 23], [24, 25]], [[1, 5], [8, 12], [15, 24], [25, 26]]));
+
+const calendars: Record<string, string[]> = {
+  alice: ["09:00-10:30", "12:00-13:00", "16:00-17:00"],
+  bob: ["09:30-11:00", "12:30-14:00", "15:00-15:30"],
+  carol: ["08:00-09:15", "11:30-12:15", "14:00-15:00", "16:30-18:00"],
+};
+const busy = Object.values(calendars).flat().map(parse);
+const merged = merge(busy);
+console.log("everyone busy (merged):", merged.map(fmt).join(", "));
+const day = parse("08:00-18:00");
+for (const minutes of [15, 30, 60]) {
+  console.log(`free slots >= ${minutes} min:`, freeSlots(busy, day, minutes).map(fmt));
+}
+const { rooms, peakAt } = roomsNeeded(busy);
+console.log(`rooms needed if all meet separately: ${rooms} (first peak at ${fmtTime(peakAt)})`);
+const busyMinutes = Object.fromEntries(
+  Object.entries(calendars).map(([who, slots]) => [who, slots.map(parse).reduce((s, [a, b]) => s + b - a, 0)]),
+);
+console.log("busy minutes:", busyMinutes);
+const ab = intersect(merge(calendars.alice.map(parse)), merge(calendars.bob.map(parse)));
+console.log("alice & bob both busy:", ab.map(fmt), ab);

@@ -1,0 +1,147 @@
+// skip: not supported yet: PTS1001: using a () => void as a () => value, whose result it doesn't return,
+// Event-sourced shopping cart: commands produce events, state is rebuilt by replaying them.
+
+type CartEvent =
+  | { type: "ItemAdded"; sku: string; price: number; qty: number }
+  | { type: "ItemRemoved"; sku: string; qty: number }
+  | { type: "CouponApplied"; code: string; percent: number }
+  | { type: "CheckedOut"; total: number };
+
+class DomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DomainError";
+  }
+}
+
+class CartState {
+  lines = new Map<string, { price: number; qty: number }>();
+  coupon: { code: string; percent: number } | null = null;
+  checkedOut = false;
+  version = 0;
+
+  apply(e: CartEvent): void {
+    this.version++;
+    switch (e.type) {
+      case "ItemAdded": {
+        const line = this.lines.get(e.sku);
+        if (line) line.qty += e.qty;
+        else this.lines.set(e.sku, { price: e.price, qty: e.qty });
+        break;
+      }
+      case "ItemRemoved": {
+        const line = this.lines.get(e.sku);
+        if (!line) break;
+        line.qty -= e.qty;
+        if (line.qty <= 0) this.lines.delete(e.sku);
+        break;
+      }
+      case "CouponApplied":
+        this.coupon = { code: e.code, percent: e.percent };
+        break;
+      case "CheckedOut":
+        this.checkedOut = true;
+        break;
+      default: {
+        const never: never = e;
+        throw new Error(`unknown event ${JSON.stringify(never)}`);
+      }
+    }
+  }
+
+  get subtotal(): number {
+    let s = 0;
+    for (const { price, qty } of this.lines.values()) s += price * qty;
+    return Math.round(s * 100) / 100;
+  }
+  get total(): number {
+    const pct = this.coupon?.percent ?? 0;
+    return Math.round(this.subtotal * (100 - pct)) / 100;
+  }
+}
+
+class Cart {
+  private events: CartEvent[] = [];
+  private state = new CartState();
+  static readonly COUPONS: Record<string, number> = { SAVE10: 10, HALF: 50 };
+
+  private emit(e: CartEvent): void {
+    this.events.push(e);
+    this.state.apply(e);
+  }
+  private ensureOpen(): void {
+    if (this.state.checkedOut) throw new DomainError("cart already checked out");
+  }
+
+  add(sku: string, price: number, qty = 1): void {
+    this.ensureOpen();
+    if (qty <= 0) throw new DomainError("quantity must be positive");
+    this.emit({ type: "ItemAdded", sku, price, qty });
+  }
+  remove(sku: string, qty = 1): void {
+    this.ensureOpen();
+    if (!this.state.lines.has(sku)) throw new DomainError(`${sku} not in cart`);
+    this.emit({ type: "ItemRemoved", sku, qty });
+  }
+  applyCoupon(code: string): void {
+    this.ensureOpen();
+    const percent = Cart.COUPONS[code.toUpperCase()];
+    if (percent === undefined) throw new DomainError(`invalid coupon ${code}`);
+    if (this.state.coupon && this.state.coupon.percent >= percent) throw new DomainError("better coupon already applied");
+    this.emit({ type: "CouponApplied", code: code.toUpperCase(), percent });
+  }
+  checkout(): number {
+    this.ensureOpen();
+    if (this.state.lines.size === 0) throw new DomainError("cart is empty");
+    const total = this.state.total;
+    this.emit({ type: "CheckedOut", total });
+    return total;
+  }
+
+  get log(): readonly CartEvent[] {
+    return this.events;
+  }
+  get view(): CartState {
+    return this.state;
+  }
+
+  static replay(events: readonly CartEvent[], upTo = events.length): CartState {
+    const s = new CartState();
+    events.slice(0, upTo).forEach((e) => s.apply(e));
+    return s;
+  }
+}
+
+const cart = new Cart();
+const ops: Array<[string, () => unknown]> = [
+  ["add mug", () => cart.add("MUG", 8.5, 2)],
+  ["add tea", () => cart.add("TEA", 4.25, 3)],
+  ["remove pen", () => cart.remove("PEN")],
+  ["coupon save10", () => cart.applyCoupon("save10")],
+  ["coupon bogus", () => cart.applyCoupon("FREE")],
+  ["remove tea", () => cart.remove("TEA", 1)],
+  ["add zero", () => cart.add("SPOON", 1, 0)],
+  ["coupon half", () => cart.applyCoupon("HALF")],
+  ["coupon save10 again", () => cart.applyCoupon("SAVE10")],
+  ["checkout", () => cart.checkout()],
+  ["add after checkout", () => cart.add("MUG", 8.5)],
+];
+for (const [label, op] of ops) {
+  try {
+    const r = op();
+    console.log(`${label}: ok${r !== undefined ? " -> " + r : ""}`);
+  } catch (e) {
+    if (e instanceof DomainError) console.log(`${label}: ${e.name}: ${e.message}`);
+    else throw e;
+  }
+}
+
+console.log(`${cart.log.length} events, version ${cart.view.version}`);
+for (let i = 0; i <= cart.log.length; i += 2) {
+  const s = Cart.replay(cart.log, i);
+  console.log(`after ${i}: subtotal=${s.subtotal} total=${s.total} lines=${[...s.lines.keys()].join(",") || "-"}`);
+}
+console.log(cart.log.map((e) => e.type));
+console.log(cart.log[2]);
+console.log(Cart.replay(cart.log, 3));
+console.log(JSON.stringify(cart.log.filter((e) => e.type === "CouponApplied")));

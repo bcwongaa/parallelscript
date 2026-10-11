@@ -1,0 +1,98 @@
+// N-queens: count all solutions with bitmasks, print the first board, and find unique solutions up to symmetry.
+
+function countBitmask(n: number): number {
+  const full = (1 << n) - 1;
+  let count = 0;
+  const place = (cols: number, d1: number, d2: number): void => {
+    if (cols === full) {
+      count++;
+      return;
+    }
+    let free = full & ~(cols | d1 | d2);
+    while (free) {
+      const bit = free & -free;
+      free ^= bit;
+      place(cols | bit, ((d1 | bit) << 1) & full, (d2 | bit) >>> 1);
+    }
+  };
+  place(0, 0, 0);
+  return count;
+}
+
+function allSolutions(n: number): number[][] {
+  const out: number[][] = [];
+  const cols = new Set<number>();
+  const diag = new Set<number>();
+  const anti = new Set<number>();
+  const rows: number[] = [];
+  const solve = (r: number): void => {
+    if (r === n) {
+      out.push([...rows]);
+      return;
+    }
+    for (let c = 0; c < n; c++) {
+      if (cols.has(c) || diag.has(r - c) || anti.has(r + c)) continue;
+      cols.add(c);
+      diag.add(r - c);
+      anti.add(r + c);
+      rows.push(c);
+      solve(r + 1);
+      rows.pop();
+      cols.delete(c);
+      diag.delete(r - c);
+      anti.delete(r + c);
+    }
+  };
+  solve(0);
+  return out;
+}
+
+const board = (sol: number[]): string =>
+  sol.map((c) => Array.from({ length: sol.length }, (_, i) => (i === c ? "Q" : ".")).join(" ")).join("\n");
+
+// Symmetries of a solution given as column-per-row.
+function rotate(sol: number[]): number[] {
+  const n = sol.length;
+  const out = new Array<number>(n);
+  sol.forEach((c, r) => {
+    out[c] = n - 1 - r;
+  });
+  return out;
+}
+const mirror = (sol: number[]): number[] => sol.map((c) => sol.length - 1 - c);
+
+function canonical(sol: number[]): string {
+  const forms: string[] = [];
+  let cur = sol;
+  for (let i = 0; i < 4; i++) {
+    forms.push(cur.join(""), mirror(cur).join(""));
+    cur = rotate(cur);
+  }
+  return forms.sort()[0];
+}
+
+console.log(" n  total  unique");
+for (let n = 1; n <= 9; n++) {
+  const total = countBitmask(n);
+  const sols = n <= 8 ? allSolutions(n) : [];
+  const unique = n <= 8 ? new Set(sols.map(canonical)).size : "-";
+  if (n <= 8 && sols.length !== total) throw new Error(`mismatch for n=${n}`);
+  console.log(`${String(n).padStart(2)} ${String(total).padStart(6)} ${String(unique).padStart(7)}`);
+}
+
+const eight = allSolutions(8);
+console.log("first 8-queens solution:", eight[0]);
+console.log(board(eight[0]));
+console.log("last:", eight[eight.length - 1].join(","));
+
+const six = allSolutions(6);
+console.log("6-queens solutions:", six);
+console.log("rotations of first:", [rotate(six[0]), rotate(rotate(six[0])), mirror(six[0])]);
+
+const classes = new Map<string, number[][]>();
+for (const s of allSolutions(5)) {
+  const k = canonical(s);
+  classes.set(k, [...(classes.get(k) ?? []), s]);
+}
+console.log("5-queens symmetry classes:", classes.size);
+for (const [k, members] of classes) console.log(`  ${k}: ${members.length} members`);

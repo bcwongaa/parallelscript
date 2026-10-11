@@ -1,0 +1,100 @@
+// skip: not supported yet: PTS1001: values of type Iterable<string>
+interface Book {
+  isbn: string;
+  title: string;
+  authors: string[];
+  year: number;
+  subjects: string[];
+  copies: number;
+}
+
+class Catalog {
+  private byIsbn = new Map<string, Book>();
+  private byAuthor = new Map<string, Set<string>>();
+  private bySubject = new Map<string, Set<string>>();
+  private titleWords = new Map<string, Set<string>>();
+
+  add(book: Book): void {
+    if (this.byIsbn.has(book.isbn)) throw new Error(`duplicate ISBN ${book.isbn}`);
+    this.byIsbn.set(book.isbn, book);
+    for (const a of book.authors) this.index(this.byAuthor, a.toLowerCase(), book.isbn);
+    for (const s of book.subjects) this.index(this.bySubject, s, book.isbn);
+    for (const w of book.title.toLowerCase().split(" ")) {
+      if (w.length > 2) this.index(this.titleWords, w, book.isbn);
+    }
+  }
+
+  private index(m: Map<string, Set<string>>, key: string, isbn: string): void {
+    let set = m.get(key);
+    if (!set) {
+      set = new Set();
+      m.set(key, set);
+    }
+    set.add(isbn);
+  }
+
+  private resolve(ids: Iterable<string>): Book[] {
+    const out: Book[] = [];
+    for (const id of ids) {
+      const b = this.byIsbn.get(id);
+      if (b) out.push(b);
+    }
+    return out.sort((a, b) => a.year - b.year);
+  }
+
+  byAuthorName(name: string): Book[] {
+    return this.resolve(this.byAuthor.get(name.toLowerCase()) ?? []);
+  }
+
+  search(query: string): Book[] {
+    const words = query.toLowerCase().split(" ").filter((w) => w.length > 2);
+    if (words.length === 0) return [];
+    const sets = words.map((w) => this.titleWords.get(w) ?? new Set<string>());
+    const [first, ...rest] = sets;
+    const hits = [...first].filter((id) => rest.every((s) => s.has(id)));
+    return this.resolve(hits);
+  }
+
+  subjects(): Array<[string, number]> {
+    return [...this.bySubject].map(([s, ids]) => [s, ids.size] as [string, number]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }
+
+  get size(): number {
+    return this.byIsbn.size;
+  }
+}
+
+const cat = new Catalog();
+const books: Book[] = [
+  { isbn: "978-0262033848", title: "Introduction to Algorithms", authors: ["Cormen", "Leiserson", "Rivest", "Stein"], year: 2009, subjects: ["algorithms", "cs"], copies: 4 },
+  { isbn: "978-0201633610", title: "Design Patterns", authors: ["Gamma", "Helm", "Johnson", "Vlissides"], year: 1994, subjects: ["software", "oop"], copies: 2 },
+  { isbn: "978-0131103627", title: "The C Programming Language", authors: ["Kernighan", "Ritchie"], year: 1988, subjects: ["languages", "cs"], copies: 3 },
+  { isbn: "978-1449373320", title: "Designing Data-Intensive Applications", authors: ["Kleppmann"], year: 2017, subjects: ["databases", "software"], copies: 5 },
+  { isbn: "978-0134685991", title: "Effective Java", authors: ["Bloch"], year: 2018, subjects: ["languages", "oop"], copies: 1 },
+  { isbn: "978-0321125217", title: "Domain-Driven Design", authors: ["Evans"], year: 2003, subjects: ["software"], copies: 2 },
+  { isbn: "978-0136291558", title: "Object-Oriented Software Construction", authors: ["Meyer"], year: 1997, subjects: ["oop", "software", "languages"], copies: 1 },
+  { isbn: "978-0201485677", title: "Refactoring", authors: ["Fowler", "Beck"], year: 1999, subjects: ["software"], copies: 3 },
+];
+books.forEach((b) => cat.add(b));
+console.log("catalog size:", cat.size);
+console.log(cat.byAuthorName("ritchie").map((b) => b.title));
+console.log(cat.byAuthorName("Nobody"));
+console.log(cat.search("design").map((b) => `${b.title} (${b.year})`));
+console.log(cat.search("the language programming").map((b) => b.title));
+console.log(cat.search("software construction object-oriented"));
+console.log(cat.search("a an"));
+console.log(cat.subjects());
+try {
+  cat.add(books[3]);
+} catch (e) {
+  console.log((e as Error).message);
+}
+const decades = new Map<number, string[]>();
+for (const b of books) {
+  const d = Math.floor(b.year / 10) * 10;
+  decades.set(d, [...(decades.get(d) ?? []), b.title]);
+}
+console.log(new Map([...decades].sort((a, b) => a[0] - b[0])));
+const totalCopies = books.reduce((s, b) => s + b.copies, 0);
+const coauthored = books.filter((b) => b.authors.length > 1).length;
+console.log({ totalCopies, coauthored, solo: books.length - coauthored });

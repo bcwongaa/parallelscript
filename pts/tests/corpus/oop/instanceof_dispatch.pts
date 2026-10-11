@@ -1,0 +1,130 @@
+// instanceof-based dispatch over a message hierarchy and error hierarchy in a mail server simulation.
+
+abstract class Message {
+  constructor(readonly from: string, readonly to: string[]) {}
+}
+class TextMessage extends Message {
+  constructor(from: string, to: string[], readonly body: string) {
+    super(from, to);
+  }
+}
+class Attachment {
+  constructor(readonly filename: string, readonly bytes: number) {}
+}
+class RichMessage extends TextMessage {
+  constructor(from: string, to: string[], body: string, readonly attachments: Attachment[]) {
+    super(from, to, body);
+  }
+}
+class Receipt extends Message {
+  constructor(from: string, to: string[], readonly ofMessage: number) {
+    super(from, to);
+  }
+}
+
+class MailError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+class QuotaExceeded extends MailError {
+  constructor(readonly user: string, readonly over: number) {
+    super(`${user} over quota by ${over} bytes`);
+  }
+}
+class UnknownRecipient extends MailError {
+  constructor(readonly address: string) {
+    super(`no such user ${address}`);
+  }
+}
+class SpamRejected extends MailError {}
+
+class Mailbox {
+  readonly messages: Message[] = [];
+  used = 0;
+  constructor(readonly owner: string, readonly quota: number) {}
+}
+
+function sizeOf(m: Message): number {
+  if (m instanceof RichMessage) return m.body.length + m.attachments.reduce((s, a) => s + a.bytes, 0);
+  if (m instanceof TextMessage) return m.body.length;
+  if (m instanceof Receipt) return 16;
+  return 0;
+}
+
+function kindOf(m: Message): string {
+  return m instanceof RichMessage ? "rich" : m instanceof TextMessage ? "text" : m instanceof Receipt ? "receipt" : "unknown";
+}
+
+class MailServer {
+  private boxes = new Map<string, Mailbox>();
+  private delivered = 0;
+
+  addUser(name: string, quota: number): void {
+    this.boxes.set(name, new Mailbox(name, quota));
+  }
+
+  deliver(m: Message): void {
+    if (m instanceof TextMessage && m.body.toLowerCase().includes("free money")) throw new SpamRejected(`spam from ${m.from}`);
+    const size = sizeOf(m);
+    for (const rcpt of m.to) {
+      const box = this.boxes.get(rcpt);
+      if (!box) throw new UnknownRecipient(rcpt);
+      if (box.used + size > box.quota) throw new QuotaExceeded(rcpt, box.used + size - box.quota);
+    }
+    for (const rcpt of m.to) {
+      const box = this.boxes.get(rcpt)!;
+      box.messages.push(m);
+      box.used += size;
+    }
+    this.delivered++;
+  }
+
+  summary(): string[] {
+    return [...this.boxes.values()].map((b) => {
+      const kinds = b.messages.map(kindOf);
+      const counts = kinds.reduce<Record<string, number>>((acc, k) => ({ ...acc, [k]: (acc[k] ?? 0) + 1 }), {});
+      return `${b.owner}: ${b.used}/${b.quota} bytes ${JSON.stringify(counts)}`;
+    });
+  }
+  get count(): number {
+    return this.delivered;
+  }
+}
+
+const server = new MailServer();
+server.addUser("ann", 5000);
+server.addUser("bob", 300);
+server.addUser("cat", 2000);
+
+const outbox: Message[] = [
+  new TextMessage("ann", ["bob"], "Lunch at noon?"),
+  new RichMessage("bob", ["ann", "cat"], "Slides attached", [new Attachment("deck.pdf", 1200), new Attachment("notes.txt", 80)]),
+  new Receipt("ann", ["bob"], 2),
+  new TextMessage("spammer", ["ann"], "Claim your FREE MONEY now"),
+  new RichMessage("cat", ["bob"], "Photos", [new Attachment("img.jpg", 4000)]),
+  new TextMessage("cat", ["dan"], "hello?"),
+  new TextMessage("ann", ["cat", "bob"], "x".repeat(260)),
+  new TextMessage("ann", ["cat"], "ok"),
+];
+
+const failures = new Map<string, number>();
+for (const m of outbox) {
+  try {
+    server.deliver(m);
+    console.log(`delivered ${kindOf(m).padEnd(7)} ${m.from} -> ${m.to.join(",")} (${sizeOf(m)}b)`);
+  } catch (e) {
+    if (e instanceof QuotaExceeded) console.log(`quota: ${e.user} +${e.over}`);
+    else if (e instanceof UnknownRecipient) console.log(`bounce: ${e.address}`);
+    else if (e instanceof MailError) console.log(`rejected: ${e.message}`);
+    else throw e;
+    const err = e as MailError;
+    failures.set(err.name, (failures.get(err.name) ?? 0) + 1);
+  }
+}
+server.summary().forEach((s) => console.log(s));
+console.log("delivered:", server.count, "failures:", failures);
+const err = new QuotaExceeded("zed", 1);
+console.log(err instanceof QuotaExceeded, err instanceof MailError, err instanceof Error, err instanceof SpamRejected, err.name);
+console.log(outbox[2], outbox[1] instanceof TextMessage, outbox[2] instanceof TextMessage);

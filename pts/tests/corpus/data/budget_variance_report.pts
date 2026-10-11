@@ -1,0 +1,69 @@
+// skip: not supported yet: PTS1001: `for...of` over a Set<string> | value[]
+interface BudgetLine {
+  account: string;
+  category: "Revenue" | "COGS" | "OpEx";
+  budget: number[];
+  actual: number[];
+}
+
+const MONTHS = ["Jan", "Feb", "Mar"];
+
+const lines: BudgetLine[] = [
+  { account: "Product sales", category: "Revenue", budget: [120000, 125000, 130000], actual: [118400, 131250, 127900] },
+  { account: "Services", category: "Revenue", budget: [30000, 30000, 35000], actual: [28750, 33100, 36200] },
+  { account: "Materials", category: "COGS", budget: [42000, 43750, 45500], actual: [44100, 45020, 44380] },
+  { account: "Freight", category: "COGS", budget: [6000, 6000, 6500], actual: [5820, 7410, 6600] },
+  { account: "Salaries", category: "OpEx", budget: [55000, 55000, 57000], actual: [55000, 55000, 58900] },
+  { account: "Marketing", category: "OpEx", budget: [12000, 15000, 12000], actual: [9800, 17650, 11200] },
+  { account: "Rent", category: "OpEx", budget: [8000, 8000, 8000], actual: [8000, 8000, 8000] },
+];
+
+const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+
+function variance(line: BudgetLine, m?: number): { abs: number; pct: number; favorable: boolean } {
+  const b = m === undefined ? sum(line.budget) : line.budget[m];
+  const a = m === undefined ? sum(line.actual) : line.actual[m];
+  const abs = a - b;
+  const favorable = line.category === "Revenue" ? abs >= 0 : abs <= 0;
+  return { abs, pct: b === 0 ? 0 : (abs / b) * 100, favorable };
+}
+
+const fmt = (n: number): string => {
+  const s = Math.abs(n).toFixed(0);
+  const withCommas = s.length > 3 ? s.slice(0, s.length - 3) + "," + s.slice(-3) : s;
+  return n < 0 ? `(${withCommas})` : withCommas;
+};
+
+console.log("Account          " + MONTHS.map((m) => `${m} var`.padStart(14)).join("") + "     Q1 var    Q1 %  ");
+for (const l of lines) {
+  const monthly = MONTHS.map((_, i) => {
+    const v = variance(l, i);
+    return (fmt(v.abs) + (v.favorable ? " F" : " U")).padStart(14);
+  }).join("");
+  const q = variance(l);
+  console.log(`${l.account.padEnd(16)} ${monthly} ${fmt(q.abs).padStart(10)} ${q.pct.toFixed(1).padStart(6)}% ${q.favorable ? "" : "<-- review"}`);
+}
+
+const byCategory = new Map<BudgetLine["category"], { budget: number; actual: number }>();
+for (const l of lines) {
+  const c = byCategory.get(l.category) ?? { budget: 0, actual: 0 };
+  c.budget += sum(l.budget);
+  c.actual += sum(l.actual);
+  byCategory.set(l.category, c);
+}
+console.log(byCategory);
+
+const get = (c: BudgetLine["category"]) => byCategory.get(c) ?? { budget: 0, actual: 0 };
+const grossBudget = get("Revenue").budget - get("COGS").budget;
+const grossActual = get("Revenue").actual - get("COGS").actual;
+const netBudget = grossBudget - get("OpEx").budget;
+const netActual = grossActual - get("OpEx").actual;
+console.log({ grossBudget, grossActual, netBudget, netActual });
+console.log(`Gross margin: budget ${((grossBudget / get("Revenue").budget) * 100).toFixed(2)}%, actual ${((grossActual / get("Revenue").actual) * 100).toFixed(2)}%`);
+
+const flagged = lines
+  .flatMap((l) => MONTHS.map((m, i) => ({ account: l.account, month: m, ...variance(l, i) })))
+  .filter((v) => !v.favorable && Math.abs(v.pct) >= 5)
+  .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+console.log(flagged.map((f) => `${f.account}/${f.month}: ${f.pct.toFixed(1)}%`));
+console.log(fmt(-1234.4), fmt(999), fmt(0), fmt(-0.4));

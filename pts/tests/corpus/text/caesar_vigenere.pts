@@ -1,0 +1,107 @@
+// Caesar and Vigenère ciphers, plus breaking Caesar by chi-squared letter frequency analysis.
+const ENGLISH_FREQ: number[] = [
+  8.17, 1.49, 2.78, 4.25, 12.7, 2.23, 2.02, 6.09, 6.97, 0.15, 0.77, 4.03, 2.41,
+  6.75, 7.51, 1.93, 0.1, 5.99, 6.33, 9.06, 2.76, 0.98, 2.36, 0.15, 1.97, 0.07,
+];
+
+interface Cipher {
+  readonly name: string;
+  encrypt(plain: string): string;
+  decrypt(cipher: string): string;
+}
+
+function shiftChar(ch: string, shift: number): string {
+  const code = ch.charCodeAt(0);
+  const base = code >= 65 && code <= 90 ? 65 : code >= 97 && code <= 122 ? 97 : -1;
+  if (base < 0) return ch;
+  return String.fromCharCode(((((code - base + shift) % 26) + 26) % 26) + base);
+}
+
+class Caesar implements Cipher {
+  readonly name: string;
+  constructor(private readonly shift: number) {
+    this.name = `Caesar(${shift})`;
+  }
+  encrypt(plain: string): string {
+    return [...plain].map((c) => shiftChar(c, this.shift)).join("");
+  }
+  decrypt(cipher: string): string {
+    return [...cipher].map((c) => shiftChar(c, -this.shift)).join("");
+  }
+}
+
+class Vigenere implements Cipher {
+  readonly name: string;
+  private readonly shifts: number[];
+  constructor(key: string) {
+    this.shifts = [...key.toUpperCase()].filter((c) => c >= "A" && c <= "Z").map((c) => c.charCodeAt(0) - 65);
+    if (this.shifts.length === 0) throw new RangeError(`key '${key}' has no letters`);
+    this.name = `Vigenere(${key})`;
+  }
+  private apply(text: string, dir: 1 | -1): string {
+    let k = 0;
+    let out = "";
+    for (const c of text) {
+      const isLetter = c.toLowerCase() !== c.toUpperCase();
+      out += isLetter ? shiftChar(c, dir * this.shifts[k++ % this.shifts.length]) : c;
+    }
+    return out;
+  }
+  encrypt(plain: string): string { return this.apply(plain, 1); }
+  decrypt(cipher: string): string { return this.apply(cipher, -1); }
+}
+
+function letterCounts(text: string): number[] {
+  const counts = new Array<number>(26).fill(0);
+  for (const c of text.toLowerCase()) {
+    const i = c.charCodeAt(0) - 97;
+    if (i >= 0 && i < 26) counts[i]++;
+  }
+  return counts;
+}
+
+function chiSquared(text: string): number {
+  const counts = letterCounts(text);
+  const total = counts.reduce((a, b) => a + b, 0);
+  return counts.reduce((sum, observed, i) => {
+    const expected = (ENGLISH_FREQ[i] / 100) * total;
+    return sum + (observed - expected) ** 2 / expected;
+  }, 0);
+}
+
+function crackCaesar(cipher: string): { shift: number; score: number; plain: string } {
+  let best = { shift: 0, score: Infinity, plain: cipher };
+  for (let s = 0; s < 26; s++) {
+    const plain = new Caesar(s).decrypt(cipher);
+    const score = chiSquared(plain);
+    if (score < best.score) best = { shift: s, score, plain };
+  }
+  return best;
+}
+
+const message = "Attack at dawn! The quick brown fox jumps over the lazy dog, 42 times.";
+const ciphers: Cipher[] = [new Caesar(3), new Caesar(13), new Caesar(-5), new Vigenere("LEMON"), new Vigenere("Parallel Script")];
+for (const c of ciphers) {
+  const enc = c.encrypt(message);
+  const dec = c.decrypt(enc);
+  console.log(`${c.name.padEnd(26)} ${enc}`);
+  console.log(`${"".padEnd(26)} roundtrip ok: ${dec === message}`);
+}
+
+const secret = new Caesar(17).encrypt("Frequency analysis works well on longer english sentences like this one.");
+console.log("secret:", secret);
+const cracked = crackCaesar(secret);
+console.log("cracked shift=%d score=%s", cracked.shift, cracked.score.toFixed(2));
+console.log(cracked.plain);
+
+const counts = letterCounts(message);
+const nonZero = counts.map((n, i) => [String.fromCharCode(97 + i), n] as [string, number]).filter(([, n]) => n > 0);
+console.log(Object.fromEntries(nonZero));
+console.log(ciphers[0], ciphers[3] instanceof Vigenere);
+
+try {
+  new Vigenere("1234");
+} catch (e) {
+  if (e instanceof RangeError) console.log(`${e.name}: ${e.message}`);
+}
+console.log(new Vigenere("KEY").encrypt("ÀBC déf 123 xyz"));

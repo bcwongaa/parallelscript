@@ -1,0 +1,118 @@
+// skip: not supported yet: PTS1001: using a `BuyNGetOneFree` as a `{name: string; discount({category: string; qty: number; sku: string; unitPrice: number}[], number): number}...
+// Strategy pattern for checkout pricing rules.
+
+interface LineItem {
+  sku: string;
+  category: "food" | "electronics" | "books";
+  unitPrice: number;
+  qty: number;
+}
+
+interface PricingRule {
+  readonly name: string;
+  discount(items: readonly LineItem[], subtotal: number): number;
+}
+
+class PercentOff implements PricingRule {
+  constructor(private percent: number, private minSubtotal = 0) {}
+  get name(): string {
+    return `${this.percent}% off over ${this.minSubtotal}`;
+  }
+  discount(_items: readonly LineItem[], subtotal: number): number {
+    return subtotal >= this.minSubtotal ? (subtotal * this.percent) / 100 : 0;
+  }
+}
+
+class BuyNGetOneFree implements PricingRule {
+  constructor(private sku: string, private n: number) {}
+  get name(): string {
+    return `buy ${this.n} ${this.sku} get 1 free`;
+  }
+  discount(items: readonly LineItem[]): number {
+    const item = items.find((i) => i.sku === this.sku);
+    if (!item) return 0;
+    const free = Math.floor(item.qty / (this.n + 1));
+    return free * item.unitPrice;
+  }
+}
+
+class CategoryDeal implements PricingRule {
+  readonly name: string;
+  constructor(private category: LineItem["category"], private amountOff: number) {
+    this.name = `${amountOff} off each ${category}`;
+  }
+  discount(items: readonly LineItem[]): number {
+    return items
+      .filter((i) => i.category === this.category)
+      .reduce((sum, i) => sum + Math.min(i.unitPrice, this.amountOff) * i.qty, 0);
+  }
+}
+
+type Combine = "best" | "stack";
+
+class Checkout {
+  private items: LineItem[] = [];
+  constructor(private rules: PricingRule[], private mode: Combine) {}
+
+  add(item: LineItem): this {
+    const existing = this.items.find((i) => i.sku === item.sku);
+    if (existing) existing.qty += item.qty;
+    else this.items.push({ ...item });
+    return this;
+  }
+
+  setMode(mode: Combine): void {
+    this.mode = mode;
+  }
+
+  get subtotal(): number {
+    return this.items.reduce((s, i) => s + i.unitPrice * i.qty, 0);
+  }
+
+  quote(): { subtotal: number; applied: [string, number][]; total: number } {
+    const sub = this.subtotal;
+    const results: [string, number][] = this.rules
+      .map((r): [string, number] => [r.name, Math.round(r.discount(this.items, sub) * 100) / 100])
+      .filter(([, d]) => d > 0);
+    let applied: [string, number][];
+    if (this.mode === "best") {
+      const best = results.reduce<[string, number] | null>((b, r) => (b === null || r[1] > b[1] ? r : b), null);
+      applied = best ? [best] : [];
+    } else {
+      applied = results;
+    }
+    const off = applied.reduce((s, [, d]) => s + d, 0);
+    return { subtotal: sub, applied, total: Math.max(0, Math.round((sub - off) * 100) / 100) };
+  }
+}
+
+const rules: PricingRule[] = [
+  new PercentOff(10, 100),
+  new BuyNGetOneFree("APPLE", 2),
+  new CategoryDeal("books", 3),
+  new PercentOff(25, 1000),
+];
+
+const cart = new Checkout(rules, "best");
+cart
+  .add({ sku: "APPLE", category: "food", unitPrice: 0.8, qty: 7 })
+  .add({ sku: "NOVEL", category: "books", unitPrice: 14.99, qty: 2 })
+  .add({ sku: "HEADPHONES", category: "electronics", unitPrice: 59.5, qty: 1 })
+  .add({ sku: "APPLE", category: "food", unitPrice: 0.8, qty: 2 });
+
+console.log("subtotal", cart.subtotal.toFixed(2));
+const q1 = cart.quote();
+console.log("best:", q1);
+cart.setMode("stack");
+const q2 = cart.quote();
+console.log("stacked:", q2);
+console.log("savings difference: %s", (q1.total - q2.total).toFixed(2));
+
+const big = new Checkout(rules, "best").add({ sku: "TV", category: "electronics", unitPrice: 1299, qty: 1 });
+const q3 = big.quote();
+console.log(q3.applied, q3.total);
+for (const r of rules) {
+  console.log(`${r.name.padEnd(28)} ${r instanceof PercentOff ? "percent" : "fixed"}`);
+}
+const empty = new Checkout(rules, "stack").quote();
+console.log(JSON.stringify(empty));

@@ -1,0 +1,104 @@
+// Imports CSV rows into typed records, collecting per-row errors with line
+// numbers and continuing past bad rows; stops if too many rows fail.
+
+interface Employee {
+  id: number;
+  name: string;
+  department: string;
+  salary: number;
+  startYear: number;
+}
+
+class RowError extends Error {
+  constructor(readonly line: number, readonly column: string, message: string) {
+    super(`line ${line}, column '${column}': ${message}`);
+    this.name = "RowError";
+  }
+}
+
+class TooManyErrors extends Error {
+  constructor(readonly limit: number, readonly lastLine: number) {
+    super(`aborting import after ${limit} errors (line ${lastLine})`);
+    this.name = "TooManyErrors";
+  }
+}
+
+const HEADER = ["id", "name", "department", "salary", "start_year"];
+
+function parseRow(line: number, cells: string[]): Employee {
+  if (cells.length !== HEADER.length) {
+    throw new RowError(line, "*", `expected ${HEADER.length} cells, found ${cells.length}`);
+  }
+  const [idS, name, department, salaryS, yearS] = cells.map((c) => c.trim());
+  const id = Number(idS);
+  if (!Number.isInteger(id) || id <= 0) throw new RowError(line, "id", `'${idS}' is not a positive integer`);
+  if (name.length === 0) throw new RowError(line, "name", "empty");
+  const salary = parseFloat(salaryS);
+  if (Number.isNaN(salary)) throw new RowError(line, "salary", `'${salaryS}' is not a number`);
+  const startYear = parseInt(yearS, 10);
+  if (startYear < 1970 || startYear > 2024) throw new RowError(line, "start_year", `${startYear} is out of range`);
+  return { id, name, department: department || "unassigned", salary, startYear };
+}
+
+function importCsv(text: string, maxErrors: number): { rows: Employee[]; errors: RowError[] } {
+  const lines = text.split("\n");
+  const header = lines[0].split(",").map((h) => h.trim());
+  if (header.join(",") !== HEADER.join(",")) {
+    throw new Error(`bad header: ${JSON.stringify(header)}`);
+  }
+  const rows: Employee[] = [];
+  const errors: RowError[] = [];
+  const seen = new Set<number>();
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === "") continue;
+    try {
+      const emp = parseRow(i + 1, lines[i].split(","));
+      if (seen.has(emp.id)) throw new RowError(i + 1, "id", `duplicate id ${emp.id}`);
+      seen.add(emp.id);
+      rows.push(emp);
+    } catch (e) {
+      if (!(e instanceof RowError)) throw e;
+      errors.push(e);
+      if (errors.length >= maxErrors) throw new TooManyErrors(maxErrors, i + 1);
+    }
+  }
+  return { rows, errors };
+}
+
+const csv = `id,name,department,salary,start_year
+1,Alice,Engineering,98000,2015
+2,Bob,,61000.50,2019
+x,Carol,Sales,55000,2018
+4,Dan,Sales,abc,2020
+
+5,Eve,Engineering,105000,1965
+2,Frank,Support,48000,2021
+6,Grace,Engineering,120000
+7, ,Support,45000,2022
+8,Heidi,Support,47250,2023`;
+
+const { rows, errors } = importCsv(csv, 10);
+console.log(`imported ${rows.length} rows with ${errors.length} errors`);
+for (const e of errors) console.log("  " + e.message);
+console.table(rows);
+
+const byDept = new Map<string, number[]>();
+for (const r of rows) byDept.set(r.department, [...(byDept.get(r.department) ?? []), r.salary]);
+for (const [dept, salaries] of byDept) {
+  const avg = salaries.reduce((a, b) => a + b, 0) / salaries.length;
+  console.log("%s: %d people, average %s", dept, salaries.length, avg.toFixed(2));
+}
+
+for (const limit of [3, 6]) {
+  try {
+    const r = importCsv(csv, limit);
+    console.log(`limit ${limit}: ok, ${r.errors.length} errors`);
+  } catch (e) {
+    console.log(`limit ${limit}:`, e instanceof TooManyErrors ? e.message : String(e));
+  }
+}
+try {
+  importCsv("ID;NAME\n1;x", 5);
+} catch (e) {
+  console.log((e as Error).message);
+}

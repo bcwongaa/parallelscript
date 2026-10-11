@@ -1,0 +1,149 @@
+// skip: not supported yet: PTS1001: converting value[] to number
+// A two-pass assembler for a toy accumulator machine: labels, comments, immediate and
+// memory operands, error reporting with line numbers, a disassembler and a simulator.
+enum Opcode { LDA = 0x10, LDI = 0x11, STA = 0x20, ADD = 0x30, ADI = 0x31, SUB = 0x40, JMP = 0x50, JZ = 0x51, JNZ = 0x52, OUT = 0x60, HLT = 0xff }
+
+type Operand = { kind: "imm"; value: number } | { kind: "mem"; addr: number } | { kind: "label"; name: string } | { kind: "none" };
+
+interface Instr { line: number; op: Opcode; operand: Operand; addr: number }
+
+class AsmError extends Error {
+  constructor(readonly line: number, msg: string) {
+    super(`line ${line}: ${msg}`);
+  }
+}
+
+const NEEDS_OPERAND = new Set<Opcode>([Opcode.LDA, Opcode.LDI, Opcode.STA, Opcode.ADD, Opcode.ADI, Opcode.SUB, Opcode.JMP, Opcode.JZ, Opcode.JNZ]);
+
+function parseNumber(s: string): number | null {
+  const n = s.startsWith("0x") ? parseInt(s.slice(2), 16) : s.startsWith("0b") ? parseInt(s.slice(2), 2) : Number(s);
+  return Number.isInteger(n) ? n : null;
+}
+
+function assemble(src: string): { code: number[]; labels: Map<string, number>; listing: Instr[] } {
+  const labels = new Map<string, number>();
+  const instrs: Instr[] = [];
+  const errors: AsmError[] = [];
+  let addr = 0;
+  src.split("\n").forEach((raw, i) => {
+    const lineNo = i + 1;
+    let line = raw.split(";")[0].trim();
+    if (!line) return;
+    const colon = line.indexOf(":");
+    if (colon >= 0) {
+      const label = line.slice(0, colon).trim();
+      if (labels.has(label)) errors.push(new AsmError(lineNo, `duplicate label '${label}'`));
+      labels.set(label, addr);
+      line = line.slice(colon + 1).trim();
+      if (!line) return;
+    }
+    const [mnemonic, arg, ...extra] = line.split(" ").filter((p) => p !== "");
+    const upper = mnemonic.toUpperCase();
+    if (!(upper in Opcode) || typeof Opcode[upper as keyof typeof Opcode] !== "number") {
+      errors.push(new AsmError(lineNo, `unknown mnemonic '${mnemonic}'`));
+      return;
+    }
+    const op = Opcode[upper as keyof typeof Opcode];
+    let operand: Operand = { kind: "none" };
+    if (NEEDS_OPERAND.has(op)) {
+      if (arg === undefined) { errors.push(new AsmError(lineNo, `${upper} needs an operand`)); return; }
+      if (arg.startsWith("#")) {
+        const v = parseNumber(arg.slice(1));
+        if (v === null || v < 0 || v > 255) { errors.push(new AsmError(lineNo, `bad immediate '${arg}'`)); return; }
+        operand = { kind: "imm", value: v };
+      } else if (arg.startsWith("[") && arg.endsWith("]")) {
+        const a = parseNumber(arg.slice(1, -1));
+        if (a === null) { errors.push(new AsmError(lineNo, `bad address '${arg}'`)); return; }
+        operand = { kind: "mem", addr: a };
+      } else operand = { kind: "label", name: arg };
+    } else if (arg !== undefined) errors.push(new AsmError(lineNo, `${upper} takes no operand`));
+    if (extra.length) errors.push(new AsmError(lineNo, `trailing tokens: ${extra.join(" ")}`));
+    instrs.push({ line: lineNo, op, operand, addr });
+    addr += operand.kind === "none" ? 1 : 2;
+  });
+  const code: number[] = [];
+  for (const ins of instrs) {
+    code.push(ins.op);
+    const o = ins.operand;
+    if (o.kind === "imm") code.push(o.value);
+    else if (o.kind === "mem") code.push(o.addr);
+    else if (o.kind === "label") {
+      const target = labels.get(o.name);
+      if (target === undefined) errors.push(new AsmError(ins.line, `undefined label '${o.name}'`));
+      code.push(target ?? 0);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, `${errors.length} assembly error(s)`);
+  return { code, labels, listing: instrs };
+}
+
+function run(code: number[], maxSteps = 1000): number[] {
+  const mem = new Array<number>(256).fill(0);
+  code.forEach((b, i) => (mem[i] = b));
+  const out: number[] = [];
+  let pc = 0, acc = 0;
+  for (let step = 0; step < maxSteps; step++) {
+    const op: Opcode = mem[pc];
+    const arg = mem[pc + 1];
+    switch (op) {
+      case Opcode.HLT: return out;
+      case Opcode.OUT: out.push(acc); pc += 1; continue;
+      case Opcode.LDA: acc = mem[arg]; break;
+      case Opcode.LDI: acc = arg; break;
+      case Opcode.STA: mem[arg] = acc; break;
+      case Opcode.ADD: acc = (acc + mem[arg]) & 255; break;
+      case Opcode.ADI: acc = (acc + arg) & 255; break;
+      case Opcode.SUB: acc = (acc - mem[arg]) & 255; break;
+      case Opcode.JMP: pc = arg; continue;
+      case Opcode.JZ: pc = acc === 0 ? arg : pc + 2; continue;
+      case Opcode.JNZ: pc = acc !== 0 ? arg : pc + 2; continue;
+      default: throw new Error(`illegal opcode 0x${mem[pc].toString(16)} at ${pc}`);
+    }
+    pc += 2;
+  }
+  throw new Error("step limit exceeded");
+}
+
+const fibonacci = `
+; print fibonacci numbers below 200
+        LDI #0
+        STA [0xF0]      ; a = 0
+        LDI #1
+        STA [0xF1]      ; b = 1
+loop:   LDA [0xF0]
+        OUT
+        ADD [0xF1]
+        STA [0xF2]      ; t = a + b
+        LDA [0xF1]
+        STA [0xF0]
+        LDA [0xF2]
+        STA [0xF1]
+        SUB [0xF3]      ; compare with limit (stored at F3)
+        JNZ loop
+        HLT
+`;
+const { code, labels, listing } = assemble(fibonacci);
+console.log("bytes:", code.length, labels);
+console.log(code.map((b) => b.toString(16).padStart(2, "0")).join(" "));
+for (const ins of listing.slice(0, 6)) {
+  const o = ins.operand;
+  const text = o.kind === "imm" ? `#${o.value}` : o.kind === "mem" ? `[0x${o.addr.toString(16).toUpperCase()}]` : o.kind === "label" ? o.name : "";
+  console.log(`${ins.addr.toString(16).padStart(4, "0")}  ${Opcode[ins.op].padEnd(4)} ${text}`);
+}
+const patched = [...code];
+console.log("output:", run(patched.concat(new Array(0xf3 - patched.length).fill(0), [233])));
+
+const countdown = assemble("start: LDI #5\nl: OUT\nADI #255\nJNZ l\nOUT\nHLT");
+console.log(run(countdown.code), countdown.listing[1]);
+
+const broken = "  FOO #1\n  LDI #300\n  JMP nowhere\n  OUT 5\nx: HLT\nx: LDA\n  LDA [zz] extra";
+try {
+  assemble(broken);
+} catch (e) {
+  if (e instanceof AggregateError) {
+    console.log(e.message);
+    for (const err of e.errors) console.log("  " + (err as AsmError).message);
+  }
+}
+try { run([Opcode.LDI, 1, 0x99]); } catch (e) { console.log((e as Error).message); }
+try { run(assemble("l: JMP l").code); } catch (e) { console.log((e as Error).message); }

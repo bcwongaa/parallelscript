@@ -1,0 +1,82 @@
+// Contrasts lenient built-in number parsing (parseInt, parseFloat, Number,
+// unary +) with a strict parser that throws on anything suspicious.
+
+class NumberFormatError extends Error {
+  constructor(readonly input: string, readonly reason: string) {
+    super(`cannot parse ${JSON.stringify(input)}: ${reason}`);
+    this.name = "NumberFormatError";
+  }
+}
+
+function strictDecimal(input: string): number {
+  const s = input.trim();
+  if (s === "") throw new NumberFormatError(input, "empty");
+  let i = 0;
+  if (s[0] === "+" || s[0] === "-") i++;
+  let digits = 0;
+  let dots = 0;
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if (c === "_") {
+      if (i === 0 || s[i - 1] === "_" || i === s.length - 1) throw new NumberFormatError(input, "misplaced separator");
+      continue;
+    }
+    if (c === ".") {
+      if (++dots > 1) throw new NumberFormatError(input, "more than one decimal point");
+      continue;
+    }
+    if (c < "0" || c > "9") throw new NumberFormatError(input, `unexpected '${c}' at ${i}`);
+    digits++;
+  }
+  if (digits === 0) throw new NumberFormatError(input, "no digits");
+  const value = Number(s.split("_").join(""));
+  if (!Number.isFinite(value)) throw new NumberFormatError(input, "out of range");
+  if (Math.abs(value) > Number.MAX_SAFE_INTEGER && Number.isInteger(value)) {
+    throw new NumberFormatError(input, "loses precision");
+  }
+  return value;
+}
+
+const inputs = ["42", "  3.14 ", "-0.5", "+7", "1_000_000", "12px", "0x1F", "1e3", "", "  ", ".5", "5.", "1..2",
+  "_1", "1__0", "Infinity", "-", "007", "9007199254740993", "3.0"];
+
+const rows: Array<Record<string, string | number | boolean>> = [];
+for (const input of inputs) {
+  let strict: string;
+  try {
+    strict = String(strictDecimal(input));
+  } catch (e) {
+    if (!(e instanceof NumberFormatError)) throw e;
+    strict = `! ${e.reason}`;
+  }
+  rows.push({
+    input: JSON.stringify(input),
+    Number: Number(input),
+    parseInt: parseInt(input, 10),
+    parseFloat: parseFloat(input),
+    unary: +input,
+    strict,
+  });
+}
+console.table(rows);
+
+for (const r of rows.slice(0, 8)) {
+  console.log("%s -> %d / %i / %f", r.input, r.Number, r.parseInt, r.parseFloat);
+}
+
+const weird = [Number(""), Number(" "), Number(null), Number(undefined), Number([]), Number([5]), Number([1, 2]), Number(true), Number("1e1000")];
+console.log(weird);
+console.log(weird.map((n) => [Number.isNaN(n), Number.isFinite(n), Object.is(n, -0)]));
+console.log(parseInt("101", 2), parseInt("ff", 16), parseInt("z", 36), parseInt("8", 8), (255).toString(16), (-255).toString(2));
+console.log((0.1 + 0.2).toFixed(20), (1e21).toFixed(2), (123.456).toPrecision(4), (0.000001234).toExponential(2));
+
+let total = 0;
+const bad: string[] = [];
+for (const token of "10, 20, x, 30.5, , 1_5, 2..0".split(",")) {
+  try {
+    total += strictDecimal(token);
+  } catch (e) {
+    bad.push((e as NumberFormatError).input.trim() || "(blank)");
+  }
+}
+console.log({ total, bad });

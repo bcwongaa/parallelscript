@@ -1,0 +1,71 @@
+// A command-line style argument parser that throws a plain string for a
+// fatal usage error. The final call is not wrapped in try/catch, so the
+// program ends with an uncaught exception after printing its output.
+
+interface Options {
+  verbose: boolean;
+  output: string;
+  level: number;
+  files: string[];
+}
+
+const USAGE = "usage: tool [-v] [-o FILE] [-l LEVEL] files...";
+
+function parseArgs(argv: string[]): Options {
+  const opts: Options = { verbose: false, output: "out.txt", level: 1, files: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    switch (arg) {
+      case "-v":
+      case "--verbose":
+        opts.verbose = true;
+        break;
+      case "-o": {
+        if (i + 1 >= argv.length) throw `missing value for -o\n${USAGE}`;
+        opts.output = argv[++i];
+        break;
+      }
+      case "-l": {
+        const raw: string | null = i + 1 < argv.length ? argv[++i] : null;
+        const lvl = Number(raw);
+        if (raw === null || !Number.isInteger(lvl) || lvl < 0 || lvl > 9) {
+          throw `bad level ${JSON.stringify(raw)}\n${USAGE}`;
+        }
+        opts.level = lvl;
+        break;
+      }
+      default:
+        if (arg.startsWith("-")) throw `unknown flag ${arg}\n${USAGE}`;
+        opts.files.push(arg);
+    }
+  }
+  if (opts.files.length === 0) throw `no input files\n${USAGE}`;
+  return opts;
+}
+
+const cases: string[][] = [
+  ["-v", "a.ts", "b.ts"],
+  ["-o", "result.txt", "-l", "3", "main.ts"],
+  ["--verbose", "-x", "a.ts"],
+  ["-l", "12", "a.ts"],
+  ["-o"],
+  [],
+  ["src/one.ts", "src/two.ts", "-l", "0"],
+];
+
+for (const argv of cases) {
+  try {
+    const opts = parseArgs(argv);
+    console.log(argv.join(" ") || "(none)", "=>", opts);
+  } catch (e) {
+    if (typeof e === "string") {
+      console.log(argv.join(" ") || "(none)", "=> error:", e.split("\n")[0]);
+    } else {
+      throw e;
+    }
+  }
+}
+
+console.log("now running the real command line...");
+const real = parseArgs(["-v", "-l", "two", "input.ts"]);
+console.log("unreachable", real);

@@ -1,0 +1,112 @@
+// skip: not supported yet: PTS1001: tuples with optional or rest elements (Instr)
+// A small stack-based virtual machine that raises typed errors for stack
+// underflow, unknown opcodes, bad jumps and runaway programs.
+
+abstract class VmError extends Error {
+  constructor(message: string, readonly pc: number) {
+    super(`${message} (pc=${pc})`);
+  }
+  abstract get kind(): string;
+}
+class StackUnderflow extends VmError {
+  get kind(): string {
+    return "underflow";
+  }
+}
+class UnknownOpcode extends VmError {
+  get kind(): string {
+    return "opcode";
+  }
+}
+class BadJump extends VmError {
+  get kind(): string {
+    return "jump";
+  }
+}
+class StepLimit extends VmError {
+  get kind(): string {
+    return "limit";
+  }
+}
+
+type Instr = [string, number?];
+
+class Vm {
+  stack: number[] = [];
+  output: number[] = [];
+  steps = 0;
+
+  constructor(private readonly program: Instr[], private readonly maxSteps = 200) {}
+
+  private pop(pc: number): number {
+    const v = this.stack.pop();
+    if (v === undefined) throw new StackUnderflow("pop from empty stack", pc);
+    return v;
+  }
+
+  run(): number[] {
+    let pc = 0;
+    while (pc < this.program.length) {
+      if (++this.steps > this.maxSteps) throw new StepLimit(`exceeded ${this.maxSteps} steps`, pc);
+      const [op, arg] = this.program[pc];
+      let next = pc + 1;
+      switch (op) {
+        case "push":
+          this.stack.push(arg ?? 0);
+          break;
+        case "add":
+          this.stack.push(this.pop(pc) + this.pop(pc));
+          break;
+        case "mul":
+          this.stack.push(this.pop(pc) * this.pop(pc));
+          break;
+        case "dup": {
+          const v = this.pop(pc);
+          this.stack.push(v, v);
+          break;
+        }
+        case "print":
+          this.output.push(this.pop(pc));
+          break;
+        case "jnz": {
+          const target = arg ?? -1;
+          if (target < 0 || target >= this.program.length) throw new BadJump(`jump to ${target}`, pc);
+          if (this.pop(pc) !== 0) next = target;
+          break;
+        }
+        default:
+          throw new UnknownOpcode(`unknown opcode '${op}'`, pc);
+      }
+      pc = next;
+    }
+    return this.output;
+  }
+}
+
+const programs: Record<string, Instr[]> = {
+  arithmetic: [["push", 6], ["push", 7], ["mul"], ["dup"], ["print"], ["push", 8], ["add"], ["print"]],
+  countdown: [["push", 3], ["dup"], ["print"], ["push", -1], ["add"], ["dup"], ["jnz", 1]],
+  underflow: [["push", 1], ["add"]],
+  typo: [["push", 2], ["psuh", 3]],
+  badjump: [["push", 1], ["jnz", 42]],
+  forever: [["push", 1], ["dup"], ["jnz", 0]],
+};
+
+const summary = new Map<string, string>();
+for (const [name, prog] of Object.entries(programs)) {
+  const vm = new Vm(prog, 50);
+  try {
+    const out = vm.run();
+    summary.set(name, `ok ${JSON.stringify(out)}`);
+  } catch (e) {
+    if (e instanceof VmError) {
+      summary.set(name, `${e.kind}: ${e.message}`);
+      console.log(`${name}: stack at failure`, vm.stack.slice(-5), "steps", vm.steps);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log(summary);
+const e = new BadJump("demo", 3);
+console.log(e.name, e instanceof VmError, e instanceof Error, e.kind, e.pc);

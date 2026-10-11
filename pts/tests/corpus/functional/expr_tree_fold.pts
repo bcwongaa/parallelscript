@@ -1,0 +1,128 @@
+// skip: not supported yet: PTS1001: converting object3 to {kind: string; name: string} | {kind: string; value: number} | {kind: string; left: {kind: string; name: string} | {...
+// An expression tree with a generic fold (catamorphism) reused for evaluation, printing and simplification.
+
+type Expr =
+  | { kind: "num"; value: number }
+  | { kind: "var"; name: string }
+  | { kind: "add"; left: Expr; right: Expr }
+  | { kind: "mul"; left: Expr; right: Expr }
+  | { kind: "neg"; arg: Expr }
+  | { kind: "call"; fn: "sin" | "sqrt" | "abs"; arg: Expr };
+
+interface Algebra<R> {
+  num: (value: number) => R;
+  var: (name: string) => R;
+  add: (l: R, r: R) => R;
+  mul: (l: R, r: R) => R;
+  neg: (a: R) => R;
+  call: (fn: "sin" | "sqrt" | "abs", a: R) => R;
+}
+
+function fold<R>(alg: Algebra<R>): (e: Expr) => R {
+  const go = (e: Expr): R => {
+    switch (e.kind) {
+      case "num":
+        return alg.num(e.value);
+      case "var":
+        return alg.var(e.name);
+      case "add":
+        return alg.add(go(e.left), go(e.right));
+      case "mul":
+        return alg.mul(go(e.left), go(e.right));
+      case "neg":
+        return alg.neg(go(e.arg));
+      case "call":
+        return alg.call(e.fn, go(e.arg));
+    }
+  };
+  return go;
+}
+
+const num = (value: number): Expr => ({ kind: "num", value });
+const v = (name: string): Expr => ({ kind: "var", name });
+const add = (left: Expr, right: Expr): Expr => ({ kind: "add", left, right });
+const mul = (left: Expr, right: Expr): Expr => ({ kind: "mul", left, right });
+const neg = (arg: Expr): Expr => ({ kind: "neg", arg });
+const call = (fn: "sin" | "sqrt" | "abs", arg: Expr): Expr => ({ kind: "call", fn, arg });
+
+class UnboundVariable extends Error {
+  constructor(readonly variable: string) {
+    super(`unbound variable '${variable}'`);
+  }
+}
+
+const evaluate = (env: Record<string, number>) =>
+  fold<number>({
+    num: (n) => n,
+    var: (name) => {
+      if (!(name in env)) throw new UnboundVariable(name);
+      return env[name];
+    },
+    add: (l, r) => l + r,
+    mul: (l, r) => l * r,
+    neg: (a) => -a,
+    call: (fn, a) => Math[fn](a),
+  });
+
+const show = fold<string>({
+  num: (n) => (n < 0 ? `(${n})` : String(n)),
+  var: (name) => name,
+  add: (l, r) => `(${l} + ${r})`,
+  mul: (l, r) => `${l} * ${r}`,
+  neg: (a) => `-${a}`,
+  call: (fn, a) => `${fn}(${a})`,
+});
+
+const size = fold<number>({ num: () => 1, var: () => 1, add: (l, r) => 1 + l + r, mul: (l, r) => 1 + l + r, neg: (a) => 1 + a, call: (_f, a) => 1 + a });
+const depth = fold<number>({ num: () => 1, var: () => 1, add: (l, r) => 1 + Math.max(l, r), mul: (l, r) => 1 + Math.max(l, r), neg: (a) => 1 + a, call: (_f, a) => 1 + a });
+const freeVars = fold<Set<string>>({
+  num: () => new Set(),
+  var: (n) => new Set([n]),
+  add: (l, r) => new Set([...l, ...r]),
+  mul: (l, r) => new Set([...l, ...r]),
+  neg: (a) => a,
+  call: (_f, a) => a,
+});
+
+const simplify = fold<Expr>({
+  num,
+  var: v,
+  add: (l, r) => {
+    if (l.kind === "num" && r.kind === "num") return num(l.value + r.value);
+    if (l.kind === "num" && l.value === 0) return r;
+    if (r.kind === "num" && r.value === 0) return l;
+    return add(l, r);
+  },
+  mul: (l, r) => {
+    if (l.kind === "num" && r.kind === "num") return num(l.value * r.value);
+    if ((l.kind === "num" && l.value === 0) || (r.kind === "num" && r.value === 0)) return num(0);
+    if (l.kind === "num" && l.value === 1) return r;
+    if (r.kind === "num" && r.value === 1) return l;
+    return mul(l, r);
+  },
+  neg: (a) => (a.kind === "num" ? num(-a.value) : a.kind === "neg" ? a.arg : neg(a)),
+  call: (fn, a) => (a.kind === "num" && fn === "abs" ? num(Math.abs(a.value)) : call(fn, a)),
+});
+
+const exprs: Expr[] = [
+  add(mul(num(2), v("x")), num(3)),
+  mul(add(v("x"), num(0)), add(num(1), num(0))),
+  neg(neg(add(mul(num(0), v("y")), v("z")))),
+  call("sqrt", add(mul(v("x"), v("x")), mul(v("y"), v("y")))),
+  add(call("abs", num(-7)), mul(num(3), num(4))),
+  call("sin", mul(v("t"), num(0))),
+];
+
+const env = { x: 3, y: 4, z: -2 };
+for (const e of exprs) {
+  const s = simplify(e);
+  let value: string;
+  try {
+    value = evaluate(env)(e).toFixed(4);
+  } catch (err) {
+    value = err instanceof UnboundVariable ? `error: ${err.message}` : "?";
+  }
+  console.log(`${show(e)}\n   => ${show(s)}   size ${size(e)}->${size(s)} depth ${depth(e)} vars [${[...freeVars(e)].sort().join(",")}] value ${value}`);
+}
+console.log(JSON.stringify(simplify(exprs[1])));
+console.log(simplify(exprs[3]));

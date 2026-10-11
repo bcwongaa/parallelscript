@@ -1,0 +1,132 @@
+// Library lending: books, members, loans with due dates and fines.
+
+class LibraryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LibraryError";
+  }
+}
+
+class Book {
+  constructor(
+    readonly isbn: string,
+    readonly title: string,
+    readonly author: string,
+    public copies: number,
+  ) {}
+}
+
+type MemberTier = "standard" | "premium";
+
+class Member {
+  readonly loans: Loan[] = [];
+  constructor(readonly name: string, readonly tier: MemberTier) {}
+  get maxLoans(): number {
+    return this.tier === "premium" ? 5 : 2;
+  }
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+class Loan {
+  returned: Date | null = null;
+  constructor(readonly book: Book, readonly member: Member, readonly start: Date) {}
+
+  get due(): Date {
+    const days = this.member.tier === "premium" ? 28 : 14;
+    return new Date(this.start.getTime() + days * DAY);
+  }
+
+  fine(asOf: Date): number {
+    const end = this.returned ?? asOf;
+    const late = Math.floor((end.getTime() - this.due.getTime()) / DAY);
+    return late > 0 ? late * 0.25 : 0;
+  }
+}
+
+class Library {
+  private books = new Map<string, Book>();
+  private members = new Map<string, Member>();
+  private loans: Loan[] = [];
+
+  addBook(b: Book): void {
+    this.books.set(b.isbn, b);
+  }
+  join(m: Member): void {
+    this.members.set(m.name, m);
+  }
+
+  checkout(isbn: string, memberName: string, when: Date): Loan {
+    const book = this.books.get(isbn);
+    const member = this.members.get(memberName);
+    if (!book) throw new LibraryError(`no book ${isbn}`);
+    if (!member) throw new LibraryError(`no member ${memberName}`);
+    if (book.copies === 0) throw new LibraryError(`"${book.title}" unavailable`);
+    const active = member.loans.filter((l) => l.returned === null);
+    if (active.length >= member.maxLoans) {
+      throw new LibraryError(`${member.name} reached limit of ${member.maxLoans}`);
+    }
+    book.copies--;
+    const loan = new Loan(book, member, when);
+    member.loans.push(loan);
+    this.loans.push(loan);
+    return loan;
+  }
+
+  giveBack(loan: Loan, when: Date): number {
+    loan.returned = when;
+    loan.book.copies++;
+    return loan.fine(when);
+  }
+
+  overdue(asOf: Date): Loan[] {
+    return this.loans.filter((l) => l.returned === null && l.due < asOf);
+  }
+}
+
+const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+
+const lib = new Library();
+lib.addBook(new Book("111", "Dune", "Herbert", 2));
+lib.addBook(new Book("222", "Neuromancer", "Gibson", 1));
+lib.addBook(new Book("333", "Hyperion", "Simmons", 1));
+lib.join(new Member("ann", "standard"));
+lib.join(new Member("ben", "premium"));
+
+const day0 = new Date(2024, 2, 1, 10, 0, 0);
+const attempts: [string, string, number][] = [
+  ["111", "ann", 0],
+  ["222", "ann", 1],
+  ["333", "ann", 2],
+  ["222", "ben", 3],
+  ["111", "ben", 3],
+  ["999", "ben", 4],
+  ["111", "zed", 4],
+];
+const made: Loan[] = [];
+for (const [isbn, who, offset] of attempts) {
+  try {
+    const loan = lib.checkout(isbn, who, new Date(day0.getTime() + offset * DAY));
+    made.push(loan);
+    console.log(`${who} borrowed ${loan.book.title}, due ${fmt(loan.due)}`);
+  } catch (e) {
+    if (e instanceof LibraryError) console.log(`${e.name}: ${e.message}`);
+  }
+}
+
+const check = new Date(2024, 2, 20);
+console.log("overdue on", fmt(check), lib.overdue(check).map((l) => `${l.member.name}:${l.book.title}`));
+
+const fine = lib.giveBack(made[0], new Date(2024, 2, 25));
+console.log("ann pays fine", fine.toFixed(2));
+const later = new Date(2024, 3, 15);
+for (const l of made) {
+  console.log(
+    l.book.title.padEnd(12),
+    l.member.name,
+    l.returned ? "returned " + fmt(l.returned) : "out",
+    `fine=${l.fine(later)}`,
+  );
+}
+console.log(made[2].book);
+console.log(lib.overdue(later).length, "still overdue");

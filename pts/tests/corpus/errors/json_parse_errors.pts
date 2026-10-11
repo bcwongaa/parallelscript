@@ -1,0 +1,97 @@
+// skip: not supported yet: PTS1001: the reviver argument of `JSON.parse`
+// Reads a batch of JSON messages from a queue, reporting the ones that
+// fail to parse or fail to match the expected message schema.
+
+interface Message {
+  type: "event" | "metric";
+  name: string;
+  value?: number;
+  tags: string[];
+}
+
+class SchemaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SchemaError";
+  }
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+function decode(raw: string): Message {
+  const data: unknown = JSON.parse(raw);
+  if (!isRecord(data)) throw new SchemaError(`top level must be an object, not ${Array.isArray(data) ? "array" : data === null ? "null" : typeof data}`);
+  const { type, name, value, tags } = data;
+  if (type !== "event" && type !== "metric") throw new SchemaError(`unknown type ${JSON.stringify(type)}`);
+  if (typeof name !== "string" || name.length === 0) throw new SchemaError("name must be a non-empty string");
+  if (type === "metric" && typeof value !== "number") throw new SchemaError(`metric '${name}' needs a numeric value`);
+  const tagList = tags === undefined ? [] : tags;
+  if (!Array.isArray(tagList) || !tagList.every((t): t is string => typeof t === "string")) {
+    throw new SchemaError("tags must be an array of strings");
+  }
+  return { type, name, value: typeof value === "number" ? value : undefined, tags: tagList };
+}
+
+const queue = [
+  '{"type":"event","name":"login","tags":["web"]}',
+  '{"type":"metric","name":"cpu","value":0.93}',
+  "{'type':'event'}",
+  '{"type":"metric","name":"mem"}',
+  "",
+  '{"type":"event","name":"logout","tags":["web",3]}',
+  "[1,2,3]",
+  '{"type":"trace","name":"x"}',
+  '{"type":"metric","name":"disk","value":71.5,"tags":["host-1","ssd"]}',
+  '{"type":"event","name":"click",}',
+  "null",
+  "  42  ",
+  '"just a string"',
+  '{"type":"event","name":""}',
+];
+
+const accepted: Message[] = [];
+const rejectedBy = new Map<string, number>();
+queue.forEach((raw, i) => {
+  try {
+    const m = decode(raw);
+    accepted.push(m);
+    console.log(`#${i} ok ${m.type}:${m.name}`);
+  } catch (e) {
+    if (e instanceof SyntaxError) {
+      console.log(`#${i} ${e.name} (message empty: ${e.message.length === 0}) input=${JSON.stringify(raw)}`);
+    } else if (e instanceof SchemaError) {
+      console.log(`#${i} ${e.name}: ${e.message}`);
+    } else {
+      throw e;
+    }
+    const kind = (e as Error).name;
+    rejectedBy.set(kind, (rejectedBy.get(kind) ?? 0) + 1);
+  }
+});
+
+console.log(accepted);
+console.log(rejectedBy);
+
+const metrics = accepted.filter((m) => m.type === "metric");
+console.log(
+  "metrics:",
+  metrics.map((m) => `${m.name}=${m.value?.toFixed(2)}`),
+);
+
+const revived = JSON.parse('{"a":"1","b":"x","c":"3.5"}', (key: string, val: unknown) => {
+  if (key === "" || typeof val !== "string") return val;
+  const n = Number(val);
+  return Number.isNaN(n) ? val : n;
+});
+console.log(revived);
+
+try {
+  JSON.parse('{"a":1}', (key, val) => {
+    if (key === "a") throw new RangeError("reviver refused 'a'");
+    return val;
+  });
+} catch (e) {
+  console.log("reviver error passed through:", e instanceof RangeError, (e as Error).message);
+}

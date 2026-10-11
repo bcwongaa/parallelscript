@@ -1,0 +1,91 @@
+// A CSV parser that handles quoted fields, escaped quotes and embedded newlines,
+// then summarises the parsed records.
+interface Employee {
+  id: number;
+  name: string;
+  department: string;
+  salary: number;
+  notes: string;
+}
+
+function parseCsv(text: string, delimiter = ","): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') inQuotes = true;
+    else if (c === delimiter) { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else field += c;
+  }
+  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function toCsvField(s: string): string {
+  return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.split('"').join('""')}"` : s;
+}
+
+const raw = [
+  "id,name,department,salary,notes",
+  '1,"Smith, Jane",Engineering,105000,"Leads the ""core"" team"',
+  "2,Bob Lee,Marketing,72000,",
+  '3,"O\'Brien, Pat",Engineering,98000,"Remote\nworks from Cork"',
+  "4,Ana Gomez,Sales,64000,Top seller Q3",
+  "5,Wei Chen,Engineering,121000,\r",
+  '6,"Kim, Soo",Sales,58500,"Joined ""late"""',
+].join("\n");
+
+const table = parseCsv(raw);
+const [header, ...body] = table;
+console.log("columns:", header);
+console.log("row count:", body.length);
+console.log(body.map((r) => r.length));
+
+const employees: Employee[] = body.map(([id, name, department, salary, notes]) => ({
+  id: Number(id), name, department, salary: Number(salary), notes: notes.trim(),
+}));
+for (const e of employees) {
+  console.log(`#${e.id} ${e.name.padEnd(14)} ${e.department.padEnd(12)} $${e.salary.toFixed(2).padStart(10)} ${JSON.stringify(e.notes)}`);
+}
+
+const byDept = new Map<string, Employee[]>();
+for (const e of employees) {
+  const list = byDept.get(e.department) ?? [];
+  list.push(e);
+  byDept.set(e.department, list);
+}
+for (const [dept, list] of [...byDept].sort((a, b) => a[0].localeCompare(b[0]))) {
+  const total = list.reduce((s, e) => s + e.salary, 0);
+  console.log("%s: %d people, avg %s", dept, list.length, (total / list.length).toFixed(1));
+}
+console.log(byDept.get("Sales"));
+
+const highest = employees.reduce((best, e) => (e.salary > best.salary ? e : best));
+console.log("highest paid:", highest);
+
+const out = [header, ...employees.filter((e) => e.notes !== "").map((e) => [String(e.id), e.name, e.department, String(e.salary), e.notes])]
+  .map((r) => r.map(toCsvField).join(","))
+  .join("\n");
+console.log(out);
+console.log("round trip equal:", JSON.stringify(parseCsv(out).slice(1).map((r) => r[1])));
+
+const tsv = parseCsv("a\tb\tc\n1\t\t3\n\"x\ty\"\tz\t", "\t");
+console.log(tsv);
+console.log(parseCsv(""), parseCsv("single"), parseCsv('""'), parseCsv(",,"));

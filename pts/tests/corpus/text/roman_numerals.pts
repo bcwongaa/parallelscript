@@ -1,0 +1,91 @@
+// Roman numeral conversion in both directions with strict validation, plus arithmetic on numerals.
+class RomanError extends Error {
+  constructor(readonly input: string, reason: string) {
+    super(`invalid numeral '${input}': ${reason}`);
+    this.name = "RomanError";
+  }
+}
+
+const PAIRS: ReadonlyArray<readonly [number, string]> = [
+  [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"],
+  [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+];
+
+const VALUES = new Map<string, number>([["I", 1], ["V", 5], ["X", 10], ["L", 50], ["C", 100], ["D", 500], ["M", 1000]]);
+
+function toRoman(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 3999) throw new RangeError(`${n} is out of range 1..3999`);
+  let out = "";
+  for (const [value, sym] of PAIRS) {
+    while (n >= value) {
+      out += sym;
+      n -= value;
+    }
+  }
+  return out;
+}
+
+function fromRoman(s: string): number {
+  const upper = s.toUpperCase();
+  if (upper.length === 0) throw new RomanError(s, "empty");
+  let total = 0;
+  for (let i = 0; i < upper.length; i++) {
+    const v = VALUES.get(upper[i]);
+    if (v === undefined) throw new RomanError(s, `unknown symbol '${upper[i]}' at ${i}`);
+    const next = i + 1 < upper.length ? VALUES.get(upper[i + 1]) ?? 0 : 0;
+    total += v < next ? -v : v;
+  }
+  if (toRoman(total) !== upper) throw new RomanError(s, `not canonical (did you mean ${toRoman(total)}?)`);
+  return total;
+}
+
+class Roman {
+  private constructor(readonly value: number) {}
+  static of(x: number | string): Roman {
+    return new Roman(typeof x === "number" ? (toRoman(x), x) : fromRoman(x));
+  }
+  plus(other: Roman): Roman { return Roman.of(this.value + other.value); }
+  minus(other: Roman): Roman { return Roman.of(this.value - other.value); }
+  times(other: Roman): Roman { return Roman.of(this.value * other.value); }
+  toString(): string { return toRoman(this.value); }
+  toJSON(): string { return this.toString(); }
+}
+
+const samples = [1, 4, 9, 14, 40, 90, 400, 1994, 2024, 3999, 444, 1666];
+console.log(samples.map((n) => `${n}=${toRoman(n)}`).join(" "));
+
+for (const s of ["MCMXCIV", "mmxxiv", "XLII", "IIII", "VX", "IC", "MMMM", "XIV", "ABC", "", "CDXLIV"]) {
+  try {
+    console.log(`${s.padEnd(8)} -> ${fromRoman(s)}`);
+  } catch (e) {
+    if (e instanceof RomanError) console.log(`${s.padEnd(8)} !! ${e.message}`);
+    else if (e instanceof RangeError) console.log(`${s.padEnd(8)} !! range: ${e.message}`);
+    else throw e;
+  }
+}
+
+let mismatches = 0;
+let longest = { n: 0, s: "" };
+for (let n = 1; n <= 3999; n++) {
+  const r = toRoman(n);
+  if (fromRoman(r) !== n) mismatches++;
+  if (r.length > longest.s.length) longest = { n, s: r };
+}
+console.log("round-trip mismatches:", mismatches, "longest:", longest);
+
+const a = Roman.of("XLII"), b = Roman.of(17);
+console.log(`${a} + ${b} = ${a.plus(b)}`);
+console.log(`${a} - ${b} = ${a.minus(b)}`);
+console.log(`${a} * ${b} = ${a.times(b)}`);
+console.log(JSON.stringify({ a, b, list: [Roman.of(1), Roman.of(2000)] }));
+console.log(a);
+try {
+  console.log(String(b.minus(a)));
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+const years = [1066, 1492, 1776, 1969, 2000].map((y) => ({ year: y, roman: toRoman(y), len: toRoman(y).length }));
+console.table(years);
+const symbolUse = new Map<string, number>();
+for (let n = 1; n <= 100; n++) for (const ch of toRoman(n)) symbolUse.set(ch, (symbolUse.get(ch) ?? 0) + 1);
+console.log(symbolUse);

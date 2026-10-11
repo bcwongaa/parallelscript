@@ -1,0 +1,121 @@
+// Static counters, static factory methods, static blocks and per-class instance tracking.
+
+class IdGenerator {
+  private static counters = new Map<string, number>();
+  static next(prefix: string): string {
+    const n = (IdGenerator.counters.get(prefix) ?? 0) + 1;
+    IdGenerator.counters.set(prefix, n);
+    return `${prefix}-${String(n).padStart(3, "0")}`;
+  }
+  static snapshot(): Record<string, number> {
+    return Object.fromEntries(IdGenerator.counters);
+  }
+}
+
+class Temperature {
+  static instances = 0;
+  static readonly ABSOLUTE_ZERO_C = -273.15;
+  static readonly cache: Temperature[] = [];
+
+  static {
+    for (const c of [0, 100]) Temperature.cache.push(new Temperature(c));
+  }
+
+  private constructor(readonly celsius: number) {
+    if (celsius < Temperature.ABSOLUTE_ZERO_C) throw new RangeError(`below absolute zero: ${celsius}`);
+    Temperature.instances++;
+  }
+
+  static fromCelsius(c: number): Temperature {
+    return Temperature.cache.find((t) => t.celsius === c) ?? new Temperature(c);
+  }
+  static fromFahrenheit(f: number): Temperature {
+    return Temperature.fromCelsius(Math.round(((f - 32) * 5) / 9 * 100) / 100);
+  }
+  static fromKelvin(k: number): Temperature {
+    return Temperature.fromCelsius(Math.round((k + Temperature.ABSOLUTE_ZERO_C) * 100) / 100);
+  }
+  static parse(s: string): Temperature {
+    const unit = s.slice(-1).toUpperCase();
+    const value = parseFloat(s);
+    switch (unit) {
+      case "C": return Temperature.fromCelsius(value);
+      case "F": return Temperature.fromFahrenheit(value);
+      case "K": return Temperature.fromKelvin(value);
+      default: throw new SyntaxError(`unknown unit in "${s}"`);
+    }
+  }
+  toString(): string {
+    return `${this.celsius}°C`;
+  }
+}
+
+abstract class Shape {
+  private static created: Record<string, number> = {};
+  readonly serial: string;
+  protected constructor(kind: string) {
+    Shape.created[kind] = (Shape.created[kind] ?? 0) + 1;
+    this.serial = IdGenerator.next(kind.slice(0, 3).toUpperCase());
+  }
+  static stats(): string {
+    return Object.entries(Shape.created).map(([k, v]) => `${k}=${v}`).join(", ");
+  }
+  abstract area(): number;
+}
+
+class Circle extends Shape {
+  private constructor(readonly r: number) {
+    super("circle");
+  }
+  static withRadius(r: number): Circle {
+    return new Circle(r);
+  }
+  static withArea(a: number): Circle {
+    return new Circle(Math.sqrt(a / Math.PI));
+  }
+  area(): number {
+    return Math.PI * this.r * this.r;
+  }
+}
+
+class Rect extends Shape {
+  private constructor(readonly w: number, readonly h: number) {
+    super("rect");
+  }
+  static square(side: number): Rect {
+    return new Rect(side, side);
+  }
+  static of(w: number, h: number): Rect {
+    return w === h ? Rect.square(w) : new Rect(w, h);
+  }
+  area(): number {
+    return this.w * this.h;
+  }
+}
+
+console.log("instances after static block:", Temperature.instances);
+const temps = ["25C", "212F", "0C", "300K", "-40F", "100c", "abc"].flatMap((s) => {
+  try {
+    return [Temperature.parse(s)];
+  } catch (e) {
+    console.log(`${(e as Error).name}: ${(e as Error).message}`);
+    return [];
+  }
+});
+console.log(temps.map(String).join(" | "));
+console.log("instances:", Temperature.instances, "cache hit:", Temperature.fromCelsius(100) === Temperature.cache[1]);
+try {
+  Temperature.fromKelvin(-5);
+} catch (e) {
+  console.log(String(e));
+}
+
+const shapes: Shape[] = [Circle.withRadius(1), Rect.of(2, 3), Rect.square(4), Circle.withArea(Math.PI * 9), Rect.of(5, 5)];
+for (const s of shapes) {
+  const kind = s instanceof Circle ? `circle r=${s.r.toFixed(2)}` : s instanceof Rect ? `rect ${s.w}x${s.h}` : "?";
+  console.log(`${s.serial} ${kind.padEnd(16)} area=${s.area().toFixed(3)}`);
+}
+console.log(Shape.stats());
+console.log(IdGenerator.next("ORD"), IdGenerator.next("ORD"), IdGenerator.next("INV"));
+console.log(IdGenerator.snapshot());
+console.log(shapes[1], Temperature.cache);

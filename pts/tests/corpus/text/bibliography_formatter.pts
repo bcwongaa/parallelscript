@@ -1,0 +1,119 @@
+// Formats bibliography entries in APA, MLA and Chicago-like styles: author name parsing,
+// initials, title case with small-word rules, et al. handling and sorted reference lists.
+interface Person { given: string; family: string; particle?: string }
+
+type Entry =
+  | { type: "book"; key: string; authors: string[]; title: string; year: number; publisher: string; edition?: number }
+  | { type: "article"; key: string; authors: string[]; title: string; year: number; journal: string; volume: number; issue?: number; pages: [number, number] }
+  | { type: "web"; key: string; authors: string[]; title: string; year: number; site: string; url: string };
+
+const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to", "up", "via", "with"]);
+const PARTICLES = ["van der", "van", "von", "de la", "de", "da", "le"];
+
+function parseName(raw: string): Person {
+  const name = raw.trim();
+  if (name.includes(",")) {
+    const [family, given] = name.split(",").map((s) => s.trim());
+    return { given, family };
+  }
+  const lower = name.toLowerCase();
+  for (const p of PARTICLES) {
+    const idx = lower.indexOf(` ${p} `);
+    if (idx >= 0) return { given: name.slice(0, idx), particle: name.slice(idx + 1, idx + 1 + p.length), family: name.slice(idx + 2 + p.length) };
+  }
+  const parts = name.split(" ");
+  return { given: parts.slice(0, -1).join(" "), family: parts[parts.length - 1] };
+}
+
+const initials = (given: string) => given.split(" ").filter(Boolean).map((g) => g.split("-").map((h) => h[0].toUpperCase() + ".").join("-")).join(" ");
+const familyFull = (p: Person) => (p.particle ? `${p.particle} ${p.family}` : p.family);
+
+function titleCase(title: string): string {
+  const words = title.toLowerCase().split(" ");
+  return words.map((w, i) => {
+    const afterColon = i > 0 && words[i - 1].endsWith(":");
+    if (i !== 0 && i !== words.length - 1 && !afterColon && SMALL_WORDS.has(w)) return w;
+    return w.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("-");
+  }).join(" ");
+}
+
+function sentenceCase(title: string): string {
+  const lower = title.toLowerCase();
+  let out = lower.charAt(0).toUpperCase() + lower.slice(1);
+  const colon = out.indexOf(": ");
+  if (colon >= 0) out = out.slice(0, colon + 2) + out.charAt(colon + 2).toUpperCase() + out.slice(colon + 3);
+  return out;
+}
+
+abstract class Style {
+  abstract readonly name: string;
+  abstract authors(people: Person[]): string;
+  abstract format(e: Entry): string;
+  sortKey(e: Entry): string {
+    const first = parseName(e.authors[0] ?? "Anonymous");
+    return `${first.family.toLowerCase()}|${e.year}|${e.title.toLowerCase()}`;
+  }
+  list(entries: Entry[]): string[] {
+    return [...entries].sort((a, b) => (this.sortKey(a) < this.sortKey(b) ? -1 : 1)).map((e) => this.format(e));
+  }
+}
+
+class Apa extends Style {
+  readonly name = "APA";
+  authors(ps: Person[]): string {
+    const names = ps.map((p) => (p.given ? `${familyFull(p)}, ${initials(p.given)}` : familyFull(p)));
+    if (names.length > 20) return [...names.slice(0, 19), "...", names[names.length - 1]].join(", ");
+    return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
+  }
+  format(e: Entry): string {
+    const a = this.authors(e.authors.map(parseName));
+    switch (e.type) {
+      case "book": return `${a} (${e.year}). ${sentenceCase(e.title)}${e.edition ? ` (${ordinal(e.edition)} ed.)` : ""}. ${e.publisher}.`;
+      case "article": return `${a} (${e.year}). ${sentenceCase(e.title)}. ${titleCase(e.journal)}, ${e.volume}${e.issue !== undefined ? `(${e.issue})` : ""}, ${e.pages.join("–")}.`;
+      case "web": return `${a} (${e.year}). ${sentenceCase(e.title)}. ${e.site}. ${e.url}`;
+    }
+  }
+}
+
+class Mla extends Style {
+  readonly name = "MLA";
+  authors(ps: Person[]): string {
+    if (ps.length === 0) return "";
+    const first = ps[0].given ? `${familyFull(ps[0])}, ${ps[0].given}` : familyFull(ps[0]);
+    if (ps.length === 1) return first;
+    if (ps.length === 2) return `${first}, and ${ps[1].given} ${familyFull(ps[1])}`;
+    return `${first}, et al`;
+  }
+  format(e: Entry): string {
+    const a = this.authors(e.authors.map(parseName));
+    const t = titleCase(e.title);
+    switch (e.type) {
+      case "book": return `${a}. ${t}. ${e.edition ? `${ordinal(e.edition)} ed., ` : ""}${e.publisher}, ${e.year}.`;
+      case "article": return `${a}. "${t}." ${titleCase(e.journal)}, vol. ${e.volume}${e.issue !== undefined ? `, no. ${e.issue}` : ""}, ${e.year}, pp. ${e.pages.join("-")}.`;
+      case "web": return `${a}. "${t}." ${e.site}, ${e.year}, ${e.url.replace("https://", "")}.`;
+    }
+  }
+}
+
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
+  return `${n}${s}`;
+}
+
+const entries: Entry[] = [
+  { type: "book", key: "sicp", authors: ["Harold Abelson", "Gerald Jay Sussman"], title: "structure and interpretation of computer programs", year: 1996, publisher: "MIT Press", edition: 2 },
+  { type: "article", key: "gc", authors: ["Edsger W. Dijkstra", "Leslie Lamport", "A. J. Martin", "C. S. Scholten", "E. F. M. Steffens"], title: "on-the-fly garbage collection: an exercise in cooperation", year: 1978, journal: "communications of the ACM", volume: 21, issue: 11, pages: [966, 975] },
+  { type: "web", key: "ts", authors: ["Microsoft"], title: "The TypeScript Handbook", year: 2024, site: "TypeScript Docs", url: "https://www.typescriptlang.org/docs/handbook/" },
+  { type: "book", key: "dragon", authors: ["Aho, Alfred V.", "Monica S. Lam", "Ravi Sethi", "Jeffrey D. Ullman"], title: "compilers: principles, techniques, and tools", year: 2006, publisher: "Pearson", edition: 2 },
+  { type: "article", key: "beethoven", authors: ["Ludwig van Beethoven"], title: "a study of the late quartets", year: 1827, journal: "journal of imaginary musicology", volume: 3, pages: [1, 42] },
+];
+for (const style of [new Apa(), new Mla()]) {
+  console.log(`== ${style.name}`);
+  for (const line of style.list(entries)) console.log("  " + line);
+}
+console.log(["Ada Lovelace", "Hopper, Grace Brewster", "Vincent van Gogh", "Jean-Paul Sartre", "Charles de la Fontaine", "Plato"].map(parseName));
+console.log([1, 2, 3, 4, 11, 12, 13, 21, 22, 101].map(ordinal).join(" "));
+console.log(titleCase("the lord of the rings: the return of the king"), "|", sentenceCase("A TALE OF TWO CITIES: BOOK THE FIRST"));
+console.log(initials("Jean-Paul Charles"), initials("Gerald Jay"));
+const byType = entries.reduce<Record<string, string[]>>((acc, e) => ({ ...acc, [e.type]: [...(acc[e.type] ?? []), e.key] }), {});
+console.log(byType);

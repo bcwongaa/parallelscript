@@ -1,0 +1,96 @@
+// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
+interface RawUser {
+  email: string;
+  name?: string;
+  phone?: string | null;
+  tags: string[];
+  updated: string;
+}
+
+interface MergedUser {
+  email: string;
+  name: string;
+  phone: string | null;
+  tags: string[];
+  sources: number;
+  lastUpdated: string;
+}
+
+const raw: RawUser[] = [
+  { email: "  Ann@Example.com", name: "Ann", tags: ["vip"], updated: "2024-01-03" },
+  { email: "bob@example.com", name: "Bob Stone", phone: "555-0101", tags: ["new"], updated: "2024-02-11" },
+  { email: "ann@example.com ", phone: "555-0199", tags: ["newsletter", "vip"], updated: "2024-03-01" },
+  { email: "CARL@example.com", name: "carl", phone: null, tags: [], updated: "2023-12-30" },
+  { email: "bob@example.com", name: "Robert Stone", tags: ["beta"], updated: "2024-01-15" },
+  { email: "dina@example.com", tags: ["new"], updated: "2024-02-02" },
+  { email: "carl@EXAMPLE.com", name: "Carl Jung", phone: "555-0123", tags: ["beta"], updated: "2024-03-05" },
+];
+
+function normalizeEmail(e: string): string {
+  return e.trim().toLowerCase();
+}
+
+function titleCase(s: string): string {
+  return s
+    .split(" ")
+    .filter((w) => w.length > 0)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function merge(a: MergedUser, b: RawUser): MergedUser {
+  const newer = b.updated > a.lastUpdated;
+  const name = b.name !== undefined && (newer || a.name === "") ? titleCase(b.name) : a.name;
+  const phone = newer && b.phone ? b.phone : a.phone ?? b.phone ?? null;
+  const tags = [...new Set([...a.tags, ...b.tags])].sort();
+  return {
+    email: a.email,
+    name,
+    phone,
+    tags,
+    sources: a.sources + 1,
+    lastUpdated: newer ? b.updated : a.lastUpdated,
+  };
+}
+
+const merged = new Map<string, MergedUser>();
+for (const r of raw) {
+  const key = normalizeEmail(r.email);
+  const existing = merged.get(key);
+  if (existing === undefined) {
+    merged.set(key, {
+      email: key,
+      name: r.name ? titleCase(r.name) : "",
+      phone: r.phone ?? null,
+      tags: [...r.tags].sort(),
+      sources: 1,
+      lastUpdated: r.updated,
+    });
+  } else {
+    merged.set(key, merge(existing, r));
+  }
+}
+
+console.log(`Raw records: ${raw.length}, unique users: ${merged.size}`);
+for (const user of merged.values()) {
+  console.log(user);
+}
+
+const missingName = [...merged.values()].filter((u) => u.name === "").map((u) => u.email);
+console.log("Missing names:", missingName);
+const missingPhone = [...merged.values()].filter((u) => u.phone === null);
+console.log("Missing phones:", missingPhone.length, missingPhone.map((u) => u.email).join(";"));
+
+const tagIndex = new Map<string, Set<string>>();
+for (const u of merged.values()) {
+  for (const t of u.tags) {
+    if (!tagIndex.has(t)) tagIndex.set(t, new Set());
+    tagIndex.get(t)?.add(u.email);
+  }
+}
+console.log(tagIndex);
+const sortedTags = [...tagIndex.keys()].sort((a, b) => (tagIndex.get(b)?.size ?? 0) - (tagIndex.get(a)?.size ?? 0) || a.localeCompare(b));
+for (const t of sortedTags) {
+  console.log(`#${t}: ${[...(tagIndex.get(t) ?? [])].join(", ")}`);
+}
+console.log(JSON.stringify([...merged.values()].map((u) => [u.email, u.sources])));

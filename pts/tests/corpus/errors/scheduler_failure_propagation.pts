@@ -1,0 +1,88 @@
+// skip: not supported yet: PTS1001: using a (Record<string, number>) => void as a (Record<string, number>) => number, whose result it doesn't return,
+// Runs tasks in dependency order; when a task fails, everything depending on
+// it is skipped (not run), and the final report shows why.
+
+type Status = "ok" | "failed" | "skipped";
+
+interface Task {
+  name: string;
+  deps: string[];
+  run: (inputs: Record<string, number>) => number;
+}
+
+class TaskFailed extends Error {
+  constructor(readonly task: string, options: { cause: unknown }) {
+    super(`task ${task} failed`, options);
+    this.name = "TaskFailed";
+  }
+}
+
+interface Outcome {
+  status: Status;
+  value?: number;
+  reason?: string;
+}
+
+function runAll(tasks: Task[]): Map<string, Outcome> {
+  const results = new Map<string, Outcome>();
+  const pending = [...tasks];
+  while (pending.length > 0) {
+    const idx = pending.findIndex((t) => t.deps.every((d) => results.has(d)));
+    if (idx < 0) throw new Error(`unresolvable: ${pending.map((t) => t.name).join(", ")}`);
+    const [task] = pending.splice(idx, 1);
+    const blocked = task.deps.filter((d) => results.get(d)?.status !== "ok");
+    if (blocked.length > 0) {
+      results.set(task.name, { status: "skipped", reason: `blocked by ${blocked.join(", ")}` });
+      continue;
+    }
+    const inputs: Record<string, number> = {};
+    for (const d of task.deps) inputs[d] = results.get(d)?.value ?? 0;
+    try {
+      try {
+        results.set(task.name, { status: "ok", value: task.run(inputs) });
+      } catch (inner) {
+        throw new TaskFailed(task.name, { cause: inner });
+      }
+    } catch (e) {
+      const cause = e instanceof TaskFailed ? e.cause : e;
+      const reason = cause instanceof Error ? `${cause.name}: ${cause.message}` : `thrown ${typeof cause}: ${String(cause)}`;
+      results.set(task.name, { status: "failed", reason });
+    }
+  }
+  return results;
+}
+
+const tasks: Task[] = [
+  { name: "fetch", deps: [], run: () => 120 },
+  { name: "parse", deps: ["fetch"], run: (i) => i.fetch / 4 },
+  { name: "validate", deps: ["parse"], run: (i) => {
+    if (i.parse > 25) throw new RangeError(`too many records: ${i.parse}`);
+    return i.parse;
+  } },
+  { name: "index", deps: ["parse"], run: (i) => i.parse * 2 },
+  { name: "store", deps: ["validate", "index"], run: (i) => i.validate + i.index },
+  { name: "notify", deps: ["store"], run: () => 1 },
+  { name: "metrics", deps: ["index"], run: (i) => Math.sqrt(i.index) },
+  { name: "cleanup", deps: [], run: () => {
+    throw "lock file busy";
+  } },
+  { name: "archive", deps: ["cleanup", "fetch"], run: () => 0 },
+];
+
+const results = runAll(tasks);
+for (const [name, o] of results) {
+  const detail = o.status === "ok" ? `= ${Number.isInteger(o.value) ? o.value : o.value?.toFixed(3)}` : `(${o.reason})`;
+  console.log(`${o.status.toUpperCase().padEnd(7)} ${name.padEnd(9)} ${detail}`);
+}
+const counts = [...results.values()].reduce<Record<Status, number>>(
+  (acc, o) => ({ ...acc, [o.status]: acc[o.status] + 1 }),
+  { ok: 0, failed: 0, skipped: 0 },
+);
+console.log(counts);
+console.log(results.get("validate"));
+
+try {
+  runAll([{ name: "a", deps: ["b"], run: () => 1 }, { name: "b", deps: ["a"], run: () => 2 }]);
+} catch (e) {
+  console.log("scheduler error:", (e as Error).message);
+}

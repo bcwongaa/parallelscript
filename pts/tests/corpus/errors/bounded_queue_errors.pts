@@ -1,0 +1,115 @@
+// A fixed-capacity ring buffer with overflow/underflow errors, used as a
+// print-job queue with priorities.
+
+class QueueFullError extends Error {
+  constructor(readonly capacity: number, readonly rejected: string) {
+    super(`queue full (capacity ${capacity}), rejected '${rejected}'`);
+    this.name = "QueueFullError";
+  }
+}
+
+class QueueEmptyError extends Error {
+  constructor() {
+    super("queue is empty");
+    this.name = "QueueEmptyError";
+  }
+}
+
+class RingBuffer<T> {
+  private items: (T | undefined)[];
+  private head = 0;
+  private count = 0;
+
+  constructor(readonly capacity: number, private readonly describe: (t: T) => string) {
+    if (capacity < 1) throw new RangeError("capacity must be at least 1");
+    this.items = new Array<T | undefined>(capacity).fill(undefined);
+  }
+
+  get size(): number {
+    return this.count;
+  }
+
+  push(item: T): void {
+    if (this.count === this.capacity) throw new QueueFullError(this.capacity, this.describe(item));
+    this.items[(this.head + this.count) % this.capacity] = item;
+    this.count++;
+  }
+
+  shift(): T {
+    if (this.count === 0) throw new QueueEmptyError();
+    const item = this.items[this.head] as T;
+    this.items[this.head] = undefined;
+    this.head = (this.head + 1) % this.capacity;
+    this.count--;
+    return item;
+  }
+
+  peek(): T | undefined {
+    return this.count === 0 ? undefined : this.items[this.head];
+  }
+
+  toArray(): T[] {
+    const out: T[] = [];
+    for (let i = 0; i < this.count; i++) out.push(this.items[(this.head + i) % this.capacity] as T);
+    return out;
+  }
+}
+
+interface PrintJob {
+  id: number;
+  doc: string;
+  pages: number;
+}
+
+const queue = new RingBuffer<PrintJob>(3, (j) => `${j.doc}#${j.id}`);
+const ops: Array<["add", string, number] | ["print"]> = [
+  ["add", "report.pdf", 12],
+  ["add", "slides.pptx", 30],
+  ["print"],
+  ["add", "memo.txt", 1],
+  ["add", "poster.png", 2],
+  ["add", "invoice.pdf", 3],
+  ["print"],
+  ["print"],
+  ["print"],
+  ["print"],
+  ["add", "letter.doc", 4],
+  ["print"],
+];
+
+let nextId = 1;
+let printedPages = 0;
+const rejected: string[] = [];
+for (const op of ops) {
+  try {
+    if (op[0] === "add") {
+      const job: PrintJob = { id: nextId++, doc: op[1], pages: op[2] };
+      queue.push(job);
+      console.log(`queued ${job.doc} (size ${queue.size})`);
+    } else {
+      const job = queue.shift();
+      printedPages += job.pages;
+      console.log(`printed ${job.doc}, ${job.pages} page(s); next: ${queue.peek()?.doc ?? "none"}`);
+    }
+  } catch (e) {
+    if (e instanceof QueueFullError) {
+      rejected.push(e.rejected);
+      console.log(`! ${e.message}`);
+    } else if (e instanceof QueueEmptyError) {
+      console.log(`! nothing to print (${e.name})`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log({ printedPages, rejected, pending: queue.toArray() });
+
+try {
+  new RingBuffer<number>(0, String);
+} catch (e) {
+  console.log(e instanceof RangeError, (e as Error).message);
+}
+const nums = new RingBuffer<number>(2, String);
+nums.push(1);
+nums.push(2);
+console.log(nums.shift(), nums.toArray(), nums);

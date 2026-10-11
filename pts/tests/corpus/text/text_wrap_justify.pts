@@ -1,0 +1,98 @@
+// skip: not supported yet: PTS1001: converting number to string
+// Text wrapping (greedy and minimum-raggedness) plus full justification and centering.
+enum Align { Left, Right, Center, Justify }
+
+const text = "ParallelScript compiles a strict subset of TypeScript into portable C, links it " +
+  "against a small runtime with a concurrent garbage collector, and produces a single native " +
+  "executable. Programs start quickly and use little memory.";
+
+function greedyWrap(words: string[], width: number): string[][] {
+  const lines: string[][] = [];
+  let line: string[] = [];
+  let len = 0;
+  for (const w of words) {
+    const extra = line.length === 0 ? w.length : w.length + 1;
+    if (len + extra > width && line.length > 0) {
+      lines.push(line);
+      line = [w];
+      len = w.length;
+    } else {
+      line.push(w);
+      len += extra;
+    }
+  }
+  if (line.length) lines.push(line);
+  return lines;
+}
+
+function optimalWrap(words: string[], width: number): string[][] {
+  const n = words.length;
+  const cost: number[] = new Array(n + 1).fill(Infinity);
+  const breakAt: number[] = new Array(n + 1).fill(0);
+  cost[n] = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    let len = -1;
+    for (let j = i; j < n; j++) {
+      len += words[j].length + 1;
+      if (len > width) break;
+      const slack = width - len;
+      const c = (j === n - 1 ? 0 : slack * slack) + cost[j + 1];
+      if (c < cost[i]) { cost[i] = c; breakAt[i] = j + 1; }
+    }
+  }
+  const lines: string[][] = [];
+  for (let i = 0; i < n; i = breakAt[i]) lines.push(words.slice(i, breakAt[i]));
+  return lines;
+}
+
+function justify(line: string[], width: number, last: boolean): string {
+  if (last || line.length === 1) return line.join(" ").padEnd(width);
+  const letters = line.reduce((s, w) => s + w.length, 0);
+  const gaps = line.length - 1;
+  const spaces = width - letters;
+  const base = Math.floor(spaces / gaps);
+  const extra = spaces % gaps;
+  return line.map((w, i) => (i < gaps ? w + " ".repeat(base + (i < extra ? 1 : 0)) : w)).join("");
+}
+
+function format(lines: string[][], width: number, align: Align): string[] {
+  return lines.map((ws, idx) => {
+    const s = ws.join(" ");
+    switch (align) {
+      case Align.Left: return s.padEnd(width);
+      case Align.Right: return s.padStart(width);
+      case Align.Center: {
+        const left = Math.floor((width - s.length) / 2);
+        return (" ".repeat(left) + s).padEnd(width);
+      }
+      case Align.Justify: return justify(ws, width, idx === lines.length - 1);
+    }
+  });
+}
+
+function boxed(lines: string[], title: string): string {
+  const width = lines[0]?.length ?? 0;
+  const top = `+-${title.padEnd(width, "-")}-+`;
+  return [top, ...lines.map((l) => `| ${l} |`), "+" + "-".repeat(width + 2) + "+"].join("\n");
+}
+
+const words = text.split(" ").filter((w) => w.length > 0);
+console.log("words:", words.length);
+
+for (const align of [Align.Left, Align.Right, Align.Center, Align.Justify]) {
+  console.log(boxed(format(greedyWrap(words, 36), 36, align), ` ${Align[align]} `));
+}
+
+const W = 28;
+const greedy = greedyWrap(words, W);
+const optimal = optimalWrap(words, W);
+const raggedness = (ls: string[][]) => ls.slice(0, -1).reduce((s, l) => s + (W - l.join(" ").length) ** 2, 0);
+console.log("greedy lines=%d raggedness=%d", greedy.length, raggedness(greedy));
+console.log("optimal lines=%d raggedness=%d", optimal.length, raggedness(optimal));
+for (let i = 0; i < Math.max(greedy.length, optimal.length); i++) {
+  const g = (greedy[i] ?? []).join(" ");
+  const o = (optimal[i] ?? []).join(" ");
+  console.log(`${g.padEnd(W)} | ${o}`);
+}
+console.log(greedyWrap(["supercalifragilistic", "is", "long"], 10));
+console.log({ align: Align.Center, name: Align[Align.Center], all: Object.keys(Align) });

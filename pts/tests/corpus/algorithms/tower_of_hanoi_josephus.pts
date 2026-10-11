@@ -1,0 +1,98 @@
+// Tower of Hanoi (recursive, iterative, four pegs) and the Josephus problem (simulation and formula).
+
+type Peg = "A" | "B" | "C" | "D";
+type Move = { disk: number; from: Peg; to: Peg };
+
+function hanoi(n: number, from: Peg, to: Peg, via: Peg, moves: Move[] = []): Move[] {
+  if (n === 0) return moves;
+  hanoi(n - 1, from, via, to, moves);
+  moves.push({ disk: n, from, to });
+  hanoi(n - 1, via, to, from, moves);
+  return moves;
+}
+
+class Towers {
+  pegs: Record<Peg, number[]>;
+  constructor(n: number) {
+    this.pegs = { A: Array.from({ length: n }, (_, i) => n - i), B: [], C: [], D: [] };
+  }
+  apply(m: Move): void {
+    const src = this.pegs[m.from];
+    const dst = this.pegs[m.to];
+    const disk = src.pop();
+    if (disk === undefined) throw new Error(`peg ${m.from} is empty`);
+    if (dst.length && dst[dst.length - 1] < disk) throw new Error(`cannot put ${disk} on ${dst[dst.length - 1]}`);
+    if (disk !== m.disk) throw new Error(`expected disk ${m.disk}, got ${disk}`);
+    dst.push(disk);
+  }
+  snapshot(): string {
+    return (Object.keys(this.pegs) as Peg[]).filter((p) => p !== "D").map((p) => `${p}:[${this.pegs[p].join(",")}]`).join(" ");
+  }
+}
+
+function iterativeHanoi(n: number): Move[] {
+  const pegs: Record<Peg, number[]> = { A: [], B: [], C: [], D: [] };
+  for (let d = n; d >= 1; d--) pegs.A.push(d);
+  const order: [Peg, Peg][] = n % 2 === 0 ? [["A", "B"], ["A", "C"], ["B", "C"]] : [["A", "C"], ["A", "B"], ["B", "C"]];
+  const moves: Move[] = [];
+  const total = 2 ** n - 1;
+  for (let i = 0; i < total; i++) {
+    const [x, y] = order[i % 3];
+    const tx = pegs[x].length ? pegs[x][pegs[x].length - 1] : Infinity;
+    const ty = pegs[y].length ? pegs[y][pegs[y].length - 1] : Infinity;
+    const [from, to] = tx < ty ? [x, y] : [y, x];
+    const disk = pegs[from].pop()!;
+    pegs[to].push(disk);
+    moves.push({ disk, from, to });
+  }
+  return moves;
+}
+
+// Frame-Stewart for four pegs.
+const fsMemo = new Map<number, number>();
+function frameStewart(n: number): number {
+  if (n <= 1) return n;
+  const hit = fsMemo.get(n);
+  if (hit !== undefined) return hit;
+  let best = Infinity;
+  for (let k = 1; k < n; k++) best = Math.min(best, 2 * frameStewart(k) + 2 ** (n - k) - 1);
+  fsMemo.set(n, best);
+  return best;
+}
+
+const three = hanoi(3, "A", "C", "B");
+const towers = new Towers(3);
+console.log("start   ", towers.snapshot());
+three.forEach((m, i) => {
+  towers.apply(m);
+  console.log(`move ${String(i + 1).padStart(2)}: disk ${m.disk} ${m.from}->${m.to}  ${towers.snapshot()}`);
+});
+console.log("recursive == iterative for n=1..8:", [1, 2, 3, 4, 5, 6, 7, 8].every((n) => JSON.stringify(hanoi(n, "A", "C", "B")) === JSON.stringify(iterativeHanoi(n))));
+console.log("moves of each disk for n=5:", hanoi(5, "A", "C", "B").reduce<Record<number, number>>((acc, m) => ({ ...acc, [m.disk]: (acc[m.disk] ?? 0) + 1 }), {}));
+console.log("3 pegs vs 4 pegs:", [4, 6, 8, 10, 12].map((n) => ({ n, three: 2 ** n - 1, four: frameStewart(n) })));
+
+try {
+  new Towers(2).apply({ disk: 1, from: "B", to: "C" });
+} catch (e) {
+  console.log("illegal move:", (e as Error).message);
+}
+
+function josephusSim(n: number, k: number): { order: number[]; survivor: number } {
+  const circle = Array.from({ length: n }, (_, i) => i + 1);
+  const order: number[] = [];
+  let idx = 0;
+  while (circle.length > 1) {
+    idx = (idx + k - 1) % circle.length;
+    order.push(...circle.splice(idx, 1));
+  }
+  return { order, survivor: circle[0] };
+}
+const josephus = (n: number, k: number): number => (n === 1 ? 0 : (josephus(n - 1, k) + k) % n);
+const josephus2 = (n: number): number => 2 * (n - 2 ** Math.floor(Math.log2(n))) + 1;
+
+const sim = josephusSim(7, 3);
+console.log("n=7 k=3 elimination order:", sim.order, "survivor:", sim.survivor);
+console.log("n=41 k=3 survivor:", josephusSim(41, 3).survivor, "formula:", josephus(41, 3) + 1);
+const table = Array.from({ length: 16 }, (_, i) => i + 1).map((n) => josephus2(n));
+console.log("k=2 survivors n=1..16:", table.join(" "));
+console.log("formula agrees with simulation:", Array.from({ length: 30 }, (_, i) => i + 1).every((n) => josephusSim(n, 2).survivor === josephus2(n)));

@@ -1,0 +1,80 @@
+// skip: not supported yet: PTS1001: converting {id: number; name: string}[] to number[]
+interface Page<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+function paginate<T>(all: readonly T[], page: number, pageSize: number): Page<T> {
+  if (pageSize <= 0) throw new RangeError("pageSize must be positive");
+  const totalPages = Math.max(1, Math.ceil(all.length / pageSize));
+  const clamped = Math.min(Math.max(1, page), totalPages);
+  const start = (clamped - 1) * pageSize;
+  return {
+    items: all.slice(start, start + pageSize),
+    page: clamped,
+    pageSize,
+    totalItems: all.length,
+    totalPages,
+    hasNext: clamped < totalPages,
+    hasPrev: clamped > 1,
+  };
+}
+
+function chunk<T>(xs: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+function pageLinks(current: number, total: number, radius = 2): (number | "...")[] {
+  const pages = new Set<number>([1, total]);
+  for (let p = current - radius; p <= current + radius; p++) if (p >= 1 && p <= total) pages.add(p);
+  const sorted = [...pages].sort((a, b) => a - b);
+  const out: (number | "...")[] = [];
+  sorted.forEach((p, i) => {
+    if (i > 0 && p - sorted[i - 1] > 1) out.push("...");
+    out.push(p);
+  });
+  return out;
+}
+
+const products = Array.from({ length: 47 }, (_, i) => ({ id: i + 1, name: `Item ${String(i + 1).padStart(3, "0")}` }));
+
+const p1 = paginate(products, 1, 10);
+console.log({ ...p1, items: p1.items.map((x) => x.id) });
+const p5 = paginate(products, 5, 10);
+console.log(p5.items, p5.hasNext, p5.hasPrev);
+console.log(paginate(products, 99, 10).page, paginate(products, -3, 10).page);
+console.log(paginate([], 1, 10));
+
+for (const cur of [1, 4, 8, 12, 20]) {
+  console.log(`page ${String(cur).padStart(2)}:`, pageLinks(cur, 20).join(" "));
+}
+
+const batches = chunk(products.map((p) => p.id), 12);
+console.log(batches.length, "batches; sizes:", batches.map((b) => b.length));
+console.log(batches[3]);
+
+const cursorPages: string[] = [];
+let cursor: number | undefined = 0;
+while (cursor !== undefined) {
+  const slice = products.slice(cursor, cursor + 15);
+  const next: number = cursor + slice.length;
+  cursorPages.push(`[${slice[0]?.id}..${slice[slice.length - 1]?.id}] next=${next < products.length ? next : "none"}`);
+  cursor = next < products.length ? next : undefined;
+}
+console.log(cursorPages);
+
+try {
+  paginate(products, 1, 0);
+} catch (e) {
+  console.log(`${(e as Error).name}: ${(e as Error).message}`);
+}
+const grid = chunk("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""), 5).map((r) => r.join(" "));
+console.log(grid.join("\n"));
+console.log(chunk([1, 2, 3], 5), chunk([], 3));

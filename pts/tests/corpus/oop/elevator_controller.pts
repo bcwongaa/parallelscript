@@ -1,0 +1,121 @@
+// Elevator controller simulation: two cars, a dispatcher, tick-based movement.
+
+type Direction = "up" | "down" | "idle";
+
+interface Request {
+  from: number;
+  to: number;
+  at: number;
+  rider: string;
+}
+
+class Elevator {
+  floor = 0;
+  direction: Direction = "idle";
+  private stops = new Set<number>();
+  private riders: Request[] = [];
+  private waiting: Request[] = [];
+  moves = 0;
+
+  constructor(readonly name: string, readonly capacity: number) {}
+
+  assign(r: Request): void {
+    this.waiting.push(r);
+    this.stops.add(r.from);
+  }
+
+  get load(): number {
+    return this.riders.length + this.waiting.length;
+  }
+
+  cost(r: Request): number {
+    const distance = Math.abs(this.floor - r.from);
+    const penalty = this.direction === "idle" ? 0 : this.direction === "up" === r.from >= this.floor ? 1 : 6;
+    return distance + penalty + this.load * 2;
+  }
+
+  tick(time: number, log: string[]): void {
+    if (this.stops.has(this.floor)) {
+      this.stops.delete(this.floor);
+      const leaving = this.riders.filter((r) => r.to === this.floor);
+      this.riders = this.riders.filter((r) => r.to !== this.floor);
+      for (const r of leaving) log.push(`t=${time} ${this.name} drop ${r.rider} at ${this.floor} (trip ${time - r.at})`);
+      const boarding = this.waiting.filter((r) => r.from === this.floor);
+      this.waiting = this.waiting.filter((r) => r.from !== this.floor);
+      for (const r of boarding) {
+        if (this.riders.length >= this.capacity) {
+          this.waiting.push(r);
+          this.stops.add(this.floor);
+          continue;
+        }
+        this.riders.push(r);
+        this.stops.add(r.to);
+        log.push(`t=${time} ${this.name} pick ${r.rider} at ${this.floor} -> ${r.to}`);
+      }
+      return;
+    }
+    if (this.stops.size === 0) {
+      this.direction = "idle";
+      return;
+    }
+    const targets = [...this.stops];
+    const above = targets.filter((f) => f > this.floor);
+    const below = targets.filter((f) => f < this.floor);
+    if (this.direction !== "down" && above.length > 0) this.direction = "up";
+    else if (below.length > 0) this.direction = "down";
+    else this.direction = "up";
+    this.floor += this.direction === "up" ? 1 : -1;
+    this.moves++;
+  }
+
+  get busy(): boolean {
+    return this.stops.size > 0;
+  }
+}
+
+class Dispatcher {
+  readonly log: string[] = [];
+  constructor(private cars: Elevator[]) {}
+
+  dispatch(r: Request): Elevator {
+    let best = this.cars[0];
+    for (const car of this.cars) {
+      if (car.cost(r) < best.cost(r)) best = car;
+    }
+    best.assign(r);
+    this.log.push(`t=${r.at} ${r.rider} (${r.from}->${r.to}) assigned to ${best.name}`);
+    return best;
+  }
+
+  run(requests: Request[], maxTime: number): number {
+    const pending = [...requests].sort((a, b) => a.at - b.at);
+    let t = 0;
+    for (; t < maxTime; t++) {
+      while (pending.length > 0 && pending[0].at === t) {
+        this.dispatch(pending.shift()!);
+      }
+      for (const car of this.cars) car.tick(t, this.log);
+      if (pending.length === 0 && this.cars.every((c) => !c.busy)) break;
+    }
+    return t;
+  }
+}
+
+const cars = [new Elevator("A", 4), new Elevator("B", 2)];
+const dispatcher = new Dispatcher(cars);
+const requests: Request[] = [
+  { from: 0, to: 7, at: 0, rider: "ann" },
+  { from: 5, to: 1, at: 1, rider: "bob" },
+  { from: 3, to: 9, at: 2, rider: "cat" },
+  { from: 0, to: 4, at: 2, rider: "dan" },
+  { from: 8, to: 0, at: 4, rider: "eve" },
+  { from: 2, to: 6, at: 6, rider: "fay" },
+  { from: 6, to: 2, at: 9, rider: "gus" },
+];
+const finished = dispatcher.run(requests, 100);
+dispatcher.log.forEach((line) => console.log(line));
+console.log("finished at t =", finished);
+for (const car of cars) {
+  console.log(`${car.name}: floor ${car.floor}, moves ${car.moves}, ${car.direction}`);
+}
+console.log(cars.map(({ name, floor, moves }) => ({ name, floor, moves })));

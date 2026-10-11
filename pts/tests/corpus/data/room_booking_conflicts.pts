@@ -1,0 +1,92 @@
+interface Booking {
+  id: string;
+  room: string;
+  who: string;
+  start: Date;
+  end: Date;
+}
+
+class BookingConflictError extends Error {
+  constructor(readonly attempted: Booking, readonly existing: Booking) {
+    super(`${attempted.id} overlaps ${existing.id} in ${attempted.room}`);
+    this.name = "BookingConflictError";
+  }
+}
+
+const at = (day: number, h: number, m = 0): Date => new Date(2024, 9, day, h, m);
+const hhmm = (d: Date): string => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+class Calendar {
+  #bookings = new Map<string, Booking[]>();
+  #seq = 0;
+
+  book(room: string, who: string, start: Date, end: Date): Booking {
+    if (end <= start) throw new RangeError(`end must be after start for ${who}`);
+    const b: Booking = { id: `B${++this.#seq}`, room, who, start, end };
+    const list = this.#bookings.get(room) ?? [];
+    const clash = list.find((x) => x.start < end && start < x.end);
+    if (clash) throw new BookingConflictError(b, clash);
+    list.push(b);
+    list.sort((p, q) => p.start.getTime() - q.start.getTime());
+    this.#bookings.set(room, list);
+    return b;
+  }
+
+  freeSlots(room: string, day: number, open = 8, close = 18): Array<[string, string]> {
+    const dayStart = at(day, open);
+    const dayEnd = at(day, close);
+    const busy = (this.#bookings.get(room) ?? []).filter((b) => b.start < dayEnd && b.end > dayStart);
+    const out: Array<[string, string]> = [];
+    let cursor = dayStart;
+    for (const b of busy) {
+      if (b.start > cursor) out.push([hhmm(cursor), hhmm(b.start)]);
+      if (b.end > cursor) cursor = b.end;
+    }
+    if (cursor < dayEnd) out.push([hhmm(cursor), hhmm(dayEnd)]);
+    return out;
+  }
+
+  utilisation(room: string, day: number, open = 8, close = 18): number {
+    const minutes = (this.#bookings.get(room) ?? [])
+      .filter((b) => b.start.getDate() === day)
+      .reduce((s, b) => s + (b.end.getTime() - b.start.getTime()) / 60000, 0);
+    return minutes / ((close - open) * 60);
+  }
+
+  get rooms(): string[] {
+    return [...this.#bookings.keys()].sort();
+  }
+}
+
+const cal = new Calendar();
+const requests: Array<[string, string, Date, Date]> = [
+  ["Orion", "design sync", at(14, 9), at(14, 10)],
+  ["Orion", "1:1 Kai", at(14, 10), at(14, 10, 30)],
+  ["Orion", "standup", at(14, 9, 30), at(14, 9, 45)],
+  ["Vega", "interview", at(14, 13), at(14, 14, 30)],
+  ["Orion", "planning", at(14, 14), at(14, 16)],
+  ["Vega", "retro", at(14, 14), at(14, 15)],
+  ["Orion", "late call", at(14, 17, 30), at(14, 19)],
+  ["Vega", "typo", at(14, 12), at(14, 11)],
+  ["Lyra", "offsite", at(15, 8), at(15, 18)],
+];
+
+for (const [room, who, s, e] of requests) {
+  try {
+    const b = cal.book(room, who, s, e);
+    console.log(`ok   ${b.id} ${room.padEnd(5)} ${hhmm(s)}-${hhmm(e)} ${who}`);
+  } catch (err) {
+    if (err instanceof BookingConflictError) console.log(`FAIL ${err.message} (held by "${err.existing.who}")`);
+    else if (err instanceof RangeError) console.log(`FAIL ${err.message}`);
+    else throw err;
+  }
+}
+
+for (const room of cal.rooms) {
+  for (const day of [14, 15]) {
+    console.log(`${room} Oct ${day}: free`, cal.freeSlots(room, day), `util ${(cal.utilisation(room, day) * 100).toFixed(1)}%`);
+  }
+}
+const sample = cal.book("Lyra", "evening", at(15, 18), at(15, 19));
+console.log(sample);
+console.log(Object.keys(cal), cal instanceof Calendar);

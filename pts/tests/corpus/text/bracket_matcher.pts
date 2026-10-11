@@ -1,0 +1,94 @@
+// Bracket and quote balance checker for source snippets, reporting the first error with
+// line/column and a caret, plus an indentation-depth report and auto-closing suggestion.
+interface Position { line: number; col: number }
+interface Open { ch: string; pos: Position }
+
+type CheckResult =
+  | { status: "ok"; maxDepth: number }
+  | { status: "unexpected"; found: string; pos: Position; expected: string | null }
+  | { status: "unclosed"; open: Open[] }
+  | { status: "unterminated-string"; pos: Position };
+
+const PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+const CLOSERS = new Set(Object.values(PAIRS));
+
+function check(src: string): CheckResult {
+  const stack: Open[] = [];
+  let line = 1, col = 0, maxDepth = 0;
+  let quote: { ch: string; pos: Position } | null = null;
+  let lineComment = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    col++;
+    if (c === "\n") {
+      if (quote && quote.ch !== "`") return { status: "unterminated-string", pos: quote.pos };
+      line++; col = 0; lineComment = false;
+      continue;
+    }
+    if (lineComment) continue;
+    if (quote) {
+      if (c === "\\") { i++; col++; }
+      else if (c === quote.ch) quote = null;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") { lineComment = true; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = { ch: c, pos: { line, col } }; continue; }
+    if (c in PAIRS) {
+      stack.push({ ch: c, pos: { line, col } });
+      maxDepth = Math.max(maxDepth, stack.length);
+    } else if (CLOSERS.has(c)) {
+      const top = stack.pop();
+      if (!top || PAIRS[top.ch] !== c) return { status: "unexpected", found: c, pos: { line, col }, expected: top ? PAIRS[top.ch] : null };
+    }
+  }
+  if (quote) return { status: "unterminated-string", pos: quote.pos };
+  return stack.length ? { status: "unclosed", open: stack } : { status: "ok", maxDepth };
+}
+
+function caret(src: string, pos: Position): string {
+  const text = src.split("\n")[pos.line - 1] ?? "";
+  return `  ${text}\n  ${" ".repeat(pos.col - 1)}^`;
+}
+
+function report(name: string, src: string): void {
+  const r = check(src);
+  switch (r.status) {
+    case "ok":
+      console.log(`${name}: balanced, max depth ${r.maxDepth}`);
+      break;
+    case "unexpected":
+      console.log(`${name}: ${r.pos.line}:${r.pos.col} unexpected '${r.found}'${r.expected ? `, expected '${r.expected}'` : " with nothing open"}`);
+      console.log(caret(src, r.pos));
+      break;
+    case "unclosed": {
+      const fix = r.open.map((o) => PAIRS[o.ch]).reverse().join("");
+      console.log(`${name}: ${r.open.length} unclosed: ${r.open.map((o) => `'${o.ch}'@${o.pos.line}:${o.pos.col}`).join(", ")}; append "${fix}"`);
+      break;
+    }
+    case "unterminated-string":
+      console.log(`${name}: unterminated string starting at ${r.pos.line}:${r.pos.col}`);
+      console.log(caret(src, r.pos));
+  }
+}
+
+const snippets: Record<string, string> = {
+  good: `function f(a: number[]): { x: number } {\n  return { x: a.map((v) => v * 2)[0] };\n}`,
+  strings: `const s = "(not a bracket"; const t = '[still fine]'; // trailing ) in comment`,
+  template: "const msg = `line one (\nline two ]`;\nfoo(msg);",
+  mismatch: `if (x) {\n  arr[0] = (1 + 2];\n}`,
+  extra: `call(a, b));`,
+  unclosed: `while (true) {\n  if (x[1 {\n`,
+  unterminated: `const a = "oops;\nconst b = 2;`,
+  escaped: `const q = "she said \\"hi\\" (twice)"; g([q]);`,
+  empty: ``,
+};
+for (const [name, src] of Object.entries(snippets)) report(name.padEnd(12), src);
+
+const depthProfile = (src: string) => {
+  let d = 0;
+  return [...src].map((c) => (c in PAIRS ? ++d : CLOSERS.has(c) ? d-- : d));
+};
+const profile = depthProfile("f(a[b{c}d]e)g");
+console.log(profile.join(""), Math.max(...profile));
+console.log(check(snippets.unclosed));
+console.log(check(snippets.good));

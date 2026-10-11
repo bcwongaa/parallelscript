@@ -1,0 +1,113 @@
+// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
+// A mustache-like template renderer with {{name}}, {{name|filter}} and
+// {{#each list}}...{{/each}} blocks; template mistakes raise TemplateError
+// with the offending offset.
+
+class TemplateError extends Error {
+  constructor(message: string, readonly offset: number) {
+    super(`${message} at offset ${offset}`);
+    this.name = "TemplateError";
+  }
+}
+
+type Scalar = string | number | boolean;
+type Context = { [key: string]: Scalar | Scalar[] | Context[] };
+
+const FILTERS: Record<string, (s: string) => string> = {
+  upper: (s) => s.toUpperCase(),
+  lower: (s) => s.toLowerCase(),
+  trim: (s) => s.trim(),
+  title: (s) => s.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+};
+
+function lookup(ctx: Context, name: string, offset: number): Scalar | Scalar[] | Context[] {
+  if (!(name in ctx)) throw new TemplateError(`unknown variable '${name}'`, offset);
+  return ctx[name];
+}
+
+function render(tpl: string, ctx: Context): string {
+  let out = "";
+  let i = 0;
+  while (i < tpl.length) {
+    const open = tpl.indexOf("{{", i);
+    if (open < 0) {
+      out += tpl.slice(i);
+      break;
+    }
+    out += tpl.slice(i, open);
+    const close = tpl.indexOf("}}", open);
+    if (close < 0) throw new TemplateError("unclosed tag", open);
+    const tag = tpl.slice(open + 2, close).trim();
+    if (tag === "") throw new TemplateError("empty tag", open);
+    if (tag.startsWith("#each ")) {
+      const listName = tag.slice(6).trim();
+      const endTag = "{{/each}}";
+      const end = tpl.indexOf(endTag, close);
+      if (end < 0) throw new TemplateError(`missing {{/each}} for '${listName}'`, open);
+      const list = lookup(ctx, listName, open);
+      if (!Array.isArray(list)) throw new TemplateError(`'${listName}' is not a list`, open);
+      const body = tpl.slice(close + 2, end);
+      for (const item of list) {
+        const itemCtx: Context = typeof item === "object" ? { ...ctx, ...item } : { ...ctx, it: item };
+        out += render(body, itemCtx);
+      }
+      i = end + endTag.length;
+      continue;
+    }
+    if (tag.startsWith("/")) throw new TemplateError(`unexpected closing tag '${tag}'`, open);
+    const [name, ...filters] = tag.split("|").map((s) => s.trim());
+    const value = lookup(ctx, name, open);
+    if (Array.isArray(value)) throw new TemplateError(`'${name}' is a list; use {{#each}}`, open);
+    let text = String(value);
+    for (const f of filters) {
+      const fn = FILTERS[f];
+      if (fn === undefined) throw new TemplateError(`unknown filter '${f}'`, open);
+      text = fn(text);
+    }
+    out += text;
+    i = close + 2;
+  }
+  return out;
+}
+
+const ctx: Context = {
+  user: "ada lovelace",
+  count: 3,
+  premium: true,
+  tags: ["math", "engines", "poetry"],
+  orders: [
+    { id: "A-1", total: 12.5 },
+    { id: "B-7", total: 99 },
+  ],
+};
+
+const templates = [
+  "Hello {{ user | title }}! You have {{count}} new messages.",
+  "Premium: {{premium}} / shout: {{user|upper}}",
+  "Tags:{{#each tags}} [{{it}}]{{/each}}",
+  "Orders:\n{{#each orders}}  - {{id}}: {{total}} for {{user|title}}\n{{/each}}done",
+  "Hi {{name}}",
+  "Hi {{user",
+  "Count {{count|double}}",
+  "Bad {{#each user}}x{{/each}}",
+  "Loop {{#each tags}}{{it}}",
+  "Stray {{/each}} tag",
+  "Empty {{   }} tag",
+  "List {{tags}}",
+  "No tags at all.",
+];
+
+let failures = 0;
+templates.forEach((tpl, n) => {
+  try {
+    const result = render(tpl, ctx);
+    for (const line of result.split("\n")) console.log(`${n}: ${line}`);
+  } catch (e) {
+    if (!(e instanceof TemplateError)) throw e;
+    failures++;
+    console.log(`${n}: ${e.name}: ${e.message}`);
+    console.log(`${n}:   near ${JSON.stringify(tpl.slice(e.offset, e.offset + 12))}`);
+  }
+});
+console.log(`${failures} of ${templates.length} templates failed`);
+console.log(Object.keys(FILTERS));

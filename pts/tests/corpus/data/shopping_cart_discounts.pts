@@ -1,0 +1,113 @@
+interface CartItem {
+  sku: string;
+  name: string;
+  unitPrice: number;
+  qty: number;
+  category: "food" | "clothing" | "electronics";
+}
+
+type Discount =
+  | { type: "percent"; code: string; pct: number; category?: CartItem["category"] }
+  | { type: "fixed"; code: string; amount: number; minSubtotal: number }
+  | { type: "bogo"; code: string; sku: string }
+  | { type: "freeShipping"; code: string };
+
+interface Totals {
+  subtotal: number;
+  discounts: Array<{ code: string; amount: number }>;
+  shipping: number;
+  tax: number;
+  total: number;
+}
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+class Cart {
+  private items = new Map<string, CartItem>();
+  private codes: Discount[] = [];
+
+  add(item: Omit<CartItem, "qty">, qty = 1): void {
+    const existing = this.items.get(item.sku);
+    if (existing) existing.qty += qty;
+    else this.items.set(item.sku, { ...item, qty });
+  }
+
+  remove(sku: string, qty = Infinity): void {
+    const it = this.items.get(sku);
+    if (!it) return;
+    it.qty -= Math.min(qty, it.qty);
+    if (it.qty === 0) this.items.delete(sku);
+  }
+
+  apply(d: Discount): void {
+    if (this.codes.some((c) => c.code === d.code)) throw new Error(`code ${d.code} already applied`);
+    this.codes.push(d);
+  }
+
+  totals(): Totals {
+    const lines = [...this.items.values()];
+    const subtotal = r2(lines.reduce((s, l) => s + l.unitPrice * l.qty, 0));
+    const discounts: Totals["discounts"] = [];
+    let shipping = subtotal >= 75 ? 0 : 6.99;
+    for (const d of this.codes) {
+      let amount = 0;
+      switch (d.type) {
+        case "percent": {
+          const base = lines.filter((l) => !d.category || l.category === d.category).reduce((s, l) => s + l.unitPrice * l.qty, 0);
+          amount = (base * d.pct) / 100;
+          break;
+        }
+        case "fixed":
+          amount = subtotal >= d.minSubtotal ? d.amount : 0;
+          break;
+        case "bogo": {
+          const l = this.items.get(d.sku);
+          amount = l ? Math.floor(l.qty / 2) * l.unitPrice : 0;
+          break;
+        }
+        case "freeShipping":
+          amount = shipping;
+          shipping = 0;
+          break;
+      }
+      discounts.push({ code: d.code, amount: r2(amount) });
+    }
+    const discounted = Math.max(0, subtotal - discounts.reduce((s, d) => s + (d.code.startsWith("SHIP") ? 0 : d.amount), 0));
+    const tax = r2(discounted * 0.0725);
+    return { subtotal, discounts, shipping, tax, total: r2(discounted + shipping + tax) };
+  }
+
+  get count(): number {
+    let n = 0;
+    this.items.forEach((i) => (n += i.qty));
+    return n;
+  }
+}
+
+const cart = new Cart();
+cart.add({ sku: "APL", name: "Apples (bag)", unitPrice: 4.49, category: "food" }, 2);
+cart.add({ sku: "TSH", name: "T-shirt", unitPrice: 15, category: "clothing" }, 3);
+cart.add({ sku: "CBL", name: "HDMI cable", unitPrice: 11.99, category: "electronics" });
+cart.add({ sku: "APL", name: "Apples (bag)", unitPrice: 4.49, category: "food" });
+console.log("items:", cart.count);
+console.log(cart.totals());
+
+cart.apply({ type: "percent", code: "CLOTH20", pct: 20, category: "clothing" });
+cart.apply({ type: "bogo", code: "APPLEBOGO", sku: "APL" });
+console.log(cart.totals());
+
+cart.remove("TSH", 2);
+cart.apply({ type: "fixed", code: "FIVEOFF", amount: 5, minSubtotal: 30 });
+cart.apply({ type: "freeShipping", code: "SHIPFREE" });
+const t = cart.totals();
+console.log(JSON.stringify(t));
+console.log(`Pay $${t.total.toFixed(2)} for ${cart.count} items`);
+try {
+  cart.apply({ type: "freeShipping", code: "SHIPFREE" });
+} catch (e) {
+  console.log((e as Error).message);
+}
+cart.remove("CBL");
+cart.remove("NOPE");
+console.log(cart.totals().discounts, cart.count);
+console.log(cart);

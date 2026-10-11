@@ -1,0 +1,132 @@
+// skip: not supported yet: PTS1001: converting object2 to string
+// A dependency-injection container with factory closures, singletons, and cycle detection.
+
+type Factory<T> = (c: Container) => T;
+
+class CycleError extends Error {
+  constructor(public readonly path: string[]) {
+    super(`dependency cycle: ${path.join(" -> ")}`);
+    this.name = "CycleError";
+  }
+}
+
+class MissingServiceError extends Error {
+  constructor(name: string, requestedBy: string | undefined) {
+    super(`no provider for "${name}"${requestedBy ? ` (requested by ${requestedBy})` : ""}`);
+    this.name = "MissingServiceError";
+  }
+}
+
+class Container {
+  private factories = new Map<string, { factory: Factory<unknown>; singleton: boolean }>();
+  private instances = new Map<string, unknown>();
+  private resolving: string[] = [];
+  readonly created: string[] = [];
+
+  register<T>(name: string, factory: Factory<T>, singleton = true): this {
+    this.factories.set(name, { factory, singleton });
+    return this;
+  }
+
+  resolve<T>(name: string): T {
+    if (this.instances.has(name)) return this.instances.get(name) as T;
+    const entry = this.factories.get(name);
+    if (!entry) throw new MissingServiceError(name, this.resolving.at(-1));
+    if (this.resolving.includes(name)) throw new CycleError([...this.resolving, name]);
+    this.resolving.push(name);
+    try {
+      const instance = entry.factory(this) as T;
+      this.created.push(name);
+      if (entry.singleton) this.instances.set(name, instance);
+      return instance;
+    } finally {
+      this.resolving.pop();
+    }
+  }
+
+  child(): Container {
+    const c = new Container();
+    for (const [k, v] of this.factories) c.factories.set(k, v);
+    return c;
+  }
+}
+
+interface Logger {
+  log(msg: string): void;
+  lines: string[];
+}
+interface Config {
+  dbUrl: string;
+  retries: number;
+  env: "dev" | "prod";
+}
+interface Db {
+  query(sql: string): string[];
+  readonly url: string;
+}
+interface UserRepo {
+  find(id: number): string | undefined;
+}
+
+let loggerCount = 0;
+const container = new Container()
+  .register<Config>("config", () => ({ dbUrl: "postgres://localhost/app", retries: 3, env: "dev" }))
+  .register<Logger>("logger", () => {
+    const id = ++loggerCount;
+    const lines: string[] = [];
+    return { lines, log: (msg: string) => lines.push(`[logger${id}] ${msg}`) };
+  })
+  .register<Db>("db", (c) => {
+    const cfg = c.resolve<Config>("config");
+    const logger = c.resolve<Logger>("logger");
+    logger.log(`connecting to ${cfg.dbUrl}`);
+    return {
+      url: cfg.dbUrl,
+      query: (sql: string) => {
+        logger.log(`sql: ${sql}`);
+        return sql.includes("users") ? ["1:ada", "2:grace", "3:barbara"] : [];
+      },
+    };
+  })
+  .register<UserRepo>("users", (c) => {
+    const db = c.resolve<Db>("db");
+    const cache = new Map<number, string>();
+    for (const row of db.query("select * from users")) {
+      const [id, name] = row.split(":");
+      cache.set(Number(id), name);
+    }
+    return { find: (id: number) => cache.get(id) };
+  })
+  .register<number>("requestId", () => Math.floor(loggerCount * 1000 + 7), false);
+
+const users = container.resolve<UserRepo>("users");
+console.log("user 2:", users.find(2), "user 9:", users.find(9));
+console.log("same db:", container.resolve<Db>("db") === container.resolve<Db>("db"));
+console.log("creation order:", container.created);
+console.log(container.resolve<Logger>("logger").lines);
+console.log("requestIds:", container.resolve<number>("requestId"), container.resolve<number>("requestId"));
+console.log(container.resolve<Config>("config"));
+
+const child = container.child();
+child.register<Config>("config", () => ({ dbUrl: "postgres://test/app", retries: 0, env: "prod" }));
+const childDb = child.resolve<Db>("db");
+console.log("child db url:", childDb.url, "parent db url:", container.resolve<Db>("db").url);
+console.log("child logger lines:", child.resolve<Logger>("logger").lines);
+console.log("child created:", child.created);
+
+const broken = new Container()
+  .register("a", (c) => c.resolve("b"))
+  .register("b", (c) => c.resolve("c"))
+  .register("c", (c) => c.resolve("a"))
+  .register("d", (c) => c.resolve("missing"));
+
+for (const name of ["a", "d", "zzz"]) {
+  try {
+    broken.resolve(name);
+  } catch (e) {
+    if (e instanceof CycleError) console.log(`${e.name}: ${e.message} (length ${e.path.length})`);
+    else if (e instanceof MissingServiceError) console.log(`${e.name}: ${e.message}`);
+    else throw e;
+  }
+}
+console.log("broken created anything:", broken.created.length > 0);

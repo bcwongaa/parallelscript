@@ -1,0 +1,126 @@
+// Classifies HTTP responses with switch fallthrough and decides whether to
+// retry, throwing for statuses that should never be seen.
+
+class UnexpectedStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`unexpected status ${status}`);
+    this.name = "UnexpectedStatusError";
+  }
+}
+
+type Action = "done" | "retry" | "redirect" | "fail" | "reauth";
+
+function classify(status: number): Action {
+  switch (status) {
+    case 200:
+    case 201:
+    case 204:
+      return "done";
+    case 301:
+    case 302:
+    case 307:
+    case 308:
+      return "redirect";
+    case 401:
+      return "reauth";
+    case 408:
+    case 429:
+    case 502:
+    case 503:
+    case 504:
+      return "retry";
+    case 400:
+    case 403:
+    case 404:
+    case 409:
+    case 500:
+      return "fail";
+    default:
+      if (status >= 100 && status < 600) return status >= 500 ? "retry" : "fail";
+      throw new UnexpectedStatusError(status);
+  }
+}
+
+function describeLevel(level: number): string[] {
+  // Each level includes all lower levels' privileges.
+  const privileges: string[] = [];
+  switch (level) {
+    case 3:
+      privileges.push("delete");
+    // falls through
+    case 2:
+      privileges.push("write");
+    // falls through
+    case 1:
+      privileges.push("read");
+      break;
+    case 0:
+      privileges.push("none");
+      break;
+    default:
+      throw new RangeError(`no access level ${level}`);
+  }
+  return privileges;
+}
+
+const log: Array<{ status: number; action: Action | "error" }> = [];
+const statuses = [200, 204, 302, 401, 429, 404, 500, 503, 418, 299, 599, 0, 700, 201];
+for (const s of statuses) {
+  try {
+    const a = classify(s);
+    log.push({ status: s, action: a });
+  } catch (e) {
+    if (e instanceof UnexpectedStatusError) {
+      console.log(`warning: ${e.message}`);
+      log.push({ status: s, action: "error" });
+    } else {
+      throw e;
+    }
+  }
+}
+
+const grouped: Record<string, number[]> = {};
+for (const { status, action } of log) {
+  (grouped[action] ??= []).push(status);
+}
+console.log(grouped);
+
+for (let lvl = -1; lvl <= 4; lvl++) {
+  try {
+    console.log(`level ${lvl}:`, describeLevel(lvl).join(", "));
+  } catch (e) {
+    console.log(`level ${lvl}: ${(e as RangeError).name} ${(e as RangeError).message}`);
+  }
+}
+
+// Simulate a client loop driven by the classification.
+const script = [503, 429, 302, 200, 401, 200, 500];
+let attempts = 0;
+let reauths = 0;
+let pos = 0;
+const transcript: string[] = [];
+loop: while (pos < script.length) {
+  const status = script[pos++];
+  attempts++;
+  switch (classify(status)) {
+    case "retry":
+      transcript.push(`${status}->retry`);
+      continue loop;
+    case "redirect":
+      transcript.push(`${status}->follow`);
+      continue loop;
+    case "reauth":
+      reauths++;
+      transcript.push(`${status}->login`);
+      continue loop;
+    case "done":
+      transcript.push(`${status}->ok`);
+      if (reauths > 0) break loop;
+      break;
+    case "fail":
+      transcript.push(`${status}->abort`);
+      break loop;
+  }
+}
+console.log(transcript.join(" | "));
+console.log({ attempts, reauths, remaining: script.slice(pos) });

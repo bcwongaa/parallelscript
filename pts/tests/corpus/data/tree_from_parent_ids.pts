@@ -1,0 +1,89 @@
+interface FlatNode {
+  id: number;
+  parentId: number | null;
+  name: string;
+  size: number;
+}
+
+class TreeNode {
+  children: TreeNode[] = [];
+  constructor(public readonly id: number, public readonly name: string, public readonly size: number) {}
+
+  get totalSize(): number {
+    return this.size + this.children.reduce((s, c) => s + c.totalSize, 0);
+  }
+
+  get depth(): number {
+    return this.children.length === 0 ? 0 : 1 + Math.max(...this.children.map((c) => c.depth));
+  }
+}
+
+const flat: FlatNode[] = [
+  { id: 7, parentId: 3, name: "logo.png", size: 120 },
+  { id: 1, parentId: null, name: "root", size: 0 },
+  { id: 2, parentId: 1, name: "src", size: 0 },
+  { id: 3, parentId: 1, name: "assets", size: 0 },
+  { id: 4, parentId: 2, name: "main.ts", size: 42 },
+  { id: 5, parentId: 2, name: "util.ts", size: 18 },
+  { id: 6, parentId: 2, name: "lib", size: 0 },
+  { id: 8, parentId: 6, name: "parse.ts", size: 77 },
+  { id: 9, parentId: 6, name: "format.ts", size: 31 },
+  { id: 10, parentId: 99, name: "orphan.txt", size: 5 },
+  { id: 11, parentId: 3, name: "icon.svg", size: 9 },
+];
+
+function buildTree(rows: FlatNode[]): { roots: TreeNode[]; orphans: FlatNode[] } {
+  const nodes = new Map<number, TreeNode>();
+  for (const r of rows) nodes.set(r.id, new TreeNode(r.id, r.name, r.size));
+  const roots: TreeNode[] = [];
+  const orphans: FlatNode[] = [];
+  for (const r of rows) {
+    const node = nodes.get(r.id)!;
+    if (r.parentId === null) {
+      roots.push(node);
+    } else {
+      const parent = nodes.get(r.parentId);
+      if (parent) parent.children.push(node);
+      else orphans.push(r);
+    }
+  }
+  const sortRec = (n: TreeNode): void => {
+    n.children.sort((a, b) => a.name.localeCompare(b.name));
+    n.children.forEach(sortRec);
+  };
+  roots.forEach(sortRec);
+  return { roots, orphans };
+}
+
+function render(node: TreeNode, prefix = "", isLast = true, isRoot = true): string[] {
+  const label = `${node.name}${node.children.length ? "/" : ""} (${node.totalSize})`;
+  const lines = [isRoot ? label : `${prefix}${isLast ? "└── " : "├── "}${label}`];
+  const childPrefix = isRoot ? "" : prefix + (isLast ? "    " : "│   ");
+  node.children.forEach((c, i) => lines.push(...render(c, childPrefix, i === node.children.length - 1, false)));
+  return lines;
+}
+
+function flatten(node: TreeNode, parentId: number | null = null, path: string[] = []): Array<FlatNode & { path: string }> {
+  const here = [...path, node.name];
+  const self = { id: node.id, parentId, name: node.name, size: node.size, path: here.join("/") };
+  return [self, ...node.children.flatMap((c) => flatten(c, node.id, here))];
+}
+
+const { roots, orphans } = buildTree(flat);
+console.log("roots:", roots.length, "orphans:", orphans);
+for (const line of render(roots[0])) console.log(line);
+console.log("depth:", roots[0].depth, "total size:", roots[0].totalSize);
+
+const back = flatten(roots[0]);
+for (const row of back) console.log(`${String(row.id).padStart(2)} <- ${String(row.parentId).padEnd(4)} ${row.path}`);
+
+const original = new Map(flat.filter((f) => !orphans.includes(f)).map((f) => [f.id, f.parentId]));
+const roundTripOk = back.every((b) => original.get(b.id) === b.parentId) && back.length === original.size;
+console.log("round trip ok:", roundTripOk);
+
+const src = roots[0].children.find((c) => c.name === "src");
+console.log(src?.children.map((c) => c.name));
+console.log(JSON.stringify(src, ["name", "children", "size"]));
+const leaves = back.filter((b) => !back.some((o) => o.parentId === b.id)).map((b) => b.name);
+console.log("leaves:", leaves);
+console.log(roots[0].children[1]);

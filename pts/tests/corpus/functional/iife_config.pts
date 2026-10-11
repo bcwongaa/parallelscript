@@ -1,0 +1,106 @@
+// skip: not supported yet: PTS1001: the `in` operator
+// Immediately-invoked function expressions for scoped initialization, lookup tables and feature flags.
+
+const VERSION = (() => {
+  const major = 2;
+  const minor = 14;
+  const patch = 3;
+  return { major, minor, patch, toString: () => `v${major}.${minor}.${patch}` };
+})();
+console.log(`${VERSION}`, VERSION.major * 100 + VERSION.minor);
+
+// Lookup table computed once
+const CRC_TABLE: number[] = (() => {
+  const table: number[] = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table.push(c >>> 0);
+  }
+  return table;
+})();
+
+function crc32(s: string): string {
+  let crc = 0xffffffff;
+  for (let i = 0; i < s.length; i++) crc = CRC_TABLE[(crc ^ s.charCodeAt(i)) & 0xff] ^ (crc >>> 8);
+  return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, "0");
+}
+console.log("table[1], table[255]:", CRC_TABLE[1].toString(16), CRC_TABLE[255].toString(16));
+for (const s of ["", "a", "hello world", "The quick brown fox jumps over the lazy dog"]) {
+  console.log(`crc32(${JSON.stringify(s)}) = ${crc32(s)}`);
+}
+
+// Feature flags resolved from layered sources inside an IIFE
+type Flags = Record<"darkMode" | "betaSearch" | "newCheckout" | "telemetry", boolean>;
+const flags: Readonly<Flags> = (() => {
+  const defaults: Flags = { darkMode: false, betaSearch: false, newCheckout: false, telemetry: true };
+  const remote: Partial<Flags> = { betaSearch: true, newCheckout: true };
+  const userOverrides = "darkMode=on,telemetry=off,unknown=on";
+  const parsed: Partial<Flags> = {};
+  for (const pair of userOverrides.split(",")) {
+    const [k, v] = pair.split("=");
+    if (k in defaults) parsed[k as keyof Flags] = v === "on";
+  }
+  return Object.freeze({ ...defaults, ...remote, ...parsed });
+})();
+console.log(flags);
+console.log("enabled:", (Object.keys(flags) as Array<keyof Flags>).filter((k) => flags[k]));
+
+// Counter module via IIFE with private state
+const sequence = (function () {
+  let current = 0;
+  const history: number[] = [];
+  function advance(by: number): number {
+    current += by;
+    history.push(current);
+    return current;
+  }
+  return {
+    next: () => advance(1),
+    skip: (n: number) => advance(n),
+    get last(): number {
+      return current;
+    },
+    history: () => [...history],
+  };
+})();
+sequence.next();
+sequence.next();
+sequence.skip(10);
+sequence.next();
+console.log("last:", sequence.last, "history:", sequence.history());
+
+// IIFE in an expression position: choose a strategy based on a computed condition
+const values = [5, 3, 9, 1, 7, 3, 8];
+const median = ((xs: number[]): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+})(values);
+const stats = (({ length }: number[]) => ({ length, median, max: Math.max(...values) }))(values);
+console.log(stats);
+
+// Recursive IIFE (named function expression) building a tree string
+const tree = (function build(depth: number, prefix: string): string[] {
+  if (depth === 0) return [`${prefix}*`];
+  return [`${prefix}+`, ...build(depth - 1, prefix + "  "), ...build(depth - 1, prefix + "  ")];
+})(2, "");
+console.log(tree.join("\n"));
+
+// Loop with IIFE capturing per-iteration values
+const handlers: Array<() => string> = [];
+for (let i = 0; i < 3; i++) {
+  handlers.push(
+    ((n: number, label: string) => () => `${label}${n * 10}`)(i, ["a", "b", "c"][i]),
+  );
+}
+console.log(handlers.map((h) => h()));
+
+const result = (() => {
+  try {
+    return JSON.parse("{not json") as unknown;
+  } catch {
+    return "fallback";
+  }
+})();
+console.log("parsed:", result, "frozen:", Object.isFrozen(flags));

@@ -1,0 +1,89 @@
+const DAY_MS = 86_400_000;
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function daysBetween(a: Date, b: Date): number {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ub - ua) / DAY_MS);
+}
+
+
+function eachDay(start: Date, end: Date): Date[] {
+  const out: Date[] = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+function businessDays(start: Date, end: Date, holidays: Set<string>): number {
+  return eachDay(start, end).filter((d) => d.getDay() !== 0 && d.getDay() !== 6 && !holidays.has(ymd(d))).length;
+}
+
+function monthCalendar(year: number, month: number): string[] {
+  const first = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const lines = [WEEKDAYS.map((w) => w.slice(0, 2)).join(" ")];
+  let row: string[] = new Array(first.getDay()).fill("  ");
+  for (let day = 1; day <= daysInMonth; day++) {
+    row.push(String(day).padStart(2));
+    if (row.length === 7) {
+      lines.push(row.join(" "));
+      row = [];
+    }
+  }
+  if (row.length) lines.push(row.join(" "));
+  return lines;
+}
+
+const start = new Date(2024, 2, 8);
+const end = new Date(2024, 2, 14);
+console.log(eachDay(start, end).map((d) => `${ymd(d)} ${WEEKDAYS[d.getDay()]}`));
+console.log("DST span hours:", (end.getTime() - start.getTime()) / 3_600_000);
+console.log("days between:", daysBetween(start, end));
+
+const holidays = new Set(["2024-12-25", "2024-12-26", "2025-01-01"]);
+console.log("business days Dec 20 - Jan 3:", businessDays(new Date(2024, 11, 20), new Date(2025, 0, 3), holidays));
+
+for (const line of monthCalendar(2024, 1)) console.log(line);
+
+const leapYears = [1900, 2000, 2023, 2024, 2100].map((y) => [y, new Date(y, 1, 29).getMonth() === 1]);
+console.log(leapYears);
+
+const ranges: Array<[string, string]> = [
+  ["2024-01-01", "2024-01-10"],
+  ["2024-01-05", "2024-01-20"],
+  ["2024-02-01", "2024-02-03"],
+  ["2024-01-21", "2024-01-25"],
+];
+const parsed = ranges
+  .map(([a, b]) => ({ a: new Date(a + "T00:00:00"), b: new Date(b + "T00:00:00") }))
+  .sort((x, y) => x.a.getTime() - y.a.getTime());
+const mergedRanges: Array<{ a: Date; b: Date }> = [];
+for (const r of parsed) {
+  const last = mergedRanges.at(-1);
+  if (last && daysBetween(last.b, r.a) <= 1) {
+    if (r.b > last.b) last.b = r.b;
+  } else {
+    mergedRanges.push({ ...r });
+  }
+}
+console.log(mergedRanges.map((r) => `${ymd(r.a)}..${ymd(r.b)} (${daysBetween(r.a, r.b) + 1}d)`));
+
+const birthday = new Date(1990, 6, 4);
+const asOf = new Date(2024, 6, 3);
+let age = asOf.getFullYear() - birthday.getFullYear();
+if (asOf.getMonth() < birthday.getMonth() || (asOf.getMonth() === birthday.getMonth() && asOf.getDate() < birthday.getDate())) age--;
+console.log("age:", age);
+const endOfMonths = [0, 1, 2, 3].map((m) => ymd(new Date(2024, m + 1, 0)));
+console.log(endOfMonths);
+console.log(new Date(2024, 0, 31 + 1).toDateString(), new Date(2024, 12, 1).toISOString());
+console.log(new Date(2024, 2, 10, 2, 30).getHours(), new Date(2024, 10, 3, 1, 30).toISOString());

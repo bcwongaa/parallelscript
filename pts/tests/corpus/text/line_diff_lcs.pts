@@ -1,0 +1,101 @@
+// skip: by design (D-038): reads an array element at -1 where a value is required (RangeError; JS gives undefined)
+// A line-based diff using the longest common subsequence, rendered as a unified-style hunk list.
+type Op = { kind: "keep" | "add" | "del"; line: string; a?: number; b?: number };
+
+function lcsTable(a: string[], b: string[]): number[][] {
+  const t: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      t[i][j] = a[i] === b[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+    }
+  }
+  return t;
+}
+
+function diff(a: string[], b: string[]): Op[] {
+  const t = lcsTable(a, b);
+  const ops: Op[] = [];
+  let i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { ops.push({ kind: "keep", line: a[i], a: i + 1, b: j + 1 }); i++; j++; }
+    else if (t[i + 1][j] >= t[i][j + 1]) { ops.push({ kind: "del", line: a[i], a: i + 1 }); i++; }
+    else { ops.push({ kind: "add", line: b[j], b: j + 1 }); j++; }
+  }
+  while (i < a.length) { ops.push({ kind: "del", line: a[i], a: i + 1 }); i++; }
+  while (j < b.length) { ops.push({ kind: "add", line: b[j], b: j + 1 }); j++; }
+  return ops;
+}
+
+interface Hunk { aStart: number; aLen: number; bStart: number; bLen: number; ops: Op[] }
+
+function hunks(ops: Op[], context = 1): Hunk[] {
+  const changed = ops.map((o, idx) => (o.kind !== "keep" ? idx : -1)).filter((x) => x >= 0);
+  if (changed.length === 0) return [];
+  const ranges: [number, number][] = [];
+  for (const idx of changed) {
+    const lo = Math.max(0, idx - context), hi = Math.min(ops.length - 1, idx + context);
+    const last = ranges[ranges.length - 1];
+    if (last && lo <= last[1] + 1) last[1] = Math.max(last[1], hi);
+    else ranges.push([lo, hi]);
+  }
+  return ranges.map(([lo, hi]) => {
+    const slice = ops.slice(lo, hi + 1);
+    let aLine = 1, bLine = 1;
+    for (let k = 0; k < lo; k++) {
+      if (ops[k].kind !== "add") aLine++;
+      if (ops[k].kind !== "del") bLine++;
+    }
+    return {
+      aStart: aLine, bStart: bLine,
+      aLen: slice.filter((o) => o.kind !== "add").length,
+      bLen: slice.filter((o) => o.kind !== "del").length,
+      ops: slice,
+    };
+  });
+}
+
+function unified(a: string[], b: string[], nameA: string, nameB: string): string {
+  const out = [`--- ${nameA}`, `+++ ${nameB}`];
+  for (const h of hunks(diff(a, b))) {
+    out.push(`@@ -${h.aStart},${h.aLen} +${h.bStart},${h.bLen} @@`);
+    for (const o of h.ops) out.push((o.kind === "keep" ? " " : o.kind === "add" ? "+" : "-") + o.line);
+  }
+  return out.join("\n");
+}
+
+const before = `function greet(name) {
+  const msg = "Hello, " + name;
+  console.log(msg);
+  return msg;
+}
+
+greet("world");
+greet("there");
+// end of file`.split("\n");
+
+const after = `function greet(name: string): string {
+  const msg = \`Hello, \${name}\`;
+  console.log(msg);
+  return msg;
+}
+
+greet("world");
+greet("ParallelScript");
+greet("there");
+// end of file`.split("\n");
+
+const ops = diff(before, after);
+const stats = ops.reduce<Record<string, number>>((acc, o) => {
+  acc[o.kind] = (acc[o.kind] ?? 0) + 1;
+  return acc;
+}, {});
+console.log(stats);
+console.log("LCS length:", lcsTable(before, after)[0][0]);
+console.log(unified(before, after, "a/greet.js", "b/greet.ts"));
+console.log(hunks(ops).map(({ aStart, aLen, bStart, bLen }) => ({ aStart, aLen, bStart, bLen })));
+console.log(ops.slice(0, 3));
+
+const charDiff = diff([..."kitten"], [..."sitting"]);
+console.log(charDiff.map((o) => (o.kind === "keep" ? o.line : o.kind === "add" ? `[+${o.line}]` : `[-${o.line}]`)).join(""));
+console.log(unified(["same"], ["same"], "x", "y"));
+console.log(unified([], ["new file", "two"], "/dev/null", "b/new.txt"));

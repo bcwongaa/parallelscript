@@ -1,0 +1,120 @@
+// String searching: naive, KMP with failure function, Rabin-Karp rolling hash, and the Z algorithm.
+
+interface SearchResult {
+  algorithm: string;
+  positions: number[];
+  comparisons: number;
+}
+
+function naiveSearch(text: string, pat: string): SearchResult {
+  const positions: number[] = [];
+  let comparisons = 0;
+  for (let i = 0; i + pat.length <= text.length; i++) {
+    let j = 0;
+    while (j < pat.length) {
+      comparisons++;
+      if (text[i + j] !== pat[j]) break;
+      j++;
+    }
+    if (j === pat.length) positions.push(i);
+  }
+  return { algorithm: "naive", positions, comparisons };
+}
+
+function failureTable(pat: string): number[] {
+  const fail = new Array<number>(pat.length).fill(0);
+  let k = 0;
+  for (let i = 1; i < pat.length; i++) {
+    while (k > 0 && pat[i] !== pat[k]) k = fail[k - 1];
+    if (pat[i] === pat[k]) k++;
+    fail[i] = k;
+  }
+  return fail;
+}
+
+function kmp(text: string, pat: string): SearchResult {
+  const fail = failureTable(pat);
+  const positions: number[] = [];
+  let comparisons = 0;
+  let k = 0;
+  for (let i = 0; i < text.length; i++) {
+    while (k > 0 && (comparisons++, text[i] !== pat[k])) k = fail[k - 1];
+    comparisons++;
+    if (text[i] === pat[k]) k++;
+    if (k === pat.length) {
+      positions.push(i - k + 1);
+      k = fail[k - 1];
+    }
+  }
+  return { algorithm: "kmp", positions, comparisons };
+}
+
+function rabinKarp(text: string, pat: string): SearchResult & { collisions: number } {
+  const B = 256;
+  const M = 101; // deliberately small prime to show collisions
+  const m = pat.length;
+  const positions: number[] = [];
+  let comparisons = 0;
+  let collisions = 0;
+  if (m > text.length) return { algorithm: "rabin-karp", positions, comparisons, collisions };
+  let high = 1;
+  for (let i = 1; i < m; i++) high = (high * B) % M;
+  let hp = 0;
+  let ht = 0;
+  for (let i = 0; i < m; i++) {
+    hp = (hp * B + pat.charCodeAt(i)) % M;
+    ht = (ht * B + text.charCodeAt(i)) % M;
+  }
+  for (let i = 0; ; i++) {
+    if (hp === ht) {
+      comparisons += m;
+      if (text.substr(i, m) === pat) positions.push(i);
+      else collisions++;
+    }
+    if (i + m >= text.length) break;
+    ht = ((ht - text.charCodeAt(i) * high) * B + text.charCodeAt(i + m)) % M;
+    if (ht < 0) ht += M;
+  }
+  return { algorithm: "rabin-karp", positions, comparisons, collisions };
+}
+
+function zArray(s: string): number[] {
+  const z = new Array<number>(s.length).fill(0);
+  let l = 0;
+  let r = 0;
+  for (let i = 1; i < s.length; i++) {
+    if (i < r) z[i] = Math.min(r - i, z[i - l]);
+    while (i + z[i] < s.length && s[z[i]] === s[i + z[i]]) z[i]++;
+    if (i + z[i] > r) {
+      l = i;
+      r = i + z[i];
+    }
+  }
+  if (s.length) z[0] = s.length;
+  return z;
+}
+
+const zSearch = (text: string, pat: string): number[] =>
+  zArray(`${pat}\u0000${text}`).flatMap((v, i) => (i > pat.length && v >= pat.length ? [i - pat.length - 1] : []));
+
+console.log("failure(ABABCABAB):", failureTable("ABABCABAB"));
+console.log("failure(aaaa):", failureTable("aaaa"), "z(aabxaab):", zArray("aabxaab"));
+
+const cases: [string, string][] = [
+  ["ABABDABACDABABCABABABABCABAB", "ABABCABAB"],
+  ["aaaaaaaaaaaaaaaaaaab", "aaab"],
+  ["the rain in spain stays mainly in the plain", "ain"],
+  ["mississippi", "issi"],
+  ["abc", "abcd"],
+];
+for (const [text, pat] of cases) {
+  console.log(`search "${pat}" in "${text}"`);
+  const results: SearchResult[] = [naiveSearch(text, pat), kmp(text, pat), rabinKarp(text, pat)];
+  for (const r of results) console.log(`  ${r.algorithm.padEnd(10)} at ${JSON.stringify(r.positions)} comparisons=${r.comparisons}`);
+  const z = zSearch(text, pat);
+  const agree = results.every((r) => r.positions.join() === z.join());
+  console.log("  z-algorithm", z, agree ? "(all agree)" : "(DISAGREE)");
+}
+console.log(rabinKarp("abracadabra abracadabra", "abra"));
+const periodOf = (s: string): number => s.length - failureTable(s)[s.length - 1];
+console.log("smallest periods:", ["abcabcabc", "abab", "abcd", "aaaa"].map((s) => [s, periodOf(s)]));

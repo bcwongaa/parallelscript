@@ -1,0 +1,102 @@
+// Closest pair of points: brute force vs divide and conquer, on seeded pseudo-random clouds.
+
+type P = readonly [number, number];
+
+interface PairResult {
+  d: number;
+  a: P;
+  b: P;
+  checks: number;
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const d2 = (a: P, b: P): number => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+
+function brute(points: P[]): PairResult {
+  let best: PairResult = { d: Infinity, a: points[0], b: points[1], checks: 0 };
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      best.checks++;
+      const d = d2(points[i], points[j]);
+      if (d < best.d) best = { ...best, d, a: points[i], b: points[j] };
+    }
+  }
+  return best;
+}
+
+function divideAndConquer(points: P[]): PairResult {
+  const byX = [...points].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  let checks = 0;
+  const rec = (lo: number, hi: number): { d: number; a: P; b: P; byY: P[] } => {
+    if (hi - lo <= 3) {
+      let best = { d: Infinity, a: byX[lo], b: byX[lo] };
+      for (let i = lo; i < hi; i++)
+        for (let j = i + 1; j < hi; j++) {
+          checks++;
+          const d = d2(byX[i], byX[j]);
+          if (d < best.d) best = { d, a: byX[i], b: byX[j] };
+        }
+      return { ...best, byY: byX.slice(lo, hi).sort((p, q) => p[1] - q[1]) };
+    }
+    const mid = (lo + hi) >> 1;
+    const midX = byX[mid][0];
+    const left = rec(lo, mid);
+    const right = rec(mid, hi);
+    let best = left.d <= right.d ? left : right;
+    // merge by y
+    const byY: P[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < left.byY.length || j < right.byY.length) {
+      if (j >= right.byY.length || (i < left.byY.length && left.byY[i][1] <= right.byY[j][1])) byY.push(left.byY[i++]);
+      else byY.push(right.byY[j++]);
+    }
+    const strip = byY.filter((p) => (p[0] - midX) ** 2 < best.d);
+    let result = { d: best.d, a: best.a, b: best.b };
+    for (let s = 0; s < strip.length; s++) {
+      for (let t = s + 1; t < strip.length && (strip[t][1] - strip[s][1]) ** 2 < result.d; t++) {
+        checks++;
+        const d = d2(strip[s], strip[t]);
+        if (d < result.d) result = { d, a: strip[s], b: strip[t] };
+      }
+    }
+    return { ...result, byY };
+  };
+  const r = rec(0, byX.length);
+  return { d: r.d, a: r.a, b: r.b, checks };
+}
+
+const fmt = (r: PairResult): string =>
+  `dist=${Math.sqrt(r.d).toFixed(5)} between [${r.a.map((v) => v.toFixed(3))}] and [${r.b.map((v) => v.toFixed(3))}] after ${r.checks} checks`;
+
+for (const [seed, n] of [[1, 10], [7, 100], [42, 400], [2024, 1000]] as const) {
+  const rnd = mulberry32(seed);
+  const pts: P[] = Array.from({ length: n }, () => [rnd() * 1000, rnd() * 1000] as const);
+  const fast = divideAndConquer(pts);
+  console.log(`seed ${seed}, n=${n}`);
+  console.log("  d&c   :", fmt(fast));
+  if (n <= 400) {
+    const slow = brute(pts);
+    console.log("  brute :", fmt(slow));
+    console.log("  agree :", slow.d === fast.d);
+  }
+}
+
+const grid: P[] = [];
+for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) grid.push([x * 3, y * 3]);
+grid.push([7.5, 7.2]);
+const g = divideAndConquer(grid);
+console.log("grid with intruder:", { d: Math.sqrt(g.d), a: g.a, b: g.b });
+const dupes: P[] = [[1, 1], [5, 5], [1, 1], [9, 0]];
+console.log("duplicates:", divideAndConquer(dupes));
+const rnd = mulberry32(99);
+console.log("first five random numbers:", Array.from({ length: 5 }, () => rnd().toFixed(6)));

@@ -1,0 +1,100 @@
+// Stable merge sort over employee records with composable comparators.
+
+interface Employee {
+  name: string;
+  dept: string;
+  salary: number;
+  hired: number; // year
+}
+
+type Comparator<T> = (a: T, b: T) => number;
+
+function byKey<T, K extends keyof T>(key: K, desc = false): Comparator<T> {
+  return (a, b) => {
+    const x = a[key];
+    const y = b[key];
+    const r = x < y ? -1 : x > y ? 1 : 0;
+    return desc ? -r : r;
+  };
+}
+
+function thenBy<T>(...cmps: Comparator<T>[]): Comparator<T> {
+  return (a, b) => {
+    for (const c of cmps) {
+      const r = c(a, b);
+      if (r !== 0) return r;
+    }
+    return 0;
+  };
+}
+
+let comparisons = 0;
+
+function mergeSort<T>(items: readonly T[], cmp: Comparator<T>): T[] {
+  if (items.length <= 1) return items.slice();
+  const mid = Math.floor(items.length / 2);
+  const left = mergeSort(items.slice(0, mid), cmp);
+  const right = mergeSort(items.slice(mid), cmp);
+  const out: T[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    comparisons++;
+    if (cmp(left[i], right[j]) <= 0) out.push(left[i++]);
+    else out.push(right[j++]);
+  }
+  while (i < left.length) out.push(left[i++]);
+  while (j < right.length) out.push(right[j++]);
+  return out;
+}
+
+const staff: Employee[] = [
+  { name: "Ada", dept: "eng", salary: 120000, hired: 2015 },
+  { name: "Grace", dept: "eng", salary: 135000, hired: 2012 },
+  { name: "Linus", dept: "ops", salary: 98000, hired: 2018 },
+  { name: "Barbara", dept: "research", salary: 110000, hired: 2015 },
+  { name: "Ken", dept: "ops", salary: 98000, hired: 2011 },
+  { name: "Dennis", dept: "eng", salary: 120000, hired: 2010 },
+  { name: "Margaret", dept: "research", salary: 142000, hired: 2009 },
+  { name: "Alan", dept: "research", salary: 99000, hired: 2020 },
+  { name: "Frances", dept: "ops", salary: 105000, hired: 2016 },
+];
+
+function show(title: string, list: Employee[]): void {
+  console.log(`-- ${title} (${comparisons} comparisons)`);
+  for (const e of list) {
+    console.log(
+      `${e.name.padEnd(9)} ${e.dept.padEnd(9)} ${e.salary.toString().padStart(7)} ${e.hired}`,
+    );
+  }
+  comparisons = 0;
+}
+
+show("by name", mergeSort(staff, byKey<Employee, "name">("name")));
+show(
+  "by dept, then salary desc",
+  mergeSort(staff, thenBy(byKey<Employee, "dept">("dept"), byKey<Employee, "salary">("salary", true))),
+);
+const bySalary = mergeSort(staff, byKey<Employee, "salary">("salary"));
+show("by salary (stable: original order kept for ties)", bySalary);
+
+// Check stability explicitly.
+const ties = bySalary.filter((e, i, arr) =>
+  arr.some((o, j) => j !== i && o.salary === e.salary),
+);
+console.log("tied groups:", ties.map((e) => `${e.name}@${e.salary}`));
+
+const totals = staff.reduce<Record<string, number>>((acc, e) => {
+  acc[e.dept] = (acc[e.dept] ?? 0) + e.salary;
+  return acc;
+}, {});
+console.log("payroll by dept:", totals);
+
+const sortedNums = mergeSort([5, 3, 9, 1, 5, 8, 2, 7, 4, 6, 0], (a, b) => a - b);
+console.log("numbers:", sortedNums, "comparisons:", comparisons);
+comparisons = 0;
+const words = mergeSort("the quick brown fox jumps over the lazy dog".split(" "), (a, b) =>
+  a.length - b.length || (a < b ? -1 : a > b ? 1 : 0),
+);
+console.log("words by length:", words.join(" "));
+console.log("first and last:", { first: words[0], last: words[words.length - 1] });

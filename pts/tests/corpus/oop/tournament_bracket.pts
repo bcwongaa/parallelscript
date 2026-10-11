@@ -1,0 +1,110 @@
+// skip: not supported yet: PTS1001: converting null to Team
+// Single-elimination tournament bracket with seeding, byes, Elo ratings and a deterministic match simulator.
+
+class Team {
+  wins = 0;
+  losses = 0;
+  constructor(readonly name: string, public elo: number) {}
+
+  expectedAgainst(o: Team): number {
+    return 1 / (1 + Math.pow(10, (o.elo - this.elo) / 400));
+  }
+
+  toString(): string {
+    return `${this.name}(${Math.round(this.elo)})`;
+  }
+}
+
+class Match {
+  winner: Team | null = null;
+  score: [number, number] = [0, 0];
+  constructor(readonly round: number, readonly home: Team | null, readonly away: Team | null) {}
+
+  get isBye(): boolean {
+    return this.home === null || this.away === null;
+  }
+
+  play(rand: () => number, k = 32): Team {
+    if (this.home === null && this.away === null) throw new Error("empty match");
+    if (this.home === null || this.away === null) {
+      this.winner = (this.home ?? this.away)!;
+      return this.winner;
+    }
+    const h = this.home, a = this.away;
+    const pHome = h.expectedAgainst(a);
+    let hs = 0, as = 0;
+    while (hs < 3 && as < 3) {
+      if (rand() < pHome) hs++;
+      else as++;
+    }
+    this.score = [hs, as];
+    const homeWon = hs > as;
+    this.winner = homeWon ? h : a;
+    const loser = homeWon ? a : h;
+    const delta = k * ((homeWon ? 1 : 0) - pHome);
+    h.elo += delta;
+    a.elo -= delta;
+    this.winner.wins++;
+    loser.losses++;
+    return this.winner;
+  }
+
+  describe(): string {
+    if (this.isBye) return `R${this.round}: ${this.home ?? this.away} gets a bye`;
+    return `R${this.round}: ${this.home} vs ${this.away} -> ${this.score.join("-")} ${this.winner?.name}`;
+  }
+}
+
+class Bracket {
+  readonly rounds: Match[][] = [];
+  constructor(private teams: Team[], private rand: () => number) {}
+
+  private static seedOrder(n: number): number[] {
+    let order = [1];
+    while (order.length < n) {
+      const size = order.length * 2;
+      order = order.flatMap((s) => [s, size + 1 - s]);
+    }
+    return order;
+  }
+
+  run(): Team {
+    let size = 1;
+    while (size < this.teams.length) size *= 2;
+    const seeded = [...this.teams].sort((a, b) => b.elo - a.elo);
+    const slots = Bracket.seedOrder(size).map((seed) => seeded[seed - 1] ?? null);
+    let current: (Team | null)[] = slots;
+    for (let round = 1; current.length > 1; round++) {
+      const matches: Match[] = [];
+      for (let i = 0; i < current.length; i += 2) matches.push(new Match(round, current[i], current[i + 1]));
+      this.rounds.push(matches);
+      current = matches.map((m) => m.play(this.rand));
+    }
+    const champ = current[0];
+    if (!champ) throw new Error("no champion");
+    return champ;
+  }
+}
+
+function lcg(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
+const teams = [
+  new Team("Falcons", 1620), new Team("Bears", 1580), new Team("Owls", 1500), new Team("Sharks", 1710),
+  new Team("Wolves", 1450), new Team("Hawks", 1555), new Team("Lynx", 1490),
+];
+const bracket = new Bracket(teams, lcg(42));
+const champion = bracket.run();
+for (const round of bracket.rounds) {
+  for (const m of round) console.log(m.describe());
+}
+console.log(`champion: ${champion}`);
+const table = [...teams].sort((a, b) => b.wins - a.wins || b.elo - a.elo);
+table.forEach((t, i) => console.log(`${i + 1}. ${t.name.padEnd(8)} ${t.wins}-${t.losses} elo ${t.elo.toFixed(1)}`));
+console.log(teams.map(String));
+console.log(bracket.rounds.map((r) => r.length), bracket.rounds[0][0]);

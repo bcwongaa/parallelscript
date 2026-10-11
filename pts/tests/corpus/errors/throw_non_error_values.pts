@@ -1,0 +1,115 @@
+// skip: not supported yet: PTS1001: converting value to {message: value}
+// Code that throws strings, numbers, plain objects, null and arrays, and a
+// normalizer that turns any thrown value into a proper Error.
+
+type Thrower = () => void;
+
+const throwers: Record<string, Thrower> = {
+  string: () => {
+    throw "disk full";
+  },
+  number: () => {
+    throw 404;
+  },
+  object: () => {
+    throw { code: "EPERM", path: "/root/secret", retry: false };
+  },
+  nullValue: () => {
+    throw null;
+  },
+  undefinedValue: () => {
+    throw undefined;
+  },
+  array: () => {
+    throw ["first problem", "second problem"];
+  },
+  boolean: () => {
+    throw false;
+  },
+  error: () => {
+    throw new TypeError("a real error");
+  },
+  errorLike: () => {
+    throw { name: "FakeError", message: "looks like an error" };
+  },
+};
+
+function describeThrown(x: unknown): string {
+  if (x instanceof Error) return `Error subclass ${x.name}: ${x.message}`;
+  if (x === null) return "null";
+  if (Array.isArray(x)) return `array of ${x.length}: ${x.join(" / ")}`;
+  switch (typeof x) {
+    case "string":
+      return `string ${JSON.stringify(x)}`;
+    case "number":
+      return `number ${x}`;
+    case "boolean":
+      return `boolean ${x}`;
+    case "undefined":
+      return "undefined";
+    case "object":
+      return `object with keys ${Object.keys(x).join(",")}`;
+    default:
+      return typeof x;
+  }
+}
+
+function isErrorLike(x: unknown): x is { name: string; message: string } {
+  return typeof x === "object" && x !== null && "message" in x && "name" in x &&
+    typeof (x as { message: unknown }).message === "string";
+}
+
+function toError(x: unknown): Error {
+  if (x instanceof Error) return x;
+  if (isErrorLike(x)) {
+    const e = new Error(x.message);
+    e.name = x.name;
+    return e;
+  }
+  return new Error(`non-error thrown: ${typeof x === "string" ? x : JSON.stringify(x) ?? String(x)}`);
+}
+
+const normalized: Error[] = [];
+for (const [label, fn] of Object.entries(throwers)) {
+  try {
+    fn();
+    console.log(label, "did not throw");
+  } catch (caught) {
+    console.log(`${label.padEnd(15)} -> ${describeThrown(caught)}`);
+    normalized.push(toError(caught));
+  }
+}
+
+console.log("--- normalized ---");
+for (const e of normalized) {
+  console.log(`${e.name}: ${e.message}`);
+}
+
+function riskyDivide(a: number, b: number): number {
+  if (b === 0) throw { code: "DIV0", a, b };
+  return a / b;
+}
+
+const results = [
+  [10, 2],
+  [3, 0],
+  [9, 3],
+].map(([a, b]) => {
+  try {
+    return riskyDivide(a, b);
+  } catch (e) {
+    return e;
+  }
+});
+console.log(results);
+
+let caughtValue: unknown = "unset";
+try {
+  try {
+    throw "inner";
+  } finally {
+    caughtValue = "finally ran";
+  }
+} catch (outer) {
+  console.log("outer caught", outer, "and", caughtValue);
+}

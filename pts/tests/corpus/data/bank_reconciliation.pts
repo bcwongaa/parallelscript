@@ -1,0 +1,93 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+type TxKind = "deposit" | "withdrawal" | "fee";
+
+interface LedgerEntry {
+  ref: string;
+  date: string;
+  amount: number;
+  kind: TxKind;
+  memo: string;
+}
+
+interface BankLine {
+  date: string;
+  amount: number;
+  description: string;
+}
+
+const ledger: LedgerEntry[] = [
+  { ref: "L1", date: "2024-05-01", amount: 2500, kind: "deposit", memo: "Salary" },
+  { ref: "L2", date: "2024-05-02", amount: -120.45, kind: "withdrawal", memo: "Groceries" },
+  { ref: "L3", date: "2024-05-03", amount: -60, kind: "withdrawal", memo: "Gas" },
+  { ref: "L4", date: "2024-05-05", amount: -1200, kind: "withdrawal", memo: "Rent" },
+  { ref: "L5", date: "2024-05-07", amount: 45.5, kind: "deposit", memo: "Refund" },
+  { ref: "L6", date: "2024-05-09", amount: -33.99, kind: "withdrawal", memo: "Streaming" },
+];
+
+const bank: BankLine[] = [
+  { date: "2024-05-01", amount: 2500, description: "PAYROLL ACME" },
+  { date: "2024-05-03", amount: -120.45, description: "FRESHMART 0012" },
+  { date: "2024-05-03", amount: -60, description: "SHELL 4431" },
+  { date: "2024-05-06", amount: -1200, description: "LANDLORD TRANSFER" },
+  { date: "2024-05-08", amount: -4.5, description: "MONTHLY FEE" },
+  { date: "2024-05-09", amount: -33.99, description: "STREAMCO" },
+  { date: "2024-05-10", amount: -18.25, description: "CAFE LUNA" },
+];
+
+function dayDiff(a: string, b: string): number {
+  return Math.abs(Date.parse(a + "T00:00:00Z") - Date.parse(b + "T00:00:00Z")) / 86_400_000;
+}
+
+const cents = (n: number): number => Math.round(n * 100);
+
+interface Match {
+  ledger: LedgerEntry;
+  bank: BankLine;
+  lagDays: number;
+}
+
+const matches: Match[] = [];
+const unmatchedBank: BankLine[] = [];
+const used = new Set<string>();
+
+for (const line of bank) {
+  const candidate = ledger
+    .filter((e) => !used.has(e.ref) && cents(e.amount) === cents(line.amount) && dayDiff(e.date, line.date) <= 3)
+    .sort((x, y) => dayDiff(x.date, line.date) - dayDiff(y.date, line.date))[0];
+  if (candidate) {
+    used.add(candidate.ref);
+    matches.push({ ledger: candidate, bank: line, lagDays: dayDiff(candidate.date, line.date) });
+  } else {
+    unmatchedBank.push(line);
+  }
+}
+const unmatchedLedger = ledger.filter((e) => !used.has(e.ref));
+
+console.log(`Matched ${matches.length} of ${bank.length} bank lines`);
+for (const m of matches) {
+  const lag = m.lagDays === 0 ? "same day" : `+${m.lagDays}d`;
+  console.log(`  ${m.ledger.ref} ${m.ledger.memo.padEnd(10)} <-> ${m.bank.description.padEnd(18)} ${m.bank.amount.toFixed(2).padStart(9)} ${lag}`);
+}
+console.log("Bank lines missing from ledger:");
+console.log(unmatchedBank);
+console.log("Ledger entries not on statement:", unmatchedLedger);
+
+const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / 100;
+const ledgerBalance = sum(ledger.map((e) => cents(e.amount)));
+const bankBalance = sum(bank.map((b) => cents(b.amount)));
+console.log("ledger balance %s, bank balance %s", ledgerBalance.toFixed(2), bankBalance.toFixed(2));
+
+const adjustments: LedgerEntry[] = unmatchedBank.map((b, i) => ({
+  ref: `ADJ${i + 1}`,
+  date: b.date,
+  amount: b.amount,
+  kind: b.description.includes("FEE") ? "fee" : "withdrawal",
+  memo: b.description.toLowerCase(),
+}));
+console.log(adjustments);
+const adjusted = ledgerBalance + sum(adjustments.map((a) => cents(a.amount))) - sum(unmatchedLedger.map((e) => cents(e.amount)));
+console.log("adjusted ledger:", adjusted.toFixed(2), "difference:", (adjusted - bankBalance).toFixed(2));
+const byKind: Record<TxKind, number> = { deposit: 0, withdrawal: 0, fee: 0 };
+for (const e of [...ledger, ...adjustments]) byKind[e.kind] += e.amount;
+console.log(byKind);
+console.log(Object.entries(byKind).map(([k, v]) => `${k}:${v.toFixed(2)}`).join(" | "));

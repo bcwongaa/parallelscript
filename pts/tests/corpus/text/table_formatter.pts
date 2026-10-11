@@ -1,0 +1,99 @@
+// A text table formatter: column alignment, numeric formatting, wrapping long cells,
+// borders in several styles, and totals rows.
+type Align = "left" | "right" | "center";
+type Cell = string | number | boolean | null;
+
+interface Column {
+  key: string;
+  title: string;
+  align?: Align;
+  width?: number;
+  format?: (v: Cell) => string;
+}
+
+interface BorderStyle {
+  h: string; v: string; cross: string; corner: string;
+}
+
+const STYLES: Record<string, BorderStyle> = {
+  ascii: { h: "-", v: "|", cross: "+", corner: "+" },
+  dots: { h: ".", v: ":", cross: ":", corner: "." },
+  heavy: { h: "=", v: "‖", cross: "#", corner: "#" },
+};
+
+function pad(s: string, width: number, align: Align): string {
+  if (align === "right") return s.padStart(width);
+  if (align === "center") {
+    const total = width - s.length;
+    return " ".repeat(Math.floor(total / 2)) + s + " ".repeat(Math.ceil(total / 2));
+  }
+  return s.padEnd(width);
+}
+
+function wrapCell(s: string, width: number): string[] {
+  if (s.length <= width) return [s];
+  const out: string[] = [];
+  let line = "";
+  for (const word of s.split(" ")) {
+    let w = word;
+    while (w.length > width) {
+      if (line) { out.push(line); line = ""; }
+      out.push(w.slice(0, width - 1) + "-");
+      w = w.slice(width - 1);
+    }
+    if (line && line.length + 1 + w.length > width) { out.push(line); line = w; }
+    else line = line ? `${line} ${w}` : w;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+function renderTable(rows: Record<string, Cell>[], columns: Column[], styleName = "ascii"): string {
+  const style = STYLES[styleName] ?? STYLES.ascii;
+  const text = rows.map((r) => columns.map((c) => (c.format ? c.format(r[c.key] ?? null) : String(r[c.key] ?? ""))));
+  const widths = columns.map((c, i) => c.width ?? Math.max(c.title.length, ...text.map((t) => t[i].length)));
+  const sep = style.corner + widths.map((w) => style.h.repeat(w + 2)).join(style.cross) + style.corner;
+  const line = (cells: string[][], idx: number) =>
+    style.v + cells.map((lines, i) => ` ${pad(lines[idx] ?? "", widths[i], columns[i].align ?? "left")} `).join(style.v) + style.v;
+  const out = [sep, line(columns.map((c) => [c.title]), 0), sep.split(style.h).join(style.h === "-" ? "=" : style.h)];
+  for (const t of text) {
+    const wrapped = t.map((cell, i) => wrapCell(cell, widths[i]));
+    const height = Math.max(...wrapped.map((w) => w.length));
+    for (let k = 0; k < height; k++) out.push(line(wrapped, k));
+  }
+  out.push(sep);
+  return out.join("\n");
+}
+
+const money = (v: Cell) => (typeof v === "number" ? v.toFixed(2) : "-");
+const pct = (v: Cell) => (typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "n/a");
+
+const products: Record<string, Cell>[] = [
+  { sku: "A-100", name: "Mechanical keyboard with hot-swappable switches", qty: 3, price: 129.5, margin: 0.31, stock: true },
+  { sku: "B-220", name: "USB-C hub", qty: 12, price: 24.99, margin: 0.42, stock: true },
+  { sku: "C-003", name: "Ergonomic mouse", qty: 0, price: 59, margin: 0.28, stock: false },
+  { sku: "D-777", name: "Monitor arm (dual)", qty: 4, price: 89.95, margin: null, stock: true },
+  { sku: "E-1", name: "Supercalifragilisticexpialidocious cable", qty: 100, price: 3.5, margin: 0.6, stock: true },
+];
+
+const columns: Column[] = [
+  { key: "sku", title: "SKU" },
+  { key: "name", title: "Product", width: 22 },
+  { key: "qty", title: "Qty", align: "right" },
+  { key: "price", title: "Price", align: "right", format: money },
+  { key: "margin", title: "Margin", align: "right", format: pct },
+  { key: "stock", title: "In stock", align: "center", format: (v) => (v ? "yes" : "no") },
+];
+
+console.log(renderTable(products, columns));
+const totalValue = products.reduce((s, p) => s + (typeof p.qty === "number" && typeof p.price === "number" ? p.qty * p.price : 0), 0);
+const summary: Record<string, Cell>[] = [
+  { label: "Line items", value: products.length },
+  { label: "Units", value: products.reduce((s, p) => s + Number(p.qty), 0) },
+  { label: "Stock value", value: totalValue.toFixed(2) },
+  { label: "Avg margin", value: pct(products.filter((p) => p.margin !== null).reduce((s, p) => s + Number(p.margin), 0) / 4) },
+];
+console.log(renderTable(summary, [{ key: "label", title: "Summary" }, { key: "value", title: "", align: "right" }], "dots"));
+console.log(renderTable([{ a: "x", b: "centered" }, { a: "longer cell", b: "c" }], [{ key: "a", title: "A", align: "center" }, { key: "b", title: "B", align: "center" }], "heavy"));
+console.log(wrapCell("the quick brown fox jumps over the lazy dog", 10));
+console.log(products.map((p) => [p.sku, p.qty]));

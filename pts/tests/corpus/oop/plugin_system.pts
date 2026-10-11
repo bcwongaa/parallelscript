@@ -1,0 +1,149 @@
+// skip: not supported yet: PTS1001: optional methods and accessors (`setup?` in Plugin)
+// Plugin system: a markdown-ish text processor whose features are plugins with hooks and dependencies.
+
+interface PluginContext {
+  vars: Map<string, string>;
+  warnings: string[];
+}
+
+interface Plugin {
+  readonly name: string;
+  readonly dependsOn?: readonly string[];
+  readonly priority?: number;
+  setup?(ctx: PluginContext): void;
+  transformLine?(line: string, ctx: PluginContext): string | null;
+  finish?(lines: string[], ctx: PluginContext): string[];
+}
+
+class PluginHost {
+  private plugins: Plugin[] = [];
+  private ordered: Plugin[] | null = null;
+
+  use(p: Plugin): PluginHost {
+    if (this.plugins.some((q) => q.name === p.name)) throw new Error(`duplicate plugin ${p.name}`);
+    this.plugins.push(p);
+    this.ordered = null;
+    return this;
+  }
+
+  private order(): Plugin[] {
+    if (this.ordered) return this.ordered;
+    const byName = new Map(this.plugins.map((p) => [p.name, p] as const));
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const out: Plugin[] = [];
+    const visit = (p: Plugin, chain: string[]): void => {
+      if (visited.has(p.name)) return;
+      if (visiting.has(p.name)) throw new Error(`dependency cycle: ${[...chain, p.name].join(" -> ")}`);
+      visiting.add(p.name);
+      for (const dep of p.dependsOn ?? []) {
+        const d = byName.get(dep);
+        if (!d) throw new Error(`${p.name} needs missing plugin ${dep}`);
+        visit(d, [...chain, p.name]);
+      }
+      visiting.delete(p.name);
+      visited.add(p.name);
+      out.push(p);
+    };
+    [...this.plugins].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)).forEach((p) => visit(p, []));
+    this.ordered = out;
+    return out;
+  }
+
+  run(text: string): { output: string; warnings: string[]; order: string[] } {
+    const ctx: PluginContext = { vars: new Map(), warnings: [] };
+    const plugins = this.order();
+    plugins.forEach((p) => p.setup?.(ctx));
+    let lines: string[] = [];
+    outer: for (const raw of text.split("\n")) {
+      let line = raw;
+      for (const p of plugins) {
+        if (!p.transformLine) continue;
+        const r = p.transformLine(line, ctx);
+        if (r === null) continue outer;
+        line = r;
+      }
+      lines.push(line);
+    }
+    for (const p of plugins) if (p.finish) lines = p.finish(lines, ctx);
+    return { output: lines.join("\n"), warnings: ctx.warnings, order: plugins.map((p) => p.name) };
+  }
+}
+
+const comments: Plugin = { name: "comments", priority: 10, transformLine: (line) => (line.trimStart().startsWith("//") ? null : line) };
+
+const variables: Plugin = {
+  name: "variables",
+  dependsOn: ["comments"],
+  setup: (ctx) => void ctx.vars.set("product", "ParallelScript"),
+  transformLine(line, ctx) {
+    if (line.startsWith("@set ")) {
+      const [key, ...rest] = line.slice(5).split("=");
+      ctx.vars.set(key.trim(), rest.join("=").trim());
+      return null;
+    }
+    let out = line;
+    let start = out.indexOf("{{");
+    while (start >= 0) {
+      const end = out.indexOf("}}", start);
+      if (end < 0) break;
+      const key = out.slice(start + 2, end).trim();
+      const value = ctx.vars.get(key);
+      if (value === undefined) ctx.warnings.push(`undefined variable ${key}`);
+      out = out.slice(0, start) + (value ?? `<${key}?>`) + out.slice(end + 2);
+      start = out.indexOf("{{", start + 1);
+    }
+    return out;
+  },
+};
+
+class HeadingPlugin implements Plugin {
+  readonly name = "headings";
+  readonly dependsOn = ["variables"];
+  private toc: string[] = [];
+  transformLine(line: string): string {
+    if (!line.startsWith("#")) return line;
+    let level = 0;
+    while (line[level] === "#") level++;
+    const title = line.slice(level).trim();
+    this.toc.push(`${"  ".repeat(level - 1)}- ${title}`);
+    return `${level}. ${title.toUpperCase()}`;
+  }
+  finish(lines: string[]): string[] {
+    return ["TOC:", ...this.toc, "", ...lines];
+  }
+}
+
+const wordCount: Plugin = {
+  name: "wordcount",
+  priority: -5,
+  finish(lines, ctx) {
+    const words = lines.join(" ").split(" ").filter((w) => w.length > 0).length;
+    if (words > 40) ctx.warnings.push(`long document: ${words} words`);
+    return [...lines, `(${words} words)`];
+  },
+};
+
+const doc = `// draft, do not publish
+@set version = 0.3
+# Intro
+Welcome to {{ product }} {{version}}.
+// internal note
+## Install
+Run the installer for {{platform}}.
+# Usage
+{{product}} compiles TypeScript.`;
+
+const host = new PluginHost().use(wordCount).use(new HeadingPlugin()).use(variables).use(comments);
+const result = host.run(doc);
+console.log(result.output);
+console.log(result.order);
+console.log(result.warnings);
+
+for (const bad of [
+  () => new PluginHost().use({ name: "a", dependsOn: ["b"] }).use({ name: "b", dependsOn: ["a"] }).run("x"),
+  () => new PluginHost().use({ name: "x", dependsOn: ["missing"] }).run("x"),
+  () => new PluginHost().use(comments).use(comments),
+]) {
+  try { bad(); } catch (e) { console.log("error:", (e as Error).message); }
+}

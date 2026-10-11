@@ -1,0 +1,132 @@
+// skip: not supported yet: PTS1001: converting value to {t: string}
+// A mustache-like template engine: {{name}}, dotted paths, filters, sections and loops.
+type Value = string | number | boolean | null | Value[] | { [k: string]: Value };
+type Scope = { [k: string]: Value };
+
+class TemplateError extends Error {}
+
+type Node =
+  | { t: "text"; text: string }
+  | { t: "var"; path: string; filters: string[] }
+  | { t: "section"; path: string; inverted: boolean; children: Node[] };
+
+function compile(src: string): Node[] {
+  const root: Node[] = [];
+  const stack: { path: string; nodes: Node[] }[] = [{ path: "", nodes: root }];
+  let pos = 0;
+  while (pos < src.length) {
+    const open = src.indexOf("{{", pos);
+    if (open < 0) { stack[stack.length - 1].nodes.push({ t: "text", text: src.slice(pos) }); break; }
+    if (open > pos) stack[stack.length - 1].nodes.push({ t: "text", text: src.slice(pos, open) });
+    const close = src.indexOf("}}", open);
+    if (close < 0) throw new TemplateError(`unclosed tag at ${open}`);
+    const tag = src.slice(open + 2, close).trim();
+    pos = close + 2;
+    const top = stack[stack.length - 1];
+    if (tag.startsWith("#") || tag.startsWith("^")) {
+      const node: Node = { t: "section", path: tag.slice(1).trim(), inverted: tag[0] === "^", children: [] };
+      top.nodes.push(node);
+      stack.push({ path: node.path, nodes: node.children });
+    } else if (tag.startsWith("/")) {
+      const name = tag.slice(1).trim();
+      if (top.path !== name) throw new TemplateError(`mismatched close {{/${name}}}, expected {{/${top.path}}}`);
+      stack.pop();
+    } else {
+      const [path, ...filters] = tag.split("|").map((s) => s.trim());
+      top.nodes.push({ t: "var", path, filters });
+    }
+  }
+  if (stack.length > 1) throw new TemplateError(`unclosed section ${stack[stack.length - 1].path}`);
+  return root;
+}
+
+function lookup(scopes: Value[], path: string): Value | undefined {
+  if (path === ".") return scopes[scopes.length - 1];
+  const parts = path.split(".");
+  for (let i = scopes.length - 1; i >= 0; i--) {
+    let cur: Value | undefined = scopes[i];
+    let found = true;
+    for (const p of parts) {
+      if (cur !== null && typeof cur === "object" && !Array.isArray(cur) && p in cur) cur = cur[p];
+      else { found = false; break; }
+    }
+    if (found) return cur;
+  }
+  return undefined;
+}
+
+const filters: Record<string, (s: string) => string> = {
+  upper: (s) => s.toUpperCase(),
+  lower: (s) => s.toLowerCase(),
+  trim: (s) => s.trim(),
+  title: (s) => s.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+  money: (s) => "$" + Number(s).toFixed(2),
+};
+
+function truthy(v: Value | undefined): boolean {
+  if (Array.isArray(v)) return v.length > 0;
+  return v !== undefined && v !== null && v !== false && v !== "" && v !== 0;
+}
+
+function render(nodes: Node[], scopes: Value[]): string {
+  let out = "";
+  for (const n of nodes) {
+    if (n.t === "text") out += n.text;
+    else if (n.t === "var") {
+      const v = lookup(scopes, n.path);
+      let s = v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+      for (const f of n.filters) {
+        if (!(f in filters)) throw new TemplateError(`unknown filter '${f}'`);
+        s = filters[f](s);
+      }
+      out += s;
+    } else {
+      const v = lookup(scopes, n.path);
+      if (n.inverted) { if (!truthy(v)) out += render(n.children, scopes); }
+      else if (Array.isArray(v)) out += v.map((item) => render(n.children, [...scopes, item])).join("");
+      else if (truthy(v) && v !== undefined) out += render(n.children, [...scopes, v]);
+    }
+  }
+  return out;
+}
+
+const data: Scope = {
+  customer: { name: "ada lovelace", vip: true },
+  order: { id: 1042, total: 87.5 },
+  items: [
+    { sku: "PEN-01", qty: 3, price: 2.5 },
+    { sku: "NB-A5", qty: 2, price: 12 },
+    { sku: "INK-BLK", qty: 1, price: 58.5 },
+  ],
+  tags: ["fragile", "gift"],
+  coupons: [],
+};
+
+const tpl = `Dear {{customer.name | title}},{{#customer.vip}} (VIP){{/customer.vip}}
+Order #{{order.id}} total {{order.total | money}}
+{{#items}}  - {{sku | lower}} x{{qty}} @ {{price | money}}
+{{/items}}Tags: {{#tags}}[{{. | upper}}]{{/tags}}
+{{^coupons}}No coupons applied.{{/coupons}}{{missing}}`;
+
+const ast = compile(tpl);
+console.log(ast.length, ast.map((n) => n.t));
+console.log(render(ast, [data]));
+console.log(ast[3]);
+
+const cases: [string, Scope][] = [
+  ["Hi {{name}}!", { name: "Bob" }],
+  ["{{#user}}{{name}} is {{age}}{{/user}}", { user: { name: "Eve", age: 33 } }],
+  ["{{#flag}}on{{/flag}}{{^flag}}off{{/flag}}", { flag: false }],
+  ["{{obj}}", { obj: { a: [1, 2] } }],
+  ["{{x | shout}}", { x: "hey" }],
+  ["{{#a}}unclosed", {}],
+  ["{{#a}}x{{/b}}", {}],
+  ["oops {{name", {}],
+];
+for (const [src, scope] of cases) {
+  try {
+    console.log(JSON.stringify(src), "->", JSON.stringify(render(compile(src), [scope])));
+  } catch (e) {
+    console.log(JSON.stringify(src), "-> error:", (e as Error).message, e instanceof TemplateError);
+  }
+}

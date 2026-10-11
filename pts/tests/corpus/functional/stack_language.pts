@@ -1,0 +1,149 @@
+// An interpreter for a small Forth-like stack language using a Record of op closures.
+
+class StackError extends Error {
+  constructor(message: string, public readonly word: string, public readonly position: number) {
+    super(`${message} at word ${position} (${word})`);
+    this.name = "StackError";
+  }
+}
+
+type Op = (vm: VM) => void;
+
+class VM {
+  stack: number[] = [];
+  output: string[] = [];
+  words: Record<string, string[]> = {};
+  steps = 0;
+
+  pop(): number {
+    const v = this.stack.pop();
+    if (v === undefined) throw new RangeError("stack underflow");
+    return v;
+  }
+  push(...vs: number[]): void {
+    this.stack.push(...vs);
+  }
+  peek(): number {
+    if (this.stack.length === 0) throw new RangeError("stack underflow");
+    return this.stack[this.stack.length - 1];
+  }
+}
+
+const binary = (f: (a: number, b: number) => number): Op => (vm) => {
+  const b = vm.pop();
+  const a = vm.pop();
+  vm.push(f(a, b));
+};
+
+const builtins: Record<string, Op> = {
+  "+": binary((a, b) => a + b),
+  "-": binary((a, b) => a - b),
+  "*": binary((a, b) => a * b),
+  "/": binary((a, b) => {
+    if (b === 0) throw new RangeError("division by zero");
+    return Math.trunc(a / b);
+  }),
+  mod: binary((a, b) => a % b),
+  "<": binary((a, b) => (a < b ? -1 : 0)),
+  ">": binary((a, b) => (a > b ? -1 : 0)),
+  max: binary(Math.max),
+  min: binary(Math.min),
+  dup: (vm) => vm.push(vm.peek()),
+  drop: (vm) => void vm.pop(),
+  swap: (vm) => vm.push(...[vm.pop(), vm.pop()]),
+  over: (vm) => {
+    const b = vm.pop();
+    const a = vm.pop();
+    vm.push(a, b, a);
+  },
+  rot: (vm) => {
+    const c = vm.pop();
+    const b = vm.pop();
+    const a = vm.pop();
+    vm.push(b, c, a);
+  },
+  ".": (vm) => vm.output.push(String(vm.pop())),
+  ".s": (vm) => vm.output.push(`<${vm.stack.length}> ${vm.stack.join(" ")}`),
+};
+
+function tokenize(src: string): string[] {
+  return src
+    .split("\n")
+    .map((line) => line.split("\\")[0])
+    .join(" ")
+    .split(" ")
+    .filter((t) => t.length > 0)
+    .map((t) => t.toLowerCase());
+}
+
+function findBranches(tokens: string[], start: number): { elseAt: number; thenAt: number } {
+  let depth = 0;
+  let elseAt = -1;
+  for (let j = start + 1; j < tokens.length; j++) {
+    if (tokens[j] === "if") depth++;
+    else if (tokens[j] === "then") {
+      if (depth === 0) return { elseAt, thenAt: j };
+      depth--;
+    } else if (tokens[j] === "else" && depth === 0) elseAt = j;
+  }
+  throw new SyntaxError("if without then");
+}
+
+function run(vm: VM, tokens: string[], depth = 0): void {
+  if (depth > 50) throw new RangeError("recursion too deep");
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    vm.steps++;
+    try {
+      if (tok === ":") {
+        const end = tokens.indexOf(";", i);
+        if (end < 0) throw new SyntaxError("unterminated definition");
+        vm.words[tokens[i + 1]] = tokens.slice(i + 2, end);
+        i = end;
+      } else if (tok === "if") {
+        const { elseAt, thenAt } = findBranches(tokens, i);
+        const cond = vm.pop();
+        const hasElse = elseAt >= 0;
+        const body = cond !== 0 ? tokens.slice(i + 1, hasElse ? elseAt : thenAt) : hasElse ? tokens.slice(elseAt + 1, thenAt) : [];
+        run(vm, body, depth + 1);
+        i = thenAt;
+      } else if (tok in vm.words) {
+        run(vm, vm.words[tok], depth + 1);
+      } else if (tok in builtins) {
+        builtins[tok](vm);
+      } else if (!Number.isNaN(Number(tok))) {
+        vm.push(Number(tok));
+      } else {
+        throw new ReferenceError(`unknown word`);
+      }
+    } catch (e) {
+      if (e instanceof StackError || !(e instanceof Error)) throw e;
+      throw new StackError(`${e.name}: ${e.message}`, tok, i);
+    }
+  }
+}
+
+const programs = [
+  "2 3 + 4 * .",
+  "10 3 / . 10 3 mod . 7 dup * .",
+  ": square dup * ; : cube dup square * ; 3 square . 4 cube .",
+  ": abs dup 0 < if -1 * then ; -42 abs . 17 abs .",
+  ": sign dup 0 > if drop 1 else 0 < if -1 else 0 then then ; 5 sign . -5 sign . 0 sign .",
+  "1 +",
+  "5 0 /",
+  "4 frobnicate",
+  ": loop loop ; loop",
+  "3 4 over over max . min . .s",
+];
+for (const src of programs) {
+  const vm = new VM();
+  try {
+    run(vm, tokenize(src));
+    console.log(`${src.padEnd(40)} -> ${vm.output.join(" ")}`);
+  } catch (e) {
+    console.log(`${src.padEnd(40)} !! ${e instanceof Error ? e.message : e}`);
+  }
+}
+const vm = new VM();
+run(vm, tokenize(": fact dup 1 > if dup 1 - fact * then ; \\ factorial\n 10 fact 6 fact"));
+console.log(vm.stack, vm.steps, Object.keys(vm.words));

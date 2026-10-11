@@ -1,0 +1,101 @@
+interface Match {
+  home: string;
+  away: string;
+  homeGoals: number;
+  awayGoals: number;
+}
+
+class TeamRecord {
+  played = 0;
+  won = 0;
+  drawn = 0;
+  lost = 0;
+  goalsFor = 0;
+  goalsAgainst = 0;
+  form: string[] = [];
+
+  constructor(public readonly name: string) {}
+
+  get points(): number {
+    return this.won * 3 + this.drawn;
+  }
+
+  get goalDiff(): number {
+    return this.goalsFor - this.goalsAgainst;
+  }
+
+  record(gf: number, ga: number): void {
+    this.played++;
+    this.goalsFor += gf;
+    this.goalsAgainst += ga;
+    const result = gf > ga ? "W" : gf < ga ? "L" : "D";
+    if (result === "W") this.won++;
+    else if (result === "L") this.lost++;
+    else this.drawn++;
+    this.form = [...this.form, result].slice(-5);
+  }
+}
+
+const results = `Lions 2-1 Tigers
+Bears 0-0 Wolves
+Tigers 3-3 Bears
+Wolves 1-2 Lions
+Lions 0-1 Bears
+Tigers 2-0 Wolves
+Bears 2-2 Lions
+Wolves 4-1 Tigers
+Lions 3-0 Wolves
+Tigers 1-0 Bears
+Bears 1-3 Tigers
+Wolves 2-2 Bears`;
+
+function parseMatch(line: string): Match {
+  const [left, right] = line.split("-");
+  const lp = left.trim().split(" ");
+  const rp = right.trim().split(" ");
+  return { home: lp[0], homeGoals: Number(lp[1]), awayGoals: Number(rp[0]), away: rp[1] };
+}
+
+const matches = results.split("\n").map(parseMatch);
+const table = new Map<string, TeamRecord>();
+const team = (name: string): TeamRecord => {
+  let t = table.get(name);
+  if (!t) {
+    t = new TeamRecord(name);
+    table.set(name, t);
+  }
+  return t;
+};
+const headToHead = new Map<string, number>();
+
+for (const m of matches) {
+  team(m.home).record(m.homeGoals, m.awayGoals);
+  team(m.away).record(m.awayGoals, m.homeGoals);
+  const key = [m.home, m.away].sort().join("|");
+  const sign = m.home < m.away ? 1 : -1;
+  headToHead.set(key, (headToHead.get(key) ?? 0) + sign * Math.sign(m.homeGoals - m.awayGoals));
+}
+
+const standings = [...table.values()].sort(
+  (a, b) => b.points - a.points || b.goalDiff - a.goalDiff || b.goalsFor - a.goalsFor || a.name.localeCompare(b.name),
+);
+
+console.log("Pos Team     P  W  D  L  GF  GA  GD  Pts  Form");
+standings.forEach((t, i) => {
+  const gd = (t.goalDiff > 0 ? "+" : "") + t.goalDiff;
+  console.log(
+    `${String(i + 1).padStart(3)} ${t.name.padEnd(7)} ${[t.played, t.won, t.drawn, t.lost].map((n) => String(n).padStart(2)).join(" ")} ${String(t.goalsFor).padStart(3)} ${String(t.goalsAgainst).padStart(3)} ${gd.padStart(3)} ${String(t.points).padStart(4)}  ${t.form.join("")}`,
+  );
+});
+
+console.log(standings[0]);
+console.log(headToHead);
+const totalGoals = matches.reduce((s, m) => s + m.homeGoals + m.awayGoals, 0);
+console.log(`goals: ${totalGoals}, per match: ${(totalGoals / matches.length).toFixed(2)}`);
+const homeWins = matches.filter((m) => m.homeGoals > m.awayGoals).length;
+const draws = matches.filter((m) => m.homeGoals === m.awayGoals).length;
+console.log({ homeWins, draws, awayWins: matches.length - homeWins - draws });
+const biggest = matches.reduce((best, m) => (Math.abs(m.homeGoals - m.awayGoals) > Math.abs(best.homeGoals - best.awayGoals) ? m : best));
+console.log("biggest margin:", biggest);
+const cleanSheets = Object.fromEntries([...table.keys()].map((t) => [t, matches.filter((m) => (m.home === t && m.awayGoals === 0) || (m.away === t && m.homeGoals === 0)).length]));
+console.log(cleanSheets);

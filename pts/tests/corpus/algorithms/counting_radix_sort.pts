@@ -1,0 +1,78 @@
+// Counting sort, LSD radix sort and bucket sort on integer and string keys.
+
+function countingSort(values: number[], maxValue: number): number[] {
+  const counts = new Array<number>(maxValue + 1).fill(0);
+  for (const v of values) counts[v]++;
+  const out: number[] = [];
+  counts.forEach((c, v) => {
+    for (let i = 0; i < c; i++) out.push(v);
+  });
+  return out;
+}
+
+function radixSort(values: number[], base = 10): { sorted: number[]; passes: number[][] } {
+  let current = [...values];
+  const max = Math.max(...current);
+  const passes: number[][] = [];
+  for (let exp = 1; Math.floor(max / exp) > 0; exp *= base) {
+    const buckets: number[][] = Array.from({ length: base }, () => []);
+    for (const v of current) buckets[Math.floor(v / exp) % base].push(v);
+    current = buckets.flat();
+    passes.push([...current]);
+  }
+  return { sorted: current, passes };
+}
+
+function radixSortStrings(words: string[]): string[] {
+  const width = Math.max(...words.map((w) => w.length));
+  let current = [...words];
+  for (let pos = width - 1; pos >= 0; pos--) {
+    const buckets = new Map<number, string[]>();
+    for (const w of current) {
+      const code = pos < w.length ? w.charCodeAt(pos) : 0;
+      const b = buckets.get(code);
+      if (b) b.push(w);
+      else buckets.set(code, [w]);
+    }
+    const keys = [...buckets.keys()].sort((a, b) => a - b);
+    current = keys.flatMap((k) => buckets.get(k) ?? []);
+  }
+  return current;
+}
+
+function bucketSort(values: number[], bucketCount: number): number[][] {
+  const buckets: number[][] = Array.from({ length: bucketCount }, () => []);
+  for (const v of values) {
+    const idx = Math.min(bucketCount - 1, Math.floor(v * bucketCount));
+    buckets[idx].push(v);
+  }
+  return buckets.map((b) => b.sort((x, y) => x - y));
+}
+
+const grades = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3, 2, 3, 8, 4];
+console.log("counting sort:", countingSort(grades, 9).join(""));
+
+const histogram = new Map<number, number>();
+for (const g of grades) histogram.set(g, (histogram.get(g) ?? 0) + 1);
+const ordered = [...histogram.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+for (const [value, count] of ordered) {
+  console.log(`${value}: ${"#".repeat(count)} (${count})`);
+}
+
+const big = [170, 45, 75, 90, 802, 24, 2, 66, 1234, 999, 5];
+const { sorted, passes } = radixSort(big);
+passes.forEach((p, i) => console.log(`pass ${i + 1}:`, p.join(" ")));
+console.log("radix base 10:", sorted);
+const bin = radixSort(big, 2);
+console.log("radix base 2 needed", bin.passes.length, "passes; result ok:", bin.sorted.join() === sorted.join());
+console.log("radix base 16:", radixSort(big, 16).passes.length, "passes");
+
+const words = ["banana", "apple", "cherry", "app", "band", "can", "candy", "ban", "a"];
+console.log("string radix:", radixSortStrings(words));
+console.log("matches builtin:", JSON.stringify(radixSortStrings(words)) === JSON.stringify([...words].sort()));
+
+const fractions = [0.42, 0.32, 0.23, 0.52, 0.25, 0.47, 0.51, 0.99, 0.01, 0.7];
+const buckets = bucketSort(fractions, 5);
+console.log("buckets:", buckets);
+console.log("flattened:", buckets.flat().map((x) => x.toFixed(2)).join(" "));
+console.log("bucket sizes:", buckets.map((b) => b.length));

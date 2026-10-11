@@ -1,0 +1,128 @@
+// skip: not supported yet: PTS1001: converting value to {kind: string}
+// A small pattern-matching helper for discriminated unions, used for shapes, commands and HTTP results.
+
+type Tagged = { kind: string };
+type Handlers<T extends Tagged, R> = { [K in T["kind"]]: (value: Extract<T, { kind: K }>) => R };
+type PartialHandlers<T extends Tagged, R> = Partial<Handlers<T, R>> & { _: (value: T) => R };
+
+function match<T extends Tagged, R>(value: T, handlers: Handlers<T, R>): R {
+  const h = handlers[value.kind as T["kind"]] as (v: T) => R;
+  return h(value);
+}
+
+function matchOr<T extends Tagged, R>(value: T, handlers: PartialHandlers<T, R>): R {
+  const h = handlers[value.kind as T["kind"]] as ((v: T) => R) | undefined;
+  return h ? h(value) : handlers._(value);
+}
+
+type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "triangle"; a: number; b: number; c: number }
+  | { kind: "polygon"; points: Array<[number, number]> };
+
+const area = (s: Shape): number =>
+  match(s, {
+    circle: ({ r }) => Math.PI * r * r,
+    rect: ({ w, h }) => w * h,
+    triangle: ({ a, b, c }) => {
+      const p = (a + b + c) / 2;
+      return Math.sqrt(p * (p - a) * (p - b) * (p - c));
+    },
+    polygon: ({ points }) =>
+      Math.abs(points.reduce((acc, [x1, y1], i) => {
+        const [x2, y2] = points[(i + 1) % points.length];
+        return acc + (x1 * y2 - x2 * y1);
+      }, 0)) / 2,
+  });
+
+const describe = (s: Shape): string =>
+  matchOr(s, {
+    circle: (c) => `circle of radius ${c.r}`,
+    rect: (r) => (r.w === r.h ? `square ${r.w}x${r.w}` : `rectangle ${r.w}x${r.h}`),
+    _: (other) => `some ${other.kind}`,
+  });
+
+const shapes: Shape[] = [
+  { kind: "circle", r: 1.5 },
+  { kind: "rect", w: 3, h: 4 },
+  { kind: "rect", w: 2.5, h: 2.5 },
+  { kind: "triangle", a: 3, b: 4, c: 5 },
+  { kind: "polygon", points: [[0, 0], [4, 0], [4, 3], [2, 5], [0, 3]] },
+];
+for (const s of shapes) console.log(`${describe(s).padEnd(22)} area=${area(s).toFixed(3)}`);
+const totalArea = shapes.map(area).reduce((a, b) => a + b, 0);
+console.log("total area: %s", totalArea.toFixed(2));
+
+// Commands for a turtle, interpreted with match into a path of points
+type Cmd =
+  | { kind: "forward"; dist: number }
+  | { kind: "turn"; deg: number }
+  | { kind: "repeat"; times: number; body: Cmd[] }
+  | { kind: "penUp" }
+  | { kind: "penDown" };
+
+interface Turtle {
+  x: number;
+  y: number;
+  heading: number;
+  pen: boolean;
+  segments: number;
+}
+
+const run = (t: Turtle, cmds: Cmd[]): Turtle =>
+  cmds.reduce<Turtle>(
+    (s, c) =>
+      match<Cmd, Turtle>(c, {
+        forward: ({ dist }) => {
+          const rad = (s.heading * Math.PI) / 180;
+          return {
+            ...s,
+            x: +(s.x + dist * Math.cos(rad)).toFixed(6),
+            y: +(s.y + dist * Math.sin(rad)).toFixed(6),
+            segments: s.segments + (s.pen ? 1 : 0),
+          };
+        },
+        turn: ({ deg }) => ({ ...s, heading: (((s.heading + deg) % 360) + 360) % 360 }),
+        repeat: ({ times, body }) => Array.from({ length: times }).reduce<Turtle>((acc) => run(acc, body), s),
+        penUp: () => ({ ...s, pen: false }),
+        penDown: () => ({ ...s, pen: true }),
+      }),
+    t,
+  );
+
+const start: Turtle = { x: 0, y: 0, heading: 0, pen: true, segments: 0 };
+const square: Cmd[] = [{ kind: "repeat", times: 4, body: [{ kind: "forward", dist: 10 }, { kind: "turn", deg: 90 }] }];
+const zigzag: Cmd[] = [
+  { kind: "turn", deg: 45 },
+  { kind: "repeat", times: 3, body: [{ kind: "forward", dist: 2 }, { kind: "turn", deg: -90 }, { kind: "penUp" }, { kind: "forward", dist: 2 }, { kind: "penDown" }, { kind: "turn", deg: 90 }] },
+];
+console.log(run(start, square));
+console.log(run(start, zigzag));
+console.log(run(start, [{ kind: "turn", deg: -450 }, { kind: "forward", dist: 1 }]));
+
+// HTTP-like results with partial matching and a default branch
+type HttpResult =
+  | { kind: "ok"; status: 200 | 201; body: string }
+  | { kind: "redirect"; status: 301 | 302; location: string }
+  | { kind: "clientError"; status: number; message: string }
+  | { kind: "serverError"; status: number; retryAfter?: number };
+
+const results: HttpResult[] = [
+  { kind: "ok", status: 200, body: '{"items":[]}' },
+  { kind: "redirect", status: 301, location: "/v2/items" },
+  { kind: "clientError", status: 404, message: "no such item" },
+  { kind: "serverError", status: 503, retryAfter: 30 },
+  { kind: "serverError", status: 500 },
+  { kind: "ok", status: 201, body: "" },
+];
+const summaries = results.map((r) =>
+  matchOr(r, {
+    ok: (o) => `${o.status} OK ${o.body.length ? `(${o.body.length} bytes)` : "(empty)"}`,
+    serverError: (e) => `${e.status} retry ${e.retryAfter !== undefined ? `in ${e.retryAfter}s` : "with backoff"}`,
+    _: (other) => `${other.status} ${other.kind}`,
+  }),
+);
+console.log(summaries);
+const tally = results.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.kind]: (acc[r.kind] ?? 0) + 1 }), {});
+console.log(tally);

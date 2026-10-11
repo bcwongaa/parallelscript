@@ -1,0 +1,140 @@
+// School grade book: weighted categories, letter grades, class statistics and report cards.
+
+type Category = "homework" | "quiz" | "exam";
+
+interface Assignment {
+  title: string;
+  category: Category;
+  maxPoints: number;
+}
+
+class Student {
+  private scores = new Map<string, number>();
+  constructor(readonly id: number, readonly name: string) {}
+
+  record(title: string, points: number): void {
+    this.scores.set(title, points);
+  }
+  score(title: string): number | undefined {
+    return this.scores.get(title);
+  }
+}
+
+class GradeBook {
+  private students: Student[] = [];
+  private assignments: Assignment[] = [];
+
+  constructor(readonly course: string, private weights: Record<Category, number>) {
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    if (Math.abs(total - 1) > 1e-9) throw new Error(`weights sum to ${total}, expected 1`);
+  }
+
+  enroll(name: string): Student {
+    const s = new Student(this.students.length + 1, name);
+    this.students.push(s);
+    return s;
+  }
+
+  assign(a: Assignment): void {
+    this.assignments.push(a);
+  }
+
+  categoryPercent(s: Student, cat: Category): number | null {
+    const items = this.assignments.filter((a) => a.category === cat);
+    if (items.length === 0) return null;
+    let earned = 0;
+    let possible = 0;
+    for (const a of items) {
+      earned += s.score(a.title) ?? 0; // missing work counts as zero
+      possible += a.maxPoints;
+    }
+    return (earned / possible) * 100;
+  }
+
+  finalPercent(s: Student): number {
+    let total = 0;
+    let usedWeight = 0;
+    for (const cat of Object.keys(this.weights) as Category[]) {
+      const pct = this.categoryPercent(s, cat);
+      if (pct === null) continue;
+      total += pct * this.weights[cat];
+      usedWeight += this.weights[cat];
+    }
+    return usedWeight === 0 ? 0 : total / usedWeight;
+  }
+
+  static letter(pct: number): string {
+    const cutoffs: [number, string][] = [[93, "A"], [90, "A-"], [87, "B+"], [83, "B"], [80, "B-"], [77, "C+"], [70, "C"], [60, "D"]];
+    for (const [min, grade] of cutoffs) if (pct >= min) return grade;
+    return "F";
+  }
+
+  missing(s: Student): string[] {
+    return this.assignments.filter((a) => s.score(a.title) === undefined).map((a) => a.title);
+  }
+
+  report(): void {
+    console.log(`== ${this.course} ==`);
+    const finals = this.students.map((s) => ({ s, pct: this.finalPercent(s) }));
+    finals.sort((a, b) => b.pct - a.pct || a.s.name.localeCompare(b.s.name));
+    finals.forEach(({ s, pct }, rank) => {
+      const cats = (["homework", "quiz", "exam"] as const).map((c) => {
+        const p = this.categoryPercent(s, c);
+        return p === null ? "  n/a" : p.toFixed(1).padStart(5);
+      });
+      const miss = this.missing(s);
+      console.log(`${String(rank + 1).padStart(2)}. ${s.name.padEnd(8)} ${cats.join(" ")}  ${pct.toFixed(2).padStart(6)} ${GradeBook.letter(pct).padEnd(2)}${miss.length ? "  missing: " + miss.join(", ") : ""}`);
+    });
+    const pcts = finals.map((f) => f.pct);
+    const mean = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+    const sd = Math.sqrt(pcts.reduce((a, p) => a + (p - mean) ** 2, 0) / pcts.length);
+    const sorted = [...pcts].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    console.log(`mean ${mean.toFixed(2)}  median ${median.toFixed(2)}  sd ${sd.toFixed(2)}`);
+    const dist: Record<string, number> = {};
+    for (const p of pcts) {
+      const l = GradeBook.letter(p)[0];
+      dist[l] = (dist[l] || 0) + 1;
+    }
+    console.log("distribution:", dist);
+  }
+}
+
+const book = new GradeBook("CS 101", { homework: 0.25, quiz: 0.25, exam: 0.5 });
+const assignments: Assignment[] = [
+  { title: "HW1", category: "homework", maxPoints: 10 },
+  { title: "HW2", category: "homework", maxPoints: 10 },
+  { title: "HW3", category: "homework", maxPoints: 20 },
+  { title: "Quiz1", category: "quiz", maxPoints: 5 },
+  { title: "Quiz2", category: "quiz", maxPoints: 5 },
+  { title: "Midterm", category: "exam", maxPoints: 100 },
+  { title: "Final", category: "exam", maxPoints: 150 },
+];
+assignments.forEach((a) => book.assign(a));
+
+const raw: Record<string, (number | null)[]> = {
+  Avery: [10, 9, 19, 5, 4, 92, 141],
+  Blake: [7, null, 15, 3, 4, 71, 98],
+  Casey: [10, 10, 20, 5, 5, 98, 147],
+  Devon: [5, 6, null, 2, null, 55, 80],
+  Emery: [9, 8, 17, 4, 5, 85, 120],
+  Finley: [8, 8, 16, 4, 4, 80, 126],
+};
+for (const [name, scores] of Object.entries(raw)) {
+  const st = book.enroll(name);
+  scores.forEach((pts, i) => {
+    if (pts !== null) st.record(assignments[i].title, pts);
+  });
+}
+book.report();
+
+try {
+  new GradeBook("Broken", { homework: 0.5, quiz: 0.5, exam: 0.5 });
+} catch (e) {
+  console.log((e as Error).message);
+}
+console.log([95, 90, 88.5, 79.99, 60, 12].map(GradeBook.letter));
+const empty = new GradeBook("Empty", { homework: 1, quiz: 0, exam: 0 });
+const solo = empty.enroll("Solo");
+console.log(empty.finalPercent(solo), empty.categoryPercent(solo, "exam"), solo);

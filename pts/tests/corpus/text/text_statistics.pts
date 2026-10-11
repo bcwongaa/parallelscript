@@ -1,0 +1,100 @@
+// A sentence and paragraph statistics report: syllable estimates, Flesch reading ease,
+// sentence lengths, passive voice hints and the most "complex" words.
+interface SentenceStats {
+  text: string;
+  words: number;
+  syllables: number;
+  longWords: string[];
+}
+
+interface ParagraphReport {
+  index: number;
+  sentences: SentenceStats[];
+  readingEase: number;
+  gradeLevel: number;
+}
+
+const ESSAY = `Garbage collection is a form of automatic memory management. The collector attempts to reclaim memory which was allocated by the program but is no longer referenced. It was invented by John McCarthy around 1959!
+
+Concurrent collectors run alongside the application. They must coordinate carefully with mutator threads, which complicates the implementation considerably. Is the extra complexity worth it? For latency-sensitive services, usually yes.
+
+Short pauses matter. Throughput matters too. Engineers must balance both, and the right answer depends on the workload being measured.`;
+
+function syllables(word: string): number {
+  const w = word.toLowerCase().split("").filter((c) => c >= "a" && c <= "z").join("");
+  if (w.length <= 3) return 1;
+  let count = 0;
+  let prevVowel = false;
+  for (const c of w) {
+    const v = "aeiouy".includes(c);
+    if (v && !prevVowel) count++;
+    prevVowel = v;
+  }
+  if (w.endsWith("e") && !w.endsWith("le")) count--;
+  if (w.endsWith("ed") && !w.endsWith("ted") && !w.endsWith("ded")) count--;
+  return Math.max(1, count);
+}
+
+function splitSentences(paragraph: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < paragraph.length; i++) {
+    const c = paragraph[i];
+    cur += c;
+    if ((c === "." || c === "!" || c === "?") && (i + 1 === paragraph.length || paragraph[i + 1] === " ")) {
+      out.push(cur.trim());
+      cur = "";
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+const tokenize = (s: string) => s.split(" ").map((w) => w.split("").filter((c) => c.toLowerCase() !== c.toUpperCase() || c === "-").join("")).filter(Boolean);
+
+function analyseSentence(text: string): SentenceStats {
+  const ws = tokenize(text);
+  const syl = ws.map(syllables);
+  return { text, words: ws.length, syllables: syl.reduce((a, b) => a + b, 0), longWords: ws.filter((_, i) => syl[i] >= 3) };
+}
+
+function analyseParagraph(p: string, index: number): ParagraphReport {
+  const sentences = splitSentences(p).map(analyseSentence);
+  const words = sentences.reduce((s, x) => s + x.words, 0);
+  const syl = sentences.reduce((s, x) => s + x.syllables, 0);
+  const wps = words / sentences.length, spw = syl / words;
+  return {
+    index,
+    sentences,
+    readingEase: Math.round((206.835 - 1.015 * wps - 84.6 * spw) * 10) / 10,
+    gradeLevel: Math.round((0.39 * wps + 11.8 * spw - 15.59) * 10) / 10,
+  };
+}
+
+const paragraphs = ESSAY.split("\n\n").map((p, i) => analyseParagraph(p.split("\n").join(" "), i + 1));
+for (const r of paragraphs) {
+  console.log(`Paragraph ${r.index}: ${r.sentences.length} sentences, ease ${r.readingEase}, grade ${r.gradeLevel}`);
+  for (const s of r.sentences) {
+    const kind = s.text.endsWith("?") ? "Q" : s.text.endsWith("!") ? "!" : ".";
+    console.log(`  [${kind}] ${String(s.words).padStart(2)}w ${String(s.syllables).padStart(2)}syl  ${s.text.length > 50 ? s.text.slice(0, 47) + "..." : s.text}`);
+  }
+}
+
+const allSentences = paragraphs.flatMap((p) => p.sentences);
+const lengths = allSentences.map((s) => s.words);
+const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+const sd = Math.sqrt(lengths.reduce((a, b) => a + (b - mean) ** 2, 0) / lengths.length);
+console.log("sentence length: mean=%s sd=%s min=%d max=%d", mean.toFixed(2), sd.toFixed(2), Math.min(...lengths), Math.max(...lengths));
+
+const complex = [...new Set(allSentences.flatMap((s) => s.longWords.map((w) => w.toLowerCase())))]
+  .map((w) => ({ w, syl: syllables(w) }))
+  .sort((a, b) => b.syl - a.syl || a.w.localeCompare(b.w));
+console.log(complex.slice(0, 8));
+
+const passiveHints = allSentences.filter((s) => {
+  const ws = tokenize(s.text).map((w) => w.toLowerCase());
+  return ws.some((w, i) => ["is", "was", "were", "been", "being", "are"].includes(w) && i + 1 < ws.length && ws[i + 1].endsWith("ed"));
+});
+console.log("possible passive voice:", passiveHints.map((s) => s.text));
+console.log(["the", "table", "created", "beautiful", "rhythm", "queue", "readability", "a"].map((w) => `${w}=${syllables(w)}`).join(" "));
+console.log(paragraphs[2]);

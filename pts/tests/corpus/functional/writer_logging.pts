@@ -1,0 +1,85 @@
+// skip: not supported yet: PTS1001: converting value to string[]
+// A Writer-style computation that accumulates logs alongside values, used for a loan calculator.
+
+type Writer<A> = { value: A; logs: string[] };
+
+const writer = <A>(value: A, ...logs: string[]): Writer<A> => ({ value, logs });
+const bind = <A, B>(w: Writer<A>, f: (a: A) => Writer<B>): Writer<B> => {
+  const next = f(w.value);
+  return { value: next.value, logs: [...w.logs, ...next.logs] };
+};
+const tell = (msg: string): Writer<null> => writer(null, msg);
+const fmap = <A, B>(w: Writer<A>, f: (a: A) => B): Writer<B> => ({ value: f(w.value), logs: w.logs });
+
+function logged<A extends unknown[], R>(name: string, fn: (...args: A) => R, show: (r: R) => string = String): (...args: A) => Writer<R> {
+  return (...args) => {
+    const r = fn(...args);
+    return writer(r, `${name}(${args.map((a) => JSON.stringify(a)).join(", ")}) = ${show(r)}`);
+  };
+}
+
+const money = (n: number) => n.toFixed(2);
+
+interface Loan {
+  principal: number;
+  annualRate: number;
+  years: number;
+}
+
+const monthlyRate = logged("monthlyRate", (annual: number) => annual / 12, (r) => r.toFixed(6));
+const payments = logged("payments", (years: number) => years * 12);
+const annuity = logged(
+  "payment",
+  (p: number, r: number, n: number) => (r === 0 ? p / n : (p * r) / (1 - (1 + r) ** -n)),
+  money,
+);
+
+function plan(loan: Loan): Writer<{ payment: number; totalPaid: number; interest: number }> {
+  return bind(tell(`loan of ${money(loan.principal)} at ${(loan.annualRate * 100).toFixed(2)}% for ${loan.years}y`), () =>
+    bind(monthlyRate(loan.annualRate), (r) =>
+      bind(payments(loan.years), (n) =>
+        bind(annuity(loan.principal, r, n), (payment) => {
+          const totalPaid = payment * n;
+          const interest = totalPaid - loan.principal;
+          return writer({ payment, totalPaid, interest }, `total ${money(totalPaid)}, interest ${money(interest)}`);
+        }),
+      ),
+    ),
+  );
+}
+
+const loans: Loan[] = [
+  { principal: 250000, annualRate: 0.065, years: 30 },
+  { principal: 18000, annualRate: 0.049, years: 5 },
+  { principal: 1200, annualRate: 0, years: 1 },
+];
+for (const loan of loans) {
+  const result = plan(loan);
+  result.logs.forEach((l, i) => console.log(`${i === 0 ? "*" : " "} ${l}`));
+  console.log("  =>", { payment: +money(result.value.payment), interest: +money(result.value.interest) });
+}
+
+// Amortization schedule: fold months through bind, logging only every 12th month
+function amortize(principal: number, r: number, payment: number, months: number): Writer<number> {
+  let w: Writer<number> = writer(principal);
+  for (let m = 1; m <= months; m++) {
+    const month = m;
+    w = bind(w, (balance) => {
+      const interest = balance * r;
+      const next = Math.max(0, balance + interest - payment);
+      return month % 12 === 0 || next === 0
+        ? writer(next, `month ${String(month).padStart(2)}: interest ${money(interest).padStart(7)} balance ${money(next).padStart(9)}`)
+        : writer(next);
+    });
+  }
+  return w;
+}
+const car = plan(loans[1]).value;
+const schedule = amortize(18000, 0.049 / 12, car.payment, 60);
+console.log(schedule.logs.join("\n"));
+console.log("final balance:", Math.abs(schedule.value) < 1e-6 ? 0 : schedule.value);
+
+// Extra payments: comparing two scenarios with fmap
+const withExtra = fmap(amortize(18000, 0.049 / 12, car.payment + 100, 60), (b) => b === 0);
+console.log("paid off early:", withExtra.value, "milestones logged:", withExtra.logs.length);
+console.log(withExtra.logs.at(-1));

@@ -1,0 +1,83 @@
+type Vec = [number, number];
+
+function makeRng(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+const rng = makeRng(424242);
+const centersTrue: Vec[] = [[2, 3], [8, 8], [9, 1]];
+const points: Vec[] = [];
+for (const [cx, cy] of centersTrue) {
+  for (let i = 0; i < 25; i++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = rng() * 1.5;
+    points.push([Math.round((cx + Math.cos(angle) * radius) * 100) / 100, Math.round((cy + Math.sin(angle) * radius) * 100) / 100]);
+  }
+}
+
+const dist2 = (a: Vec, b: Vec): number => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+
+interface Result {
+  centroids: Vec[];
+  assignment: number[];
+  iterations: number;
+  inertia: number;
+}
+
+function kmeans(data: Vec[], k: number, maxIter = 50): Result {
+  let centroids: Vec[] = data.filter((_, i) => i % Math.floor(data.length / k) === 0).slice(0, k).map(([x, y]) => [x, y]);
+  let assignment = new Array<number>(data.length).fill(-1);
+  let iterations = 0;
+  for (; iterations < maxIter; iterations++) {
+    let changed = false;
+    const next = data.map((p, i) => {
+      let best = 0;
+      for (let c = 1; c < k; c++) if (dist2(p, centroids[c]) < dist2(p, centroids[best])) best = c;
+      if (best !== assignment[i]) changed = true;
+      return best;
+    });
+    assignment = next;
+    if (!changed) break;
+    centroids = centroids.map((old, c): Vec => {
+      const members = data.filter((_, i) => assignment[i] === c);
+      if (members.length === 0) return old;
+      const sx = members.reduce((s, p) => s + p[0], 0);
+      const sy = members.reduce((s, p) => s + p[1], 0);
+      return [sx / members.length, sy / members.length];
+    });
+  }
+  const inertia = data.reduce((s, p, i) => s + dist2(p, centroids[assignment[i]]), 0);
+  return { centroids, assignment, iterations, inertia };
+}
+
+console.log("points:", points.length, "first:", points.slice(0, 3));
+const res = kmeans(points, 3);
+console.log("iterations:", res.iterations);
+res.centroids
+  .map((c, i) => ({ i, c, n: res.assignment.filter((a) => a === i).length }))
+  .sort((a, b) => a.c[0] - b.c[0])
+  .forEach(({ i, c, n }) => console.log(`cluster ${i}: (${c[0].toFixed(3)}, ${c[1].toFixed(3)}) n=${n}`));
+console.log("inertia:", res.inertia.toFixed(4));
+
+for (let k = 1; k <= 5; k++) {
+  const r = kmeans(points, k);
+  console.log(`k=${k} inertia=${r.inertia.toFixed(2).padStart(8)} ${"=".repeat(Math.round(r.inertia / 10))}`);
+}
+
+const grid: string[][] = Array.from({ length: 11 }, () => new Array<string>(23).fill("."));
+points.forEach(([x, y], i) => {
+  const gx = Math.round(x * 2);
+  const gy = 10 - Math.round(y);
+  if (gy >= 0 && gy < 11 && gx >= 0 && gx < 23) grid[gy][gx] = "abc"[res.assignment[i]];
+});
+for (const c of res.centroids) {
+  const gx = Math.round(c[0] * 2);
+  const gy = 10 - Math.round(c[1]);
+  if (gy >= 0 && gy < 11 && gx >= 0 && gx < 23) grid[gy][gx] = "X";
+}
+console.log(grid.map((r) => r.join("")).join("\n"));
+console.log(res.assignment.slice(0, 10), res.centroids.length);

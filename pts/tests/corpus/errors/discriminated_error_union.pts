@@ -1,0 +1,91 @@
+// skip: not supported yet: PTS1001: converting value to {kind: value}
+// Errors as a discriminated union of plain objects (no classes), narrowed
+// with `kind`, `in` and user-defined type guards, then rendered for users.
+
+type NetworkFailure = { kind: "network"; host: string; retryable: boolean };
+type HttpFailure = { kind: "http"; status: number; body?: string };
+type DecodeFailure = { kind: "decode"; field: string; expected: string };
+type TimeoutFailure = { kind: "timeout"; afterMs: number };
+type Failure = NetworkFailure | HttpFailure | DecodeFailure | TimeoutFailure;
+
+function isFailure(x: unknown): x is Failure {
+  return typeof x === "object" && x !== null && "kind" in x &&
+    ["network", "http", "decode", "timeout"].includes(String((x as { kind: unknown }).kind));
+}
+
+function isRetryable(f: Failure): boolean {
+  if ("retryable" in f) return f.retryable;
+  if ("status" in f) return f.status >= 500 || f.status === 429;
+  return f.kind === "timeout";
+}
+
+function render(f: Failure): string {
+  switch (f.kind) {
+    case "network":
+      return `cannot reach ${f.host}`;
+    case "http":
+      return `server answered ${f.status}${f.body ? `: ${f.body}` : ""}`;
+    case "decode":
+      return `field '${f.field}' should be ${f.expected}`;
+    case "timeout":
+      return `no answer after ${(f.afterMs / 1000).toFixed(1)}s`;
+  }
+}
+
+interface Weather {
+  city: string;
+  tempC: number;
+}
+
+const responses: Record<string, string | Failure> = {
+  paris: '{"city":"Paris","tempC":18.5}',
+  oslo: '{"city":"Oslo","tempC":"cold"}',
+  lima: '{"town":"Lima"}',
+};
+
+function fetchWeather(city: string, attempt: number): Weather {
+  if (city === "atlantis") throw { kind: "network", host: "atlantis.example", retryable: false } satisfies Failure;
+  if (city === "busy") {
+    if (attempt < 2) throw { kind: "http", status: 503, body: "overloaded" } satisfies Failure;
+    return { city: "Busy", tempC: 21 };
+  }
+  if (city === "slow") throw { kind: "timeout", afterMs: 4500 } satisfies Failure;
+  if (city === "secret") throw { kind: "http", status: 403 } satisfies Failure;
+  const raw = responses[city];
+  if (raw === undefined) throw new Error(`no fixture for ${city}`);
+  if (typeof raw !== "string") throw raw;
+  const data = JSON.parse(raw) as Record<string, unknown>;
+  if (typeof data.city !== "string") throw { kind: "decode", field: "city", expected: "string" } satisfies Failure;
+  if (typeof data.tempC !== "number") throw { kind: "decode", field: "tempC", expected: "number" } satisfies Failure;
+  return { city: data.city, tempC: data.tempC };
+}
+
+const cities = ["paris", "oslo", "lima", "atlantis", "busy", "slow", "secret", "narnia"];
+const report: Array<{ city: string; result: string; attempts: number }> = [];
+for (const city of cities) {
+  let attempts = 0;
+  let result = "";
+  for (;;) {
+    attempts++;
+    try {
+      const w = fetchWeather(city, attempts);
+      result = `${w.city} ${w.tempC}°C`;
+      break;
+    } catch (e) {
+      if (isFailure(e)) {
+        result = render(e);
+        if (isRetryable(e) && attempts < 3) continue;
+      } else if (e instanceof Error) {
+        result = `bug: ${e.message}`;
+      }
+      break;
+    }
+  }
+  report.push({ city, result, attempts });
+}
+console.table(report);
+const kinds = report.map((r) => r.result.split(" ")[0]);
+console.log(kinds);
+console.log(isFailure({ kind: "http", status: 500 }), isFailure({ kind: "other" }), isFailure("http"), isFailure(null));
+const sample: Failure = { kind: "decode", field: "x", expected: "int" };
+console.log(sample, isRetryable(sample), render(sample));

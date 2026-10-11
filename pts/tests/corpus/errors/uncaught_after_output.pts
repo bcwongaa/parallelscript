@@ -1,0 +1,59 @@
+// A report generator that prints its progress and then dies with an uncaught
+// exception when it reaches a corrupt record (exit code 1).
+
+class CorruptRecordError extends Error {
+  constructor(readonly recordId: number, detail: string) {
+    super(`record ${recordId} is corrupt: ${detail}`);
+    this.name = "CorruptRecordError";
+  }
+}
+
+interface Sale {
+  id: number;
+  region: string;
+  units: number;
+  unitPrice: number;
+}
+
+const sales: Sale[] = [
+  { id: 1, region: "north", units: 10, unitPrice: 2.5 },
+  { id: 2, region: "south", units: 4, unitPrice: 10 },
+  { id: 3, region: "north", units: 7, unitPrice: 3.25 },
+  { id: 4, region: "east", units: 1, unitPrice: 99.99 },
+  { id: 5, region: "south", units: -3, unitPrice: 10 },
+  { id: 6, region: "west", units: 2, unitPrice: 5 },
+];
+
+function validate(s: Sale): Sale {
+  if (s.units < 0) throw new CorruptRecordError(s.id, `negative units (${s.units})`);
+  if (!(s.unitPrice > 0)) throw new CorruptRecordError(s.id, "non-positive price");
+  return s;
+}
+
+function header(title: string, width: number): string {
+  const pad = Math.max(0, width - title.length - 2);
+  const left = Math.floor(pad / 2);
+  return "=".repeat(left) + " " + title + " " + "=".repeat(pad - left);
+}
+
+const regions = [...new Set(sales.map((s) => s.region))].sort();
+console.log(header("sales report", 40));
+console.log("regions:", regions);
+console.log("unit price range:", {
+  min: Math.min(...sales.map((s) => s.unitPrice)),
+  max: Math.max(...sales.map((s) => s.unitPrice)),
+});
+
+const byRegion = new Map<string, { units: number; revenue: number }>();
+console.log("processing %d records", sales.length);
+for (const s of sales) {
+  const ok = validate(s);
+  const agg = byRegion.get(ok.region) ?? { units: 0, revenue: 0 };
+  agg.units += ok.units;
+  agg.revenue += ok.units * ok.unitPrice;
+  byRegion.set(ok.region, agg);
+  console.log(`  #${ok.id} ${ok.region.padEnd(6)} ${(ok.units * ok.unitPrice).toFixed(2).padStart(8)}`);
+  console.log("  running totals:", Object.fromEntries(byRegion));
+}
+
+console.log("report complete");

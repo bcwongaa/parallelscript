@@ -1,0 +1,100 @@
+// skip: not supported yet: PTS1001: rest parameters of type [module: string, msg: string, code: number]
+// Currying and partial application helpers used to build small pricing functions.
+
+type Fn2<A, B, R> = (a: A, b: B) => R;
+type Fn3<A, B, C, R> = (a: A, b: B, c: C) => R;
+
+function curry2<A, B, R>(fn: Fn2<A, B, R>): (a: A) => (b: B) => R {
+  return (a: A) => (b: B) => fn(a, b);
+}
+
+function curry3<A, B, C, R>(fn: Fn3<A, B, C, R>): (a: A) => (b: B) => (c: C) => R {
+  return (a: A) => (b: B) => (c: C) => fn(a, b, c);
+}
+
+function partial<A, Rest extends unknown[], R>(fn: (a: A, ...rest: Rest) => R, a: A): (...rest: Rest) => R {
+  return (...rest: Rest) => fn(a, ...rest);
+}
+
+function flip<A, B, R>(fn: Fn2<A, B, R>): Fn2<B, A, R> {
+  return (b: B, a: A) => fn(a, b);
+}
+
+const add = (a: number, b: number): number => a + b;
+const mul = (a: number, b: number): number => a * b;
+const sub = (a: number, b: number): number => a - b;
+
+const add10 = curry2(add)(10);
+const double = curry2(mul)(2);
+const minusFrom100 = curry2(sub)(100);
+const subtract5 = curry2(flip(sub))(5);
+
+console.log("add10(5) =", add10(5));
+console.log("double(21) =", double(21));
+console.log("minusFrom100(42) =", minusFrom100(42));
+console.log("subtract5(42) =", subtract5(42));
+
+interface LineItem {
+  sku: string;
+  price: number;
+  qty: number;
+}
+
+function priceWith(taxRate: number, discount: number, item: LineItem): number {
+  const gross = item.price * item.qty;
+  const discounted = gross * (1 - discount);
+  return Math.round(discounted * (1 + taxRate) * 100) / 100;
+}
+
+const priceCurried = curry3(priceWith);
+const nyPrice = priceCurried(0.08875);
+const nyMemberPrice = nyPrice(0.1);
+const nyRegularPrice = nyPrice(0);
+
+const cart: LineItem[] = [
+  { sku: "APL-01", price: 1.25, qty: 6 },
+  { sku: "BRD-22", price: 3.49, qty: 2 },
+  { sku: "CHS-07", price: 7.99, qty: 1 },
+  { sku: "MLK-12", price: 2.89, qty: 3 },
+];
+
+for (const item of cart) {
+  console.log(`${item.sku.padEnd(8)} member=${nyMemberPrice(item).toFixed(2).padStart(7)} regular=${nyRegularPrice(item).toFixed(2).padStart(7)}`);
+}
+
+const total = (pricer: (i: LineItem) => number): number =>
+  cart.map(pricer).reduce((acc, x) => acc + x, 0);
+
+console.log("member total: %s", total(nyMemberPrice).toFixed(2));
+console.log("regular total: %s", total(nyRegularPrice).toFixed(2));
+
+function formatMessage(level: string, module: string, msg: string, code: number): string {
+  return `[${level}] ${module}: ${msg} (code ${code})`;
+}
+
+const warn = partial(formatMessage, "WARN");
+const warnDb = partial(warn, "db");
+console.log(warnDb("slow query", 17));
+console.log(warn("net", "retrying", 3));
+
+const greeters = ["Hello", "Hola", "Bonjour"].map((g) => curry2((greeting: string, name: string) => `${greeting}, ${name}!`)(g));
+const names = ["Ada", "Linus"];
+const greetings = greeters.flatMap((g) => names.map(g));
+console.log(greetings);
+
+// Curried comparator builder
+const byKey = <T>(key: keyof T) => (dir: 1 | -1) => (a: T, b: T): number => {
+  const x = a[key];
+  const y = b[key];
+  if (x < y) return -1 * dir;
+  if (x > y) return 1 * dir;
+  return 0;
+};
+
+const sortedByPriceDesc = [...cart].sort(byKey<LineItem>("price")(-1));
+console.log(sortedByPriceDesc.map((i) => i.sku).join(" > "));
+const sortedBySkuAsc = [...cart].sort(byKey<LineItem>("sku")(1));
+console.log(sortedBySkuAsc);
+
+const arity = [add10, double, curry2(add), priceCurried, partial(formatMessage, "X")].map((f) => f.length);
+console.log("arities:", arity);

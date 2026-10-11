@@ -1,0 +1,84 @@
+// Rod cutting: top-down memo with a Map, bottom-up table, and a cutting cost variant.
+
+const prices: number[] = [0, 1, 5, 8, 9, 10, 17, 17, 20, 24, 30];
+
+class RodCutter {
+  private memo = new Map<number, number>();
+  calls = 0;
+
+  constructor(private readonly price: readonly number[], private readonly cutCost = 0) {}
+
+  priceOf(len: number): number {
+    return len < this.price.length ? this.price[len] : -Infinity;
+  }
+
+  bestTopDown(n: number): number {
+    this.calls++;
+    if (n === 0) return 0;
+    const cached = this.memo.get(n);
+    if (cached !== undefined) return cached;
+    let best = this.priceOf(n);
+    for (let first = 1; first < n; first++) {
+      best = Math.max(best, this.priceOf(first) + this.bestTopDown(n - first) - this.cutCost);
+    }
+    this.memo.set(n, best);
+    return best;
+  }
+
+  bestBottomUp(n: number): { value: number; pieces: number[] } {
+    const value = new Array<number>(n + 1).fill(0);
+    const firstCut = new Array<number>(n + 1).fill(0);
+    for (let len = 1; len <= n; len++) {
+      value[len] = -Infinity;
+      for (let first = 1; first <= len; first++) {
+        const extra = first === len ? 0 : this.cutCost;
+        const v = this.priceOf(first) + value[len - first] - extra;
+        if (v > value[len]) {
+          value[len] = v;
+          firstCut[len] = first;
+        }
+      }
+    }
+    const pieces: number[] = [];
+    for (let rest = n; rest > 0; rest -= firstCut[rest]) pieces.push(firstCut[rest]);
+    return { value: value[n], pieces };
+  }
+
+  get memoSize(): number {
+    return this.memo.size;
+  }
+}
+
+const cutter = new RodCutter(prices);
+console.log("len | top-down | bottom-up | pieces");
+for (let n = 1; n <= 10; n++) {
+  const td = cutter.bestTopDown(n);
+  const { value, pieces } = cutter.bestBottomUp(n);
+  console.log(`${String(n).padStart(3)} | ${String(td).padStart(8)} | ${String(value).padStart(9)} | ${pieces.join("+")}`);
+}
+console.log("recursive calls:", cutter.calls, "memo size:", cutter.memoSize);
+
+const longer = cutter.bestBottomUp(23);
+console.log("length 23:", longer);
+const tally = longer.pieces.reduce<Map<number, number>>((m, p) => m.set(p, (m.get(p) ?? 0) + 1), new Map());
+console.log("piece counts:", tally);
+
+for (const cost of [0, 1, 2, 3, 5]) {
+  const c = new RodCutter(prices, cost);
+  const r = c.bestBottomUp(10);
+  console.log("cut cost %d: value %d, pieces %j", cost, r.value, r.pieces);
+}
+
+// Naive exponential version for comparison of call counts.
+let naiveCalls = 0;
+function naive(n: number): number {
+  naiveCalls++;
+  if (n === 0) return 0;
+  let best = -Infinity;
+  for (let i = 1; i <= Math.min(n, prices.length - 1); i++) best = Math.max(best, prices[i] + naive(n - i));
+  return best;
+}
+const fresh = new RodCutter(prices);
+console.log("n=15 naive:", naive(15), "calls:", naiveCalls);
+console.log("n=15 memo :", fresh.bestTopDown(15), "calls:", fresh.calls);
+console.log(fresh);

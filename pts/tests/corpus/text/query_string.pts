@@ -1,0 +1,101 @@
+// URL query-string parsing and building by hand, with percent-encoding, repeated keys and nesting.
+type QueryValue = string | string[];
+type Query = Record<string, QueryValue>;
+
+const UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";
+
+function percentEncode(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    if (UNRESERVED.includes(ch)) { out += ch; continue; }
+    if (ch === " ") { out += "+"; continue; }
+    const cp = ch.codePointAt(0) ?? 0;
+    const bytes: number[] = cp < 0x80 ? [cp]
+      : cp < 0x800 ? [0xc0 | (cp >> 6), 0x80 | (cp & 63)]
+      : cp < 0x10000 ? [0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63)]
+      : [0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63)];
+    out += bytes.map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0")).join("");
+  }
+  return out;
+}
+
+function percentDecode(s: string): string {
+  const bytes: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "+") bytes.push(32);
+    else if (c === "%" && i + 2 < s.length && !Number.isNaN(parseInt(s.slice(i + 1, i + 3), 16))) {
+      bytes.push(parseInt(s.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else bytes.push(c.charCodeAt(0));
+  }
+  let out = "";
+  for (let i = 0; i < bytes.length; ) {
+    const b = bytes[i];
+    const n = b < 0x80 ? 0 : b >= 0xf0 ? 3 : b >= 0xe0 ? 2 : 1;
+    let cp = n === 0 ? b : b & (0x3f >> n);
+    for (let k = 1; k <= n; k++) cp = (cp << 6) | (bytes[i + k] & 0x3f);
+    out += String.fromCodePoint(cp);
+    i += n + 1;
+  }
+  return out;
+}
+
+function parseQuery(qs: string): Query {
+  const out: Query = {};
+  const body = qs.startsWith("?") ? qs.slice(1) : qs;
+  for (const part of body.split("&")) {
+    if (part === "") continue;
+    const eq = part.indexOf("=");
+    const rawKey = eq < 0 ? part : part.slice(0, eq);
+    const key = percentDecode(rawKey.endsWith("[]") ? rawKey.slice(0, -2) : rawKey);
+    const value = eq < 0 ? "" : percentDecode(part.slice(eq + 1));
+    if (key in out) {
+      const prev = out[key];
+      out[key] = Array.isArray(prev) ? [...prev, value] : [prev, value];
+    } else {
+      out[key] = rawKey.endsWith("[]") ? [value] : value;
+    }
+  }
+  return out;
+}
+
+function buildQuery(q: Query): string {
+  const parts: string[] = [];
+  for (const key of Object.keys(q).sort()) {
+    const v = q[key];
+    const values = typeof v === "string" ? [v] : v;
+    for (const item of values) parts.push(`${percentEncode(key)}=${percentEncode(item)}`);
+  }
+  return parts.length ? "?" + parts.join("&") : "";
+}
+
+function getFirst(q: Query, key: string, fallback = ""): string {
+  if (!(key in q)) return fallback;
+  const v = q[key];
+  return Array.isArray(v) ? v[0] ?? fallback : v;
+}
+
+const urls = [
+  "?q=hello+world&page=2&sort=desc",
+  "?tag=ts&tag=go&tag=c&empty=&flag",
+  "?ids[]=1&ids[]=2&name=J%C3%BCrgen%20M%C3%BCller",
+  "?redirect=%2Fhome%3Ftab%3D1%26x%3Dy&emoji=%F0%9F%8E%89",
+  "?bad=%zz%41&pct=100%25",
+  "",
+];
+for (const u of urls) {
+  const q = parseQuery(u);
+  console.log(JSON.stringify(u), "=>", q);
+  console.log("   rebuilt:", buildQuery(q));
+}
+
+const search: Query = { q: "C++ & Rust", lang: ["en", "fr"], limit: "10", path: "/a b/ü" };
+const built = buildQuery(search);
+console.log(built);
+const reparsed = parseQuery(built);
+console.log(JSON.stringify(reparsed) === JSON.stringify(Object.fromEntries(Object.keys(search).sort().map((k) => [k, search[k]]))));
+console.log("first lang:", getFirst(reparsed, "lang"), "| missing:", getFirst(reparsed, "nope", "(none)"));
+const page = Number(getFirst(parseQuery(urls[0]), "page", "1"));
+console.log("next page url:", buildQuery({ ...parseQuery(urls[0]), page: String(page + 1) }));
+console.log(percentEncode("Grüße, 世界! ~ok~"), percentDecode(percentEncode("Grüße, 世界! ~ok~")));

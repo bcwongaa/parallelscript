@@ -1,0 +1,106 @@
+// skip: diverges: an object outside its declared union (a `never` check) fails the union conversion (TypeError: Expected …)
+// Exhaustive switches over discriminated unions, with a `never` check that
+// throws when an unexpected value slips through at run time.
+
+class UnreachableError extends Error {
+  constructor(value: never, context: string) {
+    super(`unhandled ${context}: ${JSON.stringify(value)}`);
+    this.name = "UnreachableError";
+  }
+}
+
+function assertNever(value: never, context: string): never {
+  throw new UnreachableError(value, context);
+}
+
+type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "triangle"; a: number; b: number; c: number };
+
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle":
+      return Math.PI * s.r * s.r;
+    case "rect":
+      return s.w * s.h;
+    case "triangle": {
+      const p = (s.a + s.b + s.c) / 2;
+      const sq = p * (p - s.a) * (p - s.b) * (p - s.c);
+      if (sq < 0) throw new RangeError(`sides ${s.a}, ${s.b}, ${s.c} cannot form a triangle`);
+      return Math.sqrt(sq);
+    }
+    default:
+      return assertNever(s, "shape");
+  }
+}
+
+enum Op {
+  Add = "add",
+  Sub = "sub",
+  Mul = "mul",
+  Div = "div",
+}
+
+function apply(op: Op, a: number, b: number): number {
+  switch (op) {
+    case Op.Add:
+      return a + b;
+    case Op.Sub:
+      return a - b;
+    case Op.Mul:
+      return a * b;
+    case Op.Div:
+      if (b === 0) throw new RangeError("division by zero");
+      return a / b;
+    default:
+      return assertNever(op, "operator");
+  }
+}
+
+const shapes: Shape[] = [
+  { kind: "circle", r: 1.5 },
+  { kind: "rect", w: 3, h: 4.25 },
+  { kind: "triangle", a: 3, b: 4, c: 5 },
+  { kind: "triangle", a: 1, b: 2, c: 10 },
+];
+// Data coming from outside the type system, e.g. an older client.
+const untrusted = JSON.parse('[{"kind":"hexagon","side":2},{"kind":"circle","r":2}]') as Shape[];
+
+for (const s of [...shapes, ...untrusted]) {
+  try {
+    console.log(s.kind.padEnd(9), area(s).toFixed(3));
+  } catch (e) {
+    if (e instanceof UnreachableError) {
+      console.log("BUG:", e.message);
+    } else if (e instanceof RangeError) {
+      console.log("bad input:", e.message);
+    } else {
+      throw e;
+    }
+  }
+}
+
+const program: Array<[string, number, number]> = [
+  ["add", 2, 3],
+  ["div", 10, 4],
+  ["mul", 6, 7],
+  ["div", 1, 0],
+  ["pow", 2, 8],
+  ["sub", 1, 9],
+];
+const results: Record<string, number | string> = {};
+program.forEach(([name, a, b], i) => {
+  const key = `${i}:${name}`;
+  try {
+    results[key] = apply(name as Op, a, b);
+  } catch (e) {
+    results[key] = e instanceof Error ? `${e.name}(${e.message})` : "?";
+  }
+});
+console.log(results);
+
+const counts = new Map<string, number>();
+for (const s of shapes) counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
+console.log(counts);
+console.log(Object.values(Op));

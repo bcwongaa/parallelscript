@@ -1,0 +1,106 @@
+// skip: not supported yet: PTS1001: converting {at: string; expected: string; ok: boolean} | {ok: boolean; rest: string; value: string} to {at: string; expected: string; ok: ...
+// A tiny parser-combinator library used to parse arithmetic and key=value lists.
+
+type Result<T> = { ok: true; value: T; rest: string } | { ok: false; expected: string; at: string };
+type Parser<T> = (input: string) => Result<T>;
+
+const succeed = <T>(value: T): Parser<T> => (input) => ({ ok: true, value, rest: input });
+
+const char = (c: string): Parser<string> => (input) =>
+  input.startsWith(c) ? { ok: true, value: c, rest: input.slice(c.length) } : { ok: false, expected: JSON.stringify(c), at: input };
+
+const satisfy = (label: string, pred: (ch: string) => boolean): Parser<string> => (input) =>
+  input.length > 0 && pred(input[0]) ? { ok: true, value: input[0], rest: input.slice(1) } : { ok: false, expected: label, at: input };
+
+function map<A, B>(p: Parser<A>, f: (a: A) => B): Parser<B> {
+  return (input) => {
+    const r = p(input);
+    return r.ok ? { ok: true, value: f(r.value), rest: r.rest } : r;
+  };
+}
+
+function seq<A, B>(pa: Parser<A>, pb: Parser<B>): Parser<[A, B]> {
+  return (input) => {
+    const ra = pa(input);
+    if (!ra.ok) return ra;
+    const rb = pb(ra.rest);
+    if (!rb.ok) return rb;
+    return { ok: true, value: [ra.value, rb.value], rest: rb.rest };
+  };
+}
+
+function alt<T>(...ps: Parser<T>[]): Parser<T> {
+  return (input) => {
+    const expected: string[] = [];
+    for (const p of ps) {
+      const r = p(input);
+      if (r.ok) return r;
+      expected.push(r.expected);
+    }
+    return { ok: false, expected: expected.join(" or "), at: input };
+  };
+}
+
+function many<T>(p: Parser<T>): Parser<T[]> {
+  return (input) => {
+    const out: T[] = [];
+    let rest = input;
+    for (;;) {
+      const r = p(rest);
+      if (!r.ok || r.rest === rest) break;
+      out.push(r.value);
+      rest = r.rest;
+    }
+    return { ok: true, value: out, rest };
+  };
+}
+
+const many1 = <T>(p: Parser<T>): Parser<T[]> => map(seq(p, many(p)), ([x, xs]) => [x, ...xs]);
+const left = <A, B>(pa: Parser<A>, pb: Parser<B>): Parser<A> => map(seq(pa, pb), ([a]) => a);
+const right = <A, B>(pa: Parser<A>, pb: Parser<B>): Parser<B> => map(seq(pa, pb), ([, b]) => b);
+const lazy = <T>(thunk: () => Parser<T>): Parser<T> => (input) => thunk()(input);
+const ws = many(satisfy("space", (c) => c === " "));
+const token = <T>(p: Parser<T>): Parser<T> => left(p, ws);
+const sepBy = <T, S>(p: Parser<T>, sep: Parser<S>): Parser<T[]> =>
+  alt(map(seq(p, many(right(sep, p))), ([x, xs]) => [x, ...xs]), succeed<T[]>([]));
+
+const digit = satisfy("digit", (c) => c >= "0" && c <= "9");
+const number = token(map(seq(many1(digit), alt(right(char("."), many1(digit)), succeed<string[]>([]))), ([i, f]) =>
+  Number(i.join("") + (f.length ? "." + f.join("") : ""))));
+
+const chainl = (p: Parser<number>, op: Parser<(a: number, b: number) => number>): Parser<number> =>
+  map(seq(p, many(seq(op, p))), ([first, rest]) => rest.reduce((acc, [f, x]) => f(acc, x), first));
+
+const addOp = token(alt(map(char("+"), () => (a: number, b: number) => a + b), map(char("-"), () => (a: number, b: number) => a - b)));
+const mulOp = token(alt(map(char("*"), () => (a: number, b: number) => a * b), map(char("/"), () => (a: number, b: number) => a / b)));
+
+const expr: Parser<number> = lazy(() => chainl(term, addOp));
+const factor: Parser<number> = alt(number, right(token(char("(")), left(expr, token(char(")")))), map(right(token(char("-")), lazy(() => factor)), (n) => -n));
+const term: Parser<number> = chainl(factor, mulOp);
+
+function evaluate(src: string): string {
+  const r = left(right(ws, expr), ws)(src);
+  if (!r.ok) return `error: expected ${r.expected} at ${JSON.stringify(r.at.slice(0, 8))}`;
+  if (r.rest.length > 0) return `error: trailing input ${JSON.stringify(r.rest)}`;
+  return String(r.value);
+}
+
+const inputs = ["1 + 2 * 3", "(1 + 2) * 3", " 10 / 4 - 0.5", "2 * (3 + 4) * -2", "8 - 3 - 2", "1.5.2", "(1 + ", "7 % 2", "", "((42))"];
+for (const src of inputs) console.log(`${JSON.stringify(src).padEnd(20)} => ${evaluate(src)}`);
+
+// key=value; key=value
+const ident = token(map(many1(satisfy("letter", (c) => (c >= "a" && c <= "z") || c === "_")), (cs) => cs.join("")));
+const quoted = token(map(right(char('"'), left(many(satisfy("string char", (c) => c !== '"')), char('"'))), (cs) => cs.join("")));
+const value = alt<string | number | boolean>(
+  map(token(alt(char("true"), char("false"))), (b) => b === "true"),
+  number,
+  quoted,
+);
+const pair = seq(left(ident, token(char("="))), value);
+const config = map(sepBy(pair, token(char(";"))), (ps) => new Map(ps));
+
+for (const src of ['name="demo"; port=8080; debug=true; ratio=0.75', "a=1;b=2;", "x=", 'title="hello world"']) {
+  const r = config(src);
+  if (r.ok) console.log(r.value, "rest:", JSON.stringify(r.rest));
+  else console.log("failed:", r.expected);
+}

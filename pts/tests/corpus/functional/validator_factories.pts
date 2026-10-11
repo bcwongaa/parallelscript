@@ -1,0 +1,101 @@
+// skip: not supported yet: PTS1001: converting (number) => number to {label: string}
+// Function factories: validators, formatters and unit converters produced by higher-order functions.
+
+type Validator = (value: string) => string | null;
+
+const required = (field: string): Validator => (v) => (v.trim() === "" ? `${field} is required` : null);
+const minLength = (field: string, n: number): Validator => (v) => (v.length < n ? `${field} must be at least ${n} chars` : null);
+const maxLength = (field: string, n: number): Validator => (v) => (v.length > n ? `${field} must be at most ${n} chars` : null);
+const oneOf = (field: string, options: readonly string[]): Validator => (v) =>
+  options.includes(v) ? null : `${field} must be one of ${options.join("/")}`;
+const numeric = (field: string, min = -Infinity, max = Infinity): Validator => (v) => {
+  const n = Number(v);
+  if (v.trim() === "" || Number.isNaN(n)) return `${field} must be a number`;
+  if (n < min || n > max) return `${field} must be between ${min} and ${max}`;
+  return null;
+};
+const containsAll = (field: string, ...parts: string[]): Validator => (v) => {
+  const missing = parts.filter((p) => !v.includes(p));
+  return missing.length ? `${field} is missing ${missing.map((m) => `'${m}'`).join(", ")}` : null;
+};
+
+const all = (...vs: Validator[]): ((v: string) => string[]) => (v) =>
+  vs.map((f) => f(v)).filter((m): m is string => m !== null);
+
+const firstError = (...vs: Validator[]): Validator => (v) => {
+  for (const f of vs) {
+    const e = f(v);
+    if (e) return e;
+  }
+  return null;
+};
+
+const schema: Record<string, (v: string) => string[]> = {
+  username: all(required("username"), minLength("username", 3), maxLength("username", 12)),
+  email: all(required("email"), containsAll("email", "@", ".")),
+  age: all(numeric("age", 13, 120)),
+  plan: all(oneOf("plan", ["free", "pro", "team"])),
+};
+
+const forms: Array<Record<string, string>> = [
+  { username: "ada", email: "ada@example.com", age: "36", plan: "pro" },
+  { username: "", email: "nobody", age: "x", plan: "gold" },
+  { username: "averyveryverylongname", email: "a@b", age: "12", plan: "team" },
+];
+
+forms.forEach((form, i) => {
+  const errors = Object.entries(schema).flatMap(([field, check]) => check(form[field] ?? ""));
+  console.log(`form ${i + 1}: ${errors.length === 0 ? "valid" : errors.length + " error(s)"}`);
+  errors.forEach((e) => console.log("   -", e));
+});
+
+const strictUsername = firstError(required("name"), minLength("name", 3), maxLength("name", 5));
+console.log(["", "ab", "abcdef", "abcd"].map((v) => strictUsername(v)));
+
+// Formatters
+const currency = (symbol: string, decimals = 2) => (n: number): string => {
+  const sign = n < 0 ? "-" : "";
+  const [int, frac] = Math.abs(n).toFixed(decimals).split(".");
+  const grouped = int.split("").reverse().reduce((acc, d, i) => (i > 0 && i % 3 === 0 ? d + "," + acc : d + acc), "");
+  return `${sign}${symbol}${grouped}${frac !== undefined ? "." + frac : ""}`;
+};
+const percent = (decimals: number) => (ratio: number) => `${(ratio * 100).toFixed(decimals)}%`;
+const padded = (width: number, fill = " ") => (s: string | number) => String(s).padStart(width, fill);
+
+const usd = currency("$");
+const yen = currency("¥", 0);
+const pct1 = percent(1);
+const id6 = padded(6, "0");
+
+for (const n of [0, 7.5, 1234.567, -98765.4321, 1000000]) {
+  console.log(`${padded(14)(usd(n))} ${padded(12)(yen(n))} ${id6(Math.round(Math.abs(n)) % 1000000)}`);
+}
+console.log([0.1234, 0.5, 1, 0.00049].map(pct1));
+
+// Unit converters built from a factor table
+type Unit = "mm" | "cm" | "m" | "km" | "in" | "ft" | "mi";
+const toMeters: Record<Unit, number> = { mm: 0.001, cm: 0.01, m: 1, km: 1000, in: 0.0254, ft: 0.3048, mi: 1609.344 };
+const converter = (from: Unit, to: Unit) => {
+  const factor = toMeters[from] / toMeters[to];
+  const fn = (x: number) => x * factor;
+  return Object.assign(fn, { label: `${from}->${to}` });
+};
+
+const conversions = [converter("mi", "km"), converter("ft", "m"), converter("in", "cm"), converter("km", "mi"), converter("m", "mm")];
+for (const c of conversions) {
+  console.log(`${c.label.padEnd(7)} 1 => ${c(1).toFixed(4)}, 26.2 => ${c(26.2).toFixed(3)}`);
+}
+
+// Build a lookup of factories by name and apply them
+const factories = new Map<string, (arg: number) => (x: number) => number>([
+  ["add", (a) => (x) => x + a],
+  ["mul", (a) => (x) => x * a],
+  ["pow", (a) => (x) => x ** a],
+  ["clamp", (a) => (x) => Math.min(a, Math.max(-a, x))],
+]);
+const program: Array<[string, number]> = [["add", 3], ["mul", 4], ["pow", 2], ["clamp", 500]];
+const steps = program.map(([name, arg]) => factories.get(name)?.(arg) ?? ((x: number) => x));
+for (const start of [1, 2, 5, -10]) {
+  const trail = steps.reduce<number[]>((acc, f) => [...acc, f(acc[acc.length - 1])], [start]);
+  console.log(trail.join(" -> "));
+}

@@ -1,0 +1,150 @@
+// Undo/redo via command closures that capture what they need to reverse themselves.
+
+interface Command {
+  label: string;
+  apply: () => void;
+  revert: () => void;
+}
+
+class TextDocument {
+  private lines: string[] = [];
+  get text(): string {
+    return this.lines.join("\n");
+  }
+  get lineCount(): number {
+    return this.lines.length;
+  }
+  insert(at: number, line: string): void {
+    this.lines.splice(at, 0, line);
+  }
+  remove(at: number): string {
+    if (at < 0 || at >= this.lines.length) throw new RangeError(`no line ${at}`);
+    const [removed] = this.lines.splice(at, 1);
+    return removed;
+  }
+  replace(at: number, line: string): string {
+    const old = this.lines[at];
+    this.lines[at] = line;
+    return old;
+  }
+  line(at: number): string {
+    return this.lines[at];
+  }
+}
+
+function createHistory(limit = 50) {
+  const undoStack: Command[] = [];
+  const redoStack: Command[] = [];
+  return {
+    exec(cmd: Command): void {
+      cmd.apply();
+      undoStack.push(cmd);
+      if (undoStack.length > limit) undoStack.shift();
+      redoStack.length = 0;
+    },
+    undo(): string | null {
+      const cmd = undoStack.pop();
+      if (!cmd) return null;
+      cmd.revert();
+      redoStack.push(cmd);
+      return cmd.label;
+    },
+    redo(): string | null {
+      const cmd = redoStack.pop();
+      if (!cmd) return null;
+      cmd.apply();
+      undoStack.push(cmd);
+      return cmd.label;
+    },
+    get sizes(): { undo: number; redo: number } {
+      return { undo: undoStack.length, redo: redoStack.length };
+    },
+    labels: () => undoStack.map((c) => c.label),
+  };
+}
+
+const doc = new TextDocument();
+const history = createHistory(4);
+
+const insertLine = (at: number, text: string): Command => ({
+  label: `insert@${at}`,
+  apply: () => doc.insert(at, text),
+  revert: () => void doc.remove(at),
+});
+
+const editLine = (at: number, text: string): Command => {
+  let previous = "";
+  return {
+    label: `edit@${at}`,
+    apply: () => {
+      previous = doc.replace(at, text);
+    },
+    revert: () => {
+      doc.replace(at, previous);
+    },
+  };
+};
+
+const deleteLine = (at: number): Command => {
+  let removed: string | null = null;
+  return {
+    label: `delete@${at}`,
+    apply: () => {
+      removed = doc.remove(at);
+    },
+    revert: () => {
+      if (removed !== null) doc.insert(at, removed);
+    },
+  };
+};
+
+const transform = (label: string, f: (s: string) => string): Command => {
+  const snapshots: string[][] = [];
+  return {
+    label,
+    apply: () => {
+      const before: string[] = [];
+      for (let i = 0; i < doc.lineCount; i++) {
+        before.push(doc.line(i));
+        doc.replace(i, f(doc.line(i)));
+      }
+      snapshots.push(before);
+    },
+    revert: () => {
+      const before = snapshots.pop() ?? [];
+      before.forEach((l, i) => doc.replace(i, l));
+    },
+  };
+};
+
+const show = (tag: string) => console.log(`${tag.padEnd(16)} ${JSON.stringify(doc.text)} ${JSON.stringify(history.sizes)}`);
+
+history.exec(insertLine(0, "hello"));
+history.exec(insertLine(1, "world"));
+history.exec(insertLine(1, "there"));
+show("three inserts");
+history.exec(editLine(0, "HELLO"));
+show("edit line 0");
+console.log("undo:", history.undo(), "undo:", history.undo());
+show("after 2 undos");
+console.log("redo:", history.redo());
+show("after redo");
+history.exec(deleteLine(0));
+show("delete line 0");
+history.exec(transform("upper", (s) => s.toUpperCase()));
+history.exec(transform("exclaim", (s) => s + "!"));
+show("two transforms");
+console.log("labels:", history.labels());
+const undone: Array<string | null> = [];
+for (let i = 0; i < 6; i++) undone.push(history.undo());
+console.log("undo x6:", undone);
+show("after undo x6");
+const redone: Array<string | null> = [];
+let r: string | null;
+while ((r = history.redo()) !== null) redone.push(r);
+console.log("redo all:", redone);
+try {
+  history.exec(deleteLine(10));
+} catch (e) {
+  console.log("failed command:", (e as Error).message, history.sizes);
+}

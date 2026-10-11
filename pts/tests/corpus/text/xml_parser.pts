@@ -1,0 +1,148 @@
+// A minimal XML parser producing an element tree (attributes, text, self-closing tags,
+// comments, CDATA, entities), with queries by path and a re-serialiser.
+class XmlElement {
+  readonly children: XmlNode[] = [];
+  constructor(readonly name: string, readonly attrs: Map<string, string> = new Map()) {}
+
+  get text(): string {
+    return this.children.map((c) => (typeof c === "string" ? c : c.text)).join("");
+  }
+
+  elements(name?: string): XmlElement[] {
+    return this.children.filter((c): c is XmlElement => c instanceof XmlElement && (name === undefined || c.name === name));
+  }
+
+  query(path: string): XmlElement[] {
+    const [head, ...rest] = path.split("/");
+    const matches = head === "*" ? this.elements() : this.elements(head);
+    return rest.length === 0 ? matches : matches.flatMap((m) => m.query(rest.join("/")));
+  }
+}
+
+type XmlNode = XmlElement | string;
+
+class XmlError extends Error {
+  constructor(msg: string, readonly offset: number) {
+    super(`${msg} (offset ${offset})`);
+  }
+}
+
+const ENTITIES: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+
+function decodeEntities(s: string, offset: number): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== "&") { out += s[i]; continue; }
+    const semi = s.indexOf(";", i);
+    const name = s.slice(i + 1, semi);
+    if (semi < 0 || !(name in ENTITIES)) throw new XmlError(`unknown entity &${name};`, offset + i);
+    out += ENTITIES[name];
+    i = semi;
+  }
+  return out;
+}
+
+function parseXml(src: string): XmlElement {
+  const root = new XmlElement("#document");
+  const stack: XmlElement[] = [root];
+  let i = 0;
+  const top = () => stack[stack.length - 1];
+  while (i < src.length) {
+    if (src.startsWith("<!--", i)) {
+      const end = src.indexOf("-->", i);
+      if (end < 0) throw new XmlError("unterminated comment", i);
+      i = end + 3;
+    } else if (src.startsWith("<![CDATA[", i)) {
+      const end = src.indexOf("]]>", i);
+      top().children.push(src.slice(i + 9, end));
+      i = end + 3;
+    } else if (src.startsWith("<?", i)) {
+      i = src.indexOf("?>", i) + 2;
+    } else if (src.startsWith("</", i)) {
+      const end = src.indexOf(">", i);
+      const name = src.slice(i + 2, end).trim();
+      const open = stack.pop();
+      if (!open || open.name !== name) throw new XmlError(`mismatched </${name}>, open element is <${open?.name}>`, i);
+      i = end + 1;
+    } else if (src[i] === "<") {
+      const end = src.indexOf(">", i);
+      if (end < 0) throw new XmlError("unterminated tag", i);
+      let body = src.slice(i + 1, end);
+      const selfClosing = body.endsWith("/");
+      if (selfClosing) body = body.slice(0, -1);
+      const space = body.indexOf(" ");
+      const name = space < 0 ? body : body.slice(0, space);
+      const attrs = new Map<string, string>();
+      let rest = space < 0 ? "" : body.slice(space + 1).trim();
+      while (rest.length) {
+        const eq = rest.indexOf("=");
+        const q = rest[eq + 1];
+        if (eq < 0 || (q !== '"' && q !== "'")) throw new XmlError(`malformed attribute in <${name}>`, i);
+        const close = rest.indexOf(q, eq + 2);
+        attrs.set(rest.slice(0, eq).trim(), decodeEntities(rest.slice(eq + 2, close), i));
+        rest = rest.slice(close + 1).trim();
+      }
+      const el = new XmlElement(name, attrs);
+      top().children.push(el);
+      if (!selfClosing) stack.push(el);
+      i = end + 1;
+    } else {
+      const next = src.indexOf("<", i);
+      const raw = src.slice(i, next < 0 ? src.length : next);
+      if (raw.trim()) top().children.push(decodeEntities(raw.trim(), i));
+      i = next < 0 ? src.length : next;
+    }
+  }
+  if (stack.length > 1) throw new XmlError(`unclosed <${top().name}>`, src.length);
+  return root;
+}
+
+function serialize(node: XmlNode, indent = ""): string {
+  if (typeof node === "string") return indent + node.split("&").join("&amp;").split("<").join("&lt;");
+  const attrs = [...node.attrs].map(([k, v]) => ` ${k}="${v.split('"').join("&quot;")}"`).join("");
+  if (node.children.length === 0) return `${indent}<${node.name}${attrs}/>`;
+  if (node.children.length === 1 && typeof node.children[0] === "string") return `${indent}<${node.name}${attrs}>${serialize(node.children[0])}</${node.name}>`;
+  return [`${indent}<${node.name}${attrs}>`, ...node.children.map((c) => serialize(c, indent + "  ")), `${indent}</${node.name}>`].join("\n");
+}
+
+const doc = `<?xml version="1.0"?>
+<catalog updated="2024-03-10">
+  <!-- programming books -->
+  <book id="b1" lang="en">
+    <title>Structure &amp; Interpretation</title>
+    <author>Abelson</author><author>Sussman</author>
+    <price currency="USD">54.95</price>
+  </book>
+  <book id="b2" lang='fr'>
+    <title>Le Petit Prince</title>
+    <author>Saint-Exupéry</author>
+    <price currency="EUR">8.50</price>
+    <note><![CDATA[Contains <html> & stuff]]></note>
+  </book>
+  <magazine id="m1"><title>Byte</title><price currency="USD">2.95</price></magazine>
+  <empty/>
+</catalog>`;
+
+const tree = parseXml(doc);
+const catalog = tree.elements("catalog")[0];
+console.log(catalog.name, Object.fromEntries(catalog.attrs), catalog.elements().map((e) => e.name));
+for (const book of catalog.elements("book")) {
+  const authors = book.elements("author").map((a) => a.text);
+  const price = book.elements("price")[0];
+  console.log(`${book.attrs.get("id")}: "${book.query("title")[0].text}" by ${authors.join(" & ")} — ${price.attrs.get("currency")} ${Number(price.text).toFixed(2)}`);
+}
+console.log(catalog.query("*/price").map((p) => `${p.attrs.get("currency")}:${p.text}`));
+console.log(catalog.query("book/note")[0].text);
+const total = catalog.query("*/price").filter((p) => p.attrs.get("currency") === "USD").reduce((s, p) => s + Number(p.text), 0);
+console.log("USD total:", total.toFixed(2));
+console.log(serialize(catalog.elements("magazine")[0]));
+console.log(serialize(catalog.elements("book")[1]));
+for (const bad of ["<a><b></a>", "<a>", "<a x=1></a>", "<a>&bogus;</a>", "<!-- never closed"]) {
+  try {
+    parseXml(bad);
+    console.log("parsed?!", bad);
+  } catch (e) {
+    console.log(e instanceof XmlError ? `XmlError: ${e.message}` : String(e));
+  }
+}
+console.log(catalog.elements("empty")[0]);

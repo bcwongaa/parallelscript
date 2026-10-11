@@ -1,0 +1,100 @@
+// Hotel room bookings with fixed dates: validates ranges, detects overlaps,
+// and enforces minimum stays, reporting each rejection.
+
+class BookingError extends Error {
+  constructor(readonly guest: string, message: string) {
+    super(message);
+    this.name = "BookingError";
+  }
+}
+
+class OverlapError extends BookingError {
+  constructor(guest: string, readonly room: number, readonly other: string) {
+    super(guest, `room ${room} is already booked by ${other} for those nights`);
+    this.name = "OverlapError";
+  }
+}
+
+interface Booking {
+  guest: string;
+  room: number;
+  checkIn: Date;
+  checkOut: Date;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function parseDay(s: string): Date {
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) throw new RangeError(`invalid date '${s}'`);
+  return d;
+}
+
+class Hotel {
+  private bookings: Booking[] = [];
+  constructor(private readonly rooms: number[], private readonly minNights: number) {}
+
+  book(guest: string, room: number, from: string, to: string): Booking {
+    if (!this.rooms.includes(room)) throw new BookingError(guest, `room ${room} does not exist`);
+    let checkIn: Date;
+    let checkOut: Date;
+    try {
+      checkIn = parseDay(from);
+      checkOut = parseDay(to);
+    } catch (e) {
+      throw new BookingError(guest, `bad dates: ${(e as Error).message}`);
+    }
+    const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / DAY);
+    if (nights <= 0) throw new BookingError(guest, `check-out ${to} is not after check-in ${from}`);
+    if (nights < this.minNights) throw new BookingError(guest, `minimum stay is ${this.minNights} nights, got ${nights}`);
+    const clash = this.bookings.find((b) => b.room === room && b.checkIn < checkOut && checkIn < b.checkOut);
+    if (clash) throw new OverlapError(guest, room, clash.guest);
+    const booking = { guest, room, checkIn, checkOut };
+    this.bookings.push(booking);
+    return booking;
+  }
+
+  occupancy(day: string): number[] {
+    const d = parseDay(day);
+    return this.bookings.filter((b) => b.checkIn <= d && d < b.checkOut).map((b) => b.room).sort((a, b) => a - b);
+  }
+
+  list(): string[] {
+    return [...this.bookings]
+      .sort((a, b) => a.checkIn.getTime() - b.checkIn.getTime() || a.room - b.room)
+      .map((b) => `${iso(b.checkIn)}..${iso(b.checkOut)} room ${b.room} ${b.guest}`);
+  }
+}
+
+const hotel = new Hotel([101, 102, 201], 2);
+const requests: Array<[string, number, string, string]> = [
+  ["Ana", 101, "2024-03-01", "2024-03-05"],
+  ["Ben", 101, "2024-03-04", "2024-03-07"],
+  ["Ben", 102, "2024-03-04", "2024-03-07"],
+  ["Cy", 101, "2024-03-05", "2024-03-06"],
+  ["Cy", 101, "2024-03-05", "2024-03-08"],
+  ["Dee", 301, "2024-03-01", "2024-03-03"],
+  ["Eve", 201, "2024-02-28", "2024-03-02"],
+  ["Fay", 201, "2024-03-10", "2024-03-09"],
+  ["Gus", 102, "2024-02-30", "2024-03-03"],
+  ["Hal", 201, "2024-13-01", "2024-13-04"],
+  ["Ivy", 102, "2024-03-01", "2024-03-04"],
+];
+
+for (const [guest, room, from, to] of requests) {
+  try {
+    const b = hotel.book(guest, room, from, to);
+    console.log(`OK   ${guest} room ${b.room} ${iso(b.checkIn)} -> ${iso(b.checkOut)}`);
+  } catch (e) {
+    if (e instanceof OverlapError) console.log(`FULL ${guest}: ${e.message}`, { room: e.room, other: e.other });
+    else if (e instanceof BookingError) console.log(`NO   ${guest}: ${e.message}`);
+    else throw e;
+  }
+}
+console.log(hotel.list());
+for (const day of ["2024-03-01", "2024-03-04", "2024-03-06"]) console.log(day, hotel.occupancy(day));
+console.log(new Date(2024, 1, 29).getDay(), parseDay("2024-02-29").getUTCDate(), new Date("2024-03-10T12:00:00Z").getHours());

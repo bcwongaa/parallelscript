@@ -1,0 +1,89 @@
+const csv = `id,name,department,salary,start_date,remote
+1,Jane Doe,Engineering,125000,2019-03-15,true
+2,"Smith, John",Marketing,82000,2021-07-01,false
+3,Priya Patel,Engineering,134500,2017-11-20,true
+4,Tom O'Neil,Sales,,2022-01-10,false
+5,"Lee ""Lefty"" Kim",Sales,71000,2020-05-05,true
+6,Ana Gomez,Engineering,99000,2023-02-28,`;
+
+function parseLine(line: string): string[] {
+  const fields: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      fields.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+type Cell = string | number | boolean | null;
+
+function coerce(raw: string): Cell {
+  if (raw === "") return null;
+  if (raw === "true" || raw === "false") return raw === "true";
+  const n = Number(raw);
+  return Number.isNaN(n) ? raw : n;
+}
+
+const [headerLine, ...bodyLines] = csv.split("\n");
+const headers = parseLine(headerLine);
+const records: Record<string, Cell>[] = bodyLines.map((line) => {
+  const cells = parseLine(line);
+  return Object.fromEntries(headers.map((h, i) => [h, coerce(cells[i] ?? "")]));
+});
+
+console.log(headers);
+console.log(records[1]);
+console.log(records[4]);
+console.log(records.length, "records");
+
+const salaries = records.map((r) => r.salary).filter((s): s is number => typeof s === "number");
+console.log("avg salary:", Math.round(salaries.reduce((a, b) => a + b, 0) / salaries.length));
+const missing = records.filter((r) => r.salary === null || r.remote === null).map((r) => r.name);
+console.log("rows with missing values:", missing);
+
+function quote(cell: Cell): string {
+  if (cell === null) return "";
+  const s = String(cell);
+  return s.includes(",") || s.includes('"') ? '"' + s.split('"').join('""') + '"' : s;
+}
+
+const engineering = records.filter((r) => r.department === "Engineering");
+const outHeaders = ["name", "salary", "remote"];
+const out = [outHeaders.join(","), ...engineering.map((r) => outHeaders.map((h) => quote(r[h])).join(","))].join("\n");
+console.log(out);
+
+const roundTrip = [headers.join(","), ...records.map((r) => headers.map((h) => quote(r[h])).join(","))].join("\n");
+console.log(roundTrip === csv ? "round trip identical" : "round trip differs");
+const csvLines = csv.split("\n");
+roundTrip.split("\n").forEach((line, i) => {
+  if (line !== csvLines[i]) console.log(`  line ${i}: ${JSON.stringify(csvLines[i])} -> ${JSON.stringify(line)}`);
+});
+
+const tenure = records.map((r) => {
+  const start = new Date(String(r.start_date) + "T12:00:00Z");
+  const years = (Date.UTC(2024, 5, 30) - start.getTime()) / (365.25 * 86400000);
+  return [r.name, Number(years.toFixed(1))] as const;
+});
+console.log(tenure);
+console.table(records.map((r) => ({ id: r.id, name: r.name, dept: r.department })));

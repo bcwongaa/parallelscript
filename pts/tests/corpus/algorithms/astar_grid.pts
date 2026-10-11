@@ -1,0 +1,111 @@
+// A* search on a weighted grid with terrain costs, compared against uniform-cost search.
+
+enum Terrain {
+  Road = 1,
+  Grass = 2,
+  Forest = 4,
+  Swamp = 8,
+  Wall = -1,
+}
+
+const legend: Record<string, Terrain> = {
+  ".": Terrain.Road,
+  ",": Terrain.Grass,
+  "^": Terrain.Forest,
+  "~": Terrain.Swamp,
+  "#": Terrain.Wall,
+};
+
+const MAP = [
+  "..,,,^^^^.....",
+  ".#####^^^.###.",
+  ".,,,~~~~^...#.",
+  ".##,~~~~^^#.#.",
+  "..#,,,,....#..",
+  ",.#####.####..",
+  ",,,,,,,......."
+];
+
+type Cell = readonly [number, number];
+interface Node {
+  cell: Cell;
+  g: number;
+  f: number;
+}
+
+const height = MAP.length;
+const width = MAP[0].length;
+const terrain: Terrain[][] = MAP.map((row) => [...row].map((ch) => legend[ch]));
+
+function search(start: Cell, goal: Cell, heuristic: (a: Cell, b: Cell) => number) {
+  const open: Node[] = [{ cell: start, g: 0, f: heuristic(start, goal) }];
+  const best = new Map<number, number>([[start[0] * width + start[1], 0]]);
+  const parent = new Map<number, number>();
+  let expanded = 0;
+  while (open.length > 0) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) {
+      if (open[i].f < open[bi].f || (open[i].f === open[bi].f && open[i].g > open[bi].g)) bi = i;
+    }
+    const [cur] = open.splice(bi, 1);
+    const id = cur.cell[0] * width + cur.cell[1];
+    if (cur.g > (best.get(id) ?? Infinity)) continue;
+    expanded++;
+    if (cur.cell[0] === goal[0] && cur.cell[1] === goal[1]) {
+      const path: number[] = [id];
+      let p = parent.get(id);
+      while (p !== undefined) {
+        path.unshift(p);
+        p = parent.get(p);
+      }
+      return { cost: cur.g, expanded, path };
+    }
+    for (const [dr, dc] of [[0, 1], [1, 0], [0, -1], [-1, 0]] as const) {
+      const r = cur.cell[0] + dr;
+      const c = cur.cell[1] + dc;
+      if (r < 0 || c < 0 || r >= height || c >= width) continue;
+      const t = terrain[r][c];
+      if (t === Terrain.Wall) continue;
+      const g = cur.g + t;
+      const nid = r * width + c;
+      if (g < (best.get(nid) ?? Infinity)) {
+        best.set(nid, g);
+        parent.set(nid, id);
+        open.push({ cell: [r, c], g, f: g + heuristic([r, c], goal) });
+      }
+    }
+  }
+  return null;
+}
+
+const manhattan = (a: Cell, b: Cell): number => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+const zero = (): number => 0;
+
+const start: Cell = [0, 0];
+const goal: Cell = [6, 13];
+const astar = search(start, goal, manhattan);
+const ucs = search(start, goal, zero);
+console.log("A*  :", astar && { cost: astar.cost, expanded: astar.expanded, steps: astar.path.length });
+console.log("UCS :", ucs && { cost: ucs.cost, expanded: ucs.expanded, steps: ucs.path.length });
+console.log("same cost?", astar?.cost === ucs?.cost);
+
+if (astar) {
+  const onPath = new Set(astar.path);
+  for (let r = 0; r < height; r++) {
+    let line = "";
+    for (let c = 0; c < width; c++) line += onPath.has(r * width + c) ? "@" : MAP[r][c];
+    console.log(line);
+  }
+  const costByTerrain = new Map<string, number>();
+  for (const id of astar.path.slice(1)) {
+    const t = terrain[Math.floor(id / width)][id % width];
+    const name = Terrain[t];
+    costByTerrain.set(name, (costByTerrain.get(name) ?? 0) + 1);
+  }
+  console.log("terrain along path:", costByTerrain);
+}
+
+const blocked = search([0, 0], [4, 12], manhattan);
+console.log("to walled-in cell [4,12]:", blocked);
+console.log("enum values:", Object.values(Terrain).filter((v) => typeof v === "number"));
+console.log("Terrain.Swamp =", Terrain.Swamp, "name:", Terrain[Terrain.Swamp]);

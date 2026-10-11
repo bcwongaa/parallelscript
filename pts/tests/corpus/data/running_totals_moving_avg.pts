@@ -1,0 +1,74 @@
+// skip: not supported yet: PTS1001: converting {i: number; s: null | number; v: number}[] to {i: number; s: number; v: number}[]
+const dailySignups = [12, 15, 9, 22, 30, 28, 17, 11, 25, 40, 38, 19, 14, 21, 33, 29, 26, 18, 9, 31];
+
+function runningTotal(xs: number[]): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  for (const x of xs) {
+    acc += x;
+    out.push(acc);
+  }
+  return out;
+}
+
+function simpleMovingAverage(xs: number[], window: number): (number | null)[] {
+  return xs.map((_, i) => {
+    if (i + 1 < window) return null;
+    const slice = xs.slice(i + 1 - window, i + 1);
+    return slice.reduce((a, b) => a + b, 0) / window;
+  });
+}
+
+function exponentialMovingAverage(xs: number[], alpha: number): number[] {
+  const out: number[] = [];
+  xs.forEach((x, i) => out.push(i === 0 ? x : alpha * x + (1 - alpha) * out[i - 1]));
+  return out;
+}
+
+function percentChange(xs: number[]): string[] {
+  return xs.slice(1).map((x, i) => {
+    const prev = xs[i];
+    const pct = ((x - prev) / prev) * 100;
+    return (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%";
+  });
+}
+
+const totals = runningTotal(dailySignups);
+const sma7 = simpleMovingAverage(dailySignups, 7);
+const ema = exponentialMovingAverage(dailySignups, 0.3);
+const changes = percentChange(dailySignups);
+
+console.log("day  value  total   sma7    ema   change");
+dailySignups.forEach((v, i) => {
+  const s = sma7[i];
+  console.log(
+    `${String(i + 1).padStart(3)}  ${String(v).padStart(5)}  ${String(totals[i]).padStart(5)}  ${(s === null ? "-" : s.toFixed(2)).padStart(6)}  ${ema[i].toFixed(2).padStart(6)}   ${i === 0 ? "" : changes[i - 1]}`,
+  );
+});
+
+const weekly: number[][] = [];
+for (let i = 0; i < dailySignups.length; i += 7) weekly.push(dailySignups.slice(i, i + 7));
+console.log(weekly);
+console.log(weekly.map((w) => w.reduce((a, b) => a + b, 0)));
+
+let bestStreak = 0;
+let streak = 0;
+let streakEnd = -1;
+for (let i = 1; i < dailySignups.length; i++) {
+  if (dailySignups[i] > dailySignups[i - 1]) {
+    streak++;
+    if (streak > bestStreak) {
+      bestStreak = streak;
+      streakEnd = i;
+    }
+  } else {
+    streak = 0;
+  }
+}
+console.log({ bestStreak, streakEnd, run: dailySignups.slice(streakEnd - bestStreak, streakEnd + 1) });
+const crossings = sma7
+  .map((s, i) => ({ i, s, v: dailySignups[i] }))
+  .filter((r): r is { i: number; s: number; v: number } => r.s !== null && r.v > r.s * 1.5);
+console.log("spikes over 1.5x sma7:", crossings);
+console.log(sma7.slice(0, 8));
+console.log(ema.slice(-3).map((x) => Math.round(x * 1000) / 1000));

@@ -1,0 +1,72 @@
+// skip: not supported yet: PTS1001: converting Map<string, number> to Map<value, value>
+type Ratings = Map<string, Map<string, number>>;
+
+const raw: Array<[user: string, item: string, stars: number]> = [
+  ["ana", "Dune", 5], ["ana", "Arrival", 4], ["ana", "Alien", 2], ["ana", "Heat", 1],
+  ["ben", "Dune", 4], ["ben", "Arrival", 5], ["ben", "Interstellar", 5], ["ben", "Heat", 2],
+  ["cat", "Alien", 5], ["cat", "Heat", 4], ["cat", "Ronin", 5], ["cat", "Dune", 2],
+  ["dan", "Interstellar", 4], ["dan", "Arrival", 4], ["dan", "Dune", 5], ["dan", "Ronin", 1],
+  ["eve", "Heat", 5], ["eve", "Ronin", 4], ["eve", "Alien", 4],
+];
+
+const ratings: Ratings = new Map();
+for (const [user, item, stars] of raw) {
+  if (!ratings.has(user)) ratings.set(user, new Map());
+  ratings.get(user)?.set(item, stars);
+}
+
+function cosine(a: Map<string, number>, b: Map<string, number>): number {
+  let dot = 0;
+  for (const [k, v] of a) {
+    const w = b.get(k);
+    if (w !== undefined) dot += v * w;
+  }
+  const norm = (m: Map<string, number>): number => Math.sqrt([...m.values()].reduce((s, v) => s + v * v, 0));
+  const d = norm(a) * norm(b);
+  return d === 0 ? 0 : dot / d;
+}
+
+function neighbours(user: string, k: number): Array<{ user: string; sim: number }> {
+  const mine = ratings.get(user);
+  if (!mine) return [];
+  return [...ratings.keys()]
+    .filter((u) => u !== user)
+    .map((u) => ({ user: u, sim: Number(cosine(mine, ratings.get(u) ?? new Map()).toFixed(4)) }))
+    .sort((a, b) => b.sim - a.sim || a.user.localeCompare(b.user))
+    .slice(0, k);
+}
+
+function recommend(user: string, k = 3): Array<[string, number]> {
+  const mine = ratings.get(user) ?? new Map<string, number>();
+  const scores = new Map<string, { weighted: number; simSum: number }>();
+  for (const { user: other, sim } of neighbours(user, k)) {
+    for (const [item, stars] of ratings.get(other) ?? []) {
+      if (mine.has(item)) continue;
+      const s = scores.get(item) ?? { weighted: 0, simSum: 0 };
+      s.weighted += sim * stars;
+      s.simSum += sim;
+      scores.set(item, s);
+    }
+  }
+  return [...scores]
+    .map(([item, s]): [string, number] => [item, Number((s.weighted / s.simSum).toFixed(3))])
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+const items = [...new Set(raw.map(([, i]) => i))].sort();
+console.log("      " + items.map((i) => i.slice(0, 5).padStart(6)).join(""));
+for (const [user, m] of ratings) {
+  console.log(user.padEnd(6) + items.map((i) => String(m.get(i) ?? "·").padStart(6)).join(""));
+}
+
+for (const u of ratings.keys()) {
+  console.log(`${u}: neighbours`, neighbours(u, 2), "recs", recommend(u));
+}
+
+const itemAvg = items.map((i) => {
+  const vals = [...ratings.values()].map((m) => m.get(i)).filter((v): v is number => v !== undefined);
+  return { item: i, avg: Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)), n: vals.length };
+});
+console.log(itemAvg.sort((a, b) => b.avg - a.avg));
+console.log(ratings.get("eve"));
+console.log(recommend("nobody"), neighbours("nobody", 3));

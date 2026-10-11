@@ -1,0 +1,125 @@
+// skip: not supported yet: PTS1001: calling a {hits: () => number; size: () => number}
+// Memoization with Map caches: fibonacci, grid path counting, and a generic memoize wrapper.
+
+function memoize<A extends unknown[], R>(fn: (...args: A) => R, keyOf: (...args: A) => string): ((...args: A) => R) & { hits: () => number; size: () => number } {
+  const cache = new Map<string, R>();
+  let hits = 0;
+  const wrapped = (...args: A): R => {
+    const key = keyOf(...args);
+    const cached = cache.get(key);
+    if (cached !== undefined) {
+      hits++;
+      return cached;
+    }
+    const result = fn(...args);
+    cache.set(key, result);
+    return result;
+  };
+  return Object.assign(wrapped, { hits: () => hits, size: () => cache.size });
+}
+
+const fibCache = new Map<number, number>();
+function fib(n: number): number {
+  if (n < 2) return n;
+  const c = fibCache.get(n);
+  if (c !== undefined) return c;
+  const v = fib(n - 1) + fib(n - 2);
+  fibCache.set(n, v);
+  return v;
+}
+
+console.log("fib(10..15):", [10, 11, 12, 13, 14, 15].map(fib));
+console.log("fib(78) =", fib(78));
+console.log("fib(90) =", fib(90));
+console.log("cache size:", fibCache.size);
+
+// Grid paths with obstacles
+const grid: string[] = [
+  "..........",
+  "..#....#..",
+  "....#.....",
+  ".#......#.",
+  "...#..#...",
+  "..........",
+];
+
+const rows = grid.length;
+const cols = grid[0].length;
+
+const countPaths = memoize(
+  (r: number, c: number): number => {
+    if (r >= rows || c >= cols) return 0;
+    if (grid[r][c] === "#") return 0;
+    if (r === rows - 1 && c === cols - 1) return 1;
+    return countPaths(r + 1, c) + countPaths(r, c + 1);
+  },
+  (r, c) => `${r},${c}`,
+);
+
+console.log("paths from (0,0):", countPaths(0, 0));
+console.log("paths from (2,5):", countPaths(2, 5));
+console.log("memo hits=%d size=%d", countPaths.hits(), countPaths.size());
+
+// Edit distance with a memo keyed on indices
+function editDistance(a: string, b: string): number {
+  const memo = new Map<number, number>();
+  const go = (i: number, j: number): number => {
+    if (i === a.length) return b.length - j;
+    if (j === b.length) return a.length - i;
+    const key = i * (b.length + 1) + j;
+    const m = memo.get(key);
+    if (m !== undefined) return m;
+    let result: number;
+    if (a[i] === b[j]) {
+      result = go(i + 1, j + 1);
+    } else {
+      result = 1 + Math.min(go(i + 1, j), go(i, j + 1), go(i + 1, j + 1));
+    }
+    memo.set(key, result);
+    return result;
+  };
+  return go(0, 0);
+}
+
+const pairs: [string, string][] = [
+  ["kitten", "sitting"],
+  ["flaw", "lawn"],
+  ["intention", "execution"],
+  ["", "abc"],
+  ["parallel", "parallelscript"],
+];
+for (const [a, b] of pairs) {
+  console.log(`edit(${JSON.stringify(a)}, ${JSON.stringify(b)}) = ${editDistance(a, b)}`);
+}
+
+// Coin change ways with memoize wrapper
+const coins = [1, 5, 10, 25, 50];
+const ways = memoize(
+  (amount: number, idx: number): number => {
+    if (amount === 0) return 1;
+    if (amount < 0 || idx >= coins.length) return 0;
+    return ways(amount - coins[idx], idx) + ways(amount, idx + 1);
+  },
+  (amount, idx) => amount + ":" + idx,
+);
+for (const amt of [10, 25, 100, 250]) {
+  console.log(`ways(${amt}) = ${ways(amt, 0)}`);
+}
+console.log({ hits: ways.hits(), entries: ways.size() });
+
+// Collatz lengths with a shared cache
+const collatzCache = new Map<number, number>([[1, 1]]);
+function collatzLen(n: number): number {
+  const known = collatzCache.get(n);
+  if (known !== undefined) return known;
+  const next = n % 2 === 0 ? n / 2 : 3 * n + 1;
+  const len = 1 + collatzLen(next);
+  collatzCache.set(n, len);
+  return len;
+}
+let best = 1;
+for (let i = 1; i < 10000; i++) {
+  if (collatzLen(i) > collatzLen(best)) best = i;
+}
+console.log("longest collatz under 10000: start=%d length=%d", best, collatzLen(best));
+console.log("cache entries > 10000:", collatzCache.size > 10000);

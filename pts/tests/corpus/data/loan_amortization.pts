@@ -1,0 +1,91 @@
+interface Payment {
+  n: number;
+  date: string;
+  payment: number;
+  interest: number;
+  principal: number;
+  balance: number;
+}
+
+class Loan {
+  readonly monthlyRate: number;
+
+  constructor(
+    readonly principal: number,
+    readonly annualRatePct: number,
+    readonly months: number,
+    readonly firstPayment: Date,
+  ) {
+    if (principal <= 0 || months <= 0) throw new RangeError("principal and months must be positive");
+    this.monthlyRate = annualRatePct / 100 / 12;
+  }
+
+  get payment(): number {
+    const r = this.monthlyRate;
+    if (r === 0) return this.principal / this.months;
+    return (this.principal * r) / (1 - Math.pow(1 + r, -this.months));
+  }
+
+  schedule(extraPerMonth = 0): Payment[] {
+    const rows: Payment[] = [];
+    let balance = this.principal;
+    const base = Math.round(this.payment * 100) / 100;
+    for (let n = 1; balance > 0.005 && n <= this.months; n++) {
+      const interest = Math.round(balance * this.monthlyRate * 100) / 100;
+      let principal = Math.round((base + extraPerMonth - interest) * 100) / 100;
+      if (principal > balance || n === this.months) principal = Math.round(balance * 100) / 100;
+      balance = Math.round((balance - principal) * 100) / 100;
+      const d = new Date(this.firstPayment.getFullYear(), this.firstPayment.getMonth() + n - 1, this.firstPayment.getDate());
+      rows.push({
+        n,
+        date: d.toISOString().slice(0, 10),
+        payment: Math.round((interest + principal) * 100) / 100,
+        interest,
+        principal,
+        balance,
+      });
+    }
+    return rows;
+  }
+}
+
+const money = (x: number): string => x.toFixed(2).padStart(10);
+
+const loan = new Loan(18500, 6.75, 36, new Date(2024, 0, 15));
+console.log(`Monthly payment: ${loan.payment.toFixed(2)} (rate/mo ${(loan.monthlyRate * 100).toFixed(4)}%)`);
+const sched = loan.schedule();
+console.log("  #  date            payment   interest  principal     balance");
+const show = [...sched.slice(0, 6), ...sched.slice(-3)];
+for (const p of show) {
+  if (p.n === sched.length - 2) console.log("  ...");
+  console.log(`${String(p.n).padStart(3)}  ${p.date} ${money(p.payment)} ${money(p.interest)} ${money(p.principal)} ${money(p.balance)}`);
+}
+const totalInterest = sched.reduce((s, p) => s + p.interest, 0);
+console.log("payments:", sched.length, "total interest:", totalInterest.toFixed(2));
+
+const faster = loan.schedule(150);
+const fasterInterest = faster.reduce((s, p) => s + p.interest, 0);
+console.log(`With +150/mo: ${faster.length} payments, interest ${fasterInterest.toFixed(2)}, saved ${(totalInterest - fasterInterest).toFixed(2)}`);
+console.log(faster[faster.length - 1]);
+
+const byYear = new Map<string, { interest: number; principal: number }>();
+for (const p of sched) {
+  const y = p.date.slice(0, 4);
+  const agg = byYear.get(y) ?? { interest: 0, principal: 0 };
+  agg.interest = Math.round((agg.interest + p.interest) * 100) / 100;
+  agg.principal = Math.round((agg.principal + p.principal) * 100) / 100;
+  byYear.set(y, agg);
+}
+console.log(byYear);
+
+const zero = new Loan(1200, 0, 12, new Date(2024, 4, 31));
+console.log(zero.payment, zero.schedule().map((p) => p.date).slice(0, 4));
+for (const [rate, years] of [[3.5, 15], [6.5, 30], [7.25, 30]] as Array<[number, number]>) {
+  const l = new Loan(300000, rate, years * 12, new Date(2025, 0, 1));
+  console.log(`${rate}% ${years}y -> ${l.payment.toFixed(2)}/mo, total ${(l.payment * years * 12).toFixed(0)}`);
+}
+try {
+  new Loan(0, 5, 12, new Date(2024, 0, 1));
+} catch (e) {
+  console.log(e instanceof RangeError ? `RangeError: ${e.message}` : e);
+}

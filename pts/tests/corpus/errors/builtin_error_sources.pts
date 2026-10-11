@@ -1,0 +1,63 @@
+// skip: not supported yet: PTS1001: values of type ErrorConstructor
+// Collects the built-in exceptions JavaScript itself throws from ordinary
+// library calls and reports their constructor names.
+
+class Node2 {
+  next: Node2 | null = null;
+  constructor(readonly value: number) {}
+}
+
+const probes: Array<[string, () => unknown]> = [
+  ["toFixed(101)", () => (1.5).toFixed(101)],
+  ["toPrecision(0)", () => (3.14159).toPrecision(0)],
+  ["toString(radix 1)", () => (255).toString(1)],
+  ["repeat(-1)", () => "ab".repeat(-1)],
+  ["repeat(Infinity)", () => "ab".repeat(Infinity)],
+  ["new Array(-1)", () => new Array<number>(-1)],
+  ["Array length 1.5", () => new Array<number>(1.5)],
+  ["invalid date ISO", () => new Date(Number.NaN).toISOString()],
+  ["decodeURIComponent('%')", () => decodeURIComponent("%")],
+  ["encodeURIComponent(lone surrogate)", () => encodeURIComponent("\uD800")],
+  ["JSON.parse('{')", () => JSON.parse("{")],
+  ["JSON.parse('')", () => JSON.parse("")],
+  [
+    "circular JSON",
+    () => {
+      const a = new Node2(1);
+      const b = new Node2(2);
+      a.next = b;
+      b.next = a;
+      return JSON.stringify(a);
+    },
+  ],
+  ["toFixed(2) ok", () => (2.345).toFixed(2)],
+  ["String.fromCodePoint(-1)", () => String.fromCodePoint(-1)],
+  ["valid date ISO", () => new Date(Date.UTC(2024, 1, 29, 12)).toISOString()],
+];
+
+const byType = new Map<string, string[]>();
+for (const [label, probe] of probes) {
+  let kind: string;
+  try {
+    const value = probe();
+    kind = "ok";
+    console.log(`${label.padEnd(36)} ok: ${JSON.stringify(value)}`);
+  } catch (e) {
+    if (e instanceof RangeError) kind = "RangeError";
+    else if (e instanceof URIError) kind = "URIError";
+    else if (e instanceof SyntaxError) kind = "SyntaxError";
+    else if (e instanceof TypeError) kind = "TypeError";
+    else if (e instanceof Error) kind = "Error";
+    else kind = "non-error";
+    const name = e instanceof Error ? e.name : "?";
+    console.log(`${label.padEnd(36)} threw ${kind} (name=${name}, has message: ${e instanceof Error && e.message.length > 0})`);
+  }
+  byType.set(kind, [...(byType.get(kind) ?? []), label]);
+}
+
+console.log(byType);
+const constructors = [Error, RangeError, TypeError, SyntaxError, URIError, EvalError, ReferenceError];
+for (const C of constructors) {
+  const instance = new C("probe");
+  console.log(instance.name, instance instanceof Error, String(instance), instance.message);
+}

@@ -1,0 +1,117 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError, caught; JS gives undefined)
+// A printf-style formatter: %d %i %u %f %e %x %X %o %b %s %c %%, with flags (-, 0, +, space, #),
+// width, precision and '*' arguments, tested against hand-computed expectations.
+type Arg = number | string;
+
+class FormatError extends Error {}
+
+interface Spec {
+  flags: Set<string>;
+  width: number | null;
+  precision: number | null;
+  conv: string;
+}
+
+function pad(body: string, spec: Spec, numeric: boolean): string {
+  const width = spec.width ?? 0;
+  if (body.length >= width) return body;
+  if (spec.flags.has("-")) return body.padEnd(width);
+  if (numeric && spec.flags.has("0") && (spec.precision === null || "feE".includes(spec.conv))) {
+    const signLen = body[0] === "-" || body[0] === "+" || body[0] === " " ? 1 : body.startsWith("0x") || body.startsWith("0X") ? 2 : 0;
+    return body.slice(0, signLen) + body.slice(signLen).padStart(width - signLen, "0");
+  }
+  return body.padStart(width);
+}
+
+function sign(n: number, spec: Spec): string {
+  return n < 0 || Object.is(n, -0) ? "-" : spec.flags.has("+") ? "+" : spec.flags.has(" ") ? " " : "";
+}
+
+function convert(spec: Spec, arg: Arg | undefined): string {
+  if (arg === undefined) throw new FormatError(`missing argument for %${spec.conv}`);
+  const num = typeof arg === "number" ? arg : Number(arg);
+  switch (spec.conv) {
+    case "d": case "i": {
+      let digits = Math.trunc(Math.abs(num)).toString();
+      if (spec.precision !== null) digits = digits.padStart(spec.precision, "0");
+      return pad(sign(Math.trunc(num), spec) + digits, spec, true);
+    }
+    case "u": return pad(String(Math.trunc(num) >>> 0), spec, true);
+    case "f": return pad(sign(num, spec) + Math.abs(num).toFixed(spec.precision ?? 6), spec, true);
+    case "e": case "E": {
+      const s = Math.abs(num).toExponential(spec.precision ?? 6);
+      const [mant, exp] = s.split("e");
+      const e = Number(exp);
+      const body = sign(num, spec) + mant + "e" + (e < 0 ? "-" : "+") + String(Math.abs(e)).padStart(2, "0");
+      return pad(spec.conv === "E" ? body.toUpperCase() : body, spec, true);
+    }
+    case "x": case "X": case "o": case "b": {
+      const radix = spec.conv === "o" ? 8 : spec.conv === "b" ? 2 : 16;
+      let s = (Math.trunc(num) >>> 0).toString(radix);
+      if (spec.conv === "X") s = s.toUpperCase();
+      if (spec.flags.has("#") && num !== 0) s = (spec.conv === "o" ? "0" : spec.conv === "b" ? "0b" : spec.conv === "X" ? "0X" : "0x") + s;
+      return pad(s, spec, true);
+    }
+    case "s": {
+      const s = String(arg);
+      return pad(spec.precision !== null ? s.slice(0, spec.precision) : s, spec, false);
+    }
+    case "c": return pad(typeof arg === "number" ? String.fromCharCode(arg) : arg.charAt(0), spec, false);
+    default: throw new FormatError(`unknown conversion %${spec.conv}`);
+  }
+}
+
+function sprintf(fmt: string, ...args: Arg[]): string {
+  let out = "";
+  let argIndex = 0;
+  const nextArg = () => args[argIndex++];
+  for (let i = 0; i < fmt.length; i++) {
+    if (fmt[i] !== "%") { out += fmt[i]; continue; }
+    i++;
+    if (fmt[i] === "%") { out += "%"; continue; }
+    const flags = new Set<string>();
+    while (i < fmt.length && "-0+ #".includes(fmt[i])) flags.add(fmt[i++]);
+    let width: number | null = null;
+    if (fmt[i] === "*") { width = Number(nextArg()); i++; if (width < 0) { flags.add("-"); width = -width; } }
+    else { let w = ""; while (fmt[i] >= "0" && fmt[i] <= "9") w += fmt[i++]; if (w) width = Number(w); }
+    let precision: number | null = null;
+    if (fmt[i] === ".") {
+      i++;
+      if (fmt[i] === "*") { precision = Number(nextArg()); i++; }
+      else { let p = ""; while (fmt[i] >= "0" && fmt[i] <= "9") p += fmt[i++]; precision = Number(p || "0"); }
+    }
+    if (i >= fmt.length) throw new FormatError("format ends inside a conversion");
+    out += convert({ flags, width, precision, conv: fmt[i] }, nextArg());
+  }
+  if (argIndex < args.length) out += ` [${args.length - argIndex} unused]`;
+  return out;
+}
+
+const cases: [string, Arg[], string][] = [
+  ["%d|%5d|%-5d|%05d", [42, 42, 42, 42], "42|   42|42   |00042"],
+  ["%+d|% d|%+.3d", [7, 7, -7], "+7| 7|-007"],
+  ["%.2f|%8.3f|%-8.1f|%08.2f", [3.14159, -2.5, 9.99, -1.5], "3.14|  -2.500|10.0    |-0001.50"],
+  ["%e|%.2e|%E|%+.1e", [12345.678, 0.000123, 1, -0.5], "1.234568e+04|1.23e-04|1.000000E+00|-5.0e-01"],
+  ["%x|%X|%#x|%#o|%b|%#b", [255, 255, 255, 8, 5, 5], "ff|FF|0xff|010|101|0b101"],
+  ["%08X|%#010x", [48879, 48879], "0000BEEF|0x0000beef"],
+  ["[%s]|[%10s]|[%-10s]|[%.3s]", ["hi", "right", "left", "truncate"], "[hi]|[     right]|[left      ]|[tru]"],
+  ["%c%c%c|%5c", [80, 84, "Script", "z"], "PTS|    z"],
+  ["%*d|%-*d|%.*f", [6, 12, 6, 12, 1, 2.24], "    12|12    |2.2"],
+  ["100%% done, %u items", [-1], "100% done, 4294967295 items"],
+  ["%d %s", [1, "a", "extra", 3], "1 a [2 unused]"],
+];
+let pass = 0;
+for (const [fmt, args, expected] of cases) {
+  let got: string;
+  try { got = sprintf(fmt, ...args); } catch (e) { got = `!${(e as Error).message}`; }
+  const ok = got === expected;
+  if (ok) pass++;
+  console.log(`${ok ? "ok  " : "DIFF"} ${JSON.stringify(fmt).padEnd(30)} ${JSON.stringify(got)}${ok ? "" : ` expected ${JSON.stringify(expected)}`}`);
+}
+console.log(`${pass}/${cases.length} cases match`);
+for (const bad of ["%d %d", "%q", "trailing %"]) {
+  try { console.log(sprintf(bad, 1)); } catch (e) { console.log(e instanceof FormatError, (e as Error).message); }
+}
+const report = [["Widget", 3, 4.5], ["Gadget", 12, 19.99], ["Thingamajig", 1, 250]] as const;
+console.log(sprintf("%-12s %4s %9s", "item", "qty", "total"));
+for (const [name, qty, price] of report) console.log(sprintf("%-12.10s %4d %9.2f", name, qty, qty * price));

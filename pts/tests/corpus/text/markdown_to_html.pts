@@ -1,0 +1,151 @@
+// skip: by design (D-015): reads a string index past the end where a string is required (RangeError; JS gives undefined)
+// A small Markdown-to-HTML converter: headings, paragraphs, lists, code blocks,
+// emphasis, inline code and links.
+type Block =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "paragraph"; lines: string[] }
+  | { kind: "list"; ordered: boolean; items: string[] }
+  | { kind: "code"; lang: string; lines: string[] }
+  | { kind: "rule" };
+function escapeHtml(s: string): string {
+  return s.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+}
+
+function renderInline(text: string): string {
+  let out = "";
+  let i = 0;
+  const stack: string[] = [];
+  while (i < text.length) {
+    const c = text[i];
+    const end = c === "`" ? text.indexOf("`", i + 1) : -1;
+    if (end > i) {
+      out += `<code>${escapeHtml(text.slice(i + 1, end))}</code>`;
+      i = end + 1;
+      continue;
+    }
+    if (c === "[") {
+      const close = text.indexOf("](", i);
+      const paren = close >= 0 ? text.indexOf(")", close) : -1;
+      if (close > i && paren > close) {
+        out += `<a href="${text.slice(close + 2, paren)}">${renderInline(text.slice(i + 1, close))}</a>`;
+        i = paren + 1;
+        continue;
+      }
+    }
+    if (c === "*" || c === "_") {
+      const strong = text[i + 1] === c;
+      const tag = strong ? "strong" : "em";
+      if (stack.length > 0 && stack[stack.length - 1] === tag) {
+        stack.pop();
+        out += `</${tag}>`;
+      } else {
+        stack.push(tag);
+        out += `<${tag}>`;
+      }
+      i += strong ? 2 : 1;
+      continue;
+    }
+    out += escapeHtml(c);
+    i++;
+  }
+  while (stack.length) out += `</${stack.pop()}>`;
+  return out;
+}
+
+function parseBlocks(md: string): Block[] {
+  const blocks: Block[] = [];
+  const lines = md.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed === "") { i++; continue; }
+    if (trimmed.startsWith("```")) {
+      const lang = trimmed.slice(3).trim();
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) body.push(lines[i++]);
+      i++;
+      blocks.push({ kind: "code", lang, lines: body });
+      continue;
+    }
+    if (trimmed === "---" || trimmed === "***") { blocks.push({ kind: "rule" }); i++; continue; }
+    let level = 0;
+    while (level < trimmed.length && trimmed[level] === "#") level++;
+    if (level > 0 && level <= 6 && trimmed[level] === " ") {
+      blocks.push({ kind: "heading", level, text: trimmed.slice(level + 1) });
+      i++;
+      continue;
+    }
+    const bullet = (s: string) => s.startsWith("- ") || s.startsWith("* ");
+    const numbered = (s: string) => {
+      const dot = s.indexOf(". ");
+      return dot > 0 && [...s.slice(0, dot)].every((ch) => ch >= "0" && ch <= "9");
+    };
+    if (bullet(trimmed) || numbered(trimmed)) {
+      const ordered = numbered(trimmed);
+      const items: string[] = [];
+      while (i < lines.length && (ordered ? numbered(lines[i].trim()) : bullet(lines[i].trim()))) {
+        const t = lines[i].trim();
+        items.push(ordered ? t.slice(t.indexOf(". ") + 2) : t.slice(2));
+        i++;
+      }
+      blocks.push({ kind: "list", ordered, items });
+      continue;
+    }
+    const para: string[] = [];
+    while (i < lines.length && lines[i].trim() !== "" && !lines[i].trim().startsWith("#") && !lines[i].trim().startsWith("```")) {
+      para.push(lines[i].trim());
+      i++;
+    }
+    blocks.push({ kind: "paragraph", lines: para });
+  }
+  return blocks;
+}
+
+function render(block: Block): string {
+  switch (block.kind) {
+    case "heading": return `<h${block.level}>${renderInline(block.text)}</h${block.level}>`;
+    case "paragraph": return `<p>${renderInline(block.lines.join(" "))}</p>`;
+    case "rule": return "<hr />";
+    case "code": {
+      const cls = block.lang ? ` class="language-${block.lang}"` : "";
+      return `<pre><code${cls}>${escapeHtml(block.lines.join("\n"))}</code></pre>`;
+    }
+    case "list": {
+      const tag = block.ordered ? "ol" : "ul";
+      return [`<${tag}>`, ...block.items.map((it) => `  <li>${renderInline(it)}</li>`), `</${tag}>`].join("\n");
+    }
+  }
+}
+
+const doc = `# ParallelScript *notes*
+
+TypeScript compiled to **native** code, with a \`GC\` and real threads.
+See [the repo](https://example.com/pts) for _details_.
+
+## Features
+- strict **type** checking
+- \`Map\` and \`Set\` support
+* fast startup
+
+### Steps
+1. write code
+2. run \`pts build\`
+3. ship it
+
+---
+\`\`\`ts
+const x: Array<number> = [1, 2];
+if (x.length < 3 && x[0] > 0) console.log("ok");
+\`\`\`
+Unclosed *emphasis and 5 < 6 & 7 > 2`;
+
+const blocks = parseBlocks(doc);
+console.log(blocks.map((b) => b.kind).join(" "));
+console.log(blocks.filter((b) => b.kind === "list"));
+for (const b of blocks) console.log(render(b));
+const headings = blocks.flatMap((b) => (b.kind === "heading" ? [{ level: b.level, text: b.text }] : []));
+console.log("table of contents:");
+for (const h of headings) console.log(`${"  ".repeat(h.level - 1)}- ${h.text.split("*").join("")}`);
+console.log(renderInline("**bold _and italic_** then `a<b`"));

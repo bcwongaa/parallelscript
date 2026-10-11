@@ -1,0 +1,112 @@
+// An INI configuration parser with sections, comments, typed values, defaults and validation.
+type IniValue = string | number | boolean;
+type Section = Map<string, IniValue>;
+
+class ConfigError extends Error {
+  constructor(public line: number, message: string) {
+    super(`line ${line}: ${message}`);
+    this.name = "ConfigError";
+  }
+}
+
+function coerce(raw: string): IniValue {
+  const v = raw.trim();
+  if (v === "true" || v === "yes" || v === "on") return true;
+  if (v === "false" || v === "no" || v === "off") return false;
+  if (v.length > 0 && !Number.isNaN(Number(v))) return Number(v);
+  if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+
+function parseIni(text: string): Map<string, Section> {
+  const sections = new Map<string, Section>([["", new Map()]]);
+  let current = "";
+  const lines = text.split("\n");
+  lines.forEach((rawLine, idx) => {
+    const lineNo = idx + 1;
+    let line = rawLine.trim();
+    const hash = line.indexOf(" #");
+    if (hash >= 0) line = line.slice(0, hash).trimEnd();
+    if (line === "" || line.startsWith(";") || line.startsWith("#")) return;
+    if (line.startsWith("[")) {
+      if (!line.endsWith("]")) throw new ConfigError(lineNo, `unclosed section header '${line}'`);
+      current = line.slice(1, -1).trim().toLowerCase();
+      if (!sections.has(current)) sections.set(current, new Map());
+      return;
+    }
+    const eq = line.indexOf("=");
+    if (eq <= 0) throw new ConfigError(lineNo, `expected key = value, got '${line}'`);
+    const key = line.slice(0, eq).trim();
+    const section = sections.get(current);
+    if (section) section.set(key, coerce(line.slice(eq + 1)));
+  });
+  return sections;
+}
+
+interface ServerConfig {
+  host: string;
+  port: number;
+  debug: boolean;
+  workers: number;
+}
+
+const defaults: ServerConfig = { host: "127.0.0.1", port: 8080, debug: false, workers: 4 };
+
+function serverConfig(ini: Map<string, Section>): ServerConfig {
+  const s = ini.get("server") ?? new Map<string, IniValue>();
+  const pick = <K extends keyof ServerConfig>(key: K): ServerConfig[K] => {
+    const v = s.get(key);
+    if (v === undefined) return defaults[key];
+    if (typeof v !== typeof defaults[key]) {
+      throw new TypeError(`server.${key} should be ${typeof defaults[key]}, got ${typeof v} (${JSON.stringify(v)})`);
+    }
+    return v as ServerConfig[K];
+  };
+  return { host: pick("host"), port: pick("port"), debug: pick("debug"), workers: pick("workers") };
+}
+
+const sample = `
+; global settings
+name = "demo app"
+version = 1.4
+
+[Server]
+host = 0.0.0.0
+port = 9000   # overridden in prod
+debug = yes
+
+[database]
+url = postgres://localhost/demo
+pool = 10
+ssl = off
+timeout = 2.5
+
+[paths]
+root = /srv/demo
+logs = '/var/log/demo'
+`;
+
+const ini = parseIni(sample);
+console.log(ini);
+for (const [name, section] of ini) {
+  console.log(`[${name || "(global)"}] ${section.size} keys`);
+  for (const [k, v] of section) console.log(`  ${k.padEnd(8)} = ${String(v).padEnd(26)} (${typeof v})`);
+}
+console.log(serverConfig(ini));
+console.log(serverConfig(parseIni("[server]\nworkers=16")));
+
+const broken = ["[server]\nport = high", "[server\nport=1", "[a]\njustakey", "[x]\n=5"];
+for (const text of broken) {
+  try {
+    const cfg = serverConfig(parseIni(text));
+    console.log("ok", cfg);
+  } catch (e) {
+    if (e instanceof ConfigError) console.log("ConfigError", e.line, e.message);
+    else if (e instanceof TypeError) console.log("TypeError:", e.message);
+    else throw e;
+  }
+}
+const asObject = Object.fromEntries([...ini].map(([k, v]) => [k || "global", Object.fromEntries(v)]));
+console.log(JSON.stringify(asObject));

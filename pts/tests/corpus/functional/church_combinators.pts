@@ -1,0 +1,93 @@
+// skip: not supported yet: PTS1001: `zero.length`
+// Church numerals, booleans and pairs, plus SKI and fixed-point combinators.
+
+type Church = <T>(f: (x: T) => T) => (x: T) => T;
+
+const zero: Church = () => (x) => x;
+const succ = (n: Church): Church => (f) => (x) => f(n(f)(x));
+const add = (m: Church, n: Church): Church => (f) => (x) => m(f)(n(f)(x));
+const mul = (m: Church, n: Church): Church => (f) => m(n(f));
+const pow = (m: Church, n: Church): Church => (f) => {
+  // n applications of "multiply by m" starting at one
+  let acc: Church = succ(zero);
+  const times = toNumber(n);
+  for (let i = 0; i < times; i++) acc = mul(acc, m);
+  return acc(f);
+};
+const toNumber = (n: Church): number => n<number>((k) => k + 1)(0);
+const toStars = (n: Church): string => n<string>((s) => s + "*")("");
+const fromNumber = (k: number): Church => (k === 0 ? zero : succ(fromNumber(k - 1)));
+
+const one = succ(zero);
+const two = succ(one);
+const three = add(one, two);
+const four = mul(two, two);
+const ten = fromNumber(10);
+
+console.log("0..4:", [zero, one, two, three, four].map(toNumber));
+console.log("3+4 =", toNumber(add(three, four)), "3*4 =", toNumber(mul(three, four)));
+console.log("2^10 =", toNumber(pow(two, ten)), "3^4 =", toNumber(pow(three, four)));
+console.log("stars(7):", toStars(add(three, four)));
+
+// Church booleans
+type CBool = <T>(a: T, b: T) => T;
+const TRUE: CBool = (a) => a;
+const FALSE: CBool = (_a, b) => b;
+const not = (p: CBool): CBool => (a, b) => p(b, a);
+const and = (p: CBool, q: CBool): CBool => (a, b) => p(q(a, b), b);
+const or = (p: CBool, q: CBool): CBool => (a, b) => p(a, q(a, b));
+const isZero = (n: Church): CBool => n<CBool>(() => FALSE)(TRUE);
+const show = (p: CBool): string => p("T", "F");
+
+const bools: Array<[string, CBool]> = [["T", TRUE], ["F", FALSE]];
+const truthTable: string[] = [];
+for (const [pn, p] of bools) {
+  for (const [qn, q] of bools) {
+    truthTable.push(`${pn}${qn}: and=${show(and(p, q))} or=${show(or(p, q))} nand=${show(not(and(p, q)))}`);
+  }
+}
+console.log(truthTable);
+console.log("isZero:", [zero, one, ten].map((n) => show(isZero(n))).join(" "));
+
+// Church pairs
+type Pair<A, B> = <R>(sel: (a: A, b: B) => R) => R;
+const pair = <A, B>(a: A, b: B): Pair<A, B> => (sel) => sel(a, b);
+const fst = <A, B>(p: Pair<A, B>): A => p((a) => a);
+const snd = <A, B>(p: Pair<A, B>): B => p((_a, b) => b);
+const swap = <A, B>(p: Pair<A, B>): Pair<B, A> => pair(snd(p), fst(p));
+const pt = pair("x", 42);
+console.log("pair:", fst(pt), snd(pt), "swapped:", fst(swap(pt)), snd(swap(pt)));
+
+// fib via pairs: (a, b) -> (b, a + b)
+const fibPair = (n: number): number => {
+  let p = pair(0, 1);
+  for (let i = 0; i < n; i++) p = pair(snd(p), fst(p) + snd(p));
+  return fst(p);
+};
+console.log("fib via pairs:", Array.from({ length: 15 }, (_, i) => fibPair(i)).join(","));
+
+// SKI combinators on numbers
+const K = <A>(a: A) => <B>(_b: B): A => a;
+const S = <A, B, C>(f: (a: A) => (b: B) => C) => (g: (a: A) => B) => (x: A): C => f(x)(g(x));
+const I = <A>(x: A): A => S<A, (b: unknown) => A, A>(K)(K<A>)(x);
+console.log("K(1)(2) =", K(1)(2), "I(99) =", I(99), "I('ski') =", I("ski"));
+const plus = (a: number) => (b: number) => a + b;
+const double = (a: number) => a * 2;
+console.log("S(plus)(double)(5) =", S(plus)(double)(5));
+
+// Z combinator (strict fixed point) for anonymous recursion
+type Fn = (n: number) => number;
+const Z = (f: (self: Fn) => Fn): Fn => {
+  const g = (x: (y: unknown) => Fn): Fn => f((v) => (x as (y: unknown) => Fn)(x)(v));
+  return g(g as (y: unknown) => Fn);
+};
+const factorial = Z((self) => (n) => (n <= 1 ? 1 : n * self(n - 1)));
+const triangular = Z((self) => (n) => (n === 0 ? 0 : n + self(n - 1)));
+console.log("factorials:", [0, 1, 5, 10, 15].map(factorial));
+console.log("triangular:", [1, 10, 100].map(triangular));
+
+// Composition and identity
+const compose = <A, B, C>(f: (b: B) => C, g: (a: A) => B) => (x: A) => f(g(x));
+const twice = <A>(f: (a: A) => A) => compose(f, f);
+console.log("twice(twice(double))(1) =", twice(twice(double))(1));
+console.log("typeof combinators:", typeof K, typeof S, typeof zero, zero.length, succ.length);

@@ -1,0 +1,148 @@
+// skip: not supported yet: PTS1001: `#private in` on a value
+// ECMAScript #private fields and methods: a crypto-style wallet with a PIN, nonce and audit trail.
+
+class WalletLockedError extends Error {
+  constructor() {
+    super("wallet is locked");
+    this.name = "WalletLockedError";
+  }
+}
+
+class Wallet {
+  static #created = 0;
+  #pin: string;
+  #balance = 0;
+  #nonce = 0;
+  #locked = true;
+  #failedAttempts = 0;
+  #audit: string[] = [];
+  readonly owner: string;
+
+  constructor(owner: string, pin: string) {
+    if (!Wallet.#validPin(pin)) throw new Error("PIN must be 4 digits");
+    this.owner = owner;
+    this.#pin = pin;
+    Wallet.#created++;
+    this.#log("created");
+  }
+
+  static #validPin(pin: string): boolean {
+    return pin.length === 4 && [...pin].every((c) => c >= "0" && c <= "9");
+  }
+
+  static get created(): number {
+    return Wallet.#created;
+  }
+
+  #log(event: string): void {
+    this.#audit.push(`${String(this.#audit.length + 1).padStart(2, "0")} ${event}`);
+  }
+
+  #requireUnlocked(): void {
+    if (this.#locked) throw new WalletLockedError();
+  }
+
+  unlock(pin: string): boolean {
+    if (this.#failedAttempts >= 3) {
+      this.#log("unlock refused: too many attempts");
+      return false;
+    }
+    if (pin !== this.#pin) {
+      this.#failedAttempts++;
+      this.#log(`bad pin (${this.#failedAttempts})`);
+      return false;
+    }
+    this.#failedAttempts = 0;
+    this.#locked = false;
+    this.#log("unlocked");
+    return true;
+  }
+
+  lock(): void {
+    this.#locked = true;
+    this.#log("locked");
+  }
+
+  receive(amount: number, from: string): void {
+    this.#balance += amount;
+    this.#log(`+${amount} from ${from}`);
+  }
+
+  send(to: Wallet, amount: number): number {
+    this.#requireUnlocked();
+    if (amount > this.#balance) throw new RangeError(`insufficient: ${this.#balance} < ${amount}`);
+    this.#balance -= amount;
+    this.#nonce++;
+    to.receive(amount, this.owner);
+    this.#log(`-${amount} to ${to.owner} (nonce ${this.#nonce})`);
+    return this.#nonce;
+  }
+
+  changePin(oldPin: string, newPin: string): boolean {
+    if (oldPin !== this.#pin || !Wallet.#validPin(newPin)) return false;
+    this.#pin = newPin;
+    this.#log("pin changed");
+    return true;
+  }
+
+  static hasSameBalance(a: Wallet, b: Wallet): boolean {
+    return a.#balance === b.#balance;
+  }
+
+  static isWallet(x: object): boolean {
+    return #balance in x;
+  }
+
+  get balance(): number {
+    this.#requireUnlocked();
+    return this.#balance;
+  }
+
+  get trail(): readonly string[] {
+    return this.#audit;
+  }
+}
+
+const alice = new Wallet("alice", "1234");
+const bob = new Wallet("bob", "0000");
+alice.receive(100, "faucet");
+bob.receive(100, "faucet");
+console.log("same balance:", Wallet.hasSameBalance(alice, bob));
+
+const steps: Array<[string, () => unknown]> = [
+  ["alice sends 10 while locked", () => alice.send(bob, 10)],
+  ["alice unlock 9999", () => alice.unlock("9999")],
+  ["alice unlock 1234", () => alice.unlock("1234")],
+  ["alice sends 30", () => alice.send(bob, 30)],
+  ["alice sends 500", () => alice.send(bob, 500)],
+  ["alice sends 20", () => alice.send(bob, 20)],
+  ["alice balance", () => alice.balance],
+  ["bob balance (locked)", () => bob.balance],
+  ["bob change pin bad", () => bob.changePin("0000", "12a4")],
+  ["bob change pin", () => bob.changePin("0000", "4321")],
+  ["bob unlock old", () => bob.unlock("0000")],
+  ["bob unlock new", () => bob.unlock("4321")],
+  ["bob balance", () => bob.balance],
+];
+for (const [label, fn] of steps) {
+  try {
+    console.log(`${label}: ${fn()}`);
+  } catch (e) {
+    const err = e as Error;
+    console.log(`${label}: ${err.name} - ${err.message}`);
+  }
+}
+alice.lock();
+for (let i = 0; i < 4; i++) alice.unlock("1111");
+console.log(alice.unlock("1234"));
+console.log(alice.trail);
+console.log(bob.trail.length, bob.trail[bob.trail.length - 1]);
+console.log("wallets created:", Wallet.created);
+console.log(Wallet.isWallet(alice), Wallet.isWallet({ balance: 5 }), Wallet.isWallet(new Date(0)));
+try {
+  new Wallet("eve", "12");
+} catch (e) {
+  console.log((e as Error).message, Wallet.created);
+}
+console.log(alice);
+console.log(Object.keys(bob), JSON.stringify(bob));

@@ -1,0 +1,111 @@
+// Matrix utilities that validate shapes and throw descriptive errors on
+// dimension mismatches and singular matrices.
+
+class DimensionError extends Error {
+  constructor(op: string, readonly left: [number, number], readonly right: [number, number]) {
+    super(`${op}: incompatible shapes ${left.join("x")} and ${right.join("x")}`);
+    this.name = "DimensionError";
+  }
+}
+
+class SingularMatrixError extends Error {
+  constructor(readonly det: number) {
+    super(`matrix is singular (det=${det})`);
+    this.name = "SingularMatrixError";
+  }
+}
+
+class Matrix {
+  private constructor(readonly rows: number, readonly cols: number, private readonly data: number[]) {}
+
+  static of(values: number[][]): Matrix {
+    if (values.length === 0) throw new RangeError("matrix needs at least one row");
+    const cols = values[0].length;
+    values.forEach((row, i) => {
+      if (row.length !== cols) throw new RangeError(`row ${i} has ${row.length} columns, expected ${cols}`);
+    });
+    return new Matrix(values.length, cols, values.flat());
+  }
+
+  static identity(n: number): Matrix {
+    return Matrix.of(Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))));
+  }
+
+  get shape(): [number, number] {
+    return [this.rows, this.cols];
+  }
+
+  at(r: number, c: number): number {
+    if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) throw new RangeError(`index (${r}, ${c}) out of bounds`);
+    return this.data[r * this.cols + c];
+  }
+
+  add(o: Matrix): Matrix {
+    if (this.rows !== o.rows || this.cols !== o.cols) throw new DimensionError("add", this.shape, o.shape);
+    return new Matrix(this.rows, this.cols, this.data.map((v, i) => v + o.data[i]));
+  }
+
+  mul(o: Matrix): Matrix {
+    if (this.cols !== o.rows) throw new DimensionError("mul", this.shape, o.shape);
+    const out: number[] = [];
+    for (let i = 0; i < this.rows; i++) {
+      for (let j = 0; j < o.cols; j++) {
+        let s = 0;
+        for (let k = 0; k < this.cols; k++) s += this.at(i, k) * o.at(k, j);
+        out.push(s);
+      }
+    }
+    return new Matrix(this.rows, o.cols, out);
+  }
+
+  inverse2x2(): Matrix {
+    if (this.rows !== 2 || this.cols !== 2) throw new DimensionError("inverse2x2", this.shape, [2, 2]);
+    const [a, b, c, d] = this.data;
+    const det = a * d - b * c;
+    if (Math.abs(det) < 1e-12) throw new SingularMatrixError(det);
+    return Matrix.of([
+      [d / det, -b / det],
+      [-c / det, a / det],
+    ]);
+  }
+
+  toRows(): number[][] {
+    return Array.from({ length: this.rows }, (_, r) => this.data.slice(r * this.cols, (r + 1) * this.cols));
+  }
+}
+
+const A = Matrix.of([[1, 2], [3, 4]]);
+const B = Matrix.of([[0, 1, 2], [3, 4, 5]]);
+const S = Matrix.of([[2, 4], [1, 2]]);
+
+const operations: Array<[string, () => Matrix | number]> = [
+  ["A*B", () => A.mul(B)],
+  ["B*A", () => B.mul(A)],
+  ["A+B", () => A.add(B)],
+  ["A+I", () => A.add(Matrix.identity(2))],
+  ["inv(A)", () => A.inverse2x2()],
+  ["inv(S)", () => S.inverse2x2()],
+  ["inv(B)", () => B.inverse2x2()],
+  ["A*inv(A)", () => A.mul(A.inverse2x2())],
+  ["B[1][2]", () => B.at(1, 2)],
+  ["B[2][0]", () => B.at(2, 0)],
+  ["ragged", () => Matrix.of([[1, 2], [3]])],
+  ["empty", () => Matrix.of([])],
+];
+
+for (const [label, op] of operations) {
+  try {
+    const result = op();
+    console.log(label, "=", typeof result === "number" ? result : result.toRows());
+  } catch (e) {
+    if (e instanceof DimensionError) {
+      console.log(label, "->", e.message, { left: e.left, right: e.right });
+    } else if (e instanceof SingularMatrixError) {
+      console.log(label, "->", e.name, "det", e.det);
+    } else if (e instanceof RangeError) {
+      console.log(label, "->", `RangeError: ${e.message}`);
+    } else {
+      throw e;
+    }
+  }
+}

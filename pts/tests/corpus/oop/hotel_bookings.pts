@@ -1,0 +1,137 @@
+// Hotel booking system: room types, nightly rates with weekend pricing, overlapping reservations.
+
+enum RoomType {
+  Single = "single",
+  Double = "double",
+  Suite = "suite",
+}
+
+interface Guest {
+  name: string;
+  vip: boolean;
+}
+
+class DateRange {
+  constructor(readonly checkIn: Date, readonly checkOut: Date) {
+    if (checkOut <= checkIn) throw new RangeError("check-out must follow check-in");
+  }
+  static parse(a: string, b: string): DateRange {
+    const [y1, m1, d1] = a.split("-").map(Number);
+    const [y2, m2, d2] = b.split("-").map(Number);
+    return new DateRange(new Date(y1, m1 - 1, d1), new Date(y2, m2 - 1, d2));
+  }
+  overlaps(o: DateRange): boolean {
+    return this.checkIn < o.checkOut && o.checkIn < this.checkOut;
+  }
+  nightList(): Date[] {
+    const out: Date[] = [];
+    const d = new Date(this.checkIn.getTime());
+    while (d < this.checkOut) {
+      out.push(new Date(d.getTime()));
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  }
+  toString(): string {
+    const f = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${f(this.checkIn)}..${f(this.checkOut)}`;
+  }
+}
+
+class Room {
+  constructor(readonly number: number, readonly type: RoomType, readonly baseRate: number) {}
+  rateFor(night: Date): number {
+    const day = night.getDay();
+    const weekend = day === 5 || day === 6;
+    return weekend ? Math.round(this.baseRate * 1.25) : this.baseRate;
+  }
+}
+
+class Reservation {
+  private static counter = 1000;
+  readonly code = `R${++Reservation.counter}`;
+  cancelled = false;
+  constructor(readonly room: Room, readonly guest: Guest, readonly range: DateRange) {}
+
+  get cost(): number {
+    const sum = this.range.nightList().reduce((s, n) => s + this.room.rateFor(n), 0);
+    return this.guest.vip ? Math.round(sum * 0.9 * 100) / 100 : sum;
+  }
+}
+
+class Hotel {
+  private reservations: Reservation[] = [];
+  constructor(readonly name: string, private rooms: Room[]) {}
+
+  available(type: RoomType, range: DateRange): Room[] {
+    return this.rooms.filter(
+      (r) => r.type === type && !this.reservations.some((x) => !x.cancelled && x.room === r && x.range.overlaps(range)),
+    );
+  }
+
+  book(guest: Guest, type: RoomType, range: DateRange): Reservation | null {
+    const free = this.available(type, range);
+    if (free.length === 0) return null;
+    const res = new Reservation(free[0], guest, range);
+    this.reservations.push(res);
+    return res;
+  }
+
+  cancel(code: string): boolean {
+    const r = this.reservations.find((x) => x.code === code && !x.cancelled);
+    if (!r) return false;
+    r.cancelled = true;
+    return true;
+  }
+
+  occupancy(night: Date): number {
+    const active = this.reservations.filter((r) => !r.cancelled && r.range.checkIn <= night && night < r.range.checkOut);
+    return active.length / this.rooms.length;
+  }
+
+  ledger(): Array<{ code: string; guest: string; room: number; dates: string; cost: number; status: string }> {
+    return this.reservations.map((r) => ({
+      code: r.code,
+      guest: r.guest.name,
+      room: r.room.number,
+      dates: r.range.toString(),
+      cost: r.cost,
+      status: r.cancelled ? "cancelled" : "active",
+    }));
+  }
+}
+
+const hotel = new Hotel("Seaside", [
+  new Room(101, RoomType.Single, 80),
+  new Room(102, RoomType.Double, 120),
+  new Room(103, RoomType.Double, 125),
+  new Room(201, RoomType.Suite, 300),
+]);
+
+const requests: [Guest, RoomType, string, string][] = [
+  [{ name: "Ivy", vip: false }, RoomType.Double, "2024-07-04", "2024-07-08"],
+  [{ name: "Jon", vip: true }, RoomType.Suite, "2024-07-05", "2024-07-07"],
+  [{ name: "Kai", vip: false }, RoomType.Double, "2024-07-06", "2024-07-09"],
+  [{ name: "Lu", vip: false }, RoomType.Double, "2024-07-07", "2024-07-08"],
+  [{ name: "Max", vip: true }, RoomType.Single, "2024-07-01", "2024-07-15"],
+  [{ name: "Ned", vip: false }, RoomType.Suite, "2024-07-06", "2024-07-07"],
+];
+const made: Reservation[] = [];
+for (const [guest, type, a, b] of requests) {
+  const res = hotel.book(guest, type, DateRange.parse(a, b));
+  console.log(res ? `${guest.name}: ${res.code} room ${res.room.number} ${res.range} $${res.cost}` : `${guest.name}: no ${type} available ${a}..${b}`);
+  if (res) made.push(res);
+}
+console.log("cancel", made[1].code, hotel.cancel(made[1].code), "again", hotel.cancel(made[1].code));
+const retry = hotel.book({ name: "Ned", vip: false }, RoomType.Suite, DateRange.parse("2024-07-06", "2024-07-07"));
+console.log("Ned retry:", retry?.code ?? "none", retry?.cost);
+for (const day of [4, 6, 7, 10]) {
+  console.log(`occupancy 2024-07-${String(day).padStart(2, "0")}: ${(hotel.occupancy(new Date(2024, 6, day)) * 100).toFixed(0)}%`);
+}
+console.table(hotel.ledger());
+try {
+  DateRange.parse("2024-07-10", "2024-07-10");
+} catch (e) {
+  console.log(e instanceof RangeError, (e as Error).message);
+}
+console.log(Object.entries(RoomType), made[0].range);

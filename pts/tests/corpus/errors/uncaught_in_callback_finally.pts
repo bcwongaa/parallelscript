@@ -1,0 +1,59 @@
+// A migration runner: each step logs, finally blocks report cleanup, and
+// a step throws inside a forEach callback. The outer try/finally prints its
+// summary, but nothing catches the error, so the process exits with code 1.
+
+class MigrationError extends Error {
+  constructor(readonly version: number, message: string) {
+    super(`migration ${version} failed: ${message}`);
+    this.name = "MigrationError";
+  }
+}
+
+interface Migration {
+  version: number;
+  description: string;
+  statements: string[];
+}
+
+const migrations: Migration[] = [
+  { version: 1, description: "create users", statements: ["CREATE TABLE users", "CREATE INDEX users_email"] },
+  { version: 2, description: "add orders", statements: ["CREATE TABLE orders", "ALTER TABLE orders ADD fk"] },
+  { version: 3, description: "backfill totals", statements: ["UPDATE orders SET total = 0", "UPDATE orders SET total = sum(nope)"] },
+  { version: 4, description: "drop legacy", statements: ["DROP TABLE legacy"] },
+];
+
+const applied: number[] = [];
+const executed: string[] = [];
+
+function execute(version: number, sql: string): void {
+  if (sql.includes("nope")) throw new MigrationError(version, `unknown column in '${sql}'`);
+  executed.push(sql);
+}
+
+function runMigration(m: Migration): void {
+  console.log(`-> v${m.version}: ${m.description}`);
+  let done = 0;
+  try {
+    m.statements.forEach((sql, i) => {
+      console.log(`   [${i + 1}/${m.statements.length}] ${sql}`);
+      execute(m.version, sql);
+      done++;
+    });
+    applied.push(m.version);
+  } finally {
+    console.log(`   v${m.version} finished ${done}/${m.statements.length} statement(s)`);
+  }
+}
+
+console.log("pending:", migrations.map((m) => m.version));
+try {
+  for (const m of migrations) {
+    runMigration(m);
+  }
+  console.log("all migrations applied");
+} finally {
+  console.log("applied versions:", applied);
+  console.log("executed statements:", executed.length);
+  console.log({ last: executed[executed.length - 1], remaining: migrations.filter((m) => !applied.includes(m.version)).length });
+}
+console.log("this line is never printed");

@@ -1,0 +1,146 @@
+// skip: not supported yet: PTS1001: converting Arith | Dup | Halt | Jump | Load | Print | Push | Store[] to Instr[]
+// A small stack virtual machine with instruction classes, an assembler and a disassembler.
+
+class VMError extends Error {
+  constructor(message: string, readonly pc: number) {
+    super(`${message} at pc=${pc}`);
+    this.name = "VMError";
+  }
+}
+
+class Machine {
+  stack: number[] = [];
+  pc = 0;
+  halted = false;
+  output: string[] = [];
+  steps = 0;
+  readonly memory = new Map<string, number>();
+
+  pop(): number {
+    const v = this.stack.pop();
+    if (v === undefined) throw new VMError("stack underflow", this.pc);
+    return v;
+  }
+  push(v: number): void {
+    if (this.stack.length >= 64) throw new VMError("stack overflow", this.pc);
+    this.stack.push(v);
+  }
+}
+
+abstract class Instr {
+  abstract exec(m: Machine): void;
+  abstract toString(): string;
+}
+
+class Push extends Instr {
+  constructor(readonly value: number) { super(); }
+  exec(m: Machine) { m.push(this.value); m.pc++; }
+  toString() { return `PUSH ${this.value}`; }
+}
+
+type BinOp = "ADD" | "SUB" | "MUL" | "DIV" | "MOD" | "LT" | "EQ";
+class Arith extends Instr {
+  constructor(readonly op: BinOp) { super(); }
+  exec(m: Machine) {
+    const b = m.pop(), a = m.pop();
+    let r: number;
+    switch (this.op) {
+      case "ADD": r = a + b; break;
+      case "SUB": r = a - b; break;
+      case "MUL": r = a * b; break;
+      case "DIV":
+        if (b === 0) throw new VMError("division by zero", m.pc);
+        r = Math.trunc(a / b);
+        break;
+      case "MOD": r = a % b; break;
+      case "LT": r = a < b ? 1 : 0; break;
+      case "EQ": r = a === b ? 1 : 0; break;
+    }
+    m.push(r);
+    m.pc++;
+  }
+  toString() { return this.op; }
+}
+
+class Dup extends Instr { exec(m: Machine) { const v = m.pop(); m.push(v); m.push(v); m.pc++; } toString() { return "DUP"; } }
+class Load extends Instr {
+  constructor(readonly name: string) { super(); }
+  exec(m: Machine) { m.push(m.memory.get(this.name) ?? 0); m.pc++; }
+  toString() { return `LOAD ${this.name}`; }
+}
+class Store extends Instr {
+  constructor(readonly name: string) { super(); }
+  exec(m: Machine) { m.memory.set(this.name, m.pop()); m.pc++; }
+  toString() { return `STORE ${this.name}`; }
+}
+class Jump extends Instr {
+  constructor(readonly target: number, readonly conditional: boolean) { super(); }
+  exec(m: Machine) {
+    if (!this.conditional || m.pop() === 0) m.pc = this.target;
+    else m.pc++;
+  }
+  toString() { return `${this.conditional ? "JZ" : "JMP"} ${this.target}`; }
+}
+class Print extends Instr { exec(m: Machine) { m.output.push(String(m.pop())); m.pc++; } toString() { return "PRINT"; } }
+class Halt extends Instr { exec(m: Machine) { m.halted = true; } toString() { return "HALT"; } }
+
+function assemble(src: string): Instr[] {
+  const lines = src.split("\n").map((l) => l.split(";")[0].trim()).filter((l) => l.length > 0);
+  const labels = new Map<string, number>();
+  const code: string[] = [];
+  for (const l of lines) {
+    if (l.endsWith(":")) labels.set(l.slice(0, -1), code.length);
+    else code.push(l);
+  }
+  return code.map((l, i) => {
+    const [op, arg] = l.split(" ");
+    const target = () => {
+      const t = labels.get(arg);
+      if (t === undefined) throw new SyntaxError(`unknown label ${arg} on line ${i}`);
+      return t;
+    };
+    switch (op.toUpperCase()) {
+      case "PUSH": return new Push(Number(arg));
+      case "DUP": return new Dup();
+      case "LOAD": return new Load(arg);
+      case "STORE": return new Store(arg);
+      case "JMP": return new Jump(target(), false);
+      case "JZ": return new Jump(target(), true);
+      case "PRINT": return new Print();
+      case "HALT": return new Halt();
+      default: return new Arith(op.toUpperCase() as BinOp);
+    }
+  });
+}
+
+function run(program: Instr[], limit = 10_000): Machine {
+  const m = new Machine();
+  while (!m.halted && m.pc < program.length) {
+    if (++m.steps > limit) throw new VMError("step limit exceeded", m.pc);
+    program[m.pc].exec(m);
+  }
+  return m;
+}
+
+const fib = [
+  "push 0", "store a", "push 1", "store b", "push 10", "store n",
+  "loop:", "load n", "jz end", "load a", "print",
+  "load a", "load b", "add", "load b", "store a", "store b",
+  "load n", "push 1", "sub", "store n", "jmp loop",
+  "end:", "halt ; done",
+].join("\n");
+const prog = assemble(fib);
+console.log(prog.map((ins, i) => `${String(i).padStart(2, "0")} ${ins}`).slice(0, 8).join("\n"));
+const m = run(prog);
+console.log("fib:", m.output.join(" "), "steps:", m.steps);
+console.log(m.memory, m.stack);
+const gcd = assemble("push 1071\nstore x\npush 462\nstore y\ntop:\nload y\njz done\nload x\nload y\nmod\nload y\nstore x\nstore y\njmp top\ndone:\nload x\nprint\nhalt");
+console.log("gcd:", run(gcd).output);
+for (const bad of ["push 1\npush 0\ndiv", "add", "top:\njmp top", "jmp nowhere"]) {
+  try {
+    run(assemble(bad), 50);
+  } catch (e) {
+    console.log(`${(e as Error).name}: ${(e as Error).message}`);
+  }
+}
+console.log(prog[0], prog.filter((i) => i instanceof Jump));

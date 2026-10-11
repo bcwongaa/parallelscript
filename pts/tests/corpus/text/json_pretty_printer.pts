@@ -1,0 +1,150 @@
+// skip: not supported yet: PTS1001: destructuring a [string, boolean] | [string, null] with an array pattern
+// A hand-written JSON parser and pretty-printer with sorted keys and compact arrays.
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+class JsonSyntaxError extends Error {
+  constructor(msg: string, readonly offset: number) {
+    super(`${msg} at offset ${offset}`);
+  }
+}
+
+class JsonReader {
+  private i = 0;
+  constructor(private readonly src: string) {}
+  read(): JsonValue {
+    const v = this.value();
+    this.ws();
+    if (this.i < this.src.length) throw new JsonSyntaxError("trailing data", this.i);
+    return v;
+  }
+  private ws(): void {
+    while (this.i < this.src.length && " \n\r\t".includes(this.src[this.i])) this.i++;
+  }
+  private value(): JsonValue {
+    this.ws();
+    const c = this.src[this.i];
+    if (c === "{") return this.object();
+    if (c === "[") return this.array();
+    if (c === '"') return this.string();
+    if (c === "-" || (c >= "0" && c <= "9")) return this.number();
+    for (const [word, val] of [["true", true], ["false", false], ["null", null]] as const) {
+      if (this.src.startsWith(word, this.i)) {
+        this.i += word.length;
+        return val;
+      }
+    }
+    throw new JsonSyntaxError(`unexpected '${c ?? "EOF"}'`, this.i);
+  }
+  private object(): { [key: string]: JsonValue } {
+    this.i++;
+    const out: { [key: string]: JsonValue } = {};
+    this.ws();
+    if (this.src[this.i] === "}") { this.i++; return out; }
+    while (true) {
+      this.ws();
+      const key = this.string();
+      this.ws();
+      if (this.src[this.i] !== ":") throw new JsonSyntaxError("expected ':'", this.i);
+      this.i++;
+      out[key] = this.value();
+      this.ws();
+      const c = this.src[this.i++];
+      if (c === "}") return out;
+      if (c !== ",") throw new JsonSyntaxError("expected ',' or '}'", this.i - 1);
+    }
+  }
+  private array(): JsonValue[] {
+    this.i++;
+    const out: JsonValue[] = [];
+    this.ws();
+    if (this.src[this.i] === "]") { this.i++; return out; }
+    while (true) {
+      out.push(this.value());
+      this.ws();
+      const c = this.src[this.i++];
+      if (c === "]") return out;
+      if (c !== ",") throw new JsonSyntaxError("expected ',' or ']'", this.i - 1);
+    }
+  }
+  private string(): string {
+    if (this.src[this.i] !== '"') throw new JsonSyntaxError("expected string", this.i);
+    this.i++;
+    let s = "";
+    while (this.src[this.i] !== '"') {
+      if (this.i >= this.src.length) throw new JsonSyntaxError("unterminated string", this.i);
+      let c = this.src[this.i++];
+      if (c === "\\") {
+        const e = this.src[this.i++];
+        const map: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", '"': '"', "\\": "\\", "/": "/" };
+        if (e === "u") {
+          c = String.fromCharCode(parseInt(this.src.slice(this.i, this.i + 4), 16));
+          this.i += 4;
+        } else if (e in map) {
+          c = map[e];
+        } else {
+          throw new JsonSyntaxError(`bad escape \\${e}`, this.i - 1);
+        }
+      }
+      s += c;
+    }
+    this.i++;
+    return s;
+  }
+  private number(): number {
+    const start = this.i;
+    while (this.i < this.src.length && "+-0123456789.eE".includes(this.src[this.i])) this.i++;
+    const n = Number(this.src.slice(start, this.i));
+    if (Number.isNaN(n)) throw new JsonSyntaxError("bad number", start);
+    return n;
+  }
+}
+
+function quote(s: string): string {
+  let out = '"';
+  for (const ch of s) {
+    switch (ch) {
+      case '"': out += '\\"'; break;
+      case "\\": out += "\\\\"; break;
+      case "\n": out += "\\n"; break;
+      case "\t": out += "\\t"; break;
+      default: out += ch;
+    }
+  }
+  return out + '"';
+}
+
+function pretty(v: JsonValue, indent = 0, width = 2): string {
+  const pad = " ".repeat(indent + width), close = " ".repeat(indent);
+  if (v === null || typeof v === "boolean" || typeof v === "number") return String(v);
+  if (typeof v === "string") return quote(v);
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "[]";
+    const scalars = v.every((x) => x === null || typeof x !== "object");
+    if (scalars && v.length <= 6) return `[${v.map((x) => pretty(x)).join(", ")}]`;
+    return `[\n${v.map((x) => pad + pretty(x, indent + width, width)).join(",\n")}\n${close}]`;
+  }
+  const keys = Object.keys(v).sort();
+  if (keys.length === 0) return "{}";
+  const lines = keys.map((k) => `${pad}${quote(k)}: ${pretty(v[k], indent + width, width)}`);
+  return `{\n${lines.join(",\n")}\n${close}}`;
+}
+
+const docs = [
+  '{"name":"pts","version":"0.3.1","tags":["compiler","gc"],"deps":{"zlib":"1.3","libuv":null},"stable":false}',
+  '[1, 2.5, -3e2, "a\\tb", {"z": 1, "a": [true, false, null]}]',
+  '{"matrix": [[1,2,3],[4,5,6]], "unicode": "caf\\u00e9 \\u2603", "empty": {}, "list": []}',
+  '{"a": 1,}', '[1 2]', '"unterminated', '{"x": tru}',
+];
+for (const doc of docs) {
+  try {
+    const value = new JsonReader(doc).read();
+    console.log(pretty(value));
+    console.log("matches JSON.parse:", JSON.stringify(value) === JSON.stringify(JSON.parse(doc)));
+  } catch (e) {
+    if (e instanceof JsonSyntaxError) console.log("syntax error:", e.message, "| offset", e.offset);
+    else throw e;
+  }
+}
+const parsed = new JsonReader(docs[0]).read();
+console.log(parsed);
+console.log(JSON.stringify(parsed, null, 4));

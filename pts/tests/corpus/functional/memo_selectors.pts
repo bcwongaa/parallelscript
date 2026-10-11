@@ -1,0 +1,113 @@
+// skip: not supported yet: PTS1001: this call of a generic function
+// Memoized selectors (reselect-style) over an immutable store, with recomputation counters.
+
+type Selector<S, R> = ((s: S) => R) & { recomputations: () => number; label: string };
+
+function createSelector<S, A, R>(label: string, inputs: [(s: S) => A], combine: (a: A) => R): Selector<S, R>;
+function createSelector<S, A, B, R>(label: string, inputs: [(s: S) => A, (s: S) => B], combine: (a: A, b: B) => R): Selector<S, R>;
+function createSelector<S, A, B, C, R>(label: string, inputs: [(s: S) => A, (s: S) => B, (s: S) => C], combine: (a: A, b: B, c: C) => R): Selector<S, R>;
+function createSelector<S>(label: string, inputs: Array<(s: S) => unknown>, combine: (...args: any[]) => unknown): Selector<S, unknown> {
+  let lastArgs: unknown[] | null = null;
+  let lastResult: unknown;
+  let count = 0;
+  const sel = (s: S) => {
+    const args = inputs.map((f) => f(s));
+    if (lastArgs !== null && args.every((a, i) => a === lastArgs![i])) return lastResult;
+    count++;
+    lastArgs = args;
+    lastResult = combine(...args);
+    return lastResult;
+  };
+  return Object.assign(sel, { recomputations: () => count, label });
+}
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+}
+interface State {
+  products: Product[];
+  cart: Record<string, number>;
+  query: string;
+  currency: { code: string; rate: number };
+}
+
+const state0: State = {
+  products: [
+    { id: "p1", name: "Desk Lamp", price: 35, category: "home" },
+    { id: "p2", name: "Notebook", price: 4.5, category: "office" },
+    { id: "p3", name: "Desk Mat", price: 22, category: "office" },
+    { id: "p4", name: "Plant Pot", price: 12, category: "home" },
+  ],
+  cart: {},
+  query: "",
+  currency: { code: "USD", rate: 1 },
+};
+
+const selectProducts = (s: State) => s.products;
+const selectCart = (s: State) => s.cart;
+const selectQuery = (s: State) => s.query;
+const selectCurrency = (s: State) => s.currency;
+
+const selectVisible = createSelector("visible", [selectProducts, selectQuery], (products, q) =>
+  products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())),
+);
+const selectCartLines = createSelector("cartLines", [selectProducts, selectCart], (products, cart) =>
+  Object.entries(cart)
+    .filter(([, qty]) => qty > 0)
+    .map(([id, qty]) => {
+      const p = products.find((x) => x.id === id);
+      return { name: p?.name ?? id, qty, subtotal: (p?.price ?? 0) * qty };
+    }),
+);
+const selectTotal = createSelector("total", [selectCartLines, selectCurrency], (lines, cur) => {
+  const usd = lines.reduce((s, l) => s + l.subtotal, 0);
+  return `${(usd * cur.rate).toFixed(2)} ${cur.code}`;
+});
+const selectSummary = createSelector("summary", [selectVisible, selectCartLines, selectTotal], (vis, lines, total) => ({
+  visible: vis.map((p) => p.name),
+  items: lines.reduce((n, l) => n + l.qty, 0),
+  total,
+}));
+
+type Action = { type: "query"; q: string } | { type: "add"; id: string } | { type: "currency"; code: string; rate: number } | { type: "noop" };
+
+function reduce(s: State, a: Action): State {
+  switch (a.type) {
+    case "query":
+      return s.query === a.q ? s : { ...s, query: a.q };
+    case "add":
+      return { ...s, cart: { ...s.cart, [a.id]: (s.cart[a.id] ?? 0) + 1 } };
+    case "currency":
+      return { ...s, currency: { code: a.code, rate: a.rate } };
+    case "noop":
+      return s;
+  }
+}
+
+const actions: Action[] = [
+  { type: "noop" },
+  { type: "add", id: "p2" },
+  { type: "add", id: "p2" },
+  { type: "query", q: "desk" },
+  { type: "query", q: "desk" },
+  { type: "add", id: "p1" },
+  { type: "currency", code: "EUR", rate: 0.92 },
+  { type: "noop" },
+  { type: "query", q: "" },
+];
+
+let state = state0;
+const selectors = [selectVisible, selectCartLines, selectTotal, selectSummary];
+console.log("initial:", selectSummary(state));
+for (const a of actions) {
+  state = reduce(state, a);
+  const summary = selectSummary(state);
+  const counts = selectors.map((s) => `${s.label}=${s.recomputations()}`).join(" ");
+  console.log(`${a.type.padEnd(8)} ${JSON.stringify(summary)}`);
+  console.log(`         ${counts}`);
+}
+console.log(selectCartLines(state));
+console.log("same reference on repeat:", selectSummary(state) === selectSummary(state));

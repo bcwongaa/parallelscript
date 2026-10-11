@@ -1,0 +1,97 @@
+// skip: not supported yet: PTS1001: values of type Iterable<string>
+class TagSet<T> {
+  private readonly items: Set<T>;
+
+  constructor(values: Iterable<T> = []) {
+    this.items = new Set(values);
+  }
+
+  static of<T>(...values: T[]): TagSet<T> {
+    return new TagSet(values);
+  }
+
+  get size(): number {
+    return this.items.size;
+  }
+
+  has(v: T): boolean {
+    return this.items.has(v);
+  }
+
+  union(other: TagSet<T>): TagSet<T> {
+    return new TagSet([...this.items, ...other.items]);
+  }
+
+  intersection(other: TagSet<T>): TagSet<T> {
+    return new TagSet([...this.items].filter((v) => other.has(v)));
+  }
+
+  difference(other: TagSet<T>): TagSet<T> {
+    return new TagSet([...this.items].filter((v) => !other.has(v)));
+  }
+
+  symmetricDifference(other: TagSet<T>): TagSet<T> {
+    return this.difference(other).union(other.difference(this));
+  }
+
+  isSubsetOf(other: TagSet<T>): boolean {
+    return [...this.items].every((v) => other.has(v));
+  }
+
+  jaccard(other: TagSet<T>): number {
+    const u = this.union(other).size;
+    return u === 0 ? 1 : this.intersection(other).size / u;
+  }
+
+  toArray(): T[] {
+    return [...this.items];
+  }
+
+  toString(): string {
+    return `{${this.toArray().join(", ")}}`;
+  }
+}
+
+const newsletter = TagSet.of("ana", "ben", "cai", "dee", "eli", "fay");
+const purchasers = TagSet.of("ben", "dee", "gus", "hal", "fay");
+const appUsers = TagSet.of("ana", "dee", "fay", "hal", "ivy");
+const unsubscribed = TagSet.of("eli", "hal");
+
+console.log("newsletter ∪ purchasers =", newsletter.union(purchasers).toString());
+console.log("newsletter ∩ purchasers =", newsletter.intersection(purchasers).toString());
+console.log("newsletter − purchasers =", newsletter.difference(purchasers).toString());
+console.log("purchasers △ appUsers   =", `${purchasers.symmetricDifference(appUsers)}`);
+
+const everyone = newsletter.union(purchasers).union(appUsers);
+const reachable = everyone.difference(unsubscribed);
+console.log("everyone:", everyone.size, "reachable:", reachable.size);
+const loyal = newsletter.intersection(purchasers).intersection(appUsers);
+console.log("loyal core:", loyal.toArray());
+console.log("loyal ⊆ purchasers?", loyal.isSubsetOf(purchasers), "purchasers ⊆ loyal?", purchasers.isSubsetOf(loyal));
+
+const segments: Record<string, TagSet<string>> = { newsletter, purchasers, appUsers };
+const names = Object.keys(segments);
+for (let i = 0; i < names.length; i++) {
+  for (let j = i + 1; j < names.length; j++) {
+    const a = segments[names[i]];
+    const b = segments[names[j]];
+    console.log(`jaccard(${names[i]}, ${names[j]}) = ${a.jaccard(b).toFixed(3)}`);
+  }
+}
+
+const membership = new Map<string, string[]>();
+for (const person of everyone.toArray().sort()) {
+  membership.set(person, names.filter((n) => segments[n].has(person)));
+}
+console.log(membership);
+
+const nativeA = new Set([1, 2, 3, 4, 5]);
+const nativeB = new Set([4, 5, 6, 7]);
+console.log(new Set([...nativeA].filter((x) => nativeB.has(x))), new Set([...nativeA, ...nativeB]));
+console.log(newsletter);
+console.log(TagSet.of<number>().jaccard(TagSet.of<number>()), TagSet.of(1, 1, 2, 2, 3).size);
+const exclusive = names.map((n) => {
+  const others = names.filter((m) => m !== n).reduce((acc, m) => acc.union(segments[m]), new TagSet<string>());
+  return [n, segments[n].difference(others).toArray()] as [string, string[]];
+});
+console.log(Object.fromEntries(exclusive));

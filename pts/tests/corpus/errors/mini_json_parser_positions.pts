@@ -1,0 +1,136 @@
+// A hand-written JSON parser that reports the exact offset, line and column
+// of syntax errors, compared against the built-in JSON.parse.
+
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+
+class JsonSyntaxError extends Error {
+  constructor(message: string, readonly offset: number, readonly line: number, readonly column: number) {
+    super(`${message} (line ${line}, column ${column})`);
+    this.name = "JsonSyntaxError";
+  }
+}
+
+class MiniJson {
+  private pos = 0;
+  constructor(private readonly text: string) {}
+
+  static parse(text: string): Json {
+    const p = new MiniJson(text);
+    p.ws();
+    const v = p.value();
+    p.ws();
+    if (p.pos < text.length) p.fail(`unexpected '${text[p.pos]}' after value`);
+    return v;
+  }
+
+  private fail(message: string): never {
+    const before = this.text.slice(0, this.pos);
+    const line = before.split("\n").length;
+    const column = this.pos - before.lastIndexOf("\n");
+    throw new JsonSyntaxError(message, this.pos, line, column);
+  }
+
+  private ws(): void {
+    while (this.pos < this.text.length && " \n\t\r".includes(this.text[this.pos])) this.pos++;
+  }
+
+  private expect(s: string): void {
+    if (this.text.slice(this.pos, this.pos + s.length) !== s) this.fail(`expected '${s}'`);
+    this.pos += s.length;
+  }
+
+  private value(): Json {
+    if (this.pos >= this.text.length) this.fail("unexpected end of input");
+    const c = this.text[this.pos];
+    if (c === "{") return this.object();
+    if (c === "[") return this.array();
+    if (c === '"') return this.string();
+    if (c === "t") return this.expect("true"), true;
+    if (c === "f") return this.expect("false"), false;
+    if (c === "n") return this.expect("null"), null;
+    if (c === "-" || (c >= "0" && c <= "9")) return this.number();
+    return this.fail(`unexpected character '${c}'`);
+  }
+
+  private number(): number {
+    const start = this.pos;
+    if (this.text[this.pos] === "-") this.pos++;
+    while (this.pos < this.text.length && "0123456789.eE+-".includes(this.text[this.pos])) this.pos++;
+    const n = Number(this.text.slice(start, this.pos));
+    if (Number.isNaN(n)) {
+      this.pos = start;
+      this.fail("malformed number");
+    }
+    return n;
+  }
+
+  private string(): string {
+    this.pos++;
+    let out = "";
+    while (this.pos < this.text.length && this.text[this.pos] !== '"') {
+      if (this.text[this.pos] === "\n") this.fail("newline in string");
+      out += this.text[this.pos++];
+    }
+    if (this.pos >= this.text.length) this.fail("unterminated string");
+    this.pos++;
+    return out;
+  }
+
+  private array(): Json[] {
+    this.pos++;
+    const items: Json[] = [];
+    this.ws();
+    if (this.text[this.pos] === "]") return this.pos++, items;
+    for (;;) {
+      this.ws();
+      items.push(this.value());
+      this.ws();
+      if (this.text[this.pos] === ",") { this.pos++; continue; }
+      if (this.text[this.pos] === "]") { this.pos++; return items; }
+      this.fail("expected ',' or ']'");
+    }
+  }
+
+  private object(): { [key: string]: Json } {
+    this.pos++;
+    const obj: { [key: string]: Json } = {};
+    this.ws();
+    if (this.text[this.pos] === "}") return this.pos++, obj;
+    for (;;) {
+      this.ws();
+      if (this.text[this.pos] !== '"') this.fail("expected string key");
+      const key = this.string();
+      this.ws();
+      this.expect(":");
+      this.ws();
+      obj[key] = this.value();
+      this.ws();
+      if (this.text[this.pos] === ",") { this.pos++; continue; }
+      if (this.text[this.pos] === "}") { this.pos++; return obj; }
+      this.fail("expected ',' or '}'");
+    }
+  }
+}
+
+const samples = ['{"a": [1, 2.5, -3e2], "b": {"c": null, "d": true}}', "[1, 2,, 3]", '{\n  "name": "x",\n  "age": 4o\n}',
+  '{"open": "never closed', "[true, false, nul]", "  42  ", '{"k" 1}', "[1, 2] x", "", '"multi\nline"', "-"];
+let agree = 0;
+for (const s of samples) {
+  let mine: string;
+  let builtin: string;
+  try {
+    mine = "ok " + JSON.stringify(MiniJson.parse(s));
+  } catch (e) {
+    if (!(e instanceof JsonSyntaxError)) throw e;
+    mine = `error at ${e.offset}: ${e.message}`;
+  }
+  try {
+    builtin = "ok " + JSON.stringify(JSON.parse(s));
+  } catch (e) {
+    builtin = (e as Error).name;
+  }
+  if (mine.startsWith("ok") === builtin.startsWith("ok")) agree++;
+  console.log(JSON.stringify(s).slice(0, 30).padEnd(31), "|", mine, "|", builtin);
+}
+console.log(`agreement ${agree}/${samples.length}`);
+console.log(MiniJson.parse('{"nested": {"list": [{"x": 1}, {"y": [2, [3]]}]}}'));

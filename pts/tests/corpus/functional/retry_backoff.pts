@@ -1,0 +1,120 @@
+// skip: not supported yet: PTS1001: using a (number) => void as a (number) => string, whose result it doesn't return,
+// A retry wrapper with exponential backoff and jitter driven by a fake clock and a seeded PRNG.
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+class TransientError extends Error {
+  constructor(message: string, public readonly code: number) {
+    super(message);
+    this.name = "TransientError";
+  }
+}
+class FatalError extends Error {
+  name = "FatalError";
+}
+class RetriesExhausted extends Error {
+  constructor(public readonly attempts: number, public readonly last: Error) {
+    super(`gave up after ${attempts} attempts: ${last.message}`);
+    this.name = "RetriesExhausted";
+  }
+}
+
+interface Clock {
+  now: number;
+  sleep(ms: number): void;
+}
+
+interface RetryOptions {
+  maxAttempts: number;
+  baseDelay: number;
+  maxDelay: number;
+  jitter: number;
+  shouldRetry?: (e: Error) => boolean;
+  onRetry?: (attempt: number, delay: number, e: Error) => void;
+}
+
+function withRetry<T>(clock: Clock, rand: () => number, opts: RetryOptions, op: (attempt: number) => T): () => T {
+  const { maxAttempts, baseDelay, maxDelay, jitter, shouldRetry = () => true, onRetry } = opts;
+  return () => {
+    let last: Error = new Error("never ran");
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return op(attempt);
+      } catch (e) {
+        last = e instanceof Error ? e : new Error(String(e));
+        if (!shouldRetry(last) || attempt === maxAttempts) break;
+        const exp = Math.min(maxDelay, baseDelay * 2 ** (attempt - 1));
+        const delay = Math.round(exp * (1 - jitter + rand() * jitter * 2));
+        onRetry?.(attempt, delay, last);
+        clock.sleep(delay);
+      }
+    }
+    throw last instanceof FatalError ? last : new RetriesExhausted(maxAttempts, last);
+  };
+}
+
+const clock: Clock = {
+  now: 0,
+  sleep(ms: number) {
+    this.now += ms;
+  },
+};
+const rand = mulberry32(2024);
+const events: string[] = [];
+const baseOpts: RetryOptions = {
+  maxAttempts: 5,
+  baseDelay: 100,
+  maxDelay: 1000,
+  jitter: 0.2,
+  shouldRetry: (e) => !(e instanceof FatalError),
+  onRetry: (n, d, e) => events.push(`  retry #${n} in ${d}ms after ${e.name}(${e instanceof TransientError ? e.code : "-"})`),
+};
+
+// Service that fails a fixed number of times before succeeding
+function flaky(failures: number, value: string) {
+  let calls = 0;
+  return (attempt: number): string => {
+    calls++;
+    if (calls <= failures) throw new TransientError(`timeout on call ${calls}`, 503 + (attempt % 2));
+    return `${value} (attempt ${attempt}, t=${clock.now}ms)`;
+  };
+}
+
+const scenarios: Array<[string, (attempt: number) => string]> = [
+  ["healthy", flaky(0, "ok")],
+  ["two failures", flaky(2, "recovered")],
+  ["always down", flaky(99, "never")],
+  ["fatal", () => {
+    throw new FatalError("bad credentials");
+  }],
+  ["four failures", flaky(4, "just made it")],
+];
+
+for (const [name, op] of scenarios) {
+  const start = clock.now;
+  events.length = 0;
+  try {
+    const result = withRetry(clock, rand, baseOpts, op)();
+    console.log(`${name}: ${result}`);
+  } catch (e) {
+    if (e instanceof RetriesExhausted) console.log(`${name}: ${e.message} [last=${e.last.name}]`);
+    else if (e instanceof Error) console.log(`${name}: ${e.name}: ${e.message}`);
+  }
+  events.forEach((ev) => console.log(ev));
+  console.log(`  elapsed ${clock.now - start}ms`);
+}
+
+// Delay schedule without jitter for reference
+const schedule = Array.from({ length: 8 }, (_, i) => Math.min(1000, 100 * 2 ** i));
+console.log("backoff schedule:", schedule);
+const samples = Array.from({ length: 6 }, () => +rand().toFixed(6));
+console.log("next prng samples:", samples);

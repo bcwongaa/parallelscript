@@ -1,0 +1,120 @@
+// skip: not supported yet: PTS1001: spread arguments of `splice`
+// Backtracking enumerations: permutations (with duplicates), subsets, combinations and combination sum.
+
+function permutations<T>(items: T[]): T[][] {
+  const out: T[][] = [];
+  const used = new Array<boolean>(items.length).fill(false);
+  const cur: T[] = [];
+  const go = (): void => {
+    if (cur.length === items.length) {
+      out.push([...cur]);
+      return;
+    }
+    for (let i = 0; i < items.length; i++) {
+      if (used[i]) continue;
+      used[i] = true;
+      cur.push(items[i]);
+      go();
+      cur.pop();
+      used[i] = false;
+    }
+  };
+  go();
+  return out;
+}
+
+function uniquePermutations(s: string): string[] {
+  const chars = [...s].sort();
+  const used = new Array<boolean>(chars.length).fill(false);
+  const out: string[] = [];
+  const go = (prefix: string): void => {
+    if (prefix.length === chars.length) {
+      out.push(prefix);
+      return;
+    }
+    for (let i = 0; i < chars.length; i++) {
+      if (used[i] || (i > 0 && chars[i] === chars[i - 1] && !used[i - 1])) continue;
+      used[i] = true;
+      go(prefix + chars[i]);
+      used[i] = false;
+    }
+  };
+  go("");
+  return out;
+}
+
+const subsets = <T,>(items: T[]): T[][] =>
+  items.reduce<T[][]>((acc, x) => acc.concat(acc.map((s) => [...s, x])), [[]]);
+
+function combinations<T>(items: T[], k: number, start = 0, cur: T[] = [], out: T[][] = []): T[][] {
+  if (cur.length === k) {
+    out.push(cur.slice());
+    return out;
+  }
+  for (let i = start; i <= items.length - (k - cur.length); i++) {
+    cur.push(items[i]);
+    combinations(items, k, i + 1, cur, out);
+    cur.pop();
+  }
+  return out;
+}
+
+function combinationSum(candidates: number[], target: number, reuse: boolean): number[][] {
+  const sorted = [...candidates].sort((a, b) => a - b);
+  const out: number[][] = [];
+  const walk = (start: number, remaining: number, path: number[]): void => {
+    if (remaining === 0) {
+      out.push([...path]);
+      return;
+    }
+    for (let i = start; i < sorted.length; i++) {
+      if (sorted[i] > remaining) break;
+      if (!reuse && i > start && sorted[i] === sorted[i - 1]) continue;
+      path.push(sorted[i]);
+      walk(reuse ? i : i + 1, remaining - sorted[i], path);
+      path.pop();
+    }
+  };
+  walk(0, target, []);
+  return out;
+}
+
+const perms = permutations([1, 2, 3]);
+console.log("permutations of [1,2,3]:", perms);
+console.log("count of 5 items:", permutations(["a", "b", "c", "d", "e"]).length);
+const uniq = uniquePermutations("aabc");
+console.log(`unique perms of "aabc": ${uniq.length}`, uniq.join(" "));
+console.log("'moon':", uniquePermutations("moon"));
+
+const subs = subsets(["x", "y", "z"]);
+console.log("subsets:", subs);
+console.log("subset sizes of 10 items:", subsets([...Array(10).keys()]).reduce<number[]>((acc, s) => {
+  acc[s.length] = (acc[s.length] ?? 0) + 1;
+  return acc;
+}, []));
+
+const team = ["Ana", "Ben", "Cho", "Dev", "Eli"];
+const pairs = combinations(team, 2);
+console.log(`pairs (${pairs.length}):`, pairs.map((p) => p.join("&")).join(", "));
+console.log("triples:", combinations(team, 3).length, "first:", combinations(team, 3)[0]);
+
+console.log("sum to 7 from [2,3,6,7] reuse:", combinationSum([2, 3, 6, 7], 7, true));
+console.log("sum to 8 from [10,1,2,7,6,1,5] once:", combinationSum([10, 1, 2, 7, 6, 1, 5], 8, false));
+const ways = combinationSum([1, 5, 10, 25], 30, true);
+console.log("coin combos for 30:", ways.length, "longest:", ways.reduce((a, b) => (b.length > a.length ? b : a)).length);
+
+// Next lexicographic permutation, in place.
+function nextPermutation(a: number[]): boolean {
+  let i = a.length - 2;
+  while (i >= 0 && a[i] >= a[i + 1]) i--;
+  if (i < 0) return false;
+  let j = a.length - 1;
+  while (a[j] <= a[i]) j--;
+  [a[i], a[j]] = [a[j], a[i]];
+  a.splice(i + 1, a.length - i - 1, ...a.slice(i + 1).reverse());
+  return true;
+}
+const seq = [1, 2, 3, 4];
+const listing: string[] = [];
+do listing.push(seq.join("")); while (nextPermutation(seq) && listing.length < 10);
+console.log("lexicographic:", listing);

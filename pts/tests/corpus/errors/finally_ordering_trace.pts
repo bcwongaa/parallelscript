@@ -1,0 +1,122 @@
+// Traces the order in which try/catch/finally blocks run, including
+// returns inside finally, rethrows, and nested blocks.
+
+const trace: string[] = [];
+function log(step: string): void {
+  trace.push(step);
+}
+
+function returnsFromTry(): number {
+  try {
+    log("try");
+    return 1;
+  } finally {
+    log("finally");
+  }
+}
+
+function finallyOverridesReturn(): string {
+  try {
+    log("try returns 'a'");
+    return "a";
+  } finally {
+    log("finally returns 'b'");
+    // eslint-disable-next-line no-unsafe-finally
+    return "b";
+  }
+}
+
+function finallySwallowsThrow(): string {
+  try {
+    log("try throws");
+    throw new Error("lost");
+  } finally {
+    log("finally returns");
+    // eslint-disable-next-line no-unsafe-finally
+    return "swallowed";
+  }
+}
+
+function rethrowAfterCleanup(n: number): number {
+  try {
+    log(`rethrow: try ${n}`);
+    if (n > 2) throw new RangeError(`n=${n} too big`);
+    return n * 10;
+  } catch (e) {
+    log(`rethrow: catch ${(e as Error).name}`);
+    throw e;
+  } finally {
+    log(`rethrow: finally ${n}`);
+  }
+}
+
+function nested(depth: number): void {
+  try {
+    log(`enter ${depth}`);
+    if (depth === 0) throw new Error("bottom");
+    nested(depth - 1);
+  } catch (e) {
+    log(`catch at ${depth}: ${(e as Error).message}`);
+    if (depth < 2) throw new Error(`from ${depth}`);
+  } finally {
+    log(`leave ${depth}`);
+  }
+}
+
+function counterWithFinally(): number {
+  let count = 0;
+  for (let i = 0; i < 5; i++) {
+    try {
+      if (i === 1) continue;
+      if (i === 3) break;
+      count += 10;
+    } finally {
+      count += 1;
+      log(`loop i=${i} count=${count}`);
+    }
+  }
+  return count;
+}
+
+function flush(title: string, value: unknown): void {
+  console.log(`== ${title} -> ${JSON.stringify(value)}`);
+  trace.forEach((s, i) => console.log(`  ${String(i + 1).padStart(2, "0")}. ${s}`));
+  trace.length = 0;
+}
+
+flush("returnsFromTry", returnsFromTry());
+flush("finallyOverridesReturn", finallyOverridesReturn());
+flush("finallySwallowsThrow", finallySwallowsThrow());
+
+const results: (number | string)[] = [];
+for (const n of [1, 3]) {
+  try {
+    results.push(rethrowAfterCleanup(n));
+  } catch (e) {
+    results.push(e instanceof RangeError ? `RangeError(${e.message})` : "other");
+  }
+}
+flush("rethrowAfterCleanup", results);
+
+try {
+  nested(3);
+  log("nested completed");
+} catch (e) {
+  log(`top caught ${(e as Error).message}`);
+}
+flush("nested", null);
+
+flush("counterWithFinally", counterWithFinally());
+
+let x = 0;
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    try {
+      if (j === 1 && i === 1) break outer;
+      x += i * 3 + j;
+    } finally {
+      log(`(${i},${j}) x=${x}`);
+    }
+  }
+}
+flush("labelled break through finally", { x });

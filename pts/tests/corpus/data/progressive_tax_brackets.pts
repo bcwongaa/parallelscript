@@ -1,0 +1,95 @@
+// skip: not supported yet: PTS1001: tuples with optional or rest elements ([string, number, FilingStatus, (number | undefined)?])
+interface Bracket {
+  upTo: number | null;
+  rate: number;
+}
+
+type FilingStatus = "single" | "married" | "head";
+
+const BRACKETS: Record<FilingStatus, Bracket[]> = {
+  single: [
+    { upTo: 11600, rate: 0.1 },
+    { upTo: 47150, rate: 0.12 },
+    { upTo: 100525, rate: 0.22 },
+    { upTo: 191950, rate: 0.24 },
+    { upTo: 243725, rate: 0.32 },
+    { upTo: 609350, rate: 0.35 },
+    { upTo: null, rate: 0.37 },
+  ],
+  married: [
+    { upTo: 23200, rate: 0.1 },
+    { upTo: 94300, rate: 0.12 },
+    { upTo: 201050, rate: 0.22 },
+    { upTo: 383900, rate: 0.24 },
+    { upTo: null, rate: 0.32 },
+  ],
+  head: [
+    { upTo: 16550, rate: 0.1 },
+    { upTo: 63100, rate: 0.12 },
+    { upTo: null, rate: 0.22 },
+  ],
+};
+
+const STANDARD_DEDUCTION: Record<FilingStatus, number> = { single: 14600, married: 29200, head: 21900 };
+
+interface TaxResult {
+  taxable: number;
+  tax: number;
+  effectiveRate: number;
+  marginalRate: number;
+  breakdown: Array<{ from: number; to: number; rate: number; tax: number }>;
+}
+
+function computeTax(gross: number, status: FilingStatus, itemized = 0): TaxResult {
+  const deduction = Math.max(STANDARD_DEDUCTION[status], itemized);
+  const taxable = Math.max(0, gross - deduction);
+  const breakdown: TaxResult["breakdown"] = [];
+  let lower = 0;
+  let tax = 0;
+  let marginalRate = 0;
+  for (const b of BRACKETS[status]) {
+    const upper = b.upTo ?? Infinity;
+    if (taxable <= lower) break;
+    const slice = Math.min(taxable, upper) - lower;
+    const t = slice * b.rate;
+    breakdown.push({ from: lower, to: Math.min(taxable, upper), rate: b.rate, tax: Math.round(t * 100) / 100 });
+    tax += t;
+    marginalRate = b.rate;
+    lower = upper;
+  }
+  tax = Math.round(tax * 100) / 100;
+  return { taxable, tax, effectiveRate: gross === 0 ? 0 : tax / gross, marginalRate, breakdown };
+}
+
+const pct = (x: number): string => (x * 100).toFixed(2) + "%";
+
+const cases: Array<[string, number, FilingStatus, number?]> = [
+  ["Student", 9000, "single"],
+  ["Teacher", 58000, "single"],
+  ["Couple", 145000, "married"],
+  ["Parent", 72000, "head"],
+  ["Surgeon", 720000, "single", 40000],
+  ["Retirees", 41000, "married"],
+];
+
+for (const [label, gross, status, itemized] of cases) {
+  const r = computeTax(gross, status, itemized);
+  console.log(`${label.padEnd(9)} ${status.padEnd(8)} gross ${String(gross).padStart(7)} taxable ${String(r.taxable).padStart(7)} tax ${r.tax.toFixed(2).padStart(10)} eff ${pct(r.effectiveRate).padStart(7)} marg ${pct(r.marginalRate)}`);
+}
+
+const detail = computeTax(145000, "married");
+console.log(detail.breakdown);
+console.log(JSON.stringify(computeTax(250000, "single").breakdown.map((b) => [b.rate, b.tax])));
+
+const incomes = [20000, 50000, 100000, 200000, 400000];
+console.log("income    single   married      head");
+for (const inc of incomes) {
+  const cols = (Object.keys(BRACKETS) as FilingStatus[]).map((s) => pct(computeTax(inc, s).effectiveRate).padStart(9));
+  console.log(String(inc).padStart(6), cols.join(" "));
+}
+
+const bonus = 5000;
+const before = computeTax(98000, "single");
+const after = computeTax(98000 + bonus, "single");
+console.log(`bonus ${bonus}: extra tax ${(after.tax - before.tax).toFixed(2)}, kept ${(bonus - (after.tax - before.tax)).toFixed(2)}`);
+console.log(computeTax(0, "head"));

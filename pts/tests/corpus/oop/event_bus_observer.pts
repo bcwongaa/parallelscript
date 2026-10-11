@@ -1,0 +1,115 @@
+// Typed event bus with subscribe/unsubscribe, once-handlers and wildcard observers.
+
+interface Events {
+  userJoined: { id: number; name: string };
+  messagePosted: { from: number; text: string };
+  userLeft: { id: number; reason?: string };
+}
+
+type EventName = keyof Events;
+type Handler<K extends EventName> = (payload: Events[K]) => void;
+
+interface Subscription {
+  unsubscribe(): void;
+}
+
+class EventBus {
+  private handlers = new Map<EventName, Array<(p: unknown) => void>>();
+  private wildcard: Array<(name: EventName, p: unknown) => void> = [];
+  private emitted = 0;
+
+  on<K extends EventName>(name: K, handler: Handler<K>): Subscription {
+    const list = this.handlers.get(name) ?? [];
+    const wrapped = (p: unknown) => handler(p as Events[K]);
+    list.push(wrapped);
+    this.handlers.set(name, list);
+    return {
+      unsubscribe: () => {
+        const current = this.handlers.get(name) ?? [];
+        const i = current.indexOf(wrapped);
+        if (i >= 0) current.splice(i, 1);
+      },
+    };
+  }
+
+  once<K extends EventName>(name: K, handler: Handler<K>): void {
+    const sub = this.on(name, (p) => {
+      sub.unsubscribe();
+      handler(p);
+    });
+  }
+
+  onAny(fn: (name: EventName, p: unknown) => void): void {
+    this.wildcard.push(fn);
+  }
+
+  emit<K extends EventName>(name: K, payload: Events[K]): number {
+    this.emitted++;
+    const list = [...(this.handlers.get(name) ?? [])];
+    for (const h of list) h(payload);
+    for (const w of this.wildcard) w(name, payload);
+    return list.length;
+  }
+
+  get stats(): { emitted: number; listeners: Record<string, number> } {
+    const listeners: Record<string, number> = {};
+    for (const [k, v] of this.handlers) listeners[k] = v.length;
+    return { emitted: this.emitted, listeners };
+  }
+}
+
+class ChatRoom {
+  private members = new Map<number, string>();
+  readonly transcript: string[] = [];
+
+  constructor(private bus: EventBus) {
+    bus.on("userJoined", ({ id, name }) => {
+      this.members.set(id, name);
+      this.transcript.push(`* ${name} joined`);
+    });
+    bus.on("messagePosted", (m) => {
+      const who = this.members.get(m.from) ?? `#${m.from}`;
+      this.transcript.push(`<${who}> ${m.text}`);
+    });
+    bus.on("userLeft", (e) => {
+      const who = this.members.get(e.id);
+      this.members.delete(e.id);
+      this.transcript.push(`* ${who} left${e.reason ? ` (${e.reason})` : ""}`);
+    });
+  }
+
+  get online(): string[] {
+    return [...this.members.values()].sort();
+  }
+}
+
+const bus = new EventBus();
+const room = new ChatRoom(bus);
+const counts: Record<string, number> = {};
+bus.onAny((name) => {
+  counts[name] = (counts[name] ?? 0) + 1;
+});
+bus.once("userJoined", (u) => console.log("first user ever:", u.name));
+
+let wordCount = 0;
+const wc = bus.on("messagePosted", (m) => {
+  wordCount += m.text.split(" ").length;
+});
+
+bus.emit("userJoined", { id: 1, name: "alice" });
+bus.emit("userJoined", { id: 2, name: "bob" });
+bus.emit("messagePosted", { from: 1, text: "hello there" });
+bus.emit("messagePosted", { from: 2, text: "hi alice, how are you" });
+console.log("handlers for messagePosted:", bus.emit("messagePosted", { from: 3, text: "who am I" }));
+wc.unsubscribe();
+bus.emit("messagePosted", { from: 1, text: "not counted anymore" });
+bus.emit("userJoined", { id: 3, name: "carol" });
+bus.emit("userLeft", { id: 2, reason: "timeout" });
+bus.emit("userLeft", { id: 1 });
+
+room.transcript.forEach((line) => console.log(line));
+console.log("online:", room.online);
+console.log("words:", wordCount);
+console.log("counts:", counts);
+console.log(bus.stats);
+console.log(JSON.stringify(bus.stats));

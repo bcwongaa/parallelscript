@@ -1,0 +1,118 @@
+// skip: not supported yet: PTS1001: spreading a Set<string> | value[] into arguments
+// Breadth-first route finding on a transit network with closures; raises
+// UnknownStationError or NoRouteError, and caches results including failures.
+
+class UnknownStationError extends Error {
+  constructor(readonly station: string, readonly suggestions: string[]) {
+    super(`unknown station '${station}'${suggestions.length ? `; did you mean ${suggestions.join(" or ")}?` : ""}`);
+    this.name = "UnknownStationError";
+  }
+}
+
+class NoRouteError extends Error {
+  constructor(readonly from: string, readonly to: string, readonly reachable: number) {
+    super(`no route from ${from} to ${to} (${reachable} stations reachable)`);
+    this.name = "NoRouteError";
+  }
+}
+
+class Network {
+  private adj = new Map<string, Set<string>>();
+  private closed = new Set<string>();
+  private cache = new Map<string, string[] | Error>();
+
+  connect(line: string[]): void {
+    for (let i = 0; i + 1 < line.length; i++) {
+      const [a, b] = [line[i], line[i + 1]];
+      if (!this.adj.has(a)) this.adj.set(a, new Set());
+      if (!this.adj.has(b)) this.adj.set(b, new Set());
+      this.adj.get(a)?.add(b);
+      this.adj.get(b)?.add(a);
+    }
+  }
+
+  close(station: string): void {
+    this.closed.add(station);
+    this.cache.clear();
+  }
+
+  private check(station: string): void {
+    if (this.adj.has(station)) return;
+    const suggestions = [...this.adj.keys()].filter((s) => s[0] === station[0] && Math.abs(s.length - station.length) <= 2).sort();
+    throw new UnknownStationError(station, suggestions);
+  }
+
+  route(from: string, to: string): string[] {
+    const key = `${from}->${to}`;
+    const cached = this.cache.get(key);
+    if (cached instanceof Error) throw cached;
+    if (cached !== undefined) return cached;
+    try {
+      const path = this.search(from, to);
+      this.cache.set(key, path);
+      return path;
+    } catch (e) {
+      if (e instanceof NoRouteError) this.cache.set(key, e);
+      throw e;
+    }
+  }
+
+  private search(from: string, to: string): string[] {
+    this.check(from);
+    this.check(to);
+    const prev = new Map<string, string | null>([[from, null]]);
+    const queue = [from];
+    while (queue.length > 0) {
+      const cur = queue.shift() as string;
+      if (cur === to) break;
+      for (const next of [...(this.adj.get(cur) ?? [])].sort()) {
+        if (prev.has(next) || this.closed.has(next)) continue;
+        prev.set(next, cur);
+        queue.push(next);
+      }
+    }
+    if (!prev.has(to)) throw new NoRouteError(from, to, prev.size - 1);
+    const path: string[] = [];
+    for (let at: string | null = to; at !== null; at = prev.get(at) ?? null) path.unshift(at);
+    return path;
+  }
+
+  get cacheSize(): number {
+    return this.cache.size;
+  }
+}
+
+const net = new Network();
+net.connect(["Airport", "Central", "Museum", "Harbor"]);
+net.connect(["Stadium", "Central", "Park", "University"]);
+net.connect(["University", "Library", "Museum"]);
+net.connect(["Island", "Lighthouse"]);
+
+const queries: Array<[string, string]> = [
+  ["Airport", "University"],
+  ["Harbor", "Stadium"],
+  ["Airport", "Island"],
+  ["Airport", "Island"],
+  ["Musem", "Park"],
+  ["Park", "Zoo"],
+];
+
+function ask(from: string, to: string): void {
+  try {
+    const path = net.route(from, to);
+    console.log(`${from} -> ${to}: ${path.join(" > ")} (${path.length - 1} stops)`);
+  } catch (e) {
+    if (e instanceof NoRouteError) console.log(`${from} -> ${to}: ${e.message}`);
+    else if (e instanceof UnknownStationError) console.log(`${from} -> ${to}: ${e.message}`, e.suggestions);
+    else throw e;
+  }
+}
+
+for (const [a, b] of queries) ask(a, b);
+console.log("cache entries:", net.cacheSize);
+net.close("Central");
+console.log("-- Central closed --");
+for (const [a, b] of queries.slice(0, 2)) ask(a, b);
+ask("Airport", "Museum");
+ask("Stadium", "Park");
+console.log("cache entries:", net.cacheSize);

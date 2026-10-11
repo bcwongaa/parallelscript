@@ -1,0 +1,108 @@
+// skip: not supported yet: PTS1001: converting {ok: boolean; value: number}[] to {error: value; ok: boolean} | {ok: boolean; value: number}[]
+// A Result<T, E> type used instead of exceptions, with helpers to convert
+// between thrown errors and results.
+
+type Ok<T> = { ok: true; value: T };
+type Err<E> = { ok: false; error: E };
+type Result<T, E> = Ok<T> | Err<E>;
+
+const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
+const err = <E>(error: E): Err<E> => ({ ok: false, error });
+
+function map<T, U, E>(r: Result<T, E>, f: (t: T) => U): Result<U, E> {
+  return r.ok ? ok(f(r.value)) : r;
+}
+
+function andThen<T, U, E>(r: Result<T, E>, f: (t: T) => Result<U, E>): Result<U, E> {
+  return r.ok ? f(r.value) : r;
+}
+
+function tryCatch<T>(f: () => T): Result<T, Error> {
+  try {
+    return ok(f());
+  } catch (e) {
+    return err(e instanceof Error ? e : new Error(String(e)));
+  }
+}
+
+function unwrap<T, E>(r: Result<T, E>): T {
+  if (r.ok) return r.value;
+  const e = r.error;
+  throw e instanceof Error ? e : new Error(`unwrap on Err: ${JSON.stringify(e)}`);
+}
+
+function collect<T, E>(results: Result<T, E>[]): Result<T[], E[]> {
+  const values: T[] = [];
+  const errors: E[] = [];
+  for (const r of results) {
+    if (r.ok) values.push(r.value);
+    else errors.push(r.error);
+  }
+  return errors.length > 0 ? err(errors) : ok(values);
+}
+
+type ParseError = { kind: "empty" } | { kind: "notNumber"; text: string } | { kind: "outOfRange"; value: number; min: number; max: number };
+
+function parseIntStrict(text: string): Result<number, ParseError> {
+  const t = text.trim();
+  if (t.length === 0) return err({ kind: "empty" });
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    const isDigit = c >= "0" && c <= "9";
+    if (!isDigit && !(i === 0 && c === "-")) return err({ kind: "notNumber", text: t });
+  }
+  return ok(Number(t));
+}
+
+function inRange(min: number, max: number) {
+  return (n: number): Result<number, ParseError> =>
+    n < min || n > max ? err({ kind: "outOfRange", value: n, min, max }) : ok(n);
+}
+
+function explain(e: ParseError): string {
+  switch (e.kind) {
+    case "empty":
+      return "input is empty";
+    case "notNumber":
+      return `'${e.text}' is not an integer`;
+    case "outOfRange":
+      return `${e.value} is outside [${e.min}, ${e.max}]`;
+  }
+}
+
+const inputs = ["42", "  7 ", "", "4x2", "-15", "1000", "99"];
+const percent = inputs.map((s) => andThen(parseIntStrict(s), inRange(0, 100)));
+percent.forEach((r, i) => {
+  const label = JSON.stringify(inputs[i]).padEnd(8);
+  console.log(label, r.ok ? `ok ${r.value}` : `error: ${explain(r.error)}`);
+});
+
+const doubled = percent.map((r) => map(r, (n) => n * 2));
+console.log(doubled);
+
+const all = collect(percent);
+if (!all.ok) {
+  console.log("collected", all.error.length, "errors:", all.error.map((e) => e.kind).join(", "));
+}
+const good = collect(percent.filter((r) => r.ok));
+console.log("good:", good);
+
+const parsedJson = ['{"a":1}', "[1,2,", "null", "{bad}"].map((s) => tryCatch(() => JSON.parse(s) as unknown));
+for (const r of parsedJson) {
+  if (r.ok) console.log("json ok:", r.value);
+  else console.log("json error:", r.error.name);
+}
+
+try {
+  const n = unwrap(percent[0]);
+  console.log("unwrapped", n);
+  unwrap(percent[2]);
+  console.log("not reached");
+} catch (e) {
+  console.log("unwrap threw:", (e as Error).message);
+}
+
+const fromThrow = tryCatch((): number => {
+  throw "plain string";
+});
+console.log(fromThrow.ok ? "?" : `wrapped non-error -> ${fromThrow.error.name}: ${fromThrow.error.message}`);

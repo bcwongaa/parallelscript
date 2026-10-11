@@ -1,0 +1,91 @@
+// Recursive combinatorics: permutations, combinations, power sets and partitions, all with closures.
+
+function permutations<T>(xs: readonly T[]): T[][] {
+  if (xs.length <= 1) return [xs.slice()];
+  return xs.flatMap((x, i) => permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]));
+}
+
+function combinations<T>(xs: readonly T[], k: number): T[][] {
+  if (k === 0) return [[]];
+  if (xs.length < k) return [];
+  const [first, ...rest] = xs;
+  return [...combinations(rest, k - 1).map((c) => [first, ...c]), ...combinations(rest, k)];
+}
+
+const powerSet = <T>(xs: readonly T[]): T[][] =>
+  xs.reduce<T[][]>((sets, x) => [...sets, ...sets.map((s) => [...s, x])], [[]]);
+
+function integerPartitions(n: number, max = n): number[][] {
+  if (n === 0) return [[]];
+  const out: number[][] = [];
+  for (let k = Math.min(n, max); k >= 1; k--) {
+    for (const rest of integerPartitions(n - k, k)) out.push([k, ...rest]);
+  }
+  return out;
+}
+
+function cartesian<T>(...lists: T[][]): T[][] {
+  return lists.reduce<T[][]>((acc, list) => acc.flatMap((prefix) => list.map((x) => [...prefix, x])), [[]]);
+}
+
+console.log(permutations(["a", "b", "c"]).map((p) => p.join("")));
+console.log("perms of 5:", permutations([1, 2, 3, 4, 5]).length);
+console.log(combinations([1, 2, 3, 4, 5], 3).map((c) => c.join("")).join(" "));
+console.log("C(10,4) =", combinations(Array.from({ length: 10 }, (_, i) => i), 4).length);
+console.log(powerSet(["x", "y", "z"]));
+console.log("partitions of 6:", integerPartitions(6).map((p) => p.join("+")));
+console.log("p(15) =", integerPartitions(15).length);
+console.log(cartesian(["S", "M", "L"], ["red", "blue"]).map((c) => c.join("-")));
+
+// Subset sum: which subsets of prices hit a budget exactly?
+const prices: Array<[string, number]> = [["pen", 3], ["mug", 8], ["cap", 12], ["pin", 2], ["tee", 15], ["bag", 10]];
+const budget = 25;
+const exact = powerSet(prices)
+  .filter((s) => s.reduce((t, [, p]) => t + p, 0) === budget)
+  .map((s) => s.map(([n]) => n).join("+"))
+  .sort();
+console.log(`subsets totalling ${budget}:`, exact);
+
+// N-Queens via backtracking with closures over the board state
+function nQueens(n: number): number[][] {
+  const solutions: number[][] = [];
+  const cols: number[] = [];
+  const safe = (row: number, col: number) =>
+    cols.every((c, r) => c !== col && Math.abs(c - col) !== row - r);
+  const place = (row: number): void => {
+    if (row === n) {
+      solutions.push([...cols]);
+      return;
+    }
+    for (let col = 0; col < n; col++) {
+      if (safe(row, col)) {
+        cols.push(col);
+        place(row + 1);
+        cols.pop();
+      }
+    }
+  };
+  place(0);
+  return solutions;
+}
+for (const n of [4, 5, 6, 8]) console.log(`${n}-queens: ${nQueens(n).length} solutions`);
+const first6 = nQueens(6)[0];
+console.log(first6.map((c) => ".".repeat(c) + "Q" + ".".repeat(6 - c - 1)).join("\n"));
+
+// Balanced parentheses generation
+function parens(n: number): string[] {
+  const out: string[] = [];
+  const go = (s: string, open: number, close: number) => {
+    if (s.length === 2 * n) return void out.push(s);
+    if (open < n) go(s + "(", open + 1, close);
+    if (close < open) go(s + ")", open, close + 1);
+  };
+  go("", 0, 0);
+  return out;
+}
+console.log(parens(3), "catalan(1..8):", [1, 2, 3, 4, 5, 6, 7, 8].map((n) => parens(n).length));
+
+// Gray code via reflection
+const gray = (bits: number): string[] =>
+  bits === 0 ? [""] : ((prev) => [...prev.map((g) => "0" + g), ...prev.slice().reverse().map((g) => "1" + g)])(gray(bits - 1));
+console.log(gray(3).join(" "));

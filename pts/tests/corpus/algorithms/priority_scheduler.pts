@@ -1,0 +1,139 @@
+// CPU scheduling simulation: FCFS, shortest-job-first (priority queue), priority and round robin.
+
+interface Job {
+  id: string;
+  arrival: number;
+  burst: number;
+  priority: number; // lower is more urgent
+}
+
+interface Finished {
+  id: string;
+  start: number;
+  end: number;
+  wait: number;
+  turnaround: number;
+}
+
+class PriorityQueue<T> {
+  private data: T[] = [];
+  constructor(private cmp: (a: T, b: T) => number) {}
+  get size(): number {
+    return this.data.length;
+  }
+  enqueue(x: T): void {
+    this.data.push(x);
+    let i = this.data.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.cmp(this.data[i], this.data[p]) >= 0) break;
+      [this.data[i], this.data[p]] = [this.data[p], this.data[i]];
+      i = p;
+    }
+  }
+  dequeue(): T | undefined {
+    if (!this.data.length) return undefined;
+    const top = this.data[0];
+    const last = this.data.pop()!;
+    if (this.data.length) {
+      this.data[0] = last;
+      let i = 0;
+      while (true) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let s = i;
+        if (l < this.data.length && this.cmp(this.data[l], this.data[s]) < 0) s = l;
+        if (r < this.data.length && this.cmp(this.data[r], this.data[s]) < 0) s = r;
+        if (s === i) break;
+        [this.data[i], this.data[s]] = [this.data[s], this.data[i]];
+        i = s;
+      }
+    }
+    return top;
+  }
+}
+
+type Policy = "fcfs" | "sjf" | "priority";
+
+function nonPreemptive(jobs: Job[], policy: Policy): Finished[] {
+  const cmp: Record<Policy, (a: Job, b: Job) => number> = {
+    fcfs: (a, b) => a.arrival - b.arrival || a.id.localeCompare(b.id),
+    sjf: (a, b) => a.burst - b.burst || a.arrival - b.arrival,
+    priority: (a, b) => a.priority - b.priority || a.arrival - b.arrival,
+  };
+  const pending = [...jobs].sort((a, b) => a.arrival - b.arrival);
+  const ready = new PriorityQueue<Job>(cmp[policy]);
+  const done: Finished[] = [];
+  let time = 0;
+  let i = 0;
+  while (done.length < jobs.length) {
+    while (i < pending.length && pending[i].arrival <= time) ready.enqueue(pending[i++]);
+    const job = ready.dequeue();
+    if (!job) {
+      time = pending[i].arrival;
+      continue;
+    }
+    const start = time;
+    time += job.burst;
+    done.push({ id: job.id, start, end: time, wait: start - job.arrival, turnaround: time - job.arrival });
+  }
+  return done;
+}
+
+function roundRobin(jobs: Job[], quantum: number): { finished: Finished[]; gantt: string } {
+  const pending = [...jobs].sort((a, b) => a.arrival - b.arrival);
+  const remaining = new Map(jobs.map((j) => [j.id, j.burst]));
+  const firstStart = new Map<string, number>();
+  const queue: Job[] = [];
+  const finished: Finished[] = [];
+  let time = 0;
+  let i = 0;
+  let gantt = "";
+  const admit = () => {
+    while (i < pending.length && pending[i].arrival <= time) queue.push(pending[i++]);
+  };
+  admit();
+  while (finished.length < jobs.length) {
+    const job = queue.shift();
+    if (!job) {
+      time = pending[i].arrival;
+      admit();
+      continue;
+    }
+    if (!firstStart.has(job.id)) firstStart.set(job.id, time);
+    const slice = Math.min(quantum, remaining.get(job.id)!);
+    gantt += job.id.repeat(slice);
+    time += slice;
+    remaining.set(job.id, remaining.get(job.id)! - slice);
+    admit();
+    if (remaining.get(job.id)! > 0) queue.push(job);
+    else finished.push({ id: job.id, start: firstStart.get(job.id)!, end: time, wait: time - job.arrival - job.burst, turnaround: time - job.arrival });
+  }
+  return { finished, gantt };
+}
+
+const jobs: Job[] = [
+  { id: "A", arrival: 0, burst: 8, priority: 3 },
+  { id: "B", arrival: 1, burst: 4, priority: 1 },
+  { id: "C", arrival: 2, burst: 9, priority: 4 },
+  { id: "D", arrival: 3, burst: 5, priority: 2 },
+  { id: "E", arrival: 20, burst: 2, priority: 1 },
+  { id: "F", arrival: 30, burst: 3, priority: 5 },
+];
+
+const summary = (fs: Finished[]) => ({
+  avgWait: +(fs.reduce((s, f) => s + f.wait, 0) / fs.length).toFixed(2),
+  avgTurnaround: +(fs.reduce((s, f) => s + f.turnaround, 0) / fs.length).toFixed(2),
+  order: fs.map((f) => f.id).join(""),
+});
+
+for (const p of ["fcfs", "sjf", "priority"] as Policy[]) {
+  const result = nonPreemptive(jobs, p);
+  console.log(p.toUpperCase(), summary(result));
+}
+console.table(nonPreemptive(jobs, "sjf"));
+for (const q of [2, 4]) {
+  const { finished, gantt } = roundRobin(jobs, q);
+  console.log(`RR q=${q}:`, summary(finished));
+  console.log("  gantt:", gantt);
+}

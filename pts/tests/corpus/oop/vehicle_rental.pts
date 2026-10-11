@@ -1,0 +1,118 @@
+// skip: not supported yet: PTS1001: numeric property names (`1` in Record<VehicleClass, number>)
+// Vehicle rental agency: fleet, reservations over date ranges, pricing with surcharges.
+
+enum VehicleClass {
+  Economy = 1,
+  Compact,
+  SUV,
+  Van,
+}
+
+interface Customer {
+  name: string;
+  age: number;
+  loyaltyYears?: number;
+}
+
+class RentalVehicle {
+  private bookings: Array<{ from: Date; to: Date; who: string }> = [];
+  constructor(readonly plate: string, readonly model: string, readonly cls: VehicleClass, public mileage: number) {}
+
+  available(from: Date, to: Date): boolean {
+    return this.bookings.every((b) => to <= b.from || from >= b.to);
+  }
+  book(from: Date, to: Date, who: string): void {
+    this.bookings.push({ from, to, who });
+    this.bookings.sort((a, b) => a.from.getTime() - b.from.getTime());
+  }
+  schedule(): string[] {
+    return this.bookings.map((b) => `${b.from.toISOString().slice(0, 10)}..${b.to.toISOString().slice(0, 10)} ${b.who}`);
+  }
+}
+
+class RentalError extends Error {
+  constructor(public readonly code: "AGE" | "NONE" | "DATES", message: string) {
+    super(message);
+  }
+}
+
+class Agency {
+  static readonly DAILY: Record<VehicleClass, number> = {
+    [VehicleClass.Economy]: 29,
+    [VehicleClass.Compact]: 35,
+    [VehicleClass.SUV]: 59,
+    [VehicleClass.Van]: 75,
+  };
+  private fleet: RentalVehicle[] = [];
+  private income = 0;
+
+  add(...vs: RentalVehicle[]): void {
+    this.fleet.push(...vs);
+  }
+
+  quote(c: Customer, cls: VehicleClass, days: number): number {
+    let price = Agency.DAILY[cls] * days;
+    if (c.age < 25) price *= 1.2;
+    if (days >= 7) price -= Agency.DAILY[cls];
+    const loyalty = Math.min(c.loyaltyYears ?? 0, 5) * 0.02;
+    return Math.round(price * (1 - loyalty) * 100) / 100;
+  }
+
+  reserve(c: Customer, cls: VehicleClass, from: Date, to: Date): [RentalVehicle, number] {
+    if (to <= from) throw new RentalError("DATES", "return must be after pickup");
+    if (c.age < 21 || (cls === VehicleClass.Van && c.age < 25)) {
+      throw new RentalError("AGE", `${c.name} too young for ${VehicleClass[cls]}`);
+    }
+    const days = Math.ceil((to.getTime() - from.getTime()) / 86_400_000);
+    const candidates = this.fleet.filter((v) => v.cls === cls && v.available(from, to));
+    if (candidates.length === 0) throw new RentalError("NONE", `no ${VehicleClass[cls]} free`);
+    const car = candidates.reduce((a, b) => (a.mileage <= b.mileage ? a : b));
+    car.book(from, to, c.name);
+    const price = this.quote(c, cls, days);
+    this.income += price;
+    return [car, price];
+  }
+
+  get revenue(): number {
+    return this.income;
+  }
+  report(): void {
+    for (const v of this.fleet) {
+      console.log(`${v.plate} ${v.model.padEnd(10)} ${VehicleClass[v.cls].padEnd(8)} ${v.schedule().join("; ") || "-"}`);
+    }
+  }
+}
+
+const agency = new Agency();
+agency.add(
+  new RentalVehicle("ECO-1", "Yaris", VehicleClass.Economy, 32000),
+  new RentalVehicle("ECO-2", "Fiesta", VehicleClass.Economy, 12000),
+  new RentalVehicle("SUV-1", "RAV4", VehicleClass.SUV, 45000),
+  new RentalVehicle("VAN-1", "Transit", VehicleClass.Van, 80000),
+);
+
+const d = (s: string) => new Date(s + "T10:00:00Z");
+const requests: Array<[Customer, VehicleClass, string, string]> = [
+  [{ name: "Ann", age: 34, loyaltyYears: 3 }, VehicleClass.Economy, "2024-05-01", "2024-05-04"],
+  [{ name: "Bo", age: 22 }, VehicleClass.Economy, "2024-05-02", "2024-05-03"],
+  [{ name: "Cy", age: 45 }, VehicleClass.Economy, "2024-05-02", "2024-05-06"],
+  [{ name: "Di", age: 23 }, VehicleClass.Van, "2024-05-10", "2024-05-12"],
+  [{ name: "Ed", age: 52, loyaltyYears: 9 }, VehicleClass.SUV, "2024-05-01", "2024-05-11"],
+  [{ name: "Fi", age: 19 }, VehicleClass.Compact, "2024-05-01", "2024-05-02"],
+  [{ name: "Gu", age: 30 }, VehicleClass.SUV, "2024-05-09", "2024-05-08"],
+  [{ name: "Hal", age: 28 }, VehicleClass.Compact, "2024-05-01", "2024-05-02"],
+];
+for (const [cust, cls, from, to] of requests) {
+  try {
+    const [car, price] = agency.reserve(cust, cls, d(from), d(to));
+    console.log(`${cust.name}: ${car.plate} for $${price.toFixed(2)}`);
+  } catch (e) {
+    if (e instanceof RentalError) console.log(`${cust.name}: [${e.code}] ${e.message}`);
+    else throw e;
+  }
+}
+agency.report();
+console.log("revenue:", agency.revenue.toFixed(2));
+console.log(Agency.DAILY);
+console.log(VehicleClass.SUV, VehicleClass[VehicleClass.SUV], VehicleClass);
+console.log(agency.quote({ name: "x", age: 24 }, VehicleClass.Compact, 7));

@@ -1,0 +1,87 @@
+// skip: not supported yet: PTS1001: destructuring the property `predict` of a {intercept: number; r: number; r2: number; slope: number; predict(number): number}
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Fit {
+  slope: number;
+  intercept: number;
+  r: number;
+  r2: number;
+  predict(x: number): number;
+}
+
+function mean(xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function linearFit(points: Point[]): Fit {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const mx = mean(xs);
+  const my = mean(ys);
+  let sxy = 0;
+  let sxx = 0;
+  let syy = 0;
+  for (const { x, y } of points) {
+    sxy += (x - mx) * (y - my);
+    sxx += (x - mx) ** 2;
+    syy += (y - my) ** 2;
+  }
+  const slope = sxy / sxx;
+  const intercept = my - slope * mx;
+  const r = sxy / Math.sqrt(sxx * syy);
+  return { slope, intercept, r, r2: r * r, predict: (x) => intercept + slope * x };
+}
+
+const adSpend: Point[] = [
+  { x: 1.2, y: 14.1 },
+  { x: 2.0, y: 17.9 },
+  { x: 2.9, y: 21.2 },
+  { x: 3.5, y: 25.8 },
+  { x: 4.1, y: 26.4 },
+  { x: 5.0, y: 31.7 },
+  { x: 5.8, y: 33.0 },
+  { x: 6.6, y: 38.5 },
+  { x: 7.3, y: 39.9 },
+  { x: 8.0, y: 44.6 },
+];
+
+const fit = linearFit(adSpend);
+console.log(`y = ${fit.slope.toFixed(4)}x + ${fit.intercept.toFixed(4)}`);
+console.log(`r = ${fit.r.toFixed(5)}, r^2 = ${fit.r2.toFixed(5)}`);
+console.log("raw:", fit.slope, fit.intercept);
+
+console.log("  x      y     yhat   resid");
+let sse = 0;
+for (const p of adSpend) {
+  const yhat = fit.predict(p.x);
+  sse += (p.y - yhat) ** 2;
+  console.log(`${p.x.toFixed(1).padStart(4)} ${p.y.toFixed(1).padStart(6)} ${yhat.toFixed(2).padStart(7)} ${(p.y - yhat).toFixed(3).padStart(7)}`);
+}
+const rmse = Math.sqrt(sse / adSpend.length);
+console.log("RMSE:", rmse.toFixed(4));
+for (const x of [0, 10, 12.5]) console.log(`forecast(${x}) = ${fit.predict(x).toFixed(2)}`);
+
+const temps = [-3, 0, 4, 9, 15, 20, 24, 23, 18, 11, 5, -1];
+const iceCream = [12, 15, 20, 33, 52, 70, 88, 85, 61, 38, 22, 14];
+const seasonal = linearFit(temps.map((t, i) => ({ x: t, y: iceCream[i] })));
+console.log({ slope: Number(seasonal.slope.toFixed(3)), intercept: Number(seasonal.intercept.toFixed(3)), r2: Number(seasonal.r2.toFixed(4)) });
+
+function spearman(a: number[], b: number[]): number {
+  const rank = (xs: number[]): number[] => {
+    const order = xs.map((v, i) => ({ v, i })).sort((p, q) => p.v - q.v);
+    const ranks = new Array<number>(xs.length);
+    order.forEach((o, r) => (ranks[o.i] = r + 1));
+    return ranks;
+  };
+  const ra = rank(a);
+  const rb = rank(b);
+  return linearFit(ra.map((x, i) => ({ x, y: rb[i] }))).r;
+}
+console.log("spearman:", spearman(temps, iceCream).toFixed(4));
+const flat = linearFit([{ x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }]);
+console.log(flat.slope, flat.intercept, flat.r, Number.isNaN(flat.r2));
+const { predict, ...stats } = fit;
+console.log(Object.keys(stats), typeof predict);

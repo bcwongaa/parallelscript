@@ -1,0 +1,94 @@
+// Coin change: fewest coins, number of ways, and greedy vs optimal across currency systems.
+
+interface CoinSystem {
+  name: string;
+  coins: number[];
+}
+
+function fewestCoins(coins: number[], amount: number): number[] | null {
+  const best = new Array<number>(amount + 1).fill(Infinity);
+  const last = new Array<number>(amount + 1).fill(0);
+  best[0] = 0;
+  for (let a = 1; a <= amount; a++) {
+    for (const c of coins) {
+      if (c <= a && best[a - c] + 1 < best[a]) {
+        best[a] = best[a - c] + 1;
+        last[a] = c;
+      }
+    }
+  }
+  if (!Number.isFinite(best[amount])) return null;
+  const used: number[] = [];
+  for (let a = amount; a > 0; a -= last[a]) used.push(last[a]);
+  return used.sort((x, y) => y - x);
+}
+
+function greedy(coins: number[], amount: number): number[] | null {
+  const used: number[] = [];
+  let rest = amount;
+  for (const c of [...coins].sort((x, y) => y - x)) {
+    while (rest >= c) {
+      rest -= c;
+      used.push(c);
+    }
+  }
+  return rest === 0 ? used : null;
+}
+
+function countWays(coins: number[], amount: number): number {
+  const ways = new Array<number>(amount + 1).fill(0);
+  ways[0] = 1;
+  for (const c of coins) {
+    for (let a = c; a <= amount; a++) ways[a] += ways[a - c];
+  }
+  return ways[amount];
+}
+
+const memo = new Map<string, number>();
+function countOrdered(coins: number[], amount: number): number {
+  if (amount === 0) return 1;
+  if (amount < 0) return 0;
+  const key = `${coins.join(",")}:${amount}`;
+  const hit = memo.get(key);
+  if (hit !== undefined) return hit;
+  let total = 0;
+  for (const c of coins) total += countOrdered(coins, amount - c);
+  memo.set(key, total);
+  return total;
+}
+
+const systems: CoinSystem[] = [
+  { name: "euro cents", coins: [1, 2, 5, 10, 20, 50, 100, 200] },
+  { name: "old british", coins: [1, 3, 6, 12, 24, 30] },
+  { name: "odd", coins: [1, 7, 10] },
+  { name: "no ones", coins: [4, 9] },
+];
+
+const groupCoins = (list: number[]): string =>
+  [...list.reduce((m, c) => m.set(c, (m.get(c) ?? 0) + 1), new Map<number, number>())]
+    .map(([c, k]) => (k > 1 ? `${k}x${c}` : `${c}`))
+    .join(" + ");
+
+for (const sys of systems) {
+  console.log(`== ${sys.name}: [${sys.coins.join(", ")}]`);
+  for (const amount of [14, 48, 63]) {
+    const opt = fewestCoins(sys.coins, amount);
+    const gr = greedy(sys.coins, amount);
+    const flag = opt && gr && gr.length > opt.length ? "  <- greedy is suboptimal" : "";
+    console.log(
+      `  ${amount}: optimal=${opt ? `${opt.length} (${groupCoins(opt)})` : "impossible"} greedy=${gr ? gr.length : "fails"}${flag}`,
+    );
+  }
+}
+
+console.log("ways to make 100 with euro cents:", countWays(systems[0].coins, 100));
+console.log("ways to make 200 with euro cents:", countWays(systems[0].coins, 200));
+const table = [5, 10, 15, 20, 25].map((amt) => ({
+  amount: amt,
+  combinations: countWays([1, 5, 10, 25], amt),
+  sequences: countOrdered([1, 5, 10, 25], amt),
+}));
+console.log(table);
+console.log("memo entries:", memo.size);
+const unreachable = Array.from({ length: 30 }, (_, i) => i).filter((a) => fewestCoins([4, 9], a) === null);
+console.log("unreachable with {4,9}:", unreachable, "largest:", unreachable[unreachable.length - 1]);

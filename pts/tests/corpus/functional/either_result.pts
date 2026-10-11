@@ -1,0 +1,123 @@
+// skip: not supported yet: PTS1001: converting {error: {kind: string; limit: number; total: number}; ok: boolean} | {ok: boolean; value: {lines: {qty: number; sku: string; su...
+// Either/Result as a discriminated union, with map/flatMap/mapErr and an order-processing pipeline.
+
+type Ok<T> = { ok: true; value: T };
+type Err<E> = { ok: false; error: E };
+type Result<T, E> = Ok<T> | Err<E>;
+
+const ok = <T>(value: T): Ok<T> => ({ ok: true, value });
+const err = <E>(error: E): Err<E> => ({ ok: false, error });
+
+function mapR<T, U, E>(r: Result<T, E>, f: (x: T) => U): Result<U, E> {
+  return r.ok ? ok(f(r.value)) : r;
+}
+function flatMapR<T, U, E>(r: Result<T, E>, f: (x: T) => Result<U, E>): Result<U, E> {
+  return r.ok ? f(r.value) : r;
+}
+function mapErr<T, E, F>(r: Result<T, E>, f: (e: E) => F): Result<T, F> {
+  return r.ok ? r : err(f(r.error));
+}
+function tryCatch<T>(fn: () => T): Result<T, string> {
+  try {
+    return ok(fn());
+  } catch (e) {
+    return err(e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+  }
+}
+function collect<T, E>(rs: Result<T, E>[]): Result<T[], E[]> {
+  const values: T[] = [];
+  const errors: E[] = [];
+  for (const r of rs) {
+    if (r.ok) values.push(r.value);
+    else errors.push(r.error);
+  }
+  return errors.length > 0 ? err(errors) : ok(values);
+}
+
+type OrderError =
+  | { kind: "parse"; line: number; detail: string }
+  | { kind: "stock"; sku: string; wanted: number; have: number }
+  | { kind: "limit"; total: number; limit: number };
+
+interface OrderLine {
+  sku: string;
+  qty: number;
+}
+interface PricedOrder {
+  lines: Array<OrderLine & { unit: number; subtotal: number }>;
+  total: number;
+}
+
+const inventory: Record<string, { price: number; stock: number }> = {
+  "PEN-1": { price: 1.5, stock: 100 },
+  "NB-A5": { price: 4.25, stock: 12 },
+  "INK-B": { price: 9.99, stock: 3 },
+};
+
+function parseLine(text: string, line: number): Result<OrderLine, OrderError> {
+  const parts = text.split("x").map((p) => p.trim());
+  if (parts.length !== 2) return err({ kind: "parse", line, detail: `expected "SKU x QTY", got ${JSON.stringify(text)}` });
+  const qty = Number(parts[1]);
+  if (!Number.isInteger(qty) || qty <= 0) return err({ kind: "parse", line, detail: `bad quantity ${parts[1]}` });
+  return ok({ sku: parts[0], qty });
+}
+
+function checkStock(lines: OrderLine[]): Result<OrderLine[], OrderError> {
+  for (const l of lines) {
+    const have = l.sku in inventory ? inventory[l.sku].stock : 0;
+    if (l.qty > have) return err({ kind: "stock", sku: l.sku, wanted: l.qty, have });
+  }
+  return ok(lines);
+}
+
+const price = (lines: OrderLine[]): PricedOrder => {
+  const priced = lines.map((l) => ({ ...l, unit: inventory[l.sku].price, subtotal: +(inventory[l.sku].price * l.qty).toFixed(2) }));
+  return { lines: priced, total: +priced.reduce((s, l) => s + l.subtotal, 0).toFixed(2) };
+};
+
+const enforceLimit = (limit: number) => (o: PricedOrder): Result<PricedOrder, OrderError> =>
+  o.total > limit ? err({ kind: "limit", total: o.total, limit }) : ok(o);
+
+function describeError(e: OrderError): string {
+  switch (e.kind) {
+    case "parse":
+      return `line ${e.line}: ${e.detail}`;
+    case "stock":
+      return `not enough ${e.sku}: wanted ${e.wanted}, have ${e.have}`;
+    case "limit":
+      return `total ${e.total.toFixed(2)} exceeds limit ${e.limit}`;
+  }
+}
+
+function processOrder(text: string): Result<PricedOrder, string> {
+  const parsed = collect(text.split(";").map((l, i) => parseLine(l, i + 1)));
+  const lines: Result<OrderLine[], OrderError> = parsed.ok ? parsed : err(parsed.error[0]);
+  const priced = flatMapR(flatMapR(lines, checkStock), (ls) => enforceLimit(60)(price(ls)));
+  return mapErr(priced, describeError);
+}
+
+const orders = [
+  "PEN-1 x 10; NB-A5 x 2",
+  "PEN-1 x 10; NB-A5 x two",
+  "INK-B x 5",
+  "INK-B x 3; NB-A5 x 7",
+  "GLUE x 1",
+  "PEN-1 x 4",
+  "PEN-1",
+];
+for (const o of orders) {
+  const r = processOrder(o);
+  if (r.ok) console.log(`OK   ${o.padEnd(26)} total=${r.value.total}`);
+  else console.log(`FAIL ${o.padEnd(26)} ${r.error}`);
+}
+
+const detailed = processOrder("PEN-1 x 3; INK-B x 1");
+console.log(detailed);
+console.log(mapR(detailed, (o) => o.lines.map((l) => l.sku)));
+
+const json = ['{"a":1}', "{bad json}", "[1,2,3]", '"str"'];
+for (const j of json) {
+  const r = tryCatch(() => JSON.parse(j) as unknown);
+  console.log(r.ok ? `parsed ${typeof r.value}: ${JSON.stringify(r.value)}` : `error -> ${r.error.split(":")[0]}`);
+}
+console.log(collect([ok(1), ok(2), ok(3)]), collect<number, string>([ok(1), err("x"), err("y")]));

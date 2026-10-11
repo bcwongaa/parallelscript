@@ -1,0 +1,106 @@
+// Fibonacci variants: memo Map, iterative, matrix exponentiation, Pisano periods, tribonacci and Zeckendorf.
+
+const memo = new Map<number, number>();
+let memoCalls = 0;
+function fibMemo(n: number): number {
+  memoCalls++;
+  if (n < 2) return n;
+  const hit = memo.get(n);
+  if (hit !== undefined) return hit;
+  const v = fibMemo(n - 1) + fibMemo(n - 2);
+  memo.set(n, v);
+  return v;
+}
+
+let naiveCalls = 0;
+function fibNaive(n: number): number {
+  naiveCalls++;
+  return n < 2 ? n : fibNaive(n - 1) + fibNaive(n - 2);
+}
+
+function fibIter(n: number): number {
+  let [a, b] = [0, 1];
+  for (let i = 0; i < n; i++) [a, b] = [b, a + b];
+  return a;
+}
+
+type M2 = [number, number, number, number];
+const mulMod = (x: M2, y: M2, m: number): M2 => [
+  (x[0] * y[0] + x[1] * y[2]) % m,
+  (x[0] * y[1] + x[1] * y[3]) % m,
+  (x[2] * y[0] + x[3] * y[2]) % m,
+  (x[2] * y[1] + x[3] * y[3]) % m,
+];
+function fibMod(n: number, m: number): number {
+  let result: M2 = [1, 0, 0, 1];
+  let base: M2 = [1, 1, 1, 0];
+  while (n > 0) {
+    if (n & 1) result = mulMod(result, base, m);
+    base = mulMod(base, base, m);
+    n >>= 1;
+  }
+  return result[1];
+}
+
+function pisano(m: number): number {
+  let [a, b] = [0, 1];
+  for (let i = 1; i <= m * m; i++) {
+    [a, b] = [b, (a + b) % m];
+    if (a === 0 && b === 1) return i;
+  }
+  return -1;
+}
+
+function makeSeries(order: number): (n: number) => number {
+  const cache: number[] = new Array<number>(order).fill(0);
+  cache[order - 1] = 1;
+  return (n) => {
+    while (cache.length <= n) cache.push(cache.slice(-order).reduce((s, x) => s + x, 0));
+    return cache[n];
+  };
+}
+
+function zeckendorf(n: number): number[] {
+  const fibs = [1, 2];
+  while (fibs[fibs.length - 1] <= n) fibs.push(fibs[fibs.length - 1] + fibs[fibs.length - 2]);
+  const parts: number[] = [];
+  for (let i = fibs.length - 1; i >= 0 && n > 0; i--) {
+    if (fibs[i] <= n) {
+      parts.push(fibs[i]);
+      n -= fibs[i];
+    }
+  }
+  return parts;
+}
+
+console.log("F(0..15):", Array.from({ length: 16 }, (_, i) => fibMemo(i)).join(" "));
+memoCalls = 0;
+memo.clear();
+console.log("fibMemo(90) =", fibMemo(90), "calls:", memoCalls, "memo size:", memo.size);
+console.log("fibNaive(22) =", fibNaive(22), "calls:", naiveCalls);
+console.log("fibIter(78) =", fibIter(78), "safe?", Number.isSafeInteger(fibIter(78)), "F(79) safe?", Number.isSafeInteger(fibIter(79)));
+console.log("iter matches memo up to 70:", Array.from({ length: 71 }, (_, i) => i).every((i) => fibIter(i) === fibMemo(i)));
+
+for (const [n, m] of [[10, 1000], [100, 1000000007], [1000000, 1000], [123456789, 97]] as [number, number][]) {
+  console.log(`F(${n}) mod ${m} = ${fibMod(n, m)}`);
+}
+const periods = new Map<number, number>();
+for (const m of [2, 3, 4, 5, 6, 7, 8, 9, 10, 100]) periods.set(m, pisano(m));
+console.log("pisano periods:", periods);
+console.log("check: F(1000000) mod 1000 via period:", fibMod(1000000 % pisano(1000), 1000));
+
+const trib = makeSeries(3);
+const tetra = makeSeries(4);
+console.log("tribonacci:", Array.from({ length: 15 }, (_, i) => trib(i)));
+console.log("tetranacci:", Array.from({ length: 12 }, (_, i) => tetra(i)).join(","));
+console.log("ratio F(n+1)/F(n) -> phi:", (fibIter(41) / fibIter(40)).toFixed(12), ((1 + Math.sqrt(5)) / 2).toFixed(12));
+const binet = (n: number) => Math.round(((1 + Math.sqrt(5)) / 2) ** n / Math.sqrt(5));
+const firstBinetMismatch = Array.from({ length: 80 }, (_, i) => i).find((i) => binet(i) !== fibIter(i));
+console.log("Binet formula first wrong at n =", firstBinetMismatch);
+
+for (const n of [10, 64, 100, 1000, 4180]) {
+  const z = zeckendorf(n);
+  console.log(`${n} = ${z.join(" + ")}`);
+}
+const evenSum = Array.from({ length: 34 }, (_, i) => fibIter(i)).filter((f) => f % 2 === 0 && f < 4000000).reduce((a, b) => a + b, 0);
+console.log("sum of even fibs below 4 million:", evenSum);

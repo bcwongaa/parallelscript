@@ -1,0 +1,75 @@
+interface Reading {
+  at: Date;
+  sensor: string;
+  value: number;
+}
+
+const base = Date.UTC(2024, 2, 9, 22, 0, 0);
+const readings: Reading[] = [];
+const sensors = ["temp-a", "temp-b"];
+for (let i = 0; i < 30; i++) {
+  const minutes = i * 37;
+  const sensor = sensors[i % 2];
+  const value = 18 + Math.sin(i / 3) * 4 + (sensor === "temp-b" ? 1.5 : 0);
+  readings.push({ at: new Date(base + minutes * 60_000), sensor, value: Math.round(value * 100) / 100 });
+}
+
+function hourKey(d: Date): string {
+  return d.toISOString().slice(0, 13) + ":00Z";
+}
+
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+type Agg = { n: number; min: number; max: number; sum: number };
+
+function bucket(rows: Reading[], keyOf: (r: Reading) => string): Map<string, Agg> {
+  const out = new Map<string, Agg>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    const a = out.get(k);
+    if (!a) {
+      out.set(k, { n: 1, min: r.value, max: r.value, sum: r.value });
+    } else {
+      a.n++;
+      a.min = Math.min(a.min, r.value);
+      a.max = Math.max(a.max, r.value);
+      a.sum += r.value;
+    }
+  }
+  return out;
+}
+
+console.log("first:", readings[0].at.toISOString(), "last:", readings[readings.length - 1].at.toISOString());
+const hourly = bucket(readings, (r) => hourKey(r.at));
+console.log("hour buckets:", hourly.size);
+for (const [k, a] of hourly) {
+  console.log(`${k}  n=${a.n} min=${a.min.toFixed(2)} max=${a.max.toFixed(2)} avg=${(a.sum / a.n).toFixed(2)}`);
+}
+
+const daily = bucket(readings, (r) => localDayKey(r.at) + "/" + r.sensor);
+console.log(daily);
+
+const gaps: string[] = [];
+const bySensor = new Map<string, Reading[]>();
+for (const r of readings) {
+  const list = bySensor.get(r.sensor) ?? [];
+  list.push(r);
+  bySensor.set(r.sensor, list);
+}
+for (const [s, list] of bySensor) {
+  for (let i = 1; i < list.length; i++) {
+    const deltaMin = (list[i].at.getTime() - list[i - 1].at.getTime()) / 60000;
+    if (deltaMin > 70) gaps.push(`${s}@${i}:${deltaMin}`);
+  }
+  console.log(s, "readings:", list.length, "span hours:", ((list[list.length - 1].at.getTime() - list[0].at.getTime()) / 3600000).toFixed(2));
+}
+console.log("gaps:", gaps);
+const local = readings[12].at;
+console.log("local view:", local.getHours(), local.getMinutes(), local.getDay(), local.getTimezoneOffset());
+console.log(readings[3]);
+console.log(String(readings[5].at));

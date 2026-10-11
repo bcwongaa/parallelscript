@@ -1,0 +1,108 @@
+// skip: not supported yet: PTS1001: converting Leaf[] to HNode[]
+// Huffman coding: build the tree with a priority queue, encode, decode and measure compression.
+
+abstract class HNode {
+  constructor(readonly weight: number, readonly order: number) {}
+  abstract get symbols(): string;
+}
+class Leaf extends HNode {
+  constructor(readonly symbol: string, weight: number, order: number) {
+    super(weight, order);
+  }
+  get symbols(): string {
+    return this.symbol;
+  }
+}
+class Branch extends HNode {
+  constructor(readonly left: HNode, readonly right: HNode, order: number) {
+    super(left.weight + right.weight, order);
+  }
+  get symbols(): string {
+    return this.left.symbols + this.right.symbols;
+  }
+}
+
+function buildTree(text: string): HNode {
+  const freq = new Map<string, number>();
+  for (const ch of text) freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  let order = 0;
+  const queue: HNode[] = [...freq.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([s, w]) => new Leaf(s, w, order++));
+  const before = (a: HNode, b: HNode) => a.weight - b.weight || a.order - b.order;
+  while (queue.length > 1) {
+    queue.sort(before);
+    const a = queue.shift()!;
+    const b = queue.shift()!;
+    queue.push(new Branch(a, b, order++));
+  }
+  return queue[0];
+}
+
+function codeTable(root: HNode): Map<string, string> {
+  const table = new Map<string, string>();
+  const walk = (n: HNode, prefix: string): void => {
+    if (n instanceof Leaf) table.set(n.symbol, prefix || "0");
+    else if (n instanceof Branch) {
+      walk(n.left, prefix + "0");
+      walk(n.right, prefix + "1");
+    }
+  };
+  walk(root, "");
+  return table;
+}
+
+function encode(text: string, table: Map<string, string>): string {
+  return [...text].map((ch) => table.get(ch)).join("");
+}
+
+function decode(bits: string, root: HNode): string {
+  if (root instanceof Leaf) return root.symbol.repeat(bits.length);
+  let out = "";
+  let node: HNode = root;
+  for (const b of bits) {
+    if (node instanceof Branch) node = b === "0" ? node.left : node.right;
+    if (node instanceof Leaf) {
+      out += node.symbol;
+      node = root;
+    }
+  }
+  return out;
+}
+
+const show = (s: string): string => (s === " " ? "␣" : s === "\n" ? "\\n" : s);
+
+const samples = [
+  "abracadabra",
+  "this is an example of a huffman tree",
+  "aaaaaaaaaa",
+  "the quick brown fox jumps over the lazy dog",
+];
+for (const text of samples) {
+  const root = buildTree(text);
+  const table = codeTable(root);
+  const bits = encode(text, table);
+  const back = decode(bits, root);
+  const ratio = bits.length / (text.length * 8);
+  console.log(`"${text}"`);
+  console.log(`  ${text.length * 8} bits -> ${bits.length} bits (${(ratio * 100).toFixed(1)}%), round trip ok: ${back === text}`);
+  if (text.length < 15) console.log("  bits:", bits);
+}
+
+const root = buildTree(samples[1]);
+const table = codeTable(root);
+const rows = [...table]
+  .map(([sym, code]) => ({ sym: show(sym), code, len: code.length }))
+  .sort((a, b) => a.len - b.len || (a.sym < b.sym ? -1 : 1));
+console.table(rows.slice(0, 8));
+const prefixFree = [...table.values()].every((c, i, all) => all.every((d, j) => i === j || !d.startsWith(c)));
+console.log("prefix free:", prefixFree, "symbols:", root.symbols.length, "weight:", root.weight);
+console.log(codeTable(buildTree("aab")));
+console.log(buildTree("ab"));
+const entropy = (() => {
+  const t = samples[1];
+  const f = new Map<string, number>();
+  for (const ch of t) f.set(ch, (f.get(ch) ?? 0) + 1);
+  return [...f.values()].reduce((h, n) => h - (n / t.length) * Math.log2(n / t.length), 0);
+})();
+console.log(`entropy ${entropy.toFixed(4)} bits/symbol vs huffman ${(encode(samples[1], table).length / samples[1].length).toFixed(4)}`);

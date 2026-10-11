@@ -1,0 +1,92 @@
+// A circuit breaker (closed -> open -> half-open) protecting a flaky
+// dependency on a simulated clock; open circuits fail fast with
+// CircuitOpenError instead of calling the dependency.
+
+enum CircuitState {
+  Closed = "CLOSED",
+  Open = "OPEN",
+  HalfOpen = "HALF_OPEN",
+}
+
+class CircuitOpenError extends Error {
+  constructor(readonly retryAt: number) {
+    super(`circuit open until t=${retryAt}`);
+    this.name = "CircuitOpenError";
+  }
+}
+
+class DependencyError extends Error {
+  constructor(readonly at: number) {
+    super(`dependency failed at t=${at}`);
+    this.name = "DependencyError";
+  }
+}
+
+class CircuitBreaker {
+  state = CircuitState.Closed;
+  private failures = 0;
+  private openedAt = 0;
+  readonly transitions: string[] = [];
+
+  constructor(private readonly threshold: number, private readonly cooldown: number) {}
+
+  private moveTo(next: CircuitState, now: number): void {
+    if (next === this.state) return;
+    this.transitions.push(`t=${now}: ${this.state} -> ${next}`);
+    this.state = next;
+  }
+
+  call<T>(now: number, fn: () => T): T {
+    if (this.state === CircuitState.Open) {
+      if (now - this.openedAt < this.cooldown) throw new CircuitOpenError(this.openedAt + this.cooldown);
+      this.moveTo(CircuitState.HalfOpen, now);
+    }
+    try {
+      const result = fn();
+      this.failures = 0;
+      this.moveTo(CircuitState.Closed, now);
+      return result;
+    } catch (e) {
+      this.failures++;
+      if (this.state === CircuitState.HalfOpen || this.failures >= this.threshold) {
+        this.openedAt = now;
+        this.moveTo(CircuitState.Open, now);
+      }
+      throw e;
+    }
+  }
+}
+
+// The dependency is down between t=30 and t=120.
+function dependency(now: number): string {
+  if (now >= 30 && now < 120) throw new DependencyError(now);
+  return `data@${now}`;
+}
+
+const breaker = new CircuitBreaker(3, 40);
+const stats = { ok: 0, failed: 0, rejected: 0 };
+const timeline: string[] = [];
+for (let t = 0; t <= 200; t += 10) {
+  try {
+    const v = breaker.call(t, () => dependency(t));
+    stats.ok++;
+    timeline.push(`${t}:ok`);
+    if (t % 50 === 0) console.log(`t=${t} got ${v} [${breaker.state}]`);
+  } catch (e) {
+    if (e instanceof CircuitOpenError) {
+      stats.rejected++;
+      timeline.push(`${t}:fast-fail`);
+      console.log(`t=${t} rejected: ${e.message}`);
+    } else if (e instanceof DependencyError) {
+      stats.failed++;
+      timeline.push(`${t}:error`);
+      console.log(`t=${t} ${e.name}: ${e.message} [${breaker.state}]`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log(stats);
+console.log(breaker.transitions);
+console.log(timeline.filter((x) => !x.endsWith(":ok")).join(" "));
+console.log(breaker.state === CircuitState.Closed ? "recovered" : "still failing", CircuitState);

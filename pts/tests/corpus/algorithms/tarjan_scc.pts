@@ -1,0 +1,114 @@
+// Strongly connected components with Tarjan's and Kosaraju's algorithms, plus the condensation DAG.
+
+type Adjacency = Map<string, string[]>;
+
+function buildGraph(edges: string): Adjacency {
+  const g: Adjacency = new Map();
+  for (const pair of edges.split(" ")) {
+    const [a, b] = pair.split(">");
+    if (!g.has(a)) g.set(a, []);
+    if (!g.has(b)) g.set(b, []);
+    g.get(a)!.push(b);
+  }
+  return g;
+}
+
+function tarjan(g: Adjacency): string[][] {
+  let index = 0;
+  const idx = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const result: string[][] = [];
+
+  function strong(v: string): void {
+    idx.set(v, index);
+    low.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of g.get(v) ?? []) {
+      if (!idx.has(w)) {
+        strong(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) {
+        low.set(v, Math.min(low.get(v)!, idx.get(w)!));
+      }
+    }
+    if (low.get(v) === idx.get(v)) {
+      const comp: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        comp.push(w);
+      } while (w !== v);
+      result.push(comp.sort());
+    }
+  }
+
+  for (const v of g.keys()) if (!idx.has(v)) strong(v);
+  return result;
+}
+
+function kosaraju(g: Adjacency): string[][] {
+  const order: string[] = [];
+  const seen = new Set<string>();
+  const dfs1 = (v: string): void => {
+    seen.add(v);
+    for (const w of g.get(v) ?? []) if (!seen.has(w)) dfs1(w);
+    order.push(v);
+  };
+  for (const v of g.keys()) if (!seen.has(v)) dfs1(v);
+
+  const rev: Adjacency = new Map([...g.keys()].map((k) => [k, [] as string[]]));
+  for (const [v, ws] of g) for (const w of ws) rev.get(w)!.push(v);
+
+  const assigned = new Set<string>();
+  const comps: string[][] = [];
+  for (const v of order.reverse()) {
+    if (assigned.has(v)) continue;
+    const comp: string[] = [];
+    const st = [v];
+    assigned.add(v);
+    while (st.length) {
+      const x = st.pop()!;
+      comp.push(x);
+      for (const y of rev.get(x)!) {
+        if (!assigned.has(y)) {
+          assigned.add(y);
+          st.push(y);
+        }
+      }
+    }
+    comps.push(comp.sort());
+  }
+  return comps;
+}
+
+const graph = buildGraph("a>b b>c c>a b>d d>e e>f f>d g>f g>h h>i i>g j>j k>a");
+console.log("graph:", graph);
+const t = tarjan(graph);
+const k = kosaraju(graph);
+console.log("tarjan:", t);
+console.log("kosaraju:", k);
+
+const canon = (cs: string[][]) => cs.map((c) => c.join("")).sort().join("|");
+console.log("agree:", canon(t) === canon(k), canon(t));
+
+// Condensation: map each vertex to its component id.
+const compOf = new Map<string, number>();
+t.forEach((c, i) => c.forEach((v) => compOf.set(v, i)));
+const dagEdges = new Set<string>();
+for (const [v, ws] of graph) {
+  for (const w of ws) {
+    const a = compOf.get(v)!;
+    const b = compOf.get(w)!;
+    if (a !== b) dagEdges.add(`${t[a].join("")}=>${t[b].join("")}`);
+  }
+}
+console.log("condensation edges:", [...dagEdges].sort());
+const sizes = t.map((c) => c.length);
+console.log("component sizes:", sizes, "nontrivial:", t.filter((c) => c.length > 1 || graph.get(c[0])!.includes(c[0])).length);
+const sources = t.filter((_, i) => ![...dagEdges].some((e) => e.endsWith(`=>${t[i].join("")}`)));
+console.log("source components:", sources);

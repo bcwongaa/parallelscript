@@ -1,0 +1,83 @@
+// skip: not supported yet: PTS1001: this `Object.fromEntries`
+// Identifier case conversion: camelCase, PascalCase, snake_case, kebab-case, CONSTANT_CASE,
+// Title Case, with acronym-aware word splitting.
+type CaseStyle = "camel" | "pascal" | "snake" | "kebab" | "constant" | "title" | "dot";
+
+const isUpper = (c: string) => c >= "A" && c <= "Z";
+const isLower = (c: string) => c >= "a" && c <= "z";
+const isDigit = (c: string) => c >= "0" && c <= "9";
+
+function splitWords(id: string): string[] {
+  const words: string[] = [];
+  let cur = "";
+  const chars = [...id];
+  chars.forEach((c, i) => {
+    if (!isUpper(c) && !isLower(c) && !isDigit(c)) {
+      if (cur) words.push(cur);
+      cur = "";
+      return;
+    }
+    const prev = chars[i - 1] ?? "";
+    const next = chars[i + 1] ?? "";
+    const boundary =
+      cur !== "" &&
+      ((isUpper(c) && isLower(prev)) ||
+        (isUpper(c) && isUpper(prev) && isLower(next)) ||
+        (isDigit(c) && !isDigit(prev)) ||
+        (!isDigit(c) && isDigit(prev)));
+    if (boundary) {
+      words.push(cur);
+      cur = "";
+    }
+    cur += c;
+  });
+  if (cur) words.push(cur);
+  return words.map((w) => w.toLowerCase());
+}
+
+const cap = (w: string) => (w ? w[0].toUpperCase() + w.slice(1) : w);
+
+const converters: Record<CaseStyle, (ws: string[]) => string> = {
+  camel: (ws) => ws.map((w, i) => (i === 0 ? w : cap(w))).join(""),
+  pascal: (ws) => ws.map(cap).join(""),
+  snake: (ws) => ws.join("_"),
+  kebab: (ws) => ws.join("-"),
+  constant: (ws) => ws.join("_").toUpperCase(),
+  title: (ws) => ws.map(cap).join(" "),
+  dot: (ws) => ws.join("."),
+};
+
+function convert(id: string, style: CaseStyle): string {
+  return converters[style](splitWords(id));
+}
+
+function detect(id: string): CaseStyle | "unknown" {
+  const styles = Object.keys(converters) as CaseStyle[];
+  return styles.find((s) => convert(id, s) === id) ?? "unknown";
+}
+
+const ids = [
+  "helloWorld", "HelloWorld", "hello_world", "hello-world", "HELLO_WORLD", "Hello World",
+  "XMLHttpRequest", "getHTTPResponseCode", "parseJSON2HTML", "version2Beta", "iPhone11Pro",
+  "__private__field", "user.profile.name", "A", "",
+];
+
+const styles: CaseStyle[] = ["camel", "pascal", "snake", "kebab", "constant", "title"];
+for (const id of ids) {
+  console.log(`${JSON.stringify(id).padEnd(22)} words=${JSON.stringify(splitWords(id))}`);
+}
+console.log();
+const rows = ids.slice(6, 11).map((id) => Object.fromEntries([["id", id], ...styles.map((s) => [s, convert(id, s)])]));
+console.table(rows);
+
+for (const id of ids.slice(0, 6)) console.log("%s looks like %s", id.padEnd(12), detect(id));
+
+const envVars = ["databaseUrl", "maxPoolSize", "enableHTTP2", "logLevel"];
+const env = envVars.reduce<Record<string, string>>((acc, k) => {
+  acc[convert(k, "constant")] = `<${convert(k, "kebab")}>`;
+  return acc;
+}, {});
+console.log(env);
+const roundTrip = ids.filter((id) => id && convert(convert(id, "snake"), "camel") === convert(id, "camel"));
+console.log("snake->camel stable:", roundTrip.length, "of", ids.length - 1);
+console.log(convert("the quick brown fox", "dot"), convert("Make it so", "pascal"));

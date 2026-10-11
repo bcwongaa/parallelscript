@@ -1,0 +1,128 @@
+// skip: not supported yet: PTS1001: values of type void
+// `once`, `before`, `after` and call-limiting wrappers built from closures.
+
+function once<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  let called = false;
+  let result: R | undefined;
+  return (...args: A): R => {
+    if (!called) {
+      called = true;
+      result = fn(...args);
+    }
+    return result as R;
+  };
+}
+
+function before<A extends unknown[], R>(n: number, fn: (...args: A) => R): (...args: A) => R | undefined {
+  let remaining = n;
+  let last: R | undefined = undefined;
+  return (...args: A) => {
+    if (remaining > 0) {
+      remaining--;
+      last = fn(...args);
+    }
+    return last;
+  };
+}
+
+function after(n: number, fn: () => void): () => void {
+  let count = 0;
+  return () => {
+    count++;
+    if (count >= n) fn();
+  };
+}
+
+class Connection {
+  static opened = 0;
+  readonly id: number;
+  constructor(public host: string, public port: number) {
+    Connection.opened++;
+    this.id = Connection.opened;
+  }
+  toString(): string {
+    return `Connection#${this.id}(${this.host}:${this.port})`;
+  }
+}
+
+const connect = once((host: string, port: number) => {
+  console.log(`  opening ${host}:${port}`);
+  return new Connection(host, port);
+});
+
+const c1 = connect("db.local", 5432);
+const c2 = connect("db.other", 3306);
+console.log("same connection:", c1 === c2, String(c2));
+console.log(c1);
+console.log("opened count:", Connection.opened);
+
+const greetFirstThree = before(3, (name: string) => `welcome ${name}`);
+for (const n of ["ann", "bo", "cy", "di", "ed"]) {
+  console.log(n, "->", greetFirstThree(n));
+}
+
+const log: string[] = [];
+const done = after(3, () => log.push("all three tasks finished"));
+["load", "parse", "render"].forEach((step, i) => {
+  log.push(`step ${i + 1}: ${step}`);
+  done();
+});
+console.log(log);
+
+// once with side effects returning undefined
+let initCount = 0;
+const init = once(() => {
+  initCount++;
+});
+init();
+init();
+init();
+console.log("init ran %d time(s), returned %s", initCount, init());
+
+// A rate limiter that allows N calls per window of a fake clock
+interface Clock {
+  now: number;
+}
+
+function limitRate<T>(clock: Clock, max: number, windowMs: number, fn: (x: T) => string): (x: T) => string {
+  const stamps: number[] = [];
+  return (x: T) => {
+    while (stamps.length > 0 && clock.now - stamps[0] >= windowMs) stamps.shift();
+    if (stamps.length >= max) return `rejected(${x})`;
+    stamps.push(clock.now);
+    return fn(x);
+  };
+}
+
+const clock: Clock = { now: 0 };
+const send = limitRate<number>(clock, 2, 1000, (x) => `sent(${x})`);
+const results: string[] = [];
+for (let i = 0; i < 8; i++) {
+  clock.now = i * 300;
+  results.push(`${clock.now}ms:${send(i)}`);
+}
+console.log(results.join("\n"));
+
+// once memoizes per-instance via closures created in a constructor
+class Config {
+  readonly load: () => Record<string, string>;
+  private loads = 0;
+  constructor(private source: string) {
+    this.load = once(() => {
+      this.loads++;
+      const out: Record<string, string> = {};
+      for (const line of this.source.split("\n")) {
+        const [k, v] = line.split("=");
+        if (k && v !== undefined) out[k.trim()] = v.trim();
+      }
+      return out;
+    });
+  }
+  get loadCount(): number {
+    return this.loads;
+  }
+}
+
+const cfg = new Config("host = example.org\nport = 8080\n debug=true");
+console.log(cfg.load());
+console.log(cfg.load() === cfg.load(), cfg.loadCount);

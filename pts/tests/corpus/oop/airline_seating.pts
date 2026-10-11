@@ -1,0 +1,129 @@
+// Airline seat map: cabins, seat classes, family seating, upgrades and a printable chart.
+
+enum Cabin {
+  First = "F",
+  Business = "J",
+  Economy = "Y",
+}
+
+class Seat {
+  passenger: string | null = null;
+  constructor(readonly row: number, readonly letter: string, readonly cabin: Cabin, readonly exitRow: boolean) {}
+  get code(): string {
+    return `${this.row}${this.letter}`;
+  }
+  get isWindow(): boolean {
+    return this.letter === "A" || this.letter === "F" || (this.cabin === Cabin.First && this.letter === "D");
+  }
+  get isAisle(): boolean {
+    return this.cabin === Cabin.First ? true : this.letter === "C" || this.letter === "D";
+  }
+}
+
+class SeatingError extends Error {
+  constructor(message: string, readonly passenger: string) {
+    super(message);
+    this.name = "SeatingError";
+  }
+}
+
+interface SeatRequest {
+  passenger: string;
+  cabin: Cabin;
+  prefer?: "window" | "aisle";
+  age?: number;
+}
+
+class Aircraft {
+  readonly seats: Seat[] = [];
+
+  constructor(readonly model: string, layout: Array<{ cabin: Cabin; rows: number; letters: string; exits?: number[] }>) {
+    let row = 1;
+    for (const block of layout) {
+      for (let r = 0; r < block.rows; r++, row++) {
+        for (const letter of block.letters) this.seats.push(new Seat(row, letter, block.cabin, block.exits?.includes(row) ?? false));
+      }
+    }
+  }
+
+  seat(code: string): Seat | undefined {
+    return this.seats.find((s) => s.code === code);
+  }
+
+  free(cabin: Cabin): Seat[] {
+    return this.seats.filter((s) => s.cabin === cabin && s.passenger === null);
+  }
+
+  assign(req: SeatRequest): Seat {
+    let candidates = this.free(req.cabin);
+    if (req.age !== undefined && req.age < 15) candidates = candidates.filter((s) => !s.exitRow);
+    if (candidates.length === 0) throw new SeatingError(`no ${req.cabin} seat left`, req.passenger);
+    const score = (s: Seat): number =>
+      (req.prefer === "window" && s.isWindow ? -10 : 0) + (req.prefer === "aisle" && s.isAisle ? -10 : 0) + s.row;
+    const best = candidates.reduce((a, b) => (score(b) < score(a) ? b : a));
+    best.passenger = req.passenger;
+    return best;
+  }
+
+  assignTogether(names: string[], cabin: Cabin): Seat[] {
+    const byRow = new Map<number, Seat[]>();
+    for (const s of this.free(cabin)) byRow.set(s.row, [...(byRow.get(s.row) ?? []), s]);
+    for (const [, seats] of byRow) {
+      for (let i = 0; i + names.length <= seats.length; i++) {
+        const run = seats.slice(i, i + names.length);
+        const contiguous = run.every((s, k) => k === 0 || s.letter.charCodeAt(0) - run[k - 1].letter.charCodeAt(0) === 1);
+        const crossesAisle = run.some((s, k) => k > 0 && s.letter === "D" && run[k - 1].letter === "C");
+        if (contiguous && !crossesAisle) {
+          run.forEach((s, k) => (s.passenger = names[k]));
+          return run;
+        }
+      }
+    }
+    throw new SeatingError(`cannot seat group of ${names.length} together`, names[0]);
+  }
+
+  upgrade(passenger: string, to: Cabin): Seat | null {
+    const current = this.seats.find((s) => s.passenger === passenger);
+    const target = this.free(to)[0];
+    if (!current || !target) return null;
+    current.passenger = null;
+    target.passenger = passenger;
+    return target;
+  }
+
+  chart(): string[] {
+    const rows = new Map<number, Seat[]>();
+    for (const s of this.seats) rows.set(s.row, [...(rows.get(s.row) ?? []), s]);
+    return [...rows].map(([r, seats]) => {
+      const marks = seats.map((s) => (s.passenger ? s.passenger[0].toUpperCase() : s.exitRow ? "e" : ".")).join("");
+      return `${String(r).padStart(2)} ${seats[0].cabin} ${marks}`;
+    });
+  }
+}
+
+const plane = new Aircraft("A220", [
+  { cabin: Cabin.First, rows: 2, letters: "ACDF" },
+  { cabin: Cabin.Economy, rows: 5, letters: "ABCDEF", exits: [5] },
+]);
+
+const requests: SeatRequest[] = [
+  { passenger: "ada", cabin: Cabin.First, prefer: "window" },
+  { passenger: "bo", cabin: Cabin.Economy, prefer: "aisle" },
+  { passenger: "cy", cabin: Cabin.Economy, prefer: "window", age: 12 },
+  { passenger: "dee", cabin: Cabin.Business },
+  { passenger: "eli", cabin: Cabin.Economy },
+];
+for (const r of requests) {
+  try {
+    const s = plane.assign(r);
+    console.log(`${r.passenger} -> ${s.code}${s.isWindow ? " window" : ""}${s.isAisle ? " aisle" : ""}`);
+  } catch (e) {
+    if (e instanceof SeatingError) console.log(`${e.passenger}: ${e.message}`);
+  }
+}
+const fam = plane.assignTogether(["mom", "dad", "kid"], Cabin.Economy);
+console.log("family:", fam.map((s) => s.code));
+console.log("upgrade eli:", plane.upgrade("eli", Cabin.First)?.code, "upgrade zed:", plane.upgrade("zed", Cabin.First));
+plane.chart().forEach((l) => console.log(l));
+console.log("free economy:", plane.free(Cabin.Economy).length, "free first:", plane.free(Cabin.First).map((s) => s.code));
+console.log(plane.seat("1A"), plane.seat("9Z"));

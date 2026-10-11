@@ -1,0 +1,84 @@
+interface Assessment {
+  name: string;
+  weight: number;
+  max: number;
+}
+
+interface Student {
+  id: string;
+  name: string;
+  scores: Record<string, number | null>;
+}
+
+const assessments: Assessment[] = [
+  { name: "hw", weight: 0.2, max: 50 },
+  { name: "quiz", weight: 0.15, max: 20 },
+  { name: "midterm", weight: 0.25, max: 100 },
+  { name: "project", weight: 0.15, max: 40 },
+  { name: "final", weight: 0.25, max: 100 },
+];
+
+const students: Student[] = [
+  { id: "s01", name: "Amara", scores: { hw: 47, quiz: 18, midterm: 88, project: 37, final: 91 } },
+  { id: "s02", name: "Bastian", scores: { hw: 30, quiz: 12, midterm: 61, project: 25, final: 58 } },
+  { id: "s03", name: "Chen", scores: { hw: 50, quiz: 20, midterm: 97, project: 40, final: 99 } },
+  { id: "s04", name: "Dalia", scores: { hw: 41, quiz: null, midterm: 74, project: 33, final: 80 } },
+  { id: "s05", name: "Emeka", scores: { hw: 22, quiz: 9, midterm: 45, project: 18, final: null } },
+  { id: "s06", name: "Fatima", scores: { hw: 44, quiz: 16, midterm: 82, project: 36, final: 79 } },
+];
+
+function letter(pct: number): string {
+  if (pct >= 93) return "A";
+  if (pct >= 90) return "A-";
+  if (pct >= 87) return "B+";
+  if (pct >= 83) return "B";
+  if (pct >= 80) return "B-";
+  if (pct >= 70) return "C";
+  if (pct >= 60) return "D";
+  return "F";
+}
+
+function weighted(s: Student): { pct: number; missing: string[] } {
+  let earnedWeight = 0;
+  let total = 0;
+  const missing: string[] = [];
+  for (const a of assessments) {
+    const raw = s.scores[a.name];
+    if (raw === null || raw === undefined) {
+      missing.push(a.name);
+      continue;
+    }
+    total += (raw / a.max) * a.weight;
+    earnedWeight += a.weight;
+  }
+  return { pct: earnedWeight === 0 ? 0 : (total / earnedWeight) * 100, missing };
+}
+
+const report = students.map((s) => {
+  const { pct, missing } = weighted(s);
+  return { id: s.id, name: s.name, pct: Number(pct.toFixed(2)), grade: letter(pct), missing };
+});
+
+console.log("ID   Name      Pct    Grade  Missing");
+for (const r of report) {
+  console.log(`${r.id}  ${r.name.padEnd(8)} ${r.pct.toFixed(2).padStart(6)}  ${r.grade.padEnd(5)}  ${r.missing.join(",") || "-"}`);
+}
+
+const distribution = report.reduce((m, r) => m.set(r.grade, (m.get(r.grade) ?? 0) + 1), new Map<string, number>());
+console.log(distribution);
+
+for (const a of assessments) {
+  const vals = students.map((s) => s.scores[a.name]).filter((v): v is number => typeof v === "number");
+  const avg = vals.reduce((x, y) => x + y, 0) / vals.length;
+  const hi = Math.max(...vals);
+  const lo = Math.min(...vals);
+  console.log("%s: avg %s/%d (min %d, max %d, n=%d)", a.name.padEnd(8), avg.toFixed(1), a.max, lo, hi, vals.length);
+}
+
+const ranked = [...report].sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
+console.log("Top 3:", ranked.slice(0, 3).map((r) => `${r.name} (${r.pct})`));
+console.log("Failing:", ranked.filter((r) => r.grade === "F"));
+const honorRoll = report.filter((r) => r.pct >= 90 && r.missing.length === 0).map((r) => r.name);
+console.log({ honorRoll, classAverage: Number((report.reduce((a, r) => a + r.pct, 0) / report.length).toFixed(3)) });
+const weightSum = assessments.reduce((a, x) => a + x.weight, 0);
+console.log("weights sum to", weightSum, weightSum === 1 ? "(ok)" : "(check!)");

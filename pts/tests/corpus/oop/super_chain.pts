@@ -1,0 +1,129 @@
+// skip: not supported yet: PTS1001: overriding `Point2.scale` with other parameter or result types
+// super calls through a multi-level hierarchy: HTTP-like middleware handlers with layered behaviour.
+
+interface Req {
+  path: string;
+  user?: string;
+  headers: Record<string, string>;
+}
+
+interface Res {
+  status: number;
+  body: string;
+  headers: Record<string, string>;
+}
+
+class BaseHandler {
+  protected trace: string[] = [];
+
+  handle(req: Req): Res {
+    this.trace.push("base");
+    return { status: 200, body: `hello ${req.path}`, headers: { "x-handler": this.describe() } };
+  }
+
+  describe(): string {
+    return "Base";
+  }
+
+  get calls(): string {
+    return this.trace.join(">");
+  }
+}
+
+class LoggingHandler extends BaseHandler {
+  static log: string[] = [];
+  override handle(req: Req): Res {
+    this.trace.push("logging");
+    const res = super.handle(req);
+    LoggingHandler.log.push(`${req.path} ${res.status} ${res.body.length}b`);
+    return res;
+  }
+  override describe(): string {
+    return `Logging(${super.describe()})`;
+  }
+}
+
+class AuthHandler extends LoggingHandler {
+  constructor(private allowed: Set<string>) {
+    super();
+  }
+  override handle(req: Req): Res {
+    this.trace.push("auth");
+    if (req.path.startsWith("/admin") && (!req.user || !this.allowed.has(req.user))) {
+      const res = { status: 403, body: "forbidden", headers: {} };
+      LoggingHandler.log.push(`${req.path} 403 denied ${req.user ?? "anonymous"}`);
+      return res;
+    }
+    return super.handle(req);
+  }
+  override describe(): string {
+    return `Auth(${super.describe()})`;
+  }
+}
+
+class CompressingHandler extends AuthHandler {
+  override handle(req: Req): Res {
+    this.trace.push("compress");
+    const res = super.handle(req);
+    if ((req.headers["accept-encoding"] ?? "").includes("rle") && res.body.length > 8) {
+      return { ...res, body: CompressingHandler.rle(res.body), headers: { ...res.headers, "content-encoding": "rle" } };
+    }
+    return res;
+  }
+  override describe(): string {
+    return "Compress(" + super.describe() + ")";
+  }
+  static rle(s: string): string {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      let j = i;
+      while (j < s.length && s[j] === s[i]) j++;
+      out += j - i > 1 ? `${j - i}${s[i]}` : s[i];
+      i = j;
+    }
+    return out;
+  }
+}
+
+class Point2 {
+  constructor(public x: number, public y: number) {}
+  toString(): string {
+    return `(${this.x}, ${this.y})`;
+  }
+  scale(k: number): Point2 {
+    return new Point2(this.x * k, this.y * k);
+  }
+}
+class Point3 extends Point2 {
+  constructor(x: number, y: number, public z: number) {
+    super(x, y);
+  }
+  override toString(): string {
+    return super.toString().slice(0, -1) + `, ${this.z})`;
+  }
+  override scale(k: number): Point3 {
+    const p = super.scale(k);
+    return new Point3(p.x, p.y, this.z * k);
+  }
+}
+
+const h = new CompressingHandler(new Set(["root"]));
+console.log(h.describe());
+const reqs: Req[] = [
+  { path: "/home", headers: {} },
+  { path: "/aaaabbbbbbbccc", headers: { "accept-encoding": "gzip, rle" } },
+  { path: "/admin/users", headers: {} },
+  { path: "/admin/users", user: "root", headers: { "accept-encoding": "rle" } },
+  { path: "/admin", user: "guest", headers: {} },
+];
+for (const r of reqs) {
+  const res = h.handle(r);
+  console.log(res.status, JSON.stringify(res.body), res.headers);
+}
+console.log(h.calls);
+console.log(LoggingHandler.log);
+console.log(CompressingHandler.rle("wwwwaaadexxxxxx"), CompressingHandler.rle(""));
+const p = new Point3(1, 2, 3);
+console.log(`${p} scaled ${p.scale(2)}`, p.scale(0.5) instanceof Point3);
+console.log(p, new Point2(4, 5).scale(3));
+console.log(new LoggingHandler().describe(), new BaseHandler().handle({ path: "/x", headers: {} }));

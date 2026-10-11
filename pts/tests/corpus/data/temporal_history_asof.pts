@@ -1,0 +1,90 @@
+interface Version<T> {
+  validFrom: string;
+  validTo: string | null;
+  value: T;
+}
+
+class History<T> {
+  private versions: Version<T>[] = [];
+
+  set(date: string, value: T): void {
+    const last = this.versions.length > 0 ? this.versions[this.versions.length - 1] : undefined;
+    if (last && date <= last.validFrom) throw new Error(`out-of-order update at ${date}`);
+    if (last) last.validTo = date;
+    this.versions.push({ validFrom: date, validTo: null, value });
+  }
+
+  asOf(date: string): T | undefined {
+    let lo = 0;
+    let hi = this.versions.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.versions[mid].validFrom <= date) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return found >= 0 ? this.versions[found].value : undefined;
+  }
+
+  get all(): readonly Version<T>[] {
+    return this.versions;
+  }
+
+  changesBetween(from: string, to: string): Version<T>[] {
+    return this.versions.filter((v) => v.validFrom > from && v.validFrom <= to);
+  }
+}
+
+interface Price {
+  amount: number;
+  currency: string;
+}
+
+interface Employee {
+  title: string;
+  salary: number;
+  dept: string;
+}
+
+const prices = new History<Price>();
+prices.set("2023-01-01", { amount: 9.99, currency: "USD" });
+prices.set("2023-06-15", { amount: 11.49, currency: "USD" });
+prices.set("2024-01-01", { amount: 12.99, currency: "USD" });
+prices.set("2024-03-10", { amount: 10.99, currency: "USD" });
+
+for (const d of ["2022-12-31", "2023-01-01", "2023-06-14", "2023-06-15", "2023-12-31", "2024-02-29", "2024-12-31"]) {
+  const p = prices.asOf(d);
+  console.log(d, "->", p ? `${p.amount.toFixed(2)} ${p.currency}` : "no price");
+}
+console.log(prices.all);
+console.log(prices.changesBetween("2023-03-01", "2024-01-31"));
+
+const emp = new History<Employee>();
+emp.set("2019-04-01", { title: "Analyst", salary: 62000, dept: "Finance" });
+emp.set("2020-10-01", { title: "Senior Analyst", salary: 71000, dept: "Finance" });
+emp.set("2022-02-01", { title: "Data Engineer", salary: 98000, dept: "Engineering" });
+emp.set("2023-07-01", { title: "Data Engineer II", salary: 112000, dept: "Engineering" });
+
+const yearEnds = [2019, 2020, 2021, 2022, 2023].map((y) => `${y}-12-31`);
+const snapshot = yearEnds.map((d) => ({ asOf: d, ...(emp.asOf(d) ?? { title: "-", salary: 0, dept: "-" }) }));
+console.table(snapshot);
+
+const raises = emp.all.slice(1).map((v, i) => {
+  const prev = emp.all[i].value;
+  return { on: v.validFrom, pct: (((v.value.salary - prev.salary) / prev.salary) * 100).toFixed(1) + "%", deptChange: prev.dept !== v.value.dept };
+});
+console.log(raises);
+try {
+  emp.set("2021-01-01", { title: "Oops", salary: 1, dept: "?" });
+} catch (e) {
+  console.log((e as Error).message);
+}
+const tenureDays = emp.all.map((v) => {
+  const end = v.validTo ?? "2024-06-30";
+  return [v.value.title, (Date.parse(end) - Date.parse(v.validFrom)) / 86400000] as [string, number];
+});
+console.log(new Map(tenureDays));

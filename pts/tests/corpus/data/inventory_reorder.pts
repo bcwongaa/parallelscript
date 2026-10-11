@@ -1,0 +1,95 @@
+abstract class StockItem {
+  constructor(
+    public readonly sku: string,
+    public readonly description: string,
+    protected onHand: number,
+    public readonly reorderPoint: number,
+    public readonly leadDays: number,
+  ) {}
+
+  abstract dailyUsage(): number;
+
+  get quantity(): number {
+    return this.onHand;
+  }
+
+  set quantity(n: number) {
+    if (n < 0) throw new RangeError(`${this.sku}: quantity cannot go negative (${n})`);
+    this.onHand = n;
+  }
+
+  daysOfCover(): number {
+    const use = this.dailyUsage();
+    return use === 0 ? Infinity : this.onHand / use;
+  }
+
+  needsReorder(): boolean {
+    return this.onHand <= this.reorderPoint || this.daysOfCover() < this.leadDays;
+  }
+
+  suggestedOrder(): number {
+    const target = this.dailyUsage() * (this.leadDays + 14);
+    return Math.max(0, Math.ceil(target - this.onHand));
+  }
+}
+
+class SteadyItem extends StockItem {
+  constructor(sku: string, desc: string, onHand: number, rp: number, lead: number, private perDay: number) {
+    super(sku, desc, onHand, rp, lead);
+  }
+  dailyUsage(): number {
+    return this.perDay;
+  }
+}
+
+class HistoryItem extends StockItem {
+  constructor(sku: string, desc: string, onHand: number, rp: number, lead: number, private history: number[]) {
+    super(sku, desc, onHand, rp, lead);
+  }
+  dailyUsage(): number {
+    const recent = this.history.slice(-7);
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
+  }
+}
+
+const items: StockItem[] = [
+  new SteadyItem("A-100", "Hex bolts M6", 1200, 300, 5, 85),
+  new SteadyItem("A-200", "Washers M6", 90, 100, 3, 40),
+  new HistoryItem("B-310", "Bearings 608", 64, 20, 12, [3, 5, 4, 6, 2, 7, 5, 4, 6]),
+  new HistoryItem("C-050", "Drive belts", 15, 5, 20, [0, 1, 0, 0, 2, 0, 1]),
+  new SteadyItem("D-999", "Legacy gasket", 40, 0, 30, 0),
+];
+
+console.log("SKU    Description        OnHand  Use/day  Cover   Reorder  Suggest");
+for (const it of items) {
+  const cover = it.daysOfCover();
+  const coverStr = Number.isFinite(cover) ? cover.toFixed(1) : "inf";
+  console.log(
+    `${it.sku.padEnd(6)} ${it.description.padEnd(18)} ${String(it.quantity).padStart(6)}  ${it.dailyUsage().toFixed(2).padStart(7)}  ${coverStr.padStart(5)}   ${(it.needsReorder() ? "YES" : "no").padEnd(7)}  ${it.suggestedOrder()}`,
+  );
+}
+
+const po = items.filter((i) => i.needsReorder()).map((i) => ({ sku: i.sku, qty: i.suggestedOrder() }));
+console.log("Purchase order:", po);
+console.log(JSON.stringify({ lines: po, totalUnits: po.reduce((a, l) => a + l.qty, 0) }));
+
+const shipments: Array<[string, number]> = [["A-200", -50], ["B-310", -70], ["A-100", -400], ["C-050", +30]];
+for (const [sku, delta] of shipments) {
+  const item = items.find((i) => i.sku === sku);
+  if (!item) continue;
+  try {
+    item.quantity = item.quantity + delta;
+    console.log(`${sku}: now ${item.quantity}`);
+  } catch (err) {
+    if (err instanceof RangeError) console.log("rejected:", err.message);
+    else throw err;
+  }
+}
+console.log(items[1]);
+console.log(items[2] instanceof HistoryItem, items[2] instanceof StockItem, items[0] instanceof HistoryItem);
+const valueByPrefix = new Map<string, number>();
+for (const it of items) {
+  const prefix = it.sku.split("-")[0];
+  valueByPrefix.set(prefix, (valueByPrefix.get(prefix) ?? 0) + it.quantity);
+}
+console.log(valueByPrefix, Infinity, -Infinity, [Infinity]);

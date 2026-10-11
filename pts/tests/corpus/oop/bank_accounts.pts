@@ -1,0 +1,149 @@
+// Bank with account types, a transaction log and a custom error.
+
+class InsufficientFundsError extends Error {
+  constructor(public readonly accountId: string, public readonly shortfall: number) {
+    super(`account ${accountId} is short by ${shortfall.toFixed(2)}`);
+    this.name = "InsufficientFundsError";
+  }
+}
+
+type TxKind = "deposit" | "withdraw" | "interest" | "fee";
+
+interface Transaction {
+  kind: TxKind;
+  amount: number;
+  balanceAfter: number;
+}
+
+abstract class Account {
+  #balance = 0;
+  protected readonly log: Transaction[] = [];
+
+  constructor(readonly id: string, readonly owner: string) {}
+
+  get balance(): number {
+    return this.#balance;
+  }
+
+  protected record(kind: TxKind, amount: number): void {
+    this.#balance = Math.round((this.#balance + amount) * 100) / 100;
+    this.log.push({ kind, amount, balanceAfter: this.#balance });
+  }
+
+  deposit(amount: number): this {
+    if (amount <= 0) throw new Error("deposit must be positive");
+    this.record("deposit", amount);
+    return this;
+  }
+
+  withdraw(amount: number): this {
+    const available = this.#balance + this.overdraftLimit();
+    if (amount > available) {
+      throw new InsufficientFundsError(this.id, amount - available);
+    }
+    this.record("withdraw", -amount);
+    return this;
+  }
+
+  protected overdraftLimit(): number {
+    return 0;
+  }
+
+  abstract monthEnd(): void;
+
+  history(): readonly Transaction[] {
+    return this.log;
+  }
+}
+
+class SavingsAccount extends Account {
+  constructor(id: string, owner: string, private rate: number) {
+    super(id, owner);
+  }
+  monthEnd(): void {
+    const interest = Math.round(this.balance * (this.rate / 12) * 100) / 100;
+    if (interest > 0) this.record("interest", interest);
+  }
+}
+
+class CheckingAccount extends Account {
+  constructor(id: string, owner: string, private overdraft: number, private fee: number) {
+    super(id, owner);
+  }
+  protected override overdraftLimit(): number {
+    return this.overdraft;
+  }
+  monthEnd(): void {
+    if (this.balance < 0) this.record("fee", -this.fee);
+  }
+}
+
+class Bank {
+  private accounts = new Map<string, Account>();
+
+  open(account: Account): Account {
+    this.accounts.set(account.id, account);
+    return account;
+  }
+
+  transfer(from: string, to: string, amount: number): boolean {
+    const a = this.accounts.get(from);
+    const b = this.accounts.get(to);
+    if (!a || !b) return false;
+    try {
+      a.withdraw(amount);
+      b.deposit(amount);
+      return true;
+    } catch (err) {
+      if (err instanceof InsufficientFundsError) {
+        console.log(`transfer failed: ${err.message} (${err.name})`);
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  monthEnd(): void {
+    this.accounts.forEach((acc) => acc.monthEnd());
+  }
+
+  report(): void {
+    for (const acc of this.accounts.values()) {
+      const kind = acc instanceof SavingsAccount ? "savings" : "checking";
+      console.log(`${acc.id.padEnd(6)} ${acc.owner.padEnd(8)} ${kind.padEnd(9)} ${acc.balance.toFixed(2).padStart(10)}`);
+    }
+  }
+}
+
+const bank = new Bank();
+bank.open(new SavingsAccount("S-1", "alice", 0.05)).deposit(1000).deposit(250.5);
+bank.open(new CheckingAccount("C-1", "alice", 200, 15)).deposit(100);
+bank.open(new CheckingAccount("C-2", "bob", 0, 10)).deposit(40);
+
+console.log(bank.transfer("S-1", "C-2", 300));
+console.log(bank.transfer("C-1", "C-2", 250));
+console.log(bank.transfer("C-2", "S-1", 1000));
+console.log(bank.transfer("C-2", "X-9", 1));
+bank.report();
+bank.monthEnd();
+console.log("--- after month end ---");
+bank.report();
+
+const c1 = new CheckingAccount("C-3", "carol", 0, 5);
+try {
+  c1.withdraw(10);
+} catch (e) {
+  console.log(e instanceof InsufficientFundsError, e instanceof Error, (e as InsufficientFundsError).shortfall);
+}
+try {
+  c1.deposit(-5);
+} catch (e) {
+  console.log("error:", (e as Error).message);
+}
+
+const s1 = new SavingsAccount("S-9", "dave", 0.12);
+s1.deposit(500).withdraw(120.25).deposit(20);
+s1.monthEnd();
+console.log(s1.history());
+console.log(JSON.stringify(s1.history().filter((t) => t.kind !== "deposit")));
+console.log(s1);

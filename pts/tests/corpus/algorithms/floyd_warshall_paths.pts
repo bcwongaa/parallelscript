@@ -1,0 +1,91 @@
+// skip: not supported yet: PTS1001: a tuple's elements at an index that isn't a constant
+// Floyd-Warshall all-pairs shortest paths for flight connections, with route reconstruction.
+
+const airports = ["AMS", "CDG", "FRA", "LHR", "MAD", "FCO", "ZRH"] as const;
+type Airport = (typeof airports)[number];
+
+const flights: [Airport, Airport, number][] = [
+  ["AMS", "LHR", 55],
+  ["LHR", "AMS", 60],
+  ["AMS", "FRA", 70],
+  ["FRA", "ZRH", 50],
+  ["ZRH", "FCO", 90],
+  ["CDG", "MAD", 120],
+  ["LHR", "CDG", 75],
+  ["CDG", "FCO", 125],
+  ["MAD", "FCO", 145],
+  ["FRA", "CDG", 80],
+  ["FCO", "AMS", 150],
+  ["ZRH", "LHR", 100],
+];
+
+const n = airports.length;
+const idx = new Map<Airport, number>(airports.map((a, i) => [a, i]));
+const dist: number[][] = Array.from({ length: n }, (_, i) =>
+  Array.from({ length: n }, (_, j) => (i === j ? 0 : Infinity)),
+);
+const next: (number | null)[][] = Array.from({ length: n }, () => new Array<number | null>(n).fill(null));
+
+for (const [from, to, minutes] of flights) {
+  const a = idx.get(from)!;
+  const b = idx.get(to)!;
+  dist[a][b] = minutes;
+  next[a][b] = b;
+}
+for (let i = 0; i < n; i++) next[i][i] = i;
+
+let relaxations = 0;
+for (let k = 0; k < n; k++) {
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (dist[i][k] + dist[k][j] < dist[i][j]) {
+        dist[i][j] = dist[i][k] + dist[k][j];
+        next[i][j] = next[i][k];
+        relaxations++;
+      }
+    }
+  }
+}
+console.log("relaxations:", relaxations);
+
+function route(from: Airport, to: Airport): Airport[] {
+  let i = idx.get(from)!;
+  const j = idx.get(to)!;
+  if (next[i][j] === null) return [];
+  const path: Airport[] = [from];
+  while (i !== j) {
+    i = next[i][j]!;
+    path.push(airports[i]);
+  }
+  return path;
+}
+
+const header = "     " + airports.map((a) => a.padStart(5)).join("");
+console.log(header);
+for (let i = 0; i < n; i++) {
+  const cells = dist[i].map((d) => (d === Infinity ? "  inf" : String(d).padStart(5)));
+  console.log(airports[i].padEnd(5) + cells.join(""));
+}
+
+const queries: [Airport, Airport][] = [["AMS", "FCO"], ["MAD", "ZRH"], ["ZRH", "MAD"], ["FCO", "LHR"], ["LHR", "LHR"]];
+for (const [a, b] of queries) {
+  const r = route(a, b);
+  const d = dist[idx.get(a)!][idx.get(b)!];
+  console.log(`${a}->${b}: ${d} min, ${Math.max(0, r.length - 2)} stops, ${r.join(" > ")}`);
+}
+
+const hubScore = airports.map((a, i) => {
+  const reachable = dist[i].filter((d, j) => j !== i && Number.isFinite(d));
+  return {
+    airport: a,
+    reach: reachable.length,
+    avg: reachable.length ? +(reachable.reduce((s, d) => s + d, 0) / reachable.length).toFixed(1) : null,
+  };
+});
+hubScore.sort((x, y) => y.reach - x.reach || (x.avg ?? 0) - (y.avg ?? 0));
+console.log(hubScore);
+const unreachable = airports.flatMap((a, i) =>
+  airports.filter((_, j) => !Number.isFinite(dist[i][j])).map((b) => `${a}->${b}`),
+);
+console.log("unreachable pairs:", unreachable);
+console.log("diameter:", Math.max(...dist.flat().filter(Number.isFinite)));

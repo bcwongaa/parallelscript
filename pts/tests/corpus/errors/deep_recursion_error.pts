@@ -1,0 +1,106 @@
+// skip: not supported yet: PTS1001: converting {arg: {name: string; op: string} | {op: string; value: number} | {args: {name: string; op: string} | {op: string; value: number...
+// Walks a nested expression tree recursively; errors thrown deep inside
+// carry the path to the failing node and are caught at the top.
+
+type Expr =
+  | { op: "lit"; value: number }
+  | { op: "var"; name: string }
+  | { op: "add" | "mul" | "div"; args: Expr[] }
+  | { op: "neg"; arg: Expr };
+
+class EvalFailure extends Error {
+  readonly path: string[];
+  constructor(message: string, path: string[]) {
+    super(message);
+    this.name = "EvalFailure";
+    this.path = path;
+  }
+  where(): string {
+    return this.path.length === 0 ? "<root>" : this.path.join(" > ");
+  }
+}
+
+function evaluate(e: Expr, env: Map<string, number>, path: string[] = []): number {
+  switch (e.op) {
+    case "lit":
+      return e.value;
+    case "var": {
+      const v = env.get(e.name);
+      if (v === undefined) throw new EvalFailure(`unbound variable '${e.name}'`, [...path, `var(${e.name})`]);
+      return v;
+    }
+    case "neg":
+      return -evaluate(e.arg, env, [...path, "neg"]);
+    case "add":
+    case "mul":
+    case "div": {
+      if (e.args.length === 0) throw new EvalFailure(`'${e.op}' needs at least one argument`, [...path, e.op]);
+      const values = e.args.map((a, i) => evaluate(a, env, [...path, `${e.op}[${i}]`]));
+      if (e.op === "add") return values.reduce((a, b) => a + b, 0);
+      if (e.op === "mul") return values.reduce((a, b) => a * b, 1);
+      return values.slice(1).reduce((acc, d, i) => {
+        if (d === 0) throw new EvalFailure("division by zero", [...path, `div[${i + 1}]`]);
+        return acc / d;
+      }, values[0]);
+    }
+  }
+}
+
+function depthOf(e: Expr): number {
+  switch (e.op) {
+    case "lit":
+    case "var":
+      return 1;
+    case "neg":
+      return 1 + depthOf(e.arg);
+    default:
+      return 1 + Math.max(0, ...e.args.map(depthOf));
+  }
+}
+
+const lit = (value: number): Expr => ({ op: "lit", value });
+const v = (name: string): Expr => ({ op: "var", name });
+
+// Build a deep chain: neg(neg(...(add(x, i))...))
+function chain(n: number, leaf: Expr): Expr {
+  let e = leaf;
+  for (let i = 0; i < n; i++) e = i % 2 === 0 ? { op: "neg", arg: e } : { op: "add", args: [e, lit(i)] };
+  return e;
+}
+
+const env = new Map<string, number>([["x", 4], ["y", 0.5], ["zero", 0]]);
+const exprs: Array<[string, Expr]> = [
+  ["simple", { op: "add", args: [lit(1), { op: "mul", args: [v("x"), v("y")] }] }],
+  ["unbound", { op: "add", args: [lit(1), { op: "mul", args: [v("x"), v("w")] }] }],
+  ["divzero", { op: "div", args: [lit(10), lit(2), { op: "add", args: [v("zero")] }] }],
+  ["empty", { op: "neg", arg: { op: "mul", args: [] } }],
+  ["deep-ok", chain(40, v("x"))],
+  ["deep-fail", chain(25, v("nope"))],
+];
+
+for (const [label, expr] of exprs) {
+  try {
+    const value = evaluate(expr, env);
+    console.log(`${label}: ${value} (depth ${depthOf(expr)})`);
+  } catch (e) {
+    if (e instanceof EvalFailure) {
+      console.log(`${label}: ${e.message}`);
+      const where = e.where();
+      console.log(`  at ${where.length > 60 ? "..." + where.slice(-57) : where}`);
+      console.log(`  path length ${e.path.length}, last ${e.path[e.path.length - 1]}`);
+    } else {
+      throw e;
+    }
+  }
+}
+
+function countdown(n: number): number {
+  if (n === 0) throw new Error("reached zero");
+  return countdown(n - 1) + 1;
+}
+try {
+  countdown(500);
+} catch (e) {
+  console.log("countdown:", e instanceof Error ? e.message : e);
+}
+console.log(JSON.stringify(exprs[2][1]));

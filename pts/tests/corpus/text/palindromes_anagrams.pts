@@ -1,0 +1,90 @@
+// Palindrome detection (phrases, longest palindromic substring) and anagram grouping.
+function normalizeLetters(s: string): string {
+  return [...s.toLowerCase()].filter((c) => (c >= "a" && c <= "z") || (c >= "0" && c <= "9")).join("");
+}
+
+function isPalindrome(s: string): boolean {
+  const t = normalizeLetters(s);
+  for (let i = 0, j = t.length - 1; i < j; i++, j--) if (t[i] !== t[j]) return false;
+  return true;
+}
+
+function longestPalindrome(s: string): { start: number; text: string } {
+  let bestStart = 0, bestLen = s.length > 0 ? 1 : 0;
+  const expand = (lo: number, hi: number): void => {
+    while (lo >= 0 && hi < s.length && s[lo] === s[hi]) { lo--; hi++; }
+    const len = hi - lo - 1;
+    if (len > bestLen) { bestLen = len; bestStart = lo + 1; }
+  };
+  for (let i = 0; i < s.length; i++) {
+    expand(i, i);
+    expand(i, i + 1);
+  }
+  return { start: bestStart, text: s.substr(bestStart, bestLen) };
+}
+
+function countPalindromicSubstrings(s: string): number {
+  let count = 0;
+  for (let center = 0; center < 2 * s.length - 1; center++) {
+    let lo = Math.floor(center / 2), hi = lo + (center % 2);
+    while (lo >= 0 && hi < s.length && s[lo] === s[hi]) { count++; lo--; hi++; }
+  }
+  return count;
+}
+
+const signature = (w: string) => [...w.toLowerCase()].sort().join("");
+
+function groupAnagrams(words: string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const w of words) {
+    const key = signature(w);
+    const g = groups.get(key);
+    if (g) { if (!g.includes(w)) g.push(w); }
+    else groups.set(key, [w]);
+  }
+  return groups;
+}
+
+function isAnagramPhrase(a: string, b: string): boolean {
+  return signature(normalizeLetters(a)) === signature(normalizeLetters(b));
+}
+
+const phrases = [
+  "A man, a plan, a canal: Panama!",
+  "Was it a car or a cat I saw?",
+  "No 'x' in Nixon",
+  "Hello, world",
+  "Step on no pets",
+  "12321",
+  "",
+  "ab",
+];
+for (const p of phrases) console.log(`${isPalindrome(p) ? "yes" : "no "} ${JSON.stringify(p)}`);
+
+for (const s of ["babad", "cbbd", "forgeeksskeegfor", "abacdfgdcaba", "x", "racecar inside"]) {
+  const r = longestPalindrome(s);
+  console.log("%s -> %o, substrings=%d", s.padEnd(18), r, countPalindromicSubstrings(s));
+}
+
+const wordList = [
+  "listen", "silent", "enlist", "inlets", "google", "elgoog", "stone", "tones", "notes", "onset",
+  "Seton", "cat", "act", "tac", "dog", "god", "listen", "banana", "evil", "vile", "live", "veil", "Levi",
+];
+const groups = groupAnagrams(wordList);
+const sorted = [...groups.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length || a[0].localeCompare(b[0]));
+for (const g of sorted) console.log(`${g.length}: ${g.join(" ")}`);
+console.log("singletons:", [...groups.values()].filter((g) => g.length === 1).flat());
+console.log(groups.get("eilnst"));
+
+const pairs: [string, string][] = [
+  ["Dormitory", "Dirty room"], ["The eyes", "They see"], ["Astronomer", "Moon starer"], ["Hello", "World"],
+];
+for (const [a, b] of pairs) console.log(`${a} <-> ${b}: ${isAnagramPhrase(a, b)}`);
+
+const palWords = ["level", "rotor", "civic", "kayak", "refer", "tenet", "stats", "noon", "deed"];
+const lengths = palWords.reduce<Record<number, string[]>>((acc, w) => {
+  (acc[w.length] ??= []).push(w);
+  return acc;
+}, {});
+console.log(lengths);
+console.log(palWords.every(isPalindrome), palWords.map((w) => w.split("").reverse().join("") === w).includes(false));

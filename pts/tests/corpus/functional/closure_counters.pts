@@ -1,0 +1,130 @@
+// skip: not supported yet: PTS1001: a method whose parameter types differ from its object type's ((number) => void)
+// Counters, accumulators and running statistics built from closures.
+
+function makeCounter(start = 0, step = 1) {
+  let value = start;
+  return {
+    next: () => (value += step),
+    peek: () => value,
+    reset: () => {
+      value = start;
+    },
+  };
+}
+
+const a = makeCounter();
+const b = makeCounter(100, -10);
+console.log(a.next(), a.next(), a.next());
+console.log(b.next(), b.next());
+a.reset();
+console.log("after reset:", a.peek(), b.peek());
+
+function accumulator(initial: number): (n: number) => number {
+  let total = initial;
+  return (n: number) => {
+    total += n;
+    return total;
+  };
+}
+
+const acc = accumulator(10);
+const seq = [5, -3, 12, 0.5].map(acc);
+console.log("running totals:", seq);
+
+interface Stats {
+  count: number;
+  mean: number;
+  min: number;
+  max: number;
+  variance: number;
+}
+
+function runningStats(): { push: (x: number) => void; snapshot: () => Stats } {
+  let count = 0;
+  let mean = 0;
+  let m2 = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  return {
+    push(x: number) {
+      count++;
+      const delta = x - mean;
+      mean += delta / count;
+      m2 += delta * (x - mean);
+      min = Math.min(min, x);
+      max = Math.max(max, x);
+    },
+    snapshot(): Stats {
+      return { count, mean, min, max, variance: count > 1 ? m2 / (count - 1) : 0 };
+    },
+  };
+}
+
+const temps = [12.5, 14.1, 9.8, 17.3, 15.0, 11.2, 13.9];
+const rs = runningStats();
+console.log("empty:", rs.snapshot());
+temps.forEach((t, i) => {
+  rs.push(t);
+  if (i % 3 === 2) {
+    const s = rs.snapshot();
+    console.log(`after ${s.count}: mean=${s.mean.toFixed(3)} sd=${Math.sqrt(s.variance).toFixed(3)}`);
+  }
+});
+console.log(rs.snapshot());
+
+// ID generators with prefixes, shared and independent
+function idGenerator(prefix: string, width: number): () => string {
+  let n = 0;
+  return () => `${prefix}-${String(++n).padStart(width, "0")}`;
+}
+
+const orderId = idGenerator("ORD", 5);
+const userId = idGenerator("U", 3);
+const ids: string[] = [];
+for (let i = 0; i < 4; i++) {
+  ids.push(orderId());
+  if (i % 2 === 0) ids.push(userId());
+}
+console.log(ids);
+
+// Counters stored in a Map of closures keyed by name
+const tallies = new Map<string, () => number>();
+function tally(name: string): number {
+  let fn = tallies.get(name);
+  if (!fn) {
+    let c = 0;
+    fn = () => ++c;
+    tallies.set(name, fn);
+  }
+  return fn();
+}
+
+const events = ["click", "scroll", "click", "key", "click", "scroll", "key", "key", "key"];
+const lastSeen: Record<string, number> = {};
+for (const e of events) lastSeen[e] = tally(e);
+console.log(lastSeen);
+console.log("distinct:", tallies.size, "keys:", [...tallies.keys()].join(","));
+
+// Closures capturing loop variables: let creates a fresh binding each iteration
+const fns: Array<() => number> = [];
+for (let i = 0; i < 5; i++) {
+  fns.push(() => i * i);
+}
+console.log(fns.map((f) => f()));
+
+const delayed: Array<() => string> = [];
+let shared = 0;
+for (const label of ["x", "y", "z"]) {
+  shared++;
+  delayed.push(() => `${label}:${shared}`);
+}
+console.log(delayed.map((f) => f()).join(" "));
+
+let k = 0;
+const whileFns: Array<() => number> = [];
+while (k < 3) {
+  const captured = k;
+  whileFns.push(() => captured + k);
+  k++;
+}
+console.log("while closures:", whileFns.map((f) => f()));

@@ -1,0 +1,105 @@
+// skip: not supported yet: PTS1001: calling `decodeURIComponent`
+interface LogRecord {
+  ip: string;
+  time: Date;
+  method: string;
+  path: string;
+  query: Record<string, string>;
+  status: number;
+  bytes: number;
+  ms: number;
+}
+
+const rawLog = `203.0.113.5 [2024-07-01T12:00:01Z] "GET /api/items?page=1&size=20" 200 5120 34ms
+198.51.100.7 [2024-07-01T12:00:02Z] "POST /api/items" 201 312 120ms
+203.0.113.5 [2024-07-01T12:00:04Z] "GET /api/items?page=2&size=20" 200 4980 29ms
+192.0.2.44 [2024-07-01T12:00:09Z] "GET /static/app.js" 304 0 3ms
+198.51.100.7 [2024-07-01T12:01:15Z] "DELETE /api/items/17" 404 87 15ms
+203.0.113.9 [2024-07-01T12:01:20Z] "GET /api/search?q=red%20shoes&sort=price" 200 20211 410ms
+malformed line here
+192.0.2.44 [2024-07-01T12:02:00Z] "GET /api/items?page=1&size=50" 500 120 1503ms
+203.0.113.5 [2024-07-01T12:02:30Z] "PUT /api/items/3" 200 330 88ms
+198.51.100.7 [2024-07-01T12:03:45Z] "GET /api/items?page=1" 200 5120 31ms`;
+
+class ParseError extends Error {
+  constructor(readonly lineNo: number, reason: string) {
+    super(`line ${lineNo}: ${reason}`);
+  }
+}
+
+function parseQuery(qs: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!qs) return out;
+  for (const pair of qs.split("&")) {
+    const eq = pair.indexOf("=");
+    const k = eq < 0 ? pair : pair.slice(0, eq);
+    const v = eq < 0 ? "" : pair.slice(eq + 1);
+    out[decodeURIComponent(k)] = decodeURIComponent(v);
+  }
+  return out;
+}
+
+function parseLine(line: string, lineNo: number): LogRecord {
+  const lb = line.indexOf("[");
+  const rb = line.indexOf("]");
+  const q1 = line.indexOf('"');
+  const q2 = line.lastIndexOf('"');
+  if (lb < 0 || rb < lb || q1 < 0 || q2 <= q1) throw new ParseError(lineNo, "unrecognised format");
+  const [method, target] = line.slice(q1 + 1, q2).split(" ");
+  const [path, qs = ""] = target.split("?");
+  const [status, bytes, ms] = line.slice(q2 + 1).trim().split(" ");
+  return {
+    ip: line.slice(0, lb).trim(),
+    time: new Date(line.slice(lb + 1, rb)),
+    method,
+    path,
+    query: parseQuery(qs),
+    status: Number(status),
+    bytes: Number(bytes),
+    ms: Number(ms.slice(0, -2)),
+  };
+}
+
+const records: LogRecord[] = [];
+const errors: ParseError[] = [];
+rawLog.split("\n").forEach((line, i) => {
+  try {
+    records.push(parseLine(line, i + 1));
+  } catch (e) {
+    if (e instanceof ParseError) errors.push(e);
+    else throw e;
+  }
+});
+
+console.log(`parsed ${records.length}, failed ${errors.length}:`, errors.map((e) => e.message));
+console.log(records[5]);
+
+const statusClasses = records.reduce<Record<string, number>>((acc, r) => {
+  const cls = `${Math.floor(r.status / 100)}xx`;
+  acc[cls] = (acc[cls] ?? 0) + 1;
+  return acc;
+}, {});
+console.log(statusClasses);
+
+const byIp = new Map<string, { hits: number; bytes: number }>();
+for (const r of records) {
+  const s = byIp.get(r.ip) ?? { hits: 0, bytes: 0 };
+  s.hits++;
+  s.bytes += r.bytes;
+  byIp.set(r.ip, s);
+}
+console.log([...byIp].sort((a, b) => b[1].hits - a[1].hits));
+
+const slow = records.filter((r) => r.ms > 100).map((r) => `${r.method} ${r.path} ${r.ms}ms`);
+console.log("slow:", slow);
+const latencies = records.map((r) => r.ms).sort((a, b) => a - b);
+console.log("p50:", latencies[Math.floor(latencies.length * 0.5)], "p90:", latencies[Math.floor(latencies.length * 0.9)]);
+const routes = new Set(records.map((r) => r.method + " " + r.path.split("/").slice(0, 3).join("/")));
+console.log(routes);
+const perMinute = new Map<string, number>();
+for (const r of records) {
+  const k = r.time.toISOString().slice(11, 16);
+  perMinute.set(k, (perMinute.get(k) ?? 0) + 1);
+}
+console.log(perMinute);
+console.log(records.filter((r) => r.query.page !== undefined).map((r) => r.query));

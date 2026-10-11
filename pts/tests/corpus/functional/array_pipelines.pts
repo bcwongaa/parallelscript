@@ -1,0 +1,86 @@
+// skip: not supported yet: PTS1001: spreading a number[] into a number | string[]
+// Higher-order array pipelines over a sales dataset: map/filter/reduce/flatMap/sort/every/some.
+
+interface Sale {
+  id: number;
+  region: "north" | "south" | "east" | "west";
+  rep: string;
+  items: Array<{ product: string; qty: number; unit: number }>;
+  month: number;
+  refunded?: boolean;
+}
+
+const sales: Sale[] = [
+  { id: 1, region: "north", rep: "Ito", month: 1, items: [{ product: "widget", qty: 10, unit: 2.5 }, { product: "gadget", qty: 1, unit: 40 }] },
+  { id: 2, region: "south", rep: "Ruiz", month: 1, items: [{ product: "widget", qty: 4, unit: 2.5 }] },
+  { id: 3, region: "east", rep: "Chen", month: 2, items: [{ product: "gizmo", qty: 3, unit: 15 }, { product: "widget", qty: 20, unit: 2.25 }] },
+  { id: 4, region: "north", rep: "Ito", month: 2, items: [{ product: "gadget", qty: 2, unit: 38 }], refunded: true },
+  { id: 5, region: "west", rep: "Okafor", month: 3, items: [{ product: "gizmo", qty: 1, unit: 15 }, { product: "doohickey", qty: 7, unit: 6 }] },
+  { id: 6, region: "east", rep: "Chen", month: 3, items: [{ product: "gadget", qty: 1, unit: 42 }] },
+  { id: 7, region: "south", rep: "Ruiz", month: 3, items: [{ product: "doohickey", qty: 12, unit: 5.5 }, { product: "widget", qty: 8, unit: 2.5 }] },
+  { id: 8, region: "west", rep: "Patel", month: 2, items: [] },
+];
+
+const saleTotal = (s: Sale): number => s.items.reduce((sum, i) => sum + i.qty * i.unit, 0);
+const valid = sales.filter((s) => !s.refunded && s.items.length > 0);
+
+console.log("valid sale ids:", valid.map((s) => s.id));
+console.log("totals:", valid.map((s) => [s.id, saleTotal(s)]));
+
+const revenue = valid.reduce((sum, s) => sum + saleTotal(s), 0);
+console.log(`revenue: ${revenue.toFixed(2)}`);
+
+const byRegion = valid.reduce<Record<string, number>>((acc, s) => {
+  acc[s.region] = (acc[s.region] ?? 0) + saleTotal(s);
+  return acc;
+}, {});
+console.log(byRegion);
+
+const lines = valid.flatMap((s) => s.items.map((i) => ({ sale: s.id, rep: s.rep, ...i, total: i.qty * i.unit })));
+console.log("line count:", lines.length);
+console.table(lines.slice(0, 4));
+
+const productQty = new Map<string, number>();
+lines.forEach((l) => productQty.set(l.product, (productQty.get(l.product) ?? 0) + l.qty));
+const ranked = [...productQty].sort(([a, qa], [b, qb]) => qb - qa || a.localeCompare(b));
+console.log("by quantity:", ranked);
+
+const repLeaderboard = Object.entries(
+  valid.reduce<Record<string, { sales: number; revenue: number }>>((acc, s) => {
+    const cur = acc[s.rep] ?? { sales: 0, revenue: 0 };
+    acc[s.rep] = { sales: cur.sales + 1, revenue: cur.revenue + saleTotal(s) };
+    return acc;
+  }, {}),
+)
+  .map(([rep, stats]) => ({ rep, ...stats, avg: +(stats.revenue / stats.sales).toFixed(2) }))
+  .sort((a, b) => b.revenue - a.revenue);
+console.log(repLeaderboard);
+
+console.log("every sale has a rep:", sales.every((s) => s.rep.length > 0));
+console.log("some sale refunded:", sales.some((s) => s.refunded === true));
+console.log("every valid sale > $10:", valid.every((s) => saleTotal(s) > 10));
+console.log("first big sale:", valid.find((s) => saleTotal(s) > 70)?.id ?? "none");
+console.log("index of first east sale:", sales.findIndex((s) => s.region === "east"));
+console.log("last widget sale:", sales.findLast((s) => s.items.some((i) => i.product === "widget"))?.id);
+
+const monthly = [1, 2, 3].map((m) => {
+  const ms = valid.filter((s) => s.month === m);
+  return { month: m, count: ms.length, revenue: ms.map(saleTotal).reduce((a, b) => a + b, 0) };
+});
+monthly.forEach(({ month, count, revenue }) => console.log(`M${month}: ${count} sales, ${revenue.toFixed(2)}`));
+
+const cumulative = monthly.map((m) => m.revenue).reduce<number[]>((acc, r) => [...acc, (acc.at(-1) ?? 0) + r], []);
+console.log("cumulative:", cumulative);
+
+const products = [...new Set(lines.map((l) => l.product))].sort();
+const matrix = products.map((p) => [p, ...[1, 2, 3].map((m) => valid.filter((s) => s.month === m).flatMap((s) => s.items).filter((i) => i.product === p).reduce((q, i) => q + i.qty, 0))]);
+console.log(matrix);
+
+const top2PerRegion = Object.fromEntries(
+  (["north", "south", "east", "west"] as const).map((r) => [
+    r,
+    valid.filter((s) => s.region === r).sort((a, b) => saleTotal(b) - saleTotal(a)).slice(0, 2).map((s) => s.id),
+  ]),
+);
+console.log(top2PerRegion);
+console.log("includes gizmo:", products.includes("gizmo"), "reversed:", products.slice().reverse().join("|"));

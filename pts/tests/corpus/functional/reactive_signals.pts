@@ -1,0 +1,141 @@
+// skip: not supported yet: PTS1001: destructuring a Set<{deps: Set<{subscribers: Set<{...}>}>; name: string; run: () => void}> with an array pattern
+// Reactive signals: writable signals, computed values with dependency tracking, and effects.
+
+type Effect = { run: () => void; deps: Set<SignalNode>; name: string };
+
+interface SignalNode {
+  subscribers: Set<Effect>;
+}
+
+let currentEffect: Effect | null = null;
+let batchDepth = 0;
+const pendingEffects = new Set<Effect>();
+const effectLog: string[] = [];
+
+function track(node: SignalNode): void {
+  if (currentEffect) {
+    node.subscribers.add(currentEffect);
+    currentEffect.deps.add(node);
+  }
+}
+
+function trigger(node: SignalNode): void {
+  for (const eff of [...node.subscribers]) pendingEffects.add(eff);
+  if (batchDepth === 0) flush();
+}
+
+function flush(): void {
+  while (pendingEffects.size > 0) {
+    const [eff] = pendingEffects;
+    pendingEffects.delete(eff);
+    runEffect(eff);
+  }
+}
+
+function runEffect(eff: Effect): void {
+  for (const dep of eff.deps) dep.subscribers.delete(eff);
+  eff.deps.clear();
+  const prev = currentEffect;
+  currentEffect = eff;
+  try {
+    eff.run();
+  } finally {
+    currentEffect = prev;
+  }
+}
+
+function signal<T>(initial: T): [get: () => T, set: (v: T | ((prev: T) => T)) => void] {
+  let value = initial;
+  const node: SignalNode = { subscribers: new Set() };
+  const get = () => {
+    track(node);
+    return value;
+  };
+  const set = (v: T | ((prev: T) => T)) => {
+    const next = typeof v === "function" ? (v as (prev: T) => T)(value) : v;
+    if (Object.is(next, value)) return;
+    value = next;
+    trigger(node);
+  };
+  return [get, set];
+}
+
+function computed<T>(fn: () => T, name: string): () => T {
+  const [get, set] = signal<T | undefined>(undefined);
+  let evaluations = 0;
+  effect(() => {
+    evaluations++;
+    set(fn());
+  }, `computed:${name}`);
+  return () => {
+    const v = get();
+    if (v === undefined) throw new Error(`computed ${name} not ready`);
+    effectLog.push(`  (${name} evaluated ${evaluations}x)`);
+    return v;
+  };
+}
+
+function effect(run: () => void, name: string): () => void {
+  const eff: Effect = { run, deps: new Set(), name };
+  runEffect(eff);
+  return () => {
+    for (const dep of eff.deps) dep.subscribers.delete(eff);
+    eff.deps.clear();
+  };
+}
+
+function batch(fn: () => void): void {
+  batchDepth++;
+  try {
+    fn();
+  } finally {
+    batchDepth--;
+    if (batchDepth === 0) flush();
+  }
+}
+
+interface CartItem {
+  name: string;
+  price: number;
+  qty: number;
+}
+
+const [items, setItems] = signal<CartItem[]>([{ name: "tea", price: 4.5, qty: 2 }]);
+const [taxRate, setTaxRate] = signal(0.08);
+const [coupon, setCoupon] = signal<string | null>(null);
+
+const subtotal = computed(() => items().reduce((s, i) => s + i.price * i.qty, 0), "subtotal");
+const discount = computed(() => (coupon() === "HALF" ? subtotal() / 2 : coupon() === "FIVE" ? Math.min(5, subtotal()) : 0), "discount");
+const total = computed(() => +((subtotal() - discount()) * (1 + taxRate())).toFixed(2), "total");
+
+const stop = effect(() => {
+  effectLog.push(`render: ${items().length} item(s), subtotal ${subtotal().toFixed(2)}, total ${total().toFixed(2)}`);
+}, "render");
+
+setItems((xs) => [...xs, { name: "scone", price: 3.25, qty: 1 }]);
+setTaxRate(0.1);
+setTaxRate(0.1);
+setCoupon("FIVE");
+batch(() => {
+  setCoupon("HALF");
+  setItems((xs) => xs.map((x) => (x.name === "tea" ? { ...x, qty: 4 } : x)));
+  setTaxRate(0);
+});
+stop();
+setItems([]);
+console.log(effectLog.join("\n"));
+console.log("final total after stop:", total(), "items:", items());
+
+// Dynamic dependencies: an effect that only reads `detail` when `expanded` is true
+const [expanded, setExpanded] = signal(false);
+const [detail, setDetail] = signal("v1");
+const seen: string[] = [];
+effect(() => {
+  seen.push(expanded() ? `expanded:${detail()}` : "collapsed");
+}, "panel");
+setDetail("v2");
+setExpanded(true);
+setDetail("v3");
+setExpanded(false);
+setDetail("v4");
+console.log(seen);

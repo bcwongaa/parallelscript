@@ -1,0 +1,94 @@
+// Morse code encoder/decoder with timing analysis, prosigns, and decoding from a
+// signal of on/off durations.
+const MORSE: Record<string, string> = {
+  A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....", I: "..", J: ".---",
+  K: "-.-", L: ".-..", M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.", S: "...", T: "-",
+  U: "..-", V: "...-", W: ".--", X: "-..-", Y: "-.--", Z: "--..",
+  "0": "-----", "1": ".----", "2": "..---", "3": "...--", "4": "....-", "5": ".....", "6": "-....",
+  "7": "--...", "8": "---..", "9": "----.", ".": ".-.-.-", ",": "--..--", "?": "..--..", "/": "-..-.",
+  "@": ".--.-.", "!": "-.-.--", "'": ".----.", "=": "-...-",
+};
+const REVERSE = new Map(Object.entries(MORSE).map(([k, v]) => [v, k]));
+
+class MorseError extends Error {}
+
+function encode(text: string): string {
+  return text.toUpperCase().split(" ").filter((w) => w.length > 0).map((word) =>
+    [...word].map((ch) => {
+      if (!(ch in MORSE)) throw new MorseError(`cannot encode '${ch}'`);
+      return MORSE[ch];
+    }).join(" ")).join(" / ");
+}
+
+function decode(code: string): string {
+  return code.trim().split(" / ").map((word) =>
+    word.split(" ").filter((s) => s !== "").map((sym) => REVERSE.get(sym) ?? "�").join("")).join(" ");
+}
+
+// Timing: dot=1 unit, dash=3, intra-char gap=1, inter-char gap=3, word gap=7.
+type Pulse = [on: boolean, units: number];
+
+function toSignal(code: string): Pulse[] {
+  const pulses: Pulse[] = [];
+  const words = code.split(" / ");
+  words.forEach((word, wi) => {
+    const letters = word.split(" ");
+    letters.forEach((letter, li) => {
+      [...letter].forEach((sym, si) => {
+        pulses.push([true, sym === "." ? 1 : 3]);
+        if (si < letter.length - 1) pulses.push([false, 1]);
+      });
+      if (li < letters.length - 1) pulses.push([false, 3]);
+    });
+    if (wi < words.length - 1) pulses.push([false, 7]);
+  });
+  return pulses;
+}
+
+function fromSignal(pulses: Pulse[]): string {
+  let out = "";
+  for (const [on, units] of pulses) {
+    if (on) out += units < 2 ? "." : "-";
+    else if (units >= 5) out += " / ";
+    else if (units >= 2) out += " ";
+  }
+  return out;
+}
+
+function render(pulses: Pulse[]): string {
+  return pulses.map(([on, n]) => (on ? "=" : "_").repeat(n)).join("");
+}
+
+const messages = ["SOS", "Hello World", "ParallelScript 2024", "What's up?", "e=mc2"];
+for (const m of messages) {
+  const code = encode(m);
+  const signal = toSignal(code);
+  const units = signal.reduce((s, [, n]) => s + n, 0);
+  console.log(`${m.padEnd(20)} ${code}`);
+  console.log(`${"".padEnd(20)} ${units} units, decodes to ${JSON.stringify(decode(code))}`);
+}
+console.log(render(toSignal(encode("SOS"))));
+console.log(render(toSignal(encode("hi there"))));
+
+// A noisy signal: durations jitter but the classifier should still recover the text.
+const noisy: Pulse[] = toSignal(encode("cq dx")).map(([on, n], i) => [on, n + ((i * 7) % 3 === 0 ? 0.4 : -0.3)]);
+console.log(noisy.slice(0, 6));
+console.log("noisy decode:", decode(fromSignal(noisy)));
+
+for (const bad of ["naïve", "#hash"]) {
+  try {
+    encode(bad);
+  } catch (e) {
+    if (e instanceof MorseError) console.log("error:", e.message);
+  }
+}
+console.log(decode("... --- ..--.- ..."));
+
+const byLength = new Map<number, string[]>();
+for (const [ch, code] of Object.entries(MORSE)) {
+  if (ch >= "A" && ch <= "Z") byLength.set(code.length, [...(byLength.get(code.length) ?? []), ch]);
+}
+console.log(byLength);
+const dotHeavy = Object.keys(MORSE).filter((k) => [...MORSE[k]].every((c) => c === "."));
+const dashHeavy = Object.keys(MORSE).filter((k) => !MORSE[k].includes("."));
+console.log({ dotHeavy, dashHeavy, total: REVERSE.size });

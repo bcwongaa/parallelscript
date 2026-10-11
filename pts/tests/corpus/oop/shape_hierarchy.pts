@@ -1,0 +1,118 @@
+// Abstract shape hierarchy with polymorphic area/perimeter and sorting.
+
+abstract class Shape {
+  static count = 0;
+  readonly id: number;
+
+  constructor(public readonly name: string) {
+    Shape.count++;
+    this.id = Shape.count;
+  }
+
+  abstract area(): number;
+  abstract perimeter(): number;
+
+  describe(): string {
+    return `${this.name}#${this.id} area=${this.area().toFixed(2)} perimeter=${this.perimeter().toFixed(2)}`;
+  }
+
+  toString(): string {
+    return `[${this.name} ${this.area().toFixed(1)}]`;
+  }
+}
+
+class Circle extends Shape {
+  constructor(public radius: number) {
+    super("Circle");
+  }
+  area(): number {
+    return Math.PI * this.radius ** 2;
+  }
+  perimeter(): number {
+    return 2 * Math.PI * this.radius;
+  }
+}
+
+class Rectangle extends Shape {
+  constructor(public width: number, public height: number, name = "Rectangle") {
+    super(name);
+  }
+  area(): number {
+    return this.width * this.height;
+  }
+  perimeter(): number {
+    return 2 * (this.width + this.height);
+  }
+}
+
+class Square extends Rectangle {
+  constructor(side: number) {
+    super(side, side, "Square");
+  }
+  get side(): number {
+    return this.width;
+  }
+}
+
+class Triangle extends Shape {
+  constructor(public a: number, public b: number, public c: number) {
+    super("Triangle");
+    if (a + b <= c || a + c <= b || b + c <= a) {
+      throw new RangeError(`invalid triangle ${a},${b},${c}`);
+    }
+  }
+  perimeter(): number {
+    return this.a + this.b + this.c;
+  }
+  area(): number {
+    const s = this.perimeter() / 2;
+    return Math.sqrt(s * (s - this.a) * (s - this.b) * (s - this.c));
+  }
+}
+
+const shapes: Shape[] = [
+  new Circle(1.5),
+  new Rectangle(3, 4),
+  new Square(2.5),
+  new Triangle(3, 4, 5),
+  new Circle(0.5),
+  new Rectangle(10, 0.25),
+];
+
+for (const s of shapes) {
+  console.log(s.describe());
+}
+
+try {
+  shapes.push(new Triangle(1, 2, 10));
+} catch (e) {
+  if (e instanceof RangeError) {
+    console.log("rejected:", e.message);
+  }
+}
+
+const byArea = [...shapes].sort((x, y) => x.area() - y.area());
+console.log("sorted by area:", byArea.map((s) => s.toString()).join(" "));
+console.log(`largest: ${byArea[byArea.length - 1]}`);
+
+const totalArea = shapes.reduce((sum, s) => sum + s.area(), 0);
+console.log("total area:", totalArea.toFixed(3));
+
+const groups = new Map<string, Shape[]>();
+for (const s of shapes) {
+  const list = groups.get(s.name) ?? [];
+  list.push(s);
+  groups.set(s.name, list);
+}
+for (const [name, list] of groups) {
+  console.log(name.padEnd(10), list.length, list.map((s) => s.id));
+}
+
+console.log("squares that are rectangles:", shapes.filter((s) => s instanceof Rectangle).length);
+const sq = shapes.find((s): s is Square => s instanceof Square);
+if (sq) {
+  console.log("square side:", sq.side);
+}
+console.log(shapes[0]);
+console.log(shapes[3]);
+console.log("shapes created:", Shape.count);

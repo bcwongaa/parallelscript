@@ -1,0 +1,96 @@
+// An email address validator written without regular expressions: local-part rules,
+// quoted local parts, domain labels, IP literals, plus normalisation for deduplication.
+type Verdict = { ok: true; local: string; domain: string } | { ok: false; reason: string };
+
+const LOCAL_SPECIALS = "!#$%&'*+-/=?^_`{|}~.";
+
+function isAlnum(c: string): boolean {
+  return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9");
+}
+
+function checkLocal(local: string): string | null {
+  if (local.length === 0) return "empty local part";
+  if (local.length > 64) return "local part longer than 64 characters";
+  if (local.startsWith('"') && local.endsWith('"') && local.length >= 2) {
+    const inner = local.slice(1, -1);
+    for (let i = 0; i < inner.length; i++) {
+      if (inner[i] === "\\") { i++; continue; }
+      if (inner[i] === '"') return "unescaped quote inside quoted local part";
+    }
+    return null;
+  }
+  if (local.startsWith(".") || local.endsWith(".")) return "local part starts or ends with a dot";
+  if (local.includes("..")) return "consecutive dots in local part";
+  for (const c of local) if (!isAlnum(c) && !LOCAL_SPECIALS.includes(c)) return `invalid character '${c}' in local part`;
+  return null;
+}
+
+function checkDomain(domain: string): string | null {
+  if (domain.length === 0) return "empty domain";
+  if (domain.startsWith("[") && domain.endsWith("]")) {
+    const parts = domain.slice(1, -1).split(".");
+    if (parts.length !== 4 || parts.some((p) => p === "" || Number(p) > 255 || Number.isNaN(Number(p)))) return "bad IP literal";
+    return null;
+  }
+  if (domain.length > 253) return "domain too long";
+  const labels = domain.split(".");
+  if (labels.length < 2) return "domain needs at least two labels";
+  for (const label of labels) {
+    if (label.length === 0) return "empty domain label";
+    if (label.length > 63) return `label '${label.slice(0, 10)}…' too long`;
+    if (label.startsWith("-") || label.endsWith("-")) return `label '${label}' starts or ends with a hyphen`;
+    for (const c of label) if (!isAlnum(c) && c !== "-") return `invalid character '${c}' in domain`;
+  }
+  const tld = labels[labels.length - 1];
+  if ([...tld].every((c) => c >= "0" && c <= "9")) return "top-level domain is numeric";
+  return null;
+}
+
+function validate(address: string): Verdict {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return { ok: false, reason: "missing @" };
+  const local = address.slice(0, at), domain = address.slice(at + 1);
+  const problem = checkLocal(local) ?? checkDomain(domain);
+  return problem ? { ok: false, reason: problem } : { ok: true, local, domain: domain.toLowerCase() };
+}
+
+function normalize(address: string): string | null {
+  const v = validate(address.trim());
+  if (!v.ok) return null;
+  let local = v.local.toLowerCase();
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  if (v.domain === "gmail.com" || v.domain === "googlemail.com") return `${local.split(".").join("")}@gmail.com`;
+  return `${local}@${v.domain}`;
+}
+
+const addresses = [
+  "alice@example.com", "Bob.Smith+news@Example.co.uk", "x@y.z", "user@localhost", "@example.com",
+  "noat.example.com", "a..b@example.com", ".lead@example.com", "trail.@example.com", "sp ace@example.com",
+  '"quoted name"@example.com', '"bad"quote"@example.com', "user@-bad.com", "user@bad-.com", "user@exa_mple.com",
+  "user@[192.168.0.1]", "user@[300.1.1.1]", "user@example.123", "a".repeat(65) + "@example.com",
+  "first.o'brien@example.ie", "user@sub.domain.example.museum", "user@@example.com",
+];
+let valid = 0;
+const reasons = new Map<string, number>();
+for (const a of addresses) {
+  const v = validate(a);
+  const shown = a.length > 34 ? a.slice(0, 31) + "..." : a;
+  if (v.ok) { valid++; console.log(`  ok   ${shown.padEnd(34)} local=${v.local} domain=${v.domain}`); }
+  else {
+    console.log(`  BAD  ${shown.padEnd(34)} ${v.reason}`);
+    const key = v.reason.split("'")[0].trim();
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+}
+console.log(`${valid} valid, ${addresses.length - valid} invalid`);
+console.log(reasons);
+
+const signups = ["John.Doe@gmail.com", "johndoe+promo@gmail.com", "j.o.h.n.d.o.e@googlemail.com", "JOHNDOE@GMAIL.COM", "john.doe@work.com", "john.doe+x@work.com", "broken@"];
+const unique = new Map<string, string[]>();
+for (const s of signups) {
+  const n = normalize(s) ?? "(invalid)";
+  unique.set(n, [...(unique.get(n) ?? []), s]);
+}
+console.log(unique);
+console.log(validate("ok@example.org"), validate("nope"));

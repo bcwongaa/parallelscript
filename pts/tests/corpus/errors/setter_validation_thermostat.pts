@@ -1,0 +1,98 @@
+// skip: not supported yet: PTS1001: `err.constructor`
+// A thermostat whose setters validate input and throw; getters derive
+// values. Shows that a failed setter leaves the old state intact.
+
+type Mode = "off" | "heat" | "cool" | "auto";
+
+class Thermostat {
+  static readonly MIN = 10;
+  static readonly MAX = 32;
+  #target = 20;
+  #mode: Mode = "off";
+  #unit: "C" | "F" = "C";
+  private changes = 0;
+
+  get target(): number {
+    return this.#unit === "C" ? this.#target : Math.round(((this.#target * 9) / 5 + 32) * 10) / 10;
+  }
+
+  set target(value: number) {
+    if (typeof value !== "number" || Number.isNaN(value)) throw new TypeError("target must be a number");
+    const celsius = this.#unit === "C" ? value : ((value - 32) * 5) / 9;
+    if (celsius < Thermostat.MIN || celsius > Thermostat.MAX) {
+      throw new RangeError(`target ${value}°${this.#unit} outside ${this.describeRange()}`);
+    }
+    this.#target = Math.round(celsius * 2) / 2;
+    this.changes++;
+  }
+
+  get mode(): Mode {
+    return this.#mode;
+  }
+
+  set mode(m: Mode) {
+    if (m === this.#mode) throw new Error(`already in ${m} mode`);
+    if (m === "cool" && this.#target < 18) throw new RangeError("cooling below 18°C is not allowed");
+    this.#mode = m;
+    this.changes++;
+  }
+
+  set unit(u: "C" | "F") {
+    this.#unit = u;
+  }
+
+  describeRange(): string {
+    if (this.#unit === "C") return `[${Thermostat.MIN}, ${Thermostat.MAX}]°C`;
+    const f = (c: number) => (c * 9) / 5 + 32;
+    return `[${f(Thermostat.MIN)}, ${f(Thermostat.MAX)}]°F`;
+  }
+
+  get summary(): string {
+    return `${this.#mode} @ ${this.target}°${this.#unit} (${this.changes} changes)`;
+  }
+}
+
+const t = new Thermostat();
+type Action = { kind: "target"; value: number } | { kind: "mode"; value: Mode } | { kind: "unit"; value: "C" | "F" };
+const actions: Action[] = [
+  { kind: "target", value: 22.3 },
+  { kind: "mode", value: "heat" },
+  { kind: "target", value: 40 },
+  { kind: "mode", value: "heat" },
+  { kind: "target", value: 15 },
+  { kind: "mode", value: "cool" },
+  { kind: "unit", value: "F" },
+  { kind: "target", value: 50 },
+  { kind: "target", value: 95 },
+  { kind: "target", value: 100 },
+  { kind: "mode", value: "cool" },
+  { kind: "target", value: Number.NaN },
+  { kind: "unit", value: "C" },
+  { kind: "mode", value: "auto" },
+];
+
+const failures: string[] = [];
+for (const a of actions) {
+  const before = t.summary;
+  try {
+    switch (a.kind) {
+      case "target":
+        t.target = a.value;
+        break;
+      case "mode":
+        t.mode = a.value;
+        break;
+      case "unit":
+        t.unit = a.value;
+        break;
+    }
+    console.log(`set ${a.kind}=${a.value}: ${t.summary}`);
+  } catch (e) {
+    const err = e as Error;
+    failures.push(`${err.constructor === RangeError ? "range" : err instanceof TypeError ? "type" : "state"}:${a.kind}`);
+    console.log(`set ${a.kind}=${a.value} FAILED (${err.name}: ${err.message}); unchanged: ${t.summary === before}`);
+  }
+}
+console.log(failures);
+console.log(t.target, t.mode, Thermostat.MIN, Thermostat.MAX);
+console.log(t);

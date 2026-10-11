@@ -1,0 +1,124 @@
+// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError; JS gives undefined)
+// A text adventure command parser: verb synonyms, articles, prepositions, direct and
+// indirect objects, plus a tiny world that reacts to the parsed commands.
+enum Verb { Go = "go", Take = "take", Drop = "drop", Look = "look", Open = "open", Put = "put", Use = "use", Inventory = "inventory" }
+
+const SYNONYMS: Record<string, Verb> = {
+  go: Verb.Go, walk: Verb.Go, run: Verb.Go, n: Verb.Go, s: Verb.Go, e: Verb.Go, w: Verb.Go,
+  take: Verb.Take, get: Verb.Take, grab: Verb.Take, pick: Verb.Take,
+  drop: Verb.Drop, discard: Verb.Drop, look: Verb.Look, l: Verb.Look, examine: Verb.Look, x: Verb.Look,
+  open: Verb.Open, unlock: Verb.Open, put: Verb.Put, place: Verb.Put, insert: Verb.Put, use: Verb.Use,
+  i: Verb.Inventory, inv: Verb.Inventory, inventory: Verb.Inventory,
+};
+const DIRECTIONS: Record<string, string> = { n: "north", s: "south", e: "east", w: "west", north: "north", south: "south", east: "east", west: "west", up: "up", down: "down" };
+const ARTICLES = new Set(["the", "a", "an", "some", "my"]);
+const PREPOSITIONS = ["into", "in", "on", "with", "at", "under", "up"];
+
+interface Command {
+  verb: Verb;
+  object?: string;
+  preposition?: string;
+  target?: string;
+}
+
+class ParseFailure extends Error {}
+
+function parse(input: string): Command {
+  const words = input.toLowerCase().split(" ").map((w) => w.trim()).filter((w) => w && !ARTICLES.has(w));
+  if (words.length === 0) throw new ParseFailure("Say something.");
+  const [first, ...rest] = words;
+  if (first in DIRECTIONS && rest.length === 0) return { verb: Verb.Go, object: DIRECTIONS[first] };
+  if (!(first in SYNONYMS)) throw new ParseFailure(`I don't know how to "${first}".`);
+  const verb = SYNONYMS[first];
+  if (first === "pick" && rest[0] === "up") rest.shift();
+  if (verb === Verb.Look && rest[0] === "at") rest.shift();
+  const prepIndex = rest.findIndex((w) => PREPOSITIONS.includes(w));
+  const cmd: Command = { verb };
+  if (prepIndex >= 0) {
+    cmd.object = rest.slice(0, prepIndex).join(" ") || undefined;
+    cmd.preposition = rest[prepIndex];
+    cmd.target = rest.slice(prepIndex + 1).join(" ") || undefined;
+  } else if (rest.length) {
+    cmd.object = verb === Verb.Go ? DIRECTIONS[rest[0]] ?? rest.join(" ") : rest.join(" ");
+  }
+  return cmd;
+}
+
+interface Room { name: string; items: Set<string>; exits: Record<string, string>; locked?: string }
+
+class World {
+  private here = "hall";
+  private readonly inventory: string[] = [];
+  readonly rooms = new Map<string, Room>([
+    ["hall", { name: "Great Hall", items: new Set(["lamp", "brass key"]), exits: { north: "library", east: "kitchen" } }],
+    ["library", { name: "Library", items: new Set(["old book"]), exits: { south: "hall" } }],
+    ["kitchen", { name: "Kitchen", items: new Set(["chest"]), exits: { west: "hall", down: "cellar" }, locked: "cellar" }],
+    ["cellar", { name: "Cellar", items: new Set(["gold coin"]), exits: { up: "kitchen" } }],
+  ]);
+
+  private room(): Room {
+    const r = this.rooms.get(this.here);
+    if (!r) throw new Error(`no room ${this.here}`);
+    return r;
+  }
+
+  run(cmd: Command): string {
+    const room = this.room();
+    switch (cmd.verb) {
+      case Verb.Look: {
+        if (cmd.object) return room.items.has(cmd.object) || this.inventory.includes(cmd.object) ? `It's a perfectly ordinary ${cmd.object}.` : `You see no ${cmd.object}.`;
+        return `${room.name}. Items: ${[...room.items].join(", ") || "none"}. Exits: ${Object.keys(room.exits).join(", ")}.`;
+      }
+      case Verb.Go: {
+        const dest = cmd.object ? room.exits[cmd.object] : undefined;
+        if (!dest) return `You can't go ${cmd.object ?? "nowhere"}.`;
+        if (room.locked === dest) return "The trapdoor is locked.";
+        this.here = dest;
+        return `You enter the ${this.room().name}.`;
+      }
+      case Verb.Take: {
+        if (!cmd.object || !room.items.has(cmd.object)) return `There is no ${cmd.object ?? "thing"} here.`;
+        if (cmd.object === "chest") return "The chest is far too heavy.";
+        room.items.delete(cmd.object);
+        this.inventory.push(cmd.object);
+        return `Taken: ${cmd.object}.`;
+      }
+      case Verb.Drop: {
+        const idx = this.inventory.indexOf(cmd.object ?? "");
+        if (idx < 0) return "You aren't carrying that.";
+        const [item] = this.inventory.splice(idx, 1);
+        room.items.add(item);
+        return `Dropped ${item}.`;
+      }
+      case Verb.Open:
+      case Verb.Use: {
+        const tool = cmd.verb === Verb.Use ? cmd.object : cmd.target;
+        if (tool === "brass key" && this.inventory.includes("brass key") && room.locked) {
+          room.locked = undefined;
+          return "Click! The trapdoor swings open.";
+        }
+        return "Nothing happens.";
+      }
+      case Verb.Put: return cmd.target ? `You can't put things ${cmd.preposition} the ${cmd.target}.` : "Put it where?";
+      case Verb.Inventory: return this.inventory.length ? `You carry: ${this.inventory.join(", ")}.` : "You are empty-handed.";
+    }
+  }
+}
+
+const script = [
+  "look", "take the lamp", "grab brass key", "n", "examine the old book", "pick up old book", "s",
+  "go east", "take chest", "go down", "unlock trapdoor with brass key", "walk down", "get gold coin",
+  "i", "drop lamp", "look", "put coin into the chest", "dance wildly", "", "go sideways", "look at gold coin",
+];
+const world = new World();
+for (const line of script) {
+  try {
+    const cmd = parse(line);
+    console.log(`> ${line.padEnd(32)} ${JSON.stringify(cmd)}`);
+    console.log(`  ${world.run(cmd)}`);
+  } catch (e) {
+    if (e instanceof ParseFailure) console.log(`> ${line.padEnd(32)} ?? ${e.message}`);
+    else throw e;
+  }
+}
+console.log(world.rooms.get("cellar"));

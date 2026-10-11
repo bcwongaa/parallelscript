@@ -1,0 +1,123 @@
+// Protected members and template methods: report generators sharing a protected pipeline.
+
+interface SaleRecord {
+  region: string;
+  rep: string;
+  amount: number;
+  month: number;
+}
+
+abstract class ReportGenerator {
+  protected readonly lines: string[] = [];
+  protected rowCount = 0;
+
+  constructor(protected readonly title: string, protected readonly data: readonly SaleRecord[]) {}
+
+  // template method
+  generate(): string {
+    this.lines.length = 0;
+    this.rowCount = 0;
+    this.header();
+    for (const group of this.groups()) {
+      this.section(group);
+    }
+    this.footer();
+    return this.lines.join("\n");
+  }
+
+  protected header(): void {
+    this.lines.push(this.title.toUpperCase());
+    this.lines.push("=".repeat(this.title.length));
+  }
+
+  protected abstract groups(): string[];
+  protected abstract section(group: string): void;
+
+  protected footer(): void {
+    this.lines.push(`(${this.rowCount} rows, total ${ReportGenerator.money(this.total())})`);
+  }
+
+  protected total(filter: (r: SaleRecord) => boolean = () => true): number {
+    return this.data.filter(filter).reduce((s, r) => s + r.amount, 0);
+  }
+
+  protected static money(n: number): string {
+    const [whole, cents] = n.toFixed(2).split(".");
+    let grouped = "";
+    for (let i = 0; i < whole.length; i++) {
+      if (i > 0 && (whole.length - i) % 3 === 0) grouped += ",";
+      grouped += whole[i];
+    }
+    return `$${grouped}.${cents}`;
+  }
+}
+
+class RegionReport extends ReportGenerator {
+  protected groups(): string[] {
+    return [...new Set(this.data.map((r) => r.region))].sort();
+  }
+  protected section(region: string): void {
+    const sub = this.total((r) => r.region === region);
+    this.lines.push(`${region.padEnd(8)} ${ReportGenerator.money(sub).padStart(12)}`);
+    this.rowCount++;
+  }
+}
+
+class RepReport extends ReportGenerator {
+  constructor(data: readonly SaleRecord[], private readonly topN: number) {
+    super(`Top ${topN} reps`, data);
+  }
+  protected groups(): string[] {
+    const totals = new Map<string, number>();
+    for (const r of this.data) totals.set(r.rep, (totals.get(r.rep) ?? 0) + r.amount);
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, this.topN).map(([rep]) => rep);
+  }
+  protected section(rep: string): void {
+    const months = this.data.filter((r) => r.rep === rep).map((r) => r.month);
+    const sub = this.total((r) => r.rep === rep);
+    this.rowCount++;
+    this.lines.push(`#${this.rowCount} ${rep.padEnd(6)} ${ReportGenerator.money(sub).padStart(12)} months ${Math.min(...months)}-${Math.max(...months)}`);
+  }
+  protected override footer(): void {
+    const shown = this.groups();
+    const share = this.total((r) => shown.includes(r.rep)) / this.total();
+    this.lines.push(`top ${this.topN} share: ${(share * 100).toFixed(1)}%`);
+    super.footer();
+  }
+}
+
+class QuarterReport extends RegionReport {
+  protected override header(): void {
+    super.header();
+    this.lines.push("region      Q1      Q2      Q3      Q4");
+  }
+  protected override section(region: string): void {
+    const q = [0, 0, 0, 0];
+    for (const r of this.data) if (r.region === region) q[Math.floor((r.month - 1) / 3)] += r.amount;
+    this.lines.push(region.padEnd(8) + q.map((v) => String(Math.round(v)).padStart(8)).join(""));
+    this.rowCount++;
+  }
+}
+
+const reps = ["ana", "ben", "chi", "dov", "eli"];
+const regions = ["north", "south", "east", "west"];
+const sales: SaleRecord[] = [];
+let seed = 7;
+const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+for (let month = 1; month <= 12; month++) {
+  for (let k = 0; k < 3; k++) {
+    sales.push({
+      region: regions[next() % regions.length],
+      rep: reps[next() % reps.length],
+      amount: (next() % 500000) / 100,
+      month,
+    });
+  }
+}
+
+const reports: ReportGenerator[] = [new RegionReport("Sales by region", sales), new RepReport(sales, 3), new QuarterReport("Quarterly", sales)];
+for (const r of reports) {
+  console.log(r.generate());
+  console.log();
+}
+console.log(sales.length, sales[0], sales[sales.length - 1]);

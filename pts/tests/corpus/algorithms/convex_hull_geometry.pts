@@ -1,0 +1,94 @@
+// Computational geometry: convex hull (monotone chain), polygon area, perimeter, point-in-polygon.
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+const pt = (x: number, y: number): Point => ({ x, y });
+const cross = (o: Point, a: Point, b: Point): number => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+const dist = (a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y);
+
+function convexHull(points: Point[]): Point[] {
+  const ps = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (ps.length <= 2) return ps;
+  const lower: Point[] = [];
+  for (const p of ps) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: Point[] = [];
+  for (let i = ps.length - 1; i >= 0; i--) {
+    const p = ps[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function area(poly: Point[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return s / 2;
+}
+
+const perimeter = (poly: Point[]): number =>
+  poly.reduce((s, p, i) => s + dist(p, poly[(i + 1) % poly.length]), 0);
+
+type Location = "inside" | "outside" | "boundary";
+
+function locate(p: Point, poly: Point[]): Location {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    const onSegment =
+      cross(a, b, p) === 0 && Math.min(a.x, b.x) <= p.x && p.x <= Math.max(a.x, b.x) &&
+      Math.min(a.y, b.y) <= p.y && p.y <= Math.max(a.y, b.y);
+    if (onSegment) return "boundary";
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside ? "inside" : "outside";
+}
+
+function centroid(poly: Point[]): Point {
+  const A = area(poly);
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const f = a.x * b.y - b.x * a.y;
+    cx += (a.x + b.x) * f;
+    cy += (a.y + b.y) * f;
+  }
+  return { x: +(cx / (6 * A)).toFixed(4), y: +(cy / (6 * A)).toFixed(4) };
+}
+
+const cloud: Point[] = [
+  pt(0, 0), pt(2, 1), pt(4, 0), pt(5, 3), pt(3, 2), pt(4, 5), pt(2, 4), pt(0, 4),
+  pt(1, 2), pt(3, 3), pt(2, 2), pt(5, 1), pt(1, 1), pt(4, 4),
+];
+const hull = convexHull(cloud);
+console.log("hull:", hull.map((p) => `(${p.x},${p.y})`).join(" "));
+console.log("hull size:", hull.length, "of", cloud.length, "points");
+console.log("area:", area(hull), "perimeter:", perimeter(hull).toFixed(4));
+console.log("centroid:", centroid(hull));
+console.log("orientation:", area(hull) > 0 ? "counter-clockwise" : "clockwise");
+
+const lShape: Point[] = [pt(0, 0), pt(6, 0), pt(6, 2), pt(2, 2), pt(2, 6), pt(0, 6)];
+console.log("L-shape area:", area(lShape), "convex hull area:", area(convexHull(lShape)));
+const probes: Point[] = [pt(1, 1), pt(4, 4), pt(1, 5), pt(6, 1), pt(3, 2), pt(-1, 0), pt(2, 2)];
+const results = probes.map((p) => ({ ...p, where: locate(p, lShape) }));
+console.table(results);
+const grouped = results.reduce((m, r) => m.set(r.where, [...(m.get(r.where) ?? []), `${r.x},${r.y}`]), new Map<Location, string[]>());
+console.log(grouped);
+
+console.log("collinear hull:", convexHull([pt(0, 0), pt(1, 1), pt(2, 2), pt(3, 3)]));
+console.log("triangle area (clockwise):", area([pt(0, 0), pt(0, 3), pt(4, 0)]));
+const circle = Array.from({ length: 360 }, (_, i) => pt(Math.cos((i * Math.PI) / 180), Math.sin((i * Math.PI) / 180)));
+console.log("360-gon area ~ pi:", area(circle).toFixed(6), Math.PI.toFixed(6));

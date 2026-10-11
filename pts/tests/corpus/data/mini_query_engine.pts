@@ -1,0 +1,111 @@
+// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Employee)
+type Primitive = string | number | boolean;
+type Op = "=" | "!=" | ">" | ">=" | "<" | "<=" | "in" | "contains";
+
+interface Condition<T> {
+  field: keyof T;
+  op: Op;
+  value: Primitive | Primitive[];
+}
+
+class Query<T extends Record<string, Primitive>> {
+  private conditions: Condition<T>[] = [];
+  private orders: Array<{ field: keyof T; dir: 1 | -1 }> = [];
+  private limitN = Infinity;
+  private offsetN = 0;
+  private projection: (keyof T)[] | null = null;
+
+  constructor(private readonly rows: T[]) {}
+
+  where(field: keyof T, op: Op, value: Primitive | Primitive[]): this {
+    this.conditions.push({ field, op, value });
+    return this;
+  }
+
+  orderBy(field: keyof T, dir: "asc" | "desc" = "asc"): this {
+    this.orders.push({ field, dir: dir === "asc" ? 1 : -1 });
+    return this;
+  }
+
+  limit(n: number): this {
+    this.limitN = n;
+    return this;
+  }
+
+  offset(n: number): this {
+    this.offsetN = n;
+    return this;
+  }
+
+  select(...fields: (keyof T)[]): this {
+    this.projection = fields;
+    return this;
+  }
+
+  private test(row: T, c: Condition<T>): boolean {
+    const v = row[c.field];
+    switch (c.op) {
+      case "=": return v === c.value;
+      case "!=": return v !== c.value;
+      case ">": return v > (c.value as Primitive);
+      case ">=": return v >= (c.value as Primitive);
+      case "<": return v < (c.value as Primitive);
+      case "<=": return v <= (c.value as Primitive);
+      case "in": return Array.isArray(c.value) && c.value.includes(v);
+      case "contains": return typeof v === "string" && v.toLowerCase().includes(String(c.value).toLowerCase());
+    }
+  }
+
+  run(): Partial<T>[] {
+    let out = this.rows.filter((r) => this.conditions.every((c) => this.test(r, c)));
+    if (this.orders.length > 0) {
+      out = [...out].sort((a, b) => {
+        for (const { field, dir } of this.orders) {
+          if (a[field] < b[field]) return -dir;
+          if (a[field] > b[field]) return dir;
+        }
+        return 0;
+      });
+    }
+    out = out.slice(this.offsetN, this.offsetN + this.limitN);
+    const proj = this.projection;
+    if (!proj) return out;
+    return out.map((r) => {
+      const o: Partial<T> = {};
+      for (const f of proj) o[f] = r[f];
+      return o;
+    });
+  }
+}
+
+interface Employee extends Record<string, Primitive> {
+  id: number;
+  name: string;
+  dept: string;
+  salary: number;
+  active: boolean;
+}
+
+const employees: Employee[] = [
+  { id: 1, name: "Ines", dept: "eng", salary: 132000, active: true },
+  { id: 2, name: "Jon", dept: "ops", salary: 88000, active: true },
+  { id: 3, name: "Kemal", dept: "eng", salary: 118000, active: false },
+  { id: 4, name: "Lena", dept: "sales", salary: 76000, active: true },
+  { id: 5, name: "Marco", dept: "eng", salary: 145000, active: true },
+  { id: 6, name: "Nadia", dept: "ops", salary: 91000, active: true },
+  { id: 7, name: "Olu", dept: "sales", salary: 99000, active: false },
+  { id: 8, name: "Pia", dept: "eng", salary: 118000, active: true },
+];
+
+const q = (): Query<Employee> => new Query(employees);
+console.log(q().where("dept", "=", "eng").where("active", "=", true).orderBy("salary", "desc").select("name", "salary").run());
+console.log(q().where("salary", ">=", 90000).where("salary", "<", 120000).orderBy("salary").orderBy("name", "desc").run().map((e) => e.name));
+console.log(q().where("dept", "in", ["ops", "sales"]).select("id", "dept").run());
+console.log(q().where("name", "contains", "A").select("name").run());
+console.log(q().orderBy("name").offset(2).limit(3).select("name").run());
+console.log(q().where("dept", "!=", "eng").where("active", "=", false).run());
+console.log(q().where("id", ">", 100).run(), q().limit(0).run().length);
+const page = q().orderBy("id", "desc").limit(2).run();
+console.log(JSON.stringify(page));
+const payroll = q().where("active", "=", true).run().reduce((s, e) => s + (e.salary ?? 0), 0);
+console.log("active payroll:", payroll.toLocaleString(), payroll);

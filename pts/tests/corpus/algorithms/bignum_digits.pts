@@ -1,0 +1,129 @@
+// Arbitrary-precision unsigned integers with digit arrays: add, subtract, multiply, factorials and powers.
+
+class BigNat {
+  // little-endian base-10 digits
+  private constructor(private readonly digits: number[]) {}
+
+  static of(s: string | number): BigNat {
+    const str = typeof s === "number" ? String(s) : s;
+    if (str === "" || [...str].some((c) => c < "0" || c > "9")) throw new SyntaxError(`not a natural number: "${str}"`);
+    const d = [...str].reverse().map(Number);
+    return new BigNat(BigNat.trim(d));
+  }
+
+  private static trim(d: number[]): number[] {
+    while (d.length > 1 && d[d.length - 1] === 0) d.pop();
+    return d;
+  }
+
+  add(o: BigNat): BigNat {
+    const out: number[] = [];
+    let carry = 0;
+    for (let i = 0; i < Math.max(this.digits.length, o.digits.length) || carry; i++) {
+      const s = (this.digits[i] ?? 0) + (o.digits[i] ?? 0) + carry;
+      out.push(s % 10);
+      carry = Math.floor(s / 10);
+    }
+    return new BigNat(out);
+  }
+
+  compare(o: BigNat): number {
+    if (this.digits.length !== o.digits.length) return this.digits.length - o.digits.length;
+    for (let i = this.digits.length - 1; i >= 0; i--) {
+      if (this.digits[i] !== o.digits[i]) return this.digits[i] - o.digits[i];
+    }
+    return 0;
+  }
+
+  sub(o: BigNat): BigNat {
+    if (this.compare(o) < 0) throw new RangeError(`${this} - ${o} would be negative`);
+    const out: number[] = [];
+    let borrow = 0;
+    for (let i = 0; i < this.digits.length; i++) {
+      let d = this.digits[i] - borrow - (o.digits[i] ?? 0);
+      borrow = d < 0 ? 1 : 0;
+      if (d < 0) d += 10;
+      out.push(d);
+    }
+    return new BigNat(BigNat.trim(out));
+  }
+
+  mul(o: BigNat): BigNat {
+    const out = new Array<number>(this.digits.length + o.digits.length).fill(0);
+    this.digits.forEach((a, i) => {
+      o.digits.forEach((b, j) => {
+        out[i + j] += a * b;
+      });
+    });
+    for (let k = 0; k < out.length - 1; k++) {
+      out[k + 1] += Math.floor(out[k] / 10);
+      out[k] %= 10;
+    }
+    return new BigNat(BigNat.trim(out));
+  }
+
+  pow(e: number): BigNat {
+    let result = BigNat.of(1);
+    let base: BigNat = this;
+    while (e > 0) {
+      if (e % 2 === 1) result = result.mul(base);
+      base = base.mul(base);
+      e = Math.floor(e / 2);
+    }
+    return result;
+  }
+
+  get digitSum(): number {
+    return this.digits.reduce((a, b) => a + b, 0);
+  }
+  get length(): number {
+    return this.digits.length;
+  }
+
+  toString(): string {
+    return [...this.digits].reverse().join("");
+  }
+  grouped(): string {
+    const s = this.toString();
+    const parts: string[] = [];
+    for (let end = s.length; end > 0; end -= 3) parts.unshift(s.slice(Math.max(0, end - 3), end));
+    return parts.join(",");
+  }
+}
+
+const a = BigNat.of("987654321987654321987654321");
+const b = BigNat.of("123456789123456789123456789");
+console.log(`${a} + ${b} = ${a.add(b)}`);
+console.log(`${a} - ${b} = ${a.sub(b)}`);
+console.log(`a * b = ${a.mul(b)}`);
+console.log("compare:", a.compare(b) > 0 ? "a > b" : "a <= b", BigNat.of(42).compare(BigNat.of("42")));
+
+let fact = BigNat.of(1);
+const milestones = new Map<number, string>();
+for (let n = 1; n <= 50; n++) {
+  fact = fact.mul(BigNat.of(n));
+  if (n % 10 === 0) milestones.set(n, `${fact.length} digits, digit sum ${fact.digitSum}`);
+}
+console.log("50! =", fact.toString());
+console.log(milestones);
+console.log("2^100 =", BigNat.of(2).pow(100).grouped());
+console.log("3^60 =", BigNat.of(3).pow(60).toString(), "Number:", 3 ** 60);
+
+const fibs: BigNat[] = [BigNat.of(0), BigNat.of(1)];
+while (fibs[fibs.length - 1].length < 30) fibs.push(fibs[fibs.length - 1].add(fibs[fibs.length - 2]));
+console.log(`first fibonacci with 30 digits: F(${fibs.length - 1}) = ${fibs[fibs.length - 1]}`);
+console.log("precision check, F(80):", fibs[80].toString(), "vs double", (() => { let x = 0, y = 1; for (let i = 0; i < 80; i++) [x, y] = [y, x + y]; return x; })());
+
+for (const bad of ["12a4", "", "-5"]) {
+  try {
+    BigNat.of(bad);
+  } catch (e) {
+    console.log(e instanceof SyntaxError ? `SyntaxError: ${e.message}` : e);
+  }
+}
+try {
+  b.sub(a);
+} catch (e) {
+  console.log(String(e));
+}
+console.log(BigNat.of("000123"), JSON.stringify({ n: BigNat.of(99).add(BigNat.of(1)).toString() }));

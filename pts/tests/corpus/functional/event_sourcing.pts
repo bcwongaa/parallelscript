@@ -1,0 +1,123 @@
+// Event sourcing: state rebuilt by folding events through a reducer, with snapshots and projections.
+
+type AccountEvent =
+  | { type: "Opened"; id: string; owner: string; at: string }
+  | { type: "Deposited"; id: string; amount: number; at: string }
+  | { type: "Withdrew"; id: string; amount: number; at: string }
+  | { type: "Frozen"; id: string; reason: string; at: string }
+  | { type: "Unfrozen"; id: string; at: string }
+  | { type: "Closed"; id: string; at: string };
+
+interface Account {
+  id: string;
+  owner: string;
+  balance: number;
+  status: "open" | "frozen" | "closed";
+  version: number;
+  lastActivity: string;
+}
+
+class DomainError extends Error {
+  constructor(message: string, readonly event: AccountEvent) {
+    super(message);
+    this.name = "DomainError";
+  }
+}
+
+function apply(state: Account | null, e: AccountEvent): Account {
+  if (e.type === "Opened") {
+    if (state) throw new DomainError(`account ${e.id} already exists`, e);
+    return { id: e.id, owner: e.owner, balance: 0, status: "open", version: 1, lastActivity: e.at };
+  }
+  if (!state) throw new DomainError(`account ${e.id} does not exist`, e);
+  const next = { ...state, version: state.version + 1, lastActivity: e.at };
+  switch (e.type) {
+    case "Deposited":
+      if (state.status !== "open") throw new DomainError(`cannot deposit to ${state.status} account`, e);
+      return { ...next, balance: state.balance + e.amount };
+    case "Withdrew":
+      if (state.status !== "open") throw new DomainError(`cannot withdraw from ${state.status} account`, e);
+      if (e.amount > state.balance) throw new DomainError(`insufficient funds: ${state.balance} < ${e.amount}`, e);
+      return { ...next, balance: state.balance - e.amount };
+    case "Frozen":
+      return { ...next, status: "frozen" };
+    case "Unfrozen":
+      return { ...next, status: "open" };
+    case "Closed":
+      if (state.balance !== 0) throw new DomainError(`cannot close with balance ${state.balance}`, e);
+      return { ...next, status: "closed" };
+  }
+}
+
+const log: AccountEvent[] = [
+  { type: "Opened", id: "A", owner: "Ines", at: "2024-01-02" },
+  { type: "Opened", id: "B", owner: "Tomas", at: "2024-01-03" },
+  { type: "Deposited", id: "A", amount: 500, at: "2024-01-05" },
+  { type: "Deposited", id: "B", amount: 120, at: "2024-01-06" },
+  { type: "Withdrew", id: "A", amount: 80, at: "2024-01-10" },
+  { type: "Frozen", id: "B", reason: "suspicious login", at: "2024-01-11" },
+  { type: "Withdrew", id: "B", amount: 20, at: "2024-01-12" },
+  { type: "Unfrozen", id: "B", at: "2024-01-15" },
+  { type: "Withdrew", id: "B", amount: 120, at: "2024-01-16" },
+  { type: "Closed", id: "B", at: "2024-01-17" },
+  { type: "Deposited", id: "C", amount: 5, at: "2024-01-18" },
+  { type: "Withdrew", id: "A", amount: 1000, at: "2024-01-20" },
+  { type: "Deposited", id: "A", amount: 42.5, at: "2024-02-01" },
+];
+
+function replay(events: readonly AccountEvent[], upTo = events.length) {
+  const accounts = new Map<string, Account>();
+  const rejected: string[] = [];
+  for (const e of events.slice(0, upTo)) {
+    try {
+      accounts.set(e.id, apply(accounts.get(e.id) ?? null, e));
+    } catch (err) {
+      if (err instanceof DomainError) rejected.push(`${err.event.at} ${err.event.type}(${err.event.id}): ${err.message}`);
+      else throw err;
+    }
+  }
+  return { accounts, rejected };
+}
+
+const full = replay(log);
+console.log(full.accounts);
+console.log(full.rejected);
+
+// Time travel: state as of each date boundary
+for (const cutoff of [3, 6, 10]) {
+  const { accounts } = replay(log, cutoff);
+  const summary = [...accounts.values()].map((a) => `${a.id}:${a.balance}/${a.status}`).join(" ");
+  console.log(`after ${cutoff} events (${log[cutoff - 1].at}): ${summary}`);
+}
+
+// Projections are just other folds
+const monthlyVolume = log.reduce<Record<string, number>>((acc, e) => {
+  if (e.type === "Deposited" || e.type === "Withdrew") {
+    const month = e.at.slice(0, 7);
+    acc[month] = (acc[month] ?? 0) + e.amount;
+  }
+  return acc;
+}, {});
+console.log("volume by month:", monthlyVolume);
+
+const eventCounts = new Map<AccountEvent["type"], number>();
+log.forEach((e) => eventCounts.set(e.type, (eventCounts.get(e.type) ?? 0) + 1));
+console.log(eventCounts);
+
+const freezeReasons = log.flatMap((e) => (e.type === "Frozen" ? [`${e.id}: ${e.reason}`] : []));
+console.log("freeze reasons:", freezeReasons);
+
+// Snapshot + tail replay must equal full replay
+const snapshotAt = 7;
+const snap = replay(log, snapshotAt).accounts;
+const resumed = new Map(snap);
+for (const e of log.slice(snapshotAt)) {
+  try {
+    resumed.set(e.id, apply(resumed.get(e.id) ?? null, e));
+  } catch {
+    // rejected events leave state untouched
+  }
+}
+const same = [...full.accounts].every(([id, a]) => JSON.stringify(resumed.get(id)) === JSON.stringify(a));
+console.log("snapshot + tail == full replay:", same, "versions:", [...resumed.values()].map((a) => a.version));
+console.log(JSON.stringify(Object.fromEntries(full.accounts)));

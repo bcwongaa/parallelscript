@@ -1,0 +1,130 @@
+// skip: by design (D-059): reads a missing hash-map key where a value is required (RangeError, caught; JS gives undefined)
+// Wraps low-level failures with higher-level context using `cause`,
+// then prints the chain by walking `.cause`.
+
+class StorageError extends Error {
+  constructor(message: string, readonly path: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "StorageError";
+  }
+}
+
+class ConfigError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "ConfigError";
+  }
+}
+
+class StartupError extends Error {
+  constructor(message: string, readonly service: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "StartupError";
+  }
+}
+
+const fakeDisk: Record<string, string> = {
+  "/etc/app/main.json": '{"port": 8080, "workers": 4}',
+  "/etc/app/broken.json": '{"port": 80,',
+  "/etc/app/types.json": '{"port": "eighty", "workers": 2}',
+};
+
+function readFile(path: string): string {
+  const content = fakeDisk[path];
+  if (content === undefined) {
+    throw new StorageError(`ENOENT: no such file '${path}'`, path);
+  }
+  return content;
+}
+
+interface Config {
+  port: number;
+  workers: number;
+}
+
+function loadConfig(path: string): Config {
+  let text: string;
+  try {
+    text = readFile(path);
+  } catch (e) {
+    throw new ConfigError(`cannot read config at ${path}`, { cause: e });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new ConfigError(`config at ${path} is not valid JSON`, { cause: e });
+  }
+  if (typeof raw !== "object" || raw === null) {
+    throw new ConfigError("config must be an object");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.port !== "number") {
+    throw new ConfigError(`port must be a number, got ${typeof obj.port}`, {
+      cause: { field: "port", got: obj.port },
+    });
+  }
+  return { port: obj.port, workers: typeof obj.workers === "number" ? obj.workers : 1 };
+}
+
+function startService(name: string, path: string): Config {
+  try {
+    return loadConfig(path);
+  } catch (e) {
+    throw new StartupError(`service '${name}' failed to start`, name, { cause: e });
+  }
+}
+
+function describeChain(err: unknown): string[] {
+  const lines: string[] = [];
+  let current: unknown = err;
+  let depth = 0;
+  while (current !== undefined) {
+    const indent = "  ".repeat(depth);
+    if (current instanceof Error) {
+      lines.push(`${indent}${depth === 0 ? "" : "caused by "}${current.name}: ${current.message}`);
+      if (current instanceof StorageError) lines.push(`${indent}  (path=${current.path})`);
+      current = current.cause;
+    } else {
+      lines.push(`${indent}caused by non-error ${JSON.stringify(current)}`);
+      current = undefined;
+    }
+    depth++;
+  }
+  return lines;
+}
+
+const jobs: Array<[string, string]> = [
+  ["api", "/etc/app/main.json"],
+  ["worker", "/etc/app/missing.json"],
+  ["cron", "/etc/app/broken.json"],
+  ["mailer", "/etc/app/types.json"],
+];
+
+for (const [name, path] of jobs) {
+  try {
+    const cfg = startService(name, path);
+    console.log(`${name}: started`, cfg);
+  } catch (e) {
+    console.log(`${name}: FAILED`);
+    const chain = describeChain(e);
+    for (const line of chain) console.log("  " + line);
+    if (e instanceof StartupError) {
+      const root = rootCause(e);
+      console.log("  root cause type:", root instanceof Error ? root.constructor.name : typeof root);
+    }
+  }
+}
+
+function rootCause(e: Error): unknown {
+  let cur: unknown = e;
+  while (cur instanceof Error && cur.cause !== undefined) cur = cur.cause;
+  return cur;
+}
+
+const plain = new Error("no cause here");
+console.log("has cause:", "cause" in plain, plain.cause);
+const withUndef = new Error("explicit", { cause: undefined });
+console.log("has cause:", "cause" in withUndef, withUndef.cause);
+const withNum = new Error("numbered", { cause: 42 });
+console.log("cause:", withNum.cause, typeof withNum.cause);

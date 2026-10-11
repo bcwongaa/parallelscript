@@ -1,0 +1,73 @@
+// skip: not supported yet: PTS1001: calling `encodeURIComponent`
+// Unicode-aware string handling: code points vs UTF-16 units, surrogate pairs, emoji,
+// accented letters, safe truncation, reversal, and UTF-8 byte lengths.
+const samples = ["hello", "café", "naïve façade", "日本語テキスト", "😀👍🏽", "a😀b", "👨‍👩‍👧 family", "𝒳𝒴𝒵", "Ωmega ≠ omega"];
+
+function utf8Length(s: string): number {
+  let n = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    n += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return n;
+}
+
+function describe(s: string) {
+  return { text: s, utf16: s.length, codePoints: [...s].length, utf8: utf8Length(s) };
+}
+
+console.table(samples.map(describe));
+
+function codePoints(s: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const cp = s.codePointAt(i) ?? 0;
+    out.push("U+" + cp.toString(16).toUpperCase().padStart(4, "0"));
+    if (cp > 0xffff) i++;
+  }
+  return out;
+}
+console.log(codePoints("a😀é"));
+console.log(codePoints("👍🏽"));
+
+const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff;
+function truncateUnits(s: string, maxUnits: number): string {
+  if (s.length <= maxUnits) return s;
+  let end = maxUnits;
+  if (isHighSurrogate(s.charCodeAt(end - 1))) end--;
+  return s.slice(0, end) + "…";
+}
+for (const s of ["a😀b😀c", "😀😀😀", "plain text here"]) {
+  console.log(JSON.stringify(s), [1, 2, 3, 4].map((n) => truncateUnits(s, n)));
+}
+
+const naiveReverse = (s: string) => s.split("").reverse().join("");
+const cpReverse = (s: string) => [...s].reverse().join("");
+for (const s of ["abc", "a😀b", "café"]) {
+  const naive = naiveReverse(s);
+  console.log(`${s} -> naive ok=${[...naive].every((c) => (c.codePointAt(0) ?? 0) < 0xd800 || (c.codePointAt(0) ?? 0) > 0xdfff)} cp=${cpReverse(s)}`);
+}
+
+console.log(String.fromCodePoint(0x1f680, 0x20, 0x48, 0x49, 0x2764, 0xfe0f));
+console.log(String.fromCharCode(0xd83d, 0xde80) === "🚀", "🚀".charCodeAt(0).toString(16), "🚀".charCodeAt(1).toString(16));
+console.log("🚀".codePointAt(0), "🚀".codePointAt(1), "x".codePointAt(5));
+
+const accents: Record<string, string> = { "é": "e", "è": "e", "ê": "e", "ë": "e", "á": "a", "à": "a", "ï": "i", "ç": "c", "ñ": "n", "ö": "o", "ü": "u" };
+const fold = (s: string) => [...s.toLowerCase()].map((c) => accents[c] ?? c).join("");
+const words = ["Éclair", "eclair", "naïve", "NAIVE", "Ñandú", "nandu", "Zoë", "zoe", "über", "Uber"];
+const groups = new Map<string, string[]>();
+for (const w of words) groups.set(fold(w), [...(groups.get(fold(w)) ?? []), w]);
+console.log(groups);
+
+console.log("ǅ".toUpperCase(), "ǅ".toLowerCase(), "ß".toUpperCase(), "İ".toLowerCase().length, "ΣΑΣ".toLowerCase());
+console.log(["b", "a", "é", "z", "E", "ä"].sort(), ["b", "a", "é", "z", "E", "ä"].sort((x, y) => x.localeCompare(y)));
+console.log("😀".length, [..."😀"].length, Array.from("👍🏽").length, "naïve".indexOf("v"), "a😀b".at(-1), "a😀b".at(1));
+const decomposed: string = "e\u0301", composed: string = "\u00e9";
+console.log(decomposed === composed, decomposed.length, [...decomposed].length, composed.length);
+console.log("  \u00a0trimmed\u2003 ".trim().length, "\u2028x".trim());
+const emojiCount = (s: string) => [...s].filter((c) => (c.codePointAt(0) ?? 0) >= 0x1f300).length;
+console.log(samples.map((s) => `${s}:${emojiCount(s)}`).join(" | "));
+console.log(JSON.stringify("tab\there 😀 \u0007 \ud800"));
+console.log(encodeURIComponent("café 😀/?"), decodeURIComponent("%E2%9C%93%20ok"));
+console.log("x".padStart(4, "😀"), "abc".padEnd(7, "éa"));
+console.log([..."héllo"].map((c) => c.charCodeAt(0)), "héllo".split(""));

@@ -1,0 +1,151 @@
+// skip: not supported yet: PTS1001: `keys()` as a value (an iterator)
+// An Express-like middleware chain with synchronous `next` and error middleware.
+
+interface Request {
+  method: "GET" | "POST" | "DELETE";
+  path: string;
+  headers: Record<string, string>;
+  body?: string;
+  user?: { name: string; role: "admin" | "viewer" };
+}
+
+interface Response {
+  status: number;
+  body: string;
+  headers: Map<string, string>;
+}
+
+type Next = (err?: Error) => void;
+type Middleware = (req: Request, res: Response, next: Next) => void;
+type ErrorMiddleware = (err: Error, req: Request, res: Response, next: Next) => void;
+
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+class App {
+  private stack: Middleware[] = [];
+  private errorHandlers: ErrorMiddleware[] = [];
+  readonly trace: string[] = [];
+
+  use(mw: Middleware): this {
+    this.stack.push(mw);
+    return this;
+  }
+
+  useError(h: ErrorMiddleware): this {
+    this.errorHandlers.push(h);
+    return this;
+  }
+
+  handle(req: Request): Response {
+    const res: Response = { status: 404, body: "not found", headers: new Map() };
+    let i = 0;
+    let errIndex = 0;
+    const next: Next = (err) => {
+      if (err) {
+        const h = this.errorHandlers[errIndex++];
+        if (h) h(err, req, res, next);
+        return;
+      }
+      const mw = this.stack[i++];
+      if (!mw) return;
+      try {
+        mw(req, res, next);
+      } catch (e) {
+        next(e instanceof Error ? e : new Error(String(e)));
+      }
+    };
+    next();
+    return res;
+  }
+}
+
+const app = new App();
+
+const logger = (label: string): Middleware => (req, _res, next) => {
+  app.trace.push(`${label} ${req.method} ${req.path}`);
+  next();
+};
+
+const auth: Middleware = (req, _res, next) => {
+  const token = req.headers["authorization"];
+  if (token === "Bearer admin-token") req.user = { name: "root", role: "admin" };
+  else if (token === "Bearer view-token") req.user = { name: "guest", role: "viewer" };
+  next();
+};
+
+const requireRole = (role: "admin" | "viewer"): Middleware => (req, _res, next) => {
+  if (!req.user) return next(new HttpError(401, "login required"));
+  if (role === "admin" && req.user.role !== "admin") return next(new HttpError(403, `${req.user.name} is not an admin`));
+  next();
+};
+
+const route = (method: Request["method"], path: string, handler: (req: Request, res: Response) => void): Middleware =>
+  (req, res, next) => {
+    if (req.method === method && req.path === path) handler(req, res);
+    else next();
+  };
+
+const items = new Map<number, string>([[1, "apple"], [2, "pear"]]);
+app
+  .use(logger("->"))
+  .use(auth)
+  .use(route("GET", "/items", (_req, res) => {
+    res.status = 200;
+    res.body = JSON.stringify([...items].map(([id, name]) => ({ id, name })));
+    res.headers.set("content-type", "application/json");
+  }))
+  .use(requireRole("admin"))
+  .use(route("POST", "/items", (req, res) => {
+    const name = (req.body ?? "").trim();
+    if (!name) throw new HttpError(400, "empty item name");
+    const id = Math.max(0, ...items.keys()) + 1;
+    items.set(id, name);
+    res.status = 201;
+    res.body = `created ${id}`;
+  }))
+  .use(route("DELETE", "/items", (_req, _res) => {
+    throw new TypeError("bulk delete is not implemented");
+  }))
+  .useError((err, _req, res, next) => {
+    app.trace.push(`error handler 1 saw ${err.name}`);
+    if (err instanceof HttpError) {
+      res.status = err.status;
+      res.body = err.message;
+    } else next(err);
+  })
+  .useError((err, _req, res) => {
+    res.status = 500;
+    res.body = `internal: ${err.message}`;
+  });
+
+const makeRequest = (method: Request["method"], path: string, token?: string, body?: string): Request => ({
+  method,
+  path,
+  headers: token ? { authorization: `Bearer ${token}` } : {},
+  body,
+  user: undefined,
+});
+
+const requests: Request[] = [
+  makeRequest("GET", "/items"),
+  makeRequest("POST", "/items", undefined, "plum"),
+  makeRequest("POST", "/items", "view-token", "plum"),
+  makeRequest("POST", "/items", "admin-token", "  plum "),
+  makeRequest("POST", "/items", "admin-token", "   "),
+  makeRequest("DELETE", "/items", "admin-token"),
+  makeRequest("GET", "/nope", "admin-token"),
+  makeRequest("GET", "/items"),
+];
+
+for (const req of requests) {
+  const res = app.handle(req);
+  console.log(`${req.method.padEnd(6)} ${req.path.padEnd(7)} => ${res.status} ${res.body}`);
+  if (res.headers.size > 0) console.log("   headers:", Object.fromEntries(res.headers));
+}
+console.log(app.trace);
+console.log(items);

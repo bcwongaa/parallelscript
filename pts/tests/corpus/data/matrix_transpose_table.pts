@@ -1,0 +1,71 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+type Table = (string | number)[][];
+
+function transpose<T>(m: T[][]): T[][] {
+  if (m.length === 0) return [];
+  return m[0].map((_, col) => m.map((row) => row[col]));
+}
+
+function formatTable(t: Table): string {
+  const cols = Math.max(...t.map((r) => r.length));
+  const widths: number[] = new Array(cols).fill(0);
+  for (const row of t) {
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i], String(cell).length);
+    });
+  }
+  return t
+    .map((row) =>
+      row
+        .map((cell, i) => (typeof cell === "number" ? String(cell).padStart(widths[i]) : cell.padEnd(widths[i])))
+        .join(" | "),
+    )
+    .join("\n");
+}
+
+const weekly: Table = [
+  ["metric", "Mon", "Tue", "Wed", "Thu", "Fri"],
+  ["visits", 1203, 1350, 990, 1422, 1710],
+  ["signups", 34, 41, 22, 39, 57],
+  ["churn", 3, 5, 2, 6, 4],
+];
+
+console.log(formatTable(weekly));
+console.log();
+const flipped = transpose(weekly);
+console.log(formatTable(flipped));
+console.log();
+console.log(transpose(flipped).every((row, i) => row.every((c, j) => c === weekly[i][j])));
+
+const [header, ...data] = flipped;
+const objects = data.map((row) => Object.fromEntries(header.map((h, i) => [String(h), row[i]])));
+console.log(objects);
+
+const numeric = weekly.slice(1).map((row) => row.slice(1) as number[]);
+const colSums = transpose(numeric).map((col) => col.reduce((a, b) => a + b, 0));
+const rowSums = numeric.map((r) => r.reduce((a, b) => a + b, 0));
+console.log("column sums:", colSums);
+console.log("row sums:", rowSums);
+
+function multiply(a: number[][], b: number[][]): number[][] {
+  const bt = transpose(b);
+  return a.map((row) => bt.map((col) => row.reduce((s, v, k) => s + v * col[k], 0)));
+}
+const A = [
+  [1, 2, 3],
+  [4, 5, 6],
+];
+const B = [
+  [7, 8],
+  [9, 10],
+  [11, 12],
+];
+console.log(multiply(A, B));
+console.log(transpose(A));
+console.log(transpose<number>([]));
+const ragged = [[1, 2, 3], [4], [5, 6]];
+console.log(transpose(ragged));
+const identity = Array.from({ length: 4 }, (_, i) => Array.from({ length: 4 }, (_, j) => (i === j ? 1 : 0)));
+console.log(identity.map((r) => r.join(" ")).join("\n"));
+const conversion = numeric[1].map((s, i) => ((s / numeric[0][i]) * 100).toFixed(2) + "%");
+console.log(conversion);

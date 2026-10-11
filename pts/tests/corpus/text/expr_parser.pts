@@ -1,0 +1,149 @@
+// Tokenizer and recursive-descent parser for arithmetic expressions with variables.
+type TokenKind = "num" | "ident" | "op" | "lparen" | "rparen" | "comma" | "eof";
+interface Token { kind: TokenKind; text: string; pos: number }
+
+type Expr =
+  | { type: "num"; value: number }
+  | { type: "var"; name: string }
+  | { type: "unary"; op: string; arg: Expr }
+  | { type: "binary"; op: string; left: Expr; right: Expr }
+  | { type: "call"; fn: string; args: Expr[] };
+
+class ParseError extends Error {
+  constructor(message: string, public readonly pos: number) {
+    super(message);
+    this.name = "ParseError";
+  }
+}
+
+const isDigit = (c: string): boolean => c >= "0" && c <= "9";
+const isAlpha = (c: string): boolean => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_";
+const PUNCT: Record<string, TokenKind> = { "(": "lparen", ")": "rparen", ",": "comma" };
+
+function tokenize(src: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === " " || c === "\t") { i++; continue; }
+    const start = i;
+    if (isDigit(c) || c === ".") {
+      while (i < src.length && (isDigit(src[i]) || src[i] === ".")) i++;
+      tokens.push({ kind: "num", text: src.slice(start, i), pos: start });
+    } else if (isAlpha(c)) {
+      while (i < src.length && (isAlpha(src[i]) || isDigit(src[i]))) i++;
+      tokens.push({ kind: "ident", text: src.slice(start, i), pos: start });
+    } else if ("+-*/^%".includes(c)) tokens.push({ kind: "op", text: c, pos: i++ });
+    else if (c in PUNCT) tokens.push({ kind: PUNCT[c], text: c, pos: i++ });
+    else throw new ParseError(`unexpected character '${c}'`, i);
+  }
+  tokens.push({ kind: "eof", text: "", pos: src.length });
+  return tokens;
+}
+
+class Parser {
+  private pos = 0;
+  constructor(private readonly tokens: Token[]) {}
+  private peek(): Token { return this.tokens[this.pos]; }
+  private next(): Token { return this.tokens[this.pos++]; }
+  private expect(kind: TokenKind): Token {
+    const t = this.next();
+    if (t.kind !== kind) throw new ParseError(`expected ${kind} but got '${t.text || "end"}'`, t.pos);
+    return t;
+  }
+  parse(): Expr {
+    const e = this.additive();
+    this.expect("eof");
+    return e;
+  }
+  private binaryLevel(ops: string, next: () => Expr): Expr {
+    let left = next();
+    while (this.peek().kind === "op" && ops.includes(this.peek().text)) {
+      const op = this.next().text;
+      left = { type: "binary", op, left, right: next() };
+    }
+    return left;
+  }
+  private additive(): Expr { return this.binaryLevel("+-", () => this.multiplicative()); }
+  private multiplicative(): Expr { return this.binaryLevel("*/%", () => this.unary()); }
+  private isOp(text: string): boolean { return this.peek().kind === "op" && this.peek().text === text; }
+  private unary(): Expr {
+    if (!this.isOp("-")) return this.power();
+    this.next();
+    return { type: "unary", op: "-", arg: this.unary() };
+  }
+  private power(): Expr {
+    const base = this.primary();
+    if (!this.isOp("^")) return base;
+    this.next();
+    return { type: "binary", op: "^", left: base, right: this.unary() };
+  }
+  private primary(): Expr {
+    const t = this.next();
+    switch (t.kind) {
+      case "num": return { type: "num", value: parseFloat(t.text) };
+      case "ident": {
+        if (this.peek().kind === "lparen") {
+          this.next();
+          const args: Expr[] = [];
+          if (this.peek().kind !== "rparen") {
+            do { args.push(this.additive()); } while (this.peek().kind === "comma" && this.next());
+          }
+          this.expect("rparen");
+          return { type: "call", fn: t.text, args };
+        }
+        return { type: "var", name: t.text };
+      }
+      case "lparen": {
+        const e = this.additive();
+        this.expect("rparen");
+        return e;
+      }
+      default: throw new ParseError(`unexpected token '${t.text || "end"}'`, t.pos);
+    }
+  }
+}
+
+const BINARY_OPS: Record<string, (l: number, r: number) => number> = {
+  "+": (l, r) => l + r, "-": (l, r) => l - r, "*": (l, r) => l * r, "/": (l, r) => l / r, "%": (l, r) => l % r, "^": Math.pow,
+};
+const functions: Record<string, (...xs: number[]) => number> = { sqrt: Math.sqrt, abs: Math.abs, max: Math.max, min: Math.min, floor: Math.floor };
+function evaluate(e: Expr, env: Map<string, number>): number {
+  switch (e.type) {
+    case "num": return e.value;
+    case "var":
+      if (!env.has(e.name)) throw new Error(`unbound variable ${e.name}`);
+      return env.get(e.name) ?? NaN;
+    case "unary": return -evaluate(e.arg, env);
+    case "call":
+      if (!(e.fn in functions)) throw new Error(`unknown function ${e.fn}`);
+      return functions[e.fn](...e.args.map((a) => evaluate(a, env)));
+    case "binary": return BINARY_OPS[e.op](evaluate(e.left, env), evaluate(e.right, env));
+  }
+}
+
+function show(e: Expr): string {
+  switch (e.type) {
+    case "num": return String(e.value);
+    case "var": return e.name;
+    case "unary": return `(-${show(e.arg)})`;
+    case "binary": return `(${show(e.left)} ${e.op} ${show(e.right)})`;
+    case "call": return `${e.fn}(${e.args.map(show).join(", ")})`;
+  }
+}
+
+const env = new Map<string, number>([["x", 3], ["y", 4.5], ["pi", Math.PI]]);
+const inputs = ["1 + 2 * 3", "(1 + 2) * 3", "2 ^ 3 ^ 2", "-x ^ 2", "sqrt(x*x + 16)", "max(1, y, x) / 2",
+  "10 % 4 + floor(pi)", "1 / 0", "2 * (3 + ", "x $ 2", "foo(1)", "z + 1", "0.1 + 0.2"];
+for (const src of inputs) {
+  try {
+    const ast = new Parser(tokenize(src)).parse();
+    console.log("%s => %s = %d", src.padEnd(18), show(ast), evaluate(ast, env));
+  } catch (err) {
+    if (err instanceof ParseError) console.log(`${src.padEnd(18)} parse error at ${err.pos}: ${err.message}`);
+    else if (err instanceof Error) console.log(`${src.padEnd(18)} runtime error: ${err.message}`);
+  }
+}
+console.log(tokenize("a+12*(b)").map((t) => `${t.kind}:${t.text}`));
+console.log(JSON.stringify(new Parser(tokenize("-2*x")).parse()));
+console.log(new Parser(tokenize("f(1, g(2))")).parse());

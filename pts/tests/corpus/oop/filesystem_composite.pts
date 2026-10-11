@@ -1,0 +1,148 @@
+// Composite pattern: a file-system tree with sizes, paths, search and du-style output.
+
+abstract class Node {
+  parent: Directory | null = null;
+  constructor(public name: string) {}
+
+  abstract get size(): number;
+
+  get path(): string {
+    if (this.parent === null) return this.name === "" ? "/" : this.name;
+    const base = this.parent.path;
+    return (base.endsWith("/") ? base : base + "/") + this.name;
+  }
+
+  get depth(): number {
+    return this.parent ? this.parent.depth + 1 : 0;
+  }
+}
+
+class FileNode extends Node {
+  constructor(name: string, private bytes: number) {
+    super(name);
+  }
+  get size(): number {
+    return this.bytes;
+  }
+  get extension(): string {
+    const dot = this.name.lastIndexOf(".");
+    return dot > 0 ? this.name.slice(dot + 1) : "";
+  }
+  append(n: number): void {
+    this.bytes += n;
+  }
+}
+
+class Directory extends Node {
+  private entries: Node[] = [];
+
+  add<T extends Node>(child: T): T {
+    if (this.entries.some((e) => e.name === child.name)) {
+      throw new Error(`${this.path}: "${child.name}" already exists`);
+    }
+    child.parent = this;
+    this.entries.push(child);
+    return child;
+  }
+
+  mkdir(name: string): Directory {
+    return this.add(new Directory(name));
+  }
+
+  touch(name: string, bytes: number): FileNode {
+    return this.add(new FileNode(name, bytes));
+  }
+
+  get size(): number {
+    return this.entries.reduce((s, e) => s + e.size, 0);
+  }
+
+  get children(): readonly Node[] {
+    return this.entries;
+  }
+
+  walk(visit: (n: Node) => void): void {
+    visit(this);
+    for (const e of this.entries) {
+      if (e instanceof Directory) e.walk(visit);
+      else visit(e);
+    }
+  }
+
+  find(pred: (n: Node) => boolean): Node[] {
+    const out: Node[] = [];
+    this.walk((n) => {
+      if (pred(n)) out.push(n);
+    });
+    return out;
+  }
+
+  remove(name: string): Node | undefined {
+    const i = this.entries.findIndex((e) => e.name === name);
+    if (i < 0) return undefined;
+    const [gone] = this.entries.splice(i, 1);
+    gone.parent = null;
+    return gone;
+  }
+}
+
+function human(bytes: number): string {
+  const units = ["B", "K", "M", "G"];
+  let v = bytes;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u++;
+  }
+  return u === 0 ? `${v}B` : `${v.toFixed(1)}${units[u]}`;
+}
+
+const root = new Directory("");
+const home = root.mkdir("home");
+const alice = home.mkdir("alice");
+alice.touch("notes.txt", 1200);
+alice.touch("photo.jpg", 2_400_000);
+const proj = alice.mkdir("project");
+proj.touch("main.ts", 5300);
+proj.touch("util.ts", 870);
+proj.touch("README", 410);
+const nm = proj.mkdir("node_modules");
+nm.touch("big.js", 7_340_032);
+const etc = root.mkdir("etc");
+etc.touch("hosts", 220);
+etc.touch("config.json", 3100);
+
+root.walk((n) => {
+  const kind = n instanceof Directory ? "d" : "-";
+  console.log(`${kind} ${human(n.size).padStart(7)} ${"  ".repeat(n.depth)}${n.name || "/"}`);
+});
+
+const tsFiles = root.find((n) => n instanceof FileNode && n.extension === "ts");
+console.log("ts files:", tsFiles.map((n) => n.path));
+
+const byExt = new Map<string, number>();
+root.walk((n) => {
+  if (n instanceof FileNode) {
+    const ext = n.extension || "(none)";
+    byExt.set(ext, (byExt.get(ext) ?? 0) + n.size);
+  }
+});
+console.log([...byExt].sort((a, b) => b[1] - a[1]));
+
+try {
+  proj.touch("main.ts", 1);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+const removed = proj.remove("node_modules");
+console.log("removed", removed?.name, human(removed?.size ?? 0), "orphan path:", removed?.path);
+(proj.children[0] as FileNode).append(700);
+console.log("project now", human(proj.size), "root", human(root.size), root.size);
+const largest = root
+  .find((n) => n instanceof FileNode)
+  .sort((a, b) => b.size - a.size)
+  .slice(0, 3)
+  .map((n) => ({ path: n.path, size: n.size }));
+console.log(largest);
+console.log(etc.children);

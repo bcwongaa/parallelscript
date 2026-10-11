@@ -1,0 +1,122 @@
+// skip: by design (D-038): reads an array element past the end where a value is required (RangeError; JS gives undefined)
+// Semantic version parsing, comparison (with prerelease precedence), range matching
+// (^, ~, >=, <, x-ranges, hyphen ranges, ||) and picking the best matching version.
+class SemVer {
+  constructor(
+    readonly major: number,
+    readonly minor: number,
+    readonly patch: number,
+    readonly prerelease: (string | number)[] = [],
+    readonly build: string[] = [],
+  ) {}
+
+  static parse(text: string): SemVer {
+    let s = text.trim();
+    if (s.startsWith("v") || s.startsWith("=")) s = s.slice(1);
+    const plus = s.indexOf("+");
+    const build = plus >= 0 ? s.slice(plus + 1).split(".") : [];
+    if (plus >= 0) s = s.slice(0, plus);
+    const dash = s.indexOf("-");
+    const pre = dash >= 0 ? s.slice(dash + 1).split(".").map((p) => (p !== "" && [...p].every((c) => c >= "0" && c <= "9") ? Number(p) : p)) : [];
+    if (dash >= 0) s = s.slice(0, dash);
+    const nums = s.split(".");
+    if (nums.length !== 3 || nums.some((n) => n === "" || Number.isNaN(Number(n)) || (n.length > 1 && n[0] === "0"))) {
+      throw new SyntaxError(`Invalid version: ${text}`);
+    }
+    const [maj, min, pat] = nums.map(Number);
+    return new SemVer(maj, min, pat, pre, build);
+  }
+
+  compare(o: SemVer): number {
+    const core = this.major - o.major || this.minor - o.minor || this.patch - o.patch;
+    if (core !== 0) return Math.sign(core);
+    if (!this.prerelease.length || !o.prerelease.length) return Math.sign(o.prerelease.length - this.prerelease.length);
+    for (let i = 0; i < Math.max(this.prerelease.length, o.prerelease.length); i++) {
+      const a = this.prerelease[i], b = o.prerelease[i];
+      if (a === undefined) return -1;
+      if (b === undefined) return 1;
+      if (a === b) continue;
+      if (typeof a === "number" && typeof b === "number") return Math.sign(a - b);
+      if (typeof a === "number") return -1;
+      if (typeof b === "number") return 1;
+      return a < b ? -1 : 1;
+    }
+    return 0;
+  }
+
+  bump(kind: "major" | "minor" | "patch" | "prerelease"): SemVer {
+    switch (kind) {
+      case "major": return new SemVer(this.major + 1, 0, 0);
+      case "minor": return new SemVer(this.major, this.minor + 1, 0);
+      case "patch": return this.prerelease.length ? new SemVer(this.major, this.minor, this.patch) : new SemVer(this.major, this.minor, this.patch + 1);
+      case "prerelease": {
+        const last = this.prerelease[this.prerelease.length - 1];
+        if (typeof last === "number") return new SemVer(this.major, this.minor, this.patch, [...this.prerelease.slice(0, -1), last + 1]);
+        return new SemVer(this.major, this.minor, this.patch + 1, ["rc", 0]);
+      }
+    }
+  }
+
+  toString(): string {
+    return `${this.major}.${this.minor}.${this.patch}` + (this.prerelease.length ? `-${this.prerelease.join(".")}` : "") + (this.build.length ? `+${this.build.join(".")}` : "");
+  }
+}
+
+type Comparator = { op: "<" | "<=" | ">" | ">=" | "="; v: SemVer };
+
+function expand(part: string): Comparator[] {
+  const p = part.trim();
+  if (p === "*" || p === "" || p === "x") return [{ op: ">=", v: new SemVer(0, 0, 0) }];
+  if (p.includes(" - ")) {
+    const [lo, hi] = p.split(" - ");
+    return [{ op: ">=", v: SemVer.parse(lo) }, { op: "<=", v: SemVer.parse(hi) }];
+  }
+  if (p.startsWith("^") || p.startsWith("~")) {
+    const v = SemVer.parse(p.slice(1));
+    const upper = p[0] === "~" ? new SemVer(v.major, v.minor + 1, 0)
+      : v.major > 0 ? new SemVer(v.major + 1, 0, 0) : v.minor > 0 ? new SemVer(0, v.minor + 1, 0) : new SemVer(0, 0, v.patch + 1);
+    return [{ op: ">=", v }, { op: "<", v: upper }];
+  }
+  const xs = p.split(".");
+  if (xs.length < 3 || xs.includes("x") || xs.includes("*")) {
+    const [maj, min] = xs.map((x) => (x === "x" || x === "*" ? NaN : Number(x)));
+    if (Number.isNaN(min) || min === undefined) return [{ op: ">=", v: new SemVer(maj, 0, 0) }, { op: "<", v: new SemVer(maj + 1, 0, 0) }];
+    return [{ op: ">=", v: new SemVer(maj, min, 0) }, { op: "<", v: new SemVer(maj, min + 1, 0) }];
+  }
+  for (const op of [">=", "<=", ">", "<", "="] as const) {
+    if (p.startsWith(op)) return [{ op, v: SemVer.parse(p.slice(op.length)) }];
+  }
+  return [{ op: "=", v: SemVer.parse(p) }];
+}
+
+function satisfies(version: string, range: string): boolean {
+  const v = SemVer.parse(version);
+  return range.split("||").some((alt) => {
+    const parts = alt.includes(" - ") ? [alt] : alt.trim().split(" ").filter(Boolean);
+    const comps = parts.flatMap(expand);
+    if (v.prerelease.length && !comps.some((c) => c.v.prerelease.length && c.v.major === v.major && c.v.minor === v.minor && c.v.patch === v.patch)) return false;
+    return comps.every(({ op, v: target }) => {
+      const c = v.compare(target);
+      return op === "<" ? c < 0 : op === "<=" ? c <= 0 : op === ">" ? c > 0 : op === ">=" ? c >= 0 : c === 0;
+    });
+  });
+}
+
+const versions = ["1.0.0", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "2.1.3", "1.10.0", "1.2.10", "1.2.9", "v0.9.12+build.7"];
+const sorted = versions.map(SemVer.parse).sort((a, b) => a.compare(b));
+console.log(sorted.map(String).join(" < "));
+console.log(SemVer.parse("1.2.3-rc.1+sha.abc"));
+
+const ranges = ["^1.2.3", "~1.2.3", ">=1.0.0 <2.0.0", "1.x", "1.2.x", "*", "1.0.0 - 1.2.9", "^0.9.0 || ^2.0.0", ">=1.0.0-beta.2 <1.0.0", "^0.0.3"];
+const pool = ["0.0.3", "0.0.4", "0.9.12", "1.0.0-beta.11", "1.0.0", "1.2.3", "1.2.9", "1.2.10", "1.3.0", "1.10.0", "2.0.0", "2.1.3"];
+for (const r of ranges) {
+  const ok = pool.filter((v) => satisfies(v, r));
+  const best = ok.map(SemVer.parse).sort((a, b) => b.compare(a))[0];
+  console.log(`${r.padEnd(24)} ${String(ok.length).padStart(2)} best=${best ?? "none"}`);
+}
+const base = SemVer.parse("1.4.2-beta.3");
+console.log(["major", "minor", "patch", "prerelease"].map((k) => `${k}: ${base.bump(k as "major" | "minor" | "patch" | "prerelease")}`));
+for (const bad of ["1.2", "01.2.3", "a.b.c", "1.2.3.4", ""]) {
+  try { SemVer.parse(bad); } catch (e) { console.log(e instanceof SyntaxError, (e as Error).message); }
+}
+console.log(JSON.stringify(SemVer.parse("3.0.0-rc.2")));

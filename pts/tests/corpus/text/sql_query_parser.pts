@@ -1,0 +1,150 @@
+// A lexer and parser for a small SELECT dialect (WHERE with AND/OR/NOT, ORDER BY, LIMIT) run on in-memory rows.
+type Row = Record<string, string | number>;
+type TokType = "kw" | "ident" | "num" | "str" | "op" | "punct";
+interface Tok { type: TokType; value: string }
+const KEYWORDS = new Set(["SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "ORDER", "BY", "ASC", "DESC", "LIMIT"]);
+const isDigit = (ch: string) => ch >= "0" && ch <= "9";
+const isWordChar = (ch: string) => (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_" || isDigit(ch);
+
+function lex(sql: string): Tok[] {
+  const out: Tok[] = [];
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    if (c === " " || c === "\n") { i++; continue; }
+    if (c === "'") {
+      let j = i + 1, s = "";
+      while (j < sql.length) {
+        if (sql[j] === "'" && sql[j + 1] === "'") { s += "'"; j += 2; continue; }
+        if (sql[j] === "'") break;
+        s += sql[j++];
+      }
+      if (j >= sql.length) throw new SyntaxError("unterminated string literal");
+      out.push({ type: "str", value: s });
+      i = j + 1;
+    } else if (isDigit(c) || (c === "-" && isDigit(sql[i + 1]))) {
+      let j = i + 1;
+      while (j < sql.length && (isDigit(sql[j]) || sql[j] === ".")) j++;
+      out.push({ type: "num", value: sql.slice(i, j) });
+      i = j;
+    } else if (isWordChar(c)) {
+      let j = i;
+      while (j < sql.length && isWordChar(sql[j])) j++;
+      const word = sql.slice(i, j);
+      out.push(KEYWORDS.has(word.toUpperCase()) ? { type: "kw", value: word.toUpperCase() } : { type: "ident", value: word });
+      i = j;
+    } else if (["<=", ">=", "<>", "!="].includes(sql.slice(i, i + 2))) {
+      out.push({ type: "op", value: sql.slice(i, i + 2) });
+      i += 2;
+    } else if ("=<>".includes(c)) { out.push({ type: "op", value: c }); i++; }
+    else if (",*()".includes(c)) { out.push({ type: "punct", value: c }); i++; }
+    else throw new SyntaxError(`unexpected '${c}' at ${i}`);
+  }
+  return out;
+}
+
+type Cond =
+  | { kind: "cmp"; column: string; op: string; value: string | number }
+  | { kind: "and" | "or"; left: Cond; right: Cond }
+  | { kind: "not"; inner: Cond };
+interface Query { columns: string[] | "*"; table: string; where?: Cond; orderBy?: { column: string; desc: boolean }; limit?: number }
+
+class QueryParser {
+  private pos = 0;
+  constructor(private readonly toks: Tok[]) {}
+  private peek(): Tok | undefined { return this.toks[this.pos]; }
+  private accept(type: TokType, value?: string): Tok | null {
+    const t = this.peek();
+    if (t && t.type === type && (value === undefined || t.value === value)) { this.pos++; return t; }
+    return null;
+  }
+  private expect(type: TokType, value?: string): Tok {
+    const t = this.accept(type, value);
+    if (!t) throw new SyntaxError(`expected ${value ?? type} but found ${this.peek()?.value ?? "end of input"}`);
+    return t;
+  }
+  parse(): Query {
+    this.expect("kw", "SELECT");
+    let columns: string[] | "*" = "*";
+    if (!this.accept("punct", "*")) {
+      columns = [this.expect("ident").value];
+      while (this.accept("punct", ",")) columns.push(this.expect("ident").value);
+    }
+    this.expect("kw", "FROM");
+    const q: Query = { columns, table: this.expect("ident").value };
+    if (this.accept("kw", "WHERE")) q.where = this.or();
+    if (this.accept("kw", "ORDER")) {
+      this.expect("kw", "BY");
+      q.orderBy = { column: this.expect("ident").value, desc: !!this.accept("kw", "DESC") };
+      if (!q.orderBy.desc) this.accept("kw", "ASC");
+    }
+    if (this.accept("kw", "LIMIT")) q.limit = Number(this.expect("num").value);
+    if (this.peek()) throw new SyntaxError(`unexpected trailing '${this.peek()?.value}'`);
+    return q;
+  }
+  private chain(kind: "and" | "or", next: () => Cond): Cond {
+    let left = next();
+    while (this.accept("kw", kind.toUpperCase())) left = { kind, left, right: next() };
+    return left;
+  }
+  private or(): Cond { return this.chain("or", () => this.and()); }
+  private and(): Cond { return this.chain("and", () => this.atom()); }
+  private atom(): Cond {
+    if (this.accept("kw", "NOT")) return { kind: "not", inner: this.atom() };
+    if (this.accept("punct", "(")) { const c = this.or(); this.expect("punct", ")"); return c; }
+    const column = this.expect("ident").value;
+    const op = this.expect("op").value;
+    const lit = this.accept("num") ?? this.expect("str");
+    return { kind: "cmp", column, op, value: lit.type === "num" ? Number(lit.value) : lit.value };
+  }
+}
+
+type Scalar = string | number;
+const COMPARE: Record<string, (a: Scalar, b: Scalar) => boolean> = {
+  "=": (a, b) => a === b, "<>": (a, b) => a !== b, "!=": (a, b) => a !== b,
+  "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
+};
+
+function test(c: Cond, row: Row): boolean {
+  switch (c.kind) {
+    case "and": return test(c.left, row) && test(c.right, row);
+    case "or": return test(c.left, row) || test(c.right, row);
+    case "not": return !test(c.inner, row);
+    case "cmp": return COMPARE[c.op](row[c.column], c.value);
+  }
+}
+const tables: Record<string, Row[]> = {
+  books: [
+    { id: 1, title: "Dune", author: "Herbert", year: 1965, pages: 412 }, { id: 2, title: "Neuromancer", author: "Gibson", year: 1984, pages: 271 },
+    { id: 3, title: "Hyperion", author: "Simmons", year: 1989, pages: 482 }, { id: 4, title: "Snow Crash", author: "Stephenson", year: 1992, pages: 480 },
+    { id: 5, title: "Anathem", author: "Stephenson", year: 2008, pages: 937 }, { id: 6, title: "The Left Hand of Darkness", author: "Le Guin", year: 1969, pages: 304 },
+    { id: 7, title: "Children's Crusade", author: "O'Neil", year: 1999, pages: 150 },
+  ],
+};
+function execute(sql: string): Row[] {
+  const q = new QueryParser(lex(sql)).parse();
+  if (!(q.table in tables)) throw new Error(`no such table: ${q.table}`);
+  let rows = tables[q.table].filter((r) => !q.where || test(q.where, r));
+  const ob = q.orderBy;
+  if (ob) rows = [...rows].sort((a, b) => (a[ob.column] < b[ob.column] ? -1 : a[ob.column] > b[ob.column] ? 1 : 0) * (ob.desc ? -1 : 1));
+  if (q.limit !== undefined) rows = rows.slice(0, q.limit);
+  const cols = q.columns;
+  return cols === "*" ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c]])));
+}
+
+const queries = [
+  "SELECT title, year FROM books WHERE year < 1990 ORDER BY year DESC", "select * from books where author = 'Stephenson' and pages > 500",
+  "SELECT title FROM books WHERE NOT (year >= 1970 AND year <= 1999) OR author = 'O''Neil' ORDER BY title",
+  "SELECT author, pages FROM books ORDER BY pages LIMIT 3", "SELECT title FROM books WHERE pages <> 480 AND id != 1 LIMIT 2",
+  "SELECT title FROM movies", "SELECT title books", "SELECT title FROM books WHERE year > 'x", "SELECT title FROM books LIMIT 2 extra",
+];
+for (const sql of queries) {
+  try {
+    const rows = execute(sql);
+    console.log(`${sql}\n  -> ${rows.length} row(s)`);
+    for (const r of rows) console.log("    ", r);
+  } catch (e) {
+    console.log(`${sql}\n  !! ${(e as Error).name}: ${(e as Error).message}`);
+  }
+}
+console.log(lex("a<=1 AND b<>'x y'").map((t) => `${t.type}(${t.value})`).join(" "));

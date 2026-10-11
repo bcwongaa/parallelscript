@@ -1,0 +1,85 @@
+interface RawContact {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  country?: string | null;
+  age?: number | string | null;
+  signup?: string;
+}
+
+interface CleanContact {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  country: string;
+  age: number | null;
+  signup: string;
+}
+
+const raw: RawContact[] = [
+  { name: "  maria  GARCIA ", email: " Maria.Garcia@Example.COM ", phone: "(555) 010-2030", country: "us", age: "34", signup: "2024-01-05" },
+  { name: "LIAM o'brien", email: "", phone: "555.010.9999", country: "IE", age: 41 },
+  { name: null, email: "anon@example.com", phone: null, country: "  gb", age: "unknown", signup: "2023-11-30" },
+  { name: "Zhang Wei", email: "zhang.wei@example.cn", phone: "+86 10 5555 0101", country: null, age: null, signup: "2024-02-29" },
+  { name: "  ", email: "blank@example.com", country: "US", age: -5 },
+  { name: "Ola Nordmann", email: "OLA@EXAMPLE.NO", phone: "  ", country: "no", age: "29.0", signup: "" },
+];
+
+const COUNTRY_NAMES: Record<string, string> = { US: "United States", IE: "Ireland", GB: "United Kingdom", NO: "Norway", CN: "China" };
+
+function cleanName(n: string | null | undefined): string {
+  const parts = (n ?? "").trim().split(" ").filter((p) => p !== "");
+  if (parts.length === 0) return "(unknown)";
+  return parts
+    .map((p) => {
+      const lower = p.toLowerCase();
+      const apos = lower.indexOf("'");
+      const cap = lower.charAt(0).toUpperCase() + lower.slice(1);
+      return apos >= 0 && apos < lower.length - 1 ? cap.slice(0, apos + 1) + cap.charAt(apos + 1).toUpperCase() + cap.slice(apos + 2) : cap;
+    })
+    .join(" ");
+}
+
+function cleanPhone(p: string | null | undefined): string | null {
+  const digits = (p ?? "").split("").filter((c) => c >= "0" && c <= "9").join("");
+  if (digits.length < 7) return null;
+  return p?.trim().startsWith("+") ? "+" + digits : digits.slice(-10).padStart(10, "0");
+}
+
+function cleanAge(a: number | string | null | undefined): number | null {
+  const n = typeof a === "string" ? Number.parseFloat(a) : a ?? NaN;
+  return Number.isInteger(n) && n >= 0 && n < 130 ? n : null;
+}
+
+const issues: string[] = [];
+const cleaned: CleanContact[] = raw.map((r, i) => {
+  const email = r.email?.trim().toLowerCase() || null;
+  const countryCode = (r.country ?? "").trim().toUpperCase();
+  const country = COUNTRY_NAMES[countryCode] ?? (countryCode || "Unknown");
+  const age = cleanAge(r.age);
+  if (r.age !== undefined && r.age !== null && age === null) issues.push(`row ${i}: bad age ${JSON.stringify(r.age)}`);
+  if (email === null) issues.push(`row ${i}: missing email`);
+  return {
+    name: cleanName(r.name),
+    email,
+    phone: cleanPhone(r.phone),
+    country,
+    age,
+    signup: r.signup || "n/a",
+  };
+});
+
+for (const c of cleaned) console.log(c);
+console.log(issues);
+
+const completeness = (Object.keys(cleaned[0]) as (keyof CleanContact)[]).map((k) => {
+  const filled = cleaned.filter((c) => c[k] !== null && c[k] !== "(unknown)" && c[k] !== "n/a" && c[k] !== "Unknown").length;
+  return `${k}: ${filled}/${cleaned.length}`;
+});
+console.log(completeness.join(", "));
+const ages = cleaned.map((c) => c.age).filter((a): a is number => a !== null);
+console.log("mean age:", ages.reduce((a, b) => a + b, 0) / ages.length);
+const samples: Array<string | number | null | undefined> = [null, undefined, "", 0, NaN, "ok"];
+console.log(samples.map((v) => v ?? "default"), samples.map((v) => v || "fallback"));
+console.log(Number.parseFloat("29.0"), Number("  42 "), Number(""), Number("4x"), parseInt("08", 10), Number.isInteger(29.0));
+console.log(" trim me ".trimStart() + "|", "|" + " trim me ".trimEnd(), "a-b-c".split("-", 2));

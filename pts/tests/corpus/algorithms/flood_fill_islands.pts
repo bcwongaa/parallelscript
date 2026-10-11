@@ -1,0 +1,103 @@
+// Flood fill on an image, counting islands, lake detection and region statistics.
+
+type Grid = string[][];
+
+const MAP = `
+~~~~~~~~~~~~~~~~~~~~
+~~##~~~~~~~~~###~~~~
+~###~~~~#~~~#..#~~~~
+~~#~~~~###~~#..##~~~
+~~~~~~~~#~~~####~~~~
+~~~~~~~~~~~~~~~~~~#~
+~####~~~~~~~~~~~~~##
+~#..#~~~~~##~~~~~~~~
+~####~~~~~##~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~`.trim();
+
+const parse = (s: string): Grid => s.split("\n").map((line) => line.split(""));
+const show = (g: Grid): string => g.map((r) => r.join("")).join("\n");
+
+interface Region {
+  id: number;
+  cells: number;
+  bbox: [number, number, number, number];
+  touchesEdge: boolean;
+}
+
+function floodFill(g: Grid, r0: number, c0: number, target: string, replacement: string, diagonal = false): number {
+  if (target === replacement || g[r0][c0] !== target) return 0;
+  const steps: [number, number][] = diagonal
+    ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+    : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const stack: [number, number][] = [[r0, c0]];
+  let filled = 0;
+  while (stack.length > 0) {
+    const [r, c] = stack.pop()!;
+    if (r < 0 || c < 0 || r >= g.length || c >= g[r].length || g[r][c] !== target) continue;
+    g[r][c] = replacement;
+    filled++;
+    for (const [dr, dc] of steps) stack.push([r + dr, c + dc]);
+  }
+  return filled;
+}
+
+function regions(g: Grid, ch: string): Region[] {
+  const seen = g.map((row) => row.map(() => false));
+  const out: Region[] = [];
+  for (let r = 0; r < g.length; r++) {
+    for (let c = 0; c < g[r].length; c++) {
+      if (seen[r][c] || g[r][c] !== ch) continue;
+      const region: Region = { id: out.length + 1, cells: 0, bbox: [r, c, r, c], touchesEdge: false };
+      const queue: [number, number][] = [[r, c]];
+      seen[r][c] = true;
+      while (queue.length) {
+        const [y, x] = queue.shift()!;
+        region.cells++;
+        region.bbox = [Math.min(region.bbox[0], y), Math.min(region.bbox[1], x), Math.max(region.bbox[2], y), Math.max(region.bbox[3], x)];
+        if (y === 0 || x === 0 || y === g.length - 1 || x === g[y].length - 1) region.touchesEdge = true;
+        for (const [dy, dx] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ny = y + dy;
+          const nx = x + dx;
+          if (ny >= 0 && nx >= 0 && ny < g.length && nx < g[ny].length && !seen[ny][nx] && g[ny][nx] === ch) {
+            seen[ny][nx] = true;
+            queue.push([ny, nx]);
+          }
+        }
+      }
+      out.push(region);
+    }
+  }
+  return out;
+}
+
+const world = parse(MAP);
+const islands = regions(world, "#");
+console.log(`islands: ${islands.length}`);
+for (const isl of islands) {
+  const [t, l, b, r] = isl.bbox;
+  console.log(`  island ${isl.id}: ${isl.cells} cells, box ${b - t + 1}x${r - l + 1} at (${t},${l})${isl.touchesEdge ? " [edge]" : ""}`);
+}
+const lakes = regions(world, ".");
+console.log("lakes:", lakes.map(({ id, cells }) => ({ id, cells })));
+const biggest = islands.reduce((a, b) => (b.cells > a.cells ? b : a));
+console.log("largest island:", biggest);
+
+const painted = parse(MAP);
+const n = floodFill(painted, 2, 13, ".", "*");
+console.log(`filled ${n} lake cells:`);
+console.log(show(painted).split("\n").slice(1, 5).join("\n"));
+
+const sea = parse(MAP);
+const seaCells = floodFill(sea, 0, 0, "~", " ");
+console.log("sea cells reachable from corner:", seaCells);
+const enclosedWater = sea.flat().filter((ch) => ch === "~").length;
+console.log("enclosed water cells left:", enclosedWater);
+const diag = parse(MAP);
+console.log("diagonal islands:", (() => {
+  let count = 0;
+  for (let r = 0; r < diag.length; r++)
+    for (let c = 0; c < diag[r].length; c++) if (diag[r][c] === "#" && floodFill(diag, r, c, "#", "x", true) > 0) count++;
+  return count;
+})());
+const coverage = { land: world.flat().filter((ch) => ch === "#").length, lake: world.flat().filter((ch) => ch === ".").length, total: world.flat().length };
+console.log(coverage, `${((coverage.land / coverage.total) * 100).toFixed(1)}% land`);

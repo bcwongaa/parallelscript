@@ -1,0 +1,109 @@
+// A connection pool where every borrowed connection must be returned, even
+// when queries throw. Tracks leaks and pool exhaustion.
+
+class PoolExhaustedError extends Error {
+  constructor(readonly size: number) {
+    super(`all ${size} connections are in use`);
+    this.name = "PoolExhaustedError";
+  }
+}
+
+class QueryError extends Error {
+  constructor(readonly sql: string, readonly connId: number, message: string) {
+    super(message);
+    this.name = "QueryError";
+  }
+}
+
+class Connection {
+  queries = 0;
+  constructor(readonly id: number) {}
+
+  query(sql: string): string[] {
+    this.queries++;
+    const lower = sql.toLowerCase();
+    if (lower.includes("drop")) throw new QueryError(sql, this.id, "permission denied");
+    if (!lower.startsWith("select")) throw new QueryError(sql, this.id, `syntax error near '${sql.split(" ")[0]}'`);
+    const table = sql.split(" from ")[1] ?? "dual";
+    return [`${table}#1`, `${table}#2`].slice(0, (this.id % 2) + 1);
+  }
+}
+
+class Pool {
+  private free: Connection[] = [];
+  private busy = new Set<Connection>();
+  readonly events: string[] = [];
+
+  constructor(readonly size: number) {
+    for (let i = size; i >= 1; i--) this.free.push(new Connection(i));
+  }
+
+  acquire(): Connection {
+    const c = this.free.pop();
+    if (c === undefined) throw new PoolExhaustedError(this.size);
+    this.busy.add(c);
+    this.events.push(`+${c.id}`);
+    return c;
+  }
+
+  release(c: Connection): void {
+    if (!this.busy.delete(c)) throw new Error(`connection ${c.id} was not borrowed`);
+    this.free.push(c);
+    this.events.push(`-${c.id}`);
+  }
+
+  use<T>(fn: (c: Connection) => T): T {
+    const c = this.acquire();
+    try {
+      return fn(c);
+    } finally {
+      this.release(c);
+    }
+  }
+
+  get inUse(): number {
+    return this.busy.size;
+  }
+}
+
+const pool = new Pool(2);
+const statements = ["SELECT * from users", "UPDATE users SET x=1", "SELECT id from orders", "DROP TABLE users", "select 1"];
+
+for (const sql of statements) {
+  try {
+    const rows = pool.use((c) => c.query(sql));
+    console.log(`ok   ${sql} ->`, rows);
+  } catch (e) {
+    if (e instanceof QueryError) {
+      console.log(`fail ${sql} -> ${e.message} on conn ${e.connId}`);
+    } else {
+      throw e;
+    }
+  }
+  console.log(`     in use: ${pool.inUse}`);
+}
+
+// Nested use: the third nested borrow exhausts the pool.
+try {
+  pool.use((a) =>
+    pool.use((b) => {
+      console.log("holding", a.id, b.id, "in use", pool.inUse);
+      return pool.use((c) => c.id);
+    }),
+  );
+} catch (e) {
+  console.log(e instanceof PoolExhaustedError ? e.message : "unexpected", "| in use after unwind:", pool.inUse);
+}
+
+// A manual borrow that forgets to release, detected afterwards.
+const leaked = pool.acquire();
+leaked.query("SELECT now");
+console.log("leaked connection", leaked.id, "in use:", pool.inUse);
+pool.release(leaked);
+try {
+  pool.release(leaked);
+} catch (e) {
+  console.log((e as Error).message);
+}
+console.log(pool.events.join(" "));
+console.log("query counts:", pool.use((a) => pool.use((b) => [a, b].map((c) => ({ id: c.id, q: c.queries })))));

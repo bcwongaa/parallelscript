@@ -1,0 +1,114 @@
+// skip: not supported yet: PTS1001: converting value to Record<string, number>
+// Generic collection utilities: groupBy, zip, chunk, uniqBy, partition, countBy, keyBy, windows.
+
+function groupBy<T, K extends string | number>(xs: readonly T[], key: (x: T) => K): Map<K, T[]> {
+  const m = new Map<K, T[]>();
+  for (const x of xs) {
+    const k = key(x);
+    const bucket = m.get(k);
+    if (bucket) bucket.push(x);
+    else m.set(k, [x]);
+  }
+  return m;
+}
+
+function zip<A, B>(a: readonly A[], b: readonly B[]): Array<[A, B]> {
+  const n = Math.min(a.length, b.length);
+  return Array.from({ length: n }, (_, i) => [a[i], b[i]] as [A, B]);
+}
+
+function unzip<A, B>(pairs: ReadonlyArray<readonly [A, B]>): [A[], B[]] {
+  return pairs.reduce<[A[], B[]]>(([as, bs], [a, b]) => [[...as, a], [...bs, b]], [[], []]);
+}
+
+function chunk<T>(xs: readonly T[], size: number): T[][] {
+  if (size <= 0) throw new RangeError("chunk size must be positive");
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+function uniqBy<T>(xs: readonly T[], key: (x: T) => unknown): T[] {
+  const seen = new Set<unknown>();
+  return xs.filter((x) => {
+    const k = key(x);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+function partition<T, S extends T>(xs: readonly T[], pred: (x: T) => x is S): [S[], Exclude<T, S>[]];
+function partition<T>(xs: readonly T[], pred: (x: T) => boolean): [T[], T[]];
+function partition<T>(xs: readonly T[], pred: (x: T) => boolean): [T[], T[]] {
+  const yes: T[] = [];
+  const no: T[] = [];
+  for (const x of xs) (pred(x) ? yes : no).push(x);
+  return [yes, no];
+}
+
+const countBy = <T>(xs: readonly T[], key: (x: T) => string): Record<string, number> =>
+  xs.reduce<Record<string, number>>((acc, x) => {
+    const k = key(x);
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {});
+
+const keyBy = <T>(xs: readonly T[], key: (x: T) => string): Record<string, T> =>
+  Object.fromEntries(xs.map((x) => [key(x), x]));
+
+const windows = <T>(xs: readonly T[], n: number): T[][] =>
+  xs.length < n ? [] : Array.from({ length: xs.length - n + 1 }, (_, i) => xs.slice(i, i + n));
+
+const range = (start: number, end: number, step = 1): number[] =>
+  Array.from({ length: Math.max(0, Math.ceil((end - start) / step)) }, (_, i) => start + i * step);
+
+interface Book {
+  title: string;
+  author: string;
+  year: number;
+  genre: "fiction" | "science" | "history";
+  pages: number;
+}
+
+const books: Book[] = [
+  { title: "Dune", author: "Herbert", year: 1965, genre: "fiction", pages: 412 },
+  { title: "Cosmos", author: "Sagan", year: 1980, genre: "science", pages: 396 },
+  { title: "SPQR", author: "Beard", year: 2015, genre: "history", pages: 608 },
+  { title: "Contact", author: "Sagan", year: 1985, genre: "fiction", pages: 432 },
+  { title: "The Selfish Gene", author: "Dawkins", year: 1976, genre: "science", pages: 360 },
+  { title: "Children of Dune", author: "Herbert", year: 1976, genre: "fiction", pages: 444 },
+  { title: "Dune", author: "Herbert", year: 1965, genre: "fiction", pages: 412 },
+];
+
+const byGenre = groupBy(books, (b) => b.genre);
+for (const [genre, list] of byGenre) console.log(`${genre}: ${list.map((b) => b.title).join(", ")}`);
+const byDecade = groupBy(books, (b) => Math.floor(b.year / 10) * 10);
+console.log([...byDecade.keys()].sort((a, b) => a - b), byDecade.get(1970)?.length);
+
+console.log(zip(["a", "b", "c", "d"], [1, 2, 3]));
+console.log(unzip([["x", 10], ["y", 20], ["z", 30]] as const));
+console.log(chunk(range(1, 11), 3));
+console.log(chunk(["solo"], 5), chunk([], 2));
+try {
+  chunk([1], 0);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+const unique = uniqBy(books, (b) => `${b.title}|${b.year}`);
+console.log("unique:", unique.length, "of", books.length);
+console.log("first per author:", uniqBy(books, (b) => b.author).map((b) => b.title));
+
+const [long, short] = partition(unique, (b) => b.pages > 420);
+console.log("long:", long.map((b) => b.title), "short:", short.map((b) => b.title));
+
+const mixed: Array<string | number> = [3, "three", 1, "one", 4, "four"];
+const [strs, nums] = partition(mixed, (x): x is string => typeof x === "string");
+console.log(strs.map((s) => s.toUpperCase()), nums.reduce((a, b) => a + b, 0));
+
+console.log(countBy(books, (b) => b.author));
+console.log(Object.keys(keyBy(unique, (b) => b.title.toLowerCase().split(" ").join("-"))));
+console.log(windows([1, 4, 9, 16, 25], 2).map(([a, b]) => b - a));
+console.log(windows("abcde".split(""), 3).map((w) => w.join("")));
+console.log(range(0, 1, 0.25), range(10, 0, -3), range(5, 5));

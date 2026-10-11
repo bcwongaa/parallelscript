@@ -1,0 +1,118 @@
+// Errors thrown inside array callbacks (map, forEach, sort comparators,
+// reduce, find) propagate out and are caught by the caller.
+
+class BadRecordError extends Error {
+  constructor(readonly index: number, readonly reason: string) {
+    super(`record ${index}: ${reason}`);
+    this.name = "BadRecordError";
+  }
+}
+
+interface Reading {
+  sensor: string;
+  celsius: number | null;
+}
+
+const readings: Reading[] = [
+  { sensor: "kitchen", celsius: 21.5 },
+  { sensor: "garage", celsius: 4 },
+  { sensor: "attic", celsius: null },
+  { sensor: "cellar", celsius: 12.25 },
+];
+
+function toFahrenheit(list: Reading[]): number[] {
+  return list.map((r, i) => {
+    if (r.celsius === null) throw new BadRecordError(i, `sensor ${r.sensor} has no value`);
+    return Math.round((r.celsius * 9) / 5 + 32);
+  });
+}
+
+try {
+  console.log(toFahrenheit(readings));
+} catch (e) {
+  if (e instanceof BadRecordError) console.log("map aborted at", e.index, "-", e.reason);
+}
+console.log(toFahrenheit(readings.filter((r) => r.celsius !== null)));
+
+const visited: string[] = [];
+try {
+  readings.forEach((r) => {
+    visited.push(r.sensor);
+    if (r.sensor === "attic") throw new Error("stop at attic");
+  });
+} catch (e) {
+  console.log((e as Error).message, "after visiting", visited);
+}
+
+// A comparator that refuses to compare incomparable items.
+type Version = string;
+function compareVersions(a: Version, b: Version): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  if (pa.some(Number.isNaN) || pb.some(Number.isNaN)) {
+    throw new TypeError(`cannot compare '${a}' with '${b}'`);
+  }
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+const versions: Version[] = ["1.10.0", "1.2.3", "1.2", "0.9.12", "2.0.0", "1.2.10"];
+console.log([...versions].sort(compareVersions));
+const withBad = [...versions, "1.x"];
+try {
+  withBad.sort(compareVersions);
+  console.log("sorted?!");
+} catch (e) {
+  console.log(e instanceof TypeError, (e as Error).message.startsWith("cannot compare"));
+  console.log("array still has", withBad.length, "items, contains bad:", withBad.includes("1.x"));
+}
+
+const totals = [3, 8, -1, 4];
+try {
+  const sum = totals.reduce((acc, n, i) => {
+    if (n < 0) throw new BadRecordError(i, `negative amount ${n} after accumulating ${acc}`);
+    return acc + n;
+  }, 0);
+  console.log("sum", sum);
+} catch (e) {
+  console.log(e instanceof BadRecordError ? e.message : "?");
+}
+
+const found = (() => {
+  try {
+    return readings.find((r) => {
+      if (r.celsius === null) throw new Error(`null at ${r.sensor}`);
+      return r.celsius > 10 && r.celsius < 15;
+    });
+  } catch (e) {
+    return `error: ${(e as Error).message}`;
+  }
+})();
+console.log("found:", found);
+
+const pairs = [[1, 2], [3], [4, 5, 6]].flatMap((arr, i) => {
+  try {
+    if (arr.length === 1) throw new RangeError(`row ${i} is a singleton`);
+    return arr.map((x) => x * 10);
+  } catch (e) {
+    console.log("skipping:", (e as RangeError).message);
+    return [];
+  }
+});
+console.log(pairs);
+
+const everyCheck = (() => {
+  let checked = 0;
+  try {
+    return readings.every((r) => {
+      checked++;
+      return (r.celsius ?? Number.NaN) > -50 || (() => { throw new Error("invalid"); })();
+    });
+  } catch {
+    return `threw after ${checked} checks`;
+  }
+})();
+console.log(everyCheck);

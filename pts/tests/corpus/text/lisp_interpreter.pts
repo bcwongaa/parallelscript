@@ -1,0 +1,150 @@
+// A tiny Lisp: S-expression reader, environment chain, special forms, closures and recursion.
+type Sexp = number | string | boolean | Sexp[] | Lambda | Builtin;
+
+class Lambda {
+  constructor(readonly params: string[], readonly body: Sexp, readonly env: Env, readonly name = "lambda") {}
+}
+class Builtin {
+  constructor(readonly name: string, readonly fn: (args: Sexp[]) => Sexp) {}
+}
+class LispError extends Error {}
+
+class Env {
+  private readonly vars = new Map<string, Sexp>();
+  constructor(private readonly outer: Env | null = null) {}
+  define(name: string, v: Sexp): void { this.vars.set(name, v); }
+  lookup(name: string): Sexp {
+    const v = this.vars.get(name);
+    if (v !== undefined) return v;
+    if (this.outer) return this.outer.lookup(name);
+    throw new LispError(`unbound symbol: ${name}`);
+  }
+}
+
+function tokenize(src: string): string[] {
+  return src.split("(").join(" ( ").split(")").join(" ) ").split("'").join(" ' ").split("\n").join(" ").split(" ").filter((t) => t !== "");
+}
+
+function read(tokens: string[]): Sexp {
+  const t = tokens.shift();
+  if (t === undefined) throw new LispError("unexpected EOF");
+  if (t === "(") {
+    const list: Sexp[] = [];
+    while (tokens[0] !== ")") {
+      if (tokens.length === 0) throw new LispError("missing )");
+      list.push(read(tokens));
+    }
+    tokens.shift();
+    return list;
+  }
+  if (t === ")") throw new LispError("unexpected )");
+  if (t === "'") return ["quote", read(tokens)];
+  if (t === "#t" || t === "#f") return t === "#t";
+  const n = Number(t);
+  return Number.isNaN(n) ? t : n;
+}
+
+function show(x: Sexp): string {
+  if (Array.isArray(x)) return `(${x.map(show).join(" ")})`;
+  if (x instanceof Lambda) return `#<lambda ${x.name}/${x.params.length}>`;
+  if (x instanceof Builtin) return `#<builtin ${x.name}>`;
+  if (typeof x === "boolean") return x ? "#t" : "#f";
+  return String(x);
+}
+
+function evaluate(x: Sexp, env: Env): Sexp {
+  while (true) {
+    if (typeof x === "string") return env.lookup(x);
+    if (!Array.isArray(x)) return x;
+    if (x.length === 0) return x;
+    const [op, ...args] = x;
+    switch (op) {
+      case "quote": return args[0];
+      case "if": {
+        const cond = evaluate(args[0], env);
+        x = cond !== false ? args[1] : args[2] ?? false;
+        continue;
+      }
+      case "define": {
+        if (Array.isArray(args[0])) {
+          const [name, ...params] = args[0] as string[];
+          env.define(name, new Lambda(params, args[1], env, name));
+        } else env.define(args[0] as string, evaluate(args[1], env));
+        return true;
+      }
+      case "lambda": return new Lambda(args[0] as string[], args[1], env);
+      case "let": {
+        const inner = new Env(env);
+        for (const binding of args[0] as Sexp[][]) inner.define(binding[0] as string, evaluate(binding[1], env));
+        x = args[1];
+        env = inner;
+        continue;
+      }
+      case "begin": {
+        args.slice(0, -1).forEach((a) => evaluate(a, env));
+        x = args[args.length - 1];
+        continue;
+      }
+    }
+    const fn = evaluate(op, env);
+    const vals = args.map((a) => evaluate(a, env));
+    if (fn instanceof Builtin) return fn.fn(vals);
+    if (fn instanceof Lambda) {
+      if (vals.length !== fn.params.length) throw new LispError(`${fn.name} expects ${fn.params.length} args, got ${vals.length}`);
+      const inner = new Env(fn.env);
+      fn.params.forEach((p, i) => inner.define(p, vals[i]));
+      x = fn.body;
+      env = inner;
+      continue;
+    }
+    throw new LispError(`not a function: ${show(fn)}`);
+  }
+}
+
+const num = (v: Sexp): number => {
+  if (typeof v !== "number") throw new LispError(`expected number, got ${show(v)}`);
+  return v;
+};
+const global = new Env();
+const builtins: [string, (a: Sexp[]) => Sexp][] = [
+  ["+", (a) => a.reduce<number>((s, v) => s + num(v), 0)],
+  ["-", (a) => (a.length === 1 ? -num(a[0]) : a.slice(1).reduce<number>((s, v) => s - num(v), num(a[0])))],
+  ["*", (a) => a.reduce<number>((s, v) => s * num(v), 1)],
+  ["/", (a) => num(a[0]) / num(a[1])], ["<", (a) => num(a[0]) < num(a[1])], ["=", (a) => a[0] === a[1]], ["list", (a) => a],
+  ["car", (a) => (a[0] as Sexp[])[0]], ["cdr", (a) => (a[0] as Sexp[]).slice(1)], ["cons", (a) => [a[0], ...(a[1] as Sexp[])]],
+  ["null?", (a) => Array.isArray(a[0]) && a[0].length === 0],
+];
+for (const [name, fn] of builtins) global.define(name, new Builtin(name, fn));
+
+const program = `
+(define (fact n) (if (< n 2) 1 (* n (fact (- n 1)))))
+(fact 10)
+(define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+(fib 20)
+(define (map f xs) (if (null? xs) '() (cons (f (car xs)) (map f (cdr xs)))))
+(map (lambda (x) (* x x)) '(1 2 3 4 5))
+(define (count n acc) (if (= n 0) acc (count (- n 1) (+ acc 1))))
+(count 50000 0)
+(let ((a 3) (b 4)) (+ (* a a) (* b b)))
+(define make-adder (lambda (n) (lambda (x) (+ x n))))
+((make-adder 10) 32)
+(begin (define z 5) (* z z))
+fact car
+(fact 1 2)
+(undefined-thing 1)
+(1 2 3)
+(+ 1 #t)
+`;
+const tokens = tokenize(program);
+let count = 0;
+while (tokens.length > 0) {
+  try {
+    const expr = read(tokens);
+    console.log(`${String(++count).padStart(2)}> ${show(expr).slice(0, 50)}`);
+    console.log("   ", show(evaluate(expr, global)));
+  } catch (e) {
+    if (e instanceof LispError) console.log("    error:", e.message);
+    else throw e;
+  }
+}
+console.log(read(tokenize("(a (b c) 'd 1.5 #f)")));

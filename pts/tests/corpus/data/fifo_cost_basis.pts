@@ -1,0 +1,119 @@
+type Trade =
+  | { kind: "buy"; date: string; symbol: string; qty: number; price: number }
+  | { kind: "sell"; date: string; symbol: string; qty: number; price: number }
+  | { kind: "split"; date: string; symbol: string; ratio: number };
+
+interface Lot {
+  date: string;
+  qty: number;
+  cost: number;
+}
+
+interface Realized {
+  symbol: string;
+  sellDate: string;
+  buyDate: string;
+  qty: number;
+  proceeds: number;
+  basis: number;
+  gain: number;
+  longTerm: boolean;
+}
+
+class InsufficientSharesError extends Error {
+  constructor(symbol: string, wanted: number, have: number) {
+    super(`cannot sell ${wanted} ${symbol}: only ${have} held`);
+    this.name = "InsufficientSharesError";
+  }
+}
+
+class Portfolio {
+  private lots = new Map<string, Lot[]>();
+  readonly realized: Realized[] = [];
+
+  apply(t: Trade): void {
+    const lots = this.lots.get(t.symbol) ?? [];
+    this.lots.set(t.symbol, lots);
+    if (t.kind === "buy") {
+      lots.push({ date: t.date, qty: t.qty, cost: t.price });
+    } else if (t.kind === "split") {
+      for (const l of lots) {
+        l.qty *= t.ratio;
+        l.cost /= t.ratio;
+      }
+    } else {
+      const held = lots.reduce((s, l) => s + l.qty, 0);
+      if (held < t.qty) throw new InsufficientSharesError(t.symbol, t.qty, held);
+      let remaining = t.qty;
+      while (remaining > 0) {
+        const lot = lots[0];
+        const take = Math.min(lot.qty, remaining);
+        const days = (Date.parse(t.date) - Date.parse(lot.date)) / 86400000;
+        this.realized.push({
+          symbol: t.symbol,
+          sellDate: t.date,
+          buyDate: lot.date,
+          qty: take,
+          proceeds: round2(take * t.price),
+          basis: round2(take * lot.cost),
+          gain: round2(take * (t.price - lot.cost)),
+          longTerm: days > 365,
+        });
+        lot.qty -= take;
+        remaining -= take;
+        if (lot.qty === 0) lots.shift();
+      }
+    }
+  }
+
+  positions(): Record<string, { qty: number; avgCost: number }> {
+    const out: Record<string, { qty: number; avgCost: number }> = {};
+    for (const [sym, lots] of this.lots) {
+      const qty = lots.reduce((s, l) => s + l.qty, 0);
+      if (qty === 0) continue;
+      out[sym] = { qty, avgCost: round2(lots.reduce((s, l) => s + l.qty * l.cost, 0) / qty) };
+    }
+    return out;
+  }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+const trades: Trade[] = [
+  { kind: "buy", date: "2021-02-01", symbol: "ACME", qty: 10, price: 120 },
+  { kind: "buy", date: "2022-06-15", symbol: "ACME", qty: 5, price: 95.5 },
+  { kind: "buy", date: "2022-07-01", symbol: "GLBX", qty: 40, price: 22.1 },
+  { kind: "split", date: "2022-09-01", symbol: "ACME", ratio: 2 },
+  { kind: "sell", date: "2023-01-10", symbol: "ACME", qty: 24, price: 71.25 },
+  { kind: "sell", date: "2023-03-03", symbol: "GLBX", qty: 15, price: 19.8 },
+  { kind: "buy", date: "2023-04-20", symbol: "GLBX", qty: 10, price: 18 },
+  { kind: "sell", date: "2023-08-30", symbol: "ACME", qty: 10, price: 80 },
+  { kind: "sell", date: "2024-01-05", symbol: "GLBX", qty: 30, price: 25.75 },
+];
+
+const pf = new Portfolio();
+for (const t of trades) {
+  try {
+    pf.apply(t);
+  } catch (e) {
+    if (e instanceof InsufficientSharesError) console.log(`${t.date} rejected: ${e.message}`);
+    else throw e;
+  }
+}
+
+for (const r of pf.realized) {
+  console.log(`${r.symbol} ${r.buyDate} -> ${r.sellDate} ${String(r.qty).padStart(3)} sh  gain ${r.gain.toFixed(2).padStart(8)} ${r.longTerm ? "LT" : "ST"}`);
+}
+const summary = pf.realized.reduce(
+  (acc, r) => {
+    acc[r.longTerm ? "longTerm" : "shortTerm"] = round2(acc[r.longTerm ? "longTerm" : "shortTerm"] + r.gain);
+    return acc;
+  },
+  { shortTerm: 0, longTerm: 0 },
+);
+console.log(summary);
+console.log(pf.positions());
+console.log(pf.realized[0]);
+console.log(JSON.stringify(trades.filter((t) => t.kind === "split")));

@@ -1,0 +1,107 @@
+// HTML escaping and unescaping (named and numeric entities), attribute quoting,
+// tag stripping and a tiny safe HTML builder.
+const NAMED: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0", copy: "©", reg: "®",
+  hellip: "…", mdash: "—", ndash: "–", eacute: "é", euro: "€", trade: "™",
+};
+
+function escapeHtml(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    switch (ch) {
+      case "&": out += "&amp;"; break;
+      case "<": out += "&lt;"; break;
+      case ">": out += "&gt;"; break;
+      case '"': out += "&quot;"; break;
+      case "'": out += "&#39;"; break;
+      default: out += ch;
+    }
+  }
+  return out;
+}
+
+function escapeNonAscii(s: string): string {
+  return [...escapeHtml(s)].map((ch) => {
+    const cp = ch.codePointAt(0) ?? 0;
+    return cp > 126 ? `&#x${cp.toString(16).toUpperCase()};` : ch;
+  }).join("");
+}
+
+function unescapeHtml(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const amp = s.indexOf("&", i);
+    if (amp < 0) { out += s.slice(i); break; }
+    out += s.slice(i, amp);
+    const semi = s.indexOf(";", amp);
+    if (semi < 0 || semi - amp > 10) { out += "&"; i = amp + 1; continue; }
+    const body = s.slice(amp + 1, semi);
+    let decoded: string | undefined;
+    if (body.startsWith("#x") || body.startsWith("#X")) decoded = String.fromCodePoint(parseInt(body.slice(2), 16));
+    else if (body.startsWith("#")) decoded = String.fromCodePoint(parseInt(body.slice(1), 10));
+    else if (body in NAMED) decoded = NAMED[body];
+    if (decoded === undefined) { out += "&"; i = amp + 1; continue; }
+    out += decoded;
+    i = semi + 1;
+  }
+  return out;
+}
+
+function stripTags(html: string): string {
+  let out = "";
+  let inTag = false;
+  let quote = "";
+  for (const ch of html) {
+    if (inTag) {
+      if (quote) { if (ch === quote) quote = ""; }
+      else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === ">") inTag = false;
+    } else if (ch === "<") inTag = true;
+    else out += ch;
+  }
+  return unescapeHtml(out);
+}
+
+type Attrs = Record<string, string | number | boolean | undefined>;
+type Child = string | SafeHtml;
+
+class SafeHtml {
+  constructor(readonly html: string) {}
+  toString(): string { return this.html; }
+}
+
+function h(tag: string, attrs: Attrs, ...children: Child[]): SafeHtml {
+  const attrText = Object.entries(attrs)
+    .filter(([, v]) => v !== undefined && v !== false)
+    .map(([k, v]) => (v === true ? ` ${k}` : ` ${k}="${escapeHtml(String(v))}"`))
+    .join("");
+  const inner = children.map((c) => (c instanceof SafeHtml ? c.html : escapeHtml(c))).join("");
+  return new SafeHtml(`<${tag}${attrText}>${inner}</${tag}>`);
+}
+
+const inputs = [
+  `<script>alert("xss")</script>`,
+  "Tom & Jerry's \"big\" day",
+  "5 > 3 && 2 < 4",
+  "Café — naïve résumé €5 🎉",
+];
+for (const s of inputs) {
+  const esc = escapeHtml(s);
+  console.log(esc);
+  console.log("  ascii:", escapeNonAscii(s));
+  console.log("  roundtrip:", unescapeHtml(esc) === s, unescapeHtml(escapeNonAscii(s)) === s);
+}
+
+const entityTests = ["&lt;b&gt;bold&lt;/b&gt;", "&copy; 2024 &mdash; all rights", "&#65;&#x42;&#X43;", "AT&T &unknown; & more", "&#128512; &hellip;"];
+for (const t of entityTests) console.log(JSON.stringify(t), "->", JSON.stringify(unescapeHtml(t)));
+
+const page = h("div", { class: "card", "data-id": 42, hidden: false, draggable: true },
+  h("h2", { title: `He said "hi" & left` }, "Results <2024>"),
+  h("p", {}, "Fish & chips cost ", h("b", {}, "£4.50"), " — a bargain"),
+  h("a", { href: "/search?q=a&b=c", target: undefined }, "link"));
+console.log(page.html);
+console.log(String(page).length, stripTags(page.html));
+console.log(stripTags(`<p class="x>y">Hello <em>world</em> &amp; <br/>friends</p>`));
+console.log(page instanceof SafeHtml, Object.keys(NAMED).length);
+console.log(new SafeHtml("<i>x</i>"));

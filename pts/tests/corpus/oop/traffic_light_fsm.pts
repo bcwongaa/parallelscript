@@ -1,0 +1,122 @@
+// skip: not supported yet: PTS1001: element access other than indexing a string
+// Traffic intersection controller: a finite state machine with timed phases and pedestrian requests.
+
+enum Light {
+  Red = "RED",
+  Yellow = "YELLOW",
+  Green = "GREEN",
+}
+
+interface Phase {
+  readonly name: string;
+  readonly ns: Light;
+  readonly ew: Light;
+  readonly walk: "ns" | "ew" | null;
+  readonly duration: number;
+}
+
+type Transition = { from: string; to: string; when?: (c: Controller) => boolean };
+
+class Controller {
+  private phases = new Map<string, Phase>();
+  private transitions: Transition[] = [];
+  private current: Phase;
+  private elapsed = 0;
+  pedestrianWaiting: "ns" | "ew" | null = null;
+  emergency = false;
+  readonly log: string[] = [];
+
+  constructor(phases: Phase[], transitions: Transition[], start: string) {
+    for (const p of phases) this.phases.set(p.name, p);
+    this.transitions = transitions;
+    this.current = this.phase(start);
+  }
+
+  private phase(name: string): Phase {
+    const p = this.phases.get(name);
+    if (!p) throw new Error(`unknown phase ${name}`);
+    return p;
+  }
+
+  get state(): Phase {
+    return this.current;
+  }
+
+  private effectiveDuration(): number {
+    const p = this.current;
+    // shorten a green if a pedestrian is waiting on the crossing direction
+    if (this.pedestrianWaiting && p.walk === null && (p.ns === Light.Green || p.ew === Light.Green)) {
+      return Math.ceil(p.duration / 2);
+    }
+    return p.duration;
+  }
+
+  tick(t: number): void {
+    if (this.emergency && this.current.name !== "ALL_RED") {
+      this.enter("ALL_RED", t, "emergency");
+      return;
+    }
+    this.elapsed++;
+    if (this.elapsed < this.effectiveDuration()) return;
+    const options = this.transitions.filter((tr) => tr.from === this.current.name);
+    const chosen = options.find((tr) => tr.when === undefined || tr.when(this));
+    if (!chosen) throw new Error(`stuck in ${this.current.name}`);
+    this.enter(chosen.to, t, "timer");
+  }
+
+  private enter(name: string, t: number, why: string): void {
+    const next = this.phase(name);
+    if (next.walk && next.walk === this.pedestrianWaiting) this.pedestrianWaiting = null;
+    this.log.push(`t=${String(t).padStart(2)} ${this.current.name.padEnd(8)} -> ${next.name.padEnd(8)} (${why})`);
+    this.current = next;
+    this.elapsed = 0;
+  }
+}
+
+const phases: Phase[] = [
+  { name: "NS_GO", ns: Light.Green, ew: Light.Red, walk: null, duration: 6 },
+  { name: "NS_WALK", ns: Light.Green, ew: Light.Red, walk: "ns", duration: 3 },
+  { name: "NS_SLOW", ns: Light.Yellow, ew: Light.Red, walk: null, duration: 2 },
+  { name: "EW_GO", ns: Light.Red, ew: Light.Green, walk: null, duration: 5 },
+  { name: "EW_WALK", ns: Light.Red, ew: Light.Green, walk: "ew", duration: 3 },
+  { name: "EW_SLOW", ns: Light.Red, ew: Light.Yellow, walk: null, duration: 2 },
+  { name: "ALL_RED", ns: Light.Red, ew: Light.Red, walk: null, duration: 4 },
+];
+const transitions: Transition[] = [
+  { from: "NS_GO", to: "NS_WALK", when: (c) => c.pedestrianWaiting === "ns" },
+  { from: "NS_GO", to: "NS_SLOW" },
+  { from: "NS_WALK", to: "NS_SLOW" },
+  { from: "NS_SLOW", to: "EW_GO" },
+  { from: "EW_GO", to: "EW_WALK", when: (c) => c.pedestrianWaiting === "ew" },
+  { from: "EW_GO", to: "EW_SLOW" },
+  { from: "EW_WALK", to: "EW_SLOW" },
+  { from: "EW_SLOW", to: "NS_GO" },
+  { from: "ALL_RED", to: "NS_GO", when: (c) => !c.emergency },
+  { from: "ALL_RED", to: "ALL_RED" },
+];
+
+const ctl = new Controller(phases, transitions, "NS_GO");
+const timeline: string[] = [];
+for (let t = 1; t <= 40; t++) {
+  if (t === 3) ctl.pedestrianWaiting = "ew";
+  if (t === 17) ctl.pedestrianWaiting = "ns";
+  if (t === 28) ctl.emergency = true;
+  if (t === 33) ctl.emergency = false;
+  ctl.tick(t);
+  const s = ctl.state;
+  timeline.push(s.ns[0] + s.ew[0]);
+}
+ctl.log.forEach((l) => console.log(l));
+console.log("NS/EW per tick:");
+for (let i = 0; i < timeline.length; i += 10) console.log(`  ${String(i + 1).padStart(2)}: ${timeline.slice(i, i + 10).join(" ")}`);
+const counts = timeline.reduce<Record<string, number>>((acc, k) => {
+  acc[k] = (acc[k] ?? 0) + 1;
+  return acc;
+}, {});
+console.log(counts);
+console.log(ctl.state, Light.Green, Object.keys(Light));
+try {
+  new Controller(phases, transitions, "BLINK");
+} catch (e) {
+  console.log(String(e));
+}

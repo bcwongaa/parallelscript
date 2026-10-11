@@ -1,0 +1,114 @@
+// A three-layer app (repository, service, controller) where each layer wraps
+// lower-level errors in its own error type and the controller maps them to
+// HTTP-like responses.
+
+class DbError extends Error {
+  constructor(message: string, readonly query: string) {
+    super(message);
+    this.name = "DbError";
+  }
+}
+
+class ServiceError extends Error {
+  constructor(message: string, readonly operation: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "ServiceError";
+  }
+}
+
+class NotFound extends ServiceError {
+  constructor(operation: string, readonly id: string) {
+    super(`${id} not found`, operation);
+    this.name = "NotFound";
+  }
+}
+
+interface Product {
+  id: string;
+  name: string;
+  stock: number;
+}
+
+class Repository {
+  private rows: Product[] = [
+    { id: "p1", name: "lamp", stock: 3 },
+    { id: "p2", name: "desk", stock: 0 },
+    { id: "p3", name: "chair", stock: 12 },
+  ];
+  queries = 0;
+
+  find(id: string): Product | undefined {
+    this.queries++;
+    const sql = `SELECT * FROM products WHERE id = '${id}'`;
+    if (id.includes("'")) throw new DbError("syntax error in SQL", sql);
+    if (this.queries > 6) throw new DbError("connection pool exhausted", sql);
+    return this.rows.find((r) => r.id === id);
+  }
+}
+
+class InventoryService {
+  constructor(private repo: Repository) {}
+
+  reserve(id: string, qty: number): Product {
+    let product: Product | undefined;
+    try {
+      product = this.repo.find(id);
+    } catch (e) {
+      throw new ServiceError(`could not load product ${id}`, "reserve", { cause: e });
+    }
+    if (product === undefined) throw new NotFound("reserve", id);
+    if (product.stock < qty) {
+      throw new ServiceError(`only ${product.stock} ${product.name}(s) left, wanted ${qty}`, "reserve");
+    }
+    product.stock -= qty;
+    return { ...product };
+  }
+}
+
+type Response = { status: number; body: string };
+
+function handle(service: InventoryService, id: string, qty: number): Response {
+  try {
+    const p = service.reserve(id, qty);
+    return { status: 200, body: `reserved ${qty} ${p.name}, ${p.stock} left` };
+  } catch (e) {
+    if (e instanceof NotFound) return { status: 404, body: e.message };
+    if (e instanceof ServiceError) {
+      if (e.cause instanceof DbError) {
+        return { status: 503, body: `${e.message} [${e.cause.name}: ${e.cause.message}]` };
+      }
+      return { status: 409, body: e.message };
+    }
+    return { status: 500, body: "internal error" };
+  }
+}
+
+const service = new InventoryService(new Repository());
+const calls: Array<[string, number]> = [
+  ["p1", 2],
+  ["p1", 2],
+  ["p9", 1],
+  ["p2", 1],
+  ["x' OR '1'='1", 1],
+  ["p3", 5],
+  ["p3", 5],
+  ["p3", 1],
+];
+
+const statusCounts: Record<number, number> = {};
+for (const [id, qty] of calls) {
+  const res = handle(service, id, qty);
+  statusCounts[res.status] = (statusCounts[res.status] ?? 0) + 1;
+  console.log(res.status, res.body);
+}
+console.log(statusCounts);
+
+try {
+  service.reserve("p1", 1);
+} catch (e) {
+  if (e instanceof ServiceError) {
+    console.log(e.name, e.operation, e instanceof NotFound, e.cause instanceof DbError);
+    const db = e.cause;
+    if (db instanceof DbError) console.log("failing query:", db.query);
+  }
+}

@@ -1,0 +1,98 @@
+type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
+
+type Change =
+  | { kind: "added"; path: string; value: Json }
+  | { kind: "removed"; path: string; value: Json }
+  | { kind: "changed"; path: string; from: Json; to: Json };
+
+function isObject(v: Json): v is { [key: string]: Json } {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function diff(a: Json, b: Json, path = "$"): Change[] {
+  if (isObject(a) && isObject(b)) {
+    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
+    return keys.flatMap((k) => {
+      const p = `${path}.${k}`;
+      if (!(k in b)) return [{ kind: "removed", path: p, value: a[k] } as Change];
+      if (!(k in a)) return [{ kind: "added", path: p, value: b[k] } as Change];
+      return diff(a[k], b[k], p);
+    });
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const out: Change[] = [];
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const p = `${path}[${i}]`;
+      if (i >= b.length) out.push({ kind: "removed", path: p, value: a[i] });
+      else if (i >= a.length) out.push({ kind: "added", path: p, value: b[i] });
+      else out.push(...diff(a[i], b[i], p));
+    }
+    return out;
+  }
+  if (a === b) return [];
+  return [{ kind: "changed", path, from: a, to: b }];
+}
+
+function describe(c: Change): string {
+  switch (c.kind) {
+    case "added":
+      return `+ ${c.path} = ${JSON.stringify(c.value)}`;
+    case "removed":
+      return `- ${c.path} (was ${JSON.stringify(c.value)})`;
+    case "changed":
+      return `~ ${c.path}: ${JSON.stringify(c.from)} -> ${JSON.stringify(c.to)}`;
+  }
+}
+
+const before: Json = JSON.parse(`{
+  "service": "billing",
+  "version": "1.4.2",
+  "replicas": 3,
+  "env": {"LOG_LEVEL": "info", "REGION": "us-east-1", "FEATURE_X": true},
+  "ports": [8080, 9090],
+  "owners": [{"name": "kai", "oncall": true}, {"name": "lu", "oncall": false}]
+}`);
+
+const after: Json = JSON.parse(`{
+  "service": "billing",
+  "version": "1.5.0",
+  "replicas": 5,
+  "env": {"LOG_LEVEL": "debug", "REGION": "us-east-1", "TIMEOUT_MS": 2500},
+  "ports": [8080],
+  "owners": [{"name": "kai", "oncall": false}, {"name": "lu", "oncall": true}, {"name": "mo", "oncall": false}],
+  "paused": null
+}`);
+
+const changes = diff(before, after);
+console.log(`${changes.length} changes`);
+for (const c of changes) console.log(describe(c));
+
+const counts = changes.reduce<Record<Change["kind"], number>>(
+  (acc, c) => {
+    acc[c.kind]++;
+    return acc;
+  },
+  { added: 0, removed: 0, changed: 0 },
+);
+console.log(counts);
+console.log(changes.filter((c) => c.kind === "changed").slice(0, 2));
+console.log(diff(before, before).length, diff([1, [2, 3]], [1, [2, 4]]));
+console.log(diff({ a: { b: { c: 1 } } }, { a: { b: { c: 1, d: [true] } } }));
+
+function apply(base: Json, cs: Change[]): Json {
+  const copy: Json = JSON.parse(JSON.stringify(base));
+  for (const c of cs) {
+    if (c.kind !== "changed" || !c.path.startsWith("$.") || c.path.includes("[")) continue;
+    const parts = c.path.slice(2).split(".");
+    let cur: Json = copy;
+    for (const part of parts.slice(0, -1)) {
+      if (isObject(cur)) cur = cur[part];
+    }
+    if (isObject(cur)) cur[parts[parts.length - 1]] = c.to;
+  }
+  return copy;
+}
+const patched = apply(before, changes);
+console.log(JSON.stringify(patched));
+console.log(diff(patched, after).map(describe));

@@ -1,0 +1,106 @@
+// Conway's Game of Life on a toroidal grid: gliders, oscillators, period detection and population stats.
+
+type Board = boolean[][];
+
+class Life {
+  private board: Board;
+  generation = 0;
+  private history = new Map<string, number>();
+
+  constructor(readonly width: number, readonly height: number, pattern: string[], at: [number, number] = [0, 0]) {
+    this.board = Array.from({ length: height }, () => new Array<boolean>(width).fill(false));
+    pattern.forEach((row, r) => {
+      [...row].forEach((ch, c) => {
+        if (ch === "O") this.board[(r + at[0]) % height][(c + at[1]) % width] = true;
+      });
+    });
+    this.history.set(this.key(), 0);
+  }
+
+  private key(): string {
+    return this.board.map((row) => row.map((b) => (b ? "1" : "0")).join("")).join("/");
+  }
+
+  neighbours(r: number, c: number): number {
+    let n = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const rr = (r + dr + this.height) % this.height;
+        const cc = (c + dc + this.width) % this.width;
+        if (this.board[rr][cc]) n++;
+      }
+    }
+    return n;
+  }
+
+  step(): number | null {
+    this.board = this.board.map((row, r) =>
+      row.map((alive, c) => {
+        const n = this.neighbours(r, c);
+        return alive ? n === 2 || n === 3 : n === 3;
+      }),
+    );
+    this.generation++;
+    const k = this.key();
+    const seen = this.history.get(k);
+    this.history.set(k, this.generation);
+    return seen === undefined ? null : this.generation - seen;
+  }
+
+  get population(): number {
+    return this.board.reduce((s, row) => s + row.filter(Boolean).length, 0);
+  }
+
+  bounds(): { top: number; left: number; bottom: number; right: number } | null {
+    let top = Infinity, left = Infinity, bottom = -Infinity, right = -Infinity;
+    this.board.forEach((row, r) => row.forEach((a, c) => {
+      if (!a) return;
+      top = Math.min(top, r);
+      bottom = Math.max(bottom, r);
+      left = Math.min(left, c);
+      right = Math.max(right, c);
+    }));
+    return Number.isFinite(top) ? { top, left, bottom, right } : null;
+  }
+
+  toString(): string {
+    return this.board.map((row) => row.map((a) => (a ? "#" : ".")).join("")).join("\n");
+  }
+}
+
+const patterns: Record<string, string[]> = {
+  blinker: ["OOO"],
+  toad: [".OOO", "OOO."],
+  beacon: ["OO..", "OO..", "..OO", "..OO"],
+  glider: [".O.", "..O", "OOO"],
+  block: ["OO", "OO"],
+  diehard: ["......O.", "OO......", ".O...OOO"],
+};
+
+for (const [name, pat] of Object.entries(patterns)) {
+  const life = new Life(12, 10, pat, [3, 2]);
+  let period: number | null = null;
+  const pops: number[] = [life.population];
+  while (period === null && life.generation < 140) {
+    period = life.step();
+    pops.push(life.population);
+  }
+  const verdict = period === null ? "no repeat within 140" : life.population === 0 ? "dies out" : `period ${period}`;
+  console.log(`${name.padEnd(8)} gen=${String(life.generation).padStart(3)} ${verdict}; peak population ${Math.max(...pops)}`);
+}
+
+const glider = new Life(8, 8, patterns.glider);
+console.log(`${glider}`);
+for (let i = 0; i < 4; i++) glider.step();
+console.log("after 4 generations, bounds:", glider.bounds());
+console.log(glider.toString());
+
+const blinker = new Life(5, 5, patterns.blinker, [2, 1]);
+const frames: string[] = [];
+for (let i = 0; i < 3; i++) {
+  frames.push(blinker.toString().split("\n").join(" "));
+  blinker.step();
+}
+console.log(frames);
+console.log(new Life(3, 3, ["O"]).bounds(), new Life(3, 3, []).bounds());

@@ -1,0 +1,135 @@
+// Getters and setters with validation: a user profile and a thermostat with derived properties.
+
+class ValidationError extends Error {
+  constructor(readonly field: string, readonly value: unknown, reason: string) {
+    super(`${field}: ${reason} (got ${JSON.stringify(value)})`);
+    this.name = "ValidationError";
+  }
+}
+
+class UserProfile {
+  private _username = "";
+  private _email = "";
+  private _age = 0;
+  private _tags: string[] = [];
+  private changes = 0;
+
+  constructor(username: string, email: string, age: number) {
+    this.username = username;
+    this.email = email;
+    this.age = age;
+    this.changes = 0;
+  }
+
+  get username(): string {
+    return this._username;
+  }
+  set username(v: string) {
+    const trimmed = v.trim();
+    if (trimmed.length < 3 || trimmed.length > 16) throw new ValidationError("username", v, "must be 3-16 chars");
+    for (const ch of trimmed) {
+      const ok = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "_";
+      if (!ok) throw new ValidationError("username", v, `invalid character '${ch}'`);
+    }
+    this._username = trimmed;
+    this.changes++;
+  }
+
+  get email(): string {
+    return this._email;
+  }
+  set email(v: string) {
+    const at = v.indexOf("@");
+    if (at < 1 || v.lastIndexOf(".") < at + 2 || v.endsWith(".")) throw new ValidationError("email", v, "not an email");
+    this._email = v.toLowerCase();
+    this.changes++;
+  }
+
+  get age(): number {
+    return this._age;
+  }
+  set age(v: number) {
+    if (!Number.isInteger(v)) throw new ValidationError("age", v, "must be an integer");
+    if (v < 13 || v > 120) throw new ValidationError("age", v, "out of range 13..120");
+    this._age = v;
+    this.changes++;
+  }
+
+  get isAdult(): boolean {
+    return this._age >= 18;
+  }
+
+  get tags(): readonly string[] {
+    return this._tags;
+  }
+  set tags(v: readonly string[]) {
+    this._tags = [...new Set(v.map((t) => t.toLowerCase()))].slice(0, 3);
+    this.changes++;
+  }
+
+  get modifications(): number {
+    return this.changes;
+  }
+}
+
+class Thermostat {
+  #celsius = 20;
+  #min: number;
+  #max: number;
+  readonly history: number[] = [];
+
+  constructor(min: number, max: number) {
+    this.#min = min;
+    this.#max = max;
+  }
+  get celsius(): number {
+    return this.#celsius;
+  }
+  set celsius(v: number) {
+    const clamped = Math.min(this.#max, Math.max(this.#min, v));
+    this.history.push(clamped);
+    this.#celsius = clamped;
+  }
+  get fahrenheit(): number {
+    return Math.round((this.#celsius * 9) / 5 + 32);
+  }
+  set fahrenheit(f: number) {
+    this.celsius = ((f - 32) * 5) / 9;
+  }
+}
+
+const user = new UserProfile("  alice_01 ", "Alice@Example.COM", 30);
+console.log(user.username, user.email, user.age, user.isAdult, user.modifications);
+
+const attempts: Array<[string, () => void]> = [
+  ["username=ab", () => (user.username = "ab")],
+  ["username=Bob!", () => (user.username = "Bob!")],
+  ["username=bob_the_builder", () => (user.username = "bob_the_builder")],
+  ["email=nope", () => (user.email = "nope")],
+  ["email=a@b.c", () => (user.email = "a@b.c")],
+  ["email=x@mail.org", () => (user.email = "x@mail.org")],
+  ["age=12", () => (user.age = 12)],
+  ["age=17.5", () => (user.age = 17.5)],
+  ["age=17", () => (user.age = 17)],
+  ["tags", () => (user.tags = ["TS", "ts", "Go", "C", "Rust"])],
+];
+for (const [label, fn] of attempts) {
+  try {
+    fn();
+    console.log(`ok    ${label}`);
+  } catch (e) {
+    if (e instanceof ValidationError) console.log(`fail  ${label.padEnd(26)} [${e.field}] ${e.message}`);
+    else throw e;
+  }
+}
+console.log(user.username, user.email, user.age, user.isAdult, user.tags, user.modifications);
+console.log(user);
+
+const t = new Thermostat(10, 30);
+t.celsius = 22.5;
+t.fahrenheit = 100;
+t.celsius -= 50;
+t.fahrenheit += 9;
+console.log(t.celsius.toFixed(2), t.fahrenheit, t.history.map((h) => h.toFixed(1)));
+console.log(t);
+console.log(Object.keys(user).length, JSON.stringify(t));

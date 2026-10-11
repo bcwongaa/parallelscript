@@ -1,0 +1,106 @@
+// Levenshtein and Damerau distances with an operation script, used for a spell suggester.
+
+type Op =
+  | { type: "match"; ch: string }
+  | { type: "sub"; from: string; to: string }
+  | { type: "ins"; ch: string }
+  | { type: "del"; ch: string };
+
+function levenshtein(a: string, b: string): { distance: number; ops: Op[] } {
+  const m = a.length;
+  const n = b.length;
+  const d: number[][] = [];
+  for (let i = 0; i <= m; i++) {
+    d.push([]);
+    for (let j = 0; j <= n; j++) d[i].push(i === 0 ? j : j === 0 ? i : 0);
+  }
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  const ops: Op[] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)) {
+      ops.push(a[i - 1] === b[j - 1] ? { type: "match", ch: a[i - 1] } : { type: "sub", from: a[i - 1], to: b[j - 1] });
+      i--;
+      j--;
+    } else if (i > 0 && d[i][j] === d[i - 1][j] + 1) {
+      ops.push({ type: "del", ch: a[--i] });
+    } else {
+      ops.push({ type: "ins", ch: b[--j] });
+    }
+  }
+  return { distance: d[m][n], ops: ops.reverse() };
+}
+
+function damerau(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[a.length][b.length];
+}
+
+function render(ops: Op[]): string {
+  return ops
+    .map((op) => {
+      switch (op.type) {
+        case "match":
+          return op.ch;
+        case "sub":
+          return `[${op.from}->${op.to}]`;
+        case "ins":
+          return `(+${op.ch})`;
+        case "del":
+          return `(-${op.ch})`;
+      }
+    })
+    .join("");
+}
+
+const pairs: [string, string][] = [
+  ["kitten", "sitting"],
+  ["flaw", "lawn"],
+  ["intention", "execution"],
+  ["abc", "acb"],
+  ["", "hello"],
+  ["same", "same"],
+];
+for (const [a, b] of pairs) {
+  const { distance, ops } = levenshtein(a, b);
+  console.log(`${a || "''"} -> ${b}: lev=${distance} dam=${damerau(a, b)}  ${render(ops)}`);
+}
+
+const dictionary = ["receive", "believe", "separate", "definitely", "necessary", "occurrence", "rhythm", "calendar", "library"];
+const typos = ["recieve", "seperate", "definately", "neccessary", "rythm", "calender", "libary", "xyz"];
+for (const typo of typos) {
+  const scored = dictionary
+    .map((w) => ({ w, d: damerau(typo, w) }))
+    .sort((x, y) => x.d - y.d || (x.w < y.w ? -1 : 1));
+  const top = scored[0];
+  const suggestion = top.d <= 2 ? top.w : null;
+  console.log(`${typo.padEnd(11)} => ${suggestion ?? "(no suggestion)"}`, suggestion ? `(distance ${top.d})` : "");
+}
+
+const detailed = levenshtein("sunday", "saturday");
+console.log(detailed.distance, detailed.ops.filter((o) => o.type !== "match"));
+const tally = detailed.ops.reduce<Record<Op["type"], number>>(
+  (acc, o) => {
+    acc[o.type]++;
+    return acc;
+  },
+  { match: 0, sub: 0, ins: 0, del: 0 },
+);
+console.log(tally);

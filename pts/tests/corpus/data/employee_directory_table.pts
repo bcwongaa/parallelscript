@@ -1,0 +1,59 @@
+interface Employee {
+  id: number;
+  first: string;
+  last: string;
+  title: string;
+  dept: string;
+  managerId: number | null;
+  hired: string;
+  salary: number;
+}
+
+const staff: Employee[] = [
+  { id: 100, first: "Grace", last: "Ng", title: "CEO", dept: "Exec", managerId: null, hired: "2015-04-01", salary: 250000 },
+  { id: 110, first: "Henry", last: "Ortiz", title: "CTO", dept: "Eng", managerId: 100, hired: "2016-01-10", salary: 210000 },
+  { id: 120, first: "Isla", last: "Park", title: "CFO", dept: "Finance", managerId: 100, hired: "2017-06-15", salary: 205000 },
+  { id: 111, first: "Jamal", last: "Quinn", title: "Engineer", dept: "Eng", managerId: 110, hired: "2019-09-01", salary: 135000 },
+  { id: 112, first: "Kira", last: "Reyes", title: "Engineer", dept: "Eng", managerId: 110, hired: "2021-03-22", salary: 128000 },
+  { id: 113, first: "Leo", last: "Sato", title: "SRE", dept: "Eng", managerId: 110, hired: "2020-11-30", salary: 140000 },
+  { id: 121, first: "Mona", last: "Tran", title: "Accountant", dept: "Finance", managerId: 120, hired: "2022-02-14", salary: 82000 },
+  { id: 122, first: "Nils", last: "Umar", title: "Analyst", dept: "Finance", managerId: 120, hired: "2023-07-03", salary: 76000 },
+];
+
+const byId = new Map(staff.map((e) => [e.id, e] as const));
+
+function chain(e: Employee): string[] {
+  const names: string[] = [];
+  let cur: Employee | undefined = e;
+  while (cur) {
+    names.push(cur.first);
+    cur = cur.managerId === null ? undefined : byId.get(cur.managerId);
+  }
+  return names;
+}
+
+console.table(staff.map((e) => ({ id: e.id, name: `${e.first} ${e.last}`, title: e.title, dept: e.dept })));
+
+const deptStats = new Map<string, { headcount: number; payroll: number }>();
+for (const e of staff) {
+  const s = deptStats.get(e.dept) ?? { headcount: 0, payroll: 0 };
+  s.headcount += 1;
+  s.payroll += e.salary;
+  deptStats.set(e.dept, s);
+}
+console.table(Object.fromEntries(deptStats));
+
+const reports = staff.filter((e) => e.managerId !== null).map((e) => ({ employee: e.first, chain: chain(e).join(" -> ") }));
+console.table(reports);
+
+console.table(
+  [...staff].sort((a, b) => a.hired.localeCompare(b.hired)).slice(0, 4).map((e) => [e.last, e.hired, e.salary]),
+);
+console.table(staff.slice(0, 3), ["first", "salary"]);
+
+const directReports = new Map<number, number>();
+for (const e of staff) if (e.managerId !== null) directReports.set(e.managerId, (directReports.get(e.managerId) ?? 0) + 1);
+for (const [mgr, n] of directReports) console.log(`${byId.get(mgr)?.first} manages ${n}`);
+console.log(chain(staff[6]));
+console.table([1, "two", { three: 3 }]);
+console.table([]);

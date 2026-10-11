@@ -1,0 +1,129 @@
+// skip: not supported yet: PTS1001: values of type Animal & Swimmer
+// Zoo with an animal hierarchy, polymorphic behaviour, feeding schedule and capability interfaces.
+
+interface Swimmer {
+  swimSpeed: number;
+}
+interface Flyer {
+  wingspan: number;
+}
+
+type Diet = "herbivore" | "carnivore" | "omnivore";
+
+abstract class Animal {
+  private static registry: Animal[] = [];
+  protected hunger = 50;
+
+  constructor(readonly name: string, readonly age: number, readonly diet: Diet) {
+    Animal.registry.push(this);
+  }
+
+  abstract speak(): string;
+  abstract dailyFoodKg(): number;
+
+  feed(kg: number): void {
+    const needed = this.dailyFoodKg();
+    this.hunger = Math.max(0, Math.round(this.hunger - (kg / needed) * 100));
+  }
+
+  get mood(): string {
+    if (this.hunger < 20) return "content";
+    if (this.hunger < 60) return "peckish";
+    return "grumpy";
+  }
+
+  introduce(): string {
+    return `${this.name} the ${this.species} (${this.age}y) says "${this.speak()}" and is ${this.mood}`;
+  }
+
+  get species(): string {
+    return "animal";
+  }
+
+  static all(): readonly Animal[] {
+    return Animal.registry;
+  }
+}
+
+class Lion extends Animal {
+  constructor(name: string, age: number, private prideSize: number) {
+    super(name, age, "carnivore");
+  }
+  speak() { return "ROAR"; }
+  dailyFoodKg() { return 7 + this.prideSize * 0.1; }
+  override get species() { return "lion"; }
+}
+
+class Penguin extends Animal implements Swimmer {
+  swimSpeed = 25;
+  constructor(name: string, age: number) {
+    super(name, age, "carnivore");
+  }
+  speak() { return "squawk"; }
+  dailyFoodKg() { return 1; }
+  override get species() { return "penguin"; }
+}
+
+class Parrot extends Animal implements Flyer {
+  wingspan = 0.9;
+  private vocabulary: string[] = [];
+  constructor(name: string, age: number) {
+    super(name, age, "herbivore");
+  }
+  learn(...words: string[]): this {
+    this.vocabulary.push(...words);
+    return this;
+  }
+  speak() { return this.vocabulary.length ? this.vocabulary.join(", ") : "..."; }
+  dailyFoodKg() { return 0.05; }
+  override get species() { return "parrot"; }
+}
+
+class Bear extends Animal implements Swimmer {
+  swimSpeed = 10;
+  constructor(name: string, age: number, readonly hibernating = false) {
+    super(name, age, "omnivore");
+  }
+  speak() { return this.hibernating ? "zzz" : "grr"; }
+  dailyFoodKg() { return this.hibernating ? 0.5 : 15; }
+  override feed(kg: number): void {
+    if (this.hibernating) return;
+    super.feed(kg);
+  }
+  override get species() { return this.hibernating ? "sleepy bear" : "bear"; }
+}
+
+function canSwim(a: Animal): a is Animal & Swimmer {
+  return "swimSpeed" in a;
+}
+function canFly(a: Animal): a is Animal & Flyer {
+  return "wingspan" in a;
+}
+
+const zoo: Animal[] = [
+  new Lion("Leo", 8, 5),
+  new Penguin("Pingu", 3),
+  new Parrot("Polly", 12).learn("hello", "cracker"),
+  new Bear("Baloo", 15),
+  new Bear("Winnie", 6, true),
+  new Parrot("Kiwi", 1),
+];
+
+zoo.forEach((a) => console.log(a.introduce()));
+console.log("swimmers:", zoo.filter(canSwim).map((a) => `${a.name}@${a.swimSpeed}km/h`));
+console.log("flyers:", zoo.filter(canFly).map((a) => [a.name, a.wingspan]));
+
+const rations: Record<Diet, number> = { herbivore: 0.03, carnivore: 5, omnivore: 12 };
+for (const a of zoo) a.feed(rations[a.diet]);
+console.log("after feeding:");
+for (const a of zoo) console.log(`  ${a.name.padEnd(7)} ${a.mood}`);
+
+const totalFood = zoo.reduce((t, a) => t + a.dailyFoodKg(), 0);
+console.log(`daily food: ${totalFood.toFixed(2)} kg`);
+const byDiet = zoo.reduce<Record<string, string[]>>((acc, a) => {
+  (acc[a.diet] ??= []).push(a.name);
+  return acc;
+}, {});
+console.log(byDiet);
+console.log(Animal.all().length === zoo.length, Animal.all()[0] === zoo[0]);
+console.log(zoo[1], zoo[3]);

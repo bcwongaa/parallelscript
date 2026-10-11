@@ -1,0 +1,62 @@
+// skip: not supported yet: PTS1001: `Object.prototype.hasOwnProperty`
+// Serializes errors for an API response. Error's own `message` and `stack`
+// are not enumerable, so JSON.stringify needs help via toJSON.
+
+class ApiError extends Error {
+  constructor(readonly status: number, message: string, readonly details: Record<string, string> = {}) {
+    super(message);
+    this.name = "ApiError";
+  }
+
+  toJSON(): object {
+    return { error: this.name, status: this.status, message: this.message, details: this.details };
+  }
+}
+
+class RawError extends Error {
+  readonly extra = 7;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+function serializeUnknown(e: unknown): string {
+  if (e instanceof ApiError) return JSON.stringify(e);
+  if (e instanceof Error) return JSON.stringify({ error: e.name, message: e.message });
+  return JSON.stringify({ error: "Unknown", value: e === undefined ? null : e });
+}
+
+const plain = new Error("plain failure");
+console.log("plain Error ->", JSON.stringify(plain));
+console.log("keys:", Object.keys(plain), "entries:", Object.entries(plain));
+console.log("message is own:", Object.prototype.hasOwnProperty.call(plain, "message"));
+
+const raw = new RawError("raw failure");
+console.log("RawError ->", JSON.stringify(raw), raw.name);
+
+const api = new ApiError(422, "validation failed", { email: "is missing", age: "must be >= 18" });
+console.log("ApiError ->", JSON.stringify(api));
+console.log(JSON.stringify(api, null, 2));
+console.log(JSON.stringify({ ok: false, errors: [api, new ApiError(404, "no such user")] }));
+
+const thrown: unknown[] = [api, plain, new TypeError("bad type"), "oops", 12, null, undefined, { custom: true }];
+for (const t of thrown) console.log(serializeUnknown(t));
+
+// Round-trip: rebuild ApiError instances from their JSON.
+interface ApiErrorJson {
+  error: string;
+  status: number;
+  message: string;
+  details: Record<string, string>;
+}
+const wire = JSON.stringify([api, new ApiError(503, "try later", { retry: "30s" })]);
+const revived = (JSON.parse(wire) as ApiErrorJson[]).map((j) => new ApiError(j.status, j.message, j.details));
+for (const r of revived) {
+  console.log(r instanceof ApiError, r.status, r.message, Object.keys(r.details).length);
+}
+console.log("same JSON after round trip:", JSON.stringify(revived) === wire);
+
+const statusText: Record<number, string> = { 404: "Not Found", 422: "Unprocessable Entity", 503: "Service Unavailable" };
+const lines = revived.concat(api).map((e) => `${e.status} ${statusText[e.status] ?? "?"}: ${e.message}`);
+console.log(lines);
+console.log(String(api), `${plain}`, raw.toString());

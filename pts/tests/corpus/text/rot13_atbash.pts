@@ -1,0 +1,96 @@
+// Classic substitution ciphers built from alphabet tables: ROT13, Atbash, keyword ciphers.
+abstract class Substitution {
+  protected readonly forward = new Map<string, string>();
+  protected readonly backward = new Map<string, string>();
+  static readonly ALPHABET = "abcdefghijklmnopqrstuvwxyz";
+
+  protected constructor(cipherAlphabet: string) {
+    const lower = Substitution.ALPHABET;
+    for (let i = 0; i < lower.length; i++) {
+      this.addPair(lower[i], cipherAlphabet[i]);
+      this.addPair(lower[i].toUpperCase(), cipherAlphabet[i].toUpperCase());
+    }
+  }
+
+  private addPair(p: string, c: string): void {
+    this.forward.set(p, c);
+    this.backward.set(c, p);
+  }
+
+  abstract get label(): string;
+
+  encode(s: string): string {
+    return [...s].map((ch) => this.forward.get(ch) ?? ch).join("");
+  }
+
+  decode(s: string): string {
+    return [...s].map((ch) => this.backward.get(ch) ?? ch).join("");
+  }
+
+  get isInvolution(): boolean {
+    for (const [p, c] of this.forward) if (this.forward.get(c) !== p) return false;
+    return true;
+  }
+}
+
+class Rot13 extends Substitution {
+  constructor() {
+    const a = Substitution.ALPHABET;
+    super(a.slice(13) + a.slice(0, 13));
+  }
+  get label(): string { return "ROT13"; }
+}
+
+class Atbash extends Substitution {
+  constructor() {
+    super([...Substitution.ALPHABET].reverse().join(""));
+  }
+  get label(): string { return "Atbash"; }
+}
+
+class Keyword extends Substitution {
+  readonly #keyword: string;
+  constructor(keyword: string) {
+    const seen = new Set<string>();
+    for (const ch of keyword.toLowerCase() + Substitution.ALPHABET) {
+      if (ch >= "a" && ch <= "z") seen.add(ch);
+    }
+    super([...seen].join(""));
+    this.#keyword = keyword;
+  }
+  get label(): string { return `Keyword(${this.#keyword})`; }
+  get table(): string { return [...this.forward.values()].slice(0, 26).join(""); }
+}
+
+const samples = [
+  "Why did the chicken cross the road?",
+  "Gb trg gb gur bgure fvqr!",
+  "Hello, World! 123",
+  "ParallelScript",
+];
+
+const ciphers: Substitution[] = [new Rot13(), new Atbash(), new Keyword("zebras"), new Keyword("Secret Key")];
+for (const c of ciphers) {
+  console.log(`== ${c.label} (involution: ${c.isInvolution})`);
+  for (const s of samples) {
+    const enc = c.encode(s);
+    console.log(`  ${s.padEnd(36)} -> ${enc.padEnd(36)} -> ${c.decode(enc) === s ? "ok" : "MISMATCH"}`);
+  }
+}
+
+const kw = new Keyword("zebras");
+console.log("keyword table:", kw.table);
+console.log(Object.keys(kw), kw instanceof Substitution, kw.label);
+
+const rot = new Rot13();
+let s = "Twice is identity";
+for (let i = 0; i < 4; i++) {
+  s = rot.encode(s);
+  console.log(i + 1, s);
+}
+
+const words = ["uryyb", "jbeyq", "nopqrst", "abjurer", "sync", "gnat"];
+const rotPairs = words.map((w) => [w, rot.encode(w)]);
+console.table(rotPairs);
+const atbashSymmetric = ["wizard", "hovel", "glow", "zoo"].filter((w) => new Atbash().encode(w) === [...w].reverse().join(""));
+console.log("atbash palindromes:", atbashSymmetric);

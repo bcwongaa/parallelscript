@@ -1,0 +1,123 @@
+// skip: not supported yet: PTS1001: a Set<string> of a string
+// Huffman coding: frequency table, tree construction with a binary heap, canonical codes,
+// encoding to a bit string, decoding, and the compression ratio.
+abstract class HuffNode {
+  constructor(readonly weight: number, readonly order: number) {}
+  abstract get isLeaf(): boolean;
+}
+
+class Leaf extends HuffNode {
+  constructor(readonly symbol: string, weight: number, order: number) {
+    super(weight, order);
+  }
+  get isLeaf(): boolean { return true; }
+}
+
+class Branch extends HuffNode {
+  constructor(readonly left: HuffNode, readonly right: HuffNode, order: number) {
+    super(left.weight + right.weight, order);
+  }
+  get isLeaf(): boolean { return false; }
+}
+
+class MinHeap<T> {
+  private items: T[] = [];
+  constructor(private readonly less: (a: T, b: T) => boolean) {}
+  get size(): number { return this.items.length; }
+  push(x: T): void {
+    this.items.push(x);
+    let i = this.items.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.less(this.items[i], this.items[p])) break;
+      [this.items[i], this.items[p]] = [this.items[p], this.items[i]];
+      i = p;
+    }
+  }
+  pop(): T {
+    const top = this.items[0];
+    const last = this.items.pop()!;
+    if (this.items.length > 0) {
+      this.items[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < this.items.length && this.less(this.items[l], this.items[m])) m = l;
+        if (r < this.items.length && this.less(this.items[r], this.items[m])) m = r;
+        if (m === i) break;
+        [this.items[i], this.items[m]] = [this.items[m], this.items[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+function buildTree(text: string): HuffNode {
+  const freq = new Map<string, number>();
+  for (const c of text) freq.set(c, (freq.get(c) ?? 0) + 1);
+  const heap = new MinHeap<HuffNode>((a, b) => a.weight < b.weight || (a.weight === b.weight && a.order < b.order));
+  let order = 0;
+  for (const [sym, w] of [...freq].sort((a, b) => (a[0] < b[0] ? -1 : 1))) heap.push(new Leaf(sym, w, order++));
+  if (heap.size === 1) return new Branch(heap.pop(), new Leaf("\0", 0, order++), order++);
+  while (heap.size > 1) heap.push(new Branch(heap.pop(), heap.pop(), order++));
+  return heap.pop();
+}
+
+function codeLengths(node: HuffNode, depth = 0, out = new Map<string, number>()): Map<string, number> {
+  if (node instanceof Leaf) out.set(node.symbol, Math.max(1, depth));
+  else if (node instanceof Branch) {
+    codeLengths(node.left, depth + 1, out);
+    codeLengths(node.right, depth + 1, out);
+  }
+  return out;
+}
+
+function canonical(lengths: Map<string, number>): Map<string, string> {
+  const syms = [...lengths].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+  const codes = new Map<string, string>();
+  let code = 0, prevLen = 0;
+  for (const [sym, len] of syms) {
+    code <<= len - prevLen;
+    codes.set(sym, code.toString(2).padStart(len, "0"));
+    code++;
+    prevLen = len;
+  }
+  return codes;
+}
+
+function decode(bits: string, codes: Map<string, string>): string {
+  const reverse = new Map([...codes].map(([s, c]) => [c, s] as const));
+  let out = "", cur = "";
+  for (const b of bits) {
+    cur += b;
+    const sym = reverse.get(cur);
+    if (sym !== undefined) { out += sym; cur = ""; }
+  }
+  if (cur) throw new Error(`dangling bits: ${cur}`);
+  return out;
+}
+
+const samples = ["abracadabra", "mississippi river", "aaaaaaaa", "the quick brown fox jumps over the lazy dog", "ParallelScript compiles TypeScript to C"];
+for (const text of samples) {
+  const tree = buildTree(text);
+  const codes = canonical(codeLengths(tree));
+  const bits = [...text].map((c) => codes.get(c) ?? "").join("");
+  const ok = decode(bits, codes) === text;
+  const entropy = [...new Set(text)].reduce((h, c) => {
+    const p = [...text].filter((x) => x === c).length / text.length;
+    return h - p * Math.log2(p);
+  }, 0);
+  console.log(`${JSON.stringify(text)}`);
+  console.log(`  ${text.length * 8} -> ${bits.length} bits (${((bits.length / (text.length * 8)) * 100).toFixed(1)}%), ${(bits.length / text.length).toFixed(3)} bits/sym, entropy ${entropy.toFixed(3)}, ok=${ok}`);
+}
+const tree = buildTree("abracadabra");
+console.log(tree.weight, tree.isLeaf, tree instanceof Branch);
+const codes = canonical(codeLengths(tree));
+console.log(codes);
+console.log(Object.fromEntries(codeLengths(buildTree("mississippi river"))));
+console.log(decode("0101100", codes));
+try { console.log(decode("011", codes)); } catch (e) { console.log(String(e)); }
+const leaf = new Leaf("z", 3, 0);
+console.log(leaf, leaf.isLeaf);

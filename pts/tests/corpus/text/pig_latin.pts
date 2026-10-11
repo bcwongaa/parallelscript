@@ -1,0 +1,92 @@
+// A Pig Latin translator that preserves capitalization and punctuation, handles
+// "qu" and "y" clusters, hyphenated words, and translates back when unambiguous.
+const VOWELS = new Set(["a", "e", "i", "o", "u"]);
+
+interface Token {
+  kind: "word" | "other";
+  text: string;
+}
+
+function tokenize(s: string): Token[] {
+  const tokens: Token[] = [];
+  let cur = "";
+  const isLetter = (c: string) => c.toLowerCase() !== c.toUpperCase() || c === "'";
+  for (const c of s) {
+    if (isLetter(c)) cur += c;
+    else {
+      if (cur) tokens.push({ kind: "word", text: cur });
+      cur = "";
+      const last = tokens[tokens.length - 1];
+      if (last && last.kind === "other") last.text += c;
+      else tokens.push({ kind: "other", text: c });
+    }
+  }
+  if (cur) tokens.push({ kind: "word", text: cur });
+  return tokens;
+}
+
+function consonantCluster(word: string): number {
+  const w = word.toLowerCase();
+  let i = 0;
+  while (i < w.length) {
+    const c = w[i];
+    if (VOWELS.has(c)) break;
+    if (c === "y" && i > 0) break;
+    if (c === "q" && w[i + 1] === "u") { i += 2; break; }
+    i++;
+  }
+  return i;
+}
+
+function matchCase(original: string, translated: string): string {
+  if (original.length > 1 && original === original.toUpperCase()) return translated.toUpperCase();
+  if (original[0] === original[0].toUpperCase()) return translated[0].toUpperCase() + translated.slice(1).toLowerCase();
+  return translated.toLowerCase();
+}
+
+function translateWord(word: string): string {
+  const n = consonantCluster(word);
+  const lower = word.toLowerCase();
+  const result = n === 0 ? lower + "way" : n >= lower.length ? lower + "ay" : lower.slice(n) + lower.slice(0, n) + "ay";
+  return matchCase(word, result);
+}
+
+function toPigLatin(sentence: string): string {
+  return tokenize(sentence).map((t) => (t.kind === "word" ? translateWord(t.text) : t.text)).join("");
+}
+
+function untranslateWord(word: string): string[] {
+  const lower = word.toLowerCase();
+  if (!lower.endsWith("ay")) return [word];
+  const stem = lower.slice(0, -2);
+  const candidates = new Set<string>();
+  if (stem.endsWith("w")) candidates.add(stem.slice(0, -1));
+  for (let k = 1; k <= 3 && k <= stem.length; k++) {
+    const moved = stem.slice(stem.length - k);
+    const rest = stem.slice(0, stem.length - k);
+    const original = moved + rest;
+    if (consonantCluster(original) === k) candidates.add(original);
+  }
+  return [...candidates].filter((c) => translateWord(c) === lower).map((c) => matchCase(word, c));
+}
+
+const sentences = [
+  "The quick brown fox jumps over the lazy dog.",
+  "Hello, World! Are you ready?",
+  "Yellow rhythm: square queen, style & my eye.",
+  "NASA launched it; I'm SO excited.",
+  "A well-known e-mail from Xavier Quinn.",
+  "",
+];
+for (const s of sentences) console.log(`${JSON.stringify(s)}\n  -> ${JSON.stringify(toPigLatin(s))}`);
+
+const sampleWords = ["pig", "latin", "banana", "smile", "string", "eat", "omelet", "are", "quiet", "squeal", "yes", "rhythm", "my", "Chris", "TV"];
+const table = sampleWords.map((w) => ({ word: w, cluster: consonantCluster(w), pig: translateWord(w) }));
+console.table(table);
+
+for (const pig of ["igpay", "ananabay", "eatway", "ingstray", "uietqay", "Ellohay", "away"]) {
+  console.log(pig, "=>", untranslateWord(pig));
+}
+console.log(tokenize("Wait... what?!"));
+const roundTrips = sampleWords.filter((w) => untranslateWord(translateWord(w)).map((x) => x.toLowerCase()).includes(w.toLowerCase()));
+console.log(`${roundTrips.length}/${sampleWords.length} words recover their original`);

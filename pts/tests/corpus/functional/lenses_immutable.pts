@@ -1,0 +1,109 @@
+// skip: not supported yet: PTS1001: calling `Object.isFrozen`
+// Functional lenses for immutable updates of nested state.
+
+interface Lens<S, A> {
+  get: (s: S) => A;
+  set: (a: A, s: S) => S;
+}
+
+const lens = <S, A>(get: (s: S) => A, set: (a: A, s: S) => S): Lens<S, A> => ({ get, set });
+
+function prop<S, K extends keyof S>(key: K): Lens<S, S[K]> {
+  return lens(
+    (s) => s[key],
+    (a, s) => ({ ...s, [key]: a }),
+  );
+}
+
+function index<T>(i: number): Lens<T[], T> {
+  return lens(
+    (xs) => {
+      if (i < 0 || i >= xs.length) throw new RangeError(`index ${i} out of bounds (length ${xs.length})`);
+      return xs[i];
+    },
+    (a, xs) => xs.map((x, j) => (j === i ? a : x)),
+  );
+}
+
+function composeL<A, B, C>(outer: Lens<A, B>, inner: Lens<B, C>): Lens<A, C> {
+  return lens(
+    (a) => inner.get(outer.get(a)),
+    (c, a) => outer.set(inner.set(c, outer.get(a)), a),
+  );
+}
+
+const over = <S, A>(l: Lens<S, A>, f: (a: A) => A) => (s: S): S => l.set(f(l.get(s)), s);
+const view = <S, A>(l: Lens<S, A>) => (s: S): A => l.get(s);
+const setL = <S, A>(l: Lens<S, A>, a: A) => (s: S): S => l.set(a, s);
+
+interface Address {
+  street: string;
+  city: string;
+  geo: { lat: number; lng: number };
+}
+interface Employee {
+  name: string;
+  salary: number;
+  address: Address;
+  skills: string[];
+}
+interface Company {
+  name: string;
+  ceo: Employee;
+  staff: Employee[];
+}
+
+const acme: Company = {
+  name: "Acme",
+  ceo: { name: "Wile", salary: 250000, address: { street: "1 Mesa Rd", city: "Phoenix", geo: { lat: 33.45, lng: -112.07 } }, skills: ["planning"] },
+  staff: [
+    { name: "Road", salary: 90000, address: { street: "9 Canyon", city: "Tucson", geo: { lat: 32.22, lng: -110.97 } }, skills: ["running"] },
+    { name: "Bugs", salary: 120000, address: { street: "3 Burrow", city: "Albuquerque", geo: { lat: 35.08, lng: -106.65 } }, skills: ["tunnels", "carrots"] },
+  ],
+};
+
+const ceoL = prop<Company, "ceo">("ceo");
+const staffL = prop<Company, "staff">("staff");
+const salaryL = prop<Employee, "salary">("salary");
+const addressL = prop<Employee, "address">("address");
+const cityL = prop<Address, "city">("city");
+const geoL = prop<Address, "geo">("geo");
+const latL = prop<{ lat: number; lng: number }, "lat">("lat");
+const skillsL = prop<Employee, "skills">("skills");
+
+const ceoCity = composeL(composeL(ceoL, addressL), cityL);
+const ceoSalary = composeL(ceoL, salaryL);
+const secondStaff = composeL(staffL, index<Employee>(1));
+const secondStaffLat = composeL(composeL(composeL(secondStaff, addressL), geoL), latL);
+
+console.log("ceo city:", view(ceoCity)(acme));
+const moved = setL(ceoCity, "Tempe")(acme);
+console.log("moved ceo city:", view(ceoCity)(moved), "original:", view(ceoCity)(acme));
+console.log("shared staff array:", moved.staff === acme.staff, "ceo replaced:", moved.ceo !== acme.ceo);
+
+const raised = over(ceoSalary, (s) => Math.round(s * 1.1))(acme);
+console.log("raise:", acme.ceo.salary, "->", raised.ceo.salary);
+
+const nudged = over(secondStaffLat, (lat) => +(lat + 0.01).toFixed(2))(acme);
+console.log("bugs lat:", view(secondStaffLat)(acme), "->", view(secondStaffLat)(nudged));
+console.log("first staff untouched:", nudged.staff[0] === acme.staff[0], "second replaced:", nudged.staff[1] !== acme.staff[1]);
+
+const addSkill = (skill: string) => over(composeL(secondStaff, skillsL), (ss) => [...ss, skill]);
+const learned = addSkill("disguises")(addSkill("puns")(acme));
+console.log(view(composeL(secondStaff, skillsL))(learned), acme.staff[1].skills);
+
+// Apply a raise to every staff member using a traversal-like helper
+const everyStaff = (f: (e: Employee) => Employee) => over(staffL, (xs) => xs.map(f));
+const bonusYear = everyStaff(over(salaryL, (s) => s + 5000));
+const after = bonusYear(acme);
+console.log(after.staff.map((e) => `${e.name}:${e.salary}`), acme.staff.map((e) => e.salary));
+
+try {
+  view(composeL(staffL, index<Employee>(5)))(acme);
+} catch (e) {
+  console.log(e instanceof RangeError ? `RangeError: ${e.message}` : e);
+}
+
+console.log(JSON.stringify(learned.staff[1]));
+console.log(Object.isFrozen(acme), Object.keys(moved));
+console.log(nudged.staff[1].address);

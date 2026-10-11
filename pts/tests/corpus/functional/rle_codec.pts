@@ -1,0 +1,82 @@
+// skip: not supported yet: PTS1001: `new Array` of type value
+// Run-length encoding and decoding written as pure functions with reduce and recursion.
+
+type Run<T> = readonly [value: T, count: number];
+
+function encode<T>(xs: readonly T[], eq: (a: T, b: T) => boolean = (a, b) => a === b): Run<T>[] {
+  return xs.reduce<Run<T>[]>((runs, x) => {
+    const last = runs.at(-1);
+    if (last !== undefined && eq(last[0], x)) return [...runs.slice(0, -1), [last[0], last[1] + 1] as const];
+    return [...runs, [x, 1] as const];
+  }, []);
+}
+
+const decode = <T>(runs: readonly Run<T>[]): T[] => runs.flatMap(([v, n]) => Array<T>(n).fill(v));
+
+const encodeString = (s: string): string =>
+  encode(s.split(""))
+    .map(([c, n]) => (n > 1 ? `${n}${c}` : c))
+    .join("");
+
+function decodeString(s: string): string {
+  let out = "";
+  let digits = "";
+  for (const ch of s) {
+    if (ch >= "0" && ch <= "9") digits += ch;
+    else {
+      out += ch.repeat(digits === "" ? 1 : Number(digits));
+      digits = "";
+    }
+  }
+  if (digits !== "") throw new SyntaxError(`dangling count "${digits}" at end of input`);
+  return out;
+}
+
+const samples = ["WWWWWWWWWWWWBWWWWWWWWWWWWBBBWWWWWWWWWWWWWWWWWWWWWWWWBWWWWWWWWWWWWWW", "abc", "aabcccccaaa", "", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"];
+for (const s of samples) {
+  const enc = encodeString(s);
+  const dec = decodeString(enc);
+  const ratio = s.length ? (enc.length / s.length).toFixed(2) : "n/a";
+  console.log(`${JSON.stringify(enc).padEnd(24)} len ${String(s.length).padStart(2)} -> ${String(enc.length).padStart(2)} ratio ${ratio} roundtrip=${dec === s}`);
+}
+
+for (const bad of ["3a2", "12"]) {
+  try {
+    console.log(decodeString(bad));
+  } catch (e) {
+    console.log(`${(e as Error).name}: ${(e as Error).message}`);
+  }
+}
+
+// Numeric runs in sensor data, with a tolerance-based equality
+const readings = [20.0, 20.1, 19.9, 20.0, 25.3, 25.2, 25.4, 18.0, 18.0, 30.1];
+const tolerant = encode(readings, (a, b) => Math.abs(a - b) <= 0.25);
+console.log(tolerant);
+console.log("plateaus:", tolerant.filter(([, n]) => n >= 3).map(([v, n]) => `${v}x${n}`));
+
+// Runs of objects, keyed by a field
+interface Event {
+  kind: "click" | "scroll" | "key";
+  t: number;
+}
+const events: Event[] = [
+  { kind: "click", t: 1 }, { kind: "click", t: 2 }, { kind: "scroll", t: 3 },
+  { kind: "scroll", t: 4 }, { kind: "scroll", t: 5 }, { kind: "key", t: 6 }, { kind: "click", t: 7 },
+];
+const eventRuns = encode(events, (a, b) => a.kind === b.kind);
+console.log(eventRuns.map(([e, n]) => `${e.kind}(${n}) from t=${e.t}`).join(", "));
+
+// Round trip on arrays, plus a bit-packing view of runs
+const bits = [0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0];
+const bitRuns = encode(bits);
+console.log(JSON.stringify(bitRuns), decode(bitRuns).join("") === bits.join(""));
+const packed = bitRuns.map(([b, n]) => (n << 1) | b);
+console.log("packed:", packed, "unpacked:", decode(packed.map((p) => [p & 1, p >> 1] as const)).join(""));
+
+// Longest run per character in a text
+const text = "bookkeeper committee mississippi balloon";
+const longest = new Map<string, number>();
+for (const [c, n] of encode(text.split(""))) {
+  if (c !== " " && n > (longest.get(c) ?? 0)) longest.set(c, n);
+}
+console.log([...longest].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)));

@@ -1,0 +1,100 @@
+// Searches a seating chart with labelled break/continue in nested loops,
+// throwing when a booking request can never be satisfied.
+
+class BookingError extends Error {
+  constructor(readonly request: number, message: string) {
+    super(message);
+    this.name = "BookingError";
+  }
+}
+
+const ROWS = 6;
+const COLS = 10;
+// "." free, "X" taken, "#" broken seat
+const plan = [
+  "..XX..XX..",
+  "XXXX..XXXX",
+  "..#.......",
+  "XXXXXXXXXX",
+  ".....#....",
+  "XX......XX",
+];
+const seats: string[][] = plan.map((row) => row.split(""));
+
+function findBlock(size: number, avoidRows: number[]): [number, number] | null {
+  let found: [number, number] | null = null;
+  rows: for (let r = 0; r < ROWS; r++) {
+    if (avoidRows.includes(r)) continue rows;
+    cols: for (let c = 0; c + size <= COLS; c++) {
+      for (let k = 0; k < size; k++) {
+        if (seats[r][c + k] !== ".") {
+          continue cols;
+        }
+      }
+      found = [r, c];
+      break rows;
+    }
+  }
+  return found;
+}
+
+function book(request: number, size: number, avoidRows: number[] = []): string {
+  if (size <= 0 || size > COLS) throw new BookingError(request, `group size ${size} is impossible`);
+  const pos = findBlock(size, avoidRows);
+  if (pos === null) throw new BookingError(request, `no block of ${size} free seats`);
+  const [r, c] = pos;
+  for (let k = 0; k < size; k++) seats[r][c + k] = String.fromCharCode(65 + (request % 26));
+  return `row ${r + 1}, seats ${c + 1}-${c + size}`;
+}
+
+const requests: Array<[number, number[]]> = [[4, []], [2, [0]], [6, []], [11, []], [5, []], [3, [2, 4]], [8, []], [0, []], [2, []]];
+const outcome: Record<string, string> = {};
+requests.forEach(([size, avoid], i) => {
+  try {
+    outcome[`req${i}`] = book(i, size, avoid);
+  } catch (e) {
+    if (!(e instanceof BookingError)) throw e;
+    outcome[`req${i}`] = `FAILED: ${e.message}`;
+  }
+});
+console.log(outcome);
+for (const row of seats) console.log(row.join(" "));
+
+// Count free seats, skipping broken seats and stopping each row at the first
+// fully taken stretch of 4.
+let free = 0;
+const perRow: number[] = [];
+scan: for (const row of seats) {
+  let rowFree = 0;
+  let takenRun = 0;
+  for (const s of row) {
+    if (s === "#") continue;
+    if (s !== ".") {
+      takenRun++;
+      if (takenRun === 4) {
+        perRow.push(rowFree);
+        free += rowFree;
+        continue scan;
+      }
+      continue;
+    }
+    takenRun = 0;
+    rowFree++;
+  }
+  perRow.push(rowFree);
+  free += rowFree;
+}
+console.log("free seats counted:", free, perRow);
+
+let firstBroken: string | undefined;
+search: {
+  for (let r = 0; r < ROWS; r++) {
+    const c = seats[r].indexOf("#");
+    if (c >= 0) {
+      firstBroken = `${r + 1}:${c + 1}`;
+      break search;
+    }
+  }
+  firstBroken = "none";
+}
+console.log("first broken seat at", firstBroken);

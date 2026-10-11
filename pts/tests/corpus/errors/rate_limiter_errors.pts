@@ -1,0 +1,91 @@
+// A token-bucket rate limiter on a simulated clock that throws
+// RateLimitError with a retry-after hint.
+
+class RateLimitError extends Error {
+  constructor(readonly client: string, readonly retryAfterMs: number) {
+    super(`rate limit exceeded for ${client}, retry after ${retryAfterMs}ms`);
+    this.name = "RateLimitError";
+  }
+}
+
+class QuotaExhaustedError extends Error {
+  constructor(readonly client: string, readonly used: number) {
+    super(`daily quota of ${used} requests used up by ${client}`);
+    this.name = "QuotaExhaustedError";
+  }
+}
+
+class Bucket {
+  tokens: number;
+  lastRefill: number;
+  used = 0;
+  constructor(readonly capacity: number, now: number) {
+    this.tokens = capacity;
+    this.lastRefill = now;
+  }
+}
+
+class RateLimiter {
+  private buckets = new Map<string, Bucket>();
+  constructor(
+    private readonly capacity: number,
+    private readonly refillPerSec: number,
+    private readonly dailyQuota: number,
+  ) {}
+
+  take(client: string, now: number): number {
+    let b = this.buckets.get(client);
+    if (!b) {
+      b = new Bucket(this.capacity, now);
+      this.buckets.set(client, b);
+    }
+    const elapsed = now - b.lastRefill;
+    b.tokens = Math.min(this.capacity, b.tokens + (elapsed / 1000) * this.refillPerSec);
+    b.lastRefill = now;
+    if (b.used >= this.dailyQuota) throw new QuotaExhaustedError(client, b.used);
+    if (b.tokens < 1) {
+      const wait = Math.ceil(((1 - b.tokens) / this.refillPerSec) * 1000);
+      throw new RateLimitError(client, wait);
+    }
+    b.tokens -= 1;
+    b.used++;
+    return Math.floor(b.tokens);
+  }
+
+  stats(): Record<string, { used: number; tokens: string }> {
+    const out: Record<string, { used: number; tokens: string }> = {};
+    for (const [k, b] of this.buckets) out[k] = { used: b.used, tokens: b.tokens.toFixed(2) };
+    return out;
+  }
+}
+
+const limiter = new RateLimiter(3, 2, 8);
+const traffic: Array<[number, string]> = [
+  [0, "alice"], [10, "alice"], [20, "alice"], [30, "alice"], [40, "bob"],
+  [300, "alice"], [520, "alice"], [530, "alice"], [1500, "alice"], [1510, "alice"],
+  [1520, "alice"], [1530, "alice"], [4000, "alice"], [4010, "alice"], [4020, "bob"],
+  [9000, "alice"], [9001, "alice"],
+];
+
+const outcomes = { ok: 0, limited: 0, quota: 0 };
+const retryHints: number[] = [];
+for (const [t, client] of traffic) {
+  try {
+    const left = limiter.take(client, t);
+    outcomes.ok++;
+    console.log(`t=${String(t).padStart(4)} ${client.padEnd(5)} ok (${left} left)`);
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      outcomes.limited++;
+      retryHints.push(e.retryAfterMs);
+      console.log(`t=${String(t).padStart(4)} ${client.padEnd(5)} 429 retry-after=${e.retryAfterMs}`);
+    } else if (e instanceof QuotaExhaustedError) {
+      outcomes.quota++;
+      console.log(`t=${String(t).padStart(4)} ${client.padEnd(5)} quota: ${e.message}`);
+    } else {
+      throw e;
+    }
+  }
+}
+console.log(outcomes, retryHints);
+console.log(limiter.stats());

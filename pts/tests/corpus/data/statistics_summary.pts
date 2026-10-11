@@ -1,0 +1,102 @@
+// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
+class Stats {
+  private readonly sorted: number[];
+
+  constructor(private readonly values: number[]) {
+    if (values.length === 0) throw new RangeError("Stats needs at least one value");
+    this.sorted = [...values].sort((a, b) => a - b);
+  }
+
+  get count(): number {
+    return this.values.length;
+  }
+
+  get sum(): number {
+    return this.values.reduce((a, b) => a + b, 0);
+  }
+
+  get mean(): number {
+    return this.sum / this.count;
+  }
+
+  get median(): number {
+    return this.percentile(50);
+  }
+
+  get modes(): number[] {
+    const freq = new Map<number, number>();
+    for (const v of this.values) freq.set(v, (freq.get(v) ?? 0) + 1);
+    const top = Math.max(...freq.values());
+    return [...freq].filter(([, n]) => n === top).map(([v]) => v).sort((a, b) => a - b);
+  }
+
+  variance(sample = false): number {
+    const m = this.mean;
+    const ss = this.values.reduce((acc, v) => acc + (v - m) ** 2, 0);
+    return ss / (this.count - (sample ? 1 : 0));
+  }
+
+  stddev(sample = false): number {
+    return Math.sqrt(this.variance(sample));
+  }
+
+  percentile(p: number): number {
+    const idx = (p / 100) * (this.sorted.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return this.sorted[lo];
+    return this.sorted[lo] + (this.sorted[hi] - this.sorted[lo]) * (idx - lo);
+  }
+
+  get min(): number {
+    return this.sorted[0];
+  }
+
+  get max(): number {
+    return this.sorted[this.sorted.length - 1];
+  }
+
+  zScores(): number[] {
+    const m = this.mean;
+    const sd = this.stddev();
+    return this.values.map((v) => Number(((v - m) / sd).toFixed(3)));
+  }
+
+  outliers(): number[] {
+    const q1 = this.percentile(25);
+    const q3 = this.percentile(75);
+    const iqr = q3 - q1;
+    return this.values.filter((v) => v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr);
+  }
+}
+
+const responseTimes = [120, 98, 143, 101, 99, 250, 110, 98, 132, 104, 98, 1020, 115, 127, 101];
+const s = new Stats(responseTimes);
+console.log("count=%d sum=%d", s.count, s.sum);
+console.log("mean:", s.mean.toFixed(3));
+console.log("median:", s.median, "modes:", s.modes);
+console.log("min/max:", s.min, s.max);
+console.log("variance pop:", s.variance().toFixed(2), "sample:", s.variance(true).toFixed(2));
+console.log("stddev pop:", s.stddev().toFixed(4), "sample:", s.stddev(true).toFixed(4));
+for (const p of [10, 25, 50, 75, 90, 95, 99]) {
+  console.log(`p${String(p).padStart(2, "0")} = ${s.percentile(p).toFixed(1)}`);
+}
+console.log("z-scores:", s.zScores());
+console.log("outliers:", s.outliers());
+
+const trimmed = new Stats(responseTimes.filter((v) => !s.outliers().includes(v)));
+console.log("trimmed mean:", trimmed.mean, "trimmed sd:", trimmed.stddev());
+
+const scores = [3.5, 4, 4, 2.5, 5, 3.5, 4.5, 3, 4, 3.5];
+const t = new Stats(scores);
+console.log({ mean: t.mean, median: t.median, modes: t.modes, sd: Number(t.stddev().toFixed(5)) });
+
+try {
+  new Stats([]);
+} catch (e) {
+  if (e instanceof RangeError) console.log("caught:", e.message);
+}
+
+const single = new Stats([42]);
+console.log(single.mean, single.median, single.stddev(), single.stddev(true));
+console.log(single);

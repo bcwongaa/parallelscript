@@ -1,0 +1,128 @@
+// skip: not supported yet: PTS1001: overriding `Auction.validate` with other parameter or result types
+// Auction house: English and sealed-bid (Vickrey) auctions sharing an abstract base, with bidders and budgets.
+
+class BidRejected extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "BidRejected";
+  }
+}
+
+class Bidder {
+  private committed = 0;
+  readonly won: string[] = [];
+  constructor(readonly name: string, readonly budget: number) {}
+  get available(): number {
+    return this.budget - this.committed;
+  }
+  commit(amount: number, lot: string): void {
+    this.committed += amount;
+    this.won.push(lot);
+  }
+}
+
+interface Bid {
+  bidder: Bidder;
+  amount: number;
+  seq: number;
+}
+
+abstract class Auction {
+  protected bids: Bid[] = [];
+  protected closed = false;
+  private seq = 0;
+
+  constructor(readonly lot: string, readonly reserve: number) {}
+
+  placeBid(bidder: Bidder, amount: number): void {
+    if (this.closed) throw new BidRejected(`${this.lot} is closed`);
+    if (amount > bidder.available) throw new BidRejected(`${bidder.name} cannot afford ${amount}`);
+    this.validate(bidder, amount);
+    this.bids.push({ bidder, amount, seq: this.seq++ });
+  }
+
+  protected abstract validate(bidder: Bidder, amount: number): void;
+  protected abstract price(sorted: Bid[]): number;
+
+  close(): { lot: string; winner: string | null; price: number; bids: number } {
+    this.closed = true;
+    const sorted = [...this.bids].sort((a, b) => b.amount - a.amount || a.seq - b.seq);
+    const top = sorted[0];
+    if (top === undefined || top.amount < this.reserve) {
+      return { lot: this.lot, winner: null, price: 0, bids: this.bids.length };
+    }
+    const price = this.price(sorted);
+    top.bidder.commit(price, this.lot);
+    return { lot: this.lot, winner: top.bidder.name, price, bids: this.bids.length };
+  }
+
+  get kind(): string {
+    return this instanceof EnglishAuction ? "english" : "sealed";
+  }
+}
+
+class EnglishAuction extends Auction {
+  constructor(lot: string, reserve: number, private increment: number) {
+    super(lot, reserve);
+  }
+  get highest(): number {
+    return this.bids.reduce((m, b) => Math.max(m, b.amount), 0);
+  }
+  protected validate(bidder: Bidder, amount: number): void {
+    const min = this.bids.length ? this.highest + this.increment : this.reserve;
+    if (amount < min) throw new BidRejected(`${bidder.name} bid ${amount} below minimum ${min}`);
+    const last = this.bids.at(-1);
+    if (last && last.bidder === bidder) throw new BidRejected(`${bidder.name} already leads`);
+  }
+  protected price(sorted: Bid[]): number {
+    return sorted[0].amount;
+  }
+}
+
+class SealedSecondPrice extends Auction {
+  private seen = new Set<Bidder>();
+  protected validate(bidder: Bidder): void {
+    if (this.seen.has(bidder)) throw new BidRejected(`${bidder.name} already submitted a sealed bid`);
+    this.seen.add(bidder);
+  }
+  protected price(sorted: Bid[]): number {
+    // winner pays the second-highest bid, or the reserve
+    return Math.max(this.reserve, sorted[1]?.amount ?? 0);
+  }
+}
+
+const ann = new Bidder("ann", 1000);
+const ben = new Bidder("ben", 600);
+const cal = new Bidder("cal", 1500);
+const bidders = [ann, ben, cal];
+
+const vase = new EnglishAuction("vase", 100, 25);
+const clock = new SealedSecondPrice("clock", 200);
+const lamp = new EnglishAuction("lamp", 500, 50);
+const rug = new SealedSecondPrice("rug", 50);
+
+const actions: [Auction, Bidder, number][] = [
+  [vase, ann, 100], [vase, ben, 110], [vase, ben, 125], [vase, ben, 150], [vase, cal, 300], [vase, ann, 325],
+  [clock, ann, 400], [clock, ben, 450], [clock, cal, 380], [clock, ann, 500],
+  [lamp, ben, 450], [lamp, ben, 700],
+  [rug, cal, 75],
+];
+for (const [auction, bidder, amount] of actions) {
+  try {
+    auction.placeBid(bidder, amount);
+    console.log(`${auction.lot.padEnd(5)} ${bidder.name} bids ${amount}`);
+  } catch (e) {
+    if (e instanceof BidRejected) console.log(`${auction.lot.padEnd(5)} rejected: ${e.reason}`);
+    else throw e;
+  }
+}
+const results = [vase, clock, lamp, rug].map((a) => ({ ...a.close(), kind: a.kind }));
+console.table(results);
+try {
+  vase.placeBid(cal, 999);
+} catch (e) {
+  console.log(String(e));
+}
+for (const b of bidders) console.log(`${b.name}: won ${JSON.stringify(b.won)}, ${b.available} left of ${b.budget}`);
+console.log(results.filter((r) => r.winner !== null).reduce((s, r) => s + r.price, 0), vase.highest);
+console.log(ann);

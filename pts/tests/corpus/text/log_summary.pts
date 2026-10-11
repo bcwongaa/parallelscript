@@ -1,0 +1,104 @@
+// skip: not supported yet: PTS1001: spreading a {user: string} | {} into an object
+// Parses web-server style log lines and produces a summary report: status classes,
+// slowest endpoints, per-hour traffic, error details and malformed lines.
+enum Level { DEBUG = "DEBUG", INFO = "INFO", WARN = "WARN", ERROR = "ERROR" }
+
+interface LogEntry {
+  timestamp: string;
+  hour: number;
+  level: Level;
+  method: string;
+  path: string;
+  status: number;
+  ms: number;
+  user?: string;
+}
+
+class MalformedLine extends Error {
+  constructor(readonly lineNo: number, readonly reason: string) {
+    super(`line ${lineNo}: ${reason}`);
+  }
+}
+
+const LOG = `2024-03-10T08:01:12Z INFO GET /api/users 200 35ms user=alice
+2024-03-10T08:03:40Z INFO POST /api/login 200 120ms user=bob
+2024-03-10T08:15:02Z WARN GET /api/users/42 404 8ms
+2024-03-10T09:00:00Z ERROR POST /api/orders 500 1520ms user=carol
+2024-03-10T09:02:31Z INFO GET /static/app.js 304 2ms
+this line is garbage
+2024-03-10T09:10:10Z INFO GET /api/users 200 41ms user=alice
+2024-03-10T09:45:59Z DEBUG GET /healthz 200 1ms
+2024-03-10T10:05:00Z ERROR GET /api/reports 503 3001ms user=dave
+2024-03-10T10:06:12Z INFO PUT /api/users/7 204 66ms user=bob
+2024-03-10T10:07:00Z TRACE GET /x 200 1ms
+2024-03-10T10:30:45Z WARN POST /api/login 401 95ms user=mallory
+2024-03-10T10:31:02Z WARN POST /api/login 401 90ms user=mallory
+2024-03-10T11:59:59Z INFO GET /api/users 200 abc
+2024-03-10T11:00:01Z INFO DELETE /api/orders/9 200 210ms user=carol`;
+
+function parseLine(line: string, lineNo: number): LogEntry {
+  const parts = line.split(" ");
+  if (parts.length < 6) throw new MalformedLine(lineNo, `expected at least 6 fields, got ${parts.length}`);
+  const [timestamp, levelText, method, path, statusText, msText, ...extra] = parts;
+  if (!(Object.values(Level) as string[]).includes(levelText)) throw new MalformedLine(lineNo, `unknown level ${levelText}`);
+  if (!msText.endsWith("ms") || Number.isNaN(Number(msText.slice(0, -2)))) throw new MalformedLine(lineNo, `bad duration '${msText}'`);
+  const userField = extra.find((e) => e.startsWith("user="));
+  return {
+    timestamp,
+    hour: Number(timestamp.slice(11, 13)),
+    level: levelText as Level,
+    method,
+    path,
+    status: Number(statusText),
+    ms: Number(msText.slice(0, -2)),
+    ...(userField ? { user: userField.slice(5) } : {}),
+  };
+}
+
+const entries: LogEntry[] = [];
+const problems: MalformedLine[] = [];
+LOG.split("\n").forEach((line, idx) => {
+  try {
+    entries.push(parseLine(line, idx + 1));
+  } catch (e) {
+    if (e instanceof MalformedLine) problems.push(e);
+    else throw e;
+  }
+});
+
+console.log(`parsed ${entries.length} entries, ${problems.length} malformed`);
+for (const p of problems) console.log("  skip:", p.message);
+
+const byClass = entries.reduce<Record<string, number>>((acc, e) => {
+  const cls = `${Math.floor(e.status / 100)}xx`;
+  acc[cls] = (acc[cls] ?? 0) + 1;
+  return acc;
+}, {});
+console.log("status classes:", byClass);
+
+const byLevel = new Map<Level, number>();
+for (const e of entries) byLevel.set(e.level, (byLevel.get(e.level) ?? 0) + 1);
+console.log(byLevel);
+
+const perHour = new Map<number, LogEntry[]>();
+for (const e of entries) perHour.set(e.hour, [...(perHour.get(e.hour) ?? []), e]);
+for (const [hour, list] of [...perHour].sort(([a], [b]) => a - b)) {
+  const avg = list.reduce((s, e) => s + e.ms, 0) / list.length;
+  console.log(`${String(hour).padStart(2, "0")}:00  ${"*".repeat(list.length).padEnd(6)} n=${list.length} avg=${avg.toFixed(1)}ms`);
+}
+
+const endpoint = (e: LogEntry) => `${e.method} ${e.path.split("/").map((seg) => (seg !== "" && !Number.isNaN(Number(seg)) ? ":id" : seg)).join("/")}`;
+const groups = new Map<string, number[]>();
+for (const e of entries) groups.set(endpoint(e), [...(groups.get(endpoint(e)) ?? []), e.ms]);
+const slowest = [...groups].map(([ep, times]) => ({ ep, count: times.length, max: Math.max(...times), p50: [...times].sort((a, b) => a - b)[Math.floor(times.length / 2)] }))
+  .sort((a, b) => b.max - a.max);
+console.table(slowest.slice(0, 5));
+
+const errors = entries.filter((e) => e.status >= 500);
+for (const e of errors) console.log("%s %s %s -> %d after %dms by %s", e.timestamp, e.method, e.path, e.status, e.ms, e.user ?? "anonymous");
+
+const users = [...new Set(entries.map((e) => e.user).filter((u): u is string => u !== undefined))].sort();
+console.log("users:", users);
+const suspicious = users.filter((u) => entries.filter((e) => e.user === u && e.status === 401).length >= 2);
+console.log("suspicious logins:", suspicious);
+console.log(entries.find((e) => e.level === Level.WARN));

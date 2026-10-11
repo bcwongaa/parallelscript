@@ -1,0 +1,120 @@
+// skip: not supported yet: PTS1001: a method whose parameter types differ from its object type's ((object5, number, string, given) => number)
+// The module pattern: an IIFE returns an object of functions that share private state.
+
+type TxKind = "deposit" | "withdraw" | "transfer-in" | "transfer-out";
+
+interface Tx {
+  kind: TxKind;
+  amount: number;
+  balanceAfter: number;
+  memo?: string;
+}
+
+class InsufficientFunds extends Error {
+  constructor(public readonly account: string, public readonly requested: number, public readonly available: number) {
+    super(`account ${account}: requested ${requested.toFixed(2)}, available ${available.toFixed(2)}`);
+    this.name = "InsufficientFunds";
+  }
+}
+
+interface Account {
+  readonly owner: string;
+  deposit(amount: number, memo?: string): number;
+  withdraw(amount: number, memo?: string): number;
+  balance(): number;
+  history(): readonly Tx[];
+}
+
+function openAccount(owner: string, opening = 0): Account {
+  let balance = opening;
+  const txs: Tx[] = [];
+  const record = (kind: TxKind, amount: number, memo?: string) => {
+    const tx: Tx = memo === undefined ? { kind, amount, balanceAfter: balance } : { kind, amount, balanceAfter: balance, memo };
+    txs.push(tx);
+  };
+  return {
+    owner,
+    deposit(amount, memo) {
+      if (amount <= 0) throw new RangeError(`deposit must be positive, got ${amount}`);
+      balance += amount;
+      record(memo?.startsWith("from ") ? "transfer-in" : "deposit", amount, memo);
+      return balance;
+    },
+    withdraw(amount, memo) {
+      if (amount > balance) throw new InsufficientFunds(owner, amount, balance);
+      balance -= amount;
+      record(memo?.startsWith("to ") ? "transfer-out" : "withdraw", amount, memo);
+      return balance;
+    },
+    balance: () => balance,
+    history: () => txs.slice(),
+  };
+}
+
+const bank = (() => {
+  const accounts = new Map<string, Account>();
+  let transfers = 0;
+  function open(owner: string, opening?: number): Account {
+    if (accounts.has(owner)) throw new Error(`duplicate account ${owner}`);
+    const acct = openAccount(owner, opening);
+    accounts.set(owner, acct);
+    return acct;
+  }
+  function transfer(from: string, to: string, amount: number): void {
+    const src = accounts.get(from);
+    const dst = accounts.get(to);
+    if (!src || !dst) throw new Error(`unknown account ${!src ? from : to}`);
+    src.withdraw(amount, `to ${to}`);
+    dst.deposit(amount, `from ${from}`);
+    transfers++;
+  }
+  const totals = () => [...accounts.values()].reduce((sum, a) => sum + a.balance(), 0);
+  return { open, transfer, totals, stats: () => ({ accounts: accounts.size, transfers }) };
+})();
+
+const alice = bank.open("alice", 120);
+const bob = bank.open("bob");
+bank.open("carol", 40.5);
+
+alice.deposit(30, "paycheck");
+bank.transfer("alice", "bob", 75.25);
+bank.transfer("carol", "alice", 10);
+bob.withdraw(20);
+
+console.log("alice:", alice.balance().toFixed(2), "bob:", bob.balance().toFixed(2));
+console.log("total money: %s", bank.totals().toFixed(2));
+console.log(bank.stats());
+
+const attempts: Array<() => void> = [
+  () => bank.transfer("bob", "carol", 1000),
+  () => bank.open("bob"),
+  () => alice.deposit(-5),
+  () => bank.transfer("dave", "alice", 1),
+];
+for (const attempt of attempts) {
+  try {
+    attempt();
+    console.log("ok");
+  } catch (e) {
+    if (e instanceof InsufficientFunds) {
+      console.log(`${e.name}: ${e.message} [short by ${(e.requested - e.available).toFixed(2)}]`);
+    } else if (e instanceof RangeError) {
+      console.log("RangeError:", e.message);
+    } else if (e instanceof Error) {
+      console.log("Error:", e.message);
+    }
+  }
+}
+
+console.log(alice.history());
+console.table(bob.history());
+
+// Private state is not reachable from the returned object
+console.log(Object.keys(alice).sort());
+console.log("balance" in alice, "txs" in alice, typeof alice.balance);
+
+const byKind = alice.history().reduce<Partial<Record<TxKind, number>>>((acc, t) => {
+  acc[t.kind] = (acc[t.kind] ?? 0) + t.amount;
+  return acc;
+}, {});
+console.log(byKind);

@@ -1,0 +1,146 @@
+// skip: not supported yet: PTS1001: converting object3 to null | {credit: number; reason?: undefined; tag: string} | {credit?: number | undefined; reason: string; tag: string}
+// A state machine defined by transition functions: a vending machine and a traffic light.
+
+type VendState =
+  | { tag: "idle" }
+  | { tag: "collecting"; credit: number }
+  | { tag: "dispensing"; item: string; change: number }
+  | { tag: "outOfOrder"; reason: string };
+
+type VendEvent =
+  | { type: "coin"; cents: number }
+  | { type: "select"; code: string }
+  | { type: "refund" }
+  | { type: "taken" }
+  | { type: "fault"; reason: string }
+  | { type: "repair" };
+
+interface Slot {
+  name: string;
+  price: number;
+  stock: number;
+}
+
+const slots: Record<string, Slot> = {
+  A1: { name: "chips", price: 125, stock: 2 },
+  A2: { name: "pretzels", price: 100, stock: 0 },
+  B1: { name: "soda", price: 150, stock: 5 },
+};
+
+type Transition = (s: VendState, e: VendEvent) => VendState | null;
+
+const log: string[] = [];
+const say = (msg: string) => log.push(msg);
+
+const transitions: Record<VendState["tag"], Transition> = {
+  idle: (s, e) => {
+    if (e.type === "coin") return { tag: "collecting", credit: e.cents };
+    if (e.type === "fault") return { tag: "outOfOrder", reason: e.reason };
+    return null;
+  },
+  collecting: (s, e) => {
+    if (s.tag !== "collecting") return null;
+    switch (e.type) {
+      case "coin":
+        return { tag: "collecting", credit: s.credit + e.cents };
+      case "refund":
+        say(`refunding ${s.credit}c`);
+        return { tag: "idle" };
+      case "select": {
+        const slot: Slot | undefined = slots[e.code];
+        if (slot === undefined) {
+          say(`no such slot ${e.code}`);
+          return s;
+        }
+        if (slot.stock === 0) {
+          say(`${slot.name} sold out`);
+          return s;
+        }
+        if (s.credit < slot.price) {
+          say(`${slot.name} costs ${slot.price}c, credit ${s.credit}c`);
+          return s;
+        }
+        slot.stock--;
+        return { tag: "dispensing", item: slot.name, change: s.credit - slot.price };
+      }
+      case "fault":
+        say(`fault while collecting, refunding ${s.credit}c`);
+        return { tag: "outOfOrder", reason: e.reason };
+      default:
+        return null;
+    }
+  },
+  dispensing: (s, e) => (e.type === "taken" ? { tag: "idle" } : null),
+  outOfOrder: (_s, e) => (e.type === "repair" ? { tag: "idle" } : null),
+};
+
+function step(s: VendState, e: VendEvent): VendState {
+  const next = transitions[s.tag](s, e);
+  if (next === null) {
+    say(`ignored ${e.type} in ${s.tag}`);
+    return s;
+  }
+  if (next.tag === "dispensing") say(`dispensing ${next.item}, change ${next.change}c`);
+  return next;
+}
+
+const events: VendEvent[] = [
+  { type: "select", code: "A1" },
+  { type: "coin", cents: 100 },
+  { type: "select", code: "B1" },
+  { type: "coin", cents: 25 },
+  { type: "select", code: "A1" },
+  { type: "coin", cents: 25 },
+  { type: "taken" },
+  { type: "coin", cents: 200 },
+  { type: "select", code: "A2" },
+  { type: "select", code: "C9" },
+  { type: "select", code: "A1" },
+  { type: "taken" },
+  { type: "coin", cents: 50 },
+  { type: "fault", reason: "coin jam" },
+  { type: "coin", cents: 25 },
+  { type: "repair" },
+  { type: "coin", cents: 125 },
+  { type: "select", code: "A1" },
+  { type: "refund" },
+];
+
+const history = events.reduce<VendState[]>((acc, e) => [...acc, step(acc[acc.length - 1], e)], [{ tag: "idle" }]);
+console.log(history.map((s) => s.tag).join(" > "));
+console.log(log);
+console.log("final:", history[history.length - 1]);
+console.log("stock:", Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v.stock])));
+
+// Traffic light: a cyclic machine described by a table of next-state functions with timers
+enum Light {
+  Red = "RED",
+  Green = "GREEN",
+  Yellow = "YELLOW",
+  FlashingRed = "FLASHING_RED",
+}
+const durations: Record<Light, number> = { [Light.Red]: 30, [Light.Green]: 25, [Light.Yellow]: 5, [Light.FlashingRed]: Infinity };
+const nextLight = (l: Light, nightMode: boolean): Light => {
+  if (nightMode) return Light.FlashingRed;
+  switch (l) {
+    case Light.Red:
+      return Light.Green;
+    case Light.Green:
+      return Light.Yellow;
+    case Light.Yellow:
+    case Light.FlashingRed:
+      return Light.Red;
+  }
+};
+
+let light = Light.Red;
+let t = 0;
+const timeline: string[] = [];
+while (t < 200) {
+  const night = t >= 150;
+  timeline.push(`${String(t).padStart(3)}s ${light}`);
+  if (light === Light.FlashingRed) break;
+  t += durations[light];
+  light = nextLight(light, night);
+}
+console.log(timeline.join("\n"));

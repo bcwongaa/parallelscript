@@ -1,0 +1,131 @@
+// Generic binary-heap priority queue driving a CPU task scheduler with aging.
+
+class PriorityQueue<T> {
+  private heap: T[] = [];
+  constructor(private readonly before: (a: T, b: T) => boolean) {}
+
+  get size(): number {
+    return this.heap.length;
+  }
+  push(...items: T[]): void {
+    for (const item of items) {
+      this.heap.push(item);
+      this.up(this.heap.length - 1);
+    }
+  }
+  peek(): T | undefined {
+    return this.heap[0];
+  }
+  pop(): T | undefined {
+    if (this.heap.length === 0) return undefined;
+    const top = this.heap[0];
+    const last = this.heap.pop()!;
+    if (this.heap.length > 0) {
+      this.heap[0] = last;
+      this.down(0);
+    }
+    return top;
+  }
+  drain(): T[] {
+    const out: T[] = [];
+    while (this.size > 0) out.push(this.pop()!);
+    return out;
+  }
+  private up(i: number): void {
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (!this.before(this.heap[i], this.heap[p])) break;
+      [this.heap[i], this.heap[p]] = [this.heap[p], this.heap[i]];
+      i = p;
+    }
+  }
+  private down(i: number): void {
+    const n = this.heap.length;
+    for (;;) {
+      const l = 2 * i + 1, r = l + 1;
+      let best = i;
+      if (l < n && this.before(this.heap[l], this.heap[best])) best = l;
+      if (r < n && this.before(this.heap[r], this.heap[best])) best = r;
+      if (best === i) return;
+      [this.heap[i], this.heap[best]] = [this.heap[best], this.heap[i]];
+      i = best;
+    }
+  }
+}
+
+class Task {
+  remaining: number;
+  waited = 0;
+  finishedAt: number | null = null;
+  constructor(readonly name: string, readonly priority: number, readonly arrival: number, readonly burst: number) {
+    this.remaining = burst;
+  }
+  get effectivePriority(): number {
+    return this.priority - Math.floor(this.waited / 4);
+  }
+}
+
+class Scheduler {
+  private ready = new PriorityQueue<Task>(
+    (a, b) => a.effectivePriority < b.effectivePriority || (a.effectivePriority === b.effectivePriority && a.arrival < b.arrival),
+  );
+  readonly gantt: string[] = [];
+
+  constructor(private tasks: Task[], private quantum: number) {}
+
+  run(): void {
+    const pending = [...this.tasks].sort((a, b) => a.arrival - b.arrival);
+    let t = 0;
+    let waiting: Task[] = [];
+    while (pending.length > 0 || this.ready.size > 0 || waiting.length > 0) {
+      while (pending.length > 0 && pending[0].arrival <= t) waiting.push(pending.shift()!);
+      // re-heap everybody so aging takes effect
+      waiting.push(...this.ready.drain());
+      this.ready.push(...waiting);
+      waiting = [];
+      const task = this.ready.pop();
+      if (!task) {
+        this.gantt.push(`${t}:idle`);
+        t = pending[0].arrival;
+        continue;
+      }
+      const slice = Math.min(this.quantum, task.remaining);
+      this.gantt.push(`${t}:${task.name}x${slice}`);
+      for (const other of this.ready.drain()) {
+        other.waited += slice;
+        waiting.push(other);
+      }
+      t += slice;
+      task.remaining -= slice;
+      task.waited = 0;
+      if (task.remaining === 0) task.finishedAt = t;
+      else waiting.push(task);
+    }
+  }
+}
+
+const tasks = [
+  new Task("db", 1, 0, 6),
+  new Task("web", 3, 1, 4),
+  new Task("cron", 5, 2, 3),
+  new Task("batch", 8, 0, 8),
+  new Task("ui", 2, 9, 2),
+  new Task("late", 1, 30, 2),
+];
+const sched = new Scheduler(tasks, 2);
+sched.run();
+console.log(sched.gantt.join(" "));
+for (const t of tasks) {
+  const turnaround = (t.finishedAt ?? 0) - t.arrival;
+  console.log(`${t.name.padEnd(6)} prio=${t.priority} arrive=${String(t.arrival).padStart(2)} burst=${t.burst} done=${t.finishedAt} turnaround=${turnaround} wait=${turnaround - t.burst}`);
+}
+const avg = tasks.reduce((s, t) => s + ((t.finishedAt ?? 0) - t.arrival - t.burst), 0) / tasks.length;
+console.log("average wait:", avg.toFixed(2));
+
+const words = new PriorityQueue<string>((a, b) => a.length > b.length || (a.length === b.length && a < b));
+words.push("pear", "fig", "banana", "kiwi", "apple", "plum", "cherry");
+console.log(words.peek(), words.size, words.drain());
+const nums = new PriorityQueue<number>((a, b) => a < b);
+[5, 3, 9, 1, 1, 7, -2].forEach((n) => nums.push(n));
+console.log(nums.pop(), nums.pop(), nums.drain(), nums.pop());
+console.log(tasks[0]);
