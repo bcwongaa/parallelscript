@@ -605,6 +605,55 @@ pts_array *pts_array_sort(pts_array *array) {
   return array;
 }
 
+/* compare_sort sorts elements[0, count) stably by compare's results (called through call), using scratch. */
+static void compare_sort(uint64_t *elements, uint64_t *scratch, size_t count, pts_closure *compare,
+                         double (*call)(pts_closure *, const void *, const void *)) {
+  if (count < 2) {
+    return;
+  }
+  size_t half = count / 2;
+  compare_sort(elements, scratch, half, compare, call);
+  compare_sort(elements + half, scratch, count - half, compare, call);
+  size_t left = 0, right = half, out = 0;
+  while (left < half && right < count) {
+    scratch[out++] = call(compare, &elements[left], &elements[right]) > 0 ? elements[right++] : elements[left++]; /* NaN keeps the order */
+  }
+  while (left < half) {
+    scratch[out++] = elements[left++];
+  }
+  while (right < count) {
+    scratch[out++] = elements[right++];
+  }
+  memcpy(elements, scratch, count * sizeof *elements);
+}
+
+pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*call)(pts_closure *, const void *, const void *)) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  /* Scanned memory: the elements may be pointers the collector must keep. Holes (D-038) go last, as JS sorts undefined. */
+  uint64_t *elements = GC_MALLOC(2 * length * sizeof *elements + 1);
+  if (elements == NULL) {
+    pts_panic("RangeError", "Out of memory sorting an array of %zu elements", length);
+  }
+  size_t count = 0;
+  for (size_t i = 0; i < length; i++) {
+    if (!is_hole(kind, buffer->elements + i * size)) {
+      element_load(&elements[count++], buffer->elements + i * size, size);
+    }
+  }
+  compare_sort(elements, elements + length, count, compare, call);
+  /* The comparator may have changed the array: write to its current buffer, as far as it reaches. */
+  buffer = load_buffer(array);
+  size_t now = readable_length(array, buffer);
+  for (size_t i = 0; i < length && i < now; i++) {
+    uint64_t hole = 0;
+    element_store(buffer->elements + i * size, i < count ? &elements[i] : &hole, size);
+  }
+  return array;
+}
+
 /* flatten_into appends the elements of array to result, those that are arrays flattened depth levels more. */
 static void flatten_into(pts_array *result, const pts_array *array, double depth) {
   pts_field_kind kind = array->type->element;

@@ -597,13 +597,14 @@ const (
 	ArraySort                          // a.sort(): a, sorted in place by the elements' strings, stably
 	ArrayFlat                          // a.flat(depth): a new array of To's type, nested arrays flattened depth levels
 	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
+	ArraySortWith                      // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
 	ArraySetElement: "setElement", ArrayPush: "push", ArrayUnshift: "unshift", ArrayPop: "pop", ArrayPopChecked: "popChecked",
 	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
 	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
-	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill"}
+	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith"}
 
 func (op ArrayOp) String() string { return arrayOpText[op] }
 
@@ -734,6 +735,10 @@ var (
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
+
+	// ThrowError throws an error of the class its first argument names, with the message
+	// its second gives; until exceptions arrive (M3.2), it ends the program as uncaught.
+	ThrowError = &Builtin{Name: "throw", Params: []Type{String, String}, Result: Void}
 )
 
 // ToString is JS's ToString of a primitive value, static or boxed: "true", "null", Number::toString, …
@@ -842,7 +847,7 @@ func (e *ArrayCall) Type() Type {
 		return Bool
 	case ArrayJoin:
 		return String
-	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill:
+	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill, ArraySortWith:
 		return e.Args[0].Type()
 	case ArrayFlat:
 		return e.To

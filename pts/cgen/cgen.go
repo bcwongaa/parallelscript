@@ -17,9 +17,10 @@ import (
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
-		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}}
+		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}}
 	e.nameClasses(program)
 	e.collectClosures(program)
+	e.collectComparators(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
 	e.collectStrings(program)
@@ -46,6 +47,8 @@ type emitter struct {
 	entryOrder       []*ir.Method
 	closureNames     map[*ir.Func]string // the suffix of the C names of each function made a value of (D-041)
 	closureOrder     []*ir.Func
+	comparators      map[ir.Type]string // the function that calls comparators of each element type sorted with one
+	comparatorOrder  []ir.Type
 	captureFields    map[*ir.Local][]captureField // the members of closure structs that hold each captured local
 	globals          map[*ir.Local]string         // module-scope bindings that other functions use, by C name
 	globalOrder      []*ir.Local
@@ -89,6 +92,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.entryFunctions()
 	e.classDescriptors(program.Classes)
 	e.closureDefinitions()
+	e.comparatorFunctions()
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
 	for _, module := range program.Modules {
@@ -157,8 +161,9 @@ func unique(used map[string]bool, base string) string {
 // nil (a prototype) they are the source names as C allows them.
 func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 	params := make([]string, len(f.Params))
+	used := map[string]bool{}
 	for i, param := range f.Params {
-		name := cIdentifier(param.Name)
+		name := unique(used, cIdentifier(param.Name))
 		if paramNames != nil {
 			name = paramNames[i]
 		}
@@ -852,6 +857,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.StringPadEnd:         "pts_string_pad_end",
 	ir.StringRepeat:         "pts_string_repeat",
 	ir.ValueTypeOf:          "pts_value_typeof",
+	ir.ThrowError:           "pts_throw_error",
 }
 
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {

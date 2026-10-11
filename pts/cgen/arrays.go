@@ -66,6 +66,8 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], fieldKind(call.To.Elem))
 	case ir.ArrayFill:
 		c = fmt.Sprintf("pts_array_fill(%s, (%s[]){%s}, %s, %s)", args[0], elem, args[1], args[2], args[3])
+	case ir.ArraySortWith:
+		c = fmt.Sprintf("pts_array_sort_with(%s, %s, %s)", args[0], args[1], e.comparators[call.Args[0].Type().(*ir.Array).Elem])
 	default:
 		panic(fmt.Sprintf("cgen: unexpected array operation %s", call.Op))
 	}
@@ -108,6 +110,36 @@ func (e *emitter) concat(call *ir.ArrayCall, args []string) string {
 	}
 	fmt.Fprintf(&c, "%s; })", result)
 	return c.String()
+}
+
+// collectComparators names the function that calls a comparator with two elements, for
+// each element type that arrays are sorted with a comparator of.
+func (e *emitter) collectComparators(program *ir.Program) {
+	for _, f := range program.Funcs {
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			if call, ok := x.(*ir.ArrayCall); ok && call.Op == ir.ArraySortWith {
+				elem := call.Args[0].Type().(*ir.Array).Elem
+				if e.comparators[elem] == "" {
+					e.comparators[elem] = fmt.Sprintf("pts_compare_%d", len(e.comparatorOrder)+1)
+					e.comparatorOrder = append(e.comparatorOrder, elem)
+				}
+			}
+		})
+	}
+}
+
+// comparatorFunctions writes, for each element type sorted with a comparator, the
+// function pts_array_sort_with calls the comparator through: it loads the two elements
+// and calls the comparator's code with them as their own type.
+func (e *emitter) comparatorFunctions() {
+	for _, elem := range e.comparatorOrder {
+		t := strings.TrimSuffix(e.declarator(elem), " ")
+		code := e.functionPointer(&ir.FuncType{Params: []ir.Type{elem, elem}, Result: ir.Number})
+		e.line(0, "static double %s(pts_closure *compare, const void *a, const void *b) {", e.comparators[elem])
+		e.line(1, "return ((%s)compare->code)(compare, *(%s const *)a, *(%s const *)b);", code, t, t)
+		e.line(0, "}")
+		e.line(0, "")
+	}
 }
 
 // arrayEffects are the effects of an array operation beyond its operands'.

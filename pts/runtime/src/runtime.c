@@ -34,3 +34,5 @@ void pts_unreachable(void) { pts_panic("Error", "internal compiler error: a func
 void pts_throw_uninitialized(const char *name) {
   pts_panic("ReferenceError", "Cannot access '%s' before initialization", name);
 }
+
+void pts_throw_error(pts_string *name, pts_string *message) { pts_panic(name->bytes, "%s", message->bytes); }

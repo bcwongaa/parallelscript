@@ -194,9 +194,9 @@ func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	if contextual == nil {
 		return nil
 	}
-	reported := len(l.errors)
+	reported := l.errors
 	ft, ok := l.functionType(contextual, node)
-	l.errors = l.errors[:reported]
+	l.errors = reported
 	if !ok || ft == nil || len(ft.Params) < len(l.function.Params) {
 		return nil
 	}

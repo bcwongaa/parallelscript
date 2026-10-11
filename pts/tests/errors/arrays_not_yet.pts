@@ -1,10 +1,10 @@
-// Array features that arrive later are reported: spread, the methods that take callbacks
-// (M2.4c), for...of over other iterables (M4.1), tuples, converting arrays between
-// element types, and recursive array types.
+// Array features that arrive later are reported: spread, `thisArg` arguments, `map` with a
+// callback that returns nothing, for...of over other iterables (M4.1), tuples, converting
+// arrays between element types, and recursive array types.
 const a = [1, 2, 3];
 const copy = [...a];
-const sorted = a.sort((x, y) => x - y);
-const twice = Array.from(a, (x) => x * 2);
+const mapped = a.map((x) => x, a);
+a.map((x) => {});
 const depth = 2;
 const flat = [[1]].flat(depth);
 let n = 0;
@@ -26,8 +26,8 @@ type Nested = Nested[];
 const nested: Nested = [];
 
 // error: arrays_not_yet.pts:5:15 - error PTS1001: spreading `...` into an array literal is not supported yet
-// error: arrays_not_yet.pts:6:16 - error PTS1001: sorting with a comparator is not supported yet
-// error: arrays_not_yet.pts:7:15 - error PTS1001: `Array.from` with a mapping function is not supported yet
+// error: arrays_not_yet.pts:6:32 - error PTS1001: the `thisArg` argument of array methods is not supported yet
+// error: arrays_not_yet.pts:7:1 - error PTS1001: `map` with a callback that returns nothing is not supported yet
 // error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet
 // error: arrays_not_yet.pts:11:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
 // error: arrays_not_yet.pts:13:18 - error PTS1001: `for...of` over a string is not supported yet

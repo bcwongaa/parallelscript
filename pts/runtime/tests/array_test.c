@@ -135,6 +135,28 @@ static void racing_pushes_lose_elements_but_stay_in_bounds(void) {
   CHECK(length <= shared->buffer->capacity);
 }
 
+/* A comparator of numbers by their integer part, so 1.1 and 1.2 compare equal. */
+static double by_integer_part(pts_closure *compare, double a, double b) {
+  (void)compare;
+  return (double)((int)a - (int)b);
+}
+
+static double call_number_comparator(pts_closure *compare, const void *a, const void *b) {
+  return ((double (*)(pts_closure *, double, double))compare->code)(compare, *(const double *)a, *(const double *)b);
+}
+
+static void sort_with_a_comparator_is_stable(void) {
+  static const pts_type closure_type = {.kind = PTS_KIND_FUNCTION, .name = "byIntegerPart", .size = sizeof(pts_closure)};
+  pts_closure compare = {&closure_type, (pts_function)by_integer_part};
+  double values[] = {3.1, 1.1, 2.1, 1.2, 3.2, 1.3};
+  pts_array *array = pts_array_of(PTS_FIELD_NUMBER, values, 6);
+  CHECK(pts_array_sort_with(array, &compare, call_number_comparator) == array);
+  double sorted[] = {1.1, 1.2, 1.3, 2.1, 3.1, 3.2};
+  for (size_t i = 0; i < 6; i++) {
+    CHECK(PTS_ARRAY_GET(double, array, (double)i) == sorted[i]);
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   pushing_grows_the_buffer_and_keeps_the_elements();
@@ -144,6 +166,7 @@ int main(int argc, char **argv) {
   a_cycle_joins_as_empty();
   splice_clamps_and_inserts();
   sort_keeps_equal_keys_in_order();
+  sort_with_a_comparator_is_stable();
   racing_pushes_lose_elements_but_stay_in_bounds();
   return CHECK_DONE();
 }

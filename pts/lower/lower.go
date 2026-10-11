@@ -131,7 +131,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
-		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}}
+		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -220,6 +220,7 @@ type lowerer struct {
 	funcTypesInProgress map[*checker.Type]bool          // the function types whose parameter and result types are being mapped
 	arrows              map[*ir.Func]bool               // the closures' functions that are arrow functions, whose `this` is their outer function's
 	funcNodes           map[*ir.Func]*ast.Node          // the declaration, function expression or source file of each function
+	helpers             map[helperKey]*ir.Func          // the helpers of the array methods that take callbacks; nil if one failed
 	this                map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
 	lowered             []*ir.Func                      // the functions whose bodies are lowered
 	bodies              []*ast.Node                     // function declarations whose bodies are still to be lowered
@@ -2037,9 +2038,23 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		return ir.Undefined
 	case flags&checker.TypeFlagsNull != 0:
 		return ir.Null
+	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsNumberLike):
+		return ir.Number // a union of number literals, such as -1 | 0 | 1, is a number at run time
+	case flags&checker.TypeFlagsUnion != 0 && allOf(t.Types(), checker.TypeFlagsStringLike):
+		return ir.String
 	}
 	l.notSupportedYet(node, fmt.Sprintf("values of type %s are", l.checker.TypeToString(t)))
 	return nil
+}
+
+// allOf reports whether every one of types has one of flags.
+func allOf(types []*checker.Type, flags checker.TypeFlags) bool {
+	for _, t := range types {
+		if t.Flags()&flags == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------- messages

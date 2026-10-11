@@ -857,3 +857,35 @@ func call(f: (string, number) => void) void {
 }
 `)
 }
+
+func TestCallbackMethodsCallOneHelperPerArrayAndCallbackType(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const odd = [1, 2, 3].filter((n) => n % 2 === 1);
+const big = odd.filter((n) => n > 2);
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let odd: number[] = Array.filter(number[][1, 2, 3], closure arrow)
+  2: let big: number[] = Array.filter(odd, closure arrow)
+}
+func arrow(n: number) boolean closure [] {
+  1: return ((n % 2) === 1)
+}
+func Array.filter(array: number[], callback: (number) => boolean) number[] {
+  1: let length: number = array.length(array)
+  1: let result: number[] = number[][]
+  1: let index: number = 0
+  1: #1: for (index < length); (index = (index + 1)) {
+    1: if (index < array.length(array)) {
+      1: let element: number = array.elementChecked(array, index)
+      1: if call callback(element) {
+        1: array.push(result, element)
+      }
+    }
+  }
+  1: return result
+}
+func arrow(n: number) boolean closure [] {
+  2: return (n > 2)
+}
+`)
+}

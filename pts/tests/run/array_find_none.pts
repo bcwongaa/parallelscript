@@ -1,0 +1,11 @@
+// `find(…)!` needs an element, so finding none throws RangeError (D-042); Node would
+// give undefined and fail later, so this isn't compared with Node.
+// no-diff: Node returns undefined where ParallelScript throws
+const nums = [1, 2, 3];
+console.log(nums.find((n) => n > 1)! * 10);
+console.log(nums.find((n) => n > 5)! * 10);
+
+// expect:
+// 20
+// exit: 1
+// stderr: RangeError: find() found no element

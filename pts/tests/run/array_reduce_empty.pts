@@ -1,0 +1,9 @@
+// reduce of an empty array without an initial value throws TypeError, as in Node.
+const empty: number[] = [];
+console.log("before");
+console.log(empty.reduce((a, b) => a + b));
+
+// expect:
+// before
+// exit: 1
+// stderr: TypeError: Reduce of empty array with no initial value

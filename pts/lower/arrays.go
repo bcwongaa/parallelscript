@@ -191,12 +191,9 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	name := callee.AsPropertyAccessExpression().Name().Text()
 	method, fixed := arrayMethods[name]
 	removers, removes := arrayRemovers[name]
-	switch {
-	case !fixed && !removes && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat":
+	sortWith := name == "sort" && len(call.Arguments.Nodes) > 0
+	if !fixed && !removes && !callbackMethods[name] && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat" {
 		l.notSupportedYet(callee, fmt.Sprintf("the array method `%s` is", name))
-		return nil
-	case name == "sort" && len(call.Arguments.Nodes) > 0:
-		l.notSupportedYet(callee, "sorting with a comparator is")
 		return nil
 	}
 	for _, argument := range call.Arguments.Nodes {
@@ -212,6 +209,10 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	arrayType := array.Type().(*ir.Array)
 	args := call.Arguments.Nodes
 	switch {
+	case callbackMethods[name]:
+		return l.callbackMethodCall(call, name, array, checked)
+	case sortWith:
+		return l.sortWith(array, args[0])
 	case removes:
 		op := removers[0]
 		if checked {
@@ -244,6 +245,20 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 		return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{array}, values...)}
 	}
 	return l.flat(array, args)
+}
+
+// sortWith lowers a.sort(compare): compare becomes a function value that takes two
+// elements and returns a number.
+func (l *lowerer) sortWith(array ir.Expr, arg *ast.Node) ir.Expr {
+	compare := l.expression(arg)
+	if compare == nil {
+		return nil
+	}
+	elem := array.Type().(*ir.Array).Elem
+	if compare = l.convert(compare, l.funcType([]ir.Type{elem, elem}, ir.Number), arg); compare == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: ir.ArraySortWith, Args: []ir.Expr{array, compare}}
 }
 
 // arrayOperands lowers the arguments of an array method with fixed parameters, giving
@@ -367,14 +382,16 @@ func (l *lowerer) arrayIsArray(call *ast.CallExpression) ir.Expr {
 // arrayFrom lowers Array.from(x) for an array x (a copy) or a string (its code points).
 func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 	args := call.Arguments.Nodes
-	if len(args) != 1 {
-		l.notSupportedYet(call.Expression, "`Array.from` with a mapping function is")
+	if len(args) > 2 {
+		l.notSupportedYet(args[2], "the `thisArg` argument of `Array.from` is")
 		return nil
 	}
 	x := l.expression(args[0])
 	switch {
 	case x == nil:
 		return nil
+	case len(args) == 2 && (isArray(x.Type()) || x.Type() == ir.String):
+		return l.arrayFromWithMapper(call, x)
 	case isArray(x.Type()):
 		return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, fromStart, toEnd}}
 	case x.Type() == ir.String:
@@ -390,7 +407,8 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 	inner := ast.SkipParentheses(node.Expression())
 	if l.isArrayMethodCall(inner) {
-		if _, removes := arrayRemovers[ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text()]; removes {
+		name := ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text()
+		if _, removes := arrayRemovers[name]; removes || name == "find" || name == "findLast" {
 			return l.arrayMethodCall(inner.AsCallExpression(), true)
 		}
 	}

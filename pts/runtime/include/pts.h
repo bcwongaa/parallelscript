@@ -346,6 +346,8 @@ static inline double pts_number_ushr(double x, double y) {
  */
 
 _Noreturn void pts_throw_division_by_zero(void);
+/* Throws an error of the class name with message: until exceptions arrive (M3.2), it ends the program as uncaught. */
+_Noreturn void pts_throw_error(pts_string *name, pts_string *message);
 _Noreturn void pts_throw_negative_exponent(void);
 
 #define PTS_INTEGER_ARITHMETIC(name, T)                                                           \
@@ -649,6 +651,12 @@ pts_array *pts_array_reverse(pts_array *array);
 pts_array *pts_array_sort(pts_array *array);
 pts_array *pts_array_flat(const pts_array *array, double depth, pts_field_kind result_kind);
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
+/*
+ * array.sort(compare): sorts array in place, stably, by the numbers compare returns for
+ * pairs of elements (NaN counts as 0). call calls compare with two elements, which it is
+ * given the addresses of.
+ */
+pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*call)(pts_closure *compare, const void *a, const void *b));
 
 /* Array.from(string): its code points, each a string. */
 pts_array *pts_array_from_string(pts_string *string);
