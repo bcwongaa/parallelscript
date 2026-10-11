@@ -35,6 +35,12 @@ func effectsOf(expr ir.Expr) effects {
 			f |= mayThrow
 		}
 		return f
+	case *ir.Call:
+		f := writes | mayThrow // anything a function body does
+		for _, arg := range x.Args {
+			f |= effectsOf(arg)
+		}
+		return f
 	case *ir.Binary:
 		f := effectsOf(x.X) | effectsOf(x.Y)
 		if ir.IsInteger(x.X.Type()) && (x.Op == ir.Div || x.Op == ir.Rem || x.Op == ir.Pow) {

@@ -167,3 +167,56 @@ const both: u8 = level || 300;
 		"main.pts:13:27 - error PTS2002: 300 doesn't fit in u8 (0 to 255)",
 	})
 }
+
+func TestOnlyTheFeaturesLeftOutByDesignAreReported(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `function Proxy(n: number): number {
+  return n;
+}
+const Reflect = "mine";
+const iterator = Symbol.iterator;
+interface Shape { area: number }
+interface Shape { name: string }
+function pad(s: string): string;
+function pad(s: string, width: number): string;
+function pad(s: string, width?: number): string {
+  return s;
+}
+console.log(Proxy(1), Reflect, iterator, pad("x"));
+for (let i = 0; i < 1; i++) {}
+`)
+	assert.DeepEqual(t, formatted(errors), []string{})
+}
+
+func TestVarIsRejectedWithSuggestion(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, "var count = 1;\nfor (var i = 0; i < 2; i++) {}\n")
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:1:1 - error PTS1002: `var` is not supported; use `let` or `const`",
+		"main.pts:2:6 - error PTS1002: `var` is not supported; use `let` or `const`",
+	})
+}
+
+func TestFunctionResultsAndArgumentsFollowTheConversionRules(t *testing.T) {
+	t.Parallel()
+	errors := checkSource(t, `function half(n: int) {
+  return n / 2;
+}
+function zero(flag: boolean) {
+  if (flag) return 0;
+  return 0.5;
+}
+function byte(b: u8): u8 {
+  return b;
+}
+const h: int = half(4);
+const z: int = zero(true);
+const fromInt: u8 = byte(h);
+byte(256);
+`)
+	assert.DeepEqual(t, formatted(errors), []string{
+		"main.pts:12:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
+		"main.pts:13:26 - error PTS2001: a int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
+		"main.pts:14:6 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
+	})
+}

@@ -418,6 +418,9 @@ void pts_console_log(size_t argc, const pts_value *argv);
 _Noreturn void pts_panic(const char *error_name, const char *format, ...)
     __attribute__((format(printf, 2, 3)));
 
+/* Ends a function that must return a value, after its last statement: reaching it is a compiler bug. */
+_Noreturn void pts_unreachable(void);
+
 /* ---------------------------------------------------------------- lifecycle */
 
 void pts_runtime_init(int argc, char **argv);

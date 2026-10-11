@@ -10,7 +10,11 @@ import (
 func (p *Program) String() string {
 	pr := &printer{labels: map[*Label]string{}}
 	for _, f := range p.Funcs {
-		fmt.Fprintf(&pr.out, "func %s() %s {\n", f.Name, f.Result)
+		params := make([]string, len(f.Params))
+		for i, param := range f.Params {
+			params[i] = param.Name + ": " + param.Type.String()
+		}
+		fmt.Fprintf(&pr.out, "func %s(%s) %s {\n", f.Name, strings.Join(params, ", "), f.Result)
 		pr.stmts(f.Body.Stmts, 1)
 		pr.out.WriteString("}\n")
 	}
@@ -91,6 +95,12 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 		pr.out.WriteString("break " + pr.label(s.Target) + "\n")
 	case *Continue:
 		pr.out.WriteString("continue " + pr.label(s.Target) + "\n")
+	case *Return:
+		if s.Value == nil {
+			pr.out.WriteString("return\n")
+		} else {
+			pr.out.WriteString("return " + FormatExpr(s.Value) + "\n")
+		}
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", stmt))
 	}
@@ -155,12 +165,18 @@ func FormatExpr(expr Expr) string {
 	case *Sequence:
 		return "(" + FormatExpr(e.X) + ", " + FormatExpr(e.Y) + ")"
 	case *CallBuiltin:
-		args := make([]string, len(e.Args))
-		for i, arg := range e.Args {
-			args[i] = FormatExpr(arg)
-		}
-		return e.Builtin.Name + "(" + strings.Join(args, ", ") + ")"
+		return e.Builtin.Name + formatArgs(e.Args)
+	case *Call:
+		return e.Func.Name + formatArgs(e.Args)
 	default:
 		panic(fmt.Sprintf("ir: cannot print %T", expr))
 	}
+}
+
+func formatArgs(args []Expr) string {
+	formatted := make([]string, len(args))
+	for i, arg := range args {
+		formatted[i] = FormatExpr(arg)
+	}
+	return "(" + strings.Join(formatted, ", ") + ")"
 }

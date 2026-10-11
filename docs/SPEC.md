@@ -347,6 +347,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
+- **Added in M1.4a2:** function declarations (also nested, if they use nothing from outside), parameters, `return`, calls and recursion (§9.8).
 - **Added in M1.4a1:** `if`, `while`, `do`, `for`, `switch`, labelled statements, `break`/`continue` (with labels), `let` without an initializer; `=` and every compound assignment to locals, `++`/`--`, `?:`, `&&`/`||` (and `&&=`/`||=`) on operands of one type, comma, `typeof`, `void`, the bitwise operators, and `!` on any primitive (§9.7).
 - **Added in M1.3b:** `s[i]` on strings (three builtins by context, D-015) and calls of the String methods listed in §9.6, as `ir.CallBuiltin` with the receiver first; the arguments convert to the builtin's `Params`, and left-out ones get the values in `lower.leftOut`. A builtin method can only be called directly (`s.trim` as a value or `s?.trim()` is `PTS1001`).
 - **Added in M1.3a:** `+` with a string (the other side through `ir.ToString`), template literals, `.length` on strings (the builtin `String.length`), `=== !== < <= > >=` on strings, and `!` on booleans.
@@ -355,7 +356,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **IR types** are singletons compared by identity: `ir.Number` (C `double`), `ir.Bool` (`bool`), `ir.String` (`pts_string *`), `ir.Undefined` and `ir.Null` (a `pts_value` holding the constant, so boxing them is free), `ir.Value` (boxed `pts_value`), `ir.Void`. Boxing is an explicit `ir.Box` node.
 - **Statements** carry an `ir.Pos` (absolute file, 1-based line); `cgen` turns positions into `#line` directives.
 - **Builtins:** a call lowers to `ir.CallBuiltin` only if the callee resolves to a member declared in a PTS lib file and listed in `lower.preludeBuiltins` (keyed `"Interface.member"`, e.g. `"Console.log"`). A user binding that shadows `console` is therefore never mistaken for the builtin.
-- **Top-level code** is the IR function `main` (C `pts_fn_main`); top-level `let`/`const` are its C locals. M1.4b turns bindings that functions capture into globals.
+- **Top-level code** is the IR function `main` (C `pts_main`, D-020); top-level `let`/`const` are its C locals. M1.4b turns bindings that functions capture into globals.
 - **String literals** reach the IR exactly as the TS scanner decodes them: UTF-8, except that a lone surrogate is its 3-byte encoding (WTF-8, `stringutil.EncodeJSStringRune`). `cgen` computes `utf16_len` and the ASCII flag at compile time.
 - **Adding a construct:** handle it in `pts/lower` (with a lowering test on the printed IR), add the IR node and its printer case, and the `cgen` case (with a compile-and-run test). Run `go test ./pts/... ./cmd/pts/`.
 
@@ -374,7 +375,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - C representation: the `<stdint.h>` types and `float`. Constants are `INT64_C(...)`, `UINT64_C(...)`, `INT64_MIN` or a cast decimal. Arithmetic and negation call `pts_<type>_<op>` from `pts.h` (wrapping, through `uint64_t`); comparisons are C operators; float → integer is `pts_number_to_<type>` (Rust: truncate, saturate, NaN → 0); other conversions are C casts, which wrap between integer types (clang converts to signed types modulo 2^n).
 - Boxing: `i8 … u32` and `f32` box as numbers (exact as doubles); `int`/`i64` and `u64` box through `pts_value_from_i64`/`pts_value_from_u64`, which allocate a `pts_boxed_int64`/`pts_boxed_uint64` (kinds `PTS_KIND_INT64`/`PTS_KIND_UINT64`) only beyond ±2^53. `console.log` prints them exactly.
 - Covered since M1.4a1: assignments (the value converts to the local's type), compound assignments (typed as `x = x op value`), `++`/`--`, `?:`, `&&`/`||` and `switch` cases (both sides take one type, as a binary operator's operands do), the bitwise operators (D-018), `typeof` (always `"number"`).
-- Not yet covered (arrive with the features): function parameters and returns (M1.4a2), integer types inside unions, arrays and generics (M2, M3).
+- Covered since M1.4a2: parameters (from their annotations), call arguments (converted to the parameter's type), returns (converted to the result type) and result types (annotated, or the common type of what the function returns, D-020).
+- Not yet covered (arrive with the features): integer types inside unions, arrays and generics (M2, M3).
 
 ### 9.5 Strings (M1.3a)
 
@@ -402,3 +404,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C** (D-019): operands that could observe C's unspecified order go through `pts_tmpN` temporaries in a statement expression (`cgen/order.go` decides); `switch` is an if-chain of `goto`s to `<name>_case_N`/`<name>_default`; jumps that aren't to the innermost C loop are `goto <name>_break`/`<name>_continue`, where `<name>` is the source label or `loop`/`switch`/`block`, and labels appear only where jumped to.
 - **Runtime:** `pts_number_truthy`, `pts_value_truthy`, `pts_value_typeof`; `pts_number_to_int32` and `pts_number_{bitand,bitor,bitxor,bitnot,shl,shr,ushr}` (JS int32 semantics); `pts_<int>_{shl,shr,ushr}` with the count modulo the width (D-018).
 - **Tests:** `pts/tests/run/{control_flow,operators,evaluation_order,integer_operators}.pts`; the bitwise operators, `!` and `?:` joined the generated number corpus (every special and random operand pair, against Node).
+
+### 9.8 Functions (M1.4a2)
+
+- **IR:** `Func.Params` (locals), `Func.Result` (`Void` for none), `Call{Func, Args}`, `Return{Value}`. A nested function's IR name is qualified (`outer.inner`).
+- **Lowering:** `declareFunctions` makes every function's IR header (parameters, result type) before any body is lowered; bodies are lowered where their declarations are, with their own jump targets. Each local records the function it belongs to, and a use from another function is `PTS1001` ("using `x` from outside the function"). A call of a function that returns nothing is `undefined` where a value is needed; `return f()` in a void function calls f, then returns.
+- **C** (D-020): `static <result> pts_fn_<name>(<params>)`, prototypes first, so order and recursion don't matter; the top-level code is `pts_main`. Calls take part in the evaluation-order rule (D-019). A non-void function that doesn't end with `return` ends with `pts_unreachable()`.
+- **Semantic pass** (`pts/check/functions.go`): parameter types, return statements and call arguments; a function's body is checked once, early if a call needs its inferred result type. `pts/check/unsupported.go` reports the features left out by design (SPEC §3.10, D-020).
+- **Tests:** `pts/tests/run/{functions,integer_functions}.pts`; `pts/tests/errors/{function_*,unsupported_by_design,with_statement}.pts`.

@@ -1,0 +1,35 @@
+// The features left out by design (docs/SPEC.md §3.10) are errors that say why.
+function legacy(): number {
+  return arguments.length;
+}
+console.log(eval("1 + 1"));
+const make = new Function("return 1");
+const proxy = new Proxy({}, {});
+console.log(Reflect.ownKeys({}));
+const base: any = {};
+console.log(base.__proto__);
+Object.setPrototypeOf(base, null);
+function Point() {}
+Point.prototype.x = 1;
+namespace Geometry {
+  export const origin = 0;
+}
+const big = 10n;
+const tag = Symbol("tag");
+const pattern = /ab+c/;
+enum Color { Red }
+enum Color { Green = 1 }
+
+// error: unsupported_by_design.pts:3:10 - error PTS1002: `arguments` is not supported; use a rest parameter (`...args`)
+// error: unsupported_by_design.pts:5:13 - error PTS1002: `eval` is not supported
+// error: unsupported_by_design.pts:6:18 - error PTS1002: `Function` is not supported
+// error: unsupported_by_design.pts:7:19 - error PTS1002: `Proxy` is not supported
+// error: unsupported_by_design.pts:8:13 - error PTS1002: `Reflect` is not supported
+// error: unsupported_by_design.pts:10:13 - error PTS1002: `__proto__` is not supported
+// error: unsupported_by_design.pts:11:1 - error PTS1002: `Object.setPrototypeOf` is not supported
+// error: unsupported_by_design.pts:13:1 - error PTS1002: assigning to `.prototype` is not supported
+// error: unsupported_by_design.pts:14:1 - error PTS1002: namespaces are not supported; use ES modules
+// error: unsupported_by_design.pts:17:13 - error PTS1002: BigInt is not supported yet
+// error: unsupported_by_design.pts:18:13 - error PTS1002: `Symbol` is not supported, except `Symbol.iterator` and `Symbol.asyncIterator`
+// error: unsupported_by_design.pts:19:17 - error PTS1001: RegExp arrives in M6
+// error: unsupported_by_design.pts:21:6 - error PTS1002: declaration merging is not supported: `Color` is declared more than once

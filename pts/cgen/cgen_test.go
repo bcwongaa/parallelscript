@@ -63,16 +63,16 @@ func TestHelloWorldEmitsReadableC(t *testing.T) {
 
 PTS_STATIC_STRING(pts_str_1, PTS_STRING_ASCII, 21, 21, "Hello, ParallelScript");
 
-static void pts_fn_main(void);
+static void pts_main(void);
 
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
-  pts_fn_main();
+  pts_main();
   return pts_runtime_exit(0);
 }
 
 #line 1 "/p/main.pts"
-static void pts_fn_main(void) {
+static void pts_main(void) {
 #line 1 "/p/main.pts"
   pts_console_log(1, (pts_value[]){pts_value_from_string(pts_str_1)});
 }
@@ -83,9 +83,9 @@ static void pts_fn_main(void) {
 func TestLineDirectivesAreEmittedOnlyWhenTheLineChanges(t *testing.T) {
 	t.Parallel()
 	got := cgen.Emit(programOf(logAt(2, num(1)), logAt(3, num(2)), logAt(3, num(3)), logAt(9, num(4))))
-	body := got[strings.Index(got, "static void pts_fn_main(void) {"):]
+	body := got[strings.Index(got, "static void pts_main(void) {"):]
 	// The header is line 1 by its #line, so the next C line already counts as line 2.
-	assert.Equal(t, body, `static void pts_fn_main(void) {
+	assert.Equal(t, body, `static void pts_main(void) {
   pts_console_log(1, (pts_value[]){pts_value_from_number(1.0)});
   pts_console_log(1, (pts_value[]){pts_value_from_number(2.0)});
 #line 3 "/p/main.pts"

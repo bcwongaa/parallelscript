@@ -1,0 +1,12 @@
+// Unbounded recursion throws RangeError, as in Node.
+// skip: stack overflow crashes with SIGSEGV instead (PROGRESS.md, known issues)
+function down(n: number): number {
+  return 1 + down(n + 1);
+}
+console.log("before");
+console.log(down(0));
+
+// expect:
+// before
+// exit: 1
+// stderr: Uncaught RangeError: Maximum call stack size exceeded

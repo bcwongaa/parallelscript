@@ -1,7 +1,6 @@
 package lower_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
@@ -181,13 +180,6 @@ func TestUnsupportedTypeIsNamed(t *testing.T) {
 	err := lowerInvalid(t, "const xs: number[] = [];")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
 	assert.Equal(t, err.Message, "values of type number[] are not supported yet")
-}
-
-func TestVarIsRejectedWithSuggestion(t *testing.T) {
-	t.Parallel()
-	err := lowerInvalid(t, "var count = 1;")
-	assert.Equal(t, err.Code, diagnostic.Unsupported)
-	assert.Assert(t, strings.Contains(err.Message, "use `let` or `const`"), err.Message)
 }
 
 func TestUsesOfAFailedDeclarationAreNotReportedAgain(t *testing.T) {
@@ -409,6 +401,36 @@ func TestAVariableWithoutInitializerStartsAtItsZeroValue(t *testing.T) {
     3: (late = "x")
     4: break done
   }
+}
+`)
+}
+
+func TestFunctionsAreDeclaredBeforeTheirBodiesAreLowered(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `console.log(twice(2));
+function twice(n: u8): int {
+  function inner(m: int): int { return m * 2; }
+  return inner(n);
+}
+function shout(s: string): void {
+  console.log(s.toUpperCase());
+  return;
+}
+shout("hi");
+`)
+	assert.Equal(t, got, `func main() void {
+  1: console.log(box(twice(2:u8)))
+  10: shout("hi")
+}
+func twice.inner(m: i64) i64 {
+  3: return (m * 2:i64)
+}
+func twice(n: u8) i64 {
+  4: return twice.inner(i64(n))
+}
+func shout(s: string) void {
+  7: console.log(box(String.toUpperCase(s)))
+  8: return
 }
 `)
 }

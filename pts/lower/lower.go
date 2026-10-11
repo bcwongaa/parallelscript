@@ -120,24 +120,27 @@ var numericTypes = map[check.Numeric]ir.Type{
 func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, info: info, file: program.Entry, locals: map[*ast.Symbol]*ir.Local{}}
-	main := &ir.Func{
-		Name:   "main",
-		Pos:    ir.Pos{File: program.Entry.FileName(), Line: 1},
-		Result: ir.Void,
-		Body:   l.block(program.Entry.AsNode(), program.Entry.Statements.Nodes),
-	}
-	return &ir.Program{Funcs: []*ir.Func{main}, Main: main}, l.errors
+	l := &lowerer{program: program.TS, checker: c, info: info, file: program.Entry,
+		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, funcs: map[*ast.Symbol]*ir.Func{}}
+	main := &ir.Func{Name: "main", Pos: ir.Pos{File: program.Entry.FileName(), Line: 1}, Result: ir.Void}
+	l.function = main
+	l.declareFunctions(program.Entry.AsNode(), "")
+	main.Body = l.block(program.Entry.AsNode(), program.Entry.Statements.Nodes)
+	return &ir.Program{Funcs: append([]*ir.Func{main}, l.lowered...), Main: main}, l.errors
 }
 
 type lowerer struct {
-	program *compiler.Program
-	checker *checker.Checker
-	info    *check.Info
-	file    *ast.SourceFile
-	locals  map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
-	targets []jumpTarget              // the statements around the current one that break or continue can leave
-	errors  []diagnostic.Diagnostic
+	program  *compiler.Program
+	checker  *checker.Checker
+	info     *check.Info
+	file     *ast.SourceFile
+	locals   map[*ast.Symbol]*ir.Local // nil for a declaration that failed to lower
+	owners   map[*ir.Local]*ir.Func    // the function each local belongs to
+	funcs    map[*ast.Symbol]*ir.Func  // every function declaration, made before any body is lowered; nil if it failed
+	lowered  []*ir.Func                // the functions whose bodies are lowered, in source order
+	function *ir.Func                  // the function being lowered
+	targets  []jumpTarget              // the statements around the current one that break or continue can leave
+	errors   []diagnostic.Diagnostic
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -189,6 +192,10 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		return l.breakable(node, "")
 	case ast.KindLabeledStatement:
 		return l.labeledStatement(node)
+	case ast.KindFunctionDeclaration:
+		l.functionBody(node)
+	case ast.KindReturnStatement:
+		return l.returnStatement(node)
 	case ast.KindBreakStatement:
 		return l.jump(node, node.AsBreakStatement().Label, false)
 	case ast.KindContinueStatement:
@@ -330,7 +337,7 @@ func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	value := l.expression(s.Expression)
 	var tag *ir.Local
 	if value != nil {
-		tag = &ir.Local{Name: "tag", Type: value.Type()}
+		tag = l.newLocal("tag", value.Type())
 	}
 	result := &ir.Switch{At: l.pos(node), Label: label}
 	failed := value == nil
@@ -397,11 +404,7 @@ func (l *lowerer) variableStatement(node *ast.Node) []ir.Stmt {
 // declarationList lowers the declarations of a variable statement or a for loop's
 // initialiser (node), or reports them and returns nil.
 func (l *lowerer) declarationList(node *ast.Node, list *ast.Node) []ir.Stmt {
-	switch {
-	case list.Flags&ast.NodeFlagsBlockScoped == 0:
-		l.unsupported(node, "`var` is not supported; use `let` or `const`")
-		return nil
-	case list.Flags&ast.NodeFlagsUsing != 0:
+	if list.Flags&ast.NodeFlagsUsing != 0 {
 		l.notSupportedYet(node, "`using` is")
 		return nil
 	}
@@ -441,7 +444,7 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 			return nil
 		}
 	}
-	local := &ir.Local{Name: name.Text(), Type: localType}
+	local := l.newLocal(name.Text(), localType)
 	l.locals[symbol] = local
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: init}
 }
@@ -468,6 +471,134 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
 	}
+}
+
+// ---------------------------------------------------------------- functions
+
+// declareFunctions makes the IR function, with its parameters and result type, of every
+// function declaration under node, before any body is lowered: a call may come before
+// the declaration it calls. outer is the qualified name of the enclosing function, or "".
+func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
+	node.ForEachChild(func(child *ast.Node) bool {
+		qualified := outer
+		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil {
+			qualified = child.Name().Text()
+			if outer != "" {
+				qualified = outer + "." + qualified
+			}
+			l.funcs[l.checker.GetSymbolAtLocation(child.Name())] = l.declareFunction(child, qualified)
+		}
+		l.declareFunctions(child, qualified)
+		return false
+	})
+}
+
+// declareFunction makes the IR function for a declaration, or reports why it can't and returns nil.
+func (l *lowerer) declareFunction(node *ast.Node, name string) *ir.Func {
+	declaration := node.AsFunctionDeclaration()
+	switch {
+	case declaration.TypeParameters != nil:
+		l.notSupportedYet(node.Name(), "generic functions are")
+		return nil
+	case declaration.AsteriskToken != nil:
+		l.notSupportedYet(node.Name(), "generator functions are")
+		return nil
+	case ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync):
+		l.notSupportedYet(node.Name(), "async functions are")
+		return nil
+	}
+	fn := &ir.Func{Name: name, Pos: l.pos(node)}
+	outer := l.function
+	l.function = fn // parameters are locals of fn
+	defer func() { l.function = outer }()
+	for _, param := range node.Parameters() {
+		local := l.parameter(param)
+		if local == nil {
+			return nil
+		}
+		fn.Params = append(fn.Params, local)
+	}
+	fn.Result = l.resultType(node)
+	if fn.Result == nil {
+		return nil
+	}
+	return fn
+}
+
+// parameter makes the local for a parameter, or reports why it can't and returns nil.
+func (l *lowerer) parameter(node *ast.Node) *ir.Local {
+	param := node.AsParameterDeclaration()
+	switch {
+	case param.Name().Kind != ast.KindIdentifier:
+		l.notSupportedYet(param.Name(), "destructuring is")
+		return nil
+	case param.DotDotDotToken != nil:
+		l.notSupportedYet(node, "rest parameters are")
+		return nil
+	case param.QuestionToken != nil || param.Initializer != nil:
+		l.notSupportedYet(node, "optional parameters are")
+		return nil
+	}
+	symbol := l.checker.GetSymbolAtLocation(param.Name())
+	t := l.numericType(param.Name())
+	if t == nil {
+		t = l.irType(l.checker.GetTypeOfSymbol(symbol), param.Name())
+	}
+	if t == nil {
+		return nil
+	}
+	local := l.newLocal(param.Name().Text(), t)
+	l.locals[symbol] = local
+	return local
+}
+
+// resultType is the IR type a function returns: Void, the numeric type the semantic
+// pass chose, or the type tsc gives it; nil (reported) if it has no IR type.
+func (l *lowerer) resultType(node *ast.Node) ir.Type {
+	if n, ok := l.info.ResultType(node); ok {
+		return numericTypes[n]
+	}
+	result := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(node))
+	if result.Flags()&checker.TypeFlagsVoid != 0 {
+		return ir.Void
+	}
+	return l.irType(result, node.Name())
+}
+
+// functionBody lowers the body of a function declaration into the function made for it.
+func (l *lowerer) functionBody(node *ast.Node) {
+	fn := l.funcs[l.checker.GetSymbolAtLocation(node.Name())]
+	if fn == nil || node.Body() == nil {
+		return // a failed declaration (reported), or an overload signature
+	}
+	outer, outerTargets := l.function, l.targets
+	l.function, l.targets = fn, nil
+	fn.Body = l.block(node.Body(), node.Body().Statements())
+	l.function, l.targets = outer, outerTargets
+	l.lowered = append(l.lowered, fn)
+}
+
+// returnStatement lowers `return value`, converting the value to the function's result type.
+func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
+	at := l.pos(node)
+	if node.Expression() == nil {
+		return []ir.Stmt{&ir.Return{At: at}}
+	}
+	value := l.expression(node.Expression())
+	if value == nil {
+		return nil
+	}
+	if l.function.Result == ir.Void {
+		// `return f()` in a function that returns nothing still calls f.
+		if isPure(value) {
+			return []ir.Stmt{&ir.Return{At: at}}
+		}
+		return []ir.Stmt{&ir.ExprStmt{At: at, X: value}, &ir.Return{At: at}}
+	}
+	if value = l.convert(value, l.function.Result, node.Expression()); value == nil {
+		return nil
+	}
+	return []ir.Stmt{&ir.Return{At: at, Value: value}}
 }
 
 // ---------------------------------------------------------------- expressions
@@ -534,10 +665,14 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	symbol := l.checker.GetSymbolAtLocation(node)
 	if local, ok := l.locals[symbol]; ok {
-		if local == nil {
+		if local = l.ownLocal(node, local); local == nil {
 			return nil
 		}
 		return &ir.LocalRef{Local: local}
+	}
+	if _, ok := l.funcs[symbol]; ok {
+		l.notSupportedYet(node, "function values are")
+		return nil
 	}
 	if node.Text() == "undefined" {
 		return &ir.UndefinedConst{} // a local named undefined was found above
@@ -551,9 +686,12 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 
 func (l *lowerer) call(node *ast.Node) ir.Expr {
 	call := node.AsCallExpression()
+	fn, isUserFunction := l.funcs[l.checker.GetSymbolAtLocation(ast.SkipParentheses(call.Expression))]
 	builtin := l.builtin(call.Expression)
 	switch {
-	case builtin == nil || properties[builtin]:
+	case isUserFunction && fn == nil:
+		return nil // its declaration failed, which was reported
+	case !isUserFunction && (builtin == nil || properties[builtin]):
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
 		return nil
 	case ast.IsOptionalChain(node):
@@ -566,10 +704,29 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 			return nil
 		}
 	}
-	if builtin == ir.ConsoleLog {
+	switch {
+	case isUserFunction:
+		return l.userCall(call, fn)
+	case builtin == ir.ConsoleLog:
 		return l.consoleLog(call)
 	}
 	return l.methodCall(node, builtin)
+}
+
+// userCall calls a function of the program, converting each argument to its parameter's type.
+func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
+	args := make([]ir.Expr, len(fn.Params))
+	for i, param := range fn.Params {
+		argument := call.Arguments.Nodes[i] // tsc checked the count; optional and rest parameters aren't lowered yet
+		arg := l.expression(argument)
+		if arg == nil {
+			return nil
+		}
+		if args[i] = l.convert(arg, param.Type, argument); args[i] == nil {
+			return nil
+		}
+	}
+	return &ir.Call{Func: fn, Args: args}
 }
 
 func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {
@@ -926,11 +1083,28 @@ func (l *lowerer) assignmentTarget(node *ast.Node) *ir.Local {
 	node = ast.SkipParentheses(node)
 	if node.Kind == ast.KindIdentifier {
 		if local, ok := l.locals[l.checker.GetSymbolAtLocation(node)]; ok {
-			return local // nil if its declaration failed, which was reported
+			return l.ownLocal(node, local) // nil also if its declaration failed, which was reported
 		}
 	}
 	l.notSupportedYet(node, "assigning to `"+scanner.GetTextOfNode(node)+"` is")
 	return nil
+}
+
+// newLocal makes a local of the function being lowered.
+func (l *lowerer) newLocal(name string, t ir.Type) *ir.Local {
+	local := &ir.Local{Name: name, Type: t}
+	l.owners[local] = l.function
+	return local
+}
+
+// ownLocal returns local if it belongs to the function being lowered, and otherwise
+// reports the use at node and returns nil: functions don't capture variables yet.
+func (l *lowerer) ownLocal(node *ast.Node, local *ir.Local) *ir.Local {
+	if local != nil && l.owners[local] != l.function {
+		l.notSupportedYet(node, "using `"+node.Text()+"` from outside the function is")
+		return nil
+	}
+	return local
 }
 
 // increment lowers ++ and -- (operator) on operand, prefix or postfix.
@@ -1044,11 +1218,19 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 
 // discard evaluates x for its effects, if it may have any, and then has the value of then.
 func discard(x ir.Expr, then ir.Expr) ir.Expr {
-	switch x.(type) {
-	case *ir.LocalRef, *ir.NumberConst, *ir.BoolConst, *ir.StringConst, *ir.IntConst, *ir.NullConst, *ir.UndefinedConst:
+	if isPure(x) {
 		return then
 	}
 	return &ir.Sequence{X: x, Y: then}
+}
+
+// isPure reports whether evaluating x can't have effects: a constant or a local.
+func isPure(x ir.Expr) bool {
+	switch x.(type) {
+	case *ir.LocalRef, *ir.NumberConst, *ir.BoolConst, *ir.StringConst, *ir.IntConst, *ir.NullConst, *ir.UndefinedConst:
+		return true
+	}
+	return false
 }
 
 // concatenation lowers `+` with a string operand: both sides become strings.
@@ -1131,8 +1313,11 @@ func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
 }
 
 func box(value ir.Expr) ir.Expr {
-	if value.Type() == ir.Value {
+	switch value.Type() {
+	case ir.Value:
 		return value
+	case ir.Void:
+		return &ir.Box{X: &ir.Sequence{X: value, Y: &ir.UndefinedConst{}}} // a call of a function that returns nothing is undefined
 	}
 	return &ir.Box{X: value}
 }

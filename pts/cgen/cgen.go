@@ -15,7 +15,7 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{strings: map[string]string{}}
+	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program)}
 	e.collectStrings(program)
 	e.header(program)
 	for _, f := range program.Funcs {
@@ -28,6 +28,7 @@ type emitter struct {
 	out
 	strings     map[string]string // string constant value → C name
 	stringOrder []string          // values in order of first use
+	funcNames   map[*ir.Func]string
 	locals      map[*ir.Local]string
 	usedNames   map[string]bool
 	nextSuffix  map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
@@ -49,22 +50,55 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "")
 	}
 	for _, f := range program.Funcs {
-		e.line(0, "static %s;", signature(f))
+		e.line(0, "static %s;", e.signature(f, nil))
 	}
 	e.line(0, "")
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
-	e.line(1, "%s();", functionName(program.Main))
+	e.line(1, "%s();", e.funcNames[program.Main])
 	e.line(1, "return pts_runtime_exit(0);")
 	e.line(0, "}")
 }
 
-func signature(f *ir.Func) string {
-	return fmt.Sprintf("%s %s(void)", cType(f.Result), functionName(f))
+// functionNames gives each function its C name: pts_main for the top-level code (D-020),
+// pts_fn_<name> for the others, with a nested function's qualified name joined by _.
+func functionNames(program *ir.Program) map[*ir.Func]string {
+	names := map[*ir.Func]string{program.Main: "pts_main"}
+	used := map[string]bool{"pts_main": true}
+	for _, f := range program.Funcs {
+		if f == program.Main {
+			continue
+		}
+		parts := strings.Split(f.Name, ".")
+		for i, part := range parts {
+			parts[i] = cIdentifier(part)
+		}
+		base := "pts_fn_" + strings.Join(parts, "_")
+		name := base
+		for i := 2; used[name]; i++ {
+			name = fmt.Sprintf("%s_%d", base, i)
+		}
+		used[name] = true
+		names[f] = name
+	}
+	return names
 }
 
-func functionName(f *ir.Func) string {
-	return "pts_fn_" + f.Name
+// signature is a function's C declarator. paramNames are the parameters' C names; with
+// nil (a prototype) they are the source names as C allows them.
+func (e *emitter) signature(f *ir.Func, paramNames []string) string {
+	params := make([]string, len(f.Params))
+	for i, param := range f.Params {
+		name := cIdentifier(param.Name)
+		if paramNames != nil {
+			name = paramNames[i]
+		}
+		params[i] = declarator(param.Type) + name
+	}
+	if len(params) == 0 {
+		params = []string{"void"}
+	}
+	return fmt.Sprintf("%s%s(%s)", declarator(f.Result), e.funcNames[f], strings.Join(params, ", "))
 }
 
 func (e *emitter) function(f *ir.Func) {
@@ -75,11 +109,26 @@ func (e *emitter) function(f *ir.Func) {
 	e.labels = map[*ir.Label]string{}
 	e.usedLabels = map[string]bool{}
 	e.gotoTargets = map[string]bool{}
+	paramNames := make([]string, len(f.Params))
+	for i, param := range f.Params {
+		paramNames[i] = e.declareLocal(param)
+	}
 	e.line(0, "")
 	e.at(f.Pos)
-	e.line(0, "static %s {", signature(f))
+	e.line(0, "static %s {", e.signature(f, paramNames))
 	e.statements(f.Body.Stmts, 1)
+	if f.Result != ir.Void && !endsWithReturn(f.Body.Stmts) {
+		e.line(1, "pts_unreachable(); /* tsc checked that every path returns */")
+	}
 	e.line(0, "}")
+}
+
+func endsWithReturn(stmts []ir.Stmt) bool {
+	if len(stmts) == 0 {
+		return false
+	}
+	_, ok := stmts[len(stmts)-1].(*ir.Return)
+	return ok
 }
 
 // ---------------------------------------------------------------- statements
@@ -121,6 +170,12 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 		e.jump(depth, s.Target, "break", "_break")
 	case *ir.Continue:
 		e.jump(depth, s.Target, "continue", "_continue")
+	case *ir.Return:
+		if s.Value == nil {
+			e.line(depth, "return;")
+		} else {
+			e.line(depth, "return %s;", e.expr(s.Value))
+		}
 	default:
 		panic(fmt.Sprintf("cgen: unexpected statement %T", stmt))
 	}
@@ -300,6 +355,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.box(x.X)
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
+	case *ir.Call:
+		args, prelude := e.operands(x.Args)
+		return ordered(prelude, e.funcNames[x.Func]+"("+strings.Join(args, ", ")+")")
 	case *ir.Binary:
 		return e.binary(x)
 	case *ir.Unary:
@@ -699,6 +757,10 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 			for _, arg := range x.Args {
 				expr(arg)
 			}
+		case *ir.Call:
+			for _, arg := range x.Args {
+				expr(arg)
+			}
 		case *ir.Binary:
 			expr(x.X)
 			expr(x.Y)
@@ -733,6 +795,8 @@ func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
 			expr(s.X)
 		case *ir.LocalDecl:
 			expr(s.Init)
+		case *ir.Return:
+			expr(s.Value)
 		case *ir.If:
 			expr(s.Cond)
 			walk([]ir.Stmt{s.Then}, visitStmt, visitExpr)

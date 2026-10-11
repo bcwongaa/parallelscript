@@ -26,3 +26,5 @@ void pts_panic(const char *error_name, const char *format, ...) {
   fputc('\n', stderr);
   exit(1);
 }
+
+void pts_unreachable(void) { pts_panic("Error", "internal compiler error: a function ended without returning its value"); }

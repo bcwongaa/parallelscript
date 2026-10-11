@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
@@ -19,13 +20,20 @@ import (
 
 // Info is what the pass learned about a program.
 type Info struct {
-	types    map[*ast.Node]Numeric // number-typed expressions and the names of number-typed variables
+	results  map[*ast.Node]Numeric // function declarations that return a number: the type they return
+	types    map[*ast.Node]Numeric // number-typed expressions and the names of number-typed variables and parameters
 	operands map[*ast.Node]Numeric // binary operators (compound assignments and switch case clauses too) on numbers: the type both operands convert to
 }
 
 // TypeOf returns the numeric type of a number-typed expression or variable name.
 func (i *Info) TypeOf(node *ast.Node) (Numeric, bool) {
 	n, ok := i.types[node]
+	return n, ok
+}
+
+// ResultType returns the numeric type a function declaration that returns a number returns.
+func (i *Info) ResultType(declaration *ast.Node) (Numeric, bool) {
+	n, ok := i.results[declaration]
 	return n, ok
 }
 
@@ -42,19 +50,25 @@ func Program(ctx context.Context, program *frontend.Program) (*Info, []diagnosti
 	tc, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
 	c := &pass{
-		tc:      tc,
-		info:    &Info{types: map[*ast.Node]Numeric{}, operands: map[*ast.Node]Numeric{}},
-		symbols: map[*ast.Symbol]Numeric{},
+		program:   program.TS,
+		tc:        tc,
+		info:      &Info{results: map[*ast.Node]Numeric{}, types: map[*ast.Node]Numeric{}, operands: map[*ast.Node]Numeric{}},
+		symbols:   map[*ast.Symbol]Numeric{},
+		functions: map[*ast.Node]*function{},
 	}
+	c.unsupportedFeatures(program.Entry.AsNode())
 	c.visit(program.Entry.AsNode())
 	return c.info, c.errors
 }
 
 type pass struct {
-	tc      *checker.Checker
-	info    *Info
-	symbols map[*ast.Symbol]Numeric // numeric type of each number-typed variable
-	errors  []diagnostic.Diagnostic
+	program   *compiler.Program
+	tc        *checker.Checker
+	info      *Info
+	symbols   map[*ast.Symbol]Numeric // numeric type of each number-typed variable and parameter
+	functions map[*ast.Node]*function // by declaration
+	current   *functionBody           // the function whose body is being checked, or nil at the top level
+	errors    []diagnostic.Diagnostic
 }
 
 func (c *pass) report(node *ast.Node, code string, format string, args ...any) {
@@ -73,8 +87,19 @@ func (c *pass) visit(node *ast.Node) {
 	case node.Kind == ast.KindSwitchStatement && c.isNumber(node.Expression()):
 		c.switchStatement(node)
 		return
+	case node.Kind == ast.KindFunctionDeclaration && node.Body() != nil:
+		if fn := c.functionOf(node); !fn.visited {
+			c.checkBody(node, fn)
+		}
+		return
+	case node.Kind == ast.KindReturnStatement && c.current != nil:
+		c.returnStatement(node)
+		return
 	case ast.IsExpression(node) && c.isNumber(node):
 		c.expr(node, nil)
+		return
+	case node.Kind == ast.KindCallExpression && c.calledFunction(node) != nil:
+		c.call(node, c.calledFunction(node))
 		return
 	}
 	node.ForEachChild(func(child *ast.Node) bool {
@@ -216,6 +241,10 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 		}
 		if _, ok := CompoundOperator(binary.OperatorToken.Kind); ok {
 			return c.compoundAssignment(node)
+		}
+	case ast.KindCallExpression:
+		if declaration := c.calledFunction(node); declaration != nil {
+			return c.call(node, declaration)
 		}
 	case ast.KindAsExpression:
 		if target, ok := c.annotationType(node.Type()); ok {

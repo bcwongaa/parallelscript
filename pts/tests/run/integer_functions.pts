@@ -1,0 +1,29 @@
+// Parameters and results keep their integer types: arguments convert losslessly, and
+// a result without an annotation takes the type of what the function returns.
+function wrapAdd(a: u8, b: u8): u8 {
+  return a + b;
+}
+function half(n: int) {
+  return n / 2;
+}
+function widen(b: u8): int {
+  return b;
+}
+function mean(values: number, count: int) {
+  return values / count;
+}
+function bits(x: u32) {
+  return x >>> 4;
+}
+const small: u8 = 200;
+const h = half(7);
+const wide: int = h;
+console.log(wrapAdd(small, 100), half(7), wide, widen(small) * 2, mean(10, 4), bits(0xFFFFFFFF));
+function factorial(n: u64): u64 {
+  return n <= 1 ? 1 : n * factorial(n - 1);
+}
+console.log(factorial(20), factorial(21));
+
+// expect:
+// 44 3 3 400 2.5 268435455
+// 2432902008176640000 14197454024290336768

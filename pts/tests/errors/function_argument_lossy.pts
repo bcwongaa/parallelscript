@@ -1,0 +1,9 @@
+function store(byte: u8): void {
+  console.log(byte);
+}
+const n = 3.5;
+store(n);
+store(300);
+
+// error: function_argument_lossy.pts:5:7 - error PTS2001: a number doesn't convert to u8 implicitly
+// error: function_argument_lossy.pts:6:7 - error PTS2002: 300 doesn't fit in u8 (0 to 255)

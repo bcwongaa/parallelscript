@@ -1,0 +1,7 @@
+// Every file is a module, so strict mode applies and tsc rejects `with`.
+const box = { x: 1 };
+with (box) {
+  console.log(x);
+}
+
+// error: with_statement.pts:3:1 - error TS1101: 'with' statements are not allowed in strict mode.

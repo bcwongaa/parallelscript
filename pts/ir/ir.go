@@ -62,11 +62,12 @@ func IsNumeric(t Type) bool {
 	return t == Number || t == F32 || IsInteger(t)
 }
 
-// Func is a function with a body.
+// Func is a function with a body. A nested function's Name is qualified: "outer.inner".
 type Func struct {
 	Name   string
 	Pos    Pos
-	Result Type
+	Params []*Local
+	Result Type // Void if it returns nothing
 	Body   *Block
 }
 
@@ -152,6 +153,12 @@ type Break struct {
 	Target *Label
 }
 
+// Return leaves the function with Value, which is nil in a function whose Result is Void.
+type Return struct {
+	At    Pos
+	Value Expr
+}
+
 // Continue starts the next iteration of the loop with label Target.
 type Continue struct {
 	At     Pos
@@ -167,6 +174,7 @@ func (s *Switch) Pos() Pos       { return s.At }
 func (s *LabeledBlock) Pos() Pos { return s.At }
 func (s *Break) Pos() Pos        { return s.At }
 func (s *Continue) Pos() Pos     { return s.At }
+func (s *Return) Pos() Pos       { return s.At }
 
 // Expr is an expression.
 type Expr interface {
@@ -239,6 +247,12 @@ type Logical struct {
 
 // Sequence evaluates X for its effects, then Y, whose value it has (the comma operator).
 type Sequence struct{ X, Y Expr }
+
+// Call calls a function of the program with arguments of its parameter types.
+type Call struct {
+	Func *Func
+	Args []Expr
+}
 
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
@@ -373,6 +387,7 @@ func (e *Logical) Type() Type      { return e.X.Type() }
 func (e *Sequence) Type() Type     { return e.Y.Type() }
 func (*Box) Type() Type            { return Value }
 func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
+func (e *Call) Type() Type         { return e.Func.Result }
 func (e *Unary) Type() Type        { return e.X.Type() }
 func (e *IntConst) Type() Type     { return e.Ty }
 func (e *Convert) Type() Type      { return e.To }

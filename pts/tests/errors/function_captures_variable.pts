@@ -1,0 +1,8 @@
+// Functions can't use variables from outside yet: top-level ones arrive with M1.4b, closures with M2.5.
+const limit = 3;
+function belowLimit(n: number): boolean {
+  return n < limit;
+}
+console.log(belowLimit(2));
+
+// error: function_captures_variable.pts:4:14 - error PTS1001: using `limit` from outside the function is not supported yet

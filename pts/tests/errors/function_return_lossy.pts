@@ -1,0 +1,10 @@
+function count(n: number): int {
+  return n * 2;
+}
+function mixed(flag: boolean, a: i64, b: u64) {
+  if (flag) return a;
+  return b;
+}
+
+// error: function_return_lossy.pts:2:10 - error PTS2001: a number doesn't convert to int implicitly
+// error: function_return_lossy.pts:4:10 - error PTS2003: `mixed` returns both int and u64

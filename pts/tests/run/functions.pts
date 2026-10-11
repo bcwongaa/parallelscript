@@ -1,0 +1,98 @@
+// Function declarations: hoisting, recursion and mutual recursion, early returns, void
+// functions, nested functions, and calls evaluated left to right.
+console.log(fib(20), isEven(10), isOdd(7), greet("Ada"));
+
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+function isEven(n: number): boolean {
+  if (n === 0) return true;
+  return isOdd(n - 1);
+}
+
+function isOdd(n: number): boolean {
+  return n === 0 ? false : isEven(n - 1);
+}
+
+function greet(name: string) {
+  return `Hello, ${name}!`;
+}
+
+function report(message: string): void {
+  console.log("report:", message);
+  if (message.length > 3) return;
+  console.log("(short)");
+}
+report("hi");
+report("hello");
+console.log(report("x"));
+
+function gcd(a: number, b: number): number {
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+}
+console.log(gcd(1071, 462), gcd(17, 5));
+
+function classify(n: number): string {
+  switch (true) {
+    case n < 0:
+      return "negative";
+    case n === 0:
+      return "zero";
+  }
+  for (let d = 2; d * d <= n; d++) {
+    if (n % d === 0) return "composite";
+  }
+  return n === 1 ? "unit" : "prime";
+}
+console.log(classify(-4), classify(0), classify(1), classify(97), classify(91));
+
+function sumOfSquares(n: number) {
+  function square(x: number) {
+    return x * x;
+  }
+  let total = 0;
+  for (let i = 1; i <= n; i++) total += square(i);
+  return total;
+}
+console.log(sumOfSquares(10));
+
+function tick(label: string): number {
+  console.log("tick", label);
+  return label.length;
+}
+console.log(tick("a") + tick("bb") * tick("ccc"));
+const flags = tick("x") > 0 && tick("yy") > 5 && tick("never") > 0;
+console.log(flags, tick("p") || tick("q"));
+
+function repeatWord(word: string, times: number): string {
+  if (times <= 0) return "";
+  return word + repeatWord(word, times - 1);
+}
+console.log(repeatWord("ab", 3), "[" + repeatWord("x", 0) + "]");
+
+// expect:
+// 6765 true true Hello, Ada!
+// report: hi
+// (short)
+// report: hello
+// report: x
+// (short)
+// undefined
+// 21 1
+// negative zero unit prime composite
+// 385
+// tick a
+// tick bb
+// tick ccc
+// 7
+// tick x
+// tick yy
+// tick p
+// false 1
+// ababab []
