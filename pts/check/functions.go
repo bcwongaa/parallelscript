@@ -361,7 +361,7 @@ func (c *pass) functionConversion(node *ast.Node) {
 		if i >= len(params) {
 			break
 		}
-		if from, ok := NumericOf(c.tc.GetTypeOfSymbol(param)); ok && params[i] != nil && !numeric.ImplicitlyConvertible(from, *params[i]) {
+		if from, ok := c.parameterNumeric(param); ok && params[i] != nil && !numeric.ImplicitlyConvertible(from, *params[i]) {
 			c.report(node, diagnostic.NumericConversion,
 				"this function takes a %s where its context passes a %s, which doesn't convert to %s implicitly because the value could change", *params[i], from, *params[i])
 			return

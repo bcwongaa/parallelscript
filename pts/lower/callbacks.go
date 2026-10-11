@@ -84,7 +84,7 @@ func (l *lowerer) arrayFromWithMapper(call *ast.CallExpression, source ir.Expr) 
 		l.notSupportedYet(call.Arguments.Nodes[1], fmt.Sprintf("a mapping function of type %s is", mapper.Type()))
 		return nil
 	}
-	helper := l.callbackHelper(helperKey{method: "map", array: source.Type().(*ir.Array), callback: ft}, call.Expression)
+	helper := l.callbackHelper(helperKey{method: "map from", array: source.Type().(*ir.Array), callback: ft}, call.Expression)
 	if helper == nil {
 		return nil
 	}
@@ -305,8 +305,12 @@ func (h *helperBuilder) loopFrom(backwards bool, from ir.Expr, start []ir.Stmt, 
 	return stmts
 }
 
-// call calls the callback with as many of (element, index, array) as it takes.
+// call calls the callback with as many of (element, index, array) as it takes; for
+// Array.from's mapper, of (element, index).
 func (h *helperBuilder) call(element, index ir.Expr) ir.Expr {
+	if h.key.method == "map from" { // Array.from's mapper gets (element, index)
+		return h.callWith([]ir.Expr{element, index})
+	}
 	return h.callWith([]ir.Expr{element, index, &ir.LocalRef{Local: h.array}})
 }
 

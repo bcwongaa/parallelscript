@@ -9,7 +9,14 @@ let n = 1.5;
 function wide(x: int = n): int {
   return x;
 }
+function take(x: u8 = 1): u8 {
+  return x;
+}
+const viaValue: (y?: number) => number = take;
+const viaArrow: (y?: number) => number = (x: u8 = 1) => x;
 
 // error: default_parameter_conversions.pts:2:23 - error PTS2002: 300 doesn't fit in u8 (0 to 255)
 // error: default_parameter_conversions.pts:5:24 - error PTS2002: 1.5 is not an integer, so it can't be a u8; write `as u8` to convert it
 // error: default_parameter_conversions.pts:9:24 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it
+// error: default_parameter_conversions.pts:15:42 - error PTS2001: this function takes a u8 where its context passes a number, which doesn't convert to u8 implicitly because the value could change
+// error: default_parameter_conversions.pts:16:42 - error PTS2001: this function takes a u8 where its context passes a number, which doesn't convert to u8 implicitly because the value could change

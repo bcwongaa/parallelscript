@@ -909,6 +909,9 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 		if name.Kind != ast.KindIdentifier {
 			l.bindings[l.function] = append(l.bindings[l.function], &parameterBinding{node: node, value: local})
 		}
+		if node.AsParameterDeclaration().QuestionToken != nil { // of an abstract method, whose calls pass the flag too
+			return []*ir.Local{local, l.newLocal(local.Name+"_given", ir.Given)}
+		}
 		return []*ir.Local{local}
 	}
 	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
@@ -940,13 +943,15 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 		l.notSupportedYet(node, "optional parameters without a default are")
 		return nil
 	}
-	if param.Name().Kind != ast.KindIdentifier {
-		return l.irType(l.typeOfSymbol(node.Symbol()), param.Name()) // a pattern's
+	var t *checker.Type
+	switch {
+	case param.Name().Kind != ast.KindIdentifier:
+		t = l.typeOfSymbol(node.Symbol()) // a pattern's
+	case l.numericType(param.Name()) != nil:
+		return l.numericType(param.Name())
+	default:
+		t = l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name()))
 	}
-	if t := l.numericType(param.Name()); t != nil {
-		return t
-	}
-	t := l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name()))
 	if passedOrNot(node) {
 		t = l.checker.RemoveMissingOrUndefinedType(t)
 	}

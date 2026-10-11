@@ -178,7 +178,12 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 	if context == nil {
 		return true
 	}
-	l.bindAlwaysPassed(fn, context)
+	if flags := alwaysPassed(fn, context); len(flags) > 0 {
+		if node.Name() != nil {
+			return true // a named function expression may call itself leaving the argument out
+		}
+		l.bindAlwaysPassed(fn, flags)
+	}
 	for i := len(fn.Params); i < len(context.Params); i++ {
 		fn.Params = append(fn.Params, l.newLocal("unused", context.Params[i]))
 	}
@@ -228,24 +233,33 @@ func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	return ft
 }
 
-// bindAlwaysPassed drops the Given flags of fn's parameters with defaults that the
-// function type ft, which fn takes the shape of, always passes: their defaults never
-// apply, so each is its argument.
-func (l *lowerer) bindAlwaysPassed(fn *ir.Func, ft *ir.FuncType) {
-	var params []*ir.Local
+// alwaysPassed are the Given flags of fn's parameters with defaults that the function
+// type ft, which fn takes the shape of, always passes.
+func alwaysPassed(fn *ir.Func, ft *ir.FuncType) []*ir.Local {
+	var flags []*ir.Local
+	j := 0 // in ft.Params
 	for _, param := range fn.Params {
-		if param.Type != ir.Given || len(params) < len(ft.Params) && ft.Params[len(params)] == ir.Given {
-			params = append(params, param)
+		if param.Type == ir.Given && (j >= len(ft.Params) || ft.Params[j] != ir.Given) {
+			flags = append(flags, param)
 			continue
 		}
-		for _, binding := range l.bindings[fn] {
-			if binding.given == param {
-				params[len(params)-1] = binding.value
-				binding.arg, binding.given = nil, nil
-			}
-		}
+		j++
 	}
-	fn.Params = params
+	return flags
+}
+
+// bindAlwaysPassed drops flags, Given flags of fn's parameters whose arguments every call
+// passes: their defaults never apply, so each such parameter is its argument.
+func (l *lowerer) bindAlwaysPassed(fn *ir.Func, flags []*ir.Local) {
+	for _, binding := range l.bindings[fn] {
+		if binding.given == nil || !slices.Contains(flags, binding.given) {
+			continue
+		}
+		i := slices.Index(fn.Params, binding.arg)
+		fn.Params = slices.Delete(fn.Params, i+1, i+2) // the flag
+		fn.Params[i] = binding.value
+		binding.arg, binding.given = nil, nil
+	}
 }
 
 // functionExpressionBody lowers the body of an arrow function or function expression into

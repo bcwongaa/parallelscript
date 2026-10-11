@@ -147,6 +147,28 @@ console.log(points.map(({ x } = { x: 0 }) => x * 10));
 const seven = power.bind(null, 7);
 console.log(seven(), seven(1), power.bind(null, 7, 3)(), power.call(null, 6), power.call(null, 6, 1), power.apply(null, [9]));
 
+// An abstract method's optional parameter takes the flag too; a named function expression
+// may call itself leaving out an argument its context always passes; Array.from passes
+// its mapper (element, index); a pattern parameter may take an optional parameter's place.
+abstract class Shaper {
+  abstract size(x?: number): number;
+  both(): number {
+    return this.size() + this.size(5);
+  }
+}
+class Sized extends Shaper {
+  size(x = 1): number {
+    return x;
+  }
+}
+const factorial: (n: number, acc: number) => number = function f(n, acc = 1): number {
+  return n <= 1 ? acc : n * f(n - 1);
+};
+console.log(new Sized().both(), factorial(5, 1), points.map(function g({ x } = { x: 0 }, i = 0): number { return i > 5 ? x : x * 10 + (i == 0 ? 0 : g(undefined, 9)); }));
+console.log(Array.from([1, 2], (x, i, all: number[] = [9]) => all.length), Array.from("ab", (c, i, all: string[] = ["q"]) => all.length + c));
+const firstOf: (p?: { a: number }) => number = ({ a } = { a: 1 }) => a;
+console.log(firstOf(), firstOf({ a: 2 }));
+
 // expect:
 // Hello, Ada! Hi, Ada! Hello, Ada!
 // 9 12
@@ -173,3 +195,6 @@ console.log(seven(), seven(1), power.bind(null, 7, 3)(), power.call(null, 6), po
 // 1 k none
 // [ 10, 20 ]
 // 49 7 343 36 6 81
+// 6 120 [ 10, 20 ]
+// [ 1, 1 ] [ '1a', '1b' ]
+// 1 2
