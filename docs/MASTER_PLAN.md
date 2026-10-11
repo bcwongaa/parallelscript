@@ -66,7 +66,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `let`/`const` (also without an initializer); `if`, `switch`, `for`, `while` and `do`; `break`/`continue` with labels; the ternary operator.
   - Every operator, including assignment, compound assignment, `++`/`--`, `**`, bitwise operators (JS int32 semantics for `number`), `typeof`, `void`, logical operators and comma, evaluated in JS's left-to-right order.
   - The numeric rules of `pts/check` on assignments, compound assignments, `switch` cases, the ternary and logical operators.
-- [ ] **M1.4a2 Functions** (split from M1.4a by D-017).
+- [x] **M1.4a2 Functions** (8c4593703) (split from M1.4a by D-017).
   - Function declarations; parameters and returns (with the numeric rules); recursion; calls in JS's evaluation order.
   - Unsupported-feature compile errors: `var`, `eval`, `with`, `arguments` and the rest of the brief's list.
 - [ ] **M1.4b Modules** (added by D-008).
