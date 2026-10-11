@@ -205,3 +205,15 @@ custom-gcl.hash
 !internal/fourslash/_scripts/manualTests.txt
 !internal/fourslash/_scripts/crashingTests.txt
 !internal/fourslash/_scripts/unparsedTests.txt
+
+# PTS: ParallelScript additions (see docs/FORK.md)
+.venv/
+__pycache__/
+# Root and PTS build dirs only: upstream tracks sources under internal/execute/build/.
+/build/
+/pts/**/build/
+*.env
+/cmd/pts/pts
+/pts-bin/
+# Expected-output files of the PTS test suite (the upstream `*.out` rule above would hide them).
+!pts/tests/**/*.out

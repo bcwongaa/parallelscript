@@ -2,3 +2,5 @@
 **/*.json linguist-language=jsonc
 * -text
 *.go text eol=lf
+# PTS: highlight ParallelScript sources (.ps) as TypeScript on GitHub (D-O01).
+*.ps linguist-language=TypeScript
