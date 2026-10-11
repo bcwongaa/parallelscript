@@ -1,9 +1,12 @@
-// Array features that arrive later are reported: spread, methods of M2.4b and M2.4c,
-// for...of over other iterables (M4.1), tuples, converting arrays between element types,
-// and arrays as strings (join, M2.4b).
+// Array features that arrive later are reported: spread, the methods that take callbacks
+// (M2.4c), for...of over other iterables (M4.1), tuples, converting arrays between
+// element types, and recursive array types.
 const a = [1, 2, 3];
 const copy = [...a];
-const tail = a.slice(1);
+const sorted = a.sort((x, y) => x - y);
+const twice = Array.from(a, (x) => x * 2);
+const depth = 2;
+const flat = [[1]].flat(depth);
 let n = 0;
 for (n of a) {
 }
@@ -19,11 +22,15 @@ interface Point {
 }
 const pixels = [new Pixel(1, 2)];
 const points: Point[] = pixels;
-console.log("" + a);
+type Nested = Nested[];
+const nested: Nested = [];
+
 // error: arrays_not_yet.pts:5:15 - error PTS1001: spreading `...` into an array literal is not supported yet
-// error: arrays_not_yet.pts:6:14 - error PTS1001: the array method `slice` is not supported yet
-// error: arrays_not_yet.pts:8:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
-// error: arrays_not_yet.pts:10:18 - error PTS1001: `for...of` over a string is not supported yet
-// error: arrays_not_yet.pts:12:7 - error PTS1001: values of type [number, string] are not supported yet
-// error: arrays_not_yet.pts:21:25 - error PTS1001: converting Pixel[] to {x: number; y: number}[] is not supported yet
-// error: arrays_not_yet.pts:22:18 - error PTS1001: converting number[] to a string is not supported yet
+// error: arrays_not_yet.pts:6:16 - error PTS1001: sorting with a comparator is not supported yet
+// error: arrays_not_yet.pts:7:15 - error PTS1001: `Array.from` with a mapping function is not supported yet
+// error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet
+// error: arrays_not_yet.pts:11:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
+// error: arrays_not_yet.pts:13:18 - error PTS1001: `for...of` over a string is not supported yet
+// error: arrays_not_yet.pts:15:7 - error PTS1001: values of type [number, string] are not supported yet
+// error: arrays_not_yet.pts:24:25 - error PTS1001: converting Pixel[] to {x: number; y: number}[] is not supported yet
+// error: arrays_not_yet.pts:26:7 - error PTS1001: recursive array types (Nested) are not supported yet

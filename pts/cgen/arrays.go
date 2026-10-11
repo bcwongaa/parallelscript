@@ -50,21 +50,75 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("PTS_ARRAY_POP(%s, %s)", elem, args[0])
 	case ir.ArrayShiftChecked:
 		c = fmt.Sprintf("PTS_ARRAY_SHIFT(%s, %s)", elem, args[0])
+	case ir.ArraySlice:
+		c = fmt.Sprintf("pts_array_slice(%s, %s, %s)", args[0], args[1], args[2])
+	case ir.ArraySplice:
+		c = fmt.Sprintf("pts_array_splice(%s, %s, %s, %s)", args[0], args[1], args[2], elements(elem, args[3:]))
+	case ir.ArrayConcat:
+		c = e.concat(call, args)
+	case ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes:
+		c = fmt.Sprintf("pts_array_%s(%s, (%s[]){%s}, %s)", cIdentifierOf(call.Op), args[0], elem, args[1], args[2])
+	case ir.ArrayJoin:
+		c = fmt.Sprintf("pts_array_join(%s, %s)", args[0], args[1])
+	case ir.ArrayReverse, ir.ArraySort:
+		c = fmt.Sprintf("pts_array_%s(%s)", call.Op, args[0])
+	case ir.ArrayFlat:
+		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], fieldKind(call.To.Elem))
+	case ir.ArrayFill:
+		c = fmt.Sprintf("pts_array_fill(%s, (%s[]){%s}, %s, %s)", args[0], elem, args[1], args[2], args[3])
 	default:
 		panic(fmt.Sprintf("cgen: unexpected array operation %s", call.Op))
 	}
 	return ordered(prelude, c)
 }
 
+// elements writes values of the C type elem as a compound literal and their count, or NULL, 0.
+func elements(elem string, values []string) string {
+	if len(values) == 0 {
+		return "NULL, 0"
+	}
+	return fmt.Sprintf("(%s[]){%s}, %d", elem, strings.Join(values, ", "), len(values))
+}
+
+// cIdentifierOf is the runtime's name for an array operation: index_of for indexOf.
+func cIdentifierOf(op ir.ArrayOp) string {
+	var name strings.Builder
+	for _, r := range op.String() {
+		if r >= 'A' && r <= 'Z' {
+			name.WriteByte('_')
+			r += 'a' - 'A'
+		}
+		name.WriteRune(r)
+	}
+	return name.String()
+}
+
+// concat writes a.concat(x…), whose operands args are already evaluated: a copy of a,
+// then each x's elements if it is an array of a's type, or else x itself, appended.
+func (e *emitter) concat(call *ir.ArrayCall, args []string) string {
+	result := e.temporary()
+	var c strings.Builder
+	fmt.Fprintf(&c, "({ pts_array *%s = pts_array_copy(%s); ", result, args[0])
+	for i, x := range call.Args[1:] {
+		if x.Type() == call.Args[0].Type() {
+			fmt.Fprintf(&c, "pts_array_append(%s, %s); ", result, args[i+1])
+		} else {
+			fmt.Fprintf(&c, "pts_array_push(%s, %s); ", result, elements(e.elementType(call.Args[0]), args[i+1:i+2]))
+		}
+	}
+	fmt.Fprintf(&c, "%s; })", result)
+	return c.String()
+}
+
 // arrayEffects are the effects of an array operation beyond its operands'.
 func arrayEffects(op ir.ArrayOp) effects {
 	switch op {
-	case ir.ArrayLength, ir.ArrayElement:
+	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes, ir.ArrayFlat:
 		return readsLocals
 	case ir.ArrayElementChecked:
 		return readsLocals | mayThrow
-	case ir.ArrayPush, ir.ArrayUnshift, ir.ArrayPop, ir.ArrayShift:
+	case ir.ArrayPush, ir.ArrayUnshift, ir.ArrayPop, ir.ArrayShift, ir.ArraySplice, ir.ArrayReverse, ir.ArrayFill:
 		return readsLocals | writes
 	}
-	return readsLocals | writes | mayThrow
+	return readsLocals | writes | mayThrow // also join and sort, which may call toString methods
 }

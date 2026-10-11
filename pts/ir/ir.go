@@ -222,6 +222,10 @@ type Array struct {
 	Elem Type
 }
 
+// StringArray is string[], which builtins such as split return; the lowering uses it as
+// the one array type of strings.
+var StringArray = &Array{Elem: String}
+
 func (a *Array) String() string { return a.Elem.String() + "[]" }
 
 // ShapeString writes a shape as its name and its fields: "object1{x: number; y: number}".
@@ -536,19 +540,33 @@ const (
 	ArrayPopChecked                    // a.pop()!, which throws RangeError if a is empty
 	ArrayShift                         // a.shift() as a dynamic value: undefined if a is empty
 	ArrayShiftChecked                  // a.shift()!, which throws RangeError if a is empty
+	ArraySlice                         // a.slice(start, end): a new array; a left-out start is 0, a left-out end Infinity
+	ArraySplice                        // a.splice(start, deleteCount, v…): the removed elements, as a new array
+	ArrayConcat                        // a.concat(x…): a new array; each x is an array of a's type, whose elements it takes, or an element
+	ArrayIndexOf                       // a.indexOf(v, from): the first index of an element === v, or -1
+	ArrayLastIndexOf                   // a.lastIndexOf(v, from): the last index of an element === v, or -1; a left-out from is Infinity
+	ArrayIncludes                      // a.includes(v, from): whether an element is v by SameValueZero
+	ArrayJoin                          // a.join(separator): the elements' strings, joined
+	ArrayReverse                       // a.reverse(): a, reversed in place
+	ArraySort                          // a.sort(): a, sorted in place by the elements' strings, stably
+	ArrayFlat                          // a.flat(depth): a new array of To's type, nested arrays flattened depth levels
+	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
 	ArraySetElement: "setElement", ArrayPush: "push", ArrayUnshift: "unshift", ArrayPop: "pop", ArrayPopChecked: "popChecked",
-	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked"}
+	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
+	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
+	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill"}
 
 func (op ArrayOp) String() string { return arrayOpText[op] }
 
-// ArrayCall applies Op to the array Args[0] and the operands after it: a number index,
-// a number length, or values of the element type.
+// ArrayCall applies Op to the array Args[0] and the operands after it: numbers (indices,
+// lengths, counts), values of the element type, a separator string, or for concat, arrays.
 type ArrayCall struct {
 	Op   ArrayOp
 	Args []Expr
+	To   *Array // the result of ArrayFlat
 }
 
 // FieldRef reads a field of the instance X, or through an interface, a property of the
@@ -646,6 +664,11 @@ var (
 	StringPadStart    = stringMember("padStart", String, Number, String)
 	StringPadEnd      = stringMember("padEnd", String, Number, String)
 	StringRepeat      = stringMember("repeat", String, Number)
+
+	// StringSplit is split on a string separator, with a limit (Infinity if left out);
+	// ArrayFromString is Array.from of a string: its code points.
+	StringSplit     = stringMember("split", StringArray, String, Number)
+	ArrayFromString = &Builtin{Name: "Array.from", Params: []Type{String}, Result: StringArray}
 
 	// ValueTypeOf is typeof of a boxed value; typeof of a static type is a constant.
 	ValueTypeOf = &Builtin{Name: "typeof", Params: []Type{Value}, Result: String}
@@ -747,10 +770,18 @@ func (e *NewArray) Type() Type      { return e.Array }
 
 func (e *ArrayCall) Type() Type {
 	switch e.Op {
-	case ArrayLength, ArraySetLength, ArrayPush, ArrayUnshift:
+	case ArrayLength, ArraySetLength, ArrayPush, ArrayUnshift, ArrayIndexOf, ArrayLastIndexOf:
 		return Number
 	case ArrayElement, ArrayPop, ArrayShift:
 		return Value
+	case ArrayIncludes:
+		return Bool
+	case ArrayJoin:
+		return String
+	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill:
+		return e.Args[0].Type()
+	case ArrayFlat:
+		return e.To
 	}
 	return e.Args[0].Type().(*Array).Elem
 }

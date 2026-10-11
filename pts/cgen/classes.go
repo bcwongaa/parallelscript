@@ -43,8 +43,9 @@ func (e *emitter) indexMethods(program *ir.Program) {
 }
 
 // collectInterfaceMembers lists, for each class, the methods, getters and setters that
-// calls through interfaces may need: those named like a method of some interface, and
-// the accessors named like a property of one that some class provides with accessors.
+// calls through interfaces may need: those named like a method of some interface, the
+// accessors named like a property of one that some class provides with accessors, and
+// toString(), which the runtime calls to convert an instance to a string.
 // Each is the implementation the class has, its own or inherited. Their functions get
 // entry points, named pts_entry_<function>.
 func (e *emitter) collectInterfaceMembers(program *ir.Program) {
@@ -62,8 +63,8 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 	for _, class := range program.Classes {
 		for owner := class; owner != nil; owner = owner.Parent {
 			for _, method := range owner.Methods {
-				if class.Method(method.Name, method.Kind) != method || method.Abstract || !wanted[method.Kind][method.Name] {
-					continue // overridden below, not implemented, or not called through interfaces
+				if class.Method(method.Name, method.Kind) != method || method.Abstract || !wanted[method.Kind][method.Name] && !isToString(method) {
+					continue // overridden below, not implemented, or not called through interfaces or by join
 				}
 				e.interfaceMembers[class] = append(e.interfaceMembers[class], method)
 				if _, named := e.entryNames[method.Func]; !named {
@@ -73,6 +74,12 @@ func (e *emitter) collectInterfaceMembers(program *ir.Program) {
 			}
 		}
 	}
+}
+
+// isToString reports whether a method is a toString() returning a string, which the
+// runtime calls where JS converts an object to a string (join).
+func isToString(method *ir.Method) bool {
+	return method.Kind == ir.Plain && method.Name == "toString" && len(method.Func.Params) == 1 && method.Func.Result == ir.String
 }
 
 // entryFunctions writes the entry point of each method that interfaces call: a function

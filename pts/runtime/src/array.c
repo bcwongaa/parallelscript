@@ -311,3 +311,344 @@ double pts_array_set_length(pts_array *array, double length) {
   publish_length(array, (size_t)length);
   return length;
 }
+
+/* ---------------------------------------------------------------- methods (M2.4b) */
+
+/* JS's ToIntegerOrInfinity of a relative index, clamped to [0, length]: negative ones count from the end. */
+static size_t relative_index(double position, size_t length) {
+  if (position != position) {
+    return 0; /* NaN */
+  }
+  double integer = __builtin_trunc(position);
+  if (integer < 0) {
+    integer += (double)length;
+    return integer < 0 ? 0 : (size_t)integer;
+  }
+  return integer > (double)length ? length : (size_t)integer;
+}
+
+/* readable_length is the length clamped to the capacity of buffer, which a racing push may not have reached. */
+static size_t readable_length(const pts_array *array, const pts_array_buffer *buffer) {
+  size_t length = pts_array_length_of(array);
+  return length < buffer->capacity ? length : buffer->capacity;
+}
+
+/* copy_elements copies count elements from a buffer others may write (one load each) to one only we see. */
+static void copy_elements(unsigned char *to, const unsigned char *from, size_t count, size_t size) {
+  for (size_t i = 0; i < count; i++) {
+    element_load(to + i * size, from + i * size, size);
+  }
+}
+
+/* new_array makes an array of the given kind holding count elements read from from. */
+static pts_array *new_array(pts_field_kind kind, const unsigned char *from, size_t count) {
+  pts_array *array = pts_object_new(&array_types[kind]);
+  array->buffer = new_buffer(kind, count);
+  copy_elements(array->buffer->elements, from, count, pts_field_kind_size(kind));
+  array->length = count;
+  return array;
+}
+
+pts_array *pts_array_slice(const pts_array *array, double start, double end) {
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  size_t from = relative_index(start, length), to = relative_index(end, length);
+  size_t size = pts_field_kind_size(array->type->element);
+  return new_array(array->type->element, buffer->elements + from * size, to > from ? to - from : 0);
+}
+
+pts_array *pts_array_copy(const pts_array *array) { return pts_array_slice(array, 0, (double)SIZE_MAX); }
+
+pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *old = load_buffer(array);
+  size_t length = readable_length(array, old);
+  size_t from = relative_index(start, length);
+  double wanted = delete_count != delete_count ? 0 : __builtin_trunc(delete_count);
+  size_t deleted = wanted <= 0 ? 0 : wanted >= (double)(length - from) ? length - from : (size_t)wanted;
+  pts_array *removed = new_array(kind, old->elements + from * size, deleted);
+  /* A new buffer, filled before it is published, as unshift does. */
+  size_t new_length = length - deleted + count;
+  pts_array_buffer *buffer = new_buffer(kind, new_length > old->capacity ? new_length : old->capacity);
+  copy_elements(buffer->elements, old->elements, from, size);
+  if (count > 0) {
+    memcpy(buffer->elements + from * size, items, count * size);
+  }
+  copy_elements(buffer->elements + (from + count) * size, old->elements + (from + deleted) * size, length - from - deleted, size);
+  publish_buffer(array, buffer);
+  publish_length(array, new_length);
+  return removed;
+}
+
+void pts_array_append(pts_array *array, const pts_array *other) {
+  size_t size = pts_field_kind_size(array->type->element);
+  pts_array_buffer *source = load_buffer(other);
+  size_t count = readable_length(other, source);
+  size_t length = pts_array_length_of(array);
+  pts_array_buffer *buffer = with_room(array, length, length + count);
+  for (size_t i = 0; i < count; i++) {
+    uint64_t element = 0;
+    element_load(&element, source->elements + i * size, size);
+    element_store(buffer->elements + (length + i) * size, &element, size);
+  }
+  publish_length(array, length + count);
+}
+
+/* same_value reports whether two elements of a kind are equal: by === or, if zero is true, by SameValueZero (NaN is NaN). */
+static bool same_value(pts_field_kind kind, const void *a, const void *b, bool zero) {
+  switch (kind) {
+  case PTS_FIELD_NUMBER: {
+    double x = *(const double *)a, y = *(const double *)b;
+    return x == y || (zero && x != x && y != y);
+  }
+  case PTS_FIELD_F32: {
+    float x = *(const float *)a, y = *(const float *)b;
+    return x == y || (zero && x != x && y != y);
+  }
+  case PTS_FIELD_STRING:
+    return *(pts_string *const *)a != NULL && *(pts_string *const *)b != NULL && pts_string_equals(*(pts_string *const *)a, *(pts_string *const *)b);
+  case PTS_FIELD_VALUE: {
+    pts_value x = *(const pts_value *)a, y = *(const pts_value *)b;
+    if (pts_value_is_number(x) && pts_value_is_number(y)) {
+      double dx = pts_value_as_number(x), dy = pts_value_as_number(y);
+      return dx == dy || (zero && dx != dx && dy != dy);
+    }
+    if (x != 0 && y != 0 && pts_value_is_object(x) && pts_value_is_object(y) && pts_value_as_object(x)->type->kind == PTS_KIND_STRING &&
+        pts_value_as_object(y)->type->kind == PTS_KIND_STRING) {
+      return pts_string_equals((const pts_string *)pts_value_as_object(x), (const pts_string *)pts_value_as_object(y));
+    }
+    return x == y;
+  }
+  default:
+    return memcmp(a, b, pts_field_kind_size(kind)) == 0; /* booleans, integers and object references */
+  }
+}
+
+/* find returns the index of the first (or, backwards, last) element same as value from from on, or -1. */
+static double find(const pts_array *array, const void *value, size_t from, bool backwards, bool zero) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  for (size_t i = from; i < length; backwards ? i-- : i++) {
+    uint64_t element = 0;
+    element_load(&element, buffer->elements + i * size, size);
+    if (!is_hole(kind, &element) && same_value(kind, &element, value, zero)) {
+      return (double)i;
+    }
+  }
+  return -1;
+}
+
+double pts_array_index_of(const pts_array *array, const void *value, double from) {
+  return find(array, value, relative_index(from, pts_array_length_of(array)), false, false);
+}
+
+double pts_array_last_index_of(const pts_array *array, const void *value, double from) {
+  size_t length = pts_array_length_of(array);
+  if (length == 0) {
+    return -1;
+  }
+  double integer = from != from ? 0 : __builtin_trunc(from);
+  if (integer < 0) {
+    integer += (double)length;
+    if (integer < 0) {
+      return -1;
+    }
+  }
+  return find(array, value, integer >= (double)length ? length - 1 : (size_t)integer, true, false);
+}
+
+bool pts_array_includes(const pts_array *array, const void *value, double from) {
+  return find(array, value, relative_index(from, pts_array_length_of(array)), false, true) >= 0;
+}
+
+/* The arrays being joined on this thread, so that a cycle joins as "" as in JS. */
+static __thread const pts_array *joining[64];
+static __thread size_t joining_depth;
+
+/* object_string is JS's ToString of an object: its class's toString() if it has one interfaces can call, else "[object Object]". */
+static pts_string *object_string(const pts_object *object) {
+  if (object->type->kind == PTS_KIND_ARRAY) {
+    return pts_array_join((const pts_array *)object, NULL);
+  }
+  for (uint32_t i = 0; i < object->type->method_count; i++) {
+    const pts_method *method = &object->type->methods[i];
+    if (method->kind == PTS_METHOD && strcmp(method->name, "toString") == 0) {
+      return ((pts_string * (*)(pts_object *)) method->function)((pts_object *)object);
+    }
+  }
+  return pts_string_from_cstr("[object Object]");
+}
+
+/* element_string is the string join and sort use for the element at slot: "" for undefined, null and holes. */
+static pts_string *element_string(pts_field_kind kind, const void *slot) {
+  uint64_t element = 0;
+  element_load(&element, slot, pts_field_kind_size(kind));
+  if (is_hole(kind, &element)) {
+    return pts_string_from_cstr("");
+  }
+  switch (kind) {
+  case PTS_FIELD_STRING:
+    return *(pts_string **)&element;
+  case PTS_FIELD_OBJECT:
+    return object_string(*(const pts_object **)&element);
+  case PTS_FIELD_VALUE: {
+    pts_value value = *(pts_value *)&element;
+    if (value == PTS_VALUE_UNDEFINED || value == PTS_VALUE_NULL) {
+      return pts_string_from_cstr("");
+    }
+    if (pts_value_is_object(value) && pts_value_as_object(value)->type->kind != PTS_KIND_STRING) {
+      return object_string(pts_value_as_object(value));
+    }
+    return pts_value_to_string(value);
+  }
+  default:
+    return pts_value_to_string(box(kind, &element));
+  }
+}
+
+/* joined concatenates the strings of elements [from, to) with separators, halving the range so copying stays O(n log n). */
+static pts_string *joined(const pts_array *array, const pts_array_buffer *buffer, size_t from, size_t to, pts_string *separator) {
+  pts_field_kind kind = array->type->element;
+  if (to - from == 1) {
+    return element_string(kind, buffer->elements + from * pts_field_kind_size(kind));
+  }
+  size_t middle = from + (to - from) / 2;
+  pts_string *left = joined(array, buffer, from, middle, separator);
+  return pts_string_concat(pts_string_concat(left, separator), joined(array, buffer, middle, to, separator));
+}
+
+pts_string *pts_array_join(const pts_array *array, pts_string *separator) {
+  if (separator == NULL) {
+    separator = pts_string_from_cstr(",");
+  }
+  for (size_t i = 0; i < joining_depth && i < 64; i++) {
+    if (joining[i] == array) {
+      return pts_string_from_cstr("");
+    }
+  }
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  if (length == 0) {
+    return pts_string_from_cstr("");
+  }
+  if (joining_depth < 64) {
+    joining[joining_depth] = array;
+  }
+  joining_depth++;
+  pts_string *result = joined(array, buffer, 0, length, separator);
+  joining_depth--;
+  return result;
+}
+
+pts_array *pts_array_reverse(pts_array *array) {
+  size_t size = pts_field_kind_size(array->type->element);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  for (size_t i = 0; i < length / 2; i++) {
+    uint64_t low = 0, high = 0;
+    element_load(&low, buffer->elements + i * size, size);
+    element_load(&high, buffer->elements + (length - 1 - i) * size, size);
+    element_store(buffer->elements + i * size, &high, size);
+    element_store(buffer->elements + (length - 1 - i) * size, &low, size);
+  }
+  return array;
+}
+
+/* A sort entry: an element and the string it sorts by. */
+typedef struct sort_entry {
+  pts_string *key;
+  uint64_t element;
+} sort_entry;
+
+/* merge_sort sorts entries[0, count) stably by key in UTF-16 order, using scratch. */
+static void merge_sort(sort_entry *entries, sort_entry *scratch, size_t count) {
+  if (count < 2) {
+    return;
+  }
+  size_t half = count / 2;
+  merge_sort(entries, scratch, half);
+  merge_sort(entries + half, scratch, count - half);
+  size_t left = 0, right = half, out = 0;
+  while (left < half && right < count) {
+    scratch[out++] = pts_string_compare(entries[right].key, entries[left].key) < 0 ? entries[right++] : entries[left++];
+  }
+  while (left < half) {
+    scratch[out++] = entries[left++];
+  }
+  while (right < count) {
+    scratch[out++] = entries[right++];
+  }
+  memcpy(entries, scratch, count * sizeof *entries);
+}
+
+pts_array *pts_array_sort(pts_array *array) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  /* Scanned memory, since the keys are strings the collector must keep. */
+  sort_entry *entries = GC_MALLOC(2 * length * sizeof *entries + 1);
+  if (entries == NULL) {
+    pts_panic("RangeError", "Out of memory sorting an array of %zu elements", length);
+  }
+  for (size_t i = 0; i < length; i++) {
+    element_load(&entries[i].element, buffer->elements + i * size, size);
+    entries[i].key = element_string(kind, buffer->elements + i * size);
+  }
+  merge_sort(entries, entries + length, length);
+  for (size_t i = 0; i < length; i++) {
+    element_store(buffer->elements + i * size, &entries[i].element, size);
+  }
+  return array;
+}
+
+/* flatten_into appends the elements of array to result, those that are arrays flattened depth levels more. */
+static void flatten_into(pts_array *result, const pts_array *array, double depth) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  for (size_t i = 0; i < length; i++) {
+    uint64_t element = 0;
+    element_load(&element, buffer->elements + i * size, size);
+    if (is_hole(kind, &element)) {
+      continue; /* JS's flat skips holes too */
+    }
+    if (depth >= 1 && kind == PTS_FIELD_OBJECT && (*(const pts_object **)&element)->type->kind == PTS_KIND_ARRAY) {
+      flatten_into(result, *(const pts_array **)&element, depth - 1);
+    } else {
+      pts_array_push(result, &element, 1);
+    }
+  }
+}
+
+pts_array *pts_array_flat(const pts_array *array, double depth, pts_field_kind result_kind) {
+  pts_array *result = pts_array_of(result_kind, NULL, 0);
+  flatten_into(result, array, depth != depth ? 0 : __builtin_trunc(depth));
+  return result;
+}
+
+pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end) {
+  size_t size = pts_field_kind_size(array->type->element);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  for (size_t i = relative_index(start, length), to = relative_index(end, length); i < to; i++) {
+    element_store(buffer->elements + i * size, value, size);
+  }
+  return array;
+}
+
+pts_array *pts_array_from_string(pts_string *string) {
+  pts_array *array = pts_array_of(PTS_FIELD_STRING, NULL, 0);
+  for (uint32_t i = 0; i < string->byte_len;) {
+    unsigned char lead = (unsigned char)string->bytes[i];
+    uint32_t length = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+    pts_string *code_point = pts_string_from_utf8(string->bytes + i, length);
+    pts_array_push(array, &code_point, 1);
+    i += length;
+  }
+  return array;
+}

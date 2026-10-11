@@ -615,6 +615,27 @@ pts_value pts_array_shift_value(pts_array *array);
 /* array.length = length, which may only shrink it: RangeError otherwise. Returns length. */
 double pts_array_set_length(pts_array *array, double length);
 
+/*
+ * The methods of M2.4b. Indices follow JS: negative ones count from the end, and the
+ * lowering passes 0 or Infinity for one left out. Values of the element type are passed
+ * by address. slice, splice, concat and flat make new arrays; the others change array.
+ */
+pts_array *pts_array_slice(const pts_array *array, double start, double end);
+pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count);
+pts_array *pts_array_copy(const pts_array *array);
+void pts_array_append(pts_array *array, const pts_array *other);
+double pts_array_index_of(const pts_array *array, const void *value, double from);
+double pts_array_last_index_of(const pts_array *array, const void *value, double from);
+bool pts_array_includes(const pts_array *array, const void *value, double from);
+pts_string *pts_array_join(const pts_array *array, pts_string *separator);
+pts_array *pts_array_reverse(pts_array *array);
+pts_array *pts_array_sort(pts_array *array);
+pts_array *pts_array_flat(const pts_array *array, double depth, pts_field_kind result_kind);
+pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
+
+/* Array.from(string): its code points, each a string. */
+pts_array *pts_array_from_string(pts_string *string);
+
 /* An element that is a pointer or dynamic value, which throws RangeError for a hole as for an index out of range. */
 static inline uint64_t pts_array_get_word(const pts_array *array, double index) {
   uint64_t element = __atomic_load_n((const uint64_t *)pts_array_slot(array, index, sizeof(uint64_t)), __ATOMIC_RELAXED);
@@ -678,6 +699,8 @@ pts_string *pts_string_pad_start(pts_string *string, double max_length, pts_stri
 pts_string *pts_string_pad_end(pts_string *string, double max_length, pts_string *fill);
 /* Throws RangeError: Invalid count value for a negative or infinite count. */
 pts_string *pts_string_repeat(pts_string *string, double count);
+/* split on a string separator: at most limit pieces (Infinity if left out). Returns a string array. */
+pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit);
 
 /* ---------------------------------------------------------------- console */
 

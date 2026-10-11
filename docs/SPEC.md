@@ -504,3 +504,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C:** an array is a `pts_array *`; `pts/cgen/arrays.go` writes `pts_array_of`, `PTS_ARRAY_GET`/`PTS_ARRAY_GET_WORD` (pointer and dynamic elements, where a zero word is a hole), `PTS_ARRAY_SET`, `pts_array_push`/`unshift` of a compound literal, `PTS_ARRAY_POP`/`SHIFT`. Runtime: `pts.h` (arrays section), `array.c` (one descriptor per element kind, single-word element copies, acquire/release on the length and buffer), and `inspect.c` (`format_elements`, `group_array_elements`, `reduce_to_single_string`: Node's `formatArray`, `groupArrayElements` and `reduceToSingleString`; string widths count code points).
 - **Semantic pass:** arrays of integer types and f32 are PTS1001 (`integerElements`) until M2.6.
 - **Tests:** `pts/tests/run/arrays.pts`, `arrays_objects.pts`, `array_{index,hole,length,pop}_error.pts`, `pts/tests/errors/arrays_not_yet.pts`, `arrays_of_integers.pts`, `TestArrayElementsAndForOfLowerToArrayOperations`, `array_test.c` (growth, both ends, boxing, threads racing pushes against a reader).
+
+### 9.19 Array methods without callbacks (M2.4b)
+
+- **IR** (D-039): the `ir.ArrayOp`s `ArraySlice` … `ArrayFill` (`ArrayCall.To` is `flat`'s result type); builtins `ir.StringSplit` and `ir.ArrayFromString`, returning `ir.StringArray` (the lowering's one `string[]`).
+- **Lowering** (`pts/lower/arrays.go`): `arrayMethods` (fixed parameters, defaults by `arrayParam`), `arrayValues` (push, unshift, concat), `splice`, `flat`, `arrayFrom`; `toString` of an array is `join(",")`; `convert` retypes an empty literal.
+- **C:** `pts/cgen/arrays.go` (`elements` for compound literals, `concat`); `collectInterfaceMembers` also lists `toString()` methods (`isToString`). Runtime: `array.c` (the methods; `element_string` is JS's ToString of an element; `joined`; `merge_sort`; `flatten_into`), `pts_string_split` in `string_methods.c`.
+- **Tests:** `pts/tests/run/array_methods.pts`, `pts/tests/errors/arrays_not_yet.pts`, `array_test.c` (join of a cycle, splice bounds, sort stability).

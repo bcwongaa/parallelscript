@@ -432,3 +432,34 @@ pts_string *pts_string_repeat(pts_string *string, double count) {
   }
   return repeated(string, (uint32_t)n);
 }
+
+pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit) {
+  pts_array *pieces = pts_array_of(PTS_FIELD_STRING, NULL, 0);
+  /* JS's ToUint32 of the limit; a left-out one is Infinity, which means 2^32 - 1. */
+  double max = limit != limit ? 0 : limit >= 4294967295.0 ? 4294967295.0 : limit <= 0 ? 0 : __builtin_trunc(limit);
+  if (max == 0) {
+    return pieces;
+  }
+  if (separator->utf16_len == 0) {
+    for (uint32_t i = 0; i < string->utf16_len && i < max; i++) {
+      pts_string *unit = string_of_unit(unit_at(string, i));
+      pts_array_push(pieces, &unit, 1);
+    }
+    return pieces;
+  }
+  if (string->utf16_len == 0) {
+    pts_array_push(pieces, &string, 1);
+    return pieces;
+  }
+  uint32_t start = 0;
+  for (int64_t match = find(string, separator, 0); match >= 0; match = find(string, separator, start)) {
+    pts_string *piece = units_between(string, start, (uint32_t)match);
+    if (pts_array_push(pieces, &piece, 1) == max) {
+      return pieces;
+    }
+    start = (uint32_t)match + separator->utf16_len;
+  }
+  pts_string *rest = units_between(string, start, string->utf16_len);
+  pts_array_push(pieces, &rest, 1);
+  return pieces;
+}

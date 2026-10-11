@@ -67,6 +67,32 @@ static void elements_of_every_kind_box_as_their_values(void) {
   CHECK(PTS_ARRAY_GET(uint8_t, small, 2) == 9 && pts_array_length(small) == 3);
 }
 
+static void a_cycle_joins_as_empty(void) {
+  pts_array *outer = pts_array_of(PTS_FIELD_OBJECT, NULL, 0);
+  pts_array *inner = numbers(2);
+  pts_array_push(outer, &inner, 1);
+  pts_array_push(outer, &outer, 1);
+  CHECK_STR(pts_array_join(outer, NULL)->bytes, "0,1,");
+}
+
+static void splice_clamps_and_inserts(void) {
+  pts_array *array = numbers(5); /* 0 1 2 3 4 */
+  double items[] = {10, 11, 12};
+  pts_array *removed = pts_array_splice(array, -2, 100, items, 3);
+  CHECK(pts_array_length(removed) == 2 && PTS_ARRAY_GET(double, removed, 0) == 3);
+  CHECK(pts_array_length(array) == 6 && PTS_ARRAY_GET(double, array, 3) == 10 && PTS_ARRAY_GET(double, array, 5) == 12);
+  removed = pts_array_splice(array, 1, -5, NULL, 0);
+  CHECK(pts_array_length(removed) == 0 && pts_array_length(array) == 6);
+}
+
+static void sort_keeps_equal_keys_in_order(void) {
+  pts_string *words[] = {pts_string_from_cstr("b"), pts_string_from_cstr("a"), pts_string_from_cstr("b"), pts_string_from_cstr("a")};
+  pts_array *array = pts_array_of(PTS_FIELD_STRING, words, 4);
+  pts_array_sort(array);
+  CHECK(PTS_ARRAY_GET(pts_string *, array, 0) == words[1] && PTS_ARRAY_GET(pts_string *, array, 1) == words[3]);
+  CHECK(PTS_ARRAY_GET(pts_string *, array, 2) == words[0] && PTS_ARRAY_GET(pts_string *, array, 3) == words[2]);
+}
+
 static pts_array *shared;
 
 /* push_many pushes PUSHES numbers onto the shared array while other threads do too. */
@@ -115,6 +141,9 @@ int main(int argc, char **argv) {
   indices_out_of_range_have_no_slot();
   both_ends_add_and_remove_in_order();
   elements_of_every_kind_box_as_their_values();
+  a_cycle_joins_as_empty();
+  splice_clamps_and_inserts();
+  sort_keeps_equal_keys_in_order();
   racing_pushes_lose_elements_but_stay_in_bounds();
   return CHECK_DONE();
 }

@@ -83,6 +83,7 @@ var builtins = map[string]*ir.Builtin{
 	"String.padStart":    ir.StringPadStart,
 	"String.padEnd":      ir.StringPadEnd,
 	"String.repeat":      ir.StringRepeat,
+	"String.split":       ir.StringSplit,
 }
 
 // properties are the builtins that are read rather than called.
@@ -107,6 +108,7 @@ var leftOut = map[*ir.Builtin][]ir.Expr{
 	ir.StringEndsWith:   {nil, toEnd},
 	ir.StringPadStart:   {nil, &ir.StringConst{Value: " "}},
 	ir.StringPadEnd:     {nil, &ir.StringConst{Value: " "}},
+	ir.StringSplit:      {nil, toEnd},
 }
 
 // numericTypes maps the semantic pass's numeric types to IR types.
@@ -128,7 +130,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
-		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{}}
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -210,6 +212,7 @@ type lowerer struct {
 	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their members (membersKey)
 	interfaceList      []*ir.Interface                 // the interfaces, in the order they were made
 	arrays             map[ir.Type]*ir.Array           // the array type of each element type met
+	arraysInProgress   map[*checker.Type]bool          // the array types whose element type is being mapped
 	this               map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
 	lowered            []*ir.Func                      // the functions whose bodies are lowered
 	bodies             []*ast.Node                     // function declarations whose bodies are still to be lowered
@@ -680,6 +683,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.Convert{X: value, To: target}
 	case isObject(value.Type()) && isObject(target) && !isArray(value.Type()) && !isArray(target):
 		return l.objectCast(value, target, node)
+	case isEmptyArrayLiteral(value) && isArray(target):
+		return &ir.NewArray{Array: target.(*ir.Array)} // `[]` nested in a literal, typed never[], fits any array type
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
@@ -982,8 +987,11 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isArrayMethodCall(node) {
 		return l.arrayMethodCall(call, false)
 	}
-	if l.isArrayIsArray(ast.SkipParentheses(call.Expression)) {
+	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "isArray") {
 		return l.arrayIsArray(call)
+	}
+	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "from") {
+		return l.arrayFrom(call)
 	}
 	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
@@ -1199,6 +1207,8 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 		return x
 	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined || t == ir.Value:
 		return &ir.ToString{X: x}
+	case isArray(t):
+		return &ir.ArrayCall{Op: ir.ArrayJoin, Args: []ir.Expr{x, &ir.StringConst{Value: ","}}} // JS's Array.prototype.toString
 	}
 	l.notSupportedYet(node, fmt.Sprintf("converting %s to a string is", x.Type()))
 	return nil

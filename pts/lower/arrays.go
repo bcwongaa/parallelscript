@@ -26,7 +26,13 @@ func (l *lowerer) arrayType(t *checker.Type, node *ast.Node) ir.Type {
 	if elem.Flags()&checker.TypeFlagsNever != 0 {
 		return l.arrayOf(ir.Value)
 	}
+	if l.arraysInProgress[t] {
+		l.notSupportedYet(node, fmt.Sprintf("recursive array types (%s) are", l.checker.TypeToString(t)))
+		return nil
+	}
+	l.arraysInProgress[t] = true
 	elemType := l.irType(elem, node)
+	delete(l.arraysInProgress, t)
 	if elemType == nil {
 		return nil
 	}
@@ -79,6 +85,12 @@ func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
 		}
 	}
 	return &ir.NewArray{Array: array, Elems: elems}
+}
+
+// isEmptyArrayLiteral reports whether x is the array of a literal without elements.
+func isEmptyArrayLiteral(x ir.Expr) bool {
+	literal, ok := x.(*ir.NewArray)
+	return ok && len(literal.Elems) == 0
 }
 
 // isArrayElement reports whether node is a[i] for an array a.
@@ -140,53 +152,185 @@ func (l *lowerer) arrayObject(access *ast.Node) ir.Expr {
 	return l.expression(access.Expression())
 }
 
-// arrayMethods are the array methods lowered so far, by name: those that take values of
-// the element type, and those that return an element or undefined (the dynamic op, then
-// the one a `!` after the call asks for).
+// arrayRemovers are the array methods that return an element or undefined: the dynamic
+// op, then the one a `!` after the call asks for.
+var arrayRemovers = map[string][2]ir.ArrayOp{"pop": {ir.ArrayPop, ir.ArrayPopChecked}, "shift": {ir.ArrayShift, ir.ArrayShiftChecked}}
+
+// arrayParam is a parameter of an array method: its type (nil for the element type) and
+// the argument a call that leaves it out gets (nil if it can't be left out).
+type arrayParam struct {
+	t       ir.Type
+	leftOut ir.Expr
+}
+
 var (
-	arrayInserters = map[string]ir.ArrayOp{"push": ir.ArrayPush, "unshift": ir.ArrayUnshift}
-	arrayRemovers  = map[string][2]ir.ArrayOp{"pop": {ir.ArrayPop, ir.ArrayPopChecked}, "shift": {ir.ArrayShift, ir.ArrayShiftChecked}}
+	elementParam = arrayParam{}
+	startParam   = arrayParam{ir.Number, fromStart}
+	endParam     = arrayParam{ir.Number, toEnd}
 )
+
+// arrayMethods are the array methods with fixed parameters, and their ops.
+var arrayMethods = map[string]struct {
+	op     ir.ArrayOp
+	params []arrayParam
+}{
+	"slice":       {ir.ArraySlice, []arrayParam{startParam, endParam}},
+	"indexOf":     {ir.ArrayIndexOf, []arrayParam{elementParam, startParam}},
+	"lastIndexOf": {ir.ArrayLastIndexOf, []arrayParam{elementParam, endParam}},
+	"includes":    {ir.ArrayIncludes, []arrayParam{elementParam, startParam}},
+	"join":        {ir.ArrayJoin, []arrayParam{{ir.String, &ir.StringConst{Value: ","}}}},
+	"reverse":     {ir.ArrayReverse, nil},
+	"sort":        {ir.ArraySort, nil},
+	"fill":        {ir.ArrayFill, []arrayParam{elementParam, startParam, endParam}},
+}
 
 // arrayMethodCall lowers `a.m(args)` for an array a. checked is true under `!`
 // (`stack.pop()!`), where pop and shift return the element itself and throw if a is empty.
 func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
 	name := callee.AsPropertyAccessExpression().Name().Text()
-	inserter, inserts := arrayInserters[name]
+	method, fixed := arrayMethods[name]
 	removers, removes := arrayRemovers[name]
-	if !inserts && !removes {
+	switch {
+	case !fixed && !removes && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat":
 		l.notSupportedYet(callee, fmt.Sprintf("the array method `%s` is", name))
 		return nil
-	}
-	array := l.arrayObject(callee)
-	if array == nil {
+	case name == "sort" && len(call.Arguments.Nodes) > 0:
+		l.notSupportedYet(callee, "sorting with a comparator is")
 		return nil
 	}
-	if removes {
-		op := removers[0]
-		if checked {
-			op = removers[1]
-		}
-		return &ir.ArrayCall{Op: op, Args: []ir.Expr{array}}
-	}
-	args := []ir.Expr{array}
-	elem := array.Type().(*ir.Array).Elem
 	for _, argument := range call.Arguments.Nodes {
 		if argument.Kind == ast.KindSpreadElement {
 			l.notSupportedYet(argument, "spread arguments are")
 			return nil
 		}
-		value := l.expression(argument)
+	}
+	array := l.arrayObject(callee)
+	if array == nil {
+		return nil
+	}
+	arrayType := array.Type().(*ir.Array)
+	args := call.Arguments.Nodes
+	switch {
+	case removes:
+		op := removers[0]
+		if checked {
+			op = removers[1]
+		}
+		return &ir.ArrayCall{Op: op, Args: []ir.Expr{array}}
+	case fixed:
+		operands := l.arrayOperands(args, method.params, arrayType)
+		if operands == nil {
+			return nil
+		}
+		return &ir.ArrayCall{Op: method.op, Args: append([]ir.Expr{array}, operands...)}
+	case name == "push" || name == "unshift":
+		values := l.arrayValues(args, arrayType, false)
+		if values == nil {
+			return nil
+		}
+		op := ir.ArrayPush
+		if name == "unshift" {
+			op = ir.ArrayUnshift
+		}
+		return &ir.ArrayCall{Op: op, Args: append([]ir.Expr{array}, values...)}
+	case name == "splice":
+		return l.splice(array, args)
+	case name == "concat":
+		values := l.arrayValues(args, arrayType, true)
+		if values == nil {
+			return nil
+		}
+		return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{array}, values...)}
+	}
+	return l.flat(array, args)
+}
+
+// arrayOperands lowers the arguments of an array method with fixed parameters, giving
+// left-out ones their defaults, or reports one and returns nil.
+func (l *lowerer) arrayOperands(args []*ast.Node, params []arrayParam, array *ir.Array) []ir.Expr {
+	operands := make([]ir.Expr, len(params))
+	for i, param := range params {
+		t := param.t
+		if t == nil {
+			t = array.Elem
+		}
+		if i >= len(args) || isUndefined(args[i]) && param.leftOut != nil {
+			operands[i] = param.leftOut // tsc checked that required arguments are there
+			continue
+		}
+		value := l.expression(args[i])
 		if value == nil {
 			return nil
 		}
-		if value = l.convert(value, elem, argument); value == nil {
+		if operands[i] = l.convert(value, t, args[i]); operands[i] == nil {
 			return nil
 		}
-		args = append(args, value)
 	}
-	return &ir.ArrayCall{Op: inserter, Args: args}
+	return operands
+}
+
+// isUndefined reports whether node is the identifier undefined, which a left-out argument is.
+func isUndefined(node *ast.Node) bool {
+	return node.Kind == ast.KindIdentifier && node.Text() == "undefined"
+}
+
+// arrayValues lowers arguments that are values of an array's element type, or with
+// arrays true, also arrays of its type (concat's).
+func (l *lowerer) arrayValues(args []*ast.Node, array *ir.Array, arrays bool) []ir.Expr {
+	values := make([]ir.Expr, len(args))
+	for i, arg := range args {
+		value := l.expression(arg)
+		if value == nil {
+			return nil
+		}
+		if arrays && value.Type() == array {
+			values[i] = value
+			continue
+		}
+		if values[i] = l.convert(value, array.Elem, arg); values[i] == nil {
+			return nil
+		}
+	}
+	return values
+}
+
+// splice lowers a.splice(start, deleteCount, items…). Without arguments it removes
+// nothing; without a delete count it removes everything from start on.
+func (l *lowerer) splice(array ir.Expr, args []*ast.Node) ir.Expr {
+	arrayType := array.Type().(*ir.Array)
+	if len(args) == 0 {
+		return &ir.ArrayCall{Op: ir.ArraySplice, Args: []ir.Expr{array, &ir.NumberConst{Value: 0}, &ir.NumberConst{Value: 0}}}
+	}
+	bounds := l.arrayOperands(args[:min(len(args), 2)], []arrayParam{startParam, endParam}, arrayType)
+	items := l.arrayValues(args[min(len(args), 2):], arrayType, false)
+	if bounds == nil || items == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: ir.ArraySplice, Args: append(append([]ir.Expr{array}, bounds...), items...)}
+}
+
+// flat lowers a.flat(depth) for a constant depth (1 if left out): a new array with the
+// nested arrays depth levels down spread into it.
+func (l *lowerer) flat(array ir.Expr, args []*ast.Node) ir.Expr {
+	depth := 1.0
+	if len(args) > 0 {
+		constant, ok := l.expression(args[0]).(*ir.NumberConst)
+		if !ok {
+			l.notSupportedYet(args[0], "`flat` with a depth that isn't a constant is")
+			return nil
+		}
+		depth = constant.Value
+	}
+	result := array.Type().(*ir.Array)
+	for d := depth; d >= 1; d-- {
+		inner, ok := result.Elem.(*ir.Array)
+		if !ok {
+			break
+		}
+		result = inner
+	}
+	return &ir.ArrayCall{Op: ir.ArrayFlat, Args: []ir.Expr{array, &ir.NumberConst{Value: depth}}, To: result}
 }
 
 // isArrayMethodCall reports whether node calls a method of an array.
@@ -198,9 +342,9 @@ func (l *lowerer) isArrayMethodCall(node *ast.Node) bool {
 	return callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())
 }
 
-// isArrayIsArray reports whether a callee is the global Array.isArray.
-func (l *lowerer) isArrayIsArray(callee *ast.Node) bool {
-	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Text() != "isArray" {
+// isArrayStatic reports whether a callee is the static method name of the global Array.
+func (l *lowerer) isArrayStatic(callee *ast.Node, name string) bool {
+	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Text() != name {
 		return false
 	}
 	object := callee.Expression()
@@ -218,6 +362,26 @@ func (l *lowerer) arrayIsArray(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	return discard(x, &ir.BoolConst{Value: isArray(x.Type())})
+}
+
+// arrayFrom lowers Array.from(x) for an array x (a copy) or a string (its code points).
+func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
+	args := call.Arguments.Nodes
+	if len(args) != 1 {
+		l.notSupportedYet(call.Expression, "`Array.from` with a mapping function is")
+		return nil
+	}
+	x := l.expression(args[0])
+	switch {
+	case x == nil:
+		return nil
+	case isArray(x.Type()):
+		return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, fromStart, toEnd}}
+	case x.Type() == ir.String:
+		return &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{x}}
+	}
+	l.notSupportedYet(args[0], fmt.Sprintf("`Array.from` of a %s is", x.Type()))
+	return nil
 }
 
 // nonNull lowers `x!`. Under it, a.pop() and a.shift() give the element itself, and

@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.4b Array methods without callbacks
+- **Next task:** M2.5 Collections and closures
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.4b Array methods without callbacks: `split`, `slice`, `splice`, `concat`, `indexOf`, `lastIndexOf`, `includes`, `join` (and arrays as strings), `reverse`, `sort` (stable, by the elements' strings), `flat` (constant depth), `fill`, `Array.from` of an array or a string, all matching Node; class instances convert to strings with their `toString()` (D-039, SPEC §9.19). Fixed: a recursive array type crashed the compiler (now PTS1001).
 - M2.4a Array basics: `T[]` arrays with typed, unboxed element buffers, race-safe per brief §2.5 (capacity in the buffer, buffers published before lengths, unwritten pointer slots read as holes); literals, `length` (and shrinking it), `a[i]` reads by D-015's rule and writes (in range or appending), `push`, `pop`, `shift`, `unshift`, `pop()!`/`shift()!`, `for...of` over arrays, `Array.isArray`, and `console.log` of arrays ported from Node (grouping into columns, `... n more items`, `[Array]`, cycles) (D-038, SPEC §9.18). M2.4 split by D-037 (callback methods after M2.5); arrays of integer types moved to M2.6.
 - M2.3b2 Methods and accessors through interfaces: interfaces and type literals with methods and accessor signatures; class methods provide interface methods and getters/setters provide properties (same IR types), called through per-site caches over each descriptor's table of entry points; properties some class provides with accessors go through `PTS_GET`/`PTS_SET`, others stay plain field sites; writing a getter-only property through an interface throws TypeError as in JS; `?:` of unrelated classes meets in the contextual interface (D-036, SPEC §9.17). M2.3 is complete. Fixed: the semantic pass didn't type `#private` fields, so a `#count: u8` read as a number.
 - M2.3b1 Interfaces over fields: object types are structural interfaces (one-word pointers); class instances and objects of other shapes whose fields provide an interface's properties (with the same types) convert to it; property access through per-site caches of (descriptor, offset), race-safe; contextually typed literals take the context's shape (D-035, SPEC §9.16). M2.3b split by D-034.
@@ -42,7 +43,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.4b Array methods without callbacks: `split` (string separator), `slice`, `splice`, `concat`, `indexOf`, `includes`, `join` (also ToString of arrays, which `"" + a` needs; `pts_value_to_string` panics on arrays today), `reverse`, `sort` without a comparator (stable; JS's default compares the elements' ToString in UTF-16 order), `flat`, `fill`, `Array.from(array)`. Runtime operations go in `array.c` by element kind; lowering adds them to `arrayMethodCall` (`pts/lower/arrays.go`) and `ir.ArrayOp`s.
+1. M2.5 Collections and closures: `Map` and `Set` (insertion order, SameValueZero), closures with explicit environments, arrow functions, `this` rules. Big: split it first (D-025 style), e.g. closures and arrow functions first (they unblock M2.4c's callbacks, which come right after M2.5 in the plan), then `Map`/`Set`. Function values must be one word (D-002): a pointer to a closure object whose first word is the descriptor, then the code pointer and the captured variables (or a pointer to a shared environment for variables assigned after capture).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -57,7 +58,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (66 run tests, 1 skipped; 42 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (67 run tests, 1 skipped; 42 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -82,6 +83,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.4b done.
 - 2026-10-11: M2.4a done (M2.4 split by D-037).
 - 2026-10-11: M2.3b2 done.
 - 2026-10-11: M2.3b1 done (M2.3b split by D-034).

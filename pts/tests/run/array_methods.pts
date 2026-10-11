@@ -1,0 +1,55 @@
+// The array methods that take no callback, and String.prototype.split.
+const words = "the quick brown fox jumps over the lazy dog".split(" ");
+console.log(words.length, words, "a,b,,c".split(","), "abc".split(""), "".split(","), "".split(""));
+console.log("one, two, three".split(", ", 2), "x".split("x"), "a😀b".split(""));
+
+// join, and arrays as strings.
+const nums = [1, 2.5, -0, NaN, 1e21];
+console.log(nums.join(), nums.join(" | "), [].join("-"), [[1, 2], [3]].join(";"), `${nums}`, "" + [true, false]);
+console.log([{ a: 1 }].join(), ["x"].join(), [[], []].join());
+
+// slice and concat copy; splice, reverse, fill and sort change the array in place.
+const letters = ["a", "b", "c", "d", "e"];
+console.log(letters.slice(1, 3), letters.slice(-2), letters.slice(), letters.slice(3, 1), letters.slice(NaN, 2.7));
+console.log(letters.concat(["f"], "g", ["h", "i"]), letters.concat(), letters.length);
+const removed = letters.splice(1, 2);
+console.log(removed, letters);
+console.log(letters.splice(1, 0, "x", "y"), letters);
+console.log(letters.splice(-1), letters);
+console.log(letters.splice(2), letters, letters.splice(0, 1, "z"), letters);
+const digits = [1, 2, 3, 4, 5];
+console.log(digits.reverse());
+console.log(digits.fill(0, 1, 3));
+console.log(digits.fill(9, -1), digits.fill(7) === digits, digits);
+
+// sort without a comparator orders by the elements' strings, stably.
+console.log([10, 9, 1, 100, 25, -3].sort(), ["b", "a", "C", "á", "B"].sort(), [true, false, true].sort());
+const people = [["bob", "1"], ["al", "2"], ["bob", "0"]];
+console.log(people.sort());
+
+// indexOf and includes: === and SameValueZero.
+const values = [1, 2, NaN, 2, -0];
+console.log(values.indexOf(2), values.indexOf(2, 2), values.indexOf(NaN), values.includes(NaN), values.indexOf(0), values.includes(0), values.indexOf(7));
+console.log(values.lastIndexOf(2), values.indexOf(1, -2), values.includes(1, 1), ["x", "y"].indexOf("y"), ["x", "y"].includes("z"));
+const p = { x: 1 };
+console.log([p, { x: 1 }].indexOf({ x: 1 }), [p].indexOf(p));
+
+// flat, and Array.from of an array or a string.
+const nested = [[1, 2], [3], [], [4, 5]];
+console.log(nested.flat(), [[["deep"]], [["er"]]].flat(), [[["deep"]], [["er"]]].flat(2), [1, 2].flat());
+const copy = Array.from(digits);
+copy.push(1);
+console.log(copy, digits, Array.from("héllo😀"), Array.from(""));
+
+// join and sort convert instances with their class's toString(), others to "[object Object]".
+class Money {
+  constructor(public cents: number) {}
+  toString(): string {
+    return "$" + this.cents / 100;
+  }
+}
+class Plain {
+  value = 1;
+}
+const prices = [new Money(150), new Money(5), new Money(1000)];
+console.log(prices.join(" + "), [new Plain()].join(), prices.sort().join(), `${[prices[0]]}`);
