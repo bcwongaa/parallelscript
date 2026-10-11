@@ -198,7 +198,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - The methods of maps and sets called on dynamic values (`get`, `set`, `has`, `delete`, `clear`, `forEach`), with keys and values checked against their declared types; `Object.keys`, `values` and `entries` of dynamic values.
 - [x] **M3.3d1 Generic function values** (fde182377) (split from M3.3 by D-070, from M3.3d by D-078).
   - Generic function declarations used as values (the instance the context implies, else an erased copy whose type parameters take dynamic values), generic arrow functions and function expressions, generic function types, instantiation expressions (moved from M2.6b3 by D-051); `for…of`, spread and array destructuring of dynamic values, which erased code needs.
-- [ ] **M3.3d2 Generic methods** (split from M3.3d by D-078).
+- [x] **M3.3d2 Generic methods** (2f6f12c88) (split from M3.3d by D-078).
   - Generic methods of object literals and interfaces (erased signatures in method tables), generic methods of classes through interfaces, and generic methods as values (moved from M2.6b3 by D-051).
 - [ ] **M3.4 JSON.**
   - `JSON.parse` returning `any`; `JSON.stringify` with indent and replacer basics, matching Node byte for byte.
