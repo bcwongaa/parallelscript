@@ -1322,6 +1322,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isObjectStatic(ast.SkipParentheses(call.Expression), "keys", "values", "entries", "hasOwn") {
 		return l.objectStaticCall(call)
 	}
+	if l.isGlobalMember(ast.SkipParentheses(call.Expression), "JSON", "parse") {
+		return l.jsonParse(call)
+	}
+	if l.isGlobalMember(ast.SkipParentheses(call.Expression), "JSON", "stringify") {
+		return l.jsonStringify(call)
+	}
 	if l.isRecordMethodCall(node) {
 		return l.recordMethodCall(call)
 	}

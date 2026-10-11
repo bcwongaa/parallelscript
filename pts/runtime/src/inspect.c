@@ -329,8 +329,12 @@ static void format_key(text *out, const char *name) {
   quote_string(out, key);
 }
 
-/* format_string_key is format_key for a hash-map object's key. */
+/* format_string_key is format_key for a hash-map object's key. An own `__proto__` key, which JSON.parse makes, shows as Node shows it. */
 static void format_string_key(text *out, const pts_string *key) {
+  if (key->byte_len == 9 && memcmp(key->bytes, "__proto__", 9) == 0) {
+    text_puts(out, "['__proto__']");
+    return;
+  }
   if (is_bare_key(key->bytes, key->byte_len)) {
     text_add(out, key->bytes, key->byte_len);
     return;

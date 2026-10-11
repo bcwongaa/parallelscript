@@ -1,0 +1,36 @@
+// no-diff: ParallelScript's own JSON behaviour (D-080): integer types stringify exactly, a
+// stringify that gives undefined in a place typed string throws TypeError, and parsed data
+// is checked where it meets typed places.
+const big: i64 = 9007199254740993;
+const small: u8 = 200;
+console.log(JSON.stringify({ big, small, list: [1 as i32, 2 as i32] }));
+try {
+  const text: string = JSON.stringify(undefined);
+  console.log(text.length);
+} catch (e) {
+  console.log(String(e));
+}
+console.log(JSON.stringify(undefined));
+interface Point {
+  x: number;
+  y: number;
+}
+const point: Point = JSON.parse('{"x": 1, "y": 2}');
+console.log(point.x + point.y);
+try {
+  const bad: Point = JSON.parse('{"x": 1, "y": "two"}');
+  console.log(bad.y);
+} catch (e) {
+  console.log(String(e));
+}
+const counts: Record<string, any> = JSON.parse('{"a": 1}');
+counts.b = [true];
+console.log(counts, JSON.stringify(counts));
+
+// expect:
+// {"big":9007199254740993,"small":200,"list":[1,2]}
+// TypeError: Expected string, got undefined
+// undefined
+// 3
+// TypeError: Expected {x: number; y: number}, got Object
+// { a: 1, b: [ true ] } {"a":1,"b":[true]}

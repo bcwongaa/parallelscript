@@ -30,7 +30,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				switch x.Builtin {
 				case ir.DynamicSet:
 					e.declaredTypes = true
-				case ir.DynamicCall, ir.DynamicCallMethod:
+				case ir.DynamicCall, ir.DynamicCallMethod, ir.JSONStringify: // JSON.stringify calls toJSON methods and replacers (D-080)
 					e.declaredTypes = true
 				}
 			}
@@ -190,10 +190,7 @@ func (e *emitter) check(t ir.Type) string {
 		if t.Value != nil {
 			e.check(t.Value)
 		}
-		if e.mapDescriptors[t] == "" { // a copy may make one
-			e.mapDescriptors[t] = fmt.Sprintf("pts_type_%s_%d", strings.ToLower(mapKind(t)), len(e.mapOrder)+1)
-			e.mapOrder = append(e.mapOrder, t)
-		}
+		e.nameMapDescriptor(t) // a copy may make one
 	case *ir.Interface:
 		for _, field := range t.Fields {
 			e.check(field.Type)

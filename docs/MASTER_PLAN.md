@@ -200,8 +200,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Generic function declarations used as values (the instance the context implies, else an erased copy whose type parameters take dynamic values), generic arrow functions and function expressions, generic function types, instantiation expressions (moved from M2.6b3 by D-051); `for…of`, spread and array destructuring of dynamic values, which erased code needs.
 - [x] **M3.3d2 Generic methods** (2f6f12c88) (split from M3.3d by D-078).
   - Generic methods of object literals and interfaces (erased signatures in method tables), generic methods of classes through interfaces, and generic methods as values (moved from M2.6b3 by D-051).
-- [ ] **M3.4 JSON.**
+- [ ] **M3.4a JSON.parse and JSON.stringify** (split from M3.4 by D-080).
   - `JSON.parse` returning `any`; `JSON.stringify` with indent and replacer basics, matching Node byte for byte.
+- [ ] **M3.4b JSON and word-frequency benchmarks** (split from M3.4 by D-080).
   - Add the JSON benchmark and the `Map`-heavy word-frequency benchmark.
 - [ ] **M3.5 Library breadth.**
   - The remaining common `String`, `Array`, `Object` (`keys`/`values`/`entries`/`assign`/`freeze`) and `Number` methods (`toFixed`, `parseInt`, `parseFloat`, `isInteger` and so on).

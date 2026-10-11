@@ -12,11 +12,24 @@ import (
 func (e *emitter) collectMaps(program *ir.Program) {
 	for _, f := range program.Funcs {
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
-			if n, ok := x.(*ir.NewMap); ok && e.mapDescriptors[n.Map] == "" {
-				e.mapDescriptors[n.Map] = fmt.Sprintf("pts_type_%s_%d", strings.ToLower(mapKind(n.Map)), len(e.mapOrder)+1)
-				e.mapOrder = append(e.mapOrder, n.Map)
+			if n, ok := x.(*ir.NewMap); ok {
+				e.nameMapDescriptor(n.Map)
 			}
 		})
+	}
+}
+
+// nameMapDescriptor names the descriptor of a map, set or hash-map object type, unless it
+// has one. Record<string, any>'s is the runtime's, which JSON.parse's objects have too
+// (D-080), so that converting one to it keeps the object.
+func (e *emitter) nameMapDescriptor(mt *ir.MapType) {
+	switch {
+	case e.mapDescriptors[mt] != "":
+	case mt.Record && mt.Value == ir.Value:
+		e.mapDescriptors[mt] = "pts_type_any_record"
+	default:
+		e.mapDescriptors[mt] = fmt.Sprintf("pts_type_%s_%d", strings.ToLower(mapKind(mt)), len(e.mapOrder)+1)
+		e.mapOrder = append(e.mapOrder, mt)
 	}
 }
 

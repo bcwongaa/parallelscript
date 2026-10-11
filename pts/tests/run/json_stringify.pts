@@ -1,0 +1,65 @@
+// JSON.stringify (D-080): any value through its descriptor, with toJSON, replacer functions
+// and property lists, indents, V8's TypeError for cycles, and undefined for undefined and
+// functions where the context takes it.
+const show = (f: () => unknown): void => {
+  try {
+    console.log(JSON.stringify(f()));
+  } catch (e) {
+    console.log((e as Error).name + ": " + (e as Error).message);
+  }
+};
+const o: any = JSON.parse('{"a": 1}');
+o.self = o;
+show(() => o);
+const a: any = JSON.parse('{"b": {"c": {"d": {}}}}');
+a.b.c.d.e = a;
+show(() => a);
+const deep: any = JSON.parse('{"x": {"y": {"z": {"w": {"v": {}}}}}}');
+deep.x.y.z.w.v.back = deep.x;
+show(() => deep);
+const arr: any[] = [1];
+arr.push(arr);
+show(() => arr);
+class P {
+  me: P | null = null;
+  constructor() {
+    this.me = this;
+  }
+}
+show(() => new P());
+const m: any = JSON.parse('{"list": [{"k": null}]}');
+m.list[0].k = m;
+show(() => m);
+console.log(JSON.stringify({ a: [1, { b: 2 }], c: "x" }, null, 2));
+console.log(JSON.stringify([], null, 2), JSON.stringify({}, null, 2), JSON.stringify([[]], null, "--"));
+console.log(JSON.stringify({ a: 1, b: [1, 2] }, null, "abcdefghijklmnop"));
+console.log(JSON.stringify("  \ud800\"\\\b\f\n\r\t\u0001\u001f é😀"));
+console.log(JSON.stringify({ u: undefined, f() {}, n: null, nan: NaN, inf: -Infinity, z: -0, d: new Map([[1, 2]]), s: new Set([1]) }));
+console.log(JSON.stringify([undefined, () => 1, NaN]));
+console.log(JSON.stringify(undefined), JSON.stringify(() => 1), JSON.stringify(null), JSON.stringify(3));
+console.log(JSON.stringify({ b: 1, a: { c: 2 } }, ["a", "c", "a"]));
+console.log(JSON.stringify({ b: 1, a: [1, "x"] }, (k, v) => (typeof v === "number" ? v * 10 : v)));
+console.log(JSON.stringify({ toJSON() { return { replaced: true }; } }), JSON.stringify(new Error("boom")));
+class Pt {
+  constructor(public x: number, public y: number) {}
+  toJSON(key: string): string {
+    return `Pt(${this.x},${this.y}) at ${key}`;
+  }
+}
+console.log(JSON.stringify({ p: new Pt(1, 2), list: [new Pt(3, 4)] }));
+console.log(JSON.stringify({ a: 1 }, null, 20), JSON.stringify({ a: 1 }, null, 0), JSON.stringify({ a: 1 }, null, ""));
+const rec: Record<string, number> = { "2": 1, "1": 2, b: 3 };
+console.log(JSON.stringify(rec, null, 1));
+const s: string = JSON.stringify([1, "two", true, null, [3.5, -0]]);
+console.log(s.length, s);
+class User {
+  #secret = 1;
+  constructor(public name: string, public tags: string[], public age?: number) {}
+  get upper(): string {
+    return this.name.toUpperCase();
+  }
+}
+console.log(JSON.stringify([new User("ann", ["x"]), new User("bo", [], 3)]));
+console.log(JSON.stringify(JSON.parse('{"a":[1,{"b":"c"}],"d":"\\u00e9"}')));
+const tuple: [number, string] = [1, "t"];
+console.log(JSON.stringify({ tuple, big: 1 }));

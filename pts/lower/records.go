@@ -370,11 +370,17 @@ func (l *lowerer) spreadIntoRecord(record ir.Expr, sourceNode *ast.Node) ir.Expr
 
 // isObjectStatic reports whether a callee is the static method name of the global Object.
 func (l *lowerer) isObjectStatic(callee *ast.Node, names ...string) bool {
+	return l.isGlobalMember(callee, "Object", names...)
+}
+
+// isGlobalMember reports whether a callee is one of the named members of the ES
+// library's global object: `JSON.parse` for global "JSON" and name "parse".
+func (l *lowerer) isGlobalMember(callee *ast.Node, global string, names ...string) bool {
 	if callee.Kind != ast.KindPropertyAccessExpression || !slices.Contains(names, callee.AsPropertyAccessExpression().Name().Text()) {
 		return false
 	}
 	object := callee.Expression()
-	return object.Kind == ast.KindIdentifier && object.Text() == "Object" && l.isDeclaredInDefaultLib(l.target(object))
+	return object.Kind == ast.KindIdentifier && object.Text() == global && l.isDeclaredInDefaultLib(l.target(object))
 }
 
 // objectStatics are the items each of Object.keys, Object.values and Object.entries lists.

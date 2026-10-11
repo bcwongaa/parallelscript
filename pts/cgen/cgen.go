@@ -1277,6 +1277,8 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueIterableLength:  "pts_value_iterable_length",
 	ir.ValueIterableElement: "pts_value_iterable_element",
 	ir.ValueToArray:         "pts_value_to_array",
+	ir.JSONParse:            "pts_json_parse",
+	ir.JSONStringify:        "pts_json_stringify",
 	ir.ValueAdd:             "pts_value_add",
 	ir.ValueToNumber:        "pts_value_to_number",
 	ir.ValueLess:            "pts_value_less",

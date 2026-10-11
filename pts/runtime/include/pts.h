@@ -1191,6 +1191,18 @@ _Noreturn void pts_record_key_error(const pts_string *key);
     pts_got;                                           \
   })
 
+/* The hash-map object type of Record<string, any>, which JSON.parse makes its objects of (D-080). */
+extern const pts_type pts_type_any_record;
+
+/* JSON.parse: the dynamic value text holds, or SyntaxError with V8's message (D-080). */
+pts_value pts_json_parse(const pts_string *text);
+/*
+ * JSON.stringify(value, replacer, space), with JS's rules (toJSON, a replacer function or
+ * property list, an indent of up to ten spaces or characters, V8's TypeError for a cycle):
+ * a string, or undefined for undefined and functions.
+ */
+pts_value pts_json_stringify(pts_value value, pts_value replacer, pts_value space);
+
 /* ---------------------------------------------------------------- String.prototype */
 
 /*
