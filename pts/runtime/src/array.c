@@ -547,6 +547,23 @@ pts_string *pts_object_to_string(const pts_object *object) {
   if (object->type->kind == PTS_KIND_DATE) {
     return pts_date_format((pts_date *)object, PTS_DATE_STRING);
   }
+  if (object->type->kind == PTS_KIND_MAP || object->type->kind == PTS_KIND_SET) {
+    return pts_string_from_cstr(object->type->kind == PTS_KIND_MAP ? "[object Map]" : "[object Set]");
+  }
+  if (object->type->kind == PTS_KIND_TUPLE) { /* an array to JS: its elements joined by commas (D-089) */
+    pts_string *joined = pts_string_from_cstr("");
+    for (uint32_t i = 0; i < object->type->field_count; i++) {
+      const pts_field *field = &object->type->fields[i];
+      pts_value element = pts_value_of_slot(field->kind, (const char *)object + field->offset);
+      if (i > 0) {
+        joined = pts_string_concat(joined, pts_string_from_cstr(","));
+      }
+      if (!pts_value_is_nullish(element)) {
+        joined = pts_string_concat(joined, pts_value_to_string(element));
+      }
+    }
+    return joined;
+  }
   for (uint32_t i = 0; i < object->type->method_count; i++) {
     const pts_method *method = &object->type->methods[i];
     if (method->kind == PTS_METHOD && strcmp(method->name, "toString") == 0) {

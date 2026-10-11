@@ -843,6 +843,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return &ir.FromUnion{X: value, To: target}
 	case value.Type() == ir.Value && l.isDynamicSource(node):
 		return l.dynamicConversion(value, target, node)
+	case isUnion(target) && value.Type() == ir.Value && !isCheckable(target) && l.holdsDynamicData(target.(*ir.Union)):
+		return l.dynamicConversion(value, target, node) // an element of a recursive type's array, which may be any object (D-089)
 	case isUnion(target) && value.Type() == ir.Value:
 		return &ir.ToUnion{X: value, To: target.(*ir.Union)} // a dynamic value tsc types as the union, such as `a.find(…)`'s
 	case isUnion(target):
@@ -866,6 +868,13 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), target))
 		return nil
 	}
+}
+
+// holdsDynamicData reports whether a member of u is dynamic data (isDynamicData), which a
+// dynamic value converts to by a checked conversion, since its object may be of another
+// representation (a literal's shape where a recursive type's hash-map object goes).
+func (l *lowerer) holdsDynamicData(u *ir.Union) bool {
+	return slices.ContainsFunc(u.Members, isDynamicData)
 }
 
 // isDynamicArray reports whether t is an array of dynamic values, or of such arrays.
@@ -1244,7 +1253,22 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 	case l.isRecordElement(inner):
 		return l.recordElement(inner, ir.MapGet)
 	}
-	return l.expression(node)
+	return unnarrowed(l.expression(node))
+}
+
+// unnarrowed is x as the union value it was narrowed from, if it was narrowed, for a
+// place that takes any value: tsc narrows `const v: T | undefined = list[9]` to T, though
+// the value is undefined (D-089).
+func unnarrowed(x ir.Expr) ir.Expr {
+	if narrowing, ok := x.(*ir.FromUnion); ok && !narrowing.Checked {
+		if inner, boxed := narrowing.X.(*ir.Box); boxed && isUnion(inner.X.Type()) {
+			return inner.X
+		}
+		if isUnion(narrowing.X.Type()) {
+			return narrowing.X
+		}
+	}
+	return x
 }
 
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
@@ -2895,11 +2919,20 @@ func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
 	if x == nil || y == nil {
 		return nil
 	}
+	if hasValueOf(x.Type()) || hasValueOf(y.Type()) { // `c + ""` is `c.valueOf() + ""`, as ToPrimitive says (D-089)
+		return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.ValueAdd, Args: []ir.Expr{box(x), box(y)}}, ir.String, node)
+	}
 	x, y = l.toString(x, expr.Left), l.toString(y, expr.Right)
 	if x == nil || y == nil {
 		return nil
 	}
 	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
+}
+
+// hasValueOf reports whether t is a class with a valueOf method, which `+` calls.
+func hasValueOf(t ir.Type) bool {
+	class, ok := t.(*ir.Class)
+	return ok && class.Method("valueOf", ir.Plain) != nil
 }
 
 // acceptsOperands reports whether the IR can apply op to operands of these types.

@@ -345,7 +345,11 @@ func (e *emitter) function(f *ir.Func) {
 		e.line(1, "pts_stack_check();")
 	}
 	e.scope(f.Body.Stmts, 1)
-	if f.Result != ir.Void && !endsWithReturn(f.Body.Stmts) {
+	switch {
+	case f.Result == ir.Void || endsWithReturn(f.Body.Stmts):
+	case holdsUndefined(f.Result):
+		e.line(1, "return PTS_VALUE_UNDEFINED; /* JS's implicit undefined (D-089) */")
+	default:
 		e.line(1, "pts_unreachable(); /* tsc checked that every path returns */")
 	}
 	e.line(0, "}")
@@ -925,6 +929,14 @@ func (e *emitter) logical(l *ir.Logical) string {
 		then, otherwise = tmp, y
 	}
 	return fmt.Sprintf("({ %s%s = %s; %s ? %s : %s; })", e.declarator(t), tmp, x, truthy(t, tmp), then, otherwise)
+}
+
+// holdsUndefined reports whether values of type t may be undefined, as a pts_value.
+func holdsUndefined(t ir.Type) bool {
+	if u, ok := t.(*ir.Union); ok {
+		return u.Has(ir.Undefined)
+	}
+	return t == ir.Undefined || t == ir.Value
 }
 
 // familyInstanceOf writes `x instanceof C` for a generic class C: whether x is an

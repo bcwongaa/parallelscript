@@ -1,0 +1,75 @@
+// Tuples, maps and sets as strings; values tsc narrowed by an initializer that is in fact
+// undefined; implicit undefined returns; `+` with valueOf; spreads of a recursive
+// type's objects (D-089).
+const m = new Map<string, string>([["wire", "bob"], ["paint", "amy"], ["roof", "dan"], ["deck", "cy"]]);
+console.log([...m].sort());
+console.log(new Map([...m].sort()));
+const pairs: [string, number][] = [["b", 1], ["a", 2], ["c", 0]];
+console.log(pairs.sort(), [[2, "x"], [1, "y"]].sort());
+const pair: [string, number] = ["a", 1];
+console.log(String(pair), `${pair}`, pair + "!", [pair, pair].join(";"));
+interface A { n: number }
+const r: Record<string, A> = { a: { n: 1 } };
+const x: A | undefined = r["b"];
+console.log(x === undefined);
+const y: A | undefined = r["a"];
+console.log(y?.n);
+const nums: Record<string, number> = {};
+const z: number | undefined = nums["z"];
+console.log(z);
+const arr2 = [1, 2];
+const w: number | undefined = arr2[5];
+console.log(w);
+const out: string[] = [];
+const go = (n: number) => { if (n === 0) return void out.push("leaf"); go(n - 1); };
+go(2); console.log(out, go(0));
+function f(x: number) { if (x > 0) return undefined; }
+console.log(f(1), f(-1));
+class C { valueOf() { return 5; } toString() { return "C"; } }
+const c = new C();
+console.log(c + "", `${c}`, String(c), +c, "x" + c);
+type Scalar = string | number | boolean;
+type Context = { [key: string]: Scalar | Scalar[] | Context[] };
+const ctx: Context = { name: "Ada", orders: [{ id: "A-1", total: 12.5 }, { id: "B-7", total: 99 }] };
+const list = ctx["orders"];
+if (Array.isArray(list)) {
+  for (const item of list) {
+    const itemCtx: Context = typeof item === "object" ? { ...ctx, ...item } : { ...ctx, it: item };
+    console.log(itemCtx);
+  }
+}
+
+// expect:
+// [
+//   [ 'deck', 'cy' ],
+//   [ 'paint', 'amy' ],
+//   [ 'roof', 'dan' ],
+//   [ 'wire', 'bob' ]
+// ]
+// Map(4) {
+//   'deck' => 'cy',
+//   'paint' => 'amy',
+//   'roof' => 'dan',
+//   'wire' => 'bob'
+// }
+// [ [ 'a', 2 ], [ 'b', 1 ], [ 'c', 0 ] ] [ [ 1, 'y' ], [ 2, 'x' ] ]
+// a,1 a,1 a,1! a,1;a,1
+// true
+// 1
+// undefined
+// undefined
+// [ 'leaf', 'leaf' ] undefined
+// undefined undefined
+// 5 C C 5 x5
+// {
+//   name: 'Ada',
+//   orders: [ { id: 'A-1', total: 12.5 }, { id: 'B-7', total: 99 } ],
+//   id: 'A-1',
+//   total: 12.5
+// }
+// {
+//   name: 'Ada',
+//   orders: [ { id: 'A-1', total: 12.5 }, { id: 'B-7', total: 99 } ],
+//   id: 'B-7',
+//   total: 99
+// }
