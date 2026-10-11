@@ -825,6 +825,9 @@ pts_array *pts_string_split(pts_string *string, pts_string *separator, double li
 
 /* console.log(args...): Node's formatting for primitives, joined by spaces. */
 void pts_console_log(size_t argc, const pts_value *argv);
+// console.log with spread arguments: each argv[i] with spread[i] is an array (boxed as an
+// object) whose elements are arguments in its place (D-057).
+void pts_console_log_spread(size_t argc, const pts_value *argv, const bool *spread);
 
 /* ---------------------------------------------------------------- errors */
 

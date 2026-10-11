@@ -333,6 +333,17 @@ func (l *lowerer) callbackArguments(args []ir.Expr, ft *ir.FuncType, node *ast.N
 	next := 0
 	for i := 0; i < len(params); i++ {
 		param, optional := params[i], hasDefault(params, i)
+		if rest, ok := param.(*ir.Rest); ok { // the last: an array of the arguments left
+			elems := make([]ir.Expr, 0, len(args)-next)
+			for _, arg := range args[next:] {
+				elem := l.convert(arg, rest.Array.Elem, node)
+				if elem == nil {
+					return nil
+				}
+				elems = append(elems, elem)
+			}
+			return append(converted, &ir.NewArray{Array: rest.Array, Elems: elems})
+		}
 		if optional {
 			i++ // past the flag
 		}

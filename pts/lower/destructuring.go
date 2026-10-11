@@ -15,12 +15,14 @@ import (
 
 // parameterBinding is a parameter that its function's body starts by binding: one with
 // a default, which value takes if the call left the argument out or passed undefined
-// (given is false), and arg otherwise (D-055); or one written as a pattern, which the
-// body destructures from value (the argument itself, if the parameter has no default).
+// (given is false), and arg otherwise (D-055); a rest parameter, whose array arg passes to
+// value (D-057); or one written as a pattern, which the body destructures from value (the
+// argument itself, if the parameter has no default and isn't a rest parameter).
 type parameterBinding struct {
-	node       *ast.Node // the parameter declaration
-	value      *ir.Local
-	arg, given *ir.Local // nil without a default
+	node  *ast.Node // the parameter declaration
+	value *ir.Local
+	arg   *ir.Local // with a default or for a rest parameter
+	given *ir.Local // with a default
 }
 
 // destructure binds the names of a binding pattern to the parts of value, declaring their
@@ -198,12 +200,15 @@ func (l *lowerer) elementPart(source ir.Expr, element *ast.Node, index int, init
 func (l *lowerer) parameterPrologue(fn *ir.Func) []ir.Stmt {
 	var stmts []ir.Stmt
 	for _, binding := range l.bindings[fn] {
-		if binding.given != nil {
+		switch {
+		case binding.given != nil:
 			value := l.parameterDefault(binding)
 			if value == nil {
 				continue // reported
 			}
 			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: value})
+		case binding.arg != nil: // a rest parameter
+			stmts = append(stmts, &ir.LocalDecl{At: l.pos(binding.node), Local: binding.value, Init: &ir.RestArgs{X: &ir.LocalRef{Local: binding.arg}}})
 		}
 		if pattern := binding.node.Name(); pattern.Kind != ast.KindIdentifier {
 			destructured, ok := l.destructure(pattern, &ir.LocalRef{Local: binding.value}, l.pos(pattern))

@@ -73,3 +73,26 @@ void pts_console_log(size_t argc, const pts_value *argv) {
   }
   fputc('\n', stdout);
 }
+
+static void write_argument(bool *first, pts_value value) {
+  if (!*first) {
+    fputc(' ', stdout);
+  }
+  *first = false;
+  write_value(stdout, value);
+}
+
+void pts_console_log_spread(size_t argc, const pts_value *argv, const bool *spread) {
+  bool first = true;
+  for (size_t i = 0; i < argc; i++) {
+    if (!spread[i]) {
+      write_argument(&first, argv[i]);
+      continue;
+    }
+    const pts_array *array = (const pts_array *)pts_value_as_object(argv[i]);
+    for (size_t j = 0; j < pts_array_length_of(array); j++) { // the length now, as JS's array iterator reads it
+      write_argument(&first, pts_array_element(array, (double)j));
+    }
+  }
+  fputc('\n', stdout);
+}

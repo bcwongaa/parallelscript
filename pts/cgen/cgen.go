@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -527,6 +528,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return e.setField(x)
 	case *ir.Box:
 		return e.box(x.X)
+	case *ir.RestArgs:
+		return e.expr(x.X)
+	case *ir.SpreadArg:
+		return e.box(x.X)
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
 	case *ir.Call:
@@ -874,7 +879,28 @@ var builtinFunctions = map[*ir.Builtin]string{
 
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 	args, prelude := e.operands(call.Args)
+	if spread := spreadArgs(call); spread != nil {
+		return ordered(prelude, fmt.Sprintf("pts_console_log_spread(%d, (pts_value[]){%s}, (bool[]){%s})", len(args), strings.Join(args, ", "), strings.Join(spread, ", ")))
+	}
 	return ordered(prelude, builtinCall(call.Builtin, args))
+}
+
+// spreadArgs says, for console.log with a spread argument (`...xs`), which arguments are
+// spread ("true") and which aren't; nil for any other call.
+func spreadArgs(call *ir.CallBuiltin) []string {
+	if call.Builtin != ir.ConsoleLog || !slices.ContainsFunc(call.Args, isSpreadArg) {
+		return nil
+	}
+	spread := make([]string, len(call.Args))
+	for i, arg := range call.Args {
+		spread[i] = strconv.FormatBool(isSpreadArg(arg))
+	}
+	return spread
+}
+
+func isSpreadArg(x ir.Expr) bool {
+	_, ok := x.(*ir.SpreadArg)
+	return ok
 }
 
 func builtinCall(builtin *ir.Builtin, args []string) string {
@@ -968,6 +994,8 @@ func (e *emitter) declarator(t ir.Type) string {
 		return "pts_closure *"
 	case *ir.MapType:
 		return "pts_map *"
+	case *ir.Rest:
+		return "pts_array *"
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {

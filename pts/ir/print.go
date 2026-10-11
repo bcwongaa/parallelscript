@@ -226,6 +226,10 @@ func FormatExpr(expr Expr) string {
 		return e.To.String() + "(" + FormatExpr(e.X) + ")"
 	case *Box:
 		return "box(" + FormatExpr(e.X) + ")"
+	case *RestArgs:
+		return FormatExpr(e.X)
+	case *SpreadArg:
+		return "..." + FormatExpr(e.X)
 	case *ToString:
 		return "str(" + FormatExpr(e.X) + ")"
 	case *Truthy:

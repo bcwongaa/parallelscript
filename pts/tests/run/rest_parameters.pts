@@ -1,0 +1,93 @@
+// Rest parameters and spread arguments (D-057): functions, arrows, methods, constructors,
+// interface methods, generics and function values with rest parameters; spreading arrays
+// into rest parameters and console.log, and tuples into any parameters; adapters between
+// rest and fixed parameter lists, callbacks, bind, call and apply.
+function sum(...xs: number[]): number {
+  let total = 0;
+  for (const x of xs) total += x;
+  return total;
+}
+console.log(sum(), sum(1), sum(1, 2, 3));
+const nums = [4, 5, 6];
+console.log(sum(...nums), sum(1, ...nums, 2, ...nums));
+function label(prefix: string, ...parts: string[]): string {
+  return prefix + ":" + parts.join(",");
+}
+console.log(label("a"), label("a", "b", "c"), label("x", ...["y", "z"]));
+const pair: [number, number] = [7, 8];
+function add(a: number, b: number): number {
+  return a + b;
+}
+console.log(add(...pair), sum(...pair));
+console.log(...nums);
+console.log("start", ...nums, "end", ...[], ...["s"]);
+console.log(...pair, ...[]);
+const lambda = (first: string, ...rest: number[]) => first + rest.length;
+console.log(lambda("n"), lambda("n", 1, 2));
+class Bag {
+  items: string[];
+  constructor(...items: string[]) {
+    this.items = items;
+  }
+  add(...more: string[]): number {
+    for (const m of more) this.items.push(m);
+    return this.items.length;
+  }
+}
+const bag = new Bag("a", "b");
+console.log(bag.add(), bag.add("c", ...["d", "e"]), bag);
+interface Logger {
+  log(level: number, ...messages: string[]): string;
+}
+const logger: Logger = {
+  log(level: number, ...messages: string[]): string {
+    return level + messages.join(" ");
+  },
+};
+console.log(logger.log(1), logger.log(2, "x", "y"));
+function first<T>(...xs: T[]): T {
+  return xs[0];
+}
+console.log(first(1, 2), first("a"));
+const f: (...xs: number[]) => number = sum;
+console.log(f(1, 1));
+const two: (a: number, b: number) => number = sum;
+const many: (...xs: number[]) => number = add;
+console.log(two(1, 2), many(3, 4, 5));
+console.log([3, 1, 2].sort((...xs: number[]) => xs[0] - xs[1]));
+const bound = sum.bind(null);
+console.log(bound(1, 2), sum.call(null, 1, 2, 3), sum.apply(null, [4, 5]));
+class Tally {
+  count(...xs: string[]): number {
+    return xs.length;
+  }
+}
+const t = new Tally();
+const counter = t.count;
+console.log(counter("a", "b"), t.count.call(t, "x"));
+function nested(...groups: number[][]): number {
+  return groups.length;
+}
+const g = [[1], [2]];
+console.log(nested([1], [2, 3]), nested(...g), nested(...g, [9]));
+console.log(sum, many);
+
+// expect:
+// 0 1 6
+// 15 33
+// a: a:b,c x:y,z
+// 15 15
+// 4 5 6
+// start 4 5 6 end s
+// 7 8
+// n0 n2
+// 2 5 Bag { items: [ 'a', 'b', 'c', 'd', 'e' ] }
+// 1 2x y
+// 1 a
+// 2
+// 3 7
+// [ 1, 2, 3 ]
+// 3 6 9
+// 2 1
+// 2 2 3
+// [Function: sum] [Function: add]

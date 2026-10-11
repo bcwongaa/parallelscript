@@ -254,6 +254,10 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 		}
 		args = args[1:]
 	}
+	if name == "bind" && bindsRest(ft.Params, len(args)) {
+		l.notSupportedYet(call.Arguments.Nodes[len(call.Arguments.Nodes)-1], "binding arguments of a rest parameter is")
+		return nil
+	}
 	values, applied := l.callArguments(args, tuple, passedParams(ft.Params, name, len(args)))
 	if values == nil {
 		return nil
@@ -346,13 +350,19 @@ func passedParams(params []ir.Type, name string, n int) []ir.Type {
 		return params
 	}
 	end := 0
-	for ; end < len(params) && n > 0; n-- {
+	for ; end < len(params) && n > 0 && !isRest(params[end]); n-- {
 		end++
 		if hasDefault(params, end-1) {
 			end++
 		}
 	}
 	return params[:end]
+}
+
+// bindsRest reports whether `bind` with n arguments binds some of them to a rest
+// parameter, the last of params.
+func bindsRest(params []ir.Type, n int) bool {
+	return len(params) > 0 && isRest(params[len(params)-1]) && n >= arity(params)
 }
 
 // methodCallOrBind lowers `o.m.call(thisArg, args…)`, which calls m on thisArg, and
@@ -385,6 +395,10 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 		return nil
 	}
 	rest := args[1:]
+	if name == "bind" && bindsRest(m.params, len(rest)) {
+		l.notSupportedYet(rest[len(rest)-1], "binding arguments of a rest parameter is")
+		return nil
+	}
 	values, applied := l.callArguments(rest, tuple, passedParams(m.params, name, len(rest)))
 	if values == nil {
 		return nil

@@ -1,0 +1,10 @@
+// Arguments of a rest parameter of integers must convert to its element type (D-057).
+function total(...xs: u8[]): number {
+  return xs.length;
+}
+let n = 5;
+console.log(total(300), total(n), total(1.5));
+
+// error: rest_parameter_conversions.pts:6:19 - error PTS2002: 300 doesn't fit in u8 (0 to 255)
+// error: rest_parameter_conversions.pts:6:31 - error PTS2001: a number doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it
+// error: rest_parameter_conversions.pts:6:41 - error PTS2002: 1.5 is not an integer, so it can't be a u8; write `as u8` to convert it

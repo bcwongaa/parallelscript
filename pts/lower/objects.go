@@ -214,6 +214,9 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 		if paramType == nil {
 			return nil
 		}
+		if param.AsParameterDeclaration().DotDotDotToken != nil {
+			paramType = l.restOf(paramType.(*ir.Array))
+		}
 		method.Params = append(method.Params, paramType)
 		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
 			method.Params = append(method.Params, ir.Given) // D-055
@@ -244,7 +247,7 @@ func membersKey(fields []*ir.Field, methods []*ir.InterfaceMethod) string {
 // typeKey identifies an IR type in membersKey: a class or interface by its identity.
 func typeKey(t ir.Type) string {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType, *ir.Rest:
 		return fmt.Sprintf("%p", t)
 	}
 	return t.String()

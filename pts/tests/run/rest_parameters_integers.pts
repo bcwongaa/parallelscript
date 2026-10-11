@@ -1,0 +1,14 @@
+// Rest parameters of integer element types: each argument converts to the element type,
+// checked by the semantic pass (D-057).
+function total(...xs: u8[]): u16 {
+  let sum: u16 = 0;
+  for (const x of xs) sum += x;
+  return sum;
+}
+console.log(total(200, 100), total());
+const bytes: u8[] = [1, 2];
+console.log(total(...bytes, 3));
+
+// expect:
+// 300 0
+// 6

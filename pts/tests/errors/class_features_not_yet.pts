@@ -19,7 +19,7 @@ class Generic<T> {
 }
 class Indexd { [key: string]: number; }
 class Properties {
-  constructor(...rest: number[]) {}
+  constructor(...rest: [number, string]) {}
 }
 class Optional {
   maybe?: number;
@@ -40,7 +40,7 @@ function local() {
 // error: class_features_not_yet.pts:15:3 - error PTS1001: members with computed or quoted names are not supported yet
 // error: class_features_not_yet.pts:18:10 - error PTS1001: static members of generic classes are not supported yet
 // error: class_features_not_yet.pts:20:16 - error PTS1001: index signatures in classes are not supported yet
-// error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters are not supported yet
+// error: class_features_not_yet.pts:22:15 - error PTS1001: rest parameters of type [number, string] are not supported yet
 // error: class_features_not_yet.pts:25:3 - error PTS1001: optional fields are not supported yet
 // error: class_features_not_yet.pts:32:35 - error PTS1001: spread arguments are not supported yet
 // error: class_features_not_yet.pts:34:3 - error PTS1001: classes inside functions or blocks are not supported yet

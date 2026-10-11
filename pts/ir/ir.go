@@ -269,6 +269,15 @@ func (m *MapType) String() string {
 	return "Map<" + m.Key.String() + ", " + m.Value.String() + ">"
 }
 
+// Rest is the type of a rest parameter in a parameter list (D-057): the array of the
+// arguments from its position on, which the caller makes. A pts_array * in C, like Array.
+// A function reads it as an array through RestArgs. The lowering makes one per array type.
+type Rest struct {
+	Array *Array
+}
+
+func (r *Rest) String() string { return "..." + r.Array.String() }
+
 // FuncType is the type of a function value (D-041): a reference to a closure whose code
 // takes Params and returns Result (Void if it returns nothing). The lowering makes one per
 // signature, so function types compare by identity too.
@@ -787,6 +796,13 @@ type InstanceOf struct {
 // Box turns a statically typed value into a dynamic Value.
 type Box struct{ X Expr }
 
+// RestArgs is the array X, a rest parameter (of type Rest), holds.
+type RestArgs struct{ X Expr }
+
+// SpreadArg is an argument `...X` of console.log: X, an array, passes its elements as
+// arguments (D-057). It only appears among console.log's arguments.
+type SpreadArg struct{ X Expr }
+
 // Builtin is a runtime function with a fixed signature.
 type Builtin struct {
 	Name   string // as written in TypeScript
@@ -932,6 +948,8 @@ func (e *NewObject) Type() Type     { return e.Shape }
 func (e *FieldRef) Type() Type      { return e.Field.Type }
 func (e *SetField) Type() Type      { return e.Field.Type }
 func (*Box) Type() Type             { return Value }
+func (e *RestArgs) Type() Type      { return e.X.Type().(*Rest).Array }
+func (*SpreadArg) Type() Type       { return Value }
 func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
 func (e *Call) Type() Type          { return e.Func.Result }
 func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }

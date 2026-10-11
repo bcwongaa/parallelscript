@@ -47,20 +47,29 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	case len(signature.TypeParameters()) > 0:
 		l.notSupportedYet(node, "generic function types are")
 		return nil
-	case signature.HasRestParameter() && !restIsTuple || len(parameters) > 0 && parameters[len(parameters)-1].CheckFlags&ast.CheckFlagsRestParameter != 0:
-		l.notSupportedYet(node, "rest parameters are")
+	case restIsTuple && len(parameters) > 0 && parameters[len(parameters)-1].CheckFlags&ast.CheckFlagsRestParameter != 0:
+		l.notSupportedYet(node, "rest parameters of tuples with rest elements are")
 		return nil
 	}
 	params := make([]ir.Type, 0, len(parameters))
 	for i, param := range parameters {
 		t := l.typeOfSymbol(param)
-		optional := !restIsTuple && i >= signature.MinArgumentCount() || isOptionalParameter(param)
+		rest := signature.HasRestParameter() && !restIsTuple && i == len(parameters)-1
+		optional := !rest && (!restIsTuple && i >= signature.MinArgumentCount() || isOptionalParameter(param))
 		if optional {
 			t = l.checker.RemoveMissingOrUndefinedType(t)
 		}
 		paramType := l.irType(t, node)
-		if paramType == nil {
+		switch {
+		case paramType == nil:
 			return nil
+		case rest:
+			array, ok := paramType.(*ir.Array)
+			if !ok {
+				l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", paramType))
+				return nil
+			}
+			paramType = l.restOf(array) // D-057
 		}
 		params = append(params, paramType)
 		if optional {
@@ -527,11 +536,33 @@ func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr 
 // types of to's), or nil if they don't fit (reported at node).
 func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, node *ast.Node) []ir.Expr {
 	args := make([]ir.Expr, 0, len(from.Params))
-	i := 0 // in params
+	i := 0        // in params
+	unpacked := 0 // elements taken from params[i] if it is a rest parameter
 	for j := 0; j < len(from.Params); j++ {
 		t, optional := from.Params[j], hasDefault(from.Params, j)
 		if optional {
 			j++ // past the flag
+		}
+		if rest, ok := t.(*ir.Rest); ok && (i >= len(params) || !isRest(params[i].Type)) { // the last: pack what is left
+			packed := l.packedArguments(params[i:], rest, from, to, node)
+			if packed == nil {
+				return nil
+			}
+			return append(args, packed)
+		}
+		if i < len(params) && isRest(params[i].Type) && !isRest(t) { // take each from the array the adapter gets
+			if optional {
+				l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which passes its arguments as an array, is", from, to))
+				return nil
+			}
+			element := &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.RestArgs{X: &ir.LocalRef{Local: params[i]}}, &ir.NumberConst{Value: float64(unpacked)}}}
+			unpacked++
+			arg := l.convert(element, t, node)
+			if arg == nil {
+				return nil
+			}
+			args = append(args, arg)
+			continue
 		}
 		if i >= len(params) {
 			if !optional {
@@ -561,6 +592,24 @@ func (l *lowerer) adaptedArguments(params []*ir.Local, from, to *ir.FuncType, no
 		}
 	}
 	return args
+}
+
+// packedArguments is the array an adapter from the function type from to the function
+// type to passes the rest parameter of type rest: its own parameters params, each
+// converted to the element type. It reports (at node) and returns nil if one of them is
+// optional or a rest parameter itself.
+func (l *lowerer) packedArguments(params []*ir.Local, rest *ir.Rest, from, to *ir.FuncType, node *ast.Node) ir.Expr {
+	elems := make([]ir.Expr, len(params))
+	for i, param := range params {
+		if param.Type == ir.Given || isRest(param.Type) || i+1 < len(params) && params[i+1].Type == ir.Given {
+			l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s, which may leave out arguments of its rest parameter, is", from, to))
+			return nil
+		}
+		if elems[i] = l.convert(&ir.LocalRef{Local: param}, rest.Array.Elem, node); elems[i] == nil {
+			return nil
+		}
+	}
+	return &ir.NewArray{Array: rest.Array, Elems: elems}
 }
 
 // ---------------------------------------------------------------- cells

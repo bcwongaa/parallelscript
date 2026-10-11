@@ -136,7 +136,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
-		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}}
+		tuples: map[string]*ir.Class{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -225,6 +225,7 @@ type lowerer struct {
 	membersDeclared     bool                             // the classes' members are declared, so a new class instance declares its own at once
 	membersStarted      map[*ir.Class]bool               // the classes whose members are declared, or being declared
 	tuples              map[string]*ir.Class             // the shape of each tuple type met, by its element types
+	rests               map[*ir.Array]*ir.Rest           // the rest parameter type of each array type
 	tuplesInProgress    map[*checker.Type]bool           // the tuple types whose element types are being mapped
 	bindings            map[*ir.Func][]*parameterBinding // the parameters each function's body starts by binding: those with defaults or patterns
 	paramLocals         map[*ir.Func][]*ir.Local         // the local each function's body sees for each parameter it declares; nil for a pattern
@@ -905,6 +906,11 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 		local = l.newLocal("destructured", t) // a pattern, which the body starts by destructuring
 		l.paramLocals[l.function] = append(l.paramLocals[l.function], nil)
 	}
+	if node.AsParameterDeclaration().DotDotDotToken != nil { // the array the caller makes (D-057)
+		binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_rest", l.restOf(t.(*ir.Array)))}
+		l.bindings[l.function] = append(l.bindings[l.function], binding)
+		return []*ir.Local{binding.arg}
+	}
 	if node.Initializer() == nil {
 		if name.Kind != ast.KindIdentifier {
 			l.bindings[l.function] = append(l.bindings[l.function], &parameterBinding{node: node, value: local})
@@ -917,6 +923,16 @@ func (l *lowerer) parameter(node *ast.Node) []*ir.Local {
 	binding := &parameterBinding{node: node, value: local, arg: l.newLocal(local.Name+"_arg", t), given: l.newLocal(local.Name+"_given", ir.Given)}
 	l.bindings[l.function] = append(l.bindings[l.function], binding)
 	return []*ir.Local{binding.arg, binding.given}
+}
+
+// restOf is the type of a rest parameter of the given array type.
+func (l *lowerer) restOf(array *ir.Array) *ir.Rest {
+	rest, ok := l.rests[array]
+	if !ok {
+		rest = &ir.Rest{Array: array}
+		l.rests[array] = rest
+	}
+	return rest
 }
 
 // parameterSymbol is the symbol of a parameter named by an identifier, which references
@@ -936,8 +952,8 @@ func parameterSymbol(node *ast.Node) *ast.Symbol {
 func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	param := node.AsParameterDeclaration()
 	switch {
-	case param.DotDotDotToken != nil:
-		l.notSupportedYet(node, "rest parameters are")
+	case param.DotDotDotToken != nil && !l.checker.IsArrayType(l.typeOfSymbol(node.Symbol())):
+		l.notSupportedYet(node, fmt.Sprintf("rest parameters of type %s are", l.checker.TypeToString(l.typeOfSymbol(node.Symbol()))))
 		return nil
 	case param.QuestionToken != nil && node.Parent.Body() != nil:
 		l.notSupportedYet(node, "optional parameters without a default are")
@@ -1191,9 +1207,6 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if generic := l.genericMethodAt(ast.SkipParentheses(call.Expression)); generic != nil {
-		if l.hasSpreadArgument(call) {
-			return nil
-		}
 		if generic.static != nil {
 			return l.genericCall(call, generic)
 		}
@@ -1227,7 +1240,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.arrayFrom(call)
 	}
 	if generic, ok := l.generics[callee]; ok {
-		if generic == nil || l.hasSpreadArgument(call) {
+		if generic == nil {
 			return nil // its declaration failed, which was reported
 		}
 		return l.genericCall(call, generic)
@@ -1238,9 +1251,6 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case isUserFunction && fn == nil:
 		return nil // its declaration failed, which was reported
 	case !isUserFunction && builtin == nil && !ast.IsOptionalChain(node) && l.isValueCall(call.Expression):
-		if l.hasSpreadArgument(call) {
-			return nil
-		}
 		return l.valueCall(call)
 	case !isUserFunction && (builtin == nil || properties[builtin]):
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
@@ -1249,14 +1259,13 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
-	if l.hasSpreadArgument(call) {
-		return nil
-	}
 	switch {
 	case isUserFunction:
 		return l.userCall(call, fn)
 	case builtin == ir.ConsoleLog:
 		return l.consoleLog(call)
+	case l.hasSpreadArgument(call):
+		return nil
 	}
 	return l.methodCall(node, builtin)
 }
@@ -1301,17 +1310,99 @@ func (l *lowerer) arguments(arguments []*ast.Node, params []*ir.Local) []ir.Expr
 // typedArguments lowers the arguments of a call, each converted to its parameter's type
 // in params, or reports one and returns nil. A parameter with a default, which its Given
 // flag follows in params, gets a true flag after its argument, or if the call leaves the
-// argument out or passes undefined, LeftOut and a false flag (D-055).
+// argument out or passes undefined, LeftOut and a false flag (D-055). A rest parameter
+// gets an array of the arguments from its position on (D-057); a spread argument passes
+// a tuple's elements, or an array's into a rest parameter.
 func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.Expr {
-	values := make([]ir.Expr, 0, len(arguments))
-	for _, argument := range arguments[:min(len(arguments), arity(params))] { // tsc rejects more
-		value := l.expression(argument)
-		if value == nil {
+	if len(params) == 0 || !isRest(params[len(params)-1]) {
+		arguments = arguments[:min(len(arguments), arity(params))] // tsc rejects more
+	}
+	var values []ir.Expr
+	var at []*ast.Node
+	for _, argument := range arguments {
+		passed := l.argumentValues(argument)
+		if passed == nil {
 			return nil
 		}
-		values = append(values, value)
+		for _, value := range passed {
+			values, at = append(values, value), append(at, argument)
+		}
 	}
-	return l.convertArguments(values, arguments, params)
+	return l.convertArguments(values, at, params)
+}
+
+// spreadValue is an array that a spread argument (`...x`) passes the elements of, while
+// typedArguments matches arguments to parameters; it never reaches the IR.
+type spreadValue struct{ x ir.Expr }
+
+func (s *spreadValue) Type() ir.Type { return s.x.Type() }
+
+// argumentValues lowers an argument of a call: its value, or for a spread argument, the
+// elements of a tuple (a literal's, or a variable's, read once per element) or an array
+// to spread (spreadValue). It reports what it can't lower and returns nil.
+func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
+	if argument.Kind != ast.KindSpreadElement {
+		if value := l.expression(argument); value != nil {
+			return []ir.Expr{value}
+		}
+		return nil
+	}
+	x := l.expression(argument.Expression())
+	switch {
+	case x == nil:
+		return nil
+	case isArray(x.Type()):
+		return []ir.Expr{&spreadValue{x}}
+	case isTuple(x.Type()) && isNewObject(x): // `...[a, b]`
+		return append([]ir.Expr{}, x.(*ir.NewObject).Values...)
+	case isTuple(x.Type()) && isPure(x):
+		elements := make([]ir.Expr, len(x.Type().(*ir.Class).Fields))
+		for i, field := range x.Type().(*ir.Class).Fields {
+			elements[i] = &ir.FieldRef{X: x, Field: field}
+		}
+		return elements
+	case isTuple(x.Type()):
+		l.notSupportedYet(argument, "spreading a tuple that isn't in a variable into arguments is")
+		return nil
+	}
+	l.notSupportedYet(argument, fmt.Sprintf("spreading a %s into arguments is", x.Type()))
+	return nil
+}
+
+func isNewObject(x ir.Expr) bool {
+	_, ok := x.(*ir.NewObject)
+	return ok
+}
+
+func isRest(t ir.Type) bool {
+	_, ok := t.(*ir.Rest)
+	return ok
+}
+
+// restArray is the array a rest parameter of type array gets from values (each written at
+// the node of the same index in at): each value converted to the element type, and the
+// elements of each spread array in its place. It reports what it can't convert and
+// returns nil.
+func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) ir.Expr {
+	parts := make([]ir.Expr, len(values))
+	spread := false
+	for i, value := range values {
+		if s, ok := value.(*spreadValue); ok {
+			if s.x.Type() != array {
+				l.notSupportedYet(at[i], fmt.Sprintf("spreading a %s into a rest parameter of type %s is", s.x.Type(), array))
+				return nil
+			}
+			parts[i], spread = s.x, true
+			continue
+		}
+		if parts[i] = l.convert(value, array.Elem, at[i]); parts[i] == nil {
+			return nil
+		}
+	}
+	if !spread {
+		return &ir.NewArray{Array: array, Elems: parts}
+	}
+	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
 }
 
 // convertArguments converts values, the arguments a call passes (each written at the node
@@ -1321,6 +1412,13 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 	next := 0
 	for i := 0; i < len(params); i++ {
 		param, optional := params[i], hasDefault(params, i)
+		if rest, ok := param.(*ir.Rest); ok { // the last
+			array := l.restArray(values[next:], at[next:], rest.Array)
+			if array == nil {
+				return nil
+			}
+			return append(args, array)
+		}
 		if optional {
 			i++ // past the flag
 		}
@@ -1328,8 +1426,12 @@ func (l *lowerer) convertArguments(values []ir.Expr, at []*ast.Node, params []ir
 			args = append(args, notPassed(param)...)
 			continue
 		}
-		arg, node := values[next], at[next] // tsc checked the count; rest parameters aren't lowered yet
+		arg, node := values[next], at[next] // tsc checked the count
 		next++
+		if _, ok := arg.(*spreadValue); ok {
+			l.notSupportedYet(node, "spreading an array into parameters other than a rest parameter is")
+			return nil
+		}
 		if optional && arg.Type() == ir.Undefined {
 			args = append(args, discard(arg, &ir.LeftOut{T: param}), &ir.GivenConst{Value: false})
 			continue
@@ -1369,9 +1471,25 @@ func arity(params []ir.Type) int {
 	return n
 }
 
+// consoleLog lowers console.log(…): each argument boxed; a spread argument passes an
+// array's elements (SpreadArg) or a tuple's.
 func (l *lowerer) consoleLog(call *ast.CallExpression) ir.Expr {
 	args := make([]ir.Expr, 0, len(call.Arguments.Nodes))
 	for _, argument := range call.Arguments.Nodes {
+		if argument.Kind == ast.KindSpreadElement {
+			values := l.argumentValues(argument)
+			if values == nil {
+				return nil
+			}
+			for _, value := range values {
+				if spread, ok := value.(*spreadValue); ok {
+					args = append(args, &ir.SpreadArg{X: spread.x})
+				} else {
+					args = append(args, box(value))
+				}
+			}
+			continue
+		}
 		arg := l.valueExpression(argument)
 		if arg == nil {
 			return nil

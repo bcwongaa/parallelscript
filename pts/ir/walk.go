@@ -49,6 +49,10 @@ func WalkExpr(x Expr, visit func(Expr)) {
 // children are the operands of an expression, in the order they are evaluated.
 func children(x Expr) []Expr {
 	switch x := x.(type) {
+	case *RestArgs:
+		return []Expr{x.X}
+	case *SpreadArg:
+		return []Expr{x.X}
 	case *Box:
 		return []Expr{x.X}
 	case *CallBuiltin:

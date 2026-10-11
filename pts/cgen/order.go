@@ -90,6 +90,10 @@ func effectsOf(expr ir.Expr) effects {
 		return effectsOf(x.X)
 	case *ir.Box:
 		return effectsOf(x.X)
+	case *ir.RestArgs:
+		return effectsOf(x.X)
+	case *ir.SpreadArg:
+		return effectsOf(x.X)
 	case *ir.ToString:
 		return effectsOf(x.X)
 	case *ir.Truthy:
