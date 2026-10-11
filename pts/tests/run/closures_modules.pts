@@ -1,0 +1,24 @@
+// Function values cross modules: exported functions, exported arrow functions and a
+// default-exported arrow function, and closures over a module's own bindings.
+import plus1000, { double, triple, counted, callCount } from "./closures_modules/tools.pts";
+import * as tools from "./closures_modules/tools.pts";
+
+const pipeline: ((x: number) => number)[] = [double, triple, plus1000, tools.double];
+let value = 1;
+for (const step of pipeline) {
+  value = step(value);
+}
+console.log(value, pipeline);
+const countedTriple = counted(triple);
+console.log(countedTriple(1), countedTriple(2), counted(double)(5), callCount());
+console.log(tools.default, tools.triple === triple);
+
+// expect:
+// 2012 [
+//   [Function: double],
+//   [Function: triple],
+//   [Function: default],
+//   [Function: double]
+// ]
+// 3 6 10 3
+// [Function: default] true

@@ -263,7 +263,7 @@ func (l *lowerer) staticClass() *ir.Class {
 	if l.staticContext != nil {
 		return l.staticContext
 	}
-	return l.staticClasses[l.function]
+	return l.staticClasses[l.thisFunction()]
 }
 
 // staticOwner returns the class a static member access `C.m` (or `this.m` in a static
@@ -594,9 +594,9 @@ func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
 	l.lowered = append(l.lowered, fn)
 }
 
-// thisExpression lowers `this` in a constructor or method.
+// thisExpression lowers `this` in a constructor or method, or an arrow function in one.
 func (l *lowerer) thisExpression(node *ast.Node) ir.Expr {
-	if this := l.this[l.function]; this != nil {
+	if this := l.thisLocal(); this != nil {
 		return &ir.LocalRef{Local: this}
 	}
 	if l.staticClass() != nil {
@@ -639,6 +639,10 @@ func (l *lowerer) superCallStatement(node *ast.Node) []ir.Stmt {
 // statement, superCallStatement adds the field initialisers after it; inside an
 // expression, that is only supported for a class that declares no fields.
 func (l *lowerer) superCall(node *ast.Node) ir.Expr {
+	if l.function.Closure {
+		l.notSupportedYet(node, "`super(...)` inside an arrow function is")
+		return nil
+	}
 	class := l.currentClass()
 	if node.Parent.Kind != ast.KindExpressionStatement && declaresFields(l.classNodes[class]) {
 		l.notSupportedYet(node, "`super(...)` inside an expression in a class with fields is")
@@ -678,7 +682,7 @@ func isSuperCall(node *ast.Node) bool {
 
 // currentClass is the class whose constructor or method is being lowered.
 func (l *lowerer) currentClass() *ir.Class {
-	return l.this[l.function].Type.(*ir.Class)
+	return l.this[l.thisFunction()].Type.(*ir.Class)
 }
 
 // instanceMethodCall lowers `o.m(args)` for a method m of a class of the program.
@@ -718,7 +722,7 @@ func (l *lowerer) superMethodCall(call *ast.CallExpression, method *ir.Method) i
 	if args == nil {
 		return nil
 	}
-	this := upcast(&ir.LocalRef{Local: l.this[l.function]}, method.Class)
+	this := upcast(&ir.LocalRef{Local: l.thisLocal()}, method.Class)
 	return &ir.Call{Func: method.Func, Args: append([]ir.Expr{this}, args...)}
 }
 
@@ -772,7 +776,7 @@ func (l *lowerer) propertyRead(node *ast.Node, accessors property) ir.Expr {
 		return nil
 	}
 	if node.Expression().Kind == ast.KindSuperKeyword { // the parent's getter, called on `this`
-		this := upcast(&ir.LocalRef{Local: l.this[l.function]}, accessors.getter.Class)
+		this := upcast(&ir.LocalRef{Local: l.thisLocal()}, accessors.getter.Class)
 		return &ir.Call{Func: accessors.getter.Func, Args: []ir.Expr{this}}
 	}
 	object := l.expression(node.Expression())

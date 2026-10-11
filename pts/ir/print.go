@@ -21,11 +21,31 @@ func (p *Program) String() string {
 		for i, param := range f.Params {
 			params[i] = param.Name + ": " + param.Type.String()
 		}
-		fmt.Fprintf(&pr.out, "func %s(%s) %s {\n", f.QualifiedName(), strings.Join(params, ", "), f.Result)
+		fmt.Fprintf(&pr.out, "func %s(%s) %s%s {\n", f.QualifiedName(), strings.Join(params, ", "), f.Result, closureHeader(f))
 		pr.stmts(f.Body.Stmts, 1)
 		pr.out.WriteString("}\n")
 	}
 	return pr.out.String()
+}
+
+// closureHeader describes what a closure function captures: " closure [a, cell b]".
+func closureHeader(f *Func) string {
+	if !f.Closure {
+		return ""
+	}
+	captures := make([]string, len(f.Captures))
+	for i, local := range f.Captures {
+		captures[i] = localName(local)
+	}
+	return " closure [" + strings.Join(captures, ", ") + "]"
+}
+
+// localName is a local's name, marked if it lives in a cell.
+func localName(local *Local) string {
+	if local.Cell {
+		return "cell " + local.Name
+	}
+	return local.Name
 }
 
 // class prints a class's header, fields and methods: "abstract class B extends A { x: number; virtual m }".
@@ -99,7 +119,7 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 		if s.Local.Global {
 			keyword = "global"
 		}
-		fmt.Fprintf(&pr.out, "%s %s: %s", keyword, s.Local.Name, s.Local.Type)
+		fmt.Fprintf(&pr.out, "%s %s: %s", keyword, localName(s.Local), s.Local.Type)
 		if s.Init != nil {
 			pr.out.WriteString(" = " + FormatExpr(s.Init))
 		}
@@ -159,9 +179,23 @@ func loopHeader(loop *Loop) string {
 	case loop.PostTest:
 		return "do-while " + cond
 	case loop.Update != nil:
-		return "for " + cond + "; " + FormatExpr(loop.Update)
+		return "for " + cond + "; " + FormatExpr(loop.Update) + copiedCells(loop)
 	}
 	return "while " + cond
+}
+
+// copiedCells lists the cells of a for loop's `let` variables, which each iteration copies.
+func copiedCells(loop *Loop) string {
+	var cells []string
+	for _, local := range loop.Bindings {
+		if local.Cell {
+			cells = append(cells, local.Name)
+		}
+	}
+	if len(cells) == 0 {
+		return ""
+	}
+	return " copying cells [" + strings.Join(cells, ", ") + "]"
 }
 
 // FormatExpr prints one expression.
@@ -229,7 +263,14 @@ func FormatExpr(expr Expr) string {
 	case *CallBuiltin:
 		return e.Builtin.Name + formatArgs(e.Args)
 	case *Call:
+		if e.Closure != nil {
+			return e.Func.QualifiedName() + "[" + FormatExpr(e.Closure) + "]" + formatArgs(e.Args)
+		}
 		return e.Func.QualifiedName() + formatArgs(e.Args)
+	case *MakeClosure:
+		return "closure " + e.Func.QualifiedName()
+	case *CallValue:
+		return "call " + FormatExpr(e.Callee) + formatArgs(e.Args)
 	case *VirtualCall:
 		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
 	case *InterfaceCall:

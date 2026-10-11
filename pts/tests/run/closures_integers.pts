@@ -1,0 +1,32 @@
+// Closures capture variables of the integer types, in cells too, and keep their
+// arithmetic; only the closures' own parameters and results are numbers for now (M2.6).
+function counterOf(step: u8): () => number {
+  let total: u8 = 250;
+  return () => {
+    total += step; // wraps at 256
+    return total;
+  };
+}
+const next = counterOf(3);
+console.log(next(), next(), next());
+
+function sumBelow(limit: int): number {
+  let sum: int = 0;
+  const add = (k: number) => {
+    sum += k as int;
+  };
+  for (let i: int = 0; i < limit; i++) {
+    add(i);
+  }
+  return sum;
+}
+console.log(sumBelow(10));
+
+const big: u64 = 18446744073709551615;
+const isBig = () => big === 18446744073709551615;
+console.log(isBig());
+
+// expect:
+// 253 0 3
+// 45
+// true

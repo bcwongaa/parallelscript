@@ -34,6 +34,7 @@ typedef enum pts_kind {
   PTS_KIND_UINT64 = 3, /* a boxed uint64_t (pts_boxed_uint64) */
   PTS_KIND_OBJECT = 4, /* an instance of a class or object type, described by its type's fields */
   PTS_KIND_ARRAY = 5,  /* an array (pts_array) of elements of its type's element kind */
+  PTS_KIND_FUNCTION = 6, /* a function value: a closure (pts_closure); the type's name is the function's */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -200,6 +201,22 @@ static inline pts_property pts_property_find(const void *object, pts_site *site,
     }                                                                                            \
     pts_set_value;                                                                               \
   })
+
+/*
+ * A function value (D-041) is a closure: its descriptor (kind PTS_KIND_FUNCTION, named as
+ * the function is in JS; an adapter's has no name), the function's code, then the values
+ * the function captures, or the cells of captured variables that may change. The code
+ * takes the closure first, then the arguments: cast it to its exact type to call it.
+ */
+typedef struct pts_closure {
+  const pts_type *type;
+  pts_function code;
+} pts_closure;
+
+/* A new cell, size bytes and zeroed, for a captured variable that its function and closures share; scanned if it may hold a pointer. */
+void *pts_cell_new(size_t size, bool holds_pointers);
+/* A new cell holding a copy of cell's value: the next iteration's copy of a loop's `let` variable. */
+void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers);
 
 /* Whether object, an instance, is one of type or of a subclass: JS's instanceof on classes. */
 static inline bool pts_instance_of(const void *object, const pts_type *type) {

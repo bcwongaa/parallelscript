@@ -226,7 +226,28 @@ type Array struct {
 // the one array type of strings.
 var StringArray = &Array{Elem: String}
 
-func (a *Array) String() string { return a.Elem.String() + "[]" }
+func (a *Array) String() string {
+	if _, ok := a.Elem.(*FuncType); ok {
+		return "(" + a.Elem.String() + ")[]"
+	}
+	return a.Elem.String() + "[]"
+}
+
+// FuncType is the type of a function value (D-041): a reference to a closure whose code
+// takes Params and returns Result (Void if it returns nothing). The lowering makes one per
+// signature, so function types compare by identity too.
+type FuncType struct {
+	Params []Type
+	Result Type
+}
+
+func (t *FuncType) String() string {
+	params := make([]string, len(t.Params))
+	for i, param := range t.Params {
+		params[i] = param.String()
+	}
+	return "(" + strings.Join(params, ", ") + ") => " + t.Result.String()
+}
 
 // ShapeString writes a shape as its name and its fields: "object1{x: number; y: number}".
 func (c *Class) ShapeString() string { return c.Name + "{" + fieldList(c.Fields) + "}" }
@@ -306,6 +327,23 @@ type Func struct {
 	Params []*Local
 	Result Type // Void if it returns nothing
 	Body   *Block
+
+	// Closure marks a function that runs with a closure (D-041): an arrow function, a
+	// function expression, a function declaration inside another function, or an adapter.
+	// Its code takes the closure first, which holds the values of Captures, the locals of
+	// enclosing functions that it or the closures it makes use (for a Cell, the cell).
+	// Outer is the function whose code makes the closure.
+	Closure  bool
+	Outer    *Func
+	Captures []*Local
+	// Self is the local of Outer that holds the closure of a nested function declaration:
+	// in the function's own body it is the closure it runs with, so it isn't captured.
+	Self *Local
+	// JSName is the function's `name` in JS, which console.log shows: "" if anonymous.
+	JSName string
+	// Adapts marks an adapter: a closure that calls the function value it captures,
+	// adapting its arguments and result to another function type (D-041).
+	Adapts bool
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
@@ -324,6 +362,10 @@ type Local struct {
 	// module, or the code of modules that import it. It lives for the whole program, and a
 	// use before its declaration has run throws ReferenceError, as in JS.
 	Global bool
+	// Cell marks a local that closures capture and that may change after one does: it is
+	// assigned after its declaration, or captured before its declaration has run. It lives
+	// in a heap cell that its function and the closures share (D-041).
+	Cell bool
 }
 
 // Stmt is a statement. Every statement knows the source line it came from.
@@ -374,6 +416,10 @@ type Loop struct {
 	Update   Expr
 	PostTest bool
 	Body     *Block
+	// Bindings are the `let` variables of a for loop's initialiser. As in JS, each
+	// iteration has its own copy, made before the update, so a closure made in one
+	// iteration keeps that iteration's variable.
+	Bindings []*Local
 }
 
 // Switch runs the cases from the first whose Match holds, trying them in order, or from
@@ -585,10 +631,26 @@ type SetField struct {
 	Postfix bool
 }
 
-// Call calls a function of the program with arguments of its parameter types.
+// Call calls a function of the program with arguments of its parameter types; a
+// Closure function runs with Closure, one of its closures.
 type Call struct {
-	Func *Func
-	Args []Expr
+	Func    *Func
+	Closure Expr
+	Args    []Expr
+}
+
+// MakeClosure is the function value of Func, of type FuncType: for a Closure function, a new
+// closure holding the current values of its Captures (one static closure if it captures
+// nothing); for any other function, its one static closure.
+type MakeClosure struct {
+	Func     *Func
+	FuncType *FuncType
+}
+
+// CallValue calls the function value Callee with Args of its parameter types.
+type CallValue struct {
+	Callee Expr
+	Args   []Expr
 }
 
 // VirtualCall calls a virtual method on the instance Args[0], an instance of the
@@ -767,6 +829,8 @@ func (e *Call) Type() Type          { return e.Func.Result }
 func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
 func (e *InterfaceCall) Type() Type { return e.Method.Result }
 func (e *NewArray) Type() Type      { return e.Array }
+func (e *MakeClosure) Type() Type   { return e.FuncType }
+func (e *CallValue) Type() Type     { return e.Callee.Type().(*FuncType).Result }
 
 func (e *ArrayCall) Type() Type {
 	switch e.Op {

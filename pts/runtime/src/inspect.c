@@ -169,6 +169,18 @@ static void format_number(text *out, double number) {
 
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
 
+/* Node's formatting of a function without properties: `[Function: name]`, or `[Function (anonymous)]`. */
+static void format_function(text *out, const pts_closure *closure) {
+  while (closure->type->name == NULL) {
+    closure = ((const pts_closure *const *)(closure + 1))[0]; /* an adapter shows as the function it adapts, its first capture */
+  }
+  if (closure->type->name[0] == '\0') {
+    text_puts(out, "[Function (anonymous)]");
+  } else {
+    text_printf(out, "[Function: %s]", closure->type->name);
+  }
+}
+
 /* Node's formatValue for a value nested in an object or array: strings are quoted. */
 static void format_value(inspector *in, text *out, pts_value value, size_t recurse_times) {
   if (pts_value_is_number(value)) {
@@ -206,6 +218,9 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
   case PTS_KIND_OBJECT:
   case PTS_KIND_ARRAY:
     format_heap_object(in, out, object, recurse_times);
+    return;
+  case PTS_KIND_FUNCTION:
+    format_function(out, (const pts_closure *)object);
     return;
   }
 }
@@ -589,7 +604,11 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
 void pts_inspect_write(FILE *out, const pts_object *object) {
   inspector in = {0};
   text result = {0};
-  format_heap_object(&in, &result, object, 0);
+  if (object->type->kind == PTS_KIND_FUNCTION) {
+    format_function(&result, (const pts_closure *)object);
+  } else {
+    format_heap_object(&in, &result, object, 0);
+  }
   fwrite(result.bytes, 1, result.len, out);
   free(result.bytes);
   free(in.seen);

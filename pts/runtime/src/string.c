@@ -208,6 +208,7 @@ PTS_STATIC_STRING(number_word, PTS_STRING_ASCII, 6, 6, "number");
 PTS_STATIC_STRING(string_word, PTS_STRING_ASCII, 6, 6, "string");
 PTS_STATIC_STRING(boolean_word, PTS_STRING_ASCII, 7, 7, "boolean");
 PTS_STATIC_STRING(object_word, PTS_STRING_ASCII, 6, 6, "object");
+PTS_STATIC_STRING(function_word, PTS_STRING_ASCII, 8, 8, "function");
 
 pts_string *pts_value_typeof(pts_value value) {
   if (pts_value_is_number(value)) {
@@ -220,6 +221,8 @@ pts_string *pts_value_typeof(pts_value value) {
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:
       return number_word;
+    case PTS_KIND_FUNCTION:
+      return function_word;
     default:
       break;
     }

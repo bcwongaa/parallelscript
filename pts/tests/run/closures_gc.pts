@@ -1,0 +1,31 @@
+// Closures and cells survive collections: many closures over strings, objects and
+// shared counters are made while the collector runs.
+class Item {
+  constructor(public name: string, public weight: number) {}
+}
+function makeAll(count: number): (() => string)[] {
+  const makers: (() => string)[] = [];
+  let shared = 0;
+  for (let i = 0; i < count; i++) {
+    const item = new Item("item" + i, i);
+    const label = "#" + i;
+    makers.push(() => {
+      shared++;
+      return label + ":" + item.name + ":" + item.weight;
+    });
+  }
+  return makers;
+}
+const all = makeAll(200000);
+let garbage = "";
+for (let round = 0; round < 50; round++) {
+  const temp: string[] = [];
+  for (let k = 0; k < 2000; k++) {
+    temp.push("x" + k + round);
+  }
+  garbage = temp.join("").slice(0, 10);
+}
+console.log(garbage, all.length, all[0](), all[123456](), all[199999]());
+
+// expect:
+// x049x149x2 200000 #0:item0:0 #123456:item123456:123456 #199999:item199999:199999

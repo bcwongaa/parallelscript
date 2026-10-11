@@ -140,10 +140,12 @@ func isObjectTypeMember(node *ast.Node) bool {
 	return node.Parent.Kind == ast.KindInterfaceDeclaration || node.Parent.Kind == ast.KindTypeLiteral
 }
 
-// isFunctionWithBody reports whether node declares a function, method, accessor or constructor with a body.
+// isFunctionWithBody reports whether node declares a function, method, accessor or
+// constructor with a body, or is an arrow function or function expression.
 func isFunctionWithBody(node *ast.Node) bool {
 	switch node.Kind {
-	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration, ast.KindConstructor, ast.KindGetAccessor, ast.KindSetAccessor:
+	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration, ast.KindConstructor, ast.KindGetAccessor, ast.KindSetAccessor,
+		ast.KindArrowFunction, ast.KindFunctionExpression:
 		return node.Body() != nil
 	}
 	return false
@@ -213,8 +215,12 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 	outer := c.current
 	body := &functionBody{fn: fn}
 	c.current = body
-	for _, statement := range declaration.Body().Statements() {
-		c.visit(statement)
+	if declaration.Body().Kind == ast.KindBlock {
+		for _, statement := range declaration.Body().Statements() {
+			c.visit(statement)
+		}
+	} else {
+		c.returnValue(declaration.Body(), declaration.Body()) // an arrow function's expression body is what it returns
 	}
 	c.current = outer
 	if !fn.inferResult {
@@ -247,9 +253,18 @@ func (c *pass) checkBody(declaration *ast.Node, fn *function) {
 
 // returnStatement types `return value` in a function that returns a number.
 func (c *pass) returnStatement(node *ast.Node) {
-	value, body := node.Expression(), c.current
+	c.returnValue(node.Expression(), node)
+}
+
+// returnValue types a value a function returns (nil for none), which node returns.
+func (c *pass) returnValue(value *ast.Node, node *ast.Node) {
+	body := c.current
 	switch {
 	case value == nil || (body.fn.result == nil && !body.fn.inferResult):
+		if value == node {
+			c.visit(value)
+			return
+		}
 		node.ForEachChild(func(child *ast.Node) bool {
 			c.visit(child)
 			return false

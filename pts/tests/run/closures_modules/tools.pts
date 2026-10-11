@@ -1,0 +1,15 @@
+export function double(x: number): number {
+  return x * 2;
+}
+export const triple = (x: number) => x * 3;
+export default (x: number) => x + 1000;
+let calls = 0;
+export function counted(f: (x: number) => number): (x: number) => number {
+  return (x) => {
+    calls++;
+    return f(x);
+  };
+}
+export function callCount(): number {
+  return calls;
+}

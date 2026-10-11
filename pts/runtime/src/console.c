@@ -37,6 +37,7 @@ static void write_value(FILE *out, pts_value value) {
       return;
     case PTS_KIND_OBJECT:
     case PTS_KIND_ARRAY:
+    case PTS_KIND_FUNCTION:
       pts_inspect_write(out, object);
       return;
     }

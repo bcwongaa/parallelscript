@@ -56,6 +56,8 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 		c.declarationMerging(node)
 	case ast.KindArrayType:
 		c.integerElements(node, node.AsArrayTypeNode().ElementType)
+	case ast.KindFunctionType:
+		c.integerSignature(node)
 	case ast.KindTypeReference:
 		ref := node.AsTypeReferenceNode()
 		if name := ref.TypeName; name.Kind == ast.KindIdentifier && (name.Text() == "Array" || name.Text() == "ReadonlyArray") && ref.TypeArguments != nil && len(ref.TypeArguments.Nodes) == 1 {
@@ -69,6 +71,21 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 func (c *pass) integerElements(node *ast.Node, element *ast.Node) {
 	if n, ok := c.annotationType(element); ok && n != Number {
 		c.report(node, diagnostic.NotSupportedYet, "arrays of %s are not supported yet", n)
+	}
+}
+
+// integerSignature reports a function type that takes or returns an integer type or f32,
+// which function values can't yet: the checker sees them as numbers (M2.6, D-041).
+func (c *pass) integerSignature(node *ast.Node) {
+	types := []*ast.Node{node.Type()}
+	for _, param := range node.Parameters() {
+		types = append(types, param.Type())
+	}
+	for _, t := range types {
+		if n, ok := c.annotationType(t); ok && n != Number {
+			c.report(node, diagnostic.NotSupportedYet, "function types that take or return %s are not supported yet", n)
+			return
+		}
 	}
 }
 

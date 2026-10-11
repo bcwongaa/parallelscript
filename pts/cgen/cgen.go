@@ -17,8 +17,9 @@ import (
 func Emit(program *ir.Program) string {
 	e := &emitter{strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
-		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}}
+		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}}
 	e.nameClasses(program)
+	e.collectClosures(program)
 	e.indexMethods(program)
 	e.collectInterfaceMembers(program)
 	e.collectStrings(program)
@@ -43,7 +44,10 @@ type emitter struct {
 	interfaceMembers map[*ir.Class][]*ir.Method
 	entryNames       map[*ir.Func]string
 	entryOrder       []*ir.Method
-	globals          map[*ir.Local]string // module-scope bindings that other functions use, by C name
+	closureNames     map[*ir.Func]string // the suffix of the C names of each function made a value of (D-041)
+	closureOrder     []*ir.Func
+	captureFields    map[*ir.Local][]captureField // the members of closure structs that hold each captured local
+	globals          map[*ir.Local]string         // module-scope bindings that other functions use, by C name
 	globalOrder      []*ir.Local
 	globalOwners     map[*ir.Local]*ir.Func // the top-level code that declares each global
 	initOrder        map[*ir.Func]int       // each module's top-level code: its place in the order modules run
@@ -70,6 +74,7 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "")
 	}
 	e.classDeclarations(program.Classes)
+	e.closureStructs()
 	for _, global := range e.globalOrder {
 		e.line(0, "static %s%s;", e.declarator(global.Type), e.globals[global])
 		e.line(0, "static bool %s_ready; /* its declaration has run */", e.globals[global])
@@ -83,6 +88,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.line(0, "")
 	e.entryFunctions()
 	e.classDescriptors(program.Classes)
+	e.closureDefinitions()
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
 	for _, module := range program.Modules {
@@ -161,6 +167,9 @@ func (e *emitter) signature(f *ir.Func, paramNames []string) string {
 			params[i] = e.declarator(receiver) + name
 		}
 	}
+	if f.Closure {
+		params = append([]string{"pts_closure *pts_env"}, params...)
+	}
 	if len(params) == 0 {
 		params = []string{"void"}
 	}
@@ -173,7 +182,7 @@ func (e *emitter) collectGlobals(program *ir.Program) {
 	used := map[string]bool{}
 	for i, module := range program.Modules {
 		e.initOrder[module.Init] = i
-		walk(module.Init.Body.Stmts, func(stmt ir.Stmt) {
+		ir.Walk(module.Init.Body.Stmts, func(stmt ir.Stmt) {
 			if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Local.Global {
 				e.globals[decl.Local] = uniqueGlobal(used, "pts_global_"+modulePrefix(module)+qualifiedIdentifier(decl.Local.Name))
 				e.globalOrder = append(e.globalOrder, decl.Local)
@@ -195,7 +204,11 @@ func (e *emitter) function(f *ir.Func) {
 	e.gotoTargets = map[string]bool{}
 	paramNames := make([]string, len(f.Params))
 	for i, param := range f.Params {
-		paramNames[i] = e.declareLocal(param)
+		if param.Cell {
+			paramNames[i] = unique(e.usedNames, "pts_arg_"+cIdentifier(param.Name)) // the argument, which the prologue moves into the cell
+		} else {
+			paramNames[i] = e.declareLocal(param)
+		}
 	}
 	this := ""
 	if receiver := e.receiverClass(f); receiver != nil && receiver != f.Params[0].Type {
@@ -208,7 +221,8 @@ func (e *emitter) function(f *ir.Func) {
 		class := e.declarator(f.Params[0].Type)
 		e.line(1, "%s%s = (%s)pts_this;", class, this, strings.TrimSuffix(class, " "))
 	}
-	e.statements(f.Body.Stmts, 1)
+	e.closurePrologue(f, paramNames)
+	e.scope(f.Body.Stmts, 1)
 	if f.Result != ir.Void && !endsWithReturn(f.Body.Stmts) {
 		e.line(1, "pts_unreachable(); /* tsc checked that every path returns */")
 	}
@@ -231,12 +245,22 @@ func (e *emitter) statements(stmts []ir.Stmt, depth int) {
 	}
 }
 
+// scope writes the statements of a block, after making the cells of the locals it
+// declares that live in one: on entry, since a closure may capture one before its
+// declaration runs (D-041).
+func (e *emitter) scope(stmts []ir.Stmt, depth int) {
+	for _, local := range cellsOf(stmts) {
+		e.line(depth, "%s*%s = %s;", e.declarator(local.Type), e.declareLocal(local), e.cellAllocation(local))
+	}
+	e.statements(stmts, depth)
+}
+
 func (e *emitter) statement(stmt ir.Stmt, depth int) {
 	e.at(stmt.Pos())
 	switch s := stmt.(type) {
 	case *ir.Block:
 		e.line(depth, "{")
-		e.statements(s.Stmts, depth+1)
+		e.scope(s.Stmts, depth+1)
 		e.line(depth, "}")
 	case *ir.ExprStmt:
 		e.line(depth, "%s;", e.effect(s.X))
@@ -250,6 +274,10 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 			e.line(depth, "%s_ready = true;", name)
 			return
 		}
+		if s.Local.Cell {
+			e.line(depth, "*%s = %s;", e.locals[s.Local], init) // its block made the cell
+			return
+		}
 		e.line(depth, "%s%s = %s;", e.declarator(s.Local.Type), e.declareLocal(s.Local), init)
 	case *ir.If:
 		e.ifStatement(s, depth)
@@ -260,7 +288,7 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 	case *ir.LabeledBlock:
 		name := e.label(s.Label, "block")
 		e.line(depth, "{")
-		e.statements(s.Body.Stmts, depth+1)
+		e.scope(s.Body.Stmts, depth+1)
 		e.line(depth, "}")
 		e.labelHere(depth, name+"_break")
 	case *ir.Break:
@@ -280,17 +308,17 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 
 func (e *emitter) ifStatement(s *ir.If, depth int) {
 	e.line(depth, "if (%s) {", e.expr(s.Cond))
-	e.statements(s.Then.Stmts, depth+1)
+	e.scope(s.Then.Stmts, depth+1)
 	for s.Else != nil {
 		elseIf, ok := s.Else.(*ir.If)
 		if !ok {
 			e.line(depth, "} else {")
-			e.statements(s.Else.(*ir.Block).Stmts, depth+1)
+			e.scope(s.Else.(*ir.Block).Stmts, depth+1)
 			break
 		}
 		e.at(elseIf.At)
 		e.line(depth, "} else if (%s) {", e.expr(elseIf.Cond))
-		e.statements(elseIf.Then.Stmts, depth+1)
+		e.scope(elseIf.Then.Stmts, depth+1)
 		s = elseIf
 	}
 	e.line(depth, "}")
@@ -302,18 +330,22 @@ func (e *emitter) loop(loop *ir.Loop, depth int) {
 		cond = e.expr(loop.Cond)
 	}
 	name := e.label(loop.Label, "loop")
+	update := e.perIterationCopies(loop)
+	if loop.Update != nil {
+		update = append(update, e.effect(loop.Update))
+	}
 	switch {
 	case loop.PostTest:
 		e.line(depth, "do {")
-	case loop.Update != nil:
-		e.line(depth, "for (; %s; %s) {", cond, e.effect(loop.Update))
+	case len(update) > 0:
+		e.line(depth, "for (; %s; %s) {", cond, strings.Join(update, ", "))
 	case loop.Cond == nil:
 		e.line(depth, "for (;;) {")
 	default:
 		e.line(depth, "while (%s) {", cond)
 	}
 	e.loops = append(e.loops, loop.Label)
-	e.statements(loop.Body.Stmts, depth+1)
+	e.scope(loop.Body.Stmts, depth+1)
 	e.loops = e.loops[:len(e.loops)-1]
 	e.labelHere(depth+1, name+"_continue")
 	if loop.PostTest {
@@ -322,6 +354,20 @@ func (e *emitter) loop(loop *ir.Loop, depth int) {
 		e.line(depth, "}")
 	}
 	e.labelHere(depth, name+"_break")
+}
+
+// perIterationCopies give the next iteration of a for loop its own copy of each `let`
+// variable of the loop's initialiser that lives in a cell, as JS does, so that closures
+// made in this iteration keep this iteration's (D-041).
+func (e *emitter) perIterationCopies(loop *ir.Loop) []string {
+	var copies []string
+	for _, local := range loop.Bindings {
+		if local.Cell {
+			name := e.locals[local]
+			copies = append(copies, fmt.Sprintf("%s = pts_cell_copy(%s, sizeof(%s), %t)", name, name, e.cellType(local), holdsPointer(local.Type)))
+		}
+	}
+	return copies
 }
 
 // switchStatement tests the cases in order and jumps to the first that matches, or to
@@ -471,11 +517,19 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
 	case *ir.Call:
-		args, prelude := e.operands(x.Args)
+		operands := x.Args
+		if x.Closure != nil {
+			operands = append([]ir.Expr{x.Closure}, x.Args...)
+		}
+		args, prelude := e.operands(operands)
 		if receiver := e.receiverClass(x.Func); receiver != nil && receiver != x.Args[0].Type() {
 			args[0] = "(" + strings.TrimSuffix(e.declarator(receiver), " ") + ")(" + args[0] + ")"
 		}
 		return ordered(prelude, e.funcNames[x.Func]+"("+strings.Join(args, ", ")+")")
+	case *ir.MakeClosure:
+		return e.makeClosure(x)
+	case *ir.CallValue:
+		return e.callValue(x)
 	case *ir.VirtualCall:
 		return e.virtualCall(x)
 	case *ir.InterfaceCall:
@@ -512,10 +566,13 @@ func (e *emitter) assignment(assign *ir.Assign) string {
 	return text
 }
 
-// local is the C name of a local, or of the global it became.
+// local is the C lvalue of a local: its C name, the global it became, or its cell's contents.
 func (e *emitter) local(local *ir.Local) string {
 	if name, ok := e.globals[local]; ok {
 		return name
+	}
+	if local.Cell {
+		return "(*" + e.locals[local] + ")"
 	}
 	return e.locals[local]
 }
@@ -765,7 +822,7 @@ func (e *emitter) box(value ir.Expr) string {
 		return "pts_value_from_number(" + inner + ")" // exact as a double
 	}
 	switch value.Type().(type) {
-	case *ir.Class, *ir.Interface, *ir.Array:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
 		return "pts_value_from_object(" + inner + ")"
 	default:
 		panic("cgen: cannot box " + value.Type().String())
@@ -885,6 +942,8 @@ func (e *emitter) declarator(t ir.Type) string {
 		return "pts_object *" // any object that provides the interface's members
 	case *ir.Array:
 		return "pts_array *"
+	case *ir.FuncType:
+		return "pts_closure *"
 	}
 	c := cType(t)
 	if strings.HasSuffix(c, "*") {
@@ -900,7 +959,7 @@ var toStringWords = map[ir.Type][]string{ir.Bool: {"true", "false"}, ir.Null: {"
 
 func (e *emitter) collectStrings(program *ir.Program) {
 	for _, f := range program.Funcs {
-		walk(f.Body.Stmts, func(stmt ir.Stmt) {
+		ir.Walk(f.Body.Stmts, func(stmt ir.Stmt) {
 			if decl, ok := stmt.(*ir.LocalDecl); ok && decl.Init == nil && decl.Local.Type == ir.String {
 				e.intern("") // the zero value of `let s: string;`
 			}
@@ -921,119 +980,6 @@ func (e *emitter) intern(value string) {
 	if _, seen := e.strings[value]; !seen {
 		e.strings[value] = fmt.Sprintf("pts_str_%d", len(e.stringOrder)+1)
 		e.stringOrder = append(e.stringOrder, value)
-	}
-}
-
-// walk calls visitStmt for every statement in stmts and visitExpr for every expression,
-// outer ones first.
-func walk(stmts []ir.Stmt, visitStmt func(ir.Stmt), visitExpr func(ir.Expr)) {
-	var expr func(ir.Expr)
-	expr = func(x ir.Expr) {
-		if x == nil {
-			return
-		}
-		visitExpr(x)
-		switch x := x.(type) {
-		case *ir.Box:
-			expr(x.X)
-		case *ir.CallBuiltin:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.Call:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.VirtualCall:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.InterfaceCall:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.ArrayCall:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.NewArray:
-			for _, elem := range x.Elems {
-				expr(elem)
-			}
-		case *ir.ClassCast:
-			expr(x.X)
-		case *ir.InstanceOf:
-			expr(x.X)
-		case *ir.Binary:
-			expr(x.X)
-			expr(x.Y)
-		case *ir.Unary:
-			expr(x.X)
-		case *ir.Convert:
-			expr(x.X)
-		case *ir.ToString:
-			expr(x.X)
-		case *ir.Truthy:
-			expr(x.X)
-		case *ir.Assign:
-			expr(x.Value)
-		case *ir.Conditional:
-			expr(x.Cond)
-			expr(x.Then)
-			expr(x.Else)
-		case *ir.Logical:
-			expr(x.X)
-			expr(x.Y)
-		case *ir.Sequence:
-			expr(x.X)
-			expr(x.Y)
-		case *ir.Bind:
-			expr(x.Value)
-			expr(x.In)
-		case *ir.New:
-			for _, arg := range x.Args {
-				expr(arg)
-			}
-		case *ir.NewObject:
-			for _, value := range x.Values {
-				expr(value)
-			}
-		case *ir.FieldRef:
-			expr(x.X)
-		case *ir.SetField:
-			expr(x.X)
-			expr(x.Value)
-		}
-	}
-	for _, stmt := range stmts {
-		visitStmt(stmt)
-		switch s := stmt.(type) {
-		case *ir.Block:
-			walk(s.Stmts, visitStmt, visitExpr)
-		case *ir.ExprStmt:
-			expr(s.X)
-		case *ir.LocalDecl:
-			expr(s.Init)
-		case *ir.Return:
-			expr(s.Value)
-		case *ir.If:
-			expr(s.Cond)
-			walk([]ir.Stmt{s.Then}, visitStmt, visitExpr)
-			if s.Else != nil {
-				walk([]ir.Stmt{s.Else}, visitStmt, visitExpr)
-			}
-		case *ir.Loop:
-			expr(s.Cond)
-			expr(s.Update)
-			walk(s.Body.Stmts, visitStmt, visitExpr)
-		case *ir.Switch:
-			for _, c := range s.Cases {
-				expr(c.Match)
-				walk(c.Body, visitStmt, visitExpr)
-			}
-		case *ir.LabeledBlock:
-			walk(s.Body.Stmts, visitStmt, visitExpr)
-		}
 	}
 }
 

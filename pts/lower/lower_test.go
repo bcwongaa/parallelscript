@@ -429,13 +429,14 @@ shout("hi");
   10: shout("hi")
 }
 func twice(n: u8) i64 {
-  4: return twice.inner(i64(n))
+  3: let inner: (i64) => i64 = closure twice.inner
+  4: return twice.inner[inner](i64(n))
 }
 func shout(s: string) void {
   7: console.log(box(String.toUpperCase(s)))
   8: return
 }
-func twice.inner(m: i64) i64 {
+func twice.inner(m: i64) i64 closure [] {
   3: return (m * 2:i64)
 }
 `)
@@ -757,6 +758,102 @@ for (const row of grid()) {
 }
 func grid() number[][] {
   1: return number[][][number[][1, 2], number[][3]]
+}
+`)
+}
+
+func TestOnlyCapturedVariablesThatMayChangeLiveInCells(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function make(a: number, b: number): () => number {
+  const fixed = 1;
+  let changed = 2;
+  changed = 3;
+  b++;
+  const read = () => fixed + changed + a + b + early;
+  const early = 4;
+  return read;
+}
+const loops: (() => number)[] = [];
+for (let i = 0; i < 2; i++) {
+  loops.push(() => i);
+}
+`)
+	assert.Equal(t, got, `func main() void {
+  10: let loops: (() => number)[] = (() => number)[][]
+  11: {
+    11: let cell i: number = 0
+    11: #1: for (i < 2); old(i = (i + 1)) copying cells [i] {
+      12: array.push(loops, closure arrow)
+    }
+  }
+}
+func arrow() number closure [cell i] {
+  12: return i
+}
+func make.read() number closure [fixed, cell changed, a, cell b, cell early] {
+  6: return ((((fixed + changed) + a) + b) + early)
+}
+func make(a: number, b: number) () => number {
+  2: let fixed: number = 1
+  3: let cell changed: number = 2
+  4: (changed = 3)
+  5: old(b = (b + 1))
+  6: let read: () => number = closure make.read
+  7: let cell early: number = 4
+  8: return read
+}
+`)
+}
+
+func TestArrowFunctionsCaptureTheThisOfTheirMethod(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `class Box {
+  value = 1;
+  getter(): () => () => number {
+    return () => () => this.value;
+  }
+}
+`)
+	assert.Equal(t, got, `class Box { value: number }
+func main() void {
+}
+func Box.constructor(this: Box) void {
+  2: (this.value = 1)
+}
+func Box.getter.arrow.arrow() number closure [this] {
+  4: return this.value
+}
+func Box.getter.arrow() () => number closure [this] {
+  4: return closure Box.getter.arrow.arrow
+}
+func Box.getter(this: Box) () => () => number {
+  4: return closure Box.getter.arrow
+}
+`)
+}
+
+func TestFunctionValuesWithFewerParametersOrAResultAreAdapted(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function call(f: (a: string, b: number) => void): void {}
+const one = (a: string) => a.length;
+call(one);
+call((a) => a.length);
+`)
+	assert.Equal(t, got, `func main() void {
+  2: let one: (string) => number = closure one
+  3: call((let adapted = one in closure adapter))
+  4: call(closure arrow)
+}
+func one(a: string) number closure [] {
+  2: return String.length(a)
+}
+func adapter(arg1: string, arg2: number) void closure [adapted] {
+  3: call adapted(arg1)
+}
+func arrow(a: string, unused: number) void closure [] {
+  4: String.length(a)
+}
+func call(f: (string, number) => void) void {
 }
 `)
 }

@@ -1,0 +1,142 @@
+// Functions are values: they can be stored, passed, returned, compared and printed.
+
+type BinaryOp = (a: number, b: number) => number;
+
+function add(a: number, b: number): number {
+  return a + b;
+}
+const multiply: BinaryOp = (a, b) => a * b;
+const subtract = function (a: number, b: number): number {
+  return a - b;
+};
+
+const ops: BinaryOp[] = [add, multiply, subtract, (a, b) => a ** b];
+for (const op of ops) {
+  console.log(op(2, 5));
+}
+console.log(ops);
+
+// Higher-order functions.
+function compose(f: (x: number) => number, g: (x: number) => number): (x: number) => number {
+  return (x) => f(g(x));
+}
+const inc = (x: number) => x + 1;
+const square = (x: number) => x * x;
+console.log(compose(inc, square)(3), compose(square, inc)(3));
+
+function curry(f: BinaryOp): (a: number) => (b: number) => number {
+  return (a) => (b) => f(a, b);
+}
+console.log(curry(add)(1)(2), curry(multiply)(3)(4));
+
+function twice(f: () => void): void {
+  f();
+  f();
+}
+let calls = 0;
+twice(() => {
+  calls++;
+});
+twice(() => calls++); // an arrow that returns a value, where nothing is returned
+console.log("calls", calls);
+
+// A function that takes fewer parameters than its type passes is fine, as in JS.
+function each(values: string[], visit: (value: string, index: number) => void): void {
+  for (let i = 0; i < values.length; i++) {
+    visit(values[i], i);
+  }
+}
+each(["x", "y"], (value, index) => console.log(index, value));
+each(["x", "y"], (value) => console.log(value));
+const shout = (value: string) => console.log(value.toUpperCase() + "!");
+each(["x", "y"], shout);
+function logValue(value: string): void {
+  console.log("value", value);
+}
+each(["z"], logValue);
+
+// Function-typed fields, properties and parameters.
+class Button {
+  label: string;
+  onClick: (times: number) => string;
+  constructor(label: string, onClick: (times: number) => string) {
+    this.label = label;
+    this.onClick = onClick;
+  }
+  click(times: number): string {
+    return this.label + ": " + this.onClick(times);
+  }
+}
+const ok = new Button("ok", (times) => "clicked " + times);
+console.log(ok.click(2));
+ok.onClick = (times) => "changed " + times;
+console.log(ok.click(3), ok.onClick(4));
+console.log(ok);
+
+interface Handlers {
+  name: string;
+  run: (input: number) => number;
+}
+const handlers: Handlers = { name: "double", run: (input) => input * 2 };
+console.log(handlers.run(21), handlers);
+
+// typeof, truthiness and identity.
+console.log(typeof add, typeof multiply, typeof (() => 1));
+console.log("functions are truthy:", !!multiply);
+const same = add;
+console.log(same === add, multiply === add, multiply !== subtract);
+
+// console.log shows each function's name: its own, or the one JS gives it from where it is written.
+const anonymous = [
+  () => 1,
+  function () {
+    return 2;
+  },
+];
+console.log(anonymous, [add, multiply, subtract], compose);
+let assigned: () => number;
+assigned = () => 2;
+console.log(assigned, { method: (s: string) => s, nested: { deep: inc } });
+const parenthesized = (() => 3);
+console.log(parenthesized);
+
+// Functions returned from functions keep their names.
+function named(): () => string {
+  return function inner() {
+    return "inner";
+  };
+}
+console.log(named(), named()());
+
+// expect:
+// 7
+// 10
+// -3
+// 32
+// [
+//   [Function: add],
+//   [Function: multiply],
+//   [Function: subtract],
+//   [Function (anonymous)]
+// ]
+// 10 16
+// 3 12
+// calls 4
+// 0 x
+// 1 y
+// x
+// y
+// X!
+// Y!
+// value z
+// ok: clicked 2
+// ok: changed 3 changed 4
+// Button { label: 'ok', onClick: [Function (anonymous)] }
+// 42 { name: 'double', run: [Function: run] }
+// function function function
+// functions are truthy: true
+// true false true
+// [ [Function (anonymous)], [Function (anonymous)] ] [ [Function: add], [Function: multiply], [Function: subtract] ] [Function: compose]
+// [Function: assigned] { method: [Function: method], nested: { deep: [Function: inc] } }
+// [Function: parenthesized]
+// [Function: inner] inner

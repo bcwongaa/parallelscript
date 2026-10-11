@@ -1,0 +1,257 @@
+// Closures capture the variables of enclosing functions: by value where they can't
+// change, in shared cells where they can (D-041).
+
+function makeCounter(start: number): () => number {
+  let count = start;
+  return () => {
+    count++;
+    return count;
+  };
+}
+const counter = makeCounter(10);
+const other = makeCounter(100);
+console.log(counter(), counter(), other(), counter());
+
+// The enclosing function sees what the closure does, and the other way round.
+function sharedVariable(): void {
+  let total = 0;
+  const add = (n: number) => {
+    total += n;
+  };
+  add(1);
+  add(2);
+  console.log("total", total);
+  total = 100;
+  add(3);
+  console.log("total", total);
+}
+sharedVariable();
+
+// A value that can't change is copied into the closure.
+function adder(amount: number): (x: number) => number {
+  const label = "add " + amount;
+  return (x) => {
+    console.log(label);
+    return x + amount;
+  };
+}
+const add5 = adder(5);
+console.log(add5(1), adder(7)(1));
+
+// Each iteration of a for loop has its own `let` variable, also after the update.
+const fromFor: (() => number)[] = [];
+for (let i = 0; i < 3; i++) {
+  fromFor.push(() => i * 10);
+}
+console.log(fromFor[0](), fromFor[1](), fromFor[2]());
+
+// ... and a closure made in an iteration sees that iteration's later changes.
+const changed: (() => number)[] = [];
+for (let i = 0; i < 3; i++) {
+  changed.push(() => i);
+  i += 10;
+}
+console.log(changed.length, changed[0]());
+
+// A `continue` still moves on to the next iteration's own copy.
+const kept: (() => string)[] = [];
+for (let i = 0; i < 4; i++) {
+  if (i % 2 === 0) {
+    continue;
+  }
+  kept.push(() => "odd " + i);
+}
+console.log(kept[0](), kept[1]());
+
+// for...of and loop bodies declare a new variable each iteration.
+const words: (() => string)[] = [];
+for (const word of ["a", "b", "c"]) {
+  const upper = word.toUpperCase();
+  words.push(() => word + upper);
+}
+console.log(words[0](), words[1](), words[2]());
+
+let n = 0;
+const fromWhile: (() => number)[] = [];
+while (n < 3) {
+  const square = n * n;
+  fromWhile.push(() => square);
+  n++;
+}
+console.log(fromWhile[0](), fromWhile[1](), fromWhile[2]());
+
+// Closures nest: the innermost uses variables of every function around it.
+function outermost(a: number): (b: number) => (c: number) => number {
+  return (b) => (c) => a * 100 + b * 10 + c;
+}
+console.log(outermost(1)(2)(3));
+
+function levels(): () => string {
+  let message = "first";
+  const make = () => () => message;
+  const result = make();
+  message = "second";
+  return () => result() + " and " + message;
+}
+console.log(levels()());
+
+// A closure can call itself through the variable that holds it.
+const factorial = (k: number): number => (k <= 1 ? 1 : k * factorial(k - 1));
+console.log(factorial(10));
+
+function fibonacciOf(limit: number): number[] {
+  const memo: number[] = [0, 1];
+  const fib = (k: number): number => {
+    if (k < memo.length) {
+      return memo[k];
+    }
+    const value = fib(k - 1) + fib(k - 2);
+    memo.push(value);
+    return value;
+  };
+  fib(limit);
+  return memo;
+}
+console.log(fibonacciOf(15));
+
+// Nested function declarations are closures too. Their closures exist from the start
+// of their block, so they can be called above their declarations and use variables
+// declared after them.
+function hoisting(): string {
+  const suffix = "!";
+  const before = greet("before");
+  function greet(name: string): string {
+    return "hello " + name + suffix;
+  }
+  function late(): string {
+    return later;
+  }
+  const later = "later";
+  return before + " / " + greet("after") + " / " + late();
+}
+try_(hoisting);
+
+function try_(f: () => string): void {
+  console.log(f());
+}
+
+function mutual(limit: number): string {
+  let calls = 0;
+  function isEven(k: number): boolean {
+    calls++;
+    return k === 0 ? true : isOdd(k - 1);
+  }
+  function isOdd(k: number): boolean {
+    calls++;
+    return k === 0 ? false : isEven(k - 1);
+  }
+  return isEven(limit) + " after " + calls + " calls";
+}
+console.log(mutual(7), mutual(10));
+
+function depthFirst(): string {
+  const visited: string[] = [];
+  function visit(node: number): void {
+    visited.push("n" + node);
+    if (node < 8) {
+      visit(node * 2);
+      visit(node * 2 + 1);
+    }
+  }
+  visit(1);
+  return visited.join(" ");
+}
+console.log(depthFirst());
+
+// A named function expression knows its own name.
+const countdown = function tick(k: number): string {
+  return k === 0 ? "liftoff" : k + " " + tick(k - 1);
+};
+console.log(countdown(3));
+
+// Immediately invoked functions.
+const computed = ((x: number) => x * x)(9);
+console.log(computed);
+console.log(
+  (function () {
+    return "iife";
+  })(),
+);
+
+// Closures made in a block of the top-level code capture the block's variables.
+{
+  let hits = 0;
+  const hit = () => ++hits;
+  hit();
+  hit();
+  console.log("hits", hits);
+}
+if (computed > 0) {
+  function inBlock(): number {
+    return computed + 1;
+  }
+  console.log(inBlock());
+}
+
+// Closures in a switch's cases share the switch's scope.
+function pick(kind: number): () => string {
+  switch (kind) {
+    case 1: {
+      const one = "one";
+      return () => one;
+    }
+    default:
+      const fallback = "other " + kind;
+      return () => fallback;
+  }
+}
+console.log(pick(1)(), pick(2)());
+
+// Strings, arrays and objects are captured as well.
+function collector(): { add: (s: string) => void; all: () => string } {
+  const items: string[] = [];
+  let prefix = "";
+  return {
+    add: (s) => {
+      items.push(prefix + s);
+      prefix = "-";
+    },
+    all: () => items.join(""),
+  };
+}
+const collected = collector();
+collected.add("a");
+collected.add("b");
+collected.add("c");
+console.log(collected.all());
+
+// expect:
+// 11 12 101 13
+// total 3
+// total 103
+// add 5
+// add 7
+// 6 8
+// 0 10 20
+// 1 10
+// odd 1 odd 3
+// aA bB cC
+// 0 1 4
+// 123
+// second and second
+// 3628800
+// [
+//     0,   1,   1,   2,  3,  5,
+//     8,  13,  21,  34, 55, 89,
+//   144, 233, 377, 610
+// ]
+// hello before! / hello after! / later
+// false after 8 calls true after 11 calls
+// n1 n2 n4 n8 n9 n5 n10 n11 n3 n6 n12 n13 n7 n14 n15
+// 3 2 1 liftoff
+// 81
+// iife
+// hits 2
+// 82
+// one other 2
+// a-b-c

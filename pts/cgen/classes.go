@@ -389,10 +389,10 @@ func fieldKind(t ir.Type) string {
 }
 
 // isObject reports whether t is the type of a reference to an object: a class (or
-// shape), an interface or an array.
+// shape), an interface, an array or a function (a closure).
 func isObject(t ir.Type) bool {
 	switch t.(type) {
-	case *ir.Class, *ir.Interface, *ir.Array:
+	case *ir.Class, *ir.Interface, *ir.Array, *ir.FuncType:
 		return true
 	}
 	return false

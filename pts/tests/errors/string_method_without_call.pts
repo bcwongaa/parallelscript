@@ -1,4 +1,4 @@
-// A builtin method can only be called; function values arrive with M1.4a and M2.5.
+// A builtin method can only be called; methods as values arrive with M2.5b.
 const trim = "x".trim;
 
-// error: PTS1001: values of type () => string are not supported yet
+// error: string_method_without_call.pts:2:14 - error PTS1001: methods as values are not supported yet

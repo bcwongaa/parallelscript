@@ -1,0 +1,126 @@
+// An arrow function's `this` is the `this` of the method or constructor it is written in.
+
+class Counter {
+  count = 0;
+  step: number;
+  // A field initialiser runs in the constructor, so `this` is the new instance.
+  bump = () => {
+    this.count += this.step;
+    return this.count;
+  };
+  constructor(step: number) {
+    this.step = step;
+  }
+  incrementer(): () => number {
+    return () => {
+      this.count++;
+      return this.count;
+    };
+  }
+  addAll(values: number[]): number {
+    const add = (value: number) => {
+      this.count += value;
+    };
+    for (const value of values) {
+      add(value);
+    }
+    return this.count;
+  }
+  get doubler(): () => number {
+    return () => this.count * 2;
+  }
+}
+
+const counter = new Counter(5);
+const inc = counter.incrementer();
+console.log(inc(), inc(), counter.count);
+console.log(counter.bump(), counter.bump());
+console.log(counter.addAll([1, 2, 3]), counter.doubler());
+
+// Arrows nested in arrows still see the method's `this`.
+class Tree {
+  name: string;
+  children: Tree[] = [];
+  constructor(name: string) {
+    this.name = name;
+  }
+  add(name: string): Tree {
+    const child = new Tree(name);
+    this.children.push(child);
+    return child;
+  }
+  render(): string {
+    const lines: string[] = [];
+    const walk = (depth: number) => {
+      const visit = (node: Tree, level: number) => {
+        lines.push(" ".repeat(level * 2) + node.name + (node === this ? " (root)" : ""));
+        for (const child of node.children) {
+          visit(child, level + 1);
+        }
+      };
+      visit(this, depth);
+    };
+    walk(0);
+    return lines.join("\n");
+  }
+}
+const root = new Tree("root");
+root.add("a").add("a1");
+root.add("b");
+console.log(root.render());
+
+// A constructor's arrows capture the instance being made.
+class Greeter {
+  greet: (name: string) => string;
+  constructor(public greeting: string) {
+    this.greet = (name) => this.greeting + ", " + name;
+  }
+}
+const greeter = new Greeter("Hello");
+const greet = greeter.greet;
+greeter.greeting = "Hi";
+console.log(greet("Ada"));
+
+// super calls in arrows go to the parent's method on the same instance.
+class Animal {
+  constructor(public name: string) {}
+  describe(): string {
+    return "animal " + this.name;
+  }
+}
+class Dog extends Animal {
+  describe(): string {
+    return "dog " + this.name;
+  }
+  both(): () => string {
+    return () => super.describe() + " / " + this.describe();
+  }
+}
+console.log(new Dog("Rex").both()());
+
+// In a static method, `this` is the class.
+class Registry {
+  static entries: string[] = [];
+  static register(names: string[]): number {
+    const add = (name: string) => {
+      this.entries.push(name);
+    };
+    for (const name of names) {
+      add(name);
+    }
+    return this.entries.length;
+  }
+}
+console.log(Registry.register(["x", "y"]), Registry.entries);
+
+// expect:
+// 1 2 2
+// 7 12
+// 18 36
+// root (root)
+//   a
+//     a1
+//   b
+// Hi, Ada
+// animal Rex / dog Rex
+// 2 [ 'x', 'y' ]

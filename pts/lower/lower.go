@@ -130,10 +130,12 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		methodDeclarations: map[*ir.Method]*ast.Node{}, abstractFields: map[*ast.Node]property{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
-		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{}}
+		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
+		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
+		l.funcNodes[module.Init] = file.AsNode()
 		result.Modules = append(result.Modules, module)
 		result.Funcs = append(result.Funcs, module.Init)
 	}
@@ -169,6 +171,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	result.Classes = append(l.classList, l.shapeList...)
 	result.Interfaces = l.interfaceList
 	l.markAccessorProperties()
+	markCells(result.Funcs)
 	return result, l.errors
 }
 
@@ -187,38 +190,42 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 }
 
 type lowerer struct {
-	program            *compiler.Program
-	checker            *checker.Checker
-	info               *check.Info
-	locals             map[*ast.Symbol]*ir.Local       // nil for a declaration that failed to lower
-	owners             map[*ir.Local]*ir.Func          // the function each local belongs to
-	moduleScope        map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
-	funcs              map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
-	classes            map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
-	classNodes         map[*ir.Class]*ast.Node         // the declaration of each class
-	classList          []*ir.Class                     // the classes that didn't fail, superclasses first
-	fields             map[*ast.Node]*ir.Field         // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
-	methods            map[*ast.Node]*ir.Method        // their methods, getters and setters, by declaration; nil if it failed
-	methodDeclarations map[*ir.Method]*ast.Node        // the declaration of each method (for an accessor that implements an abstract field, the field's)
-	abstractFields     map[*ast.Node]property          // the getter and setter of each abstract field, by declaration
-	statics            map[*ast.Node]*ir.Local         // the variable of each static field, by declaration; nil if it failed
-	staticMethods      map[*ast.Node]*ir.Func          // the function of each static method, by declaration; nil if it failed
-	staticClasses      map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
-	staticContext      *ir.Class                       // the class whose static initialisers are being lowered, or nil
-	shapesByType       map[*checker.Type]*ir.Class     // the shape of each object type met; nil if it has none
-	shapesByKey        map[string]*ir.Class            // the shapes, by their fields (membersKey)
-	shapeList          []*ir.Class                     // the shapes, in the order they were made
-	interfacesByType   map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
-	interfacesByKey    map[string]*ir.Interface        // the interfaces, by their members (membersKey)
-	interfaceList      []*ir.Interface                 // the interfaces, in the order they were made
-	arrays             map[ir.Type]*ir.Array           // the array type of each element type met
-	arraysInProgress   map[*checker.Type]bool          // the array types whose element type is being mapped
-	this               map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
-	lowered            []*ir.Func                      // the functions whose bodies are lowered
-	bodies             []*ast.Node                     // function declarations whose bodies are still to be lowered
-	function           *ir.Func                        // the function being lowered
-	targets            []jumpTarget                    // the statements around the current one that break or continue can leave
-	errors             []diagnostic.Diagnostic
+	program             *compiler.Program
+	checker             *checker.Checker
+	info                *check.Info
+	locals              map[*ast.Symbol]*ir.Local       // nil for a declaration that failed to lower
+	owners              map[*ir.Local]*ir.Func          // the function each local belongs to
+	moduleScope         map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
+	funcs               map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
+	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
+	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
+	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
+	fields              map[*ast.Node]*ir.Field         // the fields of those classes, by property declaration (a redeclaration's is the inherited field)
+	methods             map[*ast.Node]*ir.Method        // their methods, getters and setters, by declaration; nil if it failed
+	methodDeclarations  map[*ir.Method]*ast.Node        // the declaration of each method (for an accessor that implements an abstract field, the field's)
+	abstractFields      map[*ast.Node]property          // the getter and setter of each abstract field, by declaration
+	statics             map[*ast.Node]*ir.Local         // the variable of each static field, by declaration; nil if it failed
+	staticMethods       map[*ast.Node]*ir.Func          // the function of each static method, by declaration; nil if it failed
+	staticClasses       map[*ir.Func]*ir.Class          // the class of each static method, which `this` stands for in it
+	staticContext       *ir.Class                       // the class whose static initialisers are being lowered, or nil
+	shapesByType        map[*checker.Type]*ir.Class     // the shape of each object type met; nil if it has none
+	shapesByKey         map[string]*ir.Class            // the shapes, by their fields (membersKey)
+	shapeList           []*ir.Class                     // the shapes, in the order they were made
+	interfacesByType    map[*checker.Type]*ir.Interface // the interface of each object type met; nil if it has none
+	interfacesByKey     map[string]*ir.Interface        // the interfaces, by their members (membersKey)
+	interfaceList       []*ir.Interface                 // the interfaces, in the order they were made
+	arrays              map[ir.Type]*ir.Array           // the array type of each element type met
+	arraysInProgress    map[*checker.Type]bool          // the array types whose element type is being mapped
+	funcTypes           []*ir.FuncType                  // the function types met
+	funcTypesInProgress map[*checker.Type]bool          // the function types whose parameter and result types are being mapped
+	arrows              map[*ir.Func]bool               // the closures' functions that are arrow functions, whose `this` is their outer function's
+	funcNodes           map[*ir.Func]*ast.Node          // the declaration, function expression or source file of each function
+	this                map[*ir.Func]*ir.Local          // the `this` parameter of each constructor and method
+	lowered             []*ir.Func                      // the functions whose bodies are lowered
+	bodies              []*ast.Node                     // function declarations whose bodies are still to be lowered
+	function            *ir.Func                        // the function being lowered
+	targets             []jumpTarget                    // the statements around the current one that break or continue can leave
+	errors              []diagnostic.Diagnostic
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -245,7 +252,7 @@ func (l *lowerer) unsupported(node *ast.Node, format string, args ...any) {
 // ---------------------------------------------------------------- statements
 
 func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
-	block := &ir.Block{At: l.pos(node)}
+	block := &ir.Block{At: l.pos(node), Stmts: l.hoistedFunctions(statements)}
 	for _, statement := range statements {
 		block.Stmts = append(block.Stmts, l.statement(statement)...)
 	}
@@ -404,18 +411,22 @@ func (l *lowerer) doStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 func (l *lowerer) forStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	s := node.AsForStatement()
 	var init []ir.Stmt
+	var bindings []*ir.Local
 	failed := false
 	switch {
 	case s.Initializer == nil:
 	case s.Initializer.Kind == ast.KindVariableDeclarationList:
 		init = l.declarationList(node, s.Initializer)
 		failed = init == nil
+		if s.Initializer.Flags&ast.NodeFlagsLet != 0 {
+			bindings = declaredLocals(init)
+		}
 	default:
 		x := l.expression(s.Initializer)
 		failed = x == nil
 		init = []ir.Stmt{&ir.ExprStmt{At: l.pos(s.Initializer), X: x}}
 	}
-	loop := &ir.Loop{At: l.pos(node), Label: label}
+	loop := &ir.Loop{At: l.pos(node), Label: label, Bindings: bindings}
 	if s.Condition != nil {
 		loop.Cond = l.condition(s.Condition)
 		failed = failed || loop.Cond == nil
@@ -434,6 +445,15 @@ func (l *lowerer) forStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: append(init, loop)}}
 }
 
+// declaredLocals are the locals that declarations (LocalDecls) declare.
+func declaredLocals(stmts []ir.Stmt) []*ir.Local {
+	locals := make([]*ir.Local, len(stmts))
+	for i, stmt := range stmts {
+		locals[i] = stmt.(*ir.LocalDecl).Local
+	}
+	return locals
+}
+
 // switchStatement lowers a switch to a block that stores the value in a local, then the
 // cases, each testing the local with === against its expression.
 func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
@@ -445,6 +465,11 @@ func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	result := &ir.Switch{At: l.pos(node), Label: label}
 	failed := value == nil
+	var statements []*ast.Node // of every clause, which share one scope
+	for _, clause := range s.CaseBlock.AsCaseBlock().Clauses.Nodes {
+		statements = append(statements, clause.Statements()...)
+	}
+	hoisted := l.hoistedFunctions(statements)
 	for _, clause := range s.CaseBlock.AsCaseBlock().Clauses.Nodes {
 		c := &ir.Case{At: l.pos(clause)}
 		if clause.Kind == ast.KindCaseClause && tag != nil {
@@ -459,7 +484,8 @@ func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if failed {
 		return nil
 	}
-	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: []ir.Stmt{&ir.LocalDecl{At: l.pos(node), Local: tag, Init: value}, result}}}
+	stmts := append(append([]ir.Stmt{&ir.LocalDecl{At: l.pos(node), Local: tag, Init: value}}, hoisted...), result)
+	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: stmts}}
 }
 
 // caseMatch compares a switch's value, stored in tag, with a case's expression.
@@ -525,10 +551,10 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	symbol := l.checker.GetSymbolAtLocation(name)
 	local, declared := l.locals[symbol] // module-scope bindings are declared before any code is lowered
 	if !declared {
-		l.locals[symbol] = nil // until it lowers, uses of it are silent: the declaration already failed
 		if t := l.bindingType(symbol, name); t != nil {
 			local = l.newLocal(name.Text(), t)
 		}
+		l.locals[symbol] = local // a closure in the initialiser may use it; nil makes uses silent, since the declaration failed
 	}
 	if local == nil {
 		return nil
@@ -536,13 +562,14 @@ func (l *lowerer) variableDeclaration(node *ast.Node) ir.Stmt {
 	var init ir.Expr
 	if initializer := node.Initializer(); initializer != nil {
 		if init = l.expression(initializer); init == nil {
+			l.locals[symbol] = nil
 			return nil
 		}
 		if init = l.convert(init, local.Type, initializer); init == nil {
+			l.locals[symbol] = nil
 			return nil
 		}
 	}
-	l.locals[symbol] = local
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: init}
 }
 
@@ -681,6 +708,8 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return box(value)
 	case ir.IsNumeric(value.Type()) && ir.IsNumeric(target):
 		return &ir.Convert{X: value, To: target}
+	case isFunction(value.Type()) && isFunction(target):
+		return l.adapt(value, target.(*ir.FuncType), node)
 	case isObject(value.Type()) && isObject(target) && !isArray(value.Type()) && !isArray(target):
 		return l.objectCast(value, target, node)
 	case isEmptyArrayLiteral(value) && isArray(target):
@@ -704,10 +733,15 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 			if name := child.Name(); name != nil {
 				qualified = name.Text()
 			}
+			jsName := qualified
 			if outer != "" {
 				qualified = outer + "." + qualified
 			}
-			l.funcs[l.declaredSymbol(child)] = l.declareFunction(child, qualified, nil)
+			fn := l.declareFunction(child, qualified, nil)
+			if fn != nil {
+				fn.JSName, fn.Closure = jsName, isNestedFunction(child)
+			}
+			l.funcs[l.declaredSymbol(child)] = fn
 		}
 		l.declareFunctions(child, qualified)
 		return false
@@ -731,6 +765,7 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 		return nil
 	}
 	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node)}
+	l.funcNodes[fn] = node
 	if class != nil {
 		fn.Params = []*ir.Local{l.newThis(fn, class)}
 	}
@@ -902,6 +937,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.newExpression(node)
 	case ast.KindObjectLiteralExpression:
 		return l.objectLiteral(node)
+	case ast.KindArrowFunction, ast.KindFunctionExpression:
+		return l.functionExpression(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
@@ -945,15 +982,21 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 // function or module namespace used as a value, and a binding that failed to lower. ok
 // is false if symbol is no binding of the program.
 func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok bool) {
+	if _, ok := l.locals[symbol]; !ok {
+		l.declareAhead(symbol)
+	}
 	if local, ok := l.locals[symbol]; ok {
 		if local = l.ownLocal(node, local); local == nil {
 			return nil, true
 		}
 		return &ir.LocalRef{Local: local}, true
 	}
-	if _, ok := l.funcs[symbol]; ok {
-		l.notSupportedYet(node, "function values are")
-		return nil, true
+	if fn, ok := l.funcs[symbol]; ok {
+		if fn == nil {
+			return nil, true // its declaration failed, which was reported
+		}
+		x := l.functionValue(node, fn)
+		return x, true
 	}
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsValueModule != 0 {
 		l.notSupportedYet(node, "using the module namespace `"+scanner.GetTextOfNode(node)+"` as a value is")
@@ -976,8 +1019,11 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.staticCall(call, fn)
 	}
 	if method, ok := l.methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
-		if method == nil {
+		switch {
+		case method == nil:
 			return nil // its declaration failed, which was reported
+		case method.Kind != ir.Plain:
+			return l.valueCall(call) // `o.p()` calls the function a getter returns
 		}
 		return l.instanceMethodCall(call, method)
 	}
@@ -998,6 +1044,11 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	switch {
 	case isUserFunction && fn == nil:
 		return nil // its declaration failed, which was reported
+	case !isUserFunction && builtin == nil && !ast.IsOptionalChain(node) && l.isValueCall(call.Expression):
+		if l.hasSpreadArgument(call) {
+			return nil
+		}
+		return l.valueCall(call)
 	case !isUserFunction && (builtin == nil || properties[builtin]):
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
 		return nil
@@ -1005,11 +1056,8 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, "optional chaining `?.` is")
 		return nil
 	}
-	for _, argument := range call.Arguments.Nodes {
-		if argument.Kind == ast.KindSpreadElement {
-			l.notSupportedYet(argument, "spread arguments are")
-			return nil
-		}
+	if l.hasSpreadArgument(call) {
+		return nil
 	}
 	switch {
 	case isUserFunction:
@@ -1020,13 +1068,31 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	return l.methodCall(node, builtin)
 }
 
-// userCall calls a function of the program.
+// hasSpreadArgument reports a call's spread argument, if it has one.
+func (l *lowerer) hasSpreadArgument(call *ast.CallExpression) bool {
+	for _, argument := range call.Arguments.Nodes {
+		if argument.Kind == ast.KindSpreadElement {
+			l.notSupportedYet(argument, "spread arguments are")
+			return true
+		}
+	}
+	return false
+}
+
+// userCall calls a function of the program; a nested function declaration with the
+// closure its block made.
 func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
+	var closure ir.Expr
+	if fn.Closure {
+		if closure = l.closureOf(call.Expression, fn); closure == nil {
+			return nil
+		}
+	}
 	args := l.arguments(call.Arguments.Nodes, fn.Params)
 	if args == nil {
 		return nil
 	}
-	return &ir.Call{Func: fn, Args: args}
+	return &ir.Call{Func: fn, Closure: closure, Args: args}
 }
 
 // arguments lowers the arguments of a call of a function of the program, each converted
@@ -1249,7 +1315,11 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 	}
 	builtin := l.builtin(node)
-	if !properties[builtin] {
+	switch {
+	case builtin != nil && !properties[builtin]:
+		l.notSupportedYet(node, "methods as values are")
+		return nil
+	case !properties[builtin]:
 		l.notSupportedYet(node, "`"+scanner.GetTextOfNode(node)+"` is")
 		return nil
 	}
@@ -1657,15 +1727,18 @@ func (l *lowerer) newLocal(name string, t ir.Type) *ir.Local {
 	return local
 }
 
-// ownLocal returns local if the function being lowered may use it: its own, or one at
-// the module scope of any module, which becomes a global. Otherwise it reports the use at
-// node and returns nil: functions don't capture other variables yet.
+// ownLocal returns local if the function being lowered may use it: its own, one at the
+// module scope of any module, which becomes a global, or one of an enclosing function,
+// which it captures (D-041). Otherwise it reports the use at node and returns nil: a
+// class's methods can't use the locals of the code around the class.
 func (l *lowerer) ownLocal(node *ast.Node, local *ir.Local) *ir.Local {
 	switch {
 	case local == nil || l.owners[local] == l.function:
 		return local
 	case l.moduleScope[local]:
 		local.Global = true
+		return local
+	case l.capture(local):
 		return local
 	}
 	l.notSupportedYet(node, "using `"+scanner.GetTextOfNode(node)+"` from outside the function is")
@@ -1777,8 +1850,8 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 		return discard(x, &ir.BoolConst{Value: false})
 	case ir.IsNumeric(t) || t == ir.String || t == ir.Value:
 		return &ir.Truthy{X: x}
-	case isObject(t):
-		return discard(x, &ir.BoolConst{Value: true}) // an object, never null
+	case isObject(t) || isFunction(t):
+		return discard(x, &ir.BoolConst{Value: true}) // an object or function, never null
 	}
 	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
 	return nil
@@ -1799,6 +1872,8 @@ func (l *lowerer) typeOf(node *ast.Node) ir.Expr {
 		word, ok = "number", true
 	case isObject(x.Type()):
 		word, ok = "object", true
+	case isFunction(x.Type()):
+		word, ok = "function", true
 	}
 	if !ok {
 		l.notSupportedYet(node, fmt.Sprintf("typeof on %s is", x.Type()))
@@ -1846,7 +1921,7 @@ func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
 	}
 	switch op {
 	case ir.Eq, ir.Ne:
-		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isObject(x)
+		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String || isObject(x) || isFunction(x)
 	case ir.Lt, ir.Le, ir.Gt, ir.Ge:
 		return ir.IsNumeric(x) || x == ir.String
 	}
@@ -1937,6 +2012,12 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	}
 	if l.checker.IsArrayType(t) {
 		return l.arrayType(t, node)
+	}
+	if ft, ok := l.functionType(t, node); ok {
+		if ft == nil {
+			return nil // reported
+		}
+		return ft
 	}
 	if l.isObjectType(t) {
 		if iface := l.interfaceOf(t, node); iface != nil {

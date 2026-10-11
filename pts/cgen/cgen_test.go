@@ -316,3 +316,35 @@ func TestOnlyInterfacePropertiesThatAccessorsMayProvideCallThem(t *testing.T) {
 		strings.Contains(source, `PTS_SET(double, p, &pts_site`), source)
 	assert.Equal(t, run(t, program), "1 5\n")
 }
+
+func TestCellsAreMadeOnBlockEntryAndCopiedForEachIteration(t *testing.T) {
+	t.Parallel()
+	// for (let i = 0; i < 3; i++) { read = () => i; } console.log(read());
+	ft := &ir.FuncType{Result: ir.Number}
+	i := &ir.Local{Name: "i", Type: ir.Number, Cell: true}
+	read := &ir.Local{Name: "read", Type: ft}
+	main := &ir.Func{Name: "main", Pos: at(1), Result: ir.Void}
+	arrow := &ir.Func{Name: "arrow", Pos: at(2), Result: ir.Number, Closure: true, Outer: main, Captures: []*ir.Local{i},
+		Body: &ir.Block{At: at(2), Stmts: []ir.Stmt{&ir.Return{At: at(2), Value: &ir.LocalRef{Local: i}}}}}
+	loop := &ir.Loop{At: at(1), Label: &ir.Label{}, Bindings: []*ir.Local{i},
+		Cond:   &ir.Binary{Op: ir.Lt, X: &ir.LocalRef{Local: i}, Y: num(3)},
+		Update: &ir.Assign{Local: i, Value: &ir.Binary{Op: ir.Add, X: &ir.LocalRef{Local: i}, Y: num(1)}},
+		Body: &ir.Block{At: at(2), Stmts: []ir.Stmt{
+			&ir.ExprStmt{At: at(2), X: &ir.Assign{Local: read, Value: &ir.MakeClosure{Func: arrow, FuncType: ft}}},
+		}}}
+	main.Body = &ir.Block{At: at(1), Stmts: []ir.Stmt{
+		&ir.LocalDecl{At: at(1), Local: read},
+		&ir.Block{At: at(1), Stmts: []ir.Stmt{&ir.LocalDecl{At: at(1), Local: i, Init: num(0)}, loop}},
+		logAt(3, &ir.CallValue{Callee: &ir.LocalRef{Local: read}}),
+	}}
+	program := programWithMain(main)
+	arrow.Module = main.Module
+	program.Funcs = append(program.Funcs, arrow)
+
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "double *i = pts_cell_new(sizeof(double), false);\n"), source)
+	assert.Assert(t, strings.Contains(source, "i = pts_cell_copy(i, sizeof(double), false), (*i) = ((*i) + 1.0)"), source)
+	assert.Assert(t, strings.Contains(source, "pts_new_closure_arrow(i)"), source)
+	// The last closure's iteration ended with i at 2; the update then changed the next copy.
+	assert.Equal(t, run(t, program), "2\n")
+}

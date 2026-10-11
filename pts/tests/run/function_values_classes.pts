@@ -1,0 +1,90 @@
+// Function values with classes: adapters between parameter types, cells for changed
+// parameters, reassigned module-scope functions, accessors and interfaces over function fields.
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return this.name + " barks";
+  }
+}
+function forDogs(dogs: Dog[], visit: (dog: Dog) => void): void {
+  for (const dog of dogs) {
+    visit(dog);
+  }
+}
+const describeAnimal = (animal: Animal) => console.log("animal", animal.name);
+forDogs([new Dog("rex"), new Dog("fido")], describeAnimal);
+forDogs([new Dog("max")], (dog) => console.log(dog.bark()));
+console.log(describeAnimal);
+
+// A parameter that a closure changes lives in a cell.
+function accumulate(start: number): () => number {
+  const step = () => {
+    start += 10;
+    return start;
+  };
+  step();
+  return step;
+}
+const acc = accumulate(1);
+console.log(acc(), acc());
+
+// A module-scope variable holding a function can be reassigned.
+let handler: (s: string) => string = (s) => s + "?";
+function useHandler(): string {
+  return handler("a");
+}
+console.log(useHandler());
+handler = (s) => s + "!";
+console.log(useHandler(), handler);
+
+// A getter and setter around a function-typed field.
+class Formatter {
+  #format: (n: number) => string = (n) => "#" + n;
+  get format(): (n: number) => string {
+    return this.#format;
+  }
+  set format(f: (n: number) => string) {
+    this.#format = f;
+  }
+}
+const formatter = new Formatter();
+console.log(formatter.format(1));
+formatter.format = (n) => n + "%";
+console.log(formatter.format(2));
+interface Shape {
+  area: () => number;
+}
+function areaOf(shape: Shape): number {
+  return shape.area();
+}
+class Square {
+  constructor(public side: number) {}
+  area = () => this.side * this.side;
+}
+console.log(areaOf(new Square(3)), areaOf({ area: () => 7 }));
+
+// An adapter shows as the function it adapts.
+function show(f: (a: Dog, b: number) => void): (a: Dog, b: number, c: string) => void {
+  console.log(f, typeof f);
+  return f;
+}
+const twice = show(describeAnimal);
+console.log(twice, [twice]);
+twice(new Dog("x"), 1, "c");
+
+// expect:
+// animal rex
+// animal fido
+// max barks
+// [Function: describeAnimal]
+// 21 31
+// a?
+// a! [Function: handler]
+// #1
+// 2%
+// 9 7
+// [Function: describeAnimal] function
+// [Function: describeAnimal] [ [Function: describeAnimal] ]
+// animal x

@@ -25,6 +25,21 @@ void *pts_object_new(const pts_type *type) {
   return object;
 }
 
+void *pts_cell_new(size_t size, bool holds_pointers) {
+  void *cell = holds_pointers ? GC_MALLOC(size) : GC_MALLOC_ATOMIC(size);
+  if (cell == NULL) {
+    pts_panic("RangeError", "Out of memory allocating a variable of %zu bytes", size);
+  }
+  memset(cell, 0, size);
+  return cell;
+}
+
+void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers) {
+  void *copy = pts_cell_new(size, holds_pointers);
+  memcpy(copy, cell, size);
+  return copy;
+}
+
 void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name) {
   const pts_type *type = object->type;
   for (uint32_t i = 0; i < type->field_count; i++) {

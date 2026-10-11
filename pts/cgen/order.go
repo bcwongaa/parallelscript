@@ -36,7 +36,17 @@ func effectsOf(expr ir.Expr) effects {
 		}
 		return f
 	case *ir.Call:
+		if x.Closure != nil {
+			return callEffects(append([]ir.Expr{x.Closure}, x.Args...))
+		}
 		return callEffects(x.Args)
+	case *ir.CallValue:
+		return callEffects(append([]ir.Expr{x.Callee}, x.Args...))
+	case *ir.MakeClosure:
+		if len(x.Func.Captures) > 0 {
+			return readsLocals // the captured values
+		}
+		return 0
 	case *ir.VirtualCall:
 		return callEffects(x.Args)
 	case *ir.InterfaceCall:
