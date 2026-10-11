@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: generic accessors and abstract generic methods
+// skip: diverges: an erased copy makes a generic class instance for any (TypeError: Expected Result, got Result; known issue, D-078)
 // Generic Result and Option classes used to validate and parse user records without exceptions.
 
 abstract class Option<T> {

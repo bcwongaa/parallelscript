@@ -1,6 +1,6 @@
-// Generics that aren't supported yet are reported (D-049, D-050, D-051): generic
-// functions inside generic code, nested generic functions that use their outer
-// function's variables, overriding with or overriding a generic method, a function
+// Generics that aren't supported yet are reported (D-049, D-050, D-051): generic functions
+// inside generic code, nested generic functions that use their outer function's variables,
+// overriding a method with a generic one or a generic method with a plain one, a function
 // needing ever more instances. (`f`, `box.map` and `box instanceof Box` work, D-078, D-089.)
 function identity<T>(x: T): T {
   return x;
@@ -48,7 +48,7 @@ class Plain extends Box<number> {
   }
 }
 
-// error: generics_not_yet.pts:34:3 - error PTS1001: overriding with a generic method is not supported yet
+// error: generics_not_yet.pts:34:3 - error PTS1001: overriding a method with a generic method is not supported yet
 // error: generics_not_yet.pts:10:12 - error PTS1001: generic functions inside generic functions or classes are not supported yet
 // error: generics_not_yet.pts:18:12 - error PTS1001: using `start` from outside the function is not supported yet
 // error: generics_not_yet.pts:42:24 - error PTS1001: a generic function with more than 64 instances (`grow`) is not supported yet

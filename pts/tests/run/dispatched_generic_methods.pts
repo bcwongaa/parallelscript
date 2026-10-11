@@ -1,0 +1,17 @@
+// Abstract and overridden generic methods, dispatched by name to the receiver's class (D-101).
+interface Visitor<R> { num(n: number): R; neg(inner: R): R }
+abstract class Expr { abstract accept<R>(v: Visitor<R>): R; describe(): string { return "expr"; } }
+class Num extends Expr { constructor(readonly n: number) { super(); } accept<R>(v: Visitor<R>): R { return v.num(this.n); } }
+class Neg extends Expr { constructor(readonly inner: Expr) { super(); } accept<R>(v: Visitor<R>): R { return v.neg(this.inner.accept(v)); } }
+class Base { wrap<T>(x: T): T[] { return [x]; } }
+class Twice extends Base { wrap<T>(x: T): T[] { return [x, x]; } }
+const e: Expr = new Neg(new Neg(new Num(4)));
+console.log(e.accept<number>({ num: (n) => n, neg: (x) => -x }), e.accept({ num: (n) => String(n), neg: (s) => `-(${s})` }));
+const bs: Base[] = [new Base(), new Twice()];
+for (const b of bs) console.log(b.wrap(7), b.wrap("s"));
+console.log(new Twice().wrap(true));
+// expect:
+// 4 -(-(4))
+// [ 7 ] [ 's' ]
+// [ 7, 7 ] [ 's', 's' ]
+// [ true, true ]

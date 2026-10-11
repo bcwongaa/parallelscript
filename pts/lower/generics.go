@@ -193,6 +193,9 @@ func (l *lowerer) genericCall(call *ast.CallExpression, generic *genericFunc) ir
 // genericMethodCall lowers `o.m(args)` for a generic method m of a class: a direct call
 // of m's instance for the call's type arguments, on o.
 func (l *lowerer) genericMethodCall(call *ast.CallExpression, generic *genericFunc) ir.Expr {
+	if receiverNode := call.Expression.Expression(); l.dispatchedGenerics[generic.node.Name().Text()] && receiverNode.Kind != ast.KindSuperKeyword {
+		return l.dispatchedGenericCall(call, generic, receiverNode)
+	}
 	fn := l.calledInstance(call, generic)
 	if fn == nil {
 		return nil
@@ -441,17 +444,27 @@ func (l *lowerer) genericMethodAt(callee *ast.Node) *genericFunc {
 // instances calls make. One that overrides or is abstract is reported.
 func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
 	name := member.Name().Text()
+	abstract := member.Body() == nil
 	switch {
-	case member.Kind != ast.KindMethodDeclaration || member.Body() == nil:
-		l.notSupportedYet(nameOf(member), "generic accessors and abstract generic methods are")
+	case member.Kind != ast.KindMethodDeclaration:
+		l.notSupportedYet(nameOf(member), "generic accessors are")
 		return
-	case !ast.IsStatic(member) && class.Parent != nil && (class.Parent.Method(name, ir.Plain) != nil || l.inheritedGenericMethod(class.Parent, name) != nil):
-		l.notSupportedYet(nameOf(member), "overriding with a generic method is")
+	case !ast.IsStatic(member) && class.Parent != nil && class.Parent.Method(name, ir.Plain) != nil:
+		l.notSupportedYet(nameOf(member), "overriding a method with a generic method is")
 		return
+	case abstract || !ast.IsStatic(member) && class.Parent != nil && l.inheritedGenericMethod(class.Parent, name) != nil:
+		// Calls of an abstract or overridden generic method find the method of the
+		// receiver's class by name, through erased copies in method tables (D-101).
+		l.dispatchedGenerics[name] = true
+		l.wantInMethodTables(name)
 	}
 	generic := &genericFunc{node: member, name: class.Name + "." + name, module: class.Module.Init, class: class, outer: l.subst}
 	for _, parameter := range member.TypeParameters() {
 		generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
+	}
+	if abstract {
+		l.declaringMembers().genericMethods[member] = generic // no instances: its calls are dispatched
+		return
 	}
 	if ast.IsStatic(member) {
 		generic.class, generic.static = nil, class
@@ -463,6 +476,55 @@ func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
 	if l.tableMethodNames[name] || l.allMethodsInTables {
 		l.addErasedMethod(generic)
 	}
+}
+
+// dispatchedGenericCall lowers `o.m(…)` for an abstract or overridden generic method m
+// (D-101): a call of the method named m in the method table of o's class, the erased copy
+// that class's m has there, as an interface site calls a generic method (D-079); its
+// result converts to the call's type with a check.
+func (l *lowerer) dispatchedGenericCall(call *ast.CallExpression, generic *genericFunc, receiverNode *ast.Node) ir.Expr {
+	method := l.erasedMethodSignature(generic)
+	receiver := l.expression(receiverNode)
+	if method == nil || receiver == nil {
+		return nil
+	}
+	args := l.typedArguments(call.Arguments.Nodes, method.Params)
+	if args == nil {
+		return nil
+	}
+	object := &ir.ClassCast{X: receiver, To: &ir.Interface{}} // any object, whose method is found by name
+	result := ir.Expr(&ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, args...)})
+	if method.Result == ir.Value {
+		return l.fromErased(result, call.AsNode())
+	}
+	return result
+}
+
+// erasedMethodSignature is the signature a generic method's erased copy has in its
+// class's method table, as an interface method, or nil if it fails (reported).
+func (l *lowerer) erasedMethodSignature(generic *genericFunc) *ir.InterfaceMethod {
+	outer := l.subst
+	l.subst = generic.outer
+	l.subst = l.erasing(generic.parameters, generic.node)
+	defer func() { l.subst = outer }()
+	method := &ir.InterfaceMethod{Name: generic.node.Name().Text()}
+	for _, param := range generic.node.Parameters() {
+		paramType := l.parameterType(param)
+		if paramType == nil {
+			return nil
+		}
+		if param.AsParameterDeclaration().DotDotDotToken != nil {
+			paramType = l.restOf(paramType.(*ir.Array))
+		}
+		method.Params = append(method.Params, paramType)
+		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
+			method.Params = append(method.Params, ir.Given) // D-055
+		}
+	}
+	if method.Result = l.resultType(generic.node); method.Result == nil {
+		return nil
+	}
+	return method
 }
 
 // wantInMethodTables records that the program finds methods named name at run time, by

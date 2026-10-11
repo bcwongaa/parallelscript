@@ -144,7 +144,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
-		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{},
+		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, dispatchedGenerics: map[string]bool{},
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
@@ -281,6 +281,7 @@ type lowerer struct {
 	firstDynamicWrite   *ast.Node                        // the first write through `any`, if any (D-072)
 	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
 	reports             int                              // how many diagnostics were reported, repeats included
+	dispatchedGenerics  map[string]bool                  // the names of generic methods that are abstract or overridden (D-101)
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped

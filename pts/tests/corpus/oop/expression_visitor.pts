@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: generic accessors and abstract generic methods
 // Visitor pattern over a small arithmetic expression AST.
 
 interface Visitor<R> {
