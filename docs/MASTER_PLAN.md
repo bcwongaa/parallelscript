@@ -136,7 +136,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Generic methods of classes (instance and static); generic functions inside functions and blocks. Generic methods of object literals and interfaces move to M3.3 (D-051).
 - [x] **M2.6c Enums** (2ce1c5b4f) (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
-- [x] **M2.6d1 Tuples** (TICK) (split from M2.6 by D-047, from M2.6d by D-053).
+- [x] **M2.6d1 Tuples** (7dd24ed8c) (split from M2.6 by D-047, from M2.6d by D-053).
   - Tuples of fixed length as fixed layouts printed as arrays: literals where a tuple goes and `as const`, constant indices, writes, `length`.
 - [ ] **M2.6d2 Destructuring** (split from M2.6d by D-053).
   - Destructuring of objects, arrays and tuples, with defaults, in declarations, parameters, assignments and `for…of`; default parameter values.
