@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M1 (Core language); M0 tagged `m0`
-- **Next task:** M1.4a Control flow
+- **Next task:** M1.4a1 Statements and operators
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
@@ -26,7 +26,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M1.4a Control flow. When adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered"). Once calls can have side effects, `cgen` must evaluate arguments in JS order: C leaves the order of function arguments (and of a compound literal's initialisers, as in `pts_console_log`'s argument array) unspecified, so lower effectful arguments into temporaries. With functions, the generated corpora can put each case in a function: tsc's flow analysis and clang both slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M1.4a1 Statements and operators, then M1.4a2 Functions (D-017). When adding assignments, compound assignment, `++`/`--`, parameters and returns, extend `pts/check` so the numeric rules apply there too (SPEC §9.4, "Not yet covered"). Once calls can have side effects, `cgen` must evaluate arguments in JS order: C leaves the order of function arguments (and of a compound literal's initialisers, as in `pts_console_log`'s argument array) unspecified, so lower effectful arguments into temporaries. With functions, the generated corpora can put each case in a function: tsc's flow analysis and clang both slow down sharply on one huge top-level function (`pts/tests/README.md`).
 2. M1.4b Modules.
 3. M1.5 Benchmarks setup.
 
