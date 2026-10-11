@@ -144,8 +144,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `function f(x = 1)` for functions, methods and constructors, with left-out and `undefined` arguments.
 - [x] **M2.6d3 Map entries as pairs** (df44ee46a) (split from M2.6d by D-053).
   - `entries()`, `for (const [k, v] of map)`, `new Map([[k, v], …])` and iterators as values (moved from M2.5c by D-046); `apply` with tuples. Iterators as values move to M4.1 (D-056).
-- [ ] **M2.6e Spread, rest and hash-map objects** (split from M2.6 by D-047).
-  - Spread and rest in calls, array literals and object literals; rest parameters.
+- [x] **M2.6e1 Rest parameters and spread arguments** (13ba2e184) (split from M2.6 by D-047, from M2.6e by D-057).
+  - Rest parameters; spread in calls (arrays into rest parameters, tuples anywhere, `console.log(...xs)`).
+- [ ] **M2.6e2 Spread in literals and rest properties** (split from M2.6e by D-057).
+  - Spread in array literals (`[...a, x]`, of arrays, tuples, strings, sets and maps) and object literals (`{...o, x}`); rest properties in object patterns (`const { a, ...others } = o`); spread arguments of `call`/`apply`/`bind` and of builtins.
+- [ ] **M2.6e3 Hash-map objects** (split from M2.6e by D-057).
   - `Record<string, T>` and index signatures as hash maps (D-L10), with `delete`.
 - [ ] **M2.7 binary-trees.** Add the binary-trees benchmark (GC stress) and a string-building benchmark.
   - Add nbody (moved from M1.5 by D-023), with `Math.sqrt` pulled forward from M3.5 if it isn't there yet.

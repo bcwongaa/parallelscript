@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M2 (Data and memory); M0 and M1 tagged `m0`, `m1`
-- **Next task:** M2.6e Spread, rest and hash-map objects
+- **Next task:** M2.6e2 Spread in literals and rest properties
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M2.6e1 Rest parameters and spread arguments: a rest parameter is one parameter of IR type `Rest` (`...T[]`) holding the array the caller builds; spreads of arrays into rest parameters and of tuples (literals or variables) into any parameters; `console.log(...xs)`; function types, interface methods, adapters, callbacks, `call`/`bind` with rest parameters (D-057, SPEC §9.34). M2.6e split into e1, e2 (spread in literals, rest properties) and e3 (hash-map objects).
 - M2.6d3 Map entries as pairs: a map's entries are `[K, V]` tuples (a set's `[T, T]`) in `for…of` over a map or `entries()` (names or patterns; `for (const [k, v] of map)` binds key and value without making a pair), `Array.from`, `new Map` of an array of pairs or of another map's entries; `f.apply(thisArg, tuple)` (D-056, SPEC §9.33). Iterators as values moved to M4.1.
 - M2.6d2b Default parameter values: a parameter with a default takes its argument and a `given` flag (new IR type, a C `bool`) that says whether the call passed it; the body starts with `x = x_given ? x_arg : default`, in parameter order, in the function's scope. Functions, nested functions, arrows, methods (virtual and through interfaces), constructors and parameter properties, `super(...)`, implicit constructors, generic functions and classes, function values with optional parameters (`(x: number, y?: number) => number`), adapters, `call`/`bind`/`apply` and builtin callbacks all pass the flags; `undefined` arguments count as left out; the semantic pass checks defaults against numeric parameters (D-055, SPEC §9.32). Fixed: a parameter property couldn't be used by name in its constructor.
 - M2.6d2a Destructuring: object, array and tuple patterns (nested, defaults, elisions, rest elements) in declarations, parameters (callbacks too), `for…of` over arrays and assignments; array elements use D-015's checked read unless they have a default (D-054, SPEC §9.31). M2.6d2 split by D-054.
@@ -57,7 +58,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M2.6e Spread, rest and hash-map objects: spread in calls, array literals and object literals; rest parameters (`function f(...xs: number[])`, PTS1001 in `parameterType`; with D-055's fixed parameter lists, a rest parameter is one array argument the caller builds); rest properties in object patterns (`destructure`); `Record<string, T>` and index signatures as hash maps with `delete` (D-L10; the runtime's `map.c` may serve). Likely to need splitting. Then M2.7 (benchmarks) and M2.8 (milestone M2). Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code. Optional parameters without a default wait for unions (M3.1); their calling convention is already D-055's (value plus `given` flag).
+1. M2.6e2 Spread in literals and rest properties: `[...a, x]` (arrays via `concat` as `restArray` does; tuples, strings, sets and maps), `{...o, x}` (a new shape: the spread object's fields in its order, later properties overriding in place, as JS orders them), rest properties in object patterns (`destructure` reports them today), and spread arguments of `call`/`apply`/`bind` and builtins (`hasSpreadArgument`). Then M2.6e3 (`Record<string, T>` and index signatures as hash maps with `delete`, D-L10; `map.c` may serve), M2.7 (benchmarks) and M2.8 (milestone M2). Small generic gaps left (PTS1001): static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code. Optional parameters without a default wait for unions (M3.1); their calling convention is already D-055's (value plus `given` flag).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -72,7 +73,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (101 run tests, 1 skipped; 50 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (103 run tests, 1 skipped; 52 error tests; 5 number-corpus and 11 string-corpus parts; about 25 s on an idle machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -101,6 +102,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-11: M2.6e1 done (M2.6e split by D-057).
 - 2026-10-11: M2.6d3 done (iterators as values moved to M4.1 by D-056).
 - 2026-10-11: M2.6d2b done.
 - 2026-10-11: M2.6d2a done (M2.6d2 split by D-054).
