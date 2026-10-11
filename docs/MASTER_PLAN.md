@@ -55,7 +55,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - A PTS semantic pass for literal typing from context, lossless-only implicit conversion and `as` conversions (Rust rules).
   - Integer arithmetic: wrapping, truncating `/`, `RangeError` on division by zero.
   - Error tests for every rule.
-- [ ] **M1.3a Booleans and string basics** (split by D-013).
+- [x] **M1.3a Booleans and string basics** (b554afc) (split by D-013).
   - Booleans: `!`; strings in UTF-8 with an ASCII flag and UTF-16 semantics.
   - Concatenation (`+` with a string and any primitive, with JS's ToString), template literals, `length`, `===`/`!==` and `<`/`<=`/`>`/`>=` on strings (UTF-16 code-unit order).
   - `console.log` writes lone surrogates as U+FFFD, as Node does (the known issue).
