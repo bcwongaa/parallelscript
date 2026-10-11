@@ -46,14 +46,14 @@ func isArray(t ir.Type) bool {
 
 // isArrayExpression reports whether tsc types node as an array.
 func (l *lowerer) isArrayExpression(node *ast.Node) bool {
-	return l.checker.IsArrayType(l.checker.GetTypeAtLocation(node))
+	return l.checker.IsArrayType(l.typeAt(node))
 }
 
 // arrayLiteral lowers `[a, b, c]`: an array of the literal's contextual type if that is
 // an array type, so that `const s: Shape[] = [circle]` holds Shapes, and otherwise of its own.
 func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
-	t := l.checker.GetTypeAtLocation(node)
-	if contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone); contextual != nil && l.checker.IsArrayType(contextual) {
+	t := l.typeAt(node)
+	if contextual := l.contextualType(node); contextual != nil && l.checker.IsArrayType(contextual) {
 		t = contextual
 	}
 	if !l.checker.IsArrayType(t) {

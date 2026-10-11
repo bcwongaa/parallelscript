@@ -1,0 +1,7 @@
+export function swap<A, B>(pair: { a: A; b: B }): { a: B; b: A } {
+  return { a: pair.b, b: pair.a };
+}
+
+export function last<T>(items: T[]): T {
+  return items[items.length - 1];
+}

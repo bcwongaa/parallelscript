@@ -131,6 +131,10 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
 
 - **Unions** are tagged values. Narrowing works with every form: `typeof`, `instanceof`, `in`, discriminant properties, equality and user-defined type guards. The checker does the reasoning; the backend emits tag tests.
 - **Generics** are monomorphized.
+  - A generic function has one instance per distinct list of type arguments, inferred or written, as their runtime types (D-049): `identity(1)` and `identity(1.5)` share `identity<number>`, while `identity(byte)` with `byte: u8` is `identity<u8>`, whose values keep their type.
+  - Arithmetic on a value of a type parameter is done in `number`, as tsc types it, even when the instance's type argument is an integer type; `x as T` converts back by the numeric rules.
+  - Generic interfaces and type aliases are instantiated like any other type (`Box<int>`).
+  - A function that would need ever more instances (`f<T>` calling `f<T[]>`) is a compile error after 64.
 
 ### 3.8 Equality
 
@@ -562,3 +566,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Semantic pass:** `check.NumericOf` and `check.IsNumber` read checker types; `annotationType`, parameters, `for…of` variables and identifiers without a recorded type use them; `contextualExpr` gives number-typed expressions their contextual type and checks the conversion; `functionConversion` checks function values against their contextual function type; `call` visits the callee and takes a generic function's result from tsc's type at the call.
 - **Lowering:** `irType` maps numeric checker types through `check.NumericOf`; `arrayValues` lowers `concat`'s array literal arguments with the receiver's type; `newMap` uses the contextual type for `new Map()`. The runtime already had element and key kinds for every numeric type.
 - **Tests:** `pts/tests/run/arrays_integers.pts`, `maps_integers.pts`, `function_values_integers.pts`; `errors/integer_elements_lossy.pts`; `pts/check/numeric_types_test.go`.
+
+### 9.26 Generic functions and object types (M2.6b1)
+
+- **Checker exports** (`internal/checker/pts.go`): `PtsTypeArgumentsOfSignature` (a resolved signature's type arguments, from its mapper) and `PtsInstantiateType`.
+- **Lowering** (`pts/lower/generics.go`, D-049): `declareFunctions` records each generic function declaration at module scope (`declareGeneric`; nested ones are PTS1001) instead of declaring it; a call (`genericCall`) takes the type arguments of tsc's resolved signature, instantiated for the instance being lowered, and `genericInstance` finds or makes the instance for their IR types: a function named `<name>_<types>` (`typeArgumentsName`), declared with `l.subst` set, whose body `instanceBody` lowers after the other bodies (`Program`'s loop), with the locals of the declaration's previous instance forgotten (`forgetLocals`) and its nested function declarations declared again. With `l.subst` set, `irType` and the query helpers `typeAt`, `typeOfSymbol`, `contextualType` and `returnTypeOf` instantiate every checker type, and `memberSymbol` resolves `x.name` against the instantiated object type. `report` drops repeated diagnostics. Generic functions as values stay PTS1001.
+- **Object types:** `isObjectType` takes references to generic interfaces (`Box<string>`); `propertyType` and `interfaceMethod` read an instantiated member's type rather than its declaration's.
+- **Semantic pass:** `contextualPropertyType` falls back to the instantiated property type, so literals in a `Box<int>` take `int`.
+- **Tests:** `pts/tests/run/generics.pts` (with `run/generics/pairs.pts`), `generics_integers.pts`; `errors/generics_not_yet.pts`; `TestGenericFunctionsHaveAnInstancePerListOfTypeArguments`.

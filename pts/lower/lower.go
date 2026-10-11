@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -133,7 +134,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
-		mapsInProgress: map[*checker.Type]bool{}}
+		mapsInProgress: map[*checker.Type]bool{}, generics: map[*ast.Symbol]*genericFunc{}}
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -163,11 +164,18 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		l.function = result.Modules[i].Init
 		l.function.Body = l.block(file.AsNode(), file.Statements.Nodes)
 	}
-	// Function bodies come last, when every module-scope binding they may use is known.
-	for len(l.bodies) > 0 {
-		body := l.bodies[0]
-		l.bodies = l.bodies[1:]
-		l.functionBody(body)
+	// Function bodies come last, when every module-scope binding they may use is known;
+	// then the instances of generic functions that the bodies call, and that they call.
+	for len(l.bodies) > 0 || len(l.instances) > 0 {
+		if len(l.bodies) > 0 {
+			body := l.bodies[0]
+			l.bodies = l.bodies[1:]
+			l.functionBody(body)
+			continue
+		}
+		inst := l.instances[0]
+		l.instances = l.instances[1:]
+		l.instanceBody(inst)
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
 	result.Classes = append(l.classList, l.shapeList...)
@@ -199,6 +207,9 @@ type lowerer struct {
 	owners              map[*ir.Local]*ir.Func          // the function each local belongs to
 	moduleScope         map[*ir.Local]bool              // the locals declared at module scope, which functions and other modules may use
 	funcs               map[*ast.Symbol]*ir.Func        // every function declaration, made before any body is lowered; nil if it failed
+	generics            map[*ast.Symbol]*genericFunc    // every generic function declaration, whose instances calls make
+	instances           []*instance                     // the instances whose bodies are still to be lowered
+	subst               *substitution                   // the instance being lowered or declared, or nil
 	classes             map[*ast.Symbol]*ir.Class       // every class declaration, made before any code is lowered; nil if it failed
 	classNodes          map[*ir.Class]*ast.Node         // the declaration of each class
 	classList           []*ir.Class                     // the classes that didn't fail, superclasses first
@@ -247,11 +258,18 @@ func (l *lowerer) pos(node *ast.Node) ir.Pos {
 }
 
 func (l *lowerer) notSupportedYet(node *ast.Node, what string) {
-	l.errors = append(l.errors, diagnostic.At(node, diagnostic.NotSupportedYet, "%s not supported yet", what))
+	l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "%s not supported yet", what))
 }
 
 func (l *lowerer) unsupported(node *ast.Node, format string, args ...any) {
-	l.errors = append(l.errors, diagnostic.At(node, diagnostic.Unsupported, format, args...))
+	l.report(diagnostic.At(node, diagnostic.Unsupported, format, args...))
+}
+
+// report records an error once: each instance of a generic function lowers its body again (D-049).
+func (l *lowerer) report(d diagnostic.Diagnostic) {
+	if !slices.Contains(l.errors, d) {
+		l.errors = append(l.errors, d)
+	}
 }
 
 // ---------------------------------------------------------------- statements
@@ -584,7 +602,7 @@ func (l *lowerer) bindingType(symbol *ast.Symbol, node *ast.Node) ir.Type {
 	if t := l.numericType(node); t != nil {
 		return t
 	}
-	return l.irType(l.checker.GetTypeOfSymbol(symbol), node)
+	return l.irType(l.typeOfSymbol(symbol), node)
 }
 
 // ---------------------------------------------------------------- modules
@@ -678,10 +696,22 @@ func (l *lowerer) memberDeclaration(node *ast.Node) *ast.Node {
 	if node.Kind != ast.KindPropertyAccessExpression {
 		return nil
 	}
-	if symbol := l.checker.GetSymbolAtLocation(node); symbol != nil {
+	if symbol := l.memberSymbol(node); symbol != nil {
 		return symbol.ValueDeclaration
 	}
 	return nil
+}
+
+// memberSymbol is the symbol of the member a property access names. In an instance of a
+// generic function it is the member of the object's type in the instance: x.name for
+// `x: T` with `T extends Named` is the name field of the class T is (D-049).
+func (l *lowerer) memberSymbol(node *ast.Node) *ast.Symbol {
+	if name := node.AsPropertyAccessExpression().Name(); l.subst != nil && name.Kind == ast.KindIdentifier {
+		if member := l.checker.GetPropertyOfType(l.typeAt(node.Expression()), name.Text()); member != nil {
+			return member
+		}
+	}
+	return l.checker.GetSymbolAtLocation(node)
 }
 
 // isNamespace reports whether node names a module namespace object: `m` after `import * as m`.
@@ -733,6 +763,17 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 	node.ForEachChild(func(child *ast.Node) bool {
 		qualified := outer
+		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil && l.isGeneric(child) {
+			name := "default"
+			if child.Name() != nil {
+				name = child.Name().Text()
+			}
+			if outer != "" {
+				name = outer + "." + name
+			}
+			l.declareGeneric(child, name) // its instances, and what they declare, come with the calls
+			return false
+		}
 		if child.Kind == ast.KindFunctionDeclaration && child.Body() != nil {
 			qualified = "default" // `export default function () {}`
 			if name := child.Name(); name != nil {
@@ -759,7 +800,7 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) *ir.Func {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case node.TypeParameterList() != nil:
+	case l.isGeneric(node):
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
 	case flags&ast.FunctionFlagsGenerator != 0:
@@ -822,7 +863,7 @@ func (l *lowerer) parameterType(node *ast.Node) ir.Type {
 	if t := l.numericType(param.Name()); t != nil {
 		return t
 	}
-	return l.irType(l.checker.GetTypeOfSymbol(l.checker.GetSymbolAtLocation(param.Name())), param.Name())
+	return l.irType(l.typeOfSymbol(l.checker.GetSymbolAtLocation(param.Name())), param.Name())
 }
 
 // resultType is the IR type a function returns: Void, the numeric type the semantic
@@ -831,7 +872,7 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	if n, ok := l.info.ResultType(node); ok {
 		return numericTypes[n]
 	}
-	result := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(node))
+	result := l.returnTypeOf(l.checker.GetSignatureFromDeclaration(node))
 	if result.Flags()&checker.TypeFlagsVoid != 0 {
 		return ir.Void
 	}
@@ -996,6 +1037,10 @@ func (l *lowerer) binding(node *ast.Node, symbol *ast.Symbol) (x ir.Expr, ok boo
 		}
 		return &ir.LocalRef{Local: local}, true
 	}
+	if _, ok := l.generics[symbol]; ok {
+		l.notSupportedYet(node, "generic functions as values are")
+		return nil, true
+	}
 	if fn, ok := l.funcs[symbol]; ok {
 		if fn == nil {
 			return nil, true // its declaration failed, which was reported
@@ -1049,6 +1094,12 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if l.isArrayStatic(ast.SkipParentheses(call.Expression), "from") {
 		return l.arrayFrom(call)
+	}
+	if generic, ok := l.generics[callee]; ok {
+		if generic == nil || l.hasSpreadArgument(call) {
+			return nil // its declaration failed, which was reported
+		}
+		return l.genericCall(call, generic)
 	}
 	fn, isUserFunction := l.funcs[callee]
 	builtin := l.builtin(call.Expression)
@@ -1236,6 +1287,9 @@ func (l *lowerer) numericLiteral(node *ast.Node, negated bool) ir.Expr {
 // as lowers `x as T` between numeric types, which converts the value.
 func (l *lowerer) as(node *ast.Node) ir.Expr {
 	target := l.numericType(node)
+	if instantiated := l.typeAt(node); target == nil && l.subst != nil && check.IsNumber(instantiated) {
+		target = l.irType(instantiated, node) // `x as T` in an instance whose T is a numeric type
+	}
 	if target == nil {
 		l.notSupportedYet(node, "`as` other than between numeric types is")
 		return nil
@@ -1356,7 +1410,7 @@ func (l *lowerer) isStringElement(node *ast.Node) bool {
 }
 
 func (l *lowerer) hasTypeFlags(node *ast.Node, flags checker.TypeFlags) bool {
-	return l.checker.GetTypeAtLocation(node).Flags()&flags != 0
+	return l.typeAt(node).Flags()&flags != 0
 }
 
 // stringElement lowers s[i] with one of the StringElement builtins (D-015).
@@ -1841,7 +1895,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 // context of node expects (`const s: Shape = c ? circle : rect`), if both provide it.
 // Otherwise they stay as they are.
 func (l *lowerer) asContextualInterface(node *ast.Node, x ir.Expr, y ir.Expr) (ir.Expr, ir.Expr) {
-	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	contextual := l.contextualType(node)
 	if contextual == nil || !l.isObjectType(contextual) {
 		return x, y
 	}
@@ -2020,6 +2074,7 @@ func box(value ir.Expr) ir.Expr {
 
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
+	t = l.instantiate(t)
 	if class, ok := l.classes[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
 		if class == nil {
 			return nil // the class failed, which was reported

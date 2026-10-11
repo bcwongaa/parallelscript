@@ -222,7 +222,10 @@ func (c *pass) contextualPropertyType(contextual *checker.Type, property *ast.No
 		return 0, false
 	}
 	if symbol := c.tc.GetPropertyOfType(contextual, property.Symbol().Name); symbol != nil {
-		return c.bindingType(symbol)
+		if n, ok := c.bindingType(symbol); ok {
+			return n, true
+		}
+		return NumericOf(c.tc.GetTypeOfSymbol(symbol)) // value in Box<int>, declared as `value: T`
 	}
 	return 0, false
 }

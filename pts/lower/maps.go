@@ -72,7 +72,7 @@ func isMap(t ir.Type) bool {
 
 // isMapExpression reports whether tsc types node as a Map or Set.
 func (l *lowerer) isMapExpression(node *ast.Node) bool {
-	_, ok := l.libCollection(l.checker.GetTypeAtLocation(node))
+	_, ok := l.libCollection(l.typeAt(node))
 	return ok
 }
 
@@ -85,8 +85,8 @@ func (l *lowerer) isMapConstructor(node *ast.Node) bool {
 // newMap lowers `new Map()`, `new Set()`, a copy `new Map(map)` or `new Set(set)`, and
 // `new Set(array)`. A Map of an array of entries needs tuples (M2.6).
 func (l *lowerer) newMap(node *ast.Node) ir.Expr {
-	checkerType := l.checker.GetTypeAtLocation(node)
-	if contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone); contextual != nil && len(node.Arguments()) == 0 && node.TypeArgumentList() == nil {
+	checkerType := l.typeAt(node)
+	if contextual := l.contextualType(node); contextual != nil && len(node.Arguments()) == 0 && node.TypeArgumentList() == nil {
 		if _, ok := l.libCollection(contextual); ok {
 			checkerType = contextual // `new Map()` is a Map<any, any> to tsc; its context says what it holds
 		}

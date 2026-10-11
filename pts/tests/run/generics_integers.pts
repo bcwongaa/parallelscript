@@ -1,0 +1,45 @@
+// Integer types and f32 as type arguments (D-048, D-049): an instance's values keep
+// their type, so arithmetic on them wraps and 64-bit values keep every digit.
+function identity<T>(x: T): T {
+  return x;
+}
+function pairUp<T>(x: T): T[] {
+  return [x, x];
+}
+function same<T>(a: T, b: T): boolean {
+  return a === b;
+}
+function sum<T extends number>(items: T[]): number {
+  let total = 0;
+  for (const item of items) {
+    total += item;
+  }
+  return total;
+}
+function narrow<T extends number>(x: number): T {
+  return x as T;
+}
+interface Box<T> {
+  value: T;
+}
+type Pair<A, B> = { left: A; right: B };
+
+const byte: u8 = 200;
+console.log(identity(byte) + 100, identity<u8>(255) + 1, pairUp(byte));
+const big: int = 9007199254740993;
+console.log(identity(big) + 1, pairUp(big));
+const max: u64 = 18446744073709551615;
+const almost: u64 = 18446744073709551614;
+console.log(same(max, almost), same(max, max), same(1.5, 1.5));
+const words: i16[] = [30000, 30000];
+console.log(sum(words), narrow<u8>(300.7), narrow<i8>(-1000));
+const box: Box<int> = { value: 9007199254740993 };
+const pair: Pair<u8, f32> = { left: 255, right: 0.1 };
+console.log(box, box.value + 1, pair, pair.left + 1);
+
+// expect:
+// 44 0 [ 200, 200 ]
+// 9007199254740994 [ 9007199254740993, 9007199254740993 ]
+// false true true
+// 60000 255 -128
+// { value: 9007199254740993 } 9007199254740994 { left: 255, right: 0.10000000149011612 } 0

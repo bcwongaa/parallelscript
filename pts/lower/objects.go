@@ -16,8 +16,11 @@ import (
 // (D-033): an interface, type literal or object literal type, not a class, a function
 // type or a type of the ES library (arrays, Map, Date, …).
 func (l *lowerer) isObjectType(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&(checker.ObjectFlagsAnonymous|checker.ObjectFlagsInterface) == 0 ||
-		t.ObjectFlags()&checker.ObjectFlagsClass != 0 {
+	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 || checker.IsTupleType(t) {
+		return false
+	}
+	isGenericInterface := t.ObjectFlags()&checker.ObjectFlagsReference != 0 && t.Target().ObjectFlags()&checker.ObjectFlagsClass == 0 // Box<string>
+	if t.ObjectFlags()&(checker.ObjectFlagsAnonymous|checker.ObjectFlagsInterface) == 0 && !isGenericInterface {
 		return false
 	}
 	if symbol := t.Symbol(); symbol != nil {
@@ -172,6 +175,9 @@ func (l *lowerer) objectMembers(t *checker.Type, node *ast.Node) ([]*ir.Field, [
 // semantic pass gave its declaration (its getter's result, for an accessor property),
 // or the type tsc gives it.
 func (l *lowerer) propertyType(property *ast.Symbol, node *ast.Node) ir.Type {
+	if property.CheckFlags&ast.CheckFlagsInstantiated != 0 {
+		return l.irType(l.typeOfSymbol(property), node) // a property of Box<string>, whose declaration has Box<T>'s types
+	}
 	if getter := ast.GetDeclarationOfKind(property, ast.KindGetAccessor); getter != nil {
 		return l.resultType(getter)
 	}
@@ -180,7 +186,7 @@ func (l *lowerer) propertyType(property *ast.Symbol, node *ast.Node) ir.Type {
 			return t
 		}
 	}
-	return l.irType(l.checker.GetTypeOfSymbol(property), node)
+	return l.irType(l.typeOfSymbol(property), node)
 }
 
 // interfaceMethod makes the interface method for a method of an object type, or reports
@@ -194,6 +200,13 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 	case declarations[0].TypeParameterList() != nil:
 		l.notSupportedYet(node, fmt.Sprintf("generic methods (`%s` in %s) are", property.Name, l.checker.TypeToString(t)))
 		return nil
+	}
+	if property.CheckFlags&ast.CheckFlagsInstantiated != 0 { // a method of Stack<string>, whose declaration has Stack<T>'s types
+		ft := l.signatureType(l.checker.GetSignaturesOfType(l.typeOfSymbol(property), checker.SignatureKindCall)[0], node)
+		if ft == nil {
+			return nil
+		}
+		return &ir.InterfaceMethod{Name: property.Name, Params: ft.Params, Result: ft.Result}
 	}
 	method := &ir.InterfaceMethod{Name: property.Name}
 	for _, param := range declarations[0].Parameters() {
@@ -296,8 +309,8 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 // type if that is an object type with the same properties, so that `{ from: pixel }`
 // written for a `Segment` holds a `Point`, and otherwise the literal's own type.
 func (l *lowerer) literalType(node *ast.Node) *checker.Type {
-	own := l.checker.GetTypeAtLocation(node)
-	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	own := l.typeAt(node)
+	contextual := l.contextualType(node)
 	if contextual == nil || !l.isObjectType(contextual) {
 		return own
 	}
@@ -378,7 +391,7 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 		if t.Shape {
 			// An accessor property of the object's own shape (`this.p` in its literal's methods)
 			// is read and written as through an interface, whose sites call getters and setters.
-			iface := l.interfaceOf(l.checker.GetTypeAtLocation(node.Expression()), node)
+			iface := l.interfaceOf(l.typeAt(node.Expression()), node)
 			if iface == nil || iface.Field(name) == nil {
 				return nil, nil
 			}

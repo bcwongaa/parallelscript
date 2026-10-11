@@ -127,8 +127,11 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.6a Integer types as checker types** (5ebc5408e) (split from M2.6 by D-047).
   - The prelude's integer types and f32 are distinct number types inside the checker (D-048), so they flow through every type tsc builds: array elements, `Map`/`Set` keys and values, function types, object types and type arguments (`u8[]`, `Map<string, int>`, `(n: int) => int`).
   - The semantic pass types untyped literals and checks lossless conversion at the new boundaries (array literal elements, built-in method arguments, element assignments).
-- [ ] **M2.6b Generics** (split from M2.6 by D-047).
-  - Generic functions, methods and classes by monomorphization, with integer type arguments (`Box<int>`); generic interfaces and type aliases.
+- [ ] **M2.6b1 Generic functions and object types** (split from M2.6 by D-047, from M2.6b by D-049).
+  - Generic function declarations by monomorphization: inferred and explicit type arguments, integer type arguments, generic calls in generic code, recursion.
+  - Generic interfaces and type aliases (`Pair<string, int>`).
+- [ ] **M2.6b2 Generic classes and methods** (split from M2.6 by D-047, from M2.6b by D-049).
+  - Generic classes (`Box<int>`), one class per instantiation; generic methods of classes, object literals and interfaces; nested generic functions.
 - [ ] **M2.6c Enums** (split from M2.6 by D-047).
   - Numeric and string enums (`const enum` too), as Node runs them through `tsc` (D-O04); `console.log` of enum values and of the enum object.
 - [ ] **M2.6d Tuples and destructuring** (split from M2.6 by D-047).

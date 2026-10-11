@@ -39,7 +39,7 @@ func (l *lowerer) functionType(t *checker.Type, node *ast.Node) (ft *ir.FuncType
 // signatureType is the function type of a call signature, or nil (reported at node).
 func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *ir.FuncType {
 	parameters := signature.Parameters()
-	restIsTuple := signature.HasRestParameter() && checker.IsTupleType(l.checker.GetTypeOfSymbol(parameters[len(parameters)-1]))
+	restIsTuple := signature.HasRestParameter() && checker.IsTupleType(l.typeOfSymbol(parameters[len(parameters)-1]))
 	if restIsTuple {
 		parameters = l.checker.GetExpandedParameters(signature, true)[0] // a rest parameter of a tuple type, as `bind` leaves, is its elements
 	}
@@ -56,11 +56,11 @@ func (l *lowerer) signatureType(signature *checker.Signature, node *ast.Node) *i
 	}
 	params := make([]ir.Type, len(parameters))
 	for i, param := range parameters {
-		if params[i] = l.irType(l.checker.GetTypeOfSymbol(param), node); params[i] == nil {
+		if params[i] = l.irType(l.typeOfSymbol(param), node); params[i] == nil {
 			return nil
 		}
 	}
-	result := l.checker.GetReturnTypeOfSignature(signature)
+	result := l.returnTypeOf(signature)
 	if result.Flags()&checker.TypeFlagsVoid != 0 {
 		return l.funcType(params, ir.Void)
 	}
@@ -185,7 +185,7 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 // node's function can take the shape of: the same parameter types, then perhaps more.
 // It reports nothing: a context that doesn't map just doesn't shape the function.
 func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
-	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	contextual := l.contextualType(node)
 	if contextual == nil {
 		return nil
 	}
@@ -350,7 +350,7 @@ func (l *lowerer) isValueCall(callee *ast.Node) bool {
 	if symbol := l.target(callee); symbol != nil && (l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol)) {
 		return false
 	}
-	return len(l.checker.GetSignaturesOfType(l.checker.GetTypeAtLocation(callee), checker.SignatureKindCall)) > 0
+	return len(l.checker.GetSignaturesOfType(l.typeAt(callee), checker.SignatureKindCall)) > 0
 }
 
 // ---------------------------------------------------------------- captures and `this`

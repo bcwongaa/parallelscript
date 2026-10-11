@@ -97,3 +97,24 @@ func (c *Checker) ptsNumericType(t *Type) (numeric.Type, *Type, bool) {
 	}
 	return 0, nil, false
 }
+
+// PtsTypeArgumentsOfSignature returns the type arguments an instantiated signature (such
+// as a generic call's resolved signature) gives its target's type parameters, or nil for
+// a signature that isn't an instantiation. ParallelScript monomorphizes generic functions
+// (D-049) and needs them.
+func (c *Checker) PtsTypeArgumentsOfSignature(signature *Signature) []*Type {
+	if signature.target == nil || signature.mapper == nil {
+		return nil
+	}
+	arguments := make([]*Type, len(signature.target.typeParameters))
+	for i, parameter := range signature.target.typeParameters {
+		arguments[i] = signature.mapper.Map(parameter)
+	}
+	return arguments
+}
+
+// PtsInstantiateType returns t with each of sources replaced by the target at the same
+// index: a generic function's types in one of its instantiations (D-049).
+func (c *Checker) PtsInstantiateType(t *Type, sources []*Type, targets []*Type) *Type {
+	return c.instantiateType(t, newTypeMapper(sources, targets))
+}

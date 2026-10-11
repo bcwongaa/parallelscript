@@ -944,3 +944,42 @@ for (const item of seen) {
 }
 `)
 }
+
+func TestGenericFunctionsHaveAnInstancePerListOfTypeArguments(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `function wrap<T>(x: T): T[] {
+  function inner(y: T): T { return y; }
+  return [inner(x)];
+}
+function twice<T>(x: T): T[] {
+  return wrap(x).concat(wrap(x));
+}
+const byte: u8 = 1;
+console.log(twice(byte), twice("a"), wrap<u8>(2));
+`)
+	assert.Equal(t, got, `func main() void {
+  8: let byte: u8 = 1:u8
+  9: console.log(box(twice_u8(byte)), box(twice_string("a")), box(wrap_u8(2:u8)))
+}
+func twice_u8(x: u8) u8[] {
+  6: return array.concat(wrap_u8(x), wrap_u8(x))
+}
+func twice_string(x: string) string[] {
+  6: return array.concat(wrap_string(x), wrap_string(x))
+}
+func wrap_u8(x: u8) u8[] {
+  2: let inner: (u8) => u8 = closure wrap_u8.inner
+  3: return u8[][wrap_u8.inner[inner](x)]
+}
+func wrap_u8.inner(y: u8) u8 closure [] {
+  2: return y
+}
+func wrap_string(x: string) string[] {
+  2: let inner: (string) => string = closure wrap_string.inner
+  3: return string[][wrap_string.inner[inner](x)]
+}
+func wrap_string.inner(y: string) string closure [] {
+  2: return y
+}
+`)
+}

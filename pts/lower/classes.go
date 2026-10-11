@@ -836,7 +836,7 @@ func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr
 
 // isNarrowedTo reports whether the checker knows node to be an instance of class.
 func (l *lowerer) isNarrowedTo(node *ast.Node, class *ir.Class) bool {
-	narrowed, ok := l.classes[l.checker.GetTypeAtLocation(node).Symbol()]
+	narrowed, ok := l.classes[l.typeAt(node).Symbol()]
 	return ok && narrowed != nil && narrowed.IsSubclassOf(class)
 }
 

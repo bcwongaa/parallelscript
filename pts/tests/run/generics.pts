@@ -1,0 +1,101 @@
+// Generic functions are monomorphized (D-049): each list of type arguments, inferred or
+// written, makes an instance. Instances call each other, recurse, take callbacks, and
+// come from other modules; generic interfaces and type aliases are instantiated too.
+import { swap, last } from "./generics/pairs.pts";
+
+function identity<T>(x: T): T {
+  return x;
+}
+function first<T>(items: T[]): T {
+  return items[0];
+}
+function describe<A, B>(a: A, b: B): string {
+  return `${a}/${b}`;
+}
+function mapAll<T, U>(items: T[], f: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of items) {
+    out.push(f(item));
+  }
+  return out;
+}
+function repeat<T>(x: T, n: number): T[] {
+  return n <= 0 ? [] : [x].concat(repeat(x, n - 1));
+}
+function twice<T>(x: T): T[] {
+  return repeat(x, 2);
+}
+function kind<T>(x: T): string {
+  return typeof x;
+}
+function same<T>(a: T, b: T): boolean {
+  return a === b;
+}
+console.log(identity(5), identity("five"), identity<boolean>(true));
+console.log(first(["a", "b"]), first([1.5, 2]), last([[1], [2, 3]]));
+console.log(describe(1, "x"), describe(true, 2.5));
+console.log(mapAll([1, 2, 3], x => x * 2), mapAll(["a", "bb"], s => s.length));
+console.log(repeat("ab", 3), twice(3), twice([1]));
+console.log(kind(1), kind("s"), kind(true), kind([1]), same("a", "a"), same(1, 2));
+
+interface Named {
+  name: string;
+}
+class Dog {
+  constructor(
+    public name: string,
+    public age: number,
+  ) {}
+}
+function shout<T extends Named>(x: T): string {
+  return x.name.toUpperCase() + "!";
+}
+console.log(shout(new Dog("rex", 3)), shout({ name: "plain" }));
+
+interface Box<T> {
+  value: T;
+}
+type Pair<A, B> = { left: A; right: B };
+interface Stack<T> {
+  items: T[];
+  push(x: T): void;
+  peek(): T;
+}
+type Mapper<T, U> = (x: T) => U;
+function unbox<T>(box: Box<T>): T {
+  return box.value;
+}
+function makeStack<T>(bottom: T): Stack<T> {
+  const items: T[] = [bottom];
+  return {
+    items,
+    push(x: T): void {
+      items.push(x);
+    },
+    peek(): T {
+      return items[items.length - 1];
+    },
+  };
+}
+function applyAll<T, U>(xs: T[], f: Mapper<T, U>): U[] {
+  return xs.map(f);
+}
+const box: Box<string> = { value: "hi" };
+const pair: Pair<number, string> = { left: 7, right: "seven" };
+console.log(box, pair, unbox(box), unbox({ value: [3] }));
+const stack = makeStack("a");
+stack.push("b");
+console.log(stack.peek(), stack.items, makeStack(1).peek());
+console.log(applyAll([1, 2], x => `<${x}>`), swap({ a: 1, b: "one" }), swap(swap({ a: true, b: pair })));
+
+// expect:
+// 5 five true
+// a 1.5 [ 2, 3 ]
+// 1/x true/2.5
+// [ 2, 4, 6 ] [ 1, 2 ]
+// [ 'ab', 'ab', 'ab' ] [ 3, 3 ] [ [ 1 ], [ 1 ] ]
+// number string boolean object true false
+// REX! PLAIN!
+// { value: 'hi' } { left: 7, right: 'seven' } hi [ 3 ]
+// b [ 'a', 'b' ] 1
+// [ '<1>', '<2>' ] { a: 'one', b: 1 } { a: true, b: { left: 7, right: 'seven' } }
