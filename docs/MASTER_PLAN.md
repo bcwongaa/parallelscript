@@ -81,7 +81,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M1.6 Milestone M1.** (m1)
 
 ## M2: Data and memory
-- [ ] **M2.1 GC and the object model.**
+- [x] **M2.1 GC and the object model.** (1c0570727)
   - Integrate bdwgc in thread-aware mode with thread-local allocation; use atomic allocation for pointer-free data.
   - Type descriptors for every runtime type (name, fields mapped to offsets, methods), to be reused by `console.log` and JSON.
 - [ ] **M2.2 Classes.**
