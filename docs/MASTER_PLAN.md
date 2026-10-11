@@ -34,7 +34,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Write the IR package `pts/ir`, a lowering for the tiny subset needed, the C emitter with `#line`, and the driver that runs clang.
   - Write the `cmd/pts` CLI with `build`, `run` and `emit-c`.
   - `console.log("Hello, ParallelScript")` must compile and run end to end.
-- [ ] **M0.6 Test harness.**
+- [x] **M0.6 Test harness.** (3c1d8a7)
   - `pts/tests/run/*.pts` with `.out` files or an `// expect:` block.
   - `pts/tests/errors/*.pts` with expected message substrings.
   - A Go test runner (`go test ./pts/tests/...`) that runs these in parallel.
