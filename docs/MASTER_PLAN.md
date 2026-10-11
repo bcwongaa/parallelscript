@@ -99,8 +99,10 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M2.3a Object literals and exact object types** (32645da3f) (split from M2.3 by D-032).
   - Object literals become anonymous struct types; `console.log` prints them as Node does (`{ x: 1 }`, `[Object]`).
   - Object types (interfaces, type literals, aliases) whose values are exactly such literals; the numeric rules through properties.
-- [ ] **M2.3b Interfaces** (split from M2.3 by D-032).
-  - Structural dispatch through interface tables, one per (concrete type, interface) pair, built at compile time with a runtime cache otherwise, so that class instances and other object types can be used where an object type is expected.
+- [ ] **M2.3b1 Interfaces over fields** (split from M2.3 by D-032, from M2.3b by D-034).
+  - Structural dispatch, cached at run time, so that class instances and objects of other shapes can be used where an object type is expected, when fields provide its properties.
+- [ ] **M2.3b2 Methods and accessors through interfaces** (split from M2.3b by D-034).
+  - Interfaces with methods, and class methods and accessors that provide an interface's methods and properties, through per-(concrete type, interface) tables built at compile time where possible.
 - [ ] **M2.4 Arrays.**
   - Growable arrays that are race-safe per brief §2.5 (capacity inside the buffer).
   - `String.prototype.split` on a string separator (moved from M1.3b, D-013).
