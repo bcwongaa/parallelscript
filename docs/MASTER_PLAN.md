@@ -216,7 +216,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `Object.keys`/`values`/`entries` of class instances and object literals, `Object.assign`, `Object.freeze`/`isFrozen`, `Object.is`, `Object.fromEntries`; `for…in` over typed objects and dynamic values.
 - [x] **M3.5e Basic `Date`** (d9d9f3f2b) (split from M3.5 by D-082).
   - `new Date()` (now, milliseconds, ISO strings, components), `Date.now()`, `Date.UTC`, the getters (local and UTC), the common setters, `getTime`/`valueOf`, `toISOString`/`toJSON`, `toString`, `console.log` of dates as Node prints them.
-- [ ] **M3.6 `console.log` parity.** A full `util.inspect` port per decision O16: nesting, line breaking, `Map`/`Set`, class names, `%s`/`%d`/`%o` format strings, and `console.error`/`warn`/`info`.
+- [x] **M3.6 `console.log` parity** (92dab0c54). A full `util.inspect` port per decision O16: nesting, line breaking, `Map`/`Set`, class names, `%s`/`%d`/`%o` format strings, and `console.error`/`warn`/`info`.
 - [ ] **M3.7 Corpus.**
   - Grow the differential corpus to at least 300 realistic programs. Use subagents to write them in batches by theme: algorithms, text processing, OOP, data transforms, closures and errors.
   - Fix or record every divergence.

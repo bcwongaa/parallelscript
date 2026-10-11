@@ -82,19 +82,13 @@ static void warn(const char *format, const char *label, const char *method) {
 
 void pts_console_log(size_t argc, const pts_value *argv) { write_formatted(stdout, argc, argv); }
 
-/*
- * The arguments with each spread one (an array, boxed as an object) replaced by its
- * elements, in a buffer the caller frees (D-057). The arrays keep the elements alive.
- */
+/* The arguments with each spread one (an array, boxed as an object) replaced by its elements (D-057). */
 static pts_value *spread_arguments(size_t argc, const pts_value *argv, const bool *spread, size_t *count) {
   size_t n = 0;
   for (size_t i = 0; i < argc; i++) {
     n += spread[i] ? pts_array_length_of((const pts_array *)pts_value_as_object(argv[i])) : 1;
   }
-  pts_value *values = malloc((n ? n : 1) * sizeof *values);
-  if (values == NULL) {
-    pts_panic("RangeError", "Out of memory spreading the arguments of a console method");
-  }
+  pts_value *values = GC_MALLOC(n * sizeof *values + 1);
   *count = 0;
   for (size_t i = 0; i < argc; i++) {
     if (!spread[i]) {
@@ -270,10 +264,7 @@ static void log_timer(const char *label, bool end, size_t argc, const pts_value 
   char elapsed[96];
   format_time(elapsed, sizeof elapsed, now_ms() - start);
   size_t n = 3 + (argc > 1 ? argc - 1 : 0);
-  pts_value *values = malloc(n * sizeof *values);
-  if (values == NULL) {
-    pts_panic("RangeError", "Out of memory formatting a console timer");
-  }
+  pts_value *values = GC_MALLOC(n * sizeof *values); /* the collector sees the strings in it */
   values[0] = pts_value_from_string(pts_string_from_cstr("%s: %s"));
   values[1] = pts_value_from_string(pts_string_from_cstr(label));
   values[2] = pts_value_from_string(pts_string_from_cstr(elapsed));
@@ -281,7 +272,6 @@ static void log_timer(const char *label, bool end, size_t argc, const pts_value 
     values[2 + i] = argv[i];
   }
   write_formatted(stdout, n, values);
-  free(values);
 }
 
 /* ---------------------------------------------------------------- the methods */
@@ -292,10 +282,7 @@ static void assert_value(size_t argc, const pts_value *argv) {
     return;
   }
   size_t n = argc > 1 ? argc - 1 : 0;
-  pts_value *values = malloc((n + 1) * sizeof *values);
-  if (values == NULL) {
-    pts_panic("RangeError", "Out of memory formatting a failed console.assert");
-  }
+  pts_value *values = GC_MALLOC((n + 1) * sizeof *values); /* the collector sees the strings in it */
   pts_string *intro = pts_string_from_cstr("Assertion failed");
   if (n > 0 && pts_value_is_object(argv[1]) && pts_value_as_object(argv[1])->type->kind == PTS_KIND_STRING) {
     memcpy(values, argv + 1, n * sizeof *values);
@@ -307,7 +294,6 @@ static void assert_value(size_t argc, const pts_value *argv) {
     n++;
   }
   write_formatted(stderr, n, values);
-  free(values);
 }
 
 /* console.trace(...data): "Trace: " and the formatted data, then the stack where it was called, on stderr. */
@@ -345,9 +331,8 @@ static void with_label(pts_console_method method, size_t argc, const pts_value *
 }
 
 void pts_console(pts_console_method method, size_t argc, const pts_value *argv, const bool *spread) {
-  pts_value *spread_values = NULL;
   if (spread != NULL) {
-    argv = spread_values = spread_arguments(argc, argv, spread, &argc);
+    argv = spread_arguments(argc, argv, spread, &argc);
   }
   switch (method) {
   case PTS_CONSOLE_LOG:
@@ -376,7 +361,6 @@ void pts_console(pts_console_method method, size_t argc, const pts_value *argv, 
     with_label(method, argc, argv);
     break;
   }
-  free(spread_values);
 }
 
 void pts_console_group_end(void) {

@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.6 `console.log` parity
+- **Next task:** M3.7 Corpus (300 realistic programs)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.6 `console.log` parity: Node's `util.format` (`%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%%`), `console.error`/`warn` (stderr, stdout flushed first), `info`/`debug`/`dirxml`, `dir` (`depth`, `showHidden`), `table` (Node's cli_table), `group`/`groupCollapsed`/`groupEnd`, `assert`, `count`/`countReset`, `time`/`timeEnd`/`timeLog`, `trace`; inspect's `depth`, `showHidden` (`[length]`, class accessors, errors' `[stack]`/`[message]`), `breakLength` and `maxArrayLength` options, long strings split with ` +` and cut after 10,000 units, ICU column widths from a generated table; a class's `valueOf()` is used by ToPrimitive (`+`, `<`, `==`, `%d`) (D-088, SPEC §9.65).
 - M3.5e Basic Date: constructors (now, time values, ISO and common strings, local components), `Date.now`/`UTC`/`parse`, local and UTC getters and setters, `toString`/`toDateString`/`toTimeString`/`toISOString`/`toUTCString`/`toJSON`, `console.log` and JSON of dates, relational operators and ToNumber on dates, dates through `any`; local time from the C library's zone rules with V8's DST disambiguation; every test program runs with `TZ=America/New_York` (D-087, SPEC §9.64). M3.5 is complete.
 - M3.5d Object functions and `for…in`: `Object.keys`/`values`/`entries`/`hasOwn` of class instances, literals, arrays and strings (the runtime's own keys), `for…in` over any value, `Object.assign` (checked writes through the target's declared types), `Object.is`, `Object.freeze` (not enforced), `Object.fromEntries`; intersections that one member covers are that member (D-086, SPEC §9.63).
 - M3.5c2 The remaining array methods: `at`, `toSorted`, `toReversed`, `toSpliced`, `with`, `Array.of`, `new Array(n)`/`Array(n)` (holes printed as `<n empty items>`; zeros for primitive element types), `Array.from({ length: n }, f)`, `keys`/`values`/`entries` in `for…of`, spread and `Array.from`, the copying methods through `any`; an `any[]` converts to a typed array by a checked copy (D-085, SPEC §9.62). M3.5c is complete.
@@ -89,7 +90,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.6 `console.log` parity (`%s`/`%d`/`%o` format strings, `console.error`/`warn`/`info`, the rest of `util.inspect`), then M3.7 (the 300-program corpus). Small gaps left (PTS1001): `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` and `toLocaleString` with locales other than English or options; Date's `toLocale…` formats; `Object.isFrozen`; `Object.assign({}, …)`; iterators as values (M4.1).
+1. M3.7 (the 300-program corpus), then M3.8 (milestone M3). Small gaps left (PTS1001): numeric property names in object literals (`{ "1": x }`); an array of literals where one has an empty array (`[{ tags: ["a"] }, { tags: [] }]`); `arr.toString()`; `console.log` used as a value (`xs.forEach(console.log)`); `%s` of a function (runtime TypeError: functions have no source text); `new` of a dynamic value and classes as values; an array literal nested in a literal typed `any[][]` (`[[1, 2], [3, x]]` where x is any: the inner `number[]` doesn't convert to `any[]`); Object.prototype methods read as values on hash-map objects through `any` (`data.hasOwnProperty` reads the entry, undefined); passing a computed `T | undefined` to an optional parameter; methods of a union as values, writing a property a union's members hold as different types, members of unions of objects and other values (`string | string[]`'s `length`), `filter` with a type guard (`filter(isCircle)` returning `Circle[]`); static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code; `localeCompare` and `toLocaleString` with locales other than English or options; Date's `toLocale…` formats; `Object.isFrozen`; `Object.assign({}, …)`; iterators as values (M4.1).
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -104,7 +105,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (169 run tests, one skipped (`generic_values_classes.pts`, a known issue); 60 error tests; 8 number-corpus and 13 string-corpus parts; about 50 s on an idle machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (176 run tests, one skipped (`generic_values_classes.pts`, a known issue); 61 error tests; 8 number-corpus and 13 string-corpus parts; about 75 s on a busy machine) |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
@@ -135,6 +136,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M3.6 done.
 - 2026-10-12: M3.5e done; M3.5 complete.
 - 2026-10-12: M3.5d done.
 - 2026-10-12: M3.5c2 done; M3.5c complete.
