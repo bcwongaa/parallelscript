@@ -346,6 +346,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
 
 - **Supported subset (M0.5):** `console.log(...)` with any number of arguments; `number`, `string`, `boolean`, `null` and `undefined` literals (numeric literals in every TS syntax); `let`/`const` with an initializer and a primitive type; reading locals; parentheses; nested blocks; type-only declarations (`interface`, `type`, `export {}`), which emit nothing.
+- **Added in M1.3a:** `+` with a string (the other side through `ir.ToString`), template literals, `.length` on strings (the builtin `String.length`), `=== !== < <= > >=` on strings, and `!` on booleans.
 - **Added in M1.2:** the numeric types on `let`/`const` annotations, numeric `as`, and every operator above on them (`ir.IntConst`, `ir.Convert`).
 - **Added in M1.1:** `+ - * / % **`, unary `-` and `+`, and `< <= > >=` on numbers; `=== !== == !=` on two numbers or two booleans (`ir.Binary`, `ir.Unary`); `NaN` and `Infinity`.
 - **IR types** are singletons compared by identity: `ir.Number` (C `double`), `ir.Bool` (`bool`), `ir.String` (`pts_string *`), `ir.Undefined` and `ir.Null` (a `pts_value` holding the constant, so boxing them is free), `ir.Value` (boxed `pts_value`), `ir.Void`. Boxing is an explicit `ir.Box` node.
@@ -370,3 +371,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - C representation: the `<stdint.h>` types and `float`. Constants are `INT64_C(...)`, `UINT64_C(...)`, `INT64_MIN` or a cast decimal. Arithmetic and negation call `pts_<type>_<op>` from `pts.h` (wrapping, through `uint64_t`); comparisons are C operators; float → integer is `pts_number_to_<type>` (Rust: truncate, saturate, NaN → 0); other conversions are C casts, which wrap between integer types (clang converts to signed types modulo 2^n).
 - Boxing: `i8 … u32` and `f32` box as numbers (exact as doubles); `int`/`i64` and `u64` box through `pts_value_from_i64`/`pts_value_from_u64`, which allocate a `pts_boxed_int64`/`pts_boxed_uint64` (kinds `PTS_KIND_INT64`/`PTS_KIND_UINT64`) only beyond ±2^53. `console.log` prints them exactly.
 - Not yet covered (arrive with the features): assignments, compound assignment and `++`/`--` (M1.4a must apply the conversion rules there), function parameters and returns (M1.4a), bitwise operators on integers (M1.4a), `typeof` (M1.4a), integer types inside unions, arrays and generics (M2, M3).
+
+### 9.5 Strings (M1.3a)
+
+- Representation (D-014): UTF-8 bytes with lone surrogates as 3-byte WTF-8 sequences; `pts_string_concat` joins surrogate halves at the seam; `pts_string_write_for_output` (used by `console.log`) writes lone surrogates as U+FFFD.
+- `ir.ToString` is JS's ToString for primitives: `pts_number_to_string` for `number`, `f32` and the narrow integers; `pts_string_from_i64`/`pts_string_from_u64` for 64-bit integers; interned constants `"true"`, `"false"`, `"null"` and `"undefined"` (cgen's `toStringWords`).
+- Concatenation is `ir.Binary{Op: Concat}` → `pts_string_concat`. Template literals lower to a chain of concatenations, leaving out empty parts.
+- Equality is `pts_string_equals` (byte equality, which the canonical representation makes exact); ordering is `pts_string_compare` (UTF-16 code units, memcmp for two ASCII strings).
+- `.length` is `utf16_len`, computed when the string is made, so O(1).

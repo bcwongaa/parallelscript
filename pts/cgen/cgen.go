@@ -126,10 +126,15 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.Binary:
 		return e.binary(x)
 	case *ir.Unary:
-		if ir.IsInteger(x.Type()) {
+		switch {
+		case x.Op == ir.Not:
+			return "(!" + e.expr(x.X) + ")"
+		case ir.IsInteger(x.Type()):
 			return "pts_" + x.Type().String() + "_neg(" + e.expr(x.X) + ")"
 		}
 		return "(-" + e.expr(x.X) + ")"
+	case *ir.ToString:
+		return e.toString(x.X)
 	case *ir.IntConst:
 		return intLiteral(x)
 	case *ir.Convert:
@@ -148,9 +153,24 @@ var cOperators = map[ir.BinaryOp]string{
 // integerOperations name the runtime's wrapping and checked integer operations: pts_<type>_<name>.
 var integerOperations = map[ir.BinaryOp]string{ir.Add: "add", ir.Sub: "sub", ir.Mul: "mul", ir.Div: "div", ir.Rem: "rem", ir.Pow: "pow"}
 
+// stringComparisons write string ordering through pts_string_compare's sign.
+var stringComparisons = map[ir.BinaryOp]string{ir.Lt: "<", ir.Le: "<=", ir.Gt: ">", ir.Ge: ">="}
+
 func (e *emitter) binary(b *ir.Binary) string {
 	x, y := e.expr(b.X), e.expr(b.Y)
 	operandType := b.X.Type()
+	if operandType == ir.String {
+		switch b.Op {
+		case ir.Concat:
+			return "pts_string_concat(" + x + ", " + y + ")"
+		case ir.Eq:
+			return "pts_string_equals(" + x + ", " + y + ")"
+		case ir.Ne:
+			return "(!pts_string_equals(" + x + ", " + y + "))"
+		default:
+			return "(pts_string_compare(" + x + ", " + y + ") " + stringComparisons[b.Op] + " 0)"
+		}
+	}
 	if name, ok := integerOperations[b.Op]; ok && ir.IsInteger(operandType) {
 		return fmt.Sprintf("pts_%s_%s(%s, %s)", operandType, name, x, y)
 	}
@@ -165,6 +185,26 @@ func (e *emitter) binary(b *ir.Binary) string {
 		return prefix + "_pow(" + x + ", " + y + ")"
 	}
 	return "(" + x + " " + cOperators[b.Op] + " " + y + ")"
+}
+
+// toString writes JS's ToString of a primitive. The words true, false, null and
+// undefined are string constants, interned by collectStrings.
+func (e *emitter) toString(value ir.Expr) string {
+	x := e.expr(value)
+	switch value.Type() {
+	case ir.Bool:
+		return "(" + x + " ? " + e.strings["true"] + " : " + e.strings["false"] + ")"
+	case ir.Null:
+		return e.strings["null"]
+	case ir.Undefined:
+		return e.strings["undefined"]
+	case ir.I64:
+		return "pts_string_from_i64(" + x + ")"
+	case ir.U64:
+		return "pts_string_from_u64(" + x + ")"
+	default:
+		return "pts_number_to_string(" + x + ")" // numbers, f32 and the narrower integers, exact as doubles
+	}
 }
 
 // convert writes a numeric conversion. Float to integer saturates (a runtime helper);
@@ -227,6 +267,8 @@ func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 			return "pts_console_log(0, NULL)"
 		}
 		return fmt.Sprintf("pts_console_log(%d, (pts_value[]){%s})", len(args), strings.Join(args, ", "))
+	case ir.StringLength:
+		return "((double)(" + args[0] + ")->utf16_len)"
 	default:
 		panic("cgen: unexpected builtin " + call.Builtin.Name)
 	}
@@ -299,16 +341,28 @@ func declarator(t ir.Type) string {
 
 // ---------------------------------------------------------------- string constants
 
+// toStringWords are the constants ToString of each type needs.
+var toStringWords = map[ir.Type][]string{ir.Bool: {"true", "false"}, ir.Null: {"null"}, ir.Undefined: {"undefined"}}
+
 func (e *emitter) collectStrings(program *ir.Program) {
 	for _, f := range program.Funcs {
 		walkExprs(f.Body.Stmts, func(expr ir.Expr) {
-			if s, ok := expr.(*ir.StringConst); ok {
-				if _, seen := e.strings[s.Value]; !seen {
-					e.strings[s.Value] = fmt.Sprintf("pts_str_%d", len(e.stringOrder)+1)
-					e.stringOrder = append(e.stringOrder, s.Value)
+			switch x := expr.(type) {
+			case *ir.StringConst:
+				e.intern(x.Value)
+			case *ir.ToString:
+				for _, word := range toStringWords[x.X.Type()] {
+					e.intern(word)
 				}
 			}
 		})
+	}
+}
+
+func (e *emitter) intern(value string) {
+	if _, seen := e.strings[value]; !seen {
+		e.strings[value] = fmt.Sprintf("pts_str_%d", len(e.stringOrder)+1)
+		e.stringOrder = append(e.stringOrder, value)
 	}
 }
 
@@ -330,6 +384,8 @@ func walkExprs(stmts []ir.Stmt, visit func(ir.Expr)) {
 		case *ir.Unary:
 			walk(x.X)
 		case *ir.Convert:
+			walk(x.X)
+		case *ir.ToString:
 			walk(x.X)
 		}
 	}

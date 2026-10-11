@@ -44,6 +44,49 @@ static void static_string_equals_heap_string(void) {
   CHECK(!pts_string_equals(static_hello, pts_string_from_cstr("hell")));
 }
 
+/* "\uD83D" and "\uDE00" as the scanner encodes lone surrogates (WTF-8). */
+static const char HIGH[] = "\xED\xA0\xBD", LOW[] = "\xED\xB8\x80";
+
+static void surrogate_halves_join_into_one_code_point(void) {
+  pts_string *joined = pts_string_concat(pts_string_from_cstr(HIGH), pts_string_from_cstr(LOW));
+  CHECK_STR(joined->bytes, "\xF0\x9F\x98\x80"); /* U+1F600 */
+  CHECK(joined->byte_len == 4);
+  CHECK(joined->utf16_len == 2);
+  pts_string *apart = pts_string_concat(pts_string_from_cstr(LOW), pts_string_from_cstr(HIGH));
+  CHECK(apart->byte_len == 6); /* low then high is no pair */
+  pts_string *prefixed = pts_string_concat(pts_string_from_cstr("a\xED\xA0\xBD"), pts_string_from_cstr("\xED\xB8\x80" "b"));
+  CHECK_STR(prefixed->bytes, "a\xF0\x9F\x98\x80" "b");
+  CHECK(prefixed->utf16_len == 4);
+}
+
+static void comparison_follows_utf16_code_units(void) {
+  CHECK(pts_string_compare(pts_string_from_cstr("abc"), pts_string_from_cstr("abd")) < 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("ab"), pts_string_from_cstr("abc")) < 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("b"), pts_string_from_cstr("abc")) > 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("abc"), pts_string_from_cstr("abc")) == 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("Z"), pts_string_from_cstr("a")) < 0);
+  /* U+1F600 is the units D83D DE00, which sort before U+FFFF, unlike in UTF-8 byte order. */
+  CHECK(pts_string_compare(pts_string_from_cstr("\xF0\x9F\x98\x80"), pts_string_from_cstr("\xEF\xBF\xBF")) < 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("é"), pts_string_from_cstr("e")) > 0);
+  CHECK(pts_string_compare(pts_string_from_cstr("é"), pts_string_from_cstr("éa")) < 0);
+}
+
+static void sixty_four_bit_integers_print_exactly(void) {
+  CHECK_STR(pts_string_from_i64(INT64_MIN)->bytes, "-9223372036854775808");
+  CHECK_STR(pts_string_from_u64(UINT64_MAX)->bytes, "18446744073709551615");
+  CHECK(pts_string_from_i64(42)->flags & PTS_STRING_ASCII);
+}
+
+static void output_replaces_lone_surrogates(void) {
+  char *buf = NULL;
+  size_t size = 0;
+  FILE *out = open_memstream(&buf, &size);
+  pts_string_write_for_output(pts_string_from_cstr("a\xED\xA0\xBD" "b\xF0\x9F\x98\x80" "c\xED\xB8\x80"), out);
+  fclose(out);
+  CHECK_STR(buf, "a\xEF\xBF\xBD" "b\xF0\x9F\x98\x80" "c\xEF\xBF\xBD");
+  free(buf);
+}
+
 static void strings_survive_collection(void) {
   pts_string *kept = pts_string_from_cstr("kept across GC");
   for (int i = 0; i < 100000; i++) {
@@ -60,6 +103,10 @@ int main(int argc, char **argv) {
   concat_joins_bytes_lengths_and_flags();
   concat_with_empty_returns_other_side();
   static_string_equals_heap_string();
+  surrogate_halves_join_into_one_code_point();
+  comparison_follows_utf16_code_units();
+  sixty_four_bit_integers_print_exactly();
+  output_replaces_lone_surrogates();
   strings_survive_collection();
   return pts_runtime_exit(CHECK_DONE());
 }

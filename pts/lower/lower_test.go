@@ -164,16 +164,16 @@ func TestALocalNamedNaNShadowsTheGlobal(t *testing.T) {
 
 func TestOperatorOnUnsupportedOperandsIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, `console.log("a" + 1);`)
+	err := lowerInvalid(t, `console.log(!1);`)
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the `+` operator on string and number is not supported yet")
+	assert.Equal(t, err.Message, "the prefix `!` operator on number is not supported yet")
 }
 
 func TestUnsupportedOperatorIsNamed(t *testing.T) {
 	t.Parallel()
-	err := lowerInvalid(t, "console.log(!true);")
+	err := lowerInvalid(t, "console.log(~1);")
 	assert.Equal(t, err.Code, diagnostic.NotSupportedYet)
-	assert.Equal(t, err.Message, "the prefix `!` operator is not supported yet")
+	assert.Equal(t, err.Message, "the prefix `~` operator is not supported yet")
 }
 
 func TestUnsupportedTypeIsNamed(t *testing.T) {
@@ -255,6 +255,38 @@ func TestAsConvertsBetweenNumericTypes(t *testing.T) {
   3: let b: u8 = u8(i)
   4: let back: number = number(b)
   5: console.log(box((-i)))
+}
+`)
+}
+
+func TestConcatenationConvertsTheOtherSideToAString(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `const n: int = 3;
+console.log("a" + 1, 2 + "b", "c" + true + null + undefined, "n=" + n, "x" + "y");
+`)
+	assert.Equal(t, got, `func main() void {
+  1: let n: i64 = 3:i64
+  2: console.log(box(("a" ++ str(1))), box((str(2) ++ "b")), box(((("c" ++ str(true)) ++ str(null)) ++ str(undefined))), box(("n=" ++ str(n))), box(("x" ++ "y")))
+}
+`)
+}
+
+func TestTemplateLiteralsConcatenateTheirParts(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "const who = \"world\";\nconsole.log(`hello ${who}!`, `${1}${2}`, `${who}`);\n")
+	assert.Equal(t, got, `func main() void {
+  1: let who: string = "world"
+  2: console.log(box((("hello " ++ who) ++ "!")), box((str(1) ++ str(2))), box(who))
+}
+`)
+}
+
+func TestStringLengthComparisonAndNot(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, "let s = \"abc\";\nconsole.log(s.length, s === \"abc\", s < \"abd\", !(s !== \"x\"));\n")
+	assert.Equal(t, got, `func main() void {
+  1: let s: string = "abc"
+  2: console.log(box(String.length(s)), box((s === "abc")), box((s < "abd")), box((!(s !== "x"))))
 }
 `)
 }

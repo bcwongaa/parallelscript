@@ -1,2 +1,9 @@
-// skip: known issue (PROGRESS.md): Node writes a lone surrogate to stdout as U+FFFD; the runtime writes its WTF-8 bytes. Fix in M1.3.
+// A lone surrogate prints as U+FFFD, as Node writes it; two halves concatenated make one character.
 console.log("a\uD800b");
+const high = "\uD83D";
+const low = "\uDE00";
+console.log(high + low, (high + low).length, high.length, low + high);
+
+// expect:
+// a�b
+// 😀 2 1 ��

@@ -147,8 +147,15 @@ type Builtin struct {
 	Result Type
 }
 
-// ConsoleLog is console.log; it takes any number of Value arguments.
-var ConsoleLog = &Builtin{Name: "console.log", Result: Void}
+var (
+	// ConsoleLog is console.log; it takes any number of Value arguments.
+	ConsoleLog = &Builtin{Name: "console.log", Result: Void}
+	// StringLength is a string's .length (UTF-16 code units); it takes the string.
+	StringLength = &Builtin{Name: "String.length", Result: Number}
+)
+
+// ToString is JS's ToString of a primitive value: "true", "null", Number::toString, …
+type ToString struct{ X Expr }
 
 // CallBuiltin calls a runtime function.
 type CallBuiltin struct {
@@ -172,17 +179,19 @@ const (
 	Ge
 	Eq // === on two values of the same primitive type
 	Ne
+	Concat // string + string
 )
 
-var binaryOpText = [...]string{Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%", Pow: "**", Lt: "<", Le: "<=", Gt: ">", Ge: ">=", Eq: "===", Ne: "!=="}
+var binaryOpText = [...]string{Add: "+", Sub: "-", Mul: "*", Div: "/", Rem: "%", Pow: "**", Lt: "<", Le: "<=", Gt: ">", Ge: ">=", Eq: "===", Ne: "!==", Concat: "++"}
 
 func (op BinaryOp) String() string { return binaryOpText[op] }
 
 // IsComparison reports whether the operator yields a boolean.
-func (op BinaryOp) IsComparison() bool { return op >= Lt }
+func (op BinaryOp) IsComparison() bool { return op >= Lt && op <= Ne }
 
-// Binary applies Op to X and Y, which have the same type: numeric for arithmetic
-// and ordering, numeric or boolean for Eq and Ne.
+// Binary applies Op to X and Y, which have the same type: numeric for arithmetic,
+// numeric or string for ordering, numeric, boolean or string for Eq and Ne, and
+// string for Concat.
 type Binary struct {
 	Op   BinaryOp
 	X, Y Expr
@@ -193,9 +202,10 @@ type UnaryOp int
 
 const (
 	Neg UnaryOp = iota // negation of a numeric value (wrapping for integers)
+	Not                // ! on a boolean
 )
 
-var unaryOpText = [...]string{Neg: "-"}
+var unaryOpText = [...]string{Neg: "-", Not: "!"}
 
 func (op UnaryOp) String() string { return unaryOpText[op] }
 
@@ -216,6 +226,7 @@ func (e *CallBuiltin) Type() Type  { return e.Builtin.Result }
 func (e *Unary) Type() Type        { return e.X.Type() }
 func (e *IntConst) Type() Type     { return e.Ty }
 func (e *Convert) Type() Type      { return e.To }
+func (*ToString) Type() Type       { return String }
 
 func (e *Binary) Type() Type {
 	if e.Op.IsComparison() {

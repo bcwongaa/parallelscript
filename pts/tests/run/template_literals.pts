@@ -1,0 +1,14 @@
+const who = "world";
+const n = 42;
+console.log(`Hello, ${who}!`);
+console.log(`${n} is big: ${n > 40}`);
+console.log(`sum: ${1 + 2}, half: ${n / 2}, flag: ${n === 42}, none: ${null}, missing: ${undefined}`);
+console.log(`${who}${who}`, `[${""}]`, `multi
+line`, `escapes: \t\\ \` \${}`);
+
+// expect:
+// Hello, world!
+// 42 is big: true
+// sum: 3, half: 21, flag: true, none: null, missing: undefined
+// worldworld [] multi
+// line escapes: 	\ ` ${}

@@ -24,11 +24,9 @@ static void write_value(FILE *out, pts_value value) {
   if (pts_value_is_object(value)) {
     pts_object *object = pts_value_as_object(value);
     switch (object->type->kind) {
-    case PTS_KIND_STRING: {
-      pts_string *string = (pts_string *)object;
-      fwrite(string->bytes, 1, string->byte_len, out);
+    case PTS_KIND_STRING:
+      pts_string_write_for_output((pts_string *)object, out);
       return;
-    }
     case PTS_KIND_INT64:
       fprintf(out, "%" PRId64, ((pts_boxed_int64 *)object)->value);
       return;

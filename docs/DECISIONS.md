@@ -298,3 +298,9 @@ Id scheme:
 - **Decision:** M1.3 becomes M1.3a (booleans' `!`, the string representation work, concatenation, template literals, `length`, string comparison, and the lone-surrogate output fix) and M1.3b (indexing and the listed string methods). `String.prototype.split` moves to M2.4 because it returns an array, which doesn't exist before M2.4. No scope is dropped.
 - **Reason:** The session protocol's rule for tasks too big for one session; and `split` can't be honest without arrays.
 - **Alternatives rejected:** A temporary array-free `split` (throwaway code).
+
+### D-014 · Strings hold lone surrogates as WTF-8
+- **Date:** 2026-10-11
+- **Decision:** A string's bytes are UTF-8, except that a lone surrogate (which JS strings may contain) is its 3-byte generalised encoding, as the TS scanner already produces for literals. Concatenation joins a trailing lone high surrogate and a leading lone low one into the 4-byte encoding of their code point, so `"\uD83D" + "\uDE00" === "😀"` and the representation stays canonical (byte equality is string equality). Output (`console.log`) writes a lone surrogate as U+FFFD, as Node does. `<`/`>` compare by UTF-16 code units, decoding non-ASCII strings on the fly (`pts_string_compare`). Members of the ES library that the runtime implements are listed with the prelude's in `lower.builtins`, keyed `"Interface.member"` (first `String.length`).
+- **Reason:** D-L08 requires UTF-8 with UTF-16 semantics, and JS programs can build lone surrogates; WTF-8 is the standard way to keep them losslessly in UTF-8. Joining on concatenation keeps one representation per string value.
+- **Alternatives rejected:** Replacing lone surrogates with U+FFFD on creation (changes `.length` and equality). UTF-16 storage (contradicts D-L08).

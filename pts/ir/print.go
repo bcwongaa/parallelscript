@@ -59,6 +59,8 @@ func FormatExpr(expr Expr) string {
 		return e.To.String() + "(" + FormatExpr(e.X) + ")"
 	case *Box:
 		return "box(" + FormatExpr(e.X) + ")"
+	case *ToString:
+		return "str(" + FormatExpr(e.X) + ")"
 	case *Binary:
 		return "(" + FormatExpr(e.X) + " " + e.Op.String() + " " + FormatExpr(e.Y) + ")"
 	case *Unary:

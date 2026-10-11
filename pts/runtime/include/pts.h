@@ -73,8 +73,22 @@ extern const pts_type pts_string_type;
 /* Copies `len` bytes of valid UTF-8 into a new GC string. */
 pts_string *pts_string_from_utf8(const char *bytes, size_t len);
 pts_string *pts_string_from_cstr(const char *cstr);
+/* left + right. A lone high surrogate at the end of left and a lone low one at the start of right join, as in JS. */
 pts_string *pts_string_concat(pts_string *left, pts_string *right);
 bool pts_string_equals(const pts_string *left, const pts_string *right);
+
+/* Negative, zero or positive as left sorts before, with or after right in UTF-16 code-unit order (JS `<`). */
+int pts_string_compare(const pts_string *left, const pts_string *right);
+
+/* Decimal text of a 64-bit integer, every digit exact. */
+pts_string *pts_string_from_i64(int64_t value);
+pts_string *pts_string_from_u64(uint64_t value);
+
+/*
+ * Writes the string as UTF-8 to a C stream (a FILE *, declared as void * so this header
+ * needn't include stdio.h). Lone surrogates become U+FFFD, as Node writes them.
+ */
+size_t pts_string_write_for_output(const pts_string *string, void *out);
 
 /* ---------------------------------------------------------------- numbers */
 

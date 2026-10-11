@@ -47,9 +47,11 @@ var libConstants = map[string]float64{
 	"Infinity": math.Inf(1),
 }
 
-// preludeBuiltins maps prelude members, by "Interface.member", to the runtime functions that implement them.
-var preludeBuiltins = map[string]*ir.Builtin{
-	"Console.log": ir.ConsoleLog,
+// builtins maps members of the prelude and of the ES library, by "Interface.member",
+// to the runtime functions that implement them.
+var builtins = map[string]*ir.Builtin{
+	"Console.log":   ir.ConsoleLog,
+	"String.length": ir.StringLength,
 }
 
 // numericTypes maps the semantic pass's numeric types to IR types.
@@ -243,6 +245,10 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 		return l.binary(node)
 	case ast.KindPrefixUnaryExpression:
 		return l.prefixUnary(node)
+	case ast.KindTemplateExpression:
+		return l.template(node)
+	case ast.KindPropertyAccessExpression:
+		return l.propertyAccess(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
@@ -270,7 +276,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	call := node.AsCallExpression()
 	builtin := l.builtin(call.Expression)
 	switch {
-	case builtin == nil:
+	case builtin != ir.ConsoleLog:
 		l.notSupportedYet(node, "calling `"+scanner.GetTextOfNode(call.Expression)+"` is")
 		return nil
 	case call.QuestionDotToken != nil:
@@ -336,8 +342,67 @@ func (l *lowerer) as(node *ast.Node) ir.Expr {
 	return l.convert(x, target, node)
 }
 
+// template lowers `head${x}middle${y}tail` to concatenations of the parts.
+func (l *lowerer) template(node *ast.Node) ir.Expr {
+	template := node.AsTemplateExpression()
+	var result ir.Expr = &ir.StringConst{Value: template.Head.Text()}
+	for _, span := range template.TemplateSpans.Nodes {
+		span := span.AsTemplateSpan()
+		x := l.expression(span.Expression)
+		if x == nil {
+			return nil
+		}
+		str := l.toString(x, span.Expression)
+		if str == nil {
+			return nil
+		}
+		result = concat(concat(result, str), &ir.StringConst{Value: span.Literal.Text()})
+	}
+	return result
+}
+
+// concat joins two strings, leaving out empty constants.
+func concat(x ir.Expr, y ir.Expr) ir.Expr {
+	if s, ok := x.(*ir.StringConst); ok && s.Value == "" {
+		return y
+	}
+	if s, ok := y.(*ir.StringConst); ok && s.Value == "" {
+		return x
+	}
+	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
+}
+
+// toString converts a primitive value to a string as JS's ToString does, or reports it.
+func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
+	switch t := x.Type(); {
+	case t == ir.String:
+		return x
+	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined:
+		return &ir.ToString{X: x}
+	}
+	l.notSupportedYet(node, fmt.Sprintf("converting %s to a string is", x.Type()))
+	return nil
+}
+
+// propertyAccess lowers a property read; only builtin properties exist so far.
+func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
+	builtin := l.builtin(node)
+	if builtin == nil || builtin == ir.ConsoleLog {
+		l.notSupportedYet(node, "`"+scanner.GetTextOfNode(node)+"` is")
+		return nil
+	}
+	receiver := l.expression(node.Expression())
+	if receiver == nil {
+		return nil
+	}
+	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{receiver}}
+}
+
 func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
+	if expr.OperatorToken.Kind == ast.KindPlusToken && l.checker.GetTypeAtLocation(node).Flags()&checker.TypeFlagsStringLike != 0 {
+		return l.concatenation(node)
+	}
 	op, ok := binaryOps[expr.OperatorToken.Kind]
 	if !ok {
 		l.notSupportedYet(node, describe(node)+" is")
@@ -361,16 +426,40 @@ func (l *lowerer) binary(node *ast.Node) ir.Expr {
 	return &ir.Binary{Op: op, X: x, Y: y}
 }
 
+// concatenation lowers `+` with a string operand: both sides become strings.
+func (l *lowerer) concatenation(node *ast.Node) ir.Expr {
+	expr := node.AsBinaryExpression()
+	x := l.expression(expr.Left)
+	y := l.expression(expr.Right)
+	if x == nil || y == nil {
+		return nil
+	}
+	x, y = l.toString(x, expr.Left), l.toString(y, expr.Right)
+	if x == nil || y == nil {
+		return nil
+	}
+	return &ir.Binary{Op: ir.Concat, X: x, Y: y}
+}
+
 // acceptsOperands reports whether the IR can apply op to operands of these types.
 func acceptsOperands(op ir.BinaryOp, x ir.Type, y ir.Type) bool {
-	if op == ir.Eq || op == ir.Ne {
-		return x == y && (ir.IsNumeric(x) || x == ir.Bool)
+	if x != y {
+		return false
 	}
-	return x == y && ir.IsNumeric(x)
+	switch op {
+	case ir.Eq, ir.Ne:
+		return ir.IsNumeric(x) || x == ir.Bool || x == ir.String
+	case ir.Lt, ir.Le, ir.Gt, ir.Ge:
+		return ir.IsNumeric(x) || x == ir.String
+	}
+	return ir.IsNumeric(x)
 }
 
 func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	expr := node.AsPrefixUnaryExpression()
+	if expr.Operator == ast.KindExclamationToken {
+		return l.not(node)
+	}
 	if expr.Operator != ast.KindMinusToken && expr.Operator != ast.KindPlusToken {
 		l.notSupportedYet(node, describe(node)+" is")
 		return nil
@@ -392,16 +481,32 @@ func (l *lowerer) prefixUnary(node *ast.Node) ir.Expr {
 	return &ir.Unary{Op: ir.Neg, X: x}
 }
 
-// builtin returns the runtime function a callee refers to, or nil if it isn't a prelude builtin.
-func (l *lowerer) builtin(callee *ast.Node) *ir.Builtin {
-	symbol := l.checker.GetSymbolAtLocation(callee)
+// not lowers `!b` for a boolean b.
+func (l *lowerer) not(node *ast.Node) ir.Expr {
+	operand := node.AsPrefixUnaryExpression().Operand
+	x := l.expression(operand)
+	if x == nil {
+		return nil
+	}
+	if x.Type() != ir.Bool {
+		l.notSupportedYet(node, fmt.Sprintf("%s on %s is", describe(node), x.Type()))
+		return nil
+	}
+	return &ir.Unary{Op: ir.Not, X: x}
+}
+
+// builtin returns the runtime function a member access refers to, or nil if it isn't
+// a builtin member of the prelude or the ES library.
+func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
+	symbol := l.checker.GetSymbolAtLocation(member)
 	if symbol == nil || symbol.Parent == nil || symbol.ValueDeclaration == nil {
 		return nil
 	}
-	if !lib.IsLibPath(ast.GetSourceFileOfNode(symbol.ValueDeclaration).FileName()) {
+	file := ast.GetSourceFileOfNode(symbol.ValueDeclaration)
+	if !lib.IsLibPath(file.FileName()) && !l.program.IsSourceFileDefaultLibrary(file.Path()) {
 		return nil
 	}
-	return preludeBuiltins[symbol.Parent.Name+"."+symbol.Name]
+	return builtins[symbol.Parent.Name+"."+symbol.Name]
 }
 
 func box(value ir.Expr) ir.Expr {

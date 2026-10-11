@@ -114,7 +114,8 @@ func TestStringConstantsKeepTheirExactBytes(t *testing.T) {
 	var want strings.Builder
 	for i, value := range values {
 		stmts = append(stmts, logAt(i+1, str(value)))
-		want.WriteString(value + "\n")
+		// console.log writes a lone surrogate as U+FFFD, as Node does.
+		want.WriteString(strings.ReplaceAll(value, stringutil.EncodeJSStringRune(0xD800), "\uFFFD") + "\n")
 	}
 	assert.Equal(t, run(t, programOf(stmts...)), want.String())
 }
@@ -203,4 +204,18 @@ func TestNumberOperatorsFollowJavaScript(t *testing.T) {
 false true true false true
 true -0
 `)
+}
+
+func TestStringOperationsFollowJavaScript(t *testing.T) {
+	t.Parallel()
+	toStr := func(x ir.Expr) ir.Expr { return &ir.ToString{X: x} }
+	length := func(x ir.Expr) ir.Expr { return &ir.CallBuiltin{Builtin: ir.StringLength, Args: []ir.Expr{x}} }
+	program := programOf(
+		logAt(1, binary(ir.Concat, str("n="), toStr(num(0.5))), binary(ir.Concat, toStr(&ir.BoolConst{Value: false}), toStr(&ir.NullConst{})),
+			toStr(&ir.UndefinedConst{}), toStr(&ir.IntConst{Bits: 1 << 63, Ty: ir.U64}), toStr(&ir.IntConst{Bits: 1<<64 - 5, Ty: ir.I8})),
+		logAt(2, length(str("héllo😀")), binary(ir.Eq, str("a"), binary(ir.Concat, str(""), str("a"))), binary(ir.Ne, str("a"), str("b")),
+			binary(ir.Lt, str("😀"), str("\uffff")), binary(ir.Ge, str("b"), str("abc")), &ir.Unary{Op: ir.Not, X: &ir.BoolConst{Value: true}}),
+		logAt(3, binary(ir.Concat, str("\xed\xa0\xbd"), str("\xed\xb8\x80"))),
+	)
+	assert.Equal(t, run(t, program), "n=0.5 falsenull undefined 9223372036854775808 -5\n7 true true true true false\n😀\n")
 }

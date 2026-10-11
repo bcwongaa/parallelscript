@@ -1,0 +1,13 @@
+// Strings compare by UTF-16 code units; length counts code units.
+let a = "apple";
+let b = "banana";
+console.log(a < b, a > b, a <= "apple", a >= "apples", a === "apple", a !== b);
+console.log("Zebra" < "apple", "é" > "e", "😀" < "￿", "abc" < "abd", "" < "a");
+console.log("hello".length, "héllo".length, "😀".length, "".length, (a + b).length);
+console.log(!(a === b), !true, !false);
+
+// expect:
+// true false true false true true
+// true true true true true
+// 5 5 2 0 11
+// true false true
