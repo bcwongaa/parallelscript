@@ -175,7 +175,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `Error` and its native subclasses with `message`, `name`, `cause` and `toString()`; classes extending them; the runtime's TypeError, RangeError and ReferenceError thrown as catchable `Error` objects.
   - The catch binding as `unknown`, narrowed by `instanceof` and `typeof`, or cast with a checked `as`.
   - Uncaught exceptions are handled per decision O07.
-- [ ] **M3.2b Stacks** (split from M3.2 by D-068).
+- [x] **M3.2b Stacks** (d0b802bb0) (split from M3.2 by D-068).
   - `stack` with `.pts` file and line numbers, and `console.log` of errors with it as Node prints them.
   - The stack-overflow guard: deep recursion throws `RangeError: Maximum call stack size exceeded` (`pts/tests/run/stack_overflow.pts`).
 - [ ] **M3.3 `any`, `unknown` and casts.**
