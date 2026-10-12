@@ -145,7 +145,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, genericConsts: map[*ast.Symbol]*genericFunc{},
-		shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
+		yielded: map[*ast.Node]ir.Expr{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
@@ -304,6 +304,7 @@ type lowerer struct {
 	function            *ir.Func                         // the function being lowered
 	targets             []jumpTarget                     // the statements around the current one that break or continue can leave
 	finallies           []*finallyContext                // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
+	yielded             map[*ast.Node]ir.Expr            // the value of each yield expression whose statement yielded already (D-109)
 	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068) and Date (D-087), the runtime's
 	dateClass           *ir.Class                        // Date (D-087)
 	dates               *dateFunctions                   // the runtime functions behind Date
@@ -354,6 +355,9 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 
 // statement lowers one statement to zero or more IR statements.
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
+	if yield := statementYield(node); yield != nil && l.function.Generator && l.yielded[yield] == nil {
+		return l.yieldingStatement(node, yield)
+	}
 	switch node.Kind {
 	case ast.KindExpressionStatement:
 		if isSuperCall(node.Expression()) {
@@ -969,14 +973,11 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 	case l.isGeneric(node):
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
-	case flags&ast.FunctionFlagsGenerator != 0:
-		l.notSupportedYet(nameOf(node), "generator functions are")
-		return nil
 	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(nameOf(node), "async functions are")
 		return nil
 	}
-	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node)}
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node), Generator: flags&ast.FunctionFlagsGenerator != 0}
 	l.funcNodes[fn] = node
 	if class != nil {
 		fn.Params = []*ir.Local{l.newThis(fn, class)}
@@ -1328,6 +1329,8 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		return l.instantiationExpression(node)
 	case ast.KindDeleteExpression:
 		return l.deleteExpression(node)
+	case ast.KindYieldExpression:
+		return l.yieldExpression(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
 	return nil
@@ -1456,6 +1459,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.hasOwnProperty(object, key)
 	}
 	if x, handled := l.dateCall(call); handled {
+		return x
+	}
+	if x, handled := l.iteratorMethodCall(call); handled {
 		return x
 	}
 	if name := l.consoleMethodName(ast.SkipParentheses(call.Expression)); name != "" {
@@ -3323,6 +3329,18 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	}
 	if checker.IsTupleType(t) {
 		return l.tupleType(t, node)
+	}
+	if l.isIteratorType(t) {
+		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109)
+	}
+	if value, ok := l.iteratorResultValue(t); ok {
+		v := l.irType(value, node)
+		if v == nil {
+			return nil
+		}
+		// A finished generator's next() gives undefined, whatever it returned; a yield
+		// result holds it too, so that IteratorResult<T, T> is one shape.
+		return l.iteratorResultShape(l.withUndefined(v))
 	}
 	if mt, ok := l.mapType(t, node); ok {
 		if mt == nil {

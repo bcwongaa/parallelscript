@@ -1,0 +1,76 @@
+// Generator basics: lazy start, next() sequence, done results, return values.
+function* three(): Generator<number, string, unknown> {
+  console.log("body start");
+  yield 1;
+  console.log("after 1");
+  yield 2;
+  console.log("after 2");
+  yield 3;
+  console.log("body end");
+  return "finished";
+}
+
+const g = three();
+console.log("created, body not run yet");
+console.log(g.next());
+console.log(g.next());
+console.log(g.next());
+console.log(g.next());
+console.log(g.next());
+
+function* empty(): Generator<number, void, unknown> {
+}
+const e = empty();
+console.log(e.next());
+console.log(e.next());
+
+function* onlyReturn(): Generator<number, number, unknown> {
+  return 42;
+}
+const r = onlyReturn();
+const first = r.next();
+console.log(first.value, first.done);
+console.log(r.next());
+
+function* strs(): Generator<string, boolean, unknown> {
+  yield "a";
+  yield "";
+  yield "c";
+  return true;
+}
+const s = strs();
+let res = s.next();
+while (!res.done) {
+  console.log("got", JSON.stringify(res.value));
+  res = s.next();
+}
+console.log("returned", res.value);
+
+function* mixed(): Generator<boolean, void, unknown> {
+  yield true;
+  yield false;
+}
+for (const b of mixed()) {
+  console.log("bool", b);
+}
+// expect:
+// created, body not run yet
+// body start
+// { value: 1, done: false }
+// after 1
+// { value: 2, done: false }
+// after 2
+// { value: 3, done: false }
+// body end
+// { value: 'finished', done: true }
+// { value: undefined, done: true }
+// { value: undefined, done: true }
+// { value: undefined, done: true }
+// 42 true
+// { value: undefined, done: true }
+// got "a"
+// got ""
+// got "c"
+// returned true
+// bool true
+// bool false

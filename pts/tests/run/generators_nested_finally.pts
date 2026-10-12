@@ -1,0 +1,99 @@
+// Early return and the ordering of nested try/finally blocks.
+function* nested(): Generator<string, string, unknown> {
+  try {
+    console.log("outer try");
+    try {
+      console.log("inner try");
+      yield "in inner";
+      console.log("inner after yield");
+    } finally {
+      console.log("inner finally");
+    }
+    yield "in outer";
+    console.log("outer after yield");
+  } finally {
+    console.log("outer finally");
+  }
+  return "end";
+}
+
+console.log("-- full run");
+for (const v of nested()) console.log("got", v);
+console.log("-- return() in inner");
+const a = nested();
+console.log(a.next());
+console.log(a.return("A"));
+console.log("-- return() in outer");
+const b = nested();
+b.next();
+console.log(b.next());
+console.log(b.return("B"));
+console.log("-- early return statement");
+function* early(stopAt: number): Generator<number, string, unknown> {
+  try {
+    for (let i = 0; ; i++) {
+      try {
+        if (i === stopAt) return "stopped at " + i;
+        yield i;
+      } finally {
+        console.log("step finally", i);
+      }
+    }
+  } finally {
+    console.log("loop finally");
+  }
+}
+const e = early(2);
+let r = e.next();
+while (!r.done) {
+  console.log("value", r.value);
+  r = e.next();
+}
+console.log("result", r.value);
+
+console.log("-- return from a function inside for...of");
+function firstOdd(): number {
+  for (const v of early(10)) {
+    if (v % 2 === 1) return v;
+  }
+  return -1;
+}
+console.log("firstOdd", firstOdd());
+// expect:
+// -- full run
+// outer try
+// inner try
+// got in inner
+// inner after yield
+// inner finally
+// got in outer
+// outer after yield
+// outer finally
+// -- return() in inner
+// outer try
+// inner try
+// { value: 'in inner', done: false }
+// inner finally
+// outer finally
+// { value: 'A', done: true }
+// -- return() in outer
+// outer try
+// inner try
+// inner after yield
+// inner finally
+// { value: 'in outer', done: false }
+// outer finally
+// { value: 'B', done: true }
+// -- early return statement
+// value 0
+// step finally 0
+// value 1
+// step finally 1
+// step finally 2
+// loop finally
+// result stopped at 2
+// -- return from a function inside for...of
+// step finally 0
+// step finally 1
+// loop finally
+// firstOdd 1

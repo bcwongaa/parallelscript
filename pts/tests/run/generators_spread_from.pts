@@ -1,0 +1,75 @@
+// Spread and Array.from over generators; the return value is not included.
+function* countdown(n: number): Generator<number, string, unknown> {
+  while (n > 0) {
+    yield n;
+    n--;
+  }
+  return "liftoff";
+}
+
+console.log([...countdown(3)]);
+console.log([0, ...countdown(2), 0, ...countdown(1)]);
+console.log(Array.from(countdown(4)));
+console.log(Array.from(countdown(3)).map((x: number) => x * 10));
+console.log([...countdown(0)].length);
+
+const g = countdown(5);
+g.next();
+g.next();
+console.log([...g]);
+console.log([...g]); // already exhausted
+
+function* objects(): Generator<{ id: number; tags: string[] }, void, unknown> {
+  yield { id: 1, tags: ["a"] };
+  yield { id: 2, tags: [] };
+}
+console.log([...objects()]);
+console.log(Array.from(objects()).map((o) => o.id));
+
+function* chars(s: string): Generator<string, void, unknown> {
+  yield* s;
+}
+console.log([...chars("hello")].join("-"));
+console.log(Array.from(chars("")).length);
+
+function* matrix(): Generator<number[], void, unknown> {
+  yield [1, 2];
+  yield [3];
+  yield [];
+}
+console.log([...matrix()]);
+const flat: number[] = [];
+for (const row of matrix()) flat.push(...row);
+console.log(flat);
+
+// an error thrown during a spread escapes it
+function* failing(): Generator<number, void, unknown> {
+  yield 1;
+  throw new Error("failed after 1");
+}
+try {
+  console.log([...failing()]);
+} catch (e) {
+  console.log("spread error:", (e as Error).message);
+}
+try {
+  console.log(Array.from(failing()));
+} catch (e) {
+  console.log("Array.from error:", (e as Error).message);
+}
+// expect:
+// [ 3, 2, 1 ]
+// [ 0, 2, 1, 0, 1 ]
+// [ 4, 3, 2, 1 ]
+// [ 30, 20, 10 ]
+// 0
+// [ 3, 2, 1 ]
+// []
+// [ { id: 1, tags: [ 'a' ] }, { id: 2, tags: [] } ]
+// [ 1, 2 ]
+// h-e-l-l-o
+// 0
+// [ [ 1, 2 ], [ 3 ], [] ]
+// [ 1, 2, 3 ]
+// spread error: failed after 1
+// Array.from error: failed after 1

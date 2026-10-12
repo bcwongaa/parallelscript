@@ -38,6 +38,8 @@ func Walk(stmts []Stmt, visitStmt func(Stmt), visitExpr func(Expr)) {
 			Walk(s.Catch.Stmts, visitStmt, visitExpr)
 		case *Throw:
 			WalkExpr(s.Value, visitExpr)
+		case *Yield:
+			WalkExpr(s.Value, visitExpr)
 		}
 	}
 }

@@ -33,6 +33,7 @@ func Emit(program *ir.Program) string {
 	e.collectMethodAdapters(program)
 	e.collectStrings(program)
 	e.collectGlobals(program)
+	e.collectGenerators(program)
 	e.header(program)
 	for _, f := range program.Funcs {
 		e.function(f)
@@ -81,6 +82,8 @@ type emitter struct {
 	labelTries map[*ir.Label]int
 	handlers   int                // pts_tryN handlers made so far in the function
 	volatile   map[*ir.Local]bool // locals a try block assigns that are declared outside it
+	frames     map[*ir.Func]*generatorFrame
+	frame      *generatorFrame // of the generator whose step function is being written, or nil
 
 	hasFunctionNames bool // whether the program has a table of its functions' JS names (functionNameTable)
 
@@ -116,6 +119,7 @@ func (e *emitter) header(program *ir.Program) {
 	}
 	e.classDeclarations(program.Classes)
 	e.closureStructs()
+	e.frameStructs(program)
 	for _, global := range e.globalOrder {
 		e.line(0, "static %s%s;", e.declarator(global.Type), e.globals[global])
 		e.line(0, "static bool %s_ready; /* its declaration has run */", e.globals[global])
@@ -308,19 +312,11 @@ func (e *emitter) collectGlobals(program *ir.Program) {
 }
 
 func (e *emitter) function(f *ir.Func) {
-	e.current = f
-	e.locals = map[*ir.Local]string{}
-	e.usedNames = map[string]bool{}
-	e.nextSuffix = map[string]int{}
-	e.temporaries = 0
-	e.sites = 0
-	e.labels = map[*ir.Label]string{}
-	e.usedLabels = map[string]bool{}
-	e.gotoTargets = map[string]bool{}
-	e.tries = nil
-	e.labelTries = map[*ir.Label]int{}
-	e.handlers = 0
-	e.volatile = volatileLocals(f)
+	if f.Generator {
+		e.generatorFunction(f)
+		return
+	}
+	e.startFunction(f)
 	paramNames := make([]string, len(f.Params))
 	for i, param := range f.Params {
 		if param.Cell {
@@ -355,6 +351,23 @@ func (e *emitter) function(f *ir.Func) {
 	e.line(0, "}")
 }
 
+// startFunction resets what the emitter knows of the function it writes to f's.
+func (e *emitter) startFunction(f *ir.Func) {
+	e.current = f
+	e.locals = map[*ir.Local]string{}
+	e.usedNames = map[string]bool{}
+	e.nextSuffix = map[string]int{}
+	e.temporaries = 0
+	e.sites = 0
+	e.labels = map[*ir.Label]string{}
+	e.usedLabels = map[string]bool{}
+	e.gotoTargets = map[string]bool{}
+	e.tries = nil
+	e.labelTries = map[*ir.Label]int{}
+	e.handlers = 0
+	e.volatile = volatileLocals(f)
+}
+
 func endsWithReturn(stmts []ir.Stmt) bool {
 	if len(stmts) == 0 {
 		return false
@@ -376,6 +389,10 @@ func (e *emitter) statements(stmts []ir.Stmt, depth int) {
 // declaration runs (D-041).
 func (e *emitter) scope(stmts []ir.Stmt, depth int) {
 	for _, local := range cellsOf(stmts) {
+		if e.frameLocal(local) {
+			e.line(depth, "%s = %s;", e.locals[local], e.cellAllocation(local))
+			continue
+		}
 		e.line(depth, "%s*%s = %s;", e.declarator(local.Type), e.declareLocal(local), e.cellAllocation(local))
 	}
 	e.statements(stmts, depth)
@@ -404,6 +421,10 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 			e.line(depth, "*%s = %s;", e.locals[s.Local], init) // its block made the cell
 			return
 		}
+		if e.frameLocal(s.Local) {
+			e.line(depth, "%s = %s;", e.locals[s.Local], init)
+			return
+		}
 		e.line(depth, "%s%s = %s;", e.localDeclarator(s.Local), e.declareLocal(s.Local), init)
 	case *ir.If:
 		e.ifStatement(s, depth)
@@ -427,6 +448,8 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 		e.tryStatement(s, depth)
 	case *ir.Throw:
 		e.line(depth, "pts_throw(%s);", e.expr(s.Value))
+	case *ir.Yield:
+		e.yieldStatement(s, depth)
 	default:
 		panic(fmt.Sprintf("cgen: unexpected statement %T", stmt))
 	}
@@ -525,6 +548,10 @@ func (e *emitter) switchStatement(s *ir.Switch, depth int) {
 // returnStatement writes a return, which leaves every try block around it once its value
 // is computed: a throw while computing it still lands in them.
 func (e *emitter) returnStatement(s *ir.Return, depth int) {
+	if e.frame != nil {
+		e.generatorReturn(s, depth)
+		return
+	}
 	switch {
 	case len(e.tries) == 0 && s.Value == nil:
 		e.line(depth, "return;")
@@ -549,17 +576,32 @@ func (e *emitter) returnStatement(s *ir.Return, depth int) {
 func (e *emitter) tryStatement(s *ir.Try, depth int) {
 	e.handlers++
 	handler := fmt.Sprintf("pts_try%d", e.handlers)
+	entry := ""
+	if e.frame != nil {
+		entry = e.frame.entries[s] // a resume point inside: the dispatch jumps here, then on (D-109)
+	}
+	if entry != "" {
+		e.line(depth, "%s: ;", entry)
+	}
 	e.line(depth, "{")
 	e.line(depth+1, "pts_handler %s;", handler)
 	e.line(depth+1, "pts_try_enter(&%s);", handler)
 	e.line(depth+1, "if (_setjmp(%s.jump) == 0) {", handler)
 	e.tries = append(e.tries, handler)
+	if entry != "" {
+		e.dispatch(depth+2, s)
+	}
 	e.scope(s.Body.Stmts, depth+2)
 	e.tries = e.tries[:len(e.tries)-1]
 	e.line(depth+2, "pts_try_leave(&%s);", handler)
 	e.line(depth+1, "} else {")
 	caught := "pts_caught(&" + handler + ")"
-	if s.Exception.Cell {
+	if e.frameLocal(s.Exception) {
+		if s.Exception.Cell {
+			e.line(depth+2, "%s = %s;", e.locals[s.Exception], e.cellAllocation(s.Exception))
+		}
+		e.line(depth+2, "%s = %s;", e.local(s.Exception), caught)
+	} else if s.Exception.Cell {
 		cell := e.declareLocal(s.Exception)
 		e.line(depth+2, "%s*%s = %s;", e.declarator(s.Exception.Type), cell, e.cellAllocation(s.Exception))
 		e.line(depth+2, "*%s = %s;", cell, caught)
@@ -723,6 +765,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return strconv.FormatBool(x.Value)
 	case *ir.StringConst:
 		return e.strings[x.Value]
+	case *ir.Resumed:
+		return "pts_frame->header.sent"
+	case *ir.ResumedBy:
+		return "(pts_frame->header.mode == " + resumeModes[x.Mode] + ")"
 	case *ir.UndefinedConst:
 		return "PTS_VALUE_UNDEFINED"
 	case *ir.NullConst:
@@ -1371,6 +1417,11 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ObjectAssign:                "pts_object_assign",
 	ir.ValueSameValue:              "pts_value_same_value",
 	ir.ValueFreeze:                 "pts_value_freeze",
+	ir.IteratorOpen:                "pts_iterator_open",
+	ir.IteratorResume:              "pts_iterator_resume",
+	ir.IteratorValue:               "pts_iterator_value",
+	ir.IteratorClose:               "pts_iterator_close",
+	ir.IteratorTake:                "pts_iterator_take",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",
 	ir.ValueIterableLength:         "pts_value_iterable_length",

@@ -766,7 +766,10 @@ func (l *lowerer) isObjectTypeMember(declaration *ast.Node) bool {
 	switch declaration.Parent.Kind {
 	case ast.KindInterfaceDeclaration, ast.KindTypeLiteral, ast.KindObjectLiteralExpression:
 		file := ast.GetSourceFileOfNode(declaration)
-		return !lib.IsLibPath(file.FileName()) && !l.program.IsSourceFileDefaultLibrary(file.Path())
+		if l.program.IsSourceFileDefaultLibrary(file.Path()) {
+			return isIteratorResultDeclaration(declaration.Parent) // its objects are shapes (D-109)
+		}
+		return !lib.IsLibPath(file.FileName())
 	}
 	return false
 }

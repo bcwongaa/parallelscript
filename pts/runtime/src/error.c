@@ -30,6 +30,11 @@ static _Noreturn void report_uncaught(pts_value exception) {
 
 void pts_throw(pts_value exception) {
   pts_handler *handler = pts_handlers;
+  while (handler != NULL && handler->generator != NULL) { /* a generator the throw leaves is finished (D-109) */
+    handler->generator->state = PTS_GENERATOR_DONE;
+    handler->generator->value = PTS_VALUE_UNDEFINED;
+    handler = handler->prev;
+  }
   if (handler == NULL) {
     report_uncaught(exception);
   }

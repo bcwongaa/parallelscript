@@ -41,6 +41,7 @@ typedef enum pts_kind {
   PTS_KIND_TUPLE = 9,    /* a tuple: an object whose fields, named 0, 1, …, are its elements; printed as an array */
   PTS_KIND_RECORD = 10,  /* a hash-map object (pts_map) from string keys to values of its element kind */
   PTS_KIND_DATE = 11,    /* a Date (pts_date) */
+  PTS_KIND_GENERATOR = 12, /* a generator object (pts_iterator, D-109) */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -1479,6 +1480,8 @@ void pts_console_table(pts_value data, pts_value properties);
 typedef struct pts_handler {
   struct pts_handler *prev;
   pts_value exception; /* what the throw that jumped here threw */
+  /* A generator running above it (D-109): a throw that passes this marker finishes the generator; it has no jump then. */
+  struct pts_iterator *generator;
   jmp_buf jump;
 } pts_handler;
 
@@ -1487,6 +1490,7 @@ extern _Thread_local pts_handler *pts_handlers;
 
 static inline void pts_try_enter(pts_handler *handler) {
   handler->prev = pts_handlers;
+  handler->generator = NULL;
   pts_handlers = handler;
 }
 
@@ -1625,5 +1629,58 @@ int pts_runtime_exit(int code);
 #ifdef __cplusplus
 }
 #endif
+
+/* ---------------------------------------------------------------- generators */
+
+/*
+ * Generators (D-109). A generator object is a pts_iterator followed by its function's
+ * frame, which holds every local of the function's body; step is the body compiled to a
+ * state machine, which runs from the resume point state names until the next yield (it
+ * returns false, value holding what it yielded and state where to resume) or until the
+ * body returns (true, value holding what it returned). A resumed body reads mode and sent:
+ * how it was resumed (next, throw, return) and with what.
+ */
+typedef enum pts_resume_mode { PTS_RESUME_NEXT = 0, PTS_RESUME_THROW = 1, PTS_RESUME_RETURN = 2 } pts_resume_mode;
+
+enum {
+  PTS_GENERATOR_START = 0,    /* not started: the body runs from the top */
+  PTS_GENERATOR_RUNNING = -1, /* running: resuming it throws TypeError */
+  PTS_GENERATOR_DONE = -2,    /* finished: it returned or threw */
+};
+
+typedef struct pts_iterator {
+  const pts_type *type;
+  bool (*step)(struct pts_iterator *it);
+  int32_t state; /* a generator's resume point or PTS_GENERATOR_*; for a runtime iterator, its position */
+  pts_resume_mode mode;
+  pts_value sent;
+  pts_value value;
+} pts_iterator;
+
+extern const pts_type pts_type_builtin_Generator;
+
+/* A new generator object of size bytes (its frame included) that runs step, not started. */
+pts_iterator *pts_generator_new(size_t size, bool (*step)(pts_iterator *));
+
+/*
+ * Resumes an iterator (a generator object) as next(sent), throw(sent) or return(sent)
+ * would, and reports whether it is done; its value is then pts_iterator_value. JS's rules
+ * for generators that haven't started, have finished or are running hold.
+ */
+bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
+/*
+ * An iterator over an iterable value: a generator object itself, or a runtime iterator
+ * over what an array, string, map or set yields (an array's elements read live); TypeError
+ * `text is not iterable` for anything else.
+ */
+pts_value pts_iterator_open(pts_value iterable, const pts_string *text);
+/* What the iterator last yielded or returned. */
+pts_value pts_iterator_value(pts_value iterator);
+/* Closes an iterator a loop leaves early: return() without a value, its result unused. */
+void pts_iterator_close(pts_value iterator);
+/* A new any[] of the values an iterator yields until it is done. */
+struct pts_array *pts_iterator_to_array(pts_value iterator);
+/* A new any[] of the first count values an iterator yields, after which it is closed if it isn't done; with rest, of all of them. */
+struct pts_array *pts_iterator_take(pts_value iterator, double count, bool rest);
 
 #endif /* PTS_H */

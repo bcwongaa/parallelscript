@@ -1,0 +1,85 @@
+// return() and finally blocks, including break out of for...of.
+function* guarded(name: string): Generator<number, string, unknown> {
+  console.log(name, "enter");
+  try {
+    yield 1;
+    yield 2;
+    yield 3;
+  } finally {
+    console.log(name, "finally");
+  }
+  console.log(name, "after try");
+  return "normal end";
+}
+
+// return() before the first next(): the body never runs
+const a = guarded("a");
+console.log(a.return("early"));
+console.log(a.next());
+
+// return() while suspended inside try: finally runs
+const b = guarded("b");
+console.log(b.next());
+console.log(b.return("stopped"));
+console.log(b.next());
+
+// break out of for...of calls return()
+for (const x of guarded("c")) {
+  console.log("c got", x);
+  if (x === 2) break;
+}
+
+// running to completion
+for (const x of guarded("d")) {
+  console.log("d got", x);
+}
+
+// a finally that yields delays the return
+function* stubborn(): Generator<string, string, unknown> {
+  try {
+    yield "work";
+  } finally {
+    yield "cleanup 1";
+    yield "cleanup 2";
+  }
+  return "normal";
+}
+const s = stubborn();
+console.log(s.next());
+console.log(s.return("done"));
+console.log(s.next());
+console.log(s.next());
+console.log(s.next());
+
+// return() after completion
+const d = guarded("e");
+console.log([...d]);
+console.log(d.return("late"));
+// expect:
+// { value: 'early', done: true }
+// { value: undefined, done: true }
+// b enter
+// { value: 1, done: false }
+// b finally
+// { value: 'stopped', done: true }
+// { value: undefined, done: true }
+// c enter
+// c got 1
+// c got 2
+// c finally
+// d enter
+// d got 1
+// d got 2
+// d got 3
+// d finally
+// d after try
+// { value: 'work', done: false }
+// { value: 'cleanup 1', done: false }
+// { value: 'cleanup 2', done: false }
+// { value: 'done', done: true }
+// { value: undefined, done: true }
+// e enter
+// e finally
+// e after try
+// [ 1, 2, 3 ]
+// { value: 'late', done: true }

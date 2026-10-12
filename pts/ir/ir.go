@@ -484,6 +484,11 @@ type Func struct {
 	// Extern is the runtime function that implements a method of a Builtin class; such a
 	// function has no Body and isn't among the program's functions.
 	Extern string
+	// Generator marks a generator function (`function*`, D-109). A call makes a generator
+	// object, a Value (Result), and returns it without running Body, which runs when the
+	// object is resumed, holding every local in the object's frame. A Yield in Body
+	// suspends it; a Return's Value, a Value, is the generator's return value.
+	Generator bool
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
@@ -617,9 +622,34 @@ type Throw struct {
 	Value Expr
 }
 
+// Yield suspends the generator whose Body runs it, giving its consumer Value, a Value
+// (D-109). The generator resumes after it when next(), throw() or return() is called on
+// it: Resumed is the value that call passed and ResumedBy which call it was.
+type Yield struct {
+	At    Pos
+	Value Expr
+}
+
+// ResumeMode is how a suspended generator was resumed: by next(), throw() or return().
+type ResumeMode int
+
+const (
+	ResumeNext ResumeMode = iota
+	ResumeThrow
+	ResumeReturn
+)
+
+// Resumed is the value that resumed the generator after a Yield: next(v)'s v, the error
+// throw(e) threw in, return(r)'s r; a Value.
+type Resumed struct{}
+
+// ResumedBy holds when the generator was resumed after a Yield by Mode's call.
+type ResumedBy struct{ Mode ResumeMode }
+
 func (s *Block) Pos() Pos        { return s.At }
 func (s *Try) Pos() Pos          { return s.At }
 func (s *Throw) Pos() Pos        { return s.At }
+func (s *Yield) Pos() Pos        { return s.At }
 func (s *ExprStmt) Pos() Pos     { return s.At }
 func (s *LocalDecl) Pos() Pos    { return s.At }
 func (s *If) Pos() Pos           { return s.At }
@@ -1115,6 +1145,19 @@ var (
 	ValueKeyArray  = &Builtin{Name: "Object.keys", Params: []Type{Value}, Result: StringArray}
 	ObjectAssign   = &Builtin{Name: "Object.assign", Params: []Type{Value, ValueArray}, Result: Void}
 	ValueSameValue = &Builtin{Name: "Object.is", Params: []Type{Value, Value}, Result: Bool}
+	// The iteration protocol (D-109): IteratorOpen is an iterator over an iterable (its
+	// second argument the iterable's source text, for TypeError); IteratorResume resumes
+	// one as next(v), throw(v) or return(v) do (its I32 argument a ResumeMode) and reports
+	// whether it is done; IteratorValue is what it last yielded or returned; IteratorClose
+	// is what a loop that leaves early calls.
+	IteratorOpen   = &Builtin{Name: "iterator", Params: []Type{Value, String}, Result: Value}
+	IteratorResume = &Builtin{Name: "Iterator.next", Params: []Type{Value, I32, Value}, Result: Bool}
+	IteratorValue  = &Builtin{Name: "Iterator.value", Params: []Type{Value}, Result: Value}
+	IteratorClose  = &Builtin{Name: "Iterator.return", Params: []Type{Value}, Result: Void}
+	// IteratorTake is an any[] of the first n values an iterator yields, after which it is
+	// closed, or with its Bool argument true, of all it yields: what an array pattern
+	// destructures out of an iterator.
+	IteratorTake = &Builtin{Name: "iterator take", Params: []Type{Value, Number, Bool}, Result: ValueArray}
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).
 	ValueFreeze   = &Builtin{Name: "Object.freeze", Params: []Type{Value}, Result: Void}
 	ValueIsFrozen = &Builtin{Name: "Object.isFrozen", Params: []Type{Value}, Result: Bool}
@@ -1289,6 +1332,8 @@ func (*NumberConst) Type() Type     { return Number }
 func (*BoolConst) Type() Type       { return Bool }
 func (*StringConst) Type() Type     { return String }
 func (*UndefinedConst) Type() Type  { return Undefined }
+func (*Resumed) Type() Type         { return Value }
+func (*ResumedBy) Type() Type       { return Bool }
 func (*NullConst) Type() Type       { return Null }
 func (*GivenConst) Type() Type      { return Given }
 func (e *LeftOut) Type() Type       { return e.T }

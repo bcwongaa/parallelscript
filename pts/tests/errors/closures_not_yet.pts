@@ -1,11 +1,8 @@
-// Function values that arrive later are reported: async and generator functions (M4),
-// `this` parameters, overloaded and recursive function types, and functions as strings.
-// (Generic function values work since M3.3d1, D-078.)
+// Function values that arrive later are reported: async functions (M4), `this`
+// parameters, overloaded and recursive function types, and functions as strings.
+// (Generic function values work since M3.3d1, D-078; generator functions since M4.1a, D-109.)
 const identity = <T>(x: T): T => x;
 const later = async () => 1;
-const numbers = function* () {
-  yield 1;
-};
 const withThis = function (this: { x: number }): number {
   return this.x;
 };
@@ -16,8 +13,7 @@ function useRecursive(r: Recursive): void {}
 const text = "" + (() => 1);
 
 // error: closures_not_yet.pts:5:7 - error PTS1001: values of type Promise<number> are not supported yet
-// error: closures_not_yet.pts:6:7 - error PTS1001: values of type Generator<number, void, unknown> are not supported yet
-// error: closures_not_yet.pts:9:28 - error PTS1001: `this` parameters are not supported yet
-// error: closures_not_yet.pts:13:24 - error PTS1001: overloaded function types (Overloaded) are not supported yet
-// error: closures_not_yet.pts:15:23 - error PTS1001: recursive function types (Recursive) are not supported yet
-// error: closures_not_yet.pts:16:19 - error PTS1001: converting () => number to a string is not supported yet
+// error: closures_not_yet.pts:6:28 - error PTS1001: `this` parameters are not supported yet
+// error: closures_not_yet.pts:10:24 - error PTS1001: overloaded function types (Overloaded) are not supported yet
+// error: closures_not_yet.pts:12:23 - error PTS1001: recursive function types (Recursive) are not supported yet
+// error: closures_not_yet.pts:13:19 - error PTS1001: converting () => number to a string is not supported yet

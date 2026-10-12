@@ -180,18 +180,23 @@ func (e *emitter) closureConstructor(f *ir.Func) {
 // value (or cell) and for the function's own closure (Self), and a cell for each
 // parameter that lives in one, initialised with the argument.
 func (e *emitter) closurePrologue(f *ir.Func, paramNames []string) {
-	for _, local := range f.Captures {
-		e.line(1, "%s%s = ((pts_closure_%s *)pts_env)->%s;", e.capturedDeclarator(local), e.declareLocal(local), e.closureNames[f], e.captureField(f, local))
-	}
-	if f.Self != nil && !slices.Contains(f.Captures, f.Self) && usesLocal(f, f.Self) {
-		e.line(1, "pts_closure *%s = pts_env;", e.declareLocal(f.Self))
-	}
+	e.capturePrologue(f)
 	for i, param := range f.Params {
 		if param.Cell {
 			cell := e.declareLocal(param)
 			e.line(1, "%s*%s = %s;", e.declarator(param.Type), cell, e.cellAllocation(param))
 			e.line(1, "*%s = %s;", cell, paramNames[i])
 		}
+	}
+}
+
+// capturePrologue reads the locals a closure captures out of its closure, pts_env.
+func (e *emitter) capturePrologue(f *ir.Func) {
+	for _, local := range f.Captures {
+		e.line(1, "%s%s = ((pts_closure_%s *)pts_env)->%s;", e.capturedDeclarator(local), e.declareLocal(local), e.closureNames[f], e.captureField(f, local))
+	}
+	if f.Self != nil && !slices.Contains(f.Captures, f.Self) && usesLocal(f, f.Self) {
+		e.line(1, "pts_closure *%s = pts_env;", e.declareLocal(f.Self))
 	}
 }
 

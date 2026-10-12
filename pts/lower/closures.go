@@ -141,9 +141,6 @@ func isFunction(t ir.Type) bool {
 func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case flags&ast.FunctionFlagsGenerator != 0:
-		l.notSupportedYet(node, "generator functions are")
-		return nil
 	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(node, "async functions are")
 		return nil
@@ -154,7 +151,8 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 		defer func() { l.subst = outer }()
 	}
 	name := l.jsName(node)
-	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node)}
+	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node),
+		Generator: flags&ast.FunctionFlagsGenerator != 0}
 	l.funcNodes[fn] = node
 	if !l.closureSignature(fn, node) {
 		return nil
@@ -205,6 +203,7 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 	}
 	_, contextInterface := context.Result.(*ir.Interface)
 	switch {
+	case fn.Generator: // its calls make a generator object, whatever the context does with it
 	case context.Result == ir.Void:
 		fn.Result = ir.Void
 	case context.Result == ir.Number && ir.IsNumeric(fn.Result) && node.Type() == nil:
@@ -792,6 +791,8 @@ func (p *cellPass) stmts(stmts []ir.Stmt) {
 			p.declared[s.Exception] = true
 			p.stmts(s.Catch.Stmts)
 		case *ir.Throw:
+			p.expr(s.Value)
+		case *ir.Yield:
 			p.expr(s.Value)
 		}
 	}

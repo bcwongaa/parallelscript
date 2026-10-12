@@ -252,6 +252,8 @@ pts_string *pts_value_to_string(pts_value value) {
       return pts_object_to_string(object);
     case PTS_KIND_FUNCTION:
       pts_panic("TypeError", "converting a function to a string is not supported yet");
+    case PTS_KIND_GENERATOR:
+      return pts_string_from_cstr("[object Generator]");
     default:
       break;
     }

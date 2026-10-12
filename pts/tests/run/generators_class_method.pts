@@ -1,0 +1,75 @@
+// Generator methods on classes, using this.
+class Point {
+  x: number;
+  y: number;
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+class Grid {
+  width: number;
+  height: number;
+  cells: number[] = [];
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    for (let i = 0; i < width * height; i++) this.cells.push(i * 10);
+  }
+  *coords(): Generator<Point, void, unknown> {
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        yield new Point(x, y);
+      }
+    }
+  }
+  *values(): Generator<number, number, unknown> {
+    let n = 0;
+    for (const p of this.coords()) {
+      yield this.cells[p.y * this.width + p.x];
+      n++;
+    }
+    return n;
+  }
+  *row(y: number): Generator<number, void, unknown> {
+    yield* this.cells.slice(y * this.width, (y + 1) * this.width);
+  }
+}
+const grid = new Grid(2, 3);
+console.log(grid.coords().next());
+for (const p of grid.coords()) console.log(p.x, p.y);
+console.log([...grid.values()]);
+const it = grid.values();
+let r = it.next();
+while (!r.done) r = it.next();
+console.log("count", r.value);
+console.log(Array.from(grid.row(1)));
+class Counter {
+  count = 0;
+  *ticks(n: number): Generator<number, void, unknown> {
+    for (let i = 0; i < n; i++) {
+      this.count++;
+      yield this.count;
+    }
+  }
+}
+const c = new Counter();
+const t = c.ticks(3);
+console.log(t.next(), c.count);
+console.log([...t], c.count);
+console.log([...c.ticks(2)], c.count);
+// expect:
+// { value: Point { x: 0, y: 0 }, done: false }
+// 0 0
+// 1 0
+// 0 1
+// 1 1
+// 0 2
+// 1 2
+// [ 0, 10, 20, 30, 40, 50 ]
+// count 6
+// [ 20, 30 ]
+// { value: 1, done: false } 1
+// [ 2, 3 ] 3
+// [ 4, 5 ] 5

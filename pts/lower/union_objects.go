@@ -57,6 +57,13 @@ func (l *lowerer) mixedUnionRead(node *ast.Node) ir.Expr {
 func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	name := node.AsPropertyAccessExpression().Name().Text()
 	t := l.checker.GetNonNullableType(l.typeAt(node.Expression()))
+	if shape, ok := l.irType(t, node).(*ir.Class); ok && shape.Shape && shape.Field(name) != nil {
+		// A union whose members are one shape (`IteratorResult<T, T>`, D-109): its field.
+		if object := l.expression(node.Expression()); object != nil {
+			return object, shape.Field(name)
+		}
+		return nil, nil
+	}
 	members, ok := l.unionObjectMembers(t, name, node)
 	if !ok {
 		return nil, nil

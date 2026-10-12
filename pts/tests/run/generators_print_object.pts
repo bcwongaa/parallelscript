@@ -1,0 +1,48 @@
+// console.log of generator objects at various states.
+function* gen(): Generator<number, void, unknown> {
+  yield 1;
+}
+
+const g = gen();
+console.log(g);
+console.log(typeof g);
+g.next();
+console.log(g);
+g.next();
+console.log(g);
+console.log([g]);
+console.log({ gen: g });
+console.log(String(g));
+
+const expr = function* (): Generator<string, void, unknown> {
+  yield "a";
+};
+console.log(expr());
+
+class Box {
+  *items(): Generator<number, void, unknown> {
+    yield 1;
+  }
+}
+console.log(new Box().items());
+
+function outer(): Generator<number, void, unknown> {
+  function* inner(): Generator<number, void, unknown> {
+    yield 2;
+  }
+  return inner();
+}
+console.log(outer());
+console.log(typeof gen);
+// expect:
+// Object [Generator] {}
+// object
+// Object [Generator] {}
+// Object [Generator] {}
+// [ Object [Generator] {} ]
+// { gen: Object [Generator] {} }
+// [object Generator]
+// Object [Generator] {}
+// Object [Generator] {}
+// Object [Generator] {}
+// function

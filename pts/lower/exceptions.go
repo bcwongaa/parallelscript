@@ -72,21 +72,39 @@ func (l *lowerer) tryStatement(node *ast.Node) []ir.Stmt {
 		return nil
 	}
 	at := l.pos(node)
-	f := &finallyContext{label: &ir.Label{}, targets: len(l.targets), completion: l.newLocal("completion", ir.I32)}
-	l.finallies = append(l.finallies, f)
-	var protected *ir.Block
-	if statement.CatchClause == nil {
-		protected = l.block(statement.TryBlock, statement.TryBlock.Statements())
-	} else if try := l.tryCatch(node); try != nil {
-		protected = &ir.Block{At: at, Stmts: []ir.Stmt{try}}
+	protected := func() *ir.Block {
+		if statement.CatchClause == nil {
+			return l.block(statement.TryBlock, statement.TryBlock.Statements())
+		}
+		if try := l.tryCatch(node); try != nil {
+			return &ir.Block{At: at, Stmts: []ir.Stmt{try}}
+		}
+		return nil
 	}
+	finally := func() []ir.Stmt {
+		return []ir.Stmt{l.block(statement.FinallyBlock, statement.FinallyBlock.Statements())}
+	}
+	if stmts := l.withFinally(at, len(l.targets), protected, finally); stmts != nil {
+		return []ir.Stmt{&ir.Block{At: at, Stmts: stmts}}
+	}
+	return nil
+}
+
+// withFinally lowers code (protected) that finally follows however it completes, as a
+// try statement's finally block does (see above): the jumps out of it to the first
+// targets of l.targets and its returns go through finally. It returns nil if protected
+// fails, which reported why.
+func (l *lowerer) withFinally(at ir.Pos, targets int, protected func() *ir.Block, finally func() []ir.Stmt) []ir.Stmt {
+	f := &finallyContext{label: &ir.Label{}, targets: targets, completion: l.newLocal("completion", ir.I32)}
+	l.finallies = append(l.finallies, f)
+	body := protected()
 	l.finallies = l.finallies[:len(l.finallies)-1]
-	if protected == nil {
+	if body == nil {
 		return nil
 	}
 
 	thrown, exception := l.newLocal("thrown", ir.Value), l.newLocal("exception", ir.Value)
-	catchAll := &ir.Try{At: at, Body: protected, Exception: exception, Catch: &ir.Block{At: at, Stmts: []ir.Stmt{
+	catchAll := &ir.Try{At: at, Body: body, Exception: exception, Catch: &ir.Block{At: at, Stmts: []ir.Stmt{
 		f.complete(at, completionThrow),
 		&ir.ExprStmt{At: at, X: &ir.Assign{Local: thrown, Value: &ir.LocalRef{Local: exception}}},
 	}}}
@@ -98,7 +116,7 @@ func (l *lowerer) tryStatement(node *ast.Node) []ir.Stmt {
 		stmts = append(stmts, &ir.LocalDecl{At: at, Local: f.result})
 	}
 	stmts = append(stmts, &ir.LabeledBlock{At: at, Label: f.label, Body: &ir.Block{At: at, Stmts: []ir.Stmt{catchAll}}})
-	stmts = append(stmts, l.block(statement.FinallyBlock, statement.FinallyBlock.Statements()))
+	stmts = append(stmts, finally()...)
 	stmts = append(stmts, f.when(at, completionThrow, &ir.Throw{At: at, Value: &ir.LocalRef{Local: thrown}}))
 	if f.returns {
 		var value ir.Expr
@@ -111,7 +129,7 @@ func (l *lowerer) tryStatement(node *ast.Node) []ir.Stmt {
 		target := slices.IndexFunc(l.targets, func(t jumpTarget) bool { return t.label == jump.target })
 		stmts = append(stmts, f.when(jump.at, completionJumps+i, l.jumpTo(jump.at, target, jump.isContinue)...))
 	}
-	return []ir.Stmt{&ir.Block{At: at, Stmts: stmts}}
+	return stmts
 }
 
 // tryCatch lowers the try block and catch clause of a try statement. The catch clause's

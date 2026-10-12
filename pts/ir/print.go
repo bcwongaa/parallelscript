@@ -166,6 +166,8 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 		pr.out.WriteString(indent + "}\n")
 	case *Throw:
 		pr.out.WriteString("throw " + FormatExpr(s.Value) + "\n")
+	case *Yield:
+		pr.out.WriteString("yield " + FormatExpr(s.Value) + "\n")
 	case *Break:
 		pr.out.WriteString("break " + pr.label(s.Target) + "\n")
 	case *Continue:
@@ -220,6 +222,10 @@ func FormatExpr(expr Expr) string {
 		return strconv.Quote(e.Value)
 	case *UndefinedConst:
 		return "undefined"
+	case *Resumed:
+		return "resumed"
+	case *ResumedBy:
+		return fmt.Sprintf("resumed-by(%d)", e.Mode)
 	case *NullConst:
 		return "null"
 	case *GivenConst:

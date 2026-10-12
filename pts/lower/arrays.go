@@ -567,6 +567,9 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 		return l.arrayFromMap(call, it)
 	}
 	x := l.iterable(args[0])
+	if x != nil && x.Type() == ir.Value { // a generator object's values, or a dynamic value's items: an any[] (D-078, D-109)
+		x = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{x, &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
+	}
 	switch {
 	case x == nil:
 		return nil
@@ -606,6 +609,26 @@ func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
 	return &ir.FromUnion{X: x, To: t, Checked: true} // throws on null and undefined (docs/SPEC.md §3.5)
 }
 
+// forOfBinding declares the local that the variable declaration of a for…of statement
+// binds each item to: its name's, or for a pattern, a local of type elemType that the
+// destructured statements take apart. ok is false if it failed (reported).
+func (l *lowerer) forOfBinding(declaration *ast.Node, elemType ir.Type) (element *ir.Local, destructured []ir.Stmt, ok bool) {
+	name := declaration.Name()
+	if name.Kind != ast.KindIdentifier { // `for (const [k, v] of pairs)`: each element is destructured
+		element = l.newLocal("element", elemType)
+		destructured, ok = l.destructure(name, &ir.LocalRef{Local: element}, l.pos(declaration))
+		return element, destructured, ok
+	}
+	symbol := l.checker.GetSymbolAtLocation(name)
+	t := l.bindingType(symbol, name)
+	if t == nil {
+		return nil, nil, false
+	}
+	element = l.newLocal(name.Text(), t)
+	l.locals[symbol] = element
+	return element, nil, true
+}
+
 // forOfStatement lowers `for (const x of a) body` for an array a to a loop over its
 // indices: like JS's array iterator, it reads the length before each iteration, so it
 // sees elements pushed meanwhile. A string's code points come from a new array of them.
@@ -620,6 +643,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		return nil
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
+	if l.isIteratorType(l.typeAt(s.Expression)) {
+		return l.iteratorForOf(node, label, declaration)
+	}
 	if it, ok := l.mapIterableOf(s.Expression); ok {
 		if it.m == nil {
 			return nil // reported
@@ -667,22 +693,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	}
 	at := l.pos(node)
 	source, index := l.newLocal("array", iterable.Type()), l.newLocal("index", ir.Number)
-	var element *ir.Local
-	var destructured []ir.Stmt
-	if name := declaration.Name(); name.Kind == ast.KindIdentifier {
-		symbol := l.checker.GetSymbolAtLocation(name)
-		t := l.bindingType(symbol, name)
-		if t == nil {
-			return nil
-		}
-		element = l.newLocal(name.Text(), t)
-		l.locals[symbol] = element
-	} else { // `for (const [k, v] of pairs)`: each element is destructured
-		element = l.newLocal("element", elemType)
-		var ok bool
-		if destructured, ok = l.destructure(name, &ir.LocalRef{Local: element}, l.pos(declaration)); !ok {
-			return nil
-		}
+	element, destructured, ok := l.forOfBinding(declaration, elemType)
+	if !ok {
+		return nil
 	}
 	value := l.convert(elementAt(&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}), element.Type, declaration)
 	if value == nil {

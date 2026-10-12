@@ -36,6 +36,8 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 	}
 	switch {
 	case pattern.Kind != ast.KindArrayBindingPattern:
+	case value.Type() == ir.Value && l.isIteratorSource(pattern):
+		value = l.iteratorTake(pattern, value) // as many values as the pattern takes, then closed (D-109)
 	case value.Type() == ir.Value:
 		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{value, &ir.StringConst{Value: patternSource(pattern)}}} // its items (D-078)
 	case value.Type() == ir.String:

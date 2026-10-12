@@ -1,0 +1,12 @@
+// `return yield x` returns what the generator is resumed with (D-109).
+function* echo(): Generator<string, string, string> {
+  const first = yield "ready";
+  console.log("first", first);
+  return yield first.toUpperCase();
+}
+const g = echo();
+console.log(g.next("ignored"), g.next("hi"), g.next("bye"), g.next());
+
+// expect:
+// first hi
+// { value: 'ready', done: false } { value: 'HI', done: false } { value: 'bye', done: true } { value: undefined, done: true }

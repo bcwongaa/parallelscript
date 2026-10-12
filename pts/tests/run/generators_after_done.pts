@@ -1,0 +1,69 @@
+// Using a generator after it has completed.
+function* two(): Generator<number, string, unknown> {
+  yield 1;
+  yield 2;
+  return "ret";
+}
+
+const g = two();
+console.log(g.next());
+console.log(g.next());
+console.log(g.next()); // the return value is reported once
+console.log(g.next());
+console.log(g.next(5));
+console.log(g.return("after"));
+console.log(g.next());
+try {
+  g.throw(new Error("into finished"));
+} catch (e) {
+  console.log("rethrown:", (e as Error).message);
+}
+console.log(g.next());
+
+// for...of over an exhausted generator does nothing
+const h = two();
+console.log([...h]);
+let ran = false;
+for (const x of h) {
+  console.log("unexpected", x);
+  ran = true;
+}
+console.log("loop ran", ran);
+
+// a generator object can only be iterated once, even partially
+const k = two();
+for (const x of k) {
+  console.log("first loop", x);
+  break;
+}
+for (const x of k) {
+  console.log("second loop", x);
+}
+console.log(k.next());
+
+// return() on a fresh generator finishes it without running the body
+function* noisy(): Generator<string, void, unknown> {
+  console.log("body ran");
+  yield "x";
+}
+const n = noisy();
+console.log(n.return(undefined));
+console.log(n.next());
+console.log([...n]);
+// expect:
+// { value: 1, done: false }
+// { value: 2, done: false }
+// { value: 'ret', done: true }
+// { value: undefined, done: true }
+// { value: undefined, done: true }
+// { value: 'after', done: true }
+// { value: undefined, done: true }
+// rethrown: into finished
+// { value: undefined, done: true }
+// [ 1, 2 ]
+// loop ran false
+// first loop 1
+// { value: undefined, done: true }
+// { value: undefined, done: true }
+// { value: undefined, done: true }
+// []

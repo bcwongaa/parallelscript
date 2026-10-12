@@ -1,0 +1,80 @@
+// yield* delegation to generators, arrays and strings; yield* result values.
+function* inner(tag: string): Generator<string, number, unknown> {
+  yield tag + "-1";
+  yield tag + "-2";
+  return tag.length;
+}
+
+function* outer(): Generator<string, string, unknown> {
+  yield "start";
+  const n = yield* inner("abc");
+  console.log("inner returned", n);
+  let m = 0;
+  m = yield* inner("z");
+  console.log("second inner returned", m);
+  yield* ["x", "y"];
+  yield* "hi";
+  return "outer done";
+}
+
+const g = outer();
+let r = g.next();
+while (!r.done) {
+  console.log(r.value);
+  r = g.next();
+}
+console.log("final", r.value);
+
+// nested delegation over numbers
+function* range(lo: number, hi: number): Generator<number, void, unknown> {
+  for (let i = lo; i < hi; i++) yield i;
+}
+function* ranges(): Generator<number, void, unknown> {
+  yield* range(0, 2);
+  yield* range(10, 12);
+  yield* [100];
+  yield* range(5, 5);
+}
+console.log([...ranges()]);
+
+// delegation forwards next(v) to the inner generator
+function* collector(): Generator<string, string[], string> {
+  const got: string[] = [];
+  let v = yield "give";
+  while (v !== "stop") {
+    got.push(v);
+    v = yield "more";
+  }
+  return got;
+}
+function* wrapper(): Generator<string, void, string> {
+  const items = yield* collector();
+  console.log("collected", items);
+  yield "wrapper end";
+}
+const w = wrapper();
+console.log(w.next("ignored"));
+console.log(w.next("a"));
+console.log(w.next("b"));
+console.log(w.next("stop"));
+console.log(w.next("after"));
+// expect:
+// start
+// abc-1
+// abc-2
+// inner returned 3
+// z-1
+// z-2
+// second inner returned 1
+// x
+// y
+// h
+// i
+// final outer done
+// [ 0, 1, 10, 11, 100 ]
+// { value: 'give', done: false }
+// { value: 'more', done: false }
+// { value: 'more', done: false }
+// collected [ 'a', 'b' ]
+// { value: 'wrapper end', done: false }
+// { value: undefined, done: true }

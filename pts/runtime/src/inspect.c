@@ -298,6 +298,9 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     text_add(out, text->bytes, text->byte_len);
     return;
   }
+  case PTS_KIND_GENERATOR:
+    text_printf(out, "Object [%s] {}", object->type->name);
+    return;
   }
 }
 

@@ -1,0 +1,68 @@
+// Sending values into a generator with next(v).
+function* accumulator(): Generator<number, string, number> {
+  let total = 0;
+  let input = yield total;
+  while (input !== 0) {
+    total += input;
+    input = yield total;
+  }
+  return "total=" + total;
+}
+
+const acc = accumulator();
+console.log(acc.next(999)); // the first next() argument is ignored
+console.log(acc.next(5));
+console.log(acc.next(10));
+console.log(acc.next(-3));
+console.log(acc.next(0));
+console.log(acc.next(7));
+
+function* echo(): Generator<string, void, string | undefined> {
+  const a = yield "first";
+  console.log("received a:", a);
+  const b = yield "second";
+  console.log("received b:", b);
+  let c: string | undefined = "init";
+  c = yield "third";
+  console.log("received c:", c);
+}
+
+const e = echo();
+console.log(e.next("ignored").value);
+console.log(e.next("hello").value);
+console.log(e.next().value);
+console.log(e.next("bye"));
+
+function* averager(): Generator<{ count: number; avg: number }, void, number> {
+  let sum = 0;
+  let count = 0;
+  while (true) {
+    const x = yield { count: count, avg: count === 0 ? 0 : sum / count };
+    sum += x;
+    count++;
+  }
+}
+
+const av = averager();
+console.log(av.next());
+console.log(av.next(10).value);
+console.log(av.next(20).value);
+console.log(av.next(0).value);
+// expect:
+// { value: 0, done: false }
+// { value: 5, done: false }
+// { value: 15, done: false }
+// { value: 12, done: false }
+// { value: 'total=12', done: true }
+// { value: undefined, done: true }
+// first
+// received a: hello
+// second
+// received b: undefined
+// third
+// received c: bye
+// { value: undefined, done: true }
+// { value: { count: 0, avg: 0 }, done: false }
+// { count: 1, avg: 10 }
+// { count: 2, avg: 15 }
+// { count: 3, avg: 10 }

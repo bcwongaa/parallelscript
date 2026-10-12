@@ -1,0 +1,76 @@
+// A generator that throws: the error escapes next(), then the generator is done.
+function* faulty(limit: number): Generator<number, void, unknown> {
+  for (let i = 0; i < 10; i++) {
+    if (i === limit) throw new Error("limit " + limit + " reached");
+    yield i;
+  }
+}
+
+const g = faulty(2);
+console.log(g.next());
+console.log(g.next());
+try {
+  g.next();
+  console.log("not reached");
+} catch (e) {
+  console.log("caught:", (e as Error).message);
+}
+console.log(g.next());
+
+const seen: number[] = [];
+try {
+  for (const x of faulty(3)) seen.push(x);
+} catch (e) {
+  console.log("loop error:", (e as Error).message, seen);
+}
+// the generator's own finally runs before the error escapes
+function* withCleanup(): Generator<string, void, unknown> {
+  try {
+    yield "ok";
+    throw new TypeError("bad state");
+  } finally {
+    console.log("cleanup ran");
+  }
+}
+const w = withCleanup();
+console.log(w.next());
+try {
+  w.next();
+} catch (e) {
+  console.log("is TypeError:", e instanceof TypeError, (e as Error).message);
+}
+console.log(w.next());
+// an error thrown by the consumer's loop body closes the generator
+try {
+  for (const s of withCleanup()) throw new Error("consumer failed on " + s);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+// an error before the first yield surfaces on the first next(), not on the call
+function* eager(): Generator<number, void, unknown> {
+  throw new Error("thrown at start");
+}
+const e = eager();
+console.log("created without error");
+try {
+  e.next();
+} catch (err) {
+  console.log("first next:", (err as Error).message);
+}
+console.log(e.next());
+// expect:
+// { value: 0, done: false }
+// { value: 1, done: false }
+// caught: limit 2 reached
+// { value: undefined, done: true }
+// loop error: limit 3 reached [ 0, 1, 2 ]
+// { value: 'ok', done: false }
+// cleanup ran
+// is TypeError: true bad state
+// { value: undefined, done: true }
+// cleanup ran
+// consumer failed on ok
+// created without error
+// first next: thrown at start
+// { value: undefined, done: true }

@@ -1,0 +1,66 @@
+// Infinite generators consumed with break, continue, return and manual next().
+function* naturals(): Generator<number, void, unknown> {
+  let n = 0;
+  while (true) {
+    yield n;
+    n++;
+  }
+}
+
+function* fib(): Generator<number, void, unknown> {
+  let a = 0;
+  let b = 1;
+  for (;;) {
+    yield a;
+    const t = a + b;
+    a = b;
+    b = t;
+  }
+}
+
+const firstFive: number[] = [];
+for (const n of naturals()) {
+  if (n >= 5) break;
+  firstFive.push(n);
+}
+console.log(firstFive);
+
+let count = 0;
+for (const f of fib()) {
+  if (f % 2 === 1) continue;
+  console.log("even fib", f);
+  count++;
+  if (count === 4) break;
+}
+
+function firstOver(limit: number): number {
+  for (const f of fib()) {
+    if (f > limit) return f;
+  }
+  return -1;
+}
+console.log(firstOver(100));
+console.log(firstOver(1000));
+
+const g = naturals();
+let sum = 0;
+for (let i = 0; i < 10; i++) {
+  const r = g.next();
+  if (!r.done) sum += r.value;
+}
+console.log("sum", sum);
+console.log(g.next());
+console.log(g.return(undefined));
+console.log(g.next());
+// expect:
+// [ 0, 1, 2, 3, 4 ]
+// even fib 0
+// even fib 2
+// even fib 8
+// even fib 34
+// 144
+// 1597
+// sum 45
+// { value: 10, done: false }
+// { value: undefined, done: true }
+// { value: undefined, done: true }

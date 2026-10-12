@@ -1,0 +1,78 @@
+// Lazy pipelines: map, filter and take as generators over generators.
+function* naturals(): Generator<number, void, unknown> {
+  let n = 1;
+  while (true) {
+    yield n;
+    n++;
+  }
+}
+
+function* map<T, U>(src: Generator<T, void, unknown>, f: (x: T) => U): Generator<U, void, unknown> {
+  for (const x of src) yield f(x);
+}
+
+function* filter<T>(src: Generator<T, void, unknown>, pred: (x: T) => boolean): Generator<T, void, unknown> {
+  for (const x of src) {
+    if (pred(x)) yield x;
+  }
+}
+
+function* take<T>(src: Generator<T, void, unknown>, n: number): Generator<T, void, unknown> {
+  if (n <= 0) return;
+  let i = 0;
+  for (const x of src) {
+    yield x;
+    i++;
+    if (i >= n) return;
+  }
+}
+
+function* traced(name: string, src: Generator<number, void, unknown>): Generator<number, void, unknown> {
+  try {
+    for (const x of src) {
+      console.log(name, "passes", x);
+      yield x;
+    }
+  } finally {
+    console.log(name, "closed");
+  }
+}
+
+function sum(src: Generator<number, void, unknown>): number {
+  let s = 0;
+  for (const x of src) s += x;
+  return s;
+}
+
+const squares = map(naturals(), (x: number) => x * x);
+const evens = filter(squares, (x: number) => x % 2 === 0);
+console.log([...take(evens, 4)]);
+
+const lazy = take(traced("B", filter(traced("A", naturals()), (x: number) => x % 3 === 0)), 2);
+console.log("nothing pulled yet");
+console.log(Array.from(lazy));
+
+const words = map(take(naturals(), 3), (n: number) => "w" + n);
+for (const w of words) console.log(w);
+
+console.log(sum(take(map(naturals(), (x: number) => x * 2), 5)));
+console.log([...take(naturals(), 0)]);
+// expect:
+// [ 4, 16, 36, 64 ]
+// nothing pulled yet
+// A passes 1
+// A passes 2
+// A passes 3
+// B passes 3
+// A passes 4
+// A passes 5
+// A passes 6
+// B passes 6
+// A closed
+// B closed
+// [ 3, 6 ]
+// w1
+// w2
+// w3
+// 30
+// []

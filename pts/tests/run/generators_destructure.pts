@@ -1,0 +1,64 @@
+// Array destructuring from generators (closes the generator when not exhausted).
+function* letters(): Generator<string, void, unknown> {
+  console.log("letters start");
+  try {
+    yield "a";
+    yield "b";
+    yield "c";
+    yield "d";
+  } finally {
+    console.log("letters closed");
+  }
+}
+
+const [a, b] = letters();
+console.log(a, b);
+
+const [first, , third] = letters();
+console.log(first, third);
+
+const [p, ...rest] = letters();
+console.log(p, rest);
+
+function* short(): Generator<number, void, unknown> {
+  yield 1;
+}
+const [x, y = -1, z = -2] = short();
+console.log(x, y, z);
+
+const [m = 10, n = 20] = short();
+console.log(m, n);
+
+function* pairs(): Generator<[string, number], void, unknown> {
+  yield ["one", 1];
+  yield ["two", 2];
+}
+for (const [name, value] of pairs()) console.log(name, value);
+const [[k1, v1], [k2, v2]] = pairs();
+console.log(k1, v1, k2, v2);
+
+function* people(): Generator<{ name: string; age: number }, void, unknown> {
+  yield { name: "Ann", age: 31 };
+  yield { name: "Bob", age: 27 };
+}
+for (const { name, age } of people()) console.log(name + " is " + age);
+const [firstPerson] = people();
+console.log(firstPerson);
+// expect:
+// letters start
+// letters closed
+// a b
+// letters start
+// letters closed
+// a c
+// letters start
+// letters closed
+// a [ 'b', 'c', 'd' ]
+// 1 -1 -2
+// 1 20
+// one 1
+// two 2
+// one 1 two 2
+// Ann is 31
+// Bob is 27
+// { name: 'Ann', age: 31 }

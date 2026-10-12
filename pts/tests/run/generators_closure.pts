@@ -1,0 +1,75 @@
+// Generators closing over outer state; nested and expression generators.
+let created = 0;
+
+function makeCounter(start: number, step: number): () => Generator<number, void, unknown> {
+  let current = start;
+  created++;
+  function* next3(): Generator<number, void, unknown> {
+    for (let i = 0; i < 3; i++) {
+      yield current;
+      current += step;
+    }
+  }
+  return next3;
+}
+
+const c = makeCounter(10, 5);
+console.log([...c()]);
+console.log([...c()]); // continues from the shared captured state
+const d = makeCounter(0, -1);
+console.log([...d()], "created", created);
+
+const log: string[] = [];
+const record = function* (items: string[]): Generator<string, number, unknown> {
+  for (const item of items) {
+    log.push("yield " + item);
+    yield item.toUpperCase();
+  }
+  return items.length;
+};
+const g = record(["a", "b"]);
+console.log(g.next());
+console.log(log);
+console.log(g.next());
+console.log(g.next());
+console.log(log);
+
+// the body runs lazily, so it sees mutations made after the call
+function scaled(values: number[]): Generator<number, void, unknown> {
+  let factor = 1;
+  const gen = function* (): Generator<number, void, unknown> {
+    for (const v of values) yield v * factor;
+  };
+  const result = gen();
+  factor = 100;
+  return result;
+}
+console.log(Array.from(scaled([1, 2, 3])));
+
+// the consumer changes captured state while the generator is suspended
+let limit = 2;
+function* upTo(): Generator<number, void, unknown> {
+  let i = 0;
+  while (i < limit) {
+    yield i;
+    i++;
+  }
+}
+for (const v of upTo()) {
+  console.log("upTo", v);
+  if (v === 1) limit = 4;
+}
+// expect:
+// [ 10, 15, 20 ]
+// [ 25, 30, 35 ]
+// [ 0, -1, -2 ] created 2
+// { value: 'A', done: false }
+// [ 'yield a' ]
+// { value: 'B', done: false }
+// { value: 2, done: true }
+// [ 'yield a', 'yield b' ]
+// [ 100, 200, 300 ]
+// upTo 0
+// upTo 1
+// upTo 2
+// upTo 3

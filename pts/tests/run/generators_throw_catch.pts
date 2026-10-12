@@ -1,0 +1,79 @@
+// throw() into a generator: caught inside, uncaught, before start.
+function* resilient(): Generator<string, string, unknown> {
+  let errors = 0;
+  while (errors < 2) {
+    try {
+      yield "waiting " + errors;
+    } catch (e) {
+      errors++;
+      console.log("caught:", (e as Error).message);
+    }
+  }
+  return "gave up after " + errors;
+}
+const r = resilient();
+console.log(r.next());
+console.log(r.throw(new Error("first")));
+console.log(r.next());
+console.log(r.throw(new TypeError("second")));
+console.log(r.next());
+// no catch: the error propagates out of throw(), finally runs first
+function* fragile(): Generator<number, void, unknown> {
+  try {
+    yield 1;
+    yield 2;
+  } finally {
+    console.log("fragile finally");
+  }
+}
+const f = fragile();
+console.log(f.next());
+try {
+  f.throw(new Error("boom"));
+} catch (e) {
+  console.log("outer caught:", (e as Error).message);
+}
+console.log(f.next());
+
+// throw() before the generator started: its catch cannot run
+const s = resilient();
+try {
+  s.throw(new Error("too early"));
+} catch (e) {
+  console.log("outer caught:", (e as Error).message);
+}
+console.log(s.next());
+
+// catch, then keep yielding
+function* recover(): Generator<string, void, unknown> {
+  try {
+    yield "a";
+    yield "b";
+  } catch (e) {
+    yield "recovered from " + (e as Error).message;
+  }
+  yield "c";
+}
+const g = recover();
+console.log(g.next().value);
+console.log(g.throw(new Error("x")).value);
+console.log(g.next().value);
+console.log(g.next());
+// expect:
+// { value: 'waiting 0', done: false }
+// caught: first
+// { value: 'waiting 1', done: false }
+// { value: 'waiting 1', done: false }
+// caught: second
+// { value: 'gave up after 2', done: true }
+// { value: undefined, done: true }
+// { value: 1, done: false }
+// fragile finally
+// outer caught: boom
+// { value: undefined, done: true }
+// outer caught: too early
+// { value: undefined, done: true }
+// a
+// recovered from x
+// c
+// { value: undefined, done: true }

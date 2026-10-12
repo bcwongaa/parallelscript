@@ -1211,6 +1211,8 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
       }
       return pts_value_from_object(items);
     }
+    case PTS_KIND_GENERATOR:
+      return pts_value_from_object(pts_iterator_to_array(value)); /* what it yields until it is done */
     default:
       break;
     }
