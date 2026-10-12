@@ -1,6 +1,7 @@
-// Package tests runs the ParallelScript test corpus: programs under run/ must build
-// and print what they expect (and what Node prints, for plain TypeScript), and
-// programs under errors/ must fail to compile with the errors they name.
+// Package tests runs the ParallelScript test corpus: programs under run/ (and the docs'
+// samples, docs/examples/) must build and print what they expect (and what Node
+// prints, for plain TypeScript), and programs under errors/ must fail to compile with
+// the errors they name.
 package tests
 
 import (
@@ -26,7 +27,8 @@ import (
 )
 
 const (
-	maxHeavyJobs   = 6 // the host runs other services (CLAUDE.md)
+	docExamples    = "../../docs/examples" // the docs' samples, which run as run tests do
+	maxHeavyJobs   = 6                     // the host runs other services (CLAUDE.md)
 	programTimeout = 30 * time.Second
 	// requireNodeVar makes a missing Node a failure instead of a skip; CI sets it.
 	requireNodeVar = "PTS_REQUIRE_NODE"
@@ -56,7 +58,7 @@ type runResult struct {
 
 func TestRun(t *testing.T) {
 	t.Parallel()
-	for _, path := range testFiles(t, "run") {
+	for _, path := range runTestFiles(t) {
 		t.Run(testName(path), func(t *testing.T) {
 			t.Parallel()
 			spec := ensureSpec(t, path)
@@ -90,12 +92,17 @@ func assertRunAsExpected(t *testing.T, spec testSpec, got runResult) {
 func TestRunMatchesNode(t *testing.T) {
 	t.Parallel()
 	node := findNode(t)
-	for _, path := range testFiles(t, "run") {
+	for _, path := range runTestFiles(t) {
 		t.Run(testName(path), func(t *testing.T) {
 			t.Parallel()
 			assertMatchesNode(t, node, path)
 		})
 	}
+}
+
+// runTestFiles are the programs that run as tests: run/*.pts and the docs' samples.
+func runTestFiles(t *testing.T) []string {
+	return append(testFiles(t, "run"), testFiles(t, docExamples)...)
 }
 
 // TestCorpusMatchesNode is the differential test over the corpus of realistic
@@ -159,7 +166,11 @@ func testFiles(t *testing.T, dir string) []string {
 }
 
 func testName(path string) string {
-	return strings.TrimSuffix(filepath.Base(path), ".pts")
+	name := strings.TrimSuffix(filepath.Base(path), ".pts")
+	if filepath.Base(filepath.Dir(path)) == "examples" {
+		return "docs/" + name // a doc's sample, named apart from run/'s tests
+	}
+	return name
 }
 
 // testModules reads the sources of the program a test builds: the test file and, for a
@@ -227,7 +238,7 @@ func runPts(t *testing.T, path string, env ...string) runResult {
 	build.once.Do(func() {
 		heavyJobs <- struct{}{}
 		defer func() { <-heavyJobs }()
-		build.exe = filepath.Join(buildDir, filepath.Base(filepath.Dir(path))+"_"+testName(path)) // corpus themes reuse names
+		build.exe = filepath.Join(buildDir, filepath.Base(filepath.Dir(path))+"_"+filepath.Base(path)) // corpus themes reuse names
 		build.err = driver.Build(context.Background(), path, build.exe)
 	})
 	assert.NilError(t, build.err)

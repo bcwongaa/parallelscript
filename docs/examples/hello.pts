@@ -1,0 +1,5 @@
+// The README's first program.
+console.log("Hello, ParallelScript");
+
+// expect:
+// Hello, ParallelScript
