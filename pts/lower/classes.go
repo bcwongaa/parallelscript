@@ -799,7 +799,8 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 		return l.newPromise(node)
 	}
 	class, ok := l.classes[l.target(node.Expression())]
-	if _, isGeneric := l.genericClasses[l.target(node.Expression())]; isGeneric {
+	_, isGeneric := l.genericClasses[l.target(node.Expression())]
+	if isGeneric {
 		class, ok = l.genericClassReference(node), true
 	}
 	switch {
@@ -813,7 +814,24 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 	if args == nil {
 		return nil
 	}
-	return &ir.New{Class: class, Args: args}
+	if isGeneric || class.Module == nil {
+		return &ir.New{Class: class, Args: args} // an instance of a generic class, or a builtin class: no declaration of its own
+	}
+	return &ir.New{Class: class, Args: args, Ready: l.readyBinding(class)}
+}
+
+// readyBinding is the module-scope binding that a class's declaration sets once its static
+// members are initialized, whose ready flag `new` checks where the declaration may not
+// have run (D-141): a function called before it, or a module of an import cycle.
+func (l *lowerer) readyBinding(class *ir.Class) *ir.Local {
+	if ready, ok := l.classReady[class]; ok {
+		return ready
+	}
+	ready := &ir.Local{Name: class.Name + ".class", Type: ir.Bool, Global: true} // reported as the class's name
+	l.owners[ready] = class.Module.Init
+	l.moduleScope[ready] = true
+	l.classReady[class] = ready
+	return ready
 }
 
 // superCallStatement lowers the statement `super(args);` in a subclass's constructor:

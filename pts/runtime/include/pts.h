@@ -2016,6 +2016,25 @@ _Noreturn void pts_unreachable(void);
 /* A function's use of a module-scope binding before its declaration has run: JS's ReferenceError. */
 _Noreturn void pts_throw_uninitialized(const char *name);
 
+/*
+ * A class's field of an object type that the constructor hasn't set yet is NULL (D-141),
+ * which JS sees as undefined: using it as an object throws TypeError, Node's
+ * "Cannot read properties of undefined (reading 'member')" if member isn't NULL.
+ */
+_Noreturn void pts_throw_unset_field(const char *field, const char *member);
+
+static inline void *pts_check_field_set(void *object, const char *field, const char *member) {
+  if (__builtin_expect(object == NULL, 0)) {
+    pts_throw_unset_field(field, member);
+  }
+  return object;
+}
+
+/* A field of an object type as a dynamic value: undefined while it is unset (D-141). */
+static inline pts_value pts_value_from_unset_object(const void *object) {
+  return object == NULL ? PTS_VALUE_UNDEFINED : (pts_value)(uintptr_t)object;
+}
+
 static inline void pts_check_ready(bool ready, const char *name) {
   if (!ready) {
     pts_throw_uninitialized(name);

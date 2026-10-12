@@ -788,9 +788,12 @@ type Bind struct {
 }
 
 // New makes an instance of Class with every field zero and runs its constructor with Args.
+// Ready, if set, is the module-scope binding the class's declaration sets: where the
+// declaration may not have run yet, New first checks that it has (D-141).
 type New struct {
 	Class *Class
 	Args  []Expr
+	Ready *Local
 }
 
 // NewObject makes an object of a shape from an object literal: Values are the

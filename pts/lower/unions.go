@@ -290,6 +290,8 @@ func (l *lowerer) nullishTest(op ir.BinaryOp, operand *ast.Node, matches ir.Type
 	switch t := x.Type(); {
 	case isUnion(t) || t == ir.Value:
 		test = &ir.IsNullish{X: x, Only: matches}
+	case (isObject(t) || isFunction(t) || isMap(t)) && matches != ir.Null:
+		test = &ir.Unary{Op: ir.Not, X: &ir.Truthy{X: x}} // undefined only while a class's field is unset (D-141)
 	default:
 		nullish := t == ir.Null || t == ir.Undefined
 		test = discard(x, &ir.BoolConst{Value: nullish && (matches == nil || matches == t)})
@@ -340,6 +342,8 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 			return nil
 		}
 		return discard(x, y)
+	case isObject(t) || isFunction(t) || isMap(t):
+		return l.unsetFieldFallback(x, expr.Right)
 	case !isDynamic(t):
 		return x // never null or undefined, so y is never evaluated
 	}
@@ -411,10 +415,10 @@ func truthOf(x ir.Expr) ir.Expr {
 		return x
 	case t == ir.Null || t == ir.Undefined:
 		return &ir.BoolConst{Value: false}
-	case ir.IsNumeric(t) || t == ir.String || t == ir.Value || isUnion(t):
-		return &ir.Truthy{X: x}
+	case ir.IsNumeric(t) || t == ir.String || t == ir.Value || isUnion(t), isObject(t) || isFunction(t) || isMap(t):
+		return &ir.Truthy{X: x} // an object is true but for a class's field the constructor hasn't set yet (D-141)
 	}
-	return &ir.BoolConst{Value: true} // an object or function, never null
+	return &ir.BoolConst{Value: true}
 }
 
 // involvesUnion reports whether `left || right` or `left && right` (node) has a union
@@ -517,6 +521,16 @@ func (l *lowerer) withoutUndefined(u *ir.Union) ir.Type {
 // is null or undefined, else x = value, which is evaluated only then.
 func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
 	current, t := target.read(), target.valueType()
+	if isObject(t) || isFunction(t) || isMap(t) { // never null or undefined but for an unset class field (D-141)
+		value := l.expression(valueNode)
+		if value == nil {
+			return nil
+		}
+		if value = l.convert(value, t, valueNode); value == nil {
+			return nil
+		}
+		return &ir.Conditional{Cond: &ir.Truthy{X: current}, Then: current, Else: target.store(value, false)}
+	}
 	if !isUnion(t) && t != ir.Null && t != ir.Undefined {
 		return current // never null or undefined
 	}
@@ -531,6 +545,25 @@ func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
 		return target.store(value, false)
 	}
 	return &ir.Conditional{Cond: &ir.IsNullish{X: current}, Then: target.store(value, false), Else: current}
+}
+
+// unsetFieldFallback lowers `x ?? y` for x of an object type, which is never null or
+// undefined but for a class's field the constructor hasn't set (D-141): for a field of a
+// local's object (`this.cache ?? new Map()`), y stands in for it while it is unset, if y
+// has its type. Otherwise y is never evaluated, as before.
+func (l *lowerer) unsetFieldFallback(x ir.Expr, right *ast.Node) ir.Expr {
+	field, ok := x.(*ir.FieldRef)
+	if !ok || !isPure(field.X) || !l.checker.IsTypeAssignableTo(l.typeAt(right), l.typeAt(right.Parent.AsBinaryExpression().Left)) {
+		return x
+	}
+	y := l.expression(right)
+	if y == nil {
+		return nil
+	}
+	if y = l.convert(y, x.Type(), right); y == nil {
+		return nil
+	}
+	return &ir.Conditional{Cond: &ir.Truthy{X: x}, Then: &ir.FieldRef{X: field.X, Field: field.Field}, Else: y}
 }
 
 // takesUnion reports whether a parameter of type param takes values of the union u as

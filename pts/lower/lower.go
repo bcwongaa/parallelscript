@@ -151,7 +151,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
-		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}}
+		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{}}
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	l.collectOutsideAssignments(program.Modules)
@@ -328,6 +328,7 @@ type lowerer struct {
 	intrinsics          map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
 	globalBindings      map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
 	assignedOutside     map[*ast.Symbol]bool        // variables a function other than their own assigns, whose narrowed reads are checked (D-140)
+	classReady          map[*ir.Class]*ir.Local     // the binding each class's declaration sets, which `new` checks (D-141)
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -412,7 +413,7 @@ func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 		if class, ok := l.classes[l.declaredSymbol(node)]; ok {
 			l.bodies = append(l.bodies, node) // its constructor and methods
 			if class != nil {
-				return l.staticInitializers(node, class)
+				return append(l.staticInitializers(node, class), &ir.LocalDecl{At: l.pos(node), Local: l.readyBinding(class), Init: &ir.BoolConst{Value: true}})
 			}
 		} else {
 			l.notSupportedYet(node, "classes inside functions or blocks are")
@@ -3251,7 +3252,7 @@ func (l *lowerer) condition(node *ast.Node) ir.Expr {
 	case ir.IsNumeric(t) || t == ir.String || t == ir.Value || isUnion(t):
 		return &ir.Truthy{X: x}
 	case isObject(t) || isFunction(t) || isMap(t):
-		return discard(x, &ir.BoolConst{Value: true}) // an object or function, never null
+		return &ir.Truthy{X: x} // true but for a class's field the constructor hasn't set yet (D-141)
 	}
 	l.notSupportedYet(node, fmt.Sprintf("testing a %s for truth is", x.Type()))
 	return nil

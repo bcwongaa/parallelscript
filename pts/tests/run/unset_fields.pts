@@ -1,0 +1,95 @@
+// Fields of object types read before the constructor sets them (D-141): such a field is
+// undefined, as in JS. Lazy initialization works, and using one as an object throws
+// Node's TypeError where the program crashed.
+class Inner {
+  x = 5;
+  hello(): string {
+    return "hi";
+  }
+}
+
+class Outer {
+  inner: Inner;
+  constructor() {
+    this.show();
+    this.inner = new Inner();
+  }
+  show(): void {
+    try {
+      console.log(this.inner.x);
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+    try {
+      console.log(this.inner.hello());
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+    console.log(String(this.inner), this.inner === undefined, this.inner == null, this.inner === null);
+  }
+}
+new Outer().show();
+
+// A base constructor calling an override that reads a field the subclass hasn't set yet.
+class Base {
+  constructor() {
+    this.describe();
+  }
+  describe(): void {}
+}
+class Derived extends Base {
+  tag: Inner = new Inner();
+  describe(): void {
+    try {
+      console.log(this.tag.x);
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+  }
+}
+new Derived().describe();
+
+// Lazy initialization of a field declared with `!`.
+class Lazy {
+  inner!: Inner;
+  cache!: Map<string, number>;
+  other!: Inner;
+  get value(): number {
+    if (!this.inner) {
+      this.inner = new Inner();
+    }
+    return this.inner.x;
+  }
+  count(key: string): number {
+    this.cache ??= new Map();
+    this.cache.set(key, (this.cache.get(key) ?? 0) + 1);
+    return this.cache.get(key) ?? 0;
+  }
+  same(other: Inner): boolean {
+    return this.inner === other;
+  }
+  either(): Inner {
+    return this.other ?? new Inner();
+  }
+}
+const lazy = new Lazy();
+console.log(lazy.same(new Inner()), lazy.value, lazy.value, lazy.either().x);
+console.log(lazy.count("a"), lazy.count("a"), lazy.count("b"));
+console.log(lazy);
+
+// expect:
+// TypeError Cannot read properties of undefined (reading 'x')
+// TypeError Cannot read properties of undefined (reading 'hello')
+// undefined true true false
+// 5
+// hi
+// [object Object] false false false
+// TypeError Cannot read properties of undefined (reading 'x')
+// 5
+// false 5 5 5
+// 1 2 1
+// Lazy {
+//   inner: Inner { x: 5 },
+//   cache: Map(2) { 'a' => 2, 'b' => 1 },
+//   other: undefined
+// }

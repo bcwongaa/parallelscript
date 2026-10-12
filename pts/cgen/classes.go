@@ -643,6 +643,38 @@ func fieldKind(t ir.Type) string {
 	return fieldKinds[t]
 }
 
+// mayBeUnset reports whether a read of a field may find it unset, NULL: a field of an
+// object type of a class's instance stays NULL until its initializer or the constructor
+// sets it, which a method the constructor calls can read first; a shape's fields are set
+// when it is made (D-141).
+func mayBeUnset(x *ir.FieldRef) bool {
+	if x.Raw || x.Field.Optional || !isObject(x.Field.Type) {
+		return false
+	}
+	switch t := x.X.Type().(type) {
+	case *ir.Class:
+		return !t.Shape
+	case *ir.Interface:
+		return true // it may refer to a class's instance
+	}
+	return false
+}
+
+// checkedFieldRead writes a read of a field that throws TypeError if the field is unset
+// (mayBeUnset), naming the member read from it when it is a receiver, as Node does; where
+// its use sees an unset field as undefined (a test of truth, boxing), the read is plain.
+func (e *emitter) checkedFieldRead(x *ir.FieldRef) string {
+	read := e.fieldRead(e.expr(x.X), x.X.Type(), x.Field)
+	if !mayBeUnset(x) || e.unsetAllowed[x] {
+		return read
+	}
+	member := "NULL"
+	if name, ok := e.receiverMembers[x]; ok {
+		member = cString(name)
+	}
+	return fmt.Sprintf("((%s)pts_check_field_set(%s, %s, %s))", strings.TrimSuffix(e.declarator(x.Field.Type), " "), read, cString(x.Field.Name), member)
+}
+
 // isObject reports whether t is the type of a reference to an object: a class (or
 // shape), an interface, an array or a function (a closure).
 func isObject(t ir.Type) bool {
@@ -655,10 +687,16 @@ func isObject(t ir.Type) bool {
 
 // newInstance writes `new C(args)`: the arguments, then a zeroed instance, then the constructor.
 func (e *emitter) newInstance(n *ir.New) string {
+	ready := ""
+	if n.Ready != nil {
+		if check := e.readyCheck(n.Ready); check != "" {
+			ready = check + "; " // before the arguments, as JS evaluates the class first
+		}
+	}
 	args, prelude := e.operands(n.Args)
 	instance := e.temporary()
-	return fmt.Sprintf("({ %s%s%s = pts_object_new(%s); %s(%s); %s; })",
-		prelude, e.declarator(n.Class), instance, e.descriptor(n.Class), e.funcNames[n.Class.Constructor], strings.Join(append([]string{instance}, args...), ", "), instance)
+	return fmt.Sprintf("({ %s%s%s%s = pts_object_new(%s); %s(%s); %s; })",
+		ready, prelude, e.declarator(n.Class), instance, e.descriptor(n.Class), e.funcNames[n.Class.Constructor], strings.Join(append([]string{instance}, args...), ", "), instance)
 }
 
 // fieldRef writes a field of object, a reference of type t: an instance of a class, or

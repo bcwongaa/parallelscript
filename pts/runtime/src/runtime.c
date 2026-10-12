@@ -94,3 +94,10 @@ void pts_unreachable(void) { pts_panic("Error", "internal compiler error: a func
 void pts_throw_uninitialized(const char *name) {
   pts_throw_new(&pts_type_builtin_ReferenceError, "Cannot access '%s' before initialization", name);
 }
+
+void pts_throw_unset_field(const char *field, const char *member) {
+  if (member != NULL) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot read properties of undefined (reading '%s')", member);
+  }
+  pts_throw_new(&pts_type_builtin_TypeError, "The field '%s' is undefined: it is read before the constructor sets it", field);
+}

@@ -500,6 +500,7 @@ console.log(p.label);
 	// Initialisers start the constructor; an instance with effects is evaluated once.
 	assert.Equal(t, got, `class Point { x: number; label: string }
 func main() void {
+  1: global Point.class: boolean = true
   8: let p: Point = new Point(1)
   9: (p.x = (p.x + Point.twice(p)))
   10: (let object = make() in old(object.x = (object.x + 1)))
@@ -546,6 +547,10 @@ class Square extends Shape { side: number; virtual area }
 class Cube extends Square { virtual area }
 class Tile extends Square {  }
 func main() void {
+  1: global Shape.class: boolean = true
+  5: global Square.class: boolean = true
+  9: global Cube.class: boolean = true
+  12: global Tile.class: boolean = true
 }
 func Shape.constructor(this: Shape) void {
 }
@@ -599,6 +604,8 @@ function rename(named: Named, person: Person): string {
 	assert.Equal(t, got, `abstract class Named { id: number; virtual get name; virtual set name }
 class Person extends Named { name: string; virtual get name; virtual set name; get upper; set upper }
 func main() void {
+  1: global Named.class: boolean = true
+  5: global Person.class: boolean = true
 }
 func Person.get_name(this: Person) string {
   6: return this.name
@@ -646,6 +653,7 @@ func main() void {
   4: {
     4: (Ids.next = (Ids.next * 10))
   }
+  2: global Ids.class: boolean = true
   9: console.log(box(Ids.take()))
 }
 func Ids.constructor(this: Ids) void {
@@ -721,6 +729,7 @@ console.log(grow(new Square(2)));
 	// interface go to whatever the object's class has.
 	assert.Equal(t, got, `class Square { side: number; get name }
 func main() void {
+  2: global Square.class: boolean = true
   12: console.log(box(grow((new Square(2) as {name: string; area(): number; scale(number): void}))))
 }
 func Square.constructor(this: Square, side: number) void {
@@ -823,6 +832,7 @@ func TestArrowFunctionsCaptureTheThisOfTheirMethod(t *testing.T) {
 `)
 	assert.Equal(t, got, `class Box { value: number }
 func main() void {
+  1: global Box.class: boolean = true
 }
 func Box.constructor(this: Box) void {
   2: (this.value = 1)

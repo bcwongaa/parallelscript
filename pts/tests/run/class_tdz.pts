@@ -1,0 +1,31 @@
+// A class used before its declaration has run (D-141): `new` throws ReferenceError, as
+// its static fields already did, and works once the declaration has run.
+function early(): void {
+  try {
+    const made = new Late();
+    console.log("made", made.n);
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+  try {
+    console.log(Late.count);
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+}
+early();
+class Late {
+  static count = 1;
+  n = 2;
+}
+early();
+
+// A static initializer may make its own class's instances.
+class Registry {
+  static readonly first = new Registry("first");
+  readonly name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+console.log(Registry.first.name);

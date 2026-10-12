@@ -1,0 +1,33 @@
+// Where an unset field of an object type (D-141) still differs from Node: a use other
+// than reading a member or calling a method throws a TypeError of its own, `typeof` is
+// "object", `?.` reads through it, and `??` with a value of another type keeps it.
+// no-diff: SPEC §8 lists these differences: Node names (reading 'length'), prints undefined undefined, then undefined for ?. and fallback for ??
+class Lazy {
+  items!: number[];
+  inner!: { x: number };
+  label!: string;
+  lengthOf(): number {
+    return this.items.length;
+  }
+  tests(): void {
+    try {
+      console.log(this.lengthOf());
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+    console.log(typeof this.items, JSON.stringify(this.label));
+    try {
+      console.log(this.inner?.x);
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+    console.log(this.items ?? "fallback");
+  }
+}
+new Lazy().tests();
+
+// expect:
+// TypeError The field 'items' is undefined: it is read before the constructor sets it
+// object ""
+// TypeError The field 'inner' is undefined: it is read before the constructor sets it
+// undefined

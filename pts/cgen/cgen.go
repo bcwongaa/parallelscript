@@ -16,7 +16,7 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
@@ -68,6 +68,11 @@ type emitter struct {
 	globalOwners     map[*ir.Local]*ir.Func // the top-level code that declares each global
 	initOrder        map[*ir.Func]int       // each module's top-level code: its place in the order modules run
 	current          *ir.Func
+	// What reads of fields that may still be unset (mayBeUnset) are for (D-141): the member
+	// a receiver's read is for, which an unset field's TypeError names as Node does, or
+	// a use that sees an unset field as undefined, which needs no check.
+	receiverMembers map[ir.Expr]string
+	unsetAllowed    map[ir.Expr]bool
 	locals           map[*ir.Local]string
 	usedNames        map[string]bool
 	nextSuffix       map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
@@ -830,12 +835,14 @@ func (e *emitter) expr(expr ir.Expr) string {
 		}
 		return "(" + e.assignment(x) + ")"
 	case *ir.Truthy:
+		e.unsetAllowed[x.X] = true
 		return truthy(x.X.Type(), e.expr(x.X))
 	case *ir.Conditional:
 		return "(" + e.expr(x.Cond) + " ? " + e.expr(x.Then) + " : " + e.expr(x.Else) + ")"
 	case *ir.Logical:
 		return e.logical(x)
 	case *ir.Sequence:
+		e.unsetAllowed[x.X] = true // its value isn't used
 		return "(" + e.expr(x.X) + ", " + e.expr(x.Y) + ")"
 	case *ir.Bind:
 		return e.bind(x)
@@ -844,10 +851,11 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.NewObject:
 		return e.newObject(x)
 	case *ir.FieldRef:
+		e.receiverMembers[x.X] = x.Field.Name
 		if x.Field.Optional && !x.Raw {
 			return "pts_value_present(" + e.fieldRead(e.expr(x.X), x.X.Type(), x.Field) + ")"
 		}
-		return e.fieldRead(e.expr(x.X), x.X.Type(), x.Field)
+		return e.checkedFieldRead(x)
 	case *ir.HasField:
 		return e.hasField(x)
 	case *ir.IsAbsent:
@@ -855,8 +863,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.HasKey:
 		return fmt.Sprintf("pts_object_has(%s, %s)", e.expr(x.X), cString(x.Name))
 	case *ir.SetField:
+		e.receiverMembers[x.X] = x.Field.Name
 		return e.setField(x)
 	case *ir.Box:
+		e.unsetAllowed[x.X] = true
 		return e.box(x.X)
 	case *ir.ToUnion:
 		return e.box(x.X)
@@ -877,6 +887,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
 	case *ir.Call:
+		if method := e.methods[x.Func]; method != nil && len(x.Args) > 0 {
+			e.receiverMembers[x.Args[0]] = method.Name
+		}
 		operands := x.Args
 		if x.Closure != nil {
 			operands = append([]ir.Expr{x.Closure}, x.Args...)
@@ -895,8 +908,10 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.CallValue:
 		return e.callValue(x)
 	case *ir.VirtualCall:
+		e.receiverMembers[x.Args[0]] = x.Method.Name
 		return e.virtualCall(x)
 	case *ir.InterfaceCall:
+		e.receiverMembers[x.Args[0]] = x.Method.Name
 		return e.interfaceCall(x)
 	case *ir.NewArray:
 		return e.newArray(x)
@@ -913,6 +928,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 		}
 		return "pts_instance_of(" + e.expr(x.X) + ", " + e.descriptor(x.Class) + ")"
 	case *ir.Binary:
+		if x.Op == ir.Eq || x.Op == ir.Ne { // an unset field is NULL, which is no object, as undefined is none
+			e.unsetAllowed[x.X], e.unsetAllowed[x.Y] = true, true
+		}
 		return e.binary(x)
 	case *ir.Unary:
 		return e.unary(x)
@@ -1162,6 +1180,8 @@ func truthy(t ir.Type, x string) string {
 		return "((" + x + ")->byte_len != 0)"
 	case t == ir.Value || isUnion(t):
 		return "pts_value_truthy(" + x + ")"
+	case holdsPointer(t):
+		return "(" + x + " != NULL)" // an object: NULL only in a class's field the constructor hasn't set yet (D-141)
 	case t == ir.Number || t == ir.F32:
 		return "pts_number_truthy(" + x + ")"
 	}
@@ -1316,6 +1336,9 @@ func intLiteral(c *ir.IntConst) string {
 }
 
 func (e *emitter) box(value ir.Expr) string {
+	if field, ok := value.(*ir.FieldRef); ok && mayBeUnset(field) {
+		return "pts_value_from_unset_object(" + e.expr(value) + ")" // undefined while unset, as JS sees it (D-141)
+	}
 	return boxAs(e.expr(value), value.Type())
 }
 
