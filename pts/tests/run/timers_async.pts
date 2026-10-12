@@ -9,7 +9,7 @@ async function worker(name: string, delays: number[]): Promise<string> {
   }
   return name;
 }
-const done = await Promise.all([worker("a", [10, 30]), worker("b", [20, 5])]);
+const done = await Promise.all([worker("a", [10, 80]), worker("b", [20, 5])]);
 console.log("done", done);
 const raced = await Promise.race([sleep(50).then(() => "slow"), sleep(5).then(() => "fast")]);
 console.log("raced", raced);
@@ -22,7 +22,7 @@ console.log("elapsed is positive", elapsed > 0, typeof performance.now());
 // a 10
 // b 20
 // b 5
-// a 30
+// a 80
 // done [ 'a', 'b' ]
 // raced fast
 // true true false
