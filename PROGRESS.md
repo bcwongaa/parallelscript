@@ -174,7 +174,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `67cd87ea7` (M6.6, tagged `m6`), both jobs (PTS tests; upstream CLI and LSP suites): about 10 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `eb48b2e93` (M7.1), both jobs (PTS tests; upstream CLI and LSP suites): about 10 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the tables for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int). A benchmark with a `threads` file runs under each `PTS_THREADS` it lists and goes in a second table with its speedup (D-131); the four parallel ones take about 8 minutes with `RUNS=5 WARMUP=1`.
@@ -214,7 +214,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
-- 2026-10-13: M7.1 done (D-168: `pts lsp`).
+- 2026-10-13: M7.1 done (D-168: `pts lsp`). CI green on `eb48b2e93` at the end of the session; stopped before M7.2 with its notes under Next.
 - 2026-10-13: M6.5 done (the README); M6.6 done: M6 tagged `m6`, Telegram report sent.
 - 2026-10-13: M6.5a done (D-167: spectral_norm and startup benchmarks, audited twins, rounds and kept JSON in `run.sh`).
 - 2026-10-13: M6.4c done (D-166: `examples/api-server`, `examples/log-analyzer`, `examples/README.md`; global-RegExp loops and non-ASCII `split` made linear); M6.4 complete.
