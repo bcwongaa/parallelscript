@@ -24,7 +24,8 @@
 #include <string.h>
 
 struct pts_regex {
-  pcre2_code *code;
+  pcre2_code *code;       /* matches subjects that may hold lone surrogates (PCRE2_MATCH_INVALID_UTF) */
+  pcre2_code *valid_code; /* matches subjects known to be valid UTF-8, which PCRE2 then doesn't check */
   pts_string **names; /* names[g] for group g, NULL if unnamed; groups + 1 entries */
   uint32_t groups;
   unsigned flags;
@@ -913,10 +914,14 @@ pts_regex *pts_regex_compile(const pts_string *pattern, const pts_string *flags)
   }
   int code;
   PCRE2_SIZE offset;
-  pcre2_code *compiled = pcre2_compile((PCRE2_SPTR)(t.out.bytes != NULL ? t.out.bytes : ""), t.out.len, options, &code, &offset, context);
+  PCRE2_SPTR translated = (PCRE2_SPTR)(t.out.bytes != NULL ? t.out.bytes : "");
+  pcre2_code *compiled = pcre2_compile(translated, t.out.len, options, &code, &offset, context);
+  /* With PCRE2_MATCH_INVALID_UTF, PCRE2 checks the subject from the start offset to its end
+   * on every match, so a loop over a long string's matches would be quadratic. */
+  pcre2_code *valid = compiled == NULL ? NULL : pcre2_compile(translated, t.out.len, options & ~PCRE2_MATCH_INVALID_UTF, &code, &offset, context);
   pcre2_compile_context_free(context);
   free(t.out.bytes);
-  if (compiled == NULL) {
+  if (compiled == NULL || valid == NULL) {
     PCRE2_UCHAR message[256];
     pcre2_get_error_message(code, message, sizeof message);
     syntax_error(pattern, flags, (const char *)message);
@@ -925,7 +930,7 @@ pts_regex *pts_regex_compile(const pts_string *pattern, const pts_string *flags)
   if (regex == NULL) {
     pts_panic("RangeError", "Out of memory compiling a regular expression");
   }
-  *regex = (pts_regex){compiled, t.names, t.groups, bits};
+  *regex = (pts_regex){compiled, valid, t.names, t.groups, bits};
   return regex;
 }
 
@@ -1008,6 +1013,9 @@ pts_string *pts_regex_slice(const pts_string *subject, pts_regex_cursor *cursor,
   seek_unit(subject, cursor, from);
   uint32_t start = cursor->byte;
   seek_unit(subject, cursor, to);
+  if ((subject->flags & PTS_STRING_ASCII) != 0) {
+    return pts_string_from_ascii(subject->bytes + start, cursor->byte - start);
+  }
   return pts_string_from_utf8(subject->bytes + start, cursor->byte - start);
 }
 
@@ -1018,7 +1026,13 @@ bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t 
   }
   seek_unit(subject, cursor, from);
   pcre2_match_data *data = match_data(regex->groups + 1);
-  int found = pcre2_match(regex->code, (PCRE2_SPTR)subject->bytes, subject->byte_len, cursor->byte, anchored ? PCRE2_ANCHORED : 0, data, NULL);
+  uint32_t options = anchored ? PCRE2_ANCHORED : 0;
+  const pcre2_code *code = regex->code;
+  if (pts_string_known_well_formed(subject)) {
+    code = regex->valid_code;
+    options |= PCRE2_NO_UTF_CHECK;
+  }
+  int found = pcre2_match(code, (PCRE2_SPTR)subject->bytes, subject->byte_len, cursor->byte, options, data, NULL);
   if (found == PCRE2_ERROR_NOMATCH) {
     return false;
   }

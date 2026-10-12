@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/microsoft/typescript-go/pts/ir"
 )
@@ -1753,6 +1754,8 @@ func staticString(name string, value string) string {
 	flags := "0"
 	if isASCII(value) {
 		flags = "PTS_STRING_ASCII"
+	} else if utf8.ValidString(value) { // WTF-8 without lone surrogates (D-014)
+		flags = "PTS_STRING_WELL_FORMED"
 	}
 	return fmt.Sprintf("PTS_STATIC_STRING(%s, %s, %d, %d, %s);", name, flags, len(value), utf16Length(value), cString(value))
 }

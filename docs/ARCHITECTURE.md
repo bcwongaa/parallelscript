@@ -299,7 +299,7 @@ One descriptor serves the collector, `console.log`, JSON, `instanceof` and the l
 
 ### 4.3 Strings
 
-A `pts_string` is the header, flags (bit 0 means pure ASCII), the byte length, the UTF-16 length (JS's `.length`, so reading it is O(1)) and a pointer to the bytes (D-014, D-061). Strings are immutable, so threads share them freely. A plain string's bytes follow its header in one block that the collector never scans.
+A `pts_string` is the header, flags (pure ASCII; in an append buffer; known to hold no lone surrogate, so its bytes are valid UTF-8 and regexes match it without PCRE2 checking it, D-166), the byte length, the UTF-16 length (JS's `.length`, so reading it is O(1)) and a pointer to the bytes (D-014, D-061). Strings are immutable, so threads share them freely. A plain string's bytes follow its header in one block that the collector never scans.
 
 - **WTF-8.** The bytes are UTF-8, except that a lone surrogate (which a JS string may hold) is stored as its 3-byte encoding. Concatenation joins surrogate halves at the seam, so each string value has one representation, and byte equality is string equality.
 - **UTF-16 indices.** Indices count UTF-16 code units, as in JS. An ASCII string's units are its bytes, so ASCII strings take O(1) paths (`string_methods.c`).
@@ -407,7 +407,7 @@ How it is tested: the `pts/tests/stress/race_*` programs (run 100 times a night)
 
 ### 4.14 RegExp and the Unicode tables
 
-- **RegExp** (D-132 to D-134). `regexp.c` translates a JS pattern into PCRE2's syntax, keeping JS's meaning where the two differ. It compiles the pattern with PCRE2's 8-bit library in UTF mode, without the JIT, and reports matches in UTF-16 indices. `regexp_object.c` implements the `RegExp` class and match arrays. `regexp_string.c` implements the String methods that take a RegExp. A regex literal's compiled code is cached in a static.
+- **RegExp** (D-132 to D-134). `regexp.c` translates a JS pattern into PCRE2's syntax, keeping JS's meaning where the two differ. It compiles the pattern with PCRE2's 8-bit library in UTF mode, without the JIT, and reports matches in UTF-16 indices. Each pattern is compiled twice: once to match strings that may hold lone surrogates (invalid UTF-8, which PCRE2 then checks on every match), and once to match strings known to be well-formed unchecked, so loops over a long string's matches stay linear (D-166). `regexp_object.c` implements the `RegExp` class and match arrays. `regexp_string.c` implements the String methods that take a RegExp. A regex literal's compiled code is cached in a static.
 - **Generated tables.** Four scripts in `gen/` read Node's ICU and write tables into `src/`:
   - `case_tables.mjs`: case mapping (D-016);
   - `collation_tables.mjs`: `localeCompare` (D-082);

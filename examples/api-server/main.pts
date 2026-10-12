@@ -1,0 +1,229 @@
+// api-server: a small JSON API that answers on every core.
+//
+//     pts build examples/api-server/main.pts -o api-server
+//     ./api-server 8080              # PTS_THREADS=1 ./api-server 8080 answers on one loop
+//
+// With `reusePort: true` every event loop (one per core) accepts connections and runs the
+// handlers of its own connections, so requests are answered in parallel. The loops share
+// an inventory of items, kept in a Map behind a pts:sync Mutex, and atomic counters.
+//
+//   GET    /items            every item, by id
+//   POST   /items            adds {"name": string, "price": number}: 201 and the item, or 400
+//   GET    /items/<id>       the item, or 404
+//   DELETE /items/<id>       204, or 404
+//   GET    /primes?below=n   how many primes are below n, counted with .par on every core
+//   GET    /slow?ms=n        answers after n ms, unless the client leaves first (request.signal)
+//   GET    /stats            requests so far, items, slow requests whose client left
+//   POST   /shutdown         stops the server; the program ends
+//
+// Errors are JSON too: {"error": "…"} with the status. The port is the first argument
+// (default 3000; 0 picks a free one), the address the second (default 127.0.0.1).
+import { serve, Request, Response } from "pts:http";
+import { range } from "pts:parallel";
+import { AtomicInt, Mutex } from "pts:sync";
+
+interface Item {
+  id: number;
+  name: string;
+  price: number;
+}
+
+// An error a handler throws to answer with its status and message.
+class HttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+const MAX_PRIMES_BELOW = 50_000_000;
+const MAX_SLOW_MS = 60_000;
+
+const inventory = new Mutex(new Map<number, Item>());
+const nextId = new AtomicInt(1);
+const requests = new AtomicInt();
+const abandoned = new AtomicInt();
+
+// The path of a request's URL and its query's parameters (later ones win; no percent-decoding).
+function targetOf(request: Request): { path: string; query: Map<string, string> } {
+  const target = request.url.slice(request.url.indexOf("/", "http://".length));
+  const mark = target.indexOf("?");
+  const query = new Map<string, string>();
+  if (mark < 0) {
+    return { path: target, query };
+  }
+  for (const pair of target.slice(mark + 1).split("&")) {
+    const equals = pair.indexOf("=");
+    if (equals > 0) {
+      query.set(pair.slice(0, equals), pair.slice(equals + 1));
+    }
+  }
+  return { path: target.slice(0, mark), query };
+}
+
+// A whole number from the query, between min and max, or a 400.
+function readCount(query: Map<string, string>, name: string, min: number, max: number): number {
+  const text = query.get(name);
+  const n = text === undefined ? NaN : Number(text);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new HttpError(400, `${name} must be a whole number from ${min} to ${max}`);
+  }
+  return n;
+}
+
+// The item a POST /items describes, or a 400 saying what is wrong with it.
+async function readNewItem(request: Request): Promise<{ name: string; price: number }> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch (e) {
+    throw new HttpError(400, `the body isn't JSON: ${(e as Error).message}`);
+  }
+  if (typeof body !== "object" || body === null || typeof body.name !== "string" || body.name === "") {
+    throw new HttpError(400, "name must be a string that isn't empty");
+  }
+  if (typeof body.price !== "number" || !(body.price >= 0)) {
+    throw new HttpError(400, "price must be a number that isn't negative");
+  }
+  return { name: body.name, price: body.price };
+}
+
+async function addItem(request: Request): Promise<Response> {
+  const fields = await readNewItem(request);
+  const item: Item = { id: nextId.add(1), name: fields.name, price: fields.price };
+  inventory.withLock((items) => items.set(item.id, item));
+  return Response.json(item, { status: 201 });
+}
+
+function listItems(): Response {
+  return Response.json(inventory.withLock((items) => [...items.values()]));
+}
+
+function getItem(id: number): Response {
+  const item = inventory.withLock((items) => items.get(id));
+  if (item === undefined) {
+    throw new HttpError(404, `no item ${id}`);
+  }
+  return Response.json(item);
+}
+
+function deleteItem(id: number): Response {
+  if (!inventory.withLock((items) => items.delete(id))) {
+    throw new HttpError(404, `no item ${id}`);
+  }
+  return new Response(null, { status: 204 });
+}
+
+function isPrime(candidate: number): boolean {
+  const n = candidate as int;
+  if (n < 4) {
+    return n >= 2;
+  }
+  if (n % 2 === 0) {
+    return false;
+  }
+  for (let d: int = 3; d * d <= n; d += 2) {
+    if (n % d === 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function countPrimes(below: number): Response {
+  const started = performance.now();
+  const count = range(0, below).par.count(isPrime);
+  return Response.json({ below, primes: count, ms: Math.round(performance.now() - started) });
+}
+
+// Resolves after ms, or rejects with the signal's reason once it aborts.
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    });
+  });
+}
+
+async function answerSlowly(request: Request, ms: number): Promise<Response> {
+  try {
+    await sleep(ms, request.signal);
+  } catch {
+    abandoned.add(1); // the client left; nobody reads this response
+    return new Response(null, { status: 204 });
+  }
+  return Response.json({ waited: ms });
+}
+
+function stats(): Response {
+  const items = inventory.withLock((items) => items.size);
+  return Response.json({ requests: requests.load(), items, abandoned: abandoned.load() });
+}
+
+// The route a request goes to; an unknown path is a 404, a known one with another method a 405.
+async function route(request: Request, stop: () => void): Promise<Response> {
+  const { path, query } = targetOf(request);
+  const method = request.method;
+  if (path === "/items") {
+    if (method === "GET") {
+      return listItems();
+    }
+    if (method === "POST") {
+      return await addItem(request);
+    }
+  } else if (path.startsWith("/items/")) {
+    const id = Number(path.slice("/items/".length));
+    if (!Number.isInteger(id) || id < 1) {
+      throw new HttpError(404, `no item ${path.slice("/items/".length)}`);
+    }
+    if (method === "GET") {
+      return getItem(id);
+    }
+    if (method === "DELETE") {
+      return deleteItem(id);
+    }
+  } else if (path === "/primes") {
+    if (method === "GET") {
+      return countPrimes(readCount(query, "below", 0, MAX_PRIMES_BELOW));
+    }
+  } else if (path === "/slow") {
+    if (method === "GET") {
+      return await answerSlowly(request, readCount(query, "ms", 0, MAX_SLOW_MS));
+    }
+  } else if (path === "/stats") {
+    if (method === "GET") {
+      return stats();
+    }
+  } else if (path === "/shutdown") {
+    if (method === "POST") {
+      stop();
+      return Response.json({ stopping: true });
+    }
+  } else {
+    throw new HttpError(404, `no route ${path}`);
+  }
+  throw new HttpError(405, `${method} isn't allowed on ${path}`);
+}
+
+function errorResponse(error: unknown): Response {
+  if (error instanceof HttpError) {
+    return Response.json({ error: error.message }, { status: error.status });
+  }
+  console.error(error);
+  return Response.json({ error: "internal error" }, { status: 500 });
+}
+
+const port = Number(process.argv[2] ?? "3000");
+const hostname = process.argv[3] ?? "127.0.0.1";
+const server = serve({
+  port,
+  hostname,
+  reusePort: true,
+  async fetch(request, server) {
+    requests.add(1);
+    return await route(request, () => server.stop());
+  },
+  error: errorResponse,
+});
+console.log(`api-server listening on http://${server.hostname}:${server.port}/`);

@@ -1,0 +1,39 @@
+// Scans of long strings take time linear in their length: a global RegExp's matches
+// (PCRE2 checked the rest of the subject's UTF-8 at every match), split by a string on a
+// non-ASCII string (each piece was found again from the start), and the same on strings
+// made by repeat, concatenation and slices. Each took tens of seconds or more before.
+
+function scans(label: string, text: string): void {
+  const replaced = text.replace(/b/g, "c");
+  let matches = 0;
+  let sum = 0;
+  for (const match of text.matchAll(/(\S)b/gu)) {
+    matches++;
+    sum += match.index;
+  }
+  const words = text.split(/ +/);
+  const pieces = text.split(" ");
+  console.log(label, text.length, replaced.length, replaced.slice(-6), matches, sum, words.length, words[words.length - 2], pieces.length);
+}
+
+scans("ascii", "ab ".repeat(400_000));
+scans("latin", "äb ".repeat(400_000));
+scans("astral", "😀b ".repeat(300_000));
+scans("built", ["é", "b", " "].join("").repeat(200_000) + "xb ".repeat(200_000));
+scans("sliced", "ab ü".repeat(300_000).slice(1));
+
+// Separators and subjects with lone surrogates still split and match by UTF-16 units.
+const lone = "a\uD83D|b\uDE00|c";
+console.log(lone.split("|").map((piece) => piece.length), lone.split(/\|/).length);
+console.log("x😀y".split("\uDE00").map((piece) => piece.length), "x😀y".split("\uD83D").map((piece) => piece.length));
+console.log(lone.replace(/[a-c]/g, "_").length, [..."é|ü|ö".split("|", 2)]);
+
+// expect:
+// ascii 1200000 1200000 ac ac  400000 239999400000 400001 ab 400001
+// latin 1200000 1200000 äc äc  400000 239999400000 400001 äb 400001
+// astral 1200000 1200000 c 😀c  300000 179999400000 300001 😀b 300001
+// built 1200000 1200000 xc xc  400000 239999400000 400001 xb 400001
+// sliced 1199999 1199999  üac ü 299999 179999100001 300001 üab 300001
+// [ 2, 2, 1 ] 3
+// [ 2, 1 ] [ 1, 2 ]
+// 7 [ 'é', 'ü' ]

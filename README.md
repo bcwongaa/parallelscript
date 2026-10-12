@@ -527,7 +527,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M3 The TypeScript feel | Unions, optional chaining, exceptions and stack traces, checked `any`, JSON, the standard built-ins, `console.log` parity, a 300-program corpus compared with Node | done (`m3`) |
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
-| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps `examples/hasher` and `examples/mandelbrot` (done); the API server and log analyzer examples (planned) | in progress |
+| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md): a file hasher, a mandelbrot PNG renderer, a JSON API server on every core and a log analyzer (done) | in progress |
 | M7 Editor support | `pts lsp`, a VS Code extension, a usability pass | planned |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
@@ -579,6 +579,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 | `pts/third_party/` | Vendored C libraries as pinned submodules: bdwgc, libuv, PCRE2, Ryu, libbacktrace |
 | `pts/tests/` | `run/` (programs and their expected output), `errors/` (expected compile errors), `corpus/` (realistic programs compared with Node), `stress/` (parallel stress programs); see [pts/tests/README.md](pts/tests/README.md) |
 | `pts/bench/` | One directory per benchmark: `main.pts`, its Go twin `main.go` (where Go has one) and, where Node and Bun can't run `main.pts` as it is, a `main.ts` for them; `run.sh` checks that they all print the same and times them |
+| `examples/` | Example programs (a file hasher, a mandelbrot renderer, a JSON API server, a log analyzer), each tested by `pts/tests/examples_test.go`; see [examples/README.md](examples/README.md) |
 | `docs/` | The documentation below; `docs/examples/` holds the docs' samples, which run as tests |
 | `internal/` and the rest | Upstream typescript-go |
 

@@ -14,6 +14,7 @@ Every document in the project, one line each. Paths are from the repo root.
 - [docs/DECISIONS.md](DECISIONS.md): the append-only decision log (D-Lnn locked by the owner, D-Onn decided by the orchestrator for the owner, D-nnn decided by agent sessions), each with its reason and the alternatives rejected; indexed by topic at the top.
 - [docs/BENCHMARKS.md](BENCHMARKS.md): benchmark results per milestone against Node, Bun and Go, and parallel speedups over one thread, losses included, with how they were measured.
 - [docs/FORK.md](FORK.md): the fork ledger: the typescript-go base tag, every modified upstream file (each edit marked `// PTS:`), how to merge a newer TypeScript release, and the upstream workflows disabled or limited.
+- [examples/README.md](../examples/README.md): the example programs (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), with how to build them and their numbers.
 - [docs/examples/](examples/): the samples the docs show, as `.pts` files with their expected output; they run as run tests (`TestRun`, and against Node for plain TypeScript).
 - [pts/tests/README.md](../pts/tests/README.md): the test suites (run, error and stress tests, the 300-program corpus, the generated number and string corpora), the test directives and how the Node differential tests work.
 

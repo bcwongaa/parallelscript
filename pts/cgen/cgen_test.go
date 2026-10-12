@@ -126,12 +126,13 @@ func TestStringConstantsKeepTheirExactBytes(t *testing.T) {
 	assert.Equal(t, run(t, programOf(stmts...)), want.String())
 }
 
-func TestStringConstantsCarryLengthAndASCIIFlag(t *testing.T) {
+// String constants carry their lengths, and flags for ASCII and for no lone surrogates (well-formed).
+func TestStringConstantsCarryLengthAndFlags(t *testing.T) {
 	t.Parallel()
 	got := cgen.Emit(programOf(logAt(1, str("abc"), str("héllo"), str("😀"), str(stringutil.EncodeJSStringRune(0xDC00)), str("abc"))))
 	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_1, PTS_STRING_ASCII, 3, 3, "abc");`), got)
-	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_2, 0, 6, 5, "héllo");`), got)
-	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_3, 0, 4, 2, "😀");`), got)
+	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_2, PTS_STRING_WELL_FORMED, 6, 5, "héllo");`), got)
+	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_3, PTS_STRING_WELL_FORMED, 4, 2, "😀");`), got)
 	assert.Assert(t, strings.Contains(got, `PTS_STATIC_STRING(pts_str_4, 0, 3, 1, "\355\260\200");`), got)
 	assert.Assert(t, !strings.Contains(got, "pts_str_5"), "equal constants are shared:\n%s", got)
 }

@@ -156,6 +156,9 @@ static pts_string *bytes_between(pts_string *string, uint32_t start, uint32_t en
   if (start == 0 && end == string->byte_len) {
     return string;
   }
+  if (string->flags & PTS_STRING_ASCII) {
+    return pts_string_from_ascii(string->bytes + start, end - start);
+  }
   return pts_string_from_utf8(string->bytes + start, end - start);
 }
 
@@ -213,7 +216,7 @@ static pts_string *repeated(pts_string *string, uint32_t count) {
   for (uint32_t i = 0; i < count; i++) {
     memcpy(result->bytes + (size_t)i * string->byte_len, string->bytes, string->byte_len);
   }
-  result->flags = string->flags & PTS_STRING_ASCII;
+  result->flags = string->flags & (PTS_STRING_ASCII | PTS_STRING_WELL_FORMED); /* copies of a string without lone surrogates can't join any */
   result->utf16_len = string->utf16_len * count;
   return result;
 }
@@ -595,6 +598,23 @@ pts_string *pts_string_repeat(pts_string *string, double count) {
   return repeated(string, (uint32_t)n);
 }
 
+/* split by a separator that only matches whole characters: matches found in the bytes, each piece's bytes copied. */
+static pts_array *split_bytes(pts_array *pieces, pts_string *string, const pts_string *separator, double max) {
+  uint32_t start = 0;
+  const char *found;
+  while ((found = memmem(string->bytes + start, string->byte_len - start, separator->bytes, separator->byte_len)) != NULL) {
+    uint32_t match = (uint32_t)(found - string->bytes);
+    pts_string *piece = bytes_between(string, start, match);
+    if (pts_array_push(pieces, &piece, 1) == max) {
+      return pieces;
+    }
+    start = match + separator->byte_len;
+  }
+  pts_string *rest = bytes_between(string, start, string->byte_len);
+  pts_array_push(pieces, &rest, 1);
+  return pieces;
+}
+
 pts_array *pts_string_split(pts_string *string, pts_string *separator, double limit) {
   pts_array *pieces = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
   /* JS's ToUint32 of the limit; a left-out one is Infinity, which means 2^32 - 1. */
@@ -613,7 +633,10 @@ pts_array *pts_string_split(pts_string *string, pts_string *separator, double li
     pts_array_push(pieces, &string, 1);
     return pieces;
   }
-  uint32_t start = 0;
+  if (!can_match_half_a_pair(separator)) {
+    return split_bytes(pieces, string, separator, max);
+  }
+  uint32_t start = 0; /* finding each match from the start of a non-ASCII string is quadratic, but rare */
   for (int64_t match = find(string, separator, 0); match >= 0; match = find(string, separator, start)) {
     pts_string *piece = units_between(string, start, (uint32_t)match);
     if (pts_array_push(pieces, &piece, 1) == max) {

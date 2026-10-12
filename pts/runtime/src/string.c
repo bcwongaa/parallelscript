@@ -62,6 +62,12 @@ static pts_string_buffer *new_buffer(size_t capacity) {
   return buffer;
 }
 
+/* The ASCII and well-formed flags of left + right. */
+static uint32_t joined_flags(const pts_string *left, const pts_string *right) {
+  bool well_formed = pts_string_known_well_formed(left) && pts_string_known_well_formed(right);
+  return (left->flags & right->flags & PTS_STRING_ASCII) | (well_formed ? PTS_STRING_WELL_FORMED : 0);
+}
+
 /* appended is left + right made by claiming the bytes after left in its append buffer,
  * or NULL if left doesn't end where the buffer's claimed bytes do or the buffer is full. */
 static pts_string *appended(const pts_string *left, const pts_string *right) {
@@ -75,13 +81,25 @@ static pts_string *appended(const pts_string *left, const pts_string *right) {
     return NULL;
   }
   memcpy(buffer->data + left->byte_len, right->bytes, right->byte_len); /* right may be in this buffer, but before `end` */
-  return buffered_string(buffer, byte_len, left->utf16_len + right->utf16_len, left->flags & right->flags & PTS_STRING_ASCII);
+  return buffered_string(buffer, byte_len, left->utf16_len + right->utf16_len, joined_flags(left, right));
+}
+
+/* Whether the 8 bytes at bytes are all ASCII. */
+static bool ascii_word(const char *bytes) {
+  uint64_t word;
+  memcpy(&word, bytes, sizeof word);
+  return (word & 0x8080808080808080u) == 0;
 }
 
 void pts_string_measure(pts_string *string) {
   uint32_t utf16_len = 0;
-  bool ascii = true;
+  bool ascii = true, well_formed = true;
   for (uint32_t i = 0; i < string->byte_len; i++) {
+    if (i + 8 <= string->byte_len && ascii_word(string->bytes + i)) {
+      utf16_len += 8;
+      i += 7;
+      continue;
+    }
     unsigned char byte = (unsigned char)string->bytes[i];
     if (byte < 0x80) {
       utf16_len++;
@@ -91,10 +109,13 @@ void pts_string_measure(pts_string *string) {
     if (pts_utf8_is_continuation(byte)) {
       continue;
     }
+    if (byte == 0xED && i + 1 < string->byte_len && (unsigned char)string->bytes[i + 1] >= 0xA0) {
+      well_formed = false; /* a lone surrogate's 3-byte encoding (D-014) */
+    }
     /* A 4-byte sequence is outside the BMP: a surrogate pair in UTF-16. */
     utf16_len += byte >= 0xF0 ? 2 : 1;
   }
-  string->flags = ascii ? PTS_STRING_ASCII : 0;
+  string->flags = ascii ? PTS_STRING_ASCII : well_formed ? PTS_STRING_WELL_FORMED : 0;
   string->utf16_len = utf16_len;
 }
 
@@ -104,6 +125,16 @@ pts_string *pts_string_from_utf8(const char *bytes, size_t len) {
     memcpy(string->bytes, bytes, len);
   }
   pts_string_measure(string);
+  return string;
+}
+
+pts_string *pts_string_from_ascii(const char *bytes, size_t len) {
+  pts_string *string = pts_string_alloc(len);
+  if (len > 0) {
+    memcpy(string->bytes, bytes, len);
+  }
+  string->flags = PTS_STRING_ASCII;
+  string->utf16_len = (uint32_t)len;
   return string;
 }
 
@@ -147,16 +178,29 @@ static size_t utf8_sequence_length(const unsigned char *bytes, size_t len, size_
 
 pts_string *pts_string_from_utf8_lossy(const char *bytes, size_t len) {
   const unsigned char *in = (const unsigned char *)bytes;
-  size_t i = 0, prefix;
+  size_t i = 0, prefix, utf16_len = 0;
   while (i < len) {
+    if (i + 8 <= len && ascii_word(bytes + i)) {
+      utf16_len += 8;
+      i += 8;
+      continue;
+    }
     size_t n = utf8_sequence_length(in + i, len - i, &prefix);
     if (n == 0) {
       break;
     }
+    utf16_len += n == 4 ? 2 : 1;
     i += n;
   }
   if (i == len) {
-    return pts_string_from_utf8(bytes, len);
+    /* Valid UTF-8 has no surrogates, so the string is well-formed; it is ASCII if every byte was a unit. */
+    pts_string *string = pts_string_alloc(len);
+    if (len > 0) {
+      memcpy(string->bytes, bytes, len);
+    }
+    string->flags = utf16_len == len ? PTS_STRING_ASCII : PTS_STRING_WELL_FORMED;
+    string->utf16_len = (uint32_t)utf16_len;
+    return string;
   }
   /* Each maximal invalid subpart (at least one byte) becomes the 3 bytes of U+FFFD. */
   size_t capacity = i + (len - i) * 3;
@@ -250,7 +294,7 @@ pts_string *pts_string_concat(pts_string *left, pts_string *right) {
     out += pts_utf8_encode(0x10000u + ((high - 0xD800u) << 10) + (low - 0xDC00u), out);
   }
   memcpy(out, right->bytes + right_skip, right->byte_len - right_skip);
-  string->flags = (left->flags & right->flags & PTS_STRING_ASCII) | buffered;
+  string->flags = joined_flags(left, right) | buffered;
   string->utf16_len = left->utf16_len + right->utf16_len;
   return string;
 }

@@ -1,0 +1,189 @@
+// log-analyzer: a report on web server access logs, parsed and counted on every core.
+//
+//     pts build examples/log-analyzer/main.pts -o log-analyzer
+//     ./log-analyzer /var/log/nginx/access.log logs/     # PTS_THREADS=1 … runs on one thread
+//
+// It reads lines in the Common Log Format (the Combined format's extra fields are ignored):
+//
+//     127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326
+//
+// and prints the requests and bytes sent, by status, the busiest paths, and the requests
+// and bytes of each hour (as logged, in the log's own time zone). Lines that aren't in the
+// format are counted as malformed; empty lines are skipped. A directory stands for its files.
+//
+// The files' text is cut into pieces of whole lines, each piece is summarized by `.par.map`
+// (a RegExp per line, counts in Maps), and the summaries are added up.
+import { readdirSync, readFileSync, statSync } from "pts:fs";
+import { join } from "pts:path";
+
+const PIECE_CHARS = 1 << 20;
+const TOP_PATHS = 10;
+// The client, the hour ("10/Oct/2000:13"), the path, the status and the bytes sent.
+const LINE = /^(\S+) \S+ \S+ \[(\d{2}\/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\/\d{4}:\d{2}):\d{2}:\d{2} [+-]\d{4}\] "[A-Z]+ (\S+)[^"]*" (\d{3}) (\d+|-)/;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+interface Traffic {
+  requests: number;
+  bytes: number;
+}
+
+// Lines start to end (end excluded) of a file's text.
+interface Piece {
+  text: string;
+  start: number;
+  end: number;
+}
+
+function addTo<K>(counts: Map<K, number>, key: K, n: number): void {
+  counts.set(key, (counts.get(key) ?? 0) + n);
+}
+
+function addTraffic(hours: Map<string, Traffic>, hour: string, requests: number, bytes: number): void {
+  const traffic = hours.get(hour);
+  if (traffic === undefined) {
+    hours.set(hour, { requests, bytes });
+  } else {
+    traffic.requests += requests;
+    traffic.bytes += bytes;
+  }
+}
+
+// What some lines say: their requests counted by status, path, hour and client.
+class Summary {
+  lines = 0;
+  malformed = 0;
+  requests = 0;
+  bytes = 0;
+  readonly statuses = new Map<number, number>();
+  readonly paths = new Map<string, number>();
+  readonly hours = new Map<string, Traffic>();
+  readonly clients = new Set<string>();
+
+  // Counts one line, as malformed if it isn't in the Common Log Format.
+  count(line: string): void {
+    this.lines++;
+    const match = LINE.exec(line);
+    if (match === null) {
+      this.malformed++;
+      return;
+    }
+    const [, client, hour, path, status, sent] = match;
+    const bytes = sent === "-" ? 0 : Number(sent);
+    this.requests++;
+    this.bytes += bytes;
+    this.clients.add(client);
+    addTo(this.statuses, Number(status), 1);
+    addTo(this.paths, path, 1);
+    addTraffic(this.hours, hour, 1, bytes);
+  }
+
+  add(other: Summary): void {
+    this.lines += other.lines;
+    this.malformed += other.malformed;
+    this.requests += other.requests;
+    this.bytes += other.bytes;
+    other.statuses.forEach((n, status) => addTo(this.statuses, status, n));
+    other.paths.forEach((n, path) => addTo(this.paths, path, n));
+    other.hours.forEach((traffic, hour) => addTraffic(this.hours, hour, traffic.requests, traffic.bytes));
+    other.clients.forEach((client) => this.clients.add(client));
+  }
+}
+
+function summarize(piece: Piece): Summary {
+  const summary = new Summary();
+  for (const line of piece.text.slice(piece.start, piece.end).split("\n")) {
+    if (line === "" || line === "\r") {
+      continue;
+    }
+    summary.count(line);
+  }
+  return summary;
+}
+
+// A file's text cut after a newline about every PIECE_CHARS characters.
+function piecesOf(text: string): Piece[] {
+  const pieces: Piece[] = [];
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf("\n", Math.min(start + PIECE_CHARS, text.length) - 1);
+    const end = newline < 0 ? text.length : newline + 1;
+    pieces.push({ text, start, end });
+    start = end;
+  }
+  return pieces;
+}
+
+// The files to read: each path given, or a directory's files (all the way down) in sorted order.
+function filesOf(paths: string[]): string[] {
+  const files: string[] = [];
+  for (const path of paths) {
+    if (statSync(path, { throwIfNoEntry: false })?.isDirectory() === true) {
+      const entries = readdirSync(path, { recursive: true }).map((entry) => join(path, entry)).sort();
+      files.push(...entries.filter((entry) => statSync(entry).isFile()));
+    } else {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+// "10/Oct/2000:13" as "2000-10-10 13:00", which sorts by time.
+function sortableHour(hour: string): string {
+  const month = String(MONTHS.indexOf(hour.slice(3, 6)) + 1).padStart(2, "0");
+  return `${hour.slice(7, 11)}-${month}-${hour.slice(0, 2)} ${hour.slice(12, 14)}:00`;
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / 1e6).toFixed(1)} MB`;
+}
+
+// A count in a column 10 wide, with thousands separators.
+function column(n: number): string {
+  return n.toLocaleString().padStart(10);
+}
+
+function report(files: number, total: Summary): void {
+  console.log(`${files} file${files === 1 ? "" : "s"}, ${total.lines.toLocaleString()} lines (${total.malformed.toLocaleString()} malformed)`);
+  console.log(`${total.requests.toLocaleString()} requests from ${total.clients.size.toLocaleString()} clients, ${megabytes(total.bytes)} sent`);
+
+  console.log("\nstatus    requests   share");
+  for (const [status, n] of [...total.statuses].sort((a, b) => a[0] - b[0])) {
+    const share = `${((100 * n) / total.requests).toFixed(1)}%`;
+    console.log(`${String(status).padEnd(6)}  ${column(n)}  ${share.padStart(6)}`);
+  }
+
+  const top = [...total.paths].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, TOP_PATHS);
+  const width = Math.max(4, ...top.map(([path]) => path.length));
+  console.log(`\n${"path".padEnd(width)}    requests`);
+  for (const [path, n] of top) {
+    console.log(`${path.padEnd(width)}  ${column(n)}`);
+  }
+
+  console.log("\nhour                requests        sent");
+  const hours = [...total.hours].map(([hour, traffic]): [string, Traffic] => [sortableHour(hour), traffic]);
+  for (const [hour, traffic] of hours.sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    console.log(`${hour}  ${column(traffic.requests)}  ${megabytes(traffic.bytes).padStart(10)}`);
+  }
+}
+
+const paths = process.argv.slice(2);
+if (paths.length === 0) {
+  console.error("usage: log-analyzer <file or directory>…");
+  process.exit(2);
+}
+const started = performance.now();
+let texts: string[];
+try {
+  texts = filesOf(paths).par.map((file) => readFileSync(file, "utf8"));
+} catch (e) {
+  console.error(`log-analyzer: ${(e as Error).message}`);
+  process.exit(1);
+}
+const summaries = texts.flatMap(piecesOf).par.map(summarize);
+const total = new Summary();
+for (const summary of summaries) {
+  total.add(summary);
+}
+report(texts.length, total);
+const seconds = (performance.now() - started) / 1000;
+console.error(`analyzed ${total.lines} lines in ${summaries.length} pieces in ${seconds.toFixed(2)} s`);

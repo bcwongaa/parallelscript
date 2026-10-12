@@ -62,6 +62,26 @@ static void surrogate_halves_join_into_one_code_point(void) {
   CHECK(prefixed->utf16_len == 4);
 }
 
+/* Strings known to be valid UTF-8 (no lone surrogate) let PCRE2 skip its check of the subject. */
+static void strings_without_lone_surrogates_are_known_well_formed(void) {
+  CHECK(pts_string_known_well_formed(pts_string_from_cstr("plain")));
+  pts_string *wide = pts_string_from_cstr("é😀 and more than eight bytes of ASCII");
+  CHECK(wide->flags & PTS_STRING_WELL_FORMED);
+  CHECK(wide->utf16_len == 38);
+  CHECK(!pts_string_known_well_formed(pts_string_from_cstr("a" "\xED\xA0\xBD" "b")));
+  CHECK(!pts_string_known_well_formed(pts_string_from_cstr(LOW)));
+  CHECK(pts_string_known_well_formed(pts_string_concat(pts_string_from_cstr("ab"), wide)));
+  CHECK(!pts_string_known_well_formed(pts_string_concat(wide, pts_string_from_cstr(HIGH))));
+  CHECK(!pts_string_known_well_formed(pts_string_concat(pts_string_from_cstr(HIGH), pts_string_from_cstr(LOW)))); /* a pair joined, but not known to be */
+  CHECK(pts_string_known_well_formed(pts_string_repeat(wide, 3)));
+  pts_string *decoded = pts_string_from_utf8_lossy("caf\xC3\xA9 au lait, s'il vous pla\xC3\xAEt", 31);
+  CHECK(decoded->flags == PTS_STRING_WELL_FORMED);
+  CHECK(decoded->utf16_len == 29);
+  pts_string *ascii = pts_string_from_utf8_lossy("only ASCII here, and long", 25);
+  CHECK(ascii->flags == PTS_STRING_ASCII);
+  CHECK(ascii->utf16_len == 25);
+}
+
 static void comparison_follows_utf16_code_units(void) {
   CHECK(pts_string_compare(pts_string_from_cstr("abc"), pts_string_from_cstr("abd")) < 0);
   CHECK(pts_string_compare(pts_string_from_cstr("ab"), pts_string_from_cstr("abc")) < 0);
@@ -214,6 +234,7 @@ int main(int argc, char **argv) {
   concat_with_empty_returns_other_side();
   static_string_equals_heap_string();
   surrogate_halves_join_into_one_code_point();
+  strings_without_lone_surrogates_are_known_well_formed();
   comparison_follows_utf16_code_units();
   sixty_four_bit_integers_print_exactly();
   output_replaces_lone_surrogates();

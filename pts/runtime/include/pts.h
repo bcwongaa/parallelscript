@@ -425,6 +425,7 @@ static inline bool pts_instance_of(const void *object, const pts_type *type) {
 enum {
   PTS_STRING_ASCII = 1u << 0,
   PTS_STRING_BUFFERED = 1u << 1, /* bytes is the start of a pts_string_buffer's data */
+  PTS_STRING_WELL_FORMED = 1u << 2, /* known to hold no lone surrogate, so its bytes are valid UTF-8 (ASCII strings may lack it) */
 };
 
 /*
@@ -465,8 +466,15 @@ extern const pts_type pts_string_type;
                                             (char *)name##_bytes};                               \
   static pts_string *const name = (pts_string *)&name##_storage
 
+/* Whether string is known to be valid UTF-8 (no lone surrogate); false means it may not be. */
+static inline bool pts_string_known_well_formed(const pts_string *string) {
+  return (string->flags & (PTS_STRING_ASCII | PTS_STRING_WELL_FORMED)) != 0;
+}
+
 /* Copies `len` bytes of valid UTF-8 into a new GC string. */
 pts_string *pts_string_from_utf8(const char *bytes, size_t len);
+/* Copies `len` bytes of ASCII (a piece of an ASCII string) without measuring them. */
+pts_string *pts_string_from_ascii(const char *bytes, size_t len);
 pts_string *pts_string_from_cstr(const char *cstr);
 /* Decodes UTF-8 as the WHATWG decoder (and Node) does: each invalid sequence becomes U+FFFD. */
 pts_string *pts_string_from_utf8_lossy(const char *bytes, size_t len);
