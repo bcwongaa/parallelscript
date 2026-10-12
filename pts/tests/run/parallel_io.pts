@@ -1,0 +1,17 @@
+// Tasks do file I/O on their own loops: each promise of pts:fs/promises settles on the
+// loop of the task that made it (D-118, D-121).
+// threads: 1 4
+import { mkdtemp, readFile, rm, writeFile } from "pts:fs/promises";
+import { join } from "pts:path";
+
+async function roundTrip(dir: string, n: number): Promise<string> {
+    const file = join(dir, `file${n}.txt`);
+    await writeFile(file, `contents ${n}`);
+    return await readFile(file, "utf8");
+}
+const dir = await mkdtemp("/tmp/pts-parallel-");
+const texts = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => parallel roundTrip(dir, n)));
+console.log(texts.join("; "));
+await rm(dir, { recursive: true });
+// expect:
+// contents 1; contents 2; contents 3; contents 4; contents 5; contents 6

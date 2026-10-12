@@ -1,0 +1,12 @@
+// A task's promise rejected with no handler ends the program as an unhandled rejection
+// does (D-O07), once the promise settles on the loop that started the task (D-121).
+// threads: 1 4
+function fail(): number {
+    throw new RangeError("the task failed");
+}
+parallel fail();
+console.log("started");
+// expect:
+// started
+// exit: 1
+// stderr: Uncaught RangeError: the task failed

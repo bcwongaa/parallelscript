@@ -1,0 +1,12 @@
+// process.exit in a task ends the whole program at once (D-121).
+// threads: 1 4
+import process from "pts:process";
+function quit(): number {
+    console.log("quitting");
+    process.exit(3);
+}
+await parallel quit();
+console.log("not printed");
+// expect:
+// quitting
+// exit: 3

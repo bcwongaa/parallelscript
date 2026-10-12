@@ -1,0 +1,14 @@
+// An uncaught exception in a callback on another loop ends the program (D-121, D-O07):
+// here a timer's, which the task's loop runs after the task is done.
+// threads: 1 4
+function arm(): number {
+    setTimeout(() => {
+        throw new TypeError("thrown by a task's timer");
+    }, 5);
+    return 1;
+}
+console.log(await parallel arm());
+// expect:
+// 1
+// exit: 1
+// stderr: Uncaught TypeError: thrown by a task's timer

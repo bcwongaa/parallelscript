@@ -98,7 +98,7 @@ type emitter struct {
 	// signature, by the identities of its parameter and result types.
 	declaredTypes    bool
 	usesPromises     bool // the program has async functions or promises, whose microtasks main runs (D-112)
-	usesLoop         bool // the program has timers or immediates, for which main runs the event loop (D-114)
+	usesLoop         bool // the program has timers, immediates or tasks, for which main runs the event loop (D-114, D-121)
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType
@@ -1465,6 +1465,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ImmediateClear:              "pts_immediate_clear",
 	ir.QueueMicrotask:              "pts_queue_microtask",
 	ir.PerformanceNow:              "pts_performance_now",
+	ir.Parallel:                    "pts_parallel",
 	ir.AsyncIteratorOpen:           "pts_async_iterator_open",
 	ir.AsyncIteratorResume:         "pts_async_iterator_resume",
 	ir.AsyncIteratorClose:          "pts_async_iterator_close",

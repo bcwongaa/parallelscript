@@ -1,0 +1,20 @@
+// What `parallel` doesn't run yet: an await or a yield in its operand, which the task
+// would have to run (D-121), and `parallel for`, which waits for the fork-join pool (M5.5).
+async function compute(n: number): Promise<number> {
+    return n * 2;
+}
+async function main(): Promise<void> {
+    const later = parallel compute(await compute(1));
+    console.log(await later);
+}
+function* numbers(): Generator<Promise<number>, void, number> {
+    yield parallel compute(yield parallel compute(2));
+}
+main();
+console.log(numbers);
+parallel for (const x of [1, 2]) {
+    console.log(x);
+}
+// error: parallel_unsupported.pts:7:36 - error PTS1001: `await` and `yield` in the operand of `parallel` are not supported yet
+// error: parallel_unsupported.pts:11:28 - error PTS1001: `await` and `yield` in the operand of `parallel` are not supported yet
+// error: parallel_unsupported.pts:15:1 - error PTS1001: `parallel for` (M5.5) is not supported yet

@@ -21,6 +21,7 @@ Directives are whole-line comments anywhere in the file.
 | `// error: text` | Error tests: some compile error must contain `text`; repeatable, at least one. |
 | `// no-diff: reason` | Don't compare with Node (for output Node can't match, e.g. ParallelScript-only behaviour). |
 | `// skip: reason` | Skip the test everywhere: it reproduces a known issue listed in `PROGRESS.md`. |
+| `// threads: 1 2 4` | Run the program once per listed `PTS_THREADS` value (D-121), each expecting the same output and exit code; without it, a test runs once with the default (a loop per core). |
 
 A run test with no expected output is checked only against Node, which suits plain-TypeScript corpus programs.
 

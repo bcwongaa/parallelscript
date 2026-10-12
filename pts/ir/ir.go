@@ -1207,6 +1207,9 @@ var (
 	ImmediateClear = &Builtin{Name: "clearImmediate", Params: []Type{Value}, Result: Void}
 	QueueMicrotask = &Builtin{Name: "queueMicrotask", Params: []Type{Value}, Result: Void}
 	PerformanceNow = &Builtin{Name: "performance.now", Result: Number}
+	// Parallel is `parallel e` (D-121): its argument is the task, a closure of no
+	// parameters that returns e's value boxed; its result is the task's promise.
+	Parallel = &Builtin{Name: "parallel", Params: []Type{Value}, Result: Value}
 	// Async iteration (D-115): AsyncIteratorOpen is GetIterator(v, async) (its second
 	// argument v's source text); AsyncIteratorResume is next(v), throw(v) or return(v)
 	// (its I32 argument a ResumeMode) on an async iterator, a promise; AsyncIteratorClose

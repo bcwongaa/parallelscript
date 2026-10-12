@@ -23,6 +23,7 @@ void pts_process_init(int argc, char **argv) {
 }
 
 int pts_runtime_exit(int code) {
+  pts_begin_exit();
   fflush(stdout);
   return code != 0 ? code : exit_code;
 }
@@ -93,6 +94,7 @@ pts_string *pts_process_cwd(void) {
 }
 
 _Noreturn void pts_process_exit(double code) {
+  pts_begin_exit();
   fflush(stdout);
   fflush(stderr);
   exit((int)code);

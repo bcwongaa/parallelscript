@@ -1,0 +1,10 @@
+// A task that waits for a promise nothing settles leaves the loops with nothing to do, so
+// the program ends, and its top-level await never settled (D-113, D-121).
+// threads: 1 4
+const never = new Promise<number>(() => {});
+async function wait(): Promise<number> {
+    return await never;
+}
+console.log(await parallel wait());
+// exit: 13
+// stderr: Warning: Detected unsettled top-level await

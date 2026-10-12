@@ -63,13 +63,25 @@ func TestRun(t *testing.T) {
 			if spec.stdout == nil {
 				t.Skip("no expected output; TestRunMatchesNode compares it with Node")
 			}
-			got := runPts(t, path)
-			assert.Equal(t, got.stdout, *spec.stdout)
-			assert.Equal(t, got.exitCode, spec.exitCode, "stderr:\n%s", got.stderr)
-			for _, want := range spec.stderr {
-				assert.Assert(t, strings.Contains(got.stderr, want), "stderr lacks %q:\n%s", want, got.stderr)
+			if len(spec.threads) == 0 {
+				assertRunAsExpected(t, spec, runPts(t, path))
+				return
+			}
+			for _, threads := range spec.threads {
+				t.Run("threads="+threads, func(t *testing.T) {
+					assertRunAsExpected(t, spec, runPts(t, path, "PTS_THREADS="+threads))
+				})
 			}
 		})
+	}
+}
+
+func assertRunAsExpected(t *testing.T, spec testSpec, got runResult) {
+	t.Helper()
+	assert.Equal(t, got.stdout, *spec.stdout)
+	assert.Equal(t, got.exitCode, spec.exitCode, "stderr:\n%s", got.stderr)
+	for _, want := range spec.stderr {
+		assert.Assert(t, strings.Contains(got.stderr, want), "stderr lacks %q:\n%s", want, got.stderr)
 	}
 }
 
@@ -206,8 +218,9 @@ type programBuild struct {
 	err  error
 }
 
-// runPts builds the program at path (once per test run, shared by the tests that need it) and runs it.
-func runPts(t *testing.T, path string) runResult {
+// runPts builds the program at path (once per test run, shared by the tests that need it)
+// and runs it, with env's "NAME=value" settings added to its environment.
+func runPts(t *testing.T, path string, env ...string) runResult {
 	t.Helper()
 	entry, _ := builds.LoadOrStore(path, &programBuild{})
 	build := entry.(*programBuild)
@@ -218,7 +231,7 @@ func runPts(t *testing.T, path string) runResult {
 		build.err = driver.Build(context.Background(), path, build.exe)
 	})
 	assert.NilError(t, build.err)
-	return execute(t, filepath.Dir(path), build.exe)
+	return execute(t, filepath.Dir(path), env, build.exe)
 }
 
 // runNode runs a program under Node with TypeScript support (D-O04, D-009). modules maps
@@ -232,7 +245,7 @@ func runNode(t *testing.T, node string, modules map[string]string, entry string)
 		assert.NilError(t, os.MkdirAll(filepath.Dir(file), 0o755))
 		assert.NilError(t, os.WriteFile(file, []byte(nodeModuleSource(source)), 0o644))
 	}
-	return execute(t, dir, node, "--no-warnings", "--experimental-transform-types", filepath.Join(dir, nodeModulePath(entry)))
+	return execute(t, dir, nil, node, "--no-warnings", "--experimental-transform-types", filepath.Join(dir, nodeModulePath(entry)))
 }
 
 // relativeSpecifierPattern finds a relative module specifier after `from` or `import`.
@@ -258,7 +271,7 @@ func nodeModulePath(path string) string {
 // Node alike, so that local times print the same on every machine and cross DST (D-087).
 const testTimeZone = "America/New_York"
 
-func execute(t *testing.T, dir string, name string, args ...string) runResult {
+func execute(t *testing.T, dir string, env []string, name string, args ...string) runResult {
 	t.Helper()
 	heavyJobs <- struct{}{}
 	defer func() { <-heavyJobs }()
@@ -266,7 +279,7 @@ func execute(t *testing.T, dir string, name string, args ...string) runResult {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TZ="+testTimeZone)
+	cmd.Env = append(append(os.Environ(), "TZ="+testTimeZone), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

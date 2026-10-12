@@ -1499,8 +1499,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.hasOwnProperty(object, key)
 	}
 	if l.isParallelCall(call) {
-		l.notSupportedYet(node, "running a task with `parallel` (M5.2) is")
-		return nil
+		return l.parallelCall(call)
 	}
 	if x, handled := l.intrinsicCall(call); handled {
 		return x

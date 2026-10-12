@@ -1830,9 +1830,10 @@ pts_value pts_iterator_result_value(pts_value result);
 /* ---------------------------------------------------------------- the event loop */
 
 /*
- * The event loop (D-114): the thread's libuv loop, started at the program's start (so
- * that, as in Node, timers count from then), with Node's timers and immediates; each
- * callback is called through its dynamic entry, followed by the microtasks it queued.
+ * The event loops (D-114, D-121): a libuv loop per thread, the main thread's started at
+ * the program's start (so that, as in Node, timers count from then), with Node's timers
+ * and immediates; each callback is called through its dynamic entry, followed by the
+ * microtasks it queued. The first `parallel` starts a loop per core (PTS_THREADS).
  */
 typedef struct pts_timer pts_timer;
 extern const pts_type pts_type_builtin_Timeout;
@@ -1840,8 +1841,10 @@ extern const pts_type pts_type_builtin_Timeout;
 void pts_loop_init(void);
 /* The thread's libuv loop (a uv_loop_t), started if it wasn't. */
 struct uv_loop_s *pts_uv_loop(void);
-/* Runs the loop until nothing referenced is left to wait for. */
+/* Runs the main thread's loop until nothing referenced is left to wait for on any loop. */
 void pts_run_loop(void);
+/* `parallel e`: runs task, a closure of no parameters returning e's value, as a task on another loop; the promise of the value (its outcome if it is a promise). */
+pts_value pts_parallel(pts_value task);
 /* setTimeout (repeat false) and setInterval: a Timeout; ms as Node coerces it; args may be NULL. */
 pts_value pts_timer_set(pts_value callback, pts_value ms, struct pts_array *args, bool repeat);
 /* clearTimeout and clearInterval: nothing for anything but an active Timeout. */
@@ -1861,6 +1864,8 @@ double pts_performance_now(void);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);
+/* Called by a thread about to end the process (D-121): the first thread to call it goes on to end it; any other waits until it has. */
+void pts_begin_exit(void);
 
 /* ---------------------------------------------------------------- pts:process */
 

@@ -1,0 +1,100 @@
+// `parallel e` runs e as a task on another loop and gives the promise of its value
+// (D-121); with one loop the task runs on the same loop, later (D-O06). Every count of
+// loops prints the same.
+// threads: 1 2 4
+function fib(n: number): number {
+    return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function doubleLater(x: number): Promise<number> {
+    await sleep(5);
+    return x * 2;
+}
+function fail(message: string): number {
+    throw new RangeError(message);
+}
+
+// A value, a promise's outcome, and many tasks at once.
+console.log(await parallel fib(20));
+console.log(await parallel doubleLater(21));
+console.log(await Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map((n) => parallel fib(n + 10))));
+
+// Any expression is a task; its type is the promise of its awaited value.
+const text: Promise<string> = parallel "text";
+console.log(await parallel 42, await text, await parallel "ab".length);
+
+// A throw rejects the task's promise, synchronous or not.
+try {
+    await parallel fail("synchronous");
+} catch (e: any) {
+    console.log("caught", e.name, e.message);
+}
+try {
+    await parallel JSON.parse("{");
+} catch (e: any) {
+    console.log("caught", e.name);
+}
+
+// Captures are shared: a task's writes to an object are there once it is done.
+const totals = { sum: 0 };
+let base = 100;
+await parallel(((): void => { totals.sum = base + 1; })());
+console.log(totals.sum);
+
+// `this` in the operand is the method's.
+class Account {
+    balance = 50;
+    async doubled(): Promise<number> {
+        return await parallel (this.balance * 2);
+    }
+}
+console.log(await new Account().doubled());
+
+// Tasks start tasks.
+async function leaves(depth: number): Promise<number> {
+    if (depth === 0) {
+        return 1;
+    }
+    const [left, right] = await Promise.all([parallel leaves(depth - 1), parallel leaves(depth - 1)]);
+    return left + right;
+}
+console.log(await parallel leaves(5));
+
+// A task awaits a promise that the main loop settles, and settles one of its.
+const ready = Promise.withResolvers<number>();
+const waiter = parallel ((async (): Promise<number> => {
+    const value = await ready.promise;
+    return value + 1;
+})());
+setTimeout(() => ready.resolve(41), 10);
+console.log(await waiter);
+const answer = Promise.withResolvers<string>();
+parallel answer.resolve("resolved by a task");
+console.log(await answer.promise);
+
+// The program waits for a task nobody awaits, and its timers.
+parallel ((async (): Promise<void> => {
+    await sleep(20);
+    console.log("unawaited task done");
+})());
+console.log("main done");
+// expect:
+// 6765
+// 42
+// [
+//     89,  144, 233,
+//    377,  610, 987,
+//   1597, 2584
+// ]
+// 42 text 2
+// caught RangeError synchronous
+// caught SyntaxError
+// 101
+// 100
+// 32
+// 42
+// resolved by a task
+// main done
+// unawaited task done

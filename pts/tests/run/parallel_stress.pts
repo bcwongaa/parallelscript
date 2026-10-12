@@ -1,0 +1,33 @@
+// Many tasks that allocate, on every loop at once, while the collector runs: objects,
+// strings, arrays and maps made on one loop and read on another (D-121, D-L13).
+// threads: 1 2 8
+class Tree {
+    constructor(public left: Tree | null, public right: Tree | null, public label: string) {}
+}
+function build(depth: number): Tree {
+    return depth === 0 ? new Tree(null, null, "leaf") : new Tree(build(depth - 1), build(depth - 1), "node" + depth);
+}
+function size(tree: Tree | null): number {
+    return tree === null ? 0 : 1 + size(tree.left) + size(tree.right);
+}
+function work(i: number): string {
+    const tree = build(6 + (i % 4));
+    const words: string[] = [];
+    for (let k = 0; k < 40; k++) {
+        words.push(`w${(k * i) % 97}`);
+    }
+    const counts = new Map<string, number>();
+    for (const word of words) {
+        counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+    return `${size(tree)}:${counts.size}`;
+}
+async function batch(start: number): Promise<number> {
+    const results = await Promise.all(Array.from({ length: 40 }, (_, j) => parallel work(start + j)));
+    return results.reduce((sum, result) => sum + Number(result.split(":")[0]), 0);
+}
+const trees = await Promise.all(Array.from({ length: 30 }, (_, i) => parallel build(5 + (i % 3))));
+const sums = await Promise.all(Array.from({ length: 30 }, (_, i) => parallel batch(i * 40)));
+console.log(trees.reduce((sum, tree) => sum + size(tree), 0), sums.reduce((a, b) => a + b, 0));
+// expect:
+// 4450 574800

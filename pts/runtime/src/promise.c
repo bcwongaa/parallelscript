@@ -1,7 +1,9 @@
 #include "pts.h"
 
 #include "dynamic_internal.h"
+#include "scheduler_internal.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -12,6 +14,12 @@
  * called through their dynamic entries (D-074); the functions the algorithms make
  * (resolving functions, finally's handlers) are runtime closures that typed code reaches
  * through adapters, as it reaches a function from `any` (D-075).
+ *
+ * With more than one loop (D-121), a promise belongs to the loop that made it (its home)
+ * and settles only there, and a reaction runs on the loop that added it (its owner):
+ * settling a promise of another loop, or adding a reaction to one, is a message to its
+ * home, and a reaction of another loop is a message to its owner. Each promise thus
+ * changes on one thread only, and an async function resumes on the loop it started on.
  */
 
 enum { PENDING, FULFILLED, REJECTED };
@@ -21,7 +29,8 @@ struct pts_reaction;
 struct pts_promise {
   const pts_type *type;
   int32_t state;
-  bool handled; /* [[PromiseIsHandled]]: a reaction was ever added */
+  bool handled;  /* [[PromiseIsHandled]]: a reaction was ever added */
+  uint16_t home; /* the loop it settles on */
   pts_value result;
   struct pts_reaction *first, *last; /* while pending, in the order they were added */
 };
@@ -40,6 +49,7 @@ const pts_type pts_type_builtin_Promise = {
  * Once its promise settles, a reaction is a job in the microtask queue, run with the
  * promise's state and result; a job that follows a thenable (follower) is one too. A
  * reaction is in one list at a time: its promise's while it is pending, then the queue.
+ * A task's value settling settles the task's promise (task) on that promise's loop.
  */
 typedef struct pts_reaction {
   struct pts_reaction *next;
@@ -56,7 +66,21 @@ typedef struct pts_reaction {
   pts_promise *wrapping;   /* an async-from-sync iterator's next(): the promise of the result for the awaited value */
   bool wrapped_done;
   pts_iterator *returning; /* an async generator that is completed, awaiting return(value)'s value */
+  pts_promise *task;       /* the promise of a task (`parallel e`) whose value this awaits */
+  uint16_t owner;          /* the loop it runs on: the one that added it to its promise */
 } reaction;
+
+/* Work for another loop (D-121): settling or resolving a promise of its own, adding a reaction to one, running a reaction of its own, or starting a task. */
+enum { SETTLE, RESOLVE, THEN, REACTION, TASK };
+
+typedef struct message {
+  pts_message header;
+  int32_t kind;
+  int32_t state; /* SETTLE's */
+  pts_promise *promise;
+  reaction *reaction;
+  pts_value value; /* SETTLE's result, RESOLVE's resolution, TASK's closure */
+} message;
 
 typedef struct rejection {
   struct rejection *next;
@@ -89,6 +113,18 @@ static void *allocate(size_t size) {
   return memory;
 }
 
+/* Hands loop a message of the given kind. */
+static void post(uint16_t loop, int32_t kind, pts_promise *promise, reaction *r, int32_t state, pts_value value) {
+  message *m = allocate(sizeof *m);
+  m->header.task = kind == TASK;
+  m->kind = kind;
+  m->state = state;
+  m->promise = promise;
+  m->reaction = r;
+  m->value = value;
+  pts_post(loop, &m->header);
+}
+
 static void enqueue(reaction *job) {
   microtasks *q = current();
   job->next = NULL;
@@ -104,6 +140,7 @@ static pts_promise *new_promise(void) {
   pts_promise *promise = allocate(sizeof *promise);
   promise->type = &pts_type_builtin_Promise;
   promise->state = PENDING;
+  promise->home = pts_current_loop;
   promise->result = PTS_VALUE_UNDEFINED;
   return promise;
 }
@@ -118,14 +155,23 @@ static bool is_callable(pts_value value) {
   return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_FUNCTION;
 }
 
+/* A reaction of a promise that settled is a job on its owner's queue. */
 static void enqueue_reaction(reaction *r, int32_t state, pts_value argument) {
   r->state = state;
   r->argument = argument;
+  if (r->owner != pts_current_loop) {
+    post(r->owner, REACTION, NULL, r, 0, PTS_VALUE_UNDEFINED);
+    return;
+  }
   enqueue(r);
 }
 
 /* FulfillPromise and RejectPromise: the reactions run with the outcome, and a rejection without a handler is noted. */
 static void settle(pts_promise *promise, int32_t state, pts_value result) {
+  if (promise->home != pts_current_loop) {
+    post(promise->home, SETTLE, promise, NULL, state, result);
+    return;
+  }
   reaction *r = promise->first;
   promise->state = state;
   promise->result = result;
@@ -164,6 +210,10 @@ static bool thenable(pts_value value, pts_value *then) {
 
 /* ResolvePromise, once its resolving functions have decided to: fulfilled with a value, or following a thenable from a job. */
 static void resolve(pts_promise *promise, pts_value resolution) {
+  if (promise->home != pts_current_loop) {
+    post(promise->home, RESOLVE, promise, NULL, 0, resolution);
+    return;
+  }
   if (pts_value_is_object(resolution) && pts_value_as_object(resolution) == (const pts_object *)promise) {
     settle(promise, REJECTED, pts_value_from_object(pts_error_new(&pts_type_builtin_TypeError, pts_string_from_cstr("Chaining cycle detected for promise #<Promise>"))));
     return;
@@ -180,8 +230,8 @@ static void resolve(pts_promise *promise, pts_value resolution) {
   enqueue(job);
 }
 
-/* PerformPromiseThen: r runs when promise settles, or now if it has. */
-static void perform_then(pts_promise *promise, reaction *r) {
+/* PerformPromiseThen on promise's loop: r runs when promise settles, or now if it has. */
+static void add_reaction(pts_promise *promise, reaction *r) {
   switch (promise->state) {
   case PENDING:
     r->next = NULL;
@@ -199,6 +249,16 @@ static void perform_then(pts_promise *promise, reaction *r) {
   promise->handled = true;
 }
 
+/* PerformPromiseThen: r runs on this loop when promise settles, or soon if it has. */
+static void perform_then(pts_promise *promise, reaction *r) {
+  r->owner = pts_current_loop;
+  if (promise->home != r->owner) {
+    post(promise->home, THEN, promise, r, 0, PTS_VALUE_UNDEFINED);
+    return;
+  }
+  add_reaction(promise, r);
+}
+
 /* PromiseResolve(%Promise%, value): a promise itself, or a new one resolved with value. */
 static pts_promise *promise_resolve(pts_value value) {
   if (is_promise(value)) {
@@ -214,7 +274,7 @@ static pts_promise *promise_resolve(pts_value value) {
 /* The record a pair of resolving functions shares: the promise, and whether either has run. */
 typedef struct resolution {
   pts_promise *promise;
-  bool done;
+  atomic_bool done; /* loops may race to call them */
 } resolution;
 
 typedef struct resolving_function {
@@ -224,8 +284,7 @@ typedef struct resolving_function {
 
 static pts_value resolve_call(pts_closure *self, uint32_t argc, const pts_value *argv) {
   resolution *record = ((resolving_function *)self)->record;
-  if (!record->done) {
-    record->done = true;
+  if (!atomic_exchange(&record->done, true)) {
     resolve(record->promise, argc > 0 ? argv[0] : PTS_VALUE_UNDEFINED);
   }
   return PTS_VALUE_UNDEFINED;
@@ -233,8 +292,7 @@ static pts_value resolve_call(pts_closure *self, uint32_t argc, const pts_value 
 
 static pts_value reject_call(pts_closure *self, uint32_t argc, const pts_value *argv) {
   resolution *record = ((resolving_function *)self)->record;
-  if (!record->done) {
-    record->done = true;
+  if (!atomic_exchange(&record->done, true)) {
     settle(record->promise, REJECTED, argc > 0 ? argv[0] : PTS_VALUE_UNDEFINED);
   }
   return PTS_VALUE_UNDEFINED;
@@ -348,6 +406,15 @@ static pts_value iterator_result(pts_value value, bool done);
 static void run_reaction(reaction *r) {
   int32_t state = r->state;
   pts_value argument = r->argument;
+  if (r->task != NULL) {
+    pts_task_finished();
+    if (state == FULFILLED) {
+      resolve(r->task, argument);
+    } else {
+      settle(r->task, REJECTED, argument);
+    }
+    return;
+  }
   if (r->streaming != NULL) {
     async_generator_step(r->streaming, state == FULFILLED ? PTS_RESUME_NEXT : PTS_RESUME_THROW, argument);
     return;
@@ -579,6 +646,53 @@ pts_value pts_promise_rejected(pts_value reason) {
   return pts_value_from_object(promise);
 }
 
+/* ---------------------------------------------------------------- tasks and other loops' messages (D-121) */
+
+/* Starts a task on this loop: its closure's value settles the task's promise, the value's outcome if it is a promise. */
+static void run_task(pts_value task, pts_promise *promise) {
+  pts_closure *closure = (pts_closure *)pts_value_as_object(task);
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    pts_task_finished();
+    settle(promise, REJECTED, pts_caught(&handler));
+    return;
+  }
+  pts_value value = ((pts_value(*)(pts_closure *))closure->code)(closure);
+  pts_try_leave(&handler);
+  reaction *done = allocate(sizeof *done);
+  done->task = promise;
+  perform_then(promise_resolve(value), done);
+}
+
+void pts_message_run(pts_message *header) {
+  message *m = (message *)header;
+  switch (m->kind) {
+  case SETTLE:
+    settle(m->promise, m->state, m->value);
+    break;
+  case RESOLVE:
+    resolve(m->promise, m->value);
+    break;
+  case THEN:
+    add_reaction(m->promise, m->reaction);
+    break;
+  case REACTION:
+    enqueue(m->reaction);
+    break;
+  case TASK:
+    run_task(m->value, m->promise);
+    break;
+  }
+  pts_run_microtasks();
+}
+
+pts_value pts_parallel(pts_value task) {
+  pts_promise *promise = new_promise();
+  post(pts_place_task(), TASK, promise, NULL, 0, task);
+  return pts_value_from_object(promise);
+}
+
 /* ---------------------------------------------------------------- combinators */
 
 /* A plain object of the given properties, in order, as JS's object literals make (hash-map objects of any, as JSON.parse's). */
@@ -729,6 +843,7 @@ pts_value pts_promise_with_resolvers(void) {
 
 void pts_check_top_level(pts_value promise) {
   if (((pts_promise *)pts_value_as_object(promise))->state == PENDING) {
+    pts_begin_exit();
     fflush(stdout);
     fputs("Warning: Detected unsettled top-level await\n", stderr);
     exit(13);

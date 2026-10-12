@@ -198,6 +198,9 @@ A program with data races may observe stale or surprising values, but it must ne
 - The runtime starts one event loop per core. The count is configurable with `PTS_THREADS`.
 - Each loop runs on its own OS thread, and all loops share one heap.
 - Each loop is a libuv `uv_loop_t`, used for timers, sockets, filesystem, DNS and child processes. `uv_async_send` wakes a loop from another thread.
+- How (D-121): the main thread's loop runs the program's modules; the other loops start the first time `parallel` runs, so a program that never uses it has one thread. `PTS_THREADS` is a positive number (at most 256); without it, or with anything else, the count is the number of cores the process may run on.
+- The program ends when every loop has nothing left to do at once: nothing referenced to wait for (timers, I/O, as in Node) and no task or message waiting for it. A task nobody awaits keeps the program running until it is done.
+- `process.exit`, an uncaught exception and an unhandled rejection on any loop end the whole program at once.
 
 ### 5.2 Plain `await`
 
@@ -220,6 +223,11 @@ Async functions and generators compile to state machines. Locals that live acros
 - The target loop is picked by load (least-loaded, or round-robin with stealing of tasks that haven't started). A task never migrates once it has started.
 - Promises can be awaited from any loop; settling one wakes the loop that is awaiting it.
 - With `PTS_THREADS=1`, `parallel e` still creates a new task, on the same loop (D-O06).
+- How (D-121):
+  - A task goes to the least-loaded loop other than the one starting it, where a loop's load is the tasks placed on it and not finished (ties go round-robin). A loop that runs out of work takes a task another loop has queued but not started before it sleeps.
+  - A promise belongs to the loop that made it and settles there; its reactions (an `await`, a `then` handler) run on the loop that added them. So `parallel e`'s promise settles on the loop that ran `parallel`, after e's value (or the outcome of the promise e gives) is known, and an unhandled rejection of it is reported there, as for any promise.
+  - A throw in e, synchronous or not, rejects the task's promise.
+  - An `await` or `yield` in the operand (outside functions in it) is not supported yet; await before `parallel`, or give it an async function's call.
 
 **Parsing `parallel`** (D-O05):
 - `parallel` is the operator only when the next token is on the same line and starts an expression **other than** `(`, `[`, `.`, `?.`, a template, `=`, an operator, `,`, `;`, `)` or `}`. Examples: `parallel foo(x)`, `parallel new X()`, `parallel async () => …`, `parallel await x`, `parallel "lit"`.
@@ -979,4 +987,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Prelude:** `declare function parallel<T>(task: T): Promise<Awaited<T>>`.
 - **Check** (`pts/check/parallel.go`): `parallelOperator` (a shadowing binding; a function operand).
 - **Lowering:** `isParallelCall` (`library.go`); both forms are PTS1001 until M5.2 and M5.5.
-- **Tests:** `internal/parser/pts_test.go`; `pts/tests/errors/parallel_not_yet.pts`, `parallel_forms.pts`; `pts/tests/run/parallel_identifier.pts`.
+- **Tests:** `internal/parser/pts_test.go`; `pts/tests/errors/parallel_not_yet.pts` (now `parallel_unsupported.pts`), `parallel_forms.pts`; `pts/tests/run/parallel_identifier.pts`.
+
+### 9.78 The multi-loop runtime and tasks (M5.2)
+
+- **Lowering** (`pts/lower/parallel.go`, D-121): `parallelCall` makes the operand the body of a closure `<function>.parallel` of no parameters returning the value boxed (an arrow for `this`), and calls `ir.Parallel` with it; `suspensionIn` reports an await or yield in the operand.
+- **C:** `ir.Parallel` is `pts_parallel`; it sets `usesLoop` and `usesPromises` (`checks.go`).
+- **Runtime:** `scheduler.c` (`loop_slot`: libuv loop, wake handle, inbox of messages and of tasks, `sleeping`, `load`; `pts_post`, `take`, `run_inbox`, `steal`, `wait_for_work`, `run`, `pts_run_loop`, `start_workers`, `configured_loops`, `pts_place_task`, `pts_task_finished`, `pts_uv_loop`); `scheduler_internal.h` (`pts_message`, `pts_current_loop`); in `promise.c`, a promise's `home` and a reaction's `owner`, `post`, the routing in `settle`, `resolve`, `perform_then` and `enqueue_reaction`, `add_reaction`, `pts_message_run`, `run_task`, `pts_parallel`, atomic `done` in resolving functions; `loop.c`'s timers on `pts_uv_loop()`; `pts_begin_exit` (`runtime.c`), taken by every path that ends the process.
+- **Tests:** `pts/tests/run/parallel_tasks`, `parallel_io`, `parallel_stress`, `parallel_unhandled`, `parallel_worker_uncaught`, `parallel_exit`, `parallel_unsettled` (each under several `PTS_THREADS`, the new `// threads:` directive); `pts/tests/errors/parallel_unsupported.pts`; `pts/runtime/tests/scheduler_test.c` (2,000 tasks on 4 loops, under ASan and UBSan).

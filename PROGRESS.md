@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.2 Multi-loop runtime
+- **Next task:** M5.3 The fork-join pool
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.2 Multi-loop runtime (D-121, SPEC §5.1, §5.3, §9.78): `parallel e` runs e as a task on the least-loaded other loop (a loop per core, `PTS_THREADS`, started at the first `parallel`); promises settle on the loop that made them and reactions run on the loop that added them, through per-loop inboxes woken with `uv_async_send`; idle loops take unstarted tasks from others; the program ends when every loop sleeps; one exit lock for every way the process ends. `// threads:` runs a test under several `PTS_THREADS`. fib fan-out: 1.84× at 2 loops, 3× at 8 on the 4-core/8-thread machine; TSan clean with collection off.
 - M5.1 The `parallel` keyword (D-120, SPEC §9.77): the fork's parser makes `parallel e` a call of `parallel` marked `NodeFlagsPtsParallel` and `parallel for` a marked for statement (three `// PTS:` hooks, `internal/parser/pts.go`); the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` types both forms through tsc; PTS1002 for a shadowing binding and a function operand; running either is PTS1001 until M5.2/M5.5. `parallel` as a name keeps working.
 - M4.6 Milestone M4: checklist run, suite green locally and CI green on `b6762bae8`, M4 table in `docs/BENCHMARKS.md` (new: async_fib 1.34× Node, file_io 1.62× Node; fib 3.19×; fib_int 1.59× Go), tag `m4`, Telegram report. Functions are now 32-byte aligned (D-119: fib_int had lost 35% to code placement). The `timers` differential test no longer has ties between timer lists, which Node orders by sub-millisecond jitter (it failed on CI).
 - M4.5c `pts:fs` promise API (D-118, SPEC §9.76): `pts:fs/promises` (and `fs.promises`) with Node's functions over the same libuv calls run on libuv's threadpool as jobs (system calls apart from making values, so the pool never touches the collector), settling promises from the loop followed by a microtask drain; `pts:internal/fs` for shared code (library-only imports). `fs_promises` matches Node line for line; 2,000 concurrent reads and stats stay correct under GC pressure.
@@ -104,8 +105,9 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.2 Multi-loop runtime (see `docs/MASTER_PLAN.md`): N event loops (`PTS_THREADS`, default the core count), one thread each, over the shared heap (bdwgc's threads: `GC_register_my_thread`, `GC_pthread_create` or `GC_allow_register_threads` is already on); cross-loop promises that wake the awaiting loop with `uv_async_send`; task placement for `parallel e` (least-loaded or round-robin with stealing of unstarted tasks; tasks never migrate). Today the runtime's loop state, microtask queue and handler chain are `_Thread_local` per thread (D-112, D-114), which suits one loop per thread. The lowering of `parallel e` (`isParallelCall` in `pts/lower/library.go`, PTS1001 now) should make the operand a closure (a task) and call a runtime `pts_parallel_spawn(closure)` returning a promise. Watch: a promise settled on one loop with reactions from another must queue those reactions on their own loop (and wake it); `pts:fs/promises` jobs settle on the loop that started them.
-2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M5.3 The fork-join pool (see `docs/MASTER_PLAN.md`, `docs/agent/NOTES-rayon.md`): Chase–Lev deques, one per worker, separate from the loop threads (D-L16); `join(a, b)`; a thread that starts a parallel operation helps until it finishes. Its workers allocate, so they must be bdwgc-registered threads (create them with `pthread_create` in a file that includes `pts.h`, as `scheduler.c` does). Unit tests under ASan/UBSan; a TSan build works for code that doesn't collect (bdwgc's stop-the-world signals fail under TSan: run with `GC_DONT_GC=1`, see D-121).
+2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too.
+3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -119,7 +121,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (272 run tests; 69 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (281 run tests, the parallel ones under several `PTS_THREADS`; 68 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -135,6 +137,8 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 - **Corpus programs skipped** (D-089): 49 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line (2 wait for M5.4's typed arrays, 4 are by design, the rest are single causes).
 - **A method with a default can't provide a required parameter of an interface method:** `class Sq { label(suffix = "sq") }` used as `interface { label(suffix: string): string }` is PTS1001: the method takes `(string, given)` and the interface's table entry passes `(string)`. Arrows drop the flag when their context always passes the argument (D-055); methods would need the method-table entry (or an object literal method's field) to pass `true`.
 - **Equality narrowing loses an integer type to tsc:** after `if (b === 5)` with `b: u8`, tsc types `b` in the branch as the literal `5`, so `[b + 1]` is a `number[]` to tsc while the semantic pass computes `b + 1` as a `u8` (the value is converted to number; nothing breaks). Fixing it means `replacePrimitivesWithLiterals` (`internal/checker/flow.go`) keeping D-048's types; not worth a fork edit yet.
+- **An await inside an expression-bodied async arrow, not first in it, is PTS1001** with the message about loop conditions and default values: `async () => (await p) + 1` (and so `parallel((async () => (await p) + 1)())`); a block body (`{ const v = await p; return v + 1; }`) works. The hoisting of D-111 works on statements, and an expression body has none; lowering it as `return <expr>;` would fix it.
+- **Parallel gaps (D-121):** a loop busy with something referenced (a long timer, a server) doesn't take tasks queued on others until it runs dry; awaiting another loop's promise that rejects races with that loop's unhandled-rejection check; an async generator driven from two loops at once runs its body on both.
 - **Captured variables have no TDZ check:** a closure that runs before the declaration of a variable it captures has run (e.g. a hoisted function called above a `const` it reads) sees the type's zero value, and a NULL string or object crashes, where Node throws `ReferenceError: Cannot access 'x' before initialization`. Needs a ready flag for the cells that the cell pass marks as captured early.
 - **Overrides must keep the overridden method's parameter types** (PTS1001 otherwise; D-028): an override may leave out trailing parameters or return a subclass's instance (D-091), but not change a parameter's type or leave out one with a default. A base constructor that calls an overridden method reading a subclass field sees the field's zero value (`""`, 0, NULL for an object), where Node sees `undefined`, since the subclass's initialisers run after `super()` returns; `console.log(this)` there lists the subclass's fields too, where Node doesn't yet.
 - **Classes have no TDZ check:** `new C()` in a function called before `class C` has run works, where Node throws `ReferenceError`. And a class-typed field read before the constructor assigns it is NULL, so it crashes (tsc rejects most such reads; a method called from the constructor before the assignment can still do it). Both need the null and ready checks that come with unions (M3.1) or a class ready flag.
@@ -152,6 +156,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.2 done (D-121).
 - 2026-10-12: M5.1 done (D-120).
 - 2026-10-12: M4.6 done; tagged `m4`.
 - 2026-10-12: M4.5c done (D-118); M4.5 complete.

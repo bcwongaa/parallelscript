@@ -66,7 +66,13 @@ __asm__(".text\n"
         ".size pts_stack_overflow_stub, .-pts_stack_overflow_stub\n");
 #endif
 
+/* Recursive, so that a thread that fails while it reports an error still ends the process. */
+static pthread_mutex_t exit_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+
+void pts_begin_exit(void) { pthread_mutex_lock(&exit_lock); }
+
 void pts_panic(const char *error_name, const char *format, ...) {
+  pts_begin_exit();
   fflush(stdout);
   fprintf(stderr, "Uncaught %s: ", error_name);
   va_list args;

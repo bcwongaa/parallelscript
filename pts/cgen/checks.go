@@ -50,6 +50,9 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				case ir.QueueMicrotask:
 					e.declaredTypes = true
 					e.usesPromises = true
+				case ir.Parallel: // the loops run the tasks and settle their promises (D-121)
+					e.usesLoop = true
+					e.usesPromises = true
 				case ir.PromiseResolve, ir.PromiseReject, ir.PromiseAll, ir.PromiseAllSettled, ir.PromiseAny, ir.PromiseRace, ir.PromiseWithResolvers:
 					e.usesPromises = true
 				}

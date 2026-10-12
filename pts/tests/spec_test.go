@@ -17,9 +17,10 @@ type testSpec struct {
 	errors   []string // for error tests: substrings the compile errors must contain
 	noDiff   string   // why the test must not be compared with Node; empty to compare when it is plain TypeScript
 	skip     string   // why the test is skipped: a known issue it reproduces
+	threads  []string // PTS_THREADS values to run the program with, each expecting the same; none to run it once with the default
 }
 
-var directivePattern = regexp.MustCompile(`^//\s*(expect|exit|stderr|error|no-diff|skip):\s?(.*)$`)
+var directivePattern = regexp.MustCompile(`^//\s*(expect|exit|stderr|error|no-diff|skip|threads):\s?(.*)$`)
 
 // readSpec reads the spec of the test at path, including its .out file if there is one.
 func readSpec(path string) (testSpec, error) {
@@ -86,6 +87,13 @@ func parseSpec(source string) (testSpec, error) {
 				return testSpec{}, fmt.Errorf("line %d: // skip: needs a reason", i+1)
 			}
 			spec.skip = value
+		case "threads":
+			for _, count := range strings.Fields(value) {
+				if n, err := strconv.Atoi(count); err != nil || n < 1 {
+					return testSpec{}, fmt.Errorf("line %d: // threads: needs positive numbers", i+1)
+				}
+				spec.threads = append(spec.threads, count)
+			}
 		}
 	}
 	return spec, nil

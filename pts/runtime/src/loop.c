@@ -4,11 +4,11 @@
 #include <uv.h>
 
 /*
- * The event loop (D-114): a libuv loop per thread (the main thread's for now; M5.2 makes
- * one per core) with Node's timers. setTimeout and setInterval timers wait in a heap
- * ordered by when they are due, then by when they were scheduled, behind one uv timer
- * armed for the first; setImmediate's callbacks wait in a queue that a uv check handle
- * runs after the loop polls. Microtasks run after each callback, as in Node.
+ * The event loop's timers (D-114) on the thread's libuv loop (scheduler.c, D-121), as
+ * Node's. setTimeout and setInterval timers wait in a heap ordered by when they are due,
+ * then by when they were scheduled, behind one uv timer armed for the first;
+ * setImmediate's callbacks wait in a queue that a uv check handle runs after the loop
+ * polls. Microtasks run after each callback, as in Node.
  */
 
 struct pts_timer {
@@ -46,7 +46,7 @@ static const pts_type immediate_type = {
     .size = sizeof(immediate),
 };
 
-/* A thread's loop: libuv's (malloc'd, holding no collected pointers) and ours (uncollectable, so the collector scans the heap and queue it holds). */
+/* A thread's timers: libuv's handles (malloc'd, holding no collected pointers) and ours (uncollectable, so the collector scans the heap and queue it holds). */
 typedef struct loop_state {
   uv_loop_t *loop;
   uv_timer_t *timer;
@@ -76,23 +76,15 @@ void pts_loop_init(void) {
     return;
   }
   loop_state *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s));
-  s->loop = checked(malloc(sizeof *s->loop));
+  s->loop = pts_uv_loop();
   s->timer = checked(malloc(sizeof *s->timer));
   s->check = checked(malloc(sizeof *s->check));
   s->idle = checked(malloc(sizeof *s->idle));
-  if (uv_loop_init(s->loop) != 0) {
-    pts_panic("Error", "Cannot start the event loop");
-  }
   uv_timer_init(s->loop, s->timer);
   uv_check_init(s->loop, s->check);
   uv_idle_init(s->loop, s->idle);
   s->timer->data = s->check->data = s;
   state = s;
-}
-
-uv_loop_t *pts_uv_loop(void) {
-  pts_loop_init();
-  return state->loop;
 }
 
 /* ---------------------------------------------------------------- the heap of timers */
@@ -339,13 +331,7 @@ void pts_immediate_clear(pts_value value) {
   }
 }
 
-/* ---------------------------------------------------------------- running */
-
-void pts_run_loop(void) {
-  if (state != NULL) {
-    uv_run(state->loop, UV_RUN_DEFAULT);
-  }
-}
+/* ---------------------------------------------------------------- performance.now() */
 
 static uint64_t time_origin;
 
