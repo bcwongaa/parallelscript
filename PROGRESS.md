@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.1 The `parallel` keyword
+- **Next task:** M5.2 Multi-loop runtime
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.1 The `parallel` keyword (D-120, SPEC §9.77): the fork's parser makes `parallel e` a call of `parallel` marked `NodeFlagsPtsParallel` and `parallel for` a marked for statement (three `// PTS:` hooks, `internal/parser/pts.go`); the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` types both forms through tsc; PTS1002 for a shadowing binding and a function operand; running either is PTS1001 until M5.2/M5.5. `parallel` as a name keeps working.
 - M4.6 Milestone M4: checklist run, suite green locally and CI green on `b6762bae8`, M4 table in `docs/BENCHMARKS.md` (new: async_fib 1.34× Node, file_io 1.62× Node; fib 3.19×; fib_int 1.59× Go), tag `m4`, Telegram report. Functions are now 32-byte aligned (D-119: fib_int had lost 35% to code placement). The `timers` differential test no longer has ties between timer lists, which Node orders by sub-millisecond jitter (it failed on CI).
 - M4.5c `pts:fs` promise API (D-118, SPEC §9.76): `pts:fs/promises` (and `fs.promises`) with Node's functions over the same libuv calls run on libuv's threadpool as jobs (system calls apart from making values, so the pool never touches the collector), settling promises from the loop followed by a microtask drain; `pts:internal/fs` for shared code (library-only imports). `fs_promises` matches Node line for line; 2,000 concurrent reads and stats stay correct under GC pressure.
 - M4.5b `pts:fs` synchronous API (D-117, SPEC §9.75): Node's sync functions (read/write/append, exists/access, stat/lstat, mkdir with recursive, readdir with withFileTypes/recursive, unlink/rmdir/rm, rename, copyFile, symlink/readlink/realpath, chmod, mkdtemp), `constants`, `Stats`, `Dirent`, the default `fs` object; libuv's synchronous calls (Node's order, birth times, errnos); Node's errors (a native "Error" type with errno/code/syscall/path/dest; `NodeJS.ErrnoException`); UTF-8 text with WHATWG lossy decoding; reading into a Buffer is a compile error (`@notSupportedYet` on library overloads). Overloaded calls convert to the chosen overload's result. `fs_sync` matches Node line for line.
@@ -103,7 +104,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.1 The `parallel` keyword (see `docs/MASTER_PLAN.md`; decision O05 in `docs/DECISIONS.md`): a contextual keyword in the fork's scanner, parser and checker (`parallel e` typed `Promise<Awaited<T>>`, `parallel for` statements), upstream parser and checker tests green, fork parser tests. These are upstream edits: minimal, `// PTS:`-marked, listed in `docs/FORK.md`.
+1. M5.2 Multi-loop runtime (see `docs/MASTER_PLAN.md`): N event loops (`PTS_THREADS`, default the core count), one thread each, over the shared heap (bdwgc's threads: `GC_register_my_thread`, `GC_pthread_create` or `GC_allow_register_threads` is already on); cross-loop promises that wake the awaiting loop with `uv_async_send`; task placement for `parallel e` (least-loaded or round-robin with stealing of unstarted tasks; tasks never migrate). Today the runtime's loop state, microtask queue and handler chain are `_Thread_local` per thread (D-112, D-114), which suits one loop per thread. The lowering of `parallel e` (`isParallelCall` in `pts/lower/library.go`, PTS1001 now) should make the operand a closure (a task) and call a runtime `pts_parallel_spawn(closure)` returning a promise. Watch: a promise settled on one loop with reactions from another must queue those reactions on their own loop (and wake it); `pts:fs/promises` jobs settle on the loop that started them.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -118,7 +119,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (271 run tests; 67 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (272 run tests; 69 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -151,6 +152,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.1 done (D-120).
 - 2026-10-12: M4.6 done; tagged `m4`.
 - 2026-10-12: M4.5c done (D-118); M4.5 complete.
 - 2026-10-12: M4.5b done (D-117).

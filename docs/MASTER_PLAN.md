@@ -238,7 +238,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M4.6 Milestone M4.** (m4)
 
 ## M5: Parallel (the headline; make the demo great)
-- [ ] **M5.1 The `parallel` keyword.**
+- [x] **M5.1 The `parallel` keyword.** (1ba3a57e7)
   - Add `parallel` as a contextual keyword to the fork's scanner, parser and checker, following decision O05.
   - The checker types `parallel e` as `Promise<Awaited<T>>`.
   - Add `parallel for` statement parsing.
