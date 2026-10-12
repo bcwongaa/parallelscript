@@ -64,7 +64,7 @@ func hasTopLevelAwait(node *ast.Node) bool {
 	switch {
 	case node == nil || ast.IsFunctionLike(node) || ast.IsClassLike(node):
 		return false
-	case node.Kind == ast.KindAwaitExpression:
+	case node.Kind == ast.KindAwaitExpression || node.Kind == ast.KindForOfStatement && node.AsForInOrOfStatement().AwaitModifier != nil:
 		return true
 	}
 	return node.ForEachChild(hasTopLevelAwait)
@@ -78,8 +78,11 @@ func isSuspension(node *ast.Node) bool {
 // suspensionPoint lowers a yield or an await: the statements that suspend the function,
 // and the expression for what it evaluates to once the function resumes.
 func (l *lowerer) suspensionPoint(node *ast.Node) ([]ir.Stmt, ir.Expr) {
-	if node.Kind == ast.KindAwaitExpression {
+	switch {
+	case node.Kind == ast.KindAwaitExpression:
 		return l.awaitPoint(node)
+	case l.function.AsyncGenerator:
+		return l.asyncYieldPoint(node)
 	}
 	return l.yieldPoint(node)
 }
@@ -102,7 +105,7 @@ func (l *lowerer) awaitPoint(node *ast.Node) ([]ir.Stmt, ir.Expr) {
 	}
 	rethrow := &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Throw{At: at, Value: &ir.Resumed{}}}}
 	return []ir.Stmt{
-		&ir.Yield{At: at, Value: box(x)},
+		&ir.Yield{At: at, Value: box(x), Await: true},
 		&ir.If{At: at, Cond: &ir.ResumedBy{Mode: ir.ResumeThrow}, Then: rethrow},
 	}, value
 }

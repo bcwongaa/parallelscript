@@ -984,11 +984,9 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 	case l.isGeneric(node):
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
-	case isAsyncGenerator(flags):
-		l.notSupportedYet(nameOf(node), "async generators are")
-		return nil
 	}
-	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node), Generator: isStateMachine(flags), Async: isAsync(flags)}
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node)}
+	stateMachine(fn, flags)
 	l.funcNodes[fn] = node
 	if class != nil {
 		fn.Params = []*ir.Local{l.newThis(fn, class)}
@@ -1476,6 +1474,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.hasOwnProperty(object, key)
 	}
 	if x, handled := l.dateCall(call); handled {
+		return x
+	}
+	if x, handled := l.asyncIteratorMethodCall(call); handled {
 		return x
 	}
 	if x, handled := l.iteratorMethodCall(call); handled {
@@ -3356,7 +3357,7 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if checker.IsTupleType(t) {
 		return l.tupleType(t, node)
 	}
-	if l.isIteratorType(t) || l.isIterableType(t) || l.isPromiseType(t) || l.isTimerType(t) {
+	if l.isIteratorType(t) || l.isIterableType(t) || l.isPromiseType(t) || l.isTimerType(t) || l.isAsyncIteratorType(t) {
 		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109), any iterable (D-110), or a promise (D-112)
 	}
 	if value, ok := l.iteratorResultValue(t); ok {

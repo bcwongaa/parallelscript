@@ -52,6 +52,10 @@ typedef struct pts_reaction {
   pts_promise *follower; /* a job that makes follower take on thenable's outcome through then */
   pts_value thenable, then;
   pts_value callback; /* queueMicrotask's job; absent (zero) for the others */
+  pts_iterator *streaming; /* an async generator suspended at an await */
+  pts_promise *wrapping;   /* an async-from-sync iterator's next(): the promise of the result for the awaited value */
+  bool wrapped_done;
+  pts_iterator *returning; /* an async generator that is completed, awaiting return(value)'s value */
 } reaction;
 
 typedef struct rejection {
@@ -336,10 +340,30 @@ static void async_suspended(pts_iterator *it, bool done);
 /* The async function whose body a job is running: a throw out of it reaches pts_run_microtasks' handler, which rejects its promise. */
 static _Thread_local pts_iterator *resuming;
 
+static void async_generator_step(pts_iterator *g, pts_resume_mode mode, pts_value sent);
+static void async_generator_returned(pts_iterator *g, int32_t state, pts_value argument);
+static pts_value iterator_result(pts_value value, bool done);
+
 /* NewPromiseReactionJob's job. */
 static void run_reaction(reaction *r) {
   int32_t state = r->state;
   pts_value argument = r->argument;
+  if (r->streaming != NULL) {
+    async_generator_step(r->streaming, state == FULFILLED ? PTS_RESUME_NEXT : PTS_RESUME_THROW, argument);
+    return;
+  }
+  if (r->returning != NULL) {
+    async_generator_returned(r->returning, state, argument);
+    return;
+  }
+  if (r->wrapping != NULL) {
+    if (state == FULFILLED) {
+      resolve(r->wrapping, iterator_result(argument, r->wrapped_done));
+    } else {
+      settle(r->wrapping, REJECTED, argument);
+    }
+    return;
+  }
   if (r->awaiting != NULL) {
     resuming = r->awaiting;
     bool done = async_step(r->awaiting, state == FULFILLED ? PTS_RESUME_NEXT : PTS_RESUME_THROW, argument);
@@ -698,6 +722,214 @@ void pts_check_top_level(pts_value promise) {
     fputs("Warning: Detected unsettled top-level await\n", stderr);
     exit(13);
   }
+}
+
+/* ---------------------------------------------------------------- async generators (D-115) */
+
+typedef struct pts_request {
+  struct pts_request *next;
+  pts_resume_mode mode;
+  pts_value value;
+  pts_promise *promise;
+} request;
+
+static const pts_type async_generator_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS, /* frames are allocated with GC_MALLOC and scanned whole */
+    .name = "AsyncGenerator",
+    .size = sizeof(pts_iterator),
+};
+
+static bool is_async_generator(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type == &async_generator_type;
+}
+
+/* CreateIterResultObject: a plain object { value, done }. */
+static pts_value iterator_result(pts_value value, bool done) {
+  static const char *const keys[] = {"value", "done"};
+  pts_value parts[] = {value, pts_value_from_bool(done)};
+  return record_of(keys, parts, 2);
+}
+
+pts_value pts_async_generator_new(pts_iterator *it) {
+  it->type = &async_generator_type;
+  return pts_value_from_object(it);
+}
+
+/* AsyncGeneratorCompleteStep: the first request's promise settles, and it leaves the queue. */
+static void complete_request(pts_iterator *g, bool rejected, pts_value value, bool done) {
+  request *r = g->requests;
+  g->requests = r->next;
+  if (rejected) {
+    settle(r->promise, REJECTED, value);
+  } else {
+    settle(r->promise, FULFILLED, iterator_result(value, done));
+  }
+}
+
+static void async_generator_drain(pts_iterator *g);
+
+/* After return(value) on a completed generator: its awaited value completes the request. */
+static void async_generator_returned(pts_iterator *g, int32_t state, pts_value argument) {
+  g->executing = false;
+  complete_request(g, state == REJECTED, argument, true);
+  async_generator_drain(g);
+}
+
+/* Runs the body from where it stopped until it awaits (which resumes it from a job), yields or ends. */
+static void async_generator_step(pts_iterator *g, pts_resume_mode mode, pts_value sent) {
+  g->mode = mode;
+  g->sent = sent;
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    g->state = PTS_GENERATOR_DONE;
+    g->executing = false;
+    complete_request(g, true, pts_caught(&handler), true);
+    async_generator_drain(g);
+    return;
+  }
+  bool done = g->step(g);
+  pts_try_leave(&handler);
+  if (!done && g->awaiting) {
+    reaction *r = allocate(sizeof *r);
+    r->streaming = g;
+    perform_then(promise_resolve(g->value), r);
+    return;
+  }
+  g->executing = false;
+  complete_request(g, false, g->value, done);
+  async_generator_drain(g);
+}
+
+/* AsyncGeneratorDrainQueue and AsyncGeneratorResumeNext: serves the queued requests while the body isn't running. */
+static void async_generator_drain(pts_iterator *g) {
+  while (g->requests != NULL && !g->executing) {
+    request *r = g->requests;
+    if (g->state == PTS_GENERATOR_START && r->mode != PTS_RESUME_NEXT) {
+      g->state = PTS_GENERATOR_DONE;
+    }
+    if (g->state != PTS_GENERATOR_DONE) {
+      g->executing = true;
+      async_generator_step(g, r->mode, r->value);
+      return;
+    }
+    switch (r->mode) {
+    case PTS_RESUME_NEXT:
+      complete_request(g, false, PTS_VALUE_UNDEFINED, true);
+      break;
+    case PTS_RESUME_THROW:
+      complete_request(g, true, r->value, true);
+      break;
+    case PTS_RESUME_RETURN: { /* awaiting-return: the value is awaited first */
+      g->executing = true;
+      reaction *returned = allocate(sizeof *returned);
+      returned->returning = g;
+      perform_then(promise_resolve(r->value), returned);
+      return;
+    }
+    }
+  }
+}
+
+/* An async-from-sync iterator (CreateAsyncFromSyncIterator): a sync iterator whose items it gives as promises. */
+typedef struct from_sync {
+  pts_iterator header;
+  pts_value iterator;
+} from_sync;
+
+static const pts_type from_sync_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "Async-from-Sync Iterator",
+    .size = sizeof(from_sync),
+};
+
+static pts_value from_sync_resume(from_sync *it, pts_resume_mode mode, pts_value sent) {
+  pts_promise *promise = new_promise();
+  pts_handler handler; /* what the sync iterator throws rejects the promise */
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    settle(promise, REJECTED, pts_caught(&handler));
+    return pts_value_from_object(promise);
+  }
+  bool done = pts_iterator_resume(it->iterator, mode, sent);
+  pts_value value = pts_iterator_value(it->iterator);
+  pts_try_leave(&handler);
+  reaction *r = allocate(sizeof *r); /* AsyncFromSyncIteratorContinuation: the value awaited, then the result */
+  r->wrapping = promise;
+  r->wrapped_done = done;
+  perform_then(promise_resolve(value), r);
+  return pts_value_from_object(promise);
+}
+
+pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
+  if (is_async_generator(iterable)) {
+    return iterable;
+  }
+  PTS_STATIC_STRING(async_iterator_key, 1, 15, 15, "@@asyncIterator");
+  if (pts_value_is_object(iterable) && pts_value_as_object(iterable)->type->kind == PTS_KIND_OBJECT) {
+    pts_value method = pts_dynamic_get(iterable, pts_value_from_string(async_iterator_key));
+    if (is_callable(method)) {
+      return pts_dynamic_call_method(iterable, pts_value_from_string(async_iterator_key), text, 0, NULL);
+    }
+  }
+  from_sync *it = allocate(sizeof *it);
+  it->header.type = &from_sync_type;
+  it->iterator = pts_iterator_open(iterable, text);
+  return pts_value_from_object(it);
+}
+
+pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
+  if (is_async_generator(iterator)) {
+    pts_iterator *g = (pts_iterator *)pts_value_as_object(iterator);
+    request *r = allocate(sizeof *r);
+    r->mode = mode;
+    r->value = sent;
+    r->promise = new_promise();
+    request **last = &g->requests;
+    while (*last != NULL) {
+      last = &(*last)->next;
+    }
+    *last = r;
+    async_generator_drain(g);
+    return pts_value_from_object(r->promise);
+  }
+  if (pts_value_is_object(iterator) && pts_value_as_object(iterator)->type == &from_sync_type) {
+    return from_sync_resume((from_sync *)pts_value_as_object(iterator), mode, sent);
+  }
+  static const char *const names[] = {"next", "throw", "return"};
+  pts_string *name = pts_string_from_cstr(names[mode]);
+  return pts_dynamic_call_method(iterator, pts_value_from_string(name), name, 1, &sent);
+}
+
+pts_value pts_async_iterator_close(pts_value iterator) {
+  if (is_async_generator(iterator)) {
+    return pts_async_iterator_resume(iterator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED);
+  }
+  if (pts_value_is_object(iterator) && pts_value_as_object(iterator)->type == &from_sync_type) {
+    pts_iterator_close(((from_sync *)pts_value_as_object(iterator))->iterator);
+    return PTS_VALUE_UNDEFINED;
+  }
+  PTS_STATIC_STRING(return_key, 1, 6, 6, "return");
+  if (!pts_value_is_object(iterator) || !is_callable(pts_dynamic_get(iterator, pts_value_from_string(return_key)))) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  return pts_dynamic_call_method(iterator, pts_value_from_string(return_key), return_key, 0, NULL);
+}
+
+bool pts_iterator_result_done(pts_value result) {
+  if (!pts_value_is_object(result)) {
+    pts_string *shown = pts_value_to_string(result);
+    pts_throw_new(&pts_type_builtin_TypeError, "Iterator result %.*s is not an object", (int)shown->byte_len, shown->bytes);
+  }
+  PTS_STATIC_STRING(done_key, 1, 4, 4, "done");
+  return pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done_key)));
+}
+
+pts_value pts_iterator_result_value(pts_value result) {
+  PTS_STATIC_STRING(value_key, 1, 5, 5, "value");
+  return pts_dynamic_get(result, pts_value_from_string(value_key));
 }
 
 int32_t pts_promise_state(const pts_object *promise, pts_value *result) {

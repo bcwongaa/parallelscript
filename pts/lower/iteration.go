@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -15,49 +16,61 @@ import (
 // spread, Array.from, yield*, an Iterable<T>); an object with its own next() is an
 // iterator, whose next(), return() and throw() the runtime calls the same way.
 
-// iteratorMethodName names the method [Symbol.iterator] in the IR and in method tables.
+// iteratorMethodName names the method [Symbol.iterator] in the IR and in method tables;
+// [Symbol.asyncIterator] is `@@asyncIterator` (D-115).
 const iteratorMethodName = "@@iterator"
 
-// jsIteratorName is the name JS gives a function that is a [Symbol.iterator] method.
-const jsIteratorName = "[Symbol.iterator]"
+// wellKnownSymbols are the symbols members may be named after.
+var wellKnownSymbols = []string{"iterator", "asyncIterator"}
 
-// jsMemberName is the name JS gives the function of a member named name in the IR.
+// jsMemberName is the name JS gives the function of a member named name in the IR:
+// "[Symbol.iterator]" for `@@iterator`.
 func jsMemberName(name string) string {
-	if name == iteratorMethodName {
-		return jsIteratorName
+	if symbol, ok := strings.CutPrefix(name, "@@"); ok {
+		return "[Symbol." + symbol + "]"
 	}
 	return name
 }
 
-// isSymbolIterator reports whether node is the expression `Symbol.iterator`.
-func isSymbolIterator(node *ast.Node) bool {
+// wellKnownSymbol is the name of the well-known symbol node is (`Symbol.iterator` is
+// "iterator"), or "".
+func wellKnownSymbol(node *ast.Node) string {
 	node = ast.SkipParentheses(node)
 	if node.Kind != ast.KindPropertyAccessExpression {
-		return false
+		return ""
 	}
 	access := node.AsPropertyAccessExpression()
-	return access.Expression.Kind == ast.KindIdentifier && access.Expression.Text() == "Symbol" && access.Name().Text() == "iterator"
+	if access.Expression.Kind != ast.KindIdentifier || access.Expression.Text() != "Symbol" || !slices.Contains(wellKnownSymbols, access.Name().Text()) {
+		return ""
+	}
+	return access.Name().Text()
 }
 
-// isIteratorName reports whether a member's name is `[Symbol.iterator]`.
+// isSymbolIterator reports whether node is the expression `Symbol.iterator`.
+func isSymbolIterator(node *ast.Node) bool { return wellKnownSymbol(node) == "iterator" }
+
+// isIteratorName reports whether a member's name is a well-known symbol's
+// (`[Symbol.iterator]`, `[Symbol.asyncIterator]`).
 func isIteratorName(name *ast.Node) bool {
-	return name != nil && name.Kind == ast.KindComputedPropertyName && isSymbolIterator(name.Expression())
+	return name != nil && name.Kind == ast.KindComputedPropertyName && wellKnownSymbol(name.Expression()) != ""
 }
 
 // memberName is the name of a class member or object literal property in the IR: its
-// identifier, or iteratorMethodName for `[Symbol.iterator]`.
+// identifier, or `@@` and the symbol's name for a well-known symbol (`@@iterator`).
 func memberName(member *ast.Node) string {
 	if isIteratorName(member.Name()) {
-		return iteratorMethodName
+		return "@@" + wellKnownSymbol(member.Name().Expression())
 	}
 	return member.Name().Text()
 }
 
-// propertyName is the name of a checker type's property in the IR: its own, or
-// iteratorMethodName for the property tsc names after the unique symbol Symbol.iterator.
+// propertyName is the name of a checker type's property in the IR: its own, or `@@` and
+// the symbol's name for one tsc names after a well-known unique symbol.
 func propertyName(property *ast.Symbol) string {
-	if strings.HasPrefix(property.Name, ast.InternalSymbolNamePrefix+"@iterator@") {
-		return iteratorMethodName
+	for _, symbol := range wellKnownSymbols {
+		if strings.HasPrefix(property.Name, ast.InternalSymbolNamePrefix+"@"+symbol+"@") {
+			return "@@" + symbol
+		}
 	}
 	return property.Name
 }

@@ -1,0 +1,9 @@
+// yield* in async generators is not supported yet (D-115).
+async function* inner(): AsyncGenerator<number> {
+  yield 1;
+}
+async function* outer(): AsyncGenerator<number> {
+  yield* inner();
+}
+
+// error: async_generators_not_yet.pts:6:3 - error PTS1001: `yield*` in async generators is not supported yet

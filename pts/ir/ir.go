@@ -494,6 +494,10 @@ type Func struct {
 	// promise (a Value) that the Return's Value or a throw out of Body settles. The
 	// runtime resumes Body when the awaited promise settles.
 	Async bool
+	// AsyncGenerator marks an async generator (`async function*`, D-115), also marked
+	// Generator: a call makes an AsyncGenerator object (a Value) without running Body,
+	// whose Yields marked Await are awaits and the others its yields.
+	AsyncGenerator bool
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
@@ -633,6 +637,7 @@ type Throw struct {
 type Yield struct {
 	At    Pos
 	Value Expr
+	Await bool // in an async generator, an await (D-115)
 }
 
 // ResumeMode is how a suspended generator was resumed: by next(), throw() or return().
@@ -1199,6 +1204,16 @@ var (
 	ImmediateClear = &Builtin{Name: "clearImmediate", Params: []Type{Value}, Result: Void}
 	QueueMicrotask = &Builtin{Name: "queueMicrotask", Params: []Type{Value}, Result: Void}
 	PerformanceNow = &Builtin{Name: "performance.now", Result: Number}
+	// Async iteration (D-115): AsyncIteratorOpen is GetIterator(v, async) (its second
+	// argument v's source text); AsyncIteratorResume is next(v), throw(v) or return(v)
+	// (its I32 argument a ResumeMode) on an async iterator, a promise; AsyncIteratorClose
+	// is the promise of its return() for a loop that leaves early (undefined if it has
+	// none); IteratorResultDone and IteratorResultValue read a result object.
+	AsyncIteratorOpen   = &Builtin{Name: "Symbol.asyncIterator", Params: []Type{Value, String}, Result: Value}
+	AsyncIteratorResume = &Builtin{Name: "AsyncIterator.next", Params: []Type{Value, I32, Value}, Result: Value}
+	AsyncIteratorClose  = &Builtin{Name: "AsyncIterator.return", Params: []Type{Value}, Result: Value}
+	IteratorResultDone  = &Builtin{Name: "IteratorResult.done", Params: []Type{Value}, Result: Bool}
+	IteratorResultValue = &Builtin{Name: "IteratorResult.value", Params: []Type{Value}, Result: Value}
 	// ValueIsPromise is `x instanceof Promise`.
 	ValueIsPromise = &Builtin{Name: "instanceof Promise", Params: []Type{Value}, Result: Bool}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).

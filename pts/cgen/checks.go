@@ -20,7 +20,7 @@ import (
 func (e *emitter) collectChecks(program *ir.Program) {
 	var targets []ir.Type
 	for _, f := range program.Funcs {
-		e.usesPromises = e.usesPromises || f.Async
+		e.usesPromises = e.usesPromises || f.Async || f.AsyncGenerator
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
 			switch x := x.(type) {
 			case *ir.FromUnion:
@@ -34,6 +34,9 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				case ir.DynamicCall, ir.DynamicCallMethod, ir.JSONStringify: // JSON.stringify calls toJSON methods and replacers (D-080)
 					e.declaredTypes = true
 				case ir.PromiseNew, ir.PromiseThen, ir.PromiseFinally: // the runtime calls executors and handlers (D-112)
+					e.declaredTypes = true
+					e.usesPromises = true
+				case ir.AsyncIteratorOpen, ir.AsyncIteratorResume: // it may call the program's async iterators (D-115)
 					e.declaredTypes = true
 					e.usesPromises = true
 				case ir.TimerSet, ir.ImmediateSet: // the loop calls the callbacks (D-114)

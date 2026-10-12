@@ -638,14 +638,14 @@ func (l *lowerer) forOfBinding(declaration *ast.Node, elemType ir.Type) (element
 func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	s := node.AsForInOrOfStatement()
 	switch {
-	case s.AwaitModifier != nil:
-		l.notSupportedYet(node, "`for await` is")
-		return nil
 	case s.Initializer.Kind != ast.KindVariableDeclarationList || len(s.Initializer.AsVariableDeclarationList().Declarations.Nodes) != 1:
 		l.notSupportedYet(s.Initializer, "`for...of` without a declaration of its variable is")
 		return nil
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
+	if s.AwaitModifier != nil {
+		return l.asyncForOf(node, label, declaration) // D-115
+	}
 	if it, ok := l.mapIterableOf(s.Expression); ok {
 		if it.m == nil {
 			return nil // reported

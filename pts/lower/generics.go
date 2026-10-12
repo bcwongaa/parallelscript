@@ -328,7 +328,8 @@ func (l *lowerer) objectUnionContext(node *ast.Node) *checker.Type {
 
 // objectUnion is t if it is a union of object types (iterator results among them),
 // perhaps with null or undefined, else nil (`U | readonly U[]`, a flatMap callback's
-// result, is none).
+// result, is none). Promises in it are left out: an async function's return takes
+// `T | PromiseLike<T>` (D-115).
 func (l *lowerer) objectUnion(t *checker.Type) *checker.Type {
 	isObject := func(member *checker.Type) bool {
 		_, isIteratorResult := l.iteratorResultValue(member)
@@ -337,10 +338,18 @@ func (l *lowerer) objectUnion(t *checker.Type) *checker.Type {
 	if t == nil || t.Flags()&checker.TypeFlagsUnion == 0 || !slices.ContainsFunc(t.Types(), isObject) {
 		return nil
 	}
+	var kept []*checker.Type
 	for _, member := range t.Types() {
-		if !isObject(member) && member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) == 0 {
+		switch {
+		case l.isPromiseType(member):
+			continue
+		case !isObject(member) && member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) == 0:
 			return nil
 		}
+		kept = append(kept, member)
+	}
+	if len(kept) < len(t.Types()) {
+		return l.checker.GetUnionType(kept)
 	}
 	return t
 }

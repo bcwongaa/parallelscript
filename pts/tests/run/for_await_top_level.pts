@@ -1,0 +1,13 @@
+// for await at the top level of the entry module makes it async (D-113, D-115).
+async function* numbers(): AsyncGenerator<number> {
+  yield 1;
+  await null;
+  yield 2;
+}
+for await (const n of numbers()) console.log("number", n);
+console.log("after");
+
+// expect:
+// number 1
+// number 2
+// after

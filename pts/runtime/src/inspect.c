@@ -198,6 +198,8 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
 
 const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
 const pts_type pts_generator_function = {.kind = PTS_KIND_FUNCTION, .name = "GeneratorFunction"};
+const pts_type pts_async_function = {.kind = PTS_KIND_FUNCTION, .name = "AsyncFunction"};
+const pts_type pts_async_generator_function = {.kind = PTS_KIND_FUNCTION, .name = "AsyncGeneratorFunction"};
 
 /*
  * Node's formatting of a function without properties: `[Function: name]`, or `[Function
@@ -241,7 +243,7 @@ static void format_function(text *out, const pts_closure *closure) {
     closure = ((const pts_closure *const *)(closure + 1))[0];
   }
   text_puts(&name, closure->type->name);
-  const char *kind = closure->type->parent == &pts_generator_function ? "GeneratorFunction" : "Function";
+  const char *kind = closure->type->parent != NULL && closure->type->parent != &pts_bound_function ? closure->type->parent->name : "Function";
   if (name.len == 0) {
     text_printf(out, "[%s (anonymous)]", kind);
   } else {

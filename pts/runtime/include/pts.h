@@ -319,8 +319,10 @@ typedef struct pts_closure {
 
 /* The parent of the descriptor of a closure that `bind` made of a function value, which it captures first: it shows as "bound " and that function's name. */
 extern const pts_type pts_bound_function;
-/* The parent of the descriptor of a generator function's closures, which console.log shows as `[GeneratorFunction: name]`. */
+/* The parents of the descriptors of generator and async functions' closures, which console.log shows as `[GeneratorFunction: name]` and `[AsyncFunction: name]`. */
 extern const pts_type pts_generator_function;
+extern const pts_type pts_async_function;
+extern const pts_type pts_async_generator_function;
 /* Whether a member's name is a well-known symbol's (`@@iterator` for [Symbol.iterator], D-111): no string key. */
 static inline bool pts_name_is_symbol(const char *name) { return name[0] == '@' && name[1] == '@'; }
 
@@ -1679,6 +1681,9 @@ typedef struct pts_iterator {
   pts_value value;
   struct pts_promise *promise;   /* an async function's (D-112), which its body settles */
   struct pts_reaction *reaction; /* an async function's reaction to what it awaits, reused by each await */
+  struct pts_request *requests;  /* an async generator's queue of next/return/throw calls (D-115) */
+  bool awaiting;                 /* an async generator's body stopped at an await, not a yield */
+  bool executing;                /* an async generator's body is running or awaiting */
 } pts_iterator;
 
 extern const pts_type pts_type_builtin_Generator;
@@ -1771,6 +1776,24 @@ int32_t pts_promise_state(const pts_object *promise, pts_value *result);
 void pts_run_microtasks(void);
 /* After the microtasks: the entry module's promise (top-level await) still pending ends the program with Node's exit code 13 (D-113). */
 void pts_check_top_level(pts_value promise);
+/*
+ * Async iteration (D-115). An async generator is a generator's frame whose step function
+ * stops at awaits (awaiting set) and yields; pts_async_generator_new makes its object, and
+ * pts_async_iterator_resume is next(v), throw(v) or return(v) on it (a promise of an
+ * iterator result), or on any async iterator. pts_async_iterator_open is
+ * GetIterator(value, async): an async generator itself, what an object's
+ * [Symbol.asyncIterator]() (`@@asyncIterator`) returns, or a sync iterator's items as
+ * promises (CreateAsyncFromSyncIterator); pts_async_iterator_close is the promise of its
+ * return() that a for await leaving early awaits (undefined if it has none).
+ */
+pts_value pts_async_generator_new(pts_iterator *it);
+pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text);
+pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
+pts_value pts_async_iterator_close(pts_value iterator);
+/* An iterator result's done (TypeError if it isn't an object) and value. */
+bool pts_iterator_result_done(pts_value result);
+pts_value pts_iterator_result_value(pts_value result);
+
 /* ---------------------------------------------------------------- the event loop */
 
 /*

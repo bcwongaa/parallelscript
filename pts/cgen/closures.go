@@ -100,7 +100,12 @@ func (e *emitter) closureDefinitions() {
 		if f.Binds {
 			e.line(1, ".parent = &pts_bound_function,")
 		}
-		if f.Generator {
+		switch {
+		case f.AsyncGenerator:
+			e.line(1, ".parent = &pts_async_generator_function,")
+		case f.Async:
+			e.line(1, ".parent = &pts_async_function,")
+		case f.Generator:
 			e.line(1, ".parent = &pts_generator_function,")
 		}
 		e.line(1, ".size = %s,", size)

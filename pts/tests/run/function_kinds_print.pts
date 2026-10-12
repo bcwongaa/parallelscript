@@ -1,0 +1,9 @@
+// console.log names a function's kind as Node does (D-112): async functions and arrows,
+// generator functions.
+async function f(): Promise<void> {}
+const g = async () => 1;
+function* h() {}
+console.log(f, g, h, [f]);
+
+// expect:
+// [AsyncFunction: f] [AsyncFunction: g] [GeneratorFunction: h] [ [AsyncFunction: f] ]

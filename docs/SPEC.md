@@ -936,3 +936,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C**: `usesLoop` (timers, immediates) makes `main` call `pts_loop_init()` first and `pts_run_loop()` after the microtasks; `queueMicrotask` counts as using promises.
 - **Runtime** (`loop.c`): `loop_state` (uncollectable; libuv's loop and handles malloc'd), the timer heap (`schedule`, `unschedule`, `sift_up`/`sift_down`, `arm`), `on_timer`, `run_callback`, `pts_timer_*`, immediates (`on_check`, `pts_immediate_*`), `pts_run_loop`, `pts_performance_now` (origin set in `pts_runtime_init`); `pts_queue_microtask` (`promise.c`).
 - **Tests:** `pts/tests/run/timers`, `timers_async`, `timers_uncaught` (also run under Node).
+
+### 9.73 Async iteration (M4.4)
+
+- **IR** (D-115): `ir.Func.AsyncGenerator`, `ir.Yield.Await`; `AsyncIteratorOpen`, `AsyncIteratorResume`, `AsyncIteratorClose`, `IteratorResultDone`, `IteratorResultValue`.
+- **Lowering** (`pts/lower/async_iteration.go`): `stateMachine` (flags of declarations, expressions and literal methods), `asyncYieldPoint` (from `suspensionPoint`), `asyncIteratorMethodCall`, `asyncForOf` with `awaitStatements` (from the for…of dispatch in `arrays.go`), `isAsyncIteratorType` in `irType`; `wellKnownSymbol`/`memberName`/`propertyName`/`jsMemberName` for `@@asyncIterator` (`iteration.go`); `hasTopLevelAwait` sees `for await`; `isIteratorResultUnion` (`union_objects.go`); promise members left out of `objectUnion`.
+- **C**: async generator starters return `pts_async_generator_new`; yields in them set `header.awaiting`; closure descriptors' parents `pts_async_function`/`pts_async_generator_function`.
+- **Runtime** (`promise.c`): `pts_request`, `async_generator_drain`/`_step`/`_returned`, `complete_request`, `iterator_result`; the async-from-sync iterator (`from_sync_resume`); `pts_async_iterator_open`/`_resume`/`_close`, `pts_iterator_result_done`/`_value`; `pts_iterator.requests`, `.awaiting`, `.executing`.
+- **Tests:** `pts/tests/run/async_generators`, `for_await_top_level`, `function_kinds_print` (also run under Node); `pts/tests/errors/async_generators_not_yet.pts`.

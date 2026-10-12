@@ -1,0 +1,114 @@
+// Async generators and for await (D-115): awaits and yields in one body, next() as
+// promises, the request queue, return() and throw(), for await over async generators,
+// async iterables of the program's, and sync iterables of promises.
+const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function* countdown(from: number): AsyncGenerator<number, string, undefined> {
+  for (let i = from; i > 0; i--) {
+    await sleep(5);
+    yield i;
+  }
+  return "liftoff";
+}
+
+async function* pairs(): AsyncGenerator<[string, number]> {
+  yield ["a", 1];
+  yield Promise.resolve<[string, number]>(["b", 2]); // a yielded promise is awaited
+}
+
+class Feed implements AsyncIterable<string> {
+  constructor(private items: string[]) {}
+  async *[Symbol.asyncIterator](): AsyncGenerator<string> {
+    for (const item of this.items) {
+      await null;
+      yield item.toUpperCase();
+    }
+  }
+}
+
+const manual: AsyncIterable<number> = {
+  [Symbol.asyncIterator]() {
+    let n = 0;
+    return {
+      async next(): Promise<IteratorResult<number>> {
+        n++;
+        return n <= 3 ? { value: n * 100, done: false } : { value: undefined, done: true };
+      },
+    };
+  },
+};
+
+async function main(): Promise<void> {
+  for await (const n of countdown(3)) console.log("countdown", n);
+  const it = countdown(2);
+  console.log(await it.next(), await it.next(), await it.next(), await it.next());
+  for await (const [k, v] of pairs()) console.log("pair", k, v);
+  for await (const s of new Feed(["x", "y"])) console.log("feed", s);
+  for await (const n of manual) console.log("manual", n);
+  for await (const v of [Promise.resolve(1), 2, sleep(1).then(() => 3)]) console.log("sync of promises", v);
+
+  // Requests queue: three next() calls before any settles resolve in order.
+  const queued = countdown(3);
+  const results = await Promise.all([queued.next(), queued.next(), queued.next(), queued.next()]);
+  console.log(results.map((r) => `${r.value}/${r.done}`).join(" "));
+
+  // Leaving a for await early closes the generator: its finally runs.
+  async function* guarded(): AsyncGenerator<number> {
+    try {
+      yield 1;
+      yield 2;
+    } finally {
+      console.log("guarded closed");
+    }
+  }
+  for await (const n of guarded()) {
+    console.log("guarded", n);
+    break;
+  }
+  const g = guarded();
+  console.log(await g.next(), await g.return(42), await g.next());
+  const thrower = guarded();
+  await thrower.next();
+  try {
+    await thrower.throw(new Error("thrown in"));
+  } catch (e) {
+    console.log("rethrown", (e as Error).message);
+  }
+  async function* failing(): AsyncGenerator<number> {
+    yield 1;
+    throw new Error("generator failed");
+  }
+  try {
+    for await (const n of failing()) console.log("failing", n);
+  } catch (e) {
+    console.log("caught", (e as Error).message);
+  }
+  console.log(countdown, typeof countdown(1), countdown(1));
+}
+main();
+
+// expect:
+// countdown 3
+// countdown 2
+// countdown 1
+// { value: 2, done: false } { value: 1, done: false } { value: 'liftoff', done: true } { value: undefined, done: true }
+// pair a 1
+// pair b 2
+// feed X
+// feed Y
+// manual 100
+// manual 200
+// manual 300
+// sync of promises 1
+// sync of promises 2
+// sync of promises 3
+// 3/false 2/false 1/false liftoff/true
+// guarded 1
+// guarded closed
+// guarded closed
+// { value: 1, done: false } { value: 42, done: true } { value: undefined, done: true }
+// guarded closed
+// rethrown thrown in
+// failing 1
+// caught generator failed
+// [AsyncGeneratorFunction: countdown] object Object [AsyncGenerator] {}

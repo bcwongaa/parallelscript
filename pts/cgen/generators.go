@@ -152,9 +152,12 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 		}
 		e.line(1, "%s = %s;", member, value)
 	}
-	if f.Async {
+	switch {
+	case f.Async:
 		e.line(1, "return pts_async_start(&pts_frame->header);") // runs the body until its first await (D-112)
-	} else {
+	case f.AsyncGenerator:
+		e.line(1, "return pts_async_generator_new(&pts_frame->header);") // D-115
+	default:
 		e.line(1, "return pts_value_from_object(pts_frame);")
 	}
 	e.line(0, "}")
@@ -237,6 +240,9 @@ func resumeLabel(point int) string {
 func (e *emitter) yieldStatement(s *ir.Yield, depth int) {
 	point := e.frame.yields[s]
 	e.line(depth, "pts_frame->header.value = %s;", e.expr(s.Value))
+	if e.current.AsyncGenerator {
+		e.line(depth, "pts_frame->header.awaiting = %t;", s.Await) // D-115
+	}
 	e.line(depth, "pts_frame->header.state = %d;", point)
 	if len(e.tries) > 0 {
 		e.line(depth, "pts_try_leave(&%s);", e.tries[0])
@@ -285,7 +291,9 @@ func (e *emitter) frameLocal(local *ir.Local) bool {
 // function field named next, [Symbol.iterator] or then, which the runtime calls through
 // its dynamic entry.
 func implementsIteration(program *ir.Program) bool {
-	protocol := func(name string) bool { return name == "next" || name == "@@iterator" || name == "then" }
+	protocol := func(name string) bool {
+		return name == "next" || name == "@@iterator" || name == "then" || name == "@@asyncIterator"
+	}
 	for _, class := range program.Classes {
 		for _, method := range class.Methods {
 			if method.Kind == ir.Plain && protocol(method.Name) {

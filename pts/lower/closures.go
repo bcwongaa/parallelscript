@@ -141,9 +141,6 @@ func isFunction(t ir.Type) bool {
 func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case isAsyncGenerator(flags):
-		l.notSupportedYet(node, "async generators are")
-		return nil
 	}
 	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
 		outer := l.subst
@@ -151,8 +148,8 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 		defer func() { l.subst = outer }()
 	}
 	name := l.jsName(node)
-	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node),
-		Generator: isStateMachine(flags), Async: isAsync(flags)}
+	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node)}
+	stateMachine(fn, flags)
 	l.funcNodes[fn] = node
 	if !l.closureSignature(fn, node) {
 		return nil
@@ -361,7 +358,7 @@ func constantPropertyName(name *ast.Node) string {
 		return name.Text()
 	}
 	if isIteratorName(name) {
-		return jsIteratorName
+		return "[Symbol." + wellKnownSymbol(name.Expression()) + "]"
 	}
 	if name.Kind == ast.KindComputedPropertyName {
 		name = ast.SkipParentheses(name.Expression())

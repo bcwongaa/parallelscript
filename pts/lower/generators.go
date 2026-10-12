@@ -82,6 +82,7 @@ func (l *lowerer) iteratorResultShape(value ir.Type) *ir.Class {
 	for _, field := range fields {
 		field.Class = shape
 	}
+	shape.Order([]*ir.Field{fields[1], fields[0]}) // V8's order, which copies of dynamic results take (D-115)
 	l.shapesByKey[key] = shape
 	l.shapeList = append(l.shapeList, shape)
 	return shape

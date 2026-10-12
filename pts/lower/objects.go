@@ -340,7 +340,7 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			value = l.shorthandValue(property)
 		case ast.KindMethodDeclaration:
 			if isIteratorName(property.Name()) {
-				value = l.objectMethod(property, shape.Field(iteratorMethodName))
+				value = l.objectMethod(property, shape.Field(memberName(property)))
 			} else if property.Name().Kind != ast.KindComputedPropertyName {
 				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
 			}
@@ -356,7 +356,7 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		}
 		var name string
 		if isIteratorName(property.Name()) {
-			name = iteratorMethodName
+			name = memberName(property)
 		} else if property.Name().Kind == ast.KindComputedPropertyName {
 			constant, ok := l.constantName(property.Name())
 			if !ok || shape.Field(constant) == nil {

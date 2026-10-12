@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"slices"
+
 	"fmt"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -78,7 +80,7 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 		return nil, nil
 	}
 	optional := property.Flags&ast.SymbolFlagsOptional != 0
-	if optional {
+	if optional || l.isIteratorResultUnion(t) { // D-109's result shapes hold undefined in value
 		fieldType = l.withUndefined(fieldType)
 	}
 	field := &ir.Field{Name: name, Type: fieldType, Optional: optional}
@@ -98,6 +100,14 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 		return object, nil // a recursive union's dynamic data: its property is found at run time
 	}
 	return l.asUnionInterface(object, iface, node), iface.Fields[0]
+}
+
+// isIteratorResultUnion reports whether every member of the union t is an iterator result.
+func (l *lowerer) isIteratorResultUnion(t *checker.Type) bool {
+	return t.Flags()&checker.TypeFlagsUnion != 0 && !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {
+		_, ok := l.iteratorResultValue(member)
+		return !ok
+	})
 }
 
 // unionMethodCall lowers `u.m(args)` for u of a union of object types whose members all
