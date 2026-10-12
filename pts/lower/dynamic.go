@@ -16,7 +16,8 @@ import (
 
 // isAny reports whether tsc types node as any.
 func (l *lowerer) isAny(node *ast.Node) bool {
-	return l.typeAt(node).Flags()&checker.TypeFlagsAny != 0
+	t := l.typeAt(node)
+	return t.Flags()&checker.TypeFlagsAny != 0 || l.isRuntimeObject(t)
 }
 
 // isDynamicSource reports whether tsc types node as any or unknown: a value nothing but

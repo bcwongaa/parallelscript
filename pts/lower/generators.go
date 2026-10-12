@@ -150,7 +150,7 @@ func (l *lowerer) yieldExpression(node *ast.Node) ir.Expr {
 		keyword = "await"
 	}
 	if !l.function.Generator {
-		l.notSupportedYet(node, "top-level `await` is")
+		l.notSupportedYet(node, "top-level `await` outside the entry module is")
 		return nil
 	}
 	l.notSupportedYet(node, "`"+keyword+"` in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is")

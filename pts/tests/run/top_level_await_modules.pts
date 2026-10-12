@@ -1,0 +1,10 @@
+// Top-level await in an entry module that imports another: the imported module runs first,
+// and live bindings show its changes across the awaits (D-113).
+import { load, loaded } from "./top_level_await_modules/loader.pts";
+console.log("main starts", loaded);
+console.log(await load(2), await load(3), loaded);
+
+// expect:
+// helper runs first
+// main starts 0
+// 2 5 5

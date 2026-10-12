@@ -1,0 +1,67 @@
+// Promise.all, allSettled, any, race and withResolvers (D-113), in V8's order of jobs.
+const log: string[] = [];
+const wait = (label: string, value: number, fail = false): Promise<number> =>
+  new Promise<number>((resolve, reject) => {
+    log.push(`start ${label}`);
+    Promise.resolve().then(() => (fail ? reject(new Error(label)) : resolve(value)));
+  });
+
+async function main(): Promise<void> {
+  const [a, b, c] = await Promise.all([wait("a", 1), wait("b", 2), 3]);
+  console.log("all", a, b, c);
+  const sum = (await Promise.all([1, 2, 3].map(async (n) => n * 10))).reduce((x, y) => x + y, 0);
+  console.log("all mapped", sum);
+  try {
+    await Promise.all([wait("c", 1), wait("d", 2, true), wait("e", 3, true)]);
+  } catch (e) {
+    console.log("all rejected", (e as Error).message);
+  }
+  const settled = await Promise.allSettled([wait("f", 1), wait("g", 2, true), Promise.resolve("x")]);
+  console.log(settled.map((r) => r.status));
+  for (const r of settled) {
+    if (r.status === "fulfilled") console.log("fulfilled", r.value);
+    else console.log("rejected", (r.reason as Error).message);
+  }
+  console.log(await Promise.race([wait("h", 8), wait("i", 9)]));
+  console.log(await Promise.any([wait("j", 1, true), wait("k", 2)]));
+  try {
+    await Promise.any([wait("l", 1, true), Promise.reject(new Error("m"))]);
+  } catch (e) {
+    const aggregate = e as AggregateError;
+    console.log(aggregate.name, aggregate.message, aggregate.errors.map((x: Error) => x.message), e instanceof AggregateError);
+  }
+  console.log(await Promise.all([]), await Promise.allSettled([]));
+  const { promise, resolve } = Promise.withResolvers<string>();
+  Promise.resolve().then(() => resolve("resolved later"));
+  console.log(await promise);
+  const handle = Promise.withResolvers<number>();
+  handle.reject(new Error("rejected later"));
+  await handle.promise.catch((e: Error) => console.log(e.message));
+  console.log(log.join(" "));
+  const order: string[] = [];
+  Promise.all([1, 2]).then(() => order.push("all"));
+  Promise.race([1, 2]).then(() => order.push("race"));
+  Promise.allSettled([1]).then(() => order.push("allSettled"));
+  Promise.any([1]).then(() => order.push("any"));
+  Promise.resolve().then(() => order.push("t1")).then(() => order.push("t2")).then(() => order.push("t3"));
+  await new Promise<void>((done) => Promise.resolve().then(() => Promise.resolve().then(() => Promise.resolve().then(() => Promise.resolve().then(() => done())))));
+  console.log(order);
+}
+main();
+
+// expect:
+// all 1 2 3
+// all mapped 60
+// all rejected d
+// [ 'fulfilled', 'rejected', 'fulfilled' ]
+// fulfilled 1
+// rejected g
+// fulfilled x
+// 8
+// 2
+// AggregateError All promises were rejected [ 'l', 'm' ] true
+// [] []
+// resolved later
+// rejected later
+// start a start b start c start d start e start f start g start h start i start j start k start l
+// [ 't1', 'all', 'race', 'allSettled', 'any', 't2', 't3' ]

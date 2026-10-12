@@ -2,6 +2,9 @@
 
 #include "dynamic_internal.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 /*
  * Promises and microtasks (D-112): ECMAScript's promise algorithms in V8's order of jobs
  * (an await on a promise reacts to it directly, without a then() of its own), over a
@@ -525,6 +528,162 @@ pts_value pts_promise_rejected(pts_value reason) {
   pts_promise *promise = new_promise();
   settle(promise, REJECTED, reason);
   return pts_value_from_object(promise);
+}
+
+/* ---------------------------------------------------------------- combinators */
+
+/* A plain object of the given properties, in order, as JS's object literals make (hash-map objects of any, as JSON.parse's). */
+static pts_value record_of(const char *const keys[], const pts_value values[], size_t count) {
+  pts_map *record = pts_map_new(&pts_type_any_record);
+  for (size_t i = 0; i < count; i++) {
+    pts_string *key = pts_string_from_cstr(keys[i]);
+    pts_map_set(record, &key, &values[i]);
+  }
+  return pts_value_from_object(record);
+}
+
+enum { ALL, ALL_SETTLED, ANY };
+
+/* What Promise.all, allSettled and any keep across their items: the promise they return, the values (or reasons) so far, how many are outstanding. */
+typedef struct combination {
+  pts_promise *promise;
+  pts_value reject; /* the promise's reject function, for all */
+  pts_array *values;
+  size_t remaining;
+  int kind;
+} combination;
+
+/* The function that records an item's outcome at index; allSettled's two share called. */
+typedef struct element_function {
+  pts_closure closure;
+  combination *state;
+  size_t index;
+  bool *called;
+} element_function;
+
+/* The last outstanding item settles the combination: all and allSettled fulfil it with the values, any rejects it. */
+static void element_done(combination *state) {
+  if (--state->remaining > 0) {
+    return;
+  }
+  pts_value values = pts_value_from_object(state->values);
+  if (state->kind == ANY) {
+    settle(state->promise, REJECTED, pts_aggregate_error_new(values, pts_string_from_cstr("All promises were rejected")));
+  } else {
+    resolve(state->promise, values);
+  }
+}
+
+static pts_value element_call(pts_closure *self, uint32_t argc, const pts_value *argv, bool fulfilled) {
+  element_function *element = (element_function *)self;
+  if (*element->called) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  *element->called = true;
+  pts_value outcome = argc > 0 ? argv[0] : PTS_VALUE_UNDEFINED;
+  if (element->state->kind == ALL_SETTLED) {
+    static const char *const fulfilled_keys[] = {"status", "value"};
+    static const char *const rejected_keys[] = {"status", "reason"};
+    pts_value parts[] = {pts_value_from_string(pts_string_from_cstr(fulfilled ? "fulfilled" : "rejected")), outcome};
+    outcome = record_of(fulfilled ? fulfilled_keys : rejected_keys, parts, 2);
+  }
+  pts_array_set(element->state->values, (double)element->index, &outcome);
+  element_done(element->state);
+  return PTS_VALUE_UNDEFINED;
+}
+
+static pts_value resolve_element_call(pts_closure *self, uint32_t argc, const pts_value *argv) { return element_call(self, argc, argv, true); }
+static pts_value reject_element_call(pts_closure *self, uint32_t argc, const pts_value *argv) { return element_call(self, argc, argv, false); }
+
+static const pts_type resolve_element_type = {
+    .kind = PTS_KIND_FUNCTION, .gc_descr = PTS_GC_NO_POINTERS, .name = "", .size = sizeof(element_function), .length = 1, .call = resolve_element_call};
+static const pts_type reject_element_type = {
+    .kind = PTS_KIND_FUNCTION, .gc_descr = PTS_GC_NO_POINTERS, .name = "", .size = sizeof(element_function), .length = 1, .call = reject_element_call};
+
+static pts_value element_function_new(const pts_type *type, combination *state, size_t index, bool *called) {
+  element_function *element = new_function(type);
+  element->state = state;
+  element->index = index;
+  element->called = called;
+  return pts_value_from_object(element);
+}
+
+/*
+ * PerformPromiseAll, PerformPromiseAllSettled, PerformPromiseAny and PerformPromiseRace
+ * over the items of iterable: Promise.resolve of each, then then() with the functions
+ * that record its outcome (race: the combination's own resolving functions).
+ */
+static void perform_combination(int kind, bool race, pts_value iterable, const pts_string *text, pts_promise *promise, const pts_value functions[2]) {
+  combination *state = allocate(sizeof *state);
+  state->promise = promise;
+  state->reject = functions[1];
+  state->values = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
+  state->remaining = 1;
+  state->kind = kind;
+  pts_value iterator = pts_iterator_open(iterable, text);
+  for (size_t index = 0; !pts_iterator_resume(iterator, PTS_RESUME_NEXT, PTS_VALUE_UNDEFINED); index++) {
+    pts_promise *item = promise_resolve(pts_iterator_value(iterator));
+    if (race) {
+      then_with(item, functions[0], functions[1]);
+      continue;
+    }
+    pts_value undefined = PTS_VALUE_UNDEFINED;
+    pts_array_push(state->values, &undefined, 1);
+    bool *called = allocate(sizeof *called);
+    state->remaining++;
+    switch (kind) {
+    case ALL:
+      then_with(item, element_function_new(&resolve_element_type, state, index, called), functions[1]);
+      break;
+    case ALL_SETTLED:
+      then_with(item, element_function_new(&resolve_element_type, state, index, called), element_function_new(&reject_element_type, state, index, called));
+      break;
+    default:
+      then_with(item, functions[0], element_function_new(&reject_element_type, state, index, called));
+      break;
+    }
+  }
+  if (!race) {
+    element_done(state);
+  }
+}
+
+static pts_value combine(int kind, bool race, pts_value iterable, const pts_string *text) {
+  pts_promise *promise = new_promise();
+  pts_value functions[2];
+  resolving_functions(promise, functions);
+  pts_handler handler; /* what the iteration throws rejects the promise */
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    perform_combination(kind, race, iterable, text, promise, functions);
+    pts_try_leave(&handler);
+  } else {
+    pts_value thrown = pts_caught(&handler);
+    reject_call((pts_closure *)pts_value_as_object(functions[1]), 1, &thrown);
+  }
+  return pts_value_from_object(promise);
+}
+
+pts_value pts_promise_all(pts_value iterable, const pts_string *text) { return combine(ALL, false, iterable, text); }
+pts_value pts_promise_all_settled(pts_value iterable, const pts_string *text) { return combine(ALL_SETTLED, false, iterable, text); }
+pts_value pts_promise_any(pts_value iterable, const pts_string *text) { return combine(ANY, false, iterable, text); }
+pts_value pts_promise_race(pts_value iterable, const pts_string *text) { return combine(ALL, true, iterable, text); }
+
+pts_value pts_promise_with_resolvers(void) {
+  pts_promise *promise = new_promise();
+  pts_value parts[3];
+  parts[0] = pts_value_from_object(promise);
+  resolving_functions(promise, &parts[1]);
+  static const char *const keys[] = {"promise", "resolve", "reject"};
+  return record_of(keys, parts, 3);
+}
+
+void pts_check_top_level(pts_value promise) {
+  if (((pts_promise *)pts_value_as_object(promise))->state == PENDING) {
+    fflush(stdout);
+    fputs("Warning: Detected unsettled top-level await\n", stderr);
+    exit(13);
+  }
 }
 
 int32_t pts_promise_state(const pts_object *promise, pts_value *result) {

@@ -1,0 +1,8 @@
+// A top-level await that never settles ends the program with exit code 13, as Node does (D-113).
+console.log("waiting");
+await new Promise<void>(() => {});
+console.log("never");
+// exit: 13
+// stderr: unsettled top-level await
+// expect:
+// waiting

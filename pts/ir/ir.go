@@ -1176,6 +1176,14 @@ var (
 	PromiseFinally = &Builtin{Name: "Promise.finally", Params: []Type{Value, Value}, Result: Value}
 	PromiseResolve = &Builtin{Name: "Promise.resolve", Params: []Type{Value}, Result: Value}
 	PromiseReject  = &Builtin{Name: "Promise.reject", Params: []Type{Value}, Result: Value}
+	// PromiseAll, PromiseAllSettled, PromiseAny and PromiseRace are Promise's combinators
+	// over an iterable (its second argument the iterable's source text);
+	// PromiseWithResolvers is Promise.withResolvers() (D-113).
+	PromiseAll           = &Builtin{Name: "Promise.all", Params: []Type{Value, String}, Result: Value}
+	PromiseAllSettled    = &Builtin{Name: "Promise.allSettled", Params: []Type{Value, String}, Result: Value}
+	PromiseAny           = &Builtin{Name: "Promise.any", Params: []Type{Value, String}, Result: Value}
+	PromiseRace          = &Builtin{Name: "Promise.race", Params: []Type{Value, String}, Result: Value}
+	PromiseWithResolvers = &Builtin{Name: "Promise.withResolvers", Result: Value}
 	// ValueIsPromise is `x instanceof Promise`.
 	ValueIsPromise = &Builtin{Name: "instanceof Promise", Params: []Type{Value}, Result: Bool}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).

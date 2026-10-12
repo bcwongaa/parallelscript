@@ -1,11 +1,6 @@
-// Parts of M4.2 that come with M4.2b (D-112): top-level await, Promise's combinators,
-// async generators.
-const all = Promise.all([Promise.resolve(1)]);
-await all;
+// Async generators wait for M4.4 (D-112).
 async function* stream(): AsyncGenerator<number> {
   yield 1;
 }
 
-// error: promises_not_yet.pts:3:13 - error PTS1001: `all` is not supported yet
-// error: promises_not_yet.pts:4:1 - error PTS1001: top-level `await` is not supported yet
-// error: promises_not_yet.pts:5:17 - error PTS1001: async generators are not supported yet
+// error: promises_not_yet.pts:2:17 - error PTS1001: async generators are not supported yet

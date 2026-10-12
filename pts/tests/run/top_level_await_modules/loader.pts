@@ -1,0 +1,6 @@
+export let loaded = 0;
+export async function load(n: number): Promise<number> {
+  loaded += n;
+  return loaded;
+}
+console.log("helper runs first");

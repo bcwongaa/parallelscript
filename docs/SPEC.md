@@ -919,3 +919,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C**: async starters return `pts_async_start(&pts_frame->header)` (`generatorFunction`); `main` calls `pts_run_microtasks()` in programs that use promises (`usesPromises`); promise builtins turn on declared types (`collectChecks`).
 - **Runtime** (`promise.c`): `pts_promise`, reactions that become jobs (`enqueue_reaction`, `settle`, `perform_then`, `resolve` with thenable jobs, `promise_resolve`), resolving functions and finally's closures (runtime closures with a `.call` entry), `run_reaction`/`run_thenable`, `pts_run_microtasks` (one handler for async bodies, `check_rejections`), `async_step`/`async_suspended`/`async_resume`, `pts_async_start`, the API functions; `pts_iterator.promise` and `.reaction`; `format_promise` (`inspect.c`), `[object Promise]`; `pts_report_uncaught` exported from `error.c`; the 4 MiB initial heap (`runtime.c`).
 - **Tests:** `pts/tests/run/promises_*`, `async_*` and `unhandled_rejection` (all run under Node too); `pts/tests/errors/promises_not_yet.pts`.
+
+### 9.71 Promise's combinators and top-level await (M4.2b)
+
+- **IR** (D-113): `PromiseAll`, `PromiseAllSettled`, `PromiseAny`, `PromiseRace`, `PromiseWithResolvers`.
+- **Lowering** (`promises.go`): the statics in `promiseMethods` (combinators take their argument's text); `promiseTypes` includes the runtime's objects, read dynamically (`isRuntimeObject` in `isAny`, `dynamic.go`); `declareAggregateError` (`errors.go`); `hasTopLevelAwait` makes the entry module's `Init` async (`Lower`); the message for other modules.
+- **C**: `main` keeps the entry module's promise (`pts_entry`) and calls `pts_check_top_level` after the microtasks; `layOutFrame` leaves global locals out of frames.
+- **Runtime**: `record_of`, `combination`/`element_function`/`perform_combination`/`combine`, `pts_promise_all`/`_all_settled`/`_any`/`_race`/`_with_resolvers`, `pts_check_top_level` (`promise.c`); `pts_type_builtin_AggregateError`, `pts_aggregate_error_init`/`_new` (`error.c`).
+- **Tests:** `pts/tests/run/promise_combinators`, `top_level_await*` (also run under Node); `pts/tests/errors/top_level_await_imported`.

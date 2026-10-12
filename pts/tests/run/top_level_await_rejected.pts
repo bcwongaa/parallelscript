@@ -1,0 +1,8 @@
+// A rejected top-level await is an uncaught exception: exit code 1 (D-113).
+console.log("before");
+await Promise.reject(new Error("top-level rejection"));
+console.log("never");
+// exit: 1
+// stderr: top-level rejection
+// expect:
+// before

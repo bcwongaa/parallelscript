@@ -95,9 +95,29 @@ NATIVE_ERROR(SyntaxError, &pts_type_builtin_Error);
 NATIVE_ERROR(EvalError, &pts_type_builtin_Error);
 NATIVE_ERROR(URIError, &pts_type_builtin_Error);
 
+/* AggregateError (D-113): an Error with the errors it aggregates, which Promise.any rejects with. */
+static const pts_field aggregate_error_fields[] = {
+    {"name", offsetof(pts_error, name), PTS_FIELD_STRING},
+    {"message", offsetof(pts_error, message), PTS_FIELD_STRING},
+    {"cause", offsetof(pts_error, cause), PTS_FIELD_VALUE},
+    {"errors", offsetof(pts_aggregate_error, errors), PTS_FIELD_OBJECT},
+};
+
+const pts_type pts_type_builtin_AggregateError = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = ERROR_LAYOUT | PTS_GC_WORD(pts_aggregate_error, errors),
+    .name = "AggregateError",
+    .parent = &pts_type_builtin_Error,
+    .size = sizeof(pts_aggregate_error),
+    .field_count = sizeof aggregate_error_fields / sizeof aggregate_error_fields[0],
+    .fields = aggregate_error_fields,
+    .method_count = sizeof error_methods / sizeof error_methods[0],
+    .methods = error_methods,
+};
+
 static const pts_type *const native_errors[] = {
     &pts_type_builtin_Error,       &pts_type_builtin_TypeError, &pts_type_builtin_RangeError, &pts_type_builtin_ReferenceError,
-    &pts_type_builtin_SyntaxError, &pts_type_builtin_EvalError, &pts_type_builtin_URIError,
+    &pts_type_builtin_SyntaxError, &pts_type_builtin_EvalError, &pts_type_builtin_URIError, &pts_type_builtin_AggregateError,
 };
 enum { NATIVE_ERROR_COUNT = sizeof native_errors / sizeof native_errors[0] };
 
@@ -262,6 +282,19 @@ void pts_error_init(pts_error *error, pts_string *message, bool message_given, p
     static pts_site cause_site;
     error->cause = pts_optional_get(options, &cause_site, "cause", NULL);
   }
+}
+
+void pts_aggregate_error_init(pts_aggregate_error *error, pts_value errors, pts_string *message, bool message_given, pts_object *options,
+                              bool options_given) {
+  PTS_STATIC_STRING(text, PTS_STRING_ASCII, 6, 6, "errors");
+  pts_error_init((pts_error *)error, message, message_given, options, options_given);
+  error->errors = pts_value_to_array(errors, text);
+}
+
+pts_value pts_aggregate_error_new(pts_value errors, pts_string *message) {
+  pts_aggregate_error *error = pts_object_new(&pts_type_builtin_AggregateError);
+  pts_aggregate_error_init(error, errors, message, true, NULL, false);
+  return pts_value_from_object(error);
 }
 
 pts_error *pts_error_new(const pts_type *type, pts_string *message) {

@@ -1,0 +1,30 @@
+// Top-level await in the entry module (D-113): the module's code is an async function;
+// module-scope bindings that functions use stay globals.
+const delay = (v: number): Promise<number> => new Promise<number>((resolve) => Promise.resolve().then(() => resolve(v)));
+let counter = await delay(1);
+function bump(): number {
+  return ++counter;
+}
+console.log("first", counter, bump());
+const values = await Promise.all([delay(2), delay(3)]);
+console.log("values", values, bump());
+for (const v of values) {
+  counter += await delay(v);
+}
+console.log("counter", counter);
+try {
+  await Promise.reject(new Error("caught at top level"));
+} catch (e) {
+  console.log((e as Error).message);
+}
+Promise.resolve().then(() => console.log("microtask before the next await resumes"));
+await null;
+console.log("done");
+
+// expect:
+// first 1 2
+// values [ 2, 3 ] 3
+// counter 8
+// caught at top level
+// microtask before the next await resumes
+// done

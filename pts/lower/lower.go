@@ -156,6 +156,9 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
+		if file == program.Entry && hasTopLevelAwait(file.AsNode()) {
+			module.Init.Generator, module.Init.Async, module.Init.Result = true, true, ir.Value // D-113
+		}
 		l.funcNodes[module.Init] = file.AsNode()
 		result.Modules = append(result.Modules, module)
 		result.Funcs = append(result.Funcs, module.Init)

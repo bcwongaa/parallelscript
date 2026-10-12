@@ -1,0 +1,5 @@
+// Top-level await outside the entry module is not supported (D-113).
+import { x } from "./top_level_await_imported/value.pts";
+console.log(x);
+
+// error: value.pts:1:18 - error PTS1001: top-level `await` outside the entry module is not supported yet

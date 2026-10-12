@@ -1529,6 +1529,23 @@ typedef struct pts_error {
   void *pts_private_frames; /* the return addresses where it was made, for its stack (D-069) */
 } pts_error;
 
+/* AggregateError: an Error's members (laid out as pts_error's, as builtin classes are, D-068), then the errors it aggregates (D-113). */
+typedef struct pts_aggregate_error {
+  const pts_type *pts_header;
+  pts_string *name;
+  pts_string *message;
+  pts_value cause;
+  pts_value pts_private_stack;
+  void *pts_private_frames;
+  struct pts_array *errors; /* an any[] */
+} pts_aggregate_error;
+typedef pts_aggregate_error pts_class_builtin_AggregateError;
+
+extern const pts_type pts_type_builtin_AggregateError;
+/* new AggregateError(errors, message?, options?): errors is any iterable, copied into an any[]. */
+void pts_aggregate_error_init(pts_aggregate_error *error, pts_value errors, pts_string *message, bool message_given, pts_object *options,
+                              bool options_given);
+
 extern const pts_type pts_type_builtin_Error;
 extern const pts_type pts_type_builtin_TypeError;
 extern const pts_type pts_type_builtin_RangeError;
@@ -1728,6 +1745,18 @@ pts_value pts_promise_construct(pts_value executor, const pts_string *text);
 pts_value pts_promise_then(pts_value promise, pts_value on_fulfilled, pts_value on_rejected);
 /* promise.finally(on_finally). */
 pts_value pts_promise_finally(pts_value promise, pts_value on_finally);
+/*
+ * Promise.all, allSettled, any and race of an iterable (text: its source, for TypeError),
+ * and Promise.withResolvers(): allSettled's results and withResolvers' object are plain
+ * objects (hash-map objects of any); any rejects with an AggregateError.
+ */
+pts_value pts_promise_all(pts_value iterable, const pts_string *text);
+pts_value pts_promise_all_settled(pts_value iterable, const pts_string *text);
+pts_value pts_promise_any(pts_value iterable, const pts_string *text);
+pts_value pts_promise_race(pts_value iterable, const pts_string *text);
+pts_value pts_promise_with_resolvers(void);
+/* A new AggregateError with the given errors (an array) and message. */
+pts_value pts_aggregate_error_new(pts_value errors, pts_string *message);
 /* x instanceof Promise. */
 bool pts_value_is_promise(pts_value value);
 /* Promise.resolve(value) and Promise.reject(reason). */
@@ -1740,6 +1769,8 @@ int32_t pts_promise_state(const pts_object *promise, pts_value *result);
  * handler ends the program as an uncaught exception does.
  */
 void pts_run_microtasks(void);
+/* After the microtasks: the entry module's promise (top-level await) still pending ends the program with Node's exit code 13 (D-113). */
+void pts_check_top_level(pts_value promise);
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);
 

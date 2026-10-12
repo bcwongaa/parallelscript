@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -29,15 +30,44 @@ func isStateMachine(flags ast.FunctionFlags) bool {
 	return flags&(ast.FunctionFlagsGenerator|ast.FunctionFlagsAsync) != 0
 }
 
-// isPromiseType reports whether t is the ES library's Promise<T> or PromiseLike<T>.
+// promiseTypes are the ES library's types of promises and of the objects that the
+// runtime makes for promises (allSettled's results, withResolvers'), which are dynamic
+// values: the latter are plain objects (D-113).
+var promiseTypes = map[string]bool{"Promise": true, "PromiseLike": true, "PromiseFulfilledResult": true, "PromiseRejectedResult": true,
+	"PromiseWithResolvers": true}
+
+// isPromiseType reports whether t is one of promiseTypes.
 func (l *lowerer) isPromiseType(t *checker.Type) bool {
 	symbol := t.Symbol()
-	return symbol != nil && t.Flags()&checker.TypeFlagsObject != 0 && (symbol.Name == "Promise" || symbol.Name == "PromiseLike") && l.isLibInterface(symbol)
+	return symbol != nil && t.Flags()&checker.TypeFlagsObject != 0 && promiseTypes[symbol.Name] && l.isLibInterface(symbol)
+}
+
+// isRuntimeObject reports whether values of t are plain objects that the runtime makes
+// for promises (allSettled's results, withResolvers'), or a union of them: their
+// properties are read as any's are (D-113).
+func (l *lowerer) isRuntimeObject(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.isRuntimeObject(member) })
+	}
+	symbol := t.Symbol()
+	return symbol != nil && symbol.Name != "Promise" && symbol.Name != "PromiseLike" && l.isPromiseType(t)
 }
 
 // isPromiseConstructor reports whether a callee is the global Promise.
 func (l *lowerer) isPromiseConstructor(callee *ast.Node) bool {
 	return callee.Kind == ast.KindIdentifier && callee.Text() == "Promise" && l.isDeclaredInDefaultLib(l.target(callee))
+}
+
+// hasTopLevelAwait reports whether node holds an await outside functions and classes:
+// the entry module's top-level code is then an async function (D-113).
+func hasTopLevelAwait(node *ast.Node) bool {
+	switch {
+	case node == nil || ast.IsFunctionLike(node) || ast.IsClassLike(node):
+		return false
+	case node.Kind == ast.KindAwaitExpression:
+		return true
+	}
+	return node.ForEachChild(hasTopLevelAwait)
 }
 
 // isSuspension reports whether node is a yield or an await: where a state machine suspends.
@@ -91,22 +121,27 @@ func (l *lowerer) newPromise(node *ast.Node) ir.Expr {
 	return &ir.CallBuiltin{Builtin: ir.PromiseNew, Args: []ir.Expr{box(executor), &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
 }
 
-// promiseMethods are the builtins of the promise methods and statics this milestone has,
-// with how many arguments each takes.
+// promiseMethods are the builtins of the promise methods and statics, with how many
+// arguments each takes; a combinator also takes its argument's source text.
 var promiseMethods = map[string]struct {
 	builtin *ir.Builtin
 	params  int
 }{
-	"Promise.then":               {ir.PromiseThen, 2},
-	"PromiseLike.then":           {ir.PromiseThen, 2},
-	"Promise.catch":              {ir.PromiseThen, 2}, // then(undefined, onRejected)
-	"Promise.finally":            {ir.PromiseFinally, 1},
-	"PromiseConstructor.resolve": {ir.PromiseResolve, 1},
-	"PromiseConstructor.reject":  {ir.PromiseReject, 1},
+	"Promise.then":                     {ir.PromiseThen, 2},
+	"PromiseLike.then":                 {ir.PromiseThen, 2},
+	"Promise.catch":                    {ir.PromiseThen, 2}, // then(undefined, onRejected)
+	"Promise.finally":                  {ir.PromiseFinally, 1},
+	"PromiseConstructor.resolve":       {ir.PromiseResolve, 1},
+	"PromiseConstructor.reject":        {ir.PromiseReject, 1},
+	"PromiseConstructor.all":           {ir.PromiseAll, 1},
+	"PromiseConstructor.allSettled":    {ir.PromiseAllSettled, 1},
+	"PromiseConstructor.any":           {ir.PromiseAny, 1},
+	"PromiseConstructor.race":          {ir.PromiseRace, 1},
+	"PromiseConstructor.withResolvers": {ir.PromiseWithResolvers, 0},
 }
 
-// promiseCall lowers p.then(…), p.catch(…), p.finally(…), Promise.resolve(…) and
-// Promise.reject(…); handled is false for other calls.
+// promiseCall lowers p.then(…), p.catch(…), p.finally(…) and Promise's statics; handled
+// is false for other calls.
 func (l *lowerer) promiseCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
 	if callee.Kind != ast.KindPropertyAccessExpression {
@@ -144,10 +179,24 @@ func (l *lowerer) promiseCall(call *ast.CallExpression) (x ir.Expr, handled bool
 		}
 		values = append(values, box(value))
 	}
+	if len(method.builtin.Params) == 2 && method.builtin.Params[1] == ir.String { // a combinator: TypeError names its iterable
+		if len(args) == 0 {
+			values = append(values, box(&ir.UndefinedConst{}))
+		}
+		values = append(values, &ir.StringConst{Value: textOf(args)})
+	}
 	for len(values) < len(method.builtin.Params) {
 		values = append(values, box(&ir.UndefinedConst{}))
 	}
 	return &ir.CallBuiltin{Builtin: method.builtin, Args: values}, true
+}
+
+// textOf is the source text of a combinator's argument, or "undefined" for none.
+func textOf(args []*ast.Node) string {
+	if len(args) == 0 {
+		return "undefined"
+	}
+	return scanner.GetTextOfNode(args[0])
 }
 
 // isPromiseStatic reports whether name ("PromiseConstructor.all") is a static method of Promise.

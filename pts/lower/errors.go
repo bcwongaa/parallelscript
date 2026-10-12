@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
@@ -26,6 +28,26 @@ func (l *lowerer) declareErrorClasses() {
 		l.classes[symbol] = class
 		l.builtinClasses = append(l.builtinClasses, class)
 	}
+	l.declareAggregateError(base)
+}
+
+// declareAggregateError makes the builtin class of AggregateError (D-113), an Error with
+// the field errors, whose constructor takes the errors first.
+func (l *lowerer) declareAggregateError(base *ir.Class) {
+	symbol := l.checker.GetGlobalSymbol("AggregateError", ast.SymbolFlagsValue, nil)
+	if symbol == nil {
+		return
+	}
+	class := &ir.Class{Name: "AggregateError", Parent: base, Builtin: true}
+	errors := &ir.Field{Name: "errors", Type: ir.ValueArray, Class: class}
+	class.Fields = []*ir.Field{errors}
+	l.members.fields[l.checker.GetPropertyOfType(l.checker.GetDeclaredTypeOfSymbol(symbol), "errors").ValueDeclaration] = errors
+	constructor := l.errorConstructor(class)
+	constructor.Extern = "pts_aggregate_error_init"
+	constructor.Params = slices.Insert(constructor.Params, 1, &ir.Local{Name: "errors", Type: ir.Value})
+	class.Constructor = constructor
+	l.classes[symbol] = class
+	l.builtinClasses = append(l.builtinClasses, class)
 }
 
 func (l *lowerer) declareErrorMembers(class *ir.Class, symbol *ast.Symbol) {

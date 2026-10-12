@@ -61,7 +61,9 @@ func (e *emitter) layOutFrame(f *ir.Func) *generatorFrame {
 			case *ir.Block:
 				visit(s.Stmts, tries)
 			case *ir.LocalDecl:
-				add(s.Local)
+				if !s.Local.Global { // a module-scope binding that functions use is a C global (an async entry module, D-113)
+					add(s.Local)
+				}
 			case *ir.If:
 				visit([]ir.Stmt{s.Then}, tries)
 				if s.Else != nil {

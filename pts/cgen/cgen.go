@@ -149,10 +149,17 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(1, "pts_register_function_names(pts_function_names, sizeof pts_function_names / sizeof pts_function_names[0]);")
 	}
 	for _, module := range program.Modules {
+		if module.Init.Async {
+			e.line(1, "pts_value pts_entry = %s(); /* its promise: top-level await (D-113) */", e.funcNames[module.Init])
+			continue
+		}
 		e.line(1, "%s();", e.funcNames[module.Init])
 	}
 	if e.usesPromises {
 		e.line(1, "pts_run_microtasks();")
+	}
+	if program.Main.Async {
+		e.line(1, "pts_check_top_level(pts_entry);")
 	}
 	e.line(1, "return pts_runtime_exit(0);")
 	e.line(0, "}")
@@ -1434,6 +1441,11 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.PromiseResolve:              "pts_promise_resolved",
 	ir.PromiseReject:               "pts_promise_rejected",
 	ir.ValueIsPromise:              "pts_value_is_promise",
+	ir.PromiseAll:                  "pts_promise_all",
+	ir.PromiseAllSettled:           "pts_promise_all_settled",
+	ir.PromiseAny:                  "pts_promise_any",
+	ir.PromiseRace:                 "pts_promise_race",
+	ir.PromiseWithResolvers:        "pts_promise_with_resolvers",
 	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",
