@@ -243,7 +243,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - The checker types `parallel e` as `Promise<Awaited<T>>`.
   - Add `parallel for` statement parsing.
   - Upstream parser and checker tests stay green; add fork parser tests.
-- [ ] **M5.2 Multi-loop runtime.**
+- [x] **M5.2 Multi-loop runtime.** (7938e4d9c)
   - N event loops (`PTS_THREADS`), one per core, over the shared heap.
   - Cross-loop promises, waking the awaiting loop with `uv_async_send`.
   - Task placement for `parallel <expr>` (least-loaded, or round-robin with stealing of unstarted tasks); tasks never migrate.
