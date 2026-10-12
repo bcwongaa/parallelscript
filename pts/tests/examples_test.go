@@ -1,10 +1,12 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image/png"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -78,4 +80,44 @@ func TestExampleHasher(t *testing.T) {
 func sortLinesByPath(lines []string) {
 	pathOf := func(line string) string { return line[strings.Index(line, "  ")+2:] }
 	slices.SortFunc(lines, func(a, b string) int { return strings.Compare(pathOf(a), pathOf(b)) })
+}
+
+// TestExampleMandelbrot runs examples/mandelbrot (D-164) under one thread and four: the
+// files are the same, Go's image/png decodes them (so the stored-deflate stream, the CRCs
+// and Adler-32 are right), and a point of the main cardioid is black where a corner isn't.
+func TestExampleMandelbrot(t *testing.T) {
+	t.Parallel()
+	exe := buildExample(t, "mandelbrot")
+	dir := t.TempDir()
+	var files [][]byte
+	for _, threads := range []string{"1", "4"} {
+		path := filepath.Join(dir, "set"+threads+".png")
+		cmd := exec.CommandContext(t.Context(), exe, path, "240", "160")
+		cmd.Env = append(os.Environ(), "PTS_THREADS="+threads)
+		out, err := cmd.CombinedOutput()
+		assert.NilError(t, err, "%s", out)
+		assert.Assert(t, strings.HasPrefix(string(out), path+": 240×160, rendered in "), string(out))
+		file, err := os.ReadFile(path)
+		assert.NilError(t, err)
+		files = append(files, file)
+	}
+	assert.Assert(t, bytes.Equal(files[0], files[1]), "the image depends on the number of threads")
+	image, err := png.Decode(bytes.NewReader(files[0]))
+	assert.NilError(t, err)
+	assert.Equal(t, image.Bounds().Dx(), 240)
+	assert.Equal(t, image.Bounds().Dy(), 160)
+	black := func(x, y int) bool {
+		r, g, b, _ := image.At(x, y).RGBA()
+		return r == 0 && g == 0 && b == 0
+	}
+	assert.Assert(t, black(154, 80), "(-0.25, 0), in the main cardioid, isn't black")
+	assert.Assert(t, !black(0, 0), "a corner, far outside the set, is black")
+	colors := map[[3]uint32]bool{}
+	for y := 0; y < 160; y += 4 {
+		for x := 0; x < 240; x += 4 {
+			r, g, b, _ := image.At(x, y).RGBA()
+			colors[[3]uint32{r, g, b}] = true
+		}
+	}
+	assert.Assert(t, len(colors) > 50, "only %d colors", len(colors))
 }

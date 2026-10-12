@@ -1,0 +1,174 @@
+// mandelbrot: renders the Mandelbrot set to a PNG, a row per job on every core.
+//
+//     pts build examples/mandelbrot/main.pts -o mandelbrot
+//     ./mandelbrot mandelbrot.png 1920 1280        # PTS_THREADS=1 ./mandelbrot … on one thread
+//
+// The rows are painted straight into the PNG's scanlines by `range(…).par.forEach`. The
+// PNG writer below needs no zlib: the pixels go in deflate's stored blocks, which every
+// PNG reader takes (the file is as large as the pixels).
+import { writeFileSync } from "pts:fs";
+import { range } from "pts:parallel";
+
+const [output = "mandelbrot.png", widthText = "1200", heightText = "800"] = process.argv.slice(2);
+const WIDTH: int = Number(widthText) as int;
+const HEIGHT: int = Number(heightText) as int;
+const MAX_ITERATIONS = 1000;
+const ROW_BYTES: int = 1 + WIDTH * 3; // a filter byte (0: none), then red, green and blue for each pixel
+const SCALE = 3.5 / WIDTH; // x from -2.5 to 1, y centred on 0, pixels square
+
+const scanlines = new Uint8Array(ROW_BYTES * HEIGHT);
+
+// Paints the pixel at `at` by how fast (cx, cy) escapes: black inside the set, outside a
+// gradient of the smooth escape count (Linas Vepstas's), so the bands don't show.
+function paint(cx: number, cy: number, at: int): void {
+  let x = 0;
+  let y = 0;
+  let i = 0;
+  while (i < MAX_ITERATIONS && x * x + y * y <= 256) {
+    const t = x * x - y * y + cx;
+    y = 2 * x * y + cy;
+    x = t;
+    i++;
+  }
+  if (i === MAX_ITERATIONS) {
+    return; // the scanlines start black
+  }
+  const smooth = i + 1 - Math.log2(Math.log2(x * x + y * y) / 2);
+  const phase = 2 * Math.PI * Math.sqrt(smooth / 40);
+  scanlines[at] = 127.5 + 127.5 * Math.cos(phase);
+  scanlines[at + 1] = 127.5 + 127.5 * Math.cos(phase + 0.8);
+  scanlines[at + 2] = 127.5 + 127.5 * Math.cos(phase + 1.6);
+}
+
+function renderRow(py: int): void {
+  const cy = (py - HEIGHT / 2) * SCALE;
+  for (let px: int = 0; px < WIDTH; px++) {
+    paint(-2.5 + px * SCALE, cy, py * ROW_BYTES + 1 + px * 3);
+  }
+}
+
+// ---------------------------------------------------------------- the PNG writer
+
+// CRC-32 as PNG's chunks use it (ISO 3309), by the table of each byte's.
+const CRC_TABLE = crcTable();
+
+function crcTable(): Uint32Array {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n as u32;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) !== 0 ? 0xedb88320 ^ (c >> 1) : c >> 1;
+    }
+    table[n] = c;
+  }
+  return table;
+}
+
+function crc32(bytes: Uint8Array, start: int, end: int): u32 {
+  let c: u32 = 0xffffffff;
+  for (let i = start; i < end; i++) {
+    c = (CRC_TABLE[(c ^ (bytes[i] as u32)) & 0xff] as u32) ^ (c >> 8);
+  }
+  return ~c;
+}
+
+// Adler-32, zlib's checksum of the data a stream holds.
+function adler32(bytes: Uint8Array): u32 {
+  let a: u32 = 1;
+  let b: u32 = 0;
+  for (let i: int = 0; i < bytes.length; i++) {
+    a = (a + (bytes[i] as u32)) % 65521;
+    b = (b + a) % 65521;
+  }
+  return (b << 16) | a;
+}
+
+// Bytes written one after another into a buffer of a known size.
+class ByteWriter {
+  readonly bytes: Uint8Array;
+  at: int = 0;
+
+  constructor(size: int) {
+    this.bytes = new Uint8Array(size);
+  }
+
+  u8(value: u32): void {
+    this.bytes[this.at] = value & 0xff;
+    this.at++;
+  }
+
+  u16le(value: u32): void {
+    this.u8(value);
+    this.u8(value >> 8);
+  }
+
+  u32be(value: u32): void {
+    this.u8(value >> 24);
+    this.u8(value >> 16);
+    this.u8(value >> 8);
+    this.u8(value);
+  }
+
+  ascii(text: string): void {
+    for (let i = 0; i < text.length; i++) {
+      this.u8(text.charCodeAt(i) as u32);
+    }
+  }
+
+  copy(source: Uint8Array, start: int, end: int): void {
+    this.bytes.set(source.subarray(start, end), this.at);
+    this.at += end - start;
+  }
+}
+
+const STORED_BLOCK: int = 65535; // the most bytes a stored deflate block holds
+const PNG_SIGNATURE: u32[] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const IHDR_FIELDS: u32[] = [8, 2, 0, 0, 0]; // bit depth, RGB, deflate, adaptive filtering, no interlace
+
+// A chunk: its length, its type, what content writes, and the CRC of the type and content.
+function chunk(out: ByteWriter, type: string, length: int, content: () => void): void {
+  out.u32be(length as u32);
+  const start = out.at;
+  out.ascii(type);
+  content();
+  out.u32be(crc32(out.bytes, start, out.at));
+}
+
+// An 8-bit RGB PNG of width × height pixels whose scanlines (each a filter byte and the row) are given.
+function encodePng(width: int, height: int, rows: Uint8Array): Uint8Array {
+  const blocks: int = Math.max(1, Math.ceil(rows.length / STORED_BLOCK)) as int;
+  const length = rows.length as int;
+  const zlibLength: int = 2 + blocks * 5 + length + 4;
+  const out = new ByteWriter(8 + (12 + 13) + (12 + zlibLength) + 12);
+  for (const byte of PNG_SIGNATURE) {
+    out.u8(byte);
+  }
+  chunk(out, "IHDR", 13, () => {
+    out.u32be(width as u32);
+    out.u32be(height as u32);
+    for (const field of IHDR_FIELDS) {
+      out.u8(field);
+    }
+  });
+  chunk(out, "IDAT", zlibLength, () => {
+    out.u8(0x78); // zlib: deflate with a 32K window, no dictionary, the fastest level
+    out.u8(0x01);
+    for (let block: int = 0; block < blocks; block++) {
+      const start = block * STORED_BLOCK;
+      const end = Math.min(start + STORED_BLOCK, length) as int;
+      out.u8(block === blocks - 1 ? 1 : 0); // BFINAL, and BTYPE 00: stored
+      out.u16le((end - start) as u32);
+      out.u16le(~((end - start) as u32) & 0xffff);
+      out.copy(rows, start, end);
+    }
+    out.u32be(adler32(rows));
+  });
+  chunk(out, "IEND", 0, () => {});
+  return out.bytes;
+}
+
+const started = performance.now();
+range(0, HEIGHT).par.forEach((py) => renderRow(py as int));
+const rendered = performance.now();
+writeFileSync(output, encodePng(WIDTH, HEIGHT, scanlines));
+console.log(`${output}: ${WIDTH}×${HEIGHT}, rendered in ${(rendered - started).toFixed(0)} ms, written in ${(performance.now() - rendered).toFixed(0)} ms`);
