@@ -100,6 +100,9 @@ func (e *emitter) closureDefinitions() {
 		if f.Binds {
 			e.line(1, ".parent = &pts_bound_function,")
 		}
+		if f.Generator {
+			e.line(1, ".parent = &pts_generator_function,")
+		}
 		e.line(1, ".size = %s,", size)
 		if f.Length > 0 && !f.Adapts && !f.Binds {
 			e.line(1, ".length = %d,", f.Length)

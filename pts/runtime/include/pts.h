@@ -318,6 +318,10 @@ typedef struct pts_closure {
 
 /* The parent of the descriptor of a closure that `bind` made of a function value, which it captures first: it shows as "bound " and that function's name. */
 extern const pts_type pts_bound_function;
+/* The parent of the descriptor of a generator function's closures, which console.log shows as `[GeneratorFunction: name]`. */
+extern const pts_type pts_generator_function;
+/* Whether a member's name is a well-known symbol's (`@@iterator` for [Symbol.iterator], D-111): no string key. */
+static inline bool pts_name_is_symbol(const char *name) { return name[0] == '@' && name[1] == '@'; }
 
 /* A new cell, size bytes and zeroed, for a captured variable that its function and closures share; scanned if it may hold a pointer. */
 void *pts_cell_new(size_t size, bool holds_pointers);
@@ -1669,11 +1673,22 @@ pts_iterator *pts_generator_new(size_t size, bool (*step)(pts_iterator *));
  */
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
 /*
- * An iterator over an iterable value: a generator object itself, or a runtime iterator
- * over what an array, string, map or set yields (an array's elements read live); TypeError
- * `text is not iterable` for anything else.
+ * An iterator over an iterable value: a generator object itself, what an object's
+ * [Symbol.iterator]() (its method `@@iterator`) returns, as pts_iterator_of, or a runtime
+ * iterator over what an array, string, map or set yields (an array's elements read live);
+ * TypeError `text is not iterable` for anything else.
  */
 pts_value pts_iterator_open(pts_value iterable, const pts_string *text);
+/*
+ * JS's iterable[Symbol.iterator](): a generator object or runtime iterator itself, what an
+ * object's `@@iterator` method returns, or a new runtime iterator over an array's
+ * elements, a string's code points, a map's entries or a set's elements (D-111).
+ */
+pts_value pts_iterator_get(pts_value iterable, const pts_string *text);
+/* An iterator itself, or one that calls an object's next(), return() and throw() (D-111). */
+pts_value pts_iterator_of(pts_value iterator);
+/* Whether value is an object of the program's with a method `@@iterator` ([Symbol.iterator]). */
+bool pts_value_has_iterator_method(pts_value value);
 /* An iterator over a map's or set's values (0), keys (1) or [key, value] entries (2), as m.values(), m.keys() and m.entries() make: live, as JS's. */
 pts_value pts_map_iterator_new(pts_value map, int32_t items);
 /*

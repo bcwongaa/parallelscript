@@ -180,11 +180,15 @@ func (l *lowerer) declareMethod(member *ast.Node, class *ir.Class) {
 	if member.Body() == nil && !abstract {
 		return // an overload signature
 	}
+	name, kind := memberName(member), methodKinds[member.Kind]
 	if l.isGeneric(member) {
+		if name == iteratorMethodName {
+			l.notSupportedYet(nameOf(member), "a generic `[Symbol.iterator]` method is")
+			return
+		}
 		l.declareGenericMethod(member, class)
 		return
 	}
-	name, kind := member.Name().Text(), methodKinds[member.Kind]
 	if class.Parent != nil && !ast.IsStatic(member) && l.inheritedGenericMethod(class.Parent, name) != nil {
 		l.notSupportedYet(nameOf(member), "overriding a generic method is") // its calls go straight to the generic method's instances (D-051)
 		l.declaringMembers().methods[member] = nil
@@ -598,7 +602,8 @@ func unsupportedMember(member *ast.Node) string {
 	switch {
 	case member.Kind == ast.KindIndexSignature:
 		return "index signatures in classes are"
-	case member.Name() != nil && member.Name().Kind != ast.KindIdentifier && member.Name().Kind != ast.KindPrivateIdentifier:
+	case member.Name() != nil && member.Name().Kind != ast.KindIdentifier && member.Name().Kind != ast.KindPrivateIdentifier &&
+		!(member.Kind == ast.KindMethodDeclaration && !ast.IsStatic(member) && isIteratorName(member.Name())):
 		return "members with computed or quoted names are"
 	case ast.HasSyntacticModifier(member, ast.ModifierFlagsAccessor):
 		return "auto-accessors (`accessor`) are"

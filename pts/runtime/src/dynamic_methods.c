@@ -1051,10 +1051,10 @@ static pts_array *own_keys(pts_value value) {
   uint32_t first = pts_instance_of(object, &pts_type_builtin_Error) ? sizeof(pts_error) : 0;
   for (uint32_t i = 0; i < object->type->field_count; i++) {
     const pts_field *field = &object->type->fields[i];
-    if (field->name[0] == '#' || field->offset < first ||
+    if (field->name[0] == '#' || pts_name_is_symbol(field->name) || field->offset < first ||
         (!pts_field_is_accessor(field->kind) && field->kind == PTS_FIELD_VALUE &&
          __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) == PTS_VALUE_ABSENT)) {
-      continue; /* private, an error's, or an optional property left out */
+      continue; /* private, a symbol's (D-111), an error's, or an optional property left out */
     }
     pts_string *name = pts_string_from_cstr(field->name);
     pts_array_push(keys, &name, 1);
@@ -1213,6 +1213,11 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
     }
     case PTS_KIND_GENERATOR:
       return pts_value_from_object(pts_iterator_to_array(value)); /* what it yields until it is done */
+    case PTS_KIND_OBJECT:
+      if (pts_value_has_iterator_method(value)) {
+        return pts_value_from_object(pts_iterator_to_array(pts_iterator_open(value, text)));
+      }
+      break;
     default:
       break;
     }

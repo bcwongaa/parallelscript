@@ -36,7 +36,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 			}
 		})
 	}
-	e.declaredTypes = e.declaredTypes || len(targets) > 0
+	e.declaredTypes = e.declaredTypes || len(targets) > 0 || implementsIteration(program)
 	for _, t := range targets {
 		e.check(t)
 	}

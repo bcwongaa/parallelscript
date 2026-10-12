@@ -69,19 +69,141 @@ static bool items_step(pts_iterator *it) {
   return false;
 }
 
-pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
-  if (pts_value_is_object(iterable) && pts_value_as_object(iterable)->type->kind == PTS_KIND_GENERATOR) {
-    return iterable;
-  }
+static const pts_type string_iterator_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "String Iterator",
+    .size = sizeof(items_iterator),
+};
+
+static pts_value items_iterator_new(const pts_type *type, pts_value items) {
   items_iterator *it = GC_MALLOC(sizeof *it);
   if (it == NULL) {
     pts_panic("RangeError", "Out of memory allocating an iterator");
   }
-  it->header.type = &array_iterator_type;
+  it->header.type = type;
   it->header.step = items_step;
   it->header.value = PTS_VALUE_UNDEFINED;
-  it->items = pts_value_iterable(iterable, text);
+  it->items = items;
   return pts_value_from_object(it);
+}
+
+static bool is_iterator(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_GENERATOR;
+}
+
+/*
+ * The iteration protocol over the program's objects (D-111): an object with a method
+ * `@@iterator` ([Symbol.iterator]) is iterable, and an object with a next() is an
+ * iterator, which a runtime iterator wraps (object_iterator): its steps call next(),
+ * return() and throw() through their dynamic entries (D-074) and read done and value off
+ * the results.
+ */
+typedef struct object_iterator {
+  pts_iterator header;
+  pts_value object;
+} object_iterator;
+
+static const pts_type object_iterator_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS, /* allocated with GC_MALLOC and scanned whole */
+    .name = "Object Iterator",
+    .size = sizeof(object_iterator),
+};
+
+/* Whether object is one of the program's objects with a method name, or a function in its property name. */
+static bool has_method(pts_value object, const pts_string *name) {
+  if (!pts_value_is_object(object) || pts_value_as_object(object)->type->kind != PTS_KIND_OBJECT) {
+    return false;
+  }
+  pts_value function = pts_dynamic_get(object, pts_value_from_string(name));
+  return pts_value_is_object(function) && pts_value_as_object(function)->type->kind == PTS_KIND_FUNCTION;
+}
+
+/* object.name(argv…), a method of the program's object, through its dynamic entry. */
+static pts_value call_method(pts_value object, const pts_string *name, uint32_t argc, const pts_value *argv) {
+  return pts_dynamic_call_method(object, pts_value_from_string(name), name, argc, argv);
+}
+
+PTS_STATIC_STRING(iterator_key, 1, 10, 10, "@@iterator");
+
+bool pts_value_has_iterator_method(pts_value value) { return has_method(value, iterator_key); }
+
+pts_value pts_iterator_of(pts_value iterator) {
+  if (is_iterator(iterator)) {
+    return iterator;
+  }
+  if (!pts_value_is_object(iterator) || pts_value_as_object(iterator)->type->kind != PTS_KIND_OBJECT) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Result of the Symbol.iterator method is not an object");
+  }
+  object_iterator *it = GC_MALLOC(sizeof *it);
+  if (it == NULL) {
+    pts_panic("RangeError", "Out of memory allocating an iterator");
+  }
+  it->header.type = &object_iterator_type;
+  it->header.value = PTS_VALUE_UNDEFINED;
+  it->object = iterator;
+  return pts_value_from_object(it);
+}
+
+/* resume_object_iterator resumes an object's iterator by calling its next(), throw() or return() as yield* does. */
+static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pts_value sent) {
+  PTS_STATIC_STRING(next, 1, 4, 4, "next");
+  PTS_STATIC_STRING(throw_, 1, 5, 5, "throw");
+  PTS_STATIC_STRING(return_, 1, 6, 6, "return");
+  PTS_STATIC_STRING(done, 1, 4, 4, "done");
+  PTS_STATIC_STRING(value, 1, 5, 5, "value");
+  const pts_string *name = mode == PTS_RESUME_NEXT ? next : mode == PTS_RESUME_THROW ? throw_ : return_;
+  if (mode != PTS_RESUME_NEXT && !has_method(it->object, name)) {
+    if (mode == PTS_RESUME_RETURN) {
+      return finish(&it->header, sent);
+    }
+    pts_iterator_close(pts_value_from_object(it));
+    pts_throw_new(&pts_type_builtin_TypeError, "The iterator does not provide a 'throw' method.");
+  }
+  pts_value result = call_method(it->object, name, 1, &sent);
+  if (!pts_value_is_object(result)) {
+    pts_string *shown = pts_value_to_string(result);
+    pts_throw_new(&pts_type_builtin_TypeError, "Iterator result %.*s is not an object", (int)shown->byte_len, shown->bytes);
+  }
+  it->header.value = pts_dynamic_get(result, pts_value_from_string(value));
+  if (!pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done)))) {
+    return false;
+  }
+  it->header.state = PTS_GENERATOR_DONE;
+  return true;
+}
+
+pts_value pts_iterator_get(pts_value iterable, const pts_string *text) {
+  if (is_iterator(iterable)) {
+    return iterable; /* a generator's or runtime iterator's [Symbol.iterator]() is itself */
+  }
+  if (has_method(iterable, iterator_key)) {
+    return call_method(iterable, iterator_key, 0, NULL);
+  }
+  if (pts_value_is_object(iterable)) {
+    switch (pts_value_as_object(iterable)->type->kind) {
+    case PTS_KIND_MAP:
+      return pts_map_iterator_new(iterable, 2);
+    case PTS_KIND_SET:
+      return pts_map_iterator_new(iterable, 0);
+    case PTS_KIND_STRING:
+      return items_iterator_new(&string_iterator_type, pts_value_iterable(iterable, text));
+    default:
+      break;
+    }
+  }
+  return items_iterator_new(&array_iterator_type, pts_value_iterable(iterable, text));
+}
+
+pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
+  if (is_iterator(iterable)) {
+    return iterable;
+  }
+  if (has_method(iterable, iterator_key)) {
+    return pts_iterator_of(call_method(iterable, iterator_key, 0, NULL));
+  }
+  return items_iterator_new(&array_iterator_type, pts_value_iterable(iterable, text));
 }
 
 /* A runtime iterator over a map or set (pts_map_iterator_new). */
@@ -164,13 +286,16 @@ static bool resume_runtime_iterator(pts_iterator *it, pts_resume_mode mode, pts_
     return finish(it, sent);
   case PTS_RESUME_THROW:
     finish(it, PTS_VALUE_UNDEFINED);
-    pts_throw_new(&pts_type_builtin_TypeError, "The iterator does not provide a 'throw' method");
+    pts_throw_new(&pts_type_builtin_TypeError, "The iterator does not provide a 'throw' method.");
   }
   return true;
 }
 
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
   pts_iterator *generator = as_iterator(iterator);
+  if (generator->type == &object_iterator_type) {
+    return resume_object_iterator((object_iterator *)generator, mode, sent);
+  }
   if (generator->type != &pts_type_builtin_Generator) {
     return resume_runtime_iterator(generator, mode, sent);
   }
@@ -209,7 +334,7 @@ pts_value pts_iterator_value(pts_value iterator) { return as_iterator(iterator)-
 
 void pts_iterator_close(pts_value iterator) {
   pts_iterator *generator = as_iterator(iterator);
-  if (generator->type == &pts_type_builtin_Generator && generator->state != PTS_GENERATOR_DONE) {
+  if ((generator->type == &pts_type_builtin_Generator || generator->type == &object_iterator_type) && generator->state != PTS_GENERATOR_DONE) {
     pts_iterator_resume(iterator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED);
   }
 }

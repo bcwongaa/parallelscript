@@ -570,8 +570,8 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 		return l.arrayFromMap(call, it)
 	}
 	x := l.iterable(args[0])
-	if x != nil && x.Type() == ir.Value { // a generator object's values, or a dynamic value's items: an any[] (D-078, D-109)
-		x = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{x, &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
+	if x != nil && (x.Type() == ir.Value || l.hasIteratorMethod(l.typeAt(args[0]))) { // a generator object's values, a dynamic value's items, an object's by its [Symbol.iterator]: an any[] (D-078, D-109, D-111)
+		x = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
 	}
 	switch {
 	case x == nil:
@@ -652,7 +652,7 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		}
 		return l.mapForOf(node, label, it, declaration.Name(), s.Statement)
 	}
-	if t := l.typeAt(s.Expression); (l.isIteratorType(t) || l.isIterableType(t)) && !l.isArrayIteration(s.Expression) {
+	if t := l.typeAt(s.Expression); l.isIterationSource(t) && !l.isArrayIteration(s.Expression) {
 		return l.iteratorForOf(node, label, declaration)
 	}
 	iterable := l.iterable(s.Expression)

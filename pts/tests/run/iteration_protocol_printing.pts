@@ -1,0 +1,38 @@
+// console.log, Object.keys, JSON and for…in of objects with a [Symbol.iterator] (D-111):
+// Node lists the symbol's property last and leaves it out of the string keys.
+const letters = {
+  n: 1,
+  *[Symbol.iterator]() { yield "x"; },
+};
+console.log(letters);
+console.log(Object.keys(letters), JSON.stringify(letters));
+for (const k in letters) console.log(k);
+const manual = { i: 0, [Symbol.iterator]: function* () { yield 1; } };
+console.log(manual, [...manual]);
+class R {
+  *[Symbol.iterator]() {
+    yield 1;
+  }
+}
+console.log(new R(), [...new R()]);
+const iterate = function* () {
+  yield 2;
+};
+function* g() {
+  yield 1;
+}
+console.log(g, iterate, [g], letters[Symbol.iterator]().next());
+
+// expect:
+// {
+//   n: 1,
+//   Symbol(Symbol.iterator): [GeneratorFunction: [Symbol.iterator]]
+// }
+// [ 'n' ] {"n":1}
+// n
+// {
+//   i: 0,
+//   Symbol(Symbol.iterator): [GeneratorFunction: [Symbol.iterator]]
+// } [ 1 ]
+// R {} [ 1 ]
+// [GeneratorFunction: g] [GeneratorFunction: iterate] [ [GeneratorFunction: g] ] { value: 'x', done: false }

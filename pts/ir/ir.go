@@ -1158,6 +1158,10 @@ var (
 	// closed, or with its Bool argument true, of all it yields: what an array pattern
 	// destructures out of an iterator.
 	IteratorTake = &Builtin{Name: "iterator take", Params: []Type{Value, Number, Bool}, Result: ValueArray}
+	// IteratorGet is iterable[Symbol.iterator]() (its second argument the iterable's source
+	// text); IteratorOf is an iterator itself, or one that calls an object's next() (D-111).
+	IteratorGet = &Builtin{Name: "Symbol.iterator", Params: []Type{Value, String}, Result: Value}
+	IteratorOf  = &Builtin{Name: "iterator of", Params: []Type{Value}, Result: Value}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).
 	MapIteratorOf = &Builtin{Name: "Map.iterator", Params: []Type{Value, I32}, Result: Value}
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).

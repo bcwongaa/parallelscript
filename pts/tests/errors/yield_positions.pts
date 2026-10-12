@@ -1,14 +1,23 @@
-// A yield can only come first in its statement (D-109): as the statement, as the
-// initializer of the statement's first variable, as an assignment's right side or as a
-// return's value.
-function* counter(): Generator<number, void, number> {
+// A yield is hoisted out of the expression a statement evaluates once (D-111); one in a
+// loop's condition or update, a case label, a later variable of a declaration, a default
+// value or an optional chain is not supported.
+function* counter(o: { f?: (n: number) => number }): Generator<number, void, number> {
   let total = 0;
-  total += yield total;
-  console.log("got", yield 1);
-  const pair = [yield 2, yield 3];
-  total = yield total;
+  while ((yield total) > 0) total++;
+  for (let i = 0; i < 3; i += yield i) total++;
+  switch (total) {
+    case yield 1:
+      break;
+  }
+  const first = 1, second = yield 2;
+  const totals = [total];
+  const [third = yield 3] = totals;
+  o.f?.(yield 4);
 }
 
-// error: yield_positions.pts:6:12 - error PTS1001: `yield` other than first in its statement (as the statement, the first variable's initializer, an assignment's right side or a return's value) is not supported yet
-// error: yield_positions.pts:7:22 - error PTS1001: `yield` other than first in its statement
-// error: yield_positions.pts:8:17 - error PTS1001: `yield` other than first in its statement
+// error: yield_positions.pts:6:11 - error PTS1001: `yield` in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is not supported yet
+// error: yield_positions.pts:7:31 - error PTS1001: `yield` in a loop's condition
+// error: yield_positions.pts:9:10 - error PTS1001: `yield` in a loop's condition
+// error: yield_positions.pts:12:29 - error PTS1001: `yield` in a loop's condition
+// error: yield_positions.pts:14:18 - error PTS1001: `yield` in a loop's condition
+// error: yield_positions.pts:15:9 - error PTS1001: `yield` in a loop's condition

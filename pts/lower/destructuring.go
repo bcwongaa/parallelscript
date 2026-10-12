@@ -40,8 +40,8 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 		value = l.iteratorTake(pattern, value) // as many values as the pattern takes, then closed (D-109)
 	case isMap(value.Type()):
 		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(value), &ir.StringConst{Value: patternSource(pattern)}}} // a set's elements, a map's entries (D-110)
-	case value.Type() == ir.Value:
-		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{value, &ir.StringConst{Value: patternSource(pattern)}}} // its items (D-078)
+	case value.Type() == ir.Value || isPlainObject(value.Type()):
+		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(value), &ir.StringConst{Value: patternSource(pattern)}}} // its items (D-078), an object's by its [Symbol.iterator] (D-111)
 	case value.Type() == ir.String:
 		value = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{value}} // its code points
 	}

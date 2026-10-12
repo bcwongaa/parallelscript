@@ -1,0 +1,101 @@
+// Yields inside larger expressions (D-111): each yield and every operand JS evaluates
+// before it run in JS's order, before the rest of the statement.
+const trace: string[] = [];
+function note<T>(label: string, value: T): T {
+  trace.push(label);
+  return value;
+}
+
+function* arithmetic(): Generator<string, number, number> {
+  const a = 1 + (yield "a");
+  const b = (yield "b") * (yield "c");
+  console.log("logged", yield "d", a, b);
+  const pair = [yield "e", note("between", 10), yield "f"];
+  const sum = note("left", 100) + (yield "g");
+  return a + b + pair[0] + pair[1] + pair[2] + sum;
+}
+
+function drive<T, R>(gen: Generator<T, R, number>): R {
+  let sent = 1;
+  let r = gen.next();
+  while (!r.done) {
+    trace.push(`yielded ${String(r.value)}`);
+    r = gen.next(sent++);
+  }
+  return r.value;
+}
+console.log("result", drive(arithmetic()));
+console.log(trace.join(", "));
+trace.length = 0;
+
+class Box {
+  items: number[] = [];
+  label = "box";
+}
+
+function* statements(box: Box): Generator<string, string, number> {
+  box.items.push(yield "push");
+  box.label = `${box.label}:${yield "label"}`;
+  if ((yield "if") > 3) {
+    console.log("big");
+  } else {
+    console.log("small");
+  }
+  switch (yield "switch") {
+    case 5:
+      console.log("five");
+      break;
+    default:
+      console.log("other");
+  }
+  for (const x of [yield "of", 0]) console.log("of", x);
+  const shape = { n: yield "object", s: `t${yield "template"}` };
+  console.log(shape);
+  const nested = yield `nested ${yield "inner"}`;
+  console.log("nested", nested);
+  if (box.items.length > 5) throw new Error(`many ${yield "throw"}`);
+  return `done ${yield "return"}`;
+}
+const box = new Box();
+console.log(drive(statements(box)), box.items, box.label);
+console.log(trace.join(", "));
+trace.length = 0;
+
+function* branches(flag: boolean): Generator<string, string, number> {
+  const picked = flag ? yield "then" : note("else", 0);
+  const both = (yield "cond") > 1 ? `big ${yield "big"}` : `small ${yield "small"}`;
+  const and = flag && (yield "and") > 0;
+  const or = !flag || (yield "or") > 100;
+  const maybe: number | undefined = flag ? undefined : 7;
+  const coalesced = maybe ?? (yield "nullish");
+  return `${picked} ${both} ${and} ${or} ${coalesced}`;
+}
+console.log(drive(branches(true)));
+console.log(drive(branches(false)));
+console.log(trace.join(", "));
+
+function* delegating(): Generator<number, number, number> {
+  const inner = function* (): Generator<number, number, number> {
+    return (yield 1) + (yield 2);
+  };
+  const total = 10 * (yield* inner()) + (yield 3);
+  return total;
+}
+console.log(drive(delegating()));
+
+// expect:
+// logged 4 2 6
+// result 136
+// yielded a, yielded b, yielded c, yielded d, yielded e, between, yielded f, left, yielded g
+// small
+// other
+// of 5
+// of 0
+// { n: 6, s: 't7' }
+// nested 9
+// done 10 [ 1 ] box:2
+// yielded push, yielded label, yielded if, yielded switch, yielded of, yielded object, yielded template, yielded inner, yielded nested 8, yielded return
+// 1 big 3 true false 6
+// 0 small 2 false true 7
+// yielded then, yielded cond, yielded big, yielded and, yielded or, yielded nullish, else, yielded cond, yielded small
+// 33

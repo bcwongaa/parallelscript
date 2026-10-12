@@ -183,7 +183,7 @@ func (e *emitter) functionNameTable(program *ir.Program) {
 		case isConstructor:
 			js = "new " + class.Name
 		case method != nil:
-			js = method.Class.Name + "." + method.Name
+			js = method.Class.Name + "." + strings.Replace(method.Name, "@@iterator", "[Symbol.iterator]", 1)
 		case f.Closure:
 			js = f.JSName
 		default:
@@ -1422,6 +1422,8 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.IteratorValue:               "pts_iterator_value",
 	ir.IteratorClose:               "pts_iterator_close",
 	ir.IteratorTake:                "pts_iterator_take",
+	ir.IteratorGet:                 "pts_iterator_get",
+	ir.IteratorOf:                  "pts_iterator_of",
 	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",

@@ -151,8 +151,8 @@ func (l *lowerer) newMapOf(node *ast.Node, mt *ir.MapType, from ir.Expr, arg *as
 	if mt.Set && from.Type() == ir.String {
 		from = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{from}} // `new Set("hello")`: its code points (D-089)
 	}
-	if from.Type() == ir.Value { // an Iterable<T>, a generator object, an iterator: what it yields, as an any[] (D-110)
-		from = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{from, &ir.StringConst{Value: scanner.GetTextOfNode(arg)}}}
+	if from.Type() == ir.Value || isPlainObject(from.Type()) { // an Iterable<T>, a generator object, an iterator, an object with a [Symbol.iterator]: what it yields, as an any[] (D-110, D-111)
+		from = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(from), &ir.StringConst{Value: scanner.GetTextOfNode(arg)}}}
 		if !mt.Set {
 			if from = l.convert(from, l.arrayOf(l.pairOf(mt)), arg); from == nil { // its [key, value] pairs, checked
 				return nil

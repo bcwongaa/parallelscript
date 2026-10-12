@@ -1,0 +1,115 @@
+// The iteration protocol over classes (D-111): a [Symbol.iterator] method (a generator
+// method, or one returning an object with its own next()) makes instances iterable by
+// for…of, spread, Array.from, new Set/Map, array patterns, Iterable<T> and yield*.
+class Range implements Iterable<number> {
+  constructor(private start: number, private end: number) {}
+  *[Symbol.iterator](): Generator<number> {
+    for (let i = this.start; i < this.end; i++) yield i;
+  }
+}
+
+class ListNode<T> {
+  constructor(public value: T, public next: ListNode<T> | null) {}
+}
+
+class Stack<T> implements Iterable<T> {
+  private top: ListNode<T> | null = null;
+  push(value: T): void {
+    this.top = new ListNode(value, this.top);
+  }
+  [Symbol.iterator](): Iterator<T> {
+    let node = this.top;
+    return {
+      next(): IteratorResult<T> {
+        if (node === null) return { value: undefined, done: true };
+        const value = node.value;
+        node = node.next;
+        return { value, done: false };
+      },
+    };
+  }
+}
+
+class Countdown implements IterableIterator<number> {
+  closed = false;
+  constructor(private n: number) {}
+  next(): IteratorResult<number> {
+    return this.n > 0 ? { value: this.n--, done: false } : { value: undefined, done: true };
+  }
+  return(): IteratorResult<number> {
+    this.closed = true;
+    return { value: undefined, done: true };
+  }
+  [Symbol.iterator](): IterableIterator<number> {
+    return this;
+  }
+}
+
+function sum(xs: Iterable<number>): number {
+  let total = 0;
+  for (const x of xs) total += x;
+  return total;
+}
+
+const range = new Range(1, 5);
+for (const x of range) console.log("range", x);
+console.log([...range], Array.from(new Range(0, 3)), sum(range));
+console.log(new Set(new Range(2, 4)), Math.max(...range));
+const [first, second] = new Range(10, 20);
+console.log(first, second);
+
+const stack = new Stack<string>();
+stack.push("a");
+stack.push("b");
+stack.push("c");
+for (const s of stack) console.log("stack", s);
+console.log([...stack].join(""), Array.from(stack, (s) => s.toUpperCase()));
+
+const countdown = new Countdown(5);
+for (const n of countdown) {
+  if (n === 3) break;
+  console.log("countdown", n);
+}
+console.log("closed", countdown.closed);
+const it: Iterator<number> = new Countdown(2);
+console.log(it.next(), it.next(), it.next());
+
+function* both(): Generator<number> {
+  yield* new Range(0, 2);
+  yield* new Countdown(2);
+}
+console.log([...both()]);
+
+function* g(): Generator<number> {
+  yield 1;
+}
+const gen = g();
+console.log(gen[Symbol.iterator]() === gen);
+const arrayIterator = [7, 8][Symbol.iterator]();
+console.log(arrayIterator.next(), arrayIterator.next(), arrayIterator.next());
+const entries = new Map([["k", 1]])[Symbol.iterator]();
+console.log(entries.next());
+const rangeIterator = range[Symbol.iterator]();
+console.log(rangeIterator.next(), [...rangeIterator]);
+
+// expect:
+// range 1
+// range 2
+// range 3
+// range 4
+// [ 1, 2, 3, 4 ] [ 0, 1, 2 ] 10
+// Set(2) { 2, 3 } 4
+// 10 11
+// stack c
+// stack b
+// stack a
+// cba [ 'C', 'B', 'A' ]
+// countdown 5
+// countdown 4
+// closed true
+// { value: 2, done: false } { value: 1, done: false } { value: undefined, done: true }
+// [ 0, 1, 2, 1 ]
+// true
+// { value: 7, done: false } { value: 8, done: false } { value: undefined, done: true }
+// { value: [ 'k', 1 ], done: false }
+// { value: 1, done: false } [ 2, 3, 4 ]

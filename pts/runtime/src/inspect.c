@@ -196,6 +196,7 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
 static void format_error(inspector *in, text *out, pts_error *error, size_t recurse_times);
 
 const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
+const pts_type pts_generator_function = {.kind = PTS_KIND_FUNCTION, .name = "GeneratorFunction"};
 
 /*
  * Node's formatting of a function without properties: `[Function: name]`, or `[Function
@@ -239,10 +240,11 @@ static void format_function(text *out, const pts_closure *closure) {
     closure = ((const pts_closure *const *)(closure + 1))[0];
   }
   text_puts(&name, closure->type->name);
+  const char *kind = closure->type->parent == &pts_generator_function ? "GeneratorFunction" : "Function";
   if (name.len == 0) {
-    text_puts(out, "[Function (anonymous)]");
+    text_printf(out, "[%s (anonymous)]", kind);
   } else {
-    text_printf(out, "[Function: %.*s]", (int)name.len, name.bytes);
+    text_printf(out, "[%s: %.*s]", kind, (int)name.len, name.bytes);
   }
   free(name.bytes);
 }
@@ -615,21 +617,28 @@ static text *format_tuple_elements(inspector *in, const pts_object *tuple, size_
   return entries;
 }
 
-/* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order. */
+/* Node's formatRaw for an object's fields: `key: value` entries, in descriptor order, those of well-known symbols (D-111) last. */
 static text *format_fields(inspector *in, const pts_object *object, size_t *count, size_t recurse_times) {
   const pts_type *type = object->type;
   text *entries = new_entries(type->field_count);
   size_t n = 0;
-  for (uint32_t i = 0; i < type->field_count; i++) {
-    if (!has_field(object, &type->fields[i])) {
-      continue;
+  for (int symbols = 0; symbols < 2; symbols++) {
+    for (uint32_t i = 0; i < type->field_count; i++) {
+      const char *name = type->fields[i].name;
+      if (!has_field(object, &type->fields[i]) || pts_name_is_symbol(name) != (symbols == 1)) {
+        continue;
+      }
+      if (symbols == 1) {
+        text_printf(&entries[n], "Symbol(Symbol.%s)", name + 2);
+      } else {
+        format_key(&entries[n], name);
+      }
+      text_puts(&entries[n], ": ");
+      in->indentation += 2;
+      format_slot(in, &entries[n], type->fields[i].kind, (const char *)object + type->fields[i].offset, recurse_times);
+      in->indentation -= 2;
+      n++;
     }
-    format_key(&entries[n], type->fields[i].name);
-    text_puts(&entries[n], ": ");
-    in->indentation += 2;
-    format_slot(in, &entries[n], type->fields[i].kind, (const char *)object + type->fields[i].offset, recurse_times);
-    in->indentation -= 2;
-    n++;
   }
   *count = n;
   return entries;

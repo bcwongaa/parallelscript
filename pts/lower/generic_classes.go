@@ -285,7 +285,7 @@ func (l *lowerer) mayBeOverriddenByAnInstance(class *ir.Class, method *ir.Method
 // getter or setter) of method's name and kind.
 func declaresMethod(node *ast.Node, method *ir.Method) bool {
 	for _, member := range node.Members() {
-		if kind, ok := methodKinds[member.Kind]; ok && kind == method.Kind && !ast.IsStatic(member) && member.Name() != nil && member.Name().Text() == method.Name {
+		if kind, ok := methodKinds[member.Kind]; ok && kind == method.Kind && !ast.IsStatic(member) && member.Name() != nil && memberName(member) == method.Name {
 			return true
 		}
 	}

@@ -360,6 +360,9 @@ func constantPropertyName(name *ast.Node) string {
 	if name.Kind == ast.KindIdentifier {
 		return name.Text()
 	}
+	if isIteratorName(name) {
+		return jsIteratorName
+	}
 	if name.Kind == ast.KindComputedPropertyName {
 		name = ast.SkipParentheses(name.Expression())
 	}

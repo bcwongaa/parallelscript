@@ -145,7 +145,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, genericConsts: map[*ast.Symbol]*genericFunc{},
-		yielded: map[*ast.Node]ir.Expr{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
+		yielded: map[*ast.Node]ir.Expr{}, kept: map[*ast.Node]ir.Expr{}, hoisting: map[*ast.Node]bool{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
@@ -305,6 +305,9 @@ type lowerer struct {
 	targets             []jumpTarget                     // the statements around the current one that break or continue can leave
 	finallies           []*finallyContext                // the try statements with finally blocks whose protected code is being lowered, innermost last (D-068)
 	yielded             map[*ast.Node]ir.Expr            // the value of each yield expression whose statement yielded already (D-109)
+	kept                map[*ast.Node]ir.Expr            // the value of each operand evaluated before a yield in its statement (D-111)
+	hoisting            map[*ast.Node]bool               // the statements being lowered after their yields were hoisted
+	hoistedNodes        []*ast.Node                      // the nodes in yielded and kept by hoisting, to forget after their statements
 	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068) and Date (D-087), the runtime's
 	dateClass           *ir.Class                        // Date (D-087)
 	dates               *dateFunctions                   // the runtime functions behind Date
@@ -355,8 +358,13 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 
 // statement lowers one statement to zero or more IR statements.
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
-	if yield := statementYield(node); yield != nil && l.function.Generator && l.yielded[yield] == nil {
-		return l.yieldingStatement(node, yield)
+	if l.function.Generator && !l.hoisting[node] {
+		if yield := statementYield(node); yield != nil && l.yielded[yield] == nil && !l.hasYield(yield.Expression()) {
+			return l.yieldingStatement(node, yield)
+		}
+		if expression := hoistableExpression(node); expression != nil && l.hasYield(expression) {
+			return l.hoistingStatement(node, expression) // D-111
+		}
 	}
 	switch node.Kind {
 	case ast.KindExpressionStatement:
@@ -1230,6 +1238,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 	if object, ok := l.chainObjects[node]; ok {
 		return object.value
 	}
+	if x, ok := l.kept[node]; ok {
+		return x // evaluated before a yield (D-111)
+	}
 	if ast.IsOptionalChain(node) && ast.IsOutermostOptionalChain(node) && !l.chainRests[node] {
 		return l.optionalChain(node)
 	}
@@ -1341,6 +1352,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 // range (D-015), and o[k] for a key a hash-map object doesn't have (D-059); everything
 // else lowers as usual.
 func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
+	if x, ok := l.kept[node]; ok {
+		return x // evaluated before a yield (D-111)
+	}
 	inner := ast.SkipParentheses(node)
 	switch {
 	case ast.IsOptionalChain(inner) && ast.IsOutermostOptionalChain(inner) && !l.chainRests[inner]:
@@ -1462,6 +1476,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return x
 	}
 	if x, handled := l.iteratorMethodCall(call); handled {
+		return x
+	}
+	if x, handled := l.getIteratorCall(call); handled {
 		return x
 	}
 	if name := l.consoleMethodName(ast.SkipParentheses(call.Expression)); name != "" {
@@ -1764,7 +1781,7 @@ func (l *lowerer) argumentValues(argument *ast.Node) []ir.Expr {
 			return []ir.Expr{&spreadValue{array}}
 		}
 		return nil
-	case isUnion(x.Type()) || x.Type() == ir.Value: // a dynamic value's items (D-078), or a union's (`...(set ?? [])`, D-089)
+	case isUnion(x.Type()) || x.Type() == ir.Value || isPlainObject(x.Type()): // a dynamic value's items (D-078), a union's (`...(set ?? [])`, D-089), or an object's by its [Symbol.iterator] (D-111)
 		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(argument.Expression())}}}}}
 	}
 	l.notSupportedYet(argument, fmt.Sprintf("spreading a %s into arguments is", x.Type()))

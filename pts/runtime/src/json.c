@@ -696,8 +696,8 @@ static void serialize_object(writer *w, pts_value value) {
       const pts_field *field = &type->fields[i];
       pts_value key = PTS_VALUE_UNDEFINED; /* made only for a toJSON, a replacer or a getter */
       pts_value property;
-      if (field->name[0] == '#') {
-        continue; /* private */
+      if (field->name[0] == '#' || pts_name_is_symbol(field->name)) {
+        continue; /* private, or a symbol's (D-111) */
       }
       if (pts_field_is_accessor(field->kind)) { /* an object literal's getter */
         key = pts_value_from_string(pts_string_from_cstr(field->name));

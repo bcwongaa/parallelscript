@@ -273,3 +273,23 @@ func (e *emitter) frameLocal(local *ir.Local) bool {
 	_, ok := e.frame.members[local]
 	return ok
 }
+
+// implementsIteration reports whether objects of the program's may be iterated through
+// the protocol (D-111): a class or shape has a method or function field named next or
+// [Symbol.iterator], which the runtime calls through its dynamic entry.
+func implementsIteration(program *ir.Program) bool {
+	protocol := func(name string) bool { return name == "next" || name == "@@iterator" }
+	for _, class := range program.Classes {
+		for _, method := range class.Methods {
+			if method.Kind == ir.Plain && protocol(method.Name) {
+				return true
+			}
+		}
+		for _, field := range class.Fields {
+			if _, ok := field.Type.(*ir.FuncType); ok && protocol(field.Name) {
+				return true
+			}
+		}
+	}
+	return false
+}

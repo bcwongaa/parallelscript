@@ -326,14 +326,19 @@ func (l *lowerer) objectUnionContext(node *ast.Node) *checker.Type {
 	return l.objectUnion(l.contextualType(node))
 }
 
-// objectUnion is t if it is a union of object types, perhaps with null or undefined, else
-// nil (`U | readonly U[]`, a flatMap callback's result, is none).
+// objectUnion is t if it is a union of object types (iterator results among them),
+// perhaps with null or undefined, else nil (`U | readonly U[]`, a flatMap callback's
+// result, is none).
 func (l *lowerer) objectUnion(t *checker.Type) *checker.Type {
-	if t == nil || t.Flags()&checker.TypeFlagsUnion == 0 || !slices.ContainsFunc(t.Types(), l.isObjectType) {
+	isObject := func(member *checker.Type) bool {
+		_, isIteratorResult := l.iteratorResultValue(member)
+		return isIteratorResult || l.isObjectType(member)
+	}
+	if t == nil || t.Flags()&checker.TypeFlagsUnion == 0 || !slices.ContainsFunc(t.Types(), isObject) {
 		return nil
 	}
 	for _, member := range t.Types() {
-		if !l.isObjectType(member) && member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) == 0 {
+		if !isObject(member) && member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) == 0 {
 			return nil
 		}
 	}

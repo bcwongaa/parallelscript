@@ -1,0 +1,94 @@
+// The iteration protocol over object literals (D-111): [Symbol.iterator] methods and
+// properties, generator methods, objects with their own next(), return() and throw()
+// driven by for…of, spread and yield*.
+const letters = {
+  *[Symbol.iterator]() {
+    yield "x";
+    yield "y";
+  },
+};
+for (const s of letters) console.log("letter", s);
+console.log([...letters]);
+
+const counter = {
+  *count(n: number) {
+    for (let i = 0; i < n; i++) yield i;
+  },
+};
+console.log([...counter.count(3)]);
+
+const manual = {
+  i: 0,
+  next(): IteratorResult<number> {
+    return this.i < 3 ? { value: this.i++, done: false } : { value: undefined, done: true };
+  },
+  [Symbol.iterator]() {
+    return this;
+  },
+};
+console.log([...manual], manual.i);
+
+const log: string[] = [];
+const traced: Iterator<number, string, number> & Iterable<number> = {
+  next(sent?: number): IteratorResult<number, string> {
+    log.push(`next ${sent}`);
+    return { value: (sent ?? 0) + 1, done: false };
+  },
+  return(value?: string): IteratorResult<number, string> {
+    log.push(`return ${value}`);
+    return { value: "closed", done: true };
+  },
+  [Symbol.iterator]() {
+    return this;
+  },
+};
+function* delegate(): Generator<number, string, number> {
+  const result = yield* traced;
+  log.push(`result ${result}`);
+  return result;
+}
+const outer = delegate();
+console.log(outer.next(), outer.next(5), outer.return("stop"), log);
+
+const noThrow = {
+  next(): IteratorResult<number> {
+    return { value: 1, done: false };
+  },
+  [Symbol.iterator]() {
+    return this;
+  },
+};
+function* wrapper(): Generator<number> {
+  yield* noThrow;
+}
+const w = wrapper();
+w.next();
+try {
+  w.throw(new Error("boom"));
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+const notAnObject = {
+  next(): any {
+    return 5;
+  },
+  [Symbol.iterator]() {
+    return this;
+  },
+};
+try {
+  for (const x of notAnObject) console.log(x);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+// expect:
+// letter x
+// letter y
+// [ 'x', 'y' ]
+// [ 0, 1, 2 ]
+// [ 0, 1, 2 ] 3
+// { value: 1, done: false } { value: 6, done: false } { value: 'closed', done: true } [ 'next undefined', 'next 5', 'return stop' ]
+// The iterator does not provide a 'throw' method.
+// Iterator result 5 is not an object

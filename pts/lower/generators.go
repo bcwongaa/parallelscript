@@ -140,12 +140,12 @@ func (l *lowerer) yieldingStatement(node *ast.Node, yield *ast.Node) []ir.Stmt {
 }
 
 // yieldExpression is the value of a yield expression whose statement has yielded already
-// (yieldingStatement); one anywhere else is reported.
+// (yieldingStatement, hoistingStatement); one anywhere else is reported.
 func (l *lowerer) yieldExpression(node *ast.Node) ir.Expr {
 	if value, ok := l.yielded[node]; ok {
 		return value
 	}
-	l.notSupportedYet(node, "`yield` other than first in its statement (as the statement, the first variable's initializer, an assignment's right side or a return's value) is")
+	l.notSupportedYet(node, "`yield` in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is")
 	return nil
 }
 
@@ -222,7 +222,8 @@ func modeConst(mode ir.ResumeMode) ir.Expr {
 }
 
 // iteratorMethodCall lowers next(v), return(v) and throw(e) on an iterator: the iterator
-// resumed, and a result object made of what it reports. handled is false for other calls.
+// (or a runtime iterator that calls an object's own methods) resumed, and a result object
+// made of what it reports. handled is false for other calls.
 func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
 	if callee.Kind != ast.KindPropertyAccessExpression || !l.isIteratorType(l.checker.GetNonNullableType(l.typeAt(callee.Expression()))) {
@@ -253,7 +254,8 @@ func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handl
 	if result == nil {
 		return nil, true
 	}
-	return &ir.Bind{Local: it, Value: box(iterator), In: result}, true
+	opened := &ir.CallBuiltin{Builtin: ir.IteratorOf, Args: []ir.Expr{box(iterator)}} // an object with its own next() is wrapped (D-111)
+	return &ir.Bind{Local: it, Value: opened, In: result}, true
 }
 
 // iteratorResult makes the result object of an iterator's method: done, which resumes the

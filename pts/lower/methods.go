@@ -15,9 +15,6 @@ import (
 func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case flags&ast.FunctionFlagsGenerator != 0:
-		l.notSupportedYet(node.Name(), "generator methods are")
-		return nil
 	case flags&ast.FunctionFlagsAsync != 0:
 		l.notSupportedYet(node.Name(), "async methods are")
 		return nil
@@ -30,7 +27,7 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	ft := field.Type.(*ir.FuncType)
 	name := field.Name
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Result: ft.Result,
-		Closure: true, Outer: l.function, JSName: name, Length: jsLength(node)}
+		Closure: true, Outer: l.function, JSName: jsMemberName(name), Length: jsLength(node), Generator: flags&ast.FunctionFlagsGenerator != 0}
 	l.funcNodes[fn] = node
 	outer := l.function
 	l.function = fn             // parameters are locals of fn

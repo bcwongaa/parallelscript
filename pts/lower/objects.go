@@ -199,7 +199,7 @@ func (l *lowerer) objectMembers(t *checker.Type, node *ast.Node) ([]*ir.Field, [
 		if optional {
 			fieldType = l.withUndefined(fieldType)
 		}
-		fields = append(fields, &ir.Field{Name: property.Name, Type: fieldType, Optional: optional})
+		fields = append(fields, &ir.Field{Name: propertyName(property), Type: fieldType, Optional: optional})
 	}
 	slices.SortFunc(fields, func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortFunc(methods, func(a, b *ir.InterfaceMethod) int { return strings.Compare(a.Name, b.Name) })
@@ -243,9 +243,9 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 		if ft == nil {
 			return nil
 		}
-		return &ir.InterfaceMethod{Name: property.Name, Params: ft.Params, Result: ft.Result}
+		return &ir.InterfaceMethod{Name: propertyName(property), Params: ft.Params, Result: ft.Result}
 	}
-	method := &ir.InterfaceMethod{Name: property.Name}
+	method := &ir.InterfaceMethod{Name: propertyName(property)}
 	for _, param := range declarations[0].Parameters() {
 		paramType := l.parameterType(param)
 		if paramType == nil {
@@ -321,7 +321,7 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			return l.recordLiteral(node, mt)
 		}
 	}
-	shape := l.shape(l.literalType(node), node)
+	shape := l.literalShape(l.literalType(node), node)
 	if shape == nil {
 		return nil
 	}
@@ -339,7 +339,9 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		case ast.KindShorthandPropertyAssignment:
 			value = l.shorthandValue(property)
 		case ast.KindMethodDeclaration:
-			if property.Name().Kind != ast.KindComputedPropertyName {
+			if isIteratorName(property.Name()) {
+				value = l.objectMethod(property, shape.Field(iteratorMethodName))
+			} else if property.Name().Kind != ast.KindComputedPropertyName {
 				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
 			}
 		case ast.KindGetAccessor, ast.KindSetAccessor:
@@ -353,7 +355,9 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 			}
 		}
 		var name string
-		if property.Name().Kind == ast.KindComputedPropertyName {
+		if isIteratorName(property.Name()) {
+			name = iteratorMethodName
+		} else if property.Name().Kind == ast.KindComputedPropertyName {
 			constant, ok := l.constantName(property.Name())
 			if !ok || shape.Field(constant) == nil {
 				l.notSupportedYet(property.Name(), "computed property names are")
@@ -375,6 +379,16 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 	}
 	fields, values = l.withLeftOut(l.literalType(node), shape, fields, values)
 	return &ir.NewObject{Shape: shape, Order: shape.Order(fields), Values: values}
+}
+
+// literalShape is the shape of the objects a literal of type t makes: an iterator
+// result's (D-109), or t's.
+func (l *lowerer) literalShape(t *checker.Type, node *ast.Node) *ir.Class {
+	if _, ok := l.iteratorResultValue(t); ok {
+		shape, _ := l.irType(t, node).(*ir.Class)
+		return shape
+	}
+	return l.shape(t, node)
 }
 
 func isSpreadAssignment(node *ast.Node) bool { return node.Kind == ast.KindSpreadAssignment }
@@ -627,7 +641,7 @@ func (l *lowerer) literalType(node *ast.Node) *checker.Type {
 // fitsLiteral reports whether an object literal of type own can make an object of the
 // object type t: t has every property own has, and own every required property t has.
 func (l *lowerer) fitsLiteral(own *checker.Type, t *checker.Type) bool {
-	if !l.isObjectType(t) {
+	if _, isIteratorResult := l.iteratorResultValue(t); !l.isObjectType(t) && !isIteratorResult {
 		return false
 	}
 	for _, property := range l.checker.GetPropertiesOfType(own) {
