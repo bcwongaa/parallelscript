@@ -41,11 +41,11 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/parser/pts.go`, `internal/parser/pts_test.go` (new files) | The contextual keyword: `parallel e` parses as a call of `parallel` marked `NodeFlagsPtsParallel` (operand: a unary expression, or an arrow function), `parallel for` as the for statement marked the same way; every other `parallel` is an identifier. Tests of both forms and of `parallel` as a name. | M5.1 | 1ba3a57e7 |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary (`/cmd/pts/pts`, and `/pts-bin/` where `make build` puts it); the benchmarks' latest results (`/pts/bench/results/latest/`, M6.5a); re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 | `README.md` | Replaced by ParallelScript's README; upstream's is kept as `docs/UPSTREAM_README.md`. On an upstream merge, take upstream's changes into `docs/UPSTREAM_README.md`. | M6.1d | f95508bd7 |
-| `internal/project/project.go` | `ProgramCommandLine`, a hook that makes the command line a project's program is built from (memoized in the typings cache, so an edit reuses the program); `pts lsp` sets it to the compiler's fixed options plus the prelude as a root (D-168). | M7.1 | M71HASH |
-| `internal/ls/diagnostics.go` | `ExtraDiagnostics`, a hook whose diagnostics `ProvideDiagnostics` adds after tsc's; `pts lsp` sets it to ParallelScript's checks (D-168). | M7.1 | M71HASH |
-| `internal/ls/lsconv/converters.go`, `internal/lsp/lsproto/lsp.go` | `ptslib:///` paths are URIs as they are, as `bundled:///` ones are, so definitions in the library round-trip (D-168). | M7.1 | M71HASH |
-| `internal/project/snapshotfs.go`, `internal/project/watch.go` | `.pts` files' changes are relevant to the project service; `ptslib:///` files aren't watched (D-168). | M7.1 | M71HASH |
-| `internal/tsoptions/parsedcommandline.go`, `internal/lsp/server.go` | `pts` in the file globs that match new files of a project and renames (D-168). | M7.1 | M71HASH |
+| `internal/project/project.go` | `ProgramCommandLine`, a hook that makes the command line a project's program is built from (memoized in the typings cache, so an edit reuses the program); `pts lsp` sets it to the compiler's fixed options plus the prelude as a root (D-168). | M7.1 | 46400426e |
+| `internal/ls/diagnostics.go` | `ExtraDiagnostics`, a hook whose diagnostics `ProvideDiagnostics` adds after tsc's; `pts lsp` sets it to ParallelScript's checks (D-168). | M7.1 | 46400426e |
+| `internal/ls/lsconv/converters.go`, `internal/lsp/lsproto/lsp.go` | `ptslib:///` paths are URIs as they are, as `bundled:///` ones are, so definitions in the library round-trip (D-168). | M7.1 | 46400426e |
+| `internal/project/snapshotfs.go`, `internal/project/watch.go` | `.pts` files' changes are relevant to the project service; `ptslib:///` files aren't watched (D-168). | M7.1 | 46400426e |
+| `internal/tsoptions/parsedcommandline.go`, `internal/lsp/server.go` | `pts` in the file globs that match new files of a project and renames (D-168). | M7.1 | 46400426e |
 
 ## Disabled or limited upstream workflows
 

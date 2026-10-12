@@ -317,7 +317,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M6.6 Milestone M6.** (m6)
 
 ## M7: Editor support
-- [ ] **M7.1 `pts lsp`.** The forked language server via `pts lsp`, with the PTS prelude and lib declarations resolved and PTS semantic diagnostics published alongside tsc's.
+- [x] **M7.1 `pts lsp`.** (46400426e) The forked language server via `pts lsp`, with the PTS prelude and lib declarations resolved and PTS semantic diagnostics published alongside tsc's.
 - [ ] **M7.2 VS Code extension.**
   - `pts/editors/vscode`, starting the server for `.pts` files.
   - A TextMate grammar, extended from TS, with `parallel` highlighted.
