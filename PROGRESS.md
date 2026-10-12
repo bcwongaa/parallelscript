@@ -162,7 +162,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `387cb358d` (M6.0c1), both jobs (PTS tests; upstream CLI and LSP suites): about 8 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `6db833172` (M6.3a), both jobs (PTS tests; upstream CLI and LSP suites): about 9.5 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the tables for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int). A benchmark with a `threads` file runs under each `PTS_THREADS` it lists and goes in a second table with its speedup (D-131); the four parallel ones take about 8 minutes with `RUNS=5 WARMUP=1`.
@@ -200,7 +200,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
-- 2026-10-13: M6.0c2 done (D-157); D-148 … D-157 added to DECISIONS' topic index; M6.0c3 done (D-158; M6.0c complete); M6.3 split by D-159; M6.3a done (D-160).
+- 2026-10-13: M6.0c2 done (D-157); D-148 … D-157 added to DECISIONS' topic index; M6.0c3 done (D-158; M6.0c complete); M6.3 split by D-159; M6.3a done (D-160). CI green on `6db833172` at the end of the session; stopped before M6.3b with its notes under Next.
 - 2026-10-12: M6.0b4b done (D-148); M6.0b5 done (D-149; M6.0b complete); M6.0c split by D-150; M6.0c1 done (D-150 … D-156). CI green on `387cb358d` at the end of the session; stopped before M6.0c2 with about half the context used (design notes under Next).
 - 2026-10-12: M6.0a4 done (D-143; M6.0a complete); M6.0b split by D-144; M6.0b1 done; M6.0b2 done (D-145); M6.0b3 done (D-146); M6.0b4 split by D-147; M6.0b4a done. CI green on `cea6b00b7` at the end of the session.
 - 2026-10-12: the owner's review (`ea9371de8`) added M6.0a–c and M6.5a; M6.0a split by D-138; M6.0a1 done (D-139); M6.0a2a done (M6.0a2 split by D-140); M6.0a2b done (D-141); M6.0a3 done (D-142); the orchestrator's rulings on the review landed as `docs/agent/OWNER_ANSWERS.md` (`fcb4667b3`). CI green on `c1ec619fc` at the end of the session.
