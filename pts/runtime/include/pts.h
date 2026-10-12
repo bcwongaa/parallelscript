@@ -1898,6 +1898,8 @@ unsigned pts_pool_threads(void);
 void pts_parallel_for(struct pts_closure *leaf, double count);
 pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *combine, double count);
 void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
+/* pts_pool_threads() as a number. */
+double pts_parallel_threads(void);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);

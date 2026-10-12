@@ -1,0 +1,59 @@
+// `.par.sort`, `sortBy` and `flatMap` (D-124): sort is Array's sort, in place, stable,
+// with the default order of the elements' strings; on several threads a parallel merge
+// sort gives the same order.
+// threads: 1 2 4
+import { range } from "pts:parallel";
+
+const small = [5, 3, 10, 1, 9, 2];
+console.log(small.par.sort(), small);
+console.log([5, 3, 10, 1].par.sort((a, b) => b - a));
+console.log(["b", undefined, "a", "c"].par.sort(), [true, false].par.sort());
+const people = [
+    { name: "Ada", age: 36 },
+    { name: "Bo", age: 20 },
+    { name: "Cy", age: 36 },
+    { name: "Di", age: 20 },
+];
+console.log(people.par.sortBy((p) => p.age).map((p) => p.name), people.par.sortBy((p) => p.name).map((p) => p.age));
+console.log([1, 2, 3].par.flatMap((x) => [x, x * 10]), [1, 2].par.flatMap((x) => x + 0.5), [[1], [2, 3]].par.flatMap((x) => x));
+console.log(range(0, 5).par.flatMap((i) => (i % 2 === 0 ? [i, i] : [])), range(0, 6).par.sort((a, b) => b - a), range(0, 6).par.sortBy((i) => i % 3));
+
+// Enough elements to merge in parallel: the order and stability of Array's sort.
+const n = 50000;
+const values = Array.from({ length: n }, (_, i) => (i * 7919) % 10007);
+const expected = values.slice().sort((a, b) => a - b);
+const sorted = values.slice().par.sort((a, b) => a - b);
+console.log(sorted.length, sorted.every((v, i) => v === expected[i]));
+const records = values.map((v, i) => ({ key: v % 50, index: i }));
+const byKey = records.slice().par.sort((a, b) => a.key - b.key);
+console.log(byKey.every((r, i) => i === 0 || byKey[i - 1].key < r.key || (byKey[i - 1].key === r.key && byKey[i - 1].index < r.index)));
+const strings = values.map((v) => `s${v}`);
+const expectedStrings = strings.slice().sort();
+const sortedStrings = strings.slice().par.sort();
+console.log(sortedStrings.every((s, i) => s === expectedStrings[i]), sortedStrings.slice(0, 3));
+const keyed = records.slice().par.sortBy((r) => r.key);
+console.log(keyed.every((r, i) => i === 0 || keyed[i - 1].key < r.key || (keyed[i - 1].key === r.key && keyed[i - 1].index < r.index)));
+
+// A comparator that throws.
+try {
+    values.slice().par.sort((a, b) => {
+        if (a === 5000) {
+            throw new RangeError("bad comparison");
+        }
+        return a - b;
+    });
+} catch (e: any) {
+    console.log("caught", e.message);
+}
+// expect:
+// [ 1, 10, 2, 3, 5, 9 ] [ 1, 10, 2, 3, 5, 9 ]
+// [ 10, 5, 3, 1 ]
+// [ 'a', 'b', 'c', undefined ] [ false, true ]
+// [ 'Bo', 'Di', 'Ada', 'Cy' ] [ 36, 20, 36, 20 ]
+// [ 1, 10, 2, 20, 3, 30 ] [ 1.5, 2.5 ] [ 1, 2, 3 ]
+// [ 0, 0, 2, 2, 4, 4 ] [ 5, 4, 3, 2, 1, 0 ] [ 0, 3, 1, 4, 2, 5 ]
+// 50000 true
+// true
+// true [ 's0', 's0', 's0' ]
+// true
+// caught bad comparison

@@ -7,6 +7,7 @@
 declare function pts_parallel_for(leaf: (from: number, to: number) => void, count: number): void;
 declare function pts_parallel_reduce(leaf: (from: number, to: number) => any, combine: (left: any, right: any) => any, count: number): any;
 declare function pts_parallel_join(a: () => void, b: () => void): void;
+declare function pts_parallel_threads(): number;
 
 // What marks a callback that runs on several threads at once: the function type F,
 // branded, so that the compiler knows its body is a parallel body (D-L17).
@@ -144,6 +145,51 @@ export class ParallelArray<T> {
             return max;
         }, (left, right) => Math.max(left as number, right as number), items.length);
         return greatest as number;
+    }
+
+    // A new array of callback's values for each element, in order, each array of them flattened one level.
+    flatMap<U>(callback: ParallelCallback<(value: T, index: number, array: T[]) => U | U[]>): U[] {
+        const items = this.items;
+        const flattened = pts_parallel_reduce((from, to) => {
+            const piece: U[] = [];
+            for (let i = from; i < to; i++) {
+                const value = callback(items[i], i, items);
+                if (Array.isArray(value)) {
+                    piece.push(...value);
+                } else {
+                    piece.push(value);
+                }
+            }
+            return piece;
+        }, (left, right) => {
+            const joined = left as U[];
+            joined.push(...(right as U[]));
+            return joined;
+        }, items.length);
+        return flattened as U[];
+    }
+
+    // Sorts the array in place, stably, and returns it, as Array's sort does: by compare, or
+    // without one by the elements' strings, undefined last.
+    sort(compare?: ParallelCallback<(a: T, b: T) => number>): T[] {
+        const items = this.items;
+        if (compare !== undefined) {
+            sortInPlace(items, compare);
+            return items;
+        }
+        const keys = items.map((value) => (value === undefined ? undefined : String(value)));
+        const order = range(items.length).toArray();
+        sortInPlace(order, (a, b) => compareDefault(keys[a], keys[b]));
+        return permute(items, order);
+    }
+
+    // Sorts the array in place, stably, by key's value for each element, and returns it.
+    sortBy<K extends number | string>(key: ParallelCallback<(value: T) => K>): T[] {
+        const items = this.items;
+        const keys = new ParallelArray(items).map((value) => key(value));
+        const order = range(items.length).toArray();
+        sortInPlace(order, (a, b) => (keys[a] < keys[b] ? -1 : keys[b] < keys[a] ? 1 : 0));
+        return permute(items, order);
     }
 
     // A new array of the elements.
@@ -294,6 +340,20 @@ export class ParallelRange {
         return this.length > 0 ? this.start + this.length - 1 : -Infinity;
     }
 
+    flatMap<U>(callback: ParallelCallback<(value: number) => U | U[]>): U[] {
+        return new ParallelArray(this.toArray()).flatMap((value) => callback(value));
+    }
+
+    // A new array of the integers sorted by compare.
+    sort(compare: ParallelCallback<(a: number, b: number) => number>): number[] {
+        return new ParallelArray(this.toArray()).sort(compare);
+    }
+
+    // A new array of the integers sorted by key's value for each.
+    sortBy<K extends number | string>(key: ParallelCallback<(value: number) => K>): number[] {
+        return new ParallelArray(this.toArray()).sortBy(key);
+    }
+
     toArray(): number[] {
         return new Range(this.start, this.start + this.length).toArray();
     }
@@ -314,6 +374,118 @@ export class ParallelRange {
         }, (left, right) => ((left as Found<number>).found ? left : right), this.length);
         return result as Found<number>;
     }
+}
+
+// ---------------------------------------------------------------- the parallel merge sort
+
+// Runs of at most this many elements merge sequentially, and no piece sorts sequentially with fewer.
+const SEQUENTIAL_SORT = 2048;
+// The pieces per thread that sort sequentially (with Array's sort) before the merges: more merge levels cost more than the balance they buy.
+const PIECES_PER_THREAD = 1;
+
+// Array's default order: by the elements' strings (UTF-16 code units), undefined last.
+function compareDefault(a: string | undefined, b: string | undefined): number {
+    if (a === undefined) {
+        return b === undefined ? 0 : 1;
+    }
+    if (b === undefined) {
+        return -1;
+    }
+    return a < b ? -1 : b < a ? 1 : 0;
+}
+
+// Puts items in the order order lists their indices in, in place, and returns items.
+function permute<T>(items: T[], order: number[]): T[] {
+    const sorted = new ParallelArray(order).map((index) => items[index]);
+    pts_parallel_for((from, to) => {
+        for (let i = from; i < to; i++) {
+            items[i] = sorted[i];
+        }
+    }, items.length);
+    return items;
+}
+
+// Sorts items in place, stably, by compare: Rayon's parallel merge sort, whose pieces
+// Array's sort sorts, PIECES_PER_THREAD per thread; with one thread, Array's sort alone (D-O06).
+function sortInPlace<T>(items: T[], compare: (a: T, b: T) => number): void {
+    const threads = pts_parallel_threads();
+    if (threads === 1) {
+        items.sort(compare);
+        return;
+    }
+    const piece = Math.max(SEQUENTIAL_SORT, Math.ceil(items.length / (threads * PIECES_PER_THREAD)));
+    sortRun(items, items.slice(), 0, items.length, piece, compare);
+}
+
+// Sorts items[from..to), using buffer[from..to) for the merge.
+function sortRun<T>(items: T[], buffer: T[], from: number, to: number, piece: number, compare: (a: T, b: T) => number): void {
+    if (to - from <= piece) {
+        const piece = items.slice(from, to).sort(compare);
+        for (let i = 0; i < piece.length; i++) {
+            items[from + i] = piece[i];
+        }
+        return;
+    }
+    const middle = from + Math.floor((to - from) / 2);
+    join(() => sortRun(items, buffer, from, middle, piece, compare), () => sortRun(items, buffer, middle, to, piece, compare));
+    mergeRuns(items, from, middle, middle, to, buffer, from, compare);
+    pts_parallel_for((start, end) => {
+        for (let i = from + start; i < from + end; i++) {
+            items[i] = buffer[i];
+        }
+    }, to - from);
+}
+
+// Merges the sorted runs source[left..leftEnd) and source[right..rightEnd) into target
+// from at on, stably: the left run's elements first among equals. A long merge splits at
+// the longer run's middle element, found in the other run by binary search, and merges
+// the two halves at once.
+function mergeRuns<T>(source: T[], left: number, leftEnd: number, right: number, rightEnd: number, target: T[], at: number, compare: (a: T, b: T) => number): void {
+    if (leftEnd - left + (rightEnd - right) <= SEQUENTIAL_SORT) {
+        while (left < leftEnd && right < rightEnd) {
+            if (compare(source[right], source[left]) < 0) {
+                target[at++] = source[right++];
+            } else {
+                target[at++] = source[left++];
+            }
+        }
+        while (left < leftEnd) {
+            target[at++] = source[left++];
+        }
+        while (right < rightEnd) {
+            target[at++] = source[right++];
+        }
+        return;
+    }
+    let leftSplit: number;
+    let rightSplit: number;
+    if (leftEnd - left >= rightEnd - right) {
+        leftSplit = left + Math.floor((leftEnd - left) / 2);
+        const pivot = source[leftSplit];
+        rightSplit = search(right, rightEnd, (i) => compare(source[i], pivot) < 0); // the right run's elements before the pivot
+    } else {
+        rightSplit = right + Math.floor((rightEnd - right) / 2);
+        const pivot = source[rightSplit];
+        leftSplit = search(left, leftEnd, (i) => compare(pivot, source[i]) >= 0); // the left run's elements not after the pivot
+    }
+    const secondAt = at + (leftSplit - left) + (rightSplit - right);
+    join(
+        () => mergeRuns(source, left, leftSplit, right, rightSplit, target, at, compare),
+        () => mergeRuns(source, leftSplit, leftEnd, rightSplit, rightEnd, target, secondAt, compare),
+    );
+}
+
+// The first index in from..to for which before is false, where before holds for a prefix of the indices.
+function search(from: number, to: number, before: (index: number) => boolean): number {
+    while (from < to) {
+        const middle = from + Math.floor((to - from) / 2);
+        if (before(middle)) {
+            from = middle + 1;
+        } else {
+            to = middle;
+        }
+    }
+    return from;
 }
 
 // Runs a and b, perhaps at once on two threads, and returns both results once both are

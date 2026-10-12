@@ -515,3 +515,5 @@ void pts_parallel_join(pts_closure *a, pts_closure *b) {
   closure_op pair = {.leaf = a, .combine = b};
   operate(&pair.op, 0, NULL, true);
 }
+
+double pts_parallel_threads(void) { return (double)pts_pool_threads(); }

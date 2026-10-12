@@ -245,7 +245,7 @@ Async functions and generators compile to state machines. Locals that live acros
 - These methods are synchronous: they return when the work is done.
 - `.par.map` preserves order.
 - `reduce`'s function must be associative.
-- How (D-123): `xs.par` is a `ParallelArray<T>` of `pts:parallel` (a library written in ParallelScript); `range(start, end).par` a `ParallelRange`. `filter` keeps order; `find` gives any match (the leftmost among the pieces that ran) or undefined; `some`, `every` and `find` stop early; `reduce(fn, initial)` folds elements with `fn(a, b)` from `initial`, which must be `fn`'s identity; `count(predicate)` counts the elements it holds for; `sum`, `min` and `max` take the elements as numbers, as `Number` and `Math.min`/`Math.max` do (0, Infinity and -Infinity for none); `toArray()` copies. Promise work in callbacks run on other threads (a `then`, `queueMicrotask`) is queued on the calling loop before the method returns.
+- How (D-123): `xs.par` is a `ParallelArray<T>` of `pts:parallel` (a library written in ParallelScript); `range(start, end).par` a `ParallelRange`. `filter` keeps order; `find` gives any match (the leftmost among the pieces that ran) or undefined; `some`, `every` and `find` stop early; `reduce(fn, initial)` folds elements with `fn(a, b)` from `initial`, which must be `fn`'s identity; `count(predicate)` counts the elements it holds for; `sum`, `min` and `max` take the elements as numbers, as `Number` and `Math.min`/`Math.max` do (0, Infinity and -Infinity for none); `toArray()` copies. `sort(compare?)` is Array's sort (in place, stable, the elements' strings without a comparator) and `sortBy(key)` sorts in place by keys, both as a parallel merge sort (D-124); `flatMap` flattens one level, in order. Promise work in callbacks run on other threads (a `then`, `queueMicrotask`) is queued on the calling loop before the method returns.
 - With `PTS_THREADS=1`, `.par` runs sequentially on the caller (D-O06).
 
 **Helpers** (from `pts:parallel` or the prelude; D-123: from `pts:parallel`):
@@ -1012,3 +1012,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`parallel.go`): `parallelView` (`xs.par` as `ir.New` of tsc's class instance), `withoutParallelBrand`/`isParallelBrand`, used by `irType` and `functionType`.
 - **Runtime** (`pool.c`): `closure_op`, `operate` (makes the loop's inbox, absorbs its messages after the operation), `pts_parallel_for`, `pts_parallel_reduce`, `pts_parallel_join`; `pts_absorb_messages` (`scheduler.c`), `pts_message_apply` (`promise.c`).
 - **Tests:** `pts/tests/run/parallel_views`, `parallel_views_microtasks` (each under several `PTS_THREADS`).
+
+### 9.81 `.par.flatMap`, `sort` and `sortBy` (M5.4b)
+
+- **Library** (`pts/lib/parallel.pts`, D-124): `flatMap`, `sort`, `sortBy` on `ParallelArray` and `ParallelRange`; `compareDefault`, `permute`, `sortInPlace`, `sortRun`, `mergeRuns`, `search`; the intrinsic `pts_parallel_threads` (`pool.c`).
+- **Tests:** `pts/tests/run/parallel_sort` (under several `PTS_THREADS`).
