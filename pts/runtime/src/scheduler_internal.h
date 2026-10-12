@@ -14,8 +14,18 @@ typedef struct pts_message {
   bool task;
 } pts_message;
 
-/* The index of this thread's loop: 0 for the main thread's. */
+/*
+ * The loop this thread works for: its own index on a loop's thread (0 for the main
+ * thread's). A thread running a job of another loop's parallel operation (D-122), a pool
+ * worker or a loop helping another, works for that loop with PTS_LOOP_FOREIGN added: the
+ * promises it makes belong to that loop, and whatever it does to a promise is a message
+ * to the promise's loop, since the index never matches.
+ */
 extern _Thread_local uint16_t pts_current_loop;
+enum { PTS_LOOP_FOREIGN = 0x8000 };
+
+/* PTS_THREADS if it is a positive number (at most 256), else the number of cores the process may run on. */
+unsigned pts_configured_threads(void);
 
 /* Hands message to the inbox of loop and wakes it. */
 void pts_post(uint16_t loop, pts_message *message);

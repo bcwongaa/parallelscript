@@ -74,9 +74,12 @@ static loop_slot *new_slot(void) {
   return slot;
 }
 
-/* This thread's loop; the main thread's is made the first time it is needed. */
+/* This thread's loop; the main thread's is made the first time it is needed. A pool worker has none (D-122). */
 static loop_slot *own_slot(void) {
   if (own == NULL) {
+    if (pts_current_loop != 0) {
+      pts_throw_new(&pts_type_builtin_Error, "Timers and asynchronous I/O can't be started from a parallel operation's callback yet");
+    }
     own = slots[0] = new_slot();
   }
   return own;
@@ -244,8 +247,7 @@ static void *run_worker(void *index) {
   }
 }
 
-/* PTS_THREADS if it is a positive number, else the number of cores the program may run on. */
-static unsigned configured_loops(void) {
+static unsigned configured_count(void) {
   const char *text = getenv("PTS_THREADS");
   long count = 0;
   if (text != NULL) {
@@ -262,6 +264,16 @@ static unsigned configured_loops(void) {
   return count < 1 ? 1 : count > MAX_LOOPS ? MAX_LOOPS : (unsigned)count;
 }
 
+static unsigned threads;
+static pthread_once_t threads_once = PTHREAD_ONCE_INIT;
+
+static void configure_threads(void) { threads = configured_count(); }
+
+unsigned pts_configured_threads(void) {
+  pthread_once(&threads_once, configure_threads);
+  return threads;
+}
+
 /* A loop thread's stack size: the main thread's limit, as Node's and Go's threads take. */
 static size_t stack_size(void) {
   struct rlimit limit;
@@ -274,7 +286,7 @@ static size_t stack_size(void) {
 /* Starts the loops other than the main thread's, each counted awake until it first runs dry; a thread the system won't start leaves the program with fewer loops. */
 static void start_workers(void) {
   own_slot();
-  unsigned count = configured_loops();
+  unsigned count = pts_configured_threads();
   for (unsigned i = 1; i < count; i++) {
     slots[i] = new_slot();
   }
@@ -298,13 +310,14 @@ static void start_workers(void) {
 uint16_t pts_place_task(void) {
   pthread_once(&workers_once, start_workers);
   unsigned count = atomic_load(&loop_count);
-  uint16_t best = pts_current_loop;
+  uint16_t self = pts_current_loop & ~PTS_LOOP_FOREIGN;
+  uint16_t best = self;
   size_t best_load = SIZE_MAX;
   unsigned start = atomic_fetch_add_explicit(&next_choice, 1, memory_order_relaxed);
   for (unsigned i = 0; i < count && count > 1; i++) {
     uint16_t candidate = (uint16_t)((start + i) % count);
     size_t load = atomic_load_explicit(&slots[candidate]->load, memory_order_relaxed);
-    if (candidate != pts_current_loop && load < best_load) {
+    if (candidate != self && load < best_load) {
       best = candidate;
       best_load = load;
     }

@@ -140,7 +140,7 @@ static pts_promise *new_promise(void) {
   pts_promise *promise = allocate(sizeof *promise);
   promise->type = &pts_type_builtin_Promise;
   promise->state = PENDING;
-  promise->home = pts_current_loop;
+  promise->home = pts_current_loop & ~PTS_LOOP_FOREIGN;
   promise->result = PTS_VALUE_UNDEFINED;
   return promise;
 }
@@ -251,8 +251,8 @@ static void add_reaction(pts_promise *promise, reaction *r) {
 
 /* PerformPromiseThen: r runs on this loop when promise settles, or soon if it has. */
 static void perform_then(pts_promise *promise, reaction *r) {
-  r->owner = pts_current_loop;
-  if (promise->home != r->owner) {
+  r->owner = pts_current_loop & ~PTS_LOOP_FOREIGN;
+  if (promise->home != pts_current_loop) {
     post(promise->home, THEN, promise, r, 0, PTS_VALUE_UNDEFINED);
     return;
   }
@@ -624,6 +624,10 @@ void pts_queue_microtask(pts_value callback) {
   }
   reaction *job = allocate(sizeof *job);
   job->callback = callback;
+  if (pts_current_loop & PTS_LOOP_FOREIGN) { /* a parallel operation's callback: the job runs on its loop (D-122) */
+    post(pts_current_loop & ~PTS_LOOP_FOREIGN, REACTION, NULL, job, 0, PTS_VALUE_UNDEFINED);
+    return;
+  }
   enqueue(job);
 }
 

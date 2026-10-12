@@ -1862,6 +1862,35 @@ void pts_queue_microtask(pts_value callback);
 void pts_time_origin_init(void);
 double pts_performance_now(void);
 
+/* ---------------------------------------------------------------- the fork-join pool */
+
+/*
+ * The fork-join pool (D-122), after Rayon: worker threads with work-stealing deques,
+ * apart from the loops; the thread that starts an operation helps until it is done.
+ * With PTS_THREADS=1 there are no workers and everything runs on the caller (D-O06).
+ */
+/* A piece of work for pts_join: its argument, and whether it runs on another thread than the join's caller. */
+typedef void (*pts_join_function)(void *argument, bool migrated);
+/* Runs a(a_argument) and b(b_argument), perhaps at once on two threads, and returns when both are done; a throw out of either is rethrown then, a's first. */
+void pts_join(pts_join_function a, void *a_argument, pts_join_function b, void *b_argument);
+/*
+ * An operation over the indices 0..count, split adaptively (Rayon's splitter) into
+ * pieces of at least min_length indices (1 if 0) that the pool's threads run: leaf folds
+ * the indices from..to into its result (result_size bytes, zeroed first), and combine,
+ * if not NULL, folds the result of the piece to the right into the one to its left.
+ */
+typedef struct pts_par_op pts_par_op;
+struct pts_par_op {
+  void (*leaf)(const pts_par_op *op, size_t from, size_t to, void *result);
+  void (*combine)(const pts_par_op *op, void *left, void *right);
+  size_t result_size;
+  size_t min_length;
+};
+/* Runs op over 0..count into result; a throw out of a piece is rethrown when all are done. */
+void pts_par_run(const pts_par_op *op, size_t count, void *result);
+/* The threads operations run on: the pool's workers and the caller. */
+unsigned pts_pool_threads(void);
+
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);
 /* Called by a thread about to end the process (D-121): the first thread to call it goes on to end it; any other waits until it has. */

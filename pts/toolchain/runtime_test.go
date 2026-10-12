@@ -50,11 +50,17 @@ type runResult struct {
 
 func run(t *testing.T, exe string, stdin string, args ...string) runResult {
 	t.Helper()
+	return runWithEnv(t, exe, nil, stdin, args...)
+}
+
+// runWithEnv runs exe with env's "NAME=value" settings added to its environment.
+func runWithEnv(t *testing.T, exe string, env []string, stdin string, args ...string) runResult {
+	t.Helper()
 	cmd := exec.CommandContext(t.Context(), exe, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	// bdwgc's heap looks like leaks to LeakSanitizer, and bdwgc can't see the fake stack
 	// frames ASan keeps locals in to detect use after return, so it would miss those roots.
-	cmd.Env = append(os.Environ(), "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
+	cmd.Env = append(append(os.Environ(), "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0"), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -84,6 +90,20 @@ func TestRuntimeUnitTestsPassUnderSanitizers(t *testing.T) {
 			t.Parallel()
 			exe := buildC(t, toolchain.Sanitize, source)
 			result := run(t, exe, "")
+			assert.Equal(t, result.exitCode, 0, "stderr:\n%s", result.stderr)
+		})
+	}
+}
+
+// TestThreadedRuntimeTestsPassUnderThreadSanitizer runs the tests of the pool and the
+// loops under ThreadSanitizer, with the collector off (see toolchain.ThreadSanitize).
+func TestThreadedRuntimeTestsPassUnderThreadSanitizer(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"pool_test.c", "scheduler_test.c"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			exe := buildC(t, toolchain.ThreadSanitize, runtimeTestSource(t, name))
+			result := runWithEnv(t, exe, []string{"GC_DONT_GC=1", "TSAN_OPTIONS=halt_on_error=1"}, "")
 			assert.Equal(t, result.exitCode, 0, "stderr:\n%s", result.stderr)
 		})
 	}

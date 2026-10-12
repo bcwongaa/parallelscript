@@ -32,11 +32,18 @@ const (
 	Release Profile = iota
 	// Sanitize builds the runtime and program with AddressSanitizer and UndefinedBehaviorSanitizer.
 	Sanitize
+	// ThreadSanitize builds them with ThreadSanitizer. Programs must not collect on several
+	// threads (run them with GC_DONT_GC=1): bdwgc stops the world with signals, which fail
+	// under TSan (D-122).
+	ThreadSanitize
 )
 
 func (p Profile) String() string {
-	if p == Sanitize {
+	switch p {
+	case Sanitize:
 		return "sanitize"
+	case ThreadSanitize:
+		return "tsan"
 	}
 	return "release"
 }
@@ -47,8 +54,11 @@ func (p Profile) String() string {
 // -falign-functions=32 starts functions on 32-byte boundaries, as Go's linker does, so
 // a hot function's speed doesn't depend on where the linker happens to put it (D-119).
 func (p Profile) flags() []string {
-	if p == Sanitize {
+	switch p {
+	case Sanitize:
 		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"}
+	case ThreadSanitize:
+		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fsanitize=thread"}
 	}
 	return []string{"-O2", "-g", "-ffp-contract=off", "-fno-math-errno", "-falign-functions=32"}
 }
