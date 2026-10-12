@@ -46,8 +46,8 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/ls/lsconv/converters.go`, `internal/lsp/lsproto/lsp.go` | `ptslib:///` paths are URIs as they are, as `bundled:///` ones are, so definitions in the library round-trip (D-168). | M7.1 | 46400426e |
 | `internal/project/snapshotfs.go`, `internal/project/watch.go` | `.pts` files' changes are relevant to the project service; `ptslib:///` files aren't watched (D-168). | M7.1 | 46400426e |
 | `internal/tsoptions/parsedcommandline.go`, `internal/lsp/server.go` | `pts` in the file globs that match new files of a project and renames (D-168). | M7.1 | 46400426e |
-| `internal/lsp/pts_content.go` (new file), `internal/lsp/server.go` | LSP 3.18's `workspace/textDocumentContent` for the URI schemes in `ContentSchemes`, a hook (none in upstream's use; `pts lsp` sets `ptslib`, and `bundled` when TypeScript's libraries are embedded), read from the server's file system; in `server.go`, a line registering the handler and a line declaring the capability (D-169). | M7.2 | |
-| `internal/ls/semantictokens.go` | `isPtsParallelOperator`: the keyword of `parallel e`, which parses as a call of `parallel`, gets no semantic token, so editors show it as the grammar's keyword rather than a function (D-169). | M7.2 | |
+| `internal/lsp/pts_content.go` (new file), `internal/lsp/server.go` | LSP 3.18's `workspace/textDocumentContent` for the URI schemes in `ContentSchemes`, a hook (none in upstream's use; `pts lsp` sets `ptslib`, and `bundled` when TypeScript's libraries are embedded), read from the server's file system; in `server.go`, a line registering the handler and a line declaring the capability (D-169). | M7.2 | 4d3368aa2 |
+| `internal/ls/semantictokens.go` | `isPtsParallelOperator`: the keyword of `parallel e`, which parses as a call of `parallel`, gets no semantic token, so editors show it as the grammar's keyword rather than a function (D-169). | M7.2 | 4d3368aa2 |
 
 ## Disabled or limited upstream workflows
 
