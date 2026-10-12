@@ -1389,3 +1389,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`exceptions.go`, `generators.go`, `async_iteration.go`): `withFinally` passes its `finallyContext` to the finally code; `iteratorClosing` (used by `iteratorForOf` and `asyncForOf`) closes the iterator inside a try that drops its error when the completion is a throw, and plainly otherwise.
 - **Tests:** `pts/tests/run/iterator_close_order.pts` (the review's probe 13; break, return and non-object results; yield*'s done then value; for await; against Node).
 
+### 9.103 Type arguments in conversion messages (M6.0b4a)
+
+- **Lowering** (D-147, `generic_classes.go`): `classInstanceOf` sets `ir.Class.Display` from `instanceDisplay` (the checker's spelling of each type argument).
+- **C** (`classes.go`, `checks.go`, `cgen.go`): a class descriptor gets `.display_name`; instance checks and checked conversions name the class with `typeName` (its `Display` when set).
+- **Runtime** (`pts.h`, `dynamic.c`): `pts_type.display_name`; `pts_value_description` prefers it.
+- **Tests:** `pts/tests/run/generic_conversion_messages.pts`.
+

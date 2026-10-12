@@ -81,6 +81,7 @@ var (
 // take the instance as their first parameter, `this`.
 type Class struct {
 	Name        string
+	Display     string  // a generic class instance's name with its type arguments (`Box<number>`), for error messages; else ""
 	Module      *Module // nil for a shape
 	Parent      *Class  // the superclass, or nil
 	Abstract    bool

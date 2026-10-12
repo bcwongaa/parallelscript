@@ -295,7 +295,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - [x] **M6.0b1 Thenables** (e6b3db048) (finding 5): thenable resolution (`then` getter read once, failures reject, the captured callable invoked once).
   - [x] **M6.0b2 Values read before a suspension** (322fdf2f3) (finding 6): values read before an `await`/`yield` are snapshotted (compound assignments and getters too). Make the IR effect classification exhaustive: an unknown node must not default to "constant" (`pts/cgen/order.go`).
   - [x] **M6.0b3 The iterator protocol's order** (1f06b4d78) (finding 7): iterator `done`/`value` read order and IteratorClose's original-error precedence (sync and async).
-  - [ ] **M6.0b4 Erased generic factories** (finding 8, ruling 6): erased generic factories that construct generic class instances (dispatch to specialized instances). Type arguments appear in conversion error messages.
+  - **M6.0b4 Erased generic factories** (finding 8, ruling 6), split by D-147 into:
+    - [ ] **M6.0b4a Type arguments in conversion messages:** `Expected Box<number>, got Box<any>`.
+    - [ ] **M6.0b4b Erased generic factories:** erased generic factories that construct generic class instances (dispatch to specialized instances); `Expected Box, got Box` disappears (probe 3, `corpus/oop/result_option.pts`).
   - [ ] **M6.0b5 Corpus classification:** classify every corpus skip as one of: by design, unsupported, bug. Fix the bugs where it's cheap, and record the rest in `PROGRESS.md`. Separate the corpus report into: Node-identical, intentional difference, unsupported, failing.
 - [ ] **M6.0c Review decisions (orchestrator rulings, see `docs/agent/OWNER_ANSWERS.md`).** Apply the rulings recorded there for the review's "needs owner" items, and log each one in `docs/DECISIONS.md` (as D-numbers citing OWNER_ANSWERS).
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server. Acceptance also covers (review): cross-loop handle use, disconnects and cancellation, backpressure, resource cleanup, pending requests and rejected promises, for the server too.

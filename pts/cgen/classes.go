@@ -331,6 +331,9 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			fmt.Sprintf(".method_count = %d", len(callable)),
 			".methods = " + methods,
 		}
+		if class.Display != "" {
+			members = append(members, ".display_name = "+cString(class.Display))
+		}
 		if !hasMethodTable(class) {
 			e.line(0, "static const pts_type pts_type_%s = {", name)
 			for _, member := range members {

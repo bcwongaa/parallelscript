@@ -1118,7 +1118,15 @@ func (e *emitter) fromValue(value string, t ir.Type) string {
 	default:
 		converted = tmp // null, undefined or a union: the same pts_value
 	}
-	return fmt.Sprintf("({ pts_value %s = %s; if (!(%s)) pts_throw_type_mismatch(%s, %s); %s; })", tmp, value, e.valueTest(t, tmp), tmp, cString(t.String()), converted)
+	return fmt.Sprintf("({ pts_value %s = %s; if (!(%s)) pts_throw_type_mismatch(%s, %s); %s; })", tmp, value, e.valueTest(t, tmp), tmp, cString(typeName(t)), converted)
+}
+
+// typeName is how a conversion's error names a type: a generic class instance with its type arguments (D-147).
+func typeName(t ir.Type) string {
+	if class, ok := t.(*ir.Class); ok && class.Display != "" {
+		return class.Display
+	}
+	return t.String()
 }
 
 // valueTest is a C test of whether v, a pts_value, holds a value of type t: a number, a

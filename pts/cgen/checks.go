@@ -317,6 +317,7 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 	case *ir.Class:
 		if !t.Shape {
 			members[0] = ".kind = PTS_CHECK_INSTANCE"
+			members[2] = ".name = " + cString(typeName(t)) // Expected Box<number>, got Box<any> (D-147)
 			members = append(members, ".type = "+e.descriptor(t))
 			break
 		}

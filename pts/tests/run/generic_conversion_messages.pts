@@ -1,0 +1,27 @@
+// no-diff: Node doesn't check conversions from any, so it prints the values
+// A conversion's TypeError names generic class instances with their type arguments
+// (D-147): `Expected Box<number>, got Box<string>`, where both read `Box` before.
+// console.log still shows the class name alone, as Node does.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public first: A,
+    public second: B,
+  ) {}
+}
+const items: any[] = [new Box<string>("s"), new Pair<number, string[]>(1, ["x"]), new Box<number>(7)];
+for (const item of items) {
+  try {
+    const box: Box<number> = item;
+    console.log("converted", box);
+  } catch (error: any) {
+    console.log(error.message);
+  }
+}
+
+// expect:
+// Expected Box<number>, got Box<string>
+// Expected Box<number>, got Pair<number, string[]>
+// converted Box { value: 7 }

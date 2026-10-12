@@ -486,7 +486,7 @@ const char *pts_value_description(pts_value value) {
   if (pts_value_is_object(value)) {
     const pts_type *type = pts_value_as_object(value)->type;
     if (type->kind != PTS_KIND_STRING && type->kind != PTS_KIND_FUNCTION && type->name != NULL) {
-      return type->name;
+      return type->display_name != NULL ? type->display_name : type->name;
     }
   }
   return (const char *)pts_value_typeof(value)->bytes;

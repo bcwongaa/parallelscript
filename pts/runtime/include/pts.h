@@ -136,6 +136,7 @@ typedef struct pts_type {
   pts_dynamic_function call;         /* a closure's dynamic entry, in a program that uses `any` (D-074) */
   const struct pts_check *signature; /* a closure's function type, which its code takes and returns (D-075) */
   uint32_t length;                   /* a closure's function's `length` in JS (D-098) */
+  const char *display_name;          /* a generic class instance's name with its type arguments (Box<number>), for errors (D-147) */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");

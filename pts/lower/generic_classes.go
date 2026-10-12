@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -136,6 +137,16 @@ func (l *lowerer) declareGenericStatics(generic *genericClass) {
 // classInstanceOf returns the class of a generic class's instance for the type arguments
 // of t, a reference to it (in terms of the instance being lowered, if any), making it if
 // it is new; nil if it failed (reported at node).
+// instanceDisplay is a generic class instance's name with its type arguments as tsc
+// writes them (`Box<number>`), which conversion errors show (D-147).
+func (l *lowerer) instanceDisplay(name string, arguments []*checker.Type) string {
+	shown := make([]string, len(arguments))
+	for i, argument := range arguments {
+		shown[i] = l.checker.TypeToString(argument)
+	}
+	return name + "<" + strings.Join(shown, ", ") + ">"
+}
+
 func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *ast.Node) *ir.Class {
 	typeArguments := l.checker.GetTypeArguments(t)
 	if len(typeArguments) < len(generic.parameters) {
@@ -159,7 +170,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 		l.notSupportedYet(node, fmt.Sprintf("a generic class with more than %d instances (`%s`) is", maxInstances, generic.node.Name().Text()))
 		return nil
 	}
-	class := &ir.Class{Name: generic.node.Name().Text(), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
+	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),
 		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete}}
 	generic.instances = append(generic.instances, inst)
