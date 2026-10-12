@@ -248,7 +248,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Cross-loop promises, waking the awaiting loop with `uv_async_send`.
   - Task placement for `parallel <expr>` (least-loaded, or round-robin with stealing of unstarted tasks); tasks never migrate.
 - [x] **M5.3 The fork-join pool.** (1f12e0583) A Chase–Lev work-stealing pool, `join(a, b)`, adaptive splitting, and threads that help while they wait. Unit tests under ASan, UBSan and TSan where feasible.
-- [ ] **M5.4a `.par` views of arrays and ranges** (split from M5.4 by D-123).
+- [x] **M5.4a `.par` views of arrays and ranges** (80c41b8bf) (split from M5.4 by D-123).
   - `.par` on arrays and `range`.
   - `map` (order-preserving), `filter`, `forEach`, `reduce`, `some`, `every`, `find`, `count`, `sum`, `min`, `max` and `toArray`.
   - `pts:parallel` exporting `range` and `join`.
