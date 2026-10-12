@@ -320,7 +320,16 @@ pts_typed_array *pts_typed_array_sort(pts_typed_array *array) {
   default:
     compare = compare_double;
   }
-  qsort(array->data, array->length, element_size(array), compare);
+  /* A private copy: qsort over elements other threads are writing could step outside them (D-130). */
+  size_t bytes = array->length * element_size(array);
+  unsigned char *copy = malloc(bytes > 0 ? bytes : 1);
+  if (copy == NULL) {
+    pts_panic("RangeError", "Out of memory sorting a %s of %zu elements", array->type->name, array->length);
+  }
+  memcpy(copy, array->data, bytes);
+  qsort(copy, array->length, element_size(array), compare);
+  memcpy(array->data, copy, bytes);
+  free(copy);
   return array;
 }
 

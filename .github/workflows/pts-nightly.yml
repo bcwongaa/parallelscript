@@ -1,0 +1,46 @@
+# ParallelScript nightly stress run: every program under pts/tests/stress/ (parallel
+# programs racing on the scheduler, the pool, the collector and shared data; the
+# race-safety invariant, D-L13) 100 times under each of its PTS_THREADS values.
+name: PTS nightly stress
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: Runs of each stress program per thread count
+        default: "100"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  stress:
+    name: Stress tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Only the vendored C libraries; upstream's TypeScript submodule is huge and unused here.
+      - run: git submodule update --init --depth 1 pts/third_party
+      - uses: ./.github/actions/setup-go
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          clang --version
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/pts
+          key: pts-${{ runner.os }}-${{ hashFiles('go.sum', 'pts/runtime/**', 'pts/toolchain/**', '.gitmodules') }}
+          restore-keys: pts-${{ runner.os }}-
+      - name: Stress tests
+        run: PTS_STRESS_REPEAT=${{ inputs.repeat || '100' }} make test-stress

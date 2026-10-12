@@ -3,7 +3,7 @@
 ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.com/microsoft/typescript-go).
 
 - **Base:** tag `typescript/v7.0.2` (remote `upstream`). Never push to `upstream`.
-- **New code** lives in new directories or files and needs no ledger entry: `cmd/pts/`, `pts/`, `docs/` additions, `examples/`, `tools/agent/`, `CLAUDE.md`, `PROGRESS.md`, `Makefile`, `.github/workflows/pts.yml`.
+- **New code** lives in new directories or files and needs no ledger entry: `cmd/pts/`, `pts/`, `docs/` additions, `examples/`, `tools/agent/`, `CLAUDE.md`, `PROGRESS.md`, `Makefile`, `.github/workflows/pts.yml`, `.github/workflows/pts-nightly.yml`.
 - **Upstream modifications** are minimal, marked with a `// PTS:` comment at the edit site (`# PTS:` in YAML and shell), and listed below. `git grep -n "PTS:" -- ':!pts' ':!cmd/pts' ':!docs'` must match this table.
 
 ## Rebasing onto a newer TypeScript release
@@ -42,7 +42,7 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 
 ## Disabled or limited upstream workflows
 
-ParallelScript's gate is `.github/workflows/pts.yml` (M0.7): on every push it builds `pts`, runs `make test` with the Node differential tests required, `make test-upstream` (the upstream packages the fork touches, plus `TestLocal` baselines) and, in a second job, `make test-upstream-cli` (upstream's CLI and LSP suites, minus the one known failure).
+ParallelScript's gate is `.github/workflows/pts.yml` (M0.7): on every push it builds `pts`, runs `make test` with the Node differential tests required, `make test-upstream` (the upstream packages the fork touches, plus `TestLocal` baselines) and, in a second job, `make test-upstream-cli` (upstream's CLI and LSP suites, minus the one known failure). `.github/workflows/pts-nightly.yml` (M5.7a, D-130) runs the stress programs under `pts/tests/stress/` 100 times a night.
 
 | Workflow | State | Why |
 |---|---|---|

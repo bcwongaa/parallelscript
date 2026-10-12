@@ -1,0 +1,80 @@
+// pts:sync under contention (D-128, D-129): every pool thread and every loop hammering one
+// atomic, one Mutex (blocking and async), one Once and a few channels at once.
+// threads: 1 2 4 8
+import { AtomicInt, Channel, Mutex, Once } from "pts:sync";
+import { range } from "pts:parallel";
+
+// Atomics and the blocking lock from the pool.
+const hits = new AtomicInt();
+const swaps = new AtomicInt();
+const guarded = new Mutex({ total: 0, max: 0 });
+parallel for (const i of range(0, 200_000)) {
+  hits.add(1);
+  for (;;) {
+    const seen = swaps.load();
+    if (swaps.compareExchange(seen, seen + 2) === seen) break;
+  }
+  if (i % 4 === 0) {
+    guarded.withLock((state) => {
+      state.total += i;
+      state.max = Math.max(state.max, i);
+    });
+  }
+}
+console.log(hits.load(), swaps.load(), guarded.withLock((state) => `${state.total} ${state.max}`));
+
+// The async lock from tasks on every loop, each holding it across awaits.
+const ledger = new Mutex({ balance: 0, entries: 0 });
+async function deposit(amount: number): Promise<void> {
+  for (let k = 0; k < 20; k++) {
+    const guard = await ledger.lock();
+    const before = guard.value.balance;
+    await null;
+    guard.value.balance = before + amount;
+    guard.value.entries++;
+    guard.unlock();
+  }
+}
+await Promise.all(range(1, 65).toArray().map((amount) => parallel deposit(amount)));
+console.log(ledger.withLock((state) => `${state.balance} in ${state.entries}`));
+
+// One Once raced by every pool thread, many times over.
+const runs = new AtomicInt();
+for (let round = 0; round < 20; round++) {
+  const once = new Once();
+  range(0, 64).par.forEach(() => once.run(() => runs.add(1)));
+}
+console.log(runs.load());
+
+// Channels: 16 producers and 8 consumers on all loops, a small capacity, then a pipeline.
+const jobs = new Channel<number>(4);
+const done = new Channel<number>(16);
+async function produce(from: number): Promise<void> {
+  for (let i = from; i < from + 250; i++) await jobs.send(i);
+}
+async function work(): Promise<number> {
+  let handled = 0;
+  for await (const job of jobs) {
+    await done.send(job % 7);
+    handled++;
+  }
+  return handled;
+}
+async function collect(): Promise<number> {
+  let sum = 0;
+  for await (const r of done) sum += r;
+  return sum;
+}
+const collected = parallel collect();
+const workers = Promise.all(range(0, 8).toArray().map(() => parallel work()));
+await Promise.all(range(0, 16).toArray().map((p) => parallel produce(p * 250)));
+jobs.close();
+const handled = (await workers).reduce((a, b) => a + b, 0);
+done.close();
+console.log(handled, await collected);
+
+// expect:
+// 200000 400000 4999900000 199996
+// 41600 in 1280
+// 20
+// 4000 11994

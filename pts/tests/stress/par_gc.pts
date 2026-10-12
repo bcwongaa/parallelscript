@@ -1,0 +1,51 @@
+// `.par` and `parallel for` callbacks that allocate (objects, strings, arrays, maps) on
+// every pool thread while the collector runs, also from several loops' tasks at once, so
+// that pool threads work for several loops' operations (D-122, D-123, D-127).
+// threads: 1 2 4 8
+import { range } from "pts:parallel";
+
+class Particle {
+  constructor(public x: number, public y: number, public tag: string) {}
+}
+
+function particles(seed: number, count: number): Particle[] {
+  return range(0, count).par.map((i) => new Particle(seed + i, (seed * i) % 101, `p${i % 17}`));
+}
+
+function summarize(items: Particle[]): string {
+  const tags = items.par.map((p) => p.tag + ":" + p.x.toString(16));
+  const byTag = new Map<string, number>();
+  for (const tag of tags) {
+    const name = tag.split(":")[0];
+    byTag.set(name, (byTag.get(name) ?? 0) + 1);
+  }
+  const ys = items.par.filter((p) => p.y % 2 === 0).map((p) => [p.y, p.y * 2]);
+  const total = items.par.reduce((a, b) => new Particle(a.x + b.x, a.y + b.y, "sum"), new Particle(0, 0, "sum"));
+  const sorted = items.par.map((p) => p.tag).par.sort();
+  return `${byTag.size}/${ys.length}/${total.x}/${total.y}/${sorted[0]}/${sorted[sorted.length - 1]}`;
+}
+
+// One loop: several rounds of allocating operations.
+let report = "";
+for (let round = 0; round < 3; round++) {
+  report = summarize(particles(round * 1000, 20_000));
+}
+console.log(report);
+
+// Many loops at once, each running its own `.par` operations.
+const reports = await Promise.all(range(0, 16).toArray().map((seed) => parallel summarize(particles(seed, 5_000))));
+console.log(new Set(reports.map((r) => r.split("/")[0])).size, reports.length);
+
+// `parallel for` bodies building strings and arrays into slots of their own.
+const lines = new Array<string>(10_000).fill("");
+parallel for (const i of range(0, lines.length)) {
+  const parts: string[] = [];
+  for (let k = 0; k < 8; k++) parts.push(`${i * k}`);
+  lines[i] = parts.join(",");
+}
+console.log(lines.par.map((line) => line.split(",").length).par.sum(), lines[9_999]);
+
+// expect:
+// 17/10099/239990000/999981/p0/p9
+// 1 16
+// 80000 0,9999,19998,29997,39996,49995,59994,69993

@@ -157,6 +157,46 @@ static void sort_with_a_comparator_is_stable(void) {
   }
 }
 
+/* strings_with_a_hole is ["a", <hole>, "c"]: a racing push published the length before its element (D-038). */
+static pts_array *strings_with_a_hole(void) {
+  pts_string *items[] = {pts_string_from_cstr("a"), NULL, pts_string_from_cstr("c")};
+  return pts_array_of(&pts_array_types[PTS_FIELD_STRING], items, 3);
+}
+
+static void loads_report_holes_and_missing_elements(void) {
+  pts_array *array = strings_with_a_hole();
+  pts_string *element = NULL;
+  CHECK(pts_array_load(array, 0, &element) && pts_string_equals(element, pts_string_from_cstr("a")));
+  CHECK(!pts_array_load(array, 1, &element) && !pts_array_load(array, 3, &element) && !pts_array_load(array, -1, &element));
+}
+
+static void a_set_of_an_array_leaves_out_holes(void) {
+  static const pts_type string_set_type = {
+      .kind = PTS_KIND_SET,
+      .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+      .name = "Set",
+      .size = sizeof(pts_map),
+      .key = PTS_FIELD_STRING,
+  };
+  CHECK(pts_map_size(pts_set_of_array(&string_set_type, strings_with_a_hole())) == 2);
+}
+
+/* A splice racing the first push can publish an empty buffer under a length of 1 (D-130); shift then finds nothing to take. */
+static void shift_of_a_length_its_buffer_lacks_throws(void) {
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], NULL, 0);
+  array->length = 1;
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    double out;
+    pts_array_shift(array, &out);
+    CHECK(false);
+  } else {
+    CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_RangeError));
+  }
+  CHECK(pts_array_length_of(array) == 1);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   pushing_grows_the_buffer_and_keeps_the_elements();
@@ -168,5 +208,8 @@ int main(int argc, char **argv) {
   sort_keeps_equal_keys_in_order();
   sort_with_a_comparator_is_stable();
   racing_pushes_lose_elements_but_stay_in_bounds();
+  loads_report_holes_and_missing_elements();
+  a_set_of_an_array_leaves_out_holes();
+  shift_of_a_length_its_buffer_lacks_throws();
   return CHECK_DONE();
 }

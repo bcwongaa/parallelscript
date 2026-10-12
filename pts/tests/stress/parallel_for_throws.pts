@@ -1,0 +1,51 @@
+// `parallel for` and `.par` cancelled by throws (D-123, D-127), many times over: the error
+// that comes out is one an iteration threw, and once the statement ends no iteration of
+// it runs any more; nested operations throw through their callers.
+// threads: 1 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+class Stop extends Error {
+  constructor(public at: number) {
+    super("stop at " + at);
+  }
+}
+
+const ROUNDS = 200;
+let thrown = 0;
+let quiet = 0;
+for (let round = 0; round < ROUNDS; round++) {
+  const ran = new AtomicInt();
+  const every = 500 + round;
+  try {
+    parallel for (const i of range(0, 20_000)) {
+      ran.add(1);
+      if (i % every === every - 1) throw new Stop(i);
+    }
+  } catch (e: any) {
+    if (e instanceof Stop && e.at % every === every - 1) thrown++;
+  }
+  const after = ran.load();
+  await null;
+  if (ran.load() === after && after >= 1) quiet++;
+}
+console.log(thrown, quiet);
+
+// A throw in a `.par` callback nested in a `parallel for` comes out of the outer statement.
+let nested = 0;
+for (let round = 0; round < 50; round++) {
+  try {
+    parallel for (const i of range(0, 64)) {
+      range(0, 256).par.forEach((k) => {
+        if (i === round && k === 255 - round) throw new Stop(i * 1000 + k);
+      });
+    }
+  } catch (e: any) {
+    if (e instanceof Stop && e.at === round * 1000 + 255 - round) nested++;
+  }
+}
+console.log(nested);
+
+// expect:
+// 200 200
+// 50

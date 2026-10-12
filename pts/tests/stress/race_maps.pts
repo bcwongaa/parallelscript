@@ -1,0 +1,96 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on maps, sets and hash-map objects:
+// threads that add, replace, delete and clear entries of one table at once, while
+// others look keys up and iterate, may lose updates (or add a key twice) but never
+// crash, loop forever, find an entry nobody added or report a size beyond the entries
+// ever added. Only the invariants are printed.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+const ROUNDS = 40_000;
+const KEYS = 500;
+const counts = new Map<string, number>();
+const ids = new Set<number>();
+const scores: Record<string, number> = {};
+const bad = new AtomicInt();
+
+function check(ok: boolean): void {
+  if (!ok) bad.add(1);
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  const key = "k" + (i % KEYS);
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+  ids.add(i % KEYS);
+  scores[key] = i;
+  if (i % 3 === 0) counts.delete("k" + ((i * 7) % KEYS));
+  if (i % 5 === 0) ids.delete((i * 3) % KEYS);
+  if (i % 7 === 0) delete scores["k" + ((i * 11) % KEYS)];
+  if (i % 4999 === 0) counts.clear();
+  if (i % 6007 === 0) ids.clear();
+  if (i % 31 === 0) {
+    const n = counts.get(key);
+    check(n === undefined || (Number.isInteger(n) && n >= 1 && n <= ROUNDS));
+    check(!counts.has("missing") && !ids.has(KEYS) && !("missing" in scores));
+    for (const [k, v] of counts) {
+      check(k.startsWith("k") && v >= 1);
+    }
+    for (const id of ids) {
+      check(id >= 0 && id < KEYS);
+    }
+    check(counts.size <= ROUNDS && ids.size <= ROUNDS);
+  }
+  if (i % 97 === 0) {
+    for (const k of Object.keys(scores)) {
+      check(k.startsWith("k"));
+    }
+    for (const v of Object.values(scores)) {
+      check(v >= 0 && v < ROUNDS);
+    }
+    ids.forEach((id) => check(id >= 0 && id < KEYS));
+    check(Array.from(counts.keys()).length <= ROUNDS);
+    check(JSON.stringify(scores).startsWith("{"));
+  }
+}
+
+// After the race every entry is one some thread added.
+let valid = bad.load() === 0;
+for (const [k, v] of counts) {
+  valid = valid && k.startsWith("k") && v >= 1 && v <= ROUNDS;
+}
+for (const id of ids) {
+  valid = valid && id >= 0 && id < KEYS;
+}
+for (const [k, v] of Object.entries(scores)) {
+  valid = valid && k.startsWith("k") && v >= 0 && v < ROUNDS;
+}
+console.log("entries valid:", valid);
+console.log("sizes bounded:", counts.size <= ROUNDS && ids.size <= ROUNDS && Object.keys(scores).length <= ROUNDS);
+
+// Threads deleting and re-adding the same few keys: each delete may race another of the
+// same entry, but the size never goes below zero.
+const few = new Map<number, string>();
+const flags = new Set<string>();
+parallel for (const i of range(0, ROUNDS)) {
+  few.set(i % 2, "v");
+  few.delete(i % 2);
+  few.delete((i + 1) % 2);
+  flags.add("on");
+  flags.delete("on");
+  check(few.size >= 0 && few.size <= ROUNDS && flags.size <= ROUNDS);
+}
+check(Array.from(few).length <= ROUNDS && JSON.stringify(Object.fromEntries(few)).length >= 2);
+console.log("small sizes bounded:", bad.load() === 0, few.size <= ROUNDS, flags.size <= ROUNDS);
+
+// The tables still work.
+counts.clear();
+counts.set("a", 1).set("b", 2);
+ids.clear();
+ids.add(7);
+console.log(counts, ids, "k1" in scores || !("k1" in scores));
+
+// expect:
+// entries valid: true
+// sizes bounded: true
+// small sizes bounded: true true true
+// Map(2) { 'a' => 1, 'b' => 2 } Set(1) { 7 } true

@@ -1,0 +1,59 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on strings: threads that append to strings
+// shared through fields (`+=`, which extends an append buffer in place, D-061), and to
+// one string from many threads, while others slice and search what they read, lose
+// appends but never see a string with bytes nobody wrote. Strings are immutable.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+class Log {
+  text = "";
+  wide = "";
+}
+
+const ROUNDS = 60_000;
+const log = new Log();
+const base = "x".repeat(100);
+const bad = new AtomicInt();
+
+function check(ok: boolean): void {
+  if (!ok) bad.add(1);
+}
+
+// Whether s is made only of whole pieces "<letter><digit>;".
+function wellFormed(s: string): boolean {
+  if (s.length % 3 !== 0) return false;
+  for (let k = 0; k < s.length; k += 3) {
+    const letter = s.charCodeAt(k), digit = s.charCodeAt(k + 1);
+    if (letter < 97 || letter > 122 || digit < 48 || digit > 57 || s[k + 2] !== ";") return false;
+  }
+  return true;
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  log.text += String.fromCharCode(97 + (i % 26)) + (i % 10) + ";";
+  log.wide += i % 2 === 0 ? "é" : "€";
+  // Every thread also extends the same string into its own variable: the append buffer
+  // goes to the first, the others copy.
+  const mine = base + i;
+  check(mine.length === 100 + String(i).length && mine.startsWith(base));
+  if (i % 1000 === 0) {
+    const text = log.text;
+    check(wellFormed(text.slice(0, 300)) && wellFormed(text.slice(-30)) && text.indexOf("?") === -1);
+    const wide = log.wide;
+    check(wide.length >= 0 && [...wide.slice(0, 50)].every((c) => c === "é" || c === "€"));
+  }
+  if (i % 5_000 === 0) {
+    log.text = "";
+    log.wide = "";
+  }
+}
+
+console.log("strings valid:", bad.load() === 0 && wellFormed(log.text));
+console.log("wide valid:", [...log.wide].every((c) => c === "é" || c === "€"), log.wide.length <= ROUNDS);
+console.log("lengths bounded:", log.text.length <= 3 * ROUNDS);
+
+// expect:
+// strings valid: true
+// wide valid: true true
+// lengths bounded: true

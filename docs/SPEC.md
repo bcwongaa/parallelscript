@@ -188,6 +188,7 @@ A program with data races may observe stale or surprising values, but it must ne
 - **No torn values.** Any value in a heap slot that can be read concurrently is one machine word (a pointer, a small scalar or a box), or is written and read atomically. No multi-word values that can tear in shared fields.
 - **No out-of-bounds writes.** Growable arrays keep their capacity inside the backing buffer, and bounds checks use the length and capacity of the buffer actually being accessed. Racing `push`es can lose elements but never write past the end.
 - **Strings are immutable**, so sharing them is free.
+- What races look like (D-130): a racing operation may throw `RangeError` where a sequential one couldn't (a `pop` of an array another thread emptied, a write past a length another thread shrank); a push lost to another can leave a hole, which reads as undefined where any value can go and throws `RangeError` where an element is required; a map, set or hash-map object that threads change at once may lose entries, hold a key twice and report a size that differs from its entries (never below 0). Share tables through `pts:sync`'s `Mutex`. `pts/tests/stress/race_*` test the invariant.
 
 ---
 
@@ -1005,7 +1006,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`pts/lower/parallel.go`, D-121): `parallelCall` makes the operand the body of a closure `<function>.parallel` of no parameters returning the value boxed (an arrow for `this`), and calls `ir.Parallel` with it; `suspensionIn` reports an await or yield in the operand.
 - **C:** `ir.Parallel` is `pts_parallel`; it sets `usesLoop` and `usesPromises` (`checks.go`).
 - **Runtime:** `scheduler.c` (`loop_slot`: libuv loop, wake handle, inbox of messages and of tasks, `sleeping`, `load`; `pts_post`, `take`, `run_inbox`, `steal`, `wait_for_work`, `run`, `pts_run_loop`, `start_workers`, `pts_configured_threads`, `pts_place_task`, `pts_task_finished`, `pts_uv_loop`); `scheduler_internal.h` (`pts_message`, `pts_current_loop`); in `promise.c`, a promise's `home` and a reaction's `owner`, `post`, the routing in `settle`, `resolve`, `perform_then` and `enqueue_reaction`, `add_reaction`, `pts_message_run`, `run_task`, `pts_parallel`, atomic `done` in resolving functions; `loop.c`'s timers on `pts_uv_loop()`; `pts_begin_exit` (`runtime.c`), taken by every path that ends the process.
-- **Tests:** `pts/tests/run/parallel_tasks`, `parallel_io`, `parallel_stress`, `parallel_unhandled`, `parallel_worker_uncaught`, `parallel_exit`, `parallel_unsettled` (each under several `PTS_THREADS`, the new `// threads:` directive); `pts/tests/errors/parallel_unsupported.pts`; `pts/runtime/tests/scheduler_test.c` (2,000 tasks on 4 loops, under ASan and UBSan).
+- **Tests:** `pts/tests/run/parallel_tasks`, `parallel_io`, `parallel_stress` (now `pts/tests/stress/tasks_gc`, D-130), `parallel_unhandled`, `parallel_worker_uncaught`, `parallel_exit`, `parallel_unsettled` (each under several `PTS_THREADS`, the new `// threads:` directive); `pts/tests/errors/parallel_unsupported.pts`; `pts/runtime/tests/scheduler_test.c` (2,000 tasks on 4 loops, under ASan and UBSan).
 
 ### 9.79 The fork-join pool (M5.3)
 
@@ -1056,3 +1057,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Library** (`pts/lib/sync.pts`, D-129): `Channel<T>` (`#next`, used by `recv` and the async generator `[Symbol.asyncIterator]`), `Received<T>`, `WaitingSender<T>`, over `pts_sync_lock` (D-128).
 - **Tests:** `pts/tests/run/channel` (under several `PTS_THREADS`).
 
+### 9.87 Stress tests and the race-safety invariant (M5.7a)
+
+- **Harness** (D-130): `pts/tests/stress/*.pts` (run-test directives; `// expect:` and `// threads:` required), `TestStress` (`pts/tests/stress_test.go`; `PTS_STRESS_REPEAT` runs per thread count), `make test-stress`, the nightly workflow `.github/workflows/pts-nightly.yml` (100 runs).
+- **Stress programs:** `tasks_gc` (was `run/parallel_stress`), `par_gc`, `sync_contention`, `join_recursion`, `promises_cross_loop`, `parallel_for_throws`; **race tests** of §4.1: `race_arrays`, `race_maps`, `race_fields`, `race_strings`, `race_typed_arrays`.
+- **Runtime:** `map.c` (`find` and `index_entry` stop after one round of probes; `replace` sizes from the live entries; an append after a replace re-checks room; `pts_map_size` reads a signed size below 0 as 0; the record key-order snapshot is collected memory); `array.c` (`pts_array_load`, one load of an element or false for a hole; `copy_elements` in growth and `unshift`; `shift` of an empty buffer and `with` past its copy throw RangeError; `pts_array_sort_with` loads each slot once); `pts_set_of_array` and `filter` through `any` skip holes; `pts_typed_array_sort` sorts a private copy.
+- **Tests:** `pts/runtime/tests/map_test.c` (a size below zero, a full index), `array_test.c` (loads and holes, a set of an array with a hole, a shift of a length its buffer lacks).

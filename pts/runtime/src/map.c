@@ -1,9 +1,12 @@
 /*
  * Map and Set (D-046): an ordered hash table. Entries are appended in insertion order and
  * marked deleted in place; an open-addressing index (twice the entries' capacity, so it
- * always has empty slots) finds them by hash. Growing, compacting and clearing build a new
- * table and publish it, so threads racing on a map never read or write out of bounds
- * (D-L13); iterators follow the chain of tables (JS's live iteration).
+ * has empty slots) finds them by hash. Growing, compacting and clearing build a new table
+ * and publish it, so threads racing on a map never read or write out of bounds (D-L13);
+ * iterators follow the chain of tables (JS's live iteration). Racing threads may lose
+ * entries, add a key twice or fill the index with slots of entries appended over each
+ * other, so probes stop after a full round, and the size is a hint that never leaves
+ * the range 0 .. the entries ever added (D-130).
  */
 #include "pts.h"
 
@@ -180,7 +183,8 @@ static pts_map_table *new_table(const pts_type *type, size_t capacity) {
 /* find returns the number of the live entry whose key is key (of hash h) in table, or -1. */
 static int64_t find(const pts_type *type, const pts_map_table *table, uint64_t key, uint64_t h) {
   size_t used = load_used(table);
-  for (size_t slot = h & table->index_mask;; slot = (slot + 1) & table->index_mask) {
+  size_t slot = h & table->index_mask;
+  for (size_t probes = 0; probes <= table->index_mask; probes++, slot = (slot + 1) & table->index_mask) {
     uint32_t number = __atomic_load_n(&table->index[slot], __ATOMIC_ACQUIRE);
     if (number == 0) {
       return -1;
@@ -194,28 +198,28 @@ static int64_t find(const pts_type *type, const pts_map_table *table, uint64_t k
       return number - 1;
     }
   }
+  return -1; /* a full index, which only racing appends make */
 }
 
-/* index_entry makes table's index find entry number. */
+/* index_entry makes table's index find entry number, unless racing appends have filled it (the entry is lost to lookups then). */
 static void index_entry(pts_map_table *table, size_t number, uint64_t h) {
   size_t slot = h & table->index_mask;
-  while (table->index[slot] != 0) {
-    slot = (slot + 1) & table->index_mask;
+  for (size_t probes = 0; probes <= table->index_mask; probes++, slot = (slot + 1) & table->index_mask) {
+    if (__atomic_load_n(&table->index[slot], __ATOMIC_RELAXED) == 0) {
+      __atomic_store_n(&table->index[slot], (uint32_t)number + 1, __ATOMIC_RELEASE);
+      return;
+    }
   }
-  __atomic_store_n(&table->index[slot], (uint32_t)number + 1, __ATOMIC_RELEASE);
 }
 
-/* replace publishes a new table holding the live entries of map's current one, with room
- * for capacity entries and at least one more than it holds. */
-static pts_map_table *replace(pts_map *map, size_t capacity) {
+/* replace publishes a new table holding the live entries of map's current one, with room for twice as many and one more. */
+static pts_map_table *replace(pts_map *map) {
   pts_map_table *old = load_table(map);
   size_t used = load_used(old), live = 0;
   for (size_t i = 0; i < used; i++) {
     live += __atomic_load_n(&old->entries[i].hash, __ATOMIC_ACQUIRE) != PTS_MAP_DELETED;
   }
-  if (capacity <= live) {
-    capacity = live + 1;
-  }
+  size_t capacity = 2 * live + 1;
   pts_map_table *table = new_table(map->type, capacity < MIN_CAPACITY ? MIN_CAPACITY : capacity);
   for (size_t i = 0; i < used && table->used < table->capacity; i++) {
     pts_map_entry entry = old->entries[i];
@@ -247,11 +251,10 @@ pts_map *pts_map_copy(const pts_type *type, const pts_map *source) {
 
 pts_map *pts_set_of_array(const pts_type *type, const pts_array *array) {
   pts_map *set = pts_map_new(type);
-  size_t size = pts_field_kind_size(type->key);
   for (size_t i = 0; i < pts_array_length_of(array); i++) {
-    const void *slot = pts_array_slot_or_null(array, (double)i, size);
-    if (slot != NULL) {
-      pts_map_set(set, slot, NULL);
+    uint64_t element = 0;
+    if (pts_array_load(array, (double)i, &element)) {
+      pts_map_set(set, &element, NULL);
     }
   }
   return set;
@@ -298,8 +301,11 @@ pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   }
   size_t used = load_used(table);
   if (used == table->capacity) {
-    table = replace(map, 2 * (size_t)pts_map_size(map) + 1);
-    used = table->used;
+    table = replace(map);
+    used = load_used(table);
+    if (used == table->capacity) {
+      return map; /* racing appends filled the new table already: this entry is lost */
+    }
   }
   pts_map_entry *entry = &table->entries[used];
   __atomic_store_n(&entry->key, word, __ATOMIC_RELAXED);
@@ -307,7 +313,7 @@ pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   __atomic_store_n(&entry->hash, h, __ATOMIC_RELAXED);
   __atomic_store_n(&table->used, used + 1, __ATOMIC_RELEASE);
   index_entry(table, used, h);
-  __atomic_store_n(&map->size, map->size + 1, __ATOMIC_RELEASE);
+  __atomic_store_n(&map->size, map->size + 1, __ATOMIC_RELEASE); /* not atomic: see D-130 */
   return map;
 }
 
@@ -320,8 +326,8 @@ bool pts_map_delete(pts_map *map, const void *key) {
   }
   __atomic_store_n(&table->entries[number].hash, PTS_MAP_DELETED, __ATOMIC_RELEASE);
   __atomic_store_n(&map->size, map->size - 1, __ATOMIC_RELEASE);
-  if (map->size < table->used / 4 && table->used > 4 * MIN_CAPACITY) {
-    replace(map, 2 * map->size); /* compact once mostly deleted */
+  if (pts_map_size(map) < (double)(table->used / 4) && table->used > 4 * MIN_CAPACITY) {
+    replace(map); /* compact once mostly deleted */
   }
   return true;
 }
@@ -333,7 +339,7 @@ void pts_map_clear(pts_map *map) {
     __atomic_store_n(&table->entries[i].hash, PTS_MAP_DELETED, __ATOMIC_RELEASE);
   }
   __atomic_store_n(&map->size, 0, __ATOMIC_RELEASE);
-  replace(map, MIN_CAPACITY);
+  replace(map);
 }
 
 pts_map_iterator pts_map_iterate(pts_map *map) { return (pts_map_iterator){map, load_table(map), 0, 0, 0}; }
@@ -425,7 +431,7 @@ static bool has_array_index_key(const pts_map_table *table) {
 /* ordered_snapshot is a table, never published, of table's live entries in JS's key order. */
 static pts_map_table *ordered_snapshot(const pts_map_table *table) {
   size_t used = load_used(table), count = 0;
-  ordered_entry *ordered = malloc((used ? used : 1) * sizeof *ordered);
+  ordered_entry *ordered = GC_MALLOC((used ? used : 1) * sizeof *ordered); /* scanned: a racing delete may leave it the only reference to a key */
   if (ordered == NULL) {
     pts_panic("RangeError", "Out of memory listing the keys of an object of %zu entries", used);
   }
@@ -453,7 +459,7 @@ static pts_map_table *ordered_snapshot(const pts_map_table *table) {
   for (size_t i = 0; i < count; i++) {
     snapshot->entries[i] = ordered[i].entry;
   }
-  free(ordered);
+  GC_FREE(ordered);
   snapshot->capacity = snapshot->used = count; /* no index and no next: only iterated */
   return snapshot;
 }

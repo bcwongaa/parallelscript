@@ -10,7 +10,7 @@ UPSTREAM_PACKAGES := ./internal/tspath/... ./internal/core/... ./internal/ast/..
 # A pre-existing upstream failure at the fork base (PROGRESS.md, Known issues).
 UPSTREAM_KNOWN_FAILURE := TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped
 
-.PHONY: build test test-diff test-upstream test-upstream-cli bench
+.PHONY: build test test-diff test-stress test-upstream test-upstream-cli bench
 
 # The compiler, at pts-bin/pts (it finds the runtime sources from there).
 build:
@@ -24,6 +24,10 @@ test:
 # Only the differential tests (every test named *MatchesNode); fails if node is missing.
 test-diff:
 	PTS_REQUIRE_NODE=1 $(GO) test -count=1 -run 'MatchesNode' ./pts/tests/
+
+# The stress programs (pts/tests/stress/), each run PTS_STRESS_REPEAT times (default 1) per thread count.
+test-stress:
+	$(GO) test -count=1 -timeout 2h -run 'TestStress' ./pts/tests/
 
 test-upstream:
 	$(GO) test $(UPSTREAM_PACKAGES)

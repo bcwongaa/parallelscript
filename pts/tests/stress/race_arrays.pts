@@ -1,0 +1,108 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on arrays: threads that push, pop, shift,
+// unshift, splice, truncate and write one array at once, while others read, copy and
+// print it, may lose elements and see holes, but never crash, read or write out of
+// bounds, or find an element nobody wrote. Only the invariants are printed.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+class Item {
+  constructor(public id: number) {}
+}
+
+const ROUNDS = 40_000;
+const numbers: number[] = [];
+const words: string[] = [];
+const items: Item[] = [];
+const surprises = new AtomicInt();
+
+function isWord(word: string): boolean {
+  const n = Number(word.slice(1));
+  return word.startsWith("w") && Number.isInteger(n) && n >= 0 && n < ROUNDS;
+}
+
+function isNumber(n: number): boolean {
+  return Number.isInteger(n) && n >= -1 && n < ROUNDS;
+}
+
+// A racing operation may throw (an element another thread just removed); that is a
+// surprising value, not a crash.
+function racing(operation: () => void): void {
+  try {
+    operation();
+  } catch (e: any) {
+    if (!(e instanceof RangeError)) throw e;
+    surprises.add(1);
+  }
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  numbers.push(i);
+  words.push("w" + i);
+  items.push(new Item(i));
+  if (i % 3 === 0) racing(() => { numbers.pop(); });
+  if (i % 5 === 0) racing(() => { words.shift(); });
+  if (i % 7 === 0) racing(() => { items.unshift(new Item(i)); });
+  if (i % 11 === 0) racing(() => { numbers.splice(0, 2, -1); });
+  if (i % 13 === 0) racing(() => { words[i % 50] = "w" + i; });
+  if (i % 17 === 0) racing(() => { items.reverse(); });
+  if (i % 997 === 0) racing(() => { numbers.length = 10; });
+  if (i % 1999 === 0) racing(() => { words.length = 10; });
+  if (i % 2003 === 0) racing(() => { items.length = 10; });
+  if (i % 19 === 0) {
+    racing(() => {
+      const copy = numbers.slice(0, 64);
+      if (!copy.every(isNumber)) throw new Error("a copied number nobody wrote");
+    });
+    racing(() => {
+      const joined = words.slice(-20).join(",");
+      if (joined.length > 20 * 8) throw new Error("a joined word nobody wrote");
+    });
+    racing(() => {
+      if (numbers.indexOf(-2) !== -1 || numbers.includes(ROUNDS)) throw new Error("found a number nobody wrote");
+    });
+    racing(() => {
+      if (!numbers.with(numbers.length >> 1, -1).every(isNumber)) throw new Error("a number nobody wrote in a copy");
+    });
+    racing(() => {
+      const loose: any = words;
+      const kept: string[] = loose.filter((word: any) => typeof word === "string");
+      if (!kept.slice(0, 20).every(isWord)) throw new Error("a word nobody wrote through any");
+    });
+    racing(() => {
+      for (const item of items.slice(0, 32)) {
+        if (!(item.id >= 0 && item.id < ROUNDS)) throw new Error("an item nobody made");
+      }
+    });
+  }
+}
+
+// After the race every element is one some thread wrote, or a hole a lost push left.
+let valid = true;
+for (let k = 0; k < numbers.length; k++) {
+  const n: number | undefined = numbers[k];
+  valid = valid && n !== undefined && isNumber(n);
+}
+for (let k = 0; k < words.length; k++) {
+  const word: string | undefined = words[k];
+  valid = valid && (word === undefined || isWord(word));
+}
+for (let k = 0; k < items.length; k++) {
+  const item: Item | undefined = items[k];
+  valid = valid && (item === undefined || (item.id >= 0 && item.id < ROUNDS));
+}
+console.log("elements valid:", valid);
+console.log("lengths bounded:", numbers.length <= 2 * ROUNDS && words.length <= ROUNDS && items.length <= 2 * ROUNDS);
+console.log("surprises counted:", surprises.load() >= 0);
+
+// The arrays still work as arrays.
+numbers.length = 0;
+numbers.push(1, 2, 3);
+words.length = 2;
+console.log(numbers, words.length, items.slice(0, 0));
+
+// expect:
+// elements valid: true
+// lengths bounded: true
+// surprises counted: true
+// [ 1, 2, 3 ] 2 []

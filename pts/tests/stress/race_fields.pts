@@ -1,0 +1,99 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on fields and variables: threads that
+// write one object's fields (numbers, 64-bit integers, strings, unions, `any`, objects,
+// optional properties, arrays) and a module variable a function shares, while others
+// read them, always read one of the values written, never a torn one or garbage.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+class Link {
+  constructor(public id: number, public next: Link | null) {}
+}
+
+class Shared {
+  count = 0;
+  label = "start";
+  either: number | string | Link | null = null;
+  dynamic: any = "d";
+  big: int = 0;
+  link = new Link(0, null);
+  maybe?: string;
+  list: number[] = [];
+}
+
+const ROUNDS = 200_000;
+const LABELS = ["alpha", "beta", "gamma", "a label longer than the others, so it is no small string"];
+const BIGS: int[] = [0, -1, 9_223_372_036_854_775_807, -9_223_372_036_854_775_808, 4_294_967_296];
+const shared = new Shared();
+const bad = new AtomicInt();
+
+// A variable that parallel bodies change through a function, which the guardrail doesn't
+// follow (D-127): increments race and get lost, but the number stays a number.
+let ticks = 0;
+function tick(): void {
+  ticks++;
+}
+
+function check(ok: boolean): void {
+  if (!ok) bad.add(1);
+}
+
+function chainLength(link: Link | null): number {
+  let length = 0;
+  for (let at = link; at !== null; at = at.next) length++;
+  return length;
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  tick();
+  shared.count++;
+  shared.label = LABELS[i % LABELS.length];
+  switch (i % 4) {
+    case 0:
+      shared.either = i;
+      break;
+    case 1:
+      shared.either = "s" + (i % 10);
+      break;
+    case 2:
+      shared.either = new Link(i, null);
+      break;
+    default:
+      shared.either = null;
+  }
+  shared.dynamic = i % 3 === 0 ? { n: i } : i % 3 === 1 ? "d" : [i];
+  shared.big = BIGS[i % BIGS.length];
+  shared.link = new Link(i, i % 64 === 0 ? null : shared.link);
+  shared.maybe = i % 2 === 0 ? undefined : "m";
+  shared.list = i % 2 === 0 ? [1, 2, 3] : [];
+
+  check(LABELS.includes(shared.label));
+  const either = shared.either;
+  if (typeof either === "number") {
+    check(Number.isInteger(either) && either >= 0 && either < ROUNDS);
+  } else if (typeof either === "string") {
+    check(either.length === 2 && either.startsWith("s"));
+  } else if (either !== null) {
+    check(either instanceof Link && either.id >= 0 && either.id < ROUNDS);
+  }
+  const dynamic = shared.dynamic;
+  check(typeof dynamic === "string" ? dynamic === "d" : typeof dynamic === "object" && dynamic !== null);
+  check(BIGS.includes(shared.big));
+  check(shared.link.id >= 0 && chainLength(shared.link) <= ROUNDS);
+  const maybe = shared.maybe;
+  check(maybe === undefined || maybe === "m");
+  const list = shared.list;
+  check(list.length === 0 || (list.length === 3 && list[2] === 3));
+}
+
+console.log("values valid:", bad.load() === 0);
+console.log("counts bounded:", shared.count >= 1 && shared.count <= ROUNDS && ticks >= 1 && ticks <= ROUNDS);
+shared.either = "done";
+shared.maybe = undefined;
+shared.list.push(1);
+console.log("still usable:", shared.either, shared.maybe, shared.list.length > 0);
+
+// expect:
+// values valid: true
+// counts bounded: true
+// still usable: done undefined true

@@ -104,6 +104,32 @@ static void iterators_see_additions_and_follow_replaced_tables(void) {
   CHECK(!pts_map_next(&after_clear));
 }
 
+/* Racing deletes of one entry each take the size down (D-130); below zero it reads as 0, and tables still grow by their live entries. */
+static void a_size_below_zero_reads_as_zero(void) {
+  pts_map *map = pts_map_new(&number_map_type);
+  map->size = -5;
+  CHECK(pts_map_size(map) == 0);
+  for (int i = 0; i < 100; i++) {
+    put(map, i, i);
+  }
+  CHECK(pts_map_size(map) == 95 && get(map, 99) == 99 && map->table->capacity < 1000);
+}
+
+/* Racing appends to one entry can each index it, filling the index (D-130): lookups and appends then end after one round. */
+static void probes_end_on_an_index_racing_appends_filled(void) {
+  pts_map *map = pts_map_new(&number_map_type);
+  put(map, 0, 10);
+  pts_map_table *table = map->table;
+  for (size_t slot = 0; slot <= table->index_mask; slot++) {
+    table->index[slot] = 1;
+  }
+  CHECK(get(map, 5) == -1 && !pts_map_has(map, &(double){5}));
+  put(map, 5, 50); /* appended, but no lookup can find it */
+  CHECK(get(map, 0) == 10 && get(map, 5) == -1 && pts_map_size(map) == 2);
+  pts_map_iterator iterator = pts_map_iterate(map);
+  CHECK(pts_map_next(&iterator) && pts_map_next(&iterator) && PTS_MAP_ITERATOR_KEY(double, iterator) == 5);
+}
+
 static void put_string(pts_map *record, const char *key, double value) {
   pts_string *string = pts_string_from_cstr(key);
   pts_map_set(record, &string, &value);
@@ -143,6 +169,8 @@ int main(int argc, char **argv) {
   keys_compare_with_same_value_zero();
   entries_keep_insertion_order_across_growth_and_deletion();
   iterators_see_additions_and_follow_replaced_tables();
+  a_size_below_zero_reads_as_zero();
+  probes_end_on_an_index_racing_appends_filled();
   record_keys_list_array_indices_first_in_numeric_order();
   record_keys_without_indices_keep_insertion_order();
   return CHECK_DONE();

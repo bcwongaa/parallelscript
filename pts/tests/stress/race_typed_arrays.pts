@@ -1,0 +1,45 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on typed arrays: threads that write, fill,
+// copy into, sort and take views of one typed array at once, while others read it,
+// see elements some thread wrote and never reach outside the array: its length is fixed.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+const ROUNDS = 100_000;
+const SIZE = 1024;
+const floats = new Float64Array(SIZE);
+const bytes = new Uint8Array(SIZE);
+const ints = new Int32Array(new ArrayBuffer(SIZE * 4));
+const bad = new AtomicInt();
+
+function check(ok: boolean): void {
+  if (!ok) bad.add(1);
+}
+
+// The doubles written: whole values that a torn write would turn into others.
+const DOUBLES = [0, 1.5, -2.25, 1e300, Math.PI];
+
+parallel for (const i of range(0, ROUNDS)) {
+  const at = (i * 31) % SIZE;
+  floats[at] = DOUBLES[i % DOUBLES.length];
+  bytes[at] = i;
+  ints[at] = -i;
+  if (i % 101 === 0) floats.fill(DOUBLES[i % 2], at, at + 64);
+  if (i % 211 === 0) bytes.set([1, 2, 3, 4], at % (SIZE - 4));
+  if (i % 307 === 0) ints.subarray(at % 512, (at % 512) + 128).sort();
+  if (i % 401 === 0) bytes.copyWithin(0, SIZE / 2);
+  check(DOUBLES.includes(floats[(i * 17) % SIZE]));
+  check(bytes[(i * 13) % SIZE] <= 255);
+  check(ints[(i * 7) % SIZE] <= 0);
+  check(floats[SIZE + (i % 3)] === undefined && bytes.length === SIZE);
+  if (i % 997 === 0) {
+    check(floats.slice(0, 32).every((x) => DOUBLES.includes(x)) && ints.subarray(100, 200).length === 100);
+  }
+}
+
+console.log("elements valid:", bad.load() === 0 && floats.every((x) => DOUBLES.includes(x)) && ints.every((x) => x <= 0));
+console.log("lengths kept:", floats.length, bytes.length, ints.length);
+
+// expect:
+// elements valid: true
+// lengths kept: 1024 1024 1024

@@ -96,6 +96,13 @@ static pts_array_buffer *new_buffer(pts_field_kind kind, size_t capacity) {
   return buffer;
 }
 
+/* copy_elements copies count elements from a buffer others may write (one load each) to one only we see. */
+static void copy_elements(unsigned char *to, const unsigned char *from, size_t count, size_t size) {
+  for (size_t i = 0; i < count; i++) {
+    element_load(to + i * size, from + i * size, size);
+  }
+}
+
 /* is_hole reports whether an element just read is a slot no racing push wrote: a zero pointer or dynamic value. */
 static bool is_hole(pts_field_kind kind, const void *element) { return holds_pointers(kind) && *(const uint64_t *)element == 0; }
 
@@ -122,7 +129,7 @@ static pts_array_buffer *with_room(pts_array *array, size_t length, size_t neede
   }
   pts_array_buffer *bigger = new_buffer(kind, capacity);
   size_t kept = length < buffer->capacity ? length : buffer->capacity;
-  memcpy(bigger->elements, buffer->elements, kept * pts_field_kind_size(kind)); /* nobody else sees bigger yet */
+  copy_elements(bigger->elements, buffer->elements, kept, pts_field_kind_size(kind)); /* nobody else sees bigger yet */
   publish_buffer(array, bigger);
   return bigger;
 }
@@ -259,6 +266,16 @@ void pts_store_value_in_slot(pts_field_kind kind, void *slot, pts_value value) {
   element_store(slot, &element, pts_field_kind_size(kind));
 }
 
+bool pts_array_load(const pts_array *array, double index, void *out) {
+  size_t size = pts_field_kind_size(array->type->element);
+  const void *slot = pts_array_slot_or_null(array, index, size);
+  if (slot == NULL) {
+    return false;
+  }
+  element_load(out, slot, size);
+  return !is_hole(array->type->element, out);
+}
+
 pts_value pts_array_element(const pts_array *array, double index) {
   size_t size = pts_field_kind_size(array->type->element);
   const void *slot = pts_array_slot_or_null(array, index, size);
@@ -308,7 +325,7 @@ double pts_array_unshift(pts_array *array, const void *values, size_t count) {
   size_t capacity = kept + count > old->capacity ? kept + count : old->capacity;
   pts_array_buffer *buffer = new_buffer(kind, capacity);
   memcpy(buffer->elements, values, count * size);
-  memcpy(buffer->elements + count * size, old->elements, kept * size);
+  copy_elements(buffer->elements + count * size, old->elements, kept, size);
   publish_buffer(array, buffer);
   publish_length(array, kept + count);
   return (double)(kept + count);
@@ -338,6 +355,9 @@ void pts_array_shift(pts_array *array, void *out) {
   pts_array_buffer *buffer = load_buffer(array);
   if (length > buffer->capacity) {
     length = buffer->capacity; /* the length of a buffer published later; this one holds less */
+  }
+  if (length == 0) {
+    pts_throw_new(&pts_type_builtin_RangeError, "shift() of an empty array");
   }
   element_load(out, buffer->elements, size);
   if (is_hole(kind, out)) {
@@ -402,13 +422,6 @@ static size_t relative_index(double position, size_t length) {
 static size_t readable_length(const pts_array *array, const pts_array_buffer *buffer) {
   size_t length = pts_array_length_of(array);
   return length < buffer->capacity ? length : buffer->capacity;
-}
-
-/* copy_elements copies count elements from a buffer others may write (one load each) to one only we see. */
-static void copy_elements(unsigned char *to, const unsigned char *from, size_t count, size_t size) {
-  for (size_t i = 0; i < count; i++) {
-    element_load(to + i * size, from + i * size, size);
-  }
 }
 
 /* new_array makes an array of descriptor type holding count elements read from from. */
@@ -730,8 +743,10 @@ pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*
   }
   size_t count = 0;
   for (size_t i = 0; i < length; i++) {
-    if (!is_hole(kind, buffer->elements + i * size)) {
-      element_load(&elements[count++], buffer->elements + i * size, size);
+    uint64_t element = 0;
+    element_load(&element, buffer->elements + i * size, size);
+    if (!is_hole(kind, &element)) {
+      elements[count++] = element;
     }
   }
   compare_sort(elements, elements + length, count, compare, call);
@@ -810,6 +825,9 @@ pts_array *pts_array_with(const pts_array *array, double index, const void *valu
     pts_throw_new(&pts_type_builtin_RangeError, "Invalid index : %s", buf);
   }
   pts_array *copy = pts_array_copy(array);
+  if ((size_t)at >= copy->length) {
+    pts_array_index_error(copy, at); /* another thread shrank the array since its length was read */
+  }
   size_t size = pts_field_kind_size(array->type->element);
   element_store(copy->buffer->elements + (size_t)at * size, value, size);
   return copy;

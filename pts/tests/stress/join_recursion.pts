@@ -1,0 +1,62 @@
+// Recursive divide and conquer with join (D-122): deep nesting, stolen halves, throws at
+// many depths caught inside the recursion and out of it, and joins started from tasks on
+// several loops at once.
+// threads: 1 2 4 8
+import { join, range } from "pts:parallel";
+
+function fib(n: number): number {
+  if (n < 18) return n < 2 ? n : fib(n - 1) + fib(n - 2);
+  const [a, b] = join(() => fib(n - 1), () => fib(n - 2));
+  return a + b;
+}
+
+// A parallel quicksort of a copy, into fresh arrays at every level.
+function quicksort(items: number[]): number[] {
+  if (items.length < 512) return items.toSorted((x, y) => x - y);
+  const pivot = items[items.length >> 1];
+  const less = items.filter((x) => x < pivot);
+  const same = items.filter((x) => x === pivot);
+  const more = items.filter((x) => x > pivot);
+  const [left, right] = join(() => quicksort(less), () => quicksort(more));
+  return [...left, ...same, ...right];
+}
+
+// A tree walk where some subtrees throw; each level catches what its halves throw.
+class Fault extends Error {
+  constructor(public depth: number) {
+    super("fault at " + depth);
+  }
+}
+function walk(depth: number, path: number): number {
+  if (depth === 0) {
+    if (path % 97 === 13) throw new Fault(depth);
+    return 1;
+  }
+  try {
+    const [a, b] = join(() => walk(depth - 1, path * 2), () => walk(depth - 1, path * 2 + 1));
+    return a + b;
+  } catch (e: any) {
+    if (!(e instanceof Fault) || depth % 3 !== 0) throw e;
+    return 0;
+  }
+}
+
+console.log(fib(30));
+const numbers = range(0, 200_000).par.map((i) => (i * 7_919) % 100_003);
+const sorted = quicksort(numbers);
+console.log(sorted.length, sorted[0], sorted[100_000], sorted[199_999], sorted.every((x, i) => i === 0 || sorted[i - 1] <= x));
+console.log(walk(14, 1));
+try {
+  walk(2, 3);
+} catch (e: any) {
+  console.log(e instanceof Fault, e.message);
+}
+const fibs = await Promise.all(range(20, 28).toArray().map((n) => parallel fib(n)));
+console.log(fibs.join(" "));
+
+// expect:
+// 832040
+// 200000 0 50000 100002 true
+// 15032
+// true fault at 0
+// 6765 10946 17711 28657 46368 75025 121393 196418

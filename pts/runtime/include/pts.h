@@ -1130,6 +1130,9 @@ static inline void *pts_array_slot(const pts_array *array, double index, size_t 
   return slot;
 }
 
+/* Loads element index of array into out (its element kind's size) with one load; false if there is none, or a racing push left a hole there (D-038). */
+bool pts_array_load(const pts_array *array, double index, void *out);
+
 /* array[index] as a dynamic value: undefined if index isn't one of its elements, as in JS (D-015). */
 pts_value pts_array_element(const pts_array *array, double index);
 
@@ -1258,7 +1261,7 @@ typedef struct pts_map_table {
 typedef struct pts_map {
   const pts_type *type;
   pts_map_table *table;
-  size_t size; /* live entries */
+  int64_t size; /* live entries; racing threads may lose updates and take it below 0, which reads as 0 (D-130) */
 } pts_map;
 
 /* An iteration over a map or set, as JS's iterators: it sees entries added meanwhile and skips deleted ones. */
@@ -1275,7 +1278,10 @@ pts_map *pts_map_new(const pts_type *type);
 pts_map *pts_map_copy(const pts_type *type, const pts_map *source);
 /* new Set(array): the array's elements, each once, in order. */
 pts_map *pts_set_of_array(const pts_type *type, const pts_array *array);
-static inline double pts_map_size(const pts_map *map) { return (double)__atomic_load_n(&map->size, __ATOMIC_ACQUIRE); }
+static inline double pts_map_size(const pts_map *map) {
+  int64_t size = __atomic_load_n(&map->size, __ATOMIC_ACQUIRE);
+  return size > 0 ? (double)size : 0;
+}
 bool pts_map_has(const pts_map *map, const void *key);
 /* Copies the value of key into *value and returns true, or returns false if map has no such key. */
 bool pts_map_get(const pts_map *map, const void *key, void *value);

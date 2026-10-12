@@ -591,11 +591,12 @@ static pts_value array_filter(pts_value self, uint32_t argc, const pts_value *ar
   pts_array *array = array_of(self);
   pts_array *result = pts_array_of(array->type, NULL, 0); /* the same elements, so the same type */
   for (double i = 0; i < pts_array_length(array); i++) {
-    pts_value element = pts_array_element(array, i);
+    uint64_t element = 0;
+    if (!pts_array_load(array, i, &element)) {
+      continue; /* a hole, or an element another thread removed: JS's filter skips holes */
+    }
     if (pts_value_truthy(call_back(callback, self, i))) {
-      uint64_t slot = 0;
-      pts_store_value_in_slot(array->type->element, &slot, element);
-      pts_array_push(result, &slot, 1);
+      pts_array_push(result, &element, 1);
     }
   }
   return pts_value_from_object(result);
