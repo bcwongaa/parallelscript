@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.3 `fetch`
+- **Next task:** M6.0a1 Loop-owned handles (the owner's review added M6.0a–c before M6.3; M6.0a split by D-138)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes locally (M6.2b, `7cf51fc0c`); CI: see the session log
 
