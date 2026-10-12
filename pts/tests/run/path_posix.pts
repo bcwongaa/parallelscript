@@ -1,0 +1,50 @@
+// pts:path gives Node's results (D-116): every function over paths with every kind of
+// segment. Node runs it with node:path. resolve and relative depend on the working
+// directory, which differs, so they show it as <cwd> and stay below it.
+import { basename, delimiter, dirname, extname, format, isAbsolute, join, normalize, parse, relative, resolve, sep, toNamespacedPath } from "pts:path";
+
+const samples = [
+    "", ".", "..", "/", "//", "///", "a", "a/", "a//", "/a", "//a", "a/b", "a/b/", "/a/b/c",
+    "a/./b", "a/../b", "../a", "../../a/b", "./a", "a/b/../../..", "/..", "/../a", "a/..",
+    ".a", "a.", "a.b", "a.b.c", ".a.b", "..a", "a..", "...", "a/.b", "a/b.", "/a/b.c/",
+    "a/b.c//", "file.tar.gz", "/home/user/.bashrc", "/x/y/../z/./w.js", "a\\b", "ä/ö.txt",
+    "a b/c d.e", "/a/b/../../../c", "./", "../", "a/b/c/../../d/./e/",
+];
+
+const cwd = resolve();
+function show(path: string): string {
+    return path.startsWith(cwd) ? "<cwd>" + path.slice(cwd.length) : path;
+}
+
+console.log(sep, delimiter, isAbsolute(cwd));
+for (const s of samples) {
+    console.log(JSON.stringify(s), JSON.stringify([normalize(s), dirname(s), basename(s), extname(s), isAbsolute(s), toNamespacedPath(s)]));
+    const parsed = parse(s);
+    console.log("  parse", JSON.stringify(parsed), JSON.stringify(format(parsed)));
+    const suffixes = ["", ".c", "b.c", "c", "/", "a", s].map((suffix) => basename(s, suffix));
+    console.log("  basename", JSON.stringify(suffixes));
+    if (!s.startsWith("..") && !s.includes("/..")) {
+        console.log("  resolve", show(resolve(s)), show(resolve("/r", s)), show(resolve(s, "x")));
+    }
+}
+
+for (const a of ["", "a", "/a", "a/", "..", "a/b"]) {
+    const joined: string[] = [];
+    for (const b of ["", "b", "/b", "../b", "./b/", ".."]) {
+        joined.push(join(a, b), join(a, "x", b));
+    }
+    console.log("join", JSON.stringify(a), JSON.stringify(joined));
+}
+console.log(join(), join(""), join("", ""), join("a", "", "b"));
+
+// Pairs of absolute paths, and of relative ones that stay below the working directory.
+const below = samples.filter((s) => !s.startsWith("..") && !s.includes("/.."));
+for (const group of [below.filter((s) => isAbsolute(s)), below.filter((s) => !isAbsolute(s))]) {
+    for (const from of group) {
+        console.log("relative", JSON.stringify(from), JSON.stringify(group.map((to) => relative(from, to))));
+    }
+}
+console.log(relative("/a/b", "/a/b"), relative("/", "/a"), relative("/a", "/"), relative("/a/b/c", "/a/bc"));
+
+console.log(format({ dir: "/tmp", name: "f", ext: "md" }), format({ root: "/", base: "x.y" }), format({ root: "/r/", dir: "/r/", name: "n", ext: ".e" }));
+console.log(JSON.stringify(format({})), format({ name: "a", ext: "b" }), format({ dir: "d", base: "b", name: "ignored" }));

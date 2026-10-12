@@ -239,12 +239,14 @@ func runNode(t *testing.T, node string, modules map[string]string, entry string)
 var relativeSpecifierPattern = regexp.MustCompile(`(\b(?:from|import)\s*\(?\s*["'])(\.\.?/[^"'\n]*)(["'])`)
 
 // nodeModuleSource renames the relative imports of a module to the .mts files runNode
-// writes: Node needs explicit extensions and doesn't know .pts.
+// writes (Node needs explicit extensions and doesn't know .pts), and its pts: imports
+// to Node's modules (nodeModules).
 func nodeModuleSource(source string) string {
-	return relativeSpecifierPattern.ReplaceAllStringFunc(source, func(match string) string {
+	source = relativeSpecifierPattern.ReplaceAllStringFunc(source, func(match string) string {
 		parts := relativeSpecifierPattern.FindStringSubmatch(match)
 		return parts[1] + nodeModulePath(parts[2]) + parts[3]
 	})
+	return ptsModulePattern.ReplaceAllString(source, "${1}node:${2}${3}")
 }
 
 // nodeModulePath is the .mts path runNode writes a module (or its specifier, extension optional) to.

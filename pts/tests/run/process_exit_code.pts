@@ -1,0 +1,7 @@
+// process.exit() without a code exits with process.exitCode's (D-116).
+process.exitCode = 4;
+console.log("exiting");
+process.exit();
+// expect:
+// exiting
+// exit: 4

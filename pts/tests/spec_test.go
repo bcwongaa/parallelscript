@@ -108,14 +108,28 @@ func expectBlock(lines []string, start int) (string, int) {
 	return out.String(), end
 }
 
-// ptsFeaturePattern finds code that only ParallelScript runs: pts: modules, the
-// parallel keyword, .par views and the integer types (docs/SPEC.md §1.1).
-var ptsFeaturePattern = regexp.MustCompile(`["']pts:|\bparallel\b|\.par\b|(?:[:<,|]\s*|\bas\s+)(?:int|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64)\b`)
+// ptsFeaturePattern finds code that only ParallelScript runs: the parallel keyword, .par
+// views and the integer types (docs/SPEC.md §1.1); ptsModulePattern finds pts: modules.
+var (
+	ptsFeaturePattern = regexp.MustCompile(`\bparallel\b|\.par\b|(?:[:<,|]\s*|\bas\s+)(?:int|i8|i16|i32|i64|u8|u16|u32|u64|f32|f64)\b`)
+	ptsModulePattern  = regexp.MustCompile(`(["'])pts:([^"'\n]*)(["'])`)
+)
+
+// nodeModules are the pts: modules that are Node's modules of the same name (D-116):
+// a program that imports only these is compared with Node, which imports `node:path`
+// for `pts:path`.
+var nodeModules = map[string]bool{"path": true, "process": true, "fs": true, "fs/promises": true}
 
 var commentPattern = regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
 
 // isPlainTypeScript reports whether source uses only TypeScript, so Node must print the same.
 // It errs towards false; a test it misjudges can opt out with // no-diff:.
 func isPlainTypeScript(source string) bool {
-	return !ptsFeaturePattern.MatchString(commentPattern.ReplaceAllString(source, ""))
+	code := commentPattern.ReplaceAllString(source, "")
+	for _, module := range ptsModulePattern.FindAllStringSubmatch(code, -1) {
+		if !nodeModules[module[2]] {
+			return false
+		}
+	}
+	return !ptsFeaturePattern.MatchString(code)
 }

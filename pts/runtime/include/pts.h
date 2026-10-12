@@ -1647,7 +1647,7 @@ static inline void pts_stack_check(void) {
 
 void pts_runtime_init(int argc, char **argv);
 
-/* Flushes output and returns the process exit code. */
+/* Flushes output and returns the process exit code: code, or if it is 0, process.exitCode's. */
 int pts_runtime_exit(int code);
 
 #ifdef __cplusplus
@@ -1826,5 +1826,25 @@ double pts_performance_now(void);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);
+
+/* ---------------------------------------------------------------- pts:process */
+
+/*
+ * The intrinsics of pts:process (D-116), which declares them by these names. argv is the
+ * executable's path twice, then the program's arguments; environ lists the environment's
+ * "NAME=value" entries.
+ */
+void pts_process_init(int argc, char **argv);
+struct pts_array *pts_process_argv(void);
+struct pts_array *pts_process_environ(void);
+pts_string *pts_process_exec_path(void);
+double pts_process_pid(void);
+pts_string *pts_process_cwd(void);
+/* process.exit(code): flushes output and exits at once. */
+_Noreturn void pts_process_exit(double code);
+/* process.exitCode = code: the code pts_runtime_exit returns for a program that ends normally. */
+void pts_process_set_exit_code(double code);
+/* process.stdout.write (fd 1) and process.stderr.write (fd 2), in order with console's output. */
+void pts_process_write(double fd, pts_string *chunk);
 
 #endif /* PTS_H */

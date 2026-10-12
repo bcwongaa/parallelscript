@@ -72,3 +72,6 @@ interface Performance {
     now(): number;
 }
 declare const performance: Performance;
+
+// The program's process as Node's global process: pts:process's default export (D-116).
+declare var process: import("pts:process").Process;

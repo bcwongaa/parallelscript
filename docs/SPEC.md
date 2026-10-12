@@ -317,8 +317,10 @@ Semantics (D-022), as in Node:
 | Module | Contents |
 |---|---|
 | `pts:fs` | Sync and promise-based file APIs |
-| `pts:path` | Path utilities |
-| `pts:process` | `argv`, `env`, `exit`, `cwd` |
+| `pts:path` | Path utilities: Node's `path` for POSIX (`join`, `resolve`, `relative`, `normalize`, `dirname`, `basename`, `extname`, `parse`, `format`, `isAbsolute`, `sep`, `delimiter`; the default export is the object of them, D-116) |
+| `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is also the global `process`, as in Node (D-116) |
+
+The `pts:` modules that mirror Node's (`pts:fs`, `pts:path`, `pts:process`) behave as `node:fs`, `node:path` and `node:process` do, so a program that imports only those prints what Node prints with the `node:` modules. They are written in ParallelScript and compiled with the program that imports them (D-116).
 | `pts:http` | A server with an option to accept connections on every loop, plus `fetch` as a global |
 | `pts:sync` | Synchronization primitives (§5.7) |
 | `pts:parallel` | `range`, `join` and related helpers |
@@ -356,6 +358,7 @@ The compatibility principle (§1.1) holds except for these:
 - Console (D-088): `%s` of an error inspects it even where its class overrides `toString`; `%s` of a function throws (functions have no source text); under `%o` or `showHidden` a function doesn't list its `length`, `name` and `prototype`, and a getter and a setter of one name that different classes define show as one `[Getter/Setter]`. Widths of strings for laying out arrays in columns are summed per code point, where Node measures the string's NFC form. `console.trace` shows the program's frames only; warnings (a missing count or timer label) go to stderr without Node's `(node:<pid>)` prefix.
 - Type-level features through run-time checks (D-089): `x as T` that isn't an upcast is checked, and to an array or object type that isn't the value's own it makes a checked copy, as converting from `any` does; keyed elements (`o[k]` for `k: keyof T`), members of unions of objects and other values, and values of unions that recur through arrays or hash-map objects (`type Json = … | Json[]`) are found at run time and checked where they become typed. A tuple used with array methods or `for…of` is copied into an array. Each use of an enum object as a value makes a new hash-map object, so `E === E` is false. A property tsc narrowed to a primitive that a call has changed since throws `TypeError` where it is read as that type, where JS reads the new value; printed or compared, it is read as it is.
 - Generators (D-109): a `yield` can only come first in its statement (as the statement, the first variable's initializer, an assignment's right side or a return's value); elsewhere it is a compile error for now. A generator function's default parameter values are evaluated when its generator first runs, where JS evaluates them at the call. Destructuring more elements than an iterator yields into typed locals throws `RangeError` as reading past an array's end does (D-038).
+- Process (D-116): `process.argv` starts with the executable's path twice, where Node has its own path and the script's (`argv.slice(2)` is the arguments in both); `process.env` is a copy of the environment made at startup, so writing it doesn't change what the system sees; Node's `nextTick`, `hrtime`, `on(…)` and `stdin` are not there. `pts:path` is the POSIX path module only (no `win32`, no `matchesGlob`).
 - Array methods with callbacks (D-042): a callback that shortens the array makes `map`, `flatMap` and `filter` skip the indices it no longer has, so `map`'s result is shorter where JS's would have holes; `find(…)!` and `findLast(…)!` throw `RangeError` when no element matches, where JS gives `undefined`. `sort` with a comparator is a stable merge sort: the order is V8's for any consistent comparator, but the comparator may be called on other pairs, in another order.
 
 ---
@@ -944,3 +947,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C**: async generator starters return `pts_async_generator_new`; yields in them set `header.awaiting`; closure descriptors' parents `pts_async_function`/`pts_async_generator_function`.
 - **Runtime** (`promise.c`): `pts_request`, `async_generator_drain`/`_step`/`_returned`, `complete_request`, `iterator_result`; the async-from-sync iterator (`from_sync_resume`); `pts_async_iterator_open`/`_resume`/`_close`, `pts_iterator_result_done`/`_value`; `pts_iterator.requests`, `.awaiting`, `.executing`.
 - **Tests:** `pts/tests/run/async_generators`, `for_await_top_level`, `function_kinds_print` (also run under Node); `pts/tests/errors/async_generators_not_yet.pts`.
+
+### 9.74 The pts: modules, process and path (M4.5a)
+
+- **Library** (`pts/lib`): `process.pts`, `path.pts` embedded next to the prelude; `lib.ModulePaths` (the `paths` option), `IsModulePath`, `ModulePath`, `ModuleSpecifier`, `GlobalModules` (D-116).
+- **Front end** (`pts/frontend/load.go`): the `paths` option; `globalModulesUsed`/`usesGlobal` put `pts:process` first in `Modules` when the program uses the global.
+- **Lowering** (`pts/lower/library.go`): `intrinsicCall`/`declareIntrinsic` (bodiless declarations in `pts:` modules are extern functions), `globalModuleBindings` (used by `followAliases`); positions name modules by specifier.
+- **Runtime** (`process.c`): `pts_process_argv`, `_environ`, `_exec_path`, `_pid`, `_cwd`, `_exit`, `_set_exit_code`, `_write`; `pts_runtime_exit` returns `process.exitCode`'s code; frames show `pts:` module names (`add_source_frame`).
+- **Tests:** `pts/tests/run/path_posix`, `path_module`, `process_basics`, `process_exit`, `process_exit_code` (also run under Node with `node:` modules); `pts/tests/errors/pts_module_unknown.pts`; front-end tests of resolution and order.

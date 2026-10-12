@@ -1,0 +1,16 @@
+// pts:path's default export is an object of its functions, whose posix is itself, as
+// Node's path; namespace and named imports work too (D-116).
+import path from "pts:path";
+import * as p from "pts:path";
+import { posix, join } from "pts:path";
+
+const parts = ["usr", "local", "bin"];
+console.log(path.join("/", ...parts), p.join(...parts), join("a", "b"));
+console.log(path.posix === path, posix === path, path.sep, p.sep, path.delimiter);
+console.log(path.basename("/x/y.ts", ".ts"), path.extname("index.html"), path.dirname("/a/b/c"));
+console.log(path.parse("/home/u/file.txt"));
+console.log(path.isAbsolute("/x"), path.normalize("/a//b/../c/."), path.relative("/data/a", "/data/b/c"));
+console.log(path.format({ dir: "/tmp", base: "out.txt" }), path.toNamespacedPath("a/b"));
+const files = ["/src/main.pts", "/src/lib/util.pts", "/README.md"];
+console.log(files.map((f) => path.basename(f, path.extname(f))));
+console.log(files.filter((f) => path.extname(f) === ".pts").map((f) => path.relative("/src", f)));

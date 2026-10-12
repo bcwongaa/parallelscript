@@ -1,0 +1,30 @@
+// process.exit ends the program at once (D-116): output written so far comes out,
+// timers and microtasks still pending don't run, and the code is the argument, or
+// exitCode's without one. A code that isn't an integer is a RangeError.
+import { exit } from "pts:process";
+
+function stop(code: number): never {
+    console.log("stopping with", code);
+    exit(code);
+}
+
+try {
+    process.exit(1.5);
+} catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+}
+setTimeout(() => console.log("timer never runs"), 0);
+setImmediate(() => console.log("immediate never runs"));
+Promise.resolve().then(() => {
+    console.log("in a microtask");
+    queueMicrotask(() => console.log("never runs"));
+    const code: number = process.argv.length > 99 ? 0 : stop(5);
+    console.log("not reached", code);
+});
+console.log("end of the module");
+// expect:
+// RangeError The value of "code" is out of range. It must be an integer. Received 1.5
+// end of the module
+// in a microtask
+// stopping with 5
+// exit: 5

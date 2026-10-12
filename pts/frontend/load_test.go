@@ -80,11 +80,48 @@ export * from "./c";
 	})
 
 	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
-	var order []string
-	for _, module := range program.Modules {
-		order = append(order, module.FileName())
-	}
 	// main.pts is already running when b.pts imports it; types.pts is imported only as
 	// types; declarations.d.ts has no code.
-	assert.DeepEqual(t, order, []string{"/p/b.pts", "/p/a.pts", "/p/c.pts", "/p/main.pts"})
+	assert.DeepEqual(t, moduleNames(program), []string{"/p/b.pts", "/p/a.pts", "/p/c.pts", "/p/main.pts"})
+}
+
+func moduleNames(program *frontend.Program) []string {
+	var names []string
+	for _, module := range program.Modules {
+		names = append(names, module.FileName())
+	}
+	return names
+}
+
+func TestPtsModulesAreTheLibrarysSources(t *testing.T) {
+	t.Parallel()
+	program, errors := load(t, map[string]string{"/p/main.pts": `import { join } from "pts:path";
+console.log(join("a", "b"));
+`})
+
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	// pts:path uses the global process, so pts:process runs first.
+	assert.DeepEqual(t, moduleNames(program), []string{"ptslib:///process.pts", "ptslib:///path.pts", "/p/main.pts"})
+}
+
+func TestGlobalProcessRunsItsModuleFirst(t *testing.T) {
+	t.Parallel()
+	program, errors := load(t, map[string]string{
+		"/p/main.pts":   `import { f } from "./other"; console.log(f());`,
+		"/p/other.pts":  `export function f(): string[] { return process.argv; }`,
+		"/p/unused.pts": `console.log(process.pid);`,
+	})
+
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	assert.DeepEqual(t, moduleNames(program), []string{"ptslib:///process.pts", "/p/other.pts", "/p/main.pts"})
+}
+
+func TestShadowedProcessIsNotTheGlobal(t *testing.T) {
+	t.Parallel()
+	program, errors := load(t, map[string]string{"/p/main.pts": `function process(n: number): number { return n; }
+console.log(process(1));
+`})
+
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	assert.DeepEqual(t, moduleNames(program), []string{"/p/main.pts"})
 }

@@ -151,7 +151,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
-		looseSymbols: map[*ast.Symbol]bool{}}
+		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}}
+	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	result := &ir.Program{}
 	for _, file := range program.Modules {
@@ -228,7 +229,7 @@ func newModule(file *ast.SourceFile, entry bool) *ir.Module {
 			module.Name = "module"
 		}
 	}
-	module.Init = &ir.Func{Name: "main", Module: module, Pos: ir.Pos{File: file.FileName(), Line: 1}, Result: ir.Void}
+	module.Init = &ir.Func{Name: "main", Module: module, Pos: ir.Pos{File: lib.ModuleSpecifier(file.FileName()), Line: 1}, Result: ir.Void}
 	return module
 }
 
@@ -316,8 +317,10 @@ type lowerer struct {
 	dates               *dateFunctions                   // the runtime functions behind Date
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
-	undefinedTested     map[*ast.Symbol]bool // variables the program tests for undefined (collectUndefinedTests)
-	looseSymbols        map[*ast.Symbol]bool // loose locals and the variables known not to be (isLoose)
+	undefinedTested     map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
+	looseSymbols        map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
+	intrinsics          map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
+	globalBindings      map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.
@@ -330,7 +333,7 @@ type jumpTarget struct {
 func (l *lowerer) pos(node *ast.Node) ir.Pos {
 	file := ast.GetSourceFileOfNode(node)
 	start := scanner.GetTokenPosOfNode(node, file, false)
-	return ir.Pos{File: file.FileName(), Line: scanner.GetECMALineOfPosition(file, start) + 1}
+	return ir.Pos{File: lib.ModuleSpecifier(file.FileName()), Line: scanner.GetECMALineOfPosition(file, start) + 1}
 }
 
 func (l *lowerer) notSupportedYet(node *ast.Node, what string) {
@@ -809,7 +812,11 @@ func (l *lowerer) target(node *ast.Node) *ast.Symbol {
 
 // followAliases follows an imported or re-exported symbol to the declaration it names.
 // It stops at a module's default binding (hasDefaultBinding), which holds a value of its own.
+// A global that is a pts: module's default export names the module's binding (D-116).
 func (l *lowerer) followAliases(symbol *ast.Symbol) *ast.Symbol {
+	if binding, ok := l.globalBindings[symbol]; ok {
+		return binding
+	}
 	for symbol != nil && symbol.Flags&ast.SymbolFlagsAlias != 0 {
 		if declaration := symbol.Declarations[0]; declaration.Kind == ast.KindExportAssignment && l.hasDefaultBinding(declaration) {
 			return symbol
@@ -1472,6 +1479,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if object, key, ok := l.hasOwnPropertyCall(call); ok {
 		return l.hasOwnProperty(object, key)
+	}
+	if x, handled := l.intrinsicCall(call); handled {
+		return x
 	}
 	if x, handled := l.dateCall(call); handled {
 		return x

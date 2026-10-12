@@ -232,9 +232,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M4.2b Promise combinators and top-level await** (82dcec6b4) (split from M4.2 by D-112). `Promise.all`, `allSettled`, `race`, `any` and `withResolvers`, with ordering differential tests; top-level `await` in the entry module.
 - [x] **M4.3 The event loop.** (def00e676) A libuv event loop with `setTimeout`, `setInterval`, `clearTimeout`, `queueMicrotask` and `performance.now()`, with timer and IO ordering matching Node.
 - [x] **M4.4 Async iteration.** (47d633551) Async generators and `for await`.
-- [ ] **M4.5 `pts:fs`, `pts:process` and `pts:path`.**
-  - `pts:fs` with sync and promise APIs; `pts:process` with `argv`, `env`, `exit` and `cwd`.
-  - Also `pts:path`, pulled forward from M6 because it is small and useful now.
+- [ ] **M4.5a `pts:` modules, `pts:process` and `pts:path`** (split from M4.5 by D-116). `pts:` modules as ParallelScript sources over runtime intrinsics; `pts:process` with `argv`, `env`, `exit` and `cwd` (and the global `process`); `pts:path`, pulled forward from M6 because it is small and useful now.
+- [ ] **M4.5b `pts:fs` synchronous API** (split from M4.5 by D-116). `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `readdirSync`, `mkdirSync`, `statSync`, `unlinkSync`, `rmSync` and the like over libc, with Node's errors (`code`, `errno`, `syscall`, `path`).
+- [ ] **M4.5c `pts:fs` promise API** (split from M4.5 by D-116). `pts:fs/promises` and `fs.promises` (`readFile`, `writeFile`, …) over libuv's file requests on the event loop, settling promises from their callbacks, ordered against timers as in Node.
 - [ ] **M4.6 Milestone M4.**
 
 ## M5: Parallel (the headline; make the demo great)

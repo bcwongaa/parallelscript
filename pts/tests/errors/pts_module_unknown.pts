@@ -1,0 +1,9 @@
+// A pts: module the library doesn't have is tsc's error (D-116), as is a name a pts:
+// module doesn't export; the runtime functions behind the modules aren't exported.
+import { thing } from "pts:nope";
+import { joinAll } from "pts:path";
+import { pts_process_cwd } from "pts:process";
+console.log(thing, joinAll, pts_process_cwd);
+// error: pts_module_unknown.pts:3:23 - error TS2307: Cannot find module 'pts:nope'
+// error: pts_module_unknown.pts:4:10 - error TS2614: Module '"pts:path"' has no exported member 'joinAll'.
+// error: pts_module_unknown.pts:5:10 - error TS2614: Module '"pts:process"' has no exported member 'pts_process_cwd'.

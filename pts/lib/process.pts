@@ -1,0 +1,105 @@
+// pts:process: the program's process, as Node's process object (D-116). The global
+// `process` is this module's default export.
+
+declare function pts_process_argv(): string[];
+declare function pts_process_environ(): string[];
+declare function pts_process_exec_path(): string;
+declare function pts_process_pid(): number;
+declare function pts_process_cwd(): string;
+declare function pts_process_exit(code: number): never;
+declare function pts_process_set_exit_code(code: number): void;
+declare function pts_process_write(fd: number, chunk: string): void;
+
+// The environment variables as process.env holds them: a variable's value, or undefined.
+export interface ProcessEnv {
+    [key: string]: string | undefined;
+}
+
+// A stream the program writes text to: process.stdout or process.stderr. Writes go out
+// in order with console.log's and console.error's.
+export class WriteStream {
+    readonly fd: number;
+
+    constructor(fd: number) {
+        this.fd = fd;
+    }
+
+    write(chunk: string): boolean {
+        pts_process_write(this.fd, chunk);
+        return true;
+    }
+}
+
+// The environment the program started with, in the order the system lists it.
+function environment(): ProcessEnv {
+    const env: ProcessEnv = {};
+    for (const entry of pts_process_environ()) {
+        const equals = entry.indexOf("=");
+        if (equals > 0) {
+            env[entry.slice(0, equals)] = entry.slice(equals + 1);
+        }
+    }
+    return env;
+}
+
+// Node's check of an exit code: undefined or an integer.
+function checkExitCode(code: number | undefined): void {
+    if (code !== undefined && !Number.isInteger(code)) {
+        throw new RangeError(`The value of "code" is out of range. It must be an integer. Received ${code}`);
+    }
+}
+
+export class Process {
+    // The executable's path twice (where Node has its own path and the script's), then
+    // the program's arguments, so that `argv.slice(2)` is the arguments in both.
+    readonly argv: string[] = pts_process_argv();
+    readonly execPath: string = pts_process_exec_path();
+    env: ProcessEnv = environment();
+    readonly platform: string = "linux";
+    readonly arch: string = "x64";
+    readonly pid: number = pts_process_pid();
+    readonly stdout: WriteStream = new WriteStream(1);
+    readonly stderr: WriteStream = new WriteStream(2);
+    #exitCode: number | undefined = undefined;
+
+    // The exit code of a program that ends normally or calls exit() without one.
+    get exitCode(): number | undefined {
+        return this.#exitCode;
+    }
+
+    set exitCode(code: number | undefined) {
+        checkExitCode(code);
+        this.#exitCode = code;
+        pts_process_set_exit_code(code ?? 0);
+    }
+
+    // Ends the program at once, with output flushed; pending timers and microtasks don't run.
+    exit(code?: number): never {
+        checkExitCode(code);
+        pts_process_exit(code ?? this.#exitCode ?? 0);
+    }
+
+    cwd(): string {
+        return pts_process_cwd();
+    }
+}
+
+const process: Process = new Process();
+export default process;
+
+export const argv: string[] = process.argv;
+export const env: ProcessEnv = process.env;
+export const execPath: string = process.execPath;
+export const platform: string = process.platform;
+export const arch: string = process.arch;
+export const pid: number = process.pid;
+export const stdout: WriteStream = process.stdout;
+export const stderr: WriteStream = process.stderr;
+
+export function exit(code?: number): never {
+    process.exit(code);
+}
+
+export function cwd(): string {
+    return process.cwd();
+}

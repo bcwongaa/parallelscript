@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 void pts_inspect_value_write(FILE *out, pts_value value); /* inspect.c */
 
@@ -242,6 +243,10 @@ static int add_source_frame(void *data, uintptr_t pc, const char *file, int line
     return 0; /* `new MyError(…)` itself, as V8 leaves it out */
   }
   t->any_source = true;
+  const char *module = strstr(file, "/pts:");
+  if (module != NULL) {
+    file = module + 1; /* a pts: module's name (D-116), which libbacktrace puts under the build's directory as a relative path */
+  }
   char text[64];
   trace_add(t, "\n    at ", 8);
   if (name != NULL && name->js_name[0] != '\0') {

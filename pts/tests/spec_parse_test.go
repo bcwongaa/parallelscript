@@ -49,6 +49,7 @@ func TestPtsFeaturesAreNotPlainTypeScript(t *testing.T) {
 	t.Parallel()
 	for _, source := range []string{
 		`import { Mutex } from "pts:sync";`,
+		`import { join } from "pts:path"; import { range } from "pts:parallel";`,
 		`const r = await parallel work();`,
 		`const s = xs.par.sum();`,
 		`let n: int = 1;`,
@@ -65,6 +66,7 @@ func TestOrdinaryTypeScriptIsPlain(t *testing.T) {
 		`const interval = 5; console.log("int", interval);`,
 		"// runs parallel to the other test\nconsole.log(1);",
 		`const parse = 1; console.log(parse);`,
+		`import { join } from "pts:path"; import process from 'pts:process';`,
 	} {
 		assert.Assert(t, isPlainTypeScript(source), "%q is plain TypeScript", source)
 	}

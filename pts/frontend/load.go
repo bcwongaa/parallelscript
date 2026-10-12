@@ -2,9 +2,12 @@ package frontend
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/bundled"
+	"github.com/microsoft/typescript-go/internal/collections"
 	"github.com/microsoft/typescript-go/internal/compiler"
 	"github.com/microsoft/typescript-go/internal/core"
 	"github.com/microsoft/typescript-go/internal/diagnostics"
@@ -36,17 +39,56 @@ func Load(ctx context.Context, fs vfs.FS, entry string) (*Program, []diagnostic.
 	})
 	ts := compiler.NewProgram(compiler.ProgramOptions{Config: config, Host: host})
 	program := &Program{TS: ts, Entry: ts.GetSourceFile(entry)}
+	errors := errorsOf(ctx, ts)
 	if program.Entry != nil {
-		program.Modules = evaluationOrder(ts, program.Entry)
+		program.Modules = evaluationOrder(ts, nil, program.Entry)
+		if len(errors) == 0 {
+			if globals := globalModulesUsed(ctx, ts, program.Modules); len(globals) > 0 {
+				program.Modules = evaluationOrder(ts, globals, program.Entry)
+			}
+		}
 	}
-	return program, errorsOf(ctx, ts)
+	return program, errors
 }
 
-// evaluationOrder lists the modules reachable from entry in ES module evaluation order:
-// a module runs after the modules it imports, in the order it imports them, and only
-// once. In an import cycle, a module that is already being evaluated is skipped, so the
-// module that imports it runs first, as in JS.
-func evaluationOrder(ts *compiler.Program, entry *ast.SourceFile) []*ast.SourceFile {
+// globalModulesUsed are the pts: modules whose default export is a global (lib.GlobalModules)
+// that one of modules uses: the program runs them first, as Node sets its globals up
+// before any module runs.
+func globalModulesUsed(ctx context.Context, ts *compiler.Program, modules []*ast.SourceFile) []*ast.SourceFile {
+	var used []*ast.SourceFile
+	for name, specifier := range lib.GlobalModules {
+		module := ts.GetSourceFile(lib.ModulePath(specifier))
+		if module != nil && !slices.Contains(modules, module) && slices.ContainsFunc(modules, func(file *ast.SourceFile) bool { return usesGlobal(ctx, ts, file, name) }) {
+			used = append(used, module)
+		}
+	}
+	slices.SortFunc(used, func(a, b *ast.SourceFile) int { return strings.Compare(a.FileName(), b.FileName()) })
+	return used
+}
+
+// usesGlobal reports whether file refers to the global variable name.
+func usesGlobal(ctx context.Context, ts *compiler.Program, file *ast.SourceFile, name string) bool {
+	if _, ok := file.Identifiers[name]; !ok {
+		return false
+	}
+	checker, release := ts.GetTypeCheckerForFile(ctx, file)
+	defer release()
+	global := checker.GetGlobalSymbol(name, ast.SymbolFlagsValue, nil)
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		if node.Kind == ast.KindIdentifier && node.Text() == name && checker.GetSymbolAtLocation(node) == global {
+			return true
+		}
+		return node.ForEachChild(visit)
+	}
+	return global != nil && file.AsNode().ForEachChild(visit)
+}
+
+// evaluationOrder lists the modules reachable from first and then entry in ES module
+// evaluation order: a module runs after the modules it imports, in the order it imports
+// them, and only once. In an import cycle, a module that is already being evaluated is
+// skipped, so the module that imports it runs first, as in JS.
+func evaluationOrder(ts *compiler.Program, first []*ast.SourceFile, entry *ast.SourceFile) []*ast.SourceFile {
 	var order []*ast.SourceFile
 	seen := map[*ast.SourceFile]bool{}
 	var visit func(file *ast.SourceFile)
@@ -66,6 +108,9 @@ func evaluationOrder(ts *compiler.Program, entry *ast.SourceFile) []*ast.SourceF
 			}
 		}
 		order = append(order, file)
+	}
+	for _, module := range first {
+		visit(module)
 	}
 	visit(entry)
 	return order
@@ -92,9 +137,15 @@ func moduleRequests(file *ast.SourceFile) []*ast.Node {
 }
 
 // compilerOptions are fixed for every program (D-005): strict TypeScript, ES modules,
-// and the ES library without the DOM, plus ParallelScript's prelude.
+// and the ES library without the DOM, plus ParallelScript's prelude; `pts:` specifiers
+// resolve to the library's modules (D-116).
 func compilerOptions() *core.CompilerOptions {
+	paths := collections.NewOrderedMapWithSizeHint[string, []string](len(lib.ModulePaths))
+	for pattern, substitutions := range lib.ModulePaths {
+		paths.Set(pattern, substitutions)
+	}
 	return &core.CompilerOptions{
+		Paths:                      paths,
 		Strict:                     core.TSTrue,
 		Target:                     core.ScriptTargetESNext,
 		Module:                     core.ModuleKindESNext,

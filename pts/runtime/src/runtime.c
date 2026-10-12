@@ -16,8 +16,7 @@ enum { FREE_SPACE_DIVISOR = 1 };
 enum { INITIAL_HEAP_SIZE = 4 << 20 };
 
 void pts_runtime_init(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+  pts_process_init(argc, argv);
   GC_INIT();
   if (getenv("GC_FREE_SPACE_DIVISOR") == NULL) {
     GC_set_free_space_divisor(FREE_SPACE_DIVISOR);
@@ -66,11 +65,6 @@ __asm__(".text\n"
         "  ud2\n"
         ".size pts_stack_overflow_stub, .-pts_stack_overflow_stub\n");
 #endif
-
-int pts_runtime_exit(int code) {
-  fflush(stdout);
-  return code;
-}
 
 void pts_panic(const char *error_name, const char *format, ...) {
   fflush(stdout);
