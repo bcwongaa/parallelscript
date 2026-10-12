@@ -327,7 +327,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
     - `.par.filter(f).count()` didn't compile, because `.par.filter` returns a plain array. Rayon-style chaining is the natural expectation: either return a parallel view from `.par.filter`/`.par.map` (with `.toArray()`, `count()`, `sum()` and so on, keeping plain-array use working), or make the error message suggest `.length`. Decide, log it, and test it.
     - `parallel (async () => {...})()` parses as a call of `parallel` (D-O05), so tsc reports "Promise<() => Promise<string>> has no call signatures". At least add a targeted diagnostic explaining the rule and suggesting `parallel f()` or `parallel (async () => ...)` without the trailing call. Consider whether a parenthesised immediately-invoked function after `parallel` should be the operator.
     - `pts --help`; the docs refresh's papercuts (`seven / 2.0` with `seven: int` divides as integers; the type `Function` gets `new Function`'s message; `u8[]`'s `reduce` wrapping, already in the guide).
-  - [ ] **M7.3b `pts test`.** A test runner: `pts:test` and `pts:assert` (Node's `node:test` and `node:assert/strict`, the common parts), `pts test [paths]` finding `*.test.pts` files.
+  - [x] **M7.3b `pts test`.** (12cb794df) A test runner: `pts:test` and `pts:assert` (Node's `node:test` and `node:assert/strict`, the common parts), `pts test [paths]` finding `*.test.pts` files.
   - [ ] **M7.3c Programs from scratch and the tutorial.** Error-message quality: write two new small programs from scratch and fix the top papercuts they find; a `docs/GUIDE.md` tutorial covering TS developers' most common questions.
 - [ ] **M7.4 Milestone M7 and "usable".**
   - Run the checklist.
