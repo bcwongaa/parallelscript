@@ -288,7 +288,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - [x] **M6.0a1 Loop-owned handles** (30a7b9b62) (finding 1): timers (and every other loop-owned runtime handle) record their owning loop, and operations from other loops or pool threads are sent to that loop.
   - **M6.0a2 Unchecked reads of variables** (findings 2 and 3), split by D-140:
     - [x] **M6.0a2a Variables** (5ecd454c1): reading a narrowed union out of a captured or aliased mutable variable is checked; readiness flags for cells captured before their declaration runs, so the read throws `ReferenceError`.
-    - [ ] **M6.0a2b Classes**: close the class TDZ and constructor-field NULL cases in Known issues.
+    - [x] **M6.0a2b Classes** (9360c208f): close the class TDZ and constructor-field NULL cases in Known issues.
   - [ ] **M6.0a3 Checked conversions to primitives** (finding 4): `toString`/`valueOf` called through descriptors are checked (OrdinaryToPrimitive); no signature-blind function casts anywhere in the runtime (grep for them).
   - [ ] **M6.0a4 The shared-memory contract** (finding 10): write a C-level shared-memory contract in `docs/ARCHITECTURE.md`, and make typed-array element reads and writes word-atomic (relaxed atomics) so values can't tear. Serialize concurrent requests to one async generator. Fix the remote rejection / handler-attachment race listed in Known issues.
 - [ ] **M6.0b Compatibility stabilization (from the review).**
