@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
-- **Next task:** M4.3 The event loop
+- **Next task:** M4.4 Async iteration
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M4.3 The event loop: a libuv loop per thread with Node's timers (`setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `ref`/`unref`/`hasRef`/`refresh`) in a heap of our own behind one uv timer, `setImmediate`/`clearImmediate` on a check handle, a microtask drain after every callback, `queueMicrotask`, `performance.now()`; uncaught exceptions in callbacks end the program with exit code 1; ordering tests match Node, also under CPU load (D-114, SPEC §9.72).
 - M4.2b Promise combinators and top-level await: `Promise.all`, `allSettled`, `any`, `race` (the spec's algorithms over any iterable, in V8's job order) and `withResolvers`; allSettled's results and withResolvers' object are plain objects read dynamically; `AggregateError` (Promise.any's rejection, also constructible); top-level await in the entry module (exit code 13 when it never settles, 1 when it rejects) (D-113, SPEC §9.71). M4.2 is complete.
 - M4.2a Async functions and promises: async declarations, expressions, arrows, class and object literal methods compile to D-109's generator frames, each await a suspension the runtime resumes from a microtask (one handler per drain, one reaction per frame); awaits go wherever yields go (first in a statement or hoisted, D-111); `Promise` (`new Promise`, `then`, `catch`, `finally`, `Promise.resolve`/`reject`, `instanceof Promise`, console.log as Node prints it) with ECMAScript's algorithms in V8's job order (thenable jobs, adoption, finally's waiting), thenables of the program's; unhandled rejections end the program with exit code 1 after the microtasks. The heap now starts at 4 MiB (like Go's minimum heap target): three million awaits in 235 ms (Node 301 ms), the other benchmarks 0–7 % faster (D-112, SPEC §9.70). M4.2 split by D-112.
 - M4.1b Iterables and iterators: Map/Set/array iterators as values and `Iterable<T>` as a dynamic value (D-110); the iteration protocol over the program's objects (D-111): `[Symbol.iterator]` methods of classes and object literals (generator methods too, named `@@iterator` inside), objects with their own `next()`/`return()`/`throw()` wrapped by the runtime and driven through their dynamic entries, all through for…of, spread, `Array.from`, `new Set`/`new Map`, array patterns, `Iterable<T>`/`Iterator<T>`/`IterableIterator<T>` values and `yield*`; `x[Symbol.iterator]()` of generator objects, arrays, strings, maps, sets and objects; generator methods of object literals; console.log of symbol-keyed members and `[GeneratorFunction: name]`; yields inside larger expressions, hoisted with the operands JS evaluates before them into frame locals (`?:`, `&&`, `||`, `??` become if statements). Corpus 240 → 251 of 300 (no remaining skip waits on iterators).
@@ -97,7 +98,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M4.3 The event loop (see `docs/MASTER_PLAN.md`): a libuv loop per thread (`uv_default_loop` for the main thread now; M5.2 makes one per core), `setTimeout`/`setInterval`/`clearTimeout`/`clearInterval` as uv timers whose callbacks run as macrotasks with `pts_run_microtasks()` after each (Node drains microtasks after every callback), `queueMicrotask` as a job in `promise.c`'s queue (its callback through its dynamic entry; a throw is an uncaught exception), `performance.now()`. `main` then runs the loop until it has nothing left, before `pts_check_top_level`. Node's timer order: timers with the same timeout fire in creation order; a 0 or negative delay is 1 ms.
+1. M4.4 Async iteration (see `docs/MASTER_PLAN.md`): async generators are functions marked both `Generator`-style iterators and `Async` (their objects are AsyncGenerator objects whose `next()` returns a promise, with the spec's queue of requests); `for await` over async iterables (`[Symbol.asyncIterator]`, named `@@asyncIterator` like D-111's `@@iterator`) and over sync iterables of promises; `yield*` in async generators.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -112,7 +113,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (255 run tests; 64 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (258 run tests; 64 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -145,6 +146,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M4.3 done (D-114).
 - 2026-10-12: M4.2b done (D-113); M4.2 complete.
 - 2026-10-12: M4.2a done (M4.2 split by D-112).
 - 2026-10-12: M4.1b done (D-111).

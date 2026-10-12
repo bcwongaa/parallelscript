@@ -1771,6 +1771,36 @@ int32_t pts_promise_state(const pts_object *promise, pts_value *result);
 void pts_run_microtasks(void);
 /* After the microtasks: the entry module's promise (top-level await) still pending ends the program with Node's exit code 13 (D-113). */
 void pts_check_top_level(pts_value promise);
+/* ---------------------------------------------------------------- the event loop */
+
+/*
+ * The event loop (D-114): the thread's libuv loop, started at the program's start (so
+ * that, as in Node, timers count from then), with Node's timers and immediates; each
+ * callback is called through its dynamic entry, followed by the microtasks it queued.
+ */
+typedef struct pts_timer pts_timer;
+extern const pts_type pts_type_builtin_Timeout;
+
+void pts_loop_init(void);
+/* Runs the loop until nothing referenced is left to wait for. */
+void pts_run_loop(void);
+/* setTimeout (repeat false) and setInterval: a Timeout; ms as Node coerces it; args may be NULL. */
+pts_value pts_timer_set(pts_value callback, pts_value ms, struct pts_array *args, bool repeat);
+/* clearTimeout and clearInterval: nothing for anything but an active Timeout. */
+void pts_timer_clear(pts_value timer);
+/* timeout.ref() (referenced true) and unref(), which return the timeout; hasRef(); refresh(). */
+pts_value pts_timer_ref(pts_value timer, bool referenced);
+bool pts_timer_has_ref(pts_value timer);
+pts_value pts_timer_refresh(pts_value timer);
+/* setImmediate and clearImmediate. */
+pts_value pts_immediate_set(pts_value callback, struct pts_array *args);
+void pts_immediate_clear(pts_value immediate);
+/* queueMicrotask(callback): a throw out of it is an uncaught exception. */
+void pts_queue_microtask(pts_value callback);
+/* performance.now(): ms since the program started. */
+void pts_time_origin_init(void);
+double pts_performance_now(void);
+
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);
 

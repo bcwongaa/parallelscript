@@ -47,3 +47,28 @@ type u32 = number;
 type u64 = number;
 type f32 = number;
 type f64 = number;
+
+// Timers and microtasks as Node's (D-114): callbacks run on the event loop, each followed
+// by the microtasks it queued. setTimeout and setInterval return a Timeout, which
+// clearTimeout and clearInterval cancel (and ref/unref decide whether it keeps the
+// program running); setImmediate's callbacks run after the loop polls.
+interface Timeout {
+    ref(): Timeout;
+    unref(): Timeout;
+    hasRef(): boolean;
+    refresh(): Timeout;
+}
+interface Immediate {}
+declare function setTimeout(callback: (...args: any[]) => void, ms?: number, ...args: any[]): Timeout;
+declare function setInterval(callback: (...args: any[]) => void, ms?: number, ...args: any[]): Timeout;
+declare function setImmediate(callback: (...args: any[]) => void, ...args: any[]): Immediate;
+declare function clearTimeout(timeout: Timeout | string | number | undefined | null): void;
+declare function clearInterval(timeout: Timeout | string | number | undefined | null): void;
+declare function clearImmediate(immediate: Immediate | undefined | null): void;
+declare function queueMicrotask(callback: () => void): void;
+
+// performance.now(): milliseconds since the program started, with sub-millisecond precision.
+interface Performance {
+    now(): number;
+}
+declare const performance: Performance;

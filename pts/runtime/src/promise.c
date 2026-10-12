@@ -51,6 +51,7 @@ typedef struct pts_reaction {
   pts_value argument;
   pts_promise *follower; /* a job that makes follower take on thenable's outcome through then */
   pts_value thenable, then;
+  pts_value callback; /* queueMicrotask's job; absent (zero) for the others */
 } reaction;
 
 typedef struct rejection {
@@ -425,6 +426,9 @@ void pts_run_microtasks(void) {
       }
       if (job->follower != NULL) {
         run_thenable(job);
+      } else if (job->callback != PTS_VALUE_ABSENT) {
+        PTS_STATIC_STRING(text, 1, 8, 8, "callback");
+        pts_dynamic_call(job->callback, text, 0, NULL);
       } else {
         run_reaction(job);
       }
@@ -520,6 +524,16 @@ pts_value pts_promise_finally(pts_value promise, pts_value on_finally) {
   finally_function *catch_finally = new_function(&catch_finally_type);
   then_finally->on_finally = catch_finally->on_finally = on_finally;
   return pts_promise_then(promise, pts_value_from_object(then_finally), pts_value_from_object(catch_finally));
+}
+
+void pts_queue_microtask(pts_value callback) {
+  if (!is_callable(callback)) {
+    pts_string *shown = pts_value_to_string(callback);
+    pts_throw_new(&pts_type_builtin_TypeError, "The \"callback\" argument must be of type function. Received %.*s", (int)shown->byte_len, shown->bytes);
+  }
+  reaction *job = allocate(sizeof *job);
+  job->callback = callback;
+  enqueue(job);
 }
 
 pts_value pts_promise_resolved(pts_value value) { return pts_value_from_object(promise_resolve(value)); }

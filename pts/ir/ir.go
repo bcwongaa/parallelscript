@@ -1184,6 +1184,21 @@ var (
 	PromiseAny           = &Builtin{Name: "Promise.any", Params: []Type{Value, String}, Result: Value}
 	PromiseRace          = &Builtin{Name: "Promise.race", Params: []Type{Value, String}, Result: Value}
 	PromiseWithResolvers = &Builtin{Name: "Promise.withResolvers", Result: Value}
+	// The event loop (D-114): TimerSet is setTimeout or setInterval (its Bool argument)
+	// of a callback, a delay and the callback's arguments; TimerClear is clearTimeout and
+	// clearInterval; TimerRef, TimerHasRef and TimerRefresh are a Timeout's ref() or
+	// unref() (its Bool argument), hasRef() and refresh(); ImmediateSet and ImmediateClear
+	// are setImmediate and clearImmediate; QueueMicrotask and PerformanceNow are
+	// queueMicrotask and performance.now().
+	TimerSet       = &Builtin{Name: "setTimeout", Params: []Type{Value, Value, ValueArray, Bool}, Result: Value}
+	TimerClear     = &Builtin{Name: "clearTimeout", Params: []Type{Value}, Result: Void}
+	TimerRef       = &Builtin{Name: "Timeout.ref", Params: []Type{Value, Bool}, Result: Value}
+	TimerHasRef    = &Builtin{Name: "Timeout.hasRef", Params: []Type{Value}, Result: Bool}
+	TimerRefresh   = &Builtin{Name: "Timeout.refresh", Params: []Type{Value}, Result: Value}
+	ImmediateSet   = &Builtin{Name: "setImmediate", Params: []Type{Value, ValueArray}, Result: Value}
+	ImmediateClear = &Builtin{Name: "clearImmediate", Params: []Type{Value}, Result: Void}
+	QueueMicrotask = &Builtin{Name: "queueMicrotask", Params: []Type{Value}, Result: Void}
+	PerformanceNow = &Builtin{Name: "performance.now", Result: Number}
 	// ValueIsPromise is `x instanceof Promise`.
 	ValueIsPromise = &Builtin{Name: "instanceof Promise", Params: []Type{Value}, Result: Bool}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).

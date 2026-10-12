@@ -927,3 +927,12 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C**: `main` keeps the entry module's promise (`pts_entry`) and calls `pts_check_top_level` after the microtasks; `layOutFrame` leaves global locals out of frames.
 - **Runtime**: `record_of`, `combination`/`element_function`/`perform_combination`/`combine`, `pts_promise_all`/`_all_settled`/`_any`/`_race`/`_with_resolvers`, `pts_check_top_level` (`promise.c`); `pts_type_builtin_AggregateError`, `pts_aggregate_error_init`/`_new` (`error.c`).
 - **Tests:** `pts/tests/run/promise_combinators`, `top_level_await*` (also run under Node); `pts/tests/errors/top_level_await_imported`.
+
+### 9.72 The event loop (M4.3)
+
+- **Prelude** (D-114): `Timeout`, `Immediate`, `setTimeout`, `setInterval`, `setImmediate`, `clearTimeout`, `clearInterval`, `clearImmediate`, `queueMicrotask`, `Performance`/`performance`.
+- **IR**: `TimerSet`, `TimerClear`, `TimerRef`, `TimerHasRef`, `TimerRefresh`, `ImmediateSet`, `ImmediateClear`, `QueueMicrotask`, `PerformanceNow`.
+- **Lowering** (`pts/lower/timers.go`): `timerCall` (prelude functions by symbol, `Timeout.*` and `Performance.now` by `libMemberName`), `boxedArguments`, `anyArray`; `isTimerType` in `irType`.
+- **C**: `usesLoop` (timers, immediates) makes `main` call `pts_loop_init()` first and `pts_run_loop()` after the microtasks; `queueMicrotask` counts as using promises.
+- **Runtime** (`loop.c`): `loop_state` (uncollectable; libuv's loop and handles malloc'd), the timer heap (`schedule`, `unschedule`, `sift_up`/`sift_down`, `arm`), `on_timer`, `run_callback`, `pts_timer_*`, immediates (`on_check`, `pts_immediate_*`), `pts_run_loop`, `pts_performance_now` (origin set in `pts_runtime_init`); `pts_queue_microtask` (`promise.c`).
+- **Tests:** `pts/tests/run/timers`, `timers_async`, `timers_uncaught` (also run under Node).

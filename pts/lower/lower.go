@@ -1487,6 +1487,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if x, handled := l.promiseCall(call); handled {
 		return x
 	}
+	if x, handled := l.timerCall(call); handled {
+		return x
+	}
 	if name := l.consoleMethodName(ast.SkipParentheses(call.Expression)); name != "" {
 		return l.consoleCall(node, name)
 	}
@@ -3353,7 +3356,7 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if checker.IsTupleType(t) {
 		return l.tupleType(t, node)
 	}
-	if l.isIteratorType(t) || l.isIterableType(t) || l.isPromiseType(t) {
+	if l.isIteratorType(t) || l.isIterableType(t) || l.isPromiseType(t) || l.isTimerType(t) {
 		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109), any iterable (D-110), or a promise (D-112)
 	}
 	if value, ok := l.iteratorResultValue(t); ok {

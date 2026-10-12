@@ -36,6 +36,12 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				case ir.PromiseNew, ir.PromiseThen, ir.PromiseFinally: // the runtime calls executors and handlers (D-112)
 					e.declaredTypes = true
 					e.usesPromises = true
+				case ir.TimerSet, ir.ImmediateSet: // the loop calls the callbacks (D-114)
+					e.declaredTypes = true
+					e.usesLoop = true
+				case ir.QueueMicrotask:
+					e.declaredTypes = true
+					e.usesPromises = true
 				case ir.PromiseResolve, ir.PromiseReject, ir.PromiseAll, ir.PromiseAllSettled, ir.PromiseAny, ir.PromiseRace, ir.PromiseWithResolvers:
 					e.usesPromises = true
 				}

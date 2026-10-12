@@ -1,0 +1,11 @@
+// A throw out of a timer's callback is an uncaught exception: the program ends with exit
+// code 1 and later timers never run (D-114).
+setTimeout(() => {
+  throw new Error("from a timer");
+}, 1);
+setTimeout(() => console.log("never"), 50);
+console.log("scheduled");
+// exit: 1
+// stderr: from a timer
+// expect:
+// scheduled

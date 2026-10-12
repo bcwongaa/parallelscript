@@ -98,6 +98,7 @@ type emitter struct {
 	// signature, by the identities of its parameter and result types.
 	declaredTypes    bool
 	usesPromises     bool // the program has async functions or promises, whose microtasks main runs (D-112)
+	usesLoop         bool // the program has timers or immediates, for which main runs the event loop (D-114)
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType
@@ -145,6 +146,9 @@ func (e *emitter) header(program *ir.Program) {
 	e.functionNameTable(program)
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
+	if e.usesLoop {
+		e.line(1, "pts_loop_init(); /* timers count from the program's start, as in Node (D-114) */")
+	}
 	if e.hasFunctionNames {
 		e.line(1, "pts_register_function_names(pts_function_names, sizeof pts_function_names / sizeof pts_function_names[0]);")
 	}
@@ -155,8 +159,11 @@ func (e *emitter) header(program *ir.Program) {
 		}
 		e.line(1, "%s();", e.funcNames[module.Init])
 	}
-	if e.usesPromises {
+	if e.usesPromises || e.usesLoop {
 		e.line(1, "pts_run_microtasks();")
+	}
+	if e.usesLoop {
+		e.line(1, "pts_run_loop();")
 	}
 	if program.Main.Async {
 		e.line(1, "pts_check_top_level(pts_entry);")
@@ -1446,6 +1453,15 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.PromiseAny:                  "pts_promise_any",
 	ir.PromiseRace:                 "pts_promise_race",
 	ir.PromiseWithResolvers:        "pts_promise_with_resolvers",
+	ir.TimerSet:                    "pts_timer_set",
+	ir.TimerClear:                  "pts_timer_clear",
+	ir.TimerRef:                    "pts_timer_ref",
+	ir.TimerHasRef:                 "pts_timer_has_ref",
+	ir.TimerRefresh:                "pts_timer_refresh",
+	ir.ImmediateSet:                "pts_immediate_set",
+	ir.ImmediateClear:              "pts_immediate_clear",
+	ir.QueueMicrotask:              "pts_queue_microtask",
+	ir.PerformanceNow:              "pts_performance_now",
 	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",

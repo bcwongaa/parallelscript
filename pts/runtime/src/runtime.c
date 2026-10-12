@@ -27,6 +27,7 @@ void pts_runtime_init(int argc, char **argv) {
   }
   GC_allow_register_threads();
   GC_init_gcj_malloc(GC_GCJ_RESERVED_MARK_PROC_INDEX, NULL); /* objects: see pts_object_new */
+  pts_time_origin_init();
   pts_stack_limit_init();
 }
 
