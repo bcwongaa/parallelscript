@@ -16,7 +16,7 @@ Why use it:
 - **Native binaries that start in a millisecond.** `pts build` makes one executable that needs only libc and libm. Hello world starts in about 1 ms, where Node takes 74 ms.
 - **Every core, one heap.** `parallel f()` runs a task on another core's event loop, `xs.par.map(f)` splits work over a work-stealing pool, and `parallel for` runs a loop's iterations in parallel. Threads share objects directly; nothing is copied or serialized. A data race can make a program read a stale value, but it can't crash it or corrupt memory.
 - **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
-- **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node.
+- **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node, and `pts test` runs tests written for Node's `node:test` and `node:assert`.
 
 **Status:** experimental. Milestones M0 to M6 are done; M7, editor support, is under way: the language server and a VS Code extension work ([status](#status)). It runs on x86-64 Linux only.
 
@@ -90,6 +90,7 @@ The commands (`pts help`):
 | `pts build file.pts [-o out]` | Compile to a native executable (by default named after the file). It links statically against the runtime and needs only libc and libm. |
 | `pts run file.pts [args...]` | Compile and run; the arguments after the file go to the program. |
 | `pts emit-c file.pts [-o file.c]` | Print the generated C, which carries `#line` directives back to the `.pts` source, so gdb and crash backtraces show `.pts` lines. |
+| `pts test [paths...]` | Build and run the test files (`name.test.pts`, …) under paths, written with `pts:test` and `pts:assert` as for Node's `node:test` and `node:assert/strict`; Node's spec report, exit code 1 on a failure |
 | `pts help [command]`, `pts version` | The usage, or a command's (also `pts <command> --help`); the version and the commit it was built from |
 | `pts lsp [--stdio]` | The language server, for any editor that speaks the Language Server Protocol: TypeScript's own completions, hovers, definitions and errors for `.pts` files, with ParallelScript's prelude and `pts:` modules, plus ParallelScript's errors (numeric rules, the guardrail). |
 
@@ -606,7 +607,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
 | M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md) (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), the fixes from an independent review, a benchmark audit | done (`m6`) |
-| M7 Editor support | `pts lsp` (done), a VS Code extension (done), a usability pass | in progress |
+| M7 Editor support | `pts lsp` (done), a VS Code extension (done), a usability pass (hints, help and `pts test` done) | in progress |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
 
@@ -614,7 +615,7 @@ Planned after M7, if the project goes on: M8, performance work (escape analysis,
 
 Not built yet:
 
-- `https://` for `fetch` (no TLS yet), streamed request and response bodies, and `pts test` (M7).
+- `https://` for `fetch` (no TLS yet), and streamed request and response bodies.
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
@@ -646,7 +647,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 | `pts/toolchain/` | Builds and caches the runtime and the vendored libraries; compiles and links programs with clang |
 | `pts/diagnostic/` | One error format for tsc's and ParallelScript's errors |
 | `pts/runtime/` | The C runtime: values, strings, objects, arrays, maps, promises, event loops and the scheduler, the fork-join pool, console, JSON, RegExp (`src/`, `include/pts.h`, C unit tests in `tests/`, Unicode table generators in `gen/`) |
-| `pts/lib/` | The prelude (`prelude.d.ts`) and the `pts:` modules, written in ParallelScript: `parallel.pts`, `sync.pts`, `fs.pts`, `path.pts`, `process.pts` |
+| `pts/lib/` | The prelude (`prelude.d.ts`) and the `pts:` modules, written in ParallelScript: `parallel.pts`, `sync.pts`, `fs.pts`, `path.pts`, `process.pts`, `http.pts`, `test.pts`, `assert.pts` |
 | `pts/third_party/` | Vendored C libraries as pinned submodules: bdwgc, libuv, PCRE2, Ryu, libbacktrace |
 | `pts/tests/` | `run/` (programs and their expected output), `errors/` (expected compile errors), `corpus/` (realistic programs compared with Node), `stress/` (parallel stress programs); see [pts/tests/README.md](pts/tests/README.md) |
 | `pts/bench/` | One directory per benchmark: `main.pts`, its Go twin `main.go` (where Go has one) and, where Node and Bun can't run `main.pts` as it is, a `main.ts` for them; `run.sh` checks that they all print the same and times them, keeping every run's time in `results/` |

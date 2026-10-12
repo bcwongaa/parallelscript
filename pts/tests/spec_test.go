@@ -123,10 +123,10 @@ var (
 	ptsModulePattern  = regexp.MustCompile(`(["'])pts:([^"'\n]*)(["'])`)
 )
 
-// nodeModules are the pts: modules that are Node's modules of the same name (D-116):
-// a program that imports only these is compared with Node, which imports `node:path`
-// for `pts:path`.
-var nodeModules = map[string]bool{"path": true, "process": true, "fs": true, "fs/promises": true}
+// nodeModules are the pts: modules that are Node's modules (D-116, D-171), each with the
+// name of Node's: a program that imports only these is compared with Node, which imports
+// `node:path` for `pts:path` and `node:assert/strict` for `pts:assert`.
+var nodeModules = map[string]string{"path": "path", "process": "process", "fs": "fs", "fs/promises": "fs/promises", "assert": "assert/strict"}
 
 var commentPattern = regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
 
@@ -135,7 +135,7 @@ var commentPattern = regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
 func isPlainTypeScript(source string) bool {
 	code := commentPattern.ReplaceAllString(source, "")
 	for _, module := range ptsModulePattern.FindAllStringSubmatch(code, -1) {
-		if !nodeModules[module[2]] {
+		if nodeModules[module[2]] == "" {
 			return false
 		}
 	}

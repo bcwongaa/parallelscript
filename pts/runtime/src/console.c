@@ -377,6 +377,14 @@ void pts_console_dir(pts_value value, double depth, bool show_hidden) {
   free(bytes);
 }
 
+pts_string *pts_util_inspect(pts_value value) {
+  size_t len;
+  char *bytes = pts_inspect(value, 2, false, &len);
+  pts_string *result = pts_string_from_utf8(bytes, len);
+  free(bytes);
+  return result;
+}
+
 void pts_console_table(pts_value data, pts_value properties) {
   bool tabular = pts_value_is_object(data);
   if (tabular) {

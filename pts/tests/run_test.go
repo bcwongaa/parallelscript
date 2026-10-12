@@ -311,7 +311,10 @@ func nodeModuleSource(source string) string {
 		parts := relativeSpecifierPattern.FindStringSubmatch(match)
 		return parts[1] + nodeModulePath(parts[2]) + parts[3]
 	})
-	return ptsModulePattern.ReplaceAllString(source, "${1}node:${2}${3}")
+	return ptsModulePattern.ReplaceAllStringFunc(source, func(specifier string) string {
+		parts := ptsModulePattern.FindStringSubmatch(specifier)
+		return parts[1] + "node:" + nodeModules[parts[2]] + parts[3]
+	})
 }
 
 // nodeModulePath is the .mts path runNode writes a module (or its specifier, extension optional) to.

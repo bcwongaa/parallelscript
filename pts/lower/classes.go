@@ -1130,6 +1130,21 @@ func (l *lowerer) privateIn(node *ast.Node) ir.Expr {
 	return &ir.InstanceOf{X: x, Class: class}
 }
 
+// collectionTest is the test of `x instanceof Map` or `x instanceof Set` when constructor
+// is the global Map or Set, or nil.
+func (l *lowerer) collectionTest(constructor *ast.Node) *ir.Builtin {
+	if constructor.Kind != ast.KindIdentifier || !l.isDeclaredInDefaultLib(l.target(constructor)) {
+		return nil
+	}
+	switch constructor.Text() {
+	case "Map":
+		return ir.ValueIsMap
+	case "Set":
+		return ir.ValueIsSet
+	}
+	return nil
+}
+
 // instanceOf lowers `x instanceof C` for an instance x and a class C of the program.
 func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
@@ -1147,6 +1162,13 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 			return nil
 		}
 		return &ir.CallBuiltin{Builtin: ir.ValueIsPromise, Args: []ir.Expr{box(x)}} // D-112
+	}
+	if test := l.collectionTest(expr.Right); !ok && test != nil {
+		x := l.expression(expr.Left)
+		if x == nil {
+			return nil
+		}
+		return &ir.CallBuiltin{Builtin: test, Args: []ir.Expr{box(x)}}
 	}
 	if !ok {
 		l.notSupportedYet(expr.Right, "`instanceof` of anything but a class of the program is")

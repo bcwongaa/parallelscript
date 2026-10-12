@@ -1438,6 +1438,9 @@ func unnarrowed(x ir.Expr) ir.Expr {
 	return x
 }
 
+// errorClassNames are the ES library's error classes.
+var errorClassNames = []string{"Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError"}
+
 func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	symbol := l.target(node)
 	if x, ok := l.binding(node, symbol); ok {
@@ -1452,7 +1455,9 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	if l.isConversionFunction(node) {
 		return l.conversionFunction(node.Text(), node)
 	}
-	if l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) {
+	if slices.Contains(errorClassNames, node.Text()) && l.isDeclaredInDefaultLib(symbol) {
+		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "the class `%s` as a value is not supported yet; to test an error's class, use `instanceof %s`, or its name: `e.name === %q` (in `assert.throws`, `{ name: %q }`)", node.Text(), node.Text(), node.Text(), node.Text()))
+	} else if l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) {
 		l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
 	} else {
 		l.notSupportedYet(node, fmt.Sprintf("using `%s` is", node.Text()))
@@ -1518,7 +1523,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
 	}
-	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
+	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamicCollection(callee.Expression())) {
 		return l.dynamicCall(call, callee)
 	}
 	if object, key, ok := l.hasOwnPropertyCall(call); ok {
@@ -2375,7 +2380,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{box(object)}}
 	}
-	if l.isAny(node.Expression()) {
+	if l.isAny(node.Expression()) || l.isNarrowedDynamicCollection(node.Expression()) {
 		return l.dynamicRead(node)
 	}
 	if l.isMixedUnionReceiver(node) {

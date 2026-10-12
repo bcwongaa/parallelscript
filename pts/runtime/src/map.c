@@ -234,6 +234,14 @@ static pts_map_table *replace(pts_map *map) {
   return table;
 }
 
+bool pts_value_is_map(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_MAP;
+}
+
+bool pts_value_is_set(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_SET;
+}
+
 pts_map *pts_map_new(const pts_type *type) {
   pts_map *map = pts_object_new(type);
   map->table = new_table(type, MIN_CAPACITY);

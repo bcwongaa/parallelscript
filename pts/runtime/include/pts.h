@@ -1384,6 +1384,9 @@ typedef struct pts_map_iterator {
 
 /* A new, empty map or set of the given type (PTS_KIND_MAP or PTS_KIND_SET). */
 pts_map *pts_map_new(const pts_type *type);
+/* x instanceof Map, x instanceof Set. */
+bool pts_value_is_map(pts_value value);
+bool pts_value_is_set(pts_value value);
 /* new Map(map), new Set(set): a copy, in the same order. */
 pts_map *pts_map_copy(const pts_type *type, const pts_map *source);
 /* new Set(array): the array's elements, each once, in order. */
@@ -2000,6 +2003,9 @@ void pts_console(pts_console_method method, size_t argc, const pts_value *argv, 
 void pts_console_group_end(void);
 /* console.dir(value, { depth, showHidden }): depth is INFINITY for null. */
 void pts_console_dir(pts_value value, double depth, bool show_hidden);
+
+/* util.inspect(value) with its default options, as a string: pts:assert's messages show values with it. */
+pts_string *pts_util_inspect(pts_value value);
 /* console.table(data, properties): properties is undefined or a string[]. */
 void pts_console_table(pts_value data, pts_value properties);
 

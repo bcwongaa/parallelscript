@@ -1,0 +1,332 @@
+// pts:test: the common part of Node's node:test (D-171): test (also it), describe (also
+// suite), the hooks before, after, beforeEach and afterEach, skip and todo as options, and
+// async tests and hooks. Tests run one at a time, in order, once the module's top-level code
+// has run, and are reported as Node's spec reporter reports them; a failed test sets the
+// exit code to 1. Under `pts test`, which sets PTS_TEST_RESULTS to a file's path, the
+// counts and the failures' reports go to that file as JSON instead of the summary.
+
+import { writeFileSync } from "pts:fs";
+import { relative } from "pts:path";
+import process from "pts:process";
+
+declare function pts_util_inspect(value: any): string;
+
+export interface TestOptions {
+    // Skip the test (or every test of the suite); a string is the reason shown.
+    skip?: boolean | string;
+    // The test is still to do: it runs, but its failure doesn't fail the run.
+    todo?: boolean | string;
+}
+
+// What a test function gets: its name, and ways to mark it skipped or to do while it runs.
+export class TestContext {
+    #skipped: string | null = null;
+    #todo: string | null = null;
+
+    constructor(readonly name: string) {}
+
+    skip(message: string = "SKIP"): void {
+        this.#skipped = message;
+    }
+
+    todo(message: string = "TODO"): void {
+        this.#todo = message;
+    }
+
+    diagnostic(message: string): void {
+        console.log(`ℹ ${message}`);
+    }
+
+    get skipReason(): string | null {
+        return this.#skipped;
+    }
+
+    get todoReason(): string | null {
+        return this.#todo;
+    }
+}
+
+export type TestFn = (t: TestContext) => void | Promise<void>;
+export type HookFn = () => void | Promise<void>;
+
+class Test {
+    constructor(readonly name: string, readonly fn: TestFn, readonly options: TestOptions, readonly location: string) {}
+}
+
+class Suite {
+    readonly children: (Test | Suite)[] = [];
+    readonly before: HookFn[] = [];
+    readonly after: HookFn[] = [];
+    readonly beforeEach: HookFn[] = [];
+    readonly afterEach: HookFn[] = [];
+    error: unknown = undefined;
+    failed = false;
+
+    constructor(readonly name: string, readonly parent: Suite | null, readonly options: TestOptions, readonly location: string) {}
+}
+
+// The counts of the spec reporter's summary.
+class Counts {
+    tests = 0;
+    suites = 0;
+    pass = 0;
+    fail = 0;
+    skipped = 0;
+    todo = 0;
+}
+
+const root = new Suite("", null, {}, "");
+const counts = new Counts();
+const failures: string[] = [];
+let current: Suite = root;
+let started = false;
+
+// Registers a test: test(name, fn) or test(name, options, fn).
+export function test(name: string, optionsOrFn: TestOptions | TestFn, fn?: TestFn): void {
+    const options: TestOptions = typeof optionsOrFn === "function" ? {} : optionsOrFn;
+    const body: TestFn = typeof optionsOrFn === "function" ? optionsOrFn : (fn ?? (() => {}));
+    current.children.push(new Test(name, body, options, callerLocation()));
+    start();
+}
+
+// Registers a suite: describe(name, fn) or describe(name, options, fn). fn runs at once, and
+// the tests and hooks it registers belong to the suite.
+export function describe(name: string, optionsOrFn: TestOptions | (() => void), fn?: () => void): void {
+    const options: TestOptions = typeof optionsOrFn === "function" ? {} : optionsOrFn;
+    const body = typeof optionsOrFn === "function" ? optionsOrFn : (fn ?? (() => {}));
+    const suite = new Suite(name, current, options, callerLocation());
+    current.children.push(suite);
+    const outer = current;
+    current = suite;
+    try {
+        body();
+    } catch (error) {
+        suite.error = error;
+    } finally {
+        current = outer;
+    }
+    start();
+}
+
+export { test as it, describe as suite };
+
+export function before(fn: HookFn): void {
+    current.before.push(fn);
+}
+
+export function after(fn: HookFn): void {
+    current.after.push(fn);
+}
+
+export function beforeEach(fn: HookFn): void {
+    current.beforeEach.push(fn);
+}
+
+export function afterEach(fn: HookFn): void {
+    current.afterEach.push(fn);
+}
+
+// Runs the tests once the module's top-level code is done.
+function start(): void {
+    if (!started) {
+        started = true;
+        setImmediate(() => {
+            void runAll();
+        });
+    }
+}
+
+async function runAll(): Promise<void> {
+    const startedAt = performance.now();
+    await runSuite(root, "");
+    report(performance.now() - startedAt);
+    started = false;
+}
+
+async function runSuite(suite: Suite, indent: string): Promise<void> {
+    const skipped = suite.options.skip !== undefined && suite.options.skip !== false;
+    if (suite.error === undefined && !skipped) {
+        suite.error = await runHooks(suite.before);
+    }
+    for (let i = 0; i < suite.children.length; i++) {
+        const child = suite.children[i];
+        if (child instanceof Suite) {
+            await runChildSuite(child, indent, skipped);
+        } else {
+            await runTest(child, suite, indent, skipped || suite.error !== undefined);
+        }
+    }
+    if (!skipped) {
+        const afterError = await runHooks(suite.after);
+        if (suite.error === undefined && afterError !== undefined) {
+            suite.error = afterError;
+        }
+    }
+}
+
+async function runChildSuite(suite: Suite, indent: string, parentSkipped: boolean): Promise<void> {
+    if (parentSkipped && suite.options.skip === undefined) {
+        suite.options.skip = true;
+    }
+    counts.suites++;
+    console.log(`${indent}▶ ${suite.name}`);
+    const startedAt = performance.now();
+    await runSuite(suite, indent + "  ");
+    const line = `${suite.name} (${milliseconds(performance.now() - startedAt)})`;
+    if (suite.error !== undefined) {
+        suite.failed = true;
+        counts.fail++;
+        failures.push(failureReport(`✖ ${line}`, suite.location, suite.error));
+    }
+    if (suite.failed && suite.parent !== null) {
+        suite.parent.failed = true;
+    }
+    console.log(`${indent}${suite.failed ? "✖" : "✔"} ${line}`);
+}
+
+async function runTest(test: Test, suite: Suite, indent: string, skipped: boolean): Promise<void> {
+    counts.tests++;
+    const startedAt = performance.now();
+    const skipReason = skipped ? "SKIP" : reason(test.options.skip, "SKIP");
+    if (skipReason !== null) {
+        counts.skipped++;
+        console.log(`${indent}﹣ ${test.name} (${milliseconds(performance.now() - startedAt)}) # ${skipReason}`);
+        return;
+    }
+    const context = new TestContext(test.name);
+    let error = await runHooks(eachHooks(suite, true));
+    if (error === undefined) {
+        try {
+            await test.fn(context);
+        } catch (e) {
+            error = e;
+        }
+    }
+    const afterError = await runHooks(eachHooks(suite, false));
+    if (error === undefined) {
+        error = afterError;
+    }
+    const line = `${test.name} (${milliseconds(performance.now() - startedAt)})`;
+    const todoReason = context.todoReason ?? reason(test.options.todo, "TODO");
+    const dynamicSkip = context.skipReason;
+    if (dynamicSkip !== null) {
+        counts.skipped++;
+        console.log(`${indent}﹣ ${line} # ${dynamicSkip}`);
+    } else if (todoReason !== null) {
+        counts.todo++;
+        console.log(`${indent}${error === undefined ? "✔" : "✖"} ${line} # ${todoReason}`);
+    } else if (error === undefined) {
+        counts.pass++;
+        console.log(`${indent}✔ ${line}`);
+    } else {
+        counts.fail++;
+        suite.failed = true;
+        console.log(`${indent}✖ ${line}`);
+        failures.push(failureReport(`✖ ${line}`, test.location, error));
+    }
+}
+
+// The beforeEach hooks of suite and the suites around it, outermost first, or its
+// afterEach hooks, innermost first.
+function eachHooks(suite: Suite, before: boolean): HookFn[] {
+    const hooks: HookFn[] = [];
+    for (let s: Suite | null = suite; s !== null; s = s.parent) {
+        if (before) {
+            hooks.unshift(...s.beforeEach);
+        } else {
+            hooks.push(...s.afterEach);
+        }
+    }
+    return hooks;
+}
+
+// Runs hooks in order and returns the first error one throws (the rest don't run), or undefined.
+async function runHooks(hooks: HookFn[]): Promise<unknown> {
+    for (const hook of hooks) {
+        try {
+            await hook();
+        } catch (error) {
+            return error;
+        }
+    }
+    return undefined;
+}
+
+// The reason a skip or todo option gives, or null when it isn't set.
+function reason(option: boolean | string | undefined, otherwise: string): string | null {
+    if (option === undefined || option === false) {
+        return null;
+    }
+    return option === true ? otherwise : option;
+}
+
+function milliseconds(duration: number): string {
+    return `${Number(duration.toFixed(6))}ms`;
+}
+
+// Where the test or suite being registered was written: the first frame of the stack
+// outside the library, relative to the working directory, as Node's "test at" says.
+function callerLocation(): string {
+    for (const frame of (new Error().stack ?? "").split("\n")) {
+        const place = frameLocation(frame);
+        if (place !== null && !place.startsWith("pts:")) {
+            return place.startsWith("/") ? relative(process.cwd(), place) : place;
+        }
+    }
+    return "";
+}
+
+// The file and line of a stack frame (`    at f (file:line)` or `    at file:line`), or
+// null for a line that isn't a frame.
+function frameLocation(line: string): string | null {
+    const text = line.trim();
+    if (!text.startsWith("at ")) {
+        return null;
+    }
+    const open = text.lastIndexOf("(");
+    return text.endsWith(")") && open >= 0 ? text.slice(open + 1, -1) : text.slice(3);
+}
+
+// A failure as the spec reporter lists it: where the test is, its line, and the error
+// inspected and indented, without the frames of the library's own code.
+function failureReport(line: string, location: string, error: unknown): string {
+    const kept: string[] = [];
+    for (const text of pts_util_inspect(error).split("\n")) {
+        if (frameLocation(text)?.startsWith("pts:") ?? false) {
+            if (text.endsWith(" {") && kept.length > 0) {
+                kept[kept.length - 1] += " {"; // the error's own properties follow the last frame
+            }
+            continue;
+        }
+        kept.push(text === "" ? "  " : `  ${text}`);
+    }
+    return `${location === "" ? "" : `test at ${location}\n`}${line}\n${kept.join("\n")}`;
+}
+
+// The summary of Node's spec reporter and its list of failures, or, under `pts test`, the
+// same in the results file.
+function report(duration: number): void {
+    const resultsPath = process.env.PTS_TEST_RESULTS ?? "";
+    if (resultsPath !== "") {
+        writeFileSync(resultsPath, JSON.stringify({
+            tests: counts.tests, suites: counts.suites, pass: counts.pass, fail: counts.fail,
+            skipped: counts.skipped, todo: counts.todo, failures,
+        }));
+    } else {
+        console.log(`ℹ tests ${counts.tests}`);
+        console.log(`ℹ suites ${counts.suites}`);
+        console.log(`ℹ pass ${counts.pass}`);
+        console.log(`ℹ fail ${counts.fail}`);
+        console.log("ℹ cancelled 0");
+        console.log(`ℹ skipped ${counts.skipped}`);
+        console.log(`ℹ todo ${counts.todo}`);
+        console.log(`ℹ duration_ms ${Number(duration.toFixed(6))}`);
+        if (failures.length > 0) {
+            console.log("\n✖ failing tests:\n");
+            console.log(failures.join("\n\n"));
+        }
+    }
+    if (counts.fail > 0) {
+        process.exitCode = 1;
+    }
+}

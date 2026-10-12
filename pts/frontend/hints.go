@@ -38,7 +38,11 @@ func Hint(ctx context.Context, program *compiler.Program, d *ast.Diagnostic) str
 	case diagnostics.Property_0_does_not_exist_on_type_1.Code():
 		tc, release := program.GetTypeCheckerForFile(ctx, file)
 		defer release()
-		return parallelMethodHint(tc, astnav.GetTokenAtPosition(file, d.Pos()))
+		name := astnav.GetTokenAtPosition(file, d.Pos())
+		if hint := parallelMethodHint(tc, name); hint != "" {
+			return hint
+		}
+		return testModifierHint(tc, name)
 	case diagnostics.This_expression_is_not_callable.Code():
 		tc, release := program.GetTypeCheckerForFile(ctx, file)
 		defer release()
@@ -66,6 +70,33 @@ func parallelMethodHint(tc *checker.Checker, name *ast.Node) string {
 		return "Arrays have no `count`: take `.length`, or count matches in parallel with `.par.count(predicate)`."
 	}
 	return fmt.Sprintf("Arrays have no `%s`; their parallel view has: `.par.%s`.", method, parallelOnlyMethods[method])
+}
+
+// testModifierHint is the hint for Node's `test.skip(…)`, `it.todo(…)` or `test.only(…)`
+// on pts:test's functions, which have no properties: skip and todo are options.
+func testModifierHint(tc *checker.Checker, name *ast.Node) string {
+	access := name.Parent
+	if name.Kind != ast.KindIdentifier || access == nil || !ast.IsPropertyAccessExpression(access) || access.Name() != name ||
+		!ast.IsIdentifier(access.Expression()) || !isTestModuleExport(tc, access.Expression()) {
+		return ""
+	}
+	function := access.Expression().Text()
+	switch name.Text() {
+	case "skip", "todo":
+		return fmt.Sprintf("pts:test's `%s` has no `.%s`; pass it as an option: `%s(name, { %s: true }, fn)`.", function, name.Text(), function, name.Text())
+	case "only":
+		return fmt.Sprintf("pts:test has no `only`: run one file with `pts test file.test.pts`, or skip the other tests with `%s(name, { skip: true }, fn)`.", function)
+	}
+	return ""
+}
+
+// isTestModuleExport reports whether identifier names something pts:test exports.
+func isTestModuleExport(tc *checker.Checker, identifier *ast.Node) bool {
+	symbol := tc.GetSymbolAtLocation(identifier)
+	if symbol != nil && symbol.Flags&ast.SymbolFlagsAlias != 0 {
+		symbol = tc.GetAliasedSymbol(symbol)
+	}
+	return symbol != nil && len(symbol.Declarations) > 0 && ast.GetSourceFileOfNode(symbol.Declarations[0]).FileName() == lib.ModulePath("pts:test")
 }
 
 // parallelViewMethodOf is m when expression is a call `….par.m(…)`, else "".

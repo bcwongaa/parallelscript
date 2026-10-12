@@ -41,6 +41,7 @@ Commands:
   run <file.pts> [args...]         Compile and run; arguments after the file go to the program
   build <file.pts> [-o <output>]   Compile to a native executable (default output: the file's base name)
   emit-c <file.pts> [-o <file.c>]  Print the generated C (or write it to a file)
+  test [paths...]                  Build and run the test files (name.test.pts, …) under paths
   lsp [--stdio]                    Run the language server for editors, over stdin and stdout
   version                          Print pts's version
   help [<command>]                 Show this help, or a command's
@@ -79,6 +80,16 @@ lines, so debuggers and crash backtraces show those.
 
 Options:
   -o, --output <file.c>   Write the C to a file instead
+`,
+	"test": `Usage: pts test [paths...]
+
+Builds and runs each test file under paths (by default the working directory): files
+named as paths, and in directories, searched recursively past node_modules and dot
+directories, the files named name.test.pts, name-test.pts, name_test.pts, test-name.pts
+or test.pts. Test files use pts:test and pts:assert, which follow Node's node:test and
+node:assert/strict. Each file runs on its own, one after another; pts test prints their
+tests' results, then the totals and every failure, and exits with 1 if any test failed
+or a file didn't compile or ended before its tests reported.
 `,
 	"lsp": `Usage: pts lsp [--stdio]
 
@@ -127,6 +138,8 @@ func (c *cli) run(ctx context.Context, args []string) int {
 		return c.result(c.emitC(ctx, rest))
 	case "run":
 		return c.runProgram(ctx, rest)
+	case "test":
+		return c.test(ctx, rest)
 	case "lsp":
 		return c.result(c.languageServer(ctx, rest))
 	case "version", "--version":

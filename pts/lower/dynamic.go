@@ -26,6 +26,21 @@ func (l *lowerer) isDynamicSource(node *ast.Node) bool {
 	return node != nil && l.typeAt(node).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0
 }
 
+// storedDynamic reports whether node reads a value kept as a dynamic value whatever tsc
+// has narrowed it to: a variable or parameter declared `any` or `unknown` (`if (x
+// instanceof Map)`), or a member of a dynamic value.
+func (l *lowerer) storedDynamic(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindIdentifier:
+		symbol := l.checker.GetSymbolAtLocation(node)
+		return symbol != nil && l.checker.GetTypeOfSymbol(symbol).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0
+	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
+		return l.isDynamicSource(node.Expression())
+	}
+	return false
+}
+
 // isCheckable reports whether a dynamic value converts to t with a check the runtime
 // makes (cgen's valueTest): a primitive, an integer type, a class, or a union of them.
 // Interfaces, arrays and the rest wait for M3.3b's runtime type checks.
@@ -108,7 +123,7 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	}
 	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
 	// whose signature mentions an erased type parameter, is found at run time too.
-	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
+	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamicCollection(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
 		object := l.expression(callee.Expression())
 		if object == nil {
 			return nil

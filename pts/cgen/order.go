@@ -28,7 +28,7 @@ var throwingBuiltins = map[*ir.Builtin]bool{
 // from their arguments alone, without running the program's code.
 var computedBuiltins = map[*ir.Builtin]bool{
 	ir.ValueTypeOf: true, ir.ValueStrictEquals: true, ir.ValueIsArray: true, ir.ValueSameValue: true, ir.TupleLength: true,
-	ir.FunctionName: true, ir.FunctionLength: true, ir.ValueIsPromise: true, ir.ValueConstructorName: true, ir.ParseInt: true,
+	ir.FunctionName: true, ir.FunctionLength: true, ir.ValueIsPromise: true, ir.ValueIsMap: true, ir.ValueIsSet: true, ir.ValueConstructorName: true, ir.ParseInt: true,
 	ir.ParseFloat: true, ir.ArrayFromString: true,
 }
 

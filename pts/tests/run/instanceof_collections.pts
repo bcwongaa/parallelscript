@@ -1,0 +1,41 @@
+// `instanceof Map` and `instanceof Set` (D-171) on typed values, unions and dynamic values,
+// and a `for…of` over a value of type `unknown` that `instanceof` narrowed to a Map (that
+// crashed the compiler), and its `size`.
+function describe(value: unknown): string {
+  if (value instanceof Map) {
+    const parts: string[] = [];
+    for (const [key, item] of value) {
+      parts.push(`${key}=${item}`);
+    }
+    return `map of ${value.size}: ${parts.join(",")}`;
+  }
+  if (value instanceof Set) {
+    const items: unknown[] = [];
+    for (const item of value) {
+      items.push(item);
+    }
+    return `set of ${items.join(",")}`;
+  }
+  return typeof value;
+}
+
+const counts = new Map([["a", 1], ["b", 2]]);
+const seen = new Set([1, 2]);
+console.log(describe(counts), describe(seen), describe([1]), describe(null));
+function kinds(either: Map<string, number> | number[]): boolean[] {
+  return [either instanceof Map, either instanceof Set];
+}
+console.log(kinds(counts), kinds([1]), seen instanceof Map, [] instanceof Set);
+const parsed: any = JSON.parse('{"a": 1}');
+const wrapped: any = new Set(["x"]);
+console.log(parsed instanceof Map, wrapped instanceof Set, wrapped instanceof Map);
+
+// Members of a value of type unknown that `instanceof` narrowed to a Map or Set are read
+// and called as a dynamic value's are.
+function lookup(value: unknown, key: string): unknown {
+  if (value instanceof Map && value.has(key)) {
+    return value.get(key);
+  }
+  return value instanceof Set ? value.has(key) : undefined;
+}
+console.log(lookup(counts, "b"), lookup(new Set(["k"]), "k"), lookup(1, "x"));

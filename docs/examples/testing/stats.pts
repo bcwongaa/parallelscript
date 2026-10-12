@@ -1,0 +1,13 @@
+// The module the guide's testing sample tests: the mean and the median of some numbers.
+export function mean(values: number[]): number {
+  if (values.length === 0) {
+    throw new RangeError("the mean of no values");
+  }
+  return values.par.sum() / values.length;
+}
+
+export function median(values: number[]): number {
+  const sorted = values.toSorted((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}

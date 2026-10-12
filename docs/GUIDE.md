@@ -14,8 +14,9 @@ Every program in this guide is a file in [docs/examples/](examples/), with its e
 4. [Integer types](#integer-types)
 5. [Parallelism](#parallelism)
 6. [The `pts:` modules](#the-pts-modules)
-7. [Common compile errors](#common-compile-errors)
-8. [Where to go next](#where-to-go-next)
+7. [Testing](#testing)
+8. [Common compile errors](#common-compile-errors)
+9. [Where to go next](#where-to-go-next)
 
 ## Getting started
 
@@ -947,6 +948,7 @@ What the guardrail doesn't check: the rule is lexical, so it doesn't follow call
 | `pts:fs` | Node's synchronous file functions (`readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `statSync`, `mkdirSync`, `readdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `mkdtempSync` and more), with Node's errors; text in UTF-8, or bytes as a `Uint8Array` |
 | `pts:fs/promises` | the promise versions (`readFile`, `writeFile`, `readdir`, `rm` and more), also `fs.promises` |
 | `pts:path` | Node's POSIX `path` |
+| `pts:test`, `pts:assert` | tests in the style of Node's `node:test`, and Node's `node:assert/strict` ([Testing](#testing)) |
 | `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is the global `process` |
 | `pts:parallel` | `range`, `join` and the classes of the `.par` views |
 | `pts:sync` | `AtomicInt`, `Atomic<int>`, `Mutex`, `Once` and `Channel` |
@@ -1168,6 +1170,65 @@ true 8 80 137 80 78 71 13 10 26 10
 ```
 
 [examples/hasher](../examples/hasher/main.pts) hashes files read this way, and [examples/mandelbrot](../examples/mandelbrot/main.pts) writes a PNG from a `Uint8Array`.
+
+## Testing
+
+`pts test` runs tests written as Node's built-in test runner has them. `pts:test` has `test` (also `it`), `describe` (also `suite`), the hooks `before`, `after`, `beforeEach` and `afterEach`, and `skip` and `todo` as options: `test("name", { skip: "why" }, fn)`. `pts:assert` is Node's `node:assert/strict`: `equal`, `notEqual`, `deepEqual`, `notDeepEqual`, `ok`, `throws`, `rejects`, `match`, `doesNotMatch` and `fail`, as named exports or as methods of its default export, with Node's messages and an `AssertionError` that has Node's `code`, `actual`, `expected` and `operator`.
+
+[examples/testing/stats.test.pts](examples/testing/stats.test.pts), which tests [stats.pts](examples/testing/stats.pts):
+
+```ts
+// Tests in the style of Node's node:test, with pts:assert for node:assert/strict.
+import { describe, it, test } from "pts:test";
+import assert from "pts:assert";
+import { mean, median } from "./stats";
+
+describe("mean", () => {
+  it("averages the values", () => {
+    assert.equal(mean([1, 2, 3, 4]), 2.5);
+  });
+  it("throws for no values", () => {
+    assert.throws(() => mean([]), { name: "RangeError", message: /no values/ });
+  });
+});
+
+test("the median of an even count is the mean of the middle two", () => {
+  assert.equal(median([4, 1, 3, 2]), 2.5);
+});
+
+test("median leaves its input as it was", async () => {
+  const values = [3, 1, 2];
+  median(values);
+  assert.deepEqual(values, [3, 1, 2]);
+});
+```
+
+```sh
+pts-bin/pts test docs/examples/testing
+```
+
+```text
+▶ mean
+  ✔ averages the values (0.956209ms)
+  ✔ throws for no values (0.063986ms)
+✔ mean (1.062088ms)
+✔ the median of an even count is the mean of the middle two (0.006348ms)
+✔ median leaves its input as it was (0.014621ms)
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3603.46
+```
+
+- `pts test` takes files and directories (by default the working directory). In a directory it finds, at any depth, the files named `name.test.pts`, `name-test.pts`, `name_test.pts`, `test-name.pts` and `test.pts`, leaving out `node_modules` and dot directories. It builds them a few at a time and runs them one after another. Most of the duration is the build.
+- A failed test is listed again after the totals, where it was registered (`test at stats.test.pts:7`) and with its error, and the exit code is 1. So is a file that doesn't compile, or that ends before its tests report, for example through an error thrown at its top level.
+- A test file is an ordinary program: `pts run stats.test.pts` prints the same results and totals.
+- Tests run one at a time, in order, after the file's top-level code. A test function may be `async`; it gets a context whose `skip()` and `todo()` mark it while it runs. There are no subtests (`t.test`), `only`, mocks or snapshots, and `test.skip(…)` is written `test(…, { skip: true }, …)`, because a function can't have properties in ParallelScript.
+- `pts:assert`'s default export has no call form: write `assert.ok(x)` for `assert(x)`. `throws` and `rejects` take a RegExp, a function or an object of the error's properties, but not an error class: write `{ name: "TypeError" }` for `TypeError`. A message that shows two objects lays them out as `console.log` does, where Node puts each property on a line.
 
 ## Common compile errors
 

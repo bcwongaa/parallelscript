@@ -1,0 +1,357 @@
+// pts:assert: the common part of Node's node:assert/strict (D-171): ok, equal and
+// notEqual (Object.is), deepEqual and notDeepEqual (Node's strict deep equality over
+// arrays, plain objects and class instances of one class, Maps, Sets, Dates, RegExps,
+// errors and typed arrays), throws, rejects, match, doesNotMatch, fail and
+// AssertionError, also under Node's other names (strictEqual, deepStrictEqual, …) and as
+// the default export's methods (`assert.equal(…)`). Messages are Node's, with values shown
+// by util.inspect; a failed deep equality shows the lines of the two values' inspections
+// that differ.
+
+declare function pts_util_inspect(value: any): string;
+declare function pts_value_constructor_name(value: any): string;
+
+// What throws and rejects accept as the error: a RegExp tested against its string form, a
+// function that returns true for it, or an object whose properties it must have.
+export type ErrorMatcher = RegExp | ((thrown: unknown) => boolean) | object;
+
+export interface AssertionErrorOptions {
+    message?: string;
+    actual?: unknown;
+    expected?: unknown;
+    operator?: string;
+}
+
+// The error every failed assertion throws: code ERR_ASSERTION, with the values compared.
+export class AssertionError extends Error {
+    readonly code: string = "ERR_ASSERTION";
+    readonly actual: unknown;
+    readonly expected: unknown;
+    readonly operator: string;
+    generatedMessage: boolean;
+
+    constructor(options: AssertionErrorOptions) {
+        super(options.message ?? "Failed");
+        this.name = "AssertionError";
+        this.actual = options.actual;
+        this.expected = options.expected;
+        this.operator = options.operator ?? "fail";
+        this.generatedMessage = false;
+    }
+}
+
+function inspect(value: unknown): string {
+    return pts_util_inspect(value);
+}
+
+// Throws the assertion's error: message as given (an Error is thrown as it is), or the
+// generated one.
+function failWith(message: string | Error | undefined, generated: string, actual: unknown, expected: unknown, operator: string): never {
+    if (message instanceof Error) {
+        throw message;
+    }
+    const error = new AssertionError({ message: message ?? generated, actual, expected, operator });
+    error.generatedMessage = message === undefined;
+    throw error;
+}
+
+export function ok(value: unknown, message?: string | Error): asserts value {
+    if (!value) {
+        failWith(message, `The expression evaluated to a falsy value:\n\n  assert.ok(${inspect(value)})\n`, value, true, "==");
+    }
+}
+
+export function equal(actual: unknown, expected: unknown, message?: string | Error): void {
+    if (!Object.is(actual, expected)) {
+        failWith(withComparison(message, unequalMessage(actual, expected, "strictly equal")), unequalMessage(actual, expected, "strictly equal"), actual, expected, "strictEqual");
+    }
+}
+
+export function notEqual(actual: unknown, expected: unknown, message?: string | Error): void {
+    if (Object.is(actual, expected)) {
+        failWith(message, `Expected "actual" to be strictly unequal to: ${inspect(expected)}`, actual, expected, "notStrictEqual");
+    }
+}
+
+export function deepEqual(actual: unknown, expected: unknown, message?: string | Error): void {
+    if (!isDeepStrictEqual(actual, expected)) {
+        failWith(withComparison(message, unequalMessage(actual, expected, "strictly deep-equal")), unequalMessage(actual, expected, "strictly deep-equal"), actual, expected, "deepStrictEqual");
+    }
+}
+
+// A message given to equal or deepEqual, followed by the comparison the generated message
+// shows under its first line, as Node shows it.
+function withComparison(message: string | Error | undefined, generated: string): string | Error | undefined {
+    return typeof message === "string" ? message + generated.slice(generated.indexOf("\n")) : message;
+}
+
+export function notDeepEqual(actual: unknown, expected: unknown, message?: string | Error): void {
+    if (isDeepStrictEqual(actual, expected)) {
+        failWith(message, `Expected "actual" not to be strictly deep-equal to: ${inspect(expected)}`, actual, expected, "notDeepStrictEqual");
+    }
+}
+
+export function match(actual: string, expected: RegExp, message?: string | Error): void {
+    if (!expected.test(actual)) {
+        failWith(message, `The input did not match the regular expression ${inspect(expected)}. Input:\n\n${inspect(actual)}\n`, actual, expected, "match");
+    }
+}
+
+export function doesNotMatch(actual: string, expected: RegExp, message?: string | Error): void {
+    if (expected.test(actual)) {
+        failWith(message, `The input was expected to not match the regular expression ${inspect(expected)}. Input:\n\n${inspect(actual)}\n`, actual, expected, "doesNotMatch");
+    }
+}
+
+export function fail(message?: string | Error): never {
+    return failWith(message, "Failed", undefined, undefined, "fail");
+}
+
+// Asserts that fn throws an error that expected (if given) accepts: a RegExp tests the
+// error's string form, a function is called with it and must return true, and an object's
+// properties must deep-equal the error's (a RegExp property tests a string).
+export function throws(fn: () => unknown, expected?: ErrorMatcher, message?: string | Error): void {
+    let thrown = false;
+    let error: unknown = undefined;
+    try {
+        fn();
+    } catch (e) {
+        thrown = true;
+        error = e;
+    }
+    if (!thrown) {
+        failWith(missingMessage("exception", message), "", undefined, expected, "throws");
+    }
+    checkError(error, expected, message, "throws");
+}
+
+// Asserts that the promise (or the one fn returns) rejects with an error expected accepts,
+// as throws checks it.
+export async function rejects(promiseOrFn: Promise<unknown> | (() => Promise<unknown>), expected?: ErrorMatcher, message?: string | Error): Promise<void> {
+    const promise = typeof promiseOrFn === "function" ? (promiseOrFn as () => Promise<unknown>)() : (promiseOrFn as Promise<unknown>);
+    let rejected = false;
+    let error: unknown = undefined;
+    try {
+        await promise;
+    } catch (e) {
+        rejected = true;
+        error = e;
+    }
+    if (!rejected) {
+        failWith(missingMessage("rejection", message), "", undefined, expected, "rejects");
+    }
+    checkError(error, expected, message, "rejects");
+}
+
+// Node's message when nothing was thrown or rejected; an Error given as the message is thrown as it is.
+function missingMessage(what: string, message: string | Error | undefined): string | Error {
+    if (message instanceof Error) {
+        return message;
+    }
+    return `Missing expected ${what}${message === undefined ? "." : ": " + message}`;
+}
+
+function checkError(error: unknown, expected: ErrorMatcher | undefined, message: string | Error | undefined, operator: string): void {
+    if (expected === undefined) {
+        return;
+    }
+    if (expected instanceof RegExp) {
+        const text = String(error);
+        if (!expected.test(text)) {
+            failWith(message, `The input did not match the regular expression ${inspect(expected)}. Input:\n\n${inspect(text)}\n`, error, expected, operator);
+        }
+        return;
+    }
+    if (typeof expected === "function") {
+        const accepted = (expected as (thrown: unknown) => boolean)(error);
+        if (accepted !== true) {
+            failWith(message, `The validation function is expected to return "true". Received ${inspect(accepted)}\n\nCaught error:\n\n${inspect(error)}`, error, expected, operator);
+        }
+        return;
+    }
+    const properties = expected as any;
+    const thrown = error as any;
+    for (const key of Object.keys(properties)) {
+        const want = properties[key];
+        const got = typeof thrown === "object" && thrown !== null ? thrown[key] : undefined;
+        const matches = want instanceof RegExp && typeof got === "string" ? want.test(got) : isDeepStrictEqual(got, want);
+        if (!matches) {
+            failWith(message, `The error's "${key}" is ${inspect(got)}, not ${inspect(want)}\n\nCaught error:\n\n${inspect(error)}`, error, expected, operator);
+        }
+    }
+}
+
+// Node's message for two values that aren't equal: `a !== b` for values that fit on a line,
+// else the lines of their inspections, + for actual and - for expected.
+function unequalMessage(actual: unknown, expected: unknown, relation: string): string {
+    const actualText = inspect(actual);
+    const expectedText = inspect(expected);
+    if (actualText === expectedText) {
+        return `Values have same structure but are not reference-equal:\n\n${actualText}\n`;
+    }
+    if (relation === "strictly equal" && isPrimitive(actual) && isPrimitive(expected) && !(actual === 0 && expected === 0)) {
+        return `Expected values to be strictly equal:\n\n${actualText} !== ${expectedText}\n`;
+    }
+    return `Expected values to be ${relation}:\n+ actual - expected\n\n${diffLines(actualText.split("\n"), expectedText.split("\n"))}\n`;
+}
+
+function isPrimitive(value: unknown): boolean {
+    return value === null || (typeof value !== "object" && typeof value !== "function");
+}
+
+// The lines of a and b as a diff: lines both have (a longest common subsequence) start with
+// two spaces, a's own with "+ " and b's own with "- ".
+function diffLines(a: string[], b: string[]): string {
+    const common: int[][] = [];
+    for (let i = 0; i <= a.length; i++) {
+        common.push(new Array<int>(b.length + 1).fill(0));
+    }
+    for (let i = a.length - 1; i >= 0; i--) {
+        for (let j = b.length - 1; j >= 0; j--) {
+            common[i][j] = a[i] === b[j] ? common[i + 1][j + 1] + 1 : Math.max(common[i + 1][j], common[i][j + 1]) as int;
+        }
+    }
+    const lines: string[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < a.length || j < b.length) {
+        if (i < a.length && j < b.length && a[i] === b[j]) {
+            lines.push("  " + a[i]);
+            i++;
+            j++;
+        } else if (j === b.length || (i < a.length && common[i + 1][j] >= common[i][j + 1])) {
+            lines.push("+ " + a[i]);
+            i++;
+        } else {
+            lines.push("- " + b[j]);
+            j++;
+        }
+    }
+    return lines.join("\n");
+}
+
+// node:util's isDeepStrictEqual: primitives by Object.is, objects of one class by their
+// own enumerable properties, and Maps, Sets, Dates, RegExps and errors by what they hold.
+function isDeepStrictEqual(actual: unknown, expected: unknown): boolean {
+    if (Object.is(actual, expected)) {
+        return true;
+    }
+    const a = actual as any;
+    const b = expected as any;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) {
+        return false;
+    }
+    if (pts_value_constructor_name(a) !== pts_value_constructor_name(b) || Array.isArray(a) !== Array.isArray(b)) {
+        return false;
+    }
+    if (a instanceof Date) {
+        return b instanceof Date && Object.is(a.getTime(), b.getTime());
+    }
+    if (a instanceof RegExp) {
+        return b instanceof RegExp && a.source === b.source && a.flags === b.flags && a.lastIndex === b.lastIndex;
+    }
+    if (a instanceof Error && (!(b instanceof Error) || a.name !== b.name || a.message !== b.message)) {
+        return false;
+    }
+    if (a instanceof Map) {
+        return b instanceof Map && sameMaps(a, b);
+    }
+    if (a instanceof Set) {
+        return b instanceof Set && sameSets(a, b);
+    }
+    return sameProperties(a, b);
+}
+
+function sameProperties(a: any, b: any): boolean {
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) {
+        return false;
+    }
+    for (const key of keys) {
+        if (!Object.hasOwn(b, key) || !isDeepStrictEqual(a[key], b[key])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function sameMaps(a: any, b: any): boolean {
+    if (a.size !== b.size) {
+        return false;
+    }
+    for (const [key, value] of a) {
+        if (b.has(key)) {
+            if (!isDeepStrictEqual(value, b.get(key))) {
+                return false;
+            }
+            continue;
+        }
+        if (typeof key !== "object" || key === null || !hasDeepEntry(b, key, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function hasDeepEntry(m: any, key: unknown, value: unknown): boolean {
+    for (const [otherKey, otherValue] of m) {
+        if (isDeepStrictEqual(otherKey, key) && isDeepStrictEqual(otherValue, value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function sameSets(a: any, b: any): boolean {
+    if (a.size !== b.size) {
+        return false;
+    }
+    for (const item of a) {
+        if (b.has(item)) {
+            continue;
+        }
+        if (typeof item !== "object" || item === null || !hasDeepItem(b, item)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function hasDeepItem(s: any, item: unknown): boolean {
+    for (const other of s) {
+        if (isDeepStrictEqual(other, item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export {
+    equal as strictEqual,
+    notEqual as notStrictEqual,
+    deepEqual as deepStrictEqual,
+    notDeepEqual as notDeepStrictEqual,
+};
+
+// The default export: every assertion as a method (`assert.equal(…)`).
+export interface Assert {
+    ok(value: unknown, message?: string | Error): asserts value;
+    equal(actual: unknown, expected: unknown, message?: string | Error): void;
+    notEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    deepEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    notDeepEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    strictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    notStrictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    deepStrictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    notDeepStrictEqual(actual: unknown, expected: unknown, message?: string | Error): void;
+    match(actual: string, expected: RegExp, message?: string | Error): void;
+    doesNotMatch(actual: string, expected: RegExp, message?: string | Error): void;
+    fail(message?: string | Error): never;
+    throws(fn: () => unknown, expected?: ErrorMatcher, message?: string | Error): void;
+    rejects(promiseOrFn: Promise<unknown> | (() => Promise<unknown>), expected?: ErrorMatcher, message?: string | Error): Promise<void>;
+}
+
+const assert: Assert = {
+    ok, equal, notEqual, deepEqual, notDeepEqual, match, doesNotMatch, fail, throws, rejects,
+    strictEqual: equal, notStrictEqual: notEqual, deepStrictEqual: deepEqual, notDeepStrictEqual: notDeepEqual,
+};
+export default assert;

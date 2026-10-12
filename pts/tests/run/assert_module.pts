@@ -1,0 +1,95 @@
+// pts:assert is Node's node:assert/strict (D-171): each assertion passes or throws an
+// AssertionError with Node's message, code and operator.
+import assert, { AssertionError, deepEqual, equal, notEqual, throws } from "pts:assert";
+
+class Point {
+  x: number;
+  y: number;
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+// Each case passes, or fails with an AssertionError whose message and fields are printed.
+function attempt(name: string, f: () => void): void {
+  try {
+    f();
+    console.log(name, "passed");
+  } catch (e) {
+    if (e instanceof AssertionError) {
+      console.log(name, "failed:", JSON.stringify(e.message), e.name, e.code, e.operator, e.generatedMessage);
+    } else {
+      console.log(name, "threw", (e as Error).name, (e as Error).message);
+    }
+  }
+}
+
+attempt("equal", () => equal(1 + 1, 2));
+attempt("equal numbers", () => equal(1, 2));
+attempt("equal strings", () => assert.equal("a", "b"));
+attempt("equal NaN", () => equal(NaN, NaN));
+attempt("equal zeros", () => equal(0, -0));
+try {
+  equal([1], [1]);
+} catch (e) {
+  // Node lays the value out one element to a line (D-171), so only the first line is compared.
+  console.log("equal objects failed:", (e as AssertionError).message.split("\n")[0]);
+}
+attempt("equal message", () => equal(1, 2, "one is not two"));
+attempt("notEqual", () => notEqual(1, 1));
+attempt("notEqual passes", () => notEqual(1, 2));
+attempt("deepEqual", () => deepEqual({ a: [1, 2], m: new Map([["k", new Set([1])]]) }, { a: [1, 2], m: new Map([["k", new Set([1])]]) }));
+attempt("deepEqual classes", () => deepEqual(new Point(1, 2), new Point(1, 2)));
+attempt("deepEqual dates", () => deepEqual(new Date(5), new Date(5)));
+attempt("deepEqual bytes", () => deepEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2])));
+attempt("deepEqual NaN", () => deepEqual([NaN], [NaN]));
+for (const [name, actual, expected] of [
+  ["values", { a: 1 }, { a: 2 }],
+  ["keys", { a: 1 }, { b: 1 }],
+  ["lengths", [1, 2], [1]],
+  ["zeros", [0], [-0]],
+  ["classes", new Point(1, 2), { x: 1, y: 2 }],
+  ["maps", new Map([["k", 1]]), new Map([["k", 2]])],
+  ["sets", new Set([1]), new Set([2])],
+  ["dates", new Date(5), new Date(6)],
+  ["regexps", /a/g, /a/i],
+  ["arrays and objects", [], {}],
+] as [string, unknown, unknown][]) {
+  try {
+    deepEqual(actual, expected);
+    console.log("deepEqual", name, "passed");
+  } catch (e) {
+    console.log("deepEqual", name, "failed:", (e as AssertionError).message.split("\n")[0], (e as AssertionError).operator);
+  }
+}
+attempt("notDeepEqual", () => assert.notDeepEqual({ a: 1 }, { a: 2 }));
+attempt("ok", () => assert.ok(1));
+attempt("ok message", () => assert.ok(false, "custom"));
+attempt("throws", () => throws(() => { throw new TypeError("bad thing"); }));
+attempt("throws regexp", () => throws(() => { throw new TypeError("bad thing"); }, /bad/));
+attempt("throws object", () => throws(() => { throw new TypeError("bad thing"); }, { name: "TypeError", message: /thing/ }));
+attempt("throws function", () => throws(() => { throw new Error("x"); }, (e) => e instanceof Error));
+attempt("throws nothing", () => throws(() => {}));
+attempt("throws nothing message", () => throws(() => {}, /x/, "should throw"));
+attempt("match", () => assert.match("abc", /b/));
+attempt("match fails", () => assert.match("abc", /d/));
+attempt("doesNotMatch fails", () => assert.doesNotMatch("abc", /b/));
+attempt("fail", () => assert.fail());
+attempt("fail message", () => assert.fail("boom"));
+attempt("strictEqual", () => assert.strictEqual(3, 3));
+attempt("deepStrictEqual", () => assert.deepStrictEqual([1], [1]));
+attempt("error message", () => equal(1, 2, new RangeError("mine")));
+
+await assert.rejects(Promise.reject(new Error("no")), /no/);
+await assert.rejects(async () => {
+  throw new Error("later");
+});
+try {
+  await assert.rejects(Promise.resolve(1));
+} catch (e) {
+  console.log((e as AssertionError).message, (e as AssertionError).operator);
+}
+const maybe: string | null = "text" as string | null;
+assert.ok(maybe);
+console.log(maybe.length);

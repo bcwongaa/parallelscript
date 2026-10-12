@@ -1265,6 +1265,9 @@ var (
 	IteratorResultValue = &Builtin{Name: "IteratorResult.value", Params: []Type{Value}, Result: Value}
 	// ValueIsPromise is `x instanceof Promise`.
 	ValueIsPromise = &Builtin{Name: "instanceof Promise", Params: []Type{Value}, Result: Bool}
+	// ValueIsMap and ValueIsSet are `x instanceof Map` and `x instanceof Set`.
+	ValueIsMap = &Builtin{Name: "instanceof Map", Params: []Type{Value}, Result: Bool}
+	ValueIsSet = &Builtin{Name: "instanceof Set", Params: []Type{Value}, Result: Bool}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).
 	MapIteratorOf = &Builtin{Name: "Map.iterator", Params: []Type{Value, I32}, Result: Value}
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).

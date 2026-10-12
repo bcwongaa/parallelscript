@@ -1505,6 +1505,8 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.PromiseResolve:              "pts_promise_resolved",
 	ir.PromiseReject:               "pts_promise_rejected",
 	ir.ValueIsPromise:              "pts_value_is_promise",
+	ir.ValueIsMap:                  "pts_value_is_map",
+	ir.ValueIsSet:                  "pts_value_is_set",
 	ir.PromiseAll:                  "pts_promise_all",
 	ir.PromiseAllSettled:           "pts_promise_all_settled",
 	ir.PromiseAny:                  "pts_promise_any",

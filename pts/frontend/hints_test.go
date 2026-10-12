@@ -38,6 +38,19 @@ func TestHintsFollowTscsMessage(t *testing.T) {
 	assert.Equal(t, errors[0].Message, "Property 'sum' does not exist on type 'number[]'.\n  Arrays have no `sum`; their parallel view has: `.par.sum()`.")
 }
 
+// pts:test's functions have no `.skip`, `.todo` or `.only`, as Node's do.
+func TestTestModifiersGetAHint(t *testing.T) {
+	t.Parallel()
+	for program, want := range map[string]string{
+		"import { test } from \"pts:test\";\ntest.skip(\"later\", () => {});": "pts:test's `test` has no `.skip`; pass it as an option: `test(name, { skip: true }, fn)`.",
+		"import { it } from \"pts:test\";\nit.todo(\"later\", () => {});":      "pts:test's `it` has no `.todo`; pass it as an option: `it(name, { todo: true }, fn)`.",
+		"import { describe } from \"pts:test\";\ndescribe.only(\"x\", () => {});": "pts:test has no `only`: run one file with `pts test file.test.pts`, or skip the other tests with `describe(name, { skip: true }, fn)`.",
+	} {
+		assert.Equal(t, hintOf(t, program), want, program)
+	}
+	assert.Equal(t, hintOf(t, "const test = (f: () => void) => f();\ntest.skip(() => {});"), "")
+}
+
 func TestParallelThenACallGetsAHint(t *testing.T) {
 	t.Parallel()
 	hint := hintOf(t, "const p = parallel (async () => 1)();")
