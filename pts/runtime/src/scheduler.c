@@ -51,6 +51,7 @@ static atomic_bool finished;    /* every loop slept at once: the program is done
 static atomic_uint next_choice; /* where the search for the least-loaded loop starts, round-robin among equals */
 
 _Thread_local uint16_t pts_current_loop;
+bool pts_threaded;
 static _Thread_local loop_slot *own;
 
 static void *checked(void *memory) {
@@ -322,6 +323,9 @@ static void start_workers(void) {
   unsigned count = pts_configured_threads();
   for (unsigned i = 1; i < count; i++) {
     slots[i] = new_slot();
+  }
+  if (count > 1) {
+    __atomic_store_n(&pts_threaded, true, __ATOMIC_RELAXED); /* pthread_create publishes it */
   }
   pthread_attr_t attributes;
   pthread_attr_init(&attributes);

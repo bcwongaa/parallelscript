@@ -1482,6 +1482,8 @@ typedef pts_arraybuffer pts_class_builtin_ArrayBuffer;
  * A typed array: a view of length elements of its descriptor's element kind in buffer,
  * from byte byte_offset, which data points at. The length never changes, so threads
  * racing on one may see stale elements but never read or write outside it (D-L13).
+ * Elements are aligned to their size and read and written only by relaxed atomic accesses
+ * of their width (PTS_ELEMENT_LOAD, PTS_ELEMENT_STORE), so none is ever seen torn (D-143).
  * Uint8ClampedArray's elements are U8, as Uint8Array's; only writes tell them apart.
  */
 typedef struct pts_typed_array {
@@ -1514,6 +1516,19 @@ static inline uint8_t pts_number_to_uint8_clamped(double d) {
 
 _Noreturn void pts_typed_array_index_error(const pts_typed_array *array, double index);
 
+/* Element i of data, an array of ctype, read or written by one relaxed atomic access (D-143). */
+#define PTS_ELEMENT_LOAD(ctype, data, i)                                      \
+  ({                                                                          \
+    ctype pts_element;                                                        \
+    __atomic_load(&((const ctype *)(data))[i], &pts_element, __ATOMIC_RELAXED); \
+    pts_element;                                                              \
+  })
+#define PTS_ELEMENT_STORE(ctype, data, i, value)                            \
+  do {                                                                      \
+    ctype pts_element = (value);                                            \
+    __atomic_store(&((ctype *)(data))[i], &pts_element, __ATOMIC_RELAXED); \
+  } while (0)
+
 /* Whether index is a whole number below array's length: an index JS reads and writes. */
 static inline bool pts_typed_array_has_index(const pts_typed_array *array, double index) {
   return index >= 0 && index < (double)array->length && (double)(size_t)index == index;
@@ -1533,21 +1548,21 @@ static inline bool pts_is_typed_array_type(const pts_type *type) { return type->
 static inline double pts_typed_array_as_number(const pts_typed_array *array, size_t i) {
   switch (array->type->element) {
   case PTS_FIELD_I8:
-    return ((const int8_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(int8_t, array->data, i);
   case PTS_FIELD_U8:
-    return ((const uint8_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(uint8_t, array->data, i);
   case PTS_FIELD_I16:
-    return ((const int16_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(int16_t, array->data, i);
   case PTS_FIELD_U16:
-    return ((const uint16_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(uint16_t, array->data, i);
   case PTS_FIELD_I32:
-    return ((const int32_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(int32_t, array->data, i);
   case PTS_FIELD_U32:
-    return ((const uint32_t *)array->data)[i];
+    return PTS_ELEMENT_LOAD(uint32_t, array->data, i);
   case PTS_FIELD_F32:
-    return ((const float *)array->data)[i];
+    return PTS_ELEMENT_LOAD(float, array->data, i);
   default:
-    return ((const double *)array->data)[i];
+    return PTS_ELEMENT_LOAD(double, array->data, i);
   }
 }
 
@@ -1555,28 +1570,28 @@ static inline double pts_typed_array_as_number(const pts_typed_array *array, siz
 static inline void pts_typed_array_store(pts_typed_array *array, size_t i, double value) {
   switch (array->type->element) {
   case PTS_FIELD_I8:
-    ((int8_t *)array->data)[i] = (int8_t)pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(int8_t, array->data, i, (int8_t)pts_number_to_int32(value));
     return;
   case PTS_FIELD_U8:
-    ((uint8_t *)array->data)[i] = array->type == &pts_type_builtin_Uint8ClampedArray ? pts_number_to_uint8_clamped(value) : (uint8_t)pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(uint8_t, array->data, i, array->type == &pts_type_builtin_Uint8ClampedArray ? pts_number_to_uint8_clamped(value) : (uint8_t)pts_number_to_int32(value));
     return;
   case PTS_FIELD_I16:
-    ((int16_t *)array->data)[i] = (int16_t)pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(int16_t, array->data, i, (int16_t)pts_number_to_int32(value));
     return;
   case PTS_FIELD_U16:
-    ((uint16_t *)array->data)[i] = (uint16_t)pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(uint16_t, array->data, i, (uint16_t)pts_number_to_int32(value));
     return;
   case PTS_FIELD_I32:
-    ((int32_t *)array->data)[i] = pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(int32_t, array->data, i, pts_number_to_int32(value));
     return;
   case PTS_FIELD_U32:
-    ((uint32_t *)array->data)[i] = (uint32_t)pts_number_to_int32(value);
+    PTS_ELEMENT_STORE(uint32_t, array->data, i, (uint32_t)pts_number_to_int32(value));
     return;
   case PTS_FIELD_F32:
-    ((float *)array->data)[i] = (float)value;
+    PTS_ELEMENT_STORE(float, array->data, i, (float)value);
     return;
   default:
-    ((double *)array->data)[i] = value;
+    PTS_ELEMENT_STORE(double, array->data, i, value);
   }
 }
 
@@ -1651,11 +1666,11 @@ pts_array *pts_typed_array_to_array(const pts_typed_array *array);
     if (!pts_typed_array_has_index(array, index)) {                                                                       \
       pts_typed_array_index_error(array, index);                                                                          \
     }                                                                                                                     \
-    return (double)((const ctype *)array->data)[(size_t)index];                                                           \
+    return (double)PTS_ELEMENT_LOAD(ctype, array->data, (size_t)index);                                                   \
   }                                                                                                                       \
   static inline double pts_##name##_set(pts_typed_array *array, double index, double value) {                            \
     if (pts_typed_array_has_index(array, index)) {                                                                        \
-      ((ctype *)array->data)[(size_t)index] = convert(value);                                                             \
+      PTS_ELEMENT_STORE(ctype, array->data, (size_t)index, convert(value));                                               \
     }                                                                                                                     \
     return value;                                                                                                         \
   }                                                                                                                       \
@@ -2111,7 +2126,8 @@ typedef struct pts_iterator {
   struct pts_reaction *reaction; /* an async function's reaction to what it awaits, reused by each await */
   struct pts_request *requests;  /* an async generator's queue of next/return/throw calls (D-115) */
   bool awaiting;                 /* an async generator's body stopped at an await, not a yield */
-  bool executing;                /* an async generator's body is running or awaiting */
+  bool executing;                /* a generator's body is running (claimed by one thread, D-143), or an async generator's is running or awaiting */
+  uint16_t home;                 /* an async generator's loop, the only one that runs its body (D-143) */
 } pts_iterator;
 
 extern const pts_type pts_type_builtin_Generator;

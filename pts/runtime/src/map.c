@@ -348,35 +348,39 @@ void pts_map_clear(pts_map *map) {
 
 pts_map_iterator pts_map_iterate(pts_map *map) { return (pts_map_iterator){map, load_table(map), 0, 0, 0}; }
 
-/* follow moves an iterator to the table that replaced its own: its position becomes the
- * number of live entries before it, which the new table keeps, in order, at its start. */
-static void follow(pts_map_iterator *iterator) {
+/* follow moves a position in table to the table that replaced it, and returns that table:
+ * the position becomes the number of live entries before it, which the new table keeps,
+ * in order, at its start. */
+static pts_map_table *follow(pts_map_table *table, size_t *position) {
   pts_map_table *next;
-  while ((next = __atomic_load_n(&iterator->table->next, __ATOMIC_ACQUIRE)) != NULL) {
+  while ((next = __atomic_load_n(&table->next, __ATOMIC_ACQUIRE)) != NULL) {
     size_t live = 0;
-    for (size_t i = 0; i < iterator->position && i < load_used(iterator->table); i++) {
-      if (__atomic_load_n(&iterator->table->entries[i].hash, __ATOMIC_ACQUIRE) != PTS_MAP_DELETED) {
+    for (size_t i = 0, used = load_used(table); i < *position && i < used; i++) {
+      if (__atomic_load_n(&table->entries[i].hash, __ATOMIC_ACQUIRE) != PTS_MAP_DELETED) {
         live++;
       }
     }
-    iterator->table = next;
-    iterator->position = live;
+    table = next;
+    *position = live;
   }
+  return table;
 }
 
 bool pts_map_next(pts_map_iterator *iterator) {
-  follow(iterator);
-  const pts_map_table *table = iterator->table;
-  for (size_t used = load_used(table); iterator->position < used; iterator->position++) {
-    const pts_map_entry *entry = &table->entries[iterator->position];
+  size_t position = iterator->position;
+  pts_map_table *table = follow(iterator->table, &position);
+  bool found = false;
+  for (size_t used = load_used(table); position < used && !found; position++) {
+    const pts_map_entry *entry = &table->entries[position];
     if (__atomic_load_n(&entry->hash, __ATOMIC_ACQUIRE) != PTS_MAP_DELETED) {
       iterator->key = __atomic_load_n(&entry->key, __ATOMIC_RELAXED);
       iterator->value = __atomic_load_n(&entry->value, __ATOMIC_RELAXED);
-      iterator->position++;
-      return true;
+      found = true;
     }
   }
-  return false;
+  iterator->table = table;
+  iterator->position = position;
+  return found;
 }
 
 /* ---------------------------------------------------------------- hash-map objects */

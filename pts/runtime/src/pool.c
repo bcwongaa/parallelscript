@@ -282,6 +282,7 @@ static void start_pool(void) {
     workers[i] = new_worker(-1);
     add_deque(workers[i]);
   }
+  __atomic_store_n(&pts_threaded, true, __ATOMIC_RELAXED); /* pthread_create publishes it */
   pthread_attr_t attributes;
   pthread_attr_init(&attributes);
   pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);

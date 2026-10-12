@@ -98,6 +98,58 @@ static void copy_within_moves_overlapping_ranges(void) {
   CHECK_STR(joined(pts_typed_array_copy_within(of(&pts_type_builtin_Int8Array, values, 5), 1, 0, 3)), "1,1,2,3,5");
 }
 
+/* A buffer of byte_length bytes, each a different value of its position. */
+static pts_arraybuffer *patterned_buffer(size_t byte_length) {
+  pts_arraybuffer *buffer = pts_arraybuffer_new((double)byte_length);
+  for (size_t i = 0; i < byte_length; i++) {
+    buffer->bytes[i] = (unsigned char)(i * 7 + 1);
+  }
+  return buffer;
+}
+
+/* copyWithin and set copy elements by atomic units as wide as the addresses allow (D-143): every alignment, overlap and length moves the bytes memmove would. */
+static void bulk_copies_move_the_bytes_memmove_would(void) {
+  enum { LENGTH = 40, BYTES = 8 * (LENGTH + 4) };
+  const pts_type *types[] = {&pts_type_builtin_Uint8Array, &pts_type_builtin_Uint16Array, &pts_type_builtin_Uint32Array, &pts_type_builtin_Float64Array};
+  for (size_t t = 0; t < 4; t++) {
+    size_t size = pts_field_kind_size(types[t]->element);
+    for (size_t view = 0; view < 4; view++) {
+      for (size_t target = 0; target < 12; target++) {
+        for (size_t start = 0; start < 12; start++) {
+          for (size_t count = 0; count <= 24; count++) {
+            pts_arraybuffer *buffer = patterned_buffer(BYTES);
+            pts_typed_array *array = pts_typed_array_on_buffer(types[t], buffer, (double)(view * size), LENGTH, true);
+            unsigned char expected[BYTES];
+            memcpy(expected, buffer->bytes, BYTES);
+            size_t moved = count < LENGTH - target ? count : LENGTH - target;
+            memmove(expected + (view + target) * size, expected + (view + start) * size, moved * size);
+            if (target % 2 == 0) {
+              pts_typed_array_copy_within(array, (double)target, (double)start, (double)(start + count));
+            } else {
+              pts_typed_array *source = pts_typed_array_subarray(array, (double)start, (double)(start + moved));
+              pts_typed_array_set_typed(array, source, (double)target);
+            }
+            if (memcmp(expected, buffer->bytes, BYTES) != 0) {
+              fprintf(stderr, "%s: view %zu, target %zu, start %zu, count %zu: bytes differ\n", types[t]->name, view, target, start, count);
+              check_failures++;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+static void buffer_slices_copy_from_any_offset(void) {
+  pts_arraybuffer *buffer = patterned_buffer(64);
+  for (size_t from = 0; from < 16; from++) {
+    for (size_t count = 0; count <= 40; count++) {
+      pts_arraybuffer *copy = pts_arraybuffer_slice(buffer, (double)from, (double)(from + count));
+      CHECK(copy->byte_length == count && memcmp(copy->bytes, buffer->bytes + from, count) == 0);
+    }
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   writes_convert_as_js_does();
@@ -108,5 +160,7 @@ int main(int argc, char **argv) {
   set_copies_overlapping_views_as_if_first_copied();
   searches_follow_strict_equality_and_same_value_zero();
   copy_within_moves_overlapping_ranges();
+  bulk_copies_move_the_bytes_memmove_would();
+  buffer_slices_copy_from_any_offset();
   return CHECK_DONE();
 }

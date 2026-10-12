@@ -1,0 +1,53 @@
+// One async generator driven from several loops at once (D-143): it belongs to the loop
+// that made it, which takes every request in order and runs its body, so each item goes
+// to exactly one caller and the body never runs on two loops (D-121's known gap).
+// threads: 1 2 4
+
+async function* numbers(count: number): AsyncGenerator<number, string> {
+  let pending: string | number = "start";
+  for (let i = 0; i < count; i++) {
+    pending = "yielding";
+    await null;
+    if (typeof pending === "string") {
+      pending = i;
+      yield pending;
+    }
+  }
+  return "finished";
+}
+
+async function drain(source: AsyncGenerator<number, string>): Promise<number[]> {
+  const seen: number[] = [];
+  for (;;) {
+    const result = await source.next();
+    if (result.done) return seen;
+    seen.push(result.value);
+  }
+}
+
+const shared = numbers(2000);
+const parts = await Promise.all([parallel drain(shared), parallel drain(shared), parallel drain(shared), drain(shared)]);
+const all: number[] = [];
+for (const part of parts) all.push(...part);
+all.sort((a, b) => a - b);
+console.log("items:", all.length, "each once:", all.every((value, i) => value === i));
+
+// for await from another loop, and return() from a third, both through the owner's queue.
+async function sum(source: AsyncGenerator<number, string>): Promise<number> {
+  let total = 0;
+  for await (const value of source) total += value;
+  return total;
+}
+console.log("sum from another loop:", await parallel sum(numbers(100)));
+
+const stopped = numbers(1_000_000);
+console.log("first:", (await parallel stopped.next()).value);
+console.log("return:", await parallel stopped.return("stopped"));
+console.log("after return:", await stopped.next());
+
+// expect:
+// items: 2000 each once: true
+// sum from another loop: 4950
+// first: 0
+// return: { value: 'stopped', done: true }
+// after return: { value: undefined, done: true }

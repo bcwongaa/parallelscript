@@ -308,7 +308,7 @@ A `pts_string` is the header, flags (bit 0 means pure ASCII), the byte length, t
 - **Arrays** (`array.c`, D-038). A `pts_array` is a descriptor, a buffer and a length, and the buffer holds its own capacity. Elements are stored unboxed by kind: a `number[]` holds doubles. Each element is copied with one load or store, and bounds checks use the buffer actually being accessed. So racing pushes may lose elements, but never write out of bounds.
 - **Map and Set** (`map.c`, D-046). An ordered hash table: entries are appended in insertion order, deleted ones are marked in place, and an open-addressing index finds them. Growing or compacting publishes a new table instead of resizing in place. Iterators follow the chain of tables, which gives JS's live iteration.
 - **Hash-map objects** (D-059). Object types with index signatures, such as `Record<string, T>`, use the same table with kind `PTS_KIND_RECORD`. `JSON.parse` makes these for objects (D-080).
-- **Typed arrays** (`typed_array.c`, D-125). A view (buffer, data pointer, length and offset) of an `ArrayBuffer`.
+- **Typed arrays** (`typed_array.c`, D-125). A view (buffer, data pointer, length and offset) of an `ArrayBuffer`. Elements are read and written by relaxed atomic accesses of their width, and bulk copies by `copy_shared`, so no number tears (D-143).
 
 ### 4.5 Classes, object types and closures
 
@@ -345,7 +345,8 @@ These live in `error.c` (D-068, D-069).
 - **Generators** (`generator.c`, `pts/cgen/generators.go`, D-109). The C emitter keeps the body structured. Every statement-level local lives in a frame struct on the GC heap, which starts with a `pts_iterator`. A `yield` stores its value and its resume point, then returns. The step function starts with a `switch` that jumps to the resume point. There is no native stack per generator.
 - **Async functions** (D-112) are generator functions whose yields are awaits. `pts_async_start` makes the function's promise and runs the body until its first await. Later steps run as microtasks.
 - **Promises** (`promise.c`) follow ECMAScript's algorithms in V8's order of jobs, so programs print in Node's order. Each thread has a microtask queue, which `pts_run_microtasks` drains. An unhandled rejection ends the program with code 1.
-- **Async generators and `for await`** (D-115) use the same frames, plus the spec's queue of requests.
+- **Async generators and `for await`** (D-115) use the same frames, plus the spec's queue of requests. An async generator belongs to the loop that made it: requests from other loops reach its queue by message (D-143).
+- **Generators shared by threads.** One thread at a time runs a generator's body; a resume while it runs elsewhere throws `TypeError` (D-143, §4.13).
 
 ### 4.10 Event loops and tasks
 
@@ -380,18 +381,27 @@ Memory is managed by bdwgc, the Boehm–Demers–Weiser collector (SPEC §4, D-0
 - **Tuning** (`pts_runtime_init` in `runtime.c`). A collection runs once the program has allocated as much as the heap holds (free-space divisor 1, D-060). The heap starts at 4 MiB (D-112), and marking runs on 2 threads (D-131). The environment variables `GC_FREE_SPACE_DIVISOR`, `GC_INITIAL_HEAP_SIZE` and `GC_MARKERS` override these.
 - **Planned.** SPEC §4 plans a precise collector, and later a generational one. The master plan puts an experiment with a precise collector after M7.
 
-### 4.13 Race safety
+### 4.13 Race safety: the shared-memory contract
 
-All threads share one heap, so a program can race on it. The runtime's guarantee (SPEC §4.1, D-L13, D-130) rests on the pieces described above:
+All threads share one heap, so a program can race on it. The guarantee (SPEC §4.1, D-L13, the owner's ruling 10 in `docs/agent/OWNER_ANSWERS.md`) is that a racy program may read stale values, but never a torn value, a crash or an out-of-bounds access. This is what that asks of the runtime's C and of the C the compiler emits (D-143). Any heap object can reach several threads: through a `parallel` closure's captures, a task's result, a `.par` callback, a module-scope binding or a `pts:sync` channel.
 
-- values are one word;
-- an array's capacity is in its buffer;
-- maps publish new tables instead of resizing in place;
-- strings are immutable;
-- inline caches pack the descriptor and offset into one word;
-- a typed array's elements may tear, but no access leaves the view.
+1. **Shared slots are one aligned word or less.** Every heap slot that another thread can read holds at most 8 bytes, aligned to its size: a `pts_value`, a pointer, a double, an integer or a bool. Nothing shared is a multi-word value. Pairs that must agree are kept safe by protocol instead: an array publishes a new buffer before the length that needs it, a map publishes a new table instead of resizing in place, and readers check every index against the buffer or table they loaded.
+2. **Atomic where it matters.** The runtime uses `__atomic` builtins (relaxed unless ordering is needed) for array lengths and buffers, array elements that may be holes, map tables, counts and entries, inline caches, string buffers' claims (compare-and-swap), typed arrays' elements and bulk copies, runtime iterators' positions, generators' claims, promises' `handled` flags, timers' and immediates' flags, the pool's deques, the loops' counters and `pts:sync`'s cells.
+3. **Plain one-word accesses elsewhere.** Generated code reads and writes object fields, captured cells, module-scope bindings and the elements of number and boolean arrays with plain C loads and stores. ISO C calls these data races (undefined behaviour). The contract relies instead on what clang emits for x86-64: an aligned load or store of up to 8 bytes is one instruction, which x86-64 performs atomically (Intel SDM vol. 3A, "Guaranteed Atomic Operations"), and LLVM doesn't split such an access or reload a heap word that the source reads once (it rematerializes only loads it knows are invariant). That is the machine-level guarantee Java and Go give racing programs. Relaxed atomics there would be ISO C, but would stop clang from merging, hoisting and vectorizing field and element reads in every program (D-143).
+4. **Read once, check, then use.** Code that checks a shared slot (an index against a length, a tag, a NULL, a state) reads it once into a local and uses only that local, with an atomic load where the slot is in rule 2's list. Reading a field again between the check and the use is a bug, even when each read is atomic: the array iterators over tuples and the map iterators did this until D-143.
+5. **No `memcpy` or `memmove` of numbers that other threads can read.** Those functions may copy in any order and size (`rep movsb`, unaligned vector moves), so they can tear a number that another thread is writing. Typed arrays copy with `copy_shared`, a `memmove` made of relaxed atomic accesses as wide as both addresses allow (the element's size, up to 8 bytes). Arrays copy element by element (D-130). `memcpy` is fine for memory that no other thread can reach yet (a new buffer before it is published) and for memory that never changes (strings' bytes).
+6. **Publication.** A new object is filled with plain stores and published by storing its pointer in a shared slot. x86-64 doesn't reorder a store with earlier stores, so a thread that loads the pointer sees the object filled (D-130). A port to another architecture needs release stores at the points of publication.
+7. **State that one thread owns.** What these rules don't make safe belongs to one thread, and other threads reach it by message (`pts_post`, `pts_post_call`) or claim it:
+   - a promise belongs to the loop that made it: only that loop settles it or changes its reactions (D-121). Another loop that adds a handler sets the promise's `handled` flag at once, sequentially consistent with the home loop's check for unhandled rejections, so a rejection that comes before that loop takes the message isn't reported (D-143);
+   - an async generator belongs to the loop that made it, which alone runs its queue of requests and its body. A request from another loop is a message, and its promise is made on the loop that asked (D-143);
+   - timers, immediates and HTTP connections belong to their loop (D-137, D-139);
+   - a sync generator's frame belongs to the thread that claimed it (`executing`, exchanged atomically once the program has threads, `pts_threaded`). A resume while it runs, from its own body or from another thread, throws `TypeError: Generator is already running`, so its body never runs on two threads (D-143);
+   - microtask queues, timer heaps and inboxes' internals are per loop, behind the inbox's mutex where other threads post.
+8. **Results handed back per thread.** Where another thread's call can overwrite a result in a shared object, the runtime returns it per thread: a resume's value goes through the thread's slot in `generator.c` (once the program has threads), and a map iterator's step works on a private copy of its place.
 
-The `pts/tests/stress/race_*` programs test the guarantee.
+What racing programs can see: lost updates (pushes, map entries, unsynchronized counters), stale values, a key twice in a map, an entry whose key and value come from two racing appends, a `RangeError` from an operation that another thread made impossible, and a shared generator's `TypeError` when two threads resume it at once (SPEC §4.1).
+
+How it is tested: the `pts/tests/stress/race_*` programs (run 100 times a night) race threads on every kind of shared object; ThreadSanitizer runs the pool's, the loops', `pts:sync`'s and the typed arrays' C tests (`typed_array_race_test.c` races element accesses and bulk copies, so TSan reports any access left plain); ASan and UBSan run every runtime unit test. TSan can't run whole programs that collect on several threads (bdwgc's signals), so rule 3's plain accesses rest on the argument above and the stress tests.
 
 ### 4.14 RegExp and the Unicode tables
 

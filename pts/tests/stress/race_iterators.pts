@@ -1,0 +1,75 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on iterators that threads share (D-143): a
+// generator's body runs on one thread at a time, so a resume while it runs elsewhere
+// throws TypeError instead of running its frame twice (the narrowed local below would
+// then be read as a string after another thread made it a number); runtime iterators over
+// tuples, arrays, maps and sets moved by several threads, while others change the maps,
+// read only what they iterate (an entry's key and value may come from racing appends to one
+// slot, D-130).
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+function* lengths(): Generator<number> {
+  let pending: string | number = "start";
+  for (;;) {
+    pending = "text";
+    yield 0;
+    if (typeof pending === "string") {
+      const length = pending.length;
+      pending = length;
+      yield length;
+    }
+  }
+}
+
+const ROUNDS = 100_000;
+const SHARED = 500;
+const generator = lengths();
+const tuple: [number, string, boolean] = [1, "two", true];
+const array = Array.from({ length: 64 }, (_, i) => i);
+const map = new Map<number, string>();
+const set = new Set<string>();
+for (let i = 0; i < 64; i++) {
+  map.set(i, `v${i}`);
+  set.add(`s${i}`);
+}
+const tupleIterators = Array.from({ length: SHARED }, () => tuple[Symbol.iterator]());
+const arrayIterators = Array.from({ length: SHARED }, () => array[Symbol.iterator]());
+const mapIterators = Array.from({ length: SHARED }, () => map.entries());
+const setIterators = Array.from({ length: SHARED }, () => set.values());
+const bad = new AtomicInt();
+const busy = new AtomicInt();
+
+function check(ok: boolean): void {
+  if (!ok) bad.add(1);
+}
+
+parallel for (const i of range(0, ROUNDS)) {
+  try {
+    const value = generator.next().value;
+    check(value === 0 || value === 4);
+  } catch (error: any) {
+    check(error instanceof TypeError && error.message === "Generator is already running");
+    busy.add(1);
+  }
+  const k = i % SHARED;
+  const element = tupleIterators[k].next();
+  check(element.done || element.value === 1 || element.value === "two" || element.value === true);
+  const item = arrayIterators[k].next();
+  check(item.done || (item.value >= 0 && item.value < 64));
+  const entry = mapIterators[k].next();
+  check(entry.done || (entry.value[0] >= 0 && entry.value[0] < 64 && entry.value[1].startsWith("v")));
+  const member = setIterators[k].next();
+  check(member.done || member.value.startsWith("s"));
+  if (i % 7 === 0) map.delete(i % 64);
+  if (i % 7 === 3) map.set(i % 64, `v${i % 64}`);
+  if (i % 11 === 0) set.delete(`s${i % 64}`);
+  if (i % 11 === 5) set.add(`s${i % 64}`);
+}
+
+console.log("values valid:", bad.load() === 0);
+console.log("generator resumed:", busy.load() < ROUNDS);
+
+// expect:
+// values valid: true
+// generator resumed: true

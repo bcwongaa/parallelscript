@@ -1,6 +1,7 @@
 #include "pts.h"
 
 #include "dynamic_internal.h"
+#include "scheduler_internal.h"
 
 /*
  * Generators (D-109): generated code compiles a generator function's body to a step
@@ -36,10 +37,42 @@ static pts_iterator *as_iterator(pts_value value) {
   return (pts_iterator *)pts_value_as_object(value);
 }
 
+/*
+ * The value this thread's last resume of an iterator gave, once threads run the program's
+ * code. Threads may share an iterator, and another thread's resume may replace its value
+ * before this thread reads it, so pts_iterator_value reads it from here (D-143).
+ * Uncollectable, so the collector sees it.
+ */
+typedef struct resumed {
+  const pts_iterator *iterator;
+  pts_value value;
+} resumed;
+
+static _Thread_local resumed *last_resumed;
+
+static void remember_value(const pts_iterator *it, pts_value value) {
+  if (last_resumed == NULL) {
+    last_resumed = GC_MALLOC_UNCOLLECTABLE(sizeof *last_resumed);
+    if (last_resumed == NULL) {
+      pts_panic("RangeError", "Out of memory allocating an iterator's value");
+    }
+  }
+  last_resumed->iterator = it;
+  last_resumed->value = value;
+}
+
+/* Sets an iterator's value, as this thread's resume of it gave it. */
+static void set_value(pts_iterator *it, pts_value value) {
+  it->value = value;
+  if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED)) {
+    remember_value(it, value);
+  }
+}
+
 /* finish ends a generator as return(value) does, reporting it done. */
 static bool finish(pts_iterator *generator, pts_value value) {
   generator->state = PTS_GENERATOR_DONE;
-  generator->value = value;
+  set_value(generator, value);
   return true;
 }
 
@@ -61,11 +94,13 @@ static const pts_type array_iterator_type = {
 
 static bool items_step(pts_iterator *it) {
   items_iterator *items = (items_iterator *)it;
-  if (it->state < 0 || (size_t)it->state >= pts_spread_length(items->items)) {
+  /* One load of the position: threads sharing the iterator may move it meanwhile, and a tuple's elements aren't bounds-checked (D-143). */
+  int32_t position = __atomic_load_n(&it->state, __ATOMIC_RELAXED);
+  if (position < 0 || (size_t)position >= pts_spread_length(items->items)) {
     return finish(it, PTS_VALUE_UNDEFINED);
   }
-  it->value = pts_spread_element(items->items, (size_t)it->state);
-  it->state++;
+  set_value(it, pts_spread_element(items->items, (size_t)position));
+  __atomic_store_n(&it->state, position + 1, __ATOMIC_RELAXED);
   return false;
 }
 
@@ -166,7 +201,7 @@ static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pt
     pts_string *shown = pts_value_to_string(result);
     pts_throw_new(&pts_type_builtin_TypeError, "Iterator result %.*s is not an object", (int)shown->byte_len, shown->bytes);
   }
-  it->header.value = pts_dynamic_get(result, pts_value_from_string(value));
+  set_value(&it->header, pts_dynamic_get(result, pts_value_from_string(value)));
   if (!pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done)))) {
     return false;
   }
@@ -227,24 +262,41 @@ static const pts_type set_iterator_type = {
     .size = sizeof(map_iterator),
 };
 
+/*
+ * Moves a map iterator one entry on, in a private copy of its place: threads sharing the
+ * iterator may move it meanwhile, so its table and position are each loaded once (every
+ * index then stays inside the table it reads) and stored back, and the entry is this
+ * step's own (D-143).
+ */
+static bool next_entry(map_iterator *iterator, pts_map_iterator *entry) {
+  entry->map = iterator->entries.map;
+  entry->table = __atomic_load_n(&iterator->entries.table, __ATOMIC_ACQUIRE);
+  entry->position = __atomic_load_n(&iterator->entries.position, __ATOMIC_RELAXED);
+  bool found = pts_map_next(entry);
+  __atomic_store_n(&iterator->entries.table, entry->table, __ATOMIC_RELEASE);
+  __atomic_store_n(&iterator->entries.position, entry->position, __ATOMIC_RELAXED);
+  return found;
+}
+
 static bool map_step(pts_iterator *it) {
   map_iterator *iterator = (map_iterator *)it;
-  if (it->state < 0 || !pts_map_next(&iterator->entries)) {
+  pts_map_iterator entry;
+  if (__atomic_load_n(&it->state, __ATOMIC_RELAXED) < 0 || !next_entry(iterator, &entry)) {
     return finish(it, PTS_VALUE_UNDEFINED);
   }
-  pts_map *map = iterator->entries.map;
-  pts_value key = pts_value_of_slot(map->type->key, &iterator->entries.key);
-  pts_value value = map->type->kind == PTS_KIND_SET ? key : pts_value_of_slot(map->type->element, &iterator->entries.value);
+  pts_map *map = entry.map;
+  pts_value key = pts_value_of_slot(map->type->key, &entry.key);
+  pts_value value = map->type->kind == PTS_KIND_SET ? key : pts_value_of_slot(map->type->element, &entry.value);
   switch (iterator->items) {
   case 0:
-    it->value = value;
+    set_value(it, value);
     break;
   case 1:
-    it->value = key;
+    set_value(it, key);
     break;
   default: {
     pts_value pair[] = {key, value};
-    it->value = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2));
+    set_value(it, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
   }
   }
   return false;
@@ -291,6 +343,52 @@ static bool resume_runtime_iterator(pts_iterator *it, pts_resume_mode mode, pts_
   return true;
 }
 
+/* Resumes a generator that this thread has claimed (pts_iterator_resume) and releases it, also when it throws. */
+static bool resume_claimed_generator(pts_iterator *generator, pts_resume_mode mode, pts_value sent) {
+  switch (generator->state) {
+  case PTS_GENERATOR_START:
+    if (mode == PTS_RESUME_NEXT) {
+      break;
+    }
+    /* fall through: a generator that hasn't started finishes without running */
+  case PTS_GENERATOR_DONE:
+    finish(generator, mode == PTS_RESUME_RETURN ? sent : PTS_VALUE_UNDEFINED);
+    __atomic_store_n(&generator->executing, false, __ATOMIC_RELEASE);
+    if (mode == PTS_RESUME_THROW) {
+      pts_throw(sent);
+    }
+    return true;
+  }
+  generator->mode = mode;
+  generator->sent = sent;
+  /* A marker on the chain of handlers: a throw out of the body finishes the generator and releases it. */
+  pts_handler marker;
+  marker.prev = pts_handlers;
+  marker.generator = generator;
+  pts_handlers = &marker;
+  bool done = generator->step(generator);
+  pts_handlers = marker.prev;
+  if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED)) {
+    remember_value(generator, generator->value);
+  }
+  __atomic_store_n(&generator->executing, false, __ATOMIC_RELEASE);
+  return done;
+}
+
+/*
+ * Claims a generator for this thread, false if it is running: one thread at a time runs a
+ * generator's body and owns its frame (D-143). The exchange is locked only once other
+ * threads may run the program's code.
+ */
+static bool claim(pts_iterator *generator) {
+  if (!__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED)) {
+    bool running = __atomic_load_n(&generator->executing, __ATOMIC_RELAXED);
+    __atomic_store_n(&generator->executing, true, __ATOMIC_RELAXED);
+    return !running;
+  }
+  return !__atomic_exchange_n(&generator->executing, true, __ATOMIC_ACQUIRE);
+}
+
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
   pts_iterator *generator = as_iterator(iterator);
   if (generator->type == &object_iterator_type) {
@@ -299,38 +397,19 @@ bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sen
   if (generator->type != &pts_type_builtin_Generator) {
     return resume_runtime_iterator(generator, mode, sent);
   }
-  switch (generator->state) {
-  case PTS_GENERATOR_RUNNING:
+  if (!claim(generator)) { /* resumed from its own body or while another thread runs it */
     pts_throw_new(&pts_type_builtin_TypeError, "Generator is already running");
-  case PTS_GENERATOR_START:
-    if (mode == PTS_RESUME_NEXT) {
-      break;
-    }
-    /* fall through: a generator that hasn't started finishes without running */
-  case PTS_GENERATOR_DONE:
-    switch (mode) {
-    case PTS_RESUME_NEXT:
-      return finish(generator, PTS_VALUE_UNDEFINED);
-    case PTS_RESUME_RETURN:
-      return finish(generator, sent);
-    case PTS_RESUME_THROW:
-      finish(generator, PTS_VALUE_UNDEFINED);
-      pts_throw(sent);
-    }
   }
-  generator->mode = mode;
-  generator->sent = sent;
-  /* A marker on the chain of handlers: a throw out of the body finishes the generator. */
-  pts_handler marker;
-  marker.prev = pts_handlers;
-  marker.generator = generator;
-  pts_handlers = &marker;
-  bool done = generator->step(generator);
-  pts_handlers = marker.prev;
-  return done;
+  return resume_claimed_generator(generator, mode, sent);
 }
 
-pts_value pts_iterator_value(pts_value iterator) { return as_iterator(iterator)->value; }
+pts_value pts_iterator_value(pts_value iterator) {
+  const pts_iterator *it = as_iterator(iterator);
+  if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED) && last_resumed != NULL && last_resumed->iterator == it) {
+    return last_resumed->value;
+  }
+  return it->value;
+}
 
 void pts_iterator_close(pts_value iterator) {
   pts_iterator *generator = as_iterator(iterator);

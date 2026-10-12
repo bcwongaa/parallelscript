@@ -20,6 +20,8 @@
  * settling a promise of another loop, or adding a reaction to one, is a message to its
  * home, and a reaction of another loop is a message to its owner. Each promise thus
  * changes on one thread only, and an async function resumes on the loop it started on.
+ * An async generator belongs to the loop that made it in the same way: requests from
+ * other loops are messages to it, so its queue and body run on that loop (D-143).
  */
 
 enum { PENDING, FULFILLED, REJECTED };
@@ -29,7 +31,7 @@ struct pts_reaction;
 struct pts_promise {
   const pts_type *type;
   int32_t state;
-  bool handled;  /* [[PromiseIsHandled]]: a reaction was ever added */
+  bool handled;  /* [[PromiseIsHandled]]: a reaction was ever added; other loops set it atomically (D-143) */
   uint16_t home; /* the loop it settles on */
   pts_value result;
   struct pts_reaction *first, *last; /* while pending, in the order they were added */
@@ -178,7 +180,7 @@ static void settle(pts_promise *promise, int32_t state, pts_value result) {
   promise->state = state;
   promise->result = result;
   promise->first = promise->last = NULL;
-  if (state == REJECTED && !promise->handled) {
+  if (state == REJECTED && !__atomic_load_n(&promise->handled, __ATOMIC_RELAXED)) {
     microtasks *q = current();
     rejection *noted = allocate(sizeof *noted);
     noted->promise = promise;
@@ -248,13 +250,19 @@ static void add_reaction(pts_promise *promise, reaction *r) {
     enqueue_reaction(r, promise->state, promise->result);
     break;
   }
-  promise->handled = true;
+  __atomic_store_n(&promise->handled, true, __ATOMIC_RELAXED);
 }
 
 /* PerformPromiseThen: r runs on this loop when promise settles, or soon if it has. */
 static void perform_then(pts_promise *promise, reaction *r) {
   r->owner = pts_current_loop & ~PTS_LOOP_FOREIGN;
   if (promise->home != pts_current_loop) {
+    /*
+     * Handled from now on, not from when its loop takes the message: if that loop rejects
+     * it meanwhile, its check for unhandled rejections (sequentially consistent with this
+     * store) sees the handler this call adds, as a single loop would (D-143).
+     */
+    __atomic_store_n(&promise->handled, true, __ATOMIC_SEQ_CST);
     post(promise->home, THEN, promise, r, 0, PTS_VALUE_UNDEFINED);
     return;
   }
@@ -484,7 +492,7 @@ static void run_thenable(reaction *job) {
 /* An unhandled rejection ends the program as an uncaught exception does, after the microtasks that might have handled it ran. */
 static void check_rejections(microtasks *q) {
   for (rejection *noted = q->rejections; noted != NULL; noted = noted->next) {
-    if (!noted->promise->handled) {
+    if (!__atomic_load_n(&noted->promise->handled, __ATOMIC_SEQ_CST)) {
       pts_report_uncaught(noted->promise->result);
     }
   }
@@ -875,9 +883,10 @@ void pts_check_top_level(pts_value promise) {
 
 typedef struct pts_request {
   struct pts_request *next;
+  pts_iterator *generator;
   pts_resume_mode mode;
   pts_value value;
-  pts_promise *promise;
+  pts_promise *promise; /* made on the loop that asked, which awaits it */
 } request;
 
 static const pts_type async_generator_type = {
@@ -900,6 +909,7 @@ static pts_value iterator_result(pts_value value, bool done) {
 
 pts_value pts_async_generator_new(pts_iterator *it) {
   it->type = &async_generator_type;
+  it->home = pts_current_loop & ~PTS_LOOP_FOREIGN;
   return pts_value_from_object(it);
 }
 
@@ -948,6 +958,18 @@ static void async_generator_step(pts_iterator *g, pts_resume_mode mode, pts_valu
   complete_request(g, false, g->value, done);
   async_generator_drain(g);
 }
+
+/* AsyncGeneratorEnqueue on the generator's loop: the request joins its queue, which is served if the body isn't running. */
+static void queue_request(request *r) {
+  request **last = &r->generator->requests;
+  while (*last != NULL) {
+    last = &(*last)->next;
+  }
+  *last = r;
+  async_generator_drain(r->generator);
+}
+
+static void queue_request_call(void *r) { queue_request(r); }
 
 /* AsyncGeneratorDrainQueue and AsyncGeneratorResumeNext: serves the queued requests while the body isn't running. */
 static void async_generator_drain(pts_iterator *g) {
@@ -1029,17 +1051,16 @@ pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
 
 pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
   if (is_async_generator(iterator)) {
-    pts_iterator *g = (pts_iterator *)pts_value_as_object(iterator);
     request *r = allocate(sizeof *r);
+    r->generator = (pts_iterator *)pts_value_as_object(iterator);
     r->mode = mode;
     r->value = sent;
     r->promise = new_promise();
-    request **last = &g->requests;
-    while (*last != NULL) {
-      last = &(*last)->next;
+    if (r->generator->home != pts_current_loop) { /* its queue and body belong to its loop, which takes the request in order (D-143) */
+      pts_post_call(r->generator->home, queue_request_call, r);
+    } else {
+      queue_request(r);
     }
-    *last = r;
-    async_generator_drain(g);
     return pts_value_from_object(r->promise);
   }
   if (pts_value_is_object(iterator) && pts_value_as_object(iterator)->type == &from_sync_type) {

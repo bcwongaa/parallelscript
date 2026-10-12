@@ -24,6 +24,13 @@ typedef struct pts_message {
 extern _Thread_local uint16_t pts_current_loop;
 enum { PTS_LOOP_FOREIGN = 0x8000 };
 
+/*
+ * Set before a second thread may run the program's code (the loops, D-121; the pool,
+ * D-122). Until then, state that threads could share needs no locked instructions; a
+ * thread that reads it false is the only one running the program (D-143).
+ */
+extern bool pts_threaded;
+
 /* PTS_THREADS if it is a positive number (at most 256), else the number of cores the process may run on. */
 unsigned pts_configured_threads(void);
 

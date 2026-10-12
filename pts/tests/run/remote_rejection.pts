@@ -1,0 +1,30 @@
+// A promise of this loop awaited on another loop, and rejected here in the same macrotask
+// as the other loop's await (D-143): the handler counts from the await, not from when
+// this loop takes the other loop's message, so the rejection isn't unhandled (D-121's
+// known gap: the program ended with exit code 1).
+// threads: 2 4
+import { AtomicInt } from "pts:sync";
+
+const awaiting = new AtomicInt();
+const { promise, reject } = Promise.withResolvers<number>();
+
+async function awaitRemotely(): Promise<string> {
+  awaiting.store(1);
+  try {
+    await promise;
+    return "fulfilled";
+  } catch (error: any) {
+    return `caught ${error.message}`;
+  }
+}
+
+const outcome = parallel awaitRemotely();
+
+while (awaiting.load() === 0) {}
+const until = performance.now() + 20; // the other loop's await posts its handler meanwhile
+while (performance.now() < until) {}
+reject(new Error("late"));
+console.log(await outcome);
+
+// expect:
+// caught late

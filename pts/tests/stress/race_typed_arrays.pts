@@ -28,6 +28,10 @@ parallel for (const i of range(0, ROUNDS)) {
   if (i % 211 === 0) bytes.set([1, 2, 3, 4], at % (SIZE - 4));
   if (i % 307 === 0) ints.subarray(at % 512, (at % 512) + 128).sort();
   if (i % 401 === 0) bytes.copyWithin(0, SIZE / 2);
+  // Bulk copies of doubles are word-wise relaxed atomics, never torn (D-143).
+  if (i % 503 === 0) floats.copyWithin(at % 512, 512, 768);
+  if (i % 607 === 0) floats.set(floats.subarray(at % 256, (at % 256) + 64), 512 + (at % 256));
+  if (i % 709 === 0) check(new Float64Array(floats.buffer.slice(8 * (at % 64), 8 * (at % 64) + 512)).every((x) => DOUBLES.includes(x)));
   check(DOUBLES.includes(floats[(i * 17) % SIZE]));
   check(bytes[(i * 13) % SIZE] <= 255);
   check(ints[(i * 7) % SIZE] <= 0);
