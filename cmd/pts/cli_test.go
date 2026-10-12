@@ -147,6 +147,43 @@ func TestHelpPrintsUsageToStdout(t *testing.T) {
 	assert.Equal(t, got, result{code: 0, stdout: usage})
 }
 
+func TestEachCommandHasItsOwnHelp(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"help", "build"}, {"build", "--help"}, {"build", "a.pts", "-h"}} {
+		assert.Equal(t, runIn(t, t.TempDir(), args...), result{code: 0, stdout: commandUsage["build"]})
+	}
+	assert.Equal(t, runIn(t, t.TempDir(), "run", "--help"), result{code: 0, stdout: commandUsage["run"]})
+	for command := range commandUsage {
+		assert.Assert(t, strings.Contains(usage, "\n  "+command+" "), "pts's usage doesn't list %s", command)
+	}
+}
+
+// After `run`'s source file, --help is the program's argument.
+func TestHelpAfterRunsFileGoesToTheProgram(t *testing.T) {
+	t.Parallel()
+	dir := projectWith(t, map[string]string{"args.pts": "console.log(process.argv.slice(2));\n"})
+	got := runIn(t, dir, "run", "args.pts", "--help")
+	assert.Equal(t, got.code, 0, got.stderr)
+	assert.Equal(t, got.stdout, "[ '--help' ]\n")
+}
+
+func TestUsageErrorsShowTheirCommandsUsage(t *testing.T) {
+	t.Parallel()
+	got := runIn(t, t.TempDir(), "emit-c")
+	assert.Equal(t, got, result{code: exitUsage, stderr: "pts: emit-c needs exactly one source file\n\n" + commandUsage["emit-c"]})
+	got = runIn(t, t.TempDir(), "help", "frob")
+	assert.Equal(t, got, result{code: exitUsage, stderr: "pts: no help for \"frob\"\n\n" + commandUsage["help"]})
+}
+
+func TestVersionNamesPtsAndTypeScriptGo(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		got := runIn(t, t.TempDir(), args...)
+		assert.Equal(t, got.code, 0)
+		assert.Assert(t, strings.HasPrefix(got.stdout, "pts "+version+" (") && strings.HasSuffix(got.stdout, "typescript-go 7.0.2)\n"), got.stdout)
+	}
+}
+
 func TestBinaryRunsProgramsAndFailsOnCompileErrors(t *testing.T) {
 	t.Parallel()
 	pts := filepath.Join(t.TempDir(), "pts")

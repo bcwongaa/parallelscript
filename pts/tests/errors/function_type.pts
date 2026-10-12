@@ -1,0 +1,10 @@
+// The type `Function` is not supported yet; its message suggests a function type, where
+// `new Function` is left out by design (unsupported_by_design.pts).
+let callback: Function = () => 1;
+function apply(f: Function): unknown {
+  return f;
+}
+console.log(callback, apply);
+
+// error: function_type.pts:3:15 - error PTS1001: the type `Function` is not supported yet; use a function type, such as `(...args: any[]) => unknown`
+// error: function_type.pts:4:19 - error PTS1001: the type `Function` is not supported yet; use a function type

@@ -7,6 +7,7 @@ package check
 import (
 	"context"
 	"math/big"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
@@ -477,6 +478,10 @@ func (c *pass) literal(literal *ast.Node, at *ast.Node, negated bool, expected *
 		c.report(at, diagnostic.NumericLiteral, "%s is not an integer, so it can't be a %s; write `as %s` to convert it", scanner.GetTextOfNode(literal), *expected, *expected)
 		return *expected
 	}
+	if text := scanner.GetTextOfNode(literal); hasDecimalPoint(text) {
+		c.reportDecimalPoint(at, text, value, *expected)
+		return *expected
+	}
 	if negated {
 		value.Neg(value)
 	}
@@ -484,6 +489,29 @@ func (c *pass) literal(literal *ast.Node, at *ast.Node, negated bool, expected *
 		c.report(at, diagnostic.NumericLiteral, "%s doesn't fit in %s (%d to %d)", value, *expected, expected.Min(), expected.Max())
 	}
 	return *expected
+}
+
+// hasDecimalPoint reports whether a numeric literal's text is a decimal with a point, such as `2.0`.
+func hasDecimalPoint(text string) bool {
+	return strings.Contains(text, ".") && !strings.HasPrefix(text, "0x") && !strings.HasPrefix(text, "0X")
+}
+
+// reportDecimalPoint reports a literal written with a decimal point that its context makes
+// an integer: `seven / 2.0` with `seven: int` would divide as integers (D-170).
+func (c *pass) reportDecimalPoint(at *ast.Node, text string, value *big.Int, expected Numeric) {
+	if parent := ast.WalkUpParenthesizedExpressions(at.Parent); parent != nil && ast.IsBinaryExpression(parent) && numeric.IsArithmetic(parent.AsBinaryExpression().OperatorToken.Kind) {
+		c.report(at, diagnostic.NumericLiteral, "%s has a decimal point, but the other operand makes it %s here, so the arithmetic is %s arithmetic: write %s for that, or convert the other operand with `as number` for number arithmetic", text, withArticle(expected), expected, value)
+		return
+	}
+	c.report(at, diagnostic.NumericLiteral, "%s has a decimal point, so it can't be %s; write %s", text, withArticle(expected), value)
+}
+
+// withArticle is "an int", "a u8", ….
+func withArticle(n Numeric) string {
+	if name := n.String(); name[0] == 'u' {
+		return "a " + name
+	}
+	return "an " + n.String()
 }
 
 // operands types a binary operator on numbers and records the type its operands

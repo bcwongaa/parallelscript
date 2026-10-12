@@ -214,3 +214,28 @@ func tokenStarts(data []uint32) []lsproto.Position {
 	}
 	return starts
 }
+
+// A tsc error that ParallelScript's features lead to gets ParallelScript's hint, as
+// information at the error's range (D-170).
+func TestTscErrorsGetParallelScriptsHints(t *testing.T) {
+	t.Parallel()
+	main := dir + "/main.pts"
+	client := startServer(t, map[string]string{main: "const total = [1, 2].par.map((x) => x * 2).sum();\n"})
+	_, report, ok := lsptestutil.SendRequest(t, client, lsproto.TextDocumentDiagnosticInfo, &lsproto.DocumentDiagnosticParams{
+		TextDocument: lsproto.TextDocumentIdentifier{Uri: uriOf(main)},
+	})
+	assert.Assert(t, ok && report.FullDocumentDiagnosticReport != nil)
+	var tscError, hint *lsproto.Diagnostic
+	for _, d := range report.FullDocumentDiagnosticReport.Items {
+		switch {
+		case d.Severity != nil && *d.Severity == lsproto.DiagnosticSeverityError:
+			tscError = d
+		case d.Source != nil && *d.Source == "pts":
+			hint = d
+		}
+	}
+	assert.Assert(t, tscError != nil && hint != nil, "%v", report.FullDocumentDiagnosticReport.Items)
+	assert.Equal(t, *hint.Severity, lsproto.DiagnosticSeverityInformation)
+	assert.DeepEqual(t, hint.Range, tscError.Range)
+	assert.Equal(t, *hint.Message.String, "`.par.map` returns an array, whose parallel methods are on `.par` again: `.par.map(…).par.sum()`.")
+}

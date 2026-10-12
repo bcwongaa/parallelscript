@@ -217,14 +217,18 @@ func CompilerOptions() *core.CompilerOptions {
 	}
 }
 
-// errorsOf collects the program's errors the way tsc does: semantic errors only
-// when there are no syntax errors.
+// errorsOf collects the program's errors the way tsc does, semantic errors only when
+// there are no syntax errors, each with ParallelScript's hint if it has one.
 func errorsOf(ctx context.Context, ts *compiler.Program) []diagnostic.Diagnostic {
 	all := compiler.GetDiagnosticsOfAnyProgram(ctx, ts, nil, true, ts.GetBindDiagnostics, ts.GetSemanticDiagnostics)
 	var result []diagnostic.Diagnostic
 	for _, d := range compiler.SortAndDeduplicateDiagnostics(all) {
 		if d.Category() == diagnostics.CategoryError {
-			result = append(result, diagnostic.FromTS(d))
+			converted := diagnostic.FromTS(d)
+			if hint := Hint(ctx, ts, d); hint != "" {
+				converted.Message += "\n  " + hint
+			}
+			result = append(result, converted)
 		}
 	}
 	return result

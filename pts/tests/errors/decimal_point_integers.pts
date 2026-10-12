@@ -1,0 +1,12 @@
+// A literal written with a decimal point doesn't silently become an integer (D-170):
+// `seven / 2.0` with `seven: int` would divide as integers and print 3.
+const seven: int = 7;
+console.log(seven / 2.0);
+const two: int = 2.0;
+const three: u8 = (3.0);
+const fine: int = 1e3;
+console.log(two, three, fine, seven / 2, 7 / 2.0);
+
+// error: decimal_point_integers.pts:4:21 - error PTS2002: 2.0 has a decimal point, but the other operand makes it an int here, so the arithmetic is int arithmetic: write 2 for that, or convert the other operand with `as number` for number arithmetic
+// error: decimal_point_integers.pts:5:18 - error PTS2002: 2.0 has a decimal point, so it can't be an int; write 2
+// error: decimal_point_integers.pts:6:20 - error PTS2002: 3.0 has a decimal point, so it can't be a u8; write 3

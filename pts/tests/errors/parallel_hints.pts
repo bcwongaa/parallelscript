@@ -1,0 +1,18 @@
+// tsc's errors that ParallelScript's features lead to come with a hint (D-170): `.par`'s
+// methods called on arrays, and a call after `parallel (…)`.
+import { range } from "pts:parallel";
+
+const evens = range(0, 100).par.filter((n) => n % 2 === 0).count();
+const total = [1, 2, 3].par.map((x) => x * 2).sum();
+const biggest = new Uint8Array(4).max();
+const answer = await parallel (async () => 42)();
+console.log(evens, total, biggest, answer);
+
+// error: parallel_hints.pts:5:60 - error TS2339: Property 'count' does not exist on type 'number[]'.
+// error:   `.par.filter` returns an array: count in parallel with `.par.count(predicate)` instead of filtering, or take the array's `.length`.
+// error: parallel_hints.pts:6:47 - error TS2339: Property 'sum' does not exist on type 'number[]'.
+// error:   `.par.map` returns an array, whose parallel methods are on `.par` again: `.par.map(…).par.sum()`.
+// error: parallel_hints.pts:7:35 - error TS2339: Property 'max' does not exist on type 'Uint8Array<ArrayBuffer>'.
+// error:   Arrays have no `max`; their parallel view has: `.par.max()`.
+// error: parallel_hints.pts:8:22 - error TS2349: This expression is not callable.
+// error:   A `(` right after `parallel` starts a call of `parallel`, so the `(…)` after it calls the promise that call returns. To run the call as a task, put it inside the parentheses, `parallel((async () => { … })())`, or name the function and write `parallel f()`.

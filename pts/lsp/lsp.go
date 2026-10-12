@@ -89,12 +89,16 @@ func programCommandLine(commandLine *tsoptions.ParsedCommandLine, currentDirecto
 	})
 }
 
-// ptsDiagnostics are ParallelScript's own diagnostics of file (pts/check): the numeric
-// rules, the guardrail and the features left out. They are computed only when file and
-// the modules it imports have no tsc errors, as the compiler checks only such programs.
+// ptsDiagnostics are ParallelScript's own diagnostics of file: hints on its tsc errors
+// (frontend.Hint) when it has any, else ParallelScript's checks (pts/check: the numeric
+// rules, the guardrail and the features left out), computed only when the modules file
+// imports have no tsc errors either, as the compiler checks only such programs.
 func ptsDiagnostics(ctx context.Context, program *compiler.Program, file *ast.SourceFile, converters *lsconv.Converters) (result []*lsproto.Diagnostic) {
 	if file.IsDeclarationFile || lib.IsLibPath(file.FileName()) {
 		return nil
+	}
+	if tscErrors := errorsOf(ctx, program, file); len(tscErrors) > 0 {
+		return hints(ctx, program, file, converters, tscErrors)
 	}
 	ptsProgram := frontend.Of(program, file)
 	for _, module := range ptsProgram.Modules {
@@ -126,9 +130,30 @@ func ptsDiagnostics(ctx context.Context, program *compiler.Program, file *ast.So
 
 // hasErrors reports whether tsc finds an error in file.
 func hasErrors(ctx context.Context, program *compiler.Program, file *ast.SourceFile) bool {
+	return len(errorsOf(ctx, program, file)) > 0
+}
+
+// errorsOf are tsc's errors in file.
+func errorsOf(ctx context.Context, program *compiler.Program, file *ast.SourceFile) []*ast.Diagnostic {
 	isError := func(d *ast.Diagnostic) bool { return d.Category() == diagnostics.CategoryError }
-	return slices.ContainsFunc(program.GetSyntacticDiagnostics(ctx, file), isError) ||
-		slices.ContainsFunc(program.GetSemanticDiagnostics(ctx, file), isError)
+	all := slices.Concat(program.GetSyntacticDiagnostics(ctx, file), program.GetSemanticDiagnostics(ctx, file))
+	return slices.DeleteFunc(all, func(d *ast.Diagnostic) bool { return !isError(d) })
+}
+
+// hints are ParallelScript's hints on tsc's errors in file, as information at each error's range.
+func hints(ctx context.Context, program *compiler.Program, file *ast.SourceFile, converters *lsconv.Converters, tscErrors []*ast.Diagnostic) []*lsproto.Diagnostic {
+	var result []*lsproto.Diagnostic
+	for _, d := range tscErrors {
+		if hint := frontend.Hint(ctx, program, d); hint != "" {
+			result = append(result, &lsproto.Diagnostic{
+				Range:    converters.ToLSPRange(file, core.NewTextRange(d.Pos(), d.End())),
+				Severity: new(lsproto.DiagnosticSeverityInformation),
+				Source:   new("pts"),
+				Message:  lsproto.StringOrMarkupContent{String: &hint},
+			})
+		}
+	}
+	return result
 }
 
 // internalError is a diagnostic at the start of file saying that ParallelScript's checks failed.

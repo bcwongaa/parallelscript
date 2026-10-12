@@ -300,7 +300,7 @@ The rules:
 - **Only lossless conversions are implicit.** Any integer type converts to `number` (an `int` beyond 2^53 rounds, as any `number` does). A smaller integer type converts to a larger one of compatible sign, such as `u8` to `int` or `i8` to `i32`, and an unsigned type converts to a wider signed one. Anything else needs `as`.
 - **`as` converts the value, by Rust's rules.** From `number` (or a plain literal), it truncates toward zero, saturates at the type's limits, and turns `NaN` into 0. Between integer types it wraps, keeping the low bits.
 - **Arithmetic stays in the type and wraps on overflow.** `/` is integer division and truncates, `%` takes the sign of the dividend, and dividing by zero throws `RangeError: Division by zero`. An integer `**` with a negative exponent throws `RangeError` too.
-- **An integer that meets a `number` gives a `number`.** `seven * 1.5` and `seven * ratio`, with `ratio: number`, are `number`s. But an integer literal takes the other operand's type, and `2.0` is an integer literal, so `seven / 2.0` divides as integers. Convert first: `(seven as number) / 2`.
+- **An integer that meets a `number` gives a `number`.** `seven * 1.5` and `seven * ratio`, with `ratio: number`, are `number`s. But an integer literal takes the other operand's type, so to divide as numbers, convert first: `(seven as number) / 2`. A literal with a decimal point can't be an integer, so `seven / 2.0` is a compile error rather than integer division.
 - **Two integer types meet as the wider one.** If neither converts to the other without loss, as with `int` and `u64`, it is a compile error.
 - **Bitwise operators work on the type's own bits.** `>>` is arithmetic on signed types and logical on unsigned ones, and `<<` drops the bits that overflow.
 - `typeof` gives `"number"` for all of them, and `console.log` prints 64-bit values exactly.
@@ -321,10 +321,10 @@ console.log(seven / 2, -seven / 2, -seven % 3);
 const limit: i32 = 2147483647;
 console.log(limit + 1);
 
-// Mixing an integer with a fraction or a `number` gives a `number`. A literal like 2.0
-// is the integer 2, so convert first to divide as numbers.
+// Mixing an integer with a fraction or a `number` gives a `number`. A literal with a
+// decimal point, like 2.0, can't be an integer, so convert first to divide as numbers.
 const ratio = 2.5;
-console.log(seven * 1.5, seven * ratio, seven / 2.0, (seven as number) / 2, typeof seven);
+console.log(seven * 1.5, seven * ratio, (seven as number) / 2, typeof seven);
 
 // Lossless conversions are implicit; lossy ones need `as`.
 const wide: i64 = level;
@@ -371,7 +371,7 @@ Output:
 44 144
 3 -3 -1
 -2147483648
-10.5 17.5 3 3.5 number
+10.5 17.5 3.5 number
 200 7 19 -19
 255 0 0 32767
 44 44
@@ -414,6 +414,8 @@ guide_integer_errors.pts:10:20 - error PTS2002: 2.5 is not an integer, so it can
 guide_integer_errors.pts:11:28 - error PTS2002: -3 doesn't fit in u8 (0 to 255)
 guide_integer_errors.pts:14:13 - error PTS2003: `+` can't mix int and u64, because neither converts to the other without loss; convert one with `as`
 ```
+
+A literal written with a decimal point is never an integer, so `seven / 2.0` with `seven: int`, which would divide as integers and give 3, is PTS2002 too: write `seven / 2` for integer division, or `(seven as number) / 2` for 3.5. Exponents are fine: `const n: int = 1e6`.
 
 The PTS2001 messages say what to write: `price as int` truncates 19.99 to 19, and `big as i32` wraps.
 
@@ -511,6 +513,7 @@ caught SyntaxError
 - A task shares the heap: it sees the variables it captures, and its writes to objects are there once it is done. Nothing is copied.
 - A throw in the task, synchronous or not, rejects the promise. A task that nobody awaits still runs to the end, and the program waits for it.
 - `parallel` binds like `await`: `parallel f(x) + 1` is `(parallel f(x)) + 1`. You can also write `parallel(e)`, unless something named `parallel` is in scope.
+- Because `parallel(` starts that call form, `parallel (async () => { … })()` calls the promise `parallel (…)` returns, a type error whose hint says so. Put the whole call inside the parentheses, `parallel((async () => { … })())`, or name the function: `parallel work()`.
 - `parallel` is a keyword only in `parallel e` and `parallel for`. Elsewhere it is an ordinary name, so code with a variable called `parallel` still compiles.
 - The operand can't contain `await` or `yield` yet. Await first, as the last lines of the sample do, or pass an async function's call.
 - The operand may be any expression, a function too: `await parallel async () => …` gives the function the task made. To run a function in a task, pass its call: `parallel work()`.
@@ -611,6 +614,7 @@ Float64Array(3) [ 1, 3, 5 ] 5050
 ```
 
 - `reduce` isn't Array's `reduce`. Its function combines two elements, or two partial results, in any grouping, so the result has the element type. To fold into another type, `map` first.
+- `map`, `filter` and `flatMap` give arrays, so their parallel methods are on `.par` again: `xs.par.map(f).par.sum()`. To count matches, `xs.par.count(predicate)` skips building the filtered array. Calling a view's method on an array (`xs.par.filter(f).count()`, `xs.sum()`) is tsc's "Property 'count' does not exist", with a hint saying this.
 - On a typed array, `map` and `filter` give a typed array of the same kind, and `toArray()` gives a `number[]`.
 - A throw in a callback is rethrown once the operation is done.
 - Callbacks run on pool threads. Promise work they start (`then` handlers, `queueMicrotask`) runs on the calling loop once the operation returns. A timer, `pts:fs/promises` I/O or a server started from a callback on a pool thread throws `Error: Timers and asynchronous I/O can't be started from a parallel operation's callback yet`. Start such work in a `parallel` task instead. `fetch` works there (its request runs on the loop that started the operation), and so do `parallel`, clearing a timer and `pts:fs`'s synchronous functions.
@@ -1167,7 +1171,7 @@ true 8 80 137 80 78 71 13 10 26 10
 
 ## Common compile errors
 
-Errors print one per line, as `file:line:col - error CODE: message`, and stop the build. They come in rounds: syntax errors first, then tsc's type errors, then ParallelScript's own rules, then what isn't supported yet. Fixing one round can bring up the next.
+Errors print one per line, as `file:line:col - error CODE: message`, and stop the build. Some of tsc's errors that ParallelScript's features lead to have a hint on the next line, saying what to write instead; the editor shows it as information at the same place. They come in rounds: syntax errors first, then tsc's type errors, then ParallelScript's own rules, then what isn't supported yet. Fixing one round can bring up the next.
 
 | Code | Meaning |
 |---|---|

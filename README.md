@@ -90,6 +90,7 @@ The commands (`pts help`):
 | `pts build file.pts [-o out]` | Compile to a native executable (by default named after the file). It links statically against the runtime and needs only libc and libm. |
 | `pts run file.pts [args...]` | Compile and run; the arguments after the file go to the program. |
 | `pts emit-c file.pts [-o file.c]` | Print the generated C, which carries `#line` directives back to the `.pts` source, so gdb and crash backtraces show `.pts` lines. |
+| `pts help [command]`, `pts version` | The usage, or a command's (also `pts <command> --help`); the version and the commit it was built from |
 | `pts lsp [--stdio]` | The language server, for any editor that speaks the Language Server Protocol: TypeScript's own completions, hovers, definitions and errors for `.pts` files, with ParallelScript's prelude and `pts:` modules, plus ParallelScript's errors (numeric rules, the guardrail). |
 
 **In VS Code:** build the extension and install it, then put `pts` on PATH or set `parallelscript.server.path` to the absolute path of `pts-bin/pts` (details in [pts/editors/vscode/README.md](pts/editors/vscode/README.md)):

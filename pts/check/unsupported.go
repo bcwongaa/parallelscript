@@ -69,6 +69,8 @@ func (c *pass) unsupportedIdentifier(node *ast.Node) {
 	case symbol == nil:
 	case node.Text() == "arguments" && len(symbol.Declarations) == 0:
 		c.report(node, diagnostic.Unsupported, "`arguments` is not supported; use a rest parameter (`...args`)")
+	case node.Text() == "Function" && ast.IsPartOfTypeNode(node) && c.isGlobal(symbol):
+		c.report(node, diagnostic.NotSupportedYet, "the type `Function` is not supported yet; use a function type, such as `(...args: any[]) => unknown`")
 	case unsupportedGlobals[node.Text()] != "" && c.isGlobal(symbol):
 		c.report(node, diagnostic.Unsupported, "%s", unsupportedGlobals[node.Text()])
 	case node.Text() == "Symbol" && c.isGlobal(symbol) && !isSupportedSymbolMember(node):

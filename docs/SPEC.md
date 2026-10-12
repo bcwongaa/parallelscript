@@ -65,7 +65,8 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 | `pts build file.pts [-o out]` | Build a native binary (default output: the file's base name, without `.pts`) |
 | `pts run file.pts [args…]` | Build and run; arguments after the file go to the program |
 | `pts emit-c file.pts [-o file.c]` | Print the generated C (or write it to a file), for debugging |
-| `pts help` | Show the usage |
+| `pts help [command]` | Show the usage, or a command's (as does `pts <command> --help`; D-170) |
+| `pts version` | Print the version, the commit it was built from and typescript-go's version |
 | `pts test` | Test runner (planned, M7.3) |
 | `pts lsp [--stdio]` | The language server, over stdin and stdout, for editors (D-168): typescript-go's own server, whose programs are the compiler's (its fixed options, the prelude, the `pts:` modules), with ParallelScript's checks (the numeric rules, the guardrail, the features left out) reported as diagnostics with `pts` as their source after tsc's, once a file and its imports have no tsc errors. Definitions in the library have `ptslib:///` URIs, whose text clients get through LSP 3.18's `workspace/textDocumentContent` (D-169). |
 
@@ -77,7 +78,7 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 | PTS1001 | Valid TypeScript the compiler can't lower yet ("… is not supported yet") |
 | PTS1002 | A feature left out by design, with the reason (§3.10) |
 | PTS2001 | A lossy implicit numeric conversion (§3.2) |
-| PTS2002 | A literal that doesn't fit its numeric type, or isn't an integer |
+| PTS2002 | A literal that doesn't fit its numeric type, isn't an integer, or has a decimal point where an integer type is expected (D-170) |
 | PTS2003 | Two integer types with no lossless common type |
 | PTS3001 | The guardrail: an outer variable assigned in a parallel body (§5.6) |
 | PTS3002 | What a `parallel for` can't hold (§5.5) |
@@ -113,6 +114,7 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 - **Literals take their type from context.** `const x: u8 = 200` is fine; `const y = 5` is `number`, as in TS. So does an array literal's element or an argument (`bytes.push(7)` for `bytes: u8[]`); without a context a literal is a `number`, so `[byte, 1]` is a `number[]`.
   - An integer literal is checked exactly against its type's range, from its source text, so a 64-bit value keeps every digit (`const b: u8 = 256` is PTS2002, D-012).
   - A literal with a fraction next to an integer operand makes the operation a `number` (`n * 1.5`).
+  - A literal written with a decimal point is never an integer: where its context makes it one, it is PTS2002 (`seven / 2.0` with `seven: int` would divide as integers; `const x: int = 2.0`), whose message says to write `2`, or to convert the other operand with `as number` (D-170). Exponents are fine: `const n: int = 1e6`.
   - Constant expressions are evaluated at run time, so they wrap rather than fail to compile: `const b: u8 = 200 + 56` is 0. A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Implicit conversions are lossless only.**
   - Allowed implicitly: any integer type and `f32` to `number`; a smaller integer type to a larger one of the same signedness; an unsigned type to a strictly larger signed one (`u8` to `i16`). Not an integer type to `f32`, nor a signed type to an unsigned one (PTS2001).
@@ -1500,4 +1502,12 @@ Known divergence from the brief (D-153, ruling 5 of `docs/agent/OWNER_ANSWERS.md
 - **Grammar:** `scripts/grammar.mjs` makes `syntaxes/ParallelScript.tmLanguage.json` (git-ignored, built by `npm run grammar`) from `syntaxes/TypeScript.tmLanguage.json` (VS Code 1.141.0's, converted from TypeScript-TmLanguage 48f6086): `.ts` scope suffixes become `.pts`; the repository rule `parallel-keyword` (two matches scoped `keyword.control.parallel.pts`: `parallel` before `for`, and `parallel` before an operand's first character, `[_$[:alpha:]]`, a digit, `.` and a digit, a quote, `{` or `~`, unless the word is `as`, `satisfies`, `of`, `in`, `instanceof` or `for`; both on the same line, not after `.` or inside a longer name) is included first in `statements` and `expressionWithoutIdentifiers`.
 - **Server** (upstream edits, `docs/FORK.md`): `workspace/textDocumentContent` answers for `lsp.ContentSchemes` (`ptslib`, `bundled` when embedded), reading `<scheme>:///<path>` whether or not the client kept the empty authority; the semantic tokens skip the callee of a call marked `NodeFlagsPtsParallel`.
 - **Tests:** `test/grammar.test.mjs` (`npm test`, after a type check of the extension: every sample in `test/parallel_samples.json`, `for`'s scope after the keyword, `parallel(e)` as a function call, no `.ts` scope left), `pts/lsp/grammar_test.go` (the parser on the same samples), `TestLibraryFilesAreServedToTheClient` and `TestParallelKeywordHasNoSemanticToken` (`pts/lsp`), and `test/e2e/` (`npm run test:vscode`: VS Code 1.141.0 headless runs the extension against `pts-bin/pts` on a scratch workspace: the language id, PTS2002 from the server, go to definition of `range` opening `ptslib:/parallel.pts` with its text, a hover, no semantic token on the keyword). The CI job `VS Code extension` runs `make vscode` and the end-to-end suite.
+
+### 9.117 Papercuts, help and hints (M7.3a)
+
+- **Hints** (D-170, `pts/frontend/hints.go`): `Hint(ctx, program, d)` for TS2339 on a property access whose name is one of `count`, `sum`, `min`, `max`, `sortBy`, `toArray` and whose receiver is array-like (`IsArrayLikeType`) or one of the nine typed arrays, with a message for a receiver that is a call `….par.m(…)` (`count` after `filter` gets its own) and one for any other array; and for TS2349 at the identifier `parallel` that is the callee of a call (not marked `NodeFlagsPtsParallel`) that is itself called, when `parallel` resolves to the prelude's declaration. `errorsOf` (`pts/frontend/load.go`) appends a hint to tsc's message after `"\n  "`; `pts/lsp`'s `ptsDiagnostics` returns, for a file with tsc errors, one Information diagnostic per hint at the error's range.
+- **Decimal points** (`pts/check/check.go`, `literal`): a literal typed by an integer context whose text contains `.` (not hex) is PTS2002, with one message where the nearest enclosing non-parenthesis node is an arithmetic binary expression and another elsewhere.
+- **`Function`:** `unsupportedIdentifier` reports the global `Function` in a type (`ast.IsPartOfTypeNode`) as PTS1001 before the PTS1002 of `new Function`.
+- **CLI** (`cmd/pts/cli.go`): `commandUsage` per command; `wantsHelp` (`-h`/`--help` anywhere for `build`, `emit-c` and `lsp`, before the file for `run`); `usageError` carries its command; `version` and `--version` print `version` with `vcs.revision`'s first nine digits (and `, modified`) from the build info, and `core.Version()`.
+- **Tests:** `pts/frontend/hints_test.go` (each hint, and errors that only look alike get none: a class's `sum`, a method `.par` lacks, a program's own `parallel`), `TestTscErrorsGetParallelScriptsHints` (`pts/lsp`), `pts/tests/errors/parallel_hints.pts`, `decimal_point_integers.pts` and `function_type.pts`, and in `cmd/pts`: `TestEachCommandHasItsOwnHelp`, `TestHelpAfterRunsFileGoesToTheProgram`, `TestUsageErrorsShowTheirCommandsUsage`, `TestVersionNamesPtsAndTypeScriptGo`.
 

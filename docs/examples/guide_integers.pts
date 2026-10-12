@@ -11,10 +11,10 @@ console.log(seven / 2, -seven / 2, -seven % 3);
 const limit: i32 = 2147483647;
 console.log(limit + 1);
 
-// Mixing an integer with a fraction or a `number` gives a `number`. A literal like 2.0
-// is the integer 2, so convert first to divide as numbers.
+// Mixing an integer with a fraction or a `number` gives a `number`. A literal with a
+// decimal point, like 2.0, can't be an integer, so convert first to divide as numbers.
 const ratio = 2.5;
-console.log(seven * 1.5, seven * ratio, seven / 2.0, (seven as number) / 2, typeof seven);
+console.log(seven * 1.5, seven * ratio, (seven as number) / 2, typeof seven);
 
 // Lossless conversions are implicit; lossy ones need `as`.
 const wide: i64 = level;
@@ -58,7 +58,7 @@ try {
 // 44 144
 // 3 -3 -1
 // -2147483648
-// 10.5 17.5 3 3.5 number
+// 10.5 17.5 3.5 number
 // 200 7 19 -19
 // 255 0 0 32767
 // 44 44
