@@ -166,8 +166,6 @@ func arrayEffects(op ir.ArrayOp) effects {
 		return readsLocals
 	case ir.ArrayElementChecked, ir.ArrayWith:
 		return readsLocals | mayThrow
-	case ir.ArrayPush, ir.ArrayPushAll, ir.ArrayUnshift, ir.ArrayUnshiftAll, ir.ArrayPop, ir.ArrayShift, ir.ArraySplice, ir.ArrayReverse, ir.ArrayFill:
-		return readsLocals | writes
 	}
-	return readsLocals | writes | mayThrow // also join and sort, which may call toString methods
+	return readsLocals | writes | mayThrow // the array may be frozen (D-157); join and sort may call toString methods
 }

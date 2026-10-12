@@ -291,6 +291,28 @@ pts_value pts_map_get_value(const pts_map *map, const void *key) {
 
 void pts_map_key_error(void) { pts_throw_new(&pts_type_builtin_RangeError, "Map has no entry for the key"); }
 
+/* key_text is a hash-map object's key as a C string, for a message. */
+static char *key_text(const pts_string *key) {
+  size_t length;
+  const char *bytes = pts_string_to_utf8(key, &length);
+  char *text = GC_MALLOC_ATOMIC(length + 1);
+  if (text == NULL) {
+    pts_panic("RangeError", "Out of memory formatting a key of %zu bytes", length);
+  }
+  memcpy(text, bytes, length);
+  text[length] = '\0';
+  return text;
+}
+
+/* The TypeError of a write to key of a frozen hash-map object (D-157): read only if it has the key, else not extensible. */
+void pts_throw_frozen_key(const pts_map *record, const pts_string *key) {
+  char *name = key_text(key);
+  if (pts_map_has(record, &key)) {
+    pts_throw_read_only((const pts_object *)record, name);
+  }
+  pts_throw_not_extensible(name);
+}
+
 pts_map *pts_map_set(pts_map *map, const void *key, const void *value) {
   uint64_t word = word_of(map->type->key, key);
   uint64_t h = key_hash(map->type->key, word);
@@ -334,6 +356,21 @@ bool pts_map_delete(pts_map *map, const void *key) {
     replace(map); /* compact once mostly deleted */
   }
   return true;
+}
+
+/* Only hash-map objects freeze (D-157): JS leaves a Map's and a Set's entries writable, so their writes test nothing. */
+pts_map *pts_record_set(pts_map *record, const void *key, const void *value) {
+  if (__builtin_expect(record->type->frozen, 0)) {
+    pts_throw_frozen_key(record, *(pts_string *const *)key);
+  }
+  return pts_map_set(record, key, value);
+}
+
+bool pts_record_delete(pts_map *record, const void *key) {
+  if (__builtin_expect(record->type->frozen, 0) && pts_map_has(record, key)) {
+    pts_throw_undeletable((const pts_object *)record, key_text(*(pts_string *const *)key));
+  }
+  return pts_map_delete(record, key);
 }
 
 void pts_map_clear(pts_map *map) {

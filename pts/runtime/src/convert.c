@@ -321,7 +321,7 @@ static bool copy_object(converting *c, const pts_object *source, const pts_check
  * erased copy's `[string, any]` for a `[string, number]`, D-078) of as many elements.
  */
 static bool convert_tuple(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
-  if (object->type == check->type) {
+  if (pts_unfrozen(object->type) == check->type) { /* a frozen one too, which a copy would thaw (D-157) */
     *out = pts_value_from_object(object);
     return true;
   }
@@ -374,7 +374,7 @@ static bool convert_array(converting *c, pts_array *array, const pts_check *chec
 /* A hash-map object: itself if it is of the check's descriptor, else a copy of a hash-map object's entries or an object's fields. */
 static bool convert_record(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
   const pts_check *element = check->element;
-  if (object->type == check->type) {
+  if (pts_unfrozen(object->type) == check->type) {
     *out = pts_value_from_object(object);
     return true;
   }
@@ -468,7 +468,7 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     return false;
   }
   pts_object *object = pts_value_as_object(value);
-  if (check->kind == PTS_CHECK_OBJECT && check->type != NULL && object->type == check->type) {
+  if (check->kind == PTS_CHECK_OBJECT && check->type != NULL && pts_unfrozen(object->type) == check->type) {
     return true; /* an object of the check's own descriptor, as a checked narrowed read finds (D-140) */
   }
   if (!enter(c, object, check)) {

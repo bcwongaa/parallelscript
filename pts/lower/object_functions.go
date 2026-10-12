@@ -24,7 +24,7 @@ func (l *lowerer) objectFunctionCall(call *ast.CallExpression) (x ir.Expr, handl
 	switch callee.Name().Text() {
 	case "assign":
 		return l.objectAssign(call), true
-	case "freeze": // Readonly<T> to tsc; marked, but writes aren't stopped (D-086, D-105)
+	case "freeze": // Readonly<T> to tsc; writes to the object then throw (D-157)
 		x := l.expression(call.Arguments.Nodes[0])
 		t := l.irType(l.typeAt(call.AsNode()), call.AsNode())
 		if x == nil || t == nil {

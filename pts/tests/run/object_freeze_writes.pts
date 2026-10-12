@@ -1,0 +1,195 @@
+// Writes to frozen objects throw Node's TypeErrors (D-157): class instances, object
+// literals, optional properties, writes through interfaces and `any`; setters and
+// #private fields stay writable, and copies aren't frozen. Object.freeze's Readonly<X>
+// of a class is that class: its methods, getters and generic instances work.
+
+function attempt(label: string, write: () => void): void {
+  try {
+    write();
+    console.log(label, "ok");
+  } catch (e) {
+    console.log(label, e instanceof TypeError ? "TypeError:" : "other:", (e as Error).message);
+  }
+}
+
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+  norm(): number {
+    return Math.abs(this.x) + Math.abs(this.y);
+  }
+  describe(): string {
+    return `(${this.x}, ${this.y})`;
+  }
+}
+
+class Point3 extends Point {
+  z = 3;
+  describe(): string {
+    return `(${this.x}, ${this.y}, ${this.z})`;
+  }
+}
+
+const p = new Point(1, 2);
+Object.freeze(p);
+attempt("field", () => {
+  p.x = 5;
+});
+attempt("same value", () => {
+  p.x = 1;
+});
+attempt("increment", () => {
+  p.x++;
+});
+attempt("compound", () => {
+  p.y *= 2;
+});
+attempt("value first", () => {
+  p.x = (console.log("  value evaluated"), 3);
+});
+console.log(p, p.norm(), p.describe(), p instanceof Point, Object.isFrozen(p));
+
+const q = new Point3(1, 2);
+Object.freeze(q);
+attempt("subclass field", () => {
+  q.z = 4;
+});
+attempt("inherited field", () => {
+  q.x = 4;
+});
+const asBase: Point = q;
+console.log(asBase.describe(), q instanceof Point3, q instanceof Point, q.norm());
+
+const literal = { a: 1, b: "two" };
+Object.freeze(literal);
+attempt("literal field", () => {
+  literal.b = "three";
+});
+const partial: { a: number; c?: number } = { a: 1 };
+Object.freeze(partial);
+attempt("add optional", () => {
+  partial.c = 2;
+});
+interface HasX {
+  x: number;
+}
+const viaInterface: HasX = p;
+attempt("through an interface", () => {
+  viaInterface.x = 7;
+});
+const viaInterface2: HasX = { x: 1 };
+attempt("unfrozen through an interface", () => {
+  viaInterface2.x = 2;
+});
+interface MaybeC {
+  c?: number;
+}
+const maybe: MaybeC = partial;
+attempt("optional through an interface", () => {
+  maybe.c = 3;
+});
+const dynamic: any = p;
+attempt("through any", () => {
+  dynamic.y = 9;
+});
+attempt("new through any", () => {
+  dynamic.w = 9;
+});
+attempt("assign", () => {
+  Object.assign(literal, { a: 3 });
+});
+attempt("assign nothing", () => {
+  Object.assign(literal, {});
+});
+
+class Counter {
+  #count = 0;
+  label = "counter";
+  increment(): number {
+    return ++this.#count;
+  }
+}
+const counter = new Counter();
+Object.freeze(counter);
+attempt("private field", () => {
+  console.log("  count", counter.increment(), counter.increment());
+});
+attempt("public field", () => {
+  counter.label = "x";
+});
+
+class Temperature {
+  celsius = 0;
+  get fahrenheit(): number {
+    return this.celsius * 1.8 + 32;
+  }
+  set fahrenheit(f: number) {
+    this.celsius = (f - 32) / 1.8;
+  }
+}
+const t = new Temperature();
+Object.freeze(t);
+attempt("setter", () => {
+  t.fahrenheit = 212;
+});
+
+const error = new Error("boom");
+Object.freeze(error);
+attempt("error message", () => {
+  error.message = "other";
+});
+
+const nested = Object.freeze({ inner: { n: 1 } });
+nested.inner.n = 2;
+console.log(nested, Object.isFrozen(nested.inner));
+
+const copy = { ...literal };
+copy.a = 10;
+console.log(copy, Object.isFrozen(copy));
+let fresh = 0;
+for (let i = 0; i < 3; i++) {
+  const r = new Point(i, i);
+  r.x = 10;
+  fresh += r.x;
+}
+console.log(fresh);
+
+class Money {
+  constructor(
+    readonly amount: number,
+    readonly currency: string,
+  ) {
+    Object.freeze(this);
+  }
+  add(other: Money): Money {
+    return new Money(this.amount + other.amount, this.currency);
+  }
+  get label(): string {
+    return `${this.amount} ${this.currency}`;
+  }
+}
+const sum = new Money(5, "EUR").add(new Money(2, "EUR"));
+console.log(sum, sum.label, Object.isFrozen(sum));
+attempt("frozen in its constructor", () => {
+  (sum as { amount: number }).amount = 1;
+});
+
+function total(m: Readonly<Money>, n: Readonly<Money>): string {
+  return m.add(n).label;
+}
+const fiver = Object.freeze(new Money(5, "USD"));
+console.log(total(fiver, new Money(1, "USD")), fiver.amount);
+
+class Box<T> {
+  constructor(public value: T) {}
+  map<U>(f: (x: T) => U): Box<U> {
+    return new Box(f(this.value));
+  }
+}
+const box = Object.freeze(new Box(3));
+console.log(box.map((x) => x * 2), box.value);
+attempt("generic class", () => {
+  (box as Box<number>).value = 4;
+});

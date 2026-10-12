@@ -335,6 +335,9 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 			members = append(members, ".display_name = "+cString(class.Display))
 		}
 		members = append(members, e.instanceTable(name, class.Instances)...)
+		if hasMethodTable(class) {
+			members = append(members, ".descriptor_size = sizeof(pts_vtable_"+name+")") // a frozen twin copies the method table too (D-157)
+		}
 		if !hasMethodTable(class) {
 			e.line(0, "static const pts_type pts_type_%s = {", name)
 			for _, member := range members {
@@ -707,11 +710,18 @@ func (e *emitter) newInstance(n *ir.New) string {
 // through an interface, the field that holds the property, found by the runtime and
 // cached at this place in the code (D-035).
 func (e *emitter) fieldRef(object string, t ir.Type, field *ir.Field) string {
+	return e.fieldPlace(object, t, field, "pts_field_address")
+}
+
+// fieldPlace is fieldRef with the runtime function that finds a field through an
+// interface: pts_field_address, or for a store, pts_field_store_address, which throws for
+// a frozen object (D-157).
+func (e *emitter) fieldPlace(object string, t ir.Type, field *ir.Field, find string) string {
 	class, ok := t.(*ir.Class)
 	if !ok {
 		site := e.site()
 		pointer := strings.TrimSuffix(e.declarator(field.Type), " ") + " *"
-		return fmt.Sprintf("(*({ static pts_site %s; (%s)pts_field_address(%s, &%s, %s, %s); }))", site, pointer, object, site, cString(field.Name), e.siteCheck(field))
+		return fmt.Sprintf("(*({ static pts_site %s; (%s)%s(%s, &%s, %s, %s); }))", site, pointer, find, object, site, cString(field.Name), e.siteCheck(field))
 	}
 	if !isIdentifier(object) {
 		object = "(" + object + ")"
@@ -761,7 +771,12 @@ func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value st
 	}
 	_, throughInterface := t.(*ir.Interface)
 	if !field.Accessor && !(throughInterface && e.declaredTypes) {
-		return e.fieldRef(object, t, field) + " = " + value
+		if e.freezes && !throughInterface && !strings.HasPrefix(field.Name, "#") { // JS leaves a frozen object's #private fields writable
+			stored := e.temporary() // the value first: JS evaluates it before the write throws
+			writable := fmt.Sprintf("PTS_WRITABLE(%s, %s)", object, cString(field.Name))
+			return fmt.Sprintf("({ %s%s = %s; %s = %s; })", e.declarator(field.Type), stored, value, e.fieldRef(writable, t, field), stored)
+		}
+		return e.fieldPlace(object, t, field, "pts_field_store_address") + " = " + value
 	}
 	site, macro := e.site(), "PTS_FIELD_SET"
 	if field.Accessor {

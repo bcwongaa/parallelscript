@@ -295,6 +295,8 @@ Every heap object starts with a pointer to its type's descriptor, a static `pts_
 
 One descriptor serves the collector, `console.log`, JSON, `instanceof` and the lookups of `any`. `pts_object_new(type)` allocates a zeroed instance (`object.c`). An instance with pointers comes from bdwgc's gcj allocator, which scans only the words `gc_descr` names. An instance without pointers is allocated atomic and never scanned.
 
+`Object.freeze` swaps an object's descriptor for its *frozen twin* (D-157): a copy, method table included, whose `frozen` flag writes test and whose `parent` is the original, so `instanceof`, field lookups and virtual calls work unchanged. A store site's inline cache never holds a twin, so a store that hits its cache needs no test; the runtime's mutators (array methods, hash-map objects, `any` writes, `lastIndex`) test the flag, and generated stores to class fields test it only in programs that call `Object.freeze`. Code that compares descriptors sees through a twin with `pts_unfrozen`.
+
 ### 4.3 Strings
 
 A `pts_string` is the header, flags (bit 0 means pure ASCII), the byte length, the UTF-16 length (JS's `.length`, so reading it is O(1)) and a pointer to the bytes (D-014, D-061). Strings are immutable, so threads share them freely. A plain string's bytes follow its header in one block that the collector never scans.

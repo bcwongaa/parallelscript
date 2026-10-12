@@ -132,6 +132,13 @@ typedef struct pts_instance {
  */
 typedef struct pts_type {
   pts_kind kind;
+  /*
+   * Whether this is a frozen twin (Object.freeze, D-157): a copy of the descriptor of a
+   * frozen object's type, which the object points to instead, whose parent is that
+   * descriptor. Writes to the object's properties test it; caches that writes go through
+   * never hold a twin, so a write that hits its cache needs no test.
+   */
+  bool frozen;
   GC_word gc_descr;              /* which words of an instance may hold pointers (PTS_GC_*) */
   const char *name;              /* the class name, as console.log shows it */
   const struct pts_type *parent; /* the superclass, or NULL */
@@ -150,6 +157,7 @@ typedef struct pts_type {
   uint32_t length;                   /* a closure's function's `length` in JS (D-098) */
   const char *display_name;          /* a generic class instance's name with its type arguments (Box<number>), for errors (D-147) */
   uint32_t instance_count;
+  uint32_t descriptor_size;      /* of the whole descriptor, a class's method table included; 0 for sizeof(pts_type) (in a hole, as frozen is) */
   const pts_instance *instances; /* a closure's function's instances, or the instances of a class's own generic methods (D-148) */
 } pts_type;
 
@@ -171,6 +179,30 @@ typedef struct pts_object {
   const pts_type *type;
 } pts_object;
 
+/* The descriptor of an object's type: its own, or for a frozen object, the one its frozen twin copies (D-157). */
+static inline const pts_type *pts_unfrozen(const pts_type *type) { return __builtin_expect(type->frozen, 0) ? type->parent : type; }
+
+/*
+ * Node's TypeErrors for a write to a frozen object (D-157): to a property it has
+ * ("Cannot assign to read only property"), one it lacks or an index past an array's end
+ * ("Cannot add property"), or a delete of one it has; property is the name or index.
+ */
+_Noreturn void pts_throw_read_only(const pts_object *object, const char *property);
+_Noreturn void pts_throw_not_extensible(const char *property);
+_Noreturn void pts_throw_undeletable(const pts_object *object, const char *property);
+/* The error for a write to the field name of a frozen object: not extensible if the field is an absent optional property, else read only. */
+_Noreturn void pts_throw_frozen_field(const pts_object *object, const char *name);
+
+/* object (a pointer to an instance), after checking that it isn't frozen, for a store to its field name in generated code (D-157). */
+#define PTS_WRITABLE(object, name)                                       \
+  ({                                                                     \
+    __typeof__(object) pts_writable = (object);                          \
+    if (__builtin_expect(((const pts_object *)pts_writable)->type->frozen, 0)) { \
+      pts_throw_frozen_field((const pts_object *)pts_writable, (name));  \
+    }                                                                    \
+    pts_writable;                                                        \
+  })
+
 /* A new instance of type with every field zero (0, false, NULL; a pts_value field is 0, not undefined). */
 void *pts_object_new(const pts_type *type);
 
@@ -179,9 +211,10 @@ void *pts_object_new(const pts_type *type);
  * is one of the descriptors of the copy's shape (orders, one per property order).
  */
 static inline void pts_object_take_order(pts_object *copy, const pts_object *source, const pts_type *const *orders, uint32_t count) {
+  const pts_type *order = pts_unfrozen(source->type); /* a frozen source's copy isn't frozen */
   for (uint32_t i = 0; i < count; i++) {
-    if (source->type == orders[i]) {
-      copy->type = source->type;
+    if (order == orders[i]) {
+      copy->type = order;
       return;
     }
   }
@@ -216,6 +249,20 @@ static inline void *pts_field_address(const void *object, pts_site *site, const 
     return (char *)object + (cache >> 48);
   }
   return pts_field_address_slow((const pts_object *)object, site, name, check);
+}
+
+void *pts_field_store_address_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *check);
+
+/*
+ * pts_field_address for a store: the slow path throws for a frozen object, and so never
+ * caches a frozen twin, which a hit would otherwise let the store through (D-157).
+ */
+static inline void *pts_field_store_address(const void *object, pts_site *site, const char *name, const struct pts_check *check) {
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)((const pts_object *)object)->type == (cache & PTS_SITE_TYPE_MASK)) {
+    return (char *)object + (cache >> 48);
+  }
+  return pts_field_store_address_slow((const pts_object *)object, site, name, check);
 }
 
 /* Writes *value, of the C type check's kind holds, to the field of object that holds its property name, through site (D-072). */
@@ -937,7 +984,12 @@ double pts_value_function_length(pts_value function);
 struct pts_array *pts_value_key_array(pts_value value);
 void pts_object_assign(pts_value target, struct pts_array *sources);
 bool pts_value_same_value(pts_value a, pts_value b);
-/* Object.freeze marks an object frozen, and Object.isFrozen tests the mark (true for primitives); writes are not stopped (D-105). */
+/*
+ * Object.freeze makes writes to an object's properties throw (D-157): an object, tuple,
+ * array, hash-map object or RegExp gets its descriptor's frozen twin; the kinds whose
+ * contents JS leaves writable (Map, Set, Date, functions, …) are only marked (D-105), and
+ * a typed array with elements throws. Object.isFrozen tests both (true for primitives).
+ */
 void pts_value_freeze(pts_value value);
 bool pts_value_is_frozen(pts_value value);
 /*
@@ -1183,6 +1235,9 @@ bool pts_array_load(const pts_array *array, double index, void *out);
 /* array[index] as a dynamic value: undefined if index isn't one of its elements, as in JS (D-015). */
 pts_value pts_array_element(const pts_array *array, double index);
 
+/* The TypeError of a write to element index of a frozen array (D-157): read only below its length, else not extensible. */
+_Noreturn void pts_throw_frozen_element(const pts_array *array, double index);
+
 /* Stores *value in array[index], or appends it if index is the length; RangeError for other indices. */
 void pts_array_set(pts_array *array, double index, const void *value);
 
@@ -1335,9 +1390,14 @@ bool pts_map_get(const pts_map *map, const void *key, void *value);
 /* map.get(key) as a dynamic value: undefined if map has no such key. */
 pts_value pts_map_get_value(const pts_map *map, const void *key);
 _Noreturn void pts_map_key_error(void);
+/* The TypeError of a write to key of a frozen hash-map object (D-157): read only if it has the key, else not extensible. */
+_Noreturn void pts_throw_frozen_key(const pts_map *record, const pts_string *key);
 /* map.set(key, value), set.add(key) (value NULL): returns map. */
 pts_map *pts_map_set(pts_map *map, const void *key, const void *value);
 bool pts_map_delete(pts_map *map, const void *key);
+/* pts_map_set and pts_map_delete of a hash-map object, which throw TypeError if it is frozen (D-157). */
+pts_map *pts_record_set(pts_map *record, const void *key, const void *value);
+bool pts_record_delete(pts_map *record, const void *key);
 /* Sets in map each entry of source, a map of the same type, in its iteration order (JS's key order for a hash-map object): returns map. */
 pts_map *pts_map_assign(pts_map *map, pts_map *source);
 void pts_map_clear(pts_map *map);
@@ -1357,12 +1417,12 @@ bool pts_map_next(pts_map_iterator *iterator);
 /* The key and value an iterator holds, as their C types. */
 #define PTS_MAP_ITERATOR_KEY(T, iterator) (*(T *)&(iterator).key)
 #define PTS_MAP_ITERATOR_VALUE(T, iterator) (*(T *)&(iterator).value)
-/* m[k] = v for generated code: sets the entry and is the value, of C type T. */
-#define PTS_MAP_PUT(T, map, key, value)     \
-  ({                                        \
-    T pts_put = (value);                    \
-    pts_map_set((map), (key), &pts_put);    \
-    pts_put;                                \
+/* o[k] = v on a hash-map object, for generated code: sets the entry and is the value, of C type T. */
+#define PTS_RECORD_PUT(T, record, key, value)  \
+  ({                                           \
+    T pts_put = (value);                       \
+    pts_record_set((record), (key), &pts_put); \
+    pts_put;                                   \
   })
 
 /*
@@ -1798,6 +1858,8 @@ pts_string *pts_regexp_flags(const pts_regexp *regexp);
 /* Whether regexp has the flag flag, a PTS_REGEX_* bit (a number, as compiled code passes it). */
 bool pts_regexp_has_flag(const pts_regexp *regexp, double flag);
 pts_string *pts_regexp_to_string(const pts_regexp *regexp);
+/* regexp.lastIndex = last_index from the runtime: TypeError if regexp is frozen (D-157). */
+void pts_regexp_set_last_index(pts_regexp *regexp, double last_index);
 /* exec: a match array (pts_match_array), or null; reads and sets lastIndex as RegExpBuiltinExec does. */
 pts_value pts_regexp_exec(pts_regexp *regexp, pts_string *subject);
 bool pts_regexp_test(pts_regexp *regexp, pts_string *subject);
@@ -1819,13 +1881,17 @@ typedef struct pts_match_array {
 extern const pts_type pts_type_match_array;
 extern const pts_type pts_type_match_copy;
 pts_match_array *pts_match_array_new(const pts_regex *regex, pts_string *subject, const int64_t *captures);
-static inline bool pts_is_match_array(const pts_object *object) { return object->type == &pts_type_match_array; }
+static inline bool pts_is_match_array(const pts_object *object) { return pts_unfrozen(object->type) == &pts_type_match_array; }
 /* Whether array's holes are undefined values, which console.log shows: a match array's or a copy's. */
 static inline bool pts_has_undefined_holes(const pts_array *array) {
-  return array->type == &pts_type_match_array || array->type == &pts_type_match_copy;
+  const pts_type *type = pts_unfrozen(array->type);
+  return type == &pts_type_match_array || type == &pts_type_match_copy;
 }
-/* The descriptor of a copy of an array of descriptor type: a match array's copies are string arrays without its properties. */
-static inline const pts_type *pts_array_copy_type(const pts_type *type) { return type == &pts_type_match_array ? &pts_type_match_copy : type; }
+/* The descriptor of a copy of an array of descriptor type: a match array's copies are string arrays without its properties, and a frozen array's aren't frozen. */
+static inline const pts_type *pts_array_copy_type(const pts_type *type) {
+  type = pts_unfrozen(type);
+  return type == &pts_type_match_array ? &pts_type_match_copy : type;
+}
 /* A match array's index, input and groups; undefined for any other array. */
 pts_value pts_match_index(const pts_array *array);
 pts_value pts_match_input(const pts_array *array);

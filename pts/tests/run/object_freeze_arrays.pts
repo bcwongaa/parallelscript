@@ -1,0 +1,137 @@
+// Writes to frozen arrays, tuples, hash-map objects and RegExps throw at the first write
+// JS's algorithm makes, with Node's TypeErrors (D-157); a Map's and Set's entries and a
+// Date's time stay writable, and a typed array with elements can't be frozen.
+
+function attempt(label: string, write: () => void): void {
+  try {
+    write();
+    console.log(label, "ok");
+  } catch (e) {
+    console.log(label, e instanceof TypeError ? "TypeError:" : "other:", (e as Error).message);
+  }
+}
+
+function frozen(...values: number[]): number[] {
+  return Object.freeze(values) as number[];
+}
+
+const a = frozen(1, 2, 3);
+attempt("element", () => {
+  a[0] = 9;
+});
+attempt("element at the length", () => {
+  a[3] = 9;
+});
+attempt("push", () => a.push(4));
+attempt("push two", () => frozen(1).push(2, 3));
+attempt("push nothing", () => a.push());
+attempt("pop", () => a.pop());
+attempt("pop empty", () => frozen().pop());
+attempt("shift", () => a.shift());
+attempt("shift one", () => frozen(1).shift());
+attempt("shift empty", () => frozen().shift());
+attempt("unshift", () => a.unshift(0));
+attempt("unshift two", () => frozen(1, 2).unshift(5, 6));
+attempt("unshift into empty", () => frozen().unshift(1));
+attempt("unshift nothing", () => a.unshift());
+attempt("splice remove", () => a.splice(0, 1));
+attempt("splice tail", () => a.splice(2, 1));
+attempt("splice rest", () => a.splice(1));
+attempt("splice insert", () => a.splice(1, 0, 7));
+attempt("splice insert at end", () => a.splice(3, 0, 9));
+attempt("splice grow", () => a.splice(0, 1, 7, 8));
+attempt("splice shrink", () => frozen(1, 2, 3, 4).splice(0, 2, 7));
+attempt("splice replace", () => a.splice(1, 1, 7));
+attempt("splice nothing", () => a.splice(1, 0));
+attempt("sort", () => a.sort());
+let compared = false;
+attempt("sort with", () =>
+  a.sort((x, y) => {
+    compared = true; // the comparator runs before the write that throws
+    return x - y;
+  }),
+);
+console.log("  compared", compared);
+attempt("sort one", () => frozen(1).sort());
+attempt("reverse", () => a.reverse());
+attempt("reverse one", () => frozen(1).reverse());
+attempt("fill", () => a.fill(0));
+attempt("fill from the end", () => a.fill(0, -1));
+attempt("fill nothing", () => a.fill(0, 2, 2));
+attempt("length", () => {
+  a.length = 1;
+});
+attempt("length unchanged", () => {
+  a.length = 3;
+});
+const anyArray: any = a;
+attempt("element through any", () => {
+  anyArray[1] = 5;
+});
+attempt("length through any", () => {
+  anyArray.length = 0;
+});
+console.log(a, Object.isFrozen(a), a.length, a.indexOf(2), a.join("-"));
+
+const copies = [a.slice(), a.map((x) => x * 2), a.filter((x) => x > 1), [...a], a.concat([4])];
+for (const c of copies) {
+  c.push(0);
+}
+console.log(copies, copies.map((c) => Object.isFrozen(c)));
+
+const ages: Record<string, number> = { ann: 31 };
+Object.freeze(ages);
+attempt("key", () => {
+  ages["ann"] = 32;
+});
+attempt("new key", () => {
+  ages["bob"] = 40;
+});
+attempt("delete", () => {
+  delete ages["ann"];
+});
+attempt("delete missing", () => {
+  delete ages["cy"];
+});
+console.log(ages, Object.isFrozen(ages));
+
+const pair: [number, string] = [1, "a"];
+Object.freeze(pair);
+attempt("tuple", () => {
+  pair[1] = "b";
+});
+console.log(pair);
+
+const g = /a/g;
+Object.freeze(g);
+attempt("lastIndex", () => {
+  g.lastIndex = 1;
+});
+attempt("exec global", () => g.exec("bab"));
+attempt("test global", () => g.test("bab"));
+attempt("replace global", () => "bab".replace(g, "c"));
+attempt("replace global with a callback", () =>
+  "bab".replace(g, (m) => {
+    console.log("  replacer", m);
+    return "c";
+  }),
+);
+attempt("match global", () => "bab".match(g));
+attempt("search global", () => "bab".search(g));
+attempt("split", () => console.log(" ", "bab".split(g)));
+attempt("matchAll", () => console.log(" ", [..."bab".matchAll(g)].length));
+const plain = Object.freeze(/a/);
+attempt("exec", () => console.log(" ", plain.exec("bab")?.index));
+attempt("search", () => console.log(" ", "bab".search(plain)));
+attempt("exec sticky", () => Object.freeze(/a/y).exec("ab"));
+console.log(g, g.lastIndex, Object.isFrozen(g));
+
+attempt("typed array", () => Object.freeze(new Uint8Array(2)));
+attempt("empty typed array", () => console.log(" ", Object.isFrozen(Object.freeze(new Uint8Array(0)))));
+const m = Object.freeze(new Map<string, number>());
+m.set("x", 1);
+const s = Object.freeze(new Set<number>());
+s.add(1);
+const d = Object.freeze(new Date(0));
+d.setUTCFullYear(2000);
+console.log(m, s, d.toISOString(), Object.isFrozen(m), Object.isFrozen(d));

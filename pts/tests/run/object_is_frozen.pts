@@ -1,5 +1,5 @@
 // Object.freeze marks an object and Object.isFrozen tests the mark; primitives are frozen
-// already (D-105). Writes to frozen objects aren't stopped yet.
+// already (D-105). Writes to frozen objects throw (D-157): object_freeze_writes.pts.
 
 const plain = { a: 1 };
 const frozen = Object.freeze({ b: 2, items: [1, 2] });

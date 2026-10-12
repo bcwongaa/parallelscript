@@ -285,7 +285,81 @@ pts_value pts_array_element(const pts_array *array, double index) {
   return slot == NULL ? PTS_VALUE_UNDEFINED : pts_value_of_slot(array->type->element, slot);
 }
 
+/* ---------------------------------------------------------------- frozen arrays (D-157) */
+
+/*
+ * A frozen array's methods throw at the first write JS's algorithm makes, with Node's
+ * message for it: to an element below the length (read only), at or past it (not
+ * extensible), a delete of the last element, or a write to the length.
+ */
+
+void pts_throw_frozen_element(const pts_array *array, double index) {
+  char property[PTS_NUMBER_BUF_SIZE];
+  pts_number_format(index, property);
+  if (index >= 0 && index < pts_array_length(array)) {
+    pts_throw_read_only((const pts_object *)array, property);
+  }
+  pts_throw_not_extensible(property);
+}
+
+static _Noreturn void frozen_length(const pts_array *array) { pts_throw_read_only((const pts_object *)array, "length"); }
+
+static _Noreturn void frozen_delete(const pts_array *array, size_t index) {
+  char property[PTS_NUMBER_BUF_SIZE];
+  pts_number_format((double)index, property);
+  pts_throw_undeletable((const pts_object *)array, property);
+}
+
+static inline bool is_frozen(const pts_array *array) { return __builtin_expect(array->type->frozen, 0); }
+
+/* pop's first write to a frozen array of length elements: the length of an empty one, else a delete of the last element. */
+static _Noreturn void frozen_pop(const pts_array *array, size_t length) {
+  if (length == 0) {
+    frozen_length(array);
+  }
+  frozen_delete(array, length - 1);
+}
+
+/* shift's: the length of an empty array, a delete of a lone element, or else a move to element 0. */
+static _Noreturn void frozen_shift(const pts_array *array, size_t length) {
+  if (length == 0) {
+    frozen_length(array);
+  }
+  if (length == 1) {
+    frozen_delete(array, 0);
+  }
+  pts_throw_frozen_element(array, 0);
+}
+
+/* unshift's of count elements: the length if none, else the last element's move up, or in an empty array, the first one's store. */
+static _Noreturn void frozen_unshift(const pts_array *array, size_t length, size_t count) {
+  if (count == 0) {
+    frozen_length(array);
+  }
+  pts_throw_frozen_element(array, length == 0 ? 0 : (double)(length + count - 1));
+}
+
+/* splice's (Array.prototype.splice, steps 15 to 20) at from, deleting deleted elements and inserting count. */
+static _Noreturn void frozen_splice(const pts_array *array, size_t length, size_t from, size_t deleted, size_t count) {
+  if (count < deleted) {
+    if (from < length - deleted) {
+      pts_throw_frozen_element(array, (double)(from + count)); /* the first element after them moves down */
+    }
+    frozen_delete(array, length - 1); /* nothing after them: the last is deleted */
+  }
+  if (count > deleted && length - deleted > from) {
+    pts_throw_frozen_element(array, (double)(length - deleted + count - 1)); /* the last element moves up */
+  }
+  if (count > 0) {
+    pts_throw_frozen_element(array, (double)from);
+  }
+  frozen_length(array);
+}
+
 void pts_array_set(pts_array *array, double index, const void *value) {
+  if (is_frozen(array)) {
+    pts_throw_frozen_element(array, index);
+  }
   size_t size = pts_field_kind_size(array->type->element);
   void *slot = pts_array_slot_or_null(array, index, size);
   if (slot != NULL) {
@@ -302,6 +376,12 @@ void pts_array_set(pts_array *array, double index, const void *value) {
 double pts_array_push(pts_array *array, const void *values, size_t count) {
   size_t size = pts_field_kind_size(array->type->element);
   size_t length = pts_array_length_of(array);
+  if (is_frozen(array)) {
+    if (count == 0) {
+      frozen_length(array);
+    }
+    pts_throw_frozen_element(array, (double)length);
+  }
   pts_array_buffer *buffer = with_room(array, length, length + count);
   for (size_t i = 0; i < count; i++) {
     element_store(buffer->elements + (length + i) * size, (const unsigned char *)values + i * size, size);
@@ -322,6 +402,9 @@ double pts_array_unshift(pts_array *array, const void *values, size_t count) {
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
   size_t length = pts_array_length_of(array);
+  if (is_frozen(array)) {
+    frozen_unshift(array, length, count);
+  }
   pts_array_buffer *old = load_buffer(array);
   size_t kept = length < old->capacity ? length : old->capacity;
   /* A new buffer, filled before it is published, so that readers never see elements half moved. */
@@ -336,6 +419,9 @@ double pts_array_unshift(pts_array *array, const void *values, size_t count) {
 
 void pts_array_pop(pts_array *array, void *out) {
   size_t length = pts_array_length_of(array);
+  if (is_frozen(array)) {
+    frozen_pop(array, length);
+  }
   if (length == 0) {
     pts_throw_new(&pts_type_builtin_RangeError, "pop() of an empty array");
   }
@@ -350,6 +436,9 @@ void pts_array_pop(pts_array *array, void *out) {
 
 void pts_array_shift(pts_array *array, void *out) {
   size_t length = pts_array_length_of(array);
+  if (is_frozen(array)) {
+    frozen_shift(array, length);
+  }
   if (length == 0) {
     pts_throw_new(&pts_type_builtin_RangeError, "shift() of an empty array");
   }
@@ -375,7 +464,7 @@ void pts_array_shift(pts_array *array, void *out) {
 }
 
 pts_value pts_array_pop_value(pts_array *array) {
-  if (pts_array_length_of(array) == 0) {
+  if (pts_array_length_of(array) == 0 && !is_frozen(array)) {
     return PTS_VALUE_UNDEFINED;
   }
   uint64_t element;
@@ -384,7 +473,7 @@ pts_value pts_array_pop_value(pts_array *array) {
 }
 
 pts_value pts_array_shift_value(pts_array *array) {
-  if (pts_array_length_of(array) == 0) {
+  if (pts_array_length_of(array) == 0 && !is_frozen(array)) {
     return PTS_VALUE_UNDEFINED;
   }
   uint64_t element;
@@ -396,6 +485,9 @@ double pts_array_set_length(pts_array *array, double length) {
   size_t current = pts_array_length_of(array);
   if (!(length >= 0 && length <= 4294967295.0) || (double)(size_t)length != length) {
     pts_throw_new(&pts_type_builtin_RangeError, "Invalid array length");
+  }
+  if (is_frozen(array)) {
+    frozen_length(array);
   }
   if ((size_t)length > current) {
     char buf[PTS_NUMBER_BUF_SIZE];
@@ -455,6 +547,9 @@ pts_array *pts_array_splice(pts_array *array, double start, double delete_count,
   size_t from = relative_index(start, length);
   double wanted = delete_count != delete_count ? 0 : __builtin_trunc(delete_count);
   size_t deleted = wanted <= 0 ? 0 : wanted >= (double)(length - from) ? length - from : (size_t)wanted;
+  if (is_frozen(array)) {
+    frozen_splice(array, length, from, deleted, count);
+  }
   pts_array *removed = new_array(pts_array_copy_type(array->type), old->elements + from * size, deleted);
   /* A new buffer, filled before it is published, as unshift does. */
   size_t new_length = length - deleted + count;
@@ -654,6 +749,9 @@ pts_array *pts_array_reverse(pts_array *array) {
   size_t size = pts_field_kind_size(array->type->element);
   pts_array_buffer *buffer = load_buffer(array);
   size_t length = readable_length(array, buffer);
+  if (is_frozen(array) && length >= 2) {
+    pts_throw_frozen_element(array, 0);
+  }
   for (size_t i = 0; i < length / 2; i++) {
     uint64_t low = 0, high = 0;
     element_load(&low, buffer->elements + i * size, size);
@@ -706,6 +804,9 @@ pts_array *pts_array_sort(pts_array *array) {
     entries[i].key = element_string(kind, buffer->elements + i * size);
   }
   merge_sort(entries, entries + length, length);
+  if (is_frozen(array) && length >= 2) {
+    pts_throw_frozen_element(array, 0); /* after the elements' strings, as JS writes them back */
+  }
   for (size_t i = 0; i < length; i++) {
     element_store(buffer->elements + i * size, &entries[i].element, size);
   }
@@ -753,6 +854,9 @@ pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*
     }
   }
   compare_sort(elements, elements + length, count, compare, call);
+  if (is_frozen(array) && length >= 2) {
+    pts_throw_frozen_element(array, 0); /* after the comparator's calls, as JS writes them back */
+  }
   /* The comparator may have changed the array: write to its current buffer, as far as it reaches. */
   buffer = load_buffer(array);
   size_t now = readable_length(array, buffer);
@@ -793,7 +897,11 @@ pts_array *pts_array_fill(pts_array *array, const void *value, double start, dou
   size_t size = pts_field_kind_size(array->type->element);
   pts_array_buffer *buffer = load_buffer(array);
   size_t length = readable_length(array, buffer);
-  for (size_t i = relative_index(start, length), to = relative_index(end, length); i < to; i++) {
+  size_t from = relative_index(start, length), to = relative_index(end, length);
+  if (is_frozen(array) && from < to) {
+    pts_throw_frozen_element(array, (double)from);
+  }
+  for (size_t i = from; i < to; i++) {
     element_store(buffer->elements + i * size, value, size);
   }
   return array;

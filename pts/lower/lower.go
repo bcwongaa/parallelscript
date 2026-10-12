@@ -876,9 +876,10 @@ func implementationOf(declaration *ast.Node) *ast.Node {
 // generic function it is the member of the object's type in the instance: x.name for
 // `x: T` with `T extends Named` is the name field of the class T is (D-049).
 func (l *lowerer) memberSymbol(node *ast.Node) *ast.Symbol {
-	if name := node.AsPropertyAccessExpression().Name(); l.subst != nil && name.Kind == ast.KindIdentifier {
+	name := node.AsPropertyAccessExpression().Name()
+	if name.Kind == ast.KindIdentifier && (l.subst != nil || l.readonlyInstance(l.checker.GetTypeAtLocation(node.Expression())) != nil) {
 		if member := l.checker.GetPropertyOfType(l.typeAt(node.Expression()), name.Text()); member != nil {
-			return member
+			return member // the instance's, or a Readonly<Point>'s, which are a Point's (D-157)
 		}
 	}
 	return l.checker.GetSymbolAtLocation(node)
@@ -3425,6 +3426,9 @@ func (l *lowerer) builtin(member *ast.Node) *ir.Builtin {
 // or is "" if it refers to something else.
 func (l *lowerer) libMemberName(member *ast.Node) string {
 	symbol := l.checker.GetSymbolAtLocation(member)
+	if member.Kind == ast.KindPropertyAccessExpression && l.readonlyInstance(l.checker.GetTypeAtLocation(member.Expression())) != nil {
+		symbol = l.memberSymbol(member) // a Readonly<RegExp>'s members are a RegExp's (D-157)
+	}
 	if symbol == nil || symbol.Parent == nil || symbol.ValueDeclaration == nil {
 		return ""
 	}
@@ -3472,6 +3476,29 @@ func box(value ir.Expr) ir.Expr {
 }
 
 // ---------------------------------------------------------------- types
+
+// readonlyInstance is X if t is the ES library's Readonly<X> of a class's instance type
+// X or of a library type (a RegExp, Map, Date, …), whose objects keep their class
+// (Object.freeze returns its argument), or else nil.
+func (l *lowerer) readonlyInstance(t *checker.Type) *checker.Type {
+	alias := t.Alias()
+	if alias == nil || alias.Symbol().Name != "Readonly" || len(alias.TypeArguments()) != 1 || !l.isLibInterface(alias.Symbol()) {
+		return nil
+	}
+	instance := alias.TypeArguments()[0]
+	if instance.Flags()&checker.TypeFlagsTypeParameter != 0 && instance.AsTypeParameter().IsThisType() {
+		instance = l.checker.GetConstraintOfTypeParameter(instance) // `Object.freeze(this)` in a class
+	}
+	if instance == nil || instance.Flags()&checker.TypeFlagsObject == 0 || instance.ObjectFlags()&checker.ObjectFlagsAnonymous != 0 || instance.Symbol() == nil {
+		return nil
+	}
+	_, generic := l.genericClasses[instance.Symbol()]
+	_, class := l.classes[instance.Symbol()]
+	if !generic && !class && !l.isLibInterface(instance.Symbol()) {
+		return nil
+	}
+	return instance
+}
 
 // irType maps a checker type to its IR type, or reports it (at node) and returns nil.
 func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {

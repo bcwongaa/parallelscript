@@ -133,19 +133,19 @@ func (e *emitter) mapCall(call *ir.MapCall) string {
 	case ir.MapGetInto:
 		c = "pts_map_get(" + args[0] + ", " + key() + ", &" + e.local(call.Args[2].(*ir.LocalRef).Local) + ")"
 	case ir.MapPut:
-		c = fmt.Sprintf("PTS_MAP_PUT(%s, %s, %s, %s)", e.cDeclaredType(mt.Value), args[0], key(), args[2])
+		c = fmt.Sprintf("PTS_RECORD_PUT(%s, %s, %s, %s)", e.cDeclaredType(mt.Value), args[0], key(), args[2])
 	case ir.MapSet:
 		value := "NULL"
 		if !mt.Set {
 			value = fmt.Sprintf("(%s[]){%s}", e.cDeclaredType(mt.Value), args[2])
 		}
-		c = "pts_map_set(" + args[0] + ", " + key() + ", " + value + ")"
+		c = mapFunction(mt, "set") + "(" + args[0] + ", " + key() + ", " + value + ")"
 	case ir.MapAssign:
 		c = "pts_map_assign(" + args[0] + ", " + args[1] + ")"
 	case ir.MapHas:
 		c = "pts_map_has(" + args[0] + ", " + key() + ")"
 	case ir.MapDelete:
-		c = "pts_map_delete(" + args[0] + ", " + key() + ")"
+		c = mapFunction(mt, "delete") + "(" + args[0] + ", " + key() + ")"
 	case ir.MapClear:
 		c = "pts_map_clear(" + args[0] + ")"
 	case ir.MapIterate:
@@ -160,6 +160,15 @@ func (e *emitter) mapCall(call *ir.MapCall) string {
 	return ordered(prelude, c)
 }
 
+// mapFunction is the runtime's function for a write to a map: pts_map_<name>, or for a
+// hash-map object, which may be frozen, pts_record_<name> (D-157).
+func mapFunction(mt *ir.MapType, name string) string {
+	if mt.Record {
+		return "pts_record_" + name
+	}
+	return "pts_map_" + name
+}
+
 // cDeclaredType is a type's C type as a cast or compound literal takes it: "double", "pts_string *".
 func (e *emitter) cDeclaredType(t ir.Type) string {
 	return strings.TrimSuffix(e.declarator(t), " ")
@@ -172,6 +181,8 @@ func mapEffects(op ir.MapOp) effects {
 		return readsLocals
 	case ir.MapGetChecked:
 		return readsLocals | mayThrow
+	case ir.MapPut, ir.MapDelete: // a hash-map object may be frozen (D-157)
+		return readsLocals | writes | mayThrow
 	}
 	return readsLocals | writes
 }

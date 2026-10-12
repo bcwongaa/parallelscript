@@ -106,6 +106,7 @@ type emitter struct {
 	declaredTypes    bool
 	usesPromises     bool // the program has async functions or promises, whose microtasks main runs (D-112)
 	usesLoop         bool // the program has timers, immediates or tasks, for which main runs the event loop (D-114, D-121)
+	freezes          bool // the program calls Object.freeze, so its stores to class fields check for frozen objects (D-157)
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType

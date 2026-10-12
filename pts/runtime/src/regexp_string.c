@@ -33,6 +33,9 @@ static pts_regexp *regexp_of(pts_value pattern, const char *flags) {
 
 static bool has_flag(const pts_regexp *regexp, unsigned flag) { return (pts_regex_flags(regexp->regex) & flag) != 0; }
 
+/* JS's SameValue of two numbers. */
+static bool same_value(double a, double b) { return a != a ? b != b : a == b && __builtin_signbit(a) == __builtin_signbit(b); }
+
 /*
  * The next match of a global loop at *from (with y) or after it, which then moves past the
  * match: to its end, or after an empty one by one unit, or with u by a whole surrogate
@@ -63,7 +66,7 @@ static bool next_replaced(pts_regexp *regexp, pts_string *subject, bool global, 
   if (next_match(regexp, subject, from, captures, cursor)) {
     return true;
   }
-  regexp->lastIndex = 0;
+  pts_regexp_set_last_index(regexp, 0);
   return false;
 }
 
@@ -87,7 +90,7 @@ pts_value pts_string_match(pts_string *subject, pts_value pattern) {
     pts_string *text = pts_regex_slice(subject, &start, (uint32_t)captures[0], (uint32_t)captures[1]);
     pts_array_push(matches, &text, 1);
   }
-  regexp->lastIndex = 0;
+  pts_regexp_set_last_index(regexp, 0);
   return pts_array_length_of(matches) == 0 ? PTS_VALUE_NULL : pts_value_from_object(matches);
 }
 
@@ -122,12 +125,16 @@ pts_value pts_string_match_all(pts_string *subject, pts_value pattern) {
 double pts_string_search(pts_string *subject, pts_value pattern) {
   pts_regexp *regexp = regexp_of(pattern, "");
   double previous = regexp->lastIndex;
-  regexp->lastIndex = 0;
+  if (!same_value(previous, 0)) { /* as JS writes it: a frozen RegExp throws only for a write (D-157) */
+    pts_regexp_set_last_index(regexp, 0);
+  }
   int64_t local[PTS_LOCAL_CAPTURES];
   int64_t *captures = pts_regexp_captures_for(regexp->regex, local);
   pts_regex_cursor cursor = {0, 0};
   bool found = pts_regexp_match(regexp, subject, captures, &cursor);
-  regexp->lastIndex = previous;
+  if (!same_value(regexp->lastIndex, previous)) {
+    pts_regexp_set_last_index(regexp, previous);
+  }
   return found ? (double)captures[0] : -1;
 }
 

@@ -2,6 +2,7 @@
 
 #include <gc_gcj.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 /*
@@ -71,6 +72,13 @@ void *pts_field_address_slow(const pts_object *object, pts_site *site, const cha
     __atomic_store_n(&site->cache, (uint64_t)(uintptr_t)type | (uint64_t)field->offset << 48, __ATOMIC_RELAXED);
   }
   return (char *)object + field->offset;
+}
+
+void *pts_field_store_address_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
+  if (object->type->frozen) {
+    pts_throw_frozen_field(object, name);
+  }
+  return pts_field_address_slow(object, site, name, check);
 }
 
 /* method_index returns the index in type's method table of the method name of the given kind, or -1. */
@@ -155,6 +163,9 @@ void pts_field_set_slow(pts_object *object, pts_site *site, const char *name, co
   if (field == NULL) {
     pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
   }
+  if (type->frozen) {
+    pts_throw_frozen_field(object, name);
+  }
   if (field->kind != check->slot) {
     wrong_kind(type, name, check, field->kind, field->check);
   }
@@ -176,6 +187,9 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
   const pts_type *type = object->type;
   const pts_field *field = find_field(type, name);
   if (field != NULL) {
+    if (kind == PTS_SETTER && type->frozen) {
+      pts_throw_frozen_field(object, name); /* a frozen object's setters still run */
+    }
     if (check != NULL && field->kind != check->slot) {
       wrong_kind(type, name, check, field->kind, field->check);
     }
@@ -269,7 +283,10 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
     if (method_index(type, name, PTS_GETTER) >= 0) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
     }
-    pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", name);
+    pts_throw_not_extensible(name);
+  }
+  if (type->frozen) {
+    pts_throw_frozen_field(object, name);
   }
   void *slot = (char *)object + field->offset;
   if (field->kind == PTS_FIELD_VALUE) {
@@ -303,8 +320,115 @@ bool pts_object_has(const void *object, const char *name) {
          __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) != PTS_VALUE_ABSENT;
 }
 
+/* ---------------------------------------------------------------- Object.freeze (D-105, D-157) */
+
+/* How V8's messages name an object: [object Array], [object RegExp], an error's string, #<Point> for an instance of a class. */
+static void describe(const pts_object *object, char *buffer, size_t size) {
+  const pts_type *type = pts_unfrozen(object->type);
+  switch (type->kind) {
+  case PTS_KIND_ARRAY:
+  case PTS_KIND_TUPLE:
+    snprintf(buffer, size, "[object Array]");
+    return;
+  case PTS_KIND_REGEXP:
+    snprintf(buffer, size, "[object RegExp]");
+    return;
+  case PTS_KIND_RECORD:
+    snprintf(buffer, size, type->name[0] == '[' ? "[object Object]" : "#<Object>"); /* a match's groups have a null prototype */
+    return;
+  default:
+    break;
+  }
+  if (pts_is_error(object)) {
+    pts_string *text = pts_error_to_string((pts_error *)object);
+    snprintf(buffer, size, "%.*s", (int)text->byte_len, text->bytes);
+    return;
+  }
+  snprintf(buffer, size, "#<%s>", type->name);
+}
+
+void pts_throw_read_only(const pts_object *object, const char *property) {
+  char described[256];
+  describe(object, described, sizeof described);
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot assign to read only property '%s' of object '%s'", property, described);
+}
+
+void pts_throw_not_extensible(const char *property) {
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", property);
+}
+
+void pts_throw_undeletable(const pts_object *object, const char *property) {
+  char described[256];
+  describe(object, described, sizeof described);
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot delete property '%s' of %s", property, described);
+}
+
+void pts_throw_frozen_field(const pts_object *object, const char *name) {
+  const pts_field *field = find_field(object->type, name);
+  if (field != NULL && field->kind == PTS_FIELD_VALUE &&
+      __atomic_load_n((const pts_value *)((const char *)object + field->offset), __ATOMIC_RELAXED) == PTS_VALUE_ABSENT) {
+    pts_throw_not_extensible(name); /* an optional property it doesn't have */
+  }
+  pts_throw_read_only(object, name);
+}
+
 /*
- * Object.freeze's mark (D-105): the frozen objects, in a hash table of nodes outside the
+ * Frozen twins (D-157): one per descriptor, made when the first object of its type is
+ * frozen and never freed, since frozen objects point at it for as long as they live.
+ */
+typedef struct twin_node {
+  const pts_type *original;
+  const pts_type *twin;
+  struct twin_node *next;
+} twin_node;
+
+static pthread_mutex_t frozen_lock = PTHREAD_MUTEX_INITIALIZER;
+static twin_node *twins;
+
+/* frozen_twin returns type's frozen twin, making it if there is none yet; under frozen_lock. */
+static const pts_type *frozen_twin(const pts_type *type) {
+  for (twin_node *node = twins; node != NULL; node = node->next) {
+    if (node->original == type) {
+      return node->twin;
+    }
+  }
+  size_t size = type->descriptor_size != 0 ? type->descriptor_size : sizeof(pts_type);
+  pts_type *twin = malloc(size); /* a class's method table comes with it: virtual calls read it through the object's descriptor */
+  twin_node *node = malloc(sizeof *node);
+  if (twin == NULL || node == NULL) {
+    pthread_mutex_unlock(&frozen_lock);
+    pts_panic("RangeError", "Out of memory freezing an object");
+  }
+  memcpy(twin, type, size);
+  twin->parent = type; /* so instanceof, and every walk up the classes, finds the original first */
+  twin->frozen = true;
+  *node = (twin_node){type, twin, twins};
+  twins = node;
+  return twin;
+}
+
+/*
+ * Whether freezing an object of type gives it a frozen twin: the kinds whose properties
+ * or elements JS makes read only. The others keep their descriptors, which the runtime
+ * compares (a Map's entries, a Date's time and a function's code stay writable in JS), and
+ * so does an object without fields, which has nothing to write.
+ */
+static bool takes_twin(const pts_type *type) {
+  switch (type->kind) {
+  case PTS_KIND_ARRAY:
+  case PTS_KIND_TUPLE:
+  case PTS_KIND_RECORD:
+  case PTS_KIND_REGEXP:
+    return true;
+  case PTS_KIND_OBJECT:
+    return type->field_count > 0;
+  default:
+    return false;
+  }
+}
+
+/*
+ * The mark of frozen objects without a twin (D-105): a hash table of nodes outside the
  * collected heap, so that the table keeps none of them alive. Each node's pointer is a
  * disappearing link, which the collector clears when its object dies, before the address
  * can be reused; cleared nodes are dropped when their bucket is next searched.
@@ -314,11 +438,9 @@ typedef struct frozen_node {
   struct frozen_node *next;
 } frozen_node;
 
-static pthread_mutex_t frozen_lock = PTHREAD_MUTEX_INITIALIZER;
 static frozen_node **frozen_buckets;
 static size_t frozen_bucket_count; /* a power of two, or 0 */
 static size_t frozen_count;
-
 static size_t frozen_bucket(const void *object, size_t bucket_count) {
   uint64_t h = (uint64_t)(uintptr_t)object * 0x9E3779B97F4A7C15ull;
   return (size_t)(h ^ (h >> 32)) & (bucket_count - 1);
@@ -386,8 +508,17 @@ void pts_value_freeze(pts_value value) {
     return;
   }
   pts_object *object = pts_value_as_object(value);
+  const pts_type *type = object->type;
+  if (type->frozen) {
+    return;
+  }
+  if (type->kind == PTS_KIND_TYPED_ARRAY && ((const pts_typed_array *)object)->length > 0) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot freeze array buffer views with elements");
+  }
   pthread_mutex_lock(&frozen_lock);
-  if (frozen_find(object) == NULL) {
+  if (takes_twin(type)) {
+    __atomic_store_n(&object->type, frozen_twin(type), __ATOMIC_RELEASE);
+  } else if (frozen_find(object) == NULL) {
     if (frozen_count >= frozen_bucket_count) {
       frozen_grow();
     }
@@ -411,6 +542,10 @@ void pts_value_freeze(pts_value value) {
 bool pts_value_is_frozen(pts_value value) {
   if (is_primitive(value)) {
     return true;
+  }
+  const pts_type *type = pts_value_as_object(value)->type;
+  if (type->frozen || takes_twin(type)) {
+    return type->frozen;
   }
   pthread_mutex_lock(&frozen_lock);
   bool frozen = frozen_find(pts_value_as_object(value)) != NULL;

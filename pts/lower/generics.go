@@ -58,17 +58,20 @@ type substitution struct {
 }
 
 // instantiate is t in the instance being lowered, if any: with its type parameters
-// replaced, or any if it mentions an erased one.
+// replaced, or any if it mentions an erased one. Readonly<X> of a class or library type
+// X is X: Object.freeze's result is its argument, and only tsc reads the modifiers.
 func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	switch {
 	case l.subst == nil:
-		return t
 	case l.mentionsErased(t):
 		return l.checker.GetAnyType()
-	case len(l.subst.parameters) == 0:
-		return t
+	case len(l.subst.parameters) > 0:
+		t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
 	}
-	return l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
+	if instance := l.readonlyInstance(t); instance != nil {
+		return instance // Readonly<Point>, which Object.freeze gives, is a Point (D-157)
+	}
+	return t
 }
 
 // instantiateMade is the type of a value that code makes (an array or object literal, a

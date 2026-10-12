@@ -417,20 +417,100 @@ static void threads_allocate_while_others_collect(void) {
   }
 }
 
+/* An object without fields, which freezing only marks (D-105): it has nothing to write. */
+typedef struct empty {
+  const pts_type *type;
+  double unlisted; /* not a property: the collector's objects need a word after the header */
+} empty;
+
+static const pts_type empty_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "Empty",
+    .size = sizeof(empty),
+};
+
 static void frozen_marks_go_with_their_objects(void) {
-  node *kept = pts_object_new(&node_type);
+  empty *kept = pts_object_new(&empty_type);
   pts_value_freeze(pts_value_from_object(kept));
+  CHECK(kept->type == &empty_type); /* marked, not twinned */
   for (int i = 0; i < 100000; i++) {
-    pts_value_freeze(pts_value_from_object(pts_object_new(&node_type))); /* garbage once frozen */
+    pts_value_freeze(pts_value_from_object(pts_object_new(&empty_type))); /* garbage once frozen */
   }
   GC_gcollect();
   int frozen = 0;
   for (int i = 0; i < 100000; i++) { /* reusing the dead ones' addresses */
-    frozen += pts_value_is_frozen(pts_value_from_object(pts_object_new(&node_type)));
+    frozen += pts_value_is_frozen(pts_value_from_object(pts_object_new(&empty_type)));
   }
   CHECK(frozen == 0);
   CHECK(pts_value_is_frozen(pts_value_from_object(kept)));
   CHECK(pts_value_is_frozen(pts_value_from_string(pts_string_from_cstr("s")))); /* a primitive */
+}
+
+/* Whether the message of the TypeError that write(object) throws is expected. */
+static bool throws_type_error(void (*write)(void *object), void *object, const char *expected) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    write(object);
+    pts_try_leave(&handler);
+    return false;
+  }
+  pts_value caught = pts_caught(&handler);
+  return pts_value_instance_of(caught, &pts_type_builtin_TypeError) &&
+         pts_string_equals(((pts_error *)pts_value_as_object(caught))->message, pts_string_from_cstr(expected));
+}
+
+static void store_x(void *object) {
+  static pts_site site;
+  *(double *)pts_field_store_address(object, &site, "x", NULL) = 7;
+}
+
+static void push_one(void *array) {
+  double one = 1;
+  pts_array_push(array, &one, 1);
+}
+
+static void pop_one(void *array) { pts_array_pop_value(array); }
+
+/* Freezing gives an object its descriptor's frozen twin (D-157), which every frozen object of the type shares. */
+static void frozen_objects_point_to_a_shared_twin(void) {
+  point *p = pts_object_new(&point_type), *q = pts_object_new(&point_type);
+  labelled_point *l = pts_object_new(&labelled_point_type);
+  pts_value_freeze(pts_value_from_object(p));
+  pts_value_freeze(pts_value_from_object(q));
+  pts_value_freeze(pts_value_from_object(l));
+  CHECK(p->type != &point_type && p->type == q->type && p->type->frozen);
+  CHECK(pts_unfrozen(p->type) == &point_type && pts_unfrozen(&point_type) == &point_type);
+  CHECK(strcmp(p->type->name, "Point") == 0 && p->type->field_count == 2 && p->type->methods == point_methods);
+  CHECK(pts_instance_of(p, &point_type) && pts_instance_of(l, &point_type) && pts_instance_of(l, &labelled_point_type));
+  CHECK(pts_value_is_frozen(pts_value_from_object(p)) && !pts_value_is_frozen(pts_value_from_object(pts_object_new(&point_type))));
+}
+
+/* A store site never caches a frozen twin, so a hit needs no test; the slow path throws Node's TypeError. */
+static void stores_to_frozen_objects_throw(void) {
+  static pts_site read;
+  point *p = pts_object_new(&point_type), *frozen = pts_object_new(&point_type);
+  pts_value_freeze(pts_value_from_object(frozen));
+  frozen->x = 1.5;
+  CHECK(*(double *)pts_field_address(frozen, &read, "x", NULL) == 1.5); /* reads go on */
+  store_x(p);
+  CHECK(p->x == 7);
+  CHECK(throws_type_error(store_x, frozen, "Cannot assign to read only property 'x' of object '#<Point>'"));
+  CHECK(frozen->x == 1.5);
+  store_x(p); /* the site still holds Point's descriptor */
+  CHECK(p->x == 7);
+
+  double elements[] = {1, 2};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2);
+  pts_value_freeze(pts_value_from_object(array));
+  CHECK(throws_type_error(push_one, array, "Cannot add property 2, object is not extensible"));
+  CHECK(throws_type_error(pop_one, array, "Cannot delete property '1' of [object Array]"));
+  CHECK(pts_array_length(array) == 2);
+  pts_array *copy = pts_array_slice(array, 0, 2); /* copies aren't frozen */
+  CHECK(copy->type == &pts_array_types[PTS_FIELD_NUMBER]);
+  push_one(copy);
+  CHECK(pts_array_length(copy) == 3);
 }
 
 /* A cell's copy for a loop's next iteration has its bytes, whatever its size (copied whole by atomic units, D-143). */
@@ -464,6 +544,8 @@ int main(int argc, char **argv) {
   unreachable_objects_are_collected();
   threads_allocate_while_others_collect();
   frozen_marks_go_with_their_objects();
+  frozen_objects_point_to_a_shared_twin();
+  stores_to_frozen_objects_throw();
   cell_copies_keep_every_byte();
   return CHECK_DONE();
 }

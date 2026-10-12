@@ -58,6 +58,8 @@ func (e *emitter) collectChecks(program *ir.Program) {
 					e.usesPromises = true
 				case ir.PromiseResolve, ir.PromiseReject, ir.PromiseAll, ir.PromiseAllSettled, ir.PromiseAny, ir.PromiseRace, ir.PromiseWithResolvers:
 					e.usesPromises = true
+				case ir.ValueFreeze:
+					e.freezes = true
 				}
 			}
 		})

@@ -585,6 +585,9 @@ static void object_set(pts_object *object, pts_value key, pts_value value) {
   const char *name = key_text(key, buffer);
   const pts_field *field = field_named(type, name);
   if (field != NULL) {
+    if (type->frozen) {
+      pts_throw_frozen_field(object, name); /* D-157; a frozen object's setters still run */
+    }
     pts_store_value_in_slot(field->kind, (char *)object + field->offset, pts_storable(field->kind, field->check, value, name, type));
     return;
   }
@@ -616,12 +619,18 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     pts_array *array = (pts_array *)target;
     pts_field_kind kind = array->type->element;
     if (key_is(key, "length")) {
+      if (array->type->frozen) {
+        pts_throw_read_only(target, "length"); /* D-157 */
+      }
       pts_storable(PTS_FIELD_NUMBER, NULL, value, "length", array->type);
       pts_array_set_length(array, pts_value_as_number(value));
       return value;
     }
     if (!array_index(key, &index)) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));
+    }
+    if (array->type->frozen) {
+      pts_throw_frozen_element(array, index);
     }
     uint64_t element = 0;
     pts_store_value_in_slot(kind, &element, pts_storable(kind, array->type->check, value, key_text(key, buffer), array->type));
@@ -630,8 +639,11 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
   }
   case PTS_KIND_RECORD: {
     pts_map *record = (pts_map *)target;
-    pts_value stored = pts_storable(record->type->element, record->type->check, value, key_text(key, buffer), record->type);
     pts_string *name = pts_value_to_string(key);
+    if (record->type->frozen) {
+      pts_throw_frozen_key(record, name);
+    }
+    pts_value stored = pts_storable(record->type->element, record->type->check, value, key_text(key, buffer), record->type);
     uint64_t entry = 0;
     pts_store_value_in_slot(record->type->element, &entry, stored);
     pts_map_set(record, &name, &entry);
@@ -649,6 +661,9 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     return value;
   case PTS_KIND_REGEXP:
     if (key_is(key, "lastIndex")) {
+      if (target->type->frozen) {
+        pts_throw_read_only(target, "lastIndex");
+      }
       ((pts_regexp *)target)->lastIndex = pts_value_to_number(value);
       return value;
     }

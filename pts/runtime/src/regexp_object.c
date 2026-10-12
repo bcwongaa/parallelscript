@@ -56,7 +56,14 @@ static pts_regexp *regexp_new(pts_regex *regex, pts_string *pattern) {
   return regexp;
 }
 
-bool pts_is_regexp(pts_value value) { return pts_value_is_object(value) && pts_value_as_object(value)->type == &pts_type_builtin_RegExp; }
+bool pts_is_regexp(pts_value value) { return pts_value_is_object(value) && pts_unfrozen(pts_value_as_object(value)->type) == &pts_type_builtin_RegExp; }
+
+void pts_regexp_set_last_index(pts_regexp *regexp, double last_index) {
+  if (regexp->pts_header->frozen) {
+    pts_throw_read_only((const pts_object *)regexp, "lastIndex"); /* D-157 */
+  }
+  regexp->lastIndex = last_index;
+}
 
 pts_regexp *pts_regexp_literal(pts_regex **cache, pts_string *pattern, pts_string *flags) {
   pts_regex *regex = __atomic_load_n(cache, __ATOMIC_ACQUIRE);
@@ -159,12 +166,12 @@ bool pts_regexp_match(pts_regexp *regexp, pts_string *subject, int64_t *captures
   }
   if (from > subject->utf16_len || !pts_regex_exec(regexp->regex, subject, (uint32_t)from, sticky, cursor, captures)) {
     if (global_or_sticky) {
-      regexp->lastIndex = 0;
+      pts_regexp_set_last_index(regexp, 0);
     }
     return false;
   }
   if (global_or_sticky) {
-    regexp->lastIndex = (double)captures[1];
+    pts_regexp_set_last_index(regexp, (double)captures[1]);
   }
   return true;
 }
