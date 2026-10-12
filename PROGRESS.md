@@ -7,7 +7,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
 - **Next task:** M6.0a4 The shared-memory contract (review finding 10; the owner's review, `docs/reviews/2026-10-12-gpt-6.1-sol/REVIEW.md`, added M6.0a–c before M6.3; M6.0a split by D-138)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
-- **Main is green:** yes locally (M6.0a3, `0c204b302`); CI green through M6.0a2a
+- **Main is green:** yes, locally and in CI (`PTS` workflow green on `c1ec619fc`, after M6.0a3)
 
 ## Done
 
@@ -185,7 +185,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
-- 2026-10-12: the owner's review (`ea9371de8`) added M6.0a–c and M6.5a; M6.0a split by D-138; M6.0a1 done (D-139); M6.0a2a done (M6.0a2 split by D-140); M6.0a2b done (D-141); M6.0a3 done (D-142); the orchestrator's rulings on the review landed as `docs/agent/OWNER_ANSWERS.md` (`fcb4667b3`). CI green through M6.0a2a (`5ecd454c1`); the runs after it were cancelled by newer pushes, so check the latest run first next session.
+- 2026-10-12: the owner's review (`ea9371de8`) added M6.0a–c and M6.5a; M6.0a split by D-138; M6.0a1 done (D-139); M6.0a2a done (M6.0a2 split by D-140); M6.0a2b done (D-141); M6.0a3 done (D-142); the orchestrator's rulings on the review landed as `docs/agent/OWNER_ANSWERS.md` (`fcb4667b3`). CI green on `c1ec619fc` at the end of the session.
 - 2026-10-12: M6.2b done (D-137); regex matching no longer allocates.
 - 2026-10-12: M6.2a done (M6.2 split by D-136); decorators are PTS1001 now.
 - 2026-10-12: M6.1d done (documentation refresh).
