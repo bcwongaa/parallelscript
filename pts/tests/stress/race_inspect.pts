@@ -1,0 +1,40 @@
+// The race-safety invariant (D-L13, SPEC §4.1) on what console.log and JSON read while other
+// threads change it (D-143): an error whose optional fields and cause other threads set
+// while it is printed (its entries were counted before they were made), and dates that
+// other threads set to NaN and back while they are printed and stringified. Printing goes
+// to stderr, which the test doesn't compare.
+// threads: 2 4 8
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+class HttpError extends Error {
+  status = 500;
+  detail?: string;
+  code?: number;
+}
+
+const ROUNDS = 3000;
+const errors = Array.from({ length: 8 }, (_, i) => new HttpError(`failure ${i}`));
+const dates = Array.from({ length: 8 }, () => new Date(0));
+const bad = new AtomicInt();
+
+parallel for (const i of range(0, ROUNDS)) {
+  const error = errors[i % 8];
+  if (i % 3 === 0) {
+    error.detail = `detail ${i}`;
+    error.code = i;
+    error.cause = i;
+  } else {
+    console.error(error);
+  }
+  const date = dates[i % 8];
+  date.setTime(i % 2 === 0 ? NaN : i);
+  const json = JSON.stringify({ date });
+  if (!json.startsWith('{"date":')) bad.add(1);
+  console.error(date);
+}
+
+console.log("printed:", bad.load() === 0);
+
+// expect:
+// printed: true

@@ -38,7 +38,7 @@ void *pts_cell_new(size_t size, bool holds_pointers) {
 
 void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers) {
   void *copy = pts_cell_new(size, holds_pointers);
-  memcpy(copy, cell, size);
+  pts_copy_shared(copy, cell, size, 1); /* the iteration's closures may write the cell from other threads: its value is copied whole (D-143) */
   return copy;
 }
 

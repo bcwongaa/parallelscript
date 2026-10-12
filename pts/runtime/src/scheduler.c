@@ -45,6 +45,7 @@ typedef struct loop_slot {
 static loop_slot *slots[MAX_LOOPS];
 static atomic_uint loop_count = 1;
 static pthread_once_t workers_once = PTHREAD_ONCE_INIT;
+static pthread_once_t main_slot_once = PTHREAD_ONCE_INIT;
 /* Loops that aren't sleeping. A loop that wakes another counts it awake before letting it go, so the count can't reach 0 while work is in flight. */
 static atomic_size_t awake = 1;
 static atomic_bool finished;    /* every loop slept at once: the program is done */
@@ -87,13 +88,16 @@ static loop_slot *new_slot(void) {
   return slot;
 }
 
+static void make_main_slot(void) { slots[0] = new_slot(); }
+
 /* This thread's loop; the main thread's is made the first time it is needed. A pool worker has none (D-122). */
 static loop_slot *own_slot(void) {
   if (own == NULL) {
     if (pts_current_loop != 0) {
       pts_throw_new(&pts_type_builtin_Error, "Timers and asynchronous I/O can't be started from a parallel operation's callback yet");
     }
-    own = slots[0] = new_slot();
+    pthread_once(&main_slot_once, make_main_slot);
+    own = slots[0];
   }
   return own;
 }
@@ -319,7 +323,7 @@ static size_t stack_size(void) {
 
 /* Starts the loops other than the main thread's, each counted awake until it first runs dry; a thread the system won't start leaves the program with fewer loops. */
 static void start_workers(void) {
-  own_slot();
+  pthread_once(&main_slot_once, make_main_slot); /* not own_slot: a pool worker's first `parallel` may start the loops, and a throw can't leave a pthread_once */
   unsigned count = pts_configured_threads();
   for (unsigned i = 1; i < count; i++) {
     slots[i] = new_slot();

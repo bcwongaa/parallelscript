@@ -570,7 +570,6 @@ static _Noreturn void circular(writer *w, size_t from, pts_value key) {
   append(&b, " closes the circle", 18);
   pts_string *message = pts_string_from_utf8(b.data, b.length);
   free(b.data);
-  free(w->stack);
   free(w->out.data);
   pts_throw_error(pts_string_from_cstr("TypeError"), message);
 }
@@ -583,7 +582,7 @@ static void push_frame(writer *w, pts_value object, pts_value key) {
   }
   if (w->stack_length == w->stack_capacity) {
     size_t capacity = w->stack_capacity < 16 ? 16 : w->stack_capacity * 2;
-    frame *stack = realloc(w->stack, capacity * sizeof *stack);
+    frame *stack = GC_REALLOC(w->stack, capacity * sizeof *stack); /* collected memory: a frame's key may be the only reference to its string */
     if (stack == NULL) {
       pts_panic("RangeError", "Out of memory in JSON.stringify");
     }
@@ -856,7 +855,6 @@ pts_value pts_json_stringify(pts_value value, pts_value replacer, pts_value spac
   PTS_STATIC_STRING(empty, 1, 0, 0, "");
   pts_map_set(wrapper, &empty, &value);
   bool written = serialize(&w, pts_value_from_object(wrapper), pts_value_from_string(empty), value);
-  free(w.stack);
   if (!written) {
     free(w.out.data);
     return PTS_VALUE_UNDEFINED;
@@ -900,7 +898,7 @@ static void revive_children(pts_closure *reviver, pts_value value) {
   }
   pts_map *record = (pts_map *)object;
   size_t count = (size_t)pts_map_size(record), n = 0;
-  pts_string **keys = malloc((count ? count : 1) * sizeof *keys); /* the keys as they were, as JS takes them first */
+  pts_string **keys = GC_MALLOC((count ? count : 1) * sizeof *keys); /* the keys as they were, as JS takes them first; collected memory, which the collector scans */
   if (keys == NULL) {
     abort();
   }
@@ -916,7 +914,6 @@ static void revive_children(pts_closure *reviver, pts_value value) {
       pts_map_set(record, &keys[i], &revived);
     }
   }
-  free(keys);
 }
 
 static pts_value revive(pts_closure *reviver, pts_string *name, pts_value value) {

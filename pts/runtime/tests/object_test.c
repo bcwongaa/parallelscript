@@ -386,6 +386,19 @@ static void frozen_marks_go_with_their_objects(void) {
   CHECK(pts_value_is_frozen(pts_value_from_string(pts_string_from_cstr("s")))); /* a primitive */
 }
 
+/* A cell's copy for a loop's next iteration has its bytes, whatever its size (copied whole by atomic units, D-143). */
+static void cell_copies_keep_every_byte(void) {
+  static const size_t sizes[] = {1, 2, 4, 8, 9, 16, 24};
+  for (size_t s = 0; s < sizeof sizes / sizeof sizes[0]; s++) {
+    unsigned char *cell = pts_cell_new(sizes[s], false);
+    for (size_t i = 0; i < sizes[s]; i++) {
+      cell[i] = (unsigned char)(i * 37 + 5);
+    }
+    unsigned char *copy = pts_cell_copy(cell, sizes[s], false);
+    CHECK(copy != cell && memcmp(copy, cell, sizes[s]) == 0);
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   bitmap_descriptors_name_words_from_the_header();
@@ -403,5 +416,6 @@ int main(int argc, char **argv) {
   unreachable_objects_are_collected();
   threads_allocate_while_others_collect();
   frozen_marks_go_with_their_objects();
+  cell_copies_keep_every_byte();
   return CHECK_DONE();
 }

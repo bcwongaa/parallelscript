@@ -300,8 +300,8 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     format_function(out, (const pts_closure *)object);
     return;
   case PTS_KIND_DATE: {
-    pts_date *date = (pts_date *)object;
-    pts_string *text = pts_date_format(date, date->time != date->time ? PTS_DATE_STRING : PTS_DATE_ISO);
+    double t = ((pts_date *)object)->time; /* once: another thread may set it meanwhile */
+    pts_string *text = pts_time_format(t, t != t ? PTS_DATE_STRING : PTS_DATE_ISO);
     text_add(out, text->bytes, text->byte_len);
     return;
   }
@@ -354,23 +354,29 @@ static void format_slot(inspector *in, text *out, pts_field_kind kind, const voi
   case PTS_FIELD_BOOL:
     text_puts(out, SLOT(bool) ? "true" : "false");
     return;
-  case PTS_FIELD_STRING:
-    if (SLOT(pts_string *) == NULL) {
+  case PTS_FIELD_STRING: { /* each slot loaded once: another thread may change it between a test and a use (D-143) */
+    pts_string *string = __atomic_load_n((pts_string *const *)slot, __ATOMIC_RELAXED);
+    if (string == NULL) {
       text_puts(out, "undefined"); /* a hole that threads racing on an array left */
     } else {
-      format_string(in, out, SLOT(pts_string *));
+      format_string(in, out, string);
     }
     return;
-  case PTS_FIELD_VALUE:
-    format_value(in, out, SLOT(pts_value) == 0 ? PTS_VALUE_UNDEFINED : SLOT(pts_value), recurse_times);
+  }
+  case PTS_FIELD_VALUE: {
+    pts_value value = __atomic_load_n((const pts_value *)slot, __ATOMIC_RELAXED);
+    format_value(in, out, value == 0 ? PTS_VALUE_UNDEFINED : value, recurse_times);
     return;
-  case PTS_FIELD_OBJECT:
-    if (SLOT(pts_object *) == NULL) {
+  }
+  case PTS_FIELD_OBJECT: {
+    pts_object *object = __atomic_load_n((pts_object *const *)slot, __ATOMIC_RELAXED);
+    if (object == NULL) {
       text_puts(out, "undefined"); /* a field read before the constructor assigned it */
     } else {
-      format_value(in, out, pts_value_from_object(SLOT(pts_object *)), recurse_times);
+      format_value(in, out, pts_value_from_object(object), recurse_times);
     }
     return;
+  }
   case PTS_FIELD_I8:
     text_printf(out, "%d", SLOT(int8_t));
     return;
@@ -1029,23 +1035,26 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
   pts_string *stack_string = pts_value_truthy(stack_value) ? pts_value_to_string(stack_value) : pts_error_to_string(error);
   text stack = {0};
   text_add(&stack, stack_string->bytes, stack_string->byte_len);
-  bool shows_name = !text_contains(&stack, error->name->bytes, error->name->byte_len);
+  /* Each field read once: another thread may set them while this runs, and the entries are counted before they are made (D-143). */
+  pts_string *name = error->name, *message = error->message;
+  pts_value cause = __atomic_load_n(&error->cause, __ATOMIC_RELAXED);
+  bool shows_name = !text_contains(&stack, name->bytes, name->byte_len);
   const pts_type *type = error->pts_header;
-  size_t keys = shows_name + (error->cause != PTS_VALUE_ABSENT);
+  size_t keys = shows_name + (cause != PTS_VALUE_ABSENT);
   for (uint32_t i = 0; i < type->field_count; i++) {
     keys += type->fields[i].offset >= sizeof(pts_error) && has_field((const pts_object *)error, &type->fields[i]);
   }
   bool accessors = shows_prototype_accessors(in, (const pts_object *)error, recurse_times);
   if (in->show_hidden) {
-    keys += 1 + (error->message->byte_len > 0) + (accessors ? prototype_accessor_count((const pts_object *)error) : 0);
+    keys += 1 + (message->byte_len > 0) + (accessors ? prototype_accessor_count((const pts_object *)error) : 0);
   }
 
-  improve_stack(&stack, type->name, error->name);
+  improve_stack(&stack, type->name, name);
   ptrdiff_t position = -1;
-  if (error->message->byte_len > 0) {
-    position = text_index(&stack, error->message->bytes, error->message->byte_len, 0);
+  if (message->byte_len > 0) {
+    position = text_index(&stack, message->bytes, message->byte_len, 0);
     if (position > 0) {
-      position += error->message->byte_len;
+      position += message->byte_len;
     } else {
       position = -1; /* Node's `indexOf(…) || -1` also discards a message at 0 */
     }
@@ -1082,25 +1091,25 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
   recurse_times++;
   push(&in->seen, &in->seen_len, &in->seen_cap, (const pts_object *)error);
   in->current_depth = recurse_times;
-  text *entries = new_entries(keys);
+  text *entries = new_entries(4 + type->field_count); /* room for every field, which another thread may set after they were counted */
   size_t count = 0;
   if (in->show_hidden) { /* own properties that aren't enumerable, in the order V8 makes them */
     entries[count++] = hidden_entry("stack");
     text_puts(&entries[count - 1], "[Getter/Setter]");
-    if (error->message->byte_len > 0) {
+    if (message->byte_len > 0) {
       entries[count] = hidden_entry("message");
-      quote_string(&entries[count++], error->message);
+      quote_string(&entries[count++], message);
     }
-    if (error->cause != PTS_VALUE_ABSENT) {
+    if (cause != PTS_VALUE_ABSENT) {
       entries[count] = hidden_entry("cause");
       in->indentation += 2;
-      format_value(in, &entries[count++], error->cause, recurse_times);
+      format_value(in, &entries[count++], cause, recurse_times);
       in->indentation -= 2;
     }
   }
   if (shows_name) {
     text_puts(&entries[count], "name: ");
-    quote_string(&entries[count++], error->name);
+    quote_string(&entries[count++], name);
   }
   for (uint32_t i = 0; i < type->field_count; i++) {
     const pts_field *field = &type->fields[i];
@@ -1113,10 +1122,10 @@ static void format_error(inspector *in, text *out, pts_error *error, size_t recu
     format_slot(in, &entries[count++], field->kind, (const char *)error + field->offset, recurse_times);
     in->indentation -= 2;
   }
-  if (error->cause != PTS_VALUE_ABSENT && !in->show_hidden) {
+  if (cause != PTS_VALUE_ABSENT && !in->show_hidden) {
     text_puts(&entries[count], "[cause]: ");
     in->indentation += 2;
-    format_value(in, &entries[count++], error->cause, recurse_times);
+    format_value(in, &entries[count++], cause, recurse_times);
     in->indentation -= 2;
   }
   if (accessors) {
@@ -1391,8 +1400,9 @@ static bool is_circular_json_error(pts_value exception) {
     return false;
   }
   const pts_error *error = (const pts_error *)pts_value_as_object(exception);
-  return error->name->byte_len == 9 && memcmp(error->name->bytes, "TypeError", 9) == 0 &&
-         error->message->byte_len >= sizeof message - 1 && memcmp(error->message->bytes, message, sizeof message - 1) == 0;
+  const pts_string *name = error->name, *text = error->message; /* once each (D-143) */
+  return name->byte_len == 9 && memcmp(name->bytes, "TypeError", 9) == 0 && text->byte_len >= sizeof message - 1 &&
+         memcmp(text->bytes, message, sizeof message - 1) == 0;
 }
 
 /* %j: Node's tryStringify, JSON.stringify(value) with "[Circular]" for a circular structure; "undefined" where it gives undefined. */

@@ -333,6 +333,18 @@ static inline bool pts_name_is_symbol(const char *name) { return name[0] == '@' 
 void *pts_cell_new(size_t size, bool holds_pointers);
 /* A new cell holding a copy of cell's value: the next iteration's copy of a loop's `let` variable. */
 void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers);
+
+/*
+ * Memory that other threads may write while it is copied (D-143): pts_copy_shared is
+ * memmove of count bytes, both addresses aligned to unit (1, 2, 4 or 8; count a multiple
+ * of it), by relaxed atomic accesses of unit bytes or wider (up to 8 where both addresses
+ * agree modulo 8), so no value of unit bytes or an aligned word is ever copied in pieces.
+ * pts_load_unit and pts_store_unit are one relaxed atomic access of size bytes (1, 2, 4
+ * or 8) at an address aligned to size.
+ */
+void pts_copy_shared(void *destination, const void *source, size_t count, size_t unit);
+uint64_t pts_load_unit(const unsigned char *at, size_t size);
+void pts_store_unit(unsigned char *at, size_t size, uint64_t bits);
 /* The ready flag after the value in the cell of a local captured before its declaration ran (D-140). */
 #define PTS_CELL_READY(cell) (*(bool *)((cell) + 1))
 
@@ -1460,6 +1472,8 @@ double pts_date_get(pts_date *date, double field);
 double pts_date_set_time(pts_date *date, double time);
 double pts_date_set(pts_date *date, double field, double argc, double a, double b, double c, double d);
 pts_string *pts_date_format(pts_date *date, double format);
+/* pts_date_format of a time value. */
+pts_string *pts_time_format(double t, double format);
 /* toJSON: the ISO string, or null for an invalid date. */
 pts_value pts_date_to_json(pts_date *date);
 

@@ -2,7 +2,7 @@
  * Typed arrays and ArrayBuffer (D-125): fixed-length views of a buffer's bytes, with JS's
  * conversions of the numbers written to them. Other threads may read and write a buffer's
  * bytes at any time, so every access is a relaxed atomic one of an element's width or
- * wider, bulk copies included (copy_shared): racing threads can see stale numbers in an
+ * wider, bulk copies included (pts_copy_shared): racing threads can see stale numbers in an
  * element, never torn ones or bytes outside the view (D-L13, D-143).
  */
 #include "pts.h"
@@ -33,126 +33,6 @@ PTS_TYPED_ARRAYS(TYPED_ARRAY_TYPE)
 static const double MAX_BYTE_LENGTH = 9007199254740991.0;
 
 static size_t element_size(const pts_typed_array *array) { return pts_field_kind_size(array->type->element); }
-
-/* One relaxed atomic load or store of size bytes (1, 2, 4 or 8) at an address aligned to size. */
-static uint64_t load_unit(const unsigned char *at, size_t size) {
-  switch (size) {
-  case 1:
-    return __atomic_load_n(at, __ATOMIC_RELAXED);
-  case 2:
-    return __atomic_load_n((const uint16_t *)at, __ATOMIC_RELAXED);
-  case 4:
-    return __atomic_load_n((const uint32_t *)at, __ATOMIC_RELAXED);
-  default:
-    return __atomic_load_n((const uint64_t *)at, __ATOMIC_RELAXED);
-  }
-}
-
-static void store_unit(unsigned char *at, size_t size, uint64_t bits) {
-  switch (size) {
-  case 1:
-    __atomic_store_n(at, (uint8_t)bits, __ATOMIC_RELAXED);
-    return;
-  case 2:
-    __atomic_store_n((uint16_t *)at, (uint16_t)bits, __ATOMIC_RELAXED);
-    return;
-  case 4:
-    __atomic_store_n((uint32_t *)at, (uint32_t)bits, __ATOMIC_RELAXED);
-    return;
-  default:
-    __atomic_store_n((uint64_t *)at, bits, __ATOMIC_RELAXED);
-  }
-}
-
-static void copy_unit(unsigned char *to, const unsigned char *from, size_t size) { store_unit(to, size, load_unit(from, size)); }
-
-/* count units of size bytes, forwards or backwards; 8-byte words without a switch per unit, the bulk of most copies. */
-static void copy_units(unsigned char *to, const unsigned char *from, size_t count, size_t size, bool backwards) {
-  if (size == 8) {
-    uint64_t *words_to = (uint64_t *)to;
-    const uint64_t *words_from = (const uint64_t *)from;
-    if (backwards) {
-      for (size_t i = count; i-- > 0;) {
-        __atomic_store_n(&words_to[i], __atomic_load_n(&words_from[i], __ATOMIC_RELAXED), __ATOMIC_RELAXED);
-      }
-    } else {
-      for (size_t i = 0; i < count; i++) {
-        __atomic_store_n(&words_to[i], __atomic_load_n(&words_from[i], __ATOMIC_RELAXED), __ATOMIC_RELAXED);
-      }
-    }
-    return;
-  }
-  if (backwards) {
-    for (size_t i = count; i-- > 0;) {
-      copy_unit(to + i * size, from + i * size, size);
-    }
-  } else {
-    for (size_t i = 0; i < count; i++) {
-      copy_unit(to + i * size, from + i * size, size);
-    }
-  }
-}
-
-/*
- * memmove for bytes other threads may read or write (D-143): count bytes from from to to,
- * both aligned to unit (the elements' size; count is a multiple of it), by relaxed atomic
- * accesses of unit bytes, or wider (up to 8) where both addresses are aligned alike, so an
- * element is never copied in pieces, and neither is any aligned value up to that width
- * another view of the buffer sees.
- */
-static void copy_shared(unsigned char *to, const unsigned char *from, size_t count, size_t unit) {
-  size_t wide = 8;
-  while (wide > unit && (((uintptr_t)to ^ (uintptr_t)from) & (wide - 1)) != 0) {
-    wide /= 2;
-  }
-  if (to > from && to < from + count) { /* overlapping, to after from: from the end */
-    size_t end = count;
-    for (size_t size = unit; size < wide; size *= 2) {
-      if (((uintptr_t)(to + end) & size) != 0) {
-        if (end < size) {
-          break;
-        }
-        end -= size;
-        copy_unit(to + end, from + end, size);
-      }
-    }
-    size_t words = end / wide;
-    end -= words * wide;
-    copy_units(to + end, from + end, words, wide, true);
-    for (size_t size = wide / 2; size >= unit; size /= 2) {
-      if (end >= size) {
-        end -= size;
-        copy_unit(to + end, from + end, size);
-      }
-    }
-    return;
-  }
-  size_t at = 0;
-  for (size_t size = unit; size < wide; size *= 2) {
-    if (((uintptr_t)(to + at) & size) != 0) {
-      if (count - at < size) {
-        break;
-      }
-      copy_unit(to + at, from + at, size);
-      at += size;
-    }
-  }
-  size_t words = (count - at) / wide;
-  copy_units(to + at, from + at, words, wide, false);
-  at += words * wide;
-  for (size_t size = wide / 2; size >= unit; size /= 2) {
-    if (count - at >= size) {
-      copy_unit(to + at, from + at, size);
-      at += size;
-    }
-  }
-}
-
-void pts_typed_array_index_error(const pts_typed_array *array, double index) {
-  char buf[PTS_NUMBER_BUF_SIZE];
-  pts_number_format(index, buf);
-  pts_throw_new(&pts_type_builtin_RangeError, "%s index %s is out of range (length %zu)", array->type->name, buf, array->length);
-}
 
 /* JS's ToIntegerOrInfinity. */
 static double to_integer(double d) {
@@ -210,7 +90,7 @@ pts_arraybuffer *pts_arraybuffer_slice(const pts_arraybuffer *buffer, double sta
   size_t to = relative_index(end, buffer->byte_length);
   size_t count = to > from ? to - from : 0;
   pts_arraybuffer *copy = new_buffer(count);
-  copy_shared(copy->bytes, buffer->bytes + from, count, 1);
+  pts_copy_shared(copy->bytes, buffer->bytes + from, count, 1);
   return copy;
 }
 
@@ -283,7 +163,7 @@ pts_typed_array *pts_typed_array_from_array(const pts_type *type, const pts_arra
 pts_typed_array *pts_typed_array_from_typed(const pts_type *type, const pts_typed_array *source) {
   pts_typed_array *array = new_typed_array(type, source->length);
   if (type->element == source->type->element && type != &pts_type_builtin_Uint8ClampedArray) {
-    copy_shared(array->data, source->data, source->length * element_size(source), element_size(source));
+    pts_copy_shared(array->data, source->data, source->length * element_size(source), element_size(source));
     return array;
   }
   for (size_t i = 0; i < source->length; i++) {
@@ -337,7 +217,7 @@ pts_typed_array *pts_typed_array_slice(const pts_typed_array *array, double star
   size_t to = relative_index(end, array->length);
   size_t length = to > from ? to - from : 0;
   pts_typed_array *copy = new_typed_array(array->type, length);
-  copy_shared(copy->data, array->data + from * element_size(array), length * element_size(array), element_size(array));
+  pts_copy_shared(copy->data, array->data + from * element_size(array), length * element_size(array), element_size(array));
   return copy;
 }
 
@@ -360,17 +240,17 @@ pts_typed_array *pts_typed_array_copy_within(pts_typed_array *array, double targ
     count = length - to;
   }
   size_t size = element_size(array);
-  copy_shared(array->data + to * size, array->data + from * size, count * size, size);
+  pts_copy_shared(array->data + to * size, array->data + from * size, count * size, size);
   return array;
 }
 
 pts_typed_array *pts_typed_array_reverse(pts_typed_array *array) {
   size_t size = element_size(array);
   for (size_t i = 0, j = array->length; i + 1 < j; i++, j--) {
-    uint64_t low = load_unit(array->data + i * size, size);
-    uint64_t high = load_unit(array->data + (j - 1) * size, size);
-    store_unit(array->data + i * size, size, high);
-    store_unit(array->data + (j - 1) * size, size, low);
+    uint64_t low = pts_load_unit(array->data + i * size, size);
+    uint64_t high = pts_load_unit(array->data + (j - 1) * size, size);
+    pts_store_unit(array->data + i * size, size, high);
+    pts_store_unit(array->data + (j - 1) * size, size, low);
   }
   return array;
 }
@@ -440,9 +320,9 @@ pts_typed_array *pts_typed_array_sort(pts_typed_array *array) {
   if (copy == NULL) {
     pts_panic("RangeError", "Out of memory sorting a %s of %zu elements", array->type->name, array->length);
   }
-  copy_shared(copy, array->data, bytes, element_size(array));
+  pts_copy_shared(copy, array->data, bytes, element_size(array));
   qsort(copy, array->length, element_size(array), compare);
-  copy_shared(array->data, copy, bytes, element_size(array));
+  pts_copy_shared(array->data, copy, bytes, element_size(array));
   free(copy);
   return array;
 }
@@ -484,7 +364,7 @@ void pts_typed_array_set_array(pts_typed_array *array, const pts_array *source, 
 void pts_typed_array_set_typed(pts_typed_array *array, const pts_typed_array *source, double offset) {
   size_t at = set_offset(array, offset, source->length);
   if (array->type->element == source->type->element && array->type != &pts_type_builtin_Uint8ClampedArray) {
-    copy_shared(array->data + at * element_size(array), source->data, source->length * element_size(source), element_size(source));
+    pts_copy_shared(array->data + at * element_size(array), source->data, source->length * element_size(source), element_size(source));
     return;
   }
   if (source->buffer == array->buffer) { /* overlapping views: read every element before writing any */

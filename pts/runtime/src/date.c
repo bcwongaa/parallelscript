@@ -325,8 +325,9 @@ static int put_zone(char *out, double t) {
   return sprintf(out, "GMT%c%02d%02d (%s)", offset < 0 ? '-' : '+', minutes / 60, minutes % 60, name);
 }
 
-pts_string *pts_date_format(pts_date *date, double format) {
-  double t = date->time;
+pts_string *pts_date_format(pts_date *date, double format) { return pts_time_format(date->time, format); }
+
+pts_string *pts_time_format(double t, double format) {
   if (t != t) {
     if (format == PTS_DATE_ISO) {
       pts_throw_new(&pts_type_builtin_RangeError, "Invalid time value");
@@ -366,7 +367,8 @@ pts_string *pts_date_format(pts_date *date, double format) {
 }
 
 pts_value pts_date_to_json(pts_date *date) {
-  return date->time != date->time ? PTS_VALUE_NULL : pts_value_from_string(pts_date_format(date, PTS_DATE_ISO));
+  double t = date->time; /* once: another thread may set it meanwhile */
+  return t != t ? PTS_VALUE_NULL : pts_value_from_string(pts_time_format(t, PTS_DATE_ISO));
 }
 
 /* ---------------------------------------------------------------- parsing */

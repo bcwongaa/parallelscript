@@ -1280,14 +1280,16 @@ static bool has_hidden_own(pts_value value, const pts_string *key) {
     return true;
   }
   if (string_is(key, "message")) {
-    return error->message != NULL && error->message->utf16_len > 0;
+    const pts_string *message = error->message; /* once (D-143) */
+    return message != NULL && message->utf16_len > 0;
   }
   if (string_is(key, "cause")) {
     return error->cause != PTS_VALUE_ABSENT;
   }
   if (string_is(key, "name")) {
     const char *builtin = builtin_error_type(object)->name;
-    return error->name != NULL && !string_is(error->name, builtin);
+    const pts_string *name = error->name; /* once (D-143) */
+    return name != NULL && !string_is(name, builtin);
   }
   return false;
 }

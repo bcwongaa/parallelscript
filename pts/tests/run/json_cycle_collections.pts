@@ -1,0 +1,23 @@
+// JSON.stringify's message for a cycle names keys that only its stack of frames may hold while a
+// replacer that allocates at every level makes the collector run: that stack is collected
+// memory, which the collector scans (D-143).
+type Link = { [key: string]: any };
+const root: Link = {};
+let node: Link = root;
+for (let depth = 0; depth < 40; depth++) {
+  const next: Link = {};
+  node[`level${depth}_${"x".repeat(depth % 7)}`] = next;
+  node = next;
+}
+node.back = root;
+let garbage: number[][] = [];
+function replacer(key: string, value: any): any {
+  garbage = [];
+  for (let i = 0; i < 200; i++) garbage.push(new Array(1000).fill(i));
+  return value;
+}
+try {
+  JSON.stringify(root, replacer);
+} catch (error: any) {
+  console.log(error.message);
+}

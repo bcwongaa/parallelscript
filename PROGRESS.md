@@ -146,7 +146,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
 | Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (299 run tests and 42 docs samples, the parallel ones under several `PTS_THREADS`; 79 error tests; `TestHTTPServer`, `TestHTTPServerEveryLoop`; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 16 string-corpus parts; about 2.5 min on a busy machine) |
-| Stress tests | `make test-stress` (= `go test -run TestStress ./pts/tests/`); `PTS_STRESS_REPEAT=n` runs each program n times per thread count (the nightly CI job: 100) | ok (12 programs; about 17 s for 3 runs each) |
+| Stress tests | `make test-stress` (= `go test -run TestStress ./pts/tests/`); `PTS_STRESS_REPEAT=n` runs each program n times per thread count (the nightly CI job: 100) | ok (13 programs; about 15–20 s for 3 runs each) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |

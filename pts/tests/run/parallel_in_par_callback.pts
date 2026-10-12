@@ -1,0 +1,11 @@
+// `parallel` inside a `.par` callback, before anything else started the loops (D-143): the
+// pool thread that runs the callback may be the one that starts them, which threw the
+// error meant for timers there (and a caught throw would have left later starts waiting).
+// threads: 1 2 4 8
+const items = Array.from({ length: 64 }, (_, i) => i);
+const promises = items.par.map((x) => parallel (x * 2));
+const doubled = await Promise.all(promises);
+console.log(doubled.reduce((a, b) => a + b, 0));
+
+// expect:
+// 4032
