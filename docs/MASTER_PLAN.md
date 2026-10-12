@@ -282,7 +282,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - New `docs/GUIDE.md` (started early; M7.3 finishes it): a tour for TypeScript developers covering what's the same, what's different, integer types, the parallel features and the guardrail, and the common compile errors with fixes.
   - `docs/BENCHMARKS.md` (summary at the top), `docs/FORK.md`, `PROGRESS.md`, `pts/tests/README.md`, `docs/DECISIONS.md` (add an index of entries by topic at the top; keep it append-only below).
   - New `docs/README.md`: an index of all docs.
-- [ ] **M6.2a `pts:http` server on one loop** (split from M6.2 by D-136). `serve({ port, hostname, fetch, error })` with the Fetch standard's `Request`, `Response` and `Headers`, in the style of Bun's; HTTP/1.1 with keep-alive, pipelining, chunked request bodies, `Expect: 100-continue`; `Server.stop()`; tests over TCP.
+- [x] **M6.2a `pts:http` server on one loop** (a4f1fa7e4) (split from M6.2 by D-136). `serve({ port, hostname, fetch, error })` with the Fetch standard's `Request`, `Response` and `Headers`, in the style of Bun's; HTTP/1.1 with keep-alive, pipelining, chunked request bodies, `Expect: 100-continue`; `Server.stop()`; tests over TCP.
 - [ ] **M6.2b `pts:http` on every loop, and benchmarks** (split from M6.2 by D-136). `reusePort: true` accepts connections on every loop (`SO_REUSEPORT`); hello-world and JSON-echo benchmarks with `oha` against Node, Bun and Go.
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:
