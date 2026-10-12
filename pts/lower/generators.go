@@ -356,9 +356,10 @@ func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *as
 		body.Stmts = append(append(next, destructured...), body.Stmts...)
 		return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Loop{At: at, Label: label, Body: body}}}
 	}
-	closing := func() []ir.Stmt {
-		closeIt := &ir.ExprStmt{At: at, X: &ir.CallBuiltin{Builtin: ir.IteratorClose, Args: []ir.Expr{&ir.LocalRef{Local: it}}}}
-		return []ir.Stmt{&ir.If{At: at, Cond: &ir.Unary{Op: ir.Not, X: &ir.LocalRef{Local: done}}, Then: &ir.Block{At: at, Stmts: []ir.Stmt{closeIt}}}}
+	closing := func(f *finallyContext) []ir.Stmt {
+		return l.iteratorClosing(at, f, done, func() []ir.Stmt {
+			return []ir.Stmt{&ir.ExprStmt{At: at, X: &ir.CallBuiltin{Builtin: ir.IteratorClose, Args: []ir.Expr{&ir.LocalRef{Local: it}}}}}
+		})
 	}
 	// The loop's own label is inside the protected code: its break and continue stay there.
 	finally := l.withFinally(at, len(l.targets)-1, protected, closing)

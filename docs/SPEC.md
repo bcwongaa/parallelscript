@@ -1383,3 +1383,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **C** (`pts/cgen/order.go`): `effectsOf` handles every IR expression (constants, `Resumed`/`ResumedBy`; anything else reads, writes and throws); `builtinEffects` classifies builtins (`computedBuiltins`, the String/Number/Math members, `throwingBuiltins`, the order-dependent `Math.random` and `performance.now`, console); `ToString` of a dynamic value counts as a call.
 - **Tests:** `pts/tests/run/suspension_snapshots.pts` (the review's probe 6; compound assignments to names, fields and elements; an element, a name and a callee read before an await; a template's toString before a yield; unchanged locals; against Node).
 
+### 9.102 The iteration protocol's order (M6.0b3)
+
+- **Runtime** (D-146, `generator.c`): `resume_object_iterator` reads `done`, then `value` only for a result that isn't done; a done result goes in `object_iterator.finished` with the value `PTS_VALUE_ABSENT`, which `pts_iterator_value` turns into a read of the result's `value`.
+- **Lowering** (`exceptions.go`, `generators.go`, `async_iteration.go`): `withFinally` passes its `finallyContext` to the finally code; `iteratorClosing` (used by `iteratorForOf` and `asyncForOf`) closes the iterator inside a try that drops its error when the completion is a throw, and plainly otherwise.
+- **Tests:** `pts/tests/run/iterator_close_order.pts` (the review's probe 13; break, return and non-object results; yield*'s done then value; for await; against Node).
+

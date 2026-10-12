@@ -1,0 +1,144 @@
+// The iteration protocol's order (D-146): a step reads `done` and only then, if it isn't
+// done, `value`; yield* reads a done result's value after its done. When a loop's body
+// throws, an error closing the iterator is dropped and the body's goes on (IteratorClose);
+// when the loop leaves by break or return, closing's error is the loop's. The first
+// cases are the review's probe 13 (finding 7).
+
+class Completed implements Iterable<number> {
+  [Symbol.iterator](): any {
+    return {
+      next(): any {
+        return {
+          get done(): true {
+            console.log("done");
+            return true;
+          },
+          get value(): number {
+            console.log("value");
+            throw new Error("unneeded value");
+          },
+        };
+      },
+    };
+  }
+}
+try {
+  for (const value of new Completed()) console.log(value);
+} catch (error: any) {
+  console.log(error.message);
+}
+
+function closing(message: string, returned: any = undefined): Iterable<number> {
+  return {
+    [Symbol.iterator](): any {
+      return {
+        next(): any {
+          return { done: false, value: 1 };
+        },
+        return(): any {
+          console.log("return called");
+          if (returned !== undefined) return returned;
+          throw new Error(message);
+        },
+      };
+    },
+  };
+}
+try {
+  for (const value of closing("close")) throw new Error("body");
+} catch (error: any) {
+  console.log("caught", error.message);
+}
+try {
+  for (const value of closing("close")) break;
+} catch (error: any) {
+  console.log("break caught", error.message);
+}
+function returnsFromLoop(): string {
+  for (const value of closing("close on return")) return "returned";
+  return "not reached";
+}
+try {
+  console.log(returnsFromLoop());
+} catch (error: any) {
+  console.log("return caught", error.message);
+}
+try {
+  for (const value of closing("", 5)) break;
+} catch (error: any) {
+  console.log("not an object:", error instanceof TypeError);
+}
+try {
+  for (const value of closing("", 5)) throw new Error("body wins");
+} catch (error: any) {
+  console.log("caught", error.message);
+}
+
+// yield* reads done, then the value of the result that is done.
+function* delegating(): Generator<number, void, undefined> {
+  const inner: any = {
+    [Symbol.iterator](): any {
+      return this;
+    },
+    next(): any {
+      return {
+        get done(): boolean {
+          console.log("inner done");
+          return true;
+        },
+        get value(): string {
+          console.log("inner value");
+          return "finished";
+        },
+      };
+    },
+  };
+  const result = yield* inner;
+  console.log("yield* gave", result);
+}
+for (const value of delegating()) console.log(value);
+
+// The same for for await: the body's error wins over return()'s.
+const asyncClosing: AsyncIterable<number> = {
+  [Symbol.asyncIterator](): any {
+    return {
+      next(): Promise<any> {
+        return Promise.resolve({ done: false, value: 1 });
+      },
+      return(): Promise<any> {
+        console.log("async return called");
+        throw new Error("async close");
+      },
+    };
+  },
+};
+try {
+  for await (const value of asyncClosing) throw new Error("async body");
+} catch (error: any) {
+  console.log("caught", error.message);
+}
+try {
+  for await (const value of asyncClosing) break;
+} catch (error: any) {
+  console.log("break caught", error.message);
+}
+
+// expect:
+// done
+// return called
+// caught body
+// return called
+// break caught close
+// return called
+// return caught close on return
+// return called
+// not an object: true
+// return called
+// caught body wins
+// inner done
+// inner value
+// yield* gave finished
+// async return called
+// caught async body
+// async return called
+// break caught async close

@@ -137,6 +137,7 @@ static bool is_iterator(pts_value value) {
 typedef struct object_iterator {
   pts_iterator header;
   pts_value object;
+  pts_value finished; /* the result that said done: its value is read only if asked for (D-146) */
 } object_iterator;
 
 static const pts_type object_iterator_type = {
@@ -178,6 +179,7 @@ pts_value pts_iterator_of(pts_value iterator) {
   it->header.type = &object_iterator_type;
   it->header.value = PTS_VALUE_UNDEFINED;
   it->object = iterator;
+  it->finished = PTS_VALUE_UNDEFINED;
   return pts_value_from_object(it);
 }
 
@@ -201,10 +203,13 @@ static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pt
     pts_string *shown = pts_value_to_string(result);
     pts_throw_new(&pts_type_builtin_TypeError, "Iterator result %.*s is not an object", (int)shown->byte_len, shown->bytes);
   }
-  set_value(&it->header, pts_dynamic_get(result, pts_value_from_string(value)));
+  /* IteratorComplete, then IteratorValue only if it isn't: a for…of doesn't read a done result's value, yield* does (D-146). */
   if (!pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done)))) {
+    set_value(&it->header, pts_dynamic_get(result, pts_value_from_string(value)));
     return false;
   }
+  it->finished = result;
+  set_value(&it->header, PTS_VALUE_ABSENT);
   it->header.state = PTS_GENERATOR_DONE;
   return true;
 }
@@ -405,10 +410,15 @@ bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sen
 
 pts_value pts_iterator_value(pts_value iterator) {
   const pts_iterator *it = as_iterator(iterator);
+  pts_value value = it->value;
   if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED) && last_resumed != NULL && last_resumed->iterator == it) {
-    return last_resumed->value;
+    value = last_resumed->value;
   }
-  return it->value;
+  if (value == PTS_VALUE_ABSENT && it->type == &object_iterator_type) { /* a done result's value, read now that it is asked for */
+    PTS_STATIC_STRING(value_key, 1, 5, 5, "value");
+    return pts_dynamic_get(((const object_iterator *)it)->finished, pts_value_from_string(value_key));
+  }
+  return value;
 }
 
 void pts_iterator_close(pts_value iterator) {

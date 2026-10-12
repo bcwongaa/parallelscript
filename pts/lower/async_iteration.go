@@ -133,9 +133,11 @@ func (l *lowerer) asyncForOf(node *ast.Node, label *ir.Label, declaration *ast.N
 		body.Stmts = append(append(next, destructured...), body.Stmts...)
 		return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Loop{At: at, Label: label, Body: body}}}
 	}
-	closing := func() []ir.Stmt {
-		awaited, _ := l.awaitStatements(at, &ir.CallBuiltin{Builtin: ir.AsyncIteratorClose, Args: []ir.Expr{ref(it)}})
-		return []ir.Stmt{&ir.If{At: at, Cond: &ir.Unary{Op: ir.Not, X: ref(done)}, Then: &ir.Block{At: at, Stmts: awaited}}}
+	closing := func(f *finallyContext) []ir.Stmt {
+		return l.iteratorClosing(at, f, done, func() []ir.Stmt {
+			awaited, _ := l.awaitStatements(at, &ir.CallBuiltin{Builtin: ir.AsyncIteratorClose, Args: []ir.Expr{ref(it)}})
+			return awaited
+		})
 	}
 	finally := l.withFinally(at, len(l.targets)-1, protected, closing)
 	if finally == nil {

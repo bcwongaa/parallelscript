@@ -81,7 +81,7 @@ func (l *lowerer) tryStatement(node *ast.Node) []ir.Stmt {
 		}
 		return nil
 	}
-	finally := func() []ir.Stmt {
+	finally := func(*finallyContext) []ir.Stmt {
 		return []ir.Stmt{l.block(statement.FinallyBlock, statement.FinallyBlock.Statements())}
 	}
 	if stmts := l.withFinally(at, len(l.targets), protected, finally); stmts != nil {
@@ -92,9 +92,9 @@ func (l *lowerer) tryStatement(node *ast.Node) []ir.Stmt {
 
 // withFinally lowers code (protected) that finally follows however it completes, as a
 // try statement's finally block does (see above): the jumps out of it to the first
-// targets of l.targets and its returns go through finally. It returns nil if protected
-// fails, which reported why.
-func (l *lowerer) withFinally(at ir.Pos, targets int, protected func() *ir.Block, finally func() []ir.Stmt) []ir.Stmt {
+// targets of l.targets and its returns go through finally, which may test how protected
+// completed. It returns nil if protected fails, which reported why.
+func (l *lowerer) withFinally(at ir.Pos, targets int, protected func() *ir.Block, finally func(f *finallyContext) []ir.Stmt) []ir.Stmt {
 	f := &finallyContext{label: &ir.Label{}, targets: targets, completion: l.newLocal("completion", ir.I32)}
 	l.finallies = append(l.finallies, f)
 	body := protected()
@@ -116,7 +116,7 @@ func (l *lowerer) withFinally(at ir.Pos, targets int, protected func() *ir.Block
 		stmts = append(stmts, &ir.LocalDecl{At: at, Local: f.result})
 	}
 	stmts = append(stmts, &ir.LabeledBlock{At: at, Label: f.label, Body: &ir.Block{At: at, Stmts: []ir.Stmt{catchAll}}})
-	stmts = append(stmts, finally()...)
+	stmts = append(stmts, finally(f)...)
 	stmts = append(stmts, f.when(at, completionThrow, &ir.Throw{At: at, Value: &ir.LocalRef{Local: thrown}}))
 	if f.returns {
 		var value ir.Expr
@@ -194,6 +194,18 @@ func (l *lowerer) jumpTo(at ir.Pos, i int, isContinue bool) []ir.Stmt {
 // complete records how the protected code of f completes.
 func (f *finallyContext) complete(at ir.Pos, completion int) ir.Stmt {
 	return &ir.ExprStmt{At: at, X: &ir.Assign{Local: f.completion, Value: completionConst(completion)}}
+}
+
+// iteratorClosing ends a loop over an iterator, as IteratorClose does when the loop left
+// it early (done false): it closes the iterator (closeIt makes the statements); if the
+// loop threw, an error from closing is dropped and the loop's own goes on (D-146),
+// otherwise closing's error is the loop's.
+func (l *lowerer) iteratorClosing(at ir.Pos, f *finallyContext, done *ir.Local, closeIt func() []ir.Stmt) []ir.Stmt {
+	dropped := l.newLocal("dropped", ir.Value)
+	afterThrow := &ir.Try{At: at, Body: &ir.Block{At: at, Stmts: closeIt()}, Exception: dropped, Catch: &ir.Block{At: at}}
+	threw := &ir.Binary{Op: ir.Eq, X: &ir.LocalRef{Local: f.completion}, Y: completionConst(completionThrow)}
+	closing := &ir.If{At: at, Cond: threw, Then: &ir.Block{At: at, Stmts: []ir.Stmt{afterThrow}}, Else: &ir.Block{At: at, Stmts: closeIt()}}
+	return []ir.Stmt{&ir.If{At: at, Cond: &ir.Unary{Op: ir.Not, X: &ir.LocalRef{Local: done}}, Then: &ir.Block{At: at, Stmts: []ir.Stmt{closing}}}}
 }
 
 // when runs stmts if the protected code of f completed as completion.
