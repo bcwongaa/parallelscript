@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
-- **Next task:** M4.5c `pts:fs` promise API
+- **Next task:** M4.6 Milestone M4
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M4.5c `pts:fs` promise API (D-118, SPEC §9.76): `pts:fs/promises` (and `fs.promises`) with Node's functions over the same libuv calls run on libuv's threadpool as jobs (system calls apart from making values, so the pool never touches the collector), settling promises from the loop followed by a microtask drain; `pts:internal/fs` for shared code (library-only imports). `fs_promises` matches Node line for line; 2,000 concurrent reads and stats stay correct under GC pressure.
 - M4.5b `pts:fs` synchronous API (D-117, SPEC §9.75): Node's sync functions (read/write/append, exists/access, stat/lstat, mkdir with recursive, readdir with withFileTypes/recursive, unlink/rmdir/rm, rename, copyFile, symlink/readlink/realpath, chmod, mkdtemp), `constants`, `Stats`, `Dirent`, the default `fs` object; libuv's synchronous calls (Node's order, birth times, errnos); Node's errors (a native "Error" type with errno/code/syscall/path/dest; `NodeJS.ErrnoException`); UTF-8 text with WHATWG lossy decoding; reading into a Buffer is a compile error (`@notSupportedYet` on library overloads). Overloaded calls convert to the chosen overload's result. `fs_sync` matches Node line for line.
 - M4.5a `pts:` modules, `pts:process` and `pts:path` (D-116, SPEC §9.74): `pts:x` resolves (compiler option `paths`) to `pts/lib/x.pts`, a ParallelScript source compiled with the program; bodiless `declare function pts_…` declarations in those modules are intrinsics, direct calls of the runtime's C function of that name. `pts:process` (argv, env, exit, exitCode, cwd, platform, arch, pid, execPath, stdout/stderr.write) and the global `process` (its default export; the front end runs the module first when a program uses the global); `pts:path` is Node 24's posix path ported line by line. Differential tests map `pts:path`/`process`/`fs` to `node:` modules. M4.5 split by D-116.
 - M4.4 Async iteration: async generators (declarations, expressions, methods; awaits and yields in one body over D-109's frames, the spec's request queue, `return`/`throw`, finally on early exit), `for await` over async generators, `[Symbol.asyncIterator]` objects of the program's and sync iterables of promises, at the top level too; `[AsyncFunction: f]`/`[AsyncGeneratorFunction: f]` printing (D-115, SPEC §9.73). `yield*` in async generators is PTS1001.
@@ -101,9 +102,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M4.5c `pts:fs` promise API (see `docs/MASTER_PLAN.md`). Plan: `pts:fs/promises` (`pts/lib/fs/promises.pts`; embed `fs/*.pts`, and `lib.WrapFS`'s DirectoryExists must know embedded subdirectories) with Node's `fs/promises` functions and a default object; `pts:fs` re-exports it as `promises` (`export { default as promises } from "pts:fs/promises"`, a live binding, so the import cycle can't hit the TDZ) and `FileSystem.promises` as a getter. Shared code (Stats, Dirent, stringToFlags, errors) moves to an internal module `pts:internal/fs` that only library modules may import (a front-end check). Runtime: refactor `fs.c` into jobs (a work part doing syscalls into malloc'd memory, thread-safe and GC-free, and a done part making values or errors on the loop thread); sync intrinsics run both inline, async ones run work on libuv's threadpool (`uv_queue_work`) and settle a promise in the after-work callback, followed by a microtask drain (D-114); pending jobs' promises rooted in a GC-visible list. Intrinsics that return a Promise mark their `ir.Func` so cgen sets `usesLoop`. Node's promises `realpath` is libuv's (`realpath` syscall in errors), unlike realpathSync.
-2. M4.6 Milestone M4 (checklist in `docs/MASTER_PLAN.md`).
-3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M4.6 Milestone M4 (checklist in `docs/MASTER_PLAN.md`): suite and CI green, PROGRESS, an M4 table in `docs/BENCHMARKS.md` (new M4 benchmarks drafted: `async_fib`, async recursion awaiting both subcalls, fib(29); `file_io`, 2,000 small files written, read, stat'ed and removed through `fs/promises`, three rounds, with a Go twin using goroutines; `run.sh` must allow a benchmark without `main.go`), tag `m4`, Telegram report.
+2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -117,7 +117,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (270 run tests; 66 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (271 run tests; 67 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -150,6 +150,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M4.5c done (D-118); M4.5 complete.
 - 2026-10-12: M4.5b done (D-117).
 - 2026-10-12: M4.5a done (M4.5 split by D-116).
 - 2026-10-12: M4.4 done (D-115).
