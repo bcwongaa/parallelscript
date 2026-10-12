@@ -1,0 +1,13 @@
+// What RegExp leaves out (D-133): the deprecated compile, the legacy statics, the d flag's
+// indices, and classes extending RegExp.
+const pattern = /a(b)/d;
+pattern.compile("x");
+console.log(RegExp.$1);
+const found = pattern.exec("ab");
+console.log(found?.indices);
+class Strict extends RegExp {}
+
+// error: regexp_not_yet.pts:4:1 - error PTS1001: the deprecated `compile` of RegExp is not supported yet
+// error: regexp_not_yet.pts:5:13 - error PTS1001: the legacy statics of RegExp (`RegExp.$1`) are not supported yet
+// error: regexp_not_yet.pts:7:13 - error PTS1001: the `indices` of a match (the d flag) are not supported yet
+// error: regexp_not_yet.pts:8:22 - error PTS1001: extending `RegExp` is not supported yet

@@ -230,6 +230,8 @@ func FormatExpr(expr Expr) string {
 		return "null"
 	case *GivenConst:
 		return "given(" + strconv.FormatBool(e.Value) + ")"
+	case *RegExpLiteral:
+		return "/" + e.Pattern + "/" + e.Flags
 	case *LeftOut:
 		return "left-out " + e.T.String()
 	case *Absent:

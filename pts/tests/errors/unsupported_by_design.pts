@@ -16,7 +16,6 @@ namespace Geometry {
 }
 const big = 10n;
 const tag = Symbol("tag");
-const pattern = /ab+c/;
 enum Color { Red }
 enum Color { Green = 1 }
 
@@ -31,5 +30,4 @@ enum Color { Green = 1 }
 // error: unsupported_by_design.pts:14:1 - error PTS1002: namespaces are not supported; use ES modules
 // error: unsupported_by_design.pts:17:13 - error PTS1002: BigInt is not supported yet
 // error: unsupported_by_design.pts:18:13 - error PTS1002: `Symbol` is not supported, except `Symbol.iterator` and `Symbol.asyncIterator`
-// error: unsupported_by_design.pts:19:17 - error PTS1001: RegExp arrives in M6
-// error: unsupported_by_design.pts:21:6 - error PTS1002: declaration merging is not supported: `Color` is declared more than once
+// error: unsupported_by_design.pts:20:6 - error PTS1002: declaration merging is not supported: `Color` is declared more than once

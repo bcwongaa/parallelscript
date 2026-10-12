@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.1b `RegExp` in the language
+- **Next task:** M6.1c String methods with regexes, and `normalize`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow; the nightly stress workflow passed its first run, dispatched with 5 repeats)
 
 ## Done
 
+- M6.1b `RegExp` in the language (D-133, SPEC §9.90): a builtin class (`pts_regexp`, `PTS_KIND_REGEXP`) whose `lastIndex` is a real field; regex literals (a new RegExp per evaluation over code compiled once into a static per literal), `new RegExp`/`RegExp()` with string or RegExp patterns, `source`, `flags` and the flag properties, `exec`/`test` with RegExpBuiltinExec's lastIndex rules for `g` and `y`, `toString`, `RegExp.escape`; match arrays are `string[]`s with `index`, `input` and `groups` kept after the array (`pts_match_array`), printed as Node prints them, groups that took no part being holes read as loose elements (`m[2] || "px"` works); console.log, String, JSON and `any` as Node. The String methods that take regexes stay compile errors until M6.1c.
 - M6.1a The RegExp core (M6.1 split by D-132, SPEC §9.89): PCRE2 10.49 vendored (8-bit, Unicode, no JIT) and built by the toolchain; `regexp.c` translates JS patterns into PCRE2's syntax with JS's meanings (line terminators, `\v`, Annex B identity escapes and literal braces, classes without POSIX syntax, backreferences by number, named groups kept by the runtime, `\p{…}` forms, `(?ims-ims:)` modifiers) and V8's SyntaxError messages, and matches from UTF-16 indices with a cursor for loops; `regexp_test.c` checks it against Node's answers.
 - M5.8 Milestone M5: checklist run, suite green locally and CI green, M5 table in `docs/BENCHMARKS.md` (the four parallel benchmarks with speedups; a busier machine than M5.7b's run: mandelbrot 4.65× on 8 threads there, 5.78× in M5.7b's), tag `m5`, Telegram report.
 - M5.7b Parallel benchmarks and scaling (D-131, SPEC §9.88): `pts/bench/mandelbrot`, `sum_reduce`, `word_count`, `fan_out`, each with a sequential `main.ts` for Node and Bun and a goroutine `main.go`; a `threads` file makes `run.sh` run ParallelScript per `PTS_THREADS` and print speedups (`docs/BENCHMARKS.md`, M5.7b: mandelbrot 5.78× on 8 threads and 6.5× Node, fan_out 3.26×, word_count 2.22×, sum_reduce 1.83×). bdwgc now marks on 2 threads instead of one per core (single-threaded allocation was up to 60% slower with 8 markers). M5.7 is complete.
@@ -117,7 +118,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M6.1b `RegExp` in the language (see `docs/MASTER_PLAN.md`; D-132 for the core): a builtin class over `pts_regex` (as Date and the typed arrays are, D-087, D-125): regex literals (now PTS1001 "RegExp arrives in M6" in `pts/check/unsupported.go`) and `new RegExp(pattern, flags)` (also from a regex), `source` (`pts_regex_escape_source`), `flags` and the flag properties, `lastIndex` with `g`/`y` (exec reads and sets it; empty matches advance by one unit), `test`, `exec` returning a `RegExpExecArray` (an array with `index`, `input`, `groups`; console.log prints them as Node does: `[ 'a', index: 0, input: 'abc', groups: undefined ]`), String(regex) and console.log (`/a/g`), regexes through `any`. Then M6.1c (string methods with regexes, `normalize`) and M6.1d (the owner's documentation refresh: subagents per document, verified samples).
+1. M6.1c String methods with regexes, and `normalize` (see `docs/MASTER_PLAN.md`; D-132 for the core, D-133 for RegExp objects): `match` (non-global: exec's match array, `pts_match_array_new`; global: a plain `string[]` of the matches, or null), `matchAll` (an iterator of match arrays; TypeError without `g`), `replace`/`replaceAll` with a RegExp (`$&`, `` $` ``, `$'`, `$1`…`$99`, `$<name>`, `$$`; callbacks get the match, the groups, the index, the input and the groups object; replaceAll without `g` is a TypeError), `split` with a RegExp (captures spliced in, the limit), `search`; loops over matches carry a `pts_regex_cursor` and advance one unit past empty matches (AdvanceStringIndex, by code point with `u`). Today the static calls are PTS1001 (`pts/lower/strings.go`: "`replace` with a pattern of type RegExp", "calling `\"abc\".match`"), and through `any` `refuse_regexp` (`dynamic_methods.c`) throws. `normalize` needs Unicode's composition tables (generate them as the case tables were). Then M6.1d (the owner's documentation refresh: subagents per document, verified samples).
 2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -133,7 +134,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (290 run tests, the parallel ones under several `PTS_THREADS`; 70 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (295 run tests, the parallel ones under several `PTS_THREADS`; 71 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | Stress tests | `make test-stress` (= `go test -run TestStress ./pts/tests/`); `PTS_STRESS_REPEAT=n` runs each program n times per thread count (the nightly CI job: 100) | ok (11 programs; about 13 s for 3 runs each) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
@@ -163,6 +164,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 - **Integer constant expressions wrap at run time** instead of failing to compile: `const b: u8 = 200 + 56` is 0 (D-012). A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Upstream, pre-existing:** `go test ./internal/execute/tsctests/ -run TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped` fails at the fork base too (verified with the PTS edits stashed). The help header's padding depends on the real version string, which changed on the 7.1 nightly branch after the baseline was written. Not ours; CI excludes it (M0.7).
 
+- **RegExp gaps (D-132, D-133):** a group that took no part in a match, passed to a typed callback of the match array's methods (`m.map(f)`, `m.filter(f)`) or met by `for…of`, throws `TypeError: Expected string, got undefined (group n of the match took no part in it)` where JS passes undefined; a named group that took no part is undefined in `groups` but `RangeError` where a string is required; the `d` flag gives no `indices`; without `u`, `.` and classes match an astral character whole (JS sees two units); no `v` flag; `\s` misses U+FEFF.
 - **Publication of new objects relies on x86's store order** (D-130): fresh objects are published by plain or relaxed stores, which x86-64 never reorders with the stores that filled them; an ARM port needs release stores where they are published.
 
 ## Needs from owner
@@ -171,6 +173,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M6.1b done (D-133).
 - 2026-10-12: M6.1a done (M6.1 split by D-132); the owner added M6.1d (documentation refresh) during the session.
 - 2026-10-12: M5.8 done; tagged `m5`.
 - 2026-10-12: M5.7b done (D-131); M5.7 complete.

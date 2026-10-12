@@ -1,0 +1,63 @@
+// RegExps in realistic code (D-133): fields and statics, maps and tuples of RegExps,
+// compound assignment to lastIndex, `re.exec(s) ?? []` destructured, arrays of matches,
+// RegExps built from strings, in async code, in object literals.
+class Tokenizer {
+  private readonly number = /\d+(\.\d+)?/y;
+  static readonly SPACE = /\s+/y;
+  constructor(readonly name: string) {}
+  scan(text: string, at: number): string | null {
+    this.number.lastIndex = at;
+    const m = this.number.exec(text);
+    return m ? m[0] : null;
+  }
+}
+const t = new Tokenizer("t");
+console.log(t.scan("ab 12.5x", 3), t.scan("ab 12.5x", 0), Tokenizer.SPACE.sticky);
+const rules = new Map<string, RegExp>([["int", /^\d+$/], ["word", /^[a-z]+$/i]]);
+for (const [name, re] of rules) console.log(name, re.test("42"), re);
+const table: [RegExp, string][] = [[/^a/, "starts with a"], [/b$/, "ends with b"]];
+for (const [re, label] of table) if (re.test("ab")) console.log(label);
+const counter = /x/g;
+counter.lastIndex++;
+counter.lastIndex += 2;
+console.log(counter.lastIndex);
+const [, year, month] = /(\d{4})-(\d\d)/.exec("2024-05") ?? [];
+console.log(year, month);
+console.log(/(\d+)/.exec("abc 42")?.[1], /(\d+)/.exec("abc")?.[1]);
+const all: RegExpExecArray[] = [];
+const g = /\d/g;
+let m: RegExpExecArray | null;
+while ((m = g.exec("a1b2"))) all.push(m);
+console.log(all.length, all.map((x) => x.index), all);
+function build(word: string): RegExp { return new RegExp(`\\b${word}\\b`, "g"); }
+const wb = build("cat");
+console.log(wb, wb.test("a cat sat"), wb.lastIndex);
+async function later(re: RegExp): Promise<boolean> { await null; return re.test("zz"); }
+console.log(await later(/z+/));
+const same = /a/;
+const other = same;
+console.log(same === other);
+const obj = { re: /q/g, n: 1 };
+obj.re.lastIndex = 5;
+console.log(obj, obj.re.lastIndex);
+let lazy: RegExp | undefined;
+lazy ??= /lazy/;
+console.log(lazy.source);
+// expect:
+// 12.5 null true
+// int true /^\d+$/
+// word false /^[a-z]+$/i
+// starts with a
+// ends with b
+// 3
+// 2024 05
+// 42 undefined
+// 2 [ 1, 3 ] [
+//   [ '1', index: 1, input: 'a1b2', groups: undefined ],
+//   [ '2', index: 3, input: 'a1b2', groups: undefined ]
+// ]
+// /\bcat\b/g true 5
+// true
+// true
+// { re: /q/g, n: 1 } 5
+// lazy

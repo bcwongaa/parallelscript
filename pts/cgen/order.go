@@ -79,6 +79,8 @@ func effectsOf(expr ir.Expr) effects {
 			f |= effectsOf(x.Length) | mayThrow
 		}
 		return f
+	case *ir.RegExpLiteral:
+		return mayThrow // an invalid pattern tsc let through is a SyntaxError
 	case *ir.ClassCast:
 		return effectsOf(x.X)
 	case *ir.InstanceOf:

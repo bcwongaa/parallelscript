@@ -65,7 +65,7 @@ func (l *lowerer) holdsMembersOf(node *ast.Node, u *ir.Union) bool {
 // isUninhabited reports whether no value has the object type t: one with a required
 // property of type never (the cons member of a `List<never>`, `{ head: never; … }`).
 func (l *lowerer) isUninhabited(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsObject == 0 || l.checker.IsArrayType(t) || checker.IsTupleType(t) {
+	if t.Flags()&checker.TypeFlagsObject == 0 || l.isArrayType(t) || checker.IsTupleType(t) {
 		return false
 	}
 	return slices.ContainsFunc(l.checker.GetPropertiesOfType(t), func(property *ast.Symbol) bool {

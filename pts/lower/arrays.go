@@ -53,7 +53,7 @@ func isArray(t ir.Type) bool {
 // isArrayExpression reports whether tsc types node as an array.
 func (l *lowerer) isArrayExpression(node *ast.Node) bool {
 	t := l.typeAt(node)
-	return l.checker.IsArrayType(t) || isRestTuple(t) // `[number, ...number[]]` is an array (D-100)
+	return l.isArrayType(t) || isRestTuple(t) // `[number, ...number[]]` is an array (D-100)
 }
 
 // isRestTuple reports whether t is a tuple type with a rest element.

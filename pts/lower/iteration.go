@@ -78,7 +78,7 @@ func propertyName(property *ast.Symbol) string {
 // hasIteratorMethod reports whether values of t are objects of the program's with a
 // [Symbol.iterator] method: a class's or an object literal's.
 func (l *lowerer) hasIteratorMethod(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsObject == 0 || l.checker.IsArrayType(t) || checker.IsTupleType(t) || l.isIteratorType(t) || l.isIterableType(t) {
+	if t.Flags()&checker.TypeFlagsObject == 0 || l.isArrayType(t) || checker.IsTupleType(t) || l.isIteratorType(t) || l.isIterableType(t) {
 		return false
 	}
 	for _, property := range l.checker.GetPropertiesOfType(t) {

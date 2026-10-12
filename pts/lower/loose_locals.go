@@ -160,7 +160,7 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 			return false
 		}
 		initializer := pattern.Parent.Initializer()
-		return initializer != nil && l.checker.IsArrayType(l.typeAt(initializer))
+		return initializer != nil && l.isArrayType(l.typeAt(initializer))
 	}
 	return false
 }

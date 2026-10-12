@@ -148,6 +148,9 @@ pts_array *pts_array_of(const pts_type *type, const void *elements, size_t count
 void pts_array_index_error(const pts_array *array, double index) {
   char buf[PTS_NUMBER_BUF_SIZE];
   pts_number_format(index, buf);
+  if (pts_is_match_array((const pts_object *)array) && index >= 0 && index < pts_array_length(array)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Expected string, got undefined (group %s of the match took no part in it)", buf);
+  }
   pts_throw_new(&pts_type_builtin_RangeError, "Array index %s is out of range (length %zu)", buf, pts_array_length_of(array));
 }
 
@@ -439,7 +442,7 @@ pts_array *pts_array_slice(const pts_array *array, double start, double end) {
   size_t length = readable_length(array, buffer);
   size_t from = relative_index(start, length), to = relative_index(end, length);
   size_t size = pts_field_kind_size(array->type->element);
-  return new_array(array->type, buffer->elements + from * size, to > from ? to - from : 0);
+  return new_array(pts_array_copy_type(array->type), buffer->elements + from * size, to > from ? to - from : 0);
 }
 
 pts_array *pts_array_copy(const pts_array *array) { return pts_array_slice(array, 0, (double)SIZE_MAX); }
@@ -452,7 +455,7 @@ pts_array *pts_array_splice(pts_array *array, double start, double delete_count,
   size_t from = relative_index(start, length);
   double wanted = delete_count != delete_count ? 0 : __builtin_trunc(delete_count);
   size_t deleted = wanted <= 0 ? 0 : wanted >= (double)(length - from) ? length - from : (size_t)wanted;
-  pts_array *removed = new_array(array->type, old->elements + from * size, deleted);
+  pts_array *removed = new_array(pts_array_copy_type(array->type), old->elements + from * size, deleted);
   /* A new buffer, filled before it is published, as unshift does. */
   size_t new_length = length - deleted + count;
   pts_array_buffer *buffer = new_buffer(kind, new_length > old->capacity ? new_length : old->capacity);
@@ -559,6 +562,9 @@ pts_string *pts_object_to_string(const pts_object *object) {
   }
   if (object->type->kind == PTS_KIND_DATE) {
     return pts_date_format((pts_date *)object, PTS_DATE_STRING);
+  }
+  if (object->type->kind == PTS_KIND_REGEXP) {
+    return pts_regexp_to_string((const pts_regexp *)object);
   }
   if (object->type->kind == PTS_KIND_MAP || object->type->kind == PTS_KIND_SET) {
     return pts_string_from_cstr(object->type->kind == PTS_KIND_MAP ? "[object Map]" : "[object Set]");

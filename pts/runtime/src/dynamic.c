@@ -308,6 +308,48 @@ static pts_value typed_array_get(const pts_typed_array *array, pts_value key) {
   return key_is(key, "buffer") ? pts_value_from_object(array->buffer) : PTS_VALUE_UNDEFINED;
 }
 
+/* The flags of a RegExp that its prototype's getters report (D-133). */
+static const struct {
+  const char *name;
+  unsigned flag;
+} regexp_flags[] = {
+    {"hasIndices", PTS_REGEX_HAS_INDICES}, {"global", PTS_REGEX_GLOBAL}, {"ignoreCase", PTS_REGEX_IGNORE_CASE}, {"multiline", PTS_REGEX_MULTILINE},
+    {"dotAll", PTS_REGEX_DOT_ALL},         {"unicode", PTS_REGEX_UNICODE}, {"sticky", PTS_REGEX_STICKY},
+};
+
+/* A RegExp's lastIndex, or a property its prototype's getters give: source, flags and each flag's. */
+static pts_value regexp_get(const pts_regexp *regexp, pts_value key) {
+  if (key_is(key, "lastIndex")) {
+    return pts_value_from_number(regexp->lastIndex);
+  }
+  if (key_is(key, "source")) {
+    return pts_value_from_string(pts_regexp_source(regexp));
+  }
+  if (key_is(key, "flags")) {
+    return pts_value_from_string(pts_regexp_flags(regexp));
+  }
+  if (key_is(key, "unicodeSets")) {
+    return PTS_VALUE_FALSE; /* the v flag isn't supported (D-132) */
+  }
+  for (size_t i = 0; i < sizeof regexp_flags / sizeof regexp_flags[0]; i++) {
+    if (key_is(key, regexp_flags[i].name)) {
+      return pts_value_from_bool(pts_regexp_has_flag(regexp, regexp_flags[i].flag));
+    }
+  }
+  return PTS_VALUE_UNDEFINED;
+}
+
+/* A match array's index, input and groups (D-133), or undefined for another key. */
+static pts_value match_array_get(const pts_array *array, pts_value key) {
+  if (key_is(key, "index")) {
+    return pts_match_index(array);
+  }
+  if (key_is(key, "input")) {
+    return pts_match_input(array);
+  }
+  return key_is(key, "groups") ? pts_match_groups(array) : PTS_VALUE_UNDEFINED;
+}
+
 pts_value pts_dynamic_get(pts_value object, pts_value key) {
   if (pts_value_is_nullish(object)) {
     char buffer[MAX_KEY];
@@ -332,7 +374,10 @@ pts_value pts_dynamic_get(pts_value object, pts_value key) {
     if (key_is(key, "length")) {
       return pts_value_from_number(pts_array_length(array));
     }
-    return array_index(key, &index) ? pts_array_element(array, index) : PTS_VALUE_UNDEFINED;
+    if (array_index(key, &index)) {
+      return pts_array_element(array, index);
+    }
+    return pts_is_match_array(target) ? match_array_get(array, key) : PTS_VALUE_UNDEFINED;
   }
   case PTS_KIND_TUPLE:
     if (key_is(key, "length")) {
@@ -343,6 +388,8 @@ pts_value pts_dynamic_get(pts_value object, pts_value key) {
     return typed_array_get((const pts_typed_array *)target, key);
   case PTS_KIND_ARRAY_BUFFER:
     return key_is(key, "byteLength") ? pts_value_from_number(pts_arraybuffer_byte_length((const pts_arraybuffer *)target)) : PTS_VALUE_UNDEFINED;
+  case PTS_KIND_REGEXP:
+    return regexp_get((const pts_regexp *)target, key);
   case PTS_KIND_RECORD: {
     pts_string *name = pts_value_to_string(key);
     return pts_map_get_value((const pts_map *)target, &name);
@@ -550,6 +597,15 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     }
     pts_typed_array_set((pts_typed_array *)target, index, pts_value_to_number(value));
     return value;
+  case PTS_KIND_REGEXP:
+    if (key_is(key, "lastIndex")) {
+      ((pts_regexp *)target)->lastIndex = pts_value_to_number(value);
+      return value;
+    }
+    if (regexp_get((const pts_regexp *)target, key) != PTS_VALUE_UNDEFINED) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of [object Object] which has only a getter", key_text(key, buffer));
+    }
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot create property '%s' on a %s", key_text(key, buffer), target->type->name);
   default:
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot create property '%s' on a %s", key_text(key, buffer), target->type->name);
   }
@@ -566,9 +622,14 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
   double index;
   switch (target->type->kind) {
   case PTS_KIND_ARRAY:
+    if (pts_is_match_array(target) && (key_is(key, "index") || key_is(key, "input") || key_is(key, "groups"))) {
+      return true;
+    }
     return key_is(key, "length") || (array_index(key, &index) && index < pts_array_length((const pts_array *)target));
   case PTS_KIND_TUPLE:
     return key_is(key, "length") || (array_index(key, &index) && index < pts_tuple_length(target));
+  case PTS_KIND_REGEXP:
+    return regexp_get((const pts_regexp *)target, key) != PTS_VALUE_UNDEFINED;
   case PTS_KIND_TYPED_ARRAY:
     return array_index(key, &index) && pts_typed_array_has_index((const pts_typed_array *)target, index);
   case PTS_KIND_RECORD: {

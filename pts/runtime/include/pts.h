@@ -45,6 +45,7 @@ typedef enum pts_kind {
   PTS_KIND_PROMISE = 13,   /* a promise (pts_promise, D-112) */
   PTS_KIND_TYPED_ARRAY = 14,  /* a typed array (pts_typed_array, D-125) of elements of its type's element kind */
   PTS_KIND_ARRAY_BUFFER = 15, /* an ArrayBuffer (pts_arraybuffer, D-125) */
+  PTS_KIND_REGEXP = 16,       /* a RegExp (pts_regexp, D-133) */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -1704,6 +1705,66 @@ typedef struct pts_regex_cursor {
  */
 bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t from, bool anchored, pts_regex_cursor *cursor,
                     int64_t *captures);
+
+/* ---------------------------------------------------------------- RegExp objects and match arrays (D-133) */
+
+/*
+ * A RegExp: its compiled code, which RegExps made by one literal share, its pattern as
+ * written (OriginalSource) and lastIndex, a field compiled code reads and writes directly.
+ */
+typedef struct pts_regexp {
+  const pts_type *pts_header;
+  double lastIndex;
+  pts_regex *regex;
+  pts_string *pattern;
+} pts_regexp;
+
+extern const pts_type pts_type_builtin_RegExp;
+typedef pts_regexp pts_class_builtin_RegExp;
+
+/* A regex literal's value: a new RegExp each time, over code compiled once and kept in *cache. */
+pts_regexp *pts_regexp_literal(pts_regex **cache, pts_string *pattern, pts_string *flags);
+/* new RegExp(pattern, flags): a RegExp pattern gives its pattern, and its flags if flags is undefined; any other is a string. */
+pts_regexp *pts_regexp_new(pts_value pattern, pts_value flags);
+/* RegExp(pattern, flags) called as a function: pattern itself if it is a RegExp and flags is undefined. */
+pts_regexp *pts_regexp_call(pts_value pattern, pts_value flags);
+pts_string *pts_regexp_source(const pts_regexp *regexp);
+pts_string *pts_regexp_flags(const pts_regexp *regexp);
+/* Whether regexp has the flag flag, a PTS_REGEX_* bit (a number, as compiled code passes it). */
+bool pts_regexp_has_flag(const pts_regexp *regexp, double flag);
+pts_string *pts_regexp_to_string(const pts_regexp *regexp);
+/* exec: a match array (pts_match_array), or null; reads and sets lastIndex as RegExpBuiltinExec does. */
+pts_value pts_regexp_exec(pts_regexp *regexp, pts_string *subject);
+bool pts_regexp_test(pts_regexp *regexp, pts_string *subject);
+/* RegExp.escape (ES2025). */
+pts_string *pts_regexp_escape(pts_string *text);
+
+/*
+ * The array exec makes: a string[] of the match and its groups, a group that took no part
+ * being a hole (undefined, D-038), with the match's index, the input and the named groups.
+ * Copies of it (slice, filter) are string[]s whose holes are undefined too (pts_type_match_copy).
+ */
+typedef struct pts_match_array {
+  pts_array array;
+  double index;
+  pts_string *input;
+  pts_value groups; /* undefined, or a hash-map object of strings printed with a null prototype; holes where groups took no part */
+} pts_match_array;
+
+extern const pts_type pts_type_match_array;
+extern const pts_type pts_type_match_copy;
+pts_match_array *pts_match_array_new(const pts_regex *regex, pts_string *subject, const int64_t *captures);
+static inline bool pts_is_match_array(const pts_object *object) { return object->type == &pts_type_match_array; }
+/* Whether array's holes are undefined values, which console.log shows: a match array's or a copy's. */
+static inline bool pts_has_undefined_holes(const pts_array *array) {
+  return array->type == &pts_type_match_array || array->type == &pts_type_match_copy;
+}
+/* The descriptor of a copy of an array of descriptor type: a match array's copies are string arrays without its properties. */
+static inline const pts_type *pts_array_copy_type(const pts_type *type) { return type == &pts_type_match_array ? &pts_type_match_copy : type; }
+/* A match array's index, input and groups; undefined for any other array. */
+pts_value pts_match_index(const pts_array *array);
+pts_value pts_match_input(const pts_array *array);
+pts_value pts_match_groups(const pts_array *array);
 
 /* ---------------------------------------------------------------- pts:sync (D-128) */
 

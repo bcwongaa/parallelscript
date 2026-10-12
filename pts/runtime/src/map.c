@@ -273,6 +273,10 @@ bool pts_map_get(const pts_map *map, const void *key, void *value) {
     return false;
   }
   uint64_t found = __atomic_load_n(&table->entries[number].value, __ATOMIC_RELAXED);
+  pts_field_kind kind = map->type->element;
+  if (found == 0 && map->type->kind == PTS_KIND_RECORD && (kind == PTS_FIELD_STRING || kind == PTS_FIELD_VALUE || kind == PTS_FIELD_OBJECT)) {
+    return false; /* a hole: a match's group that took no part (D-133), undefined as an array's holes are (D-038) */
+  }
   memcpy(value, &found, pts_field_kind_size(map->type->element));
   return true;
 }

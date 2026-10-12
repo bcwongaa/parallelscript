@@ -314,6 +314,11 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
   case PTS_KIND_ARRAY_BUFFER:
     format_array_buffer(in, out, (const pts_arraybuffer *)object, recurse_times, true);
     return;
+  case PTS_KIND_REGEXP: {
+    pts_string *text = pts_regexp_to_string((const pts_regexp *)object);
+    text_add(out, text->bytes, text->byte_len);
+    return;
+  }
   case PTS_KIND_GENERATOR: {
     pts_array *items;
     bool entries;
@@ -672,9 +677,10 @@ static text *format_elements(inspector *in, const pts_array *array, size_t lengt
   text *entries = new_entries(max + 1);
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind), n = 0, index = 0; /* entries made; the index they reach */
+  bool undefined_holes = pts_has_undefined_holes(array); /* groups that took no part are undefined in JS */
   for (size_t i = 0; i < length && n < max; i++) {
     const void *slot = pts_array_slot_or_null(array, (double)i, size);
-    if (slot != NULL && is_hole_slot(kind, slot)) {
+    if (slot != NULL && is_hole_slot(kind, slot) && !undefined_holes) {
       continue;
     }
     if (i != index) {
@@ -874,6 +880,21 @@ static text hidden_entry(const char *key) {
   format_key(&entry, key);
   text_puts(&entry, "]: ");
   return entry;
+}
+
+/* A match array's own properties after its elements (D-133): `index: 3`, `input: '…'`, `groups: …`. */
+static text *format_match_properties(inspector *in, const pts_match_array *match, text *output, size_t *count, size_t recurse_times) {
+  const char *keys[] = {"index", "input", "groups"};
+  pts_value values[] = {pts_value_from_number(match->index), pts_value_from_string(match->input), match->groups};
+  for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+    text entry = {0};
+    text_printf(&entry, "%s: ", keys[i]);
+    in->indentation += 2;
+    format_value(in, &entry, values[i], recurse_times);
+    in->indentation -= 2;
+    output = append(output, count, entry);
+  }
+  return output;
 }
 
 /* Whether the method at index is the first accessor of its name in type's method table. */
@@ -1165,6 +1186,9 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   }
   if (accessors) {
     output = format_prototype_accessors(object, output, &count);
+  }
+  if (is_array && pts_is_match_array(object)) {
+    output = format_match_properties(in, (const pts_match_array *)object, output, &count, recurse_times);
   }
   in->seen_len--;
 

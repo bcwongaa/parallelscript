@@ -16,7 +16,7 @@ import (
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
 func Emit(program *ir.Program) string {
-	e := &emitter{checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
@@ -43,8 +43,10 @@ func Emit(program *ir.Program) string {
 
 type emitter struct {
 	out
-	strings     map[string]string // string constant value → C name
-	stringOrder []string          // values in order of first use
+	strings     map[string]string            // string constant value → C name
+	stringOrder []string                     // values in order of first use
+	regexCaches map[*ir.RegExpLiteral]string // the static that keeps each regex literal's compiled code (D-133)
+	regexOrder  []*ir.RegExpLiteral
 	funcNames   map[*ir.Func]string
 	classNames  map[*ir.Class]string    // the suffix of each class's C names (pts_class_<suffix>, pts_type_<suffix>)
 	methods     map[*ir.Func]*ir.Method // the method each method's function implements
@@ -117,6 +119,12 @@ func (e *emitter) header(program *ir.Program) {
 		e.line(0, "%s", staticString(e.strings[value], value))
 	}
 	if len(e.stringOrder) > 0 {
+		e.line(0, "")
+	}
+	for _, literal := range e.regexOrder {
+		e.line(0, "static pts_regex *%s; /* %s */", e.regexCaches[literal], strings.ReplaceAll("/"+literal.Pattern+"/"+literal.Flags, "*/", "* /"))
+	}
+	if len(e.regexOrder) > 0 {
 		e.line(0, "")
 	}
 	e.classDeclarations(program.Classes)
@@ -796,6 +804,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 		return "PTS_VALUE_NULL"
 	case *ir.GivenConst:
 		return strconv.FormatBool(x.Value)
+	case *ir.RegExpLiteral:
+		return fmt.Sprintf("pts_regexp_literal(&%s, %s, %s)", e.regexCaches[x], e.strings[x.Pattern], e.strings[x.Flags])
 	case *ir.LeftOut:
 		return zeroValue(x.T, e.strings[""])
 	case *ir.Absent:
@@ -1669,6 +1679,13 @@ func (e *emitter) collectStrings(program *ir.Program) {
 			switch x := expr.(type) {
 			case *ir.StringConst:
 				e.intern(x.Value)
+			case *ir.RegExpLiteral:
+				e.intern(x.Pattern)
+				e.intern(x.Flags)
+				if _, seen := e.regexCaches[x]; !seen {
+					e.regexCaches[x] = fmt.Sprintf("pts_regex_%d", len(e.regexOrder)+1)
+					e.regexOrder = append(e.regexOrder, x)
+				}
 			case *ir.LeftOut:
 				if x.T == ir.String {
 					e.intern("")

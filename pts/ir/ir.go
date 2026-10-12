@@ -707,6 +707,13 @@ type NullConst struct{}
 // GivenConst is the flag a call passes after an argument for a parameter with a default.
 type GivenConst struct{ Value bool }
 
+// RegExpLiteral is a regex literal's value: a new instance of Class (the builtin RegExp)
+// each time, over the pattern's code, compiled the first time and kept per literal (D-133).
+type RegExpLiteral struct {
+	Pattern, Flags string
+	Class          *Class
+}
+
 // HasKey is `"Name" in X` looked up at run time in the object X refers to (D-067).
 type HasKey struct {
 	X    Expr
@@ -1402,6 +1409,7 @@ func (*Resumed) Type() Type         { return Value }
 func (*ResumedBy) Type() Type       { return Bool }
 func (*NullConst) Type() Type       { return Null }
 func (*GivenConst) Type() Type      { return Given }
+func (e *RegExpLiteral) Type() Type { return e.Class }
 func (e *LeftOut) Type() Type       { return e.T }
 func (e *Absent) Type() Type        { return e.T }
 func (e *LocalRef) Type() Type      { return e.Local.Type }

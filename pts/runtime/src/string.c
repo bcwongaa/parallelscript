@@ -365,6 +365,8 @@ pts_string *pts_value_to_string(pts_value value) {
       return pts_typed_array_join((pts_typed_array *)object, NULL);
     case PTS_KIND_ARRAY_BUFFER:
       return pts_string_from_cstr("[object ArrayBuffer]");
+    case PTS_KIND_REGEXP:
+      return pts_regexp_to_string((pts_regexp *)object);
     default:
       break;
     }

@@ -414,3 +414,15 @@ func TestDescriptorsCarryDeclaredTypesOnlyInProgramsThatWriteThroughAny(t *testi
 	source = cgen.Emit(programWith(false))
 	assert.Assert(t, !strings.Contains(source, `pts_check`) && strings.Contains(source, `pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0)`), source)
 }
+
+func TestRegexLiteralsKeepTheirCompiledCodeInAStatic(t *testing.T) {
+	t.Parallel()
+	regexp := &ir.Class{Name: "RegExp", Builtin: true}
+	literal := &ir.RegExpLiteral{Pattern: "a+/b", Flags: "gi", Class: regexp}
+	program := programOf(logAt(1, literal, &ir.RegExpLiteral{Pattern: "", Flags: "", Class: regexp}))
+	program.Classes = []*ir.Class{regexp}
+	source := cgen.Emit(program)
+	assert.Assert(t, strings.Contains(source, "static pts_regex *pts_regex_1;") && strings.Contains(source, "static pts_regex *pts_regex_2;"), source)
+	assert.Assert(t, strings.Contains(source, "pts_regexp_literal(&pts_regex_1, "), source)
+	assert.Equal(t, run(t, program), "/a+\\/b/gi /(?:)/\n")
+}

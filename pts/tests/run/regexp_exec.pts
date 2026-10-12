@@ -1,0 +1,133 @@
+// exec and test (D-133): lastIndex with and without g and y, match arrays with index,
+// input and groups, groups that took no part, and match arrays used as string arrays.
+
+// Without g or y, lastIndex is neither read nor written.
+const plain = /o/;
+plain.lastIndex = 9;
+console.log(plain.exec("foo"), plain.lastIndex);
+
+// With g, each match starts at lastIndex and moves it; a failure resets it.
+const global = /o+/g;
+console.log(global.test("foo boo"), global.lastIndex, global.test("foo boo"), global.lastIndex, global.test("foo boo"), global.lastIndex);
+global.lastIndex = 100;
+console.log(global.exec("foo"), global.lastIndex);
+global.lastIndex = -5;
+console.log(global.exec("foo")?.index, global.lastIndex);
+
+// With y, a match must start at lastIndex.
+const sticky = /\d+/y;
+console.log(sticky.test("ab12"), sticky.lastIndex);
+sticky.lastIndex = 2;
+console.log(sticky.exec("ab12"), sticky.lastIndex);
+
+// The usual loop over every match.
+const word = /(\w)(\w*)/g;
+const text = "the quick brown fox";
+let found: RegExpExecArray | null;
+const capitalized: string[] = [];
+while ((found = word.exec(text)) !== null) {
+  capitalized.push(found[1].toUpperCase() + found[2]);
+  console.log(found.index, word.lastIndex, found.length);
+}
+console.log(capitalized.join(" "));
+
+// Groups that take no part are undefined.
+const optional = /(\d+)(?:\.(\d+))?(px|em)?/.exec("width: 12.5");
+console.log(optional);
+if (optional !== null) {
+  const [whole, units, fraction, suffix] = optional;
+  console.log(whole, units, fraction, suffix, suffix === undefined, fraction ?? "none");
+  console.log(optional.slice(1), optional.join("|"), JSON.stringify(optional), optional.length);
+  console.log(optional[3] || "px", optional[2] ?? "0", optional[3] === undefined, optional[2] ? "fraction" : "whole", `${optional[3]}`);
+  const unit = optional[3];
+  console.log(unit === undefined ? "no unit" : unit.toUpperCase());
+}
+
+// Named groups.
+const date = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const parts = date.exec("Released 2024-03-15, patched later");
+console.log(parts);
+if (parts && parts.groups) {
+  const { year, month, day } = parts.groups;
+  console.log(year, month, day, Object.keys(parts.groups), parts.groups["month"]);
+  console.log(Number(year) + 1, parts.input.slice(parts.index + parts[0].length));
+}
+const either = /(?<cat>cat)|(?<dog>dog)/.exec("hotdog");
+console.log(either, either?.groups);
+const noNames = /(a)/.exec("a");
+console.log(noNames?.groups, noNames?.groups === undefined);
+
+// Matches as string arrays.
+const triple = /(\w+)@(\w+)\.(\w+)/.exec("mail ann@example.org now");
+if (triple) {
+  console.log(triple.map((part) => part.length), [...triple].reverse(), Array.from(triple).length);
+  for (const part of triple) {
+    console.log(part);
+  }
+  const copy: string[] = triple;
+  console.log(copy.indexOf("example"), triple.includes("org"), triple.at(-1));
+}
+
+// Indices count UTF-16 units.
+const emoji = /b+/.exec("😀😀abbc");
+console.log(emoji?.index, emoji?.[0]);
+const astral = /(?<face>😀)x/u.exec("a😀x");
+console.log(astral?.index, astral?.groups?.face);
+
+// Empty matches leave lastIndex where it is.
+const empty = /x*/g;
+console.log(empty.exec("ab")?.index, empty.lastIndex, empty.exec("ab")?.index, empty.lastIndex);
+// expect:
+// [ 'o', index: 1, input: 'foo', groups: undefined ] 9
+// true 3 true 7 false 0
+// null 0
+// 1 3
+// false 0
+// [ '12', index: 2, input: 'ab12', groups: undefined ] 4
+// 0 3 3
+// 4 9 3
+// 10 15 3
+// 16 19 3
+// The Quick Brown Fox
+// [
+//   '12.5',
+//   '12',
+//   '5',
+//   undefined,
+//   index: 7,
+//   input: 'width: 12.5',
+//   groups: undefined
+// ]
+// 12.5 12 5 undefined true 5
+// [ '12', '5', undefined ] 12.5|12|5| ["12.5","12","5",null] 4
+// px 5 true fraction undefined
+// no unit
+// [
+//   '2024-03-15',
+//   '2024',
+//   '03',
+//   '15',
+//   index: 9,
+//   input: 'Released 2024-03-15, patched later',
+//   groups: [Object: null prototype] { year: '2024', month: '03', day: '15' }
+// ]
+// 2024 03 15 [ 'year', 'month', 'day' ] 03
+// 2025 , patched later
+// [
+//   'dog',
+//   undefined,
+//   'dog',
+//   index: 3,
+//   input: 'hotdog',
+//   groups: [Object: null prototype] { cat: undefined, dog: 'dog' }
+// ] [Object: null prototype] { cat: undefined, dog: 'dog' }
+// undefined true
+// [ 15, 3, 7, 3 ] [ 'org', 'example', 'ann', 'ann@example.org' ] 4
+// ann@example.org
+// ann
+// example
+// org
+// 2 true org
+// 5 bb
+// 1 😀
+// 0 0 0 0

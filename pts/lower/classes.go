@@ -79,7 +79,7 @@ func (l *lowerer) declareSuperclass(node *ast.Node) {
 		l.classes[symbol] = nil
 	case parent == nil:
 		l.classes[symbol] = nil // the superclass failed, which was reported
-	case parent == l.dateClass || isTypedArray(parent) || parent == l.typed.buffer:
+	case parent == l.dateClass || isTypedArray(parent) || parent == l.typed.buffer || parent == l.regexpClass:
 		l.notSupportedYet(heritage, "extending `"+parent.Name+"` is")
 		l.classes[symbol] = nil
 	default:
@@ -785,6 +785,9 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 	}
 	if l.isDateConstructor(node.Expression()) {
 		return l.newDate(node)
+	}
+	if l.isRegExpConstructor(node.Expression()) {
+		return l.regexpConstruction(node, "pts_regexp_new")
 	}
 	if class := l.typedArrayConstructor(node.Expression()); class != nil {
 		return l.newTypedArray(node, class)

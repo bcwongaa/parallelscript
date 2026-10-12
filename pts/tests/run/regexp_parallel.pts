@@ -1,0 +1,34 @@
+// RegExps on many threads (D-133): a literal's code is compiled once and shared, each
+// evaluation is a new RegExp with its own lastIndex, and one RegExp without g or y can be
+// shared, since exec then neither reads nor writes lastIndex.
+// threads: 1 2 4
+const lines = Array.from({ length: 2000 }, (_, i) => `id=${i} user${i % 7}@host${i % 3}.org status=${i % 5 === 0 ? "fail" : "ok"}`);
+
+function emailOf(line: string): string {
+  const found = /(?<user>\w+)@(?<host>[\w.]+)/.exec(line);
+  return found?.groups?.user + " at " + found?.groups?.host;
+}
+
+function countDigits(line: string): number {
+  const digits = /\d/g; // a new RegExp per call: its lastIndex is this call's own
+  let count = 0;
+  while (digits.exec(line) !== null) {
+    count++;
+  }
+  return count;
+}
+
+const failed = /status=fail/;
+const emails = lines.par.map(emailOf);
+console.log(emails.length, emails[0], emails[1999]);
+console.log(lines.par.map(countDigits).par.sum(), lines.map(countDigits).reduce((a, b) => a + b, 0));
+console.log(lines.par.count((line) => failed.test(line)), lines.filter((line) => failed.test(line)).length);
+
+const tasks = await Promise.all([0, 1, 2, 3].map((k) => parallel lines.filter((line, i) => i % 4 === k && /user[0-3]@/.test(line)).length));
+console.log(tasks, tasks.reduce((a, b) => a + b, 0));
+
+// expect:
+// 2000 user0 at host0.org user4 at host1.org
+// 10890 10890
+// 400 400
+// [ 286, 286, 286, 286 ] 1144

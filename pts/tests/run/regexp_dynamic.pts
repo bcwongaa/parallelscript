@@ -1,0 +1,51 @@
+// RegExps and match arrays through `any` (D-133): properties, lastIndex, methods, and
+// conversions back to RegExp.
+
+const pattern: any = /(?<word>[a-z]+)(\d)?/gi;
+console.log(pattern.source, pattern.flags, pattern.global, pattern.sticky, pattern.unicodeSets, pattern.lastIndex);
+console.log(pattern.test("abc1"), pattern.lastIndex);
+pattern.lastIndex = 0;
+const found: any = pattern.exec("xy7 z");
+console.log(found, pattern.lastIndex);
+console.log(found.index, found.input, found.groups.word, found[2], found.length, found[9]);
+console.log("index" in found, Object.keys(found));
+console.log(pattern.exec("xy7 z").index, pattern.exec("xy7 z"), pattern.lastIndex);
+console.log(pattern.toString(), String(pattern), `${pattern}`, "lastIndex" in pattern, "source" in pattern);
+
+// Back to RegExp, and RegExp values in unions and arrays.
+const typed: RegExp = pattern;
+console.log(typed === pattern, typed.ignoreCase);
+const patterns: (RegExp | string)[] = [/a/, "b", new RegExp("c", "m")];
+for (const p of patterns) {
+  console.log(typeof p === "string" ? "string " + p : "regexp " + p.source + "/" + p.flags);
+}
+const maybe: RegExp | null = Math.random() < 2 ? /m/ : null;
+console.log(maybe?.test("m"), maybe?.exec("am")?.index);
+
+// Read-only properties can't be set.
+try {
+  pattern.source = "x";
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+// expect:
+// (?<word>[a-z]+)(\d)? gi true false false 0
+// true 4
+// [
+//   'xy7',
+//   'xy',
+//   '7',
+//   index: 0,
+//   input: 'xy7 z',
+//   groups: [Object: null prototype] { word: 'xy' }
+// ] 3
+// 0 xy7 z xy 7 3 undefined
+// true [ '0', '1', '2', 'index', 'input', 'groups' ]
+// 4 null 0
+// /(?<word>[a-z]+)(\d)?/gi /(?<word>[a-z]+)(\d)?/gi /(?<word>[a-z]+)(\d)?/gi true true
+// true true
+// regexp a/
+// string b
+// regexp c/m
+// true 1
+// TypeError Cannot set property source of [object Object] which has only a getter

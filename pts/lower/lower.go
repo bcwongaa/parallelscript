@@ -172,6 +172,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	l.declareErrorClasses()
 	l.declareDateClass()
 	l.declareTypedArrayClasses()
+	l.declareRegExpClass()
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareClasses(file)
@@ -317,6 +318,7 @@ type lowerer struct {
 	dateClass           *ir.Class                        // Date (D-087)
 	dates               *dateFunctions                   // the runtime functions behind Date
 	typed               *typedArrays                     // typed arrays and ArrayBuffer (D-125)
+	regexpClass         *ir.Class                        // RegExp (D-133)
 	externs             map[string]*ir.Func              // the runtime functions calls reach directly, by C name and types (extern)
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
@@ -1276,6 +1278,8 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		return l.as(node)
 	case ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral:
 		return &ir.StringConst{Value: node.Text()}
+	case ast.KindRegularExpressionLiteral:
+		return l.regexLiteral(node)
 	case ast.KindTrueKeyword:
 		return &ir.BoolConst{Value: true}
 	case ast.KindFalseKeyword:
@@ -1318,6 +1322,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		}
 		if x, ok := l.enumMember(node); ok {
 			return x
+		}
+		if l.isMatchElement(node) {
+			return l.matchElement(node)
 		}
 		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node))) {
 			x := l.valueExpression(node)
@@ -1512,6 +1519,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return nil
 	}
 	if x, handled := l.dateCall(call); handled {
+		return x
+	}
+	if x, handled := l.regexpCall(call); handled {
 		return x
 	}
 	if x, handled := l.typedArrayCall(call); handled {
@@ -2320,6 +2330,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if x, handled := l.typedArrayProperty(node); handled {
 		return x
 	}
+	if x, handled := l.regexpProperty(node); handled {
+		return x
+	}
 	if builtin := l.functionProperty(node); builtin != nil {
 		object := l.expression(node.Expression())
 		if object == nil {
@@ -3110,7 +3123,7 @@ func (l *lowerer) branch(node *ast.Node) ir.Expr {
 
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
-	loose := l.isLooseIdentifier(left) // a union of its type and undefined (D-090)
+	loose := l.isLooseIdentifier(left) || l.isMatchElement(ast.SkipParentheses(left)) // a union of its type and undefined (D-090, D-133)
 	if op == ir.And && !loose && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
 		x, y := l.expression(left), l.expression(right) // `obj && test` is test, after obj (D-089)
 		if x == nil || y == nil {
@@ -3463,6 +3476,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	}
 	if l.reportUnsupportedTypedArray(t, node) {
 		return nil
+	}
+	if l.isMatchArrayType(t) || l.isMatchArrayOrEmpty(t) {
+		return l.arrayOf(ir.String) // RegExpExecArray, RegExpMatchArray, and `re.exec(s) ?? []`'s RegExpExecArray | [] (D-133)
 	}
 	if l.checker.IsArrayType(t) {
 		return l.arrayType(t, node)

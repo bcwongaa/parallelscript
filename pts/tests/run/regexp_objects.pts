@@ -1,0 +1,69 @@
+// RegExp objects (D-133): literals and the constructor's forms, source and flags,
+// printing and conversion to strings, instanceof, JSON.
+
+const literal = /a+b/gi;
+console.log(literal, literal.source, literal.flags);
+console.log(literal.global, literal.ignoreCase, literal.multiline, literal.dotAll, literal.unicode, literal.sticky, literal.hasIndices);
+console.log(/x/dgimsuy.flags, /x/yusmigd.flags);
+
+// Each evaluation of a literal is a new object with its own lastIndex.
+function digits(): RegExp {
+  return /\d/g;
+}
+const first = digits();
+const second = digits();
+first.lastIndex = 3;
+console.log(first === second, first.lastIndex, second.lastIndex);
+
+// The constructor: a string pattern, a RegExp (its flags, or new ones), undefined.
+console.log(new RegExp("a/b"), new RegExp("a/b").source);
+console.log(new RegExp(""), new RegExp("").source, new RegExp("\n\r").source);
+console.log(new RegExp(literal), new RegExp(literal, "y"), JSON.stringify(new RegExp(literal, "").flags));
+console.log(JSON.stringify(new RegExp("x", undefined).flags), new RegExp("[/]").source);
+const copy = RegExp(literal);
+console.log(copy === literal, RegExp(literal, "g") === literal, RegExp("q", "m"));
+
+// Strings of a RegExp: String, templates, +, toString, join.
+console.log(String(/a\/b/m), `${/b/}`, "re: " + /c/y, /d/.toString());
+console.log([/one/, /two/g].join(" "), [/x/], { pattern: /y/u });
+
+// What it is.
+const pattern: RegExp = /z/;
+console.log(typeof pattern, pattern instanceof RegExp, JSON.stringify(pattern), JSON.stringify({ r: /r/ }));
+console.log(Object.keys(pattern).length, pattern.constructor.name);
+
+// RegExp.escape (ES2025).
+console.log(RegExp.escape("1.5*x+(y)"), RegExp.escape("a-b, c"), RegExp.escape("\t\u3000é"));
+const term = "c++";
+console.log(new RegExp("^" + RegExp.escape(term) + "$").test("c++"), new RegExp("^" + RegExp.escape(term) + "$").test("cc"));
+
+// Invalid patterns and flags are SyntaxErrors with V8's messages.
+for (const [source, flags] of [["(", ""], ["a", "gg"], ["[b-a]", ""], ["x{2,1}", ""], ["\\k<n>", "u"]]) {
+  try {
+    new RegExp(source, flags);
+  } catch (e) {
+    console.log(e instanceof SyntaxError, (e as Error).message);
+  }
+}
+
+// expect:
+// /a+b/gi a+b gi
+// true true false false false false false
+// dgimsuy dgimsuy
+// false 3 0
+// /a\/b/ a\/b
+// /(?:)/ (?:) \n\r
+// /a+b/gi /a+b/y ""
+// "" [/]
+// true false /q/m
+// /a\/b/m /b/ re: /c/y /d/
+// /one/ /two/g [ /x/ ] { pattern: /y/u }
+// object true {} {"r":{}}
+// 0 RegExp
+// \x31\.5\*x\+\(y\) \x61\x2db\x2c\x20c \t\u3000é
+// true false
+// true Invalid regular expression: /(/: Unterminated group
+// true Invalid flags supplied to RegExp constructor 'gg'
+// true Invalid regular expression: /[b-a]/: Range out of order in character class
+// true Invalid regular expression: /x{2,1}/: numbers out of order in {} quantifier
+// true Invalid regular expression: /\k<n>/u: Invalid named capture referenced

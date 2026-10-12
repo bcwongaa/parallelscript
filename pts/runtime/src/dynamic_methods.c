@@ -34,6 +34,14 @@ static pts_string *string_argument(uint32_t argc, const pts_value *argv, uint32_
   return value == PTS_VALUE_UNDEFINED && missing != NULL ? missing : pts_value_to_string(value);
 }
 
+/* Rejects a RegExp argument of a string method that takes one (split, replace, replaceAll), which M6.1c brings. */
+static void refuse_regexp(uint32_t argc, const pts_value *argv, const char *method) {
+  pts_value pattern = argument(argc, argv, 0);
+  if (pts_value_is_object(pattern) && pts_value_as_object(pattern)->type->kind == PTS_KIND_REGEXP) {
+    pts_throw_new(&pts_type_builtin_TypeError, "`%s` with a RegExp through `any` is not supported yet", method);
+  }
+}
+
 static bool is_function(pts_value value) { return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_FUNCTION; }
 
 /* A callback argument: TypeError, as V8 words it, if it isn't a function (`number 5 is not a function`). */
@@ -140,6 +148,7 @@ static pts_value string_repeat(pts_value self, uint32_t argc, const pts_value *a
 }
 
 static pts_value string_split(pts_value self, uint32_t argc, const pts_value *argv) {
+  refuse_regexp(argc, argv, "split");
   if (argument(argc, argv, 0) == PTS_VALUE_UNDEFINED) { /* no separator: the whole string */
     pts_string *whole = string_of(self);
     return pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_STRING], &whole, number_argument(argc, argv, 1, 1) == 0 ? 0 : 1));
@@ -227,6 +236,7 @@ static pts_value replace_with_callback(pts_value self, pts_string *search, pts_c
 }
 
 static pts_value string_replacing(pts_value self, uint32_t argc, const pts_value *argv, bool all) {
+  refuse_regexp(argc, argv, all ? "replaceAll" : "replace");
   pts_string *search = string_argument(argc, argv, 0, NULL);
   pts_value replacement = argument(argc, argv, 1);
   if (is_function(replacement)) {
@@ -589,7 +599,7 @@ static pts_value array_map(pts_value self, uint32_t argc, const pts_value *argv)
 static pts_value array_filter(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_closure *callback = function_argument(argc, argv, 0);
   pts_array *array = array_of(self);
-  pts_array *result = pts_array_of(array->type, NULL, 0); /* the same elements, so the same type */
+  pts_array *result = pts_array_of(pts_array_copy_type(array->type), NULL, 0); /* the same elements, so the same type */
   for (double i = 0; i < pts_array_length(array); i++) {
     uint64_t element = 0;
     if (!pts_array_load(array, i, &element)) {
@@ -1078,6 +1088,27 @@ static const named_method typed_array_methods[] = {
     {"subarray", typed_array_subarray}, {"toString", typed_array_to_string}, {NULL, NULL},
 };
 
+/* ---------------------------------------------------------------- RegExp (D-133) */
+
+static pts_regexp *regexp_of(pts_value self) { return (pts_regexp *)pts_value_as_object(self); }
+
+static pts_value regexp_exec(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_regexp_exec(regexp_of(self), string_argument(argc, argv, 0, NULL));
+}
+
+static pts_value regexp_test(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_bool(pts_regexp_test(regexp_of(self), string_argument(argc, argv, 0, NULL)));
+}
+
+static pts_value regexp_to_string(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_value_from_string(pts_regexp_to_string(regexp_of(self)));
+}
+
+static const named_method regexp_methods[] = {
+    {"exec", regexp_exec}, {"test", regexp_test}, {"toString", regexp_to_string}, {NULL, NULL},
+};
+
 /* ---------------------------------------------------------------- Object.keys, values, entries */
 
 /* The own enumerable string keys of value, in JS's order, as a string[]. */
@@ -1106,6 +1137,13 @@ static pts_array *own_keys(pts_value value) {
     for (double i = 0; i < length; i++) {
       pts_string *index = pts_number_to_string(i);
       pts_array_push(keys, &index, 1);
+    }
+    if (pts_is_match_array(object)) {
+      static const char *const match_keys[] = {"index", "input", "groups"};
+      for (size_t i = 0; i < sizeof match_keys / sizeof match_keys[0]; i++) {
+        pts_string *name = pts_string_from_cstr(match_keys[i]);
+        pts_array_push(keys, &name, 1);
+      }
     }
     return keys;
   }
@@ -1345,6 +1383,9 @@ bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, c
       break;
     case PTS_KIND_TYPED_ARRAY:
       methods = typed_array_methods;
+      break;
+    case PTS_KIND_REGEXP:
+      methods = regexp_methods;
       break;
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:

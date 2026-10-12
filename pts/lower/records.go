@@ -102,7 +102,7 @@ func (l *lowerer) recordType(t *checker.Type, node *ast.Node) (mt *ir.MapType, o
 // hasIndexSignatures reports whether t is an object type with index signatures, other
 // than a class, an array, a tuple or a function type.
 func (l *lowerer) hasIndexSignatures(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 || l.checker.IsArrayType(t) || checker.IsTupleType(t) {
+	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 || l.isArrayType(t) || checker.IsTupleType(t) {
 		return false
 	}
 	return len(l.checker.GetIndexInfosOfType(t)) > 0 && len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) == 0 &&
