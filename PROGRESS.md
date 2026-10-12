@@ -4,13 +4,14 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** M3 (The TypeScript feel); M0, M1 and M2 tagged `m0`, `m1`, `m2`
-- **Next task:** M3.8 Milestone M3
+- **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
+- **Next task:** M4.1 Generators
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M3.8 Milestone M3: checklist run, suite green locally and CI green on `e141fa14b`, M3 table in `docs/BENCHMARKS.md` (binary_trees 0.58× Node; fib 2.56× Node; json 0.57× Node, 1.40× Go; nbody 1.18× Node; string_building 1.71× Node; word_freq 0.96× Node), tag `m3`, Telegram report.
 - M3.7b Corpus divergences: 156 → 240 of the 300 corpus programs match Node, with every cause that two or more programs shared fixed (D-090 to D-108): loose locals (elements tested for undefined hold it), dynamic receivers, fitted overrides, tuple rests and optional tuple elements, void values, URI functions, JSON revivers, numeric-keyed object types as hash-map objects, array copies no one can tell apart, values made for the object unions they go to, keyed spreads, own properties JS hides, literal methods, `f.name`/`f.length`, enum reverse mappings, dispatched abstract and overridden generic methods, monomorphized generic consts (also those returning generic object types), subclass narrowing, `??`/`||` fallbacks, defaults behind function types, literals asserted to unions, `Object.isFrozen` (a frozen mark per object), untyped `new Map()` by context, recursive union members kept apart, uninhabited `List<never>` members, callbacks' undeclared array parameters, spread copies in their source's property order. The 60 left: 13 iterators as values (M4.1 by plan), 2 typed arrays (M5.4, D-103), 3 by design (D-038 ×2, D-068), 42 single causes, each named by its `// skip:` line. M3.7b ticked.
 - M3.7a Corpus: 300 realistic plain-TypeScript programs in `pts/tests/corpus/<theme>/` (algorithms, text, oop, data, functional, errors; 50 each, written by subagents), run against Node by `TestCorpusMatchesNode`, and `pts/tests/corpus/compare.sh` for the shell; 156 match Node, the other 144 carry `// skip: <cause>` (grouped under Next). Fixed on the way: `filter` with type guards, literals in array literals without a context, intersections, `Object.assign({}, …)`, `arr.toString()`, computed `T | undefined` arguments for optional parameters, members of mixed unions, `as` in general, keyed elements (`o[k]` for `keyof`/literal-union keys), tuples in `for…of` and array methods, operators on unions, `this` types, enum objects as values, empty-array branches, `a[i] ?? d`/`a[i] === s` past the end, `obj && x`, static accessors, recursive JSON-like types (dynamic), statics and `instanceof` of generic classes, `constructor.name`/`new.target.name`, `object`, Number tests as values, overlapping union literals, tuples/maps/sets as strings, narrowed-but-undefined values, implicit `undefined` returns, `+` with `valueOf`, quoted field names in C, and three crashes (a segfault on a recursive type's spread, two compiler panics) (D-089, SPEC §9.66). M3.7 split by D-089.
 - M3.6 `console.log` parity: Node's `util.format` (`%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%%`), `console.error`/`warn` (stderr, stdout flushed first), `info`/`debug`/`dirxml`, `dir` (`depth`, `showHidden`), `table` (Node's cli_table), `group`/`groupCollapsed`/`groupEnd`, `assert`, `count`/`countReset`, `time`/`timeEnd`/`timeLog`, `trace`; inspect's `depth`, `showHidden` (`[length]`, class accessors, errors' `[stack]`/`[message]`), `breakLength` and `maxArrayLength` options, long strings split with ` +` and cut after 10,000 units, ICU column widths from a generated table; a class's `valueOf()` is used by ToPrimitive (`+`, `<`, `==`, `%d`) (D-088, SPEC §9.65).
@@ -92,9 +93,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M3.8 Milestone M3: run the milestone checklist in `docs/MASTER_PLAN.md` (suite and CI green, the full M3 table in `docs/BENCHMARKS.md` from `pts/bench/run.sh`, tag `m3`, Telegram report).
-2. Then M4.1 Generators, which also brings the corpus's iterator programs (13 skipped: `m.keys().next()`, spreading `m.values()`, `Iterable<T>`, `IteratorReturnResult`, a `Set` in an array pattern).
-3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
+1. M4.1 Generators: an IR state-machine transform with heap frames; `function*`, `yield`, `yield*`; iterators, `for…of` over iterables and `Symbol.iterator`; Map and Set iterators as values. It also brings the corpus's 13 iterator programs (`m.keys().next()`, spreading `m.values()`, `Iterable<T>`, `IteratorReturnResult`, a `Set` in an array pattern): unskip them with `pts/tests/corpus/unskip.sh`.
+2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
 
@@ -140,6 +140,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M3.8 done; tagged `m3`.
 - 2026-10-12: M3.7b done: corpus 226 → 240 of 300 matching Node (D-104 to D-108); M3.7b ticked.
 - 2026-10-12: M3.7b continued: corpus 195 → 226 of 300 matching Node (D-094 to D-102); M3.7b not finished (see Next).
 - 2026-10-12: M3.7b continued: corpus 164 → 195 of 300 matching Node (D-090 loose locals, D-091, D-092, D-093); M3.7b not finished (see Next).

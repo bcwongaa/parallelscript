@@ -46,15 +46,22 @@ Notes:
 - nbody: loop indices are `number` (doubles), so every `bodies[i]` converts and bounds-checks a double; Go's are ints. Integer inference is M8 work; with `int` indices the gap narrows, as fib_int shows.
 - string_building: before D-061 every concatenation copied both strings, so this benchmark would have taken minutes.
 
-## M3 (in progress)
+## M3
 
-Measured on 2026-10-12 (M3.4b), `pts/bench/run.sh json word_freq` with 2 warm-ups and 10 runs (σ under 5% except Bun's, up to 16%). New: json (stringify 50,000 typed records, parse them back as `any`, read them, stringify the parsed data plain and indented; three rounds) and word_freq (two million generated words counted in a `Map<string, number>`, sorted by count and word). See D-081. The full M3 table comes with M3.8.
+Measured on 2026-10-12 (M3.8), `pts/bench/run.sh` with 2 warm-ups and 10 runs, on a machine that also runs other services. New in M3: json (stringify 50,000 typed records, parse them back as `any`, read them, stringify the parsed data plain and indented; three rounds) and word_freq (two million generated words counted in a `Map<string, number>`, sorted by count and word), both first measured at M3.4b (D-081). The M2 benchmarks now run with M3's unions (binary-trees' children are `TreeNode | null`), exceptions and stack checks in place.
 
 | Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
 |---|---|---|---|---|---|---|
-| json | 1145 ms | 727 ms | 481 ms | 1784 ms | 0.63× | 1.56× |
-| word_freq | 1629 ms | 1292 ms | 1139 ms | 567 ms | 0.79× | 0.35× |
+| binary_trees | 2381 ms | 1381 ms | 1466 ms | 3261 ms | 0.58× | 1.37× |
+| fib | 259 ms | 663 ms | 424 ms | 267 ms | 2.56× | 1.03× |
+| fib_int | 132 ms | – | – | 214 ms | – | 1.62× |
+| json | 1254 ms | 715 ms | 374 ms | 1754 ms | 0.57× | 1.40× |
+| nbody | 841 ms | 995 ms | 860 ms | 500 ms | 1.18× | 0.59× |
+| string_building | 1058 ms | 1810 ms | 5811 ms | 366 ms | 1.71× | 0.35× |
+| word_freq | 1569 ms | 1513 ms | 967 ms | 599 ms | 0.96× | 0.38× |
 
 Notes:
+- Against M2 the single-threaded numbers are within the machine's noise (fib 249 → 259 ms, nbody 791 → 841 ms, string_building 1088 → 1058 ms), except binary_trees (2144 → 2381 ms, about 10% slower): its children became `TreeNode | null` unions in M3.1a (measured about 2.2 s then), so part of the gap is the null tests and narrowing M3 added and part noise; not investigated yet.
 - json: parsed data is dynamic (hash-map objects of `any`, D-080), so reading it goes through `pts_dynamic_get`; stringify reads fields in place. The rest is number formatting (Ryu), allocation and marking by bdwgc, and hashing keys. Go's `encoding/json` reflects over structs and builds maps, hence its time.
 - word_freq: the `Map` hashes each word's bytes; the sort's comparator is a closure called through its function pointer with tuples; Go's map and `sort.Slice` are tighter.
+- Parallelism arrives in M5; every number here is one thread.

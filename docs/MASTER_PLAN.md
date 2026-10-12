@@ -222,7 +222,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Fix the most common divergences; record every other one (a `// skip:` with its cause in the program, the causes in `PROGRESS.md`).
 - [x] **M3.7b Corpus divergences** (07fbe8581) (split from M3.7 by D-089).
   - Fix the recorded causes that two or more corpus programs share (most programs first), unskipping each program that then matches Node; causes left to later milestones by plan (iterators as values: M4.1; typed arrays: M5.4, D-103) stay recorded.
-- [ ] **M3.8 Milestone M3.**
+- [x] **M3.8 Milestone M3.** (m3)
 
 ## M4: Async on one loop
 - [ ] **M4.1 Generators.** An IR state-machine transform with heap frames; `function*`, `yield`, `yield*`; iterators, `for…of` over iterables and `Symbol.iterator`.
