@@ -5,7 +5,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 
 ## Milestone checklist (run when a milestone's last task is ticked)
 1. The full test suite is green locally (`make test`, or the commands in `PROGRESS.md`), and CI is green on the pushed commit (`gh run list -L 1`).
-2. `PROGRESS.md` is updated.
+2. `PROGRESS.md` is updated, and `README.md`, `docs/SPEC.md`, `docs/GUIDE.md` and `docs/ARCHITECTURE.md` describe what this milestone added (use subagents; verify samples compile).
 3. `docs/BENCHMARKS.md` has a table for this milestone (`pts/bench/run.sh`). Write "n/a" if there are no benchmarks yet.
 4. `git tag mN && git push origin mN`.
 5. A Telegram message to the owner (see `CLAUDE.md`) with what now works, a short code sample, and the numbers.
@@ -273,6 +273,13 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 ## M6: Real programs
 - [ ] **M6.1 RegExp.** Vendor PCRE2 and support JS syntax and flags (decision O09): `test`, `exec`, `match`, `matchAll`, `replace`, `split`, named groups and `lastIndex`.
   - `String.prototype.normalize` (moved from M3.5a by D-082), with Unicode's normalization tables (PCRE2 brings none).
+- [ ] **M6.1d Documentation refresh (owner request, 2026-10-12).** Bring the README and every doc up to date with what M0–M5 actually built. **Use subagents (Task tool) in parallel, one per document**; you are the reviewer and must check each claim against the code, tests and `pts` output before committing. Every code sample must be a real `.pts` file that compiles and prints what the doc says; add each to `pts/tests/run/` or a `docs/examples/` folder covered by a test.
+  - `README.md`: replace upstream's TypeScript 7 README with a ParallelScript one: the pitch, a quick start (build `pts`, `pts run hello.pts`), a feature tour (types and integers, classes, async, `parallel`/`.par`/`parallel for`/`pts:sync`), M1–M5 benchmark highlights including the losses, the status table by milestone, known gaps, and the repo layout. Move upstream's README to `docs/UPSTREAM_README.md` and link it. M6.5 will extend this README with the example apps.
+  - `docs/SPEC.md`: make it match the implementation: every implemented feature, the documented differences from Node (§8), and `pts:` module APIs. Mark anything not built yet as planned.
+  - New `docs/ARCHITECTURE.md`: the pipeline (front end → PTS checks → IR → passes → C → clang), the runtime (values, GC, strings, event loops, fork-join pool), and where each piece lives in the tree.
+  - New `docs/GUIDE.md` (started early; M7.3 finishes it): a tour for TypeScript developers covering what's the same, what's different, integer types, the parallel features and the guardrail, and the common compile errors with fixes.
+  - `docs/BENCHMARKS.md` (summary at the top), `docs/FORK.md`, `PROGRESS.md`, `pts/tests/README.md`, `docs/DECISIONS.md` (add an index of entries by topic at the top; keep it append-only below).
+  - New `docs/README.md`: an index of all docs.
 - [ ] **M6.2 `pts:http` server.** Optionally accepts connections on every loop (`SO_REUSEPORT`). Request/response API in the style of Node and Bun. Hello-world and JSON-echo benchmarks with `oha`.
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:
