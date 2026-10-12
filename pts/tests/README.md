@@ -18,7 +18,7 @@
 - **Modules**: a test that imports modules of its own keeps them in the directory named after it. For example, `run/modules.pts` imports `./modules/counter.pts`. Only the `.pts` files directly in `run/`, `docs/examples/`, `corpus/<theme>/`, `stress/` and `errors/` are tests. The differential tests give Node a copy of the test and its modules as `.mts` files. They rename relative specifiers (`./x` or `./x.pts`) to match, and rename `pts:path`, `pts:process`, `pts:fs` and `pts:fs/promises` to their `node:` modules (D-116).
 - **Runtime C unit tests**: `pts/runtime/tests/*_test.c` hold one program per file. Each asserts with `CHECK` from `check.h` and exits non-zero on a failure. In `pts/toolchain/runtime_test.go`:
   - `TestRuntimeUnitTestsPassUnderSanitizers` builds each file and the runtime under AddressSanitizer and UndefinedBehaviorSanitizer, and requires exit code 0.
-  - `TestThreadedRuntimeTestsPassUnderThreadSanitizer` runs `pool_test.c`, `scheduler_test.c` and `sync_test.c` under ThreadSanitizer, with the collector off (`GC_DONT_GC=1`, because bdwgc's stop-the-world signals fail under TSan, D-122).
+  - `TestThreadedRuntimeTestsPassUnderThreadSanitizer` runs `pool_test.c`, `scheduler_test.c`, `sync_test.c` and `typed_array_race_test.c` under ThreadSanitizer, with the collector off (`GC_DONT_GC=1`, because bdwgc's stop-the-world signals fail under TSan, D-122).
   - `TestNumberFormattingMatchesJavaScript` runs `number_test.c --format-stdin` on about 25,000 doubles and compares its output with tsgo's `jsnum`.
 - **`spec_parse_test.go`**: unit tests of the directive parser and of the plain-TypeScript check described below.
 
