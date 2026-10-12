@@ -28,6 +28,17 @@ try {
 } catch (e) {
   console.log((e as Error).name, (e as Error).message);
 }
+
+// The String methods with RegExps through `any` (D-134).
+const text: any = "2024-01-15 and 2023-12-31";
+console.log(text.match(/\d{4}/g), text.match(/(\d{4})-(\d\d)/).index, text.search(/and/), text.split(/\s*and\s*/), text.split(/(-)/, 3));
+console.log(text.replace(/(\d+)-(\d+)-(\d+)/g, "$3.$2.$1"), text.replaceAll(/-/g, (dash: string, at: number) => `${at}`));
+console.log(text.replace(/(?<y>\d{4})/, (...args: any[]) => args[args.length - 1].y + "!"), [...text.matchAll(/\d{4}/g)].map((m: any) => m.index));
+try {
+  text.replaceAll(/x/, "y");
+} catch (e) {
+  console.log((e as Error).message);
+}
 // expect:
 // (?<word>[a-z]+)(\d)? gi true false false 0
 // true 4
@@ -49,3 +60,7 @@ try {
 // regexp c/m
 // true 1
 // TypeError Cannot set property source of [object Object] which has only a getter
+// [ '2024', '2023' ] 0 11 [ '2024-01-15', '2023-12-31' ] [ '2024', '-', '01' ]
+// 15.01.2024 and 31.12.2023 2024401715 and 202319122231
+// 2024!-01-15 and 2023-12-31 [ 0, 15 ]
+// String.prototype.replaceAll called with a non-global RegExp argument

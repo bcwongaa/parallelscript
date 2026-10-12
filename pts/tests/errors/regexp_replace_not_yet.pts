@@ -1,0 +1,9 @@
+// What replace with RegExps leaves out (D-134): a replacement callback with a pattern
+// that may be a string, and one with default parameter values.
+function shout(text: string, pattern: string | RegExp): string {
+  return text.replace(pattern, (m) => m.toUpperCase());
+}
+console.log(shout("ab", /a/), "ab".replace(/a/, (m: string, at: number = 0) => m + at));
+
+// error: regexp_replace_not_yet.pts:4:32 - error PTS1001: a replacement callback with a pattern of type RegExp | string is not supported yet
+// error: regexp_replace_not_yet.pts:6:49 - error PTS1001: a replacement callback with default parameter values is not supported yet

@@ -985,6 +985,13 @@ static void seek_byte(const pts_string *s, pts_regex_cursor *at, uint32_t byte) 
   }
 }
 
+pts_string *pts_regex_slice(const pts_string *subject, pts_regex_cursor *cursor, uint32_t from, uint32_t to) {
+  seek_unit(subject, cursor, from);
+  uint32_t start = cursor->byte;
+  seek_unit(subject, cursor, to);
+  return pts_string_from_utf8(subject->bytes + start, cursor->byte - start);
+}
+
 bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t from, bool anchored, pts_regex_cursor *cursor,
                     int64_t *captures) {
   if (from > subject->utf16_len) {

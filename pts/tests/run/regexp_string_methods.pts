@@ -1,0 +1,89 @@
+// The String methods that take a RegExp (D-134): match, matchAll, search, split, replace
+// and replaceAll, with JS's lastIndex rules, empty matches, captures and named groups.
+
+const log = "2024-01-15 ERROR disk full; 2024-01-16 WARN slow; 2024-01-17 ERROR net down";
+
+// match: exec's array without g, every match's text with g, null for none.
+const first = log.match(/(\d{4})-(\d\d)-(\d\d) (\w+)/);
+console.log(first, first?.index, first?.input === log);
+console.log(log.match(/ERROR|WARN/g), log.match(/FATAL/g), log.match(/FATAL/), "aaa".match(/a*?/g));
+console.log("price: 12.50".match("\\d+\\.\\d+")?.[0], "x".match(/(?:)/g));
+
+// matchAll: every match array, as an iterator.
+for (const m of log.matchAll(/(?<day>\d\d) (?<level>ERROR|WARN)/g)) {
+  console.log(m.index, m.groups?.day, m.groups?.level, m[0]);
+}
+const levels = [...log.matchAll(/(ERROR|WARN) (\w+)/g)].map((m) => `${m[1]}:${m[2]}`);
+console.log(levels, Array.from("a1b22c333".matchAll(/\d+/g), (m) => m[0].length));
+for (const [whole, digits] of "x=1, y=22".matchAll(/\w=(\d+)/g)) {
+  console.log(whole, Number(digits) * 2);
+}
+
+// search: the first match's index, whatever lastIndex says.
+const warn = /WARN/g;
+warn.lastIndex = 40;
+console.log(log.search(/ERROR/), log.search(warn), warn.lastIndex, log.search(/FATAL/), "abc".search("c"));
+
+// split: captures are kept; a limit cuts the result.
+console.log("a, b,c ,  d".split(/\s*,\s*/), "one  two\tthree\nfour".split(/\s+/), "2024-01-15".split(/(-)/));
+console.log("a1b2c3".split(/\d/, 2), "abc".split(/(?:)/), "".split(/,/), "ab".split(/(x)?/), "test".split(/(?=s)/));
+const words = "  Hello,   World!  ".split(/\W+/).filter((w) => w.length > 0);
+console.log(words);
+
+// replace and replaceAll with references in the replacement.
+console.log(log.replace(/(\d{4})-(\d\d)-(\d\d)/g, "$3.$2.$1"), "John Smith".replace(/(?<first>\w+) (?<last>\w+)/, "$<last>, $<first>"));
+console.log("aaa".replace(/a/, "b"), "aaa".replace(/a/g, "b"), "aaa".replaceAll(/a/g, "[$&]"), "abc".replace(/b/, "$`|$'|$$"));
+console.log("x-y".replace(/(\w)-(\w)/, "$2-$1 $3 $10 $01"), "café".replace(/é/u, "e"), "  trim me  ".replace(/^\s+|\s+$/g, ""));
+
+// replace with callbacks: the match, the groups, the index, the input, the named groups.
+const doubled = "3 apples and 12 pears".replace(/\d+/g, (n) => String(Number(n) * 2));
+console.log(doubled);
+console.log("2024-01-15".replace(/(\d+)-(\d+)-(\d+)/, (whole, y, m, d, offset, input) => `${d}/${m}/${y} at ${offset} of ${input.length}`));
+console.log("k1=v1;k2=v2".replace(/(?<key>\w+)=(?<value>\w+)/g, (...args) => {
+  const groups = args[args.length - 1] as Record<string, string>;
+  return `${groups.value}=${groups.key}`;
+}));
+const camel = "background-color-value".replace(/-([a-z])/g, (_: string, letter: string) => letter.toUpperCase());
+console.log(camel, "aXbX".replaceAll(/X/g, (x: string, at: number) => `${at}`), "none".replace(/z/g, () => "!"));
+console.log("ab".replace(/(x)?b/, (m: string, x: string | undefined) => `[${x ?? "no x"}]`));
+
+// A pattern of either kind.
+function count(text: string, pattern: string | RegExp): number {
+  return text.split(pattern).length - 1;
+}
+console.log(count("a,b,c", ","), count("a1b22c", /\d+/), "a.b.c".replace(".", "!"), "a.b.c".replace(/\./g, "!"));
+const sticky = /a/y;
+console.log("baa".replace(sticky, "x"), sticky.lastIndex, "aab".replace(sticky, "x"), sticky.lastIndex);
+// expect:
+// [
+//   '2024-01-15 ERROR',
+//   '2024',
+//   '01',
+//   '15',
+//   'ERROR',
+//   index: 0,
+//   input: '2024-01-15 ERROR disk full; 2024-01-16 WARN slow; 2024-01-17 ERROR net down',
+//   groups: undefined
+// ] 0 true
+// [ 'ERROR', 'WARN', 'ERROR' ] null null [ '', '', '', '' ]
+// 12.50 [ '', '' ]
+// 8 15 ERROR 15 ERROR
+// 36 16 WARN 16 WARN
+// 58 17 ERROR 17 ERROR
+// [ 'ERROR:disk', 'WARN:slow', 'ERROR:net' ] [ 1, 2, 3 ]
+// x=1 2
+// y=22 44
+// 11 39 40 -1 2
+// [ 'a', 'b', 'c', 'd' ] [ 'one', 'two', 'three', 'four' ] [ '2024', '-', '01', '-', '15' ]
+// [ 'a', 'b' ] [ 'a', 'b', 'c' ] [ '' ] [ 'a', undefined, 'b' ] [ 'te', 'st' ]
+// [ 'Hello', 'World' ]
+// 15.01.2024 ERROR disk full; 16.01.2024 WARN slow; 17.01.2024 ERROR net down Smith, John
+// baa bbb [a][a][a] aa|c|$c
+// y-x $3 x0 x cafe trim me
+// 6 apples and 24 pears
+// 15/01/2024 at 0 of 10
+// v1=k1;v2=k2
+// backgroundColorValue a1b3 none
+// a[no x]
+// 2 2 a!b.c a!b!c
+// baa 0 xab 1

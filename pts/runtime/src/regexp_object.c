@@ -5,6 +5,7 @@
  * g and y flags and setting it after a match (or to 0 after none) only for them.
  */
 #include "pts.h"
+#include "regexp_internal.h"
 #include "string_internal.h"
 
 #include <stdio.h>
@@ -55,9 +56,7 @@ static pts_regexp *regexp_new(pts_regex *regex, pts_string *pattern) {
   return regexp;
 }
 
-static bool is_regexp(pts_value value) {
-  return pts_value_is_object(value) && pts_value_as_object(value)->type == &pts_type_builtin_RegExp;
-}
+bool pts_is_regexp(pts_value value) { return pts_value_is_object(value) && pts_value_as_object(value)->type == &pts_type_builtin_RegExp; }
 
 pts_regexp *pts_regexp_literal(pts_regex **cache, pts_string *pattern, pts_string *flags) {
   pts_regex *regex = __atomic_load_n(cache, __ATOMIC_ACQUIRE);
@@ -70,7 +69,7 @@ pts_regexp *pts_regexp_literal(pts_regex **cache, pts_string *pattern, pts_strin
 
 pts_regexp *pts_regexp_new(pts_value pattern, pts_value flags) {
   PTS_STATIC_STRING(empty, PTS_STRING_ASCII, 0, 0, "");
-  if (is_regexp(pattern)) {
+  if (pts_is_regexp(pattern)) {
     const pts_regexp *original = (const pts_regexp *)pts_value_as_object(pattern);
     if (flags == PTS_VALUE_UNDEFINED) {
       return regexp_new(original->regex, original->pattern);
@@ -83,7 +82,7 @@ pts_regexp *pts_regexp_new(pts_value pattern, pts_value flags) {
 }
 
 pts_regexp *pts_regexp_call(pts_value pattern, pts_value flags) {
-  if (is_regexp(pattern) && flags == PTS_VALUE_UNDEFINED) {
+  if (pts_is_regexp(pattern) && flags == PTS_VALUE_UNDEFINED) {
     return (pts_regexp *)pts_value_as_object(pattern);
   }
   return pts_regexp_new(pattern, flags);
@@ -128,7 +127,6 @@ pts_string *pts_regexp_to_string(const pts_regexp *regexp) {
 
 /* ---------------------------------------------------------------- matching */
 
-enum { LOCAL_CAPTURES = 32 };            /* captures of up to 15 groups fit on the stack */
 static const double MAX_LENGTH = 9007199254740991.0; /* 2^53 - 1, ToLength's limit */
 
 static double to_length(double n) {
@@ -139,10 +137,9 @@ static double to_length(double n) {
   return n < MAX_LENGTH ? n : MAX_LENGTH;
 }
 
-/* Room for regex's captures: local if they fit, else collected memory. */
-static int64_t *captures_for(const pts_regex *regex, int64_t *local) {
+int64_t *pts_regexp_captures_for(const pts_regex *regex, int64_t *local) {
   size_t count = 2 * ((size_t)pts_regex_group_count(regex) + 1);
-  if (count <= LOCAL_CAPTURES) {
+  if (count <= PTS_LOCAL_CAPTURES) {
     return local;
   }
   int64_t *captures = GC_MALLOC_ATOMIC(count * sizeof *captures);
@@ -152,14 +149,15 @@ static int64_t *captures_for(const pts_regex *regex, int64_t *local) {
   return captures;
 }
 
-/* RegExpBuiltinExec's search: whether regexp matches subject, filling captures and updating lastIndex. */
-static bool match(pts_regexp *regexp, pts_string *subject, int64_t *captures) {
+bool pts_regexp_match(pts_regexp *regexp, pts_string *subject, int64_t *captures, pts_regex_cursor *cursor) {
   unsigned flags = pts_regex_flags(regexp->regex);
   bool sticky = (flags & PTS_REGEX_STICKY) != 0;
   bool global_or_sticky = sticky || (flags & PTS_REGEX_GLOBAL) != 0;
   double from = global_or_sticky ? to_length(regexp->lastIndex) : 0;
-  pts_regex_cursor cursor = {0, 0};
-  if (from > subject->utf16_len || !pts_regex_exec(regexp->regex, subject, (uint32_t)from, sticky, &cursor, captures)) {
+  if (from < cursor->unit) {
+    *cursor = (pts_regex_cursor){0, 0}; /* the program moved lastIndex back */
+  }
+  if (from > subject->utf16_len || !pts_regex_exec(regexp->regex, subject, (uint32_t)from, sticky, cursor, captures)) {
     if (global_or_sticky) {
       regexp->lastIndex = 0;
     }
@@ -172,17 +170,19 @@ static bool match(pts_regexp *regexp, pts_string *subject, int64_t *captures) {
 }
 
 pts_value pts_regexp_exec(pts_regexp *regexp, pts_string *subject) {
-  int64_t local[LOCAL_CAPTURES];
-  int64_t *captures = captures_for(regexp->regex, local);
-  if (!match(regexp, subject, captures)) {
+  int64_t local[PTS_LOCAL_CAPTURES];
+  int64_t *captures = pts_regexp_captures_for(regexp->regex, local);
+  pts_regex_cursor cursor = {0, 0};
+  if (!pts_regexp_match(regexp, subject, captures, &cursor)) {
     return PTS_VALUE_NULL;
   }
   return pts_value_from_object(pts_match_array_new(regexp->regex, subject, captures));
 }
 
 bool pts_regexp_test(pts_regexp *regexp, pts_string *subject) {
-  int64_t local[LOCAL_CAPTURES];
-  return match(regexp, subject, captures_for(regexp->regex, local));
+  int64_t local[PTS_LOCAL_CAPTURES];
+  pts_regex_cursor cursor = {0, 0};
+  return pts_regexp_match(regexp, subject, pts_regexp_captures_for(regexp->regex, local), &cursor);
 }
 
 /* ---------------------------------------------------------------- match arrays */
@@ -204,12 +204,17 @@ static pts_value named_groups(const pts_regex *regex, pts_string *const *texts) 
 }
 
 pts_match_array *pts_match_array_new(const pts_regex *regex, pts_string *subject, const int64_t *captures) {
+  return pts_match_array_at(regex, subject, captures, (pts_regex_cursor){0, 0});
+}
+
+pts_match_array *pts_match_array_at(const pts_regex *regex, pts_string *subject, const int64_t *captures, pts_regex_cursor start) {
   uint32_t groups = pts_regex_group_count(regex);
   pts_match_array *match = (pts_match_array *)pts_array_of_length(&pts_type_match_array, (double)groups + 1);
   pts_string **texts = (pts_string **)match->array.buffer->elements; /* not yet shared, so plain stores */
   for (uint32_t g = 0; g <= groups; g++) {
     if (captures[2 * g] >= 0) {
-      texts[g] = pts_string_substring(subject, (double)captures[2 * g], (double)captures[2 * g + 1]);
+      pts_regex_cursor at = start; /* groups start at or after the match, except a lookbehind's, which the slice finds from the start */
+      texts[g] = pts_regex_slice(subject, &at, (uint32_t)captures[2 * g], (uint32_t)captures[2 * g + 1]);
     }
   }
   match->index = (double)captures[0];

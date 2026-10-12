@@ -1705,6 +1705,8 @@ typedef struct pts_regex_cursor {
  */
 bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t from, bool anchored, pts_regex_cursor *cursor,
                     int64_t *captures);
+/* subject's UTF-16 units from to to (character boundaries), found from *cursor (at or before from), which moves to to. */
+pts_string *pts_regex_slice(const pts_string *subject, pts_regex_cursor *cursor, uint32_t from, uint32_t to);
 
 /* ---------------------------------------------------------------- RegExp objects and match arrays (D-133) */
 
@@ -1765,6 +1767,25 @@ static inline const pts_type *pts_array_copy_type(const pts_type *type) { return
 pts_value pts_match_index(const pts_array *array);
 pts_value pts_match_input(const pts_array *array);
 pts_value pts_match_groups(const pts_array *array);
+
+/* ---------------------------------------------------------------- String methods with RegExps (D-134) */
+
+/* s.match(pattern): exec's match array without g, an array of every match's text with g; null for none. A pattern not a RegExp is made one. */
+pts_value pts_string_match(pts_string *subject, pts_value pattern);
+/* s.matchAll(pattern): an iterator of the match arrays of a clone of a global RegExp (TypeError without g), or of RegExp(pattern, "g"). */
+pts_value pts_string_match_all(pts_string *subject, pts_value pattern);
+/* s.search(pattern): the index of the first match from the start, or -1; lastIndex is left as it was. */
+double pts_string_search(pts_string *subject, pts_value pattern);
+/* s.split(separator, limit) for any separator: a RegExp's matches (with its captures, holes where they took no part), a string, or undefined. */
+pts_array *pts_string_split_value(pts_string *subject, pts_value separator, pts_value limit);
+/* s.replace(pattern, template) and replaceAll for any pattern: a RegExp's matches with GetSubstitution's references ($&, $1, $<name> …), or a string. */
+pts_string *pts_string_replace_value(pts_string *subject, pts_value pattern, pts_string *replacement, bool all);
+/* A replacement callback's work in three steps, as @@replace collects every match before calling it: the match arrays, */
+pts_array *pts_regexp_replace_matches(pts_string *subject, pts_regexp *regexp, bool all);
+/* the callback's arguments for one (match, groups, index, input and, if it has names, the groups object), */
+pts_array *pts_regexp_replacer_arguments(pts_value match);
+/* and the string with each match replaced by the callback's result for it, a string in replacements. */
+pts_string *pts_regexp_replace_with(pts_string *subject, pts_array *matches, pts_array *replacements);
 
 /* ---------------------------------------------------------------- pts:sync (D-128) */
 

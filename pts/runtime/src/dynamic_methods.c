@@ -34,14 +34,6 @@ static pts_string *string_argument(uint32_t argc, const pts_value *argv, uint32_
   return value == PTS_VALUE_UNDEFINED && missing != NULL ? missing : pts_value_to_string(value);
 }
 
-/* Rejects a RegExp argument of a string method that takes one (split, replace, replaceAll), which M6.1c brings. */
-static void refuse_regexp(uint32_t argc, const pts_value *argv, const char *method) {
-  pts_value pattern = argument(argc, argv, 0);
-  if (pts_value_is_object(pattern) && pts_value_as_object(pattern)->type->kind == PTS_KIND_REGEXP) {
-    pts_throw_new(&pts_type_builtin_TypeError, "`%s` with a RegExp through `any` is not supported yet", method);
-  }
-}
-
 static bool is_function(pts_value value) { return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_FUNCTION; }
 
 /* A callback argument: TypeError, as V8 words it, if it isn't a function (`number 5 is not a function`). */
@@ -148,13 +140,17 @@ static pts_value string_repeat(pts_value self, uint32_t argc, const pts_value *a
 }
 
 static pts_value string_split(pts_value self, uint32_t argc, const pts_value *argv) {
-  refuse_regexp(argc, argv, "split");
-  if (argument(argc, argv, 0) == PTS_VALUE_UNDEFINED) { /* no separator: the whole string */
-    pts_string *whole = string_of(self);
-    return pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_STRING], &whole, number_argument(argc, argv, 1, 1) == 0 ? 0 : 1));
-  }
-  return pts_value_from_object(
-      pts_string_split(string_of(self), string_argument(argc, argv, 0, NULL), number_argument(argc, argv, 1, __builtin_inf())));
+  return pts_value_from_object(pts_string_split_value(string_of(self), argument(argc, argv, 0), argument(argc, argv, 1)));
+}
+
+static pts_value string_match(pts_value self, uint32_t argc, const pts_value *argv) { return pts_string_match(string_of(self), argument(argc, argv, 0)); }
+
+static pts_value string_match_all(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_string_match_all(string_of(self), argument(argc, argv, 0));
+}
+
+static pts_value string_search(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_number(pts_string_search(string_of(self), argument(argc, argv, 0)));
 }
 
 static pts_value string_concat(pts_value self, uint32_t argc, const pts_value *argv) {
@@ -235,15 +231,29 @@ static pts_value replace_with_callback(pts_value self, pts_string *search, pts_c
   return pts_value_from_string(pts_string_concat(result, pts_string_slice(string, end, __builtin_inf())));
 }
 
-static pts_value string_replacing(pts_value self, uint32_t argc, const pts_value *argv, bool all) {
-  refuse_regexp(argc, argv, all ? "replaceAll" : "replace");
-  pts_string *search = string_argument(argc, argv, 0, NULL);
-  pts_value replacement = argument(argc, argv, 1);
-  if (is_function(replacement)) {
-    return replace_with_callback(self, search, (pts_closure *)pts_value_as_object(replacement), all);
+/* replace and replaceAll of a RegExp with a callback: called on each match with its replacer arguments (D-134). */
+static pts_value replace_regexp_with_callback(pts_value self, pts_regexp *regexp, pts_closure *callback, bool all) {
+  pts_array *matches = pts_regexp_replace_matches(string_of(self), regexp, all);
+  pts_array *replacements = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
+  for (size_t i = 0, n = pts_array_length_of(matches); i < n; i++) {
+    pts_array *args = pts_regexp_replacer_arguments(pts_array_element(matches, (double)i));
+    const pts_value *values = (const pts_value *)args->buffer->elements;
+    pts_value replacement = pts_value_from_string(pts_value_to_string(pts_dynamic_call_closure(callback, (uint32_t)pts_array_length_of(args), values)));
+    pts_array_push(replacements, &replacement, 1);
   }
-  pts_string *text = pts_value_to_string(replacement);
-  return pts_value_from_string(all ? pts_string_replace_all(string_of(self), search, text) : pts_string_replace(string_of(self), search, text));
+  return pts_value_from_string(pts_regexp_replace_with(string_of(self), matches, replacements));
+}
+
+static pts_value string_replacing(pts_value self, uint32_t argc, const pts_value *argv, bool all) {
+  pts_value pattern = argument(argc, argv, 0);
+  pts_value replacement = argument(argc, argv, 1);
+  if (is_function(replacement) && pts_value_is_object(pattern) && pts_value_as_object(pattern)->type->kind == PTS_KIND_REGEXP) {
+    return replace_regexp_with_callback(self, (pts_regexp *)pts_value_as_object(pattern), (pts_closure *)pts_value_as_object(replacement), all);
+  }
+  if (is_function(replacement)) {
+    return replace_with_callback(self, pts_value_to_string(pattern), (pts_closure *)pts_value_as_object(replacement), all);
+  }
+  return pts_value_from_string(pts_string_replace_value(string_of(self), pattern, pts_value_to_string(replacement), all));
 }
 
 static pts_value string_replace(pts_value self, uint32_t argc, const pts_value *argv) { return string_replacing(self, argc, argv, false); }
@@ -327,11 +337,14 @@ static const named_method string_methods[] = {
     {"isWellFormed", string_is_well_formed},
     {"lastIndexOf", string_last_index_of},
     {"localeCompare", string_locale_compare},
+    {"match", string_match},
+    {"matchAll", string_match_all},
     {"padEnd", string_pad_end},
     {"padStart", string_pad_start},
     {"repeat", string_repeat},
     {"replace", string_replace},
     {"replaceAll", string_replace_all},
+    {"search", string_search},
     {"slice", string_slice},
     {"split", string_split},
     {"startsWith", string_starts_with},

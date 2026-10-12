@@ -86,6 +86,10 @@ func (l *lowerer) regexpCall(call *ast.CallExpression) (x ir.Expr, handled bool)
 	case "RegExp.compile":
 		l.notSupportedYet(callee, "the deprecated `compile` of RegExp is")
 		return nil, true
+	default:
+		if name, ok := strings.CutPrefix(member, "String."); ok {
+			return l.regexpStringCall(call, name)
+		}
 	}
 	return nil, false
 }

@@ -25,7 +25,7 @@ import (
 
 // iteratorTypes are the ES library's types of iterator objects.
 var iteratorTypes = map[string]bool{"Generator": true, "Iterator": true, "IterableIterator": true, "IteratorObject": true,
-	"MapIterator": true, "SetIterator": true, "ArrayIterator": true, "StringIterator": true}
+	"MapIterator": true, "SetIterator": true, "ArrayIterator": true, "StringIterator": true, "RegExpStringIterator": true}
 
 // isIteratorType reports whether t is one of the ES library's iterator types.
 func (l *lowerer) isIteratorType(t *checker.Type) bool {
