@@ -1,0 +1,47 @@
+// fetch (D-160) against the Go server of TestFetchFromGoServer, whose URL is the first
+// argument: chunked and read-until-close bodies, a 103 before the response, several fields
+// of one name, a redirect, an unusual status, 204, what the request looks like, and the
+// failures of a malformed response and a connection closed before the body's end.
+
+const base = process.argv[2];
+
+async function attempt(label: string, f: () => Promise<string>): Promise<void> {
+  try {
+    console.log(label, await f());
+  } catch (e) {
+    const error = e as Error;
+    console.log(label, `${error.name}: ${error.message} | ${(error.cause as Error | undefined)?.message}`);
+  }
+}
+
+async function text(path: string): Promise<string> {
+  const response = await fetch(base + path);
+  return `${response.status} ${await response.text()}`;
+}
+
+await attempt("chunked", () => text("/chunked"));
+await attempt("until close", () => text("/close"));
+await attempt("early hints", () => text("/early"));
+await attempt("malformed", () => text("/malformed"));
+await attempt("truncated", () => text("/truncated"));
+await attempt("truncated chunks", () => text("/truncated-chunks"));
+await attempt("headers", async () => {
+  const response = await fetch(base + "/headers");
+  return `${response.headers.get("x-multi")} | ${response.headers.getSetCookie().join(" ")} | ${response.headers.get("content-type")}`;
+});
+await attempt("redirect", async () => {
+  const response = await fetch(base + "/redirect");
+  return `${response.status} ${response.redirected} ${response.url.slice(base.length)} ${await response.text()}`;
+});
+await attempt("status", async () => {
+  const response = await fetch(base + "/teapot");
+  return `${response.status} ${response.statusText} ${response.ok} ${await response.text()}`;
+});
+await attempt("no content", async () => {
+  const response = await fetch(base + "/empty", { method: "DELETE" });
+  return `${response.status} "${await response.text()}"`;
+});
+await attempt("request", async () => {
+  const response = await fetch(base + "/echo?q=1 2#fragment", { method: "post", body: "body ✓", headers: [["X-Test", "a"], ["x-test", "b"]] });
+  return await response.text();
+});

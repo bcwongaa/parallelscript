@@ -254,3 +254,85 @@ func TestHTTPServerEveryLoop(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchFromGoServer runs http/fetch_client.pts against a Go server (D-160), for the
+// responses pts:http doesn't send: chunked and read-until-close bodies, a 1xx before the
+// response, a malformed response and connections closed before the body's end.
+func TestFetchFromGoServer(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "fetch_client")
+	hijack := func(w http.ResponseWriter, raw string) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			panic(err)
+		}
+		_, _ = conn.Write([]byte(raw))
+		_ = conn.Close()
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/chunked", func(w http.ResponseWriter, r *http.Request) {
+		for _, part := range []string{"one ", "two ", "three"} {
+			_, _ = io.WriteString(w, part)
+			w.(http.Flusher).Flush()
+		}
+	})
+	mux.HandleFunc("/close", func(w http.ResponseWriter, r *http.Request) {
+		hijack(w, "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nread until the end")
+	})
+	mux.HandleFunc("/early", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("link", "</style.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		_, _ = io.WriteString(w, "after the hints")
+	})
+	mux.HandleFunc("/malformed", func(w http.ResponseWriter, r *http.Request) { hijack(w, "NOT HTTP AT ALL\r\n\r\n") })
+	mux.HandleFunc("/truncated", func(w http.ResponseWriter, r *http.Request) {
+		hijack(w, "HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nonly this")
+	})
+	mux.HandleFunc("/truncated-chunks", func(w http.ResponseWriter, r *http.Request) {
+		hijack(w, "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n")
+	})
+	mux.HandleFunc("/headers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("X-Multi", "a")
+		w.Header().Add("X-Multi", "b")
+		w.Header().Add("Set-Cookie", "c=1")
+		w.Header().Add("Set-Cookie", "d=2")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, "<p>")
+	})
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/chunked", http.StatusFound) })
+	mux.HandleFunc("/teapot", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = io.WriteString(w, "short and stout")
+	})
+	mux.HandleFunc("/empty", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var names []string
+		for name := range r.Header {
+			names = append(names, strings.ToLower(name)+"="+strings.Join(r.Header.Values(name), ","))
+		}
+		slices.Sort(names)
+		fmt.Fprintf(w, "%s %s %s close=%v length=%d %s %q", r.Method, r.RequestURI, r.Host[:strings.Index(r.Host, ":")], r.Close, r.ContentLength, strings.Join(names, " "), body)
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NilError(t, err)
+	go func() { _ = http.Serve(listener, mux) }()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	base := "http://" + listener.Addr().String()
+	out, err := exec.CommandContext(t.Context(), exe, base).CombinedOutput()
+	assert.NilError(t, err, "%s", out)
+	assert.Equal(t, string(out), `chunked 200 one two three
+until close 200 read until the end
+early hints 200 after the hints
+malformed TypeError: fetch failed | Response does not match the HTTP/1.1 protocol
+truncated TypeError: fetch failed | other side closed
+truncated chunks TypeError: fetch failed | other side closed
+headers a, b | c=1 d=2 | text/html; charset=utf-8
+redirect 200 true /chunked one two three
+status 418 I'm a teapot false short and stout
+no content 204 ""
+request POST /echo?q=1%202 127.0.0.1 close=true length=8 accept=*/* connection=close content-length=8 content-type=text/plain;charset=UTF-8 user-agent=ParallelScript x-test=a, b "body ✓"
+`)
+}
+

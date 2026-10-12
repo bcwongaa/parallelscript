@@ -1912,6 +1912,13 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
 double pts_http_port(double id);
 /* Stops server id: no more connections; idle ones close, busy ones after their responses. */
 void pts_http_stop(double id);
+/*
+ * fetch's request (D-160): method target HTTP/1.1 to host:port with the headers (names
+ * and values in turn) and, if has_body, the body with its content-length. The promise
+ * fulfills with [status, status text, body, name, value, …] as a string[], or rejects with
+ * the cause of fetch's TypeError.
+ */
+pts_value pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body);
 
 /* ---------------------------------------------------------------- String.prototype.normalize (D-135) */
 

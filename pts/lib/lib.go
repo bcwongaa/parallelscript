@@ -35,9 +35,16 @@ func IsModulePath(path string) bool {
 	return strings.HasPrefix(path, scheme) && strings.HasSuffix(path, ".pts")
 }
 
-// GlobalModules name the globals that are a pts: module's default export, with the module:
-// the global `process` is pts:process's (D-116).
-var GlobalModules = map[string]string{"process": "pts:process"}
+// GlobalModules name the globals that are a pts: module's top-level binding of the same
+// name, with the module: the global `process` is pts:process's (D-116), and `fetch`,
+// `Request`, `Response` and `Headers` are pts:http's (D-160).
+var GlobalModules = map[string]string{
+	"process":  "pts:process",
+	"fetch":    "pts:http",
+	"Request":  "pts:http",
+	"Response": "pts:http",
+	"Headers":  "pts:http",
+}
 
 // ParallelModule is the module of `.par` views (D-123), which the prelude's Array.par
 // names: a program that uses `.par` runs it.

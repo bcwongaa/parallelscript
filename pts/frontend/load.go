@@ -82,7 +82,8 @@ func globalModulesUsed(ctx context.Context, ts *compiler.Program, modules []*ast
 	var used []*ast.SourceFile
 	for name, specifier := range lib.GlobalModules {
 		module := ts.GetSourceFile(lib.ModulePath(specifier))
-		if module != nil && !slices.Contains(modules, module) && slices.ContainsFunc(modules, func(file *ast.SourceFile) bool { return usesGlobal(ctx, ts, file, name) }) {
+		if module != nil && !slices.Contains(modules, module) && !slices.Contains(used, module) && // pts:http has several globals
+			slices.ContainsFunc(modules, func(file *ast.SourceFile) bool { return usesGlobal(ctx, ts, file, name) }) {
 			used = append(used, module)
 		}
 	}

@@ -22,7 +22,11 @@ func (l *lowerer) globalModuleBindings(modules []*ast.SourceFile) map[*ast.Symbo
 		global := l.checker.GetGlobalSymbol(name, ast.SymbolFlagsValue, nil)
 		for _, module := range modules {
 			if module.FileName() == lib.ModulePath(specifier) && global != nil {
-				bindings[global] = module.Locals[name]
+				binding := module.Locals[name]
+				if binding != nil && binding.ExportSymbol != nil {
+					binding = binding.ExportSymbol // an exported class or function: what its declaration declares
+				}
+				bindings[global] = binding
 			}
 		}
 	}

@@ -1,0 +1,158 @@
+// fetch (D-160) against a pts:http server in the same program: methods, bodies, headers,
+// JSON, HEAD, 404, redirects (followed, manual, error, too many, 303 to GET), large and
+// Unicode bodies, several set-cookie fields, requests in parallel, a Request as input, and
+// the failures: a refused connection, an invalid URL, https, another scheme, a bad port, a
+// GET with a body. fetch, Request, Response and Headers are globals.
+import { serve } from "pts:http";
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    const path = request.url.slice(request.url.indexOf("/", 8));
+    if (path === "/echo") {
+      const headers: Record<string, string> = {};
+      request.headers.forEach((value, name) => {
+        if (name !== "host") headers[name] = value;
+      });
+      return Response.json({ method: request.method, body: await request.text(), headers });
+    }
+    if (path.startsWith("/redirect/")) {
+      const n = Number(path.slice(10));
+      return new Response(null, { status: n > 0 ? 302 : 200, headers: n > 0 ? { location: `/redirect/${n - 1}` } : {} });
+    }
+    if (path === "/see-other") return new Response(null, { status: 303, headers: { location: "echo" } });
+    if (path === "/big") return new Response("x".repeat(1_000_000));
+    if (path === "/unicode") return new Response("héllo wörld ✓ 😀");
+    if (path === "/cookies") {
+      const h = new Headers();
+      h.append("set-cookie", "a=1");
+      h.append("set-cookie", "b=2");
+      return new Response("ok", { headers: h });
+    }
+    return new Response("not found", { status: 404, statusText: "Not Found" });
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+function show(label: string, value: unknown): void {
+  console.log(label, value);
+}
+async function attempt(label: string, f: () => Promise<unknown>): Promise<void> {
+  try {
+    show(label, await f());
+  } catch (e) {
+    const error = e as Error;
+    const cause = error.cause as Error | undefined;
+    console.log(label, error.name + ":", error.message, "| cause:", cause?.message);
+  }
+}
+
+await attempt("post json", async () => {
+  const r = await fetch(`${base}/echo`, { method: "POST", body: JSON.stringify({ a: 1 }), headers: { "content-type": "application/json", "x-custom": "yes" } });
+  return [r.status, r.headers.get("content-type"), await r.json()];
+});
+await attempt("get echo", async () => {
+  const r = await fetch(`${base}/echo`);
+  return (await r.json()).headers;
+});
+await attempt("404", async () => {
+  const r = await fetch(`${base}/missing`);
+  return [r.status, r.statusText, r.ok, await r.text()];
+});
+await attempt("head", async () => {
+  const r = await fetch(`${base}/big`, { method: "HEAD" });
+  return [r.status, r.headers.get("content-length"), (await r.text()).length];
+});
+await attempt("redirects", async () => {
+  const r = await fetch(`${base}/redirect/3`);
+  return [r.status, r.redirected, r.url.slice(r.url.indexOf("/", 8))];
+});
+await attempt("redirect manual", async () => {
+  const r = await fetch(`${base}/redirect/1`, { redirect: "manual" });
+  return [r.status, r.headers.get("location"), r.redirected];
+});
+await attempt("redirect error", () => fetch(`${base}/redirect/1`, { redirect: "error" }));
+await attempt("too many redirects", () => fetch(`${base}/redirect/25`));
+await attempt("303 to GET", async () => {
+  const r = await fetch(`${base}/see-other`, { method: "POST", body: "data" });
+  const echoed = await r.json();
+  return [r.status, echoed.method, echoed.body, r.url.slice(r.url.indexOf("/", 8))];
+});
+await attempt("big", async () => {
+  const r = await fetch(`${base}/big`);
+  return (await r.text()).length;
+});
+await attempt("unicode", async () => {
+  const r = await fetch(`${base}/unicode`);
+  return await r.text();
+});
+await attempt("cookies", async () => {
+  const r = await fetch(`${base}/cookies`);
+  return r.headers.getSetCookie();
+});
+await attempt("parallel", async () => {
+  const all = await Promise.all([1, 2, 3, 4, 5].map((i) => fetch(`${base}/echo`, { method: "PUT", body: `n${i}` }).then((r) => r.json())));
+  return all.map((x) => x.body).join(",");
+});
+await attempt("request object", async () => {
+  const req = new Request(`${base}/echo`, { method: "PATCH", body: "patched" });
+  const r = await fetch(req);
+  return (await r.json()).body;
+});
+const closed = serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
+const closedPort = closed.port;
+closed.stop();
+await new Promise((resolve) => setTimeout(resolve, 20));
+await attempt("refused", async () => {
+  try {
+    return await fetch(`http://127.0.0.1:${closedPort}/`);
+  } catch (e) {
+    const cause = (e as Error).cause as Error & { code: string; syscall: string };
+    throw new TypeError(`${(e as Error).message}`, { cause: new Error(`${cause.message.replace(String(closedPort), "PORT")} ${cause.code} ${cause.syscall}`) });
+  }
+});
+await attempt("invalid url", () => fetch("not a url"));
+await attempt("https", () => fetch("https://127.0.0.1:59999/"));
+await attempt("ftp", () => fetch("ftp://example.com/"));
+await attempt("bad port", () => fetch("http://127.0.0.1:6000/"));
+await attempt("get with body", () => fetch(`${base}/echo`, { body: "x" }));
+await attempt("response url", async () => [new Response("x").url, new Response("x").redirected]);
+server.stop();
+
+// expect:
+// post json [
+//   200,
+//   'application/json',
+//   {
+//     method: 'POST',
+//     body: '{"a":1}',
+//     headers: {
+//       accept: '*/*',
+//       connection: 'close',
+//       'content-length': '7',
+//       'content-type': 'application/json',
+//       'user-agent': 'ParallelScript',
+//       'x-custom': 'yes'
+//     }
+//   }
+// ]
+// get echo { accept: '*/*', connection: 'close', 'user-agent': 'ParallelScript' }
+// 404 [ 404, 'Not Found', false, 'not found' ]
+// head [ 200, '1000000', 0 ]
+// redirects [ 200, true, '/redirect/0' ]
+// redirect manual [ 302, '/redirect/0', false ]
+// redirect error TypeError: fetch failed | cause: unexpected redirect
+// too many redirects TypeError: fetch failed | cause: redirect count exceeded
+// 303 to GET [ 200, 'GET', '', '/echo' ]
+// big 1000000
+// unicode héllo wörld ✓ 😀
+// cookies [ 'a=1', 'b=2' ]
+// parallel n1,n2,n3,n4,n5
+// request object patched
+// refused TypeError: fetch failed | cause: connect ECONNREFUSED 127.0.0.1:PORT ECONNREFUSED connect
+// invalid url TypeError: Failed to parse URL from not a url | cause: Invalid URL
+// https TypeError: fetch failed | cause: https: is not supported yet: fetch speaks plain HTTP (D-O10)
+// ftp TypeError: fetch failed | cause: unknown scheme
+// bad port TypeError: fetch failed | cause: bad port
+// get with body TypeError: Request with GET/HEAD method cannot have body. | cause: undefined
+// response url [ '', false ]

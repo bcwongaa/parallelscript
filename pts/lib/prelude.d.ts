@@ -76,6 +76,18 @@ declare const performance: Performance;
 // The program's process as Node's global process: pts:process's default export (D-116).
 declare var process: import("pts:process").Process;
 
+// fetch and the Fetch standard's classes, as Node's globals: pts:http's (D-160).
+declare var fetch: typeof import("pts:http").fetch;
+declare var Request: typeof import("pts:http").Request;
+type Request = import("pts:http").Request;
+declare var Response: typeof import("pts:http").Response;
+type Response = import("pts:http").Response;
+declare var Headers: typeof import("pts:http").Headers;
+type Headers = import("pts:http").Headers;
+type RequestInit = import("pts:http").RequestInit;
+type ResponseInit = import("pts:http").ResponseInit;
+type HeadersInit = import("pts:http").HeadersInit;
+
 // Node's global types that programs name: NodeJS.ErrnoException, the type of the errors of
 // pts:fs and pts:process (D-117).
 declare namespace NodeJS {

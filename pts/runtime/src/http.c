@@ -15,6 +15,7 @@
  */
 #include "pts.h"
 
+#include "http_internal.h"
 #include "scheduler_internal.h"
 
 #include <arpa/inet.h>
@@ -31,7 +32,7 @@
 
 enum {
   MAX_HEAD = 64 * 1024,          /* the request line and headers: more is 431 */
-  MAX_BODY = 64 * 1024 * 1024,   /* a request body: more is 413 */
+  MAX_BODY = PTS_HTTP_MAX_BODY,  /* a request body: more is 413 */
   READ_SIZE = 64 * 1024,         /* bytes asked of each read */
   SLOT_BITS = 20,                /* an id is (generation * 2^LOOP_BITS + loop) * 2^SLOT_BITS + slot, */
   LOOP_BITS = 8,                 /* which is at most 2^52, so a double holds it exactly */
@@ -245,12 +246,11 @@ static pts_string *lowercase(const char *bytes, size_t len) {
   return s;
 }
 
-static bool equals_ignoring_case(const char *bytes, size_t len, const char *word) {
+bool pts_http_equals_ignoring_case(const char *bytes, size_t len, const char *word) {
   return strlen(word) == len && strncasecmp(bytes, word, len) == 0;
 }
 
-/* Whether a comma-separated header value lists word, ignoring case. */
-static bool lists(const char *value, size_t len, const char *word) {
+bool pts_http_lists(const char *value, size_t len, const char *word) {
   size_t i = 0;
   while (i < len) {
     while (i < len && (value[i] == ' ' || value[i] == '\t' || value[i] == ',')) {
@@ -264,7 +264,7 @@ static bool lists(const char *value, size_t len, const char *word) {
     while (end > start && (value[end - 1] == ' ' || value[end - 1] == '\t')) {
       end--;
     }
-    if (equals_ignoring_case(value + start, end - start, word)) {
+    if (pts_http_equals_ignoring_case(value + start, end - start, word)) {
       return true;
     }
   }
@@ -326,7 +326,7 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
     if (memchr(value, '\0', value_len) != NULL || memchr(value, '\r', value_len) != NULL) {
       return false; /* RFC 9112 asks to reject these; pts:http's Headers take the rest as they are */
     }
-    if (equals_ignoring_case(p, name_len, "content-length")) {
+    if (pts_http_equals_ignoring_case(p, name_len, "content-length")) {
       char *digits_end;
       char digits[24];
       if (value_len == 0 || value_len >= sizeof digits) {
@@ -339,16 +339,16 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
         return false;
       }
       r->content_length = n;
-    } else if (equals_ignoring_case(p, name_len, "transfer-encoding")) {
-      r->chunked = lists(value, value_len, "chunked");
-    } else if (equals_ignoring_case(p, name_len, "connection")) {
-      if (lists(value, value_len, "close")) {
+    } else if (pts_http_equals_ignoring_case(p, name_len, "transfer-encoding")) {
+      r->chunked = pts_http_lists(value, value_len, "chunked");
+    } else if (pts_http_equals_ignoring_case(p, name_len, "connection")) {
+      if (pts_http_lists(value, value_len, "close")) {
         r->keep_alive = false;
-      } else if (lists(value, value_len, "keep-alive")) {
+      } else if (pts_http_lists(value, value_len, "keep-alive")) {
         r->keep_alive = true;
       }
-    } else if (equals_ignoring_case(p, name_len, "expect")) {
-      r->expect_continue = equals_ignoring_case(value, value_len, "100-continue");
+    } else if (pts_http_equals_ignoring_case(p, name_len, "expect")) {
+      r->expect_continue = pts_http_equals_ignoring_case(value, value_len, "100-continue");
     }
     pts_string *pair[] = {lowercase(p, name_len), pts_string_from_utf8_lossy(value, value_len)};
     pts_array_push(r->headers, pair, 2);
@@ -357,12 +357,7 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
   return true;
 }
 
-/*
- * Decodes a chunked body that starts at body: the body's bytes into *out (malloc'd) and
- * the bytes it took from the buffer into *used. 0 if the buffer doesn't hold all of it
- * yet, -1 if it is malformed, -2 if it is too large, 1 if done.
- */
-static int dechunk(const char *body, const char *end, char **out, size_t *out_len, size_t *used) {
+int pts_http_dechunk(const char *body, const char *end, char **out, size_t *out_len, size_t *used) {
   const char *p = body;
   size_t len = 0, cap = 0;
   char *bytes = NULL;
@@ -431,7 +426,7 @@ static void dispatch(connection *c, request *r, const char *body, size_t body_le
   c->busy = true;
   c->keep_alive = r->keep_alive && !atomic_load(&c->listener->server->stopped);
   c->http10 = r->minor == 0;
-  c->head = equals_ignoring_case(r->method, r->method_len, "HEAD");
+  c->head = pts_http_equals_ignoring_case(r->method, r->method_len, "HEAD");
   c->continued = false;
   uv_read_stop((uv_stream_t *)&c->tcp);
   pts_closure *on_request = c->listener->server->on_request;
@@ -488,7 +483,7 @@ static void process(connection *c) {
     size_t body_len = 0, used = (size_t)(head_end - c->in);
     if (r.chunked) {
       size_t chunked_used;
-      int done = dechunk(head_end, end, &body, &body_len, &chunked_used);
+      int done = pts_http_dechunk(head_end, end, &body, &body_len, &chunked_used);
       if (done < 0) {
         send_error(c, done == -2 ? 413 : 400, done == -2 ? "Content Too Large" : "Bad Request");
         return;
@@ -636,8 +631,8 @@ static void add_cstr(text *t, const char *s) { add(t, s, strlen(s)); }
 
 /* Whether a header the program gave is one the server writes itself. */
 static bool is_framing_header(const pts_string *name) {
-  return equals_ignoring_case(name->bytes, name->byte_len, "content-length") || equals_ignoring_case(name->bytes, name->byte_len, "transfer-encoding") ||
-         equals_ignoring_case(name->bytes, name->byte_len, "connection");
+  return pts_http_equals_ignoring_case(name->bytes, name->byte_len, "content-length") || pts_http_equals_ignoring_case(name->bytes, name->byte_len, "transfer-encoding") ||
+         pts_http_equals_ignoring_case(name->bytes, name->byte_len, "connection");
 }
 
 void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body) {
@@ -666,7 +661,7 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
         memchr(value->bytes, '\n', value->byte_len) != NULL || memchr(value->bytes, '\r', value->byte_len) != NULL) {
       continue; /* framed by the server; a line break would split the response */
     }
-    dated = dated || equals_ignoring_case(name->bytes, name->byte_len, "date");
+    dated = dated || pts_http_equals_ignoring_case(name->bytes, name->byte_len, "date");
     add(&t, name->bytes, name->byte_len);
     add_cstr(&t, ": ");
     add(&t, value->bytes, value->byte_len);

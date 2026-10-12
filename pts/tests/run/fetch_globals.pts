@@ -1,0 +1,24 @@
+// fetch, Request, Response and Headers are globals (D-160), as in Node: no import.
+
+const headers = new Headers({ "Content-Type": "text/plain" });
+headers.append("X-Count", "1");
+headers.append("x-count", "2");
+console.log([...headers], headers.get("x-count"), headers.has("content-type"));
+
+const response = new Response("hello", { status: 201, statusText: "Created", headers });
+console.log(response.status, response.statusText, response.ok, response.url, response.redirected);
+console.log(await response.text(), response.headers.get("content-type"));
+
+const json = Response.json({ a: [1, 2] }, { status: 202 });
+console.log(json.status, json.headers.get("content-type"), await json.json());
+
+const request = new Request("http://example.com/path?q=1", { method: "post", body: "data", headers: [["accept", "text/html"]] });
+const copy = new Request(request, { method: "PUT" });
+console.log(request.method, request.url, request.headers.get("accept"));
+console.log(copy.method, copy.url, await copy.text(), copy.headers.get("accept"));
+console.log(typeof fetch);
+
+function describe(r: Response): string {
+  return `${r.status} ${r.headers.get("content-type")}`;
+}
+console.log(describe(new Response(null, { status: 204 })));
