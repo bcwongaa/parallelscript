@@ -231,7 +231,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M4.2a Async and promises** (e85f6cf12) (split from M4.2 by D-112). The async/await state machine (over D-109's generator frames); `Promise` with `then`, `catch`, `finally` and `resolve`/`reject`; microtask ordering identical to Node, with ordering differential tests; unhandled rejections.
 - [x] **M4.2b Promise combinators and top-level await** (82dcec6b4) (split from M4.2 by D-112). `Promise.all`, `allSettled`, `race`, `any` and `withResolvers`, with ordering differential tests; top-level `await` in the entry module.
 - [x] **M4.3 The event loop.** (def00e676) A libuv event loop with `setTimeout`, `setInterval`, `clearTimeout`, `queueMicrotask` and `performance.now()`, with timer and IO ordering matching Node.
-- [ ] **M4.4 Async iteration.** Async generators and `for await`.
+- [x] **M4.4 Async iteration.** (47d633551) Async generators and `for await`.
 - [ ] **M4.5 `pts:fs`, `pts:process` and `pts:path`.**
   - `pts:fs` with sync and promise APIs; `pts:process` with `argv`, `env`, `exit` and `cwd`.
   - Also `pts:path`, pulled forward from M6 because it is small and useful now.
