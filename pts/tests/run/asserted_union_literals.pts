@@ -1,0 +1,59 @@
+// An object literal asserted to a union of object types that it fits no member of is kept
+// as it is (D-104), as in JS; a read, write or call of a member it lacks throws a TypeError
+// that names the assertion (D-158), where JS reads undefined, adds the property or throws
+// "is not a function".
+// no-diff: JS reads undefined for a property that a type assertion promised and the object lacks
+
+type Action = { type: "add"; n: number } | { type: "reset" } | { type: "rename"; name: string };
+
+function reduce(state: number, a: Action): number {
+  switch (a.type) {
+    case "add":
+      return state + a.n;
+    case "reset":
+      return 0;
+    case "rename":
+      return state + a.name.length;
+    default:
+      return state;
+  }
+}
+
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, e instanceof TypeError ? "TypeError:" : "other:", (e as Error).message);
+  }
+}
+
+const init = { type: "@@init" } as unknown as Action;
+attempt("no member's type", () => reduce(1, init));
+attempt("a member", () => reduce(1, { type: "add", n: 2 }));
+const extra = { type: "reset", extra: true } as Action;
+attempt("an extra property", () => reduce(1, extra));
+const missing = { type: "add" } as Action;
+attempt("a missing property", () => reduce(1, missing));
+const wrong = { type: "rename", name: 5 } as unknown as Action;
+attempt("a property of another type", () => reduce(1, wrong));
+attempt("printed", () => [init, extra, missing]);
+
+type Shape = { kind: "circle"; r: number; area(): number } | { kind: "square"; side: number; area(): number };
+const bare = { kind: "circle" } as Shape;
+attempt("a missing method", () => bare.area());
+attempt("a missing property written", () => {
+  if (bare.kind === "circle") {
+    bare.r = 2;
+  }
+  return bare;
+});
+
+// expect:
+// no member's type 1
+// a member 3
+// an extra property 0
+// a missing property TypeError: Cannot read property 'n' of #<Object>: it has none, though a type assertion says it has
+// a property of another type TypeError: Cannot read property name of Object as string: it is declared number
+// printed [ { type: '@@init' }, { type: 'reset', extra: true }, { type: 'add' } ]
+// a missing method TypeError: Cannot call method 'area' of #<Object>: it has none, though a type assertion says it has
+// a missing property written TypeError: Cannot add property r, object is not extensible

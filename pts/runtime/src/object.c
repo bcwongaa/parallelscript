@@ -53,6 +53,16 @@ static const pts_field *find_field(const pts_type *type, const char *name) {
   return NULL;
 }
 
+/*
+ * A site met an object without the property or method its type promises. Only an object
+ * literal asserted to a union of object types that it fits no member of can be one (D-104):
+ * JS reads undefined there, which the member's type can't hold, so the read throws (D-158).
+ */
+static _Noreturn void missing_member(const pts_type *type, const char *action, const char *name) {
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot %s '%s' of #<%s>: it has none, though a type assertion says it has", action, name,
+                pts_unfrozen(type)->name);
+}
+
 /* A site that reads a property as check's kind met an object that holds it as another (D-072): only a compiler bug makes one. */
 static _Noreturn void wrong_kind(const pts_type *type, const char *name, const pts_check *check, pts_field_kind kind, const pts_check *declared) {
   pts_throw_new(&pts_type_builtin_TypeError, "Cannot read property %s of %s as %s: it is declared %s", name, type->name, check->name,
@@ -63,7 +73,7 @@ void *pts_field_address_slow(const pts_object *object, pts_site *site, const cha
   const pts_type *type = object->type;
   const pts_field *field = find_field(type, name);
   if (field == NULL) {
-    pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
+    missing_member(type, "read property", name);
   }
   if (check != NULL && field->kind != check->slot) {
     wrong_kind(type, name, check, field->kind, field->check);
@@ -75,6 +85,9 @@ void *pts_field_address_slow(const pts_object *object, pts_site *site, const cha
 }
 
 void *pts_field_store_address_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
+  if (find_field(object->type, name) == NULL) {
+    pts_throw_not_extensible(name); /* an asserted object without it (D-158): JS would add it */
+  }
   if (object->type->frozen) {
     pts_throw_frozen_field(object, name);
   }
@@ -102,7 +115,7 @@ pts_function pts_method_find_slow(const pts_object *object, pts_site *site, cons
   const pts_type *type = object->type;
   int64_t index = method_index(type, name, kind);
   if (index < 0) {
-    pts_panic("TypeError", "A %s has no method '%s'", type->name, name); /* the compiler checked that it has */
+    missing_member(type, "call method", name);
   }
   if (index < PTS_SITE_INDEX(UINT64_MAX)) {
     cache_member(site, type, (uint64_t)index);
@@ -115,7 +128,7 @@ pts_function pts_method_find_adapted_slow(const pts_object *object, pts_site *si
   const pts_type *type = object->type;
   int64_t index = method_index(type, name, PTS_METHOD);
   if (index < 0) {
-    pts_panic("TypeError", "A %s has no method '%s'", type->name, name); /* the compiler or a conversion checked that it has */
+    missing_member(type, "call method", name);
   }
   if (type->methods[index].signature != signature) {
     return adapter; /* not cached: the cache holds only methods the site calls as they are */
@@ -161,7 +174,7 @@ void pts_field_set_slow(pts_object *object, pts_site *site, const char *name, co
   const pts_type *type = object->type;
   const pts_field *field = find_field(type, name);
   if (field == NULL) {
-    pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
+    pts_throw_not_extensible(name); /* an asserted object without it (D-158): JS would add it */
   }
   if (type->frozen) {
     pts_throw_frozen_field(object, name);
@@ -221,7 +234,10 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
   if (kind == PTS_SETTER && method_index(type, name, PTS_GETTER) >= 0) {
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
   }
-  pts_panic("TypeError", "A %s has no property '%s'", type->name, name); /* the compiler checked that it has */
+  if (kind == PTS_SETTER) {
+    pts_throw_not_extensible(name); /* an asserted object without it (D-158): JS would add it */
+  }
+  missing_member(type, "read property", name);
 }
 
 /* cache_offset caches at site that objects of type hold the property at offset, unless it doesn't fit beside the accessor flag. */
