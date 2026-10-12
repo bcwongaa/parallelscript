@@ -1,0 +1,46 @@
+// Timers and immediates used from other loops and from pool threads (D-139): each belongs
+// to the loop that made it, which applies what other threads do to it. The first lines
+// are the review's probe 11, which crashed (finding 1).
+// threads: 1 2 4
+const probe = setTimeout(() => console.log("timer fired"), 1000);
+await parallel clearTimeout(probe);
+console.log("cleared");
+
+const interval = setInterval(() => console.log("interval fired"), 1000);
+await parallel clearInterval(interval);
+console.log("interval cleared");
+
+// unref from another loop: the program doesn't wait for the timer; hasRef sees it at once.
+const unreferenced = setTimeout(() => console.log("unreferenced fired"), 100_000);
+await parallel unreferenced.unref();
+console.log("hasRef after unref:", unreferenced.hasRef());
+await parallel unreferenced.ref();
+console.log("hasRef after ref:", unreferenced.hasRef());
+await parallel unreferenced.unref();
+
+// clearTimeout from a pool thread (a .par callback).
+const pooled = [setTimeout(() => console.log("pooled 1 fired"), 1000), setTimeout(() => console.log("pooled 2 fired"), 1000)];
+pooled.par.forEach((timer) => clearTimeout(timer));
+console.log("pool cleared");
+
+// A timer made on another loop, cleared from this one before it is due.
+const remote = await parallel setTimeout(() => console.log("remote fired"), 1000);
+clearTimeout(remote);
+console.log("remote cleared");
+
+// refresh from another loop: the timer still fires once.
+let refreshedRuns = 0;
+const refreshed = setTimeout(() => {
+  refreshedRuns++;
+  console.log("refreshed fired", refreshedRuns);
+}, 30);
+await parallel refreshed.refresh();
+
+// expect:
+// cleared
+// interval cleared
+// hasRef after unref: false
+// hasRef after ref: true
+// pool cleared
+// remote cleared
+// refreshed fired 1

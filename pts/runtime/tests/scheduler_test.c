@@ -1,6 +1,7 @@
 /*
  * The loops and tasks (D-121): tasks run on every loop, promises cross loops, calls run on
- * the loops they are posted to (D-137), and the program ends once every loop is idle.
+ * the loops they are posted to (D-137), a timer cleared from another loop never fires
+ * (D-139), and the program ends once every loop is idle.
  */
 #include "pts.h" /* first: it asks for the POSIX declarations, setenv among them */
 
@@ -106,13 +107,33 @@ static void calls_ran_on_their_loops_in_order(void) {
   }
 }
 
-/* The loops run once per program, so both tests share the one pts_run_loop. */
+/* A minute's timer of the main loop, cleared from another loop: it never fires, and the loops end without waiting for it. */
+static atomic_int timer_fired;
+
+static pts_value count_firing(pts_closure *self, uint32_t argc, const pts_value *argv) {
+  (void)self, (void)argc, (void)argv;
+  atomic_fetch_add(&timer_fired, 1);
+  return PTS_VALUE_UNDEFINED;
+}
+
+static const pts_type firing_type = {.kind = PTS_KIND_FUNCTION, .gc_descr = PTS_GC_NO_POINTERS, .name = "", .size = sizeof(pts_closure), .call = count_firing};
+
+static void clear_timer(void *timer) { pts_timer_clear(pts_value_from_object(timer)); }
+
+static void clear_a_timer_from_another_loop(void) {
+  pts_value timer = pts_timer_set(pts_value_from_object(pts_object_new(&firing_type)), pts_value_from_number(60000), NULL, false);
+  pts_post_call(1, clear_timer, pts_value_as_object(timer));
+}
+
+/* The loops run once per program, so the tests share the one pts_run_loop. */
 int main(int argc, char **argv) {
   setenv("PTS_THREADS", "4", 1);
   pts_runtime_init(argc, argv);
   pts_loop_init();
   post_two_calls_to_every_loop();
+  clear_a_timer_from_another_loop();
   tasks_on_every_loop_settle_their_promises_on_the_starting_loop();
   calls_ran_on_their_loops_in_order();
+  CHECK(atomic_load(&timer_fired) == 0);
   return CHECK_DONE();
 }

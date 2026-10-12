@@ -1,0 +1,25 @@
+// An immediate cleared from another loop before its loop gets to it doesn't run (D-139):
+// the task makes it, hands it over and waits, so its loop can't run it yet.
+// threads: 2 4
+import { AtomicInt } from "pts:sync";
+
+const handedOver = new AtomicInt();
+const cleared = new AtomicInt();
+const holder: { immediate?: Immediate } = {};
+
+// Runs on another loop: makes an immediate there, then holds that loop until it is cleared.
+function makeAndWait(): string {
+  holder.immediate = setImmediate(() => console.log("immediate fired"));
+  handedOver.store(1);
+  while (cleared.load() === 0) {}
+  return "task done";
+}
+
+const task = parallel makeAndWait();
+while (handedOver.load() === 0) {}
+clearImmediate(holder.immediate);
+cleared.store(1);
+console.log(await task);
+
+// expect:
+// task done

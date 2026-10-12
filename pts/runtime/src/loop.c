@@ -1,5 +1,8 @@
 #include "pts.h"
 
+#include "scheduler_internal.h"
+
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <uv.h>
 
@@ -9,19 +12,27 @@
  * then by when they were scheduled, behind one uv timer armed for the first;
  * setImmediate's callbacks wait in a queue that a uv check handle runs after the loop
  * polls. Microtasks run after each callback, as in Node.
+ *
+ * A timer or immediate belongs to the loop that made it, and only that loop touches its
+ * heap, queue and counts (D-139). Other threads (other loops, pool threads) may still
+ * clear, ref, unref and refresh it: clearing takes effect at once through the atomic
+ * active flag, so the callback doesn't start after clearTimeout returns, and the rest
+ * runs on the owning loop by a message (pts_post_call).
  */
 
 struct pts_timer {
   const pts_type *type;
   pts_value callback;
-  pts_array *args; /* the arguments to call it with, or NULL */
-  uint64_t delay;  /* in ms, at least 1 */
-  uint64_t due;    /* in the loop's ms */
-  uint64_t order;  /* when it was scheduled, among timers due at the same time */
-  size_t slot;     /* its index in the heap while it is there */
-  bool repeat;     /* setInterval's */
-  bool active;     /* in the heap, or running */
-  bool referenced; /* keeps the loop alive (ref, unref) */
+  pts_array *args;            /* the arguments to call it with, or NULL */
+  uint64_t delay;             /* in ms, at least 1 */
+  uint64_t due;               /* in the loop's ms */
+  uint64_t order;             /* when it was scheduled, among timers due at the same time */
+  size_t slot;                /* its index in the heap while it is there */
+  uint16_t loop;              /* the loop it belongs to */
+  bool repeat;                /* setInterval's */
+  bool counted;               /* counted in its loop's referenced timers while in the heap */
+  atomic_bool active;         /* in the heap, or running, and not cleared */
+  atomic_bool referenced;     /* keeps the loop alive (ref, unref): what the program asked, which the loop applies */
 };
 
 const pts_type pts_type_builtin_Timeout = {
@@ -36,7 +47,7 @@ typedef struct immediate {
   struct immediate *next;
   pts_value callback;
   pts_array *args;
-  bool active;
+  atomic_bool active; /* not run or cleared yet; any thread may clear it */
 } immediate;
 
 static const pts_type immediate_type = {
@@ -153,22 +164,27 @@ static void schedule(loop_state *s, pts_timer *timer, uint64_t start) {
   }
   timer->due = start + timer->delay;
   timer->order = s->order++;
-  timer->active = true;
-  s->referenced += timer->referenced;
+  timer->counted = atomic_load(&timer->referenced);
+  s->referenced += timer->counted;
   place(s, s->count++, timer);
   sift_up(s, timer->slot);
 }
 
+/* Takes a timer out of the heap, and out of the loop's count of referenced timers. */
 static void unschedule(loop_state *s, pts_timer *timer) {
   size_t slot = timer->slot;
   pts_timer *last = s->heap[--s->count];
   s->heap[s->count] = NULL;
+  s->referenced -= timer->counted;
   if (slot < s->count) {
     place(s, slot, last);
     sift_up(s, slot);
     sift_down(s, last->slot);
   }
 }
+
+/* Whether a timer of this loop waits in its heap (it isn't running, fired or cleared out). */
+static bool waiting(const loop_state *s, const pts_timer *timer) { return s->count > timer->slot && s->heap[timer->slot] == timer; }
 
 /* Runs a callback with its arguments; then the microtasks it queued run, as after every callback in Node. */
 static void run_callback(pts_value callback, pts_array *args) {
@@ -189,12 +205,14 @@ static void on_timer(uv_timer_t *handle) {
   while (s->count > 0 && s->heap[0]->due <= now) {
     pts_timer *timer = s->heap[0];
     unschedule(s, timer);
-    s->referenced -= timer->referenced;
+    if (!atomic_load(&timer->active)) {
+      continue; /* cleared by another thread, whose message hasn't come yet */
+    }
     run_callback(timer->callback, timer->args);
-    if (timer->active && timer->repeat) {
+    if (atomic_load(&timer->active) && timer->repeat) {
       schedule(s, timer, now);
     } else {
-      timer->active = false;
+      atomic_store(&timer->active, false);
     }
   }
   arm(s);
@@ -221,7 +239,9 @@ pts_value pts_timer_set(pts_value callback, pts_value ms, pts_array *args, bool 
   timer->args = args != NULL && pts_array_length_of(args) > 0 ? args : NULL;
   timer->delay = delay_of(ms);
   timer->repeat = repeat;
-  timer->referenced = true;
+  timer->loop = pts_current_loop;
+  atomic_init(&timer->active, true);
+  atomic_init(&timer->referenced, true);
   schedule(state, timer, uv_now(state->loop));
   arm(state);
   return pts_value_from_object(timer);
@@ -234,43 +254,70 @@ static pts_timer *as_timer(pts_value value) {
   return (pts_timer *)pts_value_as_object(value);
 }
 
+/* Runs an operation on a timer's loop: now if this thread is that loop, else by a message to it. */
+static void on_owner(pts_timer *timer, void (*operation)(void *timer)) {
+  if (timer->loop == pts_current_loop) {
+    operation(timer);
+  } else {
+    pts_post_call(timer->loop, operation, timer);
+  }
+}
+
+/* On the timer's loop: a cleared timer leaves the heap. */
+static void remove_cleared(void *data) {
+  pts_timer *timer = data;
+  if (waiting(state, timer)) {
+    unschedule(state, timer);
+    arm(state);
+  }
+}
+
 void pts_timer_clear(pts_value value) {
   pts_timer *timer = as_timer(value);
-  if (timer == NULL || !timer->active) {
+  if (timer == NULL || !atomic_exchange(&timer->active, false)) {
     return; /* clearTimeout of undefined, of another value, or of a timer that has fired: nothing */
   }
-  timer->active = false;
-  if (state->count > timer->slot && state->heap[timer->slot] == timer) { /* not running now */
-    unschedule(state, timer);
-    state->referenced -= timer->referenced;
+  on_owner(timer, remove_cleared);
+}
+
+/* On the timer's loop: its count of referenced timers follows what the program asked of the timer. */
+static void apply_ref(void *data) {
+  pts_timer *timer = data;
+  bool referenced = atomic_load(&timer->referenced);
+  if (waiting(state, timer) && timer->counted != referenced) {
+    timer->counted = referenced;
+    state->referenced += referenced ? 1 : (size_t)-1;
     arm(state);
   }
 }
 
 pts_value pts_timer_ref(pts_value value, bool referenced) {
   pts_timer *timer = as_timer(value);
-  if (timer != NULL && timer->referenced != referenced) {
-    timer->referenced = referenced;
-    if (timer->active && state->count > timer->slot && state->heap[timer->slot] == timer) {
-      state->referenced += referenced ? 1 : (size_t)-1;
-      arm(state);
-    }
+  if (timer != NULL && atomic_exchange(&timer->referenced, referenced) != referenced) {
+    on_owner(timer, apply_ref);
   }
   return value;
 }
 
 bool pts_timer_has_ref(pts_value value) {
   pts_timer *timer = as_timer(value);
-  return timer != NULL && timer->referenced;
+  return timer != NULL && atomic_load(&timer->referenced);
+}
+
+/* On the timer's loop: a waiting timer is due its delay from now. */
+static void reschedule(void *data) {
+  pts_timer *timer = data;
+  if (atomic_load(&timer->active) && waiting(state, timer)) {
+    unschedule(state, timer);
+    schedule(state, timer, uv_now(state->loop));
+    arm(state);
+  }
 }
 
 pts_value pts_timer_refresh(pts_value value) {
   pts_timer *timer = as_timer(value);
-  if (timer != NULL && timer->active && state->count > timer->slot && state->heap[timer->slot] == timer) {
-    unschedule(state, timer);
-    state->referenced -= timer->referenced;
-    schedule(state, timer, uv_now(state->loop));
-    arm(state);
+  if (timer != NULL) {
+    on_owner(timer, reschedule);
   }
   return value;
 }
@@ -287,8 +334,7 @@ static void on_check(uv_check_t *handle) {
     if (s->first == NULL) {
       s->last = NULL;
     }
-    if (next->active) {
-      next->active = false;
+    if (atomic_exchange(&next->active, false)) {
       run_callback(next->callback, next->args);
     }
     if (next == last) {
@@ -313,7 +359,7 @@ pts_value pts_immediate_set(pts_value callback, pts_array *args) {
   it->type = &immediate_type;
   it->callback = callback;
   it->args = args != NULL && pts_array_length_of(args) > 0 ? args : NULL;
-  it->active = true;
+  atomic_init(&it->active, true);
   if (state->last != NULL) {
     state->last->next = it;
   } else {
@@ -325,9 +371,10 @@ pts_value pts_immediate_set(pts_value callback, pts_array *args) {
   return pts_value_from_object(it);
 }
 
+/* From any thread: the queue is its loop's, and on_check skips a cleared immediate. */
 void pts_immediate_clear(pts_value value) {
   if (pts_value_is_object(value) && pts_value_as_object(value)->type == &immediate_type) {
-    ((immediate *)pts_value_as_object(value))->active = false;
+    atomic_store(&((immediate *)pts_value_as_object(value))->active, false);
   }
 }
 
