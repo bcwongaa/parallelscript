@@ -955,3 +955,9 @@ Id scheme:
 - **Reason:** Running the same synchronous libuv calls on the threadpool keeps one implementation for both APIs and Node's results; doing the system calls apart from making values keeps the collector out of the pool's threads, which aren't registered with it.
 - **Alternatives rejected:** libuv's asynchronous fs requests chained per step (open, read, close; several callbacks per call, and buffers that must outlive them). Registering the pool's threads with the collector. Exporting the shared helpers from `pts:fs` (they would be importable names Node doesn't have).
 - **Known gaps:** `FileHandle` (`open`), `opendir`, `watch`, `cp`, streams; Node runs more steps per call, so how a call's settling interleaves with other promises' microtasks differs (both settle after the current microtasks; I/O completion order is not deterministic in either).
+
+### D-119 · Functions start on 32-byte boundaries (M4.6)
+- **Date:** 2026-10-12
+- **Decision:** Programs and the runtime compile with `-falign-functions=32` (release profile).
+- **Reason:** At the M4 benchmarks fib_int had become 35% slower than at M3 (132 → 182 ms) with byte-for-byte the same generated C and the same machine code: only the runtime around it had grown, which moved `pts_fn_fib` from a 64-byte boundary to 48 bytes past one. Clang aligns functions to 16 bytes; the CPU's decoded-instruction cache works in 32-byte windows, so a hot function's speed depended on where the linker put it. With 32-byte alignment (Go's linker's) fib_int is 125–135 ms whatever the layout, async_fib 213 → 183 ms, and the other benchmarks are unchanged within noise.
+- **Alternatives rejected:** 64-byte alignment (no faster than 32 here, more padding). Leaving it (benchmarks would move with unrelated runtime changes).

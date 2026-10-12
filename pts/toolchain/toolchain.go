@@ -43,12 +43,14 @@ func (p Profile) String() string {
 
 // flags compile the runtime and programs. -ffp-contract=off keeps clang from fusing
 // a*b+c into one FMA, which JS's step-by-step rounding forbids; -fno-math-errno lets
-// clang inline sqrt and friends, since nothing reads errno after them.
+// clang inline sqrt and friends, since nothing reads errno after them;
+// -falign-functions=32 starts functions on 32-byte boundaries, as Go's linker does, so
+// a hot function's speed doesn't depend on where the linker happens to put it (D-119).
 func (p Profile) flags() []string {
 	if p == Sanitize {
 		return []string{"-O1", "-g", "-ffp-contract=off", "-fno-math-errno", "-fno-omit-frame-pointer", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"}
 	}
-	return []string{"-O2", "-g", "-ffp-contract=off", "-fno-math-errno"}
+	return []string{"-O2", "-g", "-ffp-contract=off", "-fno-math-errno", "-falign-functions=32"}
 }
 
 // Toolchain compiles C against the ParallelScript runtime.

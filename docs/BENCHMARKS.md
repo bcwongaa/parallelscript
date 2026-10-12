@@ -65,3 +65,25 @@ Notes:
 - json: parsed data is dynamic (hash-map objects of `any`, D-080), so reading it goes through `pts_dynamic_get`; stringify reads fields in place. The rest is number formatting (Ryu), allocation and marking by bdwgc, and hashing keys. Go's `encoding/json` reflects over structs and builds maps, hence its time.
 - word_freq: the `Map` hashes each word's bytes; the sort's comparator is a closure called through its function pointer with tuples; Go's map and `sort.Slice` are tighter.
 - Parallelism arrives in M5; every number here is one thread.
+
+## M4
+
+Measured on 2026-10-12 (M4.6), `pts/bench/run.sh` with 2 warm-ups and 10 runs, on a machine that also runs other services. New in M4: async_fib (fib(29) as an async function that awaits both of its subcalls: about 1.7 million async calls and 1.6 million awaits through the microtask queue; Go has no twin) and file_io (2,000 small files written 100 at a time, read back, every tenth stat'ed, the directory listed and removed, three rounds, through `fs/promises`; Go's twin uses a goroutine per file).
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| async_fib | 183 ms | 246 ms | 231 ms | – | 1.34× | – |
+| binary_trees | 1861 ms | 1408 ms | 1455 ms | 3386 ms | 0.76× | 1.82× |
+| fib | 238 ms | 759 ms | 433 ms | 268 ms | 3.19× | 1.13× |
+| fib_int | 135 ms | – | – | 214 ms | – | 1.59× |
+| file_io | 553 ms | 896 ms | 354 ms | 344 ms | 1.62× | 0.62× |
+| json | 1206 ms | 769 ms | 391 ms | 1820 ms | 0.64× | 1.51× |
+| nbody | 826 ms | 1001 ms | 916 ms | 546 ms | 1.21× | 0.66× |
+| string_building | 1045 ms | 1883 ms | 6123 ms | 447 ms | 1.80× | 0.43× |
+| word_freq | 1510 ms | 1488 ms | 1048 ms | 663 ms | 0.99× | 0.44× |
+
+Notes:
+- Programs and the runtime now compile with `-falign-functions=32` (D-119): with the same machine code, fib_int had become 35% slower than at M3 only because the grown runtime moved it off a 32-byte boundary.
+- async_fib: an async call is a generator frame, an await of an already settled promise one reaction and one microtask (D-112); no allocation per await beyond the frame.
+- file_io: each call is a job on libuv's threadpool of 4 (as Node's), its promise settled from the event loop; Bun and Go do these system calls more directly. The machine's ext4 disk, warm page cache.
+- binary_trees, json, word_freq: the collector and dynamic data, as at M3; parallelism arrives in M5, every number here is one thread.

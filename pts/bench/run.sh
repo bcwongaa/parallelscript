@@ -4,7 +4,8 @@
 #
 # Usage: pts/bench/run.sh [name ...]    (default: every benchmark)
 #
-# A benchmark is a directory pts/bench/<name>/ with main.pts and its Go twin main.go.
+# A benchmark is a directory pts/bench/<name>/ with main.pts and its Go twin main.go
+# (left out where Go has nothing to compare, such as async functions).
 # Node and Bun run main.ts if there is one, otherwise main.pts itself when it is plain
 # TypeScript; a main.pts with ParallelScript's integer types and no main.ts runs under
 # ParallelScript and Go only. Every program must print the same output.
@@ -40,7 +41,6 @@ for name in "${names[@]}"; do
   dir=$bench/$name
   echo "== $name" >&2
   "$work/pts" build "$dir/main.pts" -o "$work/$name-pts"
-  (cd "$root" && go build -o "$work/$name-go" "./pts/bench/$name")
   labels=(ParallelScript)
   commands=("$work/$name-pts")
   script=""
@@ -54,8 +54,11 @@ for name in "${names[@]}"; do
     labels+=(Node Bun)
     commands+=("node --no-warnings $script" "bun $script")
   fi
-  labels+=(Go)
-  commands+=("$work/$name-go")
+  if [ -f "$dir/main.go" ]; then
+    (cd "$root" && go build -o "$work/$name-go" "./pts/bench/$name")
+    labels+=(Go)
+    commands+=("$work/$name-go")
+  fi
 
   # Every program must compute the same thing.
   expected=$(${commands[0]})

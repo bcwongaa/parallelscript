@@ -1,0 +1,11 @@
+// Async recursion: every call is an async function that awaits its two subcalls, so the
+// benchmark measures async functions, awaits and the microtask queue (D-112).
+async function fib(n: number): Promise<number> {
+    if (n < 2) {
+        return n;
+    }
+    return (await fib(n - 1)) + (await fib(n - 2));
+}
+
+const result = await fib(29);
+console.log(result);
