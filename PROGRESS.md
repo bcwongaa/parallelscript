@@ -7,7 +7,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
 - **Next task:** M6.1b `RegExp` in the language
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
-- **Main is green:** yes, locally and in CI (`PTS` workflow)
+- **Main is green:** yes, locally and in CI (`PTS` workflow; the nightly stress workflow passed its first run, dispatched with 5 repeats)
 
 ## Done
 
@@ -140,7 +140,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `fe9ca158b` (M5.6b), both jobs (PTS tests; upstream CLI and LSP suites): about 8 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `b43e1d510` (M6.1a), both jobs (PTS tests; upstream CLI and LSP suites): about 8 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the tables for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int). A benchmark with a `threads` file runs under each `PTS_THREADS` it lists and goes in a second table with its speedup (D-131); the four parallel ones take about 8 minutes with `RUNS=5 WARMUP=1`.
