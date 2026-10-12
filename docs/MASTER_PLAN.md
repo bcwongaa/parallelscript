@@ -247,7 +247,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - N event loops (`PTS_THREADS`), one per core, over the shared heap.
   - Cross-loop promises, waking the awaiting loop with `uv_async_send`.
   - Task placement for `parallel <expr>` (least-loaded, or round-robin with stealing of unstarted tasks); tasks never migrate.
-- [ ] **M5.3 The fork-join pool.** A Chase–Lev work-stealing pool, `join(a, b)`, adaptive splitting, and threads that help while they wait. Unit tests under ASan, UBSan and TSan where feasible.
+- [x] **M5.3 The fork-join pool.** (1f12e0583) A Chase–Lev work-stealing pool, `join(a, b)`, adaptive splitting, and threads that help while they wait. Unit tests under ASan, UBSan and TSan where feasible.
 - [ ] **M5.4 `.par` views.**
   - Typed arrays themselves (`Uint8Array`, `Int32Array`, `Float64Array`, …): fixed-length arrays of their element type with JS's modular writes, writes out of range ignored, `subarray` views, their methods, console.log and JSON as Node prints them (moved from M3.7b by D-103).
   - `.par` on arrays, typed arrays and `range`.
