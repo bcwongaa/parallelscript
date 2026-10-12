@@ -1,0 +1,7 @@
+function demo(): void {
+    function read(): void { console.log(value.length); }
+    try { read(); }
+    catch (error: any) { console.log(error.name); }
+    const value = "ready";
+}
+demo();

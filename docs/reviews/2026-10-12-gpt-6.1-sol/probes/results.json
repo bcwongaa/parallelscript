@@ -1,0 +1,248 @@
+[
+  {
+    "name": "01_union_capture",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": -11,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "undefined\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "02_loop_closures",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "0,1,2,3\n0,1,2,3\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "0,1,2,3\n0,1,2,3\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "03_generics_any",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "7\n8 true\ngeneric TypeError Expected Box, got Box\nboundary TypeError\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "7\n8 true\nbox 9\nboundary text\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "04_async_order",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "7\nstart,sync,resume,finally,then,micro,work\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "7\nstart,sync,resume,finally,then,micro,work\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "05_thenable_getters",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "changing 2 2\ncaught getter\nexecutor pending\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "changing 1 1\nreturned\ncaught getter\nexecutor rejected\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "06_yield_order",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "{ value: 0, done: false }\n{ value: 12, done: true }\n{ value: 0, done: false } 0\n{ value: 11, done: true } 1\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "{ value: 0, done: false }\n{ value: 11, done: true }\n{ value: 0, done: false } 1\n{ value: 11, done: true } 1\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "07_integer_edges",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "-9223372036854775808 0 -9223372036854775808\n0 1\n0 127 0 -128\nRangeError\nnumber 0\n",
+      "stderr": ""
+    },
+    "node": null
+  },
+  {
+    "name": "08_unicode",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "6 55357 56832 128512\n\"\ud83d\ude00\" \"\\ud83d\"\nfalse \"A\ud83d\ude00\u00e9\ufffdZ\"\n1,2,1,1,1\n\u03bf\u03c2 STRASSE\n\"\ud83d\ude00\"\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "6 55357 56832 128512\n\"\ud83d\ude00\" \"\\ud83d\"\nfalse \"A\ud83d\ude00\u00e9\ufffdZ\"\n1,2,1,1,1\n\u03bf\u03c2 STRASSE\n\"\ud83d\ude00\"\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "09_par_map",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "true 4000\nError map failure\n6,2,4\nreduce 7998100 7998010\n",
+      "stderr": ""
+    },
+    "node": null
+  },
+  {
+    "name": "10_sync_objects",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "15 15 1 true true\nSend on a closed channel\n",
+      "stderr": ""
+    },
+    "node": null
+  },
+  {
+    "name": "11_foreign_timer",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": -11,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node": null
+  },
+  {
+    "name": "12_captured_tdz",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": -11,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "ReferenceError\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "13_iterator_protocol",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": 0,
+      "stdout": "value\nunneeded value\ncaught close\n",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "done\ncaught body\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "14_tostring_dynamic",
+    "build": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "native": {
+      "exit": -11,
+      "stdout": "",
+      "stderr": ""
+    },
+    "node": {
+      "exit": 0,
+      "stdout": "7,7\n",
+      "stderr": ""
+    }
+  },
+  {
+    "name": "15_accessor_stack",
+    "build": {
+      "exit": 1,
+      "stdout": "",
+      "stderr": "/tmp/pts-review-progs/15_accessor_stack.pts:6:32 - error PTS1002: the operand of `parallel` is a function, so its task would only make the function; give it the call instead (`parallel work()`)\n"
+    },
+    "native": null,
+    "node": null
+  }
+]

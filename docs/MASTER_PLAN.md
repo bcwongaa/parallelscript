@@ -284,12 +284,26 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - New `docs/README.md`: an index of all docs.
 - [x] **M6.2a `pts:http` server on one loop** (a4f1fa7e4) (split from M6.2 by D-136). `serve({ port, hostname, fetch, error })` with the Fetch standard's `Request`, `Response` and `Headers`, in the style of Bun's; HTTP/1.1 with keep-alive, pipelining, chunked request bodies, `Expect: 100-continue`; `Server.stop()`; tests over TCP.
 - [ ] **M6.2b `pts:http` on every loop, and benchmarks** (split from M6.2 by D-136). `reusePort: true` accepts connections on every loop (`SO_REUSEPORT`); hello-world and JSON-echo benchmarks with `oha` against Node, Bun and Go.
-- [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server.
+- [ ] **M6.0a Safety stabilization (from the independent review, owner request 2026-10-12).** Read `docs/reviews/2026-10-12-gpt-6.1-sol/REVIEW.md` first; its probe programs are in `probes/` next to it. Memory safety is never traded away (brief §3, tie-breaker 1), so fix every crash path in accepted programs:
+  - finding 1: timers (and every other loop-owned runtime handle) record their owning loop, and operations from other loops or pool threads are sent to that loop
+  - finding 2: reading a narrowed union out of a captured or aliased mutable variable is checked
+  - finding 3: readiness flags for cells captured before their declaration runs, so the read throws `ReferenceError`; also close the class TDZ and constructor-field NULL cases in Known issues
+  - finding 4: `toString`/`valueOf` called through descriptors are checked (OrdinaryToPrimitive); no signature-blind function casts anywhere in the runtime (grep for them)
+  - finding 10: write a C-level shared-memory contract in `docs/ARCHITECTURE.md`, and make typed-array element reads and writes word-atomic (relaxed atomics) so values can't tear. Serialize concurrent requests to one async generator. Fix the remote rejection / handler-attachment race listed in Known issues.
+  - Each repro becomes a regression test. The gate is zero known crash paths in accepted programs.
+- [ ] **M6.0b Compatibility stabilization (from the review).**
+  - Findings 5–8: thenable resolution (`then` getter read once, failures reject, the captured callable invoked once); values read before an `await`/`yield` are snapshotted; iterator `done`/`value` read order and IteratorClose's original-error precedence (sync and async); erased generic factories that construct generic class instances (dispatch to specialized instances). Type arguments appear in conversion error messages.
+  - Make the IR effect classification exhaustive: an unknown node must not default to "constant" (`pts/cgen/order.go`).
+  - Classify every corpus skip as one of: by design, unsupported, bug. Fix the bugs where it's cheap, and record the rest in `PROGRESS.md`.
+  - Separate the corpus report into: Node-identical, intentional difference, unsupported, failing.
+- [ ] **M6.0c Review decisions (orchestrator rulings, see `docs/agent/OWNER_ANSWERS.md`).** Apply the rulings recorded there for the review's "needs owner" items, and log each one in `docs/DECISIONS.md` (as D-numbers citing OWNER_ANSWERS).
+- [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server. Acceptance also covers (review): cross-loop handle use, disconnects and cancellation, backpressure, resource cleanup, pending requests and rejected promises, for the server too.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:
   - a parallel file hasher
   - a JSON API server that uses every core
   - a mandelbrot renderer that writes a PNG (with a zlib-free stored-deflate PNG writer in `.pts`)
   - a parallel log analyzer
+- [ ] **M6.5a Benchmark audit (review).** Add spectral-norm (brief §5). Make the Node/Go twins do equal work (the sum_reduce twin fuses its scans). Keep hyperfine's JSON and the spread, and label warm-cache and startup-inclusive results as such.
 - [ ] **M6.5 README.** A README that sells the language: the pitch, install and build steps, these examples, benchmark tables, and the documented differences from TypeScript.
 - [ ] **M6.6 Milestone M6.**
 
