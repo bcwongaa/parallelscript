@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.3 `fetch` (M6.0a–c, the owner's review's stabilization, are done: `docs/reviews/2026-10-12-gpt-6.1-sol/REVIEW.md`, `docs/agent/OWNER_ANSWERS.md`)
+- **Next task:** M6.3a The `fetch` client (M6.3 split by D-159; M6.0a–c, the owner's review's stabilization, are done: `docs/reviews/2026-10-12-gpt-6.1-sol/REVIEW.md`, `docs/agent/OWNER_ANSWERS.md`)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally (CI: see the CI row below)
 
@@ -200,7 +200,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
-- 2026-10-13: M6.0c2 done (D-157); D-148 … D-157 added to DECISIONS' topic index; M6.0c3 done (D-158; M6.0c complete).
+- 2026-10-13: M6.0c2 done (D-157); D-148 … D-157 added to DECISIONS' topic index; M6.0c3 done (D-158; M6.0c complete); M6.3 split by D-159.
 - 2026-10-12: M6.0b4b done (D-148); M6.0b5 done (D-149; M6.0b complete); M6.0c split by D-150; M6.0c1 done (D-150 … D-156). CI green on `387cb358d` at the end of the session; stopped before M6.0c2 with about half the context used (design notes under Next).
 - 2026-10-12: M6.0a4 done (D-143; M6.0a complete); M6.0b split by D-144; M6.0b1 done; M6.0b2 done (D-145); M6.0b3 done (D-146); M6.0b4 split by D-147; M6.0b4a done. CI green on `cea6b00b7` at the end of the session.
 - 2026-10-12: the owner's review (`ea9371de8`) added M6.0a–c and M6.5a; M6.0a split by D-138; M6.0a1 done (D-139); M6.0a2a done (M6.0a2 split by D-140); M6.0a2b done (D-141); M6.0a3 done (D-142); the orchestrator's rulings on the review landed as `docs/agent/OWNER_ANSWERS.md` (`fcb4667b3`). CI green on `c1ec619fc` at the end of the session.
