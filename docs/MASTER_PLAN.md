@@ -329,7 +329,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
     - `pts --help`; the docs refresh's papercuts (`seven / 2.0` with `seven: int` divides as integers; the type `Function` gets `new Function`'s message; `u8[]`'s `reduce` wrapping, already in the guide).
   - [x] **M7.3b `pts test`.** (12cb794df) A test runner: `pts:test` and `pts:assert` (Node's `node:test` and `node:assert/strict`, the common parts), `pts test [paths]` finding `*.test.pts` files.
   - [x] **M7.3c Programs from scratch and the tutorial.** (c5f088bf7) Error-message quality: write two new small programs from scratch and fix the top papercuts they find; a `docs/GUIDE.md` tutorial covering TS developers' most common questions.
-- [ ] **M7.4 Milestone M7 and "usable".**
+- [x] **M7.4 Milestone M7 and "usable".**
   - Run the checklist.
   - Write `docs/agent/DONE`.
   - Send the final Telegram report: summary, how to try it, benchmark highlights, known gaps, and a suggested M8 plan.

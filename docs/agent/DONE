@@ -1,0 +1,44 @@
+ParallelScript: the plan's milestones M0 to M7 are done (tags m0 … m7), 2026-10-13.
+
+What it is: TypeScript compiled ahead of time to native x86-64 Linux executables through a
+fork of typescript-go 7.0.2 (tsc's parser and checker), a typed IR and readable C with
+#line directives, with a garbage collector (bdwgc), an event loop per core (libuv), a
+work-stealing fork-join pool, and one guardrail. Plain TypeScript prints what Node prints
+(267 of 300 realistic corpus programs exactly; each other one says why).
+
+What works:
+- The language: classes, interfaces, generics, unions and narrowing, closures, iterators,
+  generators, async/await and promises in V8's order, exceptions with .pts stack traces,
+  `any` as a checked dynamic value, JSON, RegExp (PCRE2), Date, typed arrays, console.log
+  as util.inspect prints, integer types (int, u8, …) with Rust's conversion rules.
+- Parallelism: `parallel f()` tasks on other loops, `.par` views (map, filter, reduce, sort,
+  …), `parallel for`, pts:sync (AtomicInt, Mutex, Channel, Once), the race-safety
+  invariant (no crash or memory corruption under data races), the PTS3001 guardrail.
+- Libraries: pts:fs (sync and promises), pts:path, pts:process, pts:http (a server on every
+  core), fetch with AbortController, pts:test and pts:assert as Node's node:test and
+  node:assert/strict.
+- Tools: pts build/run/emit-c/test/lsp/help/version; a VS Code extension
+  (pts/editors/vscode: highlighting with `parallel`, the language server, library files);
+  hints on tsc's errors that ParallelScript's features cause.
+
+How to try it: README.md's Quick start (`make build`, `pts-bin/pts run file.pts`), then
+docs/GUIDE.md (a tutorial, common questions, the full tour). `make test` runs every test;
+`make vscode` builds the extension.
+
+Numbers (docs/BENCHMARKS.md, M6 run): starts in 1.2 ms (Node 73 ms); fib 2.5× Node and
+level with Go; string building 1.6× Node; mandelbrot 6.1× on 8 threads; one pts:http loop
+serves 1.7–2.6× Node's requests and four loops beat Go's net/http. Losses: allocation-heavy
+code (binary_trees 0.85×, json 0.67× Node), spectral_norm 0.70× Node, and allocation-heavy
+parallel code stops gaining past four threads and can be slower on eight than on one.
+
+Known gaps (PROGRESS.md, Known issues; README, Known gaps): no npm packages, no https in
+fetch, no bigint/decorators/WeakMap/Proxy/eval (each a compile error naming it), x86-64
+Linux only, 33 corpus programs that differ from Node (each classified), the language
+server doesn't show lowering-only errors, the collector's contention under many threads.
+
+Suggested M8: a collector with per-thread heaps (or larger thread-local blocks) to fix
+parallel allocation scaling; escape analysis; integer inference for number locals; inline
+array write paths and integer-index slots; PCRE2's JIT; inline caches for `any`; the
+generator and async state machines as an IR pass (D-153); keeping stack frames
+(-fno-optimize-sibling-calls) once measured. Decisions for the owner to review are in
+docs/agent/REVIEW_LATER.md.

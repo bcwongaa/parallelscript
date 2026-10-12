@@ -245,3 +245,16 @@ Notes:
 - Parallel: mandelbrot scales 6.09× on 8 threads (4.65× in M5's run, 5.78× in M5.7b's) and fan_out 3.49×. sum_reduce (2.11×) is bound by memory bandwidth. word_count is again slower on 8 threads than on 4 (1018 ± 388 ms against 587 ms): every thread allocates a string per word, and bdwgc refills free lists under one lock (D-131).
 - HTTP: one loop's hello world rose from 56,818 (M6.2b) to 61,572 requests a second and four loops' from 84,739 to 109,696; the JSON server is within the noise of M6.2b's.
 
+
+## M7
+
+n/a: M7 (editor support, `pts test`, papercuts) changed no performance work, so the M6 tables stand. A spot check after M7.3c's lowering changes, on 2026-10-13 with `RUNS=6 pts/bench/run.sh fib binary_trees json string_building` (2 warm-ups per round, 6 runs in 2 interleaved rounds, mean ± standard deviation), matches M6's run within noise; binary_trees' ratio moved because Node ran faster this time. The C that M7.3c's compiler emits for binary_trees, json, fib, string_building, nbody and word_freq is byte for byte what M7.3b's emitted:
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| fib | 247 ± 10 ms | 653 ± 14 ms | 405 ± 33 ms | 259 ± 8 ms | 2.64× | 1.05× |
+| binary_trees | 1728 ± 27 ms | 1354 ± 10 ms | 1423 ± 7 ms | 2974 ± 44 ms | 0.78× | 1.72× |
+| json | 1072 ± 10 ms | 712 ± 26 ms | 366 ± 4 ms | 1772 ± 19 ms | 0.66× | 1.65× |
+| string_building | 1039 ± 21 ms | 1733 ± 28 ms | 4265 ± 275 ms | 600 ± 24 ms | 1.67× | 0.58× |
+
+M7.3c measured one more result, for the guide (D-172): `.par.map((s) => s.split(" ").length)` over 300,000 short strings takes 93 ms on 1 thread, 61 ms on 2, 85 ms on 4 and 496 ms on 8 (a plain `map`: 100 ms). Code that does little but allocate is slower on all eight threads than sequentially; see the guide's Performance section.
