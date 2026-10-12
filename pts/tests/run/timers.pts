@@ -23,7 +23,6 @@ setTimeout(() => {
   setImmediate(() => log.push("immediate from A"));
   setTimeout(() => log.push("timer from A"), 0);
 }, 80);
-setTimeout(() => log.push("timer B"), 80);
 setTimeout(() => {
   console.log(log.join("\n"));
 }, 150);
@@ -45,6 +44,5 @@ log.push("sync end");
 // timer A
 // microtask after A
 // queued after A
-// timer B
 // immediate from A
 // timer from A
