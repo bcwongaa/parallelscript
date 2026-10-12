@@ -40,7 +40,7 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/parser/parser.go` | Hooks into `internal/parser/pts.go` (new file): `parseStatement` tries `parallel for (…)` first; `parseUnaryExpressionOrHigher` and `parseSimpleUnaryExpression` try `parallel e` before an update expression (D-O05, D-120). | M5.1 | 1ba3a57e7 |
 | `internal/parser/pts.go`, `internal/parser/pts_test.go` (new files) | The contextual keyword: `parallel e` parses as a call of `parallel` marked `NodeFlagsPtsParallel` (operand: a unary expression, or an arrow function), `parallel for` as the for statement marked the same way; every other `parallel` is an identifier. Tests of both forms and of `parallel` as a name. | M5.1 | 1ba3a57e7 |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary (`/cmd/pts/pts`, and `/pts-bin/` where `make build` puts it); re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
-| `README.md` | Replaced by ParallelScript's README; upstream's is kept as `docs/UPSTREAM_README.md`. On an upstream merge, take upstream's changes into `docs/UPSTREAM_README.md`. | M6.1d | (this commit) |
+| `README.md` | Replaced by ParallelScript's README; upstream's is kept as `docs/UPSTREAM_README.md`. On an upstream merge, take upstream's changes into `docs/UPSTREAM_README.md`. | M6.1d | f95508bd7 |
 
 ## Disabled or limited upstream workflows
 
