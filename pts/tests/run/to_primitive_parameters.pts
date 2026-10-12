@@ -1,0 +1,16 @@
+// A toString whose parameter can't take undefined (D-142): JS's conversions call it with
+// no arguments, so the call throws TypeError, as a call through `any` does (D-074).
+// no-diff: Node passes undefined and prints xx
+class Required {
+  toString(times: number): string {
+    return "x".repeat(times || 2);
+  }
+}
+try {
+  console.log(String(new Required()));
+} catch (error) {
+  console.log((error as Error).name, (error as Error).message);
+}
+
+// expect:
+// TypeError Expected number, got undefined

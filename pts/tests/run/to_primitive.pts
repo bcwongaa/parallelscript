@@ -1,0 +1,64 @@
+// The program's toString and valueOf methods as JS's conversions call them (D-142):
+// OrdinaryToPrimitive through their dynamic entries, whatever they return. The first
+// lines are the review's probe 14 (finding 4), which crashed.
+class NumberString {
+  toString(): any {
+    return 7;
+  }
+}
+const dynamic: any = new NumberString();
+console.log(String(dynamic.toString()));
+console.log([new NumberString(), new NumberString()].join(","));
+console.log(`${new NumberString()}`, String(new NumberString()), "" + new NumberString());
+
+class Prefixed {
+  toString(prefix?: string): string {
+    return (prefix ?? "none") + "!";
+  }
+}
+console.log(String(new Prefixed()), [new Prefixed()].join());
+
+class ObjectValue {
+  valueOf(): object {
+    return {};
+  }
+  toString(): string {
+    return "str";
+  }
+}
+console.log(+new ObjectValue(), `${new ObjectValue()}`, new ObjectValue() + "");
+
+class Counted {
+  valueOf(): number {
+    return 41;
+  }
+}
+const counted: any = new Counted();
+console.log(counted + 1, `${new Counted()}`, String(new Counted()), [new Counted()].join());
+
+class Bad {
+  toString(): any {
+    return {};
+  }
+  valueOf(): any {
+    return {};
+  }
+}
+for (const convert of [(x: any) => String(x), (x: any) => +x, (x: any) => `${x}`]) {
+  try {
+    console.log(convert(new Bad()));
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+}
+
+// expect:
+// 7
+// 7,7
+// 7 7 7
+// none! none!
+// NaN str str
+// 42 [object Object] [object Object] [object Object]
+// TypeError Cannot convert object to primitive value
+// TypeError Cannot convert object to primitive value
+// TypeError Cannot convert object to primitive value

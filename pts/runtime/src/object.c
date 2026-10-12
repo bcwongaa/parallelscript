@@ -225,7 +225,7 @@ pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const 
       wrong_kind(type, name, check, accessor->result, accessor->check);
     }
     cache_accessor(site, type, getter);
-    return ((pts_value(*)(pts_object *))accessor->function)((pts_object *)object);
+    return pts_call_getter(accessor->function, accessor->result, (pts_object *)object);
   }
   /* An object type that leaves the property out implies it (D-072), so a field here may be of any declared type. */
   if (check != NULL && !pts_check_implies(pts_check_declared(field->kind, field->check), check)) {
@@ -251,7 +251,7 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
       } else {
         value = pts_storable(accessor->result, accessor->check, value, name, type);
       }
-      ((void (*)(pts_object *, pts_value))accessor->function)(object, value);
+      pts_call_setter(accessor->function, accessor->result, object, value);
       return;
     }
     if (method_index(type, name, PTS_GETTER) >= 0) {

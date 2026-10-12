@@ -583,11 +583,8 @@ pts_string *pts_object_to_string(const pts_object *object) {
     }
     return joined;
   }
-  for (uint32_t i = 0; i < object->type->method_count; i++) {
-    const pts_method *method = &object->type->methods[i];
-    if (method->kind == PTS_METHOD && strcmp(method->name, "toString") == 0) {
-      return ((pts_string * (*)(pts_object *)) method->function)((pts_object *)object);
-    }
+  if (object->type->kind == PTS_KIND_OBJECT) {
+    return pts_program_object_to_string(object);
   }
   return pts_string_from_cstr("[object Object]");
 }

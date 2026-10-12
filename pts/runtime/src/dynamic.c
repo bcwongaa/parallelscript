@@ -11,20 +11,55 @@
 /* ---------------------------------------------------------------- conversions */
 
 static int64_t method_named(const pts_type *type, const char *name, pts_method_kind kind);
-static pts_value call_getter(pts_function getter, pts_field_kind kind, pts_object *object);
 
 /*
- * The program's valueOf() of an object, if its class has one that returns a primitive
- * (its method table gives the result's kind, D-088): sets *result and returns true.
+ * Calls the program's toString or valueOf method of an object as OrdinaryToPrimitive does,
+ * with no arguments (D-142): through its dynamic entry, which a program with such a method
+ * has, so that the parameters it declares get undefined (or a TypeError if they can't take
+ * it) and its result comes back as a dynamic value whatever its type. False if the
+ * object's class has no such method.
  */
-static bool call_value_of(const pts_object *object, pts_value *result) {
-  int64_t index = object->type->kind == PTS_KIND_OBJECT ? method_named(object->type, "valueOf", PTS_METHOD) : -1;
-  if (index < 0 || object->type->methods[index].result == 0) {
+static bool call_conversion_method(const pts_object *object, const char *name, pts_value *result) {
+  int64_t index = object->type->kind == PTS_KIND_OBJECT ? method_named(object->type, name, PTS_METHOD) : -1;
+  if (index < 0 || object->type->methods[index].dynamic == NULL) {
     return false;
   }
-  const pts_method *method = &object->type->methods[index];
-  *result = call_getter(method->function, method->result, (pts_object *)object);
+  *result = (pts_value)object->type->methods[index].dynamic((pts_object *)object, 0, NULL);
   return true;
+}
+
+static bool is_primitive(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return true;
+  }
+  pts_kind kind = pts_value_as_object(value)->type->kind;
+  return kind == PTS_KIND_STRING || kind == PTS_KIND_INT64 || kind == PTS_KIND_UINT64;
+}
+
+/*
+ * OrdinaryToPrimitive of one of the program's objects (D-142): its toString then valueOf
+ * for the string hint, valueOf then toString otherwise, the first whose result is a
+ * primitive. Object.prototype's own toString gives "[object Object]" where the class has
+ * none, and its valueOf the object, which isn't one; if neither gives a primitive, Node's
+ * TypeError.
+ */
+static pts_value ordinary_to_primitive(const pts_object *object, bool string_hint) {
+  const char *order[] = {string_hint ? "toString" : "valueOf", string_hint ? "valueOf" : "toString"};
+  for (size_t i = 0; i < 2; i++) {
+    pts_value result;
+    if (call_conversion_method(object, order[i], &result)) {
+      if (is_primitive(result)) {
+        return result;
+      }
+    } else if (strcmp(order[i], "toString") == 0) {
+      return pts_value_from_string(pts_string_from_cstr("[object Object]"));
+    }
+  }
+  pts_throw_new(&pts_type_builtin_TypeError, "Cannot convert object to primitive value");
+}
+
+pts_string *pts_program_object_to_string(const pts_object *object) {
+  return pts_value_to_string(ordinary_to_primitive(object, true));
 }
 
 /*
@@ -46,13 +81,10 @@ pts_value pts_value_to_primitive(pts_value value, bool number_hint) {
       return pts_value_from_number(((const pts_date *)object)->time);
     }
     return pts_value_from_string(pts_value_to_string(value));
-  default: {
-    pts_value primitive;
-    if (call_value_of(object, &primitive)) {
-      return primitive;
-    }
+  case PTS_KIND_OBJECT:
+    return ordinary_to_primitive(object, false);
+  default:
     return pts_value_from_string(pts_value_to_string(value));
-  }
   }
 }
 
@@ -188,8 +220,7 @@ static const pts_field *field_named(const pts_type *type, const char *name) {
   return NULL;
 }
 
-/* A getter's result (or a setter's argument) of the given kind, as a dynamic value. */
-static pts_value call_getter(pts_function getter, pts_field_kind kind, pts_object *object) {
+pts_value pts_call_getter(pts_function getter, pts_field_kind kind, pts_object *object) {
 #define CALL(T) ((T(*)(pts_object *))getter)(object)
   switch (kind) {
   case PTS_FIELD_NUMBER: return pts_value_from_number(CALL(double));
@@ -278,7 +309,7 @@ static pts_value object_get(pts_object *object, pts_value key) {
   }
   int64_t getter = method_named(type, name, PTS_GETTER);
   if (getter >= 0) {
-    return call_getter(type->methods[getter].function, type->methods[getter].result, object);
+    return pts_call_getter(type->methods[getter].function, type->methods[getter].result, object);
   }
   int64_t method = method_named(type, name, PTS_METHOD);
   if (method >= 0) {

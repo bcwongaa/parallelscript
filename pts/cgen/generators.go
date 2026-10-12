@@ -2,6 +2,7 @@ package cgen
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -291,17 +292,27 @@ func (e *emitter) frameLocal(local *ir.Local) bool {
 // function field named next, [Symbol.iterator] or then, which the runtime calls through
 // its dynamic entry.
 func implementsIteration(program *ir.Program) bool {
-	protocol := func(name string) bool {
-		return name == "next" || name == "@@iterator" || name == "then" || name == "@@asyncIterator"
-	}
+	return hasMethodNamed(program, "next", "@@iterator", "then", "@@asyncIterator")
+}
+
+// definesConversions reports whether a class or shape of the program has a toString or
+// valueOf method, which the runtime calls through its dynamic entry as OrdinaryToPrimitive
+// does (D-142), whatever parameters and result it declares.
+func definesConversions(program *ir.Program) bool {
+	return hasMethodNamed(program, "toString", "valueOf")
+}
+
+// hasMethodNamed reports whether a class or shape of the program has a method, or a
+// function field, of one of the names.
+func hasMethodNamed(program *ir.Program, names ...string) bool {
 	for _, class := range program.Classes {
 		for _, method := range class.Methods {
-			if method.Kind == ir.Plain && protocol(method.Name) {
+			if method.Kind == ir.Plain && slices.Contains(names, method.Name) {
 				return true
 			}
 		}
 		for _, field := range class.Fields {
-			if _, ok := field.Type.(*ir.FuncType); ok && protocol(field.Name) {
+			if _, ok := field.Type.(*ir.FuncType); ok && slices.Contains(names, field.Name) {
 				return true
 			}
 		}

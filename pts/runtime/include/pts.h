@@ -1015,6 +1015,8 @@ bool pts_check_implies(const pts_check *sub, const pts_check *super);
 pts_value pts_storable(pts_field_kind kind, const pts_check *check, pts_value value, const char *name, const pts_type *type);
 /* Calls a setter whose argument is of the given kind with value, which is of its type. */
 void pts_call_setter(pts_function setter, pts_field_kind kind, pts_object *object, pts_value value);
+/* Calls a getter whose result is of the given kind, as its C function returns it, and gives the result as a dynamic value. */
+pts_value pts_call_getter(pts_function getter, pts_field_kind kind, pts_object *object);
 
 /* A value from `any` that isn't of the type expected where it goes. */
 _Noreturn void pts_throw_type_mismatch(pts_value value, const char *expected);
@@ -1024,8 +1026,10 @@ static inline bool pts_value_is_string(pts_value value) {
 }
 /* JS's ==: === for values of one type, null equal to undefined, and numbers compared with strings, booleans and objects converted to them (D-067). */
 bool pts_value_loose_equals(pts_value a, pts_value b);
-/* JS's ToString of an object: an array's join, its class's toString() if it has one interfaces can call, else "[object Object]". */
+/* JS's ToString of an object: an array's join, a date's or regex's text, an instance's or shape's OrdinaryToPrimitive (D-142), else "[object Object]". */
 pts_string *pts_object_to_string(const pts_object *object);
+/* String(object) of an instance or a shape's object: OrdinaryToPrimitive with the string hint over its toString and valueOf methods (D-142). */
+pts_string *pts_program_object_to_string(const pts_object *object);
 
 /*
  * Optional properties through interfaces (D-065, D-066). An object that an interface
