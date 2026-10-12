@@ -256,7 +256,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M5.4b `flatMap`, `sort` and `sortBy`** (473aee33d) (split from M5.4 by D-123). `.par.flatMap`, and `sort`/`sortBy` as a parallel merge sort, on arrays and ranges.
 - [x] **M5.4c1 Typed arrays** (e77a5ab14) (split from M5.4 by D-123, from M5.4c by D-125). Typed arrays themselves (`Uint8Array`, `Int32Array`, `Float64Array`, …) and `ArrayBuffer`: fixed-length arrays of their element type with JS's modular writes, writes out of range ignored, `subarray` views, their methods, console.log and JSON as Node prints them (moved from M3.7b by D-103).
 - [x] **M5.4c2 `.par` on typed arrays** (95db01aa1) (split from M5.4c by D-125). `ta.par` with ParallelArray's methods; `map`/`filter` keep the typed array's kind; numeric `sort` (D-126).
-- [ ] **M5.5 `parallel for` and the guardrail.**
+- [x] **M5.5 `parallel for` and the guardrail.** (2f89f0406)
   - Lower `parallel for` to a parallel `forEach`. `continue` is allowed; `break`, `return`, `yield`, `await` and labelled jumps are compile errors.
   - If an iteration throws, cancel the rest and rethrow the first error after joining.
   - The single guardrail: assigning a captured outer `let` inside a parallel body is a compile error, with a suggestion. **No other parallelism checks.**
