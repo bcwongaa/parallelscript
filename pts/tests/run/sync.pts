@@ -1,0 +1,74 @@
+// pts:sync (D-128): AtomicInt and Atomic<int>, Mutex (withLock blocking its thread,
+// lock() awaited on any loop), and Once, used from parallel bodies and tasks.
+// threads: 1 2 4
+import { Atomic, AtomicInt, Mutex, Once } from "pts:sync";
+import { range } from "pts:parallel";
+
+const counter = new AtomicInt();
+parallel for (const i of range(0, 100_000)) {
+  counter.add(i % 2 === 0 ? 2 : -1);
+}
+console.log(counter.load());
+const a = new Atomic<int>(5);
+console.log(a.add(2), a.load(), a.compareExchange(7, 10), a.load(), a.compareExchange(1, 2), a.load());
+a.store(9_223_372_036_854_775_807);
+console.log(a.add(1), a.load());
+
+// withLock: the pool's threads push into one array.
+const list = new Mutex<number[]>([]);
+range(0, 1000).par.forEach((i) => {
+  list.withLock((items) => items.push(i));
+});
+console.log(list.withLock((items) => items.length), list.withLock((items) => items.reduce((s, x) => s + x, 0)));
+
+// lock(): tasks on other loops and this loop's async functions take turns, across awaits.
+const total = new Mutex({ sum: 0, turns: 0 });
+async function add(n: number): Promise<void> {
+  const guard = await total.lock();
+  const before = guard.value.sum;
+  await Promise.resolve();
+  guard.value.sum = before + n;
+  guard.value.turns++;
+  guard.unlock();
+}
+await Promise.all(range(1, 101).toArray().map((n) => parallel add(n)));
+await Promise.all([1000, 2000].map(add));
+console.log(total.withLock((t) => `${t.sum} in ${t.turns} turns`));
+const guard = await total.lock();
+guard.unlock();
+try {
+  console.log(guard.value);
+} catch (e: any) {
+  console.log(e.message);
+}
+
+// Once: one run however many threads ask.
+const once = new Once();
+const runs = new AtomicInt();
+range(0, 100).par.forEach(() => {
+  once.run(() => {
+    runs.add(1);
+  });
+});
+console.log(runs.load(), once.done);
+const failing = new Once();
+try {
+  failing.run(() => {
+    throw new Error("not yet");
+  });
+} catch (e: any) {
+  console.log(e.message, failing.done);
+}
+failing.run(() => runs.add(10));
+console.log(runs.load(), failing.done);
+
+// expect:
+// 50000
+// 5 7 7 10 10 10
+// 9223372036854775807 -9223372036854775808
+// 1000 499500
+// 8050 in 102 turns
+// The mutex guard was used after unlock()
+// 1 true
+// not yet false
+// 11 true

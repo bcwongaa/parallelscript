@@ -1,0 +1,152 @@
+// pts:sync: synchronization for code that runs on several threads at once (D-L18, D-128):
+// atomic integers, a mutex whose lock can be awaited, and a once-only initializer. Each
+// keeps its lock word or cell in a small ArrayBuffer, which the runtime's intrinsics read
+// atomically; the waiting of `lock()` is a promise, settled on the loop that made it.
+
+declare function pts_atomic_load(cell: ArrayBuffer): int;
+declare function pts_atomic_store(cell: ArrayBuffer, value: int): void;
+declare function pts_atomic_add(cell: ArrayBuffer, delta: int): int;
+declare function pts_atomic_compare_exchange(cell: ArrayBuffer, expected: int, desired: int): int;
+declare function pts_sync_lock(lock: ArrayBuffer): void;
+declare function pts_sync_try_lock(lock: ArrayBuffer): boolean;
+declare function pts_sync_unlock(lock: ArrayBuffer): void;
+
+// An int (i64) that threads read and change atomically, in sequential consistency.
+export class AtomicInt {
+    readonly #cell = new ArrayBuffer(8);
+
+    constructor(value: int = 0) {
+        pts_atomic_store(this.#cell, value);
+    }
+
+    load(): int {
+        return pts_atomic_load(this.#cell);
+    }
+
+    store(value: int): void {
+        pts_atomic_store(this.#cell, value);
+    }
+
+    // Adds delta (wrapping, as int arithmetic does) and returns the value before, as Atomics.add does.
+    add(delta: int): int {
+        return pts_atomic_add(this.#cell, delta);
+    }
+
+    // Stores desired if the value is expected, and returns the value before, as Atomics.compareExchange does.
+    compareExchange(expected: int, desired: int): int {
+        return pts_atomic_compare_exchange(this.#cell, expected, desired);
+    }
+}
+
+// Atomic<int> is AtomicInt; int is the family's one member for now.
+export class Atomic<T extends int = int> extends AtomicInt {}
+
+// What `Mutex.lock()` gives: the protected value while it holds the lock.
+export interface MutexGuard<T> {
+    value: T;
+    // Releases the lock; the guard can't be used after.
+    unlock(): void;
+}
+
+// A value that one thread at a time may use: withLock blocks the thread until it gets
+// the lock (for short critical sections), lock() waits without blocking the loop.
+export class Mutex<T> {
+    readonly #lock = new ArrayBuffer(4);
+    readonly #waitersLock = new ArrayBuffer(4); // guards #waiters
+    readonly #waiters: ((guard: MutexGuard<T>) => void)[] = [];
+    #value: T;
+
+    constructor(value: T) {
+        this.#value = value;
+    }
+
+    // Runs fn with the value while holding the lock, which it waits for by blocking the thread.
+    withLock<R>(fn: (value: T) => R): R {
+        pts_sync_lock(this.#lock);
+        try {
+            return fn(this.#value);
+        } finally {
+            this.#release();
+        }
+    }
+
+    // A guard of the value once the lock is this caller's; the loop goes on meanwhile.
+    lock(): Promise<MutexGuard<T>> {
+        if (pts_sync_try_lock(this.#lock)) {
+            return Promise.resolve(this.#guard());
+        }
+        pts_sync_lock(this.#waitersLock);
+        if (pts_sync_try_lock(this.#lock)) { // released while the waiters' lock was taken
+            pts_sync_unlock(this.#waitersLock);
+            return Promise.resolve(this.#guard());
+        }
+        const waiting = Promise.withResolvers<MutexGuard<T>>();
+        this.#waiters.push(waiting.resolve);
+        pts_sync_unlock(this.#waitersLock);
+        return waiting.promise;
+    }
+
+    // Releases the lock: it passes, still held, to the first caller of lock() waiting, if any.
+    #release(): void {
+        pts_sync_lock(this.#waitersLock);
+        const next = this.#waiters.shift();
+        if (next === undefined) {
+            pts_sync_unlock(this.#lock);
+            pts_sync_unlock(this.#waitersLock);
+            return;
+        }
+        pts_sync_unlock(this.#waitersLock);
+        next(this.#guard());
+    }
+
+    #guard(): MutexGuard<T> {
+        const mutex = this;
+        const state = { held: true };
+        const check = (): void => {
+            if (!state.held) {
+                throw new Error("The mutex guard was used after unlock()");
+            }
+        };
+        return {
+            get value(): T {
+                check();
+                return mutex.#value;
+            },
+            set value(value: T) {
+                check();
+                mutex.#value = value;
+            },
+            unlock(): void {
+                check();
+                state.held = false;
+                mutex.#release();
+            },
+        };
+    }
+}
+
+// Runs a function once: the first run() runs it, a run() meanwhile waits for it to finish
+// (blocking its thread), and later ones return at once. If it throws, it hasn't run.
+export class Once {
+    readonly #ran = new AtomicInt(0);
+    readonly #lock = new ArrayBuffer(4);
+
+    run(fn: () => void): void {
+        if (this.#ran.load() === 1) {
+            return;
+        }
+        pts_sync_lock(this.#lock);
+        try {
+            if (this.#ran.load() === 0) {
+                fn();
+                this.#ran.store(1);
+            }
+        } finally {
+            pts_sync_unlock(this.#lock);
+        }
+    }
+
+    get done(): boolean {
+        return this.#ran.load() === 1;
+    }
+}

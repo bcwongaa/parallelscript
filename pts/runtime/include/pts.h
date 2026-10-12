@@ -1659,6 +1659,19 @@ pts_array *pts_typed_array_to_array(const pts_typed_array *array);
 PTS_TYPED_ARRAYS(PTS_TYPED_ARRAY_ACCESS)
 #undef PTS_TYPED_ARRAY_ACCESS
 
+/* ---------------------------------------------------------------- pts:sync (D-128) */
+
+/* 64-bit atomic cells in the first 8 bytes of a buffer; add and compare_exchange return the value before, as JS's Atomics do. */
+int64_t pts_atomic_load(pts_arraybuffer *cell);
+void pts_atomic_store(pts_arraybuffer *cell, int64_t value);
+int64_t pts_atomic_add(pts_arraybuffer *cell, int64_t delta);
+int64_t pts_atomic_compare_exchange(pts_arraybuffer *cell, int64_t expected, int64_t desired);
+
+/* A lock in the first 4 bytes of a buffer (zero: free). Any thread may release it. */
+void pts_sync_lock(pts_arraybuffer *lock);
+bool pts_sync_try_lock(pts_arraybuffer *lock);
+void pts_sync_unlock(pts_arraybuffer *lock);
+
 /* ---------------------------------------------------------------- console */
 
 /* console.log(args...): the arguments as Node's util.format formats them, on stdout (D-088). */

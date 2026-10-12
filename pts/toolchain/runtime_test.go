@@ -95,11 +95,11 @@ func TestRuntimeUnitTestsPassUnderSanitizers(t *testing.T) {
 	}
 }
 
-// TestThreadedRuntimeTestsPassUnderThreadSanitizer runs the tests of the pool and the
-// loops under ThreadSanitizer, with the collector off (see toolchain.ThreadSanitize).
+// TestThreadedRuntimeTestsPassUnderThreadSanitizer runs the tests of the pool, the loops
+// and pts:sync's locks under ThreadSanitizer, with the collector off (see toolchain.ThreadSanitize).
 func TestThreadedRuntimeTestsPassUnderThreadSanitizer(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"pool_test.c", "scheduler_test.c"} {
+	for _, name := range []string{"pool_test.c", "scheduler_test.c", "sync_test.c"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			exe := buildC(t, toolchain.ThreadSanitize, runtimeTestSource(t, name))
