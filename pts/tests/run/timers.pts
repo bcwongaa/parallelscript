@@ -1,10 +1,12 @@
 // Timers (D-114): order by delay, then creation; microtasks after each callback;
 // intervals, clearing, arguments, nesting, immediates after timers within a callback.
+// Timers of different lists are never due at the same time: Node orders those by
+// sub-millisecond differences in when they were made.
 const log: string[] = [];
-setTimeout(() => log.push("30"), 30);
+setTimeout(() => log.push("60"), 60);
 setTimeout(() => log.push("10"), 10);
 setTimeout(() => log.push("10 again"), 10);
-setTimeout((a: number, b: string) => log.push(`args ${a} ${b}`), 20, 7, "x");
+setTimeout((a: number, b: string) => log.push(`args ${a} ${b}`), 40, 7, "x");
 const cancelled = setTimeout(() => log.push("never"), 15);
 clearTimeout(cancelled);
 clearTimeout(undefined);
@@ -13,18 +15,18 @@ const interval = setInterval(() => {
   ticks++;
   log.push(`tick ${ticks}`);
   if (ticks === 3) clearInterval(interval);
-}, 5);
+}, 6);
 setTimeout(() => {
   log.push("timer A");
   Promise.resolve().then(() => log.push("microtask after A"));
   queueMicrotask(() => log.push("queued after A"));
   setImmediate(() => log.push("immediate from A"));
   setTimeout(() => log.push("timer from A"), 0);
-}, 40);
-setTimeout(() => log.push("timer B"), 40);
+}, 80);
+setTimeout(() => log.push("timer B"), 80);
 setTimeout(() => {
   console.log(log.join("\n"));
-}, 100);
+}, 150);
 queueMicrotask(() => log.push("first microtask"));
 Promise.resolve().then(() => log.push("promise microtask"));
 log.push("sync end");
@@ -39,7 +41,7 @@ log.push("sync end");
 // tick 2
 // tick 3
 // args 7 x
-// 30
+// 60
 // timer A
 // microtask after A
 // queued after A
