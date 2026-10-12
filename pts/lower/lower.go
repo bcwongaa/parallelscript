@@ -3330,8 +3330,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if checker.IsTupleType(t) {
 		return l.tupleType(t, node)
 	}
-	if l.isIteratorType(t) {
-		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109)
+	if l.isIteratorType(t) || l.isIterableType(t) {
+		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109), or any iterable (D-110)
 	}
 	if value, ok := l.iteratorResultValue(t); ok {
 		v := l.irType(value, node)

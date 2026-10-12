@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -193,16 +194,10 @@ func (l *lowerer) lengthMapHelper(ft *ir.FuncType, node *ast.Node) *ir.Func {
 // [index, element] pairs. ok is false if node is none of these; iterators as values come
 // with M4.1.
 func (l *lowerer) arrayIteration(node *ast.Node) (x ir.Expr, ok bool) {
-	node = ast.SkipParentheses(node)
-	if node.Kind != ast.KindCallExpression || len(node.Arguments()) > 0 {
+	if !l.isArrayIteration(node) {
 		return nil, false
 	}
-	callee := ast.SkipParentheses(node.AsCallExpression().Expression)
-	member := l.libMemberName(callee)
-	if member != "Array.keys" && member != "Array.values" && member != "Array.entries" && member != "ReadonlyArray.keys" &&
-		member != "ReadonlyArray.values" && member != "ReadonlyArray.entries" {
-		return nil, false
-	}
+	callee := ast.SkipParentheses(ast.SkipParentheses(node).AsCallExpression().Expression)
 	array := l.arrayObject(callee)
 	if array == nil {
 		return nil, true
@@ -214,6 +209,29 @@ func (l *lowerer) arrayIteration(node *ast.Node) (x ir.Expr, ok bool) {
 		return array, true
 	}
 	return &ir.Call{Func: l.entriesHelper(array.Type().(*ir.Array), node), Args: []ir.Expr{array}}, true
+}
+
+// isArrayIteration reports whether node is `a.keys()`, `a.values()` or `a.entries()` of an array.
+func (l *lowerer) isArrayIteration(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind != ast.KindCallExpression || len(node.Arguments()) > 0 {
+		return false
+	}
+	switch l.libMemberName(ast.SkipParentheses(node.AsCallExpression().Expression)) {
+	case "Array.keys", "Array.values", "Array.entries", "ReadonlyArray.keys", "ReadonlyArray.values", "ReadonlyArray.entries":
+		return true
+	}
+	return false
+}
+
+// arrayIterator lowers `a.keys()`, `a.values()` or `a.entries()` used as a value: an
+// iterator over the array the iteration is (D-110).
+func (l *lowerer) arrayIterator(call *ast.CallExpression) ir.Expr {
+	items, _ := l.arrayIteration(call.AsNode())
+	if items == nil {
+		return nil
+	}
+	return &ir.CallBuiltin{Builtin: ir.IteratorOpen, Args: []ir.Expr{box(items), &ir.StringConst{Value: scanner.GetTextOfNode(call.AsNode())}}}
 }
 
 // entriesHelper returns the helper that makes the [index, element] pairs of an array of type at.

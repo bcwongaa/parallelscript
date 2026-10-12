@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
 // Restaurant order pipeline: menu, orders through kitchen stations, status transitions and bills.
 
 type Station = "grill" | "fry" | "cold" | "bar";

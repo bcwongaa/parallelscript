@@ -24,12 +24,20 @@ import (
 // generator is suspended.
 
 // iteratorTypes are the ES library's types of iterator objects.
-var iteratorTypes = map[string]bool{"Generator": true, "Iterator": true, "IterableIterator": true, "IteratorObject": true}
+var iteratorTypes = map[string]bool{"Generator": true, "Iterator": true, "IterableIterator": true, "IteratorObject": true,
+	"MapIterator": true, "SetIterator": true, "ArrayIterator": true, "StringIterator": true}
 
 // isIteratorType reports whether t is one of the ES library's iterator types.
 func (l *lowerer) isIteratorType(t *checker.Type) bool {
 	symbol := t.Symbol()
 	return symbol != nil && t.Flags()&checker.TypeFlagsObject != 0 && iteratorTypes[symbol.Name] && l.isLibInterface(symbol)
+}
+
+// isIterableType reports whether t is the ES library's Iterable<T>: any value that a
+// for…of can iterate over, which is a dynamic value (D-110).
+func (l *lowerer) isIterableType(t *checker.Type) bool {
+	symbol := t.Symbol()
+	return symbol != nil && t.Flags()&checker.TypeFlagsObject != 0 && symbol.Name == "Iterable" && l.isLibInterface(symbol)
 }
 
 // iteratorResultValue is, for IteratorYieldResult<T> or IteratorReturnResult<R> of the
@@ -55,7 +63,7 @@ func (l *lowerer) isLibInterface(symbol *ast.Symbol) bool {
 // its type arguments, or any where it leaves them out.
 func (l *lowerer) iterationTypes(t *checker.Type) (yield, result, next *checker.Type) {
 	types := []*checker.Type{l.checker.GetAnyType(), l.checker.GetAnyType(), l.checker.GetAnyType()}
-	if l.isIteratorType(t) {
+	if l.isIteratorType(t) || l.isIterableType(t) {
 		copy(types, l.checker.GetTypeArguments(t))
 	}
 	return types[0], types[1], types[2]
@@ -255,7 +263,7 @@ func (l *lowerer) iteratorResult(done ir.Expr, iterator ir.Expr, t ir.Type, ct *
 	finished := l.newLocal("done", ir.Bool)
 	value := &ir.CallBuiltin{Builtin: ir.IteratorValue, Args: []ir.Expr{iterator}}
 	object := func(shape *ir.Class) ir.Expr {
-		v := l.convert(value, shape.Field("value").Type, node)
+		v := l.checkedConversion(value, shape.Field("value").Type, node) // a runtime iterator's entries are any[] pairs, copied into tuples
 		if v == nil {
 			return nil
 		}
@@ -295,7 +303,8 @@ func (l *lowerer) iteratorResult(done ir.Expr, iterator ir.Expr, t ir.Type, ct *
 	return &ir.Bind{Local: finished, Value: done, In: made}
 }
 
-// iteratorForOf lowers `for (const x of it)` over an iterator: next() until it is done,
+// iteratorForOf lowers `for (const x of it)` over an iterator or an Iterable (opened with
+// pts_iterator_open, which gives a generator itself): next() until it is done,
 // and if the loop ends early (break, return, a jump out, a throw), the iterator closed, as
 // JS's IteratorClose does.
 func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *ast.Node) []ir.Stmt {
@@ -306,8 +315,9 @@ func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *as
 		return nil
 	}
 	it, done := l.newLocal("iterator", ir.Value), l.newLocal("done", ir.Bool)
+	opened := &ir.CallBuiltin{Builtin: ir.IteratorOpen, Args: []ir.Expr{box(iterator), &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
 	stmts := []ir.Stmt{
-		&ir.LocalDecl{At: at, Local: it, Init: box(iterator)},
+		&ir.LocalDecl{At: at, Local: it, Init: opened},
 		&ir.LocalDecl{At: at, Local: done, Init: &ir.BoolConst{Value: false}},
 	}
 	yieldType, _, _ := l.iterationTypes(l.typeAt(s.Expression))
@@ -320,7 +330,7 @@ func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *as
 		if !ok {
 			return nil
 		}
-		value := l.convert(&ir.CallBuiltin{Builtin: ir.IteratorValue, Args: []ir.Expr{&ir.LocalRef{Local: it}}}, element.Type, declaration)
+		value := l.checkedConversion(&ir.CallBuiltin{Builtin: ir.IteratorValue, Args: []ir.Expr{&ir.LocalRef{Local: it}}}, element.Type, declaration)
 		if value == nil {
 			return nil
 		}

@@ -1422,6 +1422,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.IteratorValue:               "pts_iterator_value",
 	ir.IteratorClose:               "pts_iterator_close",
 	ir.IteratorTake:                "pts_iterator_take",
+	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",
 	ir.ValueIterableLength:         "pts_value_iterable_length",

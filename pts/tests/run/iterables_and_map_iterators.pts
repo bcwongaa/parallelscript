@@ -1,0 +1,49 @@
+// Map and Set iterators as values (live, with next()), Iterable<T> values that arrays,
+// sets, maps, strings and generators all are, Sets and Maps made from iterables, a Set in
+// an array pattern, and ReadonlyMap (D-110).
+
+const lru = new Map<string, number>([["a", 1], ["b", 2], ["c", 3]]);
+const oldest = lru.keys().next().value as string;
+lru.delete(oldest);
+lru.set("d", 4);
+console.log(oldest, [...lru.keys()], Math.max(...lru.values()), lru.entries().next().value);
+
+const live = lru.keys();
+lru.set("e", 5);
+const seen: string[] = [];
+for (const k of live) seen.push(k);
+console.log(seen, live.next());
+
+const tags = new Set(["x", "y"]);
+const it = tags.values();
+console.log(it.next(), it.next(), it.next());
+const [firstTag] = tags;
+console.log(firstTag);
+
+function total(xs: Iterable<number>): number {
+  let sum = 0;
+  for (const x of xs) sum += x;
+  return sum;
+}
+function* evens(limit: number): Generator<number, void, unknown> {
+  for (let i = 0; i <= limit; i += 2) yield i;
+}
+console.log(total([1, 2, 3]), total(new Set([4, 5])), total(lru.values()), total(evens(6)));
+
+function letters(text: Iterable<string>): string[] {
+  return [...new Set(text)];
+}
+console.log(letters("banana"), letters(["q", "q", "r"]));
+
+const fromPairs = new Map<string, number>(lru.entries());
+const upper: ReadonlyMap<string, string> = new Map([["k", "v"]]);
+console.log(fromPairs.size, upper.get("k"), upper.has("z"));
+
+// expect:
+// a [ 'b', 'c', 'd' ] 4 [ 'b', 2 ]
+// [ 'b', 'c', 'd', 'e' ] { value: undefined, done: true }
+// { value: 'x', done: false } { value: 'y', done: false } { value: undefined, done: true }
+// x
+// 6 9 14 12
+// [ 'b', 'a', 'n' ] [ 'q', 'r' ]
+// 4 v false

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: destructuring a Set<{deps: Set<{subscribers: Set<{...}>}>; name: string; run: () => void}> with an array pattern
+// skip: not supported yet: PTS1001: values of type Function
 // Reactive signals: writable signals, computed values with dependency tracking, and effects.
 
 type Effect = { run: () => void; deps: Set<SignalNode>; name: string };

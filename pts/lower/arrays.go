@@ -310,6 +310,9 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	method, fixed := arrayMethods[name]
 	removers, removes := arrayRemovers[name]
 	sortWith := name == "sort" && len(call.Arguments.Nodes) > 0
+	if l.isArrayIteration(call.AsNode()) {
+		return l.arrayIterator(call)
+	}
 	if !fixed && !removes && !callbackMethods[name] && !copyingMethods[name] && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat" {
 		l.notSupportedYet(callee, fmt.Sprintf("the array method `%s` is", name))
 		return nil
@@ -643,14 +646,14 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		return nil
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
-	if l.isIteratorType(l.typeAt(s.Expression)) {
-		return l.iteratorForOf(node, label, declaration)
-	}
 	if it, ok := l.mapIterableOf(s.Expression); ok {
 		if it.m == nil {
 			return nil // reported
 		}
 		return l.mapForOf(node, label, it, declaration.Name(), s.Statement)
+	}
+	if t := l.typeAt(s.Expression); (l.isIteratorType(t) || l.isIterableType(t)) && !l.isArrayIteration(s.Expression) {
+		return l.iteratorForOf(node, label, declaration)
 	}
 	iterable := l.iterable(s.Expression)
 	if iterable == nil {

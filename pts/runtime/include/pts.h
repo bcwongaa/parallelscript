@@ -1674,6 +1674,13 @@ bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sen
  * `text is not iterable` for anything else.
  */
 pts_value pts_iterator_open(pts_value iterable, const pts_string *text);
+/* An iterator over a map's or set's values (0), keys (1) or [key, value] entries (2), as m.values(), m.keys() and m.entries() make: live, as JS's. */
+pts_value pts_map_iterator_new(pts_value map, int32_t items);
+/*
+ * For console.log: whether object is a map's or set's iterator, and if so, an any[] of
+ * the items it has yet to yield (without moving it) and whether they are entries.
+ */
+bool pts_map_iterator_remaining(const pts_object *object, struct pts_array **items, bool *entries);
 /* What the iterator last yielded or returned. */
 pts_value pts_iterator_value(pts_value iterator);
 /* Closes an iterator a loop leaves early: return() without a value, its result unused. */

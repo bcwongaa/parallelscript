@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `keys()` as a value (an iterator)
 // Number to English words: cardinals, ordinals, currency amounts and cheque formatting.
 const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
   "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];

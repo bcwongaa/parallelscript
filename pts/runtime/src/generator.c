@@ -84,6 +84,77 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
   return pts_value_from_object(it);
 }
 
+/* A runtime iterator over a map or set (pts_map_iterator_new). */
+typedef struct map_iterator {
+  pts_iterator header;
+  pts_map_iterator entries;
+  int32_t items; /* 0: values, 1: keys, 2: entries */
+} map_iterator;
+
+static const pts_type map_iterator_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS, /* allocated with GC_MALLOC and scanned whole */
+    .name = "Map Iterator",
+    .size = sizeof(map_iterator),
+};
+
+static const pts_type set_iterator_type = {
+    .kind = PTS_KIND_GENERATOR,
+    .gc_descr = PTS_GC_NO_POINTERS,
+    .name = "Set Iterator",
+    .size = sizeof(map_iterator),
+};
+
+static bool map_step(pts_iterator *it) {
+  map_iterator *iterator = (map_iterator *)it;
+  if (it->state < 0 || !pts_map_next(&iterator->entries)) {
+    return finish(it, PTS_VALUE_UNDEFINED);
+  }
+  pts_map *map = iterator->entries.map;
+  pts_value key = pts_value_of_slot(map->type->key, &iterator->entries.key);
+  pts_value value = map->type->kind == PTS_KIND_SET ? key : pts_value_of_slot(map->type->element, &iterator->entries.value);
+  switch (iterator->items) {
+  case 0:
+    it->value = value;
+    break;
+  case 1:
+    it->value = key;
+    break;
+  default: {
+    pts_value pair[] = {key, value};
+    it->value = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2));
+  }
+  }
+  return false;
+}
+
+pts_value pts_map_iterator_new(pts_value map, int32_t items) {
+  map_iterator *it = GC_MALLOC(sizeof *it);
+  if (it == NULL) {
+    pts_panic("RangeError", "Out of memory allocating an iterator");
+  }
+  pts_map *source = (pts_map *)pts_value_as_object(map);
+  it->header.type = source->type->kind == PTS_KIND_SET ? &set_iterator_type : &map_iterator_type;
+  it->header.step = map_step;
+  it->header.value = PTS_VALUE_UNDEFINED;
+  it->entries = pts_map_iterate(source);
+  it->items = items;
+  return pts_value_from_object(it);
+}
+
+bool pts_map_iterator_remaining(const pts_object *object, pts_array **items, bool *entries) {
+  if (object->type != &map_iterator_type && object->type != &set_iterator_type) {
+    return false;
+  }
+  map_iterator copy = *(const map_iterator *)object;
+  *items = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
+  *entries = copy.items == 2;
+  while (!map_step(&copy.header)) {
+    pts_array_push(*items, &copy.header.value, 1);
+  }
+  return true;
+}
+
 /* resume_runtime_iterator resumes an iterator of the runtime's, which has neither return() nor throw(). */
 static bool resume_runtime_iterator(pts_iterator *it, pts_resume_mode mode, pts_value sent) {
   switch (mode) {

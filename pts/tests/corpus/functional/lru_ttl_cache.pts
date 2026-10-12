@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
 // An LRU cache with per-entry TTL and a fake clock, plus a cached() higher-order wrapper.
 
 interface Clock {

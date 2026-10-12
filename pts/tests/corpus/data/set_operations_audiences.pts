@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: values of type Iterable<string>
 class TagSet<T> {
   private readonly items: Set<T>;
 

@@ -5,7 +5,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
-- **Next task:** M4.1b Iterables and iterators
+- **Next task:** M4.1b Iterables and iterators (in progress)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
@@ -94,7 +94,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M4.1b Iterables and iterators (see `docs/MASTER_PLAN.md`). What the corpus's 13 iterator programs need, most first: Map/Set iterators as values with `next()` (`m.keys().next().value`, the LRU idiom: 4 programs) and spread into calls (`Math.max(...m.values())`: 5); `Iterable<T>` parameters taking arrays, sets and generators (3); a `Set` in an array pattern (1); `ReadonlyMap` (1). Plan: `MapIterator`/`SetIterator`/`ArrayIterator`/`StringIterator` are iterator types (`Value`, `isIteratorType`) made by a runtime map iterator over `pts_map_iterator` (live); `Iterable<T>` is `Value`, opened with `pts_iterator_open` (which then also calls a class's `[Symbol.iterator]` method through its method table and wraps objects with their own `next()`); `iteratorForOf` opens what it iterates; `[Symbol.iterator]` methods get the internal name `@@iterator`. Then `pts/tests/corpus/unskip.sh`.
+1. M4.1b Iterables and iterators (in progress; see `docs/MASTER_PLAN.md`). Done (D-110): Map/Set/array iterators as values (live map iterators, `next()`, printed as Node does), `Iterable<T>` as a dynamic value (`for…of` opens it with `pts_iterator_open`; spread, `Array.from`, `new Set`/`new Map` read its items), sets and maps in array patterns, `ReadonlyMap`; corpus 240 → 251 of 300. Left: `[Symbol.iterator]()` methods of classes and object literals (members with computed names are PTS1001 today: give the method the internal name `@@iterator`, list it in method tables, and let `pts_iterator_open` call it for objects), objects with their own `next()` (a runtime wrapper whose step calls `next` through the dynamic method machinery, D-074, then reads `done` and `value`), generator objects' `[Symbol.iterator]()`, generator methods of object literals (`objectMethod` still reports them), `yield` inside larger expressions (spill the earlier operands to frame locals). No corpus program needs these any more: write tests of their own.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -109,7 +109,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (238 run tests; 62 error tests; 300 corpus programs, 60 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (238 run tests; 62 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -122,7 +122,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
-- **Corpus programs skipped** (D-089): 60 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line (13 wait for M4.1's iterators, 2 for M5.4's typed arrays, 3 are by design, 42 are single causes).
+- **Corpus programs skipped** (D-089): 49 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line (2 wait for M5.4's typed arrays, 4 are by design, the rest are single causes).
 - **A method with a default can't provide a required parameter of an interface method:** `class Sq { label(suffix = "sq") }` used as `interface { label(suffix: string): string }` is PTS1001: the method takes `(string, given)` and the interface's table entry passes `(string)`. Arrows drop the flag when their context always passes the argument (D-055); methods would need the method-table entry (or an object literal method's field) to pass `true`.
 - **Equality narrowing loses an integer type to tsc:** after `if (b === 5)` with `b: u8`, tsc types `b` in the branch as the literal `5`, so `[b + 1]` is a `number[]` to tsc while the semantic pass computes `b + 1` as a `u8` (the value is converted to number; nothing breaks). Fixing it means `replacePrimitivesWithLiterals` (`internal/checker/flow.go`) keeping D-048's types; not worth a fork edit yet.
 - **Captured variables have no TDZ check:** a closure that runs before the declaration of a variable it captures has run (e.g. a hoisted function called above a `const` it reads) sees the type's zero value, and a NULL string or object crashes, where Node throws `ReferenceError: Cannot access 'x' before initialization`. Needs a ready flag for the cells that the cell pass marks as captured early.
@@ -141,6 +141,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M4.1b started: corpus 240 → 251 of 300 (D-110); session ended with M4.1b in progress.
 - 2026-10-12: M4.1a done (M4.1 split by D-109).
 - 2026-10-12: M3.8 done; tagged `m3`.
 - 2026-10-12: M3.7b done: corpus 226 → 240 of 300 matching Node (D-104 to D-108); M3.7b ticked.

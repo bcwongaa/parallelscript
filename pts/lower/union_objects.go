@@ -175,10 +175,11 @@ func (l *lowerer) unionObjectMembers(t *checker.Type, name string, node *ast.Nod
 
 // holdsWithin reports whether values of type t (a class, shape or interface) hold an
 // interface's property in a field whose values are all values of its type (a union's
-// member's field), or, if it is optional, may lack it (holdsAsOptional).
+// member's field, or any field for a property of type any), or, if it is optional, may
+// lack it (holdsAsOptional).
 func holdsWithin(t ir.Type, property *ir.Field) bool {
 	u, ok := property.Type.(*ir.Union)
-	if !ok {
+	if !ok && property.Type != ir.Value {
 		return false
 	}
 	var field *ir.Field
@@ -190,6 +191,9 @@ func holdsWithin(t ir.Type, property *ir.Field) bool {
 	}
 	if field == nil {
 		return property.Optional && holdsAsOptional(t, property)
+	}
+	if property.Type == ir.Value {
+		return !field.Method // a property of any type: a field of any type, read by its kind
 	}
 	if fu, ok := field.Type.(*ir.Union); ok {
 		return isNarrowing(u, fu)

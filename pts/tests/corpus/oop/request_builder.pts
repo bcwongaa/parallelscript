@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: values of type ReadonlyMap<string, string>
 // Builder for immutable HTTP-like request objects (no networking).
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";

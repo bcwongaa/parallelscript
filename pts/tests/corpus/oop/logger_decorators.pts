@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: values of type IteratorReturnResult<undefined>
 // Decorator-style wrappers around a data source (caching, retry, metrics, logging).
 
 interface DataSource {

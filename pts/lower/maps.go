@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -43,7 +44,7 @@ func (l *lowerer) mapType(t *checker.Type, node *ast.Node) (mt *ir.MapType, ok b
 // libCollection returns the name of t's type if it is the ES library's Map, Set or their readonly views.
 func (l *lowerer) libCollection(t *checker.Type) (string, bool) {
 	symbol := t.Symbol()
-	if symbol == nil || t.Flags()&checker.TypeFlagsObject == 0 || !l.isDeclaredInDefaultLib(symbol) {
+	if symbol == nil || t.Flags()&checker.TypeFlagsObject == 0 || !l.isLibInterface(symbol) { // ReadonlyMap has no value declaration
 		return "", false
 	}
 	switch symbol.Name {
@@ -127,8 +128,9 @@ func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 		case it.m.Type() == mt && it.items == mapItemsOf(mt):
 			return &ir.NewMap{Map: mt, From: it.m}
 		}
-		l.notSupportedYet(args[0], fmt.Sprintf("a %s of the %s of a %s is", mt, itemWords[it.items], it.m.Type()))
-		return nil
+		items := map[mapItems]int{mapValues: 0, mapKeys: 1, mapEntries: 2}[it.items] // `new Set(m.keys())`: through an iterator (D-110)
+		iterator := &ir.CallBuiltin{Builtin: ir.MapIteratorOf, Args: []ir.Expr{box(it.m), &ir.IntConst{Bits: uint64(items), Ty: ir.I32}}}
+		return l.newMapOf(node, mt, iterator, args[0])
 	}
 	var from ir.Expr
 	if list := ast.SkipParentheses(args[0]); list.Kind == ast.KindArrayLiteralExpression && !mt.Set {
@@ -136,21 +138,37 @@ func (l *lowerer) newMap(node *ast.Node) ir.Expr {
 	} else {
 		from = l.expression(args[0])
 	}
-	if from != nil && mt.Set && from.Type() == ir.String {
+	if from == nil {
+		return nil
+	}
+	return l.newMapOf(node, mt, from, args[0])
+}
+
+// newMapOf makes a map or set of type mt from from, the argument (arg) of `new Map` or
+// `new Set` that isn't a map of the same kind: an array (a set's elements, a map's
+// [key, value] pairs), a string's code points, or what an iterable yields.
+func (l *lowerer) newMapOf(node *ast.Node, mt *ir.MapType, from ir.Expr, arg *ast.Node) ir.Expr {
+	if mt.Set && from.Type() == ir.String {
 		from = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{from}} // `new Set("hello")`: its code points (D-089)
 	}
+	if from.Type() == ir.Value { // an Iterable<T>, a generator object, an iterator: what it yields, as an any[] (D-110)
+		from = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{from, &ir.StringConst{Value: scanner.GetTextOfNode(arg)}}}
+		if !mt.Set {
+			if from = l.convert(from, l.arrayOf(l.pairOf(mt)), arg); from == nil { // its [key, value] pairs, checked
+				return nil
+			}
+		}
+	}
 	switch {
-	case from == nil:
-		return nil
 	case mt.Set && isArray(from.Type()):
-		if from = l.convert(from, l.arrayOf(mt.Key), args[0]); from == nil {
+		if from = l.convert(from, l.arrayOf(mt.Key), arg); from == nil {
 			return nil
 		}
 		return &ir.NewMap{Map: mt, From: from}
 	case from.Type() == l.arrayOf(l.pairOf(mt)):
 		return &ir.Call{Func: l.mapOfEntries(mt, node), Args: []ir.Expr{from}}
 	}
-	l.notSupportedYet(args[0], fmt.Sprintf("a %s of a %s is", mt, from.Type()))
+	l.notSupportedYet(arg, fmt.Sprintf("a %s of a %s is", mt, from.Type()))
 	return nil
 }
 
@@ -238,8 +256,8 @@ func (l *lowerer) mapMethodCall(call *ast.CallExpression, checked bool) ir.Expr 
 	case name == "forEach":
 		return l.mapForEach(call, m)
 	case name == "keys" || name == "values" || name == "entries":
-		l.notSupportedYet(callee, fmt.Sprintf("`%s()` as a value (an iterator) is", name))
-		return nil
+		items := map[string]int{"values": 0, "keys": 1, "entries": 2}[name] // an iterator as a value (D-110)
+		return &ir.CallBuiltin{Builtin: ir.MapIteratorOf, Args: []ir.Expr{box(m), &ir.IntConst{Bits: uint64(items), Ty: ir.I32}}}
 	default:
 		l.notSupportedYet(callee, fmt.Sprintf("the %s method `%s` is", collectionName(mt), name))
 		return nil

@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
 class Stats {
   private readonly sorted: number[];
 

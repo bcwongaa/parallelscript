@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `values()` as a value (an iterator)
 // Dijkstra's shortest paths over a city road network using a binary-heap priority queue.
 
 interface Edge {

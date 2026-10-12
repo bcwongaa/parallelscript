@@ -298,9 +298,25 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     text_add(out, text->bytes, text->byte_len);
     return;
   }
-  case PTS_KIND_GENERATOR:
-    text_printf(out, "Object [%s] {}", object->type->name);
+  case PTS_KIND_GENERATOR: {
+    pts_array *items;
+    bool entries;
+    if (!pts_map_iterator_remaining(object, &items, &entries)) {
+      text_printf(out, "Object [%s] {}", object->type->name);
+      return;
+    }
+    /* Node's formatIterator: the items left, as a map's or set's, `[Map Entries]` for entries */
+    text_printf(out, "[%.3s %s] { ", object->type->name, entries ? "Entries" : "Iterator");
+    size_t n = pts_array_length_of(items);
+    for (size_t i = 0; i < n; i++) {
+      if (i > 0) {
+        text_puts(out, ", ");
+      }
+      format_value(in, out, pts_array_element(items, (double)i), recurse_times + 1);
+    }
+    text_puts(out, " }");
     return;
+  }
   }
 }
 

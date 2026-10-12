@@ -1,0 +1,20 @@
+// Iterators of maps, sets and arrays as values, printed as Node prints them: a map's or
+// set's lists the items it has yet to yield (D-110).
+const m = new Map([["a", 1], ["b", 2]]);
+console.log(m.keys(), m.values(), m.entries());
+const s = new Set(["x"]);
+console.log(s.values(), s.entries(), new Map<string, number>().keys());
+const it = m.keys(); it.next();
+console.log(it, [1, 2].entries(), [1].values());
+const names = new Set(m.keys());
+const e = [10, 20].entries();
+console.log(names, e.next(), e.next(), e.next());
+for (const [i, x] of ["p", "q"].entries()) console.log(i, x);
+
+// expect:
+// [Map Iterator] { 'a', 'b' } [Map Iterator] { 1, 2 } [Map Entries] { [ 'a', 1 ], [ 'b', 2 ] }
+// [Set Iterator] { 'x' } [Set Entries] { [ 'x', 'x' ] } [Map Iterator] {  }
+// [Map Iterator] { 'b' } Object [Array Iterator] {} Object [Array Iterator] {}
+// Set(2) { 'a', 'b' } { value: [ 0, 10 ], done: false } { value: [ 1, 20 ], done: false } { value: undefined, done: true }
+// 0 p
+// 1 q

@@ -1158,6 +1158,8 @@ var (
 	// closed, or with its Bool argument true, of all it yields: what an array pattern
 	// destructures out of an iterator.
 	IteratorTake = &Builtin{Name: "iterator take", Params: []Type{Value, Number, Bool}, Result: ValueArray}
+	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).
+	MapIteratorOf = &Builtin{Name: "Map.iterator", Params: []Type{Value, I32}, Result: Value}
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).
 	ValueFreeze   = &Builtin{Name: "Object.freeze", Params: []Type{Value}, Result: Void}
 	ValueIsFrozen = &Builtin{Name: "Object.isFrozen", Params: []Type{Value}, Result: Bool}

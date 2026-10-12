@@ -1,6 +1,6 @@
 // Array features that arrive later are reported: spreading other element types, `thisArg` arguments, `map` with a
-// callback that returns nothing, iterators as values (M4.1), tuples with optional elements, converting
-// arrays between element types, and recursive array types.
+// callback that returns nothing, converting arrays between element types, and recursive array types.
+// (Iterators as values work since D-110, tuples with optional elements since D-100.)
 const a = [1, 2, 3];
 const copy: number[] = [...new Set<u8>()];
 const mapped = a.map((x) => x, a);
@@ -10,7 +10,6 @@ const flat = [[1]].flat(depth);
 let n = 0;
 for (n of a) {
 }
-const it = a.entries();
 
 // (tuples with optional elements work since D-100)
 class Pixel {
@@ -30,6 +29,5 @@ const nested: Nested = [];
 // error: arrays_not_yet.pts:7:1 - error PTS1001: `map` with a callback that returns nothing is not supported yet
 // error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet
 // error: arrays_not_yet.pts:11:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
-// error: arrays_not_yet.pts:13:7 - error PTS1001: values of type ArrayIterator<[number, number]> are not supported yet
-// error: arrays_not_yet.pts:24:25 - error PTS1001: using a Pixel[] as a {x: number; y: number}[] where it may be changed or kept
-// error: arrays_not_yet.pts:26:7 - error PTS1001: recursive array types (Nested) are not supported yet
+// error: arrays_not_yet.pts:23:25 - error PTS1001: using a Pixel[] as a {x: number; y: number}[] where it may be changed or kept
+// error: arrays_not_yet.pts:25:7 - error PTS1001: recursive array types (Nested) are not supported yet
