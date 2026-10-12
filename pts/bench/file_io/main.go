@@ -39,7 +39,7 @@ func round() int {
 	}
 	total := 0
 	for start := 0; start < files; start += batch {
-		lengths := make([]int, batch)
+		texts := make([]string, batch) // strings, as main.pts reads the files as text
 		var wg sync.WaitGroup
 		for i := start; i < start+batch; i++ {
 			wg.Add(1)
@@ -49,12 +49,12 @@ func round() int {
 				if err != nil {
 					panic(err)
 				}
-				lengths[i-start] = len(data)
+				texts[i-start] = string(data)
 			}(i)
 		}
 		wg.Wait()
-		for _, n := range lengths {
-			total += n
+		for _, text := range texts {
+			total += len(text)
 		}
 		for i := start; i < start+batch; i += 10 {
 			info, err := os.Stat(path(i))
@@ -64,11 +64,16 @@ func round() int {
 			total += int(info.Size())
 		}
 	}
-	entries, err := os.ReadDir(dir)
+	listing, err := os.Open(dir)
 	if err != nil {
 		panic(err)
 	}
-	total += len(entries)
+	names, err := listing.Readdirnames(-1) // unsorted, as readdir's names are
+	listing.Close()
+	if err != nil {
+		panic(err)
+	}
+	total += len(names)
 	if err := os.RemoveAll(dir); err != nil {
 		panic(err)
 	}

@@ -46,9 +46,11 @@ func main() {
 		}()
 	}
 	wg.Wait()
-	total, inside := 0, 0
+	total, inside := 0, 0 // two passes, as main.pts's .par.sum() and .par.count
 	for _, n := range image {
 		total += int(n)
+	}
+	for _, n := range image {
 		if n == maxIterations {
 			inside++
 		}

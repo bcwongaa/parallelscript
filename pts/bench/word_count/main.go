@@ -112,8 +112,10 @@ func main() {
 	for _, counts := range perFile {
 		for found, n := range counts {
 			totals[found] += n
-			all += n
 		}
+	}
+	for _, n := range totals {
+		all += n
 	}
 	type entry struct {
 		word  string

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -40,10 +41,10 @@ func makeItems(n, round int) []item {
 	return items
 }
 
-func checksum(s []byte) int {
-	sum := 0
+func checksum(s []byte) float64 {
+	sum := 0.0 // float64, as JS's numbers
 	for i := 0; i < len(s); i += 13 {
-		sum = (sum*31 + int(s[i])) % 1000003
+		sum = math.Mod(sum*31+float64(s[i]), 1000003)
 	}
 	return sum
 }
@@ -80,6 +81,6 @@ func main() {
 		}
 		again := marshal(data, false)
 		pretty := marshal(data, true)
-		fmt.Println(len(text), checksum(text), strconv.FormatFloat(score, 'f', -1, 64), active, strconv.FormatFloat(tags, 'f', -1, 64), len(again), len(pretty))
+		fmt.Println(len(text), strconv.FormatFloat(checksum(text), 'f', -1, 64), strconv.FormatFloat(score, 'f', -1, 64), active, strconv.FormatFloat(tags, 'f', -1, 64), len(again), len(pretty))
 	}
 }

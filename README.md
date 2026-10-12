@@ -578,7 +578,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 | `pts/lib/` | The prelude (`prelude.d.ts`) and the `pts:` modules, written in ParallelScript: `parallel.pts`, `sync.pts`, `fs.pts`, `path.pts`, `process.pts` |
 | `pts/third_party/` | Vendored C libraries as pinned submodules: bdwgc, libuv, PCRE2, Ryu, libbacktrace |
 | `pts/tests/` | `run/` (programs and their expected output), `errors/` (expected compile errors), `corpus/` (realistic programs compared with Node), `stress/` (parallel stress programs); see [pts/tests/README.md](pts/tests/README.md) |
-| `pts/bench/` | One directory per benchmark: `main.pts`, its Go twin `main.go` (where Go has one) and, where Node and Bun can't run `main.pts` as it is, a `main.ts` for them; `run.sh` checks that they all print the same and times them |
+| `pts/bench/` | One directory per benchmark: `main.pts`, its Go twin `main.go` (where Go has one) and, where Node and Bun can't run `main.pts` as it is, a `main.ts` for them; `run.sh` checks that they all print the same and times them, keeping every run's time in `results/` |
 | `examples/` | Example programs (a file hasher, a mandelbrot renderer, a JSON API server, a log analyzer), each tested by `pts/tests/examples_test.go`; see [examples/README.md](examples/README.md) |
 | `docs/` | The documentation below; `docs/examples/` holds the docs' samples, which run as tests |
 | `internal/` and the rest | Upstream typescript-go |

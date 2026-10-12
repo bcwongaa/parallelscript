@@ -215,5 +215,7 @@ __pycache__/
 *.env
 /cmd/pts/pts
 /pts-bin/
+# Benchmark runs (pts/bench/run.sh, serve.sh); a milestone's are copied to pts/bench/results/mN.
+/pts/bench/results/latest/
 # Expected-output files of the PTS test suite (the upstream `*.out` rule above would hide them).
 !pts/tests/**/*.out

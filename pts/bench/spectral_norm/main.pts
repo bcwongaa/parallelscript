@@ -1,0 +1,53 @@
+// Spectral norm (the Benchmarks Game's spectral-norm, n = 4000): the largest singular
+// value of an infinite matrix, approximated by ten rounds of the power method on its
+// n×n corner, A(i, j) = 1 / ((i + j)(i + j + 1) / 2 + i + 1). Floating-point division
+// and loops over Float64Arrays. Node and Bun run this file too. It prints the norm
+// unrounded, so every implementation must do the same arithmetic in the same order.
+const N = 4000;
+
+function a(i: number, j: number): number {
+  return 1 / (((i + j) * (i + j + 1)) / 2 + i + 1);
+}
+
+// out = A v
+function multiplyAv(v: Float64Array, out: Float64Array): void {
+  for (let i = 0; i < N; i++) {
+    let sum = 0;
+    for (let j = 0; j < N; j++) {
+      sum += a(i, j) * v[j];
+    }
+    out[i] = sum;
+  }
+}
+
+// out = Aᵀ v
+function multiplyAtv(v: Float64Array, out: Float64Array): void {
+  for (let i = 0; i < N; i++) {
+    let sum = 0;
+    for (let j = 0; j < N; j++) {
+      sum += a(j, i) * v[j];
+    }
+    out[i] = sum;
+  }
+}
+
+// out = Aᵀ A v, with tmp as room for A v
+function multiplyAtAv(v: Float64Array, out: Float64Array, tmp: Float64Array): void {
+  multiplyAv(v, tmp);
+  multiplyAtv(tmp, out);
+}
+
+const u = new Float64Array(N).fill(1);
+const v = new Float64Array(N);
+const tmp = new Float64Array(N);
+for (let round = 0; round < 10; round++) {
+  multiplyAtAv(u, v, tmp);
+  multiplyAtAv(v, u, tmp);
+}
+let vBv = 0;
+let vv = 0;
+for (let i = 0; i < N; i++) {
+  vBv += u[i] * v[i];
+  vv += v[i] * v[i];
+}
+console.log(Math.sqrt(vBv / vv));

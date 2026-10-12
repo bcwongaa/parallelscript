@@ -1,5 +1,6 @@
-// Word frequency, the twin of main.pts: the same text, split with strings.Split and
-// counted in a map[string]int, sorted with sort.Slice.
+// Word frequency, the twin of main.pts: the same text, made with float64 arithmetic as JS
+// makes it, split with strings.Split and counted in a map[string]int (one lookup per word,
+// where a JS Map takes a get and a set), sorted with sort.Slice.
 package main
 
 import (
@@ -11,21 +12,21 @@ import (
 
 var syllables = []string{"ka", "lo", "mi", "ne", "ru", "so", "ta", "vi", "ze", "po", "qua"}
 
-func word(i int) string {
-	w := syllables[i%11]
-	for rest := i / 11; rest > 0; rest /= 11 {
-		w += syllables[rest%11]
+func word(i float64) string {
+	w := syllables[int(math.Mod(i, 11))]
+	for rest := math.Floor(i / 11); rest > 0; rest = math.Floor(rest / 11) {
+		w += syllables[int(math.Mod(rest, 11))]
 	}
 	return w
 }
 
-func text(words, vocabulary int) string {
+func text(words int, vocabulary float64) string {
 	parts := []string{}
-	seed := 42
+	seed := 42.0
 	for i := 0; i < words; i++ {
-		seed = (seed * 48271) % 2147483647
-		r := float64(seed) / 2147483647
-		parts = append(parts, word(int(math.Floor(r*r*float64(vocabulary)))))
+		seed = math.Mod(seed*48271, 2147483647)
+		r := seed / 2147483647
+		parts = append(parts, word(math.Floor(r*r*vocabulary)))
 	}
 	return strings.Join(parts, " ")
 }

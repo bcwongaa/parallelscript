@@ -13,13 +13,27 @@
 # ParallelScript runs once per value, main.ts is its sequential twin for Node and Bun,
 # and main.go uses every core; its table row gives the speedup over one thread (D-131).
 # Server benchmarks (a directory with a `request` file) are serve.sh's, and run.sh skips them.
-# Environment: RUNS (default 10) and WARMUP (default 2) are passed to hyperfine.
+# A file `label` in a benchmark's directory is a note shown after its name in the table
+# ("warm cache" for one that reads files it wrote before, which the page cache holds).
+#
+# Every time is a whole process's wall-clock time, its start included (the `startup`
+# benchmark shows what starting costs each implementation). The runs of a benchmark go
+# in ROUNDS rounds, each running every implementation in turn, so that a change in the
+# machine's load hits them all alike.
+# Environment: RUNS (default 10) runs of each implementation in all, split over ROUNDS
+# (default 2) rounds, each with WARMUP (default 2) warm-up runs; RESULTS (default
+# pts/bench/results/latest) keeps hyperfine's JSON of every round and <name>.json, every
+# run's time merged, from which the table's means and standard deviations come.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 bench=$root/pts/bench
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+results=${RESULTS:-$bench/results/latest}
+rounds=${ROUNDS:-2}
+runs=$(( (${RUNS:-10} + rounds - 1) / rounds ))
+mkdir -p "$results"
 
 for tool in hyperfine go node bun clang python3; do
   command -v "$tool" >/dev/null || { echo "run.sh: $tool is not on PATH" >&2; exit 1; }
@@ -88,24 +102,46 @@ for name in "${names[@]}"; do
 
   args=()
   for i in "${!commands[@]}"; do args+=(-n "${labels[$i]}" "${commands[$i]}"); done
-  hyperfine --shell=none --warmup "${WARMUP:-2}" --runs "${RUNS:-10}" --export-json "$work/$name.json" "${args[@]}" >&2
+  rm -f "$results/$name".round*.json
+  for round in $(seq "$rounds"); do
+    hyperfine --shell=none --warmup "${WARMUP:-2}" --runs "$runs" --export-json "$results/$name.round$round.json" "${args[@]}" >&2
+  done
+  if [ -f "$dir/label" ]; then cp "$dir/label" "$results/$name.label"; else rm -f "$results/$name.label"; fi
 done
 
-# One table row per benchmark: mean times, and how many times faster ParallelScript is;
-# parallel benchmarks get a table of their own, with ParallelScript at each thread count.
-python3 - "$work" "${names[@]}" <<'EOF'
-import json, sys
+# Each benchmark's rounds merged into <name>.json, then one table row per benchmark:
+# mean ± standard deviation, and how many times faster ParallelScript is; parallel
+# benchmarks get a table of their own, with ParallelScript at each thread count.
+python3 - "$results" "${names[@]}" <<'EOF'
+import glob, json, os, statistics, sys
 
-work, names = sys.argv[1], sys.argv[2:]
-results = {}
+directory, names = sys.argv[1], sys.argv[2:]
+results, spreads, titles = {}, {}, {}
 for name in names:
-    with open(f"{work}/{name}.json") as f:
-        results[name] = {r["command"]: r["mean"] * 1000 for r in json.load(f)["results"]}
+    times = {}
+    for path in sorted(glob.glob(f"{directory}/{name}.round*.json")):
+        with open(path) as f:
+            for result in json.load(f)["results"]:
+                times.setdefault(result["command"], []).extend(result["times"])
+    merged = [{"command": label, "times": ts, "mean": statistics.mean(ts), "stddev": statistics.stdev(ts) if len(ts) > 1 else 0.0,
+               "min": min(ts), "max": max(ts)} for label, ts in times.items()]
+    with open(f"{directory}/{name}.json", "w") as f:
+        json.dump({"results": merged}, f, indent=1)
+    results[name] = {r["command"]: r["mean"] * 1000 for r in merged}
+    spreads[name] = {r["command"]: r["stddev"] * 1000 for r in merged}
+    titles[name] = name
+    if os.path.exists(f"{directory}/{name}.label"):
+        with open(f"{directory}/{name}.label") as f:
+            titles[name] = f"{name} ({f.read().strip()})"
 sequential = [name for name in names if "ParallelScript" in results[name]]
 parallel = [name for name in names if name not in sequential]
 
-def cell(means, label):
-    return f"{means[label]:.0f} ms" if label in means else "–"
+def cell(name, label):
+    means = results[name]
+    if label not in means:
+        return "–"
+    digits = 1 if means[label] < 10 else 0
+    return f"{means[label]:.{digits}f} ± {spreads[name][label]:.{digits}f} ms"
 
 def ratio(means, label, pts):
     return f"{means[label] / pts:.2f}×" if label in means else "–"
@@ -116,7 +152,7 @@ if sequential:
     for name in sequential:
         means = results[name]
         pts = means["ParallelScript"]
-        print(f"| {name} | {pts:.0f} ms | {cell(means, 'Node')} | {cell(means, 'Bun')} | {cell(means, 'Go')} | {ratio(means, 'Node', pts)} | {ratio(means, 'Go', pts)} |")
+        print(f"| {titles[name]} | {cell(name, 'ParallelScript')} | {cell(name, 'Node')} | {cell(name, 'Bun')} | {cell(name, 'Go')} | {ratio(means, 'Node', pts)} | {ratio(means, 'Go', pts)} |")
 if parallel:
     counts = sorted({int(label.split("x")[-1]) for name in parallel for label in results[name] if label.startswith("ParallelScript x")})
     most = counts[-1]
@@ -128,6 +164,8 @@ if parallel:
         means = results[name]
         one, best = means.get("ParallelScript x1"), means.get(f"ParallelScript x{most}")
         speedup = f"{one / best:.2f}×" if one and best else "–"
-        threads = " | ".join(cell(means, f"ParallelScript x{n}") for n in counts)
-        print(f"| {name} | {threads} | {speedup} | {cell(means, 'Node')} | {cell(means, 'Bun')} | {cell(means, 'Go')} | {ratio(means, 'Node', best)} | {ratio(means, 'Go', best)} |")
+        threads = " | ".join(cell(name, f"ParallelScript x{n}") for n in counts)
+        print(f"| {titles[name]} | {threads} | {speedup} | {cell(name, 'Node')} | {cell(name, 'Bun')} | {cell(name, 'Go')} | {ratio(means, 'Node', best)} | {ratio(means, 'Go', best)} |")
+runs = {len(json.load(open(f"{directory}/{name}.json"))["results"][0]["times"]) for name in names}
+print(f"\nMean ± standard deviation of {'/'.join(map(str, sorted(runs)))} runs in {len(glob.glob(f'{directory}/{names[0]}.round*.json'))} interleaved rounds; wall-clock time of the whole process, its start included.")
 EOF

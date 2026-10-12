@@ -31,4 +31,4 @@ function renderRow(py: number): void {
 for (let py = 0; py < HEIGHT; py++) {
     renderRow(py);
 }
-console.log(image.reduce((sum, n) => sum + n, 0), image.filter((n) => n === MAX_ITERATIONS).length);
+console.log(image.reduce((sum, n) => sum + n, 0), image.reduce((inside, n) => inside + (n === MAX_ITERATIONS ? 1 : 0), 0));

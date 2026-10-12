@@ -11,12 +11,16 @@
 # server, bun.ts the Bun one and main.go the Go one. Each listens on $PORT, and all must
 # answer the request with the same body.
 # Environment: DURATION (default 10s) of each measured run, after WARMUP (default 2s) of
-# load; CONNECTIONS (default 64) kept open by oha.
+# load; CONNECTIONS (default 64) kept open by oha; RESULTS (default
+# pts/bench/results/latest) keeps oha's JSON report of each run, as <name>-<i>.json with
+# the server's name in <name>-<i>.label.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 bench=$root/pts/bench
 work=$(mktemp -d)
+results=${RESULTS:-$bench/results/latest}
+mkdir -p "$results"
 server=""
 cleanup() {
   if [ -n "$server" ]; then kill "$server" 2>/dev/null || true; fi
@@ -101,6 +105,7 @@ for name in "${names[@]}"; do
     oha -z "${WARMUP:-2s}" "${load[@]}" --output-format quiet "$url"
     oha -z "${DURATION:-10s}" "${load[@]}" --output-format json -o "$work/$name-$i.json" "$url"
     echo "${labels[$i]}" > "$work/$name-$i.label"
+    cp "$work/$name-$i.json" "$work/$name-$i.label" "$results/"
     kill "$server"
     wait "$server" 2>/dev/null || true
     server=""

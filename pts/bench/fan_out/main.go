@@ -38,6 +38,8 @@ func main() {
 	total, largest := 0.0, math.Inf(-1)
 	for _, sum := range sums {
 		total += sum
+	}
+	for _, sum := range sums {
 		largest = math.Max(largest, sum)
 	}
 	fmt.Println(strconv.FormatFloat(total, 'f', -1, 64), strconv.FormatFloat(largest, 'f', -1, 64))

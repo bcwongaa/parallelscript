@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -36,10 +37,10 @@ func joined(n int) string {
 	return strings.Join(parts, ",")
 }
 
-func checksum(s string) int {
-	sum := 0
+func checksum(s string) float64 {
+	sum := 0.0 // float64, as JS's numbers
 	for i := 0; i < len(s); i += 7 {
-		sum = (sum*31 + int(s[i])) % 1000003
+		sum = math.Mod(sum*31+float64(s[i]), 1000003)
 	}
 	return sum
 }
@@ -47,6 +48,6 @@ func checksum(s string) int {
 func main() {
 	const n = 1000000
 	for _, s := range []string{appended(n), report(n), joined(n)} {
-		fmt.Println(len(s), checksum(s))
+		fmt.Println(len(s), strconv.FormatFloat(checksum(s), 'f', -1, 64))
 	}
 }
