@@ -21,7 +21,11 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 		l.subst = l.erasing(typeParameters, nil) // its own, or its context's (D-078)
 		defer func() { l.subst = outer }()
 	}
-	ft := field.Type.(*ir.FuncType)
+	ft := fieldFuncType(field)
+	if ft == nil {
+		l.notSupportedYet(node.Name(), fmt.Sprintf("a method for a property of type %s is", field.Type))
+		return nil
+	}
 	name := field.Name
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Result: ft.Result,
 		Closure: true, Outer: l.function, JSName: jsMemberName(name), Length: jsLength(node)}
@@ -55,10 +59,30 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	}
 	l.function = outer
 	l.inFunction(fn, func() { fn.Body = l.block(node.Body(), node.Body().Statements()) })
+	var closure ir.Expr = &ir.MakeClosure{Func: fn, FuncType: ft}
 	if differs { // `deposit(amount, memo)` for `deposit(amount: number, memo?: string)`: adapted to the field's type
-		return l.adapt(&ir.MakeClosure{Func: fn, FuncType: l.typeOfFunc(fn)}, ft, node)
+		closure = l.adapt(&ir.MakeClosure{Func: fn, FuncType: l.typeOfFunc(fn)}, ft, node)
 	}
-	return &ir.MakeClosure{Func: fn, FuncType: ft}
+	if closure == nil || field.Type == ft {
+		return closure
+	}
+	return l.convert(closure, field.Type, node) // `error(e) { … }` for an `error?: (e: unknown) => R`
+}
+
+// fieldFuncType is the function type of the field an object literal's method fills: the
+// field's type, or the function member of an optional function-typed property's union.
+func fieldFuncType(field *ir.Field) *ir.FuncType {
+	switch t := field.Type.(type) {
+	case *ir.FuncType:
+		return t
+	case *ir.Union:
+		for _, member := range t.Members {
+			if ft, ok := member.(*ir.FuncType); ok {
+				return ft
+			}
+		}
+	}
+	return nil
 }
 
 // withReceiver evaluates receiver once and builds an expression that uses it twice:

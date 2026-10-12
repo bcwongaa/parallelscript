@@ -1,0 +1,304 @@
+// pts:http: an HTTP/1.1 server (D-136) in the style of Bun's serve, with the Fetch
+// standard's Request, Response and Headers: serve({ port, fetch }) listens and calls
+// fetch for each request, then sends the Response it returns (or a promise of one).
+// The connections, parsing and keep-alive are the runtime's (http.c).
+
+declare function pts_http_listen(port: number, hostname: string, everyLoop: boolean,
+    onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => void): number;
+declare function pts_http_respond(connection: number, status: number, statusText: string, headers: string[], body: string): void;
+declare function pts_http_port(server: number): number;
+declare function pts_http_stop(server: number): void;
+
+export type HeadersInit = Headers | Record<string, string> | [string, string][];
+
+const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function headerName(name: string): string {
+    if (!TOKEN.test(name)) {
+        throw new TypeError(`Headers: invalid header name "${name}"`);
+    }
+    return name.toLowerCase();
+}
+
+function headerValue(value: string): string {
+    const trimmed = value.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
+    if (/[\0\r\n]/.test(trimmed)) {
+        throw new TypeError(`Headers: invalid header value "${trimmed}"`);
+    }
+    return trimmed;
+}
+
+// Header fields: names (lowercase, as HTTP compares them) and values, in the order added.
+export class Headers {
+    readonly #names: string[] = [];
+    readonly #values: string[] = [];
+
+    constructor(init?: HeadersInit) {
+        if (init instanceof Headers) {
+            init.forEach((value, name) => this.append(name, value));
+        } else if (Array.isArray(init)) {
+            for (const [name, value] of init) {
+                this.append(name, value);
+            }
+        } else if (init !== undefined) {
+            for (const name of Object.keys(init)) {
+                this.append(name, init[name]);
+            }
+        }
+    }
+
+    append(name: string, value: string): void {
+        this.#names.push(headerName(name));
+        this.#values.push(headerValue(value));
+    }
+
+    delete(name: string): void {
+        const key = headerName(name);
+        for (let i = this.#names.length - 1; i >= 0; i--) {
+            if (this.#names[i] === key) {
+                this.#names.splice(i, 1);
+                this.#values.splice(i, 1);
+            }
+        }
+    }
+
+    // The field's values, joined by ", " as the Fetch standard combines them; null if it has none.
+    get(name: string): string | null {
+        const key = headerName(name);
+        const found: string[] = [];
+        for (let i = 0; i < this.#names.length; i++) {
+            if (this.#names[i] === key) {
+                found.push(this.#values[i]);
+            }
+        }
+        return found.length === 0 ? null : found.join(", ");
+    }
+
+    getSetCookie(): string[] {
+        return this.#values.filter((_, i) => this.#names[i] === "set-cookie");
+    }
+
+    has(name: string): boolean {
+        return this.#names.includes(headerName(name));
+    }
+
+    // Replaces the field's first value and drops the others, or adds the field.
+    set(name: string, value: string): void {
+        const key = headerName(name);
+        const first = this.#names.indexOf(key);
+        if (first < 0) {
+            this.append(key, value);
+            return;
+        }
+        this.#values[first] = headerValue(value);
+        for (let i = this.#names.length - 1; i > first; i--) {
+            if (this.#names[i] === key) {
+                this.#names.splice(i, 1);
+                this.#values.splice(i, 1);
+            }
+        }
+    }
+
+    // Each field in name order, its values combined (set-cookie's one by one), as the Fetch standard iterates them.
+    forEach(callback: (value: string, name: string, headers: Headers) => void): void {
+        for (const [name, value] of this.#sorted()) {
+            callback(value, name, this);
+        }
+    }
+
+    *entries(): Generator<[string, string]> {
+        yield* this.#sorted();
+    }
+
+    *keys(): Generator<string> {
+        for (const [name] of this.#sorted()) {
+            yield name;
+        }
+    }
+
+    *values(): Generator<string> {
+        for (const [, value] of this.#sorted()) {
+            yield value;
+        }
+    }
+
+    [Symbol.iterator](): Generator<[string, string]> {
+        return this.entries();
+    }
+
+    #sorted(): [string, string][] {
+        const names = [...new Set(this.#names)].sort();
+        const fields: [string, string][] = [];
+        for (const name of names) {
+            if (name === "set-cookie") {
+                for (const cookie of this.getSetCookie()) {
+                    fields.push([name, cookie]);
+                }
+            } else {
+                fields.push([name, this.get(name) ?? ""]);
+            }
+        }
+        return fields;
+    }
+}
+
+export interface RequestInit {
+    method?: string;
+    headers?: HeadersInit;
+    body?: string | null;
+}
+
+// A request: its method, its absolute URL, its headers and its body as text.
+export class Request {
+    readonly method: string;
+    readonly url: string;
+    readonly headers: Headers;
+    readonly #body: string;
+
+    constructor(url: string, init?: RequestInit) {
+        this.method = (init?.method ?? "GET").toUpperCase();
+        this.url = url;
+        this.headers = new Headers(init?.headers);
+        this.#body = init?.body ?? "";
+    }
+
+    text(): Promise<string> {
+        return Promise.resolve(this.#body);
+    }
+
+    async json(): Promise<any> {
+        return JSON.parse(this.#body);
+    }
+}
+
+// WebIDL's conversion to an unsigned short, which the Fetch standard's status goes through.
+function unsignedShort(n: number): number {
+    if (!Number.isFinite(n)) {
+        return 0;
+    }
+    const wrapped = Math.trunc(n) % 65536;
+    return wrapped < 0 ? wrapped + 65536 : wrapped;
+}
+
+export interface ResponseInit {
+    status?: number;
+    statusText?: string;
+    headers?: HeadersInit;
+}
+
+// A response: its status, its headers and its body as text.
+export class Response {
+    readonly status: number;
+    readonly statusText: string;
+    readonly headers: Headers;
+    readonly #body: string | null;
+
+    constructor(body: string | null = null, init?: ResponseInit) {
+        const status = unsignedShort(init?.status ?? 200);
+        if (status < 200 || status > 599) {
+            throw new RangeError(`init["status"] must be in the range of 200 to 599, inclusive.`);
+        }
+        this.status = status;
+        this.statusText = init?.statusText ?? "";
+        this.headers = new Headers(init?.headers);
+        this.#body = body;
+        if (body !== null && !this.headers.has("content-type")) {
+            this.headers.set("content-type", "text/plain;charset=UTF-8");
+        }
+    }
+
+    get ok(): boolean {
+        return this.status >= 200 && this.status <= 299;
+    }
+
+    text(): Promise<string> {
+        return Promise.resolve(this.#body ?? "");
+    }
+
+    async json(): Promise<any> {
+        return JSON.parse(this.#body ?? "");
+    }
+
+    // A response whose body is data as JSON, with the content type application/json unless init gives one.
+    static json(data: any, init?: ResponseInit): Response {
+        const response = new Response(JSON.stringify(data), init);
+        if (init === undefined || !new Headers(init.headers).has("content-type")) {
+            response.headers.set("content-type", "application/json");
+        }
+        return response;
+    }
+}
+
+export interface ServeOptions {
+    // The port to listen on (default 3000; 0 for any free port).
+    port?: number;
+    // The address to listen on (default "0.0.0.0", every IPv4 address).
+    hostname?: string;
+    // Accept connections on every event loop (D-136), each with its own SO_REUSEPORT socket.
+    reusePort?: boolean;
+    // The response to each request.
+    fetch: (request: Request, server: Server) => Response | Promise<Response>;
+    // The response when fetch throws (default: the error on stderr and a 500 response).
+    error?: (error: unknown) => Response | Promise<Response>;
+}
+
+// A listening server: where it listens, and stop().
+export class Server {
+    readonly #id: number;
+    readonly port: number;
+    readonly hostname: string;
+    readonly url: string;
+
+    constructor(options: ServeOptions) {
+        this.hostname = options.hostname ?? "0.0.0.0";
+        this.#id = pts_http_listen(options.port ?? 3000, this.hostname, options.reusePort ?? false, (connection, method, target, headers, body) => {
+            answer(options, this, connection, method, target, headers, body);
+        });
+        this.port = pts_http_port(this.#id);
+        this.url = `http://${this.hostname === "0.0.0.0" ? "localhost" : this.hostname}:${this.port}/`;
+    }
+
+    // Stops listening; idle connections close, and the others after their responses.
+    stop(): void {
+        pts_http_stop(this.#id);
+    }
+}
+
+export function serve(options: ServeOptions): Server {
+    return new Server(options);
+}
+
+async function answer(options: ServeOptions, server: Server, connection: number, method: string, target: string, fields: string[], body: string): Promise<void> {
+    const headers = new Headers();
+    for (let i = 0; i + 1 < fields.length; i += 2) {
+        headers.append(fields[i], fields[i + 1]);
+    }
+    const host = headers.get("host") ?? `${server.hostname}:${server.port}`;
+    const url = target.startsWith("/") ? `http://${host}${target}` : target;
+    const request = new Request(url, { method, headers, body });
+    let response: Response;
+    try {
+        response = await options.fetch(request, server);
+    } catch (error) {
+        response = await failed(options, error);
+    }
+    const sent: string[] = [];
+    response.headers.forEach((value, name) => {
+        sent.push(name, value);
+    });
+    pts_http_respond(connection, response.status, response.statusText, sent, await response.text());
+}
+
+// The response to a request whose handler threw: the error handler's, or a 500.
+async function failed(options: ServeOptions, error: unknown): Promise<Response> {
+    const handler = options.error;
+    if (handler !== undefined) {
+        try {
+            return await handler(error);
+        } catch (thrown) {
+            error = thrown;
+        }
+    }
+    console.error(error);
+    return new Response("Internal Server Error", { status: 500 });
+}

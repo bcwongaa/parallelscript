@@ -1,0 +1,63 @@
+// pts:http's Headers, Request and Response (D-136) as the Fetch standard has them: names
+// compared without case, values combined (set-cookie apart), iteration in name order,
+// bodies as text and JSON, status checks. Checked against Node's own Fetch classes.
+import { Headers, Request, Response } from "pts:http";
+
+const headers = new Headers({ "Content-Type": "text/plain", "X-B": "2" });
+headers.append("x-a", "1");
+headers.append("X-A", " 3 ");
+headers.set("x-b", "4");
+console.log(headers.get("x-a"), headers.get("X-B"), headers.get("missing"), headers.has("content-type"));
+console.log([...headers], [...headers.keys()], [...headers.values()]);
+headers.delete("X-A");
+const seen: string[] = [];
+headers.forEach((value, name) => seen.push(`${name}=${value}`));
+console.log(seen, new Headers(headers).get("content-type"));
+
+const cookies = new Headers([["set-cookie", "a=1"], ["Set-Cookie", "b=2"], ["accept", "*/*"]]);
+console.log(cookies.getSetCookie(), cookies.get("set-cookie"), [...cookies.entries()]);
+try {
+  headers.set("bad name", "x");
+} catch (e) {
+  console.log((e as Error).name);
+}
+
+const made = new Response("made", { status: 201, statusText: "Made", headers: { "x-y": "z" } });
+console.log(made.status, made.statusText, made.ok, made.headers.get("content-type"), made.headers.get("x-y"), await made.text());
+const json = Response.json({ list: [1, 2], ok: true }, { status: 404 });
+console.log(json.status, json.ok, json.headers.get("content-type"), await json.json());
+const typed = Response.json([1], { headers: { "content-type": "application/vnd.test+json" } });
+console.log(typed.headers.get("content-type"), await typed.text());
+const empty = new Response();
+console.log(empty.status, empty.statusText === "", empty.headers.has("content-type"), JSON.stringify(await empty.text()));
+for (const status of [199, 600, 200.5, 65736]) {
+  try {
+    new Response("x", { status });
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
+
+const request = new Request("http://example.com/path?q=1", { method: "post", headers: [["Accept", "*/*"]], body: '{"n":1}' });
+console.log(request.method, request.url, request.headers.get("accept"), await request.json());
+const plain = new Request("http://example.com/");
+console.log(plain.method, JSON.stringify(await plain.text()), [...plain.headers]);
+// no-diff: imports pts:http; its output was checked against Node's own Headers, Request and Response
+// expect:
+// 1, 3 4 null true
+// [ [ 'content-type', 'text/plain' ], [ 'x-a', '1, 3' ], [ 'x-b', '4' ] ] [ 'content-type', 'x-a', 'x-b' ] [ 'text/plain', '1, 3', '4' ]
+// [ 'content-type=text/plain', 'x-b=4' ] text/plain
+// [ 'a=1', 'b=2' ] a=1, b=2 [
+//   [ 'accept', '*/*' ],
+//   [ 'set-cookie', 'a=1' ],
+//   [ 'set-cookie', 'b=2' ]
+// ]
+// TypeError
+// 201 Made true text/plain;charset=UTF-8 z made
+// 404 false application/json { list: [ 1, 2 ], ok: true }
+// application/vnd.test+json [1]
+// 200 true false ""
+// RangeError init["status"] must be in the range of 200 to 599, inclusive.
+// RangeError init["status"] must be in the range of 200 to 599, inclusive.
+// POST http://example.com/path?q=1 */* { n: 1 }
+// GET "" []

@@ -32,6 +32,9 @@ func (e *emitter) collectChecks(program *ir.Program) {
 					e.usesLoop = true
 					e.usesPromises = true
 				}
+				if x.Func.Listens { // the loop serves its connections (D-136)
+					e.usesLoop = true
+				}
 			case *ir.CallBuiltin:
 				switch x.Builtin {
 				case ir.DynamicSet, ir.DynamicHas: // `k in o` finds methods in method tables too

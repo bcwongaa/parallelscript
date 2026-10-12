@@ -1,0 +1,69 @@
+// The server TestHTTPServer talks to (D-136): it prints the ports it listens on, then a
+// line per request; GET /stop stops both servers, so the program ends.
+import { serve, Headers, Request, Response, Server } from "pts:http";
+
+function pathOf(request: Request): string {
+  return request.url.slice(request.url.indexOf("/", "http://".length));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let plain: Server | undefined;
+const main = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request, server) {
+    const path = pathOf(request);
+    console.log(request.method, path);
+    if (path === "/hello") {
+      return new Response("hello");
+    }
+    if (path === "/echo") {
+      return new Response(await request.text(), { headers: { "content-type": request.headers.get("content-type") ?? "text/plain" } });
+    }
+    if (path.startsWith("/json")) {
+      const body = request.method === "POST" ? await request.json() : null;
+      return Response.json({ method: request.method, path, body, agent: request.headers.get("user-agent"), port: server.port });
+    }
+    if (path === "/status") {
+      const headers = new Headers([["x-test", "a"], ["set-cookie", "one=1"]]);
+      headers.append("set-cookie", "two=2");
+      headers.append("x-test", "b");
+      return new Response(null, { status: 201, statusText: "Made", headers });
+    }
+    if (path === "/later") {
+      await sleep(20);
+      return new Response("later");
+    }
+    if (path === "/throw") {
+      throw new Error("boom");
+    }
+    if (path === "/stop") {
+      plain?.stop();
+      server.stop();
+      return new Response("bye");
+    }
+    return new Response("no such page", { status: 404 });
+  },
+  error(error) {
+    return new Response(`handled: ${(error as Error).message}`, { status: 503 });
+  },
+});
+plain = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch(request) {
+    if (pathOf(request) === "/throw") {
+      throw new TypeError("unhandled");
+    }
+    return new Response(`plain ${request.method}`);
+  },
+});
+console.log("listening", main.port, plain.port, main.url === `http://127.0.0.1:${main.port}/`);
+try {
+  serve({ port: main.port, hostname: "127.0.0.1", fetch: () => new Response("") });
+} catch (error) {
+  console.log((error as Error).message.replace(String(main.port), "PORT"));
+}

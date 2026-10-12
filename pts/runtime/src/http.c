@@ -1,0 +1,734 @@
+/*
+ * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens. Each
+ * connection reads requests one at a time (pipelined ones wait in its buffer), hands each
+ * to the program's request callback with an id, stops reading until pts_http_respond
+ * answers that id, writes the response, and goes on with the next request or closes, as
+ * keep-alive says. Ids name a slot in the loop's table and its generation, so an answer
+ * for a connection that has closed meanwhile finds nothing and is dropped.
+ *
+ * libuv's handles and the bytes read and written are malloc'd: they hold no collected
+ * pointers. A server is uncollectable while it listens, so the collector sees its callback.
+ */
+#include "pts.h"
+
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <uv.h>
+
+enum {
+  MAX_HEAD = 64 * 1024,          /* the request line and headers: more is 431 */
+  MAX_BODY = 64 * 1024 * 1024,   /* a request body: more is 413 */
+  READ_SIZE = 64 * 1024,         /* bytes asked of each read */
+  SLOT_BITS = 20,                /* an id is generation * 2^20 + slot */
+  MAX_SERVERS = 1024,
+};
+
+typedef struct server {
+  pts_closure *on_request; /* (id, method, target, headers, body) => void */
+  uv_tcp_t *listener;      /* NULL once stopped */
+  struct connection *connections;
+  int port;
+  bool stopped;
+} server;
+
+typedef struct connection {
+  uv_tcp_t tcp;
+  server *server;
+  struct connection *next, *prev; /* the server's connections */
+  char *in;                       /* bytes read and not yet taken by a request */
+  size_t in_len, in_cap;
+  uint32_t slot;
+  bool busy;        /* a request is with the program */
+  bool dispatching; /* inside the request callback */
+  bool keep_alive;  /* of the request being answered */
+  bool http10;      /* the request being answered is HTTP/1.0, which keeps alive only if asked */
+  bool head;        /* the request being answered is a HEAD */
+  bool continued;   /* 100 Continue was sent for the request being read */
+  bool closing;
+} connection;
+
+/* The loop's connections by slot, and each slot's generation; free slots chain through `free_next`. */
+typedef struct connection_table {
+  connection **connections;
+  uint32_t *generations, *free_next;
+  uint32_t capacity, free_head;
+} connection_table;
+
+static _Thread_local connection_table table = {.free_head = UINT32_MAX};
+static server *servers[MAX_SERVERS]; /* a server's id is its index; they are never freed (a program makes few) */
+static uint32_t server_count;
+static uv_mutex_t servers_lock;
+static uv_once_t servers_once = UV_ONCE_INIT;
+
+static void *checked(void *memory) {
+  if (memory == NULL) {
+    pts_panic("RangeError", "Out of memory in the HTTP server");
+  }
+  return memory;
+}
+
+/* ---------------------------------------------------------------- ids */
+
+static double id_of(const connection *c) { return (double)table.generations[c->slot] * (1 << SLOT_BITS) + c->slot; }
+
+static void add_to_table(connection *c) {
+  if (table.free_head == UINT32_MAX) {
+    uint32_t old = table.capacity, capacity = old == 0 ? 64 : old * 2;
+    if (capacity > (1u << SLOT_BITS)) {
+      pts_panic("RangeError", "Too many HTTP connections on one loop");
+    }
+    table.connections = checked(realloc(table.connections, capacity * sizeof *table.connections));
+    table.generations = checked(realloc(table.generations, capacity * sizeof *table.generations));
+    table.free_next = checked(realloc(table.free_next, capacity * sizeof *table.free_next));
+    for (uint32_t s = old; s < capacity; s++) {
+      table.connections[s] = NULL;
+      table.generations[s] = 0;
+      table.free_next[s] = s + 1 < capacity ? s + 1 : UINT32_MAX;
+    }
+    table.free_head = old;
+    table.capacity = capacity;
+  }
+  c->slot = table.free_head;
+  table.free_head = table.free_next[c->slot];
+  table.connections[c->slot] = c;
+}
+
+static void remove_from_table(const connection *c) {
+  table.connections[c->slot] = NULL;
+  table.generations[c->slot] = (table.generations[c->slot] + 1) & 0xFFFFFFFFu;
+  table.free_next[c->slot] = table.free_head;
+  table.free_head = c->slot;
+}
+
+/* The connection id names on this loop, if it is still open. */
+static connection *connection_of(double id) {
+  if (!(id >= 0) || id != (double)(uint64_t)id) {
+    return NULL;
+  }
+  uint64_t n = (uint64_t)id;
+  uint32_t slot = (uint32_t)(n & ((1u << SLOT_BITS) - 1)), generation = (uint32_t)(n >> SLOT_BITS);
+  if (slot >= table.capacity || table.connections[slot] == NULL || table.generations[slot] != generation) {
+    return NULL;
+  }
+  return table.connections[slot];
+}
+
+/* ---------------------------------------------------------------- connections */
+
+static void on_closed(uv_handle_t *handle) {
+  connection *c = (connection *)handle;
+  free(c->in);
+  free(c);
+}
+
+static void close_connection(connection *c) {
+  if (c->closing) {
+    return;
+  }
+  c->closing = true;
+  remove_from_table(c);
+  if (c->prev != NULL) {
+    c->prev->next = c->next;
+  } else {
+    c->server->connections = c->next;
+  }
+  if (c->next != NULL) {
+    c->next->prev = c->prev;
+  }
+  uv_close((uv_handle_t *)&c->tcp, on_closed);
+}
+
+typedef struct write_request {
+  uv_write_t req;
+  connection *connection;
+  bool close_after;
+  char bytes[];
+} write_request;
+
+static void on_written(uv_write_t *req, int status) {
+  write_request *w = (write_request *)req;
+  connection *c = w->connection;
+  if (!c->closing && (status < 0 || w->close_after)) {
+    close_connection(c);
+  }
+  free(w);
+}
+
+/* Writes len bytes of text and, if close_after, closes the connection once they are out. */
+static void send_bytes(connection *c, const char *text, size_t len, bool close_after) {
+  write_request *w = checked(malloc(sizeof *w + len));
+  memcpy(w->bytes, text, len);
+  w->connection = c;
+  w->close_after = close_after;
+  uv_buf_t buf = uv_buf_init(w->bytes, (unsigned)len);
+  if (uv_write(&w->req, (uv_stream_t *)&c->tcp, &buf, 1, on_written) < 0) {
+    free(w);
+    close_connection(c);
+  }
+}
+
+/* An error the server answers itself, closing the connection after it. */
+static void send_error(connection *c, int status, const char *reason) {
+  char text[160];
+  int len = snprintf(text, sizeof text, "HTTP/1.1 %d %s\r\ncontent-length: 0\r\nconnection: close\r\n\r\n", status, reason);
+  c->busy = true; /* nothing more is read from it */
+  send_bytes(c, text, (size_t)len, true);
+}
+
+/* ---------------------------------------------------------------- parsing */
+
+/* A parsed request's parts, pointing into the connection's buffer. */
+typedef struct request {
+  const char *method, *target;
+  size_t method_len, target_len;
+  int minor; /* HTTP/1.minor */
+  const char *head_end;   /* past the blank line */
+  pts_array *headers;     /* names (lowercase) and values, in turn */
+  bool chunked, keep_alive, expect_continue;
+  int64_t content_length; /* -1 if not given */
+} request;
+
+static bool is_token_char(char ch) {
+  return ch > ' ' && ch < 127 && strchr("()<>@,;:\\\"/[]?={}", ch) == NULL;
+}
+
+static pts_string *lowercase(const char *bytes, size_t len) {
+  char *lower = checked(malloc(len + 1));
+  for (size_t i = 0; i < len; i++) {
+    lower[i] = (bytes[i] >= 'A' && bytes[i] <= 'Z') ? (char)(bytes[i] + 32) : bytes[i];
+  }
+  pts_string *s = pts_string_from_utf8(lower, len);
+  free(lower);
+  return s;
+}
+
+static bool equals_ignoring_case(const char *bytes, size_t len, const char *word) {
+  return strlen(word) == len && strncasecmp(bytes, word, len) == 0;
+}
+
+/* Whether a comma-separated header value lists word, ignoring case. */
+static bool lists(const char *value, size_t len, const char *word) {
+  size_t i = 0;
+  while (i < len) {
+    while (i < len && (value[i] == ' ' || value[i] == '\t' || value[i] == ',')) {
+      i++;
+    }
+    size_t start = i;
+    while (i < len && value[i] != ',') {
+      i++;
+    }
+    size_t end = i;
+    while (end > start && (value[end - 1] == ' ' || value[end - 1] == '\t')) {
+      end--;
+    }
+    if (equals_ignoring_case(value + start, end - start, word)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Parses the request line and headers ending at head_end; false for a malformed one. */
+static bool parse_head(const char *bytes, const char *head_end, request *r) {
+  const char *p = bytes, *line_end = memchr(p, '\n', (size_t)(head_end - p));
+  const char *space = memchr(p, ' ', (size_t)(line_end - p));
+  if (space == NULL || space == p) {
+    return false;
+  }
+  r->method = p, r->method_len = (size_t)(space - p);
+  for (size_t i = 0; i < r->method_len; i++) {
+    if (!is_token_char(p[i])) {
+      return false;
+    }
+  }
+  r->target = space + 1;
+  const char *second = memchr(r->target, ' ', (size_t)(line_end - r->target));
+  if (second == NULL || second == r->target) {
+    return false;
+  }
+  r->target_len = (size_t)(second - r->target);
+  const char *version = second + 1;
+  size_t version_len = (size_t)(line_end - version) - (line_end[-1] == '\r');
+  if (version_len != 8 || memcmp(version, "HTTP/1.", 7) != 0 || version[7] < '0' || version[7] > '9') {
+    return false;
+  }
+  r->minor = version[7] - '0';
+  r->keep_alive = r->minor >= 1;
+  r->content_length = -1;
+  r->headers = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
+  for (p = line_end + 1; p < head_end;) {
+    const char *end = memchr(p, '\n', (size_t)(head_end - p));
+    size_t len = (size_t)(end - p) - (end > p && end[-1] == '\r');
+    if (len == 0) {
+      break; /* the blank line */
+    }
+    const char *colon = memchr(p, ':', len);
+    if (colon == NULL || colon == p) {
+      return false;
+    }
+    size_t name_len = (size_t)(colon - p);
+    for (size_t i = 0; i < name_len; i++) {
+      if (!is_token_char(p[i])) {
+        return false;
+      }
+    }
+    const char *value = colon + 1, *value_end = p + len;
+    while (value < value_end && (*value == ' ' || *value == '\t')) {
+      value++;
+    }
+    while (value_end > value && (value_end[-1] == ' ' || value_end[-1] == '\t')) {
+      value_end--;
+    }
+    size_t value_len = (size_t)(value_end - value);
+    if (equals_ignoring_case(p, name_len, "content-length")) {
+      char *digits_end;
+      char digits[24];
+      if (value_len == 0 || value_len >= sizeof digits) {
+        return false;
+      }
+      memcpy(digits, value, value_len);
+      digits[value_len] = '\0';
+      long long n = strtoll(digits, &digits_end, 10);
+      if (*digits_end != '\0' || n < 0 || (r->content_length >= 0 && r->content_length != n)) {
+        return false;
+      }
+      r->content_length = n;
+    } else if (equals_ignoring_case(p, name_len, "transfer-encoding")) {
+      r->chunked = lists(value, value_len, "chunked");
+    } else if (equals_ignoring_case(p, name_len, "connection")) {
+      if (lists(value, value_len, "close")) {
+        r->keep_alive = false;
+      } else if (lists(value, value_len, "keep-alive")) {
+        r->keep_alive = true;
+      }
+    } else if (equals_ignoring_case(p, name_len, "expect")) {
+      r->expect_continue = equals_ignoring_case(value, value_len, "100-continue");
+    }
+    pts_string *pair[] = {lowercase(p, name_len), pts_string_from_utf8_lossy(value, value_len)};
+    pts_array_push(r->headers, pair, 2);
+    p = end + 1;
+  }
+  return true;
+}
+
+/*
+ * Decodes a chunked body that starts at body: the body's bytes into *out (malloc'd) and
+ * the bytes it took from the buffer into *used. 0 if the buffer doesn't hold all of it
+ * yet, -1 if it is malformed, -2 if it is too large, 1 if done.
+ */
+static int dechunk(const char *body, const char *end, char **out, size_t *out_len, size_t *used) {
+  const char *p = body;
+  size_t len = 0, cap = 0;
+  char *bytes = NULL;
+  for (;;) {
+    const char *line_end = memchr(p, '\n', (size_t)(end - p));
+    if (line_end == NULL) {
+      free(bytes);
+      return (size_t)(end - p) > 1024 ? -1 : 0;
+    }
+    char *size_end;
+    unsigned long long size = strtoull(p, &size_end, 16);
+    if (size_end == p) {
+      free(bytes);
+      return -1;
+    }
+    if (size > MAX_BODY || len + size > MAX_BODY) {
+      free(bytes);
+      return -2;
+    }
+    p = line_end + 1;
+    if (size == 0) {
+      for (;;) { /* trailers, until the blank line */
+        const char *trailer_end = memchr(p, '\n', (size_t)(end - p));
+        if (trailer_end == NULL) {
+          free(bytes);
+          return 0;
+        }
+        bool blank = trailer_end == p || (trailer_end == p + 1 && *p == '\r');
+        p = trailer_end + 1;
+        if (blank) {
+          break;
+        }
+      }
+      *out = bytes, *out_len = len, *used = (size_t)(p - body);
+      return 1;
+    }
+    if ((size_t)(end - p) < size + 1) {
+      free(bytes);
+      return 0;
+    }
+    if (len + size > cap) {
+      cap = (len + size) * 2;
+      bytes = checked(realloc(bytes, cap));
+    }
+    memcpy(bytes + len, p, size);
+    len += size;
+    p += size;
+    if (*p == '\r') {
+      p++;
+    }
+    if (p >= end) {
+      free(bytes);
+      return 0;
+    }
+    if (*p != '\n') {
+      free(bytes);
+      return -1;
+    }
+    p++;
+  }
+}
+
+/* ---------------------------------------------------------------- requests */
+
+static void dispatch(connection *c, request *r, const char *body, size_t body_len) {
+  c->busy = true;
+  c->keep_alive = r->keep_alive && !c->server->stopped;
+  c->http10 = r->minor == 0;
+  c->head = equals_ignoring_case(r->method, r->method_len, "HEAD");
+  c->continued = false;
+  uv_read_stop((uv_stream_t *)&c->tcp);
+  pts_closure *on_request = c->server->on_request;
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    pts_report_uncaught(pts_caught(&handler));
+  }
+  c->dispatching = true;
+  ((void (*)(pts_closure *, double, pts_string *, pts_string *, pts_array *, pts_string *))on_request->code)(
+      on_request, id_of(c), pts_string_from_utf8(r->method, r->method_len), pts_string_from_utf8_lossy(r->target, r->target_len), r->headers,
+      pts_string_from_utf8_lossy(body, body_len));
+  c->dispatching = false;
+  pts_try_leave(&handler);
+  pts_run_microtasks();
+}
+
+/* Takes count bytes from the front of the connection's buffer. */
+static void consume(connection *c, size_t count) {
+  memmove(c->in, c->in + count, c->in_len - count);
+  c->in_len -= count;
+}
+
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
+static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
+
+/* Hands the program the next complete request in the buffer, if it isn't busy with one. */
+static void process(connection *c) {
+  while (!c->busy && !c->closing) {
+    size_t blank = 0;
+    while (blank < c->in_len && (c->in[blank] == '\r' || c->in[blank] == '\n')) {
+      blank++; /* empty lines before a request */
+    }
+    consume(c, blank);
+    const char *end = c->in + c->in_len, *head_end = NULL;
+    for (const char *p = c->in; p < end; p++) {
+      if (*p == '\n' && ((p > c->in && p[-1] == '\n') || (p > c->in + 1 && p[-1] == '\r' && p[-2] == '\n'))) {
+        head_end = p + 1;
+        break;
+      }
+    }
+    if (head_end == NULL) {
+      if (c->in_len > MAX_HEAD) {
+        send_error(c, 431, "Request Header Fields Too Large");
+      }
+      return;
+    }
+    request r = {0};
+    if (!parse_head(c->in, head_end, &r)) {
+      send_error(c, 400, "Bad Request");
+      return;
+    }
+    char *body = NULL;
+    size_t body_len = 0, used = (size_t)(head_end - c->in);
+    if (r.chunked) {
+      size_t chunked_used;
+      int done = dechunk(head_end, end, &body, &body_len, &chunked_used);
+      if (done < 0) {
+        send_error(c, done == -2 ? 413 : 400, done == -2 ? "Content Too Large" : "Bad Request");
+        return;
+      }
+      if (done == 0) {
+        if (r.expect_continue && !c->continued) {
+          c->continued = true;
+          send_bytes(c, "HTTP/1.1 100 Continue\r\n\r\n", 25, false);
+        }
+        return;
+      }
+      used += chunked_used;
+    } else if (r.content_length > 0) {
+      if (r.content_length > MAX_BODY) {
+        send_error(c, 413, "Content Too Large");
+        return;
+      }
+      if ((int64_t)(end - head_end) < r.content_length) {
+        if (r.expect_continue && !c->continued) {
+          c->continued = true;
+          send_bytes(c, "HTTP/1.1 100 Continue\r\n\r\n", 25, false);
+        }
+        return;
+      }
+      body_len = (size_t)r.content_length;
+      body = checked(malloc(body_len));
+      memcpy(body, head_end, body_len);
+      used += body_len;
+    }
+    request copy = r; /* r's method and target point into the buffer: copied before consume moves its bytes */
+    char *line = checked(malloc(r.method_len + r.target_len));
+    memcpy(line, r.method, r.method_len);
+    memcpy(line + r.method_len, r.target, r.target_len);
+    copy.method = line, copy.target = line + r.method_len;
+    consume(c, used);
+    dispatch(c, &copy, body, body_len);
+    free(line);
+    free(body);
+  }
+}
+
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
+  (void)suggested;
+  connection *c = (connection *)handle;
+  if (c->in_cap - c->in_len < READ_SIZE) {
+    c->in_cap = c->in_len + READ_SIZE;
+    c->in = checked(realloc(c->in, c->in_cap));
+  }
+  *buf = uv_buf_init(c->in + c->in_len, READ_SIZE);
+}
+
+static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+  (void)buf;
+  connection *c = (connection *)stream;
+  if (nread < 0) {
+    close_connection(c); /* the client closed, or an error */
+    return;
+  }
+  c->in_len += (size_t)nread;
+  process(c);
+}
+
+static void on_connection(uv_stream_t *listener, int status) {
+  server *s = listener->data;
+  if (status < 0 || s->stopped) {
+    return;
+  }
+  connection *c = checked(calloc(1, sizeof *c));
+  uv_tcp_init(listener->loop, &c->tcp);
+  if (uv_accept(listener, (uv_stream_t *)&c->tcp) < 0) {
+    uv_close((uv_handle_t *)&c->tcp, on_closed);
+    return;
+  }
+  uv_tcp_nodelay(&c->tcp, 1);
+  c->server = s;
+  add_to_table(c);
+  c->next = s->connections;
+  if (s->connections != NULL) {
+    s->connections->prev = c;
+  }
+  s->connections = c;
+  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
+}
+
+/* ---------------------------------------------------------------- responses */
+
+static const char *reason_phrase(int status) {
+  switch (status) {
+  case 100: return "Continue";
+  case 101: return "Switching Protocols";
+  case 200: return "OK";
+  case 201: return "Created";
+  case 202: return "Accepted";
+  case 204: return "No Content";
+  case 206: return "Partial Content";
+  case 301: return "Moved Permanently";
+  case 302: return "Found";
+  case 303: return "See Other";
+  case 304: return "Not Modified";
+  case 307: return "Temporary Redirect";
+  case 308: return "Permanent Redirect";
+  case 400: return "Bad Request";
+  case 401: return "Unauthorized";
+  case 403: return "Forbidden";
+  case 404: return "Not Found";
+  case 405: return "Method Not Allowed";
+  case 406: return "Not Acceptable";
+  case 408: return "Request Timeout";
+  case 409: return "Conflict";
+  case 410: return "Gone";
+  case 411: return "Length Required";
+  case 412: return "Precondition Failed";
+  case 413: return "Content Too Large";
+  case 414: return "URI Too Long";
+  case 415: return "Unsupported Media Type";
+  case 422: return "Unprocessable Content";
+  case 426: return "Upgrade Required";
+  case 429: return "Too Many Requests";
+  case 431: return "Request Header Fields Too Large";
+  case 500: return "Internal Server Error";
+  case 501: return "Not Implemented";
+  case 502: return "Bad Gateway";
+  case 503: return "Service Unavailable";
+  case 504: return "Gateway Timeout";
+  default: return "";
+  }
+}
+
+/* A growing buffer of the response being written (malloc'd). */
+typedef struct text {
+  char *bytes;
+  size_t len, cap;
+} text;
+
+static void add(text *t, const char *bytes, size_t len) {
+  if (t->len + len > t->cap) {
+    t->cap = (t->len + len) * 2 + 256;
+    t->bytes = checked(realloc(t->bytes, t->cap));
+  }
+  memcpy(t->bytes + t->len, bytes, len);
+  t->len += len;
+}
+
+static void add_cstr(text *t, const char *s) { add(t, s, strlen(s)); }
+
+/* Whether a header the program gave is one the server writes itself. */
+static bool is_framing_header(const pts_string *name) {
+  return equals_ignoring_case(name->bytes, name->byte_len, "content-length") || equals_ignoring_case(name->bytes, name->byte_len, "transfer-encoding") ||
+         equals_ignoring_case(name->bytes, name->byte_len, "connection");
+}
+
+void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body) {
+  connection *c = connection_of(id);
+  if (c == NULL || !c->busy || c->closing) {
+    return; /* closed meanwhile, or answered already */
+  }
+  int code = status >= 100 && status <= 999 ? (int)status : 500;
+  bool bodiless = (code >= 100 && code < 200) || code == 204 || code == 304;
+  bool keep_alive = c->keep_alive && !c->server->stopped;
+  text t = {0};
+  char line[96];
+  add(&t, line, (size_t)snprintf(line, sizeof line, "HTTP/1.1 %d ", code));
+  if (status_text->byte_len > 0) {
+    add(&t, status_text->bytes, status_text->byte_len);
+  } else {
+    add_cstr(&t, reason_phrase(code));
+  }
+  add_cstr(&t, "\r\n");
+  size_t count = pts_array_length_of(headers);
+  for (size_t i = 0; i + 1 < count; i += 2) {
+    const pts_string *name = pts_value_as_string(pts_array_element(headers, (double)i));
+    const pts_string *value = pts_value_as_string(pts_array_element(headers, (double)i + 1));
+    if (is_framing_header(name) || memchr(name->bytes, '\n', name->byte_len) != NULL || memchr(name->bytes, '\r', name->byte_len) != NULL ||
+        memchr(value->bytes, '\n', value->byte_len) != NULL || memchr(value->bytes, '\r', value->byte_len) != NULL) {
+      continue; /* framed by the server; a line break would split the response */
+    }
+    add(&t, name->bytes, name->byte_len);
+    add_cstr(&t, ": ");
+    add(&t, value->bytes, value->byte_len);
+    add_cstr(&t, "\r\n");
+  }
+  if (!bodiless) {
+    add(&t, line, (size_t)snprintf(line, sizeof line, "content-length: %u\r\n", body->byte_len));
+  }
+  if (!keep_alive) {
+    add_cstr(&t, "connection: close\r\n");
+  } else if (c->http10) {
+    add_cstr(&t, "connection: keep-alive\r\n");
+  }
+  add_cstr(&t, "\r\n");
+  if (!bodiless && !c->head) {
+    add(&t, body->bytes, body->byte_len);
+  }
+  send_bytes(c, t.bytes, t.len, !keep_alive);
+  free(t.bytes);
+  if (!keep_alive) {
+    return;
+  }
+  c->busy = false;
+  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
+  if (!c->dispatching) {
+    process(c); /* answered after the callback returned: the buffered requests, which process's own loop would take otherwise */
+  }
+}
+
+/* ---------------------------------------------------------------- servers */
+
+static void init_servers(void) { uv_mutex_init(&servers_lock); }
+
+static void on_listener_closed(uv_handle_t *handle) { free(handle); }
+
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request) {
+  (void)every_loop;
+  uv_once(&servers_once, init_servers);
+  char host[256];
+  snprintf(host, sizeof host, "%.*s", (int)hostname->byte_len, hostname->bytes);
+  if (strcmp(host, "localhost") == 0) {
+    strcpy(host, "127.0.0.1");
+  }
+  struct sockaddr_storage address;
+  int error = uv_ip4_addr(host, (int)port, (struct sockaddr_in *)&address);
+  if (error != 0) {
+    error = uv_ip6_addr(host, (int)port, (struct sockaddr_in6 *)&address);
+  }
+  if (error != 0) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Invalid hostname \"%s\": an IPv4 or IPv6 address is expected", host);
+  }
+  uv_tcp_t *listener = checked(malloc(sizeof *listener));
+  uv_tcp_init(pts_uv_loop(), listener);
+  error = uv_tcp_bind(listener, (const struct sockaddr *)&address, 0);
+  if (error == 0) {
+    error = uv_listen((uv_stream_t *)listener, 511, on_connection);
+  }
+  if (error != 0) {
+    uv_close((uv_handle_t *)listener, on_listener_closed);
+    pts_throw_new(&pts_type_builtin_Error, "listen %s: %s %s:%d", uv_err_name(error), uv_strerror(error), host, (int)port);
+  }
+  struct sockaddr_storage bound;
+  int bound_len = sizeof bound;
+  uv_tcp_getsockname(listener, (struct sockaddr *)&bound, &bound_len);
+  server *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s));
+  s->on_request = on_request;
+  s->listener = listener;
+  s->port = ntohs(bound.ss_family == AF_INET6 ? ((struct sockaddr_in6 *)&bound)->sin6_port : ((struct sockaddr_in *)&bound)->sin_port);
+  listener->data = s;
+  uv_mutex_lock(&servers_lock);
+  if (server_count == MAX_SERVERS) {
+    uv_mutex_unlock(&servers_lock);
+    pts_throw_new(&pts_type_builtin_RangeError, "Too many HTTP servers");
+  }
+  uint32_t id = server_count++;
+  servers[id] = s;
+  uv_mutex_unlock(&servers_lock);
+  return id;
+}
+
+static server *server_of(double id) {
+  uint32_t n = id >= 0 && id < MAX_SERVERS ? (uint32_t)id : MAX_SERVERS;
+  uv_mutex_lock(&servers_lock);
+  server *s = n < server_count ? servers[n] : NULL;
+  uv_mutex_unlock(&servers_lock);
+  if (s == NULL) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Not an HTTP server");
+  }
+  return s;
+}
+
+double pts_http_port(double id) { return server_of(id)->port; }
+
+void pts_http_stop(double id) {
+  server *s = server_of(id);
+  if (s->stopped) {
+    return;
+  }
+  s->stopped = true;
+  uv_close((uv_handle_t *)s->listener, on_listener_closed);
+  s->listener = NULL;
+  for (connection *c = s->connections, *next; c != NULL; c = next) {
+    next = c->next;
+    if (!c->busy) {
+      close_connection(c); /* idle: nothing to finish */
+    } else {
+      c->keep_alive = false; /* closes after its response */
+    }
+  }
+}

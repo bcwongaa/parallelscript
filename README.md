@@ -520,7 +520,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M3 The TypeScript feel | Unions, optional chaining, exceptions and stack traces, checked `any`, JSON, the standard built-ins, `console.log` parity, a 300-program corpus compared with Node | done (`m3`) |
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
-| M6 Real programs | RegExp, String methods with RegExps and `normalize` (done); the documentation refresh (in progress); `pts:http`, `fetch`, example apps (planned) | in progress |
+| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop (done); the server on every loop, `fetch`, example apps (planned) | in progress |
 | M7 Editor support | `pts lsp`, a VS Code extension, a usability pass | planned |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
@@ -529,7 +529,7 @@ Planned after M7, if the project goes on: M8, performance work (escape analysis,
 
 Not built yet:
 
-- `pts:http`, `fetch` (M6), `pts lsp`, the VS Code extension and `pts test` (M7).
+- `pts:http` on every loop and `fetch` (M6), `pts lsp`, the VS Code extension and `pts test` (M7).
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`.
 

@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/resource.h>
 #include <unistd.h>
@@ -30,6 +31,7 @@ enum { DEFAULT_STACK_SIZE = 8 << 20 };
 typedef struct loop_slot {
   uv_loop_t *uv;
   uv_async_t *wake;     /* what other threads send to, to make the loop read its inbox */
+  uv_prepare_t *flush;  /* flushes stdout before the loop waits for I/O */
   pthread_mutex_t lock; /* guards the inbox and sleeping */
   pthread_cond_t woken;
   pts_message *first, *last;           /* messages, in the order they came */
@@ -60,6 +62,12 @@ static void *checked(void *memory) {
 
 static void on_wake(uv_async_t *handle);
 
+/* Before a loop waits for I/O, what the program printed goes out: a server's log lines appear as it runs, as Node's do (D-136). */
+static void on_prepare(uv_prepare_t *handle) {
+  (void)handle;
+  fflush(stdout);
+}
+
 static loop_slot *new_slot(void) {
   loop_slot *slot = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *slot));
   slot->uv = checked(malloc(sizeof *slot->uv));
@@ -69,6 +77,10 @@ static loop_slot *new_slot(void) {
   }
   slot->wake->data = slot;
   uv_unref((uv_handle_t *)slot->wake); /* waiting for messages doesn't keep a loop running: it sleeps until one comes */
+  slot->flush = checked(malloc(sizeof *slot->flush));
+  uv_prepare_init(slot->uv, slot->flush);
+  uv_prepare_start(slot->flush, on_prepare);
+  uv_unref((uv_handle_t *)slot->flush);
   pthread_mutex_init(&slot->lock, NULL);
   pthread_cond_init(&slot->woken, NULL);
   return slot;

@@ -1768,6 +1768,22 @@ pts_value pts_match_index(const pts_array *array);
 pts_value pts_match_input(const pts_array *array);
 pts_value pts_match_groups(const pts_array *array);
 
+/* ---------------------------------------------------------------- pts:http (D-136) */
+
+/*
+ * Listens on hostname:port (port 0: any free port) on this loop and calls on_request, a
+ * (id, method, target, headers, body) => void, for each request: headers are lowercase
+ * names and values in turn. Returns the server's id; Error with Node's message (`listen
+ * EADDRINUSE: …`) if it can't listen.
+ */
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, struct pts_closure *on_request);
+/* Answers request id (ignored if its connection has closed): headers are names and values in turn. */
+void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body);
+/* The port server id listens on. */
+double pts_http_port(double id);
+/* Stops server id: no more connections; idle ones close, busy ones after their responses. */
+void pts_http_stop(double id);
+
 /* ---------------------------------------------------------------- String.prototype.normalize (D-135) */
 
 /* s.normalize(form): NFC (form undefined), NFD, NFKC or NFKD; RangeError for another form. */

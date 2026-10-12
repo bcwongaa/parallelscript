@@ -310,7 +310,7 @@ func isArrayIndex(name string) bool {
 // its properties in the order the literal writes them, or a hash-map object if its
 // contextual type or its own is one (D-059).
 func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
-	for _, t := range []*checker.Type{l.literalContext(node), l.typeAt(node)} {
+	for _, t := range []*checker.Type{l.literalContext(node), l.recordMemberOfContext(node), l.typeAt(node)} {
 		if t == nil {
 			continue
 		}
@@ -668,6 +668,32 @@ func (l *lowerer) literalContext(node *ast.Node) *checker.Type {
 		return nil
 	}
 	return l.checker.GetNonNullableType(contextual)
+}
+
+// recordMemberOfContext is, where node goes into a union with a class among its members
+// (Fetch's HeadersInit, `Headers | Record<string, string> | [string, string][]`), its one
+// hash-map object member, if the literal's type is assignable to that and to no other
+// object member: a literal can't make the class's instances. Else nil; other unions with
+// hash-map members (recursive JSON types) make shapes (D-089).
+func (l *lowerer) recordMemberOfContext(node *ast.Node) *checker.Type {
+	context := l.literalContext(node)
+	if context == nil || context.Flags()&checker.TypeFlagsUnion == 0 || !slices.ContainsFunc(context.Types(), func(member *checker.Type) bool {
+		return member.Flags()&checker.TypeFlagsObject != 0 && member.ObjectFlags()&checker.ObjectFlagsClass != 0
+	}) {
+		return nil
+	}
+	literal := l.typeAt(node)
+	var record *checker.Type
+	for _, member := range context.Types() {
+		if member.Flags()&checker.TypeFlagsObject == 0 || !l.checker.IsTypeAssignableTo(literal, member) {
+			continue
+		}
+		if !l.hasIndexSignatures(member) || record != nil {
+			return nil // an object type it may be, or a second record
+		}
+		record = member
+	}
+	return record
 }
 
 // inferredResult is the result type tsc inferred for the function that returns node (`return

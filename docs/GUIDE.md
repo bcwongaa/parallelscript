@@ -943,6 +943,27 @@ What the guardrail doesn't check: the rule is lexical, so it doesn't follow call
 | `pts:parallel` | `range`, `join` and the classes of the `.par` views |
 | `pts:sync` | `AtomicInt`, `Atomic<int>`, `Mutex`, `Once` and `Channel` |
 
+`pts:http` serves HTTP/1.1 the way Bun's `serve` does, with the Fetch standard's `Request`, `Response` and `Headers` (SPEC §7.3):
+
+```ts
+import { serve, Response } from "pts:http";
+
+const server = serve({
+  port: 0, // any free port; a real server names one, such as 3000
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (request.method === "POST") {
+      return Response.json({ received: await request.json() });
+    }
+    return new Response(`hello from ${request.url}`);
+  },
+});
+console.log(server.url.startsWith("http://127.0.0.1:"));
+server.stop(); // a real server keeps serving; this sample stops so that it ends
+```
+
+It prints `true` (`docs/examples/guide_http.pts`).
+
 `pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). An HTTP server, `pts:http`, and `fetch` are planned.
 
 [examples/guide_node_modules.pts](examples/guide_node_modules.pts):

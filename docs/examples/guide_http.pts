@@ -1,0 +1,17 @@
+import { serve, Response } from "pts:http";
+
+const server = serve({
+  port: 0, // any free port; a real server names one, such as 3000
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (request.method === "POST") {
+      return Response.json({ received: await request.json() });
+    }
+    return new Response(`hello from ${request.url}`);
+  },
+});
+console.log(server.url.startsWith("http://127.0.0.1:"));
+server.stop(); // a real server keeps serving; this sample stops so that it ends
+
+// expect:
+// true

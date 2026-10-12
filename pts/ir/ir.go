@@ -487,6 +487,9 @@ type Func struct {
 	// Settles marks an extern function that returns a promise it settles from the event
 	// loop (an intrinsic of pts:fs/promises, D-118), so a program that calls it runs the loop.
 	Settles bool
+	// Listens marks an extern function that starts I/O the event loop serves (pts:http's
+	// listen, D-136): a program that calls it runs the loop after its top-level code.
+	Listens bool
 	// Generator marks a generator function (`function*`, D-109). A call makes a generator
 	// object, a Value (Result), and returns it without running Body, which runs when the
 	// object is resumed, holding every local in the object's frame. A Yield in Body

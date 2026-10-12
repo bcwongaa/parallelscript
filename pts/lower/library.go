@@ -104,6 +104,9 @@ func (l *lowerer) intrinsicCall(call *ast.CallExpression) (x ir.Expr, handled bo
 	return &ir.Call{Func: fn, Args: args}, true
 }
 
+// loopIntrinsics are the intrinsics that start I/O the event loop serves (D-136).
+var loopIntrinsics = map[string]bool{"pts_http_listen": true}
+
 // intrinsicDeclaration is the declaration of symbol if it is an intrinsic, a function a
 // pts: module declares without a body; nil otherwise.
 func intrinsicDeclaration(symbol *ast.Symbol) *ast.Node {
@@ -123,6 +126,7 @@ func (l *lowerer) declareIntrinsic(declaration *ast.Node) *ir.Func {
 	name := declaration.Name().Text()
 	fn := &ir.Func{Name: name, Extern: name, Result: l.resultType(declaration)}
 	fn.Settles = l.isPromiseType(l.returnTypeOf(l.checker.GetSignatureFromDeclaration(declaration)))
+	fn.Listens = loopIntrinsics[name]
 	for _, param := range declaration.Parameters() {
 		t := l.parameterType(param)
 		if t == nil {
