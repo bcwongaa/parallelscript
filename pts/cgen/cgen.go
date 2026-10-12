@@ -73,15 +73,15 @@ type emitter struct {
 	// a use that sees an unset field as undefined, which needs no check.
 	receiverMembers map[ir.Expr]string
 	unsetAllowed    map[ir.Expr]bool
-	locals           map[*ir.Local]string
-	usedNames        map[string]bool
-	nextSuffix       map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
-	temporaries      int            // pts_tmpN locals made so far in the function
-	sites            int            // pts_siteN caches made so far in the function (fieldRef)
-	labels           map[*ir.Label]string
-	usedLabels       map[string]bool
-	gotoTargets      map[string]bool // C labels some goto jumps to, so only those are written
-	loops            []*ir.Label     // the C loops around the current statement, innermost last
+	locals          map[*ir.Local]string
+	usedNames       map[string]bool
+	nextSuffix      map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
+	temporaries     int            // pts_tmpN locals made so far in the function
+	sites           int            // pts_siteN caches made so far in the function (fieldRef)
+	labels          map[*ir.Label]string
+	usedLabels      map[string]bool
+	gotoTargets     map[string]bool // C labels some goto jumps to, so only those are written
+	loops           []*ir.Label     // the C loops around the current statement, innermost last
 	// tries are the handlers of the try blocks around the current statement, innermost
 	// last; labelTries is how many there were where each label's statement is, so a jump
 	// to it leaves those inside it (D-068).
