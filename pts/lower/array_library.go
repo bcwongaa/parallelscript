@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
-	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
@@ -72,7 +71,7 @@ func (l *lowerer) arrayConstructor(node *ast.Node, arguments []*ast.Node) ir.Exp
 	if slices.ContainsFunc(arguments, isSpreadElement) {
 		return l.spreadArray(arguments, array)
 	}
-	if len(arguments) == 1 && l.hasTypeFlags(arguments[0], checker.TypeFlagsNumberLike) {
+	if len(arguments) == 1 && l.isNumberLike(arguments[0]) {
 		length := l.expression(arguments[0])
 		if length == nil {
 			return nil

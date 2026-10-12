@@ -4,7 +4,7 @@
 
 import { join, relative } from "pts:path";
 import {
-    constants, Dirent, direntTypeOf, F_OK, isDirectoryMode, mkdirOptions, readdirOptions, readFlags, Stats, symlinkFlags,
+    constants, Dirent, direntTypeOf, F_OK, isDirectoryMode, mkdirOptions, readdirOptions, readFlags, readsText, Stats, symlinkFlags,
     UV_DIRENT_DIR, UV_DIRENT_UNKNOWN, UV_EACCES, UV_EEXIST, UV_ENOENT, UV_ENOSPC, UV_ENOTDIR, UV_EPERM, writeOptions,
 } from "pts:internal/fs";
 import type {
@@ -15,7 +15,9 @@ import type {
 export { constants } from "pts:internal/fs";
 
 declare function pts_fs_read_file_async(path: string, flags: number): Promise<string>;
+declare function pts_fs_read_file_bytes_async(path: string, flags: number): Promise<Uint8Array>;
 declare function pts_fs_write_file_async(path: string, data: string, flags: number, mode: number): Promise<void>;
+declare function pts_fs_write_file_bytes_async(path: string, data: Uint8Array, flags: number, mode: number): Promise<void>;
 declare function pts_fs_call_async(call: string, path: string, dest: string, mode: number): Promise<number>;
 declare function pts_fs_stat_async(path: string, follow: boolean, stats: number[]): Promise<number>;
 declare function pts_fs_scandir_async(path: string, types: number[]): Promise<string[]>;
@@ -48,21 +50,25 @@ function direntOf(parentPath: string, name: string, type: number): Dirent {
     return new Dirent(name, type, parentPath);
 }
 
-/** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
 export function readFile(path: PathLike, options?: ReadFileBufferOptions | null): Promise<Buffer>;
 export function readFile(path: PathLike, options: BufferEncoding | ReadFileOptions): Promise<string>;
-export async function readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string> {
-    return await pts_fs_read_file_async(path, readFlags(options));
+export async function readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string | Buffer> {
+    if (readsText(options)) {
+        return await pts_fs_read_file_async(path, readFlags(options));
+    }
+    return await pts_fs_read_file_bytes_async(path, readFlags(options));
 }
 
-export async function writeFile(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
-    const [flags, mode] = writeOptions(options, "w");
-    await pts_fs_write_file_async(file, data, flags, mode);
+export async function writeFile(file: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    await write(file, data, writeOptions(options, "w"));
 }
 
-export async function appendFile(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
-    const [flags, mode] = writeOptions(options, "a");
-    await pts_fs_write_file_async(path, data, flags, mode);
+export async function appendFile(path: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    await write(path, data, writeOptions(options, "a"));
+}
+
+function write(path: PathLike, data: string | Uint8Array, [flags, mode]: [number, number]): Promise<void> {
+    return typeof data === "string" ? pts_fs_write_file_async(path, data, flags, mode) : pts_fs_write_file_bytes_async(path, data, flags, mode);
 }
 
 export async function access(path: PathLike, mode: number = F_OK): Promise<void> {
@@ -268,18 +274,17 @@ export async function mkdtemp(prefix: string): Promise<string> {
 export class FilePromises {
     readonly constants = constants;
 
-    /** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
     readFile(path: PathLike, options?: ReadFileBufferOptions | null): Promise<Buffer>;
     readFile(path: PathLike, options: BufferEncoding | ReadFileOptions): Promise<string>;
-    readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string> {
-        return pts_fs_read_file_async(path, readFlags(options));
+    readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string | Buffer> {
+        return readsText(options) ? pts_fs_read_file_async(path, readFlags(options)) : pts_fs_read_file_bytes_async(path, readFlags(options));
     }
 
-    writeFile(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    writeFile(file: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
         return writeFile(file, data, options);
     }
 
-    appendFile(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    appendFile(path: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
         return appendFile(path, data, options);
     }
 

@@ -1,13 +1,14 @@
 // pts:fs: Node's fs module (D-117). The synchronous functions run libuv's synchronous
 // calls, as Node's do, and throw Node's errors: an Error with errno, code, syscall, path
-// and dest, its message "ENOENT: no such file or directory, open 'x'". Files are text:
-// reading needs an encoding (UTF-8) until Buffers come with typed arrays (M5.4). The
-// promise API is pts:fs/promises, also this module's `promises` (D-118).
+// and dest, its message "ENOENT: no such file or directory, open 'x'". Files are read as
+// text with an encoding (UTF-8) and as bytes without one, a Uint8Array where Node gives a
+// Buffer (D-165); text or a Uint8Array is written. The promise API is pts:fs/promises,
+// also this module's `promises` (D-118).
 
 import { join, relative, resolve } from "pts:path";
 import promisesObject from "pts:fs/promises";
 import {
-    constants, Dirent, direntTypeOf, F_OK, isDirectoryMode, mkdirOptions, R_OK, readdirOptions, readFlags, S_IFLNK, S_IFMT, Stats,
+    constants, Dirent, direntTypeOf, F_OK, isDirectoryMode, mkdirOptions, R_OK, readdirOptions, readFlags, readsText, S_IFLNK, S_IFMT, Stats,
     symlinkFlags, UV_DIRENT_DIR, UV_DIRENT_UNKNOWN, UV_EACCES, UV_EEXIST, UV_ENOENT, UV_ENOSPC, UV_ENOTDIR, UV_EPERM, W_OK, writeOptions, X_OK,
 } from "pts:internal/fs";
 import type {
@@ -23,7 +24,9 @@ export type {
 export { default as promises } from "pts:fs/promises";
 
 declare function pts_fs_read_file(path: string, flags: number): string;
+declare function pts_fs_read_file_bytes(path: string, flags: number): Uint8Array;
 declare function pts_fs_write_file(path: string, data: string, flags: number, mode: number): void;
+declare function pts_fs_write_file_bytes(path: string, data: Uint8Array, flags: number, mode: number): void;
 declare function pts_fs_access(path: string, mode: number): number;
 declare function pts_fs_stat(path: string, follow: boolean, stats: number[]): number;
 declare function pts_fs_mkdir(path: string, mode: number): number;
@@ -59,21 +62,29 @@ function direntOf(parentPath: string, name: string, type: number): Dirent {
 
 // ---------------------------------------------------------------- reading and writing
 
-/** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
 export function readFileSync(path: PathLike, options?: ReadFileBufferOptions | null): Buffer;
 export function readFileSync(path: PathLike, options: BufferEncoding | ReadFileOptions): string;
-export function readFileSync(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): string {
-    return pts_fs_read_file(path, readFlags(options));
+export function readFileSync(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): string | Buffer {
+    if (readsText(options)) {
+        return pts_fs_read_file(path, readFlags(options));
+    }
+    return pts_fs_read_file_bytes(path, readFlags(options));
 }
 
-export function writeFileSync(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): void {
-    const [flags, mode] = writeOptions(options, "w");
-    pts_fs_write_file(file, data, flags, mode);
+export function writeFileSync(file: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): void {
+    writeSync(file, data, writeOptions(options, "w"));
 }
 
-export function appendFileSync(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): void {
-    const [flags, mode] = writeOptions(options, "a");
-    pts_fs_write_file(path, data, flags, mode);
+export function appendFileSync(path: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): void {
+    writeSync(path, data, writeOptions(options, "a"));
+}
+
+function writeSync(path: PathLike, data: string | Uint8Array, [flags, mode]: [number, number]): void {
+    if (typeof data === "string") {
+        pts_fs_write_file(path, data, flags, mode);
+    } else {
+        pts_fs_write_file_bytes(path, data, flags, mode);
+    }
 }
 
 // ---------------------------------------------------------------- files and directories
@@ -334,18 +345,20 @@ export class FileSystem {
     readonly W_OK: number = W_OK;
     readonly X_OK: number = X_OK;
 
-    /** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
     readFileSync(path: PathLike, options?: ReadFileBufferOptions | null): Buffer;
     readFileSync(path: PathLike, options: BufferEncoding | ReadFileOptions): string;
-    readFileSync(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): string {
-        return pts_fs_read_file(path, readFlags(options));
+    readFileSync(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): string | Buffer {
+        if (readsText(options)) {
+            return pts_fs_read_file(path, readFlags(options));
+        }
+        return pts_fs_read_file_bytes(path, readFlags(options));
     }
 
-    writeFileSync(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): void {
+    writeFileSync(file: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): void {
         writeFileSync(file, data, options);
     }
 
-    appendFileSync(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): void {
+    appendFileSync(path: PathLike, data: string | Uint8Array, options?: BufferEncoding | WriteFileOptions | null): void {
         appendFileSync(path, data, options);
     }
 

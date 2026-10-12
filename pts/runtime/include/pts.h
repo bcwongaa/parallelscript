@@ -2477,7 +2477,11 @@ void pts_process_write(double fd, pts_string *chunk);
  * data throw Node's error; those that return a number return 0 or libuv's negative errno.
  */
 pts_string *pts_fs_read_file(pts_string *path, double flags);
+/* readFileSync without an encoding: the file's bytes as a Uint8Array (D-165). */
+pts_typed_array *pts_fs_read_file_bytes(pts_string *path, double flags);
 void pts_fs_write_file(pts_string *path, pts_string *data, double flags, double mode);
+/* writeFileSync of a typed array: its bytes. */
+void pts_fs_write_file_bytes(pts_string *path, pts_typed_array *data, double flags, double mode);
 double pts_fs_access(pts_string *path, double mode);
 /* stat or lstat (follow false) into stats: dev, mode, nlink, uid, gid, rdev, blksize, ino, size, blocks, then (seconds, nanoseconds) of atime, mtime, ctime, birthtime. */
 double pts_fs_stat(pts_string *path, bool follow, struct pts_array *stats);
@@ -2502,7 +2506,9 @@ pts_error *pts_fs_rm_directory_error(pts_string *path);
  * "symlink", "chmod") and pts_fs_stat_async resolve with 0 or the negative errno.
  */
 pts_value pts_fs_read_file_async(pts_string *path, double flags);
+pts_value pts_fs_read_file_bytes_async(pts_string *path, double flags);
 pts_value pts_fs_write_file_async(pts_string *path, pts_string *data, double flags, double mode);
+pts_value pts_fs_write_file_bytes_async(pts_string *path, pts_typed_array *data, double flags, double mode);
 pts_value pts_fs_call_async(pts_string *call, pts_string *path, pts_string *dest, double mode);
 pts_value pts_fs_stat_async(pts_string *path, bool follow, struct pts_array *stats);
 pts_value pts_fs_scandir_async(pts_string *path, struct pts_array *types);

@@ -1,0 +1,142 @@
+// hasher: the SHA-256 digests of files, hashed in parallel on every core.
+//
+//     pts build examples/hasher/main.pts -o hasher
+//     ./hasher src/ README.md        # PTS_THREADS=1 ./hasher … hashes on one thread
+//
+// It prints a line per file as sha256sum does, "<digest>  <path>", in the order the paths
+// are given, a directory's files in sorted order, and a summary on stderr. A file it can't
+// read is reported on stderr, and the exit code is then 1.
+//
+// SHA-256 (FIPS 180-4) is written here with u32, whose arithmetic wraps as the standard's
+// does; files are read as bytes (a Uint8Array) and hashed by `.par.map`, one file per job.
+import { readdirSync, readFileSync, statSync } from "pts:fs";
+import { join } from "pts:path";
+
+// The first 32 bits of the fractional parts of the cube roots of the first 64 primes.
+const K: u32[] = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+function rotr(x: u32, n: u32): u32 {
+  return (x >> n) | (x << (32 - n));
+}
+
+// Mixes the 64-byte block at offset into state; w is the message schedule's room.
+function compress(state: u32[], w: u32[], block: Uint8Array, offset: int): void {
+  for (let t: int = 0; t < 16; t++) {
+    const i = offset + t * 4;
+    w[t] = ((block[i] as u32) << 24) | ((block[i + 1] as u32) << 16) | ((block[i + 2] as u32) << 8) | (block[i + 3] as u32);
+  }
+  for (let t: int = 16; t < 64; t++) {
+    const s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >> 3);
+    const s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >> 10);
+    w[t] = w[t - 16] + s0 + w[t - 7] + s1;
+  }
+  let a = state[0], b = state[1], c = state[2], d = state[3];
+  let e = state[4], f = state[5], g = state[6], h = state[7];
+  for (let t: int = 0; t < 64; t++) {
+    const t1 = h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[t] + w[t];
+    const t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+    h = g;
+    g = f;
+    f = e;
+    e = d + t1;
+    d = c;
+    c = b;
+    b = a;
+    a = t1 + t2;
+  }
+  state[0] += a;
+  state[1] += b;
+  state[2] += c;
+  state[3] += d;
+  state[4] += e;
+  state[5] += f;
+  state[6] += g;
+  state[7] += h;
+}
+
+// The last block or two: the bytes after the whole blocks, 0x80, zeros and the length in bits, big-endian.
+function padding(data: Uint8Array, whole: int): Uint8Array {
+  const rest = data.length - whole;
+  const tail = new Uint8Array(rest < 56 ? 64 : 128);
+  tail.set(data.subarray(whole));
+  tail[rest] = 0x80;
+  const bits = data.length * 8;
+  for (let i = 0; i < 8; i++) {
+    tail[tail.length - 1 - i] = Math.floor(bits / 2 ** (8 * i)) % 256;
+  }
+  return tail;
+}
+
+// The SHA-256 digest of data, as 64 hex digits.
+export function sha256(data: Uint8Array): string {
+  const state: u32[] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const w: u32[] = new Array<u32>(64).fill(0);
+  const whole: int = (data.length - (data.length % 64)) as int;
+  for (let offset: int = 0; offset < whole; offset += 64) {
+    compress(state, w, data, offset);
+  }
+  const tail = padding(data, whole);
+  for (let offset: int = 0; offset < tail.length; offset += 64) {
+    compress(state, w, tail, offset);
+  }
+  return state.map((word) => word.toString(16).padStart(8, "0")).join("");
+}
+
+// The files to hash: each path given, or a directory's files (all the way down) in sorted order.
+function filesOf(paths: string[]): string[] {
+  const files: string[] = [];
+  for (const path of paths) {
+    if (statSync(path, { throwIfNoEntry: false })?.isDirectory() === true) {
+      const entries = readdirSync(path, { recursive: true }).map((entry) => join(path, entry)).sort();
+      files.push(...entries.filter((entry) => statSync(entry).isFile()));
+    } else {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+interface Hashed {
+  line: string; // what to print: the digest and the path, or why the file couldn't be read
+  ok: boolean;
+  bytes: number;
+}
+
+function hash(file: string): Hashed {
+  try {
+    const data = readFileSync(file);
+    return { line: `${sha256(data)}  ${file}`, ok: true, bytes: data.length };
+  } catch (e) {
+    return { line: `hasher: ${(e as Error).message}`, ok: false, bytes: 0 };
+  }
+}
+
+const paths = process.argv.slice(2);
+if (paths.length === 0) {
+  console.error("usage: hasher <file or directory>…");
+  process.exit(2);
+}
+const started = performance.now();
+const files = filesOf(paths);
+const results = files.par.map(hash);
+let bytes = 0;
+for (const result of results) {
+  if (result.ok) {
+    console.log(result.line);
+  } else {
+    console.error(result.line);
+    process.exitCode = 1;
+  }
+  bytes += result.bytes;
+}
+const seconds = (performance.now() - started) / 1000;
+console.error(`hashed ${files.length} files, ${(bytes / 1e6).toFixed(1)} MB in ${seconds.toFixed(2)} s`);

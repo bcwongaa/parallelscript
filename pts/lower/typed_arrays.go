@@ -85,6 +85,11 @@ func isTypedArray(t ir.Type) bool {
 // typedArrayClass is the class of the typed array tsc's type of node names, or nil.
 func (l *lowerer) typedArrayClass(node *ast.Node) *ir.Class {
 	t := l.typeAt(node)
+	if t.Flags()&checker.TypeFlagsIntersection != 0 {
+		if member := l.coveringMember(t); member != nil {
+			t = member // pts:fs's Buffer, a Uint8Array whose toString is marked as not supported yet (D-165)
+		}
+	}
 	if t.Flags()&checker.TypeFlagsObject == 0 {
 		return nil
 	}
@@ -266,7 +271,7 @@ func (l *lowerer) newTypedArray(node *ast.Node, class *ir.Class) ir.Expr {
 		l.notSupportedYet(args[1], "these arguments of a typed array's constructor are")
 		return nil
 	}
-	if t := l.typeAt(args[0]); t.Flags()&checker.TypeFlagsNumberLike != 0 {
+	if l.isNumberLike(args[0]) {
 		length := l.expression(args[0])
 		if length == nil {
 			return nil

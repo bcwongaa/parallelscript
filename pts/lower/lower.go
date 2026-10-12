@@ -2322,6 +2322,8 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 	switch t := x.Type(); {
 	case t == ir.String:
 		return x
+	case l.unsupportedToString(node):
+		return nil
 	case ir.IsNumeric(t) || t == ir.Bool || t == ir.Null || t == ir.Undefined || t == ir.Value || isUnion(t):
 		return &ir.ToString{X: x}
 	case isArray(t):
@@ -2331,6 +2333,24 @@ func (l *lowerer) toString(x ir.Expr, node *ast.Node) ir.Expr {
 	}
 	l.notSupportedYet(node, fmt.Sprintf("converting %s to a string is", x.Type()))
 	return nil
+}
+
+// unsupportedToString reports converting node's value to a string if its type's toString is
+// marked `@notSupportedYet` by a pts: module: pts:fs's Buffer, whose text Node decodes from
+// its bytes where a Uint8Array would join them (D-165).
+func (l *lowerer) unsupportedToString(node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	if property := l.checker.GetPropertyOfType(l.typeAt(node), "toString"); property != nil {
+		for _, declaration := range property.Declarations {
+			if what := notSupportedYetTag(declaration); what != "" {
+				l.notSupportedYet(node, what)
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // propertyAccess lowers a property read: a binding of a module namespace (`m.x` after
@@ -2503,11 +2523,24 @@ func (l *lowerer) isStringElement(node *ast.Node) bool {
 		return false
 	}
 	access := node.AsElementAccessExpression()
-	return l.isStringTyped(access.Expression) && l.hasTypeFlags(access.ArgumentExpression, checker.TypeFlagsNumberLike)
+	return l.isStringTyped(access.Expression) && l.isNumberLike(access.ArgumentExpression)
 }
 
 func (l *lowerer) hasTypeFlags(node *ast.Node, flags checker.TypeFlags) bool {
 	return l.typeAt(node).Flags()&flags != 0
+}
+
+// isNumberLike reports whether node is a number to tsc: of a number type, or a union of
+// them (`rest < 56 ? 64 : 128` is `64 | 128`).
+func (l *lowerer) isNumberLike(node *ast.Node) bool {
+	return isNumberLikeType(l.typeAt(node))
+}
+
+func isNumberLikeType(t *checker.Type) bool {
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !isNumberLikeType(member) })
+	}
+	return t.Flags()&checker.TypeFlagsNumberLike != 0
 }
 
 // stringElement lowers s[i] with one of the StringElement builtins (D-015).

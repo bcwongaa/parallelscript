@@ -49,6 +49,7 @@ typedef struct job {
   char *data; /* the bytes to write, malloc'd */
   size_t data_len;
   int flags, mode; /* open's; mode is also access's mode, copyfile's and symlink's flags */
+  bool as_bytes;   /* a read's result is a Uint8Array, not text (D-165) */
   /* What run found. */
   int result;          /* 0 or more, or libuv's negative errno */
   const char *syscall; /* the call that failed */
@@ -293,6 +294,16 @@ static bool finish(job *j, pts_array *out, pts_value *result) {
   } else {
     switch (j->op) {
     case READ_FILE:
+      if (j->as_bytes) {
+        pts_typed_array *bytes = pts_typed_array_new(&pts_type_builtin_Uint8Array, (double)j->length);
+        if (j->length > 0) {
+          memcpy(bytes->data, j->bytes, j->length); /* a new array: no other thread sees it yet */
+        }
+        *result = pts_value_from_object(bytes);
+        break;
+      }
+      *result = pts_value_from_string(string_of(j->bytes, j->length));
+      break;
     case READLINK:
     case MKDTEMP:
     case REALPATH:
@@ -373,9 +384,10 @@ static pts_value start(job *j, pts_array *out) {
 
 /* ---------------------------------------------------------------- the intrinsics */
 
-static job *read_job(pts_string *path, double flags) {
+static job *read_job(pts_string *path, double flags, bool as_bytes) {
   job *j = new_job(READ_FILE, path, NULL);
   j->flags = (int)flags;
+  j->as_bytes = as_bytes;
   return j;
 }
 
@@ -384,6 +396,18 @@ static job *write_job(pts_string *path, pts_string *data, double flags, double m
   size_t length;
   const char *bytes = pts_string_to_utf8(data, &length);
   j->data = copy_bytes(bytes, length);
+  j->data_len = length;
+  j->flags = (int)flags;
+  j->mode = (int)mode;
+  return j;
+}
+
+/* A write of a typed array's bytes, copied as other threads may be writing them (D-143). */
+static job *bytes_write_job(pts_string *path, const pts_typed_array *data, double flags, double mode) {
+  job *j = new_job(WRITE_FILE, path, NULL);
+  size_t unit = pts_field_kind_size(data->type->element), length = data->length * unit;
+  j->data = checked(malloc(length > 0 ? length : 1));
+  pts_copy_shared(j->data, data->data, length, unit);
   j->data_len = length;
   j->flags = (int)flags;
   j->mode = (int)mode;
@@ -401,9 +425,17 @@ static job *mkdtemp_job(pts_string *prefix) {
   return new_job(MKDTEMP, pts_string_concat(prefix, pts_string_from_cstr("XXXXXX")), NULL);
 }
 
-pts_string *pts_fs_read_file(pts_string *path, double flags) { return pts_value_as_string(run_now(read_job(path, flags), NULL)); }
+pts_string *pts_fs_read_file(pts_string *path, double flags) { return pts_value_as_string(run_now(read_job(path, flags, false), NULL)); }
+
+pts_typed_array *pts_fs_read_file_bytes(pts_string *path, double flags) {
+  return (pts_typed_array *)pts_value_as_object(run_now(read_job(path, flags, true), NULL));
+}
 
 void pts_fs_write_file(pts_string *path, pts_string *data, double flags, double mode) { run_now(write_job(path, data, flags, mode), NULL); }
+
+void pts_fs_write_file_bytes(pts_string *path, pts_typed_array *data, double flags, double mode) {
+  run_now(bytes_write_job(path, data, flags, mode), NULL);
+}
 
 double pts_fs_access(pts_string *path, double mode) { return pts_value_as_number(run_now(call_job(ACCESS, path, NULL, mode), NULL)); }
 
@@ -437,10 +469,16 @@ pts_string *pts_fs_readlink(pts_string *path) { return pts_value_as_string(run_n
 
 pts_string *pts_fs_mkdtemp(pts_string *prefix) { return pts_value_as_string(run_now(mkdtemp_job(prefix), NULL)); }
 
-pts_value pts_fs_read_file_async(pts_string *path, double flags) { return start(read_job(path, flags), NULL); }
+pts_value pts_fs_read_file_async(pts_string *path, double flags) { return start(read_job(path, flags, false), NULL); }
+
+pts_value pts_fs_read_file_bytes_async(pts_string *path, double flags) { return start(read_job(path, flags, true), NULL); }
 
 pts_value pts_fs_write_file_async(pts_string *path, pts_string *data, double flags, double mode) {
   return start(write_job(path, data, flags, mode), NULL);
+}
+
+pts_value pts_fs_write_file_bytes_async(pts_string *path, pts_typed_array *data, double flags, double mode) {
+  return start(bytes_write_job(path, data, flags, mode), NULL);
 }
 
 /* The calls that resolve with 0 or the negative errno, by name: "access", "mkdir", … */

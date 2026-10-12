@@ -1,0 +1,52 @@
+// pts:fs reads files without an encoding as bytes, a Uint8Array (where Node gives a Buffer,
+// itself a Uint8Array), and writes and appends Uint8Arrays, views of part of a buffer
+// included; synchronously and through pts:fs/promises (D-165).
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "pts:fs";
+import { appendFile, readFile, writeFile } from "pts:fs/promises";
+import { join } from "pts:path";
+
+const dir = mkdtempSync("/tmp/pts-fs-bytes-");
+const path = join(dir, "data.bin");
+
+const bytes = new Uint8Array([0, 1, 2, 127, 128, 255, 0xc3, 0x28, 10]);
+writeFileSync(path, bytes);
+const read = readFileSync(path);
+console.log(read instanceof Uint8Array, read.length, Array.from(read));
+console.log("as text:", JSON.stringify(readFileSync(path, "utf8")), readFileSync(path, { encoding: "utf8" }).length);
+console.log("encoding null:", readFileSync(path, { encoding: null }).length);
+
+appendFileSync(path, new Uint8Array([65, 66]));
+appendFileSync(path, "CD");
+console.log("appended:", Array.from(readFileSync(path).subarray(9)));
+
+const buffer = new ArrayBuffer(16);
+const all = new Uint8Array(buffer);
+all.set([9, 9, 1, 2, 3, 4, 9, 9]);
+const view = new Uint8Array(buffer, 2, 4);
+writeFileSync(join(dir, "view.bin"), view);
+writeFileSync(join(dir, "sub.bin"), all.subarray(3, 5));
+console.log("views:", Array.from(readFileSync(join(dir, "view.bin"))), Array.from(readFileSync(join(dir, "sub.bin"))));
+
+writeFileSync(join(dir, "empty.bin"), new Uint8Array(0));
+console.log("empty:", readFileSync(join(dir, "empty.bin")).length);
+
+const large = new Uint8Array(300000);
+for (let i = 0; i < large.length; i++) {
+  large[i] = (i * 31) % 251;
+}
+await writeFile(join(dir, "large.bin"), large);
+const back = await readFile(join(dir, "large.bin"));
+let same = back.length === large.length;
+for (let i = 0; i < back.length && same; i++) {
+  same = back[i] === large[i];
+}
+console.log("large through promises:", back.length, same);
+await appendFile(join(dir, "large.bin"), new Uint8Array([1, 2, 3]));
+console.log("appended through promises:", (await readFile(join(dir, "large.bin"))).length, (await readFile(join(dir, "view.bin"), "utf8")).length);
+
+try {
+  readFileSync(join(dir, "missing.bin"));
+} catch (e) {
+  console.log("missing:", (e as NodeJS.ErrnoException).code);
+}
+rmSync(dir, { recursive: true });

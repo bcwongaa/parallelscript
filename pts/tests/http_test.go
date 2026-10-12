@@ -364,7 +364,6 @@ not awaited, on another loop read until the end
 `)
 }
 
-
 // buildSanitized builds the program at source with AddressSanitizer and
 // UndefinedBehaviorSanitizer (toolchain.Sanitize) and returns the executable's path.
 func buildSanitized(t *testing.T, source string) string {

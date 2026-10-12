@@ -1,0 +1,19 @@
+// A file read without an encoding is its bytes, a Uint8Array where Node gives a Buffer
+// (D-165). A Buffer's text, which Node decodes from the bytes where a Uint8Array would
+// join them as numbers, is a compile error wherever a string is made of it, and so is
+// Buffer's slice, a view in Node where a Uint8Array's is a copy.
+import fs, { readFileSync } from "pts:fs";
+
+const bytes = readFileSync("a.txt");
+const more = fs.readFileSync("a.txt", { flag: "r" });
+console.log(bytes.length, more.subarray(1).length, bytes.join(" "));
+console.log(bytes.toString());
+console.log(`${more}`);
+console.log(String(bytes));
+console.log("text: " + bytes);
+console.log(bytes.slice(1));
+// error: fs_buffer_text.pts:10:13 - error PTS1001: a Buffer's text (`toString` of a file's bytes, which Node decodes as UTF-8; read the file with an encoding, "utf8") is not supported yet
+// error: fs_buffer_text.pts:11:16 - error PTS1001: a Buffer's text
+// error: fs_buffer_text.pts:12:20 - error PTS1001: a Buffer's text
+// error: fs_buffer_text.pts:13:24 - error PTS1001: a Buffer's text
+// error: fs_buffer_text.pts:14:13 - error PTS1001: `slice` of a Buffer (a view of the bytes in Node, a copy for a Uint8Array; `subarray` is a view in both) is not supported yet

@@ -230,7 +230,7 @@ detached method -> TypeError: Cannot read properties of undefined (reading 'coun
 [SPEC.md §8](SPEC.md#8-documented-differences-from-typescript-and-node) lists every difference. These are the ones you are most likely to run into:
 
 - `process.argv` starts with the executable's path twice, where Node has its own path and the script's. `process.argv.slice(2)` is the arguments in both. `process.env` is a copy made at startup.
-- `pts:fs` reads and writes text only. Reading a file without an encoding, which gives a `Buffer` in Node, is a compile error. There is no `Buffer`, but typed arrays work.
+- `pts:fs` reads a file without an encoding as bytes, a `Uint8Array` where Node gives a `Buffer` (a `Uint8Array` with more methods): indexing, `length`, `subarray` and the typed array methods work, but a Buffer's own methods don't, and its text (`toString()`, `${buffer}`) is a compile error that says to read the file with `"utf8"`. Writing takes text or a `Uint8Array`.
 - `toLocaleString` on numbers always formats as Node's default English locale does. `Date`'s `toLocaleDateString` and the other locale formats aren't supported yet, and `localeCompare` takes no locale but English.
 - In a generator, `yield` must come first in its statement: as the statement itself, a variable's initializer, the right side of an assignment or a returned value.
 - A stack frame shows the file and line without a column: `at check (/src/app.pts:2)`.
@@ -267,7 +267,7 @@ Some valid TypeScript isn't supported yet. It is a compile error with code PTS10
 | an object with known properties passed as a `Record<string, T>` | pass a copy, `{ ...o }` |
 | a class that extends `Map`, `Date`, `RegExp` or a typed array | a class that holds one (extending `Error` works) |
 | `toLocaleDateString` and `Date`'s other locale formats | `toISOString()` |
-| `readFileSync(path)` without an encoding | `readFileSync(path, "utf8")` |
+| `readFileSync(path).toString()`, a Buffer's text | `readFileSync(path, "utf8")` |
 | dynamic `import()` | a static `import` |
 | `debugger` | gdb or lldb on the binary |
 | `await` inside the operand of `parallel` | await first, then start the task |
@@ -932,7 +932,7 @@ What the guardrail doesn't check: the rule is lexical, so it doesn't follow call
 
 | Module | Contents |
 |---|---|
-| `pts:fs` | Node's synchronous file functions (`readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `statSync`, `mkdirSync`, `readdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `mkdtempSync` and more), with Node's errors; text in UTF-8 |
+| `pts:fs` | Node's synchronous file functions (`readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `statSync`, `mkdirSync`, `readdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `mkdtempSync` and more), with Node's errors; text in UTF-8, or bytes as a `Uint8Array` |
 | `pts:fs/promises` | the promise versions (`readFile`, `writeFile`, `readdir`, `rm` and more), also `fs.promises` |
 | `pts:path` | Node's POSIX `path` |
 | `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is the global `process` |
@@ -1183,7 +1183,7 @@ class Registry extends Map<string, number> {}
 
 console.log(new Date(0).toLocaleDateString());
 
-const bytes = readFileSync("/etc/hostname");
+const host = readFileSync("/etc/hostname").toString();
 
 async function double(n: number): Promise<number> {
   return n * 2;
@@ -1202,7 +1202,7 @@ guide_not_yet.pts:16:1 - error PTS1001: `map` with a callback that returns nothi
 guide_not_yet.pts:32:7 - error PTS1001: using a Dog[] as a Animal[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
 guide_not_yet.pts:39:19 - error PTS1001: using a `{apples: number; pears: number}` as a hash-map object (`Record<string, number>`) is not supported yet; a copy of its properties, `{ ...o }`, is one
 guide_not_yet.pts:43:13 - error PTS1001: the Date method `toLocaleDateString` is not supported yet
-guide_not_yet.pts:45:15 - error PTS1001: reading a file without an encoding (into a Buffer, until typed arrays) is not supported yet
+guide_not_yet.pts:45:14 - error PTS1001: a Buffer's text (`toString` of a file's bytes, which Node decodes as UTF-8; read the file with an encoding, "utf8") is not supported yet
 guide_not_yet.pts:54:1 - error PTS1001: debugger statement is not supported yet
 guide_not_yet.pts:6:3 - error PTS1001: classes inside functions or blocks are not supported yet
 guide_not_yet.pts:51:32 - error PTS1001: `await` and `yield` in the operand of `parallel` are not supported yet

@@ -244,11 +244,14 @@ export interface WriteFileOptions {
     flag?: string;
 }
 
-// What reading without an encoding gives in Node; reading so waits for typed arrays (M5.4).
-export interface Buffer {
-    readonly length: number;
-    toString(): string;
-}
+// What reading without an encoding gives: the file's bytes (D-165). Node's Buffer is a
+// Uint8Array with methods of its own, which ParallelScript doesn't have yet.
+export type Buffer = {
+    /** @notSupportedYet a Buffer's text (`toString` of a file's bytes, which Node decodes as UTF-8; read the file with an encoding, "utf8") is */
+    toString(encoding?: BufferEncoding): string;
+    /** @notSupportedYet `slice` of a Buffer (a view of the bytes in Node, a copy for a Uint8Array; `subarray` is a view in both) is */
+    slice(start?: number, end?: number): Buffer;
+} & Uint8Array;
 
 export interface ReadFileBufferOptions {
     encoding?: null;
@@ -287,6 +290,11 @@ export function writeOptions(options: BufferEncoding | WriteFileOptions | null |
         mode = options.mode ?? 0o666;
     }
     return [stringToFlags(flag), mode];
+}
+
+// Whether a read's options ask for text (an encoding) rather than bytes.
+export function readsText(options: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null | undefined): boolean {
+    return typeof options === "string" || (typeof options === "object" && options !== null && options.encoding != null);
 }
 
 // The flag of a read's options.
