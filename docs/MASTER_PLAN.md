@@ -260,7 +260,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Lower `parallel for` to a parallel `forEach`. `continue` is allowed; `break`, `return`, `yield`, `await` and labelled jumps are compile errors.
   - If an iteration throws, cancel the rest and rethrow the first error after joining.
   - The single guardrail: assigning a captured outer `let` inside a parallel body is a compile error, with a suggestion. **No other parallelism checks.**
-- [ ] **M5.6a `pts:sync`: atomics, Mutex and Once** (split from M5.6 by D-128). `Mutex<T>` (`withLock` and async `lock`), `AtomicInt`/`Atomic<int>` and `Once`.
+- [x] **M5.6a `pts:sync`: atomics, Mutex and Once** (b0fc4b831) (split from M5.6 by D-128). `Mutex<T>` (`withLock` and async `lock`), `AtomicInt`/`Atomic<int>` and `Once`.
 - [ ] **M5.6b `pts:sync`: Channel** (split from M5.6 by D-128). `Channel<T>` (bounded and unbounded, async `send`/`recv`, `close`, `for await`).
 - [ ] **M5.7 Stress and scaling.**
   - Parallel stress tests, with a nightly CI job that runs them 100 times.
