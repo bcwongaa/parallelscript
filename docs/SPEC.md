@@ -4,12 +4,15 @@ ParallelScript is TypeScript compiled ahead of time to native binaries, with a g
 
 Order of authority: `docs/BRIEF.md` (with the owner overrides in `CLAUDE.md`) → this spec → `docs/DECISIONS.md`. Decision ids such as `D-L03` or `D-O05` point into `docs/DECISIONS.md`.
 
+**Status.** Sections 1–8 describe the language as built through M6.1: milestones M0–M5 (tags `m0` … `m5`) and RegExp. What isn't built yet is marked *planned* with its milestone: the `pts:http` server (M6.2), `fetch` (M6.3), `pts lsp` and editor support (M7), and performance work such as escape analysis and a precise collector (M8). Valid TypeScript that the compiler can't lower yet is the compile error PTS1001 "… is not supported yet" (§2.3); the sections below name the main cases. Section 9 holds the implementation notes of each task.
+
 ---
 
 ## 1. Syntax and files
 
-- Source files use the extension **`.pts`** (D-O01, the brief's original extension, confirmed by the owner after a brief switch to `.ps`). Declaration files stay `.d.ts`.
-- `import "./x"` tries `x.pts` first, then the usual TypeScript extensions.
+- Source files use the extension **`.pts`** (D-O01, D-004: the brief's original extension, confirmed by the owner after a brief switch to `.ps`). Declaration files stay `.d.ts`.
+- `import "./x"` tries `x.pts` first, then the usual TypeScript extensions; `import "./x.pts"` names the file itself, and `./x.js` doesn't map to `x.pts` (D-001, D-004).
+- Every file is an ES module in strict mode, whether or not it imports or exports anything (D-005). A `.ts` file reachable by imports is part of the program too (§6).
 - The syntax is TypeScript plus one contextual keyword, `parallel` (§5).
 - `parallel` is a keyword only in two positions; everywhere else it is an ordinary identifier, so existing code that uses it as a name keeps working:
   - `parallel <expression>` in expression position;
@@ -20,45 +23,75 @@ Order of authority: `docs/BRIEF.md` (with the owner overrides in `CLAUDE.md`) �
 
 A `.pts` program that uses only plain TypeScript features (no `parallel`, no integer types, no `pts:` imports) must print exactly what Node prints when run as TypeScript, except where this spec documents a difference (§8).
 
+- "Node" is Node 24 running the program as ES modules with its type transform (`--experimental-transform-types`, D-009). What must match is stdout and the exit code; stderr's text is not compared, but an uncaught error goes to stderr and exits with code 1, as in Node (D-O04).
+- `pts:path`, `pts:process`, `pts:fs` and `pts:fs/promises` count as plain TypeScript: they stand for Node's `node:` modules of the same names (§7.3).
+- The tests hold the implementation to this: every plain-TypeScript run test and docs sample, a corpus of 300 realistic programs (each that still diverges says why in a `// skip:` line) and generated corpora of numbers and strings are compared with Node (`pts/tests/README.md`).
+
 ---
 
 ## 2. Toolchain and pipeline
 
 ### 2.1 Front end
 
-- The front end is a fork of TypeScript 7 (typescript-go), pinned at `typescript/v7.0.2`. It provides the scanner, parser, binder, checker and language server.
+- The front end is a fork of TypeScript 7 (typescript-go), pinned at `typescript/v7.0.2`. It provides the scanner, parser, binder, checker, and the language server that `pts lsp` will serve (planned, M7.1).
 - The compiler, `pts`, is written in Go inside the fork's module (it needs the fork's `internal/` packages). New code lives in `cmd/pts/` and `pts/`.
-- Upstream modifications are minimal, marked `// PTS:` and listed in `docs/FORK.md`.
-- The prelude types and the `pts:` modules are declared in ParallelScript's own lib declaration files, so that both the checker and the editor resolve them.
+- Upstream modifications are minimal, marked `// PTS:` and listed in `docs/FORK.md`: the `.pts` extension in module resolution (D-001, D-004), the integer types as number types of their own in the checker (D-048), and `parallel` in the parser (D-120).
+- Options are fixed (D-005): every program is checked with `strict`, target and module `ESNext`, `moduleResolution: bundler`, `allowImportingTsExtensions`, `moduleDetection: force`, `lib: ["esnext"]` (no DOM: `document` or `fetch` is an unknown name) and `types: []`. `tsconfig.json` is not read.
+- The prelude, ParallelScript's globals (the numeric types, `console`, timers, `performance`, `process`, `parallel`, `.par`), is a declaration file, `pts/lib/prelude.d.ts`, and a root file of every program. The `pts:` modules are ParallelScript sources, `pts/lib/*.pts` (D-116). Both are embedded in the compiler (served at `ptslib:///`), so the checker, and later the editor, resolve them without files on disk.
 
 ### 2.2 Pipeline
 
 1. TypeScript AST plus checker.
-2. **PTS semantic checks**: the rules of this spec that tsc doesn't know.
+2. **PTS semantic checks**: the rules of this spec that tsc doesn't know (`pts/check`).
 3. Lowering to a typed **ParallelScript IR**.
-4. IR passes.
+4. IR passes. There is no separate pass stage yet: whole-program analyses run at the end of lowering (which captured locals live in cells, `markCells`; the checks of conversions to object types with optional properties, `checkRelaxedCasts`; the copy shapes that dynamic conversions need, `prepareDynamicTypes`), and others inside the C emitter (where evaluation order needs temporaries, which functions may recurse, generator frames, which descriptors carry declared types).
 5. Emit **C11**.
-6. Compile with **clang -O2** and link with the runtime into one native binary.
+6. Compile with **clang** (`-O2 -g -ffp-contract=off -fno-math-errno -falign-functions=32`: D-011, D-060, D-069, D-119) and link with the runtime into one native binary.
 
 **The IR** is structured (not SSA) and fully typed. Boxing, closure environments, monomorphized generics, and async functions and generators (already turned into state machines) are all explicit in it. C is never emitted directly from the TS AST.
 
 **Generated C** is readable and carries `#line` directives pointing at the `.pts` source, so gdb, lldb and crash backtraces show ParallelScript lines.
 
-**The runtime** is written in C (`pts/runtime/`) and statically linked. Its dependencies (bdwgc, libuv, later PCRE2) are vendored as pinned submodules and built from source. `pts build` output depends only on libc.
+**The runtime** is written in C (`pts/runtime/`) and statically linked. Its dependencies are vendored as pinned submodules and built from source: bdwgc 8.2.12 (the collector), libuv 1.53.0 (event loops), PCRE2 10.49 (RegExp, D-132), Ryu 2.0 (number formatting, D-011) and libbacktrace (stack traces, D-069). A built program depends only on the C library (glibc's libc and libm); libgcc is linked statically.
 
-`pts` finds its runtime sources relative to its own executable or through `PTS_HOME`. It builds the vendored libraries once into `~/.cache/pts/<version-hash>/` and compiles user programs against those cached static libraries (D-O11).
+`pts` finds its runtime sources through `PTS_HOME`, or else in the nearest directory above its own executable or the working directory that holds them. It builds each vendored library and the runtime once, into `~/.cache/pts/<name>-<key>/lib<name>.a`, where `<key>` hashes the compiler's version, the flags and the sources (`PTS_CACHE_DIR` replaces `~/.cache/pts`; a file lock makes concurrent builds share one), and compiles user programs against those cached static libraries (D-O11, D-003).
+
+**Target:** x86-64 Linux with glibc. The stack guard (D-069) and the publication of new objects to other threads (D-130) rely on x86-64; other targets aren't supported yet. Cross-compiling with `pts build --cc zig` is a stretch goal.
 
 ### 2.3 The CLI
 
 | Command | Purpose |
 |---|---|
-| `pts build file.pts -o out` | Build a native binary |
-| `pts run file.pts` | Build and run |
-| `pts emit-c file.pts` | Print the generated C, for debugging |
-| `pts test` | Test runner (later) |
-| `pts lsp` | Language server (milestone 7) |
+| `pts build file.pts [-o out]` | Build a native binary (default output: the file's base name, without `.pts`) |
+| `pts run file.pts [args…]` | Build and run; arguments after the file go to the program |
+| `pts emit-c file.pts [-o file.c]` | Print the generated C (or write it to a file), for debugging |
+| `pts help` | Show the usage |
+| `pts test` | Test runner (planned, M7.3) |
+| `pts lsp` | Language server (planned, M7.1) |
 
-Cross-compiling with `pts build --cc zig` is a stretch goal.
+- **Exit codes** (D-006): 0 on success, 1 for compile or toolchain errors, 2 for a malformed command line. `pts run` exits with the program's own code, or 128 + the signal number if the program was killed.
+- **Diagnostics** (D-006): one per line, `file:line:col - error CODE: message`, the file relative to the working directory when it is below it. tsc's errors keep their `TSnnnn` codes; semantic errors are reported only when there are no syntax errors, as in tsc. ParallelScript's own codes:
+
+| Code | Meaning |
+|---|---|
+| PTS1001 | Valid TypeScript the compiler can't lower yet ("… is not supported yet") |
+| PTS1002 | A feature left out by design, with the reason (§3.10) |
+| PTS2001 | A lossy implicit numeric conversion (§3.2) |
+| PTS2002 | A literal that doesn't fit its numeric type, or isn't an integer |
+| PTS2003 | Two integer types with no lossless common type |
+| PTS3001 | The guardrail: an outer variable assigned in a parallel body (§5.6) |
+| PTS3002 | What a `parallel for` can't hold (§5.5) |
+
+- **Environment variables:**
+
+| Variable | Read by | Meaning |
+|---|---|---|
+| `PTS_HOME` | `pts` | The directory that holds `pts/runtime` |
+| `PTS_CACHE_DIR` | `pts` | Where built libraries are cached (default `~/.cache/pts`) |
+| `PTS_CC`, `PTS_AR` | `pts` | The C compiler and archiver (default `clang` and `ar`) |
+| `PTS_THREADS` | programs | The number of event loops and pool threads (§5.1) |
+| `GC_FREE_SPACE_DIVISOR`, `GC_INITIAL_HEAP_SIZE`, `GC_MARKERS` | programs | bdwgc's settings, which override the runtime's defaults (§4) |
+| `TZ` | programs | The local time zone of `Date` (§7.2) |
 
 ---
 
@@ -66,36 +99,79 @@ Cross-compiling with `pts build --cc zig` is a stretch goal.
 
 ### 3.1 Variables
 
-Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already reports it).
+- Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already reports it).
+- `let` and `const` are block-scoped; `var` is not supported (§3.10).
+- Reading a module-scope binding before its declaration has run (from a function called early, or in an import cycle) throws `ReferenceError: Cannot access 'x' before initialization`, as in JS (D-021, D-022). A local variable that a closure captures has no such check yet (§8, known issues).
 
 ### 3.2 Numbers
 
 - `number` keeps JavaScript semantics exactly: IEEE-754 f64, including `NaN`, `Infinity` and `-0`.
-- The added numeric types are `int` (meaning i64) and `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64`, declared in a global prelude.
+- The added numeric types are `int` (meaning i64) and `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64` (`f64` is `number`), declared in a global prelude.
   - They start as aliases of `number` in the prelude, so the editor accepts them immediately.
-  - The numeric rules below are enforced by the PTS semantic pass, and later surfaced in the language server.
+  - The numeric rules below are enforced by the PTS semantic pass, and later surfaced in the language server (M7).
   - To the checker each is a number type of its own (D-048), so it can be an array element, a `Map` or `Set` key or value, a parameter or result of a function type, or a type argument (`u8[]`, `Map<string, int>`, `(n: int) => int`), and inferred types keep it: `ints.map(x => x * 2)` is an `int[]`. tsc relates every numeric type to every other, as it relates `number` to itself, so overloads match as they would for `number`: on a `u8[]`, `reduce(f, 0 as int)` takes `reduce`'s `T` overload (and fails the conversion rule); write `reduce<int>(f, 0)`.
 - **Literals take their type from context.** `const x: u8 = 200` is fine; `const y = 5` is `number`, as in TS. So does an array literal's element or an argument (`bytes.push(7)` for `bytes: u8[]`); without a context a literal is a `number`, so `[byte, 1]` is a `number[]`.
+  - An integer literal is checked exactly against its type's range, from its source text, so a 64-bit value keeps every digit (`const b: u8 = 256` is PTS2002, D-012).
+  - A literal with a fraction next to an integer operand makes the operation a `number` (`n * 1.5`).
+  - Constant expressions are evaluated at run time, so they wrap rather than fail to compile: `const b: u8 = 200 + 56` is 0. A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Implicit conversions are lossless only.**
-  - Allowed implicitly: any integer type to `number`, and a smaller integer type to a larger integer type of compatible sign.
+  - Allowed implicitly: any integer type and `f32` to `number`; a smaller integer type to a larger one of the same signedness; an unsigned type to a strictly larger signed one (`u8` to `i16`). Not an integer type to `f32`, nor a signed type to an unsigned one (PTS2001).
   - Anything lossy needs `as`.
   - A function converts to a function type only if the type's parameters convert to its own and its result to the type's, losslessly: a `(b: u8) => void` can't be a `(n: number) => void`.
-  - Mixing `int` and `number` in arithmetic yields `number`.
-- **`as` between numeric types converts the value**, following Rust's rules: float to int truncates toward zero and saturates at the target type's range, and `NaN` becomes 0.
+  - The operands of an operator convert to their common type: the wider of two compatible types, or `number` when an integer type meets `number` or `f32`. So mixing `int` and `number` in arithmetic yields `number`. Two integer types with no lossless common type (`i64` and `u64`) are PTS2003.
+- **`as` between numeric types converts the value**, following Rust's rules: float to int truncates toward zero and saturates at the target type's range, and `NaN` becomes 0. Between integer types `as` wraps (modulo 2^n).
 - **Integer arithmetic.**
-  - Overflow wraps (two's complement).
+  - Overflow wraps (two's complement), unary minus on an unsigned value included; `MIN / -1` is `MIN` and `MIN % -1` is 0.
   - Integer `/` is truncating integer division.
   - Integer `%` takes the sign of the dividend, as in JS and Rust (D-O17).
-  - Integer division or modulo by zero throws `RangeError`.
+  - Integer division or modulo by zero throws `RangeError: Division by zero`; an integer `**` with a negative exponent throws `RangeError: Exponent must be non-negative` (D-012).
+  - `f32` arithmetic is C's `float`; its `%` and `**` go through `double`.
+- **Bitwise operators** (D-018): on `number` they have JS's int32 semantics exactly. On an integer type they work on the type's own bits: `&`, `|`, `^`, `~` as in C, `<<` wraps, `>>` is arithmetic for signed types and logical for unsigned ones, `>>>` shifts the bits as unsigned and keeps the type (`-16 as i32 >>> 0` is -16), and the shift count is taken modulo the type's width. The operands convert to their common type first, so `u8 << int` is an `int`, and an integer type meeting a `number` gives the int32 operation on numbers.
 - `typeof` on any numeric type returns `"number"`.
-- **Number-to-string conversion matches JS exactly**, using shortest round-trip formatting (Ryu-style) with the JS rules for choosing exponent or fixed notation. For example, `0.1 + 0.2` prints `0.30000000000000004`.
+- 64-bit integers keep every digit when printed, converted to strings (`toString(radix)` too) and in JSON (D-012, D-080, D-083). As a dynamic value (§3.4) an `int`, `i64` or `u64` is a number while its magnitude is at most 2^53 and a boxed integer beyond.
+- Enum members (§3.13) and typed arrays' elements (§7.2) are `number`s: they convert to an integer type only with `as`.
+- **Number-to-string conversion matches JS exactly**, using shortest round-trip formatting (Ryu, D-011) with the JS rules for choosing exponent or fixed notation. For example, `0.1 + 0.2` prints `0.30000000000000004`.
+
+`docs/examples/spec_integers.pts`:
+
+```ts
+// SPEC §3.2: the integer types. Lossy conversions need `as`: `const b: u8 = half`
+// would be PTS2001 ("a int doesn't convert to u8 implicitly").
+const big: u8 = 200;
+const sum = big + (100 as u8); // u8 arithmetic wraps
+const half: int = 7 / 2; // integer division truncates
+const mixed = half * 1.5; // an int with a fraction is a number
+console.log(sum, half, mixed);
+console.log(300.7 as u8, -1 as u8, NaN as int); // `as` truncates and saturates; NaN is 0
+const bytes: u8[] = [1, 2, 3];
+const doubled = bytes.map((b) => b * 2); // a u8[]
+console.log(doubled, typeof doubled[0]);
+const huge: int = 9007199254740993; // exact: every digit of an i64
+console.log(huge + 1, (-16 as i32) >>> 0, (0xf0 as u8) >> 4);
+try {
+  console.log(half / (0 as int));
+} catch (e) {
+  console.log(String(e));
+}
+
+// expect:
+// 44 3 4.5
+// 255 0 0
+// [ 2, 4, 6 ] number
+// 9007199254740994 -16 15
+// RangeError: Division by zero
+```
 
 ### 3.3 Booleans and strings
 
 - Strings are immutable, stored as UTF-8, and each one records whether it is pure ASCII.
+- A lone surrogate, which JS strings may hold, is stored as its 3-byte (WTF-8) encoding, and concatenation joins two halves into one character, so string equality is byte equality; output writes a lone surrogate as U+FFFD, as Node does (D-014).
 - Indexing keeps JavaScript's semantics so ported code behaves identically: `.length`, `s[i]`, `charCodeAt` and `slice` indices count UTF-16 code units.
   - ASCII strings take an O(1) fast path.
-  - Non-ASCII strings may build an index lazily.
+  - Non-ASCII strings are scanned from the start (O(n)) for now; a lazily built index is planned (D-016).
+- `<`, `<=`, `>`, `>=` compare strings by UTF-16 code units, as JS does.
+- Building a string piece by piece (`s += x` in a loop) takes linear time: a long string's bytes go to an append buffer that later concatenations extend in place (D-061).
+- Case mapping, `localeCompare` and `normalize` use tables generated from Node's ICU (Unicode 17; D-016, D-082, D-135). Reading `s[i]` out of range follows §8.
 
 ### 3.4 `any` and `unknown`
 
@@ -107,87 +183,146 @@ Variables have fixed types. `let x = 1; x = "s"` is a compile error (tsc already
   - `+` concatenates when either side is a string.
 - The check happens at the boundary into typed code. Assigning an `any` to a typed location verifies the value at runtime and throws `TypeError` on mismatch: `const n: number = parsed.count` throws if `count` isn't a number.
 - This keeps `JSON.parse(s).user?.name` working while making `any` honest.
-- Status (D-070, D-071): reads, writes, `in` and destructuring of properties and elements, the operators, `typeof`, equality and checked conversions to primitives, integer types, classes, interfaces, arrays, tuples, hash-map objects, maps, sets and unions of them work; a typed object that fits the target stays the same object, and dynamic data (values of `any`, `any[]`, hash-map objects of `any`) is copied into the target's representation. Writes of objects through `any` come with M3.3b2, calls through `any` and conversions to function types with M3.3c. `for…of`, spreading and array destructuring of a dynamic value iterate an array or tuple (live, by index), a string's code points, a set's elements or a map's entries, and throw `TypeError: x is not iterable` for anything else (D-078).
+- What works (D-070 … D-079, D-089, D-091): reads, writes, `in` and destructuring of properties and elements; the operators (with JS's conversions: ToPrimitive, ToNumber, IsLessThan), `typeof`, equality; calls of functions and methods, whose arguments are checked as they enter typed code (missing ones are undefined, extra ones are ignored); the builtin methods of strings, numbers, booleans, arrays, maps, sets, dates, RegExps and functions; `Object.keys`, `values`, `entries` and `hasOwn`; `for…of`, spreads and array patterns, which iterate an array or tuple (live, by index), a string's code points, a set's elements or a map's entries, and throw `TypeError: x is not iterable` for anything else (D-078).
+- Checked conversions reach every type: primitives, integer types, classes, interfaces and object types (with methods too), arrays, tuples, hash-map objects, maps, sets, function types and unions of them. A typed object whose declared types fit the target stays the same object; dynamic data (values of `any`, `any[]`, hash-map objects of `any`), and typed objects whose declared types don't fit, are copied into the target's representation (§8). A function converts to a function type as it is if its signature is the type's, and otherwise through an adapter that checks its arguments and result when it is called (D-075). A write through `any` is checked against the place's declared type: `TypeError: Cannot set property p of C: expected T, got U` (D-072).
+- Not yet through `any`: the iterators of maps and sets (`m.keys()` throws `TypeError`), typed arrays' methods that take callbacks (`TypeError`), and `.par` views.
 - Every runtime type therefore carries a descriptor (name, field names mapped to offsets, methods). The same descriptors drive `console.log` and JSON.
+- Representation (D-002): a dynamic value (an `any`, an `unknown`, a union) is one 64-bit word, encoded as JavaScriptCore encodes its values: an object is its raw pointer (so the collector sees it), a double is its bits plus 2^49 (`NaN` canonicalised), and `null`, `undefined`, `false` and `true` are small constants; a 64-bit integer beyond 2^53 is boxed. It isn't NaN-boxing with tagged pointers, and never a separate tag and payload, so it can't tear under races (§4.1).
 
-`unknown` works exactly as in TypeScript: you must narrow before use. Narrowing an `unknown` to a class or a primitive (by `instanceof`, `typeof` or a type guard) and `as` from it are checked at runtime and throw `TypeError` when wrong (D-068).
+`unknown` works exactly as in TypeScript: you must narrow before use. Narrowing an `unknown` to a class or a primitive (by `instanceof`, `typeof` or a type guard) and `as` from it are checked at runtime and throw `TypeError` when wrong (D-068). `x as any` and `x as unknown` box the value; `{}` written as a type, and the `object` type, are dynamic values too (D-089, D-091).
 
 ### 3.5 Casts
 
 `as` on non-numeric types:
 - Upcasts are free.
-- Downcasts and casts to unrelated types are checked at runtime and throw `TypeError`.
-- `x!` is checked too, and throws on `null` or `undefined`.
+- Downcasts and casts to unrelated types are checked at runtime and throw `TypeError`; to an array or object type that isn't the value's own, `as` makes a checked copy, as converting from `any` does (D-089).
+- `x!` is checked too, and throws `TypeError: Non-null assertion on null` (or `undefined`). Where there is no value to assert, `a.pop()!`, `a.shift()!`, `find(…)!`, `findLast(…)!` and `map.get(k)!` throw `RangeError` (D-038, D-042, D-046).
 - `as unknown as T` cannot be used to lie about a value's type.
+- `as const` and `as T` on an array or object literal give the literal that type, such as a tuple (D-053). `x satisfies T` is `x` (D-091).
 
 ### 3.6 Objects
 
-- **Classes** have fixed layouts and use vtables. Supported: single inheritance, fields, methods, getters and setters, static members, `private` and `#private`, abstract classes and `instanceof`.
+- **Classes** have fixed layouts and use vtables; a method call is virtual only where a subclass overrides the method, otherwise direct (D-028). Supported (D-026, D-028, D-030, D-031): single inheritance (`extends`, `super(...)`, `super.m()`, also across modules), fields with initialisers, constructors, methods, getters and setters, parameter properties, static fields, methods, accessors and blocks, `private`, `protected` and `readonly` (checked by tsc only), `#private` fields and methods (`#x in o` for an `o` of an object type; of a dynamic value it is not supported yet), abstract classes, methods and fields, `instanceof`, `new.target`, `o.constructor.name`, generic classes (§3.7), and classes extending `Error` and its subclasses (§3.9). An override may leave out trailing parameters and return an instance of a subclass of what the overridden method returns (D-091).
+  - Not yet (PTS1001): classes declared inside functions or blocks; class expressions and classes as values (`const K = Point`, a parameter of type `typeof Point`, `this` as a value in static code); extending builtins other than the error classes (`Map`, `Date`, `RegExp`, typed arrays); auto-accessors (`accessor x`); members with computed or quoted names, other than `[Symbol.iterator]` and `[Symbol.asyncIterator]`; index signatures in classes; an override that changes a parameter's type or leaves out a parameter with a default; a getter and a setter of different types; reading a property that has only a setter; assigning an inherited static field through a subclass; calling a static method that uses `this` through a subclass.
+  - Decorators aren't supported yet; the compiler currently ignores them without an error.
 - **Interfaces and object types stay structural**; tsc checks them. At runtime, a value used through an interface type dispatches through a table of field offsets and method pointers, one per (concrete type, interface) pair. Tables are built at compile time where possible and cached at runtime otherwise.
-- **Object literals** become instances of anonymous struct types derived from their checked type. Optional properties are stored as `T | undefined`.
-- **Properties cannot be added or deleted after construction.** `delete` only works on index-signature types. `Record<string, T>` and `{ [k: string]: T }` are hash maps under the hood.
-- **`null` and `undefined`** remain distinct values. Optional chaining and `??` are supported.
+  - How (D-035, D-036): each descriptor lists its fields and its methods' entry points; each place that reads, writes or calls through an interface caches, in one word, the last descriptor it met and the field's offset or the method's index.
+  - Interfaces and object types may declare methods and accessors, which class methods, getters and setters and object literals' members provide. A class or object provides a property only with the same representation: an `int` field doesn't provide a `number` property (PTS1001).
+  - Optional properties (`p?: T`, and mapped types: `Partial<T>`, `Required`, `Pick`, `Omit`, `Readonly`, `Record<"a" | "b", T>`) are fields of `T | undefined` that an object may leave absent: reading one gives undefined, `console.log` and `Object.keys` skip it and `"p" in o` is false (D-065). An object that lacks an optional property, or holds it without undefined, can still be used as the type (D-066, §8).
+  - Not yet: optional methods and accessors, overloaded methods in object types, a property with a setter and no getter.
+- **Object literals** become instances of anonymous struct types derived from their checked type ("shapes", shared by structurally identical types, with one descriptor per property order so that printing keeps the literal's order; D-033). Optional properties are stored as `T | undefined`. Literals may hold methods (closures that take the object as `this`), getters and setters (D-044, D-045). Spreads and rest properties are in §8 (D-058, D-108). Not yet: computed property names (other than in hash-map objects), methods or accessors beside a spread.
+- **Properties cannot be added or deleted after construction.** `delete` only works on index-signature types (PTS1002 elsewhere). `Record<string, T>` and `{ [k: string]: T }` are hash maps under the hood:
+  - *Hash-map objects* (D-059, D-093, D-097) are `Record<string, T>`, `Record<number, T>`, index-signature types (with required properties of the signature's value type too), object types whose property names are all array indices (`Record<Level, number>` for a numeric enum `Level`), and `Partial<Record<K, V>>`. They are ordered hash tables with string keys, listed in JS's order (array-index keys first, in numeric order, then the others in insertion order). Reading a missing key follows §8; `in`, `delete`, `Object.keys`/`values`/`entries`, `for…in`, JSON and `console.log` treat them as JS treats plain objects.
+  - Not yet: index signatures with other key types (template patterns, symbols), index signatures mixed with methods, optional properties or properties of other types, recursive hash-map object types, methods in their literals, `toString` of one, and using an object of another type as one (its copy `{ ...o }` is one).
+- **`null` and `undefined`** remain distinct values. Optional chaining (`?.` on properties, calls and elements, short-circuiting the rest of the chain) and `??`, `??=`, `||=` and `&&=` are supported (D-063, D-064).
+- `Object`'s functions are in §7.2.
 
 ### 3.7 Unions and generics
 
 - **Unions** are tagged values. Narrowing works with every form: `typeof`, `instanceof`, `in`, discriminant properties, equality and user-defined type guards. The checker does the reasoning; the backend emits tag tests.
+  - How (D-062, D-067): a union is a dynamic value, one word whose encoding is its tag (§3.4, D-002), so it can't tear under races. A union of literals of one type is that type (`"a" | "b"` is a `string`); a union with an `any` or `unknown` member is dynamic.
+  - Narrowing to a class is checked (`TypeError` if a type guard was wrong, §8). Members that a union's object types share are read and called through an interface made for the access; members of a union of objects and other values (`x.length` for `string | string[]`) are found at run time (D-089).
+  - Not yet: unions of two numeric types (`u8 | i16`; literal unions are fine), writing a property that the members hold as different types, a union's method as a value.
 - **Generics** are monomorphized.
   - A generic function has one instance per distinct list of type arguments, inferred or written, as their runtime types (D-049): `identity(1)` and `identity(1.5)` share `identity<number>`, while `identity(byte)` with `byte: u8` is `identity<u8>`, whose values keep their type.
   - Arithmetic on a value of a type parameter is done in `number`, as tsc types it, even when the instance's type argument is an integer type; `x as T` converts back by the numeric rules.
   - Generic interfaces and type aliases are instantiated like any other type (`Box<int>`).
-  - A generic class has one class per instance (D-050), printed with the generic class's name (`Box { value: 1 }`); instances may extend classes and be extended (`class IntBox extends Box<int>`).
-  - Generic methods of classes, and generic functions nested in functions or methods, have instances too (D-051).
+  - A generic class has one class per instance (D-050), printed with the generic class's name (`Box { value: 1 }`); instances may extend classes and be extended (`class IntBox extends Box<int>`). Static members of a generic class are shared by all its instances, and `x instanceof Box` tests for any of them (D-089).
+  - Generic methods of classes, and generic functions nested in functions or methods, have instances too (D-051). A generic method may be abstract or override a generic method; calls of such methods go by name to erased copies (D-101).
   - A function that would need ever more instances (`f<T>` calling `f<T[]>`) is a compile error after 64.
   - Generic functions as values (D-078): a generic function declaration where tsc's context is a function type that isn't generic is the instance for the type arguments that context implies (`[1, 2].map(identity)`, `identity<number>` too); anywhere else (`const id = identity`), and every generic arrow function or function expression, it is an *erased copy*, one function whose type parameters take dynamic values: inside it, a value whose type mentions a type parameter is `any`, with `any`'s run-time checks, and a call of it converts its result to the type tsc gives the call with a check (`TypeError: Expected T, got U`). Arrays and objects pass to erased copies by reference. An erased copy that makes an instance of a generic class makes the instance for `any` (`Box<any>`), which doesn't convert to another instance (`Box<number>`) (a known issue).
+  - A module-scope `const` holding a generic arrow function or function expression that makes instances of generic classes, or returns objects of a generic type (`List<T>`), is monomorphized where it is called by name, as a function declaration is (D-102, D-106).
   - Generic methods (D-079): an interface's or object literal's generic method has its erased signature and is called with its result checked; a class's generic method is monomorphized for calls through the class, and its erased copy serves calls through interfaces and `any`; a generic method read as a value is the instance its context implies or the erased copy, bound to the object. An object that came through `any` with methods of other signatures than an interface's (an erased copy's `Box<any>` as a `Container<number>`) has them called through their dynamic entries, with checked results.
-  - Not yet: static members of generic classes, `instanceof` of a generic class, overriding with or overriding a generic method, generic functions nested in generic code.
+  - Not yet: generic functions declared inside generic functions or inside methods of generic classes, nested generic functions that use their outer function's variables, overriding a plain method with a generic one or a generic method with a plain one, generic accessors.
 
 ### 3.8 Equality
 
 - `===` compares objects by reference identity, and strings and numbers by value, with JS's `NaN` rules.
-- `==` is supported with its JS meaning for the types involved; in practice it is mostly `x == null`.
+- `==` is supported with its JS meaning for the types involved; in practice it is mostly `x == null`. With a union operand it is JS's IsLooselyEqual (D-067): null equals undefined only, booleans compare as numbers, strings convert as `Number(s)` does, and an object meets a primitive through its class's `valueOf()` if that returns a primitive, else its string (D-088).
+- `Object.is` is SameValue; `Map` and `Set` keys and `includes` use SameValueZero.
 
 ### 3.9 Exceptions
 
-- `throw`, `try`, `catch` and `finally` have JS semantics, and any value can be thrown. The catch binding is an `unknown` (D-068).
-- `Error` and its subclasses (`TypeError`, `RangeError`, `ReferenceError`, `SyntaxError`, `EvalError`, `URIError`) have `message`, `name`, `cause` and `stack`, and programs extend them. `stack` is `Name: message`, then up to 10 frames `    at name (file.pts:line)` where the error was made (D-069).
-- Errors the runtime detects (integer division by zero, checked reads, failed `!` and casts, `ReferenceError` before a binding is ready) are thrown as these classes and can be caught. Running out of memory can't be.
-- Unbounded recursion throws `RangeError: Maximum call stack size exceeded` (D-069).
+- `throw`, `try`, `catch` and `finally` have JS semantics, and any value can be thrown. The catch binding is an `unknown` (D-068); `catch (e: any)` and `catch {}` work, while destructuring the catch binding is not supported yet.
+- `Error` and its subclasses (`TypeError`, `RangeError`, `ReferenceError`, `SyntaxError`, `EvalError`, `URIError`, and `AggregateError` with `errors`, D-113) have `message`, `name`, `cause` and `stack`, and programs extend them (`this.name = …` or a `name` field, their own `toString`). `stack` is `Name: message`, then up to 10 frames `    at name (file.pts:line)` where the error was made (D-069): methods as `Class.method`, constructors as `new Class`, top-level code as `    at file.pts:line`, and code in a `pts:` module by the module's name (`pts:process:48`). A class derived from Error can't override `stack` yet.
+- The errors of `pts:fs` are Node's system errors: an `Error` with `errno`, `code`, `syscall`, `path` and `dest`, typed `NodeJS.ErrnoException` (D-117).
+- Errors the runtime detects (integer division by zero, checked reads, failed `!` and casts, `ReferenceError` before a binding is ready) are thrown as these classes and can be caught. Running out of memory can't be: it ends the program with `Uncaught RangeError: Out of memory …` and exit code 1.
+- Unbounded recursion throws `RangeError: Maximum call stack size exceeded` (D-069), and so does a regular expression that exceeds PCRE2's backtracking limit (D-132).
 - **Uncaught errors** (D-O07):
-  - An uncaught exception prints `Uncaught ` and its stack (`<Name>: <message>` and its `.pts` frames) to stderr, then exits with code 1. Any other value prints as console.log shows it nested: `Uncaught 'text'`.
-  - An unhandled rejection behaves like Node's default `--unhandled-rejections=throw`.
+  - An uncaught exception prints `Uncaught ` and its stack (`<Name>: <message>` and its `.pts` frames) to stderr, then exits with code 1. Any other value prints as console.log shows it nested: `Uncaught 'text'`. An exception out of a timer, an immediate, a microtask or a task on another loop is uncaught the same way (D-114, D-121).
+  - An unhandled rejection behaves like Node's default `--unhandled-rejections=throw`: once the microtasks have run, it ends the program as an uncaught exception does (D-112).
+  - A top-level `await` that never settles prints Node's warning and exits with code 13, as Node does (D-113).
 
 ### 3.10 Not supported
 
-Each of these gets a clear compile error explaining why:
-- `eval`, `new Function`, `with`;
-- `var` (the error suggests `let`);
-- `arguments`;
-- prototype manipulation: `__proto__`, `Object.setPrototypeOf`, assigning to `.prototype`;
+Each of these gets a clear compile error explaining why (PTS1002, D-020; `with` is tsc's TS1101):
+- `eval`, `new Function` (any use of the global `Function`, its type included), `with` (a strict-mode error, since every file is a module);
+- `var` (the error suggests `let` or `const`);
+- `arguments` (the error suggests a rest parameter);
+- prototype manipulation: `__proto__`, `Object.setPrototypeOf`, assigning to `.prototype` or its members;
 - `Proxy`, `Reflect`;
-- declaration merging;
-- namespaces, until there's a reason for them;
-- `bigint` types and literals: "BigInt is not supported yet" (D-O08);
-- `Symbol` other than `Symbol.iterator` and `Symbol.asyncIterator` (D-O14).
+- declaration merging (function overloads, and interfaces that merge only with interfaces, are fine);
+- namespaces (`namespace` and `module` declarations), until there's a reason for them; the error suggests ES modules;
+- `bigint` types and literals: "BigInt is not supported yet" (D-O08); `BigInt64Array` and `BigUint64Array` too (PTS1001);
+- `Symbol` and the `symbol` type, other than `Symbol.iterator` and `Symbol.asyncIterator` (D-O14);
+- `delete` of anything but an entry of a hash-map object (§3.6);
+- importing `pts:internal/…` outside ParallelScript's library (D-118).
 
-Decorators and `WeakRef` can come later.
+Decorators and `WeakRef` can come later (D-L12): `WeakRef`, `WeakMap` and `WeakSet` are PTS1001 now, and decorators are ignored (§3.6).
+
+### 3.11 Functions
+
+- Function declarations (hoisted; nested ones to the top of their block), arrow functions, function expressions (a named one sees itself) and methods are values of function types (D-041): closures that capture variables by value, or in a shared cell when the variable may change after it is captured. A `for` loop's `let` variables are fresh per iteration; an arrow takes its method's or constructor's `this`, and `super.m()` works in it.
+- Parameters may have defaults (evaluated in the callee's scope when the argument is left out or `undefined`), be optional or be rest parameters (of array or tuple types), and be destructuring patterns (D-054, D-055, D-057, D-063, D-091).
+- `f.call`, `f.apply` and `f.bind` (with leading arguments), `f.name` and `f.length` (D-044, D-045, D-098). A method read as a value is bound to its object (§8).
+- A function value converts to another function type when its parameters and result do (losslessly for numbers, §3.2); one that takes fewer parameters, or returns a value where the type returns nothing, goes through an adapter, except an arrow function or function expression written in place, which takes the context's shape (D-041).
+- Function overloads (declarations and class methods): the implementation runs, and its result converts to the chosen overload's result type with a check (D-117).
+- `console.log` shows functions as Node does: `[Function: f]`, `[Function (anonymous)]`, `[Function: bound f]`, `[GeneratorFunction: g]`, `[AsyncFunction: f]`, `[AsyncGeneratorFunction: f]`.
+- Not yet: `this` parameters; overloaded and recursive function types; converting a function to a string; spreading an array into parameters other than a rest parameter (a tuple's elements may be spread into any), and spreading a set or a string into arguments; spreads in `call`, `apply` and `bind`; a callback that returns nothing passed to `map`, `flatMap` or `reduce`; the `thisArg` argument of array methods; a method of a string, an array or a map read as a value without a call (`s.trim`, `xs.push`), though Math's functions, `String`, `Number`, `Boolean` and the `Number.is…` tests are values (D-083, D-084, D-089).
+
+### 3.12 Arrays and tuples
+
+- `T[]` holds its elements unboxed in their own representation (numbers as doubles, a `u8[]` as bytes, objects as pointers; D-038), and arrays are race-safe (§4.1). An array can't be given holes, but it can hold them: `new Array(n)` leaves holes in arrays of strings, objects and dynamic values (D-085), a match array has one for each group that took no part (D-133), and racing pushes can leave one (D-130). A hole reads as undefined where any value can go; reading out of range follows §8.
+- An array converts to an array type of other elements (`Dog[]` as `Animal[]`) by a copy, each element converted with a check, only where the copy can't be told apart from the array: a new array, a `const` whose only use is the conversion, or an argument that the callee only reads. Elsewhere it is PTS1001 ("… where it may be changed or kept", D-094).
+- Tuples of fixed length are objects with typed, unboxed elements, printed as arrays (D-053); optional elements (`[string, number?]`) work, and a tuple type with a rest element (`[number, ...number[]]`) is an array (D-100). An index into a tuple must be a constant; a tuple used with the array methods or `for…of` is copied into an array (D-089).
+- Destructuring (with defaults, rest elements and nesting) and spreads take arrays, tuples, strings, maps, sets and iterables (D-054, D-058, D-110).
+- Typed arrays and `ArrayBuffer` are in §7.2.
+- Not yet: recursive array types (`type Nested = Nested[]`), `flat` with a depth that isn't a constant, `copyWithin`, `for…of` without a declaration of its variable.
+
+### 3.13 Enums
+
+- Numeric, string and `const` enums compile to their members' constants (`E.m`, `E["m"]`, also across modules); an enum type is the number or string type of its members, so a numeric member converts to an integer type only with `as` (D-052).
+- `E[n]` of a numeric enum is the reverse mapping, `E[E.m]` included (D-099); a value no member has follows §8.
+- An enum object used as a value (`console.log(E)`, `Object.keys(E)`) is a hash-map object of its members and of the reverse mappings (D-089), a new one at each use (§8).
+- Not yet: members whose values aren't constants (`A = s.length`).
+
+### 3.14 Generators and iteration
+
+- Generator functions (`function*` declarations, expressions, and methods of classes and object literals) with `yield` and `yield*`, and generator objects with `next`, `return` and `throw`, where `return()` runs `finally` blocks (D-109). They compile to state machines over collected frames (§5.2).
+- The iteration protocol (D-110, D-111): `for…of`, spread, `Array.from`, `new Set`/`new Map`, array patterns and `yield*` take arrays, strings, maps, sets, typed arrays, generator objects and any object whose `[Symbol.iterator]()` method gives an iterator (a generator object, or an object with `next()` and, optionally, `return()` and `throw()`), and call `return()` when a loop ends early. `Iterable<T>`, `Iterator<T>` and `IterableIterator<T>` values are dynamic values. The iterators of maps, sets, arrays and strings are values, live as JS's are (`m.keys().next().value`).
+- A `yield` may be anywhere in an expression; the operands JS evaluates before it are kept in the generator's frame (D-111, §8).
+- Async generators and `for await` are in §5.2.
+- Not yet: a `yield` (or `await`) in a loop's condition or update, a case label, a declaration's variables after the first, a default value or an optional chain; `yield*` in async generators; iterator helpers (`it.map(…)`); a static or generic `[Symbol.iterator]`, and reading `x[Symbol.iterator]` without calling it.
 
 ---
 
 ## 4. Memory and the shared heap
 
-- Memory is garbage collected, starting with **bdwgc** (Boehm–Demers–Weiser) in thread-aware mode with thread-local allocation.
-- Pointer-free data, such as string bytes and numeric arrays, is allocated with the atomic (no-scan) allocator.
-- A precise collector, and later a generational one, is a later milestone.
+- Memory is garbage collected by **bdwgc** (Boehm–Demers–Weiser) in thread-aware mode with thread-local allocation and parallel marking.
+- Objects are allocated with precise layouts: each object's descriptor holds bdwgc's mark descriptor, so numbers in fields are never taken for pointers (D-024; an object of more than 62 words is scanned whole). Pointer-free data, such as string bytes and numeric arrays, is allocated with the atomic (no-scan) allocator. Stacks are scanned conservatively.
+- The runtime's defaults (D-060, D-112, D-131): the collector runs once the program has allocated as much as the heap holds (free-space divisor 1, as Go's GOGC=100 does), the heap starts at 4 MiB, and marking uses 2 threads. bdwgc's `GC_FREE_SPACE_DIVISOR`, `GC_INITIAL_HEAP_SIZE` and `GC_MARKERS` override them.
+- A precise collector, and later a generational one, is planned (M8).
 
 ### 4.1 The race-safety invariant (non-negotiable)
 
 A program with data races may observe stale or surprising values, but it must never crash the runtime, corrupt the heap, or read or write out of bounds (Java's guarantee, not Go's). Concretely:
 
 - **No torn values.** Any value in a heap slot that can be read concurrently is one machine word (a pointer, a small scalar or a box), or is written and read atomically. No multi-word values that can tear in shared fields.
+  - Typed arrays' elements hold no pointers, and the methods that copy or move them in bulk (`set`, `slice`, `reverse`, construction from another typed array, `ArrayBuffer`'s `slice`) use `memcpy` and `memmove`, so racing threads may see a torn or stale number in an element, never bytes outside the view (D-125).
 - **No out-of-bounds writes.** Growable arrays keep their capacity inside the backing buffer, and bounds checks use the length and capacity of the buffer actually being accessed. Racing `push`es can lose elements but never write past the end.
 - **Strings are immutable**, so sharing them is free.
 - What races look like (D-130): a racing operation may throw `RangeError` where a sequential one couldn't (a `pop` of an array another thread emptied, a write past a length another thread shrank); a push lost to another can leave a hole, which reads as undefined where any value can go and throws `RangeError` where an element is required; a map, set or hash-map object that threads change at once may lose entries, hold a key twice and report a size that differs from its entries (never below 0). Share tables through `pts:sync`'s `Mutex`. `pts/tests/stress/race_*` test the invariant.
+- New objects are published to other threads by plain stores, which x86-64 never reorders with the stores that filled them; a port to another architecture needs release stores there (D-130).
 
 ---
 
@@ -197,8 +332,8 @@ A program with data races may observe stale or surprising values, but it must ne
 
 - The runtime starts one event loop per core. The count is configurable with `PTS_THREADS`.
 - Each loop runs on its own OS thread, and all loops share one heap.
-- Each loop is a libuv `uv_loop_t`, used for timers, sockets, filesystem, DNS and child processes. `uv_async_send` wakes a loop from another thread.
-- How (D-121): the main thread's loop runs the program's modules; the other loops start the first time `parallel` runs, so a program that never uses it has one thread. `PTS_THREADS` is a positive number (at most 256); without it, or with anything else, the count is the number of cores the process may run on.
+- Each loop is a libuv `uv_loop_t` with its own timers, immediates and microtask queue; `uv_async_send` wakes a loop from another thread. `pts:fs/promises` runs its system calls on libuv's threadpool and settles their promises on the loop (D-118). Sockets come with `pts:http` (planned, M6.2); there is no API for DNS or child processes yet.
+- How (D-121): the main thread's loop runs the program's modules; the other loops start the first time `parallel` runs, so a program that never uses it has one thread. `PTS_THREADS` is a positive integer (values above 256 count as 256); without it, or with anything else, the count is the number of cores the process may run on.
 - The program ends when every loop has nothing left to do at once: nothing referenced to wait for (timers, I/O, as in Node) and no task or message waiting for it. A task nobody awaits keeps the program running until it is done.
 - `process.exit`, an uncaught exception and an unhandled rejection on any loop end the whole program at once.
 
@@ -211,14 +346,39 @@ Plain `await` keeps exact JavaScript semantics.
 
 Async functions and generators compile to state machines. Locals that live across an `await` or `yield` are stored in a GC-managed frame object; there is no separate native stack per task.
 
+- What there is (D-112 … D-115): async functions (declarations, expressions, arrows, and methods of classes and object literals); `Promise` with ECMAScript's algorithms in V8's job order, thenables of the program's included; async generators, and `for await` over async generators, objects with `[Symbol.asyncIterator]()` and sync iterables of promises; Node's timers and immediates and `queueMicrotask` (§7.1).
+- Top-level `await` (and `for await`) works in the entry module; in other modules it is not supported yet (D-113).
+- An `await` may be wherever a `yield` may (§3.14). Not yet: an `await` in a loop's condition or update (`while (await next())`), a case label, a declaration's variables after the first, a default value or an optional chain, and in an expression-bodied async arrow unless it comes first (`async () => (await p) + 1`; a block body works).
+
 ### 5.3 Task parallelism: `parallel <expr>`
 
 - `parallel e` evaluates `e` as a new task on another loop and immediately returns a `Promise<Awaited<T>>`, where `T` is the type of `e` (the promise is flattened if `e` is itself a promise).
 - Captured variables are shared by reference, because the heap is shared.
-- `await parallel f(x)` is the common idiom:
+- `await parallel f(x)` is the common idiom (`docs/examples/spec_tasks.pts`):
   ```ts
-  const report = await parallel buildReport(user);
-  const pages = await Promise.all(urls.map((u) => parallel crawl(u)));
+  // SPEC §5.3: `parallel e` runs e as a task on another event loop and gives a promise of
+  // its value at once.
+  // threads: 1 2 4
+  function fib(n: number): number {
+    return n < 2 ? n : fib(n - 1) + fib(n - 2);
+  }
+  async function report(name: string): Promise<string> {
+    return `${name}: ${fib(20)}`;
+  }
+
+  console.log(await parallel report("alice"));
+  const results = await Promise.all([20, 21, 22].map((n) => parallel fib(n)));
+  console.log(results);
+  try {
+    await parallel JSON.parse("{");
+  } catch (e) {
+    console.log("rejected with", (e as Error).name);
+  }
+
+  // expect:
+  // alice: 6765
+  // [ 6765, 10946, 17711 ]
+  // rejected with SyntaxError
   ```
 - The target loop is picked by load (least-loaded, or round-robin with stealing of tasks that haven't started). A task never migrates once it has started.
 - Promises can be awaited from any loop; settling one wakes the loop that is awaiting it.
@@ -228,12 +388,13 @@ Async functions and generators compile to state machines. Locals that live acros
   - A promise belongs to the loop that made it and settles there; its reactions (an `await`, a `then` handler) run on the loop that added them. So `parallel e`'s promise settles on the loop that ran `parallel`, after e's value (or the outcome of the promise e gives) is known, and an unhandled rejection of it is reported there, as for any promise.
   - A throw in e, synchronous or not, rejects the task's promise.
   - An `await` or `yield` in the operand (outside functions in it) is not supported yet; await before `parallel`, or give it an async function's call.
+  - Known gaps: a loop busy with something referenced (a long timer) doesn't take tasks queued on others until it runs dry; awaiting another loop's promise that rejects races with that loop's unhandled-rejection check; an async generator driven from two loops at once runs its body on both.
 
 **Parsing `parallel`** (D-O05):
 - `parallel` is the operator only when the next token is on the same line and starts an expression **other than** `(`, `[`, `.`, `?.`, a template, `=`, an operator, `,`, `;`, `)` or `}`. Examples: `parallel foo(x)`, `parallel new X()`, `parallel async () => …`, `parallel await x`, `parallel "lit"`.
 - `parallel for (` is the loop statement (§5.5).
 - `parallel(expr)` parses as a normal call. The checker reinterprets it as the operator **only if** no binding named `parallel` is in scope and the call has exactly one argument.
-- How (D-120): `parallel e` is a call of the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` marked by the parser, so tsc types both forms; the operand is a unary expression, as `await`'s (`parallel f(x) + 1` is `(parallel f(x)) + 1`), or an arrow function. `parallel` followed by `=>`, `:`, `?`, `!`, `++`, `--`, `as`, `satisfies` or `of` is also the identifier. `parallel e` where a binding named `parallel` is in scope, and a function as the operand (whose task would only make the function), are compile errors.
+- How (D-120): `parallel e` is a call of the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` marked by the parser, so tsc types both forms; the operand is a unary expression, as `await`'s (`parallel f(x) + 1` is `(parallel f(x)) + 1`), or an arrow function. `parallel` followed by `=>`, `:`, `?`, `!`, `++`, `--`, `as`, `satisfies` or `of` is also the identifier. `parallel e` where a binding named `parallel` is in scope, and a function as the operand (whose task would only make the function), are compile errors (PTS1002).
 
 ### 5.4 Data parallelism
 
@@ -245,28 +406,68 @@ Async functions and generators compile to state machines. Locals that live acros
 - These methods are synchronous: they return when the work is done.
 - `.par.map` preserves order.
 - `reduce`'s function must be associative.
-- How (D-123): `xs.par` is a `ParallelArray<T>` of `pts:parallel` (a library written in ParallelScript); `range(start, end).par` a `ParallelRange`. `filter` keeps order; `find` gives any match (the leftmost among the pieces that ran) or undefined; `some`, `every` and `find` stop early; `reduce(fn, initial)` folds elements with `fn(a, b)` from `initial`, which must be `fn`'s identity; `count(predicate)` counts the elements it holds for; `sum`, `min` and `max` take the elements as numbers, as `Number` and `Math.min`/`Math.max` do (0, Infinity and -Infinity for none); `toArray()` copies. `sort(compare?)` is Array's sort (in place, stable, the elements' strings without a comparator) and `sortBy(key)` sorts in place by keys, both as a parallel merge sort (D-124); `flatMap` flattens one level, in order. Promise work in callbacks run on other threads (a `then`, `queueMicrotask`) is queued on the calling loop before the method returns.
+- How (D-123): `xs.par` is a `ParallelArray<T>` of `pts:parallel` (a library written in ParallelScript); `range(start, end).par` a `ParallelRange`. `filter` keeps order; `find` gives any match (the leftmost among the pieces that ran) or undefined; `some`, `every` and `find` stop early; `reduce(fn, initial)` folds elements with `fn(a, b)` from `initial`, which must be `fn`'s identity; `count(predicate)` counts the elements it holds for; `sum`, `min` and `max` take the elements as numbers, as `Number` and `Math.min`/`Math.max` do (0, Infinity and -Infinity for none); `toArray()` copies. `sort(compare?)` is Array's sort (in place, stable, the elements' strings without a comparator) and `sortBy(key)` sorts in place by keys (numbers or strings) computed in parallel, both as a parallel merge sort (D-124); `flatMap` flattens one level, in order. Promise work in callbacks run on other threads (a `then`, `queueMicrotask`) is queued on the calling loop before the method returns.
+- A `ParallelArray`'s callbacks take (element, index, array), as Array's do; a `ParallelRange`'s take the integer only, and its `sort(compare)` and `sortBy(key)` make new arrays.
 - Typed arrays (D-126): `ta.par` is a `ParallelTypedArray` with the same methods over the elements as numbers; `map` and `filter` make typed arrays of `ta`'s kind (as `ta.map` and `ta.filter` do), `toArray()` a `number[]`, `flatMap` an array; `sort()` sorts in place in numeric order (-0 before 0, NaN last), as the typed array's own `sort` does, and `sort(compare)` and `sortBy(key)` sort in place too.
+- `.par` exists on `T[]` and the nine typed arrays, not on `ReadonlyArray` or tuples, and not through `any` (D-123).
 - With `PTS_THREADS=1`, `.par` runs sequentially on the caller (D-O06).
 
-**Helpers** (from `pts:parallel` or the prelude; D-123: from `pts:parallel`):
-- `range(start, end)`, so `range(0, n).par.forEach(...)` works.
-- `join(a, b)` runs two closures, potentially in parallel, and returns both results; it is for recursive divide-and-conquer.
+**Helpers** (imported from `pts:parallel`, D-123; `.par` itself needs no import):
+- `range(start, end)`, the integers `start` … `end − 1` (their integer parts), and `range(end)`, from 0; so `range(0, n).par.forEach(...)` works. A `Range` is iterable and has `start`, `end`, `length`, `toArray()` and `par`.
+- `join(a, b)` runs two closures, potentially in parallel, and returns both results as a tuple; it is for recursive divide-and-conquer.
 
 ### 5.5 `parallel for`
 
 - `parallel for (const x of iterable) { ... }` is sugar for a parallel `forEach`. The statement finishes when every iteration has.
 - Inside the body, `continue` is allowed. `break`, `return`, `yield`, `await` and labelled jumps out of the loop are compile errors.
 - If an iteration throws, the remaining iterations are cancelled as far as possible and the first error is rethrown after joining.
-- How (D-127): the items are read once: an array or typed array as it is (its length then; a typed array's elements are read live), a `Range` of `pts:parallel` as its integers, any other iterable as `Array.from` would copy it. The body runs on the pool as a closure over pieces of the indices, so it captures what it uses as an arrow function would. A piece runs its indices in runs of 256 and starts no run once an iteration has thrown; the error thrown first is rethrown. Only `for…of` over a declared variable can be `parallel` (PTS3002); `continue` may name the loop's own label; the jumps out are PTS3002.
+- How (D-127): the items are read once: an array or typed array as it is (its length then; a typed array's elements are read live), a `Range` of `pts:parallel` as its integers, any other iterable as `Array.from` would copy it. The body runs on the pool as a closure over pieces of the indices, so it captures what it uses as an arrow function would. A piece runs its indices in runs of 256 and starts no run once an iteration has thrown; the error thrown first is rethrown. Only `for…of` over a declared variable can be `parallel` (PTS3002); `continue` may name the loop's own label; the jumps out (and `for await`) are PTS3002.
+
+`docs/examples/spec_data_parallel.pts` (`.par`, `range`, `join`, `parallel for`, and `pts:sync` from §5.7):
 
 ```ts
-const hashes = files.par.map((f) => sha256(f));
-const total = orders.par.map((o) => o.amount).sum();
+// SPEC §5.4, §5.5, §5.7: data parallelism on the fork-join pool. Every method returns
+// once the work is done; results keep the elements' order.
+// threads: 1 2 4
+import { join, range } from "pts:parallel";
+import { AtomicInt, Mutex } from "pts:sync";
 
-parallel for (const img of images) {
-  img.resize(800, 600);
+const words = ["apple", "kiwi", "banana", "fig", "cherry"];
+console.log(words.par.map((w) => w.length));
+console.log(words.par.filter((w) => w.length > 4));
+console.log(range(1, 101).par.sum(), range(10).par.max());
+console.log(words.par.reduce((a, b) => (a.length >= b.length ? a : b), ""));
+console.log(words.slice().par.sortBy((w) => w.length).join(" "));
+
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
 }
+console.log(join(() => fib(20), () => fib(21)));
+
+// A parallel body can't assign a captured `let` (§5.6): count with an atomic.
+const multiples = new AtomicInt();
+parallel for (const n of range(0, 1000)) {
+  if (n % 7 === 0) {
+    multiples.add(1);
+  }
+}
+console.log(multiples.load());
+
+const seen = new Mutex<string[]>([]);
+parallel for (const w of words) {
+  seen.withLock((list) => list.push(w));
+}
+console.log(seen.withLock((list) => list.length));
+
+// expect:
+// [ 5, 4, 6, 3, 6 ]
+// [ 'apple', 'banana', 'cherry' ]
+// 5050 9
+// banana
+// fig kiwi apple banana cherry
+// [ 6765, 10946 ]
+// 143
+// 5
 ```
 
 ### 5.6 The single guardrail
@@ -276,11 +477,16 @@ parallel for (const img of images) {
 - The stdlib declarations mark parallel-callback parameters with a branded function type, so the check knows which closures run in parallel.
 - Mutating object fields from parallel code is allowed.
 - **No other parallelism checks** are added without asking the owner.
-- How (D-127): PTS3001, lexical: an assignment (`=`, compound, `++`/`--`, a destructuring or `for…of` target) anywhere in the body, functions inside it included, to a `let` or parameter declared outside it. A function passed by name (a function declaration or a const's arrow function) to a ParallelCallback parameter is checked too. `parallel(e)` is the operator here as it is when it runs (D-O05).
+- How (D-127): PTS3001, lexical: an assignment (`=`, compound, `++`/`--`, a destructuring or `for…of` target) anywhere in the body, functions inside it included, to a `let` or parameter declared outside it. A function passed by name (a function declaration or a const's arrow function) to a `ParallelCallback` parameter is checked too. `parallel(e)` is the operator here as it is when it runs (D-O05). The check doesn't follow calls: a function called from the body that assigns an outer variable isn't reported.
+
+From `pts/tests/errors/parallel_guardrail.pts`:
 
 ```ts
 let count = 0;
-files.par.forEach(() => { count++; }); // compile error: use .par.reduce() or an Atomic
+const xs = [1, 2, 3];
+xs.par.forEach(() => {
+  count++; // error PTS3001: `count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+});
 ```
 
 ### 5.7 `pts:sync`
@@ -292,15 +498,16 @@ files.par.forEach(() => { count++; }); // compile error: use .par.reduce() or an
 
 A concurrent map may come later if benchmarks or examples want one.
 
-- How (D-128): `pts:sync` is a ParallelScript library over intrinsics that keep atomic cells and lock words in small ArrayBuffers. `AtomicInt` holds an `int` (i64), sequentially consistent; `add` wraps and, like `compareExchange`, returns the value before (as JS's `Atomics` do); `Atomic<int>` is `AtomicInt`. `Mutex<T>(value)`: `withLock(fn)` runs `fn(value)` holding the lock, blocking the thread while it waits; `lock()` gives a promise of a `MutexGuard<T>` (`value`, `unlock()`), waiting without blocking the loop; a release passes the lock to the longest-waiting `lock()` first; a guard used after `unlock()` throws `Error`. `Once.run(fn)` runs fn the first time (a concurrent call blocks until it is done; if fn throws, it hasn't run); `done` tells whether it has.
-- `Channel<T>(capacity = Infinity)` (D-129): `send(v)` resolves once a receiver has v or it is queued, waiting while `capacity` items are queued (with capacity 0, until a receiver takes it); `recv()` resolves to the next item, or undefined once the channel is closed and empty; `close()` lets receivers drain what is queued and rejects later sends and those waiting (`Error: Send on a closed channel`); closing twice does nothing; `closed` tells; `for await (const x of channel)` takes items until it is closed and empty. Items go to receivers in the order they were queued; waiting receivers and senders are served first come, first served.
+- How (D-128): `pts:sync` is a ParallelScript library over intrinsics that keep atomic cells and lock words in small ArrayBuffers. `new AtomicInt(value = 0)` holds an `int` (i64), sequentially consistent; `add` wraps and, like `compareExchange`, returns the value before (as JS's `Atomics` do); `Atomic<int>` is `AtomicInt`. `new Mutex<T>(value)`: `withLock(fn)` runs `fn(value)` holding the lock, blocking the thread while it waits, and returns fn's result; `lock()` gives a promise of a `MutexGuard<T>` (`value`, `unlock()`), waiting without blocking the loop; a release passes the lock to the longest-waiting `lock()` first; a guard used after `unlock()` throws `Error`. `Once.run(fn)` runs fn the first time (a concurrent call blocks until it is done; if fn throws, it hasn't run); `done` tells whether it has.
+- `Channel<T>(capacity = Infinity)` (D-129): `send(v)` resolves once a receiver has v or it is queued, waiting while `capacity` items are queued (with capacity 0, until a receiver takes it); a capacity below 0 is a `RangeError`; `recv()` resolves to the next item, or undefined once the channel is closed and empty; `close()` lets receivers drain what is queued and rejects later sends and those waiting (`Error: Send on a closed channel`); closing twice does nothing; `closed` tells; `for await (const x of channel)` takes items until it is closed and empty. Items go to receivers in the order they were queued; waiting receivers and senders are served first come, first served.
+- Not yet: `Atomic<T>` of integer types other than `int`, a `select` over several channels, `trySend`/`tryRecv`. `recv()` can't tell an undefined item from the end (use `for await`, or an item type without undefined). A `withLock` on a loop's thread while a `lock()` holder on the same loop awaits deadlocks, as any blocking lock would.
 
 ---
 
 ## 6. Modules
 
-- ES modules with relative imports.
-- Standard library modules use the `pts:` prefix: `import { Mutex } from "pts:sync"`.
+- ES modules with relative imports, in every static form: named, default and namespace imports, side-effect imports, `export` declarations and lists, re-exports, `export *`, `export * as ns`, `import type` (§1 for file extensions).
+- Standard library modules use the `pts:` prefix: `import { Mutex } from "pts:sync"` (§7.3). Bare specifiers and `node:` modules don't resolve (tsc errors).
 - No npm or `node_modules` in v1. Compiling pure-TS npm packages that fit the supported subset is a stretch goal.
 
 Semantics (D-022), as in Node:
@@ -308,6 +515,8 @@ Semantics (D-022), as in Node:
 - Every import runs its module, even one that names only types; `import type` and `export type … from` don't.
 - Imports are live bindings: a module sees later assignments to a `let` it imports, also through `import * as m` (`m.x`) and re-exports (`export { x as y }`, `export *`, `export * as ns`).
 - `export default <expression>` stores the expression's value when the statement runs; a later assignment to a variable it named doesn't change the default export (unlike `export { x as default }`).
+- A `pts:` module is compiled into the program when a module imports it; `pts:process` also when the program uses the global `process`, which runs it before every other module, and `pts:parallel` when it uses `.par` (D-116, D-123).
+- Top-level `await` only in the entry module (§5.2).
 - Not supported yet: a module namespace object as a value (`console.log(m)`), dynamic `import()`, `import defer`.
 
 ---
@@ -316,33 +525,42 @@ Semantics (D-022), as in Node:
 
 ### 7.1 Globals
 
-- `console`. Output matches Node's `util.inspect` for primitives, arrays, plain objects, class instances (like `Point { x: 1, y: 2 }`), `Map` and `Set` (defaults per D-O16: depth 2, `breakLength` 80, Node's grouping heuristics), and Node's `util.format` for format strings (`%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%%`). `log`, `info`, `debug` and `dirxml` write to stdout, `error` and `warn` to stderr; `dir` (with `depth` and `showHidden`), `table`, `group`/`groupCollapsed`/`groupEnd`, `assert`, `count`/`countReset`, `time`/`timeEnd`/`timeLog` and `trace` work as Node's (D-088).
-- `Math` and `JSON`.
-- `Promise`, including `all`, `allSettled`, `race`, `any` and `withResolvers`.
-- `setTimeout`, `setInterval`, `clearTimeout` and `queueMicrotask`.
-- `performance.now()`.
-- `fetch` (with `pts:http`): `http://` over HTTP/1.1; `https://` rejects with a `TypeError` until TLS is added (D-O10).
+- `console`. Output matches Node's `util.inspect` for primitives, arrays, plain objects, class instances (like `Point { x: 1, y: 2 }`), `Map` and `Set` (defaults per D-O16: depth 2, `breakLength` 80, Node's grouping heuristics), and Node's `util.format` for format strings (`%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%%`). `log`, `info`, `debug` and `dirxml` write to stdout, `error` and `warn` to stderr; `dir` (with `depth` and `showHidden`), `table`, `group`/`groupCollapsed`/`groupEnd`, `assert`, `count`/`countReset`, `time`/`timeEnd`/`timeLog` and `trace` work as Node's (D-088). `console.dir`'s options must be an object literal of `depth` and `showHidden`.
+- `Math` and `JSON`: every function and constant of Math, the transcendental ones computed as V8 computes them, and `random` as xorshift128+ per thread (D-084); `JSON.parse` with a reviver and `JSON.stringify` with a replacer (function or property list) and an indent, with V8's error messages (D-080, D-092). `Math` itself as a value is not supported yet.
+- `Promise`, including `all`, `allSettled`, `race`, `any` and `withResolvers` (and `then`, `catch`, `finally`, `resolve`, `reject`; D-112, D-113). `Promise.try` is not supported yet.
+- `setTimeout`, `setInterval`, `setImmediate`, `clearTimeout`, `clearInterval`, `clearImmediate` and `queueMicrotask`, as Node's: the timers return a `Timeout` with `ref`, `unref`, `hasRef` and `refresh` (D-114).
+- `performance.now()`: milliseconds since the program started.
+- `process`: `pts:process`'s default export (§7.3).
+- `parseInt`, `parseFloat`, `isNaN`, `isFinite` (D-083); `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent` (D-092); `String`, `Number` and `Boolean` as conversions and as values (`xs.map(Number)`, `xs.filter(Boolean)`); `NaN`, `Infinity`, `undefined`; `Symbol.iterator` and `Symbol.asyncIterator`.
+- `parallel` (the operator, §5.3).
+- `fetch` (planned, M6.3, with `pts:http`): `http://` over HTTP/1.1; `https://` will reject with a `TypeError` until TLS is added (D-O10). Until then `fetch` is an unknown name.
+- Not there: `globalThis` (PTS1001), `structuredClone` and the DOM's globals (undeclared, D-005), `Intl`, `WeakMap`, `WeakSet`, `WeakRef`, `Atomics` and `SharedArrayBuffer` (PTS1001; `pts:sync` has atomics).
 
 ### 7.2 Built-ins
 
-- The commonly used parts of `String` (with `normalize`, D-135), `Array`, `Map`, `Set` and `Number`.
-- `Object.keys`, `Object.values` and `Object.entries`.
-- `Date` (basic).
-- Typed arrays (`Int8Array`, `Uint8Array`, `Uint8ClampedArray`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array`) and `ArrayBuffer`, with their methods, as Node has them (D-125).
-- `RegExp`, backed by PCRE2 (D-O09, D-132, D-133): regex literals, `new RegExp(pattern, flags)` and `RegExp(…)`, `source`, `flags` and the flag properties, `lastIndex` with `g` and `y`, `exec` (match arrays with `index`, `input` and `groups`), `test`, `toString`, `RegExp.escape`, printing and conversion to strings as Node does, all through `any` too. The String methods that take a RegExp (`match`, `matchAll`, `search`, `split`, `replace` and `replaceAll` with replacement patterns or callbacks) work as RegExp.prototype's `@@match` … `@@replace` do (D-134), on any pattern a program gives them, through `any` too.
+- **String** (D-016, D-082, D-134, D-135): `length`, indexing, `at`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `endsWith`, `includes`, `indexOf`, `isWellFormed`, `lastIndexOf`, `localeCompare` (Node's default collation; an English locale or none), `match`, `matchAll`, `normalize`, `padEnd`, `padStart`, `repeat`, `replace` and `replaceAll` (string or RegExp patterns; replacement strings with `$` patterns, or callbacks), `search`, `slice`, `split` (string or RegExp separators), `startsWith`, `substr`, `substring`, `toLowerCase`, `toUpperCase`, `toLocaleLowerCase` and `toLocaleUpperCase` (without a locale), `toWellFormed`, `trim`, `trimStart`, `trimEnd` (and `trimLeft`/`trimRight`); `String.fromCharCode`, `String.fromCodePoint`. Not yet: `toString` and `valueOf` of a typed string (they work through `any`), `String.raw` and tagged templates.
+- **Array** (D-039, D-042, D-085, D-110): `length`, indexing, `at`, `concat`, `entries`, `every`, `fill`, `filter`, `find`, `findIndex`, `findLast`, `findLastIndex`, `flat`, `flatMap`, `forEach`, `includes`, `indexOf`, `join`, `keys`, `lastIndexOf`, `map`, `pop`, `push`, `reduce`, `reduceRight`, `reverse`, `shift`, `slice`, `some`, `sort` (stable), `splice`, `toReversed`, `toSorted`, `toSpliced`, `toString`, `unshift`, `values`, `with`; `Array.isArray`, `Array.from` (of arrays, strings, iterables and `{ length: n }`, with or without a mapper), `Array.of`, `new Array(n)` and `Array(n)`. Not yet: `copyWithin`, `Array.fromAsync`.
+- **Map and Set** (D-046, D-056, D-110): `new Map` and `new Set` (empty, or of an iterable or of entries), `get`, `set`, `add`, `has`, `delete`, `clear`, `size`, `forEach`, `keys`, `values`, `entries`, iteration; insertion order and SameValueZero keys, as in JS. Not yet: the ES2025 set methods (`union`, …), `Map.groupBy`.
+- **Number** (D-083): `toFixed`, `toExponential`, `toPrecision`, `toString(radix)`, `toLocaleString` (Node's default English format), `valueOf`; `Number.isInteger`, `isSafeInteger`, `isFinite`, `isNaN`, `parseInt`, `parseFloat` and the constants (`MAX_SAFE_INTEGER`, `EPSILON`, …).
+- **Object** (D-086, D-096, D-105): `Object.keys`, `values`, `entries`, `hasOwn`, `assign`, `is`, `freeze`, `isFrozen`, `fromEntries`; `o.hasOwnProperty(k)` on any object. Not yet: `create`, `defineProperty`, `getOwnPropertyNames`, `getPrototypeOf`, `seal`, `preventExtensions`, `isSealed`, `isExtensible`, `groupBy`.
+- **`Date`** (basic, D-087): the constructor's forms (now, a time value, a string, another date, local components), `Date.now`, `Date.UTC`, `Date.parse`, the local and UTC getters and setters, `getTime`, `valueOf`, `getTimezoneOffset`, `toString`, `toDateString`, `toTimeString`, `toISOString`, `toUTCString`, `toJSON`; local time from the C library's time zone rules (`TZ`). Not yet: the `toLocale…` formats, `Date()` without `new`, `getYear`, extending `Date`.
+- Typed arrays (`Int8Array`, `Uint8Array`, `Uint8ClampedArray`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array`) and `ArrayBuffer`, with their methods, as Node has them (D-125). Their elements are numbers (`a[i] + 1` doesn't wrap at 255 for a `Uint8Array`), written with JS's conversions; `subarray` and views of a buffer share its bytes.
+- `RegExp`, backed by PCRE2 (D-O09, D-132, D-133): regex literals, `new RegExp(pattern, flags)` and `RegExp(…)`, `source`, `flags` and the flag properties, `lastIndex` with `g` and `y`, `exec` (match arrays with `index`, `input` and `groups`), `test`, `toString`, `RegExp.escape`, printing and conversion to strings as Node does, all through `any` too. The String methods that take a RegExp (`match`, `matchAll`, `search`, `split`, `replace` and `replaceAll` with replacement patterns or callbacks) work as RegExp.prototype's `@@match` … `@@replace` do (D-134), on any pattern a program gives them, through `any` too. A match array is a `string[]` with its extra properties.
+- The error classes (§3.9), `Promise` (§5.2), generators and iterators (§3.14).
 
 ### 7.3 `pts:` modules
 
 | Module | Contents |
 |---|---|
-| `pts:fs` | Sync and promise-based file APIs: Node's `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `accessSync`, `statSync`, `lstatSync`, `mkdirSync`, `readdirSync`, `unlinkSync`, `rmdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `symlinkSync`, `readlinkSync`, `realpathSync`, `chmodSync`, `mkdtempSync`, `constants`, `Stats`, `Dirent`, with Node's errors (D-117); text in UTF-8; the promise API is `pts:fs/promises` (also `fs.promises`): `readFile`, `writeFile`, `appendFile`, `access`, `stat`, `lstat`, `mkdir`, `readdir`, `unlink`, `rmdir`, `rm`, `rename`, `copyFile`, `symlink`, `readlink`, `realpath`, `chmod`, `mkdtemp` (D-118) |
-| `pts:path` | Path utilities: Node's `path` for POSIX (`join`, `resolve`, `relative`, `normalize`, `dirname`, `basename`, `extname`, `parse`, `format`, `isAbsolute`, `sep`, `delimiter`; the default export is the object of them, D-116) |
-| `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is also the global `process`, as in Node (D-116) |
+| `pts:fs` | Node's synchronous file API (D-117): `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `accessSync`, `statSync` and `lstatSync` (with `throwIfNoEntry`), `mkdirSync` (`recursive`, `mode`), `readdirSync` (`withFileTypes`, `recursive`), `unlinkSync`, `rmdirSync`, `rmSync` (`recursive`, `force`), `renameSync`, `copyFileSync`, `symlinkSync`, `readlinkSync`, `realpathSync`, `chmodSync`, `mkdtempSync`; `constants`; the classes `Stats` (Node's numbers, `atime` … `birthtime` as getters, `isFile()` …) and `Dirent` (`name`, `parentPath`, `isFile()` …); `promises` (`pts:fs/promises`'s default export); the types `PathLike`, `BufferEncoding` (`"utf8"` or `"utf-8"`) and the option types. The default export is an `fs` object (`FileSystem`) with the functions as methods, `constants`, `promises` and `F_OK` … `X_OK`. Text in UTF-8 only; Node's errors (D-117) |
+| `pts:fs/promises` | Node's `fs/promises` (D-118): `readFile`, `writeFile`, `appendFile`, `access`, `stat`, `lstat`, `mkdir`, `readdir`, `unlink`, `rmdir`, `rm`, `rename`, `copyFile`, `symlink`, `readlink`, `realpath`, `chmod`, `mkdtemp`, `constants`; the default export (`FilePromises`) has them as methods |
+| `pts:path` | Node's `path` for POSIX (D-116): `join`, `resolve`, `relative`, `normalize`, `dirname`, `basename`, `extname`, `parse`, `format`, `isAbsolute`, `toNamespacedPath`, `sep`, `delimiter`, `posix`; the types `ParsedPath`, `FormatInputPathObject` and `PlatformPath`. The default export, also `posix`, is a `PlatformPath` object with them as members, whose `posix` is itself |
+| `pts:process` | `argv`, `env`, `exit`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout` and `stderr` (`write`); the classes `Process` and `WriteStream`, the types `ProcessEnv` and `ErrnoException`. The default export is also the global `process`, as in Node, which has `exitCode` too (D-116) |
+| `pts:parallel` | `range`, `join`, the classes `Range`, `ParallelArray<T>` (`xs.par`), `ParallelTypedArray<A>` (`ta.par`) and `ParallelRange` (`range(…).par`), and the callback brand `ParallelCallback<F>` (`F & ParallelBrand`) (§5.4; D-123, D-126) |
+| `pts:sync` | Synchronization primitives (§5.7): `AtomicInt`, `Atomic<T extends int = int>`, `Mutex<T>`, `MutexGuard<T>`, `Once` (D-128), `Channel<T>` (D-129) |
+| `pts:http` | Planned (M6.2): a server with an option to accept connections on every loop (`SO_REUSEPORT`), with a request and response API in the style of Node's and Bun's; `fetch` as a global (M6.3) |
 
-The `pts:` modules that mirror Node's (`pts:fs`, `pts:path`, `pts:process`) behave as `node:fs`, `node:path` and `node:process` do, so a program that imports only those prints what Node prints with the `node:` modules. They are written in ParallelScript and compiled with the program that imports them (D-116).
-| `pts:http` | A server with an option to accept connections on every loop, plus `fetch` as a global |
-| `pts:sync` | Synchronization primitives (§5.7): `AtomicInt`, `Atomic<int>`, `Mutex<T>`, `MutexGuard<T>`, `Once` (D-128), `Channel<T>` (D-129) |
-| `pts:parallel` | `range`, `join` and related helpers |
+The `pts:` modules that mirror Node's (`pts:fs`, `pts:fs/promises`, `pts:path`, `pts:process`) behave as `node:fs`, `node:fs/promises`, `node:path` and `node:process` do, so a program that imports only those prints what Node prints with the `node:` modules (differences in §8). They are written in ParallelScript and compiled with the program that imports them; they reach the runtime through functions they declare without a body (`declare function pts_process_cwd(): string`), which user code can't name (D-116).
 
 ---
 
@@ -352,36 +570,42 @@ The compatibility principle (§1.1) holds except for these:
 
 - Properties cannot be added to or deleted from objects after construction (§3.6).
 - `any` is checked at the boundary into typed code (§3.4); casts are checked at runtime (§3.5).
-- The features in §3.10 are compile errors.
+- The features in §3.10 are compile errors, and so (PTS1001) are the features the sections above list as not supported yet.
 - Reading a string index out of range (`s[i]`) gives `undefined` where the context can hold any value (printing, concatenation, template literals, `===`/`!==` with a string, `<`/`>` comparisons), but throws `RangeError` where a `string` is required, e.g. `const c: string = s[9]` (D-015).
-- Loose locals (D-090): a local initialized from an element read (`const x = a[i]`, `const fn = TABLE[k]`, `const [k, v] = s.split("=")`) that the program tests for undefined holds undefined as in JS; using it as its type while it is undefined throws `TypeError: Expected T, got undefined`, where JS goes on with undefined (and fails later, if at all). An element read straight into a typed place (`const n: number = a[9]`, an argument, a result) still throws `RangeError`.
-- Arrays have no holes (D-038). Reading `a[i]` out of range gives `undefined` where any value can go (printing, concatenation, template literals, conditions, the object of `?.`, a conditional's branch whose type holds undefined) and throws `RangeError` where an element is required; `a.pop()!` and `a.shift()!` on an empty array throw `RangeError`. Writing past the end (`a[a.length + 1] = x`) and growing an array by setting `length` throw `RangeError`.
+- Loose locals (D-090, D-094): a local initialized from an element read (`const x = a[i]`, `const fn = TABLE[k]`) that the program tests for undefined, and every local an array pattern binds from an array (`const [op, arg] = line.split(" ")`), holds undefined as in JS; using it as its type while it is undefined throws `TypeError: Expected T, got undefined`, where JS goes on with undefined (and fails later, if at all). An element read straight into a typed place (`const n: number = a[9]`, an argument, a result) still throws `RangeError`.
+- Arrays (D-038): a program can't make holes in an array: writing past the end (`a[a.length + 1] = x`) and growing an array by setting `length` throw `RangeError`. The holes an array can hold are those `new Array(n)` leaves (D-085, below), a match array's groups that took no part (D-133, below) and those racing pushes leave (D-130, §4.1). Reading `a[i]` out of range gives `undefined` where any value can go (printing, concatenation, template literals, conditions, the object of `?.`, a conditional's branch whose type holds undefined) and throws `RangeError` where an element is required; `a.pop()!` and `a.shift()!` on an empty array throw `RangeError`.
 - Function values (D-041): an arrow function or function expression that captures no variables is one static closure, so two evaluations of it give the same (`===`) function, where JS makes a new one each time; the same holds for a nested function declaration that captures nothing. A function used where its type takes more parameters, or other parameter types, may be wrapped in an adapter, which is a different function for `===` but prints as the one it wraps. Functions can't be converted to strings (JS gives their source text).
+- Function lengths (D-098): a method read as a value counts its parameters before the first optional one (`m(a, b?)` has length 1, where JS counts 2), and a bound function's `length` isn't reduced by its bound arguments.
 - Rest parameters (D-057): a function with fixed parameters used as a function type with a rest parameter (`const f: (...xs: number[]) => number = add`) reads each argument from the rest array with a checked read, so calling it with too few arguments throws `RangeError` where JS passes `undefined`.
 - Optional properties (D-065): an optional property that a literal leaves out and that is assigned later prints after the literal's properties, in the order the object's type declares such properties, where JS prints properties in the order they were added. `{ a: 1, ...o }` keeps 1 when `o.a` is undefined, if tsc types the result's `a` without undefined (JS gives undefined). An object that lacks an optional property of a type it is used as can't gain it: writing it throws `TypeError: Cannot add property p, object is not extensible`; one that holds it without undefined (`{ verbose: true }` used as `{ verbose?: boolean }`) throws `TypeError` when undefined is written to it (D-066). A value whose objects may hold an optional property as yet another type (a subclass's field of another type) can't be used as the type (PTS1001).
-- `any` (D-070, D-071): converting dynamic data (an `any[]`, a hash-map object of `any`) to a typed array or object type makes a copy, so writes to one don't show in the other, and a copy into an object type keeps only the properties the type declares; converting an `any` into a typed place checks it (`TypeError: Expected number, got string`), where TypeScript checks nothing; writing a property an object's type doesn't allow, or doesn't have, throws `TypeError`, where JS converts nothing or adds it. An object meets `+`, `<`, `==` and ToNumber through its class's `valueOf()` if it returns a primitive, else as its string (D-088); an object literal's `valueOf` isn't called.
-- JSON (D-080): `JSON.stringify` that gives undefined (of undefined or a function) where a `string` is required throws `TypeError: Expected string, got undefined`, where JS puts undefined there; printed or kept in an `any` it is undefined, as in JS. Integer types stringify exactly (an `i64` past 2^53 too). 
-- Exceptions (D-068, D-069): a stack frame shows the file's path as the program was built with it and a line, without a column (`at f (/src/app.pts:12)`, where Node writes `at f (file:///src/app.ts:12:5)`); calls clang turns into jumps (tail recursion, inlining that leaves no trace) may be missing; the error of a stack overflow has no frames; recursion goes as deep as the thread's C stack allows (8 MB on Linux by default, less 256 KB), deeper than Node. An error's `name` is its own property, set by the constructor to its native class's name, where JS inherits it from the prototype (only `Object.keys` and JSON could tell). A class derived from Error can't redefine `stack`.
+- `any` (D-070 … D-077): converting dynamic data (an `any[]`, a hash-map object of `any`) to a typed array or object type makes a copy, so writes to one don't show in the other, and a copy into an object type keeps only the properties the type declares; so does converting a typed object whose declared field types don't imply the target's (a `child: Animal` field holding a Dog, converted to `{ child: Dog }`, D-072). Converting an `any` into a typed place checks it (`TypeError: Expected number, got string`), where TypeScript checks nothing; writing a property an object's type doesn't allow, or doesn't have, throws `TypeError`, where JS converts nothing or adds it. A method read through `any` is a bound closure, a new one at each read (JS: the same function each time); a function held in a property and called through `any` as a method gets no `this`, and `call` and `apply` through `any` ignore their `this` argument (D-074, D-075, D-076). An object meets `+`, `<`, `==` and ToNumber through its class's `valueOf()` if it returns a primitive, else as its string (D-088); an object literal's `valueOf` isn't called.
+- JSON (D-080): `JSON.stringify` that gives undefined (of undefined or a function) where a `string` is required throws `TypeError: Expected string, got undefined`, where JS puts undefined there; printed or kept in an `any` it is undefined, as in JS. Integer types stringify exactly (an `i64` past 2^53 too).
+- Exceptions (D-068, D-069): a stack frame shows the file's path and a line, without a column (`at f (/src/app.pts:12)`, where Node writes `at f (/src/app.ts:12:5)`), and top-level code without a name (`at /src/app.pts:13`, where Node writes `at <anonymous> (/src/app.ts:13:3)` followed by its module loader's frames); calls clang turns into jumps (tail recursion, inlining that leaves no trace) may be missing; the error of a stack overflow has no frames; recursion goes as deep as the thread's C stack allows (8 MB on Linux by default, less 256 KB), deeper than Node. An error's `name` is its own property, set by the constructor to its native class's name, where JS inherits it from the prototype (only `Object.keys` and JSON could tell). A class derived from Error can't redefine `stack`.
+- Uncaught errors (D-O07): an uncaught exception's report on stderr is `Uncaught ` and the error's stack, where Node prints the throwing line with a caret, the stack and its version; the exit code (1) is Node's.
 - Unions of objects (D-067): narrowing a union to a class with a type guard or `in` that is wrong at run time throws `TypeError: The value narrowed to C is not an instance of it`, where JS carries on and reads undefined. `==` between an object and a primitive compares the object's primitive: its class's `valueOf()` if it has one, else its string (an array's join, its class's `toString()`, else "[object Object]").
-- Object spread (D-058): `{ ...o }` copies the properties of o's static type, in the order its type lists them (a class instance's fields in their constructor's order, as JS does). An object made by a literal that wrote them in another order, or one with more properties than its static type, copies in that order and those properties only, where JS copies the object's own properties in its order.
+- Object spread (D-058, D-108): `{ ...o }` copies the properties of o's static type: a class instance's fields in their constructor's order (as JS does), and an object type's properties in its source's order when the literal starts with a spread of an object of the same shape that gives every property (`{ ...form }`, `{ ...p, x: 5 }`), else in the order the type lists them. So an object with more properties than its static type copies those properties only, and a later spread of an object written in another order copies in the type's order, where JS copies the object's own properties in its order.
 - Methods as values (D-044): `o.m` used as a value is bound to `o`, as `o.m.bind(o)` would be, where JS gives the unbound method (whose `this` is undefined when it is called plainly, so a method that uses `this` fails); each read makes a new bound function, so `o.m === o.m` is false. `f.call(x, …)` and `f.bind(x, …)` on a class's method run the method `x`'s class has; on a method of an object type, `x` must be `o` itself.
-- Enums (D-052): reading a numeric enum's reverse mapping `E[n]` for a value no member has gives `undefined` where any value can go, but throws `RangeError` where a `string` is required, as string indexing does (D-015). The enum object itself can't be used as a value yet.
+- Classes (D-028, D-030): a subclass that overrides only the getter of an inherited getter and setter keeps the parent's setter, where JS leaves the property without one (and assigning it throws `TypeError`). A base constructor that calls a method a subclass overrides, which reads a subclass field, sees the field's zero value (`""`, 0, false), where JS sees undefined, since the subclass's initialisers run after `super()` returns; `console.log(this)` there lists the subclass's fields too.
+- Enums (D-052, D-089): reading a numeric enum's reverse mapping `E[n]` for a value no member has gives `undefined` where any value can go, but throws `RangeError` where a `string` is required, as string indexing does (D-015). Each use of an enum object as a value makes a new hash-map object, so `E === E` is false.
 - Maps (D-046): `m.get(k)!` throws `RangeError` when `m` has no entry for `k`, where JS gives `undefined`. A map's or set's key and value types are fixed; JS's own iteration order, SameValueZero keys and live iteration are kept.
 - Unions (D-062): `x!` throws `TypeError` when x is null or undefined, where TypeScript's `!` checks nothing at run time. `x++` on a union variable is a statement's increment; as a value it is the union's old value.
 - Hash-map objects (D-059: `Record<string, T>`, index signatures): reading a missing key where a value of the entry's type is required (`const n: number = o.k`, `o.k + 1`, `o.k += 1`) throws `RangeError: Object has no property 'k'`, where JS gives `undefined`; printing it, testing it, comparing it with `undefined` and `??`/`||` fallbacks behave as in JS. They inherit nothing: `"toString" in o` is false and `o.__proto__` is an ordinary key. A function stored under a computed key known only at run time (`{ [k]: () => 1 }`) is anonymous, where JS names it after the key.
 - Dates (D-087): a time zone's long name in `toString` comes from a table of common zones, else ICU's fallback `GMT+hh:mm`, where Node names every zone; `Date.parse` reads the ISO format and the common other forms, where V8's legacy parser reads more; the `toLocale…` formats aren't supported yet.
-- Objects (D-086): `Object.assign` can't add a property to its target, and checks each value against the target's declared type (`TypeError`), as any write does; `Object.assign({}, …)` is the spread of its sources (D-089). `Object.freeze` doesn't stop writes through other references at run time; `Object.isFrozen` and the other integrity functions aren't supported.
-- Arrays (D-085): `new Array(n)` of numbers, integers or booleans starts with zeros (or false) where JS has holes (`<n empty items>`, undefined when read); arrays of strings, objects and dynamic values have JS's holes. `keys()`, `values()` and `entries()` work where they are iterated (`for…of`, spread, `Array.from`); as values they wait for iterators (M4.1). An `any[]` used as a typed array is a checked copy.
+- Objects (D-086, D-105): `Object.assign` can't add a property to its target, and checks each value against the target's declared type (`TypeError`), as any write does; `Object.assign({}, …)` is the spread of its sources (D-089). `Object.freeze` marks the object, which `Object.isFrozen` reports, but doesn't stop writes through other references at run time (writes through the frozen type are tsc errors); `Object.seal`, `Object.preventExtensions` and their tests aren't supported yet.
+- Arrays (D-085): `new Array(n)` of numbers, integers or booleans starts with zeros (or false) where JS has holes (`<n empty items>`, undefined when read); arrays of strings, objects and dynamic values have JS's holes. An `any[]` used as a typed array is a checked copy.
 - Numbers (D-083): `toLocaleString` always formats as Node's default English locale does; other locales and options are compile errors (`TypeError` through `any`).
 - Strings (D-082): `localeCompare` always uses the root collation that Node's default English locale has, whatever the environment's locale; letters ICU expands (`ß` as "ss", `æ` as "ae", ligatures) compare as letters of their own; locales other than English and collator options are compile errors (`TypeError` through `any`). `toLocaleUpperCase`/`toLocaleLowerCase` take no locale. `normalize` uses tables generated from Node's ICU, so it normalizes as the Node that generated them does (Unicode 17 now, D-135).
-- Console (D-088): `%s` of an error inspects it even where its class overrides `toString`; `%s` of a function throws (functions have no source text); under `%o` or `showHidden` a function doesn't list its `length`, `name` and `prototype`, and a getter and a setter of one name that different classes define show as one `[Getter/Setter]`. Widths of strings for laying out arrays in columns are summed per code point, where Node measures the string's NFC form. `console.trace` shows the program's frames only; warnings (a missing count or timer label) go to stderr without Node's `(node:<pid>)` prefix.
-- Type-level features through run-time checks (D-089): `x as T` that isn't an upcast is checked, and to an array or object type that isn't the value's own it makes a checked copy, as converting from `any` does; keyed elements (`o[k]` for `k: keyof T`), members of unions of objects and other values, and values of unions that recur through arrays or hash-map objects (`type Json = … | Json[]`) are found at run time and checked where they become typed. A tuple used with array methods or `for…of` is copied into an array. Each use of an enum object as a value makes a new hash-map object, so `E === E` is false. A property tsc narrowed to a primitive that a call has changed since throws `TypeError` where it is read as that type, where JS reads the new value; printed or compared, it is read as it is.
-- Generators (D-109): a `yield` can only come first in its statement (as the statement, the first variable's initializer, an assignment's right side or a return's value); elsewhere it is a compile error for now. A generator function's default parameter values are evaluated when its generator first runs, where JS evaluates them at the call. Destructuring more elements than an iterator yields into typed locals throws `RangeError` as reading past an array's end does (D-038).
-- Process (D-116): `process.argv` starts with the executable's path twice, where Node has its own path and the script's (`argv.slice(2)` is the arguments in both); `process.env` is a copy of the environment made at startup, so writing it doesn't change what the system sees; Node's `nextTick`, `hrtime`, `on(…)` and `stdin` are not there. `pts:path` is the POSIX path module only (no `win32`, no `matchesGlob`).
-- Files (D-117): `pts:fs` reads and writes text (UTF-8) only: reading without an encoding, which gives a Buffer in Node, is a compile error (there is no `Buffer`; typed arrays are there, D-125); other encodings, file descriptors, streams and watchers are not there. console.log of a `Dirent` leaves out Node's `Symbol(type)` entry; `rmSync` of a directory without `recursive` throws an `Error` (Node: a `SystemError`) with Node's message and code.
-- Typed arrays (D-125): reading an element out of range gives `undefined` where any value can go and throws `RangeError` where a number is required, as arrays do (D-038); writes out of range are ignored, as in JS. `Float16Array`, `BigInt64Array`, `BigUint64Array`, `DataView`, `SharedArrayBuffer`, resizable and transferable buffers, the base64 and hex methods and `thisArg` arguments are compile errors. Through `any`, elements, `length`, `byteLength`, `byteOffset`, `buffer`, `at`, `fill`, `includes`, `indexOf`, `join`, `lastIndexOf`, `reverse`, `slice`, `sort()`, `subarray` and `toString` work; other methods throw `TypeError`. A typed array's `for…of` reads its elements live, but spreads, `Array.from`, `keys()`, `values()` and `entries()` copy them first.
-- RegExp (D-132, D-133): a group that took no part in a match is undefined as in JS where the context tests it (`m[2] || "px"`, `m[2] ?? d`, `m[2] === undefined`, conditions), prints it, makes a string of it or destructures it; elsewhere, where a `string` is required, including callbacks of a match array's methods (`m.map(f)`) and `for…of` over it, it throws `TypeError: Expected string, got undefined`, where JS goes on with undefined. A named group that took no part is undefined in `groups` too, but reading it where a string is required throws `RangeError`, as a missing key does (D-059). The `d` flag is accepted and `hasIndices` reports it, but match arrays have no `indices`; `compile`, the legacy statics (`RegExp.$1`, `RegExp.lastMatch`, …), the `v` flag, `Symbol.match` and friends, and classes extending RegExp are not supported. Without the `u` flag, `.` and classes match an astral character whole, where JS sees two code units (D-132), and an empty match next to one moves past the whole character. A RegExp with `g` or `y` holds state in `lastIndex`, so threads sharing one and calling its `exec` or `test` race, as on any shared object; the String methods loop over a global RegExp's matches without using its `lastIndex` (they leave it at 0, as JS does), so they may share one (D-134). A replacement callback's parameters are checked against their types: `(m: string, unit: string) => …` called for a group that took no part throws `TypeError`, where JS passes undefined (`(m, unit) => …`, whose `unit` is `any`, gets undefined); callbacks with default parameter values, and callbacks with a pattern that may be a string, are not supported yet. console.log of `matchAll`'s iterator prints `Object [Array Iterator] {}`, where Node prints `Object [RegExp String Iterator] {}`.
+- Console (D-088): `%s` of an error inspects it even where its class overrides `toString`; `%s` of a function throws (functions have no source text); under `%o` or `showHidden` a function doesn't list its `length`, `name` and `prototype`, and a getter and a setter of one name that different classes define show as one `[Getter/Setter]`. Widths of strings for laying out arrays in columns are summed per code point, where Node measures the string's NFC form. `console.trace` shows the program's frames only; warnings (a missing count or timer label) go to stderr without Node's `(node:<pid>)` prefix. console.log of an `AggregateError` shows `errors` as a property, where Node shows `[errors]` (D-113), and of a `Timeout` prints `Timeout {}`, where Node prints its internals (D-114).
+- Type-level features through run-time checks (D-089): `x as T` that isn't an upcast is checked, and to an array or object type that isn't the value's own it makes a checked copy, as converting from `any` does; keyed elements (`o[k]` for `k: keyof T`), members of unions of objects and other values, and values of unions that recur through arrays or hash-map objects (`type Json = … | Json[]`) are found at run time and checked where they become typed. A tuple used with array methods or `for…of` is copied into an array. A property tsc narrowed to a primitive that a call has changed since throws `TypeError` where it is read as that type, where JS reads the new value; printed or compared, it is read as it is.
+- Generic consts (D-102): a module-scope generic const that is monomorphized (§3.7) can be called by name before its declaration has run, where JS throws `ReferenceError`.
+- Generators (D-109, D-111, D-115): a `yield` (or `await`) in a loop's condition or update, a case label, a declaration's variables after the first, a default value or an optional chain is a compile error for now. A `yield` elsewhere inside an expression is hoisted: the names, literals and property reads JS would read before it are read after it, so a change to them while the generator is suspended shows (`x += yield v` reads x after the yield). A generator function's default parameter values are evaluated when its generator first runs, where JS evaluates them at the call. Destructuring more elements than an iterator yields into typed locals throws `RangeError` as reading past an array's end does (D-038). An object literal returned as an iterator result without `done` prints `done: false`. `return(v)` on a suspended async generator resumes it with v without awaiting v first.
+- Promises and timers (D-112, D-114, D-118): a thenable whose `then` is a getter that throws isn't caught; numeric timer ids (`clearTimeout(+t)`) aren't supported. A promise of `pts:fs/promises` settles after fewer steps than Node's, so how its settling interleaves with other promises' reactions may differ (both settle after the current microtasks; the order in which I/O completes isn't deterministic in either).
+- Process (D-116): `process.argv` starts with the executable's path twice, where Node has its own path and the script's (`argv.slice(2)` is the arguments in both); `process.env` is a copy of the environment made at startup, so writing it doesn't change what the system sees; Node's `nextTick`, `hrtime`, `memoryUsage`, `on(…)` and `stdin` are not there. `pts:path` is the POSIX path module only (no `win32`, no `matchesGlob`).
+- Files (D-117, D-118): `pts:fs` reads and writes text (UTF-8) only: reading without an encoding, which gives a Buffer in Node, is a compile error (there is no `Buffer`; typed arrays are there, D-125); other encodings, file descriptors (`openSync`, `FileHandle`), `opendir`, `cp`, `utimes`, `truncate`, `chown`, streams and watchers are not there. console.log of a `Dirent` leaves out Node's `Symbol(type)` entry; `rmSync` of a directory without `recursive` throws an `Error` (Node: a `SystemError`) with Node's message and code.
+- Typed arrays (D-125): reading an element out of range gives `undefined` where any value can go and throws `RangeError` where a number is required, as arrays do (D-038); writes out of range are ignored, as in JS. `Float16Array`, `BigInt64Array`, `BigUint64Array`, `DataView`, `SharedArrayBuffer`, resizable and transferable buffers, the base64 and hex methods and `thisArg` arguments are compile errors. Through `any`, elements, `length`, `byteLength`, `byteOffset`, `buffer`, `at`, `fill`, `includes`, `indexOf`, `join`, `lastIndexOf`, `reverse`, `slice`, `sort()`, `subarray` and `toString` work; other methods throw `TypeError`. A typed array's `for…of` reads its elements live, but spreads, `Array.from`, `keys()`, `values()` and `entries()` copy them first. Typed arrays don't take part in `Object.assign` or spreads into objects.
+- RegExp (D-132, D-133): a group that took no part in a match is undefined as in JS where the context tests it (`m[2] || "px"`, `m[2] ?? d`, `m[2] === undefined`, conditions), prints it, makes a string of it or destructures it; elsewhere, where a `string` is required, including callbacks of a match array's methods (`m.map(f)`) and `for…of` over it, it throws `TypeError: Expected string, got undefined`, where JS goes on with undefined. A named group that took no part is undefined in `groups` too, but reading it where a string is required throws `RangeError`, as a missing key does (D-059). The `d` flag is accepted and `hasIndices` reports it, but match arrays have no `indices`; `compile`, the legacy statics (`RegExp.$1`, `RegExp.lastMatch`, …), the `v` flag, `Symbol.match` and friends, and classes extending RegExp are not supported. Without the `u` flag, `.` and classes match an astral character whole, where JS sees two code units (D-132), so patterns written against surrogate halves don't match, and an empty match next to one moves past the whole character. `\s` doesn't match U+FEFF, and `\w` with `iu` doesn't match U+017F and U+212A; duplicate group names in different alternatives (ES2025) are a SyntaxError; a match that exceeds PCRE2's backtracking limit throws `RangeError: Maximum call stack size exceeded`. A RegExp with `g` or `y` holds state in `lastIndex`, so threads sharing one and calling its `exec` or `test` race, as on any shared object; the String methods loop over a global RegExp's matches without using its `lastIndex` (they leave it at 0, as JS does), so they may share one (D-134). A replacement callback's parameters are checked against their types: `(m: string, unit: string) => …` called for a group that took no part throws `TypeError`, where JS passes undefined (`(m, unit) => …`, whose `unit` is `any`, gets undefined); callbacks with default parameter values, and callbacks with a pattern that may be a string, are not supported yet. console.log of `matchAll`'s iterator prints `Object [Array Iterator] {}`, where Node prints `Object [RegExp String Iterator] {}`.
 - Array methods with callbacks (D-042): a callback that shortens the array makes `map`, `flatMap` and `filter` skip the indices it no longer has, so `map`'s result is shorter where JS's would have holes; `find(…)!` and `findLast(…)!` throw `RangeError` when no element matches, where JS gives `undefined`. `sort` with a comparator is a stable merge sort: the order is V8's for any consistent comparator, but the comparator may be called on other pairs, in another order.
+- Known issues (bugs to fix rather than differences by design; see `PROGRESS.md`): a local variable that a closure reads before its declaration has run (a hoisted function called above a `const` it uses) sees its type's zero value, and a class can be instantiated before its declaration has run, where Node throws `ReferenceError`; a string or object read so, or an object field read before the constructor assigns it, is NULL and crashes. Decorators, not supported yet, are ignored instead of being reported.
 
 ---
 

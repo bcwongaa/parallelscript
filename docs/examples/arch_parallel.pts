@@ -1,0 +1,13 @@
+// docs/ARCHITECTURE.md's second sample: a task on another event loop (`parallel`) and
+// a data-parallel map on the fork-join pool (`.par`), whose generated C the document shows.
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+const task = parallel fib(25);
+const squares = [1, 2, 3, 4].par.map((x) => x * x);
+console.log(squares, await task);
+
+// threads: 1 2 4
+// expect:
+// [ 1, 4, 9, 16 ] 75025

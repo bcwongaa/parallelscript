@@ -1,0 +1,21 @@
+// Features left out by design (docs/SPEC.md §3.10) are PTS1002 errors that say why.
+var count = 0;
+function sum(): number {
+  let total = 0;
+  for (const n of arguments) total += n;
+  return total;
+}
+namespace Shapes {
+  export const unit = 1;
+}
+const big = 2n ** 64n;
+const id = Symbol("id");
+console.log(eval("1 + 1"));
+
+// error: guide_by_design.pts:2:1 - error PTS1002: `var` is not supported; use `let` or `const`
+// error: guide_by_design.pts:5:19 - error PTS1002: `arguments` is not supported; use a rest parameter (`...args`)
+// error: guide_by_design.pts:8:1 - error PTS1002: namespaces are not supported; use ES modules (`import` and `export`)
+// error: guide_by_design.pts:11:13 - error PTS1002: BigInt is not supported yet
+// error: guide_by_design.pts:11:19 - error PTS1002: BigInt is not supported yet
+// error: guide_by_design.pts:12:12 - error PTS1002: `Symbol` is not supported, except `Symbol.iterator` and `Symbol.asyncIterator`
+// error: guide_by_design.pts:13:13 - error PTS1002: `eval` is not supported: programs are compiled ahead of time, so there is no compiler at run time

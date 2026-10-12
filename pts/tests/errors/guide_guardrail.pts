@@ -1,0 +1,41 @@
+// The guardrail: a parallel body can't assign a `let` or parameter declared outside it
+// (PTS3001), and nothing but `continue` or a throw can leave a `parallel for` (PTS3002).
+const prices = [12, 5, 30, 8];
+
+let total = 0;
+prices.par.forEach((price) => {
+  total += price;
+});
+
+function addAll(sum: number): number {
+  parallel for (const price of prices) {
+    sum += price;
+  }
+  return sum;
+}
+
+let last = 0;
+const task = parallel (last = prices.length);
+
+function firstOver(limit: number): number {
+  parallel for (const price of prices) {
+    if (price > limit) return price;
+  }
+  return -1;
+}
+
+parallel for (const price of prices) {
+  if (price === 5) break;
+}
+
+parallel for (let i = 0; i < prices.length; i++) {}
+
+const lazy = parallel async () => prices.length;
+
+// error: guide_guardrail.pts:33:23 - error PTS1002: the operand of `parallel` is a function, so its task would only make the function; give it the call instead (`parallel work()`)
+// error: guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: guide_guardrail.pts:22:24 - error PTS3002: `return` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
+// error: guide_guardrail.pts:28:20 - error PTS3002: `break` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
+// error: guide_guardrail.pts:31:1 - error PTS3002: `parallel for` takes a `for...of` loop: `parallel for (const x of items) { … }`

@@ -1,0 +1,22 @@
+// The integer types' rules are compile errors: lossy implicit conversions (PTS2001),
+// literals that don't fit (PTS2002) and operands with no common type (PTS2003).
+const price = 19.99;
+const cents: int = price;
+const big: i64 = 1;
+const small: i32 = big;
+const offset: i8 = -1;
+const index: u16 = offset;
+const level: u8 = 256;
+const whole: int = 2.5;
+const bytes: u8[] = [1, 2, -3];
+const signed: i64 = 1;
+const unsigned: u64 = 2;
+console.log(signed + unsigned);
+
+// error: guide_integer_errors.pts:4:20 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it
+// error: guide_integer_errors.pts:6:20 - error PTS2001: a int doesn't convert to i32 implicitly because the value could change; write `as i32` to convert it
+// error: guide_integer_errors.pts:8:20 - error PTS2001: a i8 doesn't convert to u16 implicitly because the value could change; write `as u16` to convert it
+// error: guide_integer_errors.pts:9:19 - error PTS2002: 256 doesn't fit in u8 (0 to 255)
+// error: guide_integer_errors.pts:10:20 - error PTS2002: 2.5 is not an integer, so it can't be a int; write `as int` to convert it
+// error: guide_integer_errors.pts:11:28 - error PTS2002: -3 doesn't fit in u8 (0 to 255)
+// error: guide_integer_errors.pts:14:13 - error PTS2003: `+` can't mix int and u64, because neither converts to the other without loss; convert one with `as`

@@ -1,0 +1,36 @@
+import { range } from "pts:parallel";
+
+class Tile {
+  pixels: Uint8Array;
+  constructor(readonly name: string, size: number) {
+    this.pixels = new Uint8Array(size);
+  }
+}
+const tiles = [new Tile("a", 3), new Tile("b", 4), new Tile("c", 5)];
+
+// Writing fields and elements from the body is allowed.
+parallel for (const tile of tiles) {
+  for (let i = 0; i < tile.pixels.length; i++) {
+    tile.pixels[i] = (i + 1) * 50;
+  }
+}
+for (const tile of tiles) {
+  console.log(tile.name, tile.pixels.join(" "));
+}
+
+// Over a range of integers, each iteration writing its own slot.
+const squares = new Array<number>(8).fill(0);
+parallel for (const i of range(0, 8)) {
+  if (i % 2 === 1) {
+    continue;
+  }
+  squares[i] = i * i;
+}
+console.log(squares.join(" "));
+
+// threads: 1 4
+// expect:
+// a 50 100 150
+// b 50 100 150 200
+// c 50 100 150 200 250
+// 0 0 4 0 16 0 36 0

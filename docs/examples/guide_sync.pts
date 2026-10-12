@@ -1,0 +1,51 @@
+// pts:sync's AtomicInt, Mutex and Once share state between threads safely.
+// threads: 1 2 4
+import { AtomicInt, Mutex, Once } from "pts:sync";
+import { range } from "pts:parallel";
+
+// AtomicInt: add, load, store and compareExchange are atomic; add returns the old value.
+const hits = new AtomicInt();
+parallel for (const i of range(0, 1000)) {
+  if (i % 3 === 0) hits.add(1);
+}
+console.log(hits.load(), hits.add(10), hits.load(), hits.compareExchange(344, 0), hits.load());
+
+// Mutex.withLock: a short critical section that blocks the thread while it waits.
+const wordCounts = new Mutex(new Map<string, number>());
+const words = ["to", "be", "or", "not", "to", "be"];
+words.par.forEach((word) => {
+  wordCounts.withLock((counts) => counts.set(word, (counts.get(word) ?? 0) + 1));
+});
+console.log(wordCounts.withLock((counts) => [...counts.entries()].sort()));
+
+// Mutex.lock: an async lock that doesn't block the event loop, held across awaits.
+const account = new Mutex({ balance: 100 });
+async function withdraw(amount: number): Promise<boolean> {
+  const guard = await account.lock();
+  try {
+    if (guard.value.balance < amount) return false;
+    await Promise.resolve();
+    guard.value.balance -= amount;
+    return true;
+  } finally {
+    guard.unlock();
+  }
+}
+const outcomes = await Promise.all([60, 60, 30].map((amount) => parallel withdraw(amount)));
+console.log(outcomes.filter((ok) => ok).length, account.withLock((a) => a.balance));
+
+// Once: the first run() runs the function; the others wait for it, then skip it.
+const setup = new Once();
+const setups = new AtomicInt();
+range(0, 100).par.forEach(() => {
+  setup.run(() => {
+    setups.add(1);
+  });
+});
+console.log(setups.load(), setup.done);
+
+// expect:
+// 334 334 344 344 0
+// [ [ 'be', 2 ], [ 'not', 1 ], [ 'or', 1 ], [ 'to', 2 ] ]
+// 2 10
+// 1 true

@@ -1,0 +1,50 @@
+// pts:sync's Channel<T>: a queue between tasks on any loops, with async send and recv.
+// threads: 1 2 4
+import { Channel } from "pts:sync";
+
+const jobs = new Channel<number>(4);
+const results = new Channel<string>();
+
+async function worker(): Promise<number> {
+  let handled = 0;
+  for await (const job of jobs) {
+    await results.send(`${job} squared is ${job * job}`);
+    handled++;
+  }
+  return handled;
+}
+
+// Three workers on other loops; send waits while 4 jobs are queued.
+const workers = Promise.all([1, 2, 3].map(() => parallel worker()));
+for (let job = 1; job <= 6; job++) {
+  await jobs.send(job);
+}
+jobs.close();
+const handled = await workers;
+results.close();
+
+const lines: string[] = [];
+for await (const line of results) {
+  lines.push(line);
+}
+console.log(handled.reduce((a, b) => a + b, 0), lines.sort());
+
+// recv() gives undefined once the channel is closed and empty; a send then rejects.
+console.log(await jobs.recv(), jobs.closed);
+try {
+  await jobs.send(7);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+// expect:
+// 6 [
+//   '1 squared is 1',
+//   '2 squared is 4',
+//   '3 squared is 9',
+//   '4 squared is 16',
+//   '5 squared is 25',
+//   '6 squared is 36'
+// ]
+// undefined true
+// Send on a closed channel

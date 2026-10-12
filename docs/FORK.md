@@ -4,7 +4,7 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 
 - **Base:** tag `typescript/v7.0.2` (remote `upstream`). Never push to `upstream`.
 - **New code** lives in new directories or files and needs no ledger entry: `cmd/pts/`, `pts/`, `docs/` additions, `examples/`, `tools/agent/`, `CLAUDE.md`, `PROGRESS.md`, `Makefile`, `.github/workflows/pts.yml`, `.github/workflows/pts-nightly.yml`.
-- **Upstream modifications** are minimal, marked with a `// PTS:` comment at the edit site (`# PTS:` in YAML and shell), and listed below. `git grep -n "PTS:" -- ':!pts' ':!cmd/pts' ':!docs'` must match this table.
+- **Upstream modifications** are minimal, marked with a `// PTS:` comment at the edit site (`# PTS:` in YAML, shell and git's config files; `/* PTS */` inside a Go expression), and listed below. `git grep -n "PTS:" -- ':!pts' ':!cmd/pts' ':!docs'` must match this table, apart from `CLAUDE.md` and `PROGRESS.md` (new files that mention the marker). `README.md` is replaced whole, so it carries no marker.
 
 ## Rebasing onto a newer TypeScript release
 
@@ -17,13 +17,13 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 
 | File | What changed and why | Task | Commit |
 |---|---|---|---|
-| `.gitattributes` | `*.pts linguist-language=TypeScript`, so GitHub highlights `.pts` sources as TS (D-O01). | M0.1 | 3441372 |
-| `internal/tspath/extension.go` | `ExtensionPts`; `.pts` added to the TS extension lists (its own group in the grouped lists), `ExtensionIsTs`, `extensionsToRemove` and `GetDeclarationEmitExtensionForPath` (D-001). | M0.3 | 139254b |
-| `internal/core/core.go` | `GetScriptKindFromFileName`: `.pts` → `ScriptKindTS`. | M0.3 | 139254b |
-| `internal/ast/utilities.go` | `GetImpliedNodeFormatForFile`: `.pts` like `.ts`. | M0.3 | 139254b |
-| `internal/module/resolver.go` | `tryAddingExtensions`: explicit `.pts` case; extensionless imports try `.pts` first via the new untraced `tryPtsExtension`; `extensionIsOk` accepts `.pts` (D-001). | M0.3 | 139254b |
-| `internal/module/util.go` | `GetResolutionDiagnostic` allows `.pts`; `TryGetJSExtensionForFile` maps `.pts` → `.js`. | M0.3 | 139254b |
-| `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.pts'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b |
+| `.gitattributes` | `*.pts linguist-language=TypeScript`, so GitHub highlights `.pts` sources as TS (D-O01; `.ps` until D-004). | M0.1 | 3441372, 0bf8d50 |
+| `internal/tspath/extension.go` | `ExtensionPts`; `.pts` added to the TS extension lists (its own group in the grouped lists), `ExtensionIsTs`, `extensionsToRemove` and `GetDeclarationEmitExtensionForPath` (D-001, D-004). | M0.3 | 139254b, 0bf8d50 |
+| `internal/core/core.go` | `GetScriptKindFromFileName`: `.pts` → `ScriptKindTS`. | M0.3 | 139254b, 0bf8d50 |
+| `internal/ast/utilities.go` | `GetImpliedNodeFormatForFile`: `.pts` like `.ts`. | M0.3 | 139254b, 0bf8d50 |
+| `internal/module/resolver.go` | `tryAddingExtensions`: explicit `.pts` case; extensionless imports try `.pts` first via the new untraced `tryPtsExtension`; `extensionIsOk` accepts `.pts` (D-001, D-004). | M0.3 | 139254b, 0bf8d50 |
+| `internal/module/util.go` | `GetResolutionDiagnostic` allows `.pts`; `TryGetJSExtensionForFile` maps `.pts` → `.js`. | M0.3 | 139254b, 0bf8d50 |
+| `testdata/baselines/reference/tsc/commandLine/extensionless-file-in-tsconfig-does-not-exist.js`, `…/extensionless-file-in-extended-tsconfig-in-different-folder-does-not-exist.js` | Accepted new baselines: TS6231 lists the extensions tried, which now end with `'.pts'`. On an upstream merge, regenerate rather than hand-merge. | M0.3 | 139254b, 0bf8d50 |
 | `.gitmodules` | Pinned submodules `pts/third_party/bdwgc` (v8.2.12) and `pts/third_party/libuv` (v1.53.0). Upstream's `_submodules/TypeScript` entry is unchanged. | M0.4 | 26476ae |
 | `.gitmodules` | Pinned submodule `pts/third_party/ryu` (v2.0, D-011). | M1.1 | 554c989 |
 | `.gitmodules` | Pinned submodule `pts/third_party/libbacktrace` (commit 0b9b49c; it has no release tags, D-069). | M3.2b | d0b802bb0 |
@@ -34,12 +34,13 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/checker/pts.go` | Exports for monomorphization (D-049): `PtsTypeArgumentsOfSignature` (a resolved signature's type arguments) and `PtsInstantiateType`. | M2.6b1 | 849ee7586 |
 | `internal/checker/pts.go` | Export for generic function values (D-078): `PtsInstantiateSignatureInContextOf` (a generic signature instantiated by inference from a non-generic contextual one). | M3.3d1 | fde182377 |
 | `internal/checker/pts.go` | Export for generic calls whose result goes to a union of object types (D-095): `PtsInferTypeArgumentsFromResult` (a generic signature's type arguments inferred from its return type and a target type alone). | M3.7b | efc40f2eb |
-| `internal/checker/checker.go` | Calls into `pts.go`: `getDeclaredTypeOfTypeAlias` (`ptsNumericAliasType`), `checkPrefixUnaryExpression` for `+x` and `getUnaryResultType` (`ptsUnaryType`), the arithmetic and `+` cases of `checkBinaryLikeExpressionWorker` (`ptsArithmeticType`). | M2.6a | 5ebc5408e |
+| `internal/checker/checker.go` | Calls into `pts.go`: `getDeclaredTypeOfTypeAlias` (`ptsNumericAliasType`), `checkPrefixUnaryExpression` for `+x` and `getUnaryResultType` (`ptsUnaryType`), the arithmetic and `+` cases of `checkBinaryLikeExpression` (`ptsArithmeticType`). | M2.6a | 5ebc5408e |
 | `internal/checker/nodebuilderimpl.go` | `typeToTypeNode`: a number type other than `number` itself (one of D-048's) prints as a reference to its name. | M2.6a | 5ebc5408e |
 | `internal/ast/nodeflags.go` | `NodeFlagsPtsParallel` (bit 29): marks the call node of ParallelScript's `parallel e` and a `parallel for` statement (D-120). | M5.1 | 1ba3a57e7 |
 | `internal/parser/parser.go` | Hooks into `internal/parser/pts.go` (new file): `parseStatement` tries `parallel for (…)` first; `parseUnaryExpressionOrHigher` and `parseSimpleUnaryExpression` try `parallel e` before an update expression (D-O05, D-120). | M5.1 | 1ba3a57e7 |
 | `internal/parser/pts.go`, `internal/parser/pts_test.go` (new files) | The contextual keyword: `parallel e` parses as a call of `parallel` marked `NodeFlagsPtsParallel` (operand: a unary expression, or an arrow function), `parallel for` as the for statement marked the same way; every other `parallel` is an identifier. Tests of both forms and of `parallel` as a name. | M5.1 | 1ba3a57e7 |
-| `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
+| `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary (`/cmd/pts/pts`, and `/pts-bin/` where `make build` puts it); re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
+| `README.md` | Replaced by ParallelScript's README; upstream's is kept as `docs/UPSTREAM_README.md`. On an upstream merge, take upstream's changes into `docs/UPSTREAM_README.md`. | M6.1d | (this commit) |
 
 ## Disabled or limited upstream workflows
 

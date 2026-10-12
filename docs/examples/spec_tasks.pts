@@ -1,0 +1,23 @@
+// SPEC §5.3: `parallel e` runs e as a task on another event loop and gives a promise of
+// its value at once.
+// threads: 1 2 4
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+async function report(name: string): Promise<string> {
+  return `${name}: ${fib(20)}`;
+}
+
+console.log(await parallel report("alice"));
+const results = await Promise.all([20, 21, 22].map((n) => parallel fib(n)));
+console.log(results);
+try {
+  await parallel JSON.parse("{");
+} catch (e) {
+  console.log("rejected with", (e as Error).name);
+}
+
+// expect:
+// alice: 6765
+// [ 6765, 10946, 17711 ]
+// rejected with SyntaxError

@@ -1,0 +1,65 @@
+// Valid TypeScript that ParallelScript can't compile yet is a PTS1001 error naming the
+// construct. docs/GUIDE.md shows a rewrite of each that works today.
+import { readFileSync } from "pts:fs";
+
+function main(): void {
+  class Point {
+    x = 0;
+  }
+}
+
+const names = ["ada", "grace"];
+let name = "";
+for (name of names) {
+  console.log(name);
+}
+names.map((n) => {
+  console.log(n);
+});
+
+class Animal {
+  constructor(readonly name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return "woof";
+  }
+}
+function adopt(shelter: Animal[], animal: Animal): void {
+  shelter.push(animal);
+}
+const dogs = [new Dog("rex")];
+adopt(dogs, new Animal("tom"));
+console.log(dogs.length);
+
+function total(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((a, b) => a + b, 0);
+}
+const fruit = { apples: 3, pears: 2 };
+console.log(total(fruit));
+
+class Registry extends Map<string, number> {}
+
+console.log(new Date(0).toLocaleDateString());
+
+const bytes = readFileSync("/etc/hostname");
+
+async function double(n: number): Promise<number> {
+  return n * 2;
+}
+async function run(): Promise<number> {
+  return await parallel double(await double(1));
+}
+
+debugger;
+
+// error: guide_not_yet.pts:41:24 - error PTS1001: extending `Map` is not supported yet
+// error: guide_not_yet.pts:13:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
+// error: guide_not_yet.pts:16:1 - error PTS1001: `map` with a callback that returns nothing is not supported yet
+// error: guide_not_yet.pts:32:7 - error PTS1001: using a Dog[] as a Animal[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: guide_not_yet.pts:39:19 - error PTS1001: using a `{apples: number; pears: number}` as a hash-map object (`Record<string, number>`) is not supported yet; a copy of its properties, `{ ...o }`, is one
+// error: guide_not_yet.pts:43:13 - error PTS1001: the Date method `toLocaleDateString` is not supported yet
+// error: guide_not_yet.pts:45:15 - error PTS1001: reading a file without an encoding (into a Buffer, until typed arrays) is not supported yet
+// error: guide_not_yet.pts:54:1 - error PTS1001: debugger statement is not supported yet
+// error: guide_not_yet.pts:6:3 - error PTS1001: classes inside functions or blocks are not supported yet
+// error: guide_not_yet.pts:51:32 - error PTS1001: `await` and `yield` in the operand of `parallel` are not supported yet

@@ -1,33 +1,45 @@
 # The ParallelScript test corpus
 
-`go test ./pts/tests/` (or `make test`) runs every file here in parallel.
+`go test ./pts/tests/` runs every test here; `make test` runs them with the rest of `./pts/...` and `./cmd/pts/`, which includes the runtime's C tests. Tests run in parallel, with at most min(CPU count, 6) program builds or runs at a time. Every program runs with `TZ=America/New_York` (D-087) and a 30-second timeout. The differential tests are named `…MatchesNode`, and `make test-diff` runs only them. They skip when `node` isn't on PATH unless `PTS_REQUIRE_NODE` is set; CI and `make test-diff` set it.
 
-- **`run/*.pts`**: programs that must build and run. `TestRun` compares their stdout and exit code with what they expect. `TestRunMatchesNode` (the differential test, D-O04) runs each plain-TypeScript program under Node too and requires the same stdout and exit code; stderr is never compared.
-- **`corpus/<theme>/*.pts`**: 300 realistic plain-TypeScript programs (algorithms, text, oop, data, functional, errors; D-089). `TestCorpusMatchesNode` requires each to print what Node prints and exit as it does; they have no expected output of their own. A program that still diverges carries `// skip: <cause>`. `corpus/compare.sh file.pts…` compares from the shell (it ignores `// skip:`; set `PTS=` to try another compiler), and `corpus/unskip.sh` removes the skip of each program that now matches.
-- **Generated corpora**: `TestGeneratedNumberCorpusMatchesNode` (`numbers_test.go`) writes programs with thousands of number literals and operator applications, and `TestGeneratedStringCorpusMatchesNode` (`strings_test.go`) programs that call every String method on random strings and change the case of every code point; both compare with Node line by line. Keep each generated part small: top-level code is one C function, and clang's time grows faster than its size. Differential tests are named `…MatchesNode`, so `make test-diff` runs them all.
-- **Modules**: a test that imports modules of its own keeps them in the directory named after it (`run/modules.pts` imports `./modules/counter.pts`); only `run/*.pts` and `errors/*.pts` are tests. The differential test gives Node a copy of the test and those modules as `.mts` files, with relative specifiers (`./x` or `./x.pts`) renamed to match.
-- **`stress/*.pts`**: parallel programs that race on the scheduler, the pool, the collector and shared data (D-130). `TestStress` runs each under every `PTS_THREADS` of its `// threads:` line (required, as is `// expect:`), `PTS_STRESS_REPEAT` times (default 1); `make test-stress` runs only them, and the nightly CI job (`.github/workflows/pts-nightly.yml`) 100 times. The `race_*` programs test the race-safety invariant (D-L13): they print only invariants that hold however the threads interleave (every value read is one some thread wrote, sizes stay within what was added, nothing crashes or hangs).
-- **`errors/*.pts`**: programs that must fail to compile. `TestErrors` requires each `// error:` text to appear in the compiler's errors, formatted as `file.pts:line:col - error CODE: message`.
+## Layout
+
+- **`run/*.pts`**: programs that must build and run. `TestRun` compares their stdout, exit code and `// stderr:` texts with what they expect. `TestRunMatchesNode` (the differential test, D-O04) runs each plain-TypeScript program under Node too and requires the same stdout and exit code; stderr is never compared. `console_test.go` checks `run/console_timers.pts` by pattern, because its times vary from run to run.
+- **`docs/examples/*.pts`** (at the repo root): the samples the docs show. `TestRun` and `TestRunMatchesNode` run them exactly as they run `run/` tests: expected output in `// expect:` blocks, compared with Node when the sample is plain TypeScript. In test output they are named `docs/<name>`, for example `TestRun/docs/hello`. Each code sample in a doc should be one of these files or a `run/` test, so that it is known to compile and print what the doc says.
+- **`corpus/<theme>/*.pts`**: 300 realistic plain-TypeScript programs, 50 for each theme (algorithms, data, errors, functional, oop, text; D-089). `TestCorpusMatchesNode` requires each to print what Node prints and to exit as Node does. They have no expected output of their own. A program that still diverges has `// skip: <cause>` as its first line. `corpus/compare.sh file.pts…` compares from the shell (after `make build`). It ignores `// skip:`, and setting `PTS=` makes it use another compiler. `corpus/unskip.sh` removes the skip line of each skipped program that now matches.
+- **Generated corpora**: these are differential tests that write their programs at test time, from fixed seeds. Each program must exit with 0 under both pts and Node and print the same lines; the test reports the statement behind each differing line (up to 10).
+  - `TestGeneratedNumberCorpusMatchesNode` (`numbers_test.go`) has the parts `literals_1`, `literals_2`, `special_operands`, `random_operands_1`, `random_operands_2`, `methods_1`, `methods_2` and `math`. They cover thousands of number literals, every operator on special and random operands, Number's formatting methods with `parseInt` and `parseFloat` (D-083), and `Math`'s trigonometric, hyperbolic, exponential and logarithmic functions with `cbrt`, `atan2`, `pow`, `hypot`, `fround`, `imul` and `clz32` (D-084).
+  - `TestGeneratedStringCorpusMatchesNode` (`strings_test.go`) has the parts `methods_1` … `methods_8`, `case_bmp`, `case_supplementary`, `final_sigma`, `locale_compare_1`, `locale_compare_2`, `normalize_bmp`, `normalize_supplementary` and `normalize_sequences`. They cover 25 String methods, from `indexOf` and `slice` to `replaceAll` and `toWellFormed`, on random strings with lone surrogates, upper- and lowercasing of every code point from U+00A0 to U+1FFFF except surrogates, Final_Sigma, and `localeCompare` sorts and comparisons. The normalize parts (D-135) cover NFC, NFD, NFKC and NFKD of the same code points and of U+2F800–U+2FA1F (the CJK compatibility ideographs), and of random sequences of starters, combining marks, Hangul jamo and compatibility characters.
+
+  Keep each generated part small: top-level code is one C function, and clang's time grows faster than its size.
+- **`stress/*.pts`**: parallel programs that race on the scheduler, the pool, the collector and shared data (D-130). `TestStress` runs each one `PTS_STRESS_REPEAT` times (default 1) under each `PTS_THREADS` value on its `// threads:` line, and checks stdout and the exit code every time. Both `// threads:` and `// expect:` are required. `make test-stress` runs only these tests, and the nightly CI job (`.github/workflows/pts-nightly.yml`) runs them 100 times. The `race_*` programs test the race-safety invariant (D-L13). They print only invariants that hold however the threads interleave: every value read is one that some thread wrote, sizes stay within what was added, and nothing crashes or hangs.
+- **`errors/*.pts`**: programs that must fail to compile. `TestErrors` compiles each one to C, without running clang. It requires each `// error:` text to appear in the compiler's errors, which are formatted as `file.pts:line:col - error CODE: message` with the path relative to the test's directory.
+- **Modules**: a test that imports modules of its own keeps them in the directory named after it. For example, `run/modules.pts` imports `./modules/counter.pts`. Only the `.pts` files directly in `run/`, `docs/examples/`, `corpus/<theme>/`, `stress/` and `errors/` are tests. The differential tests give Node a copy of the test and its modules as `.mts` files. They rename relative specifiers (`./x` or `./x.pts`) to match, and rename `pts:path`, `pts:process`, `pts:fs` and `pts:fs/promises` to their `node:` modules (D-116).
+- **Runtime C unit tests**: `pts/runtime/tests/*_test.c` hold one program per file. Each asserts with `CHECK` from `check.h` and exits non-zero on a failure. In `pts/toolchain/runtime_test.go`:
+  - `TestRuntimeUnitTestsPassUnderSanitizers` builds each file and the runtime under AddressSanitizer and UndefinedBehaviorSanitizer, and requires exit code 0.
+  - `TestThreadedRuntimeTestsPassUnderThreadSanitizer` runs `pool_test.c`, `scheduler_test.c` and `sync_test.c` under ThreadSanitizer, with the collector off (`GC_DONT_GC=1`, because bdwgc's stop-the-world signals fail under TSan, D-122).
+  - `TestNumberFormattingMatchesJavaScript` runs `number_test.c --format-stdin` on about 25,000 doubles and compares its output with tsgo's `jsnum`.
+- **`spec_parse_test.go`**: unit tests of the directive parser and of the plain-TypeScript check described below.
 
 ## Directives
 
-Directives are whole-line comments anywhere in the file.
+Directives are `//` comments on a line of their own, anywhere in the file.
 
 | Directive | Meaning |
 |---|---|
-| `// expect:` | Starts the expected stdout: every following line that starts with `//` is one output line (`// text` → `text`, a bare `//` → an empty line). The block ends at the first line that isn't a comment or is another directive (use a `.out` file for output that looks like a directive). |
-| `name.out` | Alternatively, a file next to the test holding the exact expected stdout. Not both. |
+| `// expect:` | Starts the expected stdout. Nothing may follow the colon, and a file may have only one. Every following line that starts with `//` is one output line. `// text` becomes `text`: one space after `//` is dropped and any further spaces are kept. A bare `//` is an empty line. The block ends at the first line that isn't a `//` comment or is another directive. Use a `.out` file for output that looks like a directive. |
+| `name.out` | Alternatively, a file next to the test holding the exact expected stdout. A test can't have both. |
 | `// exit: N` | Expected exit code (default 0). |
-| `// stderr: text` | stderr must contain `text`; repeatable. |
-| `// error: text` | Error tests: some compile error must contain `text`; repeatable, at least one. |
-| `// no-diff: reason` | Don't compare with Node (for output Node can't match, e.g. ParallelScript-only behaviour). |
-| `// skip: reason` | Skip the test everywhere: it reproduces a known issue listed in `PROGRESS.md`. |
-| `// threads: 1 2 4` | Run the program once per listed `PTS_THREADS` value (D-121), each expecting the same output and exit code; without it, a test runs once with the default (a loop per core). |
+| `// stderr: text` | stderr must contain `text`. Repeatable. Only `TestRun` checks it. |
+| `// error: text` | Error tests: some compile error must contain `text`. Repeatable, and an error test needs at least one. |
+| `// no-diff: reason` | Don't compare with Node, for output Node can't match, such as ParallelScript-only behaviour. The reason is required. |
+| `// skip: reason` | Skip the test everywhere. Use it when the test reproduces a known issue listed in `PROGRESS.md` or, in the corpus, a divergence from Node. The reason is required. |
+| `// threads: 1 2 4` | Run the program once for each listed `PTS_THREADS` value (D-121), each run expecting the same output and exit code. Without it, a test runs once with the default (a loop per core). Required in `stress/`. The differential tests ignore it. |
 
-A run test with no expected output is checked only against Node, which suits plain-TypeScript corpus programs.
+A run test with no expected output is checked only against Node, which suits plain-TypeScript programs. Its `// exit:` and `// stderr:` lines are then unused.
 
 ## Plain TypeScript
 
-A test is compared with Node unless it uses ParallelScript features: a `pts:` import, the word `parallel`, a `.par` view, or an integer type (`int`, `i32`, `u8`, …) after `:`, `<`, `,`, `|` or `as`. The check ignores comments and errs towards skipping; opt out explicitly with `// no-diff:`.
+A test is compared with Node unless the test or its modules use ParallelScript features. Those features are a `pts:` import other than `pts:path`, `pts:process`, `pts:fs` and `pts:fs/promises`, the word `parallel`, a `.par` view, or a number type of ParallelScript's after `:`, `<`, `,`, `|` or `as`. The number types are `int`, `i8` … `i64`, `u8` … `u64`, `f32` and `f64`. The check ignores comments and errs towards skipping. To opt out explicitly, use `// no-diff:`.
 
-Node runs the source as an ES module (`main.mts`) with `--experimental-transform-types`, so enums and parameter properties work (D-009).
+Node runs each module as an ES module (`name.mts`) with `--no-warnings --experimental-transform-types`, so enums and parameter properties work (D-009).

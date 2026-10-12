@@ -1,0 +1,17 @@
+// tsc's own errors stop the build: ParallelScript type-checks (strict) where Node only
+// strips the types. Node's modules are the pts: modules here.
+import { readFileSync } from "node:fs";
+
+let total = 0;
+total = "none";
+const user = { name: "Ada" };
+user.email = "ada@example.com";
+function greet(name: string): string {
+  return "Hello, " + name;
+}
+greet(42);
+
+// error: guide_tsc_errors.pts:3:30 - error TS2591: Cannot find name 'node:fs'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+// error: guide_tsc_errors.pts:6:1 - error TS2322: Type 'string' is not assignable to type 'number'.
+// error: guide_tsc_errors.pts:8:6 - error TS2339: Property 'email' does not exist on type '{ name: string; }'.
+// error: guide_tsc_errors.pts:12:7 - error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.

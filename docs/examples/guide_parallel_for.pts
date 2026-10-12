@@ -1,0 +1,58 @@
+// `parallel for (const x of items)` runs the body for every item on the fork-join pool
+// and finishes when every iteration has.
+// threads: 1 2 4
+import { range } from "pts:parallel";
+
+// Each iteration writes its own element: nothing races.
+const squares = new Array<number>(8).fill(0);
+parallel for (const i of range(0, 8)) {
+  squares[i] = i * i;
+}
+console.log(squares);
+
+// Objects' fields may change; `continue` skips to the next item.
+class Photo {
+  constructor(public name: string, public width: number) {}
+
+  resize(width: number): void {
+    this.width = width;
+  }
+}
+const photos = [new Photo("beach", 4000), new Photo("icon", 64), new Photo("city", 3000)];
+parallel for (const photo of photos) {
+  if (photo.width <= 800) continue;
+  photo.resize(800);
+}
+console.log(photos);
+
+// Any iterable works: arrays, typed arrays and ranges, and sets, maps, strings and
+// generators, which are copied into an array first.
+const pixels = new Uint8Array([10, 20, 30]);
+const brighter = new Uint8Array(pixels.length);
+parallel for (const [i, value] of pixels.entries()) {
+  brighter[i] = Math.min(255, value * 2);
+}
+console.log(brighter);
+
+// The first error thrown stops the iterations that haven't started, and is rethrown
+// once the running ones finish.
+try {
+  parallel for (const photo of photos) {
+    if (photo.name === "icon") throw new Error(`${photo.name} is too small`);
+  }
+} catch (e) {
+  console.log("caught", (e as Error).message);
+}
+
+// expect:
+// [
+//    0,  1,  4,  9,
+//   16, 25, 36, 49
+// ]
+// [
+//   Photo { name: 'beach', width: 800 },
+//   Photo { name: 'icon', width: 64 },
+//   Photo { name: 'city', width: 800 }
+// ]
+// Uint8Array(3) [ 20, 40, 60 ]
+// caught icon is too small

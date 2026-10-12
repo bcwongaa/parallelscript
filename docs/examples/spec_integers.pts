@@ -1,0 +1,25 @@
+// SPEC §3.2: the integer types. Lossy conversions need `as`: `const b: u8 = half`
+// would be PTS2001 ("a int doesn't convert to u8 implicitly").
+const big: u8 = 200;
+const sum = big + (100 as u8); // u8 arithmetic wraps
+const half: int = 7 / 2; // integer division truncates
+const mixed = half * 1.5; // an int with a fraction is a number
+console.log(sum, half, mixed);
+console.log(300.7 as u8, -1 as u8, NaN as int); // `as` truncates and saturates; NaN is 0
+const bytes: u8[] = [1, 2, 3];
+const doubled = bytes.map((b) => b * 2); // a u8[]
+console.log(doubled, typeof doubled[0]);
+const huge: int = 9007199254740993; // exact: every digit of an i64
+console.log(huge + 1, (-16 as i32) >>> 0, (0xf0 as u8) >> 4);
+try {
+  console.log(half / (0 as int));
+} catch (e) {
+  console.log(String(e));
+}
+
+// expect:
+// 44 3 4.5
+// 255 0 0
+// [ 2, 4, 6 ] number
+// 9007199254740994 -16 15
+// RangeError: Division by zero

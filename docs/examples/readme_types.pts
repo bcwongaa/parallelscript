@@ -1,0 +1,39 @@
+// `number` is JavaScript's double. `int` is a 64-bit integer.
+const exact: int = 9_007_199_254_740_993;
+const rounded: number = 9_007_199_254_740_993;
+console.log(exact, rounded);
+
+// Integer division truncates. Mixing int and number gives a number.
+const a: int = 7;
+const b: int = 2;
+const half: number = 2;
+console.log(a / b, a % b, a / half);
+
+// Overflow wraps.
+let byte: u8 = 250;
+byte += 10;
+console.log(byte);
+
+// Lossy conversions need `as`, which truncates and saturates.
+const x = 3.99;
+console.log(x as i32, -x as i32, 300 as u8, NaN as int);
+
+// Integer types work as type arguments.
+const counts = new Map<string, int>([["a", 1]]);
+const pixels: u8[] = [0, 128, 255];
+console.log(counts, pixels.map((p) => p / 2), typeof byte);
+
+// Integer division by zero throws.
+try {
+  console.log(a / (b - 2));
+} catch (e) {
+  console.log(String(e));
+}
+
+// expect:
+// 9007199254740993 9007199254740992
+// 3 1 3.5
+// 4
+// 3 -3 255 0
+// Map(1) { 'a' => 1 } [ 0, 64, 127 ] number
+// RangeError: Division by zero

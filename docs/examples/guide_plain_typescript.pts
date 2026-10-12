@@ -1,0 +1,63 @@
+// Ordinary TypeScript compiles as it is, and prints what Node prints.
+interface Shape {
+  kind: "circle" | "square";
+  size: number;
+  label?: string;
+}
+
+class Inventory<T> {
+  private items = new Map<string, T>();
+
+  add(name: string, item: T): this {
+    this.items.set(name, item);
+    return this;
+  }
+
+  get(name: string): T | undefined {
+    return this.items.get(name);
+  }
+
+  get size(): number {
+    return this.items.size;
+  }
+}
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.size ** 2;
+    case "square":
+      return shape.size * shape.size;
+  }
+}
+
+async function loadShapes(): Promise<Shape[]> {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  return [
+    { kind: "circle", size: 1, label: "unit circle" },
+    { kind: "square", size: 3 },
+  ];
+}
+
+const shapes = await loadShapes();
+const inventory = new Inventory<Shape>();
+for (const [i, shape] of shapes.entries()) {
+  inventory.add(`shape${i}`, shape);
+}
+console.log(inventory.size, inventory.get("shape1"), inventory.get("missing")?.label ?? "none");
+console.log(shapes.map(area), shapes.map(({ label }) => label?.replace(/\b\w/g, (c) => c.toUpperCase())));
+console.log(0.1 + 0.2, 2 ** 53 + 1, [3, 1, 2].sort(), { nested: { list: [1, [2, [3, [4]]]] } });
+console.log(JSON.stringify({ shapes }));
+console.log(inventory);
+
+// expect:
+// 2 { kind: 'square', size: 3 } none
+// [ 3.141592653589793, 9 ] [ 'Unit Circle', undefined ]
+// 0.30000000000000004 9007199254740992 [ 1, 2, 3 ] { nested: { list: [ 1, [Array] ] } }
+// {"shapes":[{"kind":"circle","size":1,"label":"unit circle"},{"kind":"square","size":3}]}
+// Inventory {
+//   items: Map(2) {
+//     'shape0' => { kind: 'circle', size: 1, label: 'unit circle' },
+//     'shape1' => { kind: 'square', size: 3 }
+//   }
+// }

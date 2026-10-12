@@ -1,0 +1,41 @@
+import { AtomicInt, Channel, Mutex } from "pts:sync";
+import { range } from "pts:parallel";
+
+// An atomic counter shared by every thread of a parallel loop.
+const multiplesOf3 = new AtomicInt();
+parallel for (const i of range(0, 100_000)) {
+  if (i % 3 === 0) {
+    multiplesOf3.add(1);
+  }
+}
+console.log(multiplesOf3.load());
+
+// A Mutex guards a value; withLock holds the lock while the callback runs.
+const seen = new Mutex(new Map<string, number>());
+range(0, 1000).par.forEach((i) => {
+  const key = i % 2 === 0 ? "even" : "odd";
+  seen.withLock((m) => m.set(key, (m.get(key) ?? 0) + 1));
+});
+console.log(seen.withLock((m) => [...m.entries()].sort()));
+
+// A Channel passes values between tasks on different threads.
+const jobs = new Channel<number>(4);
+async function produce(): Promise<void> {
+  for (let i = 1; i <= 10; i++) {
+    await jobs.send(i);
+  }
+  jobs.close();
+}
+const producer = parallel produce();
+let sum = 0;
+for await (const job of jobs) {
+  sum += job * job;
+}
+await producer;
+console.log(sum);
+
+// threads: 1 4
+// expect:
+// 33334
+// [ [ 'even', 500 ], [ 'odd', 500 ] ]
+// 385

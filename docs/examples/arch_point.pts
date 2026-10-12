@@ -1,0 +1,15 @@
+// docs/ARCHITECTURE.md's sample: a class, a function and console.log, whose generated
+// C the document shows (`pts emit-c docs/examples/arch_point.pts`).
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+
+function lengthOf(p: Point): number {
+  return Math.sqrt(p.x * p.x + p.y * p.y);
+}
+
+const p = new Point(3, 4);
+console.log(p, lengthOf(p));
+
+// expect:
+// Point { x: 3, y: 4 } 5

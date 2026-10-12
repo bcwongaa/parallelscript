@@ -1,0 +1,98 @@
+// Rewrites that compile today of the code in pts/tests/errors/guide_not_yet.pts,
+// guide_by_design.pts and guide_fixed_shape.pts.
+
+// A class at module scope instead of inside a function.
+class Point {
+  x = 0;
+}
+function origin(): Point {
+  return new Point();
+}
+
+// A declared loop variable, and forEach for a callback that returns nothing.
+const names = ["ada", "grace"];
+for (const name of names) {
+  console.log(name);
+}
+names.forEach((n) => {
+  console.log(n.toUpperCase());
+});
+
+// An array declared with the element type it is used as.
+class Animal {
+  constructor(readonly name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return "woof";
+  }
+}
+function adopt(shelter: Animal[], animal: Animal): void {
+  shelter.push(animal);
+}
+const shelter: Animal[] = [new Dog("rex")];
+adopt(shelter, new Animal("tom"));
+console.log(shelter.length);
+
+// A copy of an object's properties is a hash-map object.
+function total(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((a, b) => a + b, 0);
+}
+const fruit = { apples: 3, pears: 2 };
+console.log(total({ ...fruit }));
+
+// A class that holds a Map instead of extending it.
+class Registry {
+  private readonly entries = new Map<string, number>();
+
+  register(name: string, id: number): void {
+    this.entries.set(name, id);
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+}
+const registry = new Registry();
+registry.register("main", 1);
+console.log(registry.size, origin());
+
+// ISO dates instead of the locale formats.
+console.log(new Date(0).toISOString().slice(0, 10));
+
+// let instead of var, a rest parameter instead of arguments.
+let count = 0;
+function sum(...numbers: number[]): number {
+  let total = 0;
+  for (const n of numbers) total += n;
+  return total;
+}
+count = sum(1, 2, 3);
+console.log(count);
+
+// An optional property set to undefined, and a Record or a Map for keys that come and go.
+interface Settings {
+  theme: string;
+  debug?: boolean;
+}
+const settings: Settings = { theme: "dark", debug: true };
+settings.debug = undefined;
+console.log(settings);
+const flags: Record<string, boolean> = { debug: true, verbose: false };
+delete flags.debug;
+const sessions = new Map<string, number>([["ada", 1]]);
+sessions.delete("ada");
+console.log(flags, sessions);
+
+// expect:
+// ada
+// grace
+// ADA
+// GRACE
+// 2
+// 5
+// 1 Point { x: 0 }
+// 1970-01-01
+// 6
+// { theme: 'dark', debug: undefined }
+// { verbose: false } Map(0) {}

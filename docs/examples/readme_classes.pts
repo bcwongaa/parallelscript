@@ -1,0 +1,38 @@
+abstract class Shape {
+  constructor(readonly name: string) {}
+  abstract area(): number;
+  describe(): string {
+    return `${this.name}: ${this.area().toFixed(2)}`;
+  }
+}
+
+class Circle extends Shape {
+  constructor(public radius: number) {
+    super("circle");
+  }
+  area(): number {
+    return Math.PI * this.radius ** 2;
+  }
+}
+
+class Rect extends Shape {
+  constructor(public width: number, public height: number) {
+    super("rect");
+  }
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+function largest<T extends Shape>(items: T[]): T {
+  return items.reduce((a, b) => (b.area() > a.area() ? b : a));
+}
+
+const shapes: Shape[] = [new Circle(1), new Rect(2, 3)];
+console.log(shapes.map((s) => s.describe()));
+const big = largest(shapes);
+console.log(big, big instanceof Rect);
+
+// expect:
+// [ 'circle: 3.14', 'rect: 6.00' ]
+// Rect { name: 'rect', width: 2, height: 3 } true

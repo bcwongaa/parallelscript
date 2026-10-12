@@ -1,0 +1,71 @@
+// The integer types: literals take their type from context, arithmetic wraps, `/`
+// truncates, and `as` converts the value.
+const level: u8 = 200;
+const big: int = 9007199254740993;
+console.log(level, big, big + 1);
+
+// Arithmetic stays in the type: it wraps on overflow, and `/` and `%` are integer ops.
+console.log(level + 100, level * 2);
+const seven: int = 7;
+console.log(seven / 2, -seven / 2, -seven % 3);
+const limit: i32 = 2147483647;
+console.log(limit + 1);
+
+// Mixing an integer with a fraction or a `number` gives a `number`. A literal like 2.0
+// is the integer 2, so convert first to divide as numbers.
+const ratio = 2.5;
+console.log(seven * 1.5, seven * ratio, seven / 2.0, (seven as number) / 2, typeof seven);
+
+// Lossless conversions are implicit; lossy ones need `as`.
+const wide: i64 = level;
+const asNumber: number = seven;
+const price = 19.99;
+console.log(wide, asNumber, price as int, -price as int);
+console.log(300.5 as u8, -1 as u8, NaN as i32, Infinity as i16);
+const count: i32 = 300;
+console.log(count as u8, count as i8);
+
+// Integer types work in arrays, maps and function types, and inference keeps them.
+const bytes: u8[] = [250, 251, 252];
+const doubled = bytes.map((b) => b * 2);
+console.log(doubled);
+// reduce's accumulator takes the element type unless you name another, so this u8 sum wraps.
+console.log(bytes.reduce((sum, b) => sum + b, 0), bytes.reduce<int>((sum, b) => sum + b, 0));
+const totals = new Map<string, int>([["apples", 3]]);
+totals.set("pears", 9007199254740993);
+console.log(totals);
+const half: (n: int) => int = (n) => n / 2;
+console.log(half(9));
+
+// Bitwise operators work on the type's own bits.
+const flags: u8 = 0b1000_0001;
+console.log(flags >> 1, ~flags, flags << 1);
+
+// f32 is a 32-bit float.
+const tenth: f32 = 0.1;
+console.log(tenth, tenth * 2);
+
+// Division by zero throws instead of giving Infinity.
+const zero: int = 0;
+try {
+  console.log(seven / zero);
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+
+// expect:
+// 200 9007199254740993 9007199254740994
+// 44 144
+// 3 -3 -1
+// -2147483648
+// 10.5 17.5 3 3.5 number
+// 200 7 19 -19
+// 255 0 0 32767
+// 44 44
+// [ 244, 246, 248 ]
+// 241 753
+// Map(2) { 'apples' => 3, 'pears' => 9007199254740993 }
+// 4
+// 64 126 2
+// 0.10000000149011612 0.20000000298023224
+// RangeError Division by zero

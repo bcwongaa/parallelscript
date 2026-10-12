@@ -1,0 +1,68 @@
+// `.par` gives a parallel view of an array, a typed array or a range. Its methods run on
+// the fork-join pool and return when the work is done, with results in element order.
+// threads: 1 2 4
+import { join, range } from "pts:parallel";
+
+interface Order {
+  id: number;
+  amount: number;
+  country: string;
+}
+const countries = ["DE", "FR", "JP"];
+const orders: Order[] = Array.from({ length: 10_000 }, (_, i) => ({
+  id: i,
+  amount: (i % 100) + 0.5,
+  country: countries[i % 3],
+}));
+
+const amounts = orders.par.map((order) => order.amount);
+console.log(amounts.slice(0, 4), amounts.par.sum(), amounts.par.min(), amounts.par.max());
+
+const large = orders.par.filter((order) => order.amount > 99);
+console.log(large.length, large[0]);
+
+console.log(
+  orders.par.count((order) => order.country === "JP"),
+  orders.par.some((order) => order.amount > 100),
+  orders.par.every((order) => order.amount > 0),
+  orders.par.find((order) => order.id === 4242),
+);
+
+// reduce's function must be associative, and its initial value that function's identity.
+console.log(amounts.par.reduce((a, b) => Math.max(a, b), -Infinity));
+
+// sort and sortBy sort in place, like Array's sort, and return the array.
+const words = ["pear", "fig", "apple", "kiwi", "banana"];
+console.log(words.par.sort());
+console.log(words.par.sortBy((word) => word.length));
+console.log(["to be", "or not"].par.flatMap((phrase) => phrase.split(" ")));
+
+// Typed arrays and ranges.
+const samples = new Float64Array([0.5, 1.5, 2.5]);
+console.log(samples.par.map((x) => x * 2), range(1, 101).par.sum());
+console.log(range(0, 5).par.map((i) => i * i));
+
+// join runs two closures, perhaps at once, for divide and conquer.
+function sumTo(from: number, to: number): number {
+  if (to - from < 1000) {
+    let sum = 0;
+    for (let i = from; i < to; i++) sum += i;
+    return sum;
+  }
+  const middle = Math.floor((from + to) / 2);
+  const [left, right] = join(() => sumTo(from, middle), () => sumTo(middle, to));
+  return left + right;
+}
+console.log(sumTo(0, 1_000_000));
+
+// expect:
+// [ 0.5, 1.5, 2.5, 3.5 ] 500000 0.5 99.5
+// 100 { id: 99, amount: 99.5, country: 'DE' }
+// 3333 false true { id: 4242, amount: 42.5, country: 'DE' }
+// 99.5
+// [ 'apple', 'banana', 'fig', 'kiwi', 'pear' ]
+// [ 'fig', 'kiwi', 'pear', 'apple', 'banana' ]
+// [ 'to', 'be', 'or', 'not' ]
+// Float64Array(3) [ 1, 3, 5 ] 5050
+// [ 0, 1, 4, 9, 16 ]
+// 499999500000

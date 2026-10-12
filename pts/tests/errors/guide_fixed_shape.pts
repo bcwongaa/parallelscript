@@ -1,0 +1,11 @@
+// Objects keep the shape their type gives them, so `delete` works only on hash-map
+// objects (`Record<string, T>` and index signatures).
+interface Settings {
+  theme: string;
+  debug?: boolean;
+}
+const settings: Settings = { theme: "dark", debug: true };
+delete settings.debug;
+console.log(settings);
+
+// error: guide_fixed_shape.pts:8:1 - error PTS1002: `delete` works only on hash-map objects (`Record<string, T>` and index signatures): other objects have fixed layouts and arrays have no holes

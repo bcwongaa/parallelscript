@@ -1,6 +1,41 @@
 # Benchmarks
 
-Honest numbers, losses included (D-O15). Produced by `pts/bench/run.sh` (`make bench`; hyperfine, 2 warm-ups, 10 runs) on the dev machine: x86_64 Linux Mint 22.2, 8 cores, 15 GB RAM, clang 18, Node v24.21.0, Bun 1.4.3, Go 1.26.9. Times are wall-clock means including process start; lower is better. "PTS vs X" is X's time divided by ParallelScript's: above 1× means ParallelScript is faster. Node and Bun run the same source as ParallelScript (D-023). Parallel benchmarks also report speedup over `PTS_THREADS=1`.
+Honest numbers, losses included (D-O15). Produced by `pts/bench/run.sh` (`make bench`; hyperfine, 2 warm-ups, 10 runs) on the dev machine: x86_64 Linux Mint 22.2, Intel Core i5-8250U (4 cores, 8 hardware threads), 15 GB RAM, clang 18, Node v24.21.0, Bun 1.4.3, Go 1.26.9. Times are wall-clock means including process start; lower is better. "PTS vs X" is X's time divided by ParallelScript's: above 1× means ParallelScript is faster. Node and Bun run the same source as ParallelScript (D-023). Parallel benchmarks also report speedup over `PTS_THREADS=1`.
+
+## Summary
+
+The latest numbers for every benchmark. All of them come from the M5 section below (M5.8, measured 2026-10-12 on a busy machine). The "vs Bun" columns are computed here from the same times; the milestone tables don't list them. The milestone sections below are the history, unchanged.
+
+Single-threaded:
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Bun | PTS vs Go |
+|---|---|---|---|---|---|---|---|
+| async_fib | 162 ms | 259 ms | 272 ms | – | 1.60× | 1.68× | – |
+| binary_trees | 1774 ms | 1379 ms | 1598 ms | 3126 ms | 0.78× | 0.90× | 1.76× |
+| fib | 254 ms | 670 ms | 505 ms | 272 ms | 2.64× | 1.99× | 1.07× |
+| fib_int | 132 ms | – | – | 235 ms | – | – | 1.78× |
+| file_io | 519 ms | 825 ms | 361 ms | 350 ms | 1.59× | 0.70× | 0.67× |
+| json | 1119 ms | 765 ms | 419 ms | 1770 ms | 0.68× | 0.37× | 1.58× |
+| nbody | 810 ms | 853 ms | 870 ms | 592 ms | 1.05× | 1.07× | 0.73× |
+| string_building | 1096 ms | 1760 ms | 6632 ms | 403 ms | 1.61× | 6.05× | 0.37× |
+| word_freq | 1988 ms | 1769 ms | 1474 ms | 754 ms | 0.89× | 0.74× | 0.38× |
+
+Parallel: ParallelScript under `PTS_THREADS` = 1, 4 and 8; Node and Bun run the same program without `.par` and `parallel`, on one thread; Go uses goroutines.
+
+| Benchmark | PTS ×1 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Bun | Go | PTS ×8 vs Node | PTS ×8 vs Bun | PTS ×8 vs Go |
+|---|---|---|---|---|---|---|---|---|---|---|
+| fan_out | 935 ms | 347 ms | 343 ms | 2.72× | 1011 ms | 924 ms | 312 ms | 2.95× | 2.69× | 0.91× |
+| mandelbrot | 1525 ms | 521 ms | 328 ms | 4.65× | 1649 ms | 1661 ms | 321 ms | 5.03× | 5.06× | 0.98× |
+| sum_reduce | 4080 ms | 2886 ms | 2390 ms | 1.71× | 5423 ms | 6649 ms | 907 ms | 2.27× | 2.78× | 0.38× |
+| word_count | 2073 ms | 948 ms | 1737 ms | 1.19× | 2275 ms | 1360 ms | 220 ms | 1.31× | 0.78× | 0.13× |
+
+Wins and losses:
+- Against Node: ParallelScript is faster on async_fib, fib, file_io and string_building, and barely on nbody (1.05×). It is slower on binary_trees, json and word_freq. On 8 threads it beats Node's single thread on all four parallel benchmarks.
+- Against Bun: faster on async_fib, fib, nbody and string_building; slower on binary_trees, file_io, json and word_freq. On 8 threads, faster on fan_out, mandelbrot and sum_reduce, slower on word_count (its 4-thread time, 948 ms, does beat Bun's 1360 ms).
+- Against Go: faster on binary_trees, fib, fib_int and json; slower on file_io, nbody, string_building and word_freq. On 8 threads, close on mandelbrot (0.98×) and fan_out (0.91×), far behind on sum_reduce (0.38×) and word_count (0.13×).
+- The M5.7b run, an hour before M5.8 on a calmer machine, scaled better: 8-thread speedups of 5.78× (mandelbrot), 3.26× (fan_out), 2.22× (word_count) and 1.83× (sum_reduce).
+
+What's slow and why: programs that allocate a lot (binary_trees, json, word_freq, word_count) pay for bdwgc, a conservative, non-moving, non-generational collector, and with threads bdwgc refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads (D-131; the fixes, allocating less through escape analysis or a collector with per-thread heaps, are M8 work). nbody trails Go because its loop indices are doubles until integer inference (M8), and sum_reduce is bound by memory bandwidth and by one thread zeroing its 800 MB array.
 
 ## Template
 

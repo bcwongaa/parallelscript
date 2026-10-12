@@ -1,0 +1,64 @@
+// Documented differences from Node (docs/SPEC.md §8): checks that throw where Node goes
+// on with undefined or an unchecked value.
+// no-diff: shows where ParallelScript differs from Node on purpose
+function attempt(label: string, run: () => unknown): void {
+  try {
+    console.log(label, "->", run());
+  } catch (e) {
+    const error = e as Error;
+    console.log(label, "->", `${error.name}: ${error.message}`);
+  }
+}
+
+// `any` is checked where it meets a typed place.
+const parsed: any = JSON.parse('{"count": "seven"}');
+attempt("any into number", () => {
+  const count: number = parsed.count;
+  return count;
+});
+
+// Objects keep the properties their type has.
+const user = { name: "Ada" };
+attempt("add a property", () => {
+  (user as any).email = "ada@example.com";
+  return user;
+});
+
+// Arrays have no holes: a missing element is undefined only where any value can go.
+const scores = [10, 20, 30];
+console.log("printed", scores[5]);
+attempt("element past the end", () => {
+  const score: number = scores[5];
+  return score;
+});
+
+// `!` and casts are checked.
+const ages = new Map<string, number>([["ada", 36]]);
+attempt("missing map entry with !", () => ages.get("bob")!);
+class Animal {}
+class Dog extends Animal {
+  bark(): string {
+    return "woof";
+  }
+}
+const pet: Animal = new Animal();
+attempt("wrong downcast", () => (pet as Dog).bark());
+
+// A method read as a value is bound to its object.
+class Counter {
+  count = 0;
+  increment(): number {
+    return ++this.count;
+  }
+}
+const increment = new Counter().increment;
+attempt("detached method", () => increment());
+
+// expect:
+// any into number -> TypeError: Expected number, got string
+// add a property -> TypeError: Cannot add property email, object is not extensible
+// printed undefined
+// element past the end -> RangeError: Array index 5 is out of range (length 3)
+// missing map entry with ! -> RangeError: Map has no entry for the key
+// wrong downcast -> TypeError: Expected Dog, got Animal
+// detached method -> 1

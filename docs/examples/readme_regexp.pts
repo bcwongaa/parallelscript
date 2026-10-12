@@ -1,0 +1,27 @@
+const log = `09:15 ERROR disk full on /dev/sda1
+09:16 WARN cpu at 93%
+09:20 ERROR disk full on /dev/sdb2`;
+
+// Named groups, the g and m flags, and matchAll.
+const entry = /^(?<time>[\d:]+) (?<level>[A-Z]+) (?<text>.*)$/gm;
+for (const m of log.matchAll(entry)) {
+  const { time, level, text } = m.groups!;
+  console.log(`${level} at ${time}: ${text}`);
+}
+
+// test, exec, split, and replace with $ references or a callback.
+console.log(/WARN/.test(log), /cpu at (\d+)%/.exec(log)?.[1]);
+console.log("tea, coffee,  milk".split(/\s*,\s*/));
+console.log("Smith, John".replace(/(\w+), (\w+)/, "$2 $1"));
+console.log(log.replace(/\/dev\/(\w+)/g, (_, dev: string) => dev.toUpperCase()));
+
+// expect:
+// ERROR at 09:15: disk full on /dev/sda1
+// WARN at 09:16: cpu at 93%
+// ERROR at 09:20: disk full on /dev/sdb2
+// true 93
+// [ 'tea', 'coffee', 'milk' ]
+// John Smith
+// 09:15 ERROR disk full on SDA1
+// 09:16 WARN cpu at 93%
+// 09:20 ERROR disk full on SDB2

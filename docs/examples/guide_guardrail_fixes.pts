@@ -1,0 +1,45 @@
+// Rewrites of the code pts/tests/errors/guide_guardrail.pts rejects: combine results
+// instead of assigning outer variables, and leave a loop with a search, not a jump.
+// threads: 1 2 4
+import { AtomicInt } from "pts:sync";
+import { range } from "pts:parallel";
+
+const prices = [12, 5, 30, 8];
+
+// A total: .par.sum, or .par.reduce with an associative function and its identity.
+console.log(prices.par.sum(), prices.par.reduce((a, b) => a + b, 0));
+
+// A counter several threads change: an AtomicInt.
+const expensive = new AtomicInt();
+parallel for (const price of prices) {
+  if (price > 10) expensive.add(1);
+}
+console.log(expensive.load(), prices.par.count((price) => price > 10));
+
+// Each iteration may write its own element, and objects' fields may change.
+const withTax = new Array<number>(prices.length).fill(0);
+parallel for (const i of range(0, prices.length)) {
+  withTax[i] = prices[i] * 1.25;
+}
+console.log(withTax, prices.par.map((price) => price * 1.25));
+
+// A task's result is its promise's value: await it instead of assigning from inside.
+const last = await parallel prices.length;
+console.log(last);
+
+// Searching instead of `return` or `break`: some and every stop early; filter keeps order.
+console.log(prices.par.some((price) => price > 25), prices.par.filter((price) => price > 10)[0]);
+
+// The call, not the function, is the task.
+async function countPrices(): Promise<number> {
+  return prices.length;
+}
+console.log(await parallel countPrices());
+
+// expect:
+// 55 55
+// 2 2
+// [ 15, 6.25, 37.5, 10 ] [ 15, 6.25, 37.5, 10 ]
+// 4
+// true 12
+// 4

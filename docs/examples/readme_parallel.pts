@@ -1,0 +1,34 @@
+function fib(n: int): int {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+// `parallel e` runs e as a task on another thread's event loop
+// and gives back a promise of its value.
+const one: Promise<int> = parallel fib(30);
+console.log(await one);
+
+// Start several tasks at once, then wait for all of them.
+const inputs: int[] = [32, 33, 34, 35];
+const results = await Promise.all(inputs.map((n) => parallel fib(n)));
+console.log(results);
+
+// Async functions work as tasks too, and a throw rejects the promise.
+async function check(n: int): Promise<string> {
+  if (n < 0) {
+    throw new RangeError(`negative: ${n}`);
+  }
+  return `ok: ${n}`;
+}
+console.log(await parallel check(1));
+try {
+  await parallel check(-1);
+} catch (e) {
+  console.log(String(e));
+}
+
+// threads: 1 4
+// expect:
+// 832040
+// [ 2178309, 3524578, 5702887, 9227465 ]
+// ok: 1
+// RangeError: negative: -1

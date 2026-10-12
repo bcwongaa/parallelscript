@@ -1,0 +1,42 @@
+// SPEC §5.4, §5.5, §5.7: data parallelism on the fork-join pool. Every method returns
+// once the work is done; results keep the elements' order.
+// threads: 1 2 4
+import { join, range } from "pts:parallel";
+import { AtomicInt, Mutex } from "pts:sync";
+
+const words = ["apple", "kiwi", "banana", "fig", "cherry"];
+console.log(words.par.map((w) => w.length));
+console.log(words.par.filter((w) => w.length > 4));
+console.log(range(1, 101).par.sum(), range(10).par.max());
+console.log(words.par.reduce((a, b) => (a.length >= b.length ? a : b), ""));
+console.log(words.slice().par.sortBy((w) => w.length).join(" "));
+
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+console.log(join(() => fib(20), () => fib(21)));
+
+// A parallel body can't assign a captured `let` (§5.6): count with an atomic.
+const multiples = new AtomicInt();
+parallel for (const n of range(0, 1000)) {
+  if (n % 7 === 0) {
+    multiples.add(1);
+  }
+}
+console.log(multiples.load());
+
+const seen = new Mutex<string[]>([]);
+parallel for (const w of words) {
+  seen.withLock((list) => list.push(w));
+}
+console.log(seen.withLock((list) => list.length));
+
+// expect:
+// [ 5, 4, 6, 3, 6 ]
+// [ 'apple', 'banana', 'cherry' ]
+// 5050 9
+// banana
+// fig kiwi apple banana cherry
+// [ 6765, 10946 ]
+// 143
+// 5

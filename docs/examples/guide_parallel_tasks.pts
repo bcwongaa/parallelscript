@@ -1,0 +1,51 @@
+// `parallel e` runs e as a task on another event loop and gives a promise of its value.
+// threads: 1 2 4
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+async function slowLength(text: string): Promise<number> {
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  return text.length;
+}
+
+function parseConfig(text: string): unknown {
+  return JSON.parse(text);
+}
+
+// One task: await its promise.
+console.log(await parallel fib(30));
+
+// Many tasks at once; Promise.all keeps their order.
+console.log(await Promise.all([25, 26, 27, 28].map((n) => parallel fib(n))));
+
+// A task that is an async call: its promise is flattened.
+const length: number = await parallel slowLength("parallel");
+console.log(length);
+
+// A throw in the task rejects its promise.
+try {
+  await parallel parseConfig("{");
+} catch (e) {
+  console.log("caught", (e as Error).name);
+}
+
+// Captured objects are shared: the task's writes are there once it is done.
+const report = { lines: 0 };
+async function countLines(text: string): Promise<void> {
+  report.lines = text.split("\n").length;
+}
+await parallel countLines("a\nb\nc");
+console.log(report);
+
+// `await` inside the operand isn't supported yet: await first, then start the task.
+const size = await slowLength("abc");
+console.log(await parallel fib(size * 10));
+
+// expect:
+// 832040
+// [ 75025, 121393, 196418, 317811 ]
+// 8
+// caught SyntaxError
+// { lines: 3 }
+// 832040

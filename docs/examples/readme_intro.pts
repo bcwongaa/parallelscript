@@ -1,0 +1,25 @@
+import { range } from "pts:parallel";
+
+// Plain TypeScript: compiled ahead of time to a native binary.
+function collatzSteps(n: number): number {
+  let steps = 0;
+  while (n !== 1) {
+    n = n % 2 === 0 ? n / 2 : 3 * n + 1;
+    steps++;
+  }
+  return steps;
+}
+console.log(collatzSteps(27));
+
+// The same function over a hundred thousand numbers, spread over every core.
+const steps = range(1, 100_000).par.map(collatzSteps);
+console.log(steps.par.max(), steps.indexOf(350) + 1);
+
+// A task on another thread's event loop, awaited like any promise.
+console.log(await parallel collatzSteps(77_031));
+
+// threads: 1 4
+// expect:
+// 111
+// 350 77031
+// 350

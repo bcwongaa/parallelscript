@@ -1,0 +1,42 @@
+import { join, range } from "pts:parallel";
+
+function isPrime(n: number): boolean {
+  if (n < 2) {
+    return false;
+  }
+  for (let d = 2; d * d <= n; d++) {
+    if (n % d === 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Each call splits the work over the fork-join pool and returns when it is done.
+console.log(range(0, 200_000).par.count(isPrime));
+console.log(range(1, 1_000_001).par.sum());
+
+// Arrays and typed arrays have a .par view; map and filter keep the order.
+const words = ["steal", "fork", "split", "join", "merge"];
+console.log(words.par.map((w) => w.toUpperCase()));
+console.log(words.par.filter((w) => w.length === 5));
+console.log(words.par.sort());
+const samples = Float64Array.from([4, 9, 16, 25]);
+console.log(samples.par.map(Math.sqrt), samples.par.max());
+
+// join runs two closures, perhaps on two threads, and returns both results.
+const [primes, total] = join(
+  () => range(0, 1000).par.filter(isPrime).length,
+  () => range(0, 1000).par.reduce((a, b) => a + b, 0),
+);
+console.log(primes, total);
+
+// threads: 1 4
+// expect:
+// 17984
+// 500000500000
+// [ 'STEAL', 'FORK', 'SPLIT', 'JOIN', 'MERGE' ]
+// [ 'steal', 'split', 'merge' ]
+// [ 'fork', 'join', 'merge', 'split', 'steal' ]
+// Float64Array(4) [ 2, 3, 4, 5 ] 25
+// 168 499500

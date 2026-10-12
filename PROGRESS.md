@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.1d Documentation refresh (owner request)
+- **Next task:** M6.2 `pts:http` server
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow; the nightly stress workflow passed its first run, dispatched with 5 repeats)
 
 ## Done
 
+- M6.1d Documentation refresh (owner request; six subagents, one per document, every claim reviewed against code, tests and `pts` output): a ParallelScript `README.md` (upstream's kept as `docs/UPSTREAM_README.md`), new `docs/ARCHITECTURE.md`, `docs/GUIDE.md` and `docs/README.md` (an index), `docs/SPEC.md` §1–8 brought up to date (stale "until M…" statements, `fetch`/`pts:http` marked planned, full built-in member lists, §8 differences checked against Node), a summary at the top of `docs/BENCHMARKS.md`, `docs/FORK.md` checked against `git grep PTS:`, `pts/tests/README.md` rewritten from the test code, a topic index at the top of `docs/DECISIONS.md`. Every sample is a real program: `docs/examples/*.pts` run as run tests (named `docs/<name>`), the guide's compile errors are `pts/tests/errors/guide_*.pts`.
 - M6.1c2 `normalize` (D-135, SPEC §9.92): UAX #15's four forms in `normalize.c` over tables generated from Node's ICU (`pts/runtime/gen/normalization_tables.mjs`: full decompositions, ranks of the combining classes found through NFD, composition pairs), Hangul by arithmetic; statically and through `any`; the string corpus compares every code point of planes 0 and 1 in the four forms, and random mark sequences, with Node. M6.1 is complete.
 - M6.1c1 String methods with regexes (M6.1c split by D-134, SPEC §9.91): `match`, `matchAll`, `search`, `split`, `replace` and `replaceAll` with RegExps as runtime functions over a boxed pattern (a RegExp, a string, or `string | RegExp`), following @@match … @@replace: GetSubstitution's `$` references, split's captures and limit, empty matches advancing by a character, matchAll's iterator of match arrays; replacement callbacks through a generated helper that reads the match's arguments from an `any[]`; the global loops keep lastIndex out (0 at the end), so threads may share a global RegExp; all through `any` too.
 - M6.1b `RegExp` in the language (D-133, SPEC §9.90): a builtin class (`pts_regexp`, `PTS_KIND_REGEXP`) whose `lastIndex` is a real field; regex literals (a new RegExp per evaluation over code compiled once into a static per literal), `new RegExp`/`RegExp()` with string or RegExp patterns, `source`, `flags` and the flag properties, `exec`/`test` with RegExpBuiltinExec's lastIndex rules for `g` and `y`, `toString`, `RegExp.escape`; match arrays are `string[]`s with `index`, `input` and `groups` kept after the array (`pts_match_array`), printed as Node prints them, groups that took no part being holes read as loose elements (`m[2] || "px"` works); console.log, String, JSON and `any` as Node. The String methods that take regexes stay compile errors until M6.1c.
@@ -120,7 +121,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M6.1d Documentation refresh (owner request, see `docs/MASTER_PLAN.md`): subagents in parallel, one per document (README with the upstream README moved to `docs/UPSTREAM_README.md`, SPEC, new ARCHITECTURE, new GUIDE, BENCHMARKS summary, FORK, PROGRESS, `pts/tests/README.md`, a topic index at the top of DECISIONS, new `docs/README.md`); check every claim against code, tests and `pts` output; every sample a real `.pts` file under `pts/tests/run/` or `docs/examples/` covered by a test. M6.1 (RegExp and normalize) is now done and belongs in the docs too.
+1. M6.2 `pts:http` server (see `docs/MASTER_PLAN.md`): accepting connections on every loop (`SO_REUSEPORT`), a request/response API in the style of Node and Bun, hello-world and JSON-echo benchmarks with `oha`. Read D-121 (loops, inboxes) and D-118 (libuv jobs) first; M6.3 `fetch` (D-O10) follows.
+   Papercuts the docs refresh found, for M7.3 if not before: `seven / 2.0` with `seven: int` divides as integers (`2.0` is an integer literal); `bytes.reduce((s, b) => s + b, 0)` on a `u8[]` wraps (the accumulator is a `u8`; `reduce<int>` fixes it); the type `Function` gets PTS1002's message meant for `new Function` ("no compiler at run time").
 2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -161,7 +163,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 - **An erased copy makes instances of generic classes for `any`** (D-078): code whose type parameters are erased (a generic function value passed on generically, a nested generic arrow function, a dispatched generic method, D-101) makes `Box<any>` for a `new Box(x)`, and converting that to `Box<number>` throws `TypeError: Expected Box, got Box` (one corpus program, `oop/result_option.pts`: `Some.map` dispatched through its erased copy). Calls of module-scope generic consts are monomorphized since D-102. Fixes: name instances in checks' messages (`Box<number>`) at least; dispatch generic methods by a per-class switch over monomorphized instances.
 - **A class's method that lies about a type parameter through `any` throws where Node goes on:** `id(x: any): any { return ["c", x]; }` implementing an interface's `id<T>(x: T): T` and called as `i.id(5)` throws `TypeError: Expected number, got Array` (the result is checked against the call's `number`). By design (D-L09), listed so it isn't mistaken for a bug.
 - **Yields left out by D-111:** a yield in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is PTS1001 (`pts/tests/errors/yield_positions.pts`); names and property reads before a hoisted yield are read after it, and `x += yield v` reads x after the yield.
-- **A `#line` path is the source path as the program was built with it**, so stack frames show relative paths when `pts` is given a relative one (Node always shows absolute file URLs).
+- **A `#line` path is absolute, but stack frames can show a relative one:** built as `pts build dir/p.pts` from elsewhere, frames show `dir/p.pts`; built in the file's own directory, the absolute path (Node always shows absolute file URLs).
 - **Indexing a non-ASCII string is O(n)** (a scan from the start); ASCII strings are O(1). A lazy UTF-16 index needs a GC-traced field in `pts_string` (D-016): M2.1 or M8.
 - **Integer constant expressions wrap at run time** instead of failing to compile: `const b: u8 = 200 + 56` is 0 (D-012). A literal operand of `as` is a `number`, so `9007199254740993 as int` is 9007199254740992; annotate instead (`const x: int = 9007199254740993` is exact).
 - **Upstream, pre-existing:** `go test ./internal/execute/tsctests/ -run TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped` fails at the fork base too (verified with the PTS edits stashed). The help header's padding depends on the real version string, which changed on the 7.1 nightly branch after the baseline was written. Not ours; CI excludes it (M0.7).
@@ -175,6 +177,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M6.1d done (documentation refresh).
 - 2026-10-12: M6.1c2 done (D-135); M6.1 complete.
 - 2026-10-12: M6.1c1 done (M6.1c split by D-134).
 - 2026-10-12: M6.1b done (D-133).
