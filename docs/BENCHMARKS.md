@@ -4,7 +4,7 @@ Honest numbers, losses included (D-O15). Produced by `pts/bench/run.sh` (`make b
 
 ## Summary
 
-The latest numbers for every benchmark. All of them come from the M5 section below (M5.8, measured 2026-10-12 on a busy machine). The "vs Bun" columns are computed here from the same times; the milestone tables don't list them. The milestone sections below are the history, unchanged.
+The latest numbers for every benchmark. All but the HTTP servers come from the M5 section below (M5.8, measured 2026-10-12 on a busy machine); the servers come from the M6.2b section. The "vs Bun" columns are computed here from the same times; the milestone tables don't list them. The milestone sections below are the history, unchanged.
 
 Single-threaded:
 
@@ -29,7 +29,15 @@ Parallel: ParallelScript under `PTS_THREADS` = 1, 4 and 8; Node and Bun run the 
 | sum_reduce | 4080 ms | 2886 ms | 2390 ms | 1.71× | 5423 ms | 6649 ms | 907 ms | 2.27× | 2.78× | 0.38× |
 | word_count | 2073 ms | 948 ms | 1737 ms | 1.19× | 2275 ms | 1360 ms | 220 ms | 1.31× | 0.78× | 0.13× |
 
+HTTP servers, in requests per second (higher is better; `pts/bench/serve.sh` with oha): ParallelScript on 1 and 4 loops (`reusePort`), Node and Bun on one thread, Go on every core.
+
+| Benchmark | PTS ×1 | PTS ×4 | Node | Bun | Go | PTS ×4 vs Node | PTS ×4 vs Bun | PTS ×4 vs Go |
+|---|---|---|---|---|---|---|---|---|
+| http_hello | 56,818 | 84,739 | 20,939 | 59,753 | 69,483 | 4.05× | 1.42× | 1.22× |
+| http_json | 34,096 | 56,132 | 15,592 | 34,189 | 48,436 | 3.60× | 1.64× | 1.16× |
+
 Wins and losses:
+- HTTP: one loop is 2.7× Node on hello world and 2.2× on JSON, and just behind or level with Bun (0.95×, 1.00×); four loops beat Go's net/http by 16 to 22%.
 - Against Node: ParallelScript is faster on async_fib, fib, file_io and string_building, and barely on nbody (1.05×). It is slower on binary_trees, json and word_freq. On 8 threads it beats Node's single thread on all four parallel benchmarks.
 - Against Bun: faster on async_fib, fib, nbody and string_building; slower on binary_trees, file_io, json and word_freq. On 8 threads, faster on fan_out, mandelbrot and sum_reduce, slower on word_count (its 4-thread time, 948 ms, does beat Bun's 1360 ms).
 - Against Go: faster on binary_trees, fib, fib_int and json; slower on file_io, nbody, string_building and word_freq. On 8 threads, close on mandelbrot (0.98×) and fan_out (0.91×), far behind on sum_reduce (0.38×) and word_count (0.13×).
@@ -167,3 +175,18 @@ Measured on 2026-10-12 (M5.8), `pts/bench/run.sh` with 2 warm-ups and 10 runs, o
 Notes:
 - Single-threaded rows against M4: async_fib 183 → 162 ms, binary_trees 1861 → 1774 ms, json 1206 → 1119 ms (the collector's 2 markers, D-131); word_freq 1510 → 1988 ms and nbody, string_building within the run's noise (Node's word_freq also went from 1488 to 1769 ms).
 - Parallel rows: see the M5.7b notes. word_count's ×8 (1737 ms, slower than ×4) is allocation-heavy code meeting a loaded machine: every thread allocates a string per word, and bdwgc refills free lists under one lock and stops all threads to collect.
+
+## M6.2b: HTTP servers
+
+Measured on 2026-10-12 with `pts/bench/serve.sh` (`make bench-http`, D-137): each server is loaded by oha with 64 keep-alive connections, 2 s of warm-up, then 10 s measured; the numbers are requests per second, higher is better, and "PTS ×4 vs X" is ParallelScript's rate on 4 loops divided by X's. ParallelScript serves with `reusePort: true` under `PTS_THREADS` 1, 2 and 4; Node (`node:http`) and Bun (`Bun.serve`) are one process each, on one thread; Go's `net/http` uses every core. `http_hello` answers `GET /` with a 13-byte text; `http_json` takes a POSTed order of three items as JSON, parses it into typed records, totals it and answers JSON. oha runs on the same machine and takes 2 to 3 of its 8 hardware threads, and the load average was 4 to 5, so 4 loops is as far as the server can usefully go here.
+
+| Benchmark (requests/s) | PTS ×1 | PTS ×2 | PTS ×4 | Speedup ×4 | Node | Bun | Go | PTS ×4 vs Node | PTS ×4 vs Go |
+|---|---|---|---|---|---|---|---|---|---|
+| http_hello | 56,818 | 70,329 | 84,739 | 1.49× | 20,939 | 59,753 | 69,483 | 4.05× | 1.22× |
+| http_json | 34,096 | 42,268 | 56,132 | 1.65× | 15,592 | 34,189 | 48,436 | 3.60× | 1.16× |
+
+Notes:
+- A second run right after gave the same picture: hello 49,905 / 66,784 / 84,751 (Node 21,064, Bun 56,661, Go 69,585), JSON 32,195 / 48,564 / 55,826 (Node 15,152, Bun 33,660, Go 48,606).
+- On one loop ParallelScript is 2.7× Node on hello world and 2.2× on JSON; against Bun it is 0.95× on hello world and level on JSON (0.88× and 0.96× in the second run). On 4 loops it is ahead of Go's every-core server by 16 to 22%.
+- Before D-137's fixes, one loop served 26k hello-world requests a second and four loops 23k: every regex match allocated through the collector's global lock, and `pts:http` checked each header with regexes. An unloaded quick run after the fixes measured 54k, 93k and 114k on 1, 2 and 4 loops, which shows how much oha and the background load take in the table's run.
+- What still limits the scaling: each request allocates its `Request`, `Headers`, `Response`, strings and promises, and bdwgc refills threads' free lists under one lock (D-131).

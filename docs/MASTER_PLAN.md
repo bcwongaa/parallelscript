@@ -283,7 +283,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `docs/BENCHMARKS.md` (summary at the top), `docs/FORK.md`, `PROGRESS.md`, `pts/tests/README.md`, `docs/DECISIONS.md` (add an index of entries by topic at the top; keep it append-only below).
   - New `docs/README.md`: an index of all docs.
 - [x] **M6.2a `pts:http` server on one loop** (a4f1fa7e4) (split from M6.2 by D-136). `serve({ port, hostname, fetch, error })` with the Fetch standard's `Request`, `Response` and `Headers`, in the style of Bun's; HTTP/1.1 with keep-alive, pipelining, chunked request bodies, `Expect: 100-continue`; `Server.stop()`; tests over TCP.
-- [ ] **M6.2b `pts:http` on every loop, and benchmarks** (split from M6.2 by D-136). `reusePort: true` accepts connections on every loop (`SO_REUSEPORT`); hello-world and JSON-echo benchmarks with `oha` against Node, Bun and Go.
+- [x] **M6.2b `pts:http` on every loop, and benchmarks** (7cf51fc0c) (split from M6.2 by D-136). `reusePort: true` accepts connections on every loop (`SO_REUSEPORT`); hello-world and JSON-echo benchmarks with `oha` against Node, Bun and Go.
 - [ ] **M6.0a Safety stabilization (from the independent review, owner request 2026-10-12).** Read `docs/reviews/2026-10-12-gpt-6.1-sol/REVIEW.md` first; its probe programs are in `probes/` next to it. Memory safety is never traded away (brief §3, tie-breaker 1), so fix every crash path in accepted programs:
   - finding 1: timers (and every other loop-owned runtime handle) record their owning loop, and operations from other loops or pool threads are sent to that loop
   - finding 2: reading a narrowed union out of a captured or aliased mutable variable is checked

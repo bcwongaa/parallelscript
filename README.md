@@ -474,7 +474,7 @@ Unions with every form of narrowing, optional chaining and `??`, enums, tuples, 
 
 ## Benchmarks
 
-These are the benchmarks added from M1 to M5, with their latest numbers, from the M5 run (2026-10-12). The machine is a laptop with an Intel Core i5-8250U (4 cores, 8 hardware threads, clocked lower when all cores run) and 15 GB of RAM, running Linux Mint 22.2, clang 18, Node 24.21.0, Bun 1.4.3 and Go 1.26.9. It also runs other services, so timings vary. Times are wall-clock means from hyperfine, process start included; lower is better. "vs Node" is Node's time divided by ParallelScript's, and "vs Go" likewise: above 1× means ParallelScript is faster. Node and Bun run the same program as ParallelScript. Every milestone's table, with notes on each benchmark, is in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+These are the benchmarks added from M1 to M6, with their latest numbers, from the M5 run and, for the HTTP servers, the M6.2b run (2026-10-12). The machine is a laptop with an Intel Core i5-8250U (4 cores, 8 hardware threads, clocked lower when all cores run) and 15 GB of RAM, running Linux Mint 22.2, clang 18, Node 24.21.0, Bun 1.4.3 and Go 1.26.9. It also runs other services, so timings vary. Times are wall-clock means from hyperfine, process start included; lower is better. "vs Node" is Node's time divided by ParallelScript's, and "vs Go" likewise: above 1× means ParallelScript is faster. Node and Bun run the same program as ParallelScript. Every milestone's table, with notes on each benchmark, is in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 One thread:
 
@@ -501,10 +501,17 @@ Parallel, with `PTS_THREADS` at 1, 4 and 8. "Speedup ×8" is the 1-thread time d
 
 What the numbers say:
 
-- **Wins.** Recursive calls, async calls and string building are faster than Node and Bun, and file_io is 1.59× Node's speed. fib_int is 1.78× Go's speed. On 8 threads, every parallel benchmark beats Node's single thread, and mandelbrot and fan_out come close to Go (0.98× and 0.91×).
+- **Wins.** Recursive calls, async calls and string building are faster than Node and Bun, and file_io is 1.59× Node's speed. One `pts:http` loop serves 2.2 to 2.7 times as many requests as Node, and four loops beat Go's `net/http`. fib_int is 1.78× Go's speed. On 8 threads, every parallel benchmark beats Node's single thread, and mandelbrot and fan_out come close to Go (0.98× and 0.91×).
 - **Losses.** Programs that allocate a lot are slower than Node: binary_trees (0.78×), json (0.68×) and word_freq (0.89×). json is 0.37× Bun's speed, and file_io 0.70×. Against Go, ParallelScript loses on string_building (0.37×), word_freq (0.38×), nbody (0.73×) and file_io (0.67×), and on 8 threads on sum_reduce (0.38×) and word_count (0.13×).
 - **Why.** bdwgc is a conservative, non-moving, non-generational collector. With threads, it refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads: word_count is slower on 8 threads than on 4. nbody's loop indices are doubles until integer inference (M8). sum_reduce is bound by memory bandwidth, and one thread zeroes its 800 MB array.
 - **Noise.** The machine was busier during this run than during the M5.7b run an hour earlier, which measured 8-thread speedups of 5.78× (mandelbrot), 3.26× (fan_out), 2.22× (word_count) and 1.83× (sum_reduce). Both runs are in BENCHMARKS.md.
+
+HTTP servers (M6.2b), in requests per second, higher is better: `pts:http` on 1 and 4 loops (`reusePort: true`), Node's `node:http` and `Bun.serve` on one thread, Go's `net/http` on every core, each loaded by oha with 64 connections on the same machine.
+
+| Benchmark | PTS ×1 | PTS ×4 | Node | Bun | Go | ×4 vs Node | ×4 vs Go |
+|---|---|---|---|---|---|---|---|
+| http_hello (13-byte text) | 56,818 | 84,739 | 20,939 | 59,753 | 69,483 | 4.05× | 1.22× |
+| http_json (parse an order, total it, answer JSON) | 34,096 | 56,132 | 15,592 | 34,189 | 48,436 | 3.60× | 1.16× |
 
 Start-up, measured at M0: hello world runs in 1.4 ms, against 75.4 ms for Node and 4.3 ms for Bun.
 

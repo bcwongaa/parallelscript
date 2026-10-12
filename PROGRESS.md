@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.2b `pts:http` on every loop, and benchmarks
+- **Next task:** M6.3 `fetch`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
-- **Main is green:** yes, locally and in CI (`PTS` workflow green on `4c0eb4eca`, M6.2a)
+- **Main is green:** yes locally (M6.2b, `7cf51fc0c`); CI: see the session log
 
 ## Done
 
+- M6.2b `pts:http` on every loop, and benchmarks (D-137, SPEC §9.94): `reusePort: true` starts the loops and binds a SO_REUSEPORT socket per loop on the calling thread (bind errors still throw from `serve`), which each loop takes over through a new CALL message (`pts_post_call`, runs a C function on a given loop in order); connections stay on their loop, ids carry the loop, `stop()` reaches every loop by message. Responses carry `date`; the parser rejects NUL and CR in header values. Profiling found every regex match allocating PCRE2's match data and 20 KB frames under bdwgc's global lock: a per-thread malloc'd match block fixed it, and `pts:http` no longer re-checks request headers with regexes. Hello world: 26k → 57k requests/s on one loop (Node 21k, Bun 60k), 85k on four (Go 69k). `pts/bench/http_hello`, `http_json` with Node/Bun/Go twins, `pts/bench/serve.sh` (`make bench-http`, oha). `TestHTTPServerEveryLoop`; a CALL test in `scheduler_test.c` (TSan too).
 - M6.2a `pts:http` server on one loop (M6.2 split by D-136, SPEC §9.93): `serve({ port, hostname, fetch, error })` in the style of Bun's, with the Fetch standard's `Request`, `Response` and `Headers` in ParallelScript (`pts/lib/http.pts`) over an HTTP/1.1 server in C on libuv (`http.c`: keep-alive, pipelining in order, chunked bodies, 100-continue, server-made 400/413/431, connection ids that stale answers can't misuse, `stop()`); programs that listen run the loop, and loops flush stdout before waiting. Compiler fixes on the way: literal methods for optional function properties, literals for a union's one hash-map member. `TestHTTPServer` drives a server over TCP. One loop serves 26k requests/s for hello world (Node: 22k) on this machine.
 - M6.1d Documentation refresh (owner request; six subagents, one per document, every claim reviewed against code, tests and `pts` output): a ParallelScript `README.md` (upstream's kept as `docs/UPSTREAM_README.md`), new `docs/ARCHITECTURE.md`, `docs/GUIDE.md` and `docs/README.md` (an index), `docs/SPEC.md` §1–8 brought up to date (stale "until M…" statements, `fetch`/`pts:http` marked planned, full built-in member lists, §8 differences checked against Node), a summary at the top of `docs/BENCHMARKS.md`, `docs/FORK.md` checked against `git grep PTS:`, `pts/tests/README.md` rewritten from the test code, a topic index at the top of `docs/DECISIONS.md`. Every sample is a real program: `docs/examples/*.pts` run as run tests (named `docs/<name>`), the guide's compile errors are `pts/tests/errors/guide_*.pts`.
 - M6.1c2 `normalize` (D-135, SPEC §9.92): UAX #15's four forms in `normalize.c` over tables generated from Node's ICU (`pts/runtime/gen/normalization_tables.mjs`: full decompositions, ranks of the combining classes found through NFD, composition pairs), Hangul by arithmetic; statically and through `any`; the string corpus compares every code point of planes 0 and 1 in the four forms, and random mark sequences, with Node. M6.1 is complete.
@@ -122,7 +123,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M6.2b `pts:http` on every loop, and benchmarks (see `docs/MASTER_PLAN.md`, D-136): `reusePort: true` should start the other loops (`start_workers` in `scheduler.c`) and listen on each with `UV_TCP_REUSEPORT` on the port the first listener got; that needs a message that runs a C function on a given loop (promise.c's messages are promise work and tasks only), per-loop connection lists in `server` (now one list, used by `stop`), and `stop` posting to every loop. `pts_http_listen` takes `every_loop` and ignores it today. Benchmarks: `pts/bench/http_hello` and `http_json` with Node (`node:http`), Bun (`Bun.serve`) and Go (`net/http`) twins, run by a script around `oha` (requests/s), not hyperfine.
+1. M6.3 `fetch` (D-O10): a global `fetch(url, init)` returning `Promise<Response>` with pts:http's `Request`/`Response`/`Headers` (which become globals too; today they need `import … from "pts:http"`). `http://` only, HTTP/1.1, Content-Length, chunked and read-until-close bodies, text and JSON; `https://` rejects with a `TypeError`. In C on libuv beside `http.c` (`uv_getaddrinfo`, `uv_tcp_connect`; `dechunk` can be shared), settling a promise on the calling loop (`pts_post_call` exists if work must hop loops). Test against a local `pts:http` server in the same program and a Go server in the Go test.
    Papercuts the docs refresh found, for M7.3 if not before: `seven / 2.0` with `seven: int` divides as integers (`2.0` is an integer literal); `bytes.reduce((s, b) => s + b, 0)` on a `u8[]` wraps (the accumulator is a `u8`; `reduce<int>` fixes it); the type `Function` gets PTS1002's message meant for `new Function` ("no compiler at run time").
 2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
@@ -139,7 +140,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (299 run tests and 41 docs samples, the parallel ones under several `PTS_THREADS`; 79 error tests; `TestHTTPServer`; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 16 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (299 run tests and 42 docs samples, the parallel ones under several `PTS_THREADS`; 79 error tests; `TestHTTPServer`, `TestHTTPServerEveryLoop`; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 16 string-corpus parts; about 2.5 min on a busy machine) |
 | Stress tests | `make test-stress` (= `go test -run TestStress ./pts/tests/`); `PTS_STRESS_REPEAT=n` runs each program n times per thread count (the nightly CI job: 100) | ok (11 programs; about 13 s for 3 runs each) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
@@ -150,6 +151,8 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the tables for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int). A benchmark with a `threads` file runs under each `PTS_THREADS` it lists and goes in a second table with its speedup (D-131); the four parallel ones take about 8 minutes with `RUNS=5 WARMUP=1`.
+
+`make bench-http` (= `pts/bench/serve.sh [name …]`) runs the server benchmarks (directories with a `request` file, which `run.sh` skips): it starts each server (ParallelScript per `PTS_THREADS` in `threads`, Node, Bun, Go), checks they answer alike, loads each with oha (`DURATION`, default 10s; `WARMUP` 2s; `CONNECTIONS` 64) and prints requests/s; about 2.5 minutes for both.
 
 ## Known issues
 
@@ -178,6 +181,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M6.2b done (D-137); regex matching no longer allocates.
 - 2026-10-12: M6.2a done (M6.2 split by D-136); decorators are PTS1001 now.
 - 2026-10-12: M6.1d done (documentation refresh).
 - 2026-10-12: M6.1c2 done (D-135); M6.1 complete.
