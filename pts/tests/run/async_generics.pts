@@ -1,0 +1,24 @@
+// Generic async functions and methods, and generic generators (D-112).
+async function id<T>(x: T): Promise<T> {
+  await null;
+  return x;
+}
+function* repeat<T>(x: T, n: number): Generator<T> {
+  for (let i = 0; i < n; i++) yield x;
+}
+class Cache<T> {
+  constructor(private value: T) {}
+  async get(): Promise<T> {
+    return this.value;
+  }
+}
+async function main(): Promise<void> {
+  console.log(await id(5), await id("s"), [...repeat("a", 3)], await new Cache([1, 2]).get());
+  const all = [await id(1), await id(2)];
+  console.log(all);
+}
+main();
+
+// expect:
+// 5 s [ 'a', 'a', 'a' ] [ 1, 2 ]
+// [ 1, 2 ]

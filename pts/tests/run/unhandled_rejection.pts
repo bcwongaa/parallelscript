@@ -1,0 +1,13 @@
+// An unhandled rejection ends the program with exit code 1 after the microtasks ran (D-112).
+async function fails(): Promise<void> {
+  await null;
+  throw new Error("nobody catches this");
+}
+console.log("before");
+fails();
+Promise.resolve().then(() => console.log("microtask still runs"));
+// exit: 1
+// stderr: nobody catches this
+// expect:
+// before
+// microtask still runs

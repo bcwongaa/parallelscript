@@ -254,6 +254,8 @@ pts_string *pts_value_to_string(pts_value value) {
       pts_panic("TypeError", "converting a function to a string is not supported yet");
     case PTS_KIND_GENERATOR:
       return pts_string_from_cstr("[object Generator]");
+    case PTS_KIND_PROMISE:
+      return pts_string_from_cstr("[object Promise]");
     default:
       break;
     }

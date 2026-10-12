@@ -1,0 +1,84 @@
+// Awaits in control flow (D-112): try/catch/finally, returns through finally, switch,
+// if conditions, for…of over awaited values, labeled loops, closures over frame locals.
+const delay = (v: number): Promise<number> => new Promise<number>((resolve) => resolve(v));
+
+async function tryFinally(fail: boolean): Promise<string> {
+  const steps: string[] = [];
+  try {
+    steps.push(`try ${await delay(1)}`);
+    if (fail) throw new Error("inside");
+    return `returned ${steps.join(",")}`;
+  } catch (e) {
+    steps.push(`catch ${(e as Error).message} ${await delay(2)}`);
+    return `caught ${steps.join(",")}`;
+  } finally {
+    steps.push(`finally ${await delay(3)}`);
+    console.log("finally saw", steps);
+  }
+}
+
+async function returnAwait(): Promise<number> {
+  try {
+    return await Promise.reject(new Error("rejected"));
+  } catch (e) {
+    return -1;
+  }
+}
+
+async function branches(n: number): Promise<string> {
+  if ((await delay(n)) > 1) {
+    return "big";
+  }
+  switch (await delay(n)) {
+    case 0:
+      return "zero";
+    default:
+      return "one";
+  }
+}
+
+async function loops(): Promise<number[]> {
+  const seen: number[] = [];
+  outer: for (const x of await Promise.resolve([1, 2, 3, 4])) {
+    for (let y = 0; y < 3; y++) {
+      if ((await delay(x * y)) > 4) continue outer;
+      seen.push(x * 10 + y);
+    }
+    if (x === 3) break;
+  }
+  return seen;
+}
+
+async function closures(): Promise<number> {
+  let counter = 0;
+  const bump = () => ++counter;
+  await delay(0);
+  bump();
+  await delay(0);
+  bump();
+  const later = async () => counter * 100;
+  return await later();
+}
+
+async function main(): Promise<void> {
+  console.log(await tryFinally(false));
+  console.log(await tryFinally(true));
+  console.log(await returnAwait());
+  console.log(await branches(0), await branches(1), await branches(2));
+  console.log(await loops());
+  console.log(await closures());
+}
+main().catch((e: Error) => console.log("main failed", e.message));
+
+// expect:
+// finally saw [ 'try 1', 'finally 3' ]
+// returned try 1
+// finally saw [ 'try 1', 'catch inside 2', 'finally 3' ]
+// caught try 1,catch inside 2
+// -1
+// zero one big
+// [
+//   10, 11, 12, 20, 21,
+//   22, 30, 31, 40, 41
+// ]
+// 200

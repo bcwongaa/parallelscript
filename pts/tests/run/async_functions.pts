@@ -1,0 +1,82 @@
+// Async functions (D-112): declarations, expressions, arrows and methods, awaits in
+// statements and expressions, try/catch/finally around awaits, loops, recursion.
+class Store {
+  private items = new Map<string, number>();
+  async load(key: string): Promise<number> {
+    await null;
+    return this.items.get(key) ?? 0;
+  }
+  async save(key: string, value: number): Promise<void> {
+    await Promise.resolve();
+    this.items.set(key, value);
+  }
+}
+
+const helpers = {
+  async twice(x: number): Promise<number> {
+    return (await this.id(x)) * 2;
+  },
+  async id(x: number): Promise<number> {
+    return x;
+  },
+};
+
+const triple = async (x: number) => x * 3;
+const square = async function (x: number): Promise<number> {
+  return x * x;
+};
+
+async function countdown(n: number): Promise<number> {
+  if (n === 0) return 0;
+  return n + (await countdown(n - 1));
+}
+
+async function failing(message: string): Promise<never> {
+  await null;
+  throw new Error(message);
+}
+
+async function main(): Promise<string> {
+  const store = new Store();
+  await store.save("a", 5);
+  console.log("loaded", await store.load("a"), await store.load("b"));
+  console.log("helpers", await helpers.twice(4), await triple(3), await square(5));
+  console.log("countdown", await countdown(10));
+  let total = 0;
+  for (const n of [1, 2, 3]) {
+    total += await triple(n);
+  }
+  let i = 0;
+  while (i < 3) {
+    i = await Promise.resolve(i + 1);
+  }
+  console.log("loops", total, i);
+  try {
+    await failing("first");
+  } catch (e) {
+    console.log("caught", (e as Error).message);
+  } finally {
+    console.log("finally", await triple(1));
+  }
+  const results = [await triple(1), await square(2)];
+  const picked = results.length > 1 ? await square(3) : 0;
+  console.log("expressions", results, picked, `${await triple(2)}!`);
+  const p = failing("later");
+  p.catch((e: Error) => console.log("handled later", e.message));
+  return "main done";
+}
+
+main().then((v) => console.log(v));
+console.log("main started");
+
+// expect:
+// main started
+// loaded 5 0
+// helpers 8 9 25
+// countdown 55
+// loops 18 3
+// caught first
+// finally 3
+// expressions [ 3, 4 ] 9 6!
+// main done
+// handled later later

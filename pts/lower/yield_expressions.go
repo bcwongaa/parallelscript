@@ -21,9 +21,12 @@ import (
 // hoistableExpression is the expression of a statement that runs once, before the rest
 // of it, so that the yields in it can run before the statement: an expression statement's,
 // the first variable's initializer, a return's or throw's value, an if's or switch's
-// condition, or a for…of's or for…in's iterated value; nil for any other statement.
+// condition, or a for…of's or for…in's iterated value (labeled or not); nil for any other
+// statement.
 func hoistableExpression(node *ast.Node) *ast.Node {
 	switch node.Kind {
+	case ast.KindLabeledStatement:
+		return hoistableExpression(node.AsLabeledStatement().Statement)
 	case ast.KindExpressionStatement, ast.KindReturnStatement, ast.KindThrowStatement, ast.KindIfStatement,
 		ast.KindSwitchStatement, ast.KindForOfStatement, ast.KindForInStatement:
 		return node.Expression()
@@ -39,7 +42,7 @@ func (l *lowerer) hasYield(node *ast.Node) bool {
 	switch {
 	case node == nil || ast.IsFunctionLike(node) || ast.IsClassLike(node):
 		return false
-	case node.Kind == ast.KindYieldExpression && l.yielded[node] == nil:
+	case isSuspension(node) && l.yielded[node] == nil:
 		return true
 	}
 	return node.ForEachChild(l.hasYield)
@@ -75,7 +78,7 @@ func (l *lowerer) hoistYields(node *ast.Node) (stmts []ir.Stmt, ok bool) {
 	switch {
 	case !l.hasYield(node):
 		return nil, true
-	case node.Kind == ast.KindYieldExpression:
+	case isSuspension(node):
 		return l.hoistYield(node)
 	case node.Kind == ast.KindConditionalExpression:
 		return l.hoistConditional(node)
@@ -106,14 +109,14 @@ func (l *lowerer) hoistYields(node *ast.Node) (stmts []ir.Stmt, ok bool) {
 	return stmts, true
 }
 
-// hoistYield lowers a yield (after the yields in its operand) to the statements that
-// yield, and keeps what it evaluates to once the generator resumes in a local.
+// hoistYield lowers a yield or an await (after those in its operand) to the statements
+// that suspend, and keeps what it evaluates to once the function resumes in a local.
 func (l *lowerer) hoistYield(node *ast.Node) ([]ir.Stmt, bool) {
 	stmts, ok := l.hoistYields(node.Expression())
 	if !ok {
 		return nil, false
 	}
-	yielded, value := l.yieldPoint(node)
+	yielded, value := l.suspensionPoint(node)
 	if yielded == nil {
 		return nil, false
 	}
@@ -253,7 +256,7 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 		return true
 	}
 	switch node.Kind {
-	case ast.KindYieldExpression:
+	case ast.KindYieldExpression, ast.KindAwaitExpression:
 		return l.yielded[node] != nil
 	case ast.KindIdentifier, ast.KindThisKeyword, ast.KindSuperKeyword, ast.KindNumericLiteral, ast.KindBigIntLiteral,
 		ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral, ast.KindTrueKeyword, ast.KindFalseKeyword,
@@ -288,7 +291,7 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 func evaluationOrder(node *ast.Node) []*ast.Node {
 	switch node.Kind {
 	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression,
-		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression, ast.KindAwaitExpression,
+		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression,
 		ast.KindDeleteExpression, ast.KindSpreadElement:
 		return []*ast.Node{node.Expression()}
 	case ast.KindPrefixUnaryExpression:

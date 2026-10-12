@@ -489,6 +489,11 @@ type Func struct {
 	// object is resumed, holding every local in the object's frame. A Yield in Body
 	// suspends it; a Return's Value, a Value, is the generator's return value.
 	Generator bool
+	// Async marks an async function (D-112), also marked Generator: a call runs Body as a
+	// generator's until it yields, each Yield being an await of its Value, and returns the
+	// promise (a Value) that the Return's Value or a throw out of Body settles. The
+	// runtime resumes Body when the awaited promise settles.
+	Async bool
 }
 
 // QualifiedName is the function's name with its module's: "math:add" ("add" in the entry module).
@@ -1162,6 +1167,17 @@ var (
 	// text); IteratorOf is an iterator itself, or one that calls an object's next() (D-111).
 	IteratorGet = &Builtin{Name: "Symbol.iterator", Params: []Type{Value, String}, Result: Value}
 	IteratorOf  = &Builtin{Name: "iterator of", Params: []Type{Value}, Result: Value}
+	// Promises (D-112): PromiseNew is `new Promise(executor)` (its second argument the
+	// executor's source text); PromiseThen is p.then(onFulfilled, onRejected), either
+	// undefined; PromiseFinally is p.finally(f); PromiseResolve and PromiseReject are
+	// Promise.resolve(v) and Promise.reject(r).
+	PromiseNew     = &Builtin{Name: "Promise", Params: []Type{Value, String}, Result: Value}
+	PromiseThen    = &Builtin{Name: "Promise.then", Params: []Type{Value, Value, Value}, Result: Value}
+	PromiseFinally = &Builtin{Name: "Promise.finally", Params: []Type{Value, Value}, Result: Value}
+	PromiseResolve = &Builtin{Name: "Promise.resolve", Params: []Type{Value}, Result: Value}
+	PromiseReject  = &Builtin{Name: "Promise.reject", Params: []Type{Value}, Result: Value}
+	// ValueIsPromise is `x instanceof Promise`.
+	ValueIsPromise = &Builtin{Name: "instanceof Promise", Params: []Type{Value}, Result: Bool}
 	// MapIteratorOf is m.values(), m.keys() or m.entries() (its I32 argument 0, 1 or 2) as a value: an iterator (D-110).
 	MapIteratorOf = &Builtin{Name: "Map.iterator", Params: []Type{Value, I32}, Result: Value}
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).

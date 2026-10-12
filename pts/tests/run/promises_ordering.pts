@@ -1,0 +1,116 @@
+// Microtask order (D-112): V8's order of promise jobs, checked against Node.
+const log: string[] = [];
+const note = (s: string) => {
+  log.push(s);
+};
+
+async function plain(): Promise<number> {
+  note("plain body");
+  return 1;
+}
+async function returnsPromise(): Promise<number> {
+  return Promise.resolve(2); // two more jobs than returning a value
+}
+async function awaitsValue(): Promise<void> {
+  await 3; // one job
+  note("after await 3");
+  await null;
+  note("after await null");
+}
+async function awaitsPromise(): Promise<void> {
+  await Promise.resolve(4);
+  note("after await promise");
+}
+
+plain().then(() => note("plain resolved"));
+returnsPromise().then(() => note("returnsPromise resolved"));
+awaitsValue();
+awaitsPromise();
+Promise.resolve()
+  .then(() => note("tick 1"))
+  .then(() => note("tick 2"))
+  .then(() => note("tick 3"))
+  .then(() => note("tick 4"))
+  .then(() => note("tick 5"));
+
+// Resolving with a promise takes two more jobs than resolving with a value.
+new Promise<number>((resolve) => resolve(Promise.resolve(5))).then(() => note("resolved with promise"));
+new Promise<number>((resolve) => resolve(6)).then(() => note("resolved with value"));
+
+// finally passes the value on after what it returns settles.
+Promise.resolve(7)
+  .finally(() => note("finally ran"))
+  .then((v) => note(`after finally ${v}`));
+Promise.reject(new Error("r"))
+  .finally(() => note("finally on rejection"))
+  .catch((e: Error) => note(`caught ${e.message}`));
+
+// then() without functions passes the outcome on.
+Promise.resolve(8)
+  .then(undefined)
+  .then((v) => note(`passed ${v}`));
+Promise.reject(9)
+  .then((v) => note(`not called ${v}`))
+  .catch((r) => note(`passed reason ${r}`));
+
+// A then() handler that returns a promise: its outcome, two jobs later.
+Promise.resolve(10)
+  .then((v) => Promise.resolve(v + 1))
+  .then((v) => note(`chained ${v}`));
+
+// Thenables of the program's: their then() is called from a job.
+const thenable = {
+  then(resolve: (v: number) => void): void {
+    note("thenable then called");
+    resolve(11);
+  },
+} as unknown as PromiseLike<number>;
+Promise.resolve()
+  .then(() => thenable)
+  .then((v) => note(`thenable gave ${v}`));
+async function awaitsThenable(): Promise<void> {
+  const v = await thenable;
+  note(`awaited thenable ${v}`);
+}
+awaitsThenable();
+
+note("sync end");
+setTimeoutFree();
+function setTimeoutFree(): void {
+  Promise.resolve().then(() =>
+    Promise.resolve().then(() =>
+      Promise.resolve().then(() =>
+        Promise.resolve().then(() =>
+          Promise.resolve().then(() => Promise.resolve().then(() => Promise.resolve().then(() => console.log(log.join("\n"))))),
+        ),
+      ),
+    ),
+  );
+}
+
+// expect:
+// plain body
+// sync end
+// plain resolved
+// after await 3
+// after await promise
+// tick 1
+// resolved with value
+// finally ran
+// finally on rejection
+// thenable then called
+// after await null
+// tick 2
+// passed 8
+// passed reason 9
+// thenable then called
+// awaited thenable 11
+// returnsPromise resolved
+// tick 3
+// resolved with promise
+// thenable gave 11
+// tick 4
+// after finally 7
+// caught r
+// chained 11
+// tick 5

@@ -93,8 +93,8 @@ func (l *lowerer) generatorType() *checker.Type {
 	return l.returnTypeOf(l.checker.GetSignatureFromDeclaration(l.funcNodes[l.function]))
 }
 
-// statementYield is the yield (or yield*) that statement node evaluates first, in one of
-// the places a yield can be (see above), or nil.
+// statementYield is the yield (or yield*, or await, D-112) that statement node evaluates
+// first, in one of the places a yield can be (see above), or nil.
 func statementYield(node *ast.Node) *ast.Node {
 	var x *ast.Node
 	switch node.Kind {
@@ -114,7 +114,7 @@ func statementYield(node *ast.Node) *ast.Node {
 			x = ast.SkipParentheses(node.Expression())
 		}
 	}
-	if x != nil && x.Kind == ast.KindYieldExpression {
+	if x != nil && isSuspension(x) {
 		return x
 	}
 	return nil
@@ -123,7 +123,7 @@ func statementYield(node *ast.Node) *ast.Node {
 // yieldingStatement lowers a statement that yields first: the yield, then the rest of the
 // statement with the yield expression's value in its place.
 func (l *lowerer) yieldingStatement(node *ast.Node, yield *ast.Node) []ir.Stmt {
-	stmts, value := l.yieldPoint(yield)
+	stmts, value := l.suspensionPoint(yield)
 	if stmts == nil {
 		return nil
 	}
@@ -145,7 +145,15 @@ func (l *lowerer) yieldExpression(node *ast.Node) ir.Expr {
 	if value, ok := l.yielded[node]; ok {
 		return value
 	}
-	l.notSupportedYet(node, "`yield` in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is")
+	keyword := "yield"
+	if node.Kind == ast.KindAwaitExpression {
+		keyword = "await"
+	}
+	if !l.function.Generator {
+		l.notSupportedYet(node, "top-level `await` is")
+		return nil
+	}
+	l.notSupportedYet(node, "`"+keyword+"` in a loop's condition or update, a case label, a later variable of a declaration, a default value or an optional chain is")
 	return nil
 }
 

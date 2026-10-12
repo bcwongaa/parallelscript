@@ -15,7 +15,7 @@ void pts_inspect_value_write(FILE *out, pts_value value); /* inspect.c */
 _Thread_local pts_handler *pts_handlers;
 
 /* An uncaught exception: its stack, or for any other value, the value as console.log shows it nested (D-O07). */
-static _Noreturn void report_uncaught(pts_value exception) {
+_Noreturn void pts_report_uncaught(pts_value exception) {
   fflush(stdout);
   fputs("Uncaught ", stderr);
   if (pts_value_is_object(exception) && pts_is_error(pts_value_as_object(exception))) {
@@ -36,7 +36,7 @@ void pts_throw(pts_value exception) {
     handler = handler->prev;
   }
   if (handler == NULL) {
-    report_uncaught(exception);
+    pts_report_uncaught(exception);
   }
   pts_handlers = handler->prev;
   handler->exception = exception;

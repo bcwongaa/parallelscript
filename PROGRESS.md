@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
-- **Next task:** M4.2 Async and promises
+- **Next task:** M4.2b Promise combinators and top-level await
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M4.2a Async functions and promises: async declarations, expressions, arrows, class and object literal methods compile to D-109's generator frames, each await a suspension the runtime resumes from a microtask (one handler per drain, one reaction per frame); awaits go wherever yields go (first in a statement or hoisted, D-111); `Promise` (`new Promise`, `then`, `catch`, `finally`, `Promise.resolve`/`reject`, `instanceof Promise`, console.log as Node prints it) with ECMAScript's algorithms in V8's job order (thenable jobs, adoption, finally's waiting), thenables of the program's; unhandled rejections end the program with exit code 1 after the microtasks. The heap now starts at 4 MiB (like Go's minimum heap target): three million awaits in 235 ms (Node 301 ms), the other benchmarks 0–7 % faster (D-112, SPEC §9.70). M4.2 split by D-112.
 - M4.1b Iterables and iterators: Map/Set/array iterators as values and `Iterable<T>` as a dynamic value (D-110); the iteration protocol over the program's objects (D-111): `[Symbol.iterator]` methods of classes and object literals (generator methods too, named `@@iterator` inside), objects with their own `next()`/`return()`/`throw()` wrapped by the runtime and driven through their dynamic entries, all through for…of, spread, `Array.from`, `new Set`/`new Map`, array patterns, `Iterable<T>`/`Iterator<T>`/`IterableIterator<T>` values and `yield*`; `x[Symbol.iterator]()` of generator objects, arrays, strings, maps, sets and objects; generator methods of object literals; console.log of symbol-keyed members and `[GeneratorFunction: name]`; yields inside larger expressions, hoisted with the operands JS evaluates before them into frame locals (`?:`, `&&`, `||`, `??` become if statements). Corpus 240 → 251 of 300 (no remaining skip waits on iterators).
 - M4.1a Generators: `function*` declarations, expressions and class methods; `yield` and `yield*` (over generators, arrays, strings, maps, sets) first in their statements (as the statement, the first variable's initializer, an assignment's right side, a return's value); generator objects with `next`/`return`/`throw` and their `{ value, done }` results; `for…of` (closing the generator when the loop ends early), spread, `Array.from` and array destructuring over generator objects; `try`/`catch`/`finally` around yields, `return()` running finally blocks. The C emitter keeps the body structured: every statement-level local lives in a GC frame, a `switch` jumps to the resume point, and try blocks are re-entered on resume; a throw that leaves a generator finishes it through a marker on the handler chain. A two-generator pipeline over 10 million numbers: 0.42 s (Node 0.83 s) (D-109, SPEC §9.68). M4.1 split by D-109.
 - M3.8 Milestone M3: checklist run, suite green locally and CI green on `e141fa14b`, M3 table in `docs/BENCHMARKS.md` (binary_trees 0.58× Node; fib 2.56× Node; json 0.57× Node, 1.40× Go; nbody 1.18× Node; string_building 1.71× Node; word_freq 0.96× Node), tag `m3`, Telegram report.
@@ -95,7 +96,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M4.2 Async and promises (see `docs/MASTER_PLAN.md`): the async/await state machine can reuse D-109's generator frames and step functions (an async function is a generator whose yields are awaits, resumed by promise reactions); then `Promise` and microtask ordering against Node.
+1. M4.2b Promise combinators and top-level await (see `docs/MASTER_PLAN.md`): `Promise.all`/`allSettled`/`race`/`any` take an iterable (box it and read it with `pts_value_to_array`, or iterate with `pts_iterator_open`), call `Promise.resolve` and `then` on each item as the spec's PerformPromiseAll does (element closures like finally's in `promise.c`), and their results are `any[]`s and shapes converted to the static types; `withResolvers` makes a shape of the promise and the resolving functions (convert them to their function types, which adapts them). Top-level await: make the entry module's init an async function (`Async`), run by `pts_async_start`, its rejection reported as uncaught; other modules with top-level await stay PTS1001.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -110,7 +111,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (242 run tests; 62 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (250 run tests; 63 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -143,6 +144,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M4.2a done (M4.2 split by D-112).
 - 2026-10-12: M4.1b done (D-111).
 - 2026-10-12: M4.1b started: corpus 240 → 251 of 300 (D-110); session ended with M4.1b in progress.
 - 2026-10-12: M4.1a done (M4.1 split by D-109).

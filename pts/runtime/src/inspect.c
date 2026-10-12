@@ -193,6 +193,7 @@ static void format_number(text *out, double number) {
 }
 
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
+static void format_promise(inspector *in, text *out, const pts_object *promise, size_t recurse_times);
 static void format_error(inspector *in, text *out, pts_error *error, size_t recurse_times);
 
 const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
@@ -300,6 +301,9 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
     text_add(out, text->bytes, text->byte_len);
     return;
   }
+  case PTS_KIND_PROMISE:
+    format_promise(in, out, object, recurse_times);
+    return;
   case PTS_KIND_GENERATOR: {
     pts_array *items;
     bool entries;
@@ -1167,6 +1171,33 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   reduce_to_single_string(in, out, output, count, entries, &base, open, close, recurse_times);
   free(output);
   free(base.bytes);
+}
+
+/* Node's formatPromise: `Promise { <pending> }`, `Promise { value }` or `Promise { <rejected> reason }` (D-112). */
+static void format_promise(inspector *in, text *out, const pts_object *promise, size_t recurse_times) {
+  if (beyond_depth(in, recurse_times)) {
+    text_puts(out, "[Promise]");
+    return;
+  }
+  recurse_times++;
+  in->current_depth = recurse_times;
+  text *output = new_entries(1);
+  pts_value result;
+  switch (pts_promise_state(promise, &result)) {
+  case 0:
+    text_puts(&output[0], "<pending>");
+    break;
+  case 2:
+    text_puts(&output[0], "<rejected> ");
+    /* fall through */
+  default:
+    in->indentation += 2;
+    format_value(in, &output[0], result, recurse_times);
+    in->indentation -= 2;
+  }
+  text base = {0};
+  reduce_to_single_string(in, out, output, 1, 1, &base, "Promise {", "}", recurse_times);
+  free(output);
 }
 
 /* Node's inspect(value, { depth, showHidden }), appended to out: top-level strings are quoted too. */

@@ -1,0 +1,50 @@
+// The Promise API (D-112): the constructor, then/catch/finally, resolve/reject, errors.
+const p = Promise.resolve(1);
+console.log(Promise.resolve(p) === p, typeof p, String(p));
+console.log(p, new Promise<string>(() => {}), Promise.resolve({ a: [1, 2] }));
+const rejected = Promise.reject(new Error("no"));
+rejected.catch(() => {});
+console.log(rejected instanceof Promise);
+
+new Promise<number>(() => {
+  throw new Error("executor threw");
+}).catch((e: Error) => console.log("executor:", e.message));
+
+try {
+  new Promise<number>(5 as any);
+} catch (e) {
+  console.log((e as Error).message);
+}
+
+const self: Promise<number> = new Promise<number>((resolve) => {
+  setLater(() => resolve(self));
+});
+function setLater(f: () => void): void {
+  Promise.resolve().then(f);
+}
+self.catch((e: Error) => console.log(e.constructor.name, e.message));
+
+const results: string[] = [];
+async function settle(i: number): Promise<number> {
+  if (i % 2 === 1) throw new Error(`odd ${i}`);
+  return i;
+}
+for (let i = 0; i < 4; i++) {
+  settle(i).then(
+    (v) => results.push(`ok ${v}`),
+    (e: Error) => results.push(`err ${e.message}`),
+  );
+}
+Promise.resolve().then(() => Promise.resolve().then(() => console.log(results)));
+const fulfilled = Promise.resolve("x");
+setLater(() => console.log(fulfilled, Promise.reject(3).catch((r) => r)));
+
+// expect:
+// true object [object Promise]
+// Promise { 1 } Promise { <pending> } Promise { { a: [ 1, 2 ] } }
+// true
+// Promise resolver 5 is not a function
+// executor: executor threw
+// Promise { 'x' } Promise { <pending> }
+// TypeError Chaining cycle detected for promise #<Promise>
+// [ 'ok 0', 'err odd 1', 'ok 2', 'err odd 3' ]

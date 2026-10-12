@@ -1,0 +1,42 @@
+// then/catch/finally chains, Promise.resolve and an async function that returns a promise (D-112).
+const p = new Promise<number>((resolve, reject) => {
+  resolve(1);
+  reject(new Error("ignored"));
+  resolve(2);
+});
+p.then((v) => {
+  console.log("then", v);
+  return v + 1;
+})
+  .then((v) => {
+    console.log("then2", v);
+    throw new Error("fail");
+  })
+  .catch((e: Error) => {
+    console.log("catch", e.message);
+    return "recovered";
+  })
+  .finally(() => console.log("finally"))
+  .then((v) => console.log("after finally", v));
+Promise.resolve(1).then((v) => console.log("A", v));
+Promise.resolve(2).then((v) => console.log("B", v));
+const order: string[] = [];
+async function f(): Promise<number> { order.push("f"); return 1; }
+async function g(): Promise<number> { return f(); }
+g().then(() => order.push("g resolved"));
+Promise.resolve().then(() => order.push("t1")).then(() => order.push("t2")).then(() => order.push("t3")).then(() => order.push("t4")).then(() => console.log(order));
+console.log(p, Promise.reject(new Error("x")).catch(() => 0), typeof p);
+const pending = new Promise<string>(() => {});
+console.log(pending, Promise.resolve({ a: 1 }));
+
+// expect:
+// Promise { 1 } Promise { <pending> } object
+// Promise { <pending> } Promise { { a: 1 } }
+// then 1
+// A 1
+// B 2
+// then2 2
+// catch fail
+// finally
+// [ 'f', 't1', 't2', 'g resolved', 't3', 't4' ]
+// after finally recovered

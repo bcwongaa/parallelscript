@@ -150,7 +150,11 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 		}
 		e.line(1, "%s = %s;", member, value)
 	}
-	e.line(1, "return pts_value_from_object(pts_frame);")
+	if f.Async {
+		e.line(1, "return pts_async_start(&pts_frame->header);") // runs the body until its first await (D-112)
+	} else {
+		e.line(1, "return pts_value_from_object(pts_frame);")
+	}
 	e.line(0, "}")
 
 	e.startFunction(f)
@@ -275,10 +279,11 @@ func (e *emitter) frameLocal(local *ir.Local) bool {
 }
 
 // implementsIteration reports whether objects of the program's may be iterated through
-// the protocol (D-111): a class or shape has a method or function field named next or
-// [Symbol.iterator], which the runtime calls through its dynamic entry.
+// the protocol (D-111) or awaited as thenables (D-112): a class or shape has a method or
+// function field named next, [Symbol.iterator] or then, which the runtime calls through
+// its dynamic entry.
 func implementsIteration(program *ir.Program) bool {
-	protocol := func(name string) bool { return name == "next" || name == "@@iterator" }
+	protocol := func(name string) bool { return name == "next" || name == "@@iterator" || name == "then" }
 	for _, class := range program.Classes {
 		for _, method := range class.Methods {
 			if method.Kind == ir.Plain && protocol(method.Name) {

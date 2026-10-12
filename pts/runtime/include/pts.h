@@ -42,6 +42,7 @@ typedef enum pts_kind {
   PTS_KIND_RECORD = 10,  /* a hash-map object (pts_map) from string keys to values of its element kind */
   PTS_KIND_DATE = 11,    /* a Date (pts_date) */
   PTS_KIND_GENERATOR = 12, /* a generator object (pts_iterator, D-109) */
+  PTS_KIND_PROMISE = 13,   /* a promise (pts_promise, D-112) */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -1659,6 +1660,8 @@ typedef struct pts_iterator {
   pts_resume_mode mode;
   pts_value sent;
   pts_value value;
+  struct pts_promise *promise;   /* an async function's (D-112), which its body settles */
+  struct pts_reaction *reaction; /* an async function's reaction to what it awaits, reused by each await */
 } pts_iterator;
 
 extern const pts_type pts_type_builtin_Generator;
@@ -1704,5 +1707,40 @@ void pts_iterator_close(pts_value iterator);
 struct pts_array *pts_iterator_to_array(pts_value iterator);
 /* A new any[] of the first count values an iterator yields, after which it is closed if it isn't done; with rest, of all of them. */
 struct pts_array *pts_iterator_take(pts_value iterator, double count, bool rest);
+
+/* ---------------------------------------------------------------- promises */
+
+/*
+ * Promises (D-112): ECMAScript's algorithms in V8's order of jobs, run from a queue of
+ * microtasks per thread. An async function is a generator function's frame and step
+ * function (D-109) whose yields are awaits: pts_async_start runs it until its first
+ * await and returns its promise, and each settled await resumes it from a microtask.
+ */
+typedef struct pts_promise pts_promise;
+
+extern const pts_type pts_type_builtin_Promise;
+
+/* Runs an async function's body (it, a new frame) until it awaits or ends: its promise. */
+pts_value pts_async_start(pts_iterator *it);
+/* new Promise(executor): TypeError if executor isn't a function; what it throws rejects the promise. */
+pts_value pts_promise_construct(pts_value executor, const pts_string *text);
+/* promise.then(on_fulfilled, on_rejected), whose handlers may be undefined; a PromiseLike of the program's gets its own then() called. */
+pts_value pts_promise_then(pts_value promise, pts_value on_fulfilled, pts_value on_rejected);
+/* promise.finally(on_finally). */
+pts_value pts_promise_finally(pts_value promise, pts_value on_finally);
+/* x instanceof Promise. */
+bool pts_value_is_promise(pts_value value);
+/* Promise.resolve(value) and Promise.reject(reason). */
+pts_value pts_promise_resolved(pts_value value);
+pts_value pts_promise_rejected(pts_value reason);
+/* For console.log: a promise's state (0 pending, 1 fulfilled, 2 rejected) and its value or reason. */
+int32_t pts_promise_state(const pts_object *promise, pts_value *result);
+/*
+ * Runs the thread's microtasks until none is left; then a promise rejected without a
+ * handler ends the program as an uncaught exception does.
+ */
+void pts_run_microtasks(void);
+/* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
+_Noreturn void pts_report_uncaught(pts_value exception);
 
 #endif /* PTS_H */

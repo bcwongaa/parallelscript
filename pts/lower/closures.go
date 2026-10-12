@@ -141,8 +141,8 @@ func isFunction(t ir.Type) bool {
 func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
-	case flags&ast.FunctionFlagsAsync != 0:
-		l.notSupportedYet(node, "async functions are")
+	case isAsyncGenerator(flags):
+		l.notSupportedYet(node, "async generators are")
 		return nil
 	}
 	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
@@ -152,7 +152,7 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	}
 	name := l.jsName(node)
 	fn := &ir.Func{Name: l.closureName(name, node), Module: l.function.Module, Pos: l.pos(node), Closure: true, Outer: l.function, JSName: name, Length: jsLength(node),
-		Generator: flags&ast.FunctionFlagsGenerator != 0}
+		Generator: isStateMachine(flags), Async: isAsync(flags)}
 	l.funcNodes[fn] = node
 	if !l.closureSignature(fn, node) {
 		return nil

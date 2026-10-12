@@ -981,11 +981,11 @@ func (l *lowerer) declareFunction(node *ast.Node, name string, class *ir.Class) 
 	case l.isGeneric(node):
 		l.notSupportedYet(nameOf(node), "generic functions are")
 		return nil
-	case flags&ast.FunctionFlagsAsync != 0:
-		l.notSupportedYet(nameOf(node), "async functions are")
+	case isAsyncGenerator(flags):
+		l.notSupportedYet(nameOf(node), "async generators are")
 		return nil
 	}
-	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node), Generator: flags&ast.FunctionFlagsGenerator != 0}
+	fn := &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(node), Length: jsLength(node), Generator: isStateMachine(flags), Async: isAsync(flags)}
 	l.funcNodes[fn] = node
 	if class != nil {
 		fn.Params = []*ir.Local{l.newThis(fn, class)}
@@ -1340,7 +1340,7 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		return l.instantiationExpression(node)
 	case ast.KindDeleteExpression:
 		return l.deleteExpression(node)
-	case ast.KindYieldExpression:
+	case ast.KindYieldExpression, ast.KindAwaitExpression:
 		return l.yieldExpression(node)
 	}
 	l.notSupportedYet(node, describe(node)+" is")
@@ -1479,6 +1479,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return x
 	}
 	if x, handled := l.getIteratorCall(call); handled {
+		return x
+	}
+	if x, handled := l.promiseCall(call); handled {
 		return x
 	}
 	if name := l.consoleMethodName(ast.SkipParentheses(call.Expression)); name != "" {
@@ -3347,8 +3350,8 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if checker.IsTupleType(t) {
 		return l.tupleType(t, node)
 	}
-	if l.isIteratorType(t) || l.isIterableType(t) {
-		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109), or any iterable (D-110)
+	if l.isIteratorType(t) || l.isIterableType(t) || l.isPromiseType(t) {
+		return ir.Value // an iterator object, which the runtime knows by its descriptor (D-109), any iterable (D-110), or a promise (D-112)
 	}
 	if value, ok := l.iteratorResultValue(t); ok {
 		v := l.irType(value, node)

@@ -97,6 +97,7 @@ type emitter struct {
 	// doesn't tell their element type, and funcTypes the one function type of each
 	// signature, by the identities of its parameter and result types.
 	declaredTypes    bool
+	usesPromises     bool // the program has async functions or promises, whose microtasks main runs (D-112)
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType
@@ -149,6 +150,9 @@ func (e *emitter) header(program *ir.Program) {
 	}
 	for _, module := range program.Modules {
 		e.line(1, "%s();", e.funcNames[module.Init])
+	}
+	if e.usesPromises {
+		e.line(1, "pts_run_microtasks();")
 	}
 	e.line(1, "return pts_runtime_exit(0);")
 	e.line(0, "}")
@@ -1424,6 +1428,12 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.IteratorTake:                "pts_iterator_take",
 	ir.IteratorGet:                 "pts_iterator_get",
 	ir.IteratorOf:                  "pts_iterator_of",
+	ir.PromiseNew:                  "pts_promise_construct",
+	ir.PromiseThen:                 "pts_promise_then",
+	ir.PromiseFinally:              "pts_promise_finally",
+	ir.PromiseResolve:              "pts_promise_resolved",
+	ir.PromiseReject:               "pts_promise_rejected",
+	ir.ValueIsPromise:              "pts_value_is_promise",
 	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueIterable:               "pts_value_iterable",

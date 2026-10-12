@@ -786,6 +786,9 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 	if l.isDateConstructor(node.Expression()) {
 		return l.newDate(node)
 	}
+	if l.isPromiseConstructor(node.Expression()) {
+		return l.newPromise(node)
+	}
 	class, ok := l.classes[l.target(node.Expression())]
 	if _, isGeneric := l.genericClasses[l.target(node.Expression())]; isGeneric {
 		class, ok = l.genericClassReference(node), true
@@ -1100,6 +1103,13 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 			return nil
 		}
 		return &ir.InstanceOf{X: x, Family: &generic.classes} // its instances, all made by the time C is written
+	}
+	if !ok && l.isPromiseConstructor(expr.Right) {
+		x := l.expression(expr.Left)
+		if x == nil {
+			return nil
+		}
+		return &ir.CallBuiltin{Builtin: ir.ValueIsPromise, Args: []ir.Expr{box(x)}} // D-112
 	}
 	if !ok {
 		l.notSupportedYet(expr.Right, "`instanceof` of anything but a class of the program is")

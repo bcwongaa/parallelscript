@@ -11,12 +11,19 @@
  * GC_FREE_SPACE_DIVISOR environment variable still overrides it. */
 enum { FREE_SPACE_DIVISOR = 1 };
 
+/* The heap starts at 4 MiB, as Go's minimum heap target does, so that a program that keeps
+ * little alive isn't collected every few hundred KiB (D-112). GC_INITIAL_HEAP_SIZE overrides it. */
+enum { INITIAL_HEAP_SIZE = 4 << 20 };
+
 void pts_runtime_init(int argc, char **argv) {
   (void)argc;
   (void)argv;
   GC_INIT();
   if (getenv("GC_FREE_SPACE_DIVISOR") == NULL) {
     GC_set_free_space_divisor(FREE_SPACE_DIVISOR);
+  }
+  if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
+    GC_expand_hp(INITIAL_HEAP_SIZE);
   }
   GC_allow_register_threads();
   GC_init_gcj_malloc(GC_GCJ_RESERVED_MARK_PROC_INDEX, NULL); /* objects: see pts_object_new */
