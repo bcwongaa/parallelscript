@@ -117,5 +117,5 @@ void pts_copy_shared(void *destination, const void *source, size_t count, size_t
 void pts_typed_array_index_error(const pts_typed_array *array, double index) {
   char buf[PTS_NUMBER_BUF_SIZE];
   pts_number_format(index, buf);
-  pts_throw_new(&pts_type_builtin_RangeError, "%s index %s is out of range (length %zu)", array->type->name, buf, array->length);
+  pts_throw_new(&pts_type_builtin_RangeError, "%s index %s is out of range (length %zu)" PTS_MISSING_ELEMENT_HINT, array->type->name, buf, array->length);
 }

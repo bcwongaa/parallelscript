@@ -234,7 +234,7 @@ pts_string *pts_string_element_checked(pts_string *string, double index) {
   if (!is_valid_index(index, string->utf16_len)) {
     char buf[PTS_NUMBER_BUF_SIZE];
     pts_number_format(index, buf);
-    pts_throw_new(&pts_type_builtin_RangeError, "String index %s is out of range (length %" PRIu32 ")", buf, string->utf16_len);
+    pts_throw_new(&pts_type_builtin_RangeError, "String index %s is out of range (length %" PRIu32 ")" PTS_MISSING_ELEMENT_HINT, buf, string->utf16_len);
   }
   return string_of_unit(unit_at(string, (uint32_t)index));
 }

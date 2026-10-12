@@ -481,7 +481,7 @@ pts_map_iterator pts_record_iterate(pts_map *record) {
 }
 
 void pts_record_key_error(const pts_string *key) {
-  pts_throw_new(&pts_type_builtin_RangeError, "Object has no property '%.*s'", (int)key->byte_len, key->bytes);
+  pts_throw_new(&pts_type_builtin_RangeError, "Object has no property '%.*s'" PTS_MISSING_KEY_HINT, (int)key->byte_len, key->bytes);
 }
 
 pts_map *pts_map_assign(pts_map *map, pts_map *source) {

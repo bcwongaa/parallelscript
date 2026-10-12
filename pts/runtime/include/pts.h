@@ -962,6 +962,13 @@ pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t
  * lists; NULL if there is none, and then the call takes the erased copy.
  */
 pts_function pts_instance_find(const void *value, const char *name, const struct pts_check *signature);
+/*
+ * What the RangeError of a read past the end (D-038) or of a missing key (D-059) suggests
+ * after the message: where a missing value is expected, these read it as JS does
+ * (D-152, ruling 4 of docs/agent/OWNER_ANSWERS.md).
+ */
+#define PTS_MISSING_ELEMENT_HINT "; if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first"
+#define PTS_MISSING_KEY_HINT "; if it may be missing, read it with `?? fallback`, give the value type `| undefined`, or check `key in object` first"
 /* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
 pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);

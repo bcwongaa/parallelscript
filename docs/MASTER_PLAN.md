@@ -299,7 +299,10 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
     - [x] **M6.0b4a Type arguments in conversion messages:** (e37206387) `Expected Box<number>, got Box<any>`.
     - [x] **M6.0b4b Erased generic factories:** (d2340a72a) erased generic factories that construct generic class instances (dispatch to specialized instances); `Expected Box, got Box` disappears (probe 3, `corpus/oop/result_option.pts`).
   - [x] **M6.0b5 Corpus classification:** (43d9734d1) classify every corpus skip as one of: by design, unsupported, bug. Fix the bugs where it's cheap, and record the rest in `PROGRESS.md`. Separate the corpus report into: Node-identical, intentional difference, unsupported, failing.
-- [ ] **M6.0c Review decisions (orchestrator rulings, see `docs/agent/OWNER_ANSWERS.md`).** Apply the rulings recorded there for the review's "needs owner" items, and log each one in `docs/DECISIONS.md` (as D-numbers citing OWNER_ANSWERS).
+- **M6.0c Review decisions (orchestrator rulings, see `docs/agent/OWNER_ANSWERS.md`).** Apply the rulings recorded there for the review's "needs owner" items, and log each one in `docs/DECISIONS.md` (as D-numbers citing OWNER_ANSWERS). Split by D-150 into:
+  - [ ] **M6.0c1 Rulings 1, 2 and 4–8:** a function operand of `parallel` (D-150), `.par.reduce` for any initial value (D-151), RangeError messages for reads past the end (D-152), state machines deferred to M8 (D-153), generic erasure (D-154), the identity and aliasing table (D-155), interface merging (D-156).
+  - [ ] **M6.0c2 Ruling 3:** enforce `Object.freeze`: writes to a frozen object's fields, elements or hash-map keys throw Node's `TypeError`, within about 2% on the benchmarks (a frozen flag and slow-path checks if a check per write costs more).
+  - [ ] **M6.0c3 Ruling 9:** check asserted union literals (D-104) if it's cheap, else a Known issue.
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server. Acceptance also covers (review): cross-loop handle use, disconnects and cancellation, backpressure, resource cleanup, pending requests and rejected promises, for the server too.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:
   - a parallel file hasher
@@ -326,4 +329,4 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Send the final Telegram report: summary, how to try it, benchmark highlights, known gaps, and a suggested M8 plan.
 
 ## After DONE (only if the owner extends the run)
-M8 performance (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment), then the stretch goals from brief §6.
+M8 performance (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment, generator and async state machines as an IR pass per brief §2.3, D-153), then the stretch goals from brief §6.

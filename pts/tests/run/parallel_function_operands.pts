@@ -1,0 +1,16 @@
+// `parallel` takes any expression as its operand, a function too (D-150, ruling 1 of
+// docs/agent/OWNER_ANSWERS.md): its task makes the function, which the promise gives.
+const factory = await parallel function (): number {
+  return 42;
+};
+console.log(factory());
+const double = await parallel ((x: number): number => x * 2);
+console.log(double(21));
+const later = parallel async () => 1;
+const made = await later;
+console.log(typeof made, await made());
+
+// expect:
+// 42
+// 42
+// function 1

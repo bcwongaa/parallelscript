@@ -58,7 +58,7 @@ attempt("detached method", () => increment());
 // any into number -> TypeError: Expected number, got string
 // add a property -> TypeError: Cannot add property email, object is not extensible
 // printed undefined
-// element past the end -> RangeError: Array index 5 is out of range (length 3)
+// element past the end -> RangeError: Array index 5 is out of range (length 3); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
 // missing map entry with ! -> RangeError: Map has no entry for the key
 // wrong downcast -> TypeError: Expected Dog, got Animal
 // detached method -> 1

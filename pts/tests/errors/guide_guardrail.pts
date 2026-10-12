@@ -30,9 +30,6 @@ parallel for (const price of prices) {
 
 parallel for (let i = 0; i < prices.length; i++) {}
 
-const lazy = parallel async () => prices.length;
-
-// error: guide_guardrail.pts:33:23 - error PTS1002: the operand of `parallel` is a function, so its task would only make the function; give it the call instead (`parallel work()`)
 // error: guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
 // error: guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
 // error: guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync

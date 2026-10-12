@@ -151,7 +151,7 @@ void pts_array_index_error(const pts_array *array, double index) {
   if (pts_is_match_array((const pts_object *)array) && index >= 0 && index < pts_array_length(array)) {
     pts_throw_new(&pts_type_builtin_TypeError, "Expected string, got undefined (group %s of the match took no part in it)", buf);
   }
-  pts_throw_new(&pts_type_builtin_RangeError, "Array index %s is out of range (length %zu)", buf, pts_array_length_of(array));
+  pts_throw_new(&pts_type_builtin_RangeError, "Array index %s is out of range (length %zu)" PTS_MISSING_ELEMENT_HINT, buf, pts_array_length_of(array));
 }
 
 pts_value pts_value_of_slot(pts_field_kind kind, const void *slot) {

@@ -1,0 +1,19 @@
+// threads: 1 2 4 8
+// `.par.reduce(f, initial)` gives what `reduce` gives for any initial value (D-151,
+// ruling 2 of docs/agent/OWNER_ANSWERS.md): each piece folds its own elements, and
+// initial goes in front once. f must be associative, not commutative: concatenation keeps
+// its order. The review's probe 9 gave 7998100, each piece having started from 10.
+import { range } from "pts:parallel";
+
+const xs = range(0, 4000).toArray();
+console.log(xs.par.reduce((a, b) => a + b, 10), xs.reduce((a, b) => a + b, 10));
+console.log(range(0, 4000).par.reduce((a, b) => a + b, 10), range(5, 5).par.reduce((a, b) => a + b, 3));
+console.log(new Float64Array([1, 2, 3, 4]).par.reduce((a, b) => a * b, 2), new Float64Array(0).par.reduce((a, b) => a * b, 2));
+const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 + i));
+console.log(letters.par.reduce((a, b) => a + b, ">"), ([] as string[]).par.reduce((a, b) => a + b, "empty"));
+
+// expect:
+// 7998010 7998010
+// 7998010 3
+// 48 2
+// >abcdefghijklmnopqrstuvwxyz empty

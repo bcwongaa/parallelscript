@@ -6,7 +6,7 @@ import { range } from "pts:parallel";
 
 const prices = [12, 5, 30, 8];
 
-// A total: .par.sum, or .par.reduce with an associative function and its identity.
+// A total: .par.sum, or .par.reduce with an associative function.
 console.log(prices.par.sum(), prices.par.reduce((a, b) => a + b, 0));
 
 // A counter several threads change: an AtomicInt.

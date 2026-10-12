@@ -83,7 +83,7 @@ try {
 //     at stack_frames.pts:46
 //     at Array.forEach (stack_frames.pts:44)
 //     at stack_frames.pts:44
-// RangeError: Array index 7 is out of range (length 3)
+// RangeError: Array index 7 is out of range (length 3); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
 //     at readAt (stack_frames.pts:53)
 //     at stack_frames.pts:57
 // Error: generic 1

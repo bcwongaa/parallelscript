@@ -207,7 +207,7 @@ ParallelScript prints:
 any into number -> TypeError: Expected number, got string
 add a property -> TypeError: Cannot add property email, object is not extensible
 printed undefined
-element past the end -> RangeError: Array index 5 is out of range (length 3)
+element past the end -> RangeError: Array index 5 is out of range (length 3); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first
 missing map entry with ! -> RangeError: Map has no entry for the key
 wrong downcast -> TypeError: Expected Dog, got Animal
 detached method -> 1
@@ -507,7 +507,7 @@ caught SyntaxError
 - `parallel` binds like `await`: `parallel f(x) + 1` is `(parallel f(x)) + 1`. You can also write `parallel(e)`, unless something named `parallel` is in scope.
 - `parallel` is a keyword only in `parallel e` and `parallel for`. Elsewhere it is an ordinary name, so code with a variable called `parallel` still compiles.
 - The operand can't contain `await` or `yield` yet. Await first, as the last lines of the sample do, or pass an async function's call.
-- The operand can't be a function, as in `parallel async () => …`: the task would only make the function. Pass the call instead.
+- The operand may be any expression, a function too: `await parallel async () => …` gives the function the task made. To run a function in a task, pass its call: `parallel work()`.
 
 ### Parallel views: `.par`
 
@@ -518,7 +518,7 @@ caught SyntaxError
 | `map(fn)` | a new array, in order |
 | `filter(fn)` | the elements `fn` holds for, in order |
 | `forEach(fn)` | nothing |
-| `reduce(fn, initial)` | the elements folded with `fn(a, b)`, which must be associative, starting from `initial`, which must be `fn`'s identity (0 for `+`) |
+| `reduce(fn, initial)` | the elements folded with `fn(a, b)`, which must be associative, from `initial`: the same as `reduce` gives, for any initial value |
 | `sum()`, `min()`, `max()` | the elements taken as numbers (0, Infinity and -Infinity when there are none) |
 | `count(fn)` | how many elements `fn` holds for |
 | `some(fn)`, `every(fn)` | a boolean; they stop early |
@@ -561,7 +561,7 @@ console.log(
   orders.par.find((order) => order.id === 4242),
 );
 
-// reduce's function must be associative, and its initial value that function's identity.
+// reduce's function must be associative; the initial value goes in front once, as Array's reduce has it.
 console.log(amounts.par.reduce((a, b) => Math.max(a, b), -Infinity));
 
 // sort and sortBy sort in place, like Array's sort, and return the array.
@@ -848,12 +848,9 @@ parallel for (const price of prices) {
 }
 
 parallel for (let i = 0; i < prices.length; i++) {}
-
-const lazy = parallel async () => prices.length;
 ```
 
 ```text
-guide_guardrail.pts:33:23 - error PTS1002: the operand of `parallel` is a function, so its task would only make the function; give it the call instead (`parallel work()`)
 guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
 guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
 guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
@@ -872,7 +869,6 @@ The fixes combine results instead of assigning shared variables:
 | assigning a variable from a task | returning the value from the task and awaiting it |
 | `return` or `break` in a `parallel for` | `.par.some`, `.par.filter(…)[0]`, or a plain loop |
 | `parallel for (let i = 0; …)` | `parallel for (const i of range(0, n))` |
-| `parallel async () => …` | `parallel work()` |
 
 [examples/guide_guardrail_fixes.pts](examples/guide_guardrail_fixes.pts):
 
@@ -884,7 +880,7 @@ import { range } from "pts:parallel";
 
 const prices = [12, 5, 30, 8];
 
-// A total: .par.sum, or .par.reduce with an associative function and its identity.
+// A total: .par.sum, or .par.reduce with an associative function.
 console.log(prices.par.sum(), prices.par.reduce((a, b) => a + b, 0));
 
 // A counter several threads change: an AtomicInt.

@@ -39,9 +39,9 @@ attempt("map callback", () => console.log(list.map((n) => (n === 2 ? (n as int) 
 // expect:
 // integer division -> RangeError | Division by zero | true false
 // integer remainder -> RangeError | Division by zero | true false
-// array element -> RangeError | Array index 5 is out of range (length 3) | true false
+// array element -> RangeError | Array index 5 is out of range (length 3); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first | true false
 // empty pop -> RangeError | pop() of an empty array | true false
-// string index -> RangeError | String index 7 is out of range (length 3) | true false
+// string index -> RangeError | String index 7 is out of range (length 3); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first | true false
 // non-null -> TypeError | Non-null assertion on null | false true
 // map get -> RangeError | Map has no entry for the key | true false
 // repeat -> RangeError | Invalid count value: -1 | true false

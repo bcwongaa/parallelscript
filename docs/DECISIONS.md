@@ -1298,3 +1298,41 @@ Entries grouped by what they decide; an entry that spans topics is listed under 
 - **Reason:** The review asked for the corpus's divergences to be told apart, so that a skip says whether the language means it, hasn't built it, or is wrong; tracing each one found that a third of the "not supported yet" skips were bugs, most of them a few lines each. Tie-breaker 1 makes the unchecked downcast the first fix.
 - **Alternatives rejected:** Leaving `instanceof` narrowing unchecked (the checker's narrowing can't be told apart from a type guard's at the reference; the test is a descriptor compare). Copying objects between field representations for `parser_combinators.pts` and `super_chain.pts` (a checked copy of objects that may be shared is a policy change beyond D-094's arrays; left unsupported).
 - **Known gaps:** `instanceof` narrowing to a generic class from an interface or another class, where tsc's narrowed type is the instance for `any` (a checked TypeError now, where Node goes on; the instance the object is would have to replace tsc's type at every use in the branch). The 24 unsupported programs' features (the report lists them: functions with properties, tuples at computed indices, recursive tuple and function types, `Function` and constructor values, optional methods, objects of another representation, …). A spread doesn't call an overridden getter of its source, and an absent optional property written later takes its first place. A Map's or Set's `forEach` with a dynamic callback is still PTS1001. A program with an interface method provided with fewer parameters carries declared types in every descriptor.
+
+### D-150 · M6.0c split; a function is a valid operand of `parallel` (M6.0c1, ruling 1)
+- **Date:** 2026-10-12
+- **Decision:**
+  - **Split.** M6.0c becomes M6.0c1 (rulings 1, 2 and 4–8 of `docs/agent/OWNER_ANSWERS.md`: small changes and documentation, D-150 … D-156), M6.0c2 (ruling 3: enforce `Object.freeze`, a runtime and C emitter change with a cost budget) and M6.0c3 (ruling 9: check asserted union literals where it's cheap, D-104). Every ruling keeps its own D-entry citing that file.
+  - **Ruling 1** (review finding 9, D-120): `parallel` followed by any expression is the operator, a function or class expression too (`await parallel function () { return 42; }` gives the function, which its task made), typed `Promise<Awaited<T>>` as before. The PTS1002 for a function operand is gone; the guardrail (D-L17) stays the only parallel-specific check of an operand. `parallel e` where a binding named `parallel` is in scope stays PTS1002: tsc types that call as the binding's, so it isn't the operator.
+- **Reason:** The owner's ruling: returning a function is legitimate task evaluation (brief §2.6), and the language shouldn't add restrictions beyond the guardrail.
+- **Alternatives rejected:** A warning in place of the error (the PTS checks have no warnings, and the ruling asks for no restriction).
+
+### D-151 · `.par.reduce` equals `reduce` for any initial value (M6.0c1, ruling 2)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 2 of `docs/agent/OWNER_ANSWERS.md` (review finding 9, probe 9): each piece of `xs.par.reduce(f, initial)` folds its own elements from its first, the pieces' results are combined with `f`, and `initial` goes in front once (`f(initial, total)`); an empty input gives `initial`. The pool never makes an empty piece of a non-empty range (it splits only when both halves get an element). Arrays, typed arrays and ranges alike (`pts/lib/parallel.pts`). `f` must be associative, not commutative, and no identity is needed; the docs say so.
+- **Reason:** Simple and correct beats a documented trap (tie-breaker); probe 9's 7998100 for `reduce`'s 7998010 came from every piece starting at the initial value.
+- **Alternatives rejected:** Requiring an identity (the trap the review found). Folding `initial` into the first piece only (the first piece isn't known before the split, and the result would depend on where it starts).
+
+### D-152 · Reads past the end keep their design; their RangeError says how to read a value that may be missing (M6.0c1, ruling 4)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 4 of `docs/agent/OWNER_ANSWERS.md`: an out-of-range read (D-015, D-038, D-089, D-090) still gives undefined wherever the context can hold it and throws `RangeError` where a non-optional type is required (SPEC §8). The message now ends with what to do: `Array index 5 is out of range (length 3); if it may be missing, read it with \`?? fallback\`, give the element type \`| undefined\`, or check the length first` (arrays, typed arrays, strings), and for hash-map objects (D-059) `…; give the value type \`| undefined\`, or check \`key in object\` first` (`PTS_MISSING_ELEMENT_HINT`, `PTS_MISSING_KEY_HINT` in `pts.h`).
+- **Reason:** The ruling keeps the design and asks for a better message; a message that names the fixes turns a surprise into a one-line change.
+- **Alternatives rejected:** Typing such reads `T | undefined` everywhere (the ruling rejects it).
+
+### D-153 · Generator and async state machines stay in the C emitter until M8 (M6.0c1, ruling 5)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 5 of `docs/agent/OWNER_ANSWERS.md` (D-109): the frame and state transform of generators and async functions stays in `pts/cgen/generators.go`, a known divergence from brief §2.3 (which wants it done on the IR before C emission), recorded in SPEC §9's notes; M8 moves it into an IR pass, when escape analysis needs one. The review's finding 6 was fixed in place (D-145).
+- **Reason:** It works and is tested; the IR pass pays off with M8's analyses.
+
+### D-154 · Generic erasure stays as the fallback, and what it breaks is fixed (M6.0c1, ruling 6)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 6 of `docs/agent/OWNER_ANSWERS.md` (D-051, D-078, D-079, D-101): erasure stays for function values passed around generically, and a value an erased copy makes converts back to the specialized type because typed calls dispatch to the monomorphized instance of their signature (D-148, M6.0b4b); `Expected Box, got Box` is gone (D-147 names both sides). What remains (generic arrow functions other than module-scope consts, values from `any`, calls inside erased code) is listed in `PROGRESS.md`.
+
+### D-155 · Checked copies from `any` and adapter identity stay; SPEC §8 lists identity and aliasing in one table (M6.0c1, ruling 7)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 7 of `docs/agent/OWNER_ANSWERS.md`: the checked copies of D-071 and D-072 (dynamic data converted to typed arrays and object types), the copies of D-089 and D-094 (`as` to another array or object type, spreads and `concat` across element types), adapter identity (D-075) and the other places where `===` or aliasing differ from JS (bound methods, D-044; static closures, D-041; enum objects, D-089) are kept as documented differences, now gathered in one table, SPEC §8 "Identity and aliasing".
+- **Reason:** They are the price of an honest `any` (brief §2.4); one table lets a reader see every place where an object or function isn't the one JS would give.
+
+### D-156 · Interface merging stays (M6.0c1, ruling 8)
+- **Date:** 2026-10-12
+- **Decision:** Ruling 8 of `docs/agent/OWNER_ANSWERS.md` (D-020): interfaces merging with interfaces stays allowed; it changes nothing at run time (the merged interface is one object type to tsc and to the lowering) and is everywhere in real TypeScript.

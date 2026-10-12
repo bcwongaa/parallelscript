@@ -287,7 +287,7 @@ RangeError: negative: -1
 
 ### `.par` views
 
-`.par` on an array, a typed array or a `range` from `pts:parallel` gives a parallel view. Its methods (`map`, `filter`, `forEach`, `reduce`, `flatMap`, `some`, `every`, `find`, `count`, `sum`, `min`, `max`, `sort`, `sortBy`, `toArray`) run on a work-stealing fork-join pool, modelled on Rust's Rayon, and return when the work is done. `map` and `filter` keep the order; `reduce` needs an associative function and its identity.
+`.par` on an array, a typed array or a `range` from `pts:parallel` gives a parallel view. Its methods (`map`, `filter`, `forEach`, `reduce`, `flatMap`, `some`, `every`, `find`, `count`, `sum`, `min`, `max`, `sort`, `sortBy`, `toArray`) run on a work-stealing fork-join pool, modelled on Rust's Rayon, and return when the work is done. `map` and `filter` keep the order; `reduce` needs an associative function and gives what `reduce` does, for any initial value.
 
 ```ts
 import { join, range } from "pts:parallel";

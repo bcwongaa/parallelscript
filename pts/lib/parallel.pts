@@ -65,17 +65,22 @@ export class ParallelArray<T> {
         return kept as T[];
     }
 
-    // The elements folded with callback, which must be associative, from initial, which must be its identity.
+    // The elements folded with callback, which must be associative, from initial, as
+    // `reduce` folds them (D-151): each piece folds its own elements, the pieces' results
+    // are combined, and initial comes first, once; initial itself for no elements.
     reduce(callback: ParallelCallback<(left: T, right: T) => T>, initial: T): T {
         const items = this.items;
+        if (items.length === 0) {
+            return initial;
+        }
         const total = pts_parallel_reduce((from, to) => {
-            let accumulator = initial;
-            for (let i = from; i < to; i++) {
+            let accumulator = items[from];
+            for (let i = from + 1; i < to; i++) {
                 accumulator = callback(accumulator, items[i]);
             }
             return accumulator;
         }, (left, right) => callback(left as T, right as T), items.length);
-        return total as T;
+        return callback(initial, total as T);
     }
 
     // Whether predicate holds for some element; it stops looking once one piece finds one.
@@ -274,17 +279,21 @@ export class ParallelTypedArray<A extends TypedArrayLike> {
         return results;
     }
 
-    // The elements folded with callback, which must be associative, from initial, which must be its identity.
+    // The elements folded with callback, which must be associative, from initial, as
+    // `reduce` folds them (D-151): initial comes first, once; initial itself for none.
     reduce(callback: ParallelCallback<(left: number, right: number) => number>, initial: number): number {
         const items = this.items;
+        if (items.length === 0) {
+            return initial;
+        }
         const total = pts_parallel_reduce((from, to) => {
-            let accumulator = initial;
-            for (let i = from; i < to; i++) {
+            let accumulator = items[from];
+            for (let i = from + 1; i < to; i++) {
                 accumulator = callback(accumulator, items[i]);
             }
             return accumulator;
         }, (left, right) => callback(left as number, right as number), items.length);
-        return total as number;
+        return callback(initial, total as number);
     }
 
     some(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): boolean {
@@ -484,17 +493,21 @@ export class ParallelRange {
         return kept as number[];
     }
 
-    // The integers folded with callback, which must be associative, from initial, which must be its identity.
+    // The integers folded with callback, which must be associative, from initial, as
+    // `reduce` folds them (D-151): initial comes first, once; initial itself for none.
     reduce(callback: ParallelCallback<(left: number, right: number) => number>, initial: number): number {
         const start = this.start;
+        if (this.length === 0) {
+            return initial;
+        }
         const total = pts_parallel_reduce((from, to) => {
-            let accumulator = initial;
-            for (let i = from; i < to; i++) {
+            let accumulator = start + from;
+            for (let i = from + 1; i < to; i++) {
                 accumulator = callback(accumulator, start + i);
             }
             return accumulator;
         }, (left, right) => callback(left as number, right as number), this.length);
-        return total as number;
+        return callback(initial, total as number);
     }
 
     some(predicate: ParallelCallback<(value: number) => unknown>): boolean {

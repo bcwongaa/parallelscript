@@ -28,7 +28,7 @@ console.log(
   orders.par.find((order) => order.id === 4242),
 );
 
-// reduce's function must be associative, and its initial value that function's identity.
+// reduce's function must be associative; the initial value goes in front once, as Array's reduce has it.
 console.log(amounts.par.reduce((a, b) => Math.max(a, b), -Infinity));
 
 // sort and sortBy sort in place, like Array's sort, and return the array.
