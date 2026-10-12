@@ -4,13 +4,14 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** M4 (Async on one loop); M0 to M3 tagged `m0`, `m1`, `m2`, `m3`
-- **Next task:** M4.6 Milestone M4
+- **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
+- **Next task:** M5.1 The `parallel` keyword
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M4.6 Milestone M4: checklist run, suite green locally and CI green on `b6762bae8`, M4 table in `docs/BENCHMARKS.md` (new: async_fib 1.34× Node, file_io 1.62× Node; fib 3.19×; fib_int 1.59× Go), tag `m4`, Telegram report. Functions are now 32-byte aligned (D-119: fib_int had lost 35% to code placement). The `timers` differential test no longer has ties between timer lists, which Node orders by sub-millisecond jitter (it failed on CI).
 - M4.5c `pts:fs` promise API (D-118, SPEC §9.76): `pts:fs/promises` (and `fs.promises`) with Node's functions over the same libuv calls run on libuv's threadpool as jobs (system calls apart from making values, so the pool never touches the collector), settling promises from the loop followed by a microtask drain; `pts:internal/fs` for shared code (library-only imports). `fs_promises` matches Node line for line; 2,000 concurrent reads and stats stay correct under GC pressure.
 - M4.5b `pts:fs` synchronous API (D-117, SPEC §9.75): Node's sync functions (read/write/append, exists/access, stat/lstat, mkdir with recursive, readdir with withFileTypes/recursive, unlink/rmdir/rm, rename, copyFile, symlink/readlink/realpath, chmod, mkdtemp), `constants`, `Stats`, `Dirent`, the default `fs` object; libuv's synchronous calls (Node's order, birth times, errnos); Node's errors (a native "Error" type with errno/code/syscall/path/dest; `NodeJS.ErrnoException`); UTF-8 text with WHATWG lossy decoding; reading into a Buffer is a compile error (`@notSupportedYet` on library overloads). Overloaded calls convert to the chosen overload's result. `fs_sync` matches Node line for line.
 - M4.5a `pts:` modules, `pts:process` and `pts:path` (D-116, SPEC §9.74): `pts:x` resolves (compiler option `paths`) to `pts/lib/x.pts`, a ParallelScript source compiled with the program; bodiless `declare function pts_…` declarations in those modules are intrinsics, direct calls of the runtime's C function of that name. `pts:process` (argv, env, exit, exitCode, cwd, platform, arch, pid, execPath, stdout/stderr.write) and the global `process` (its default export; the front end runs the module first when a program uses the global); `pts:path` is Node 24's posix path ported line by line. Differential tests map `pts:path`/`process`/`fs` to `node:` modules. M4.5 split by D-116.
@@ -102,7 +103,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M4.6 Milestone M4 (checklist in `docs/MASTER_PLAN.md`): suite and CI green, PROGRESS, an M4 table in `docs/BENCHMARKS.md` (new M4 benchmarks drafted: `async_fib`, async recursion awaiting both subcalls, fib(29); `file_io`, 2,000 small files written, read, stat'ed and removed through `fs/promises`, three rounds, with a Go twin using goroutines; `run.sh` must allow a benchmark without `main.go`), tag `m4`, Telegram report.
+1. M5.1 The `parallel` keyword (see `docs/MASTER_PLAN.md`; decision O05 in `docs/DECISIONS.md`): a contextual keyword in the fork's scanner, parser and checker (`parallel e` typed `Promise<Awaited<T>>`, `parallel for` statements), upstream parser and checker tests green, fork parser tests. These are upstream edits: minimal, `// PTS:`-marked, listed in `docs/FORK.md`.
 2. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -123,7 +124,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `e16e41953` (M4.3): about 7 min; check the M4.4 push (`f52021475`) at the next session's start |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `b6762bae8` (M4.6): about 7 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
 `make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the table for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int).
@@ -150,6 +151,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M4.6 done; tagged `m4`.
 - 2026-10-12: M4.5c done (D-118); M4.5 complete.
 - 2026-10-12: M4.5b done (D-117).
 - 2026-10-12: M4.5a done (M4.5 split by D-116).

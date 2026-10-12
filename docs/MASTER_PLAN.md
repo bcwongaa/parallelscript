@@ -235,7 +235,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M4.5a `pts:` modules, `pts:process` and `pts:path`** (1dc0d2c69) (split from M4.5 by D-116). `pts:` modules as ParallelScript sources over runtime intrinsics; `pts:process` with `argv`, `env`, `exit` and `cwd` (and the global `process`); `pts:path`, pulled forward from M6 because it is small and useful now.
 - [x] **M4.5b `pts:fs` synchronous API** (df3648c9c) (split from M4.5 by D-116). `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `readdirSync`, `mkdirSync`, `statSync`, `unlinkSync`, `rmSync` and the like over libc, with Node's errors (`code`, `errno`, `syscall`, `path`).
 - [x] **M4.5c `pts:fs` promise API** (03189016c) (split from M4.5 by D-116). `pts:fs/promises` and `fs.promises` (`readFile`, `writeFile`, …) over libuv's file requests on the event loop, settling promises from their callbacks, ordered against timers as in Node.
-- [ ] **M4.6 Milestone M4.**
+- [x] **M4.6 Milestone M4.** (m4)
 
 ## M5: Parallel (the headline; make the demo great)
 - [ ] **M5.1 The `parallel` keyword.**
