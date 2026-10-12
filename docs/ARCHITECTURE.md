@@ -63,10 +63,11 @@ The fork's own edits (`docs/FORK.md`) are in three areas:
 
 The order of work (`Program` in `lower.go`):
 
-1. Declare every class, function and module-scope binding of every module, the runtime's classes (Error, Date, the typed arrays, RegExp) first. Code can then use any of them above its declaration and across import cycles.
-2. Lower each module's top-level code into that module's `main` function.
-3. Lower the function bodies, then the generic instances they need, until none are left.
-4. Run whole-program passes over the IR: `markCells` decides which captured variables live in heap cells (D-041), `checkRelaxedCasts` checks casts of objects that lack an optional property (D-066), and `prepareDynamicTypes` readies the types that writes and calls through `any` convert to (D-072, D-074).
+1. Walk the AST for facts that every function's lowering needs: the library module export that each global the program uses stands for (`globalModuleBindings`), and which variables a function other than their own assigns, whose narrowed reads are therefore checked (`collectOutsideAssignments`, D-140, D-145).
+2. Declare every class, function and module-scope binding of every module, the runtime's classes (Error, Date, the typed arrays, RegExp) first. Code can then use any of them above its declaration and across import cycles.
+3. Lower each module's top-level code into that module's `main` function.
+4. Lower the function bodies, then the generic instances they need (including those that typed calls of erased copies look up, D-148), until none are left.
+5. Run whole-program passes over the IR: `markCells` decides which captured variables live in heap cells (D-041), `checkRelaxedCasts` checks casts of objects that lack an optional property (D-066), and `prepareDynamicTypes` readies the types that writes and calls through `any` convert to (D-072, D-074).
 
 The lowering asks tsc's checker for types everywhere and maps them to IR types (`irType`). Its main choices:
 
@@ -106,14 +107,15 @@ func Point.twice(this: Point) number {
 
 What the generated C looks like:
 
-- **Functions** are `static` C functions named `pts_fn_<name>`. The entry module's top-level code is `pts_main`, and another module's is `pts_module_<name>` (D-020, D-022). `main` calls `pts_runtime_init`, then each module in order, then `pts_runtime_exit`. Programs that use promises or timers also drain the microtask queue and run the event loop.
+- **Functions** are `static` C functions named `pts_fn_<name>`. The entry module's top-level code is `pts_main`, and another module's is `pts_module_<name>` (D-020, D-022). `main` calls `pts_runtime_init`, then each module in order, then `pts_runtime_exit`. Programs that use promises also drain the microtask queue, and programs with timers, tasks, asynchronous I/O or a server also run the event loop (an intrinsic that returns a promise is marked `ir.Func.Settles`, and `pts_http_listen` `ir.Func.Listens`).
 - **Names.** Locals keep their source names where C allows it (`names.go`).
 - **`#line` directives.** One precedes each function, and each statement whose line the C compiler doesn't already presume, so none is redundant (D-007). gdb, lldb and stack traces show `.pts` lines. The library modules' lines name the module, as in `#line 415 "pts:parallel"`.
 - **Evaluation order.** C leaves the order of evaluating operands unspecified, and JS doesn't. `order.go` finds operands that could tell the difference, and those go through `pts_tmpN` temporaries in a statement expression, `({ … })`, a GNU extension that clang supports (D-019).
 - **Classes** become structs `pts_class_<Name>` whose first member points to the descriptor, plus a static descriptor `pts_type_<Name>` (D-024, D-026).
+- **Ready flags.** A module-scope binding that a function may read before its declaration has run is a C global with a `<name>_ready` flag, which such reads check (`pts_check_ready`, D-021). A class has a hidden binding of this kind, which `new` checks (D-141). A local that a closure captures before its declaration has run keeps its flag in its cell (`PTS_CELL_READY`, D-140). Each check throws Node's `ReferenceError: Cannot access 'x' before initialization`.
 - **The stack guard.** A function that may recurse starts with `pts_stack_check()` (D-069).
 - **`try`** is a `_setjmp` on a handler pushed onto the thread's chain of handlers (D-068).
-- **Generators and async functions** each become a frame struct, a starter and a step function, which starts with a `switch` on the resume point (D-109).
+- **Generators and async functions** each become a frame struct, a starter and a step function, which starts with a `switch` on the resume point (D-109). This state machine is built here, in the emitter, not by a pass over the IR as brief §2.3 has it; that move is left to M8 (D-153).
 
 **Example.** `docs/examples/arch_point.pts` runs as a test, and it prints the same under Node:
 
@@ -203,6 +205,10 @@ The standard modules are written in ParallelScript (D-116). Each is a `.pts` fil
 | `pts:fs`, `pts:fs/promises` | `fs.pts`, `fs/promises.pts`, `internal/fs.pts` | Node's file API, synchronous and promise-based (D-117, D-118) |
 | `pts:parallel` | `parallel.pts` | `.par` views, `range` and `join` (D-123, D-124, D-126) |
 | `pts:sync` | `sync.pts` | `AtomicInt`, `Mutex`, `Once` and `Channel` (D-128, D-129) |
+| `pts:http` | `http.pts` | Bun-style `serve` and `Server`, the Fetch standard's `Request`, `Response` and `Headers`, and `fetch`; all but `serve` and `Server` are also globals (D-136, D-160) |
+| `pts:internal/abort` | `internal/abort.pts` | `AbortController`, `AbortSignal`, `DOMException`, `Event` and `EventTarget`, as the DOM standard has them; reached only as globals (D-162) |
+
+`internal/` modules can't be imported from programs (D-118). A global that is a library module's binding of the same name is listed in `lib.GlobalModules` (`pts/lib/lib.go`): the front end adds the module when a program uses the global (§2.1), and the lowering binds the global to the module's export.
 
 A module reaches the runtime through **intrinsics**: functions it declares without a body, named `pts_…`. For example, in `parallel.pts`:
 
@@ -210,9 +216,9 @@ A module reaches the runtime through **intrinsics**: functions it declares witho
 declare function pts_parallel_for(leaf: (from: number, to: number) => void, count: number): void;
 ```
 
-The lowering turns such a declaration into an external function, so a call is a direct call of the runtime's C function of that name, with the arguments converted to the declared types (`intrinsicCall` in `pts/lower/library.go`). Only bodiless declarations inside `pts:` modules count, and they aren't exported, so user code can't call them. Intrinsics stay thin: the modules build their classes and objects in ParallelScript, and the runtime does only what needs C.
+The lowering turns such a declaration into an external function, so a call is a direct call of the runtime's C function of that name, with the arguments converted to the declared types (`intrinsicCall` in `pts/lower/library.go`). Only bodiless declarations inside `pts:` modules count, and they aren't exported, so user code can't call them. Intrinsics stay thin: the modules build their classes and objects in ParallelScript, and the runtime does only what needs C. For example, `pts:http` parses URLs, builds `Headers` and follows redirects in ParallelScript, and its six intrinsics only listen, respond, report the bound port, stop, fetch and abort a fetch. An intrinsic can take callbacks: `pts_http_listen` takes the function that each request is handed to, and `pts_http_fetch` takes the one that a response or a failure is handed to.
 
-`prelude.d.ts` declares the globals that `lib.esnext.d.ts` lacks: `console`, the numeric type aliases, timers, `process` (as `import("pts:process").Process`), `parallel<T>`, and `par` on arrays and typed arrays (as `import("pts:parallel").ParallelArray<T>` and friends).
+`prelude.d.ts` declares the globals that `lib.esnext.d.ts` lacks: `console`, the numeric type aliases, timers, `queueMicrotask`, `performance`, `process` (as `import("pts:process").Process`), `fetch`, `Request`, `Response` and `Headers` (from `pts:http`), the abort classes (from `pts:internal/abort`), `parallel<T>`, and `par` on arrays and typed arrays (as `import("pts:parallel").ParallelArray<T>` and friends).
 
 **Example.** `docs/examples/arch_parallel.pts` uses both parallel features, and runs as a test under 1, 2 and 4 threads:
 
@@ -264,7 +270,7 @@ static pts_array *pts_fn_parallel_ParallelArray_map_number(pts_class_parallel_Pa
 The runtime is written in C11 and linked statically into every program as `libptsrt.a` (D-L05). It has four parts:
 
 - `include/pts.h` is the only header that generated C includes. It declares the whole runtime, with inline fast paths for array access, numeric operations, try handlers and the stack check.
-- `src/` holds the implementation: 36 `.c` files, one per area (see the table in §7). The `*_internal.h` headers are shared by a few files and aren't part of the API.
+- `src/` holds the implementation: 39 `.c` files, one per area (see the table in §7). The `*_internal.h` headers are shared by a few files and aren't part of the API.
 - `gen/*.mjs` are Node scripts that generate Unicode tables from Node's ICU into `src/*_tables.h`.
 - `tests/*_test.c` are the C unit tests (§6).
 
@@ -310,13 +316,13 @@ A `pts_string` is the header, flags (pure ASCII; in an append buffer; known to h
 - **Arrays** (`array.c`, D-038). A `pts_array` is a descriptor, a buffer and a length, and the buffer holds its own capacity. Elements are stored unboxed by kind: a `number[]` holds doubles. Each element is copied with one load or store, and bounds checks use the buffer actually being accessed. So racing pushes may lose elements, but never write out of bounds.
 - **Map and Set** (`map.c`, D-046). An ordered hash table: entries are appended in insertion order, deleted ones are marked in place, and an open-addressing index finds them. Growing or compacting publishes a new table instead of resizing in place. Iterators follow the chain of tables, which gives JS's live iteration.
 - **Hash-map objects** (D-059). Object types with index signatures, such as `Record<string, T>`, use the same table with kind `PTS_KIND_RECORD`. `JSON.parse` makes these for objects (D-080).
-- **Typed arrays** (`typed_array.c`, D-125). A view (buffer, data pointer, length and offset) of an `ArrayBuffer`. Elements are read and written by relaxed atomic accesses of their width, and bulk copies by `copy_shared`, so no number tears (D-143).
+- **Typed arrays** (`typed_array.c`, D-125). A view (buffer, data pointer, length and offset) of an `ArrayBuffer`. Elements are read and written by relaxed atomic accesses of their width, and bulk copies by `pts_copy_shared` (`shared_memory.c`), so no number tears (D-143). `pts:fs` reads a file without an encoding into a new `Uint8Array`, which stands in for Node's `Buffer` (D-165).
 
 ### 4.5 Classes, object types and closures
 
-- **Classes** (D-026, D-028). Each class is a struct, and a subclass's struct embeds its parent's first. Method calls are direct, unless the method is abstract or overridden below the receiver's static class. Then the call goes through a vtable (`pts_vtable_<C>`) inside the descriptor.
+- **Classes** (D-026, D-028). Each class is a struct, and a subclass's struct embeds its parent's first. Method calls are direct, unless the method is abstract or overridden below the receiver's static class. Then the call goes through a vtable (`pts_vtable_<C>`) inside the descriptor. A field of an object type is NULL until its initializer or the constructor sets it. JS reads undefined there, so tests of truth, `== null`, `??` and boxing treat NULL as undefined, and other uses go through `pts_check_field_set`, which throws Node's `TypeError` instead of dereferencing it (D-141).
 - **Object types** (D-033, D-035, D-036). An object literal's type is a *shape*: one struct shared by every object type with the same properties of the same types. A value typed by an interface may be any object that has the interface's properties. So an access through an interface finds the field by name, through a one-word inline cache at the access site (`pts_site`: the last descriptor met there and the field's offset). Method calls through interfaces use the descriptor's method table the same way.
-- **Closures** (D-041). A `pts_closure` is a descriptor, a code pointer and the captured values. A captured variable that may change after it is captured lives in a heap cell, which the closures share.
+- **Closures** (D-041). A `pts_closure` is a descriptor, a code pointer and the captured values. A captured variable that may change after it is captured lives in a heap cell, which the closures share. A cell of a local that is captured before its declaration runs holds a ready flag after the value (D-140, §2.5).
 - **Errors** (D-068). Error and its subclasses are classes the runtime defines (`pts_error`, `error.c`). So `extends Error` and `instanceof RangeError` work, also on the errors the runtime throws.
 
 ### 4.6 Dynamic values and `any`
@@ -327,6 +333,7 @@ A `pts_string` is the header, flags (pure ASCII; in an append buffer; known to h
 - **Conversions to static types** (`convert.c`, D-071). An object that already has the target type is kept as it is. Dynamic data, such as an `any[]` or parsed JSON, is checked and copied into the target's representation. A mismatch throws, for example, `TypeError: Expected number, got string`.
 - **Calls through `any`** (D-074). In a program that makes them, each function value and method gets a *dynamic entry*. The entry takes boxed arguments, checks them against the parameter types and boxes the result (`pts/cgen/dynamic_calls.go`).
 - **Builtin methods through `any`** (`dynamic_methods.c`, D-076): the methods of strings, numbers, arrays and functions, found by name.
+- **The runtime calls program code through dynamic entries too** (D-142). A method's C signature can be anything TypeScript allows, so the runtime never calls one blind: `toString` and `valueOf` (in OrdinaryToPrimitive's order), `toJSON`, timers' callbacks and promise handlers go through dynamic entries, and getters and setters are called by their declared kind.
 - **Type checks** (`pts_check`) are emitted only for programs that need them (`pts/cgen/checks.go`, D-071, D-072).
 
 ### 4.7 Exceptions and stack traces
@@ -352,14 +359,16 @@ These live in `error.c` (D-068, D-069).
 
 ### 4.10 Event loops and tasks
 
-These live in `loop.c` and `scheduler.c` (D-114, D-121).
+The loops and their inboxes live in `scheduler.c`, timers and immediates in `loop.c`, and the messages and what they do in `promise.c` (D-114, D-121).
 
-- **One loop per thread.** Each event loop is a libuv `uv_loop_t` on its own thread, and all loops share one heap. The main thread's loop runs the modules. The other loops start the first time `parallel` runs, or when a `pts:http` server listens with `reusePort`, so a program that uses neither has one thread. There are `PTS_THREADS` loops (at most 256), or one per core.
-- **Timers** are Node's: a heap of timers behind one `uv_timer_t`, `setImmediate` on a check handle, and a microtask drain after every callback (`loop.c`). A timer belongs to the loop that made it: another thread clears it through an atomic flag, and its loop applies the rest by a message (D-139).
-- **Inboxes.** Each loop has an inbox of messages and tasks, guarded by a mutex, and a `uv_async_t` that other threads wake it with. Besides promise work and tasks, a message can run a runtime function on its loop (`pts_post_call`, D-137).
+- **One loop per thread.** Each event loop is a libuv `uv_loop_t` on its own thread, and all loops share one heap. The main thread's loop runs the modules. The other loops start the first time `parallel` runs, or when a `pts:http` server listens with `reusePort`, so a program that uses neither has one loop. There are `PTS_THREADS` loops (at most 256), or one per core.
+- **Timers** are Node's: a heap of timers behind one `uv_timer_t`, `setImmediate` on a check handle, and a microtask drain after every callback (`loop.c`).
+- **Loop-owned handles** (D-139). A timer or immediate belongs to the loop that made it, and only that loop touches its heap, queue and counts. Any thread (another loop, or a pool thread in a `.par` callback) may still clear, ref, unref or refresh a timer. Clearing exchanges the timer's atomic `active` flag, so the callback doesn't start after `clearTimeout` returns. The rest (taking the timer out of the heap, applying `ref`, `refresh`) runs on the owning loop: directly when the caller is that loop, else by a CALL message. An immediate's `active` flag is atomic too, so any thread may clear it, and its loop skips it. `pts:http`'s connections and `fetch`'s requests belong to their loop in the same way (§4.16).
+- **Inboxes.** Each loop has an inbox of messages and a queue of tasks not yet started, guarded by a mutex, and a `uv_async_t` that other threads wake it with. The message kinds are SETTLE, RESOLVE, THEN and REACTION (promise work), TASK (a `parallel` task to start) and CALL. A CALL message (`pts_post_call(loop, f, data)`, D-137) runs a runtime function on the given loop, in order with that loop's other messages, then runs the microtasks it queued. It is how one thread acts on state that another loop owns: a timer, an HTTP listener, a fetch request, an async generator's queue (D-143).
+- **Output.** Each loop flushes stdout from a `uv_prepare` handle before it waits for I/O, so a server's log lines appear as it runs (D-136).
 - **Promises never change on two threads.** A promise belongs to the loop that made it and settles only there; a reaction runs on the loop that added it. Settling another loop's promise is a message to that loop. So single-loop code takes no locks, and an async function resumes on the loop where it started.
 - **Tasks.** `parallel e` calls `pts_parallel(closure)`, which makes a promise on the calling loop and posts a task to the least-loaded other loop. That loop runs the closure, and the promise settles back on the caller's loop. A loop out of work takes a task that another loop has queued but not started, then sleeps.
-- **HTTP.** `http.c` is `pts:http`'s HTTP/1.1 server over libuv TCP (D-136): it parses requests, hands each to the library's callback with a connection id, and writes the response the library gives back. It reads on while a request is handled, so a client that leaves is seen at once: its connection closes and the request's `signal` aborts (D-163); a connection whose responses pile up unread stops taking requests until they drain. With `reusePort` (D-137) the calling thread binds a SO_REUSEPORT socket per loop and each loop listens on its own, so the kernel spreads connections over the loops; a connection stays on its loop. `fetch.c` is the global `fetch`'s client (D-160, D-162): one connection per request on the calling loop (a pool task's on its operation's loop), with ids in a table shared by the threads, so that an `AbortSignal` aborted anywhere ends the request on its loop.
+- **I/O.** `pts:fs/promises` runs its system calls on libuv's thread pool and settles its promises on the loop (D-118). The HTTP server and the `fetch` client run on the loops' libuv TCP handles (§4.16).
 - **Ending.** When every loop sleeps, none can wake another, and the program ends, as Node does when nothing is left to do. `process.exit`, an uncaught error and a panic take one process-wide exit lock first (`pts_begin_exit`).
 
 ### 4.11 The fork-join pool
@@ -370,7 +379,7 @@ The pool lives in `pool.c` (D-122). `docs/agent/NOTES-rayon.md` explains the des
 - **Deques.** Each worker has a Chase–Lev deque of job pointers (Lê et al.'s version for weak memory models). The owner pushes and pops at the bottom, and thieves steal the oldest job from the top. A loop thread gets a deque the first time it starts an operation.
 - **`pts_join(a, b)`** is Rayon's join. It pushes b, runs a, then pops b and runs it, unless a thief took it. In that case it runs other work until b is done. b's job lives on the caller's stack, so join allocates nothing. If either closure throws, join rethrows once both are done, a's error first.
 - **Splitting.** `pts_par_run` splits a range of indices with Rayon's adaptive splitter. `pts:parallel` builds `.par` on the intrinsics `pts_parallel_for` and `pts_parallel_reduce`, which run on it, and `join` on `pts_parallel_join`, which is `pts_join`. The lowering calls `pts_parallel_for_each` for `parallel for`.
-- **Promise work from workers.** Each job records the loop of its operation. Promise work that a callback does on a worker becomes messages to that loop, which the loop applies before the operation returns (D-123). Timers and asynchronous I/O from a callback on a worker throw `Error` for now.
+- **Promise work from workers.** Each job records the loop of its operation. Promise work that a callback does on a worker becomes messages to that loop, which the loop applies before the operation returns (D-123). A `fetch` from such a callback starts its request on that loop by a CALL message (D-162), and clearing a timer or stopping a server works from any thread (D-139, D-163). Starting a timer, a `pts:fs/promises` call or a server from a callback on a worker throws `Error` for now.
 - With `PTS_THREADS=1` there are no workers, and everything runs on the caller (D-O06).
 
 ### 4.12 Garbage collection
@@ -379,7 +388,7 @@ Memory is managed by bdwgc, the Boehm–Demers–Weiser collector (SPEC §4, D-0
 
 - **Build.** bdwgc is built with threads, parallel marking, thread-local allocation and gcj-style allocation (`pts/toolchain/libraries.go`). `pts.h` defines `GC_THREADS` before it includes `gc.h`, so every thread the runtime creates is registered with the collector.
 - **What gets scanned.** Instances of classes and object types are scanned only in the words their descriptor names (every word, for instances of more than 62 words). Other blocks that hold pointers, such as the buffers of object arrays, map tables, cells and generator frames, are scanned conservatively, word by word, as are thread stacks and registers. Pointer-free blocks, such as plain strings, the buffers of number arrays and objects with only numbers, are never scanned.
-- **Roots outside the heap.** Runtime structures that the heap doesn't reach, such as loop slots, deques, timer state and microtask queues, are allocated uncollectable, so the collector scans them as roots.
+- **Roots outside the heap.** Runtime structures that the heap doesn't reach, such as loop slots, deques, timer state and microtask queues, are allocated uncollectable, so the collector scans them as roots. So are an HTTP server (which holds the program's callbacks), each connection's cell holding the `Request` the program is handling, and a `fetch` request's callback until it is called. libuv's handles and the bytes the server and client read and write are `malloc`'d and hold no collected pointers.
 - **Tuning** (`pts_runtime_init` in `runtime.c`). A collection runs once the program has allocated as much as the heap holds (free-space divisor 1, D-060). The heap starts at 4 MiB (D-112), and marking runs on 2 threads (D-131). The environment variables `GC_FREE_SPACE_DIVISOR`, `GC_INITIAL_HEAP_SIZE` and `GC_MARKERS` override these.
 - **Planned.** SPEC §4 plans a precise collector, and later a generational one. The master plan puts an experiment with a precise collector after M7.
 
@@ -391,12 +400,12 @@ All threads share one heap, so a program can race on it. The guarantee (SPEC §4
 2. **Atomic where it matters.** The runtime uses `__atomic` builtins (relaxed unless ordering is needed) for array lengths and buffers, array elements that may be holes, map tables, counts and entries, inline caches, string buffers' claims (compare-and-swap), typed arrays' elements and bulk copies, runtime iterators' positions, generators' claims, promises' `handled` flags, timers' and immediates' flags, the pool's deques, the loops' counters and `pts:sync`'s cells.
 3. **Plain one-word accesses elsewhere.** Generated code reads and writes object fields, captured cells, module-scope bindings and the elements of number and boolean arrays with plain C loads and stores. ISO C calls these data races (undefined behaviour). The contract relies instead on what clang emits for x86-64: an aligned load or store of up to 8 bytes is one instruction, which x86-64 performs atomically (Intel SDM vol. 3A, "Guaranteed Atomic Operations"), and LLVM doesn't split such an access or reload a heap word that the source reads once (it rematerializes only loads it knows are invariant). That is the machine-level guarantee Java and Go give racing programs. Relaxed atomics there would be ISO C, but would stop clang from merging, hoisting and vectorizing field and element reads in every program (D-143).
 4. **Read once, check, then use.** Code that checks a shared slot (an index against a length, a tag, a NULL, a state) reads it once into a local and uses only that local, with an atomic load where the slot is in rule 2's list. Reading a field again between the check and the use is a bug, even when each read is atomic: the array iterators over tuples, the map iterators and `console.log` of errors (which counted its entries, then read the fields again to fill them) did this until D-143.
-5. **No `memcpy` or `memmove` of numbers that other threads can read.** Those functions may copy in any order and size (`rep movsb`, unaligned vector moves), so they can tear a number that another thread is writing. Typed arrays copy with `copy_shared`, a `memmove` made of relaxed atomic accesses as wide as both addresses allow (the element's size, up to 8 bytes). Arrays copy element by element (D-130). `memcpy` is fine for memory that no other thread can reach yet (a new buffer before it is published) and for memory that never changes (strings' bytes).
+5. **No `memcpy` or `memmove` of numbers that other threads can read.** Those functions may copy in any order and size (`rep movsb`, unaligned vector moves), so they can tear a number that another thread is writing. Typed arrays copy with `pts_copy_shared` (`shared_memory.c`), a `memmove` made of relaxed atomic accesses as wide as both addresses allow (the element's size, up to 8 bytes). A loop's per-iteration copy of a captured cell (`pts_cell_copy`) and `pts:fs`'s writes of a `Uint8Array` use it too (D-165). Arrays copy element by element (D-130). `memcpy` is fine for memory that no other thread can reach yet (a new buffer before it is published) and for memory that never changes (strings' bytes).
 6. **Publication.** A new object is filled with plain stores and published by storing its pointer in a shared slot. x86-64 doesn't reorder a store with earlier stores, so a thread that loads the pointer sees the object filled (D-130). A port to another architecture needs release stores at the points of publication.
 7. **State that one thread owns.** What these rules don't make safe belongs to one thread, and other threads reach it by message (`pts_post`, `pts_post_call`) or claim it:
    - a promise belongs to the loop that made it: only that loop settles it or changes its reactions (D-121). Another loop that adds a handler sets the promise's `handled` flag at once, sequentially consistent with the home loop's check for unhandled rejections, so a rejection that comes before that loop takes the message isn't reported (D-143);
    - an async generator belongs to the loop that made it, which alone runs its queue of requests and its body. A request from another loop is a message, and its promise is made on the loop that asked (D-143);
-   - timers, immediates and HTTP connections belong to their loop (D-137, D-139);
+   - timers, immediates, HTTP listeners and connections, and `fetch` clients belong to their loop, which other threads reach by CALL messages (D-137, D-139, D-162). The only `fetch` state that threads share is the table of request ids, under a mutex;
    - a sync generator's frame belongs to the thread that claimed it (`executing`, exchanged atomically once the program has threads, `pts_threaded`). A resume while it runs, from its own body or from another thread, throws `TypeError: Generator is already running`, so its body never runs on two threads (D-143);
    - microtask queues, timer heaps and inboxes' internals are per loop, behind the inbox's mutex where other threads post.
 8. **Results handed back per thread.** Where another thread's call can overwrite a result in a shared object, the runtime returns it per thread: a resume's value goes through the thread's slot in `generator.c` (once the program has threads), and a map iterator's step works on a private copy of its place.
@@ -418,7 +427,20 @@ How it is tested: the `pts/tests/stress/race_*` programs (run 100 times a night)
 
 ### 4.15 The other built-ins
 
-The remaining built-ins follow Node's and V8's algorithms, so that results match to the last digit: number to string with Ryu's digits and ECMAScript's notation rules (`number.c`, D-011), `toFixed`, `parseInt` and friends (`number_methods.c`, D-083), Math as V8's fdlibm converted to C (`ieee754.c`, `math.c`, D-084), JSON with V8's messages (`json.c`, D-080), Date (`date.c`, D-087), the URI functions (`uri.c`, D-092) and `localeCompare` (`collation.c`, D-082). `process.c`, `fs.c` and `sync.c` hold the intrinsics of `pts:process`, `pts:fs` and `pts:sync` (D-116 to D-118, D-128). `runtime.c` has startup (`pts_runtime_init`), the stack guard, `pts_panic` and the exit lock.
+The remaining built-ins follow Node's and V8's algorithms, so that results match to the last digit: number to string with Ryu's digits and ECMAScript's notation rules (`number.c`, D-011), `toFixed`, `parseInt` and friends (`number_methods.c`, D-083), Math as V8's fdlibm converted to C (`ieee754.c`, `math.c`, D-084), JSON with V8's messages (`json.c`, D-080), Date (`date.c`, D-087), the URI functions (`uri.c`, D-092) and `localeCompare` (`collation.c`, D-082). `process.c`, `fs.c` and `sync.c` hold the intrinsics of `pts:process`, `pts:fs` and `pts:sync` (D-116 to D-118, D-128); `fs.c` reads files as text or, without an encoding, as bytes (D-165). `http.c` and `fetch.c` hold `pts:http`'s (§4.16). `shared_memory.c` has the copies of memory that other threads may write (§4.13). `runtime.c` has startup (`pts_runtime_init`), the stack guard, `pts_panic` and the exit lock.
+
+### 4.16 HTTP: the server and `fetch`
+
+`pts:http` is split like the other library modules. `pts/lib/http.pts` has the API in ParallelScript: `serve`, `Server`, the Fetch standard's `Request`, `Response` and `Headers`, and `fetch`, which parses URLs, sets headers, follows redirects and makes Node's errors. `pts/lib/internal/abort.pts` has the abort classes. The connections, the parsing and the I/O are C on libuv's TCP: `http.c` is the server, `fetch.c` is the client, and `http_internal.h` holds the header parsing and chunked decoding that they share. Bodies are whole strings, decoded as UTF-8; there is no streaming and no TLS (`https://` rejects).
+
+- **The server** (D-136). `pts_http_listen` listens on the loop that calls `serve`. A connection reads requests one at a time, and pipelined ones wait in its buffer, so responses keep their order. It parses the head (up to 64 KB, else 431) and the body (Content-Length or chunked, up to 64 MB, else 413), and answers `Expect: 100-continue` and malformed requests (400) itself. Then it calls the library's request callback with a connection id, the method, the target, the headers and the body. The library makes the `Request`, runs the program's `fetch` handler, and answers with `pts_http_respond(id, …)`. The framing headers (`content-length`, `connection`, `date`) are the server's.
+- **Connection ids.** An id is `(generation · 2⁸ + loop) · 2²⁰ + slot`, exact in a double. An answer for a connection that has closed, one of another loop's connections, or a forged id finds nothing and is dropped, so the program can't misuse ids to reach memory.
+- **Every loop** (D-137). With `reusePort: true`, `serve` starts the loops, and the calling thread binds a SO_REUSEPORT socket per loop, so bind errors still throw from `serve`. Each loop then takes over its socket by a CALL message, and the kernel spreads new connections over them. A connection stays on the loop that accepted it, and so do the promises, timers and tasks its handlers make. Handlers on different loops run in parallel and share module state as any parallel code does: memory-safe, but a counter needs `AtomicInt`. The guardrail doesn't extend to them (D-137, listed in `docs/agent/REVIEW_LATER.md`).
+- **Lifecycle** (D-163). A connection goes on reading while the program has its request, so a client that leaves is seen at once. The connection then closes, and the disconnect callback gets the `Request` back (kept in an uncollectable cell per connection) and aborts its `signal`. Once more than 1 MB of responses waits unwritten, a connection takes no more requests until half of that drains. `stop(closeActiveConnections)` sets an atomic flag once, then stops each loop's listener on that loop (by CALL messages), so it works from any loop or pool thread.
+- **The client** (D-160, D-162). `pts_http_fetch` makes one connection per request on the calling loop. It resolves the host with `uv_getaddrinfo`, tries the addresses in turn, writes the request with `connection: close`, and reads the whole response (framed by Content-Length, chunks or the connection's end; 1xx responses skipped; up to 64 MB). Then it calls the library's callback with the status, headers and body, or with the cause that `TypeError: fetch failed` reports. A `fetch` on a pool thread starts its request on its operation's loop.
+- **Aborting.** Each request has an id: a slot and generation in one table under a mutex, the only client state that threads share. `pts_http_fetch_abort(id)`, called from any thread when the request's `AbortSignal` aborts, ends the request on its loop (by a CALL message from elsewhere) and closes its connection. Only that loop frees the client: while libuv's resolver or a closing handle still holds it, that callback frees it.
+
+`examples/api-server` is a JSON API served on every loop, with shared state, `.par` in a handler and `request.signal` (D-166).
 
 ## 5. Vendored third-party code (`pts/third_party`)
 
@@ -427,7 +449,7 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
 | Directory | Version | Used for |
 |---|---|---|
 | `bdwgc` | v8.2.12 | The garbage collector |
-| `libuv` | v1.53.0 | Event loops, timers, file system calls, and the thread pool behind `pts:fs/promises` |
+| `libuv` | v1.53.0 | Event loops, timers, file system calls, the thread pool behind `pts:fs/promises`, and TCP and DNS for `pts:http` and `fetch` |
 | `ryu` | v2.0 | Shortest round-trip digits for number-to-string conversion (D-011) |
 | `libbacktrace` | commit 0b9b49c (it has no release tags) | Capturing and symbolizing error stacks (D-069) |
 | `pcre2` | pcre2-10.49 | RegExp: the 8-bit library with Unicode support, no JIT (D-132) |
@@ -438,10 +460,12 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
 `make test` runs `go test ./pts/... ./cmd/pts/`. `pts/tests/README.md` describes the harness and its directives in full.
 
 - **Go unit tests** in each package. The lowering tests compare printed IR, and the cgen tests check generated C. The fork's parser changes are tested in `internal/parser/pts_test.go`.
-- **Runtime C tests.** Each `pts/runtime/tests/*_test.c` file is its own program. `go test ./pts/toolchain/` runs them under ASan and UBSan, and the threaded ones (pool, scheduler, sync) under ThreadSanitizer too, with collection off (bdwgc's signals don't work under TSan).
+- **Runtime C tests.** Each `pts/runtime/tests/*_test.c` file is its own program. `go test ./pts/toolchain/` runs them under ASan and UBSan, and the threaded ones (pool, scheduler, sync, and the typed arrays' race test) under ThreadSanitizer too, with collection off (bdwgc's signals don't work under TSan).
 - **Programs** in `pts/tests/`:
-  - `run/*.pts` (about 300) must build, run and print their `// expect:` block (`TestRun`). Directives also give the exit code, stderr texts, or `// threads: 1 2 4` to run under each `PTS_THREADS` value.
-  - `errors/*.pts` (about 70) must fail to compile with the `// error:` texts they name (`TestErrors`).
+  - `run/*.pts` (about 340) must build, run and print their `// expect:` block (`TestRun`). Directives also give the exit code, stderr texts, or `// threads: 1 2 4` to run under each `PTS_THREADS` value.
+  - `errors/*.pts` (about 80) must fail to compile with the `// error:` texts they name (`TestErrors`).
+  - `http/*.pts` are servers and clients that Go tests drive over TCP (`http_test.go`): `TestHTTPServer`, `TestHTTPServerEveryLoop`, `TestHTTPServerLifecycle` (disconnects, slow readers, `stop()`), `TestFetchFromGoServer`, and `TestFetchUnderSanitizers` (ASan and UBSan). Simpler fetch and server cases are run tests (`run/fetch_*.pts`, `run/http_values.pts`).
+  - `examples_test.go` builds each program in `examples/` and checks it under 1 and 4 threads against an independent answer (Go's `crypto/sha256`, Go's PNG decoder, a Go HTTP client, a Go log generator's counts).
   - `corpus/<theme>/*.pts`: 300 realistic plain-TypeScript programs in six themes, compared with Node (`TestCorpusMatchesNode`).
   - `stress/*.pts`: 13 parallel programs that race on the scheduler, the pool, the collector and shared data (`TestStress`). A nightly CI job runs them 100 times.
   - Generated corpora (`numbers_test.go`, `strings_test.go`): programs written at test time, with thousands of number literals and operations, String methods on random strings, and the case mapping and normalization of planes 0 and 1, compared with Node line by line.
@@ -449,7 +473,7 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
 - **Differential tests against Node** (D-O04, D-009). Every test named `…MatchesNode` is one. A program that uses no ParallelScript feature must print exactly what Node prints and exit with the same code; stderr isn't compared. The features are `parallel`, `.par`, the integer types, and `pts:` imports other than the Node-like `pts:fs`, `pts:fs/promises`, `pts:path` and `pts:process`, which the harness maps to Node's `node:` modules. Node runs a copy of each module as an `.mts` file, with `--experimental-transform-types`. Without Node on PATH these tests skip, unless `PTS_REQUIRE_NODE` is set; `make test-diff` and CI set it.
 - **Upstream suites.** `make test-upstream` runs the upstream packages the fork touches, plus `TestLocal`. `make test-upstream-cli` runs the CLI and language-server suites.
 
-CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the stress programs. The benchmarks in `pts/bench/` aren't gates (D-O15). `make bench` runs them against Node, Bun and Go twins (`main.go`), and `docs/BENCHMARKS.md` records the results.
+CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the stress programs. The benchmarks in `pts/bench/` aren't gates (D-O15). `make bench` (`run.sh`) runs them with hyperfine against Node, Bun and Go twins (`main.ts` where Node and Bun need their own, `main.go`), in interleaved rounds (D-167). `make bench-http` (`serve.sh`) loads the server benchmarks (`http_hello`, `http_json`) with oha (D-137). Both keep the raw JSON of every run in `pts/bench/results/latest/` (not committed); a milestone's runs are kept as `pts/bench/results/<milestone>/`, such as `m6.5a/`. `docs/BENCHMARKS.md` records the tables.
 
 ## 7. Where things live
 
@@ -457,9 +481,9 @@ CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the
 |---|---|
 | `cmd/pts/` | The command line: `build`, `run`, `emit-c`, `help` |
 | `pts/frontend/` | Loads a program through the forked tsc, with fixed options; orders modules |
-| `pts/lib/prelude.d.ts` | Global declarations: `console`, numeric types, timers, `process`, `parallel`, `.par` |
+| `pts/lib/prelude.d.ts` | Global declarations: `console`, numeric types, timers, `process`, `fetch` and the Fetch classes, the abort classes, `parallel`, `.par` |
 | `pts/lib/*.pts`, `pts/lib/fs/`, `pts/lib/internal/` | The `pts:` modules, in ParallelScript |
-| `pts/lib/lib.go` | Embeds the library and serves it at `ptslib:///` |
+| `pts/lib/lib.go` | Embeds the library and serves it at `ptslib:///`; `GlobalModules` |
 | `pts/check/` | PTS semantic checks: unsupported features, numeric types, the guardrail |
 | `pts/numeric/` | Numeric types and their rules, shared with the fork's checker |
 | `pts/diagnostic/` | The one diagnostic format and the PTS error codes |
@@ -473,14 +497,16 @@ CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the
 | `pts/runtime/gen/` | Node scripts that generate the Unicode tables |
 | `pts/runtime/tests/` | The runtime's C unit tests |
 | `pts/third_party/` | Vendored C libraries (submodules) |
-| `pts/tests/` | The test harness, `run/`, `errors/`, `corpus/` and `stress/` |
-| `pts/bench/` | Benchmarks with Go twins, and `run.sh` |
+| `pts/tests/` | The test harness, `run/`, `errors/`, `corpus/`, `stress/` and `http/`, and the examples' tests |
+| `pts/bench/` | Benchmarks with their Node, Bun and Go twins; `run.sh` and `serve.sh` |
+| `pts/bench/results/` | Benchmark runs' raw JSON: `latest/` (not committed) and one directory per milestone |
+| `examples/` | Four example programs (`hasher`, `mandelbrot`, `api-server`, `log-analyzer`) and their `README.md` |
 | `internal/parser/pts.go` | Fork: the `parallel` keyword |
 | `internal/checker/pts.go` | Fork: numeric types in the checker; exports for the lowering |
 | `internal/tspath/`, `internal/module/`, `internal/core/` | Fork: `.pts` as a TypeScript extension (`docs/FORK.md` lists every edit) |
-| `docs/` | The spec, decisions, fork ledger, benchmarks and this document |
+| `docs/` | The spec, decisions, guide, fork ledger, benchmarks, plan and this document; `reviews/` holds independent reviews |
 | `docs/examples/` | The docs' samples, run as tests |
-| `Makefile` | `build`, `test`, `test-diff`, `test-stress`, `test-upstream`, `test-upstream-cli`, `bench` |
+| `Makefile` | `build`, `test`, `test-diff`, `test-stress`, `test-upstream`, `test-upstream-cli`, `bench`, `bench-http` |
 | `pts-bin/pts` | The compiler, as `make build` makes it (not committed) |
 | Everything else | Upstream typescript-go |
 
@@ -492,13 +518,15 @@ The runtime's sources by area:
 | Strings | `string.c`, `string_methods.c`, `string_case.c`, `collation.c`, `normalize.c`, `uri.c` |
 | Numbers and Math | `number.c`, `number_methods.c`, `integer.c`, `math.c`, `ieee754.c` |
 | Arrays and collections | `array.c`, `map.c`, `typed_array.c` |
+| Copies of shared memory | `shared_memory.c` |
 | `any` | `dynamic.c`, `dynamic_methods.c`, `convert.c` |
 | Errors | `error.c`, `runtime.c` |
 | Output | `console.c`, `inspect.c`, `table.c` |
 | JSON, Date, RegExp | `json.c`, `date.c`, `regexp.c`, `regexp_object.c`, `regexp_string.c` |
 | Generators and promises | `generator.c`, `promise.c` |
 | Loops, tasks and the pool | `loop.c`, `scheduler.c`, `pool.c` |
-| Library intrinsics | `process.c`, `fs.c`, `sync.c`, `http.c`, `fetch.c` |
+| Library intrinsics | `process.c`, `fs.c`, `sync.c` |
+| HTTP server and `fetch` client | `http.c`, `fetch.c`, `http_internal.h` |
 
 ## 8. Adding a feature
 
@@ -514,6 +542,7 @@ Log the design in `docs/DECISIONS.md`, and add a section to SPEC §9 that names 
 
 ## 9. What is planned
 
-- **M6.4 and M6.5** Example apps in `examples/`, and a README that presents them.
+- **M6.5** A README that presents the language, the examples in `examples/` and the benchmark tables. The example apps (M6.4) and the benchmark audit (M6.5a) are done.
 - **M7** Editor support: `pts lsp` (the forked language server, with the prelude and PTS diagnostics), a VS Code extension, and a usability pass that adds `pts test`.
-- **After M7**, if the run is extended: escape analysis, integer inference, unboxed arrays, inline caches for `any`, and an experiment with a precise collector.
+- **M8, after M7**, if the run is extended: escape analysis, integer inference, unboxed arrays, inline caches for `any`, an experiment with a precise collector, and the generator and async state machines moved into an IR pass (D-153).
+- **Known limits of `pts:http`** that later work may lift: no TLS, no streamed bodies, no WebSocket, and one connection per `fetch` request, with no keep-alive pool (D-136, D-160).

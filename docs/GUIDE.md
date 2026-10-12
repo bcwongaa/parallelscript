@@ -4,7 +4,7 @@ ParallelScript is TypeScript compiled ahead of time to a native binary. The comp
 
 This guide is for people who already write TypeScript. It covers what carries over, what doesn't, and what is new. The language reference is [SPEC.md](SPEC.md), and the reasons behind each choice are in [DECISIONS.md](DECISIONS.md).
 
-Every program in this guide is a file in [examples/](examples/), with its expected output at the end. The test suite runs each one, and runs the plain TypeScript ones under Node too. The programs that show compile errors are in [pts/tests/errors/](../pts/tests/errors/), each with the exact errors it must produce.
+Every program in this guide is a file in [docs/examples/](examples/), with its expected output at the end. The test suite runs each one, and runs the plain TypeScript ones under Node too. The programs that show compile errors are in [pts/tests/errors/](../pts/tests/errors/), each with the exact errors it must produce.
 
 ## Contents
 
@@ -35,6 +35,8 @@ That prints `Hello, ParallelScript`. The first build also compiles the runtime a
 
 `pts` exits with 0 on success, 1 on compile errors and 2 on a malformed command line. `pts run` exits with the program's own exit code.
 
+For whole programs to start from, [examples/](../examples/README.md) at the repository root has four, each a single `main.pts` that the test suite runs: a file hasher, a mandelbrot renderer that writes a PNG, a JSON API server and a log analyzer.
+
 There is no `tsconfig.json`: the options are fixed.
 
 - TypeScript runs in strict mode.
@@ -52,12 +54,13 @@ Most TypeScript compiles unchanged. That includes:
 - unions with every kind of narrowing, generics, enums and tuples;
 - closures, and default and rest parameters;
 - `async` and `await`, promises (with `all`, `allSettled`, `race`, `any` and `withResolvers`), generators, async generators and `for await`;
-- `throw`, `try`, `catch` and `finally`, with `Error` and its subclasses, whose `stack` points at `.pts` lines;
-- `Map`, `Set`, `JSON`, `Math`, `RegExp`, typed arrays, basic `Date`, timers and `queueMicrotask`.
+- `throw`, `try`, `catch` and `finally`, with `Error` and its subclasses, whose `stack` points at `.pts` lines, and `ReferenceError` for a variable or class used before its declaration has run;
+- `Map`, `Set`, `JSON`, `Math`, `RegExp`, typed arrays, basic `Date`, timers and `queueMicrotask`, and `Object.freeze`, after which writes throw `TypeError`, as in strict-mode JavaScript;
+- `fetch`, with `Request`, `Response`, `Headers` and `AbortController` as globals (plain `http://` for now; see [`fetch`](#fetch)).
 
 Node is the reference for behaviour. A program that uses only plain TypeScript must print exactly what Node prints, unless [SPEC.md §8](SPEC.md#8-documented-differences-from-typescript-and-node) documents a difference. `console.log` formats values as Node's `util.inspect` does: the same quotes, line breaks, `[Array]` past depth 2, `Map(2) {…}` and class names. Numbers print as JavaScript prints them, so `0.1 + 0.2` is `0.30000000000000004`.
 
-The tests hold the compiler to this. They compare 300 ordinary TypeScript programs with Node: 253 print exactly the same, and each of the other 47 says why it differs.
+The tests hold the compiler to this. They compare 300 ordinary TypeScript programs with Node: 267 print exactly the same, and each of the other 33 says why it differs (24 use something not supported yet, 8 differ by design and 1 is a known bug).
 
 [examples/guide_plain_typescript.pts](examples/guide_plain_typescript.pts):
 
@@ -139,7 +142,8 @@ At run time every value has a fixed type. Where TypeScript's types are only a pr
 - `any` is checked where it flows into a typed place: `const n: number = parsed.count` throws `TypeError` if `count` isn't a number.
 - Objects keep the properties their type gives them. You can't add or delete properties after construction. For keys that come and go, use a `Map` or a `Record<string, T>`, which is a hash map underneath.
 - Arrays have no holes. Reading past the end gives `undefined` where any value can go (printing, building a string, comparing with `undefined`), but throws `RangeError` where an element is required.
-- `x!` throws on `null` and `undefined`, and `m.get(k)!` throws `RangeError` when the map has no entry for `k`. A downcast with `as` is checked.
+- `x!` throws on `null` and `undefined`, and `m.get(k)!` throws `RangeError` when the map has no entry for `k`. A downcast with `as` is checked, and so is a type guard (`x is Dog`) that is wrong about a value's class.
+- A value that tsc keeps narrowed across a call that changed it (a property, or a variable another function assigns) is checked where it is read as the narrowed type: if it now holds another member of its union, the read throws `TypeError`.
 - A method read as a value is bound to its object, so `const f = obj.method; f()` works.
 
 [examples/guide_differences.pts](examples/guide_differences.pts):
@@ -230,7 +234,7 @@ detached method -> TypeError: Cannot read properties of undefined (reading 'coun
 [SPEC.md §8](SPEC.md#8-documented-differences-from-typescript-and-node) lists every difference. These are the ones you are most likely to run into:
 
 - `process.argv` starts with the executable's path twice, where Node has its own path and the script's. `process.argv.slice(2)` is the arguments in both. `process.env` is a copy made at startup.
-- `pts:fs` reads a file without an encoding as bytes, a `Uint8Array` where Node gives a `Buffer` (a `Uint8Array` with more methods): indexing, `length`, `subarray` and the typed array methods work, but a Buffer's own methods don't, and its text (`toString()`, `${buffer}`) is a compile error that says to read the file with `"utf8"`. Writing takes text or a `Uint8Array`.
+- `pts:fs` reads a file without an encoding as bytes, a `Uint8Array` where Node gives a `Buffer` (a `Uint8Array` with more methods): indexing, `length`, `subarray` and the typed array methods work, and `console.log` shows `Uint8Array(n) [ … ]` where Node shows `<Buffer …>`. A Buffer's own methods don't exist. Its text (`toString()`, `${buffer}`, `String(buffer)`) and its `slice` (a view in Node, a copy for a `Uint8Array`) are compile errors that say what to write instead: read the file with `"utf8"`, or use `subarray`. Writing takes text or a `Uint8Array` ([Reading bytes](#reading-bytes)).
 - `toLocaleString` on numbers always formats as Node's default English locale does. `Date`'s `toLocaleDateString` and the other locale formats aren't supported yet, and `localeCompare` takes no locale but English.
 - In a generator, `yield` must come first in its statement: as the statement itself, a variable's initializer, the right side of an assignment or a returned value.
 - A stack frame shows the file and line without a column: `at check (/src/app.pts:2)`.
@@ -607,7 +611,7 @@ Float64Array(3) [ 1, 3, 5 ] 5050
 - `reduce` isn't Array's `reduce`. Its function combines two elements, or two partial results, in any grouping, so the result has the element type. To fold into another type, `map` first.
 - On a typed array, `map` and `filter` give a typed array of the same kind, and `toArray()` gives a `number[]`.
 - A throw in a callback is rethrown once the operation is done.
-- Callbacks run on pool threads. Promise work they start (`then` handlers, `queueMicrotask`) runs on the calling loop once the operation returns. Timers and asynchronous I/O started from a callback on a pool thread throw `Error: Timers and asynchronous I/O can't be started from a parallel operation's callback yet`. Start such work in a `parallel` task instead.
+- Callbacks run on pool threads. Promise work they start (`then` handlers, `queueMicrotask`) runs on the calling loop once the operation returns. A timer, `pts:fs/promises` I/O or a server started from a callback on a pool thread throws `Error: Timers and asynchronous I/O can't be started from a parallel operation's callback yet`. Start such work in a `parallel` task instead. `fetch` works there (its request runs on the loop that started the operation), and so do `parallel`, clearing a timer and `pts:fs`'s synchronous functions.
 
 ### `parallel for`
 
@@ -926,7 +930,9 @@ What the guardrail doesn't check: the rule is lexical, so it doesn't follow call
 
 ### Performance
 
-[BENCHMARKS.md](BENCHMARKS.md) has the numbers, losses included. On 8 threads, mandelbrot runs 4.65 times as fast as on one (5.78 times on a quieter run). Code that allocates a lot stops gaining past about 4 threads, because the garbage collector refills each thread's free lists under one lock and stops every thread to collect.
+[BENCHMARKS.md](BENCHMARKS.md) has the numbers, losses included. On 8 threads, mandelbrot runs 6.09 times as fast as on one (M6's run). Code that allocates a lot stops gaining past about 4 threads, because the garbage collector refills each thread's free lists under one lock and stops every thread to collect. A binary starts in about a millisecond, where Node takes 74 ms.
+
+[The examples' README](../examples/README.md) has the times of whole programs: the PNG renderer runs 6.8 times as fast on eight threads as on one, and the log analyzer, which allocates about ten objects per line, stops gaining past four.
 
 ## The `pts:` modules
 
@@ -938,6 +944,9 @@ What the guardrail doesn't check: the rule is lexical, so it doesn't follow call
 | `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is the global `process` |
 | `pts:parallel` | `range`, `join` and the classes of the `.par` views |
 | `pts:sync` | `AtomicInt`, `Atomic<int>`, `Mutex`, `Once` and `Channel` |
+| `pts:http` | `serve`, an HTTP/1.1 server in the style of Bun's, and the `Request`, `Response` and `Headers` classes, which the global `fetch` uses too |
+
+### Serving HTTP: `pts:http`
 
 `pts:http` serves HTTP/1.1 the way Bun's `serve` does, with the Fetch standard's `Request`, `Response` and `Headers` (SPEC §7.3):
 
@@ -984,7 +993,88 @@ It prints `true 0` (`docs/examples/guide_http_every_loop.pts`).
 
 A handler that waits a long time can watch `request.signal`, which aborts if the client leaves before the answer; the server closes that connection at once either way. `server.stop()` lets requests in flight finish; `server.stop(true)` closes their connections too, as Bun's does. On the development machine, with the load generator on the same machine, hello world runs at about 57,000 requests a second on one loop and 85,000 on four, against 21,000 for Node and 69,000 for Go ([BENCHMARKS.md](BENCHMARKS.md#m62b-http-servers)).
 
-`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). `fetch` is a global, as in Node, with `Request`, `Response`, `Headers` and `AbortController` for cancelling a request (`http://` only for now; [SPEC §7.1](SPEC.md#71-globals)).
+Bodies are text, read whole (up to 64 MB): there is no TLS, no streaming and no WebSocket yet. [examples/api-server](../examples/api-server/main.pts) is a whole JSON API built on `serve`: shared state behind a `Mutex`, atomic counters, `request.signal`, and JSON errors through `serve`'s `error` option.
+
+### `fetch`
+
+`fetch` is a global, as in Node, and so are `Request`, `Response`, `Headers`, `AbortController` and `AbortSignal` (with `AbortSignal.timeout` and `AbortSignal.any`). A response with a status that isn't 2xx still fulfils the promise. A failure rejects it with Node's `TypeError: fetch failed`, whose `cause` says what went wrong (`connect ECONNREFUSED 127.0.0.1:8080`, `getaddrinfo ENOTFOUND host`), and an abort rejects it with the signal's reason. Redirects are followed as the Fetch standard says, and `redirect: "manual"` and `"error"` work too.
+
+[examples/guide_fetch.pts](examples/guide_fetch.pts) fetches from a server of its own, so it runs anywhere:
+
+```ts
+// fetch is a global, as in Node, with Request, Response, Headers and AbortController.
+// The sample fetches from a pts:http server of its own, so that it runs anywhere.
+import { serve } from "pts:http";
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (request.url.endsWith("/slow")) {
+      // Waits until the client leaves, which aborts request.signal.
+      await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => resolve()));
+      return new Response("nobody reads this");
+    }
+    if (request.method === "POST") {
+      const order = await request.json();
+      return Response.json({ item: order.item, total: order.count * 2.5 }, { status: 201 });
+    }
+    return new Response("no such page", { status: 404 });
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// JSON in and out; the status and the headers are the response's.
+const created = await fetch(`${base}/orders`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ item: "tea", count: 4 }),
+});
+console.log(created.status, created.headers.get("content-type"), await created.json());
+
+// A 404 fulfils the promise too: check `ok` or `status`.
+const missing = await fetch(`${base}/menu`);
+console.log(missing.ok, missing.status, await missing.text());
+
+// An AbortController cancels a request: fetch rejects with an AbortError.
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 20);
+try {
+  await fetch(`${base}/slow`, { signal: controller.signal });
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+
+// Failures reject with Node's TypeError, whose cause says why; https isn't supported yet.
+try {
+  await fetch("https://example.com/");
+} catch (e) {
+  console.log((e as Error).message, "|", ((e as Error).cause as Error).message);
+}
+
+server.stop();
+```
+
+Output:
+
+```text
+201 application/json { item: 'tea', total: 10 }
+false 404 no such page
+AbortError This operation was aborted
+fetch failed | https: is not supported yet: fetch speaks plain HTTP
+```
+
+- `fetch` works on any event loop, in a `parallel` task and in a `.par` callback, whose request runs on the loop that started the operation. A request in flight keeps the program running.
+- `https://` rejects, as above: there is no TLS yet.
+- Bodies are text. A request's `body` is a string, and a response's is read whole (up to 64 MB) and decoded as UTF-8 by `text()` or `json()`: there is no `arrayBuffer()` and no streaming.
+- Each request opens a connection of its own, without keep-alive.
+- There is no `URL` class yet, so the sample tests the request's URL with string methods.
+
+[SPEC §7.1](SPEC.md#71-globals) has the details, and the "Known issues" section of [PROGRESS.md](../PROGRESS.md) the smaller gaps.
+
+### Node's modules: `pts:fs`, `pts:path` and `pts:process`
+
+`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). `pts:fs` has no streams, file descriptors (`openSync`, `FileHandle`) or watchers yet.
 
 [examples/guide_node_modules.pts](examples/guide_node_modules.pts):
 
@@ -1035,6 +1125,43 @@ ENOENT
 false
 [] linux undefined
 ```
+
+### Reading bytes
+
+Without an encoding, `readFileSync` and `readFile` give the file's bytes as a `Uint8Array`, where Node gives a `Buffer`, which is a `Uint8Array` too. `writeFileSync`, `appendFileSync` and their promise versions take a string or a `Uint8Array`. Code that indexes the bytes, reads `length`, takes `subarray`s or passes them on as a `Uint8Array` works unchanged. What a `Buffer` does differently is a compile error ([above](#other-differences-you-may-meet)).
+
+[examples/guide_bytes.pts](examples/guide_bytes.pts):
+
+```ts
+// Without an encoding, pts:fs reads a file as its bytes: a Uint8Array, where Node gives a
+// Buffer (a Uint8Array with more methods). Writing takes text or a Uint8Array.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "pts:fs";
+import path from "pts:path";
+
+const dir = mkdtempSync("/tmp/guide-");
+const file = path.join(dir, "logo.png");
+writeFileSync(file, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+
+const bytes = readFileSync(file);
+console.log(bytes instanceof Uint8Array, bytes.length, bytes[1], bytes.join(" "));
+console.log(Array.from(bytes.subarray(1, 4)));
+
+// For the text, read with "utf8": `bytes.toString()` and `${bytes}` are compile errors.
+writeFileSync(file, "héllo");
+console.log(readFileSync(file).length, readFileSync(file, "utf8"));
+
+rmSync(dir, { recursive: true });
+```
+
+It prints this, as Node does with `node:fs`:
+
+```text
+true 8 80 137 80 78 71 13 10 26 10
+[ 80, 78, 71 ]
+6 héllo
+```
+
+[examples/hasher](../examples/hasher/main.pts) hashes files read this way, and [examples/mandelbrot](../examples/mandelbrot/main.pts) writes a PNG from a `Uint8Array`.
 
 ## Common compile errors
 
@@ -1322,4 +1449,5 @@ The rewrite of `await` inside `parallel` is the last part of the [tasks sample](
 - [DECISIONS.md](DECISIONS.md): why each choice was made.
 - [PROGRESS.md](../PROGRESS.md): what works today and the known issues.
 - [BENCHMARKS.md](BENCHMARKS.md): the performance numbers.
-- [examples/](examples/): the samples from this guide, and from the other docs.
+- [docs/examples/](examples/): the samples from this guide, and from the other docs.
+- [examples/](../examples/README.md): four whole programs (a file hasher, a PNG renderer, a JSON API server and a log analyzer) with their numbers.

@@ -1,0 +1,57 @@
+// fetch is a global, as in Node, with Request, Response, Headers and AbortController.
+// The sample fetches from a pts:http server of its own, so that it runs anywhere.
+import { serve } from "pts:http";
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (request.url.endsWith("/slow")) {
+      // Waits until the client leaves, which aborts request.signal.
+      await new Promise<void>((resolve) => request.signal.addEventListener("abort", () => resolve()));
+      return new Response("nobody reads this");
+    }
+    if (request.method === "POST") {
+      const order = await request.json();
+      return Response.json({ item: order.item, total: order.count * 2.5 }, { status: 201 });
+    }
+    return new Response("no such page", { status: 404 });
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// JSON in and out; the status and the headers are the response's.
+const created = await fetch(`${base}/orders`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ item: "tea", count: 4 }),
+});
+console.log(created.status, created.headers.get("content-type"), await created.json());
+
+// A 404 fulfils the promise too: check `ok` or `status`.
+const missing = await fetch(`${base}/menu`);
+console.log(missing.ok, missing.status, await missing.text());
+
+// An AbortController cancels a request: fetch rejects with an AbortError.
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 20);
+try {
+  await fetch(`${base}/slow`, { signal: controller.signal });
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+
+// Failures reject with Node's TypeError, whose cause says why; https isn't supported yet.
+try {
+  await fetch("https://example.com/");
+} catch (e) {
+  console.log((e as Error).message, "|", ((e as Error).cause as Error).message);
+}
+
+server.stop();
+
+// expect:
+// 201 application/json { item: 'tea', total: 10 }
+// false 404 no such page
+// AbortError This operation was aborted
+// fetch failed | https: is not supported yet: fetch speaks plain HTTP

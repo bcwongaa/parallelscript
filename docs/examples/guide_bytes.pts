@@ -1,0 +1,23 @@
+// Without an encoding, pts:fs reads a file as its bytes: a Uint8Array, where Node gives a
+// Buffer (a Uint8Array with more methods). Writing takes text or a Uint8Array.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "pts:fs";
+import path from "pts:path";
+
+const dir = mkdtempSync("/tmp/guide-");
+const file = path.join(dir, "logo.png");
+writeFileSync(file, new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+
+const bytes = readFileSync(file);
+console.log(bytes instanceof Uint8Array, bytes.length, bytes[1], bytes.join(" "));
+console.log(Array.from(bytes.subarray(1, 4)));
+
+// For the text, read with "utf8": `bytes.toString()` and `${bytes}` are compile errors.
+writeFileSync(file, "héllo");
+console.log(readFileSync(file).length, readFileSync(file, "utf8"));
+
+rmSync(dir, { recursive: true });
+
+// expect:
+// true 8 80 137 80 78 71 13 10 26 10
+// [ 80, 78, 71 ]
+// 6 héllo
