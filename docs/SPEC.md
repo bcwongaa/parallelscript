@@ -1371,3 +1371,8 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Unhandled rejections** (`promise.c`): `perform_then` for another loop's promise stores `handled` (sequentially consistent) before it posts the THEN message; `check_rejections` loads it sequentially consistently; `add_reaction` and `settle` use relaxed accesses.
 - **Tests:** `pts/runtime/tests/typed_array_test.c` (every alignment, overlap and length of `copyWithin` and `set` against `memmove`; `ArrayBuffer` slices from every offset), `typed_array_race_test.c` (threads racing element accesses and every bulk copy; under ThreadSanitizer too, which fails on the old `memcpy` code), `pts/tests/run/async_generators_foreign.pts` (one async generator drained from four loops at once: segfaulted before), `remote_rejection.pts` (a rejection in the same macrotask as another loop's await: reported unhandled before), `pts/tests/stress/race_iterators.pts` (a generator whose narrowed local two threads would break, and iterators over tuples, arrays, maps and sets shared by threads), `race_typed_arrays.pts` (now with bulk copies of doubles).
 
+### 9.100 Thenables (M6.0b1)
+
+- **Runtime** (D-144, `promise.c`): `thenable` returns `NOT_THENABLE`, `THENABLE` or `THEN_THREW`, reading `then` once under a handler; `resolve` rejects on `THEN_THREW`; `run_thenable` calls the `then` it captured through `call_catching` (which lost its receiver and method-name parameters). `dynamic.c`'s `object_get` binds an object literal's method (a field holding a function whose shape lists a method of that name) with `bind_method`.
+- **Tests:** `pts/tests/run/thenables.pts` (the review's probe 5; await, a class's then, first call wins, a then that isn't a function or throws; against Node).
+

@@ -291,11 +291,12 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
     - [x] **M6.0a2b Classes** (9360c208f): close the class TDZ and constructor-field NULL cases in Known issues.
   - [x] **M6.0a3 Checked conversions to primitives** (0c204b302) (finding 4): `toString`/`valueOf` called through descriptors are checked (OrdinaryToPrimitive); no signature-blind function casts anywhere in the runtime (grep for them).
   - [ ] **M6.0a4 The shared-memory contract** (finding 10): write a C-level shared-memory contract in `docs/ARCHITECTURE.md`, and make typed-array element reads and writes word-atomic (relaxed atomics) so values can't tear. Serialize concurrent requests to one async generator. Fix the remote rejection / handler-attachment race listed in Known issues.
-- [ ] **M6.0b Compatibility stabilization (from the review).**
-  - Findings 5–8: thenable resolution (`then` getter read once, failures reject, the captured callable invoked once); values read before an `await`/`yield` are snapshotted; iterator `done`/`value` read order and IteratorClose's original-error precedence (sync and async); erased generic factories that construct generic class instances (dispatch to specialized instances). Type arguments appear in conversion error messages.
-  - Make the IR effect classification exhaustive: an unknown node must not default to "constant" (`pts/cgen/order.go`).
-  - Classify every corpus skip as one of: by design, unsupported, bug. Fix the bugs where it's cheap, and record the rest in `PROGRESS.md`.
-  - Separate the corpus report into: Node-identical, intentional difference, unsupported, failing.
+- **M6.0b Compatibility stabilization (from the review).** Split by D-144 into:
+  - [ ] **M6.0b1 Thenables** (finding 5): thenable resolution (`then` getter read once, failures reject, the captured callable invoked once).
+  - [ ] **M6.0b2 Values read before a suspension** (finding 6): values read before an `await`/`yield` are snapshotted (compound assignments and getters too). Make the IR effect classification exhaustive: an unknown node must not default to "constant" (`pts/cgen/order.go`).
+  - [ ] **M6.0b3 The iterator protocol's order** (finding 7): iterator `done`/`value` read order and IteratorClose's original-error precedence (sync and async).
+  - [ ] **M6.0b4 Erased generic factories** (finding 8, ruling 6): erased generic factories that construct generic class instances (dispatch to specialized instances). Type arguments appear in conversion error messages.
+  - [ ] **M6.0b5 Corpus classification:** classify every corpus skip as one of: by design, unsupported, bug. Fix the bugs where it's cheap, and record the rest in `PROGRESS.md`. Separate the corpus report into: Node-identical, intentional difference, unsupported, failing.
 - [ ] **M6.0c Review decisions (orchestrator rulings, see `docs/agent/OWNER_ANSWERS.md`).** Apply the rulings recorded there for the review's "needs owner" items, and log each one in `docs/DECISIONS.md` (as D-numbers citing OWNER_ANSWERS).
 - [ ] **M6.3 `fetch`.** A global `fetch` over HTTP/1.1 per decision O10, with tests against a local server. Acceptance also covers (review): cross-loop handle use, disconnects and cancellation, backpressure, resource cleanup, pending requests and rejected promises, for the server too.
 - [ ] **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI:

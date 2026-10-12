@@ -305,7 +305,14 @@ static pts_value object_get(pts_object *object, pts_value key) {
   const char *name = key_text(key, buffer);
   const pts_field *field = field_named(type, name);
   if (field != NULL) {
-    return pts_value_present(pts_value_of_slot(field->kind, (const char *)object + field->offset));
+    pts_value value = pts_value_present(pts_value_of_slot(field->kind, (const char *)object + field->offset));
+    if (pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_FUNCTION) {
+      int64_t method = method_named(type, name, PTS_METHOD);
+      if (method >= 0) { /* an object literal's method: its closure takes the object first (D-044), so it is bound as a class's is */
+        return bind_method(object, &type->methods[method]);
+      }
+    }
+    return value;
   }
   int64_t getter = method_named(type, name, PTS_GETTER);
   if (getter >= 0) {

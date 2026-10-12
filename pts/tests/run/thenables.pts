@@ -1,0 +1,80 @@
+// Resolving promises with thenables (D-144): `then` is read once, so a getter runs once and
+// the function it returned is the one called; a getter that throws rejects the promise
+// instead of throwing out of resolve. The first lines are the review's probe 5 (finding 5).
+
+let reads = 0;
+const changing: any = {
+  get then(): (resolve: (value: number) => void) => void {
+    reads++;
+    const value = reads;
+    return (resolve: (value: number) => void): void => {
+      resolve(value);
+    };
+  },
+};
+console.log("changing", await Promise.resolve(changing), reads);
+
+const throwing: any = {
+  get then(): any {
+    throw new Error("getter");
+  },
+};
+try {
+  const promise = Promise.resolve(throwing);
+  console.log("returned");
+  await promise;
+} catch (error: any) {
+  console.log("caught", error.message);
+}
+const promise = new Promise((resolve) => resolve(throwing));
+console.log(
+  "executor",
+  await Promise.race([promise.then(() => "fulfilled", () => "rejected"), new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 30))]),
+);
+
+// await reads then once too.
+reads = 0;
+console.log("await", await changing, reads);
+
+// A class's then method keeps its this.
+class Later {
+  constructor(private readonly value: number) {}
+  then(resolve: (value: number) => void): void {
+    resolve(this.value * 2);
+  }
+}
+const later: any = new Later(21);
+console.log("class", await Promise.resolve(later));
+
+// The first call of the resolving functions wins; a throw after it is ignored.
+const resolvesThenThrows: any = {
+  then(resolve: (value: string) => void, reject: (reason: unknown) => void): void {
+    resolve("first");
+    reject(new Error("second"));
+    throw new Error("ignored");
+  },
+};
+console.log("first wins", await Promise.resolve(resolvesThenThrows));
+
+// A then that isn't a function: the object itself is the value.
+const notCallable: any = { then: 5 };
+console.log("not callable", (await Promise.resolve(notCallable)).then);
+
+// A then that throws before calling either function rejects.
+const thenThrows: any = {
+  then(): void {
+    throw new Error("in then");
+  },
+};
+await Promise.resolve(thenThrows).catch((error: any) => console.log("then threw", error.message));
+
+// expect:
+// changing 1 1
+// returned
+// caught getter
+// executor rejected
+// await 1 1
+// class 42
+// first wins first
+// not callable 5
+// then threw in then

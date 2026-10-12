@@ -198,18 +198,32 @@ static void settle(pts_promise *promise, int32_t state, pts_value result) {
   }
 }
 
-/* Whether value is a thenable, and its then: a promise's own (then is undefined), or an object's method. */
-static bool thenable(pts_value value, pts_value *then) {
+enum { NOT_THENABLE, THENABLE, THEN_THREW };
+
+/*
+ * Whether value is a thenable, and its then (read once: a getter runs once): a promise's
+ * own (then is undefined), or an object's method or function; or THEN_THREW and what
+ * reading then threw, which rejects instead of escaping (Get(resolution, "then")).
+ */
+static int thenable(pts_value value, pts_value *then) {
   *then = PTS_VALUE_UNDEFINED;
   if (is_promise(value)) {
-    return true;
+    return THENABLE;
   }
   if (!pts_value_is_object(value) || pts_value_as_object(value)->type->kind != PTS_KIND_OBJECT) {
-    return false;
+    return NOT_THENABLE;
   }
   PTS_STATIC_STRING(then_key, 1, 4, 4, "then");
-  *then = pts_dynamic_get(value, pts_value_from_string(then_key));
-  return is_callable(*then);
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    *then = pts_caught(&handler);
+    return THEN_THREW;
+  }
+  pts_value read = pts_dynamic_get(value, pts_value_from_string(then_key));
+  pts_try_leave(&handler);
+  *then = read;
+  return is_callable(read) ? THENABLE : NOT_THENABLE;
 }
 
 /* ResolvePromise, once its resolving functions have decided to: fulfilled with a value, or following a thenable from a job. */
@@ -223,8 +237,12 @@ static void resolve(pts_promise *promise, pts_value resolution) {
     return;
   }
   pts_value then;
-  if (!thenable(resolution, &then)) {
+  switch (thenable(resolution, &then)) {
+  case NOT_THENABLE:
     settle(promise, FULFILLED, resolution);
+    return;
+  case THEN_THREW:
+    settle(promise, REJECTED, then);
     return;
   }
   reaction *job = allocate(sizeof *job); /* NewPromiseResolveThenableJob */
@@ -332,17 +350,13 @@ static void resolving_functions(pts_promise *promise, pts_value functions[2]) {
 }
 
 /* Calls function(argv…) as a handler: false and its result, or true and what it threw. */
-static bool call_catching(pts_value function, pts_value self, const pts_string *method, uint32_t argc, const pts_value *argv, pts_value *outcome) {
+static bool call_catching(pts_value function, uint32_t argc, const pts_value *argv, pts_value *outcome) {
   pts_handler handler;
   volatile pts_value result = PTS_VALUE_UNDEFINED;
   pts_try_enter(&handler);
   if (_setjmp(handler.jump) == 0) {
-    if (method != NULL) {
-      result = pts_dynamic_call_method(self, pts_value_from_string(method), method, argc, argv);
-    } else {
-      PTS_STATIC_STRING(text, 1, 7, 7, "handler");
-      result = pts_dynamic_call(function, text, argc, argv);
-    }
+    PTS_STATIC_STRING(text, 1, 7, 7, "handler");
+    result = pts_dynamic_call(function, text, argc, argv);
     pts_try_leave(&handler);
     *outcome = result;
     return false;
@@ -460,7 +474,7 @@ static void run_reaction(reaction *r) {
   pts_value outcome = argument;
   bool threw = state == REJECTED;
   if (handler != PTS_VALUE_UNDEFINED) {
-    threw = call_catching(handler, PTS_VALUE_UNDEFINED, NULL, 1, &argument, &outcome);
+    threw = call_catching(handler, 1, &argument, &outcome);
   }
   if (r->derived == NULL) {
     return;
@@ -482,9 +496,8 @@ static void run_thenable(reaction *job) {
   }
   pts_value functions[2];
   resolving_functions(job->follower, functions);
-  PTS_STATIC_STRING(then_key, 1, 4, 4, "then");
-  pts_value thrown;
-  if (call_catching(job->then, job->thenable, then_key, 2, functions, &thrown)) {
+  pts_value thrown; /* the then that was read, not read again: methods read through any are bound to their object (D-075) */
+  if (call_catching(job->then, 2, functions, &thrown)) {
     reject_call((pts_closure *)pts_value_as_object(functions[1]), 1, &thrown);
   }
 }
@@ -593,7 +606,7 @@ pts_value pts_promise_construct(pts_value executor, const pts_string *text) {
   resolving_functions(promise, functions);
   pts_value thrown;
   (void)text;
-  if (call_catching(executor, PTS_VALUE_UNDEFINED, NULL, 2, functions, &thrown)) {
+  if (call_catching(executor, 2, functions, &thrown)) {
     reject_call((pts_closure *)pts_value_as_object(functions[1]), 1, &thrown);
   }
   return pts_value_from_object(promise);
