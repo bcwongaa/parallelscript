@@ -262,7 +262,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - The single guardrail: assigning a captured outer `let` inside a parallel body is a compile error, with a suggestion. **No other parallelism checks.**
 - [x] **M5.6a `pts:sync`: atomics, Mutex and Once** (b0fc4b831) (split from M5.6 by D-128). `Mutex<T>` (`withLock` and async `lock`), `AtomicInt`/`Atomic<int>` and `Once`.
 - [x] **M5.6b `pts:sync`: Channel** (cc0353252) (split from M5.6 by D-128; D-129). `Channel<T>` (bounded and unbounded, async `send`/`recv`, `close`, `for await`).
-- [ ] **M5.7a Stress tests and the race-safety invariant** (split from M5.7 by D-130).
+- [x] **M5.7a Stress tests and the race-safety invariant** (d91ca8bd6) (split from M5.7 by D-130).
   - Parallel stress tests, with a nightly CI job that runs them 100 times.
   - The race-safety invariant from brief §2.5, verified by targeted tests, with the runtime fixes they call for.
 - [ ] **M5.7b Parallel benchmarks and scaling** (split from M5.7 by D-130).
