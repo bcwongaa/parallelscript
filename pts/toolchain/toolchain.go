@@ -112,6 +112,7 @@ func (t *Toolchain) Runtime(ctx context.Context, profile Profile) (*Runtime, err
 	}{
 		{runtimeLibrary, profile.flags()},
 		{ryuLibrary, vendoredFlags},
+		{pcre2Library, vendoredFlags},
 		{libuvLibrary, vendoredFlags},
 		{bdwgcLibrary, vendoredFlags},
 		{libbacktraceLibrary, vendoredFlags},

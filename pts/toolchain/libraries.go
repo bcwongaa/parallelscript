@@ -92,12 +92,36 @@ var libbacktraceLibrary = library{
 	},
 }
 
+// PCRE2's 8-bit library, for RegExp (D-O09, D-132): Unicode support, no JIT, no 16- or
+// 32-bit libraries. Its configure-free build needs config.h, pcre2.h and the character
+// tables, copied next to it from its .generic and .dist files with Unicode support on.
+var pcre2Library = library{
+	name: "pcre2",
+	dir:  "pts/third_party",
+	sources: []string{
+		"pcre2-config/pcre2_chartables.c",
+		"pcre2/src/pcre2_auto_possess.c", "pcre2/src/pcre2_chkdint.c", "pcre2/src/pcre2_compile.c",
+		"pcre2/src/pcre2_compile_cgroup.c", "pcre2/src/pcre2_compile_class.c", "pcre2/src/pcre2_config.c",
+		"pcre2/src/pcre2_context.c", "pcre2/src/pcre2_convert.c", "pcre2/src/pcre2_dfa_match.c",
+		"pcre2/src/pcre2_error.c", "pcre2/src/pcre2_extuni.c", "pcre2/src/pcre2_find_bracket.c",
+		"pcre2/src/pcre2_jit_compile.c", "pcre2/src/pcre2_maketables.c", "pcre2/src/pcre2_match.c",
+		"pcre2/src/pcre2_match_data.c", "pcre2/src/pcre2_match_next.c", "pcre2/src/pcre2_newline.c",
+		"pcre2/src/pcre2_ord2utf.c", "pcre2/src/pcre2_pattern_info.c", "pcre2/src/pcre2_script_run.c",
+		"pcre2/src/pcre2_serialize.c", "pcre2/src/pcre2_string_utils.c", "pcre2/src/pcre2_study.c",
+		"pcre2/src/pcre2_substitute.c", "pcre2/src/pcre2_substring.c", "pcre2/src/pcre2_tables.c",
+		"pcre2/src/pcre2_ucd.c", "pcre2/src/pcre2_valid_utf.c", "pcre2/src/pcre2_xclass.c",
+	},
+	includes: []string{"pts/third_party/pcre2-config", "pts/third_party/pcre2/src"},
+	defines:  []string{"HAVE_CONFIG_H", "PCRE2_CODE_UNIT_WIDTH=8", "PCRE2_STATIC"},
+	keyFiles: []string{"pts/third_party/pcre2-config/config.h", "pts/third_party/pcre2-config/pcre2.h"},
+}
+
 // runtimeLibrary is the ParallelScript runtime itself.
 var runtimeLibrary = library{
 	name:     "ptsrt",
 	dir:      "pts/runtime",
 	glob:     "src/*.c",
-	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu", "pts/third_party/libbacktrace"},
+	includes: []string{"pts/runtime/include", "pts/third_party/bdwgc/include", "pts/third_party/libuv/include", "pts/third_party/ryu", "pts/third_party/libbacktrace", "pts/third_party/pcre2-config"},
 	flags:    []string{"-std=c11", "-Wall", "-Wextra", "-Werror=implicit-function-declaration"},
 	keyDirs:  []string{"pts/runtime/include", "pts/runtime/src"},
 }

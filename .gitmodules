@@ -15,3 +15,6 @@
 [submodule "pts/third_party/libbacktrace"]
 	path = pts/third_party/libbacktrace
 	url = https://github.com/ianlancetaylor/libbacktrace
+[submodule "pts/third_party/pcre2"]
+	path = pts/third_party/pcre2
+	url = https://github.com/PCRE2Project/pcre2.git

@@ -392,7 +392,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 ### 9.1 Runtime layout (M0.4)
 
 - `pts/runtime/include/pts.h` is the only header generated C includes. Sources are `pts/runtime/src/*.c`; C unit tests are `pts/runtime/tests/*_test.c` (each its own program; `go test ./pts/toolchain/` builds and runs them under ASan and UBSan).
-- `pts/toolchain` builds `libptsrt.a`, `libuv.a`, `libgc.a`, `libryu.a` and `libbacktrace.a` into `~/.cache/pts/` and links programs against them with `clang -std=c11` plus `-lpthread -ldl -lm -static-libgcc` (D-003, D-069). Output binaries depend only on libc. A fresh clone needs `git submodule update --init pts/third_party`.
+- `pts/toolchain` builds `libptsrt.a`, `libuv.a`, `libgc.a`, `libryu.a`, `libbacktrace.a` and `libpcre2.a` (D-132) into `~/.cache/pts/` and links programs against them with `clang -std=c11` plus `-lpthread -ldl -lm -static-libgcc` (D-003, D-069). Output binaries depend only on libc. A fresh clone needs `git submodule update --init pts/third_party`.
 - Static types compile to native C types: `number` → `double`, `boolean` → `bool`, `string` → `pts_string *`.
 - **Heap objects** start with `const pts_type *type`, their type's descriptor: kind, name, GC layout, size, fields and methods (§9.10, D-024).
 - **Strings** (`pts_string`): the header, `flags` (bit 0 = pure ASCII), `byte_len`, `utf16_len` (the JS `.length`), then NUL-terminated UTF-8 bytes. They are allocated with `GC_MALLOC_ATOMIC` (no pointers inside). Literals are static objects declared with `PTS_STATIC_STRING`. Lengths are `uint32_t`, and strings over 2^30 bytes throw `RangeError: Invalid string length`.
@@ -1068,3 +1068,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 
 - **Benchmarks** (D-131): `pts/bench/mandelbrot` (`.par.forEach` over rows into a Uint16Array), `sum_reduce` (100 million doubles filled by `parallel for`, then `.par.sum`, `.par.reduce` and `.par.max`), `word_count` (64 generated files counted by `.par.map` into maps), `fan_out` (64 uneven CPU-bound tasks started with `parallel`); each has `main.ts`, its sequential twin for Node and Bun, a goroutine twin `main.go`, and a `threads` file (`1 2 4 8`), which makes `run.sh` run ParallelScript once per `PTS_THREADS` value and print a table with the speedup over one thread.
 - **Runtime:** `pts_runtime_init` sets bdwgc's marker threads to 2 (`GC_set_markers_count`) before `GC_INIT`; `GC_MARKERS` overrides it.
+
+### 9.89 The RegExp core (M6.1a)
+
+- **PCRE2** (D-132): `pts/third_party/pcre2` (submodule, pcre2-10.49), `pts/third_party/pcre2-config` (`config.h` from `config.h.generic` with Unicode support, `pcre2.h` and `pcre2_chartables.c` copied from the `.generic` and `.dist` files), `pcre2Library` (`pts/toolchain/libraries.go`): the 8-bit library, no JIT.
+- **Runtime** (`regexp.c`): `pts_regex_compile` (`parse_flags`; `scan_groups` counts the groups and keeps their names; `translate` writes PCRE2's syntax: `escape`, `character_class`, `group_open` with `(?ims-ims:` modifiers, `braces_quantifier`, `line_start`/`line_end`/`dot`; V8's messages through `fail` and `syntax_error`), compiled with `PCRE2_UTF | PCRE2_UCP | PCRE2_MATCH_INVALID_UTF | PCRE2_ALLOW_EMPTY_CLASS | PCRE2_MATCH_UNSET_BACKREF` and the extra options `ASCII_BSD`, `ASCII_BSW` and (without `u`) `CASELESS_RESTRICT`, all memory from the collector (`general_context`); `pts_regex_exec` with a `pts_regex_cursor` (`seek_unit`, `seek_byte`); `pts_regex_group_count`, `pts_regex_group_name`, `pts_regex_flags`, `pts_regex_escape_source`.
+- **Tests:** `pts/runtime/tests/regexp_test.c` (expected results from Node).

@@ -1665,6 +1665,46 @@ pts_array *pts_typed_array_to_array(const pts_typed_array *array);
 PTS_TYPED_ARRAYS(PTS_TYPED_ARRAY_ACCESS)
 #undef PTS_TYPED_ARRAY_ACCESS
 
+/* ---------------------------------------------------------------- regular expressions (D-132) */
+
+/* A compiled regular expression: a JS pattern translated to PCRE2's syntax. Immutable, so threads share it. */
+typedef struct pts_regex pts_regex;
+
+/* JS's flags, as pts_regex_flags reports them. */
+enum {
+  PTS_REGEX_HAS_INDICES = 1u << 0, /* d */
+  PTS_REGEX_GLOBAL = 1u << 1,      /* g */
+  PTS_REGEX_IGNORE_CASE = 1u << 2, /* i */
+  PTS_REGEX_MULTILINE = 1u << 3,   /* m */
+  PTS_REGEX_DOT_ALL = 1u << 4,     /* s */
+  PTS_REGEX_UNICODE = 1u << 5,     /* u */
+  PTS_REGEX_STICKY = 1u << 6,      /* y */
+};
+
+/* Compiles a JS pattern with JS's flag letters; throws SyntaxError with V8's message for invalid flags or patterns. */
+pts_regex *pts_regex_compile(const pts_string *pattern, const pts_string *flags);
+unsigned pts_regex_flags(const pts_regex *regex);
+/* The number of capturing groups. */
+uint32_t pts_regex_group_count(const pts_regex *regex);
+/* The name of capturing group group (1-based), or NULL if it has none. */
+pts_string *pts_regex_group_name(const pts_regex *regex, uint32_t group);
+/* pattern as RegExp's `source` shows it: `/` and line terminators escaped, "(?:)" for an empty one. */
+pts_string *pts_regex_escape_source(const pts_string *pattern);
+
+/* A UTF-16 index in a string and its byte offset: a loop over a string's matches carries it from one match to the next. */
+typedef struct pts_regex_cursor {
+  uint32_t unit, byte;
+} pts_regex_cursor;
+
+/*
+ * Matches regex in subject at UTF-16 index from or, unless anchored, after it. On a match
+ * it stores each group's start and end (group 0 is the whole match) as UTF-16 indices in
+ * captures[2g] and captures[2g + 1], -1 for a group that took no part, and moves *cursor
+ * (a known position at or before from; {0, 0} will do) to the match's end.
+ */
+bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t from, bool anchored, pts_regex_cursor *cursor,
+                    int64_t *captures);
+
 /* ---------------------------------------------------------------- pts:sync (D-128) */
 
 /* 64-bit atomic cells in the first 8 bytes of a buffer; add and compare_exchange return the value before, as JS's Atomics do. */
