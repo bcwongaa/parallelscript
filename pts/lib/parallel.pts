@@ -1,5 +1,5 @@
 // pts:parallel: data parallelism over the fork-join pool (D-122, D-123). `xs.par` is a
-// ParallelArray view of an array, range(start, end) the integers start..end-1, whose
+// ParallelArray view of an array (a ParallelTypedArray of a typed array, D-126), range(start, end) the integers start..end-1, whose
 // `.par` is a ParallelRange, and join(a, b) runs two closures, perhaps at once. Every
 // method is synchronous: it returns once every piece is done, its results in the order of
 // the elements. A callback may run on several threads at once (D-L16, D-L17).
@@ -215,6 +215,201 @@ export class ParallelArray<T> {
     }
 }
 
+// What ParallelTypedArray uses of a typed array (D-126). Not a union of the typed arrays:
+// tsc types a value of a type parameter whose constraint is a union as the union where
+// its members are read, which would hide the typed array of the view's instance.
+interface TypedArrayLike {
+    readonly length: number;
+    [index: number]: number;
+    slice(start?: number, end?: number): TypedArrayLike;
+    subarray(begin?: number, end?: number): this;
+    set(array: ArrayLike<number>, offset?: number): void;
+    sort(): TypedArrayLike;
+}
+
+// A parallel view of a typed array (D-126): ParallelArray's methods over its elements, which
+// are numbers; map and filter make typed arrays of its kind, as its own map and filter do.
+export class ParallelTypedArray<A extends TypedArrayLike> {
+    constructor(private readonly items: A) {}
+
+    // A new typed array of callback's value for each element, in order.
+    map(callback: ParallelCallback<(value: number, index: number, array: A) => number>): A {
+        const items = this.items;
+        const results = items.slice() as A;
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                results[i] = callback(items[i], i, items);
+            }
+        }, items.length);
+        return results;
+    }
+
+    forEach(callback: ParallelCallback<(value: number, index: number, array: A) => void>): void {
+        const items = this.items;
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                callback(items[i], i, items);
+            }
+        }, items.length);
+    }
+
+    // A new typed array of the elements predicate holds for, in order.
+    filter(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): A {
+        const items = this.items;
+        const kept = pts_parallel_reduce((from, to) => {
+            const piece: number[] = [];
+            for (let i = from; i < to; i++) {
+                if (predicate(items[i], i, items)) {
+                    piece.push(items[i]);
+                }
+            }
+            return piece;
+        }, (left, right) => {
+            const joined = left as number[];
+            joined.push(...(right as number[]));
+            return joined;
+        }, items.length) as number[];
+        const results = items.slice(0, kept.length) as A;
+        results.set(kept);
+        return results;
+    }
+
+    // The elements folded with callback, which must be associative, from initial, which must be its identity.
+    reduce(callback: ParallelCallback<(left: number, right: number) => number>, initial: number): number {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let accumulator = initial;
+            for (let i = from; i < to; i++) {
+                accumulator = callback(accumulator, items[i]);
+            }
+            return accumulator;
+        }, (left, right) => callback(left as number, right as number), items.length);
+        return total as number;
+    }
+
+    some(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): boolean {
+        return this.findFound(predicate).found;
+    }
+
+    every(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): boolean {
+        return !this.findFound((value, index, array) => !predicate(value, index, array)).found;
+    }
+
+    // An element predicate holds for (any one, not necessarily the first), or undefined.
+    find(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): number | undefined {
+        return this.findFound(predicate).value;
+    }
+
+    count(predicate: ParallelCallback<(value: number, index: number, array: A) => unknown>): number {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let n = 0;
+            for (let i = from; i < to; i++) {
+                if (predicate(items[i], i, items)) {
+                    n++;
+                }
+            }
+            return n;
+        }, (left, right) => (left as number) + (right as number), items.length);
+        return total as number;
+    }
+
+    sum(): number {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let sum = 0;
+            for (let i = from; i < to; i++) {
+                sum += items[i];
+            }
+            return sum;
+        }, (left, right) => (left as number) + (right as number), items.length);
+        return total as number;
+    }
+
+    min(): number {
+        const items = this.items;
+        const least = pts_parallel_reduce((from, to) => {
+            let min = Infinity;
+            for (let i = from; i < to; i++) {
+                min = Math.min(min, items[i]);
+            }
+            return min;
+        }, (left, right) => Math.min(left as number, right as number), items.length);
+        return least as number;
+    }
+
+    max(): number {
+        const items = this.items;
+        const greatest = pts_parallel_reduce((from, to) => {
+            let max = -Infinity;
+            for (let i = from; i < to; i++) {
+                max = Math.max(max, items[i]);
+            }
+            return max;
+        }, (left, right) => Math.max(left as number, right as number), items.length);
+        return greatest as number;
+    }
+
+    flatMap<U>(callback: ParallelCallback<(value: number, index: number, array: A) => U | U[]>): U[] {
+        const items = this.items;
+        return new ParallelArray(Array.from(items)).flatMap((value, index) => callback(value, index, items));
+    }
+
+    // Sorts the typed array in place and returns it, as its own sort does: by compare, or
+    // without one in numeric order (-0 before 0, NaN last).
+    sort(compare?: ParallelCallback<(a: number, b: number) => number>): A {
+        const items = this.items;
+        if (compare !== undefined) {
+            const numbers = Array.from(items);
+            sortInPlace(numbers, compare);
+            items.set(numbers);
+            return items;
+        }
+        const threads = pts_parallel_threads();
+        if (threads === 1) {
+            items.sort();
+            return items;
+        }
+        // The pieces sort with the typed array's own sort, in place, and then merge.
+        const piece = Math.max(SEQUENTIAL_SORT, Math.ceil(items.length / (threads * PIECES_PER_THREAD)));
+        sortRun(items, items.slice() as A, 0, items.length, piece, compareNumbers, (from, to) => {
+            items.subarray(from, to).sort();
+        });
+        return items;
+    }
+
+    // Sorts the typed array in place, stably, by key's value for each element, and returns it.
+    sortBy<K extends number | string>(key: ParallelCallback<(value: number) => K>): A {
+        const items = this.items;
+        const numbers = Array.from(items);
+        new ParallelArray(numbers).sortBy(key);
+        items.set(numbers);
+        return items;
+    }
+
+    // A new number[] of the elements.
+    toArray(): number[] {
+        return Array.from(this.items);
+    }
+
+    private findFound(predicate: (value: number, index: number, array: A) => unknown): Found<number> {
+        const items = this.items;
+        const done = { found: false };
+        const result = pts_parallel_reduce((from, to) => {
+            const piece: Found<number> = { found: false, value: undefined };
+            for (let i = from; i < to && !done.found; i++) {
+                if (predicate(items[i], i, items)) {
+                    piece.found = true;
+                    piece.value = items[i];
+                    done.found = true;
+                }
+            }
+            return piece;
+        }, (left, right) => ((left as Found<number>).found ? left : right), items.length);
+        return result as Found<number>;
+    }
+}
+
 // The integers start, start + 1, …, end - 1 (none if end <= start).
 export class Range {
     constructor(readonly start: number, readonly end: number) {}
@@ -394,6 +589,17 @@ function compareDefault(a: string | undefined, b: string | undefined): number {
     return a < b ? -1 : b < a ? 1 : 0;
 }
 
+// A typed array's default order: numeric, -0 before 0, NaN last.
+function compareNumbers(a: number, b: number): number {
+    if (a !== a || b !== b) {
+        return (a !== a ? 1 : 0) - (b !== b ? 1 : 0);
+    }
+    if (a === 0 && b === 0) {
+        return (Object.is(b, -0) ? 1 : 0) - (Object.is(a, -0) ? 1 : 0);
+    }
+    return a < b ? -1 : b < a ? 1 : 0;
+}
+
 // Puts items in the order order lists their indices in, in place, and returns items.
 function permute<T>(items: T[], order: number[]): T[] {
     const sorted = new ParallelArray(order).map((index) => items[index]);
@@ -414,20 +620,28 @@ function sortInPlace<T>(items: T[], compare: (a: T, b: T) => number): void {
         return;
     }
     const piece = Math.max(SEQUENTIAL_SORT, Math.ceil(items.length / (threads * PIECES_PER_THREAD)));
-    sortRun(items, items.slice(), 0, items.length, piece, compare);
+    sortRun(items, items.slice(), 0, items.length, piece, compare, (from, to) => {
+        const sorted = items.slice(from, to).sort(compare);
+        for (let i = 0; i < sorted.length; i++) {
+            items[from + i] = sorted[i];
+        }
+    });
 }
 
-// Sorts items[from..to), using buffer[from..to) for the merge.
-function sortRun<T>(items: T[], buffer: T[], from: number, to: number, piece: number, compare: (a: T, b: T) => number): void {
+// What the merge sort sorts: an array, or a typed array (D-126).
+interface Indexed<T> {
+    [index: number]: T;
+}
+
+// Sorts items[from..to), using buffer[from..to) for the merge: runs of at most piece
+// elements by sortPiece, longer ones by merging their sorted halves.
+function sortRun<T, S extends Indexed<T>>(items: S, buffer: S, from: number, to: number, piece: number, compare: (a: T, b: T) => number, sortPiece: (from: number, to: number) => void): void {
     if (to - from <= piece) {
-        const piece = items.slice(from, to).sort(compare);
-        for (let i = 0; i < piece.length; i++) {
-            items[from + i] = piece[i];
-        }
+        sortPiece(from, to);
         return;
     }
     const middle = from + Math.floor((to - from) / 2);
-    join(() => sortRun(items, buffer, from, middle, piece, compare), () => sortRun(items, buffer, middle, to, piece, compare));
+    join(() => sortRun(items, buffer, from, middle, piece, compare, sortPiece), () => sortRun(items, buffer, middle, to, piece, compare, sortPiece));
     mergeRuns(items, from, middle, middle, to, buffer, from, compare);
     pts_parallel_for((start, end) => {
         for (let i = from + start; i < from + end; i++) {
@@ -440,7 +654,7 @@ function sortRun<T>(items: T[], buffer: T[], from: number, to: number, piece: nu
 // from at on, stably: the left run's elements first among equals. A long merge splits at
 // the longer run's middle element, found in the other run by binary search, and merges
 // the two halves at once.
-function mergeRuns<T>(source: T[], left: number, leftEnd: number, right: number, rightEnd: number, target: T[], at: number, compare: (a: T, b: T) => number): void {
+function mergeRuns<T, S extends Indexed<T>>(source: S, left: number, leftEnd: number, right: number, rightEnd: number, target: S, at: number, compare: (a: T, b: T) => number): void {
     if (leftEnd - left + (rightEnd - right) <= SEQUENTIAL_SORT) {
         while (left < leftEnd && right < rightEnd) {
             if (compare(source[right], source[left]) < 0) {

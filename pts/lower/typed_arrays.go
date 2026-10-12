@@ -150,6 +150,9 @@ func (l *lowerer) typedArrayProperty(node *ast.Node) (x ir.Expr, handled bool) {
 	if l.typedArrayClass(node.Expression()) == nil && !isBuffer {
 		return nil, false
 	}
+	if name == "par" && !isBuffer {
+		return l.parallelView(node), true // a ParallelTypedArray (D-126)
+	}
 	object := l.expression(node.Expression())
 	if object == nil {
 		return nil, true

@@ -91,3 +91,32 @@ declare function parallel<T>(task: T): Promise<Awaited<T>>;
 interface Array<T> {
     readonly par: import("pts:parallel").ParallelArray<T>;
 }
+
+// `ta.par`: a parallel view of a typed array (D-126).
+interface Int8Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Int8Array<TArrayBuffer>>;
+}
+interface Uint8Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Uint8Array<TArrayBuffer>>;
+}
+interface Uint8ClampedArray<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Uint8ClampedArray<TArrayBuffer>>;
+}
+interface Int16Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Int16Array<TArrayBuffer>>;
+}
+interface Uint16Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Uint16Array<TArrayBuffer>>;
+}
+interface Int32Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Int32Array<TArrayBuffer>>;
+}
+interface Uint32Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Uint32Array<TArrayBuffer>>;
+}
+interface Float32Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Float32Array<TArrayBuffer>>;
+}
+interface Float64Array<TArrayBuffer extends ArrayBufferLike> {
+    readonly par: import("pts:parallel").ParallelTypedArray<Float64Array<TArrayBuffer>>;
+}
