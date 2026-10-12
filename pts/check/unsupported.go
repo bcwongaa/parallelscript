@@ -52,6 +52,8 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 		c.report(node, diagnostic.Unsupported, "`symbol` is not supported, except `Symbol.iterator` and `Symbol.asyncIterator`")
 	case ast.KindRegularExpressionLiteral:
 		c.report(node, diagnostic.NotSupportedYet, "RegExp arrives in M6")
+	case ast.KindCallExpression:
+		c.parallelOperator(node)
 	case ast.KindClassDeclaration, ast.KindFunctionDeclaration, ast.KindEnumDeclaration, ast.KindInterfaceDeclaration:
 		c.declarationMerging(node)
 	}

@@ -35,6 +35,9 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `internal/checker/pts.go` | Export for generic calls whose result goes to a union of object types (D-095): `PtsInferTypeArgumentsFromResult` (a generic signature's type arguments inferred from its return type and a target type alone). | M3.7b | efc40f2eb |
 | `internal/checker/checker.go` | Calls into `pts.go`: `getDeclaredTypeOfTypeAlias` (`ptsNumericAliasType`), `checkPrefixUnaryExpression` for `+x` and `getUnaryResultType` (`ptsUnaryType`), the arithmetic and `+` cases of `checkBinaryLikeExpressionWorker` (`ptsArithmeticType`). | M2.6a | 5ebc5408e |
 | `internal/checker/nodebuilderimpl.go` | `typeToTypeNode`: a number type other than `number` itself (one of D-048's) prints as a reference to its name. | M2.6a | 5ebc5408e |
+| `internal/ast/nodeflags.go` | `NodeFlagsPtsParallel` (bit 29): marks the call node of ParallelScript's `parallel e` and a `parallel for` statement (D-120). | M5.1 | (M5.1) |
+| `internal/parser/parser.go` | Hooks into `internal/parser/pts.go` (new file): `parseStatement` tries `parallel for (…)` first; `parseUnaryExpressionOrHigher` and `parseSimpleUnaryExpression` try `parallel e` before an update expression (D-O05, D-120). | M5.1 | (M5.1) |
+| `internal/parser/pts.go`, `internal/parser/pts_test.go` (new files) | The contextual keyword: `parallel e` parses as a call of `parallel` marked `NodeFlagsPtsParallel` (operand: a unary expression, or an arrow function), `parallel for` as the for statement marked the same way; every other `parallel` is an identifier. Tests of both forms and of `parallel` as a name. | M5.1 | (M5.1) |
 | `.gitignore` | A `# PTS:` section: ignore `.venv/`, `__pycache__/`, root and `pts/**` build dirs, `*.env`, the `pts` binary; re-include `pts/tests/**/*.out`, which upstream's `*.out` rule would hide. | M0.1 | 3441372 |
 
 ## Disabled or limited upstream workflows

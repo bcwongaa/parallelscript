@@ -225,6 +225,7 @@ Async functions and generators compile to state machines. Locals that live acros
 - `parallel` is the operator only when the next token is on the same line and starts an expression **other than** `(`, `[`, `.`, `?.`, a template, `=`, an operator, `,`, `;`, `)` or `}`. Examples: `parallel foo(x)`, `parallel new X()`, `parallel async () => …`, `parallel await x`, `parallel "lit"`.
 - `parallel for (` is the loop statement (§5.5).
 - `parallel(expr)` parses as a normal call. The checker reinterprets it as the operator **only if** no binding named `parallel` is in scope and the call has exactly one argument.
+- How (D-120): `parallel e` is a call of the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` marked by the parser, so tsc types both forms; the operand is a unary expression, as `await`'s (`parallel f(x) + 1` is `(parallel f(x)) + 1`), or an arrow function. `parallel` followed by `=>`, `:`, `?`, `!`, `++`, `--`, `as`, `satisfies` or `of` is also the identifier. `parallel e` where a binding named `parallel` is in scope, and a function as the operand (whose task would only make the function), are compile errors.
 
 ### 5.4 Data parallelism
 
@@ -971,3 +972,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering and C:** `ir.Func.Settles` (an intrinsic returning a Promise, `declareIntrinsic`), which sets cgen's `usesLoop`.
 - **Runtime:** `fs.c` jobs (`run`, `finish`, `run_now`, `start`/`work`/`done` over `uv_queue_work`); `pts_promise_pending`, `pts_promise_settle` (`promise.c`); `pts_uv_loop` (`loop.c`).
 - **Tests:** `pts/tests/run/fs_promises` (also run under Node); `pts/tests/errors/pts_module_internal.pts`.
+
+### 9.77 The `parallel` keyword (M5.1)
+
+- **Fork:** `ast.NodeFlagsPtsParallel`; `internal/parser/pts.go` (`isPtsParallelOperator`, `parsePtsParallelOperator`, `isPtsParallelFor`, `parsePtsParallelFor`) with three hooks in `parser.go` (D-120, `docs/FORK.md`).
+- **Prelude:** `declare function parallel<T>(task: T): Promise<Awaited<T>>`.
+- **Check** (`pts/check/parallel.go`): `parallelOperator` (a shadowing binding; a function operand).
+- **Lowering:** `isParallelCall` (`library.go`); both forms are PTS1001 until M5.2 and M5.5.
+- **Tests:** `internal/parser/pts_test.go`; `pts/tests/errors/parallel_not_yet.pts`, `parallel_forms.pts`; `pts/tests/run/parallel_identifier.pts`.

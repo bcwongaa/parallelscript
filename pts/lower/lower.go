@@ -364,6 +364,10 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 
 // statement lowers one statement to zero or more IR statements.
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
+	if node.Flags&ast.NodeFlagsPtsParallel != 0 {
+		l.notSupportedYet(node, "`parallel for` (M5.5) is")
+		return nil
+	}
 	if l.function.Generator && !l.hoisting[node] {
 		if yield := statementYield(node); yield != nil && l.yielded[yield] == nil && !l.hasYield(yield.Expression()) {
 			return l.yieldingStatement(node, yield)
@@ -1493,6 +1497,10 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	if object, key, ok := l.hasOwnPropertyCall(call); ok {
 		return l.hasOwnProperty(object, key)
+	}
+	if l.isParallelCall(call) {
+		l.notSupportedYet(node, "running a task with `parallel` (M5.2) is")
+		return nil
 	}
 	if x, handled := l.intrinsicCall(call); handled {
 		return x

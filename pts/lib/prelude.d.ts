@@ -81,3 +81,8 @@ declare var process: import("pts:process").Process;
 declare namespace NodeJS {
     type ErrnoException = import("pts:process").ErrnoException;
 }
+
+// `parallel e` (D-O05, D-120): the parser makes it a call of this function with e as the
+// argument, and `parallel(e)` is one when no binding named parallel is in scope, so the
+// checker types both as a promise of e's awaited value. The compiler runs e as a task.
+declare function parallel<T>(task: T): Promise<Awaited<T>>;

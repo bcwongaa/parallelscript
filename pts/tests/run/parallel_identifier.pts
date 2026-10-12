@@ -1,0 +1,27 @@
+// `parallel` is a keyword only as `parallel e` and `parallel for`; everywhere else it is
+// an ordinary name, as in TypeScript (D-O05, D-120). Node prints the same.
+const parallel = { level: 2, run(n: number): number { return n * this.level; } };
+console.log(parallel.level, parallel.run(5), parallel["level"], typeof parallel);
+function count(parallel: number): number {
+    return parallel + 1;
+}
+console.log(count(1), [1, 2].map((parallel) => parallel * 3));
+class Job {
+    parallel = true;
+    parallel2(): string { return "method"; }
+}
+const job = new Job();
+console.log(job.parallel, job.parallel2(), { parallel: 1 }.parallel);
+let flag = parallel.level > 1 ? parallel.level : 0;
+flag += parallel.level;
+console.log(flag, `${parallel.level}`);
+outer: for (const parallelism of [1, 2, 3]) {
+    if (parallelism === 2) break outer;
+    console.log("loop", parallelism);
+}
+// expect:
+// 2 10 2 object
+// 2 [ 3, 6 ]
+// true method 1
+// 4 2
+// loop 1

@@ -1062,6 +1062,9 @@ func (p *Parser) parseOptionalTokenJSDoc(kind ast.Kind) *ast.Node {
 }
 
 func (p *Parser) parseStatement() *ast.Statement {
+	if p.isPtsParallelFor() { // PTS: `parallel for (…)` (D-120)
+		return p.parsePtsParallelFor()
+	}
 	switch p.token {
 	case ast.KindSemicolonToken:
 		return p.parseEmptyStatement()
@@ -4677,6 +4680,9 @@ func (p *Parser) parseUnaryExpressionOrHigher() *ast.Expression {
 	//      3) LeftHandSideExpression[?Yield][no LineTerminator here]--
 	//      4) ++UnaryExpression[?Yield]
 	//      5) --UnaryExpression[?Yield]
+	if p.isPtsParallelOperator() { // PTS: `parallel e` (D-120)
+		return p.parsePtsParallelOperator()
+	}
 	if p.isUpdateExpression() {
 		pos := p.nodePos()
 		updateExpression := p.parseUpdateExpression()
@@ -5088,6 +5094,9 @@ func (p *Parser) parseSimpleUnaryExpression() *ast.Expression {
 		}
 		fallthrough
 	default:
+		if p.isPtsParallelOperator() { // PTS: `parallel e` (D-120)
+			return p.parsePtsParallelOperator()
+		}
 		return p.parseUpdateExpression()
 	}
 }

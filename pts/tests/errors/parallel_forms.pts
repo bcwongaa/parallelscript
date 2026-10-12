@@ -1,0 +1,10 @@
+// Forms of `parallel e` that can't mean what they say are errors (D-120): the operator
+// where a binding named parallel would be called instead, and a function as the operand.
+const run = parallel async () => 1;
+function shadow(): void {
+    const parallel = (n: number): number => n;
+    console.log(parallel 5);
+}
+console.log(run, shadow);
+// error: parallel_forms.pts:3:22 - error PTS1002: the operand of `parallel` is a function, so its task would only make the function; give it the call instead (`parallel work()`)
+// error: parallel_forms.pts:6:17 - error PTS1002: `parallel e` here would call the binding named `parallel` in scope; rename the binding to use the operator

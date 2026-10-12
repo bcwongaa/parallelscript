@@ -67,6 +67,17 @@ func notSupportedYetTag(declaration *ast.Node) string {
 	return ""
 }
 
+// isParallelCall reports whether call is `parallel e` or `parallel(e)` of the prelude's
+// parallel (D-120), which runs e as a task.
+func (l *lowerer) isParallelCall(call *ast.CallExpression) bool {
+	callee := ast.SkipParentheses(call.Expression)
+	if callee.Kind != ast.KindIdentifier || callee.Text() != "parallel" {
+		return false
+	}
+	symbol := l.checker.GetSymbolAtLocation(callee)
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsFunction != 0 && isPreludeSymbol(symbol)
+}
+
 // intrinsicCall lowers a call of an intrinsic; handled is false for other calls.
 func (l *lowerer) intrinsicCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
