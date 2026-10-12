@@ -48,6 +48,8 @@ func (c *pass) unsupportedFeature(node *ast.Node) {
 		c.report(node, diagnostic.Unsupported, "namespaces are not supported; use ES modules (`import` and `export`)")
 	case ast.KindBigIntLiteral, ast.KindBigIntKeyword:
 		c.report(node, diagnostic.Unsupported, "BigInt is not supported yet")
+	case ast.KindDecorator:
+		c.report(node, diagnostic.NotSupportedYet, "decorators are not supported yet") // Node can't run them either, so nothing else would notice they never ran
 	case ast.KindSymbolKeyword:
 		c.report(node, diagnostic.Unsupported, "`symbol` is not supported, except `Symbol.iterator` and `Symbol.asyncIterator`")
 	case ast.KindCallExpression:

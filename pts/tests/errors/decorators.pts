@@ -1,0 +1,12 @@
+// Decorators are not supported yet: they compiled and silently never ran.
+function logged(target: any, context: any) {
+  console.log("decorating", context.name);
+  return target;
+}
+class Service {
+  @logged
+  start() {}
+}
+console.log(new Service());
+
+// error: decorators.pts:7:3 - error PTS1001: decorators are not supported yet

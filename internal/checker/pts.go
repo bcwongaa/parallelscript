@@ -2,7 +2,7 @@ package checker
 
 // PTS: ParallelScript's numeric types (docs/FORK.md, D-048). This file is new; the other
 // edits are the calls in getDeclaredTypeOfTypeAlias, checkPrefixUnaryExpression,
-// getUnaryResultType and checkBinaryLikeExpressionWorker.
+// getUnaryResultType and checkBinaryLikeExpression.
 
 import (
 	"github.com/microsoft/typescript-go/internal/ast"
