@@ -1900,18 +1900,20 @@ pts_value pts_match_groups(const pts_array *array);
 /* ---------------------------------------------------------------- pts:http (D-136) */
 
 /*
- * Listens on hostname:port (port 0: any free port) on this loop and calls on_request, a
- * (id, method, target, headers, body) => void, for each request: headers are lowercase
- * names and values in turn. Returns the server's id; Error with Node's message (`listen
- * EADDRINUSE: …`) if it can't listen.
+ * Listens on hostname:port (port 0: any free port) on this loop and calls on_request, an
+ * (id, method, target, headers, body) => Request, for each request: headers are lowercase
+ * names and values in turn. If the client leaves before the request is answered (or
+ * stop(true) closes its connection), on_disconnect, a (request) => void, gets the Request
+ * on_request returned (D-163). Returns the server's id; Error with Node's message
+ * (`listen EADDRINUSE: …`) if it can't listen.
  */
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, struct pts_closure *on_request);
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, struct pts_closure *on_request, struct pts_closure *on_disconnect);
 /* Answers request id (ignored if its connection has closed): headers are names and values in turn. */
 void pts_http_respond(double id, double status, pts_string *status_text, pts_array *headers, pts_string *body);
 /* The port server id listens on. */
 double pts_http_port(double id);
-/* Stops server id: no more connections; idle ones close, busy ones after their responses. */
-void pts_http_stop(double id);
+/* Stops server id: no more connections; idle ones close, busy ones after their responses, or at once if close_active. */
+void pts_http_stop(double id, bool close_active);
 /*
  * fetch's request (D-160, D-162): method target HTTP/1.1 to host:port with the headers
  * (names and values in turn) and, if has_body, the body with its content-length, on this

@@ -1,0 +1,71 @@
+// pts:http's server (D-163) under clients that leave while their requests are handled,
+// read slowly or pipeline many requests, and stop() with requests in flight, for
+// TestHTTPServerLifecycle. It prints what its handlers see, one line each, so the test can
+// follow along. The second server shows stop(true), which closes active connections; one
+// server is stopped from another loop, the other from a pool thread.
+import { serve, Server } from "pts:http";
+
+const big = "b".repeat(1024 * 1024);
+
+function later(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Resolves when the request's signal aborts, with the reason's name.
+function left(request: Request): Promise<string> {
+  return new Promise((resolve) => request.signal.addEventListener("abort", () => resolve(request.signal.reason.name)));
+}
+
+function pathOf(request: Request): string {
+  return request.url.slice(request.url.indexOf("/", 8));
+}
+
+const server: Server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    switch (pathOf(request)) {
+      case "/hold": {
+        console.log("holding");
+        console.log("client left:", await left(request));
+        return new Response("nobody reads this");
+      }
+      case "/ignore": {
+        console.log("ignoring");
+        await later(1500);
+        console.log("answered late:", request.signal.aborted);
+        return new Response("late");
+      }
+      case "/slow": {
+        console.log("slow");
+        await later(300);
+        return new Response("slow done");
+      }
+      case "/big":
+        return new Response(big);
+      case "/tiny":
+        return new Response("t");
+      case "/stop":
+        await parallel server.stop(); // from another loop
+        console.log("stopped");
+        return new Response("stopping");
+    }
+    return new Response("no such page", { status: 404 });
+  },
+});
+
+const abrupt: Server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (pathOf(request) === "/hold") {
+      console.log("holding on the second server");
+      console.log("closed by stop(true):", await left(request));
+      return new Response("nobody reads this");
+    }
+    setTimeout(() => [0].par.forEach(() => abrupt.stop(true)), 10); // from a pool thread, after this answer is out
+    return new Response("stopping now");
+  },
+});
+
+console.log("listening", server.port, abrupt.port);

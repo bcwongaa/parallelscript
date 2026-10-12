@@ -412,3 +412,179 @@ func TestFetchUnderSanitizers(t *testing.T) {
 		})
 	}
 }
+
+// openFiles is how many files process pid has open.
+func openFiles(t *testing.T, pid int) int {
+	t.Helper()
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
+	assert.NilError(t, err)
+	return len(entries)
+}
+
+// residentMB is how much memory process pid has resident, in MB.
+func residentMB(t *testing.T, pid int) float64 {
+	t.Helper()
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	assert.NilError(t, err)
+	m := regexp.MustCompile(`VmRSS:\s+(\d+) kB`).FindSubmatch(status)
+	assert.Assert(t, m != nil, "no VmRSS in /proc/%d/status", pid)
+	var kb float64
+	_, err = fmt.Sscan(string(m[1]), &kb)
+	assert.NilError(t, err)
+	return kb / 1024
+}
+
+// eventually fails unless done reports true within d.
+func eventually(t *testing.T, d time.Duration, done func() bool, what string) {
+	t.Helper()
+	for deadline := time.Now().Add(d); !done(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("not within %v: %s", d, what)
+		}
+	}
+}
+
+// rawConn is a TCP connection to address that writes raw requests and reads responses.
+type rawConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func dialRaw(t *testing.T, address string) *rawConn {
+	t.Helper()
+	conn, err := net.Dial("tcp", address)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return &rawConn{conn, bufio.NewReader(conn)}
+}
+
+func (c *rawConn) send(t *testing.T, raw string) {
+	t.Helper()
+	_, err := c.Write([]byte(raw))
+	assert.NilError(t, err)
+}
+
+// response reads the next response and its body.
+func (c *rawConn) response(t *testing.T) (*http.Response, string) {
+	t.Helper()
+	assert.NilError(t, c.SetReadDeadline(time.Now().Add(20*time.Second)))
+	response, err := http.ReadResponse(c.reader, nil)
+	assert.NilError(t, err)
+	body, err := io.ReadAll(response.Body)
+	assert.NilError(t, err)
+	return response, string(body)
+}
+
+// closedByServer reports whether the server closed the connection without sending anything more.
+func (c *rawConn) closedByServer(t *testing.T) bool {
+	t.Helper()
+	assert.NilError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
+	n, err := c.reader.Read(make([]byte, 1))
+	return n == 0 && err == io.EOF
+}
+
+// TestHTTPServerLifecycle runs http/lifecycle.pts (D-163) on one loop and on four: a client
+// that leaves while its request is held aborts the request's signal, and its connection
+// closes at once even if the handler ignores the signal; 10,000 pipelined requests are
+// answered in order; a client that doesn't read keeps the server from queueing more than
+// about a megabyte of responses; stop() from another loop lets a request in flight finish
+// (with connection: close), closes idle connections and refuses new ones; stop(true) from
+// a pool thread closes active connections, aborting their requests' signals; then the
+// program ends. It runs a third time built with AddressSanitizer and
+// UndefinedBehaviorSanitizer, where only the memory it grows by isn't checked.
+func TestHTTPServerLifecycle(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "lifecycle")
+	source, err := filepath.Abs(filepath.Join("http", "lifecycle.pts"))
+	assert.NilError(t, err)
+	sanitized := buildSanitized(t, source)
+	for _, run := range []struct {
+		threads   int
+		sanitized bool
+	}{{1, false}, {4, false}, {4, true}} {
+		t.Run(fmt.Sprintf("PTS_THREADS=%d sanitized=%v", run.threads, run.sanitized), func(t *testing.T) {
+			t.Parallel()
+			env := []string{fmt.Sprintf("PTS_THREADS=%d", run.threads)}
+			program := exe
+			if run.sanitized {
+				program = sanitized
+				env = append(env, "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
+			}
+			server, ports := startServer(t, program, env...)
+			main, second := "127.0.0.1:"+ports[0], "127.0.0.1:"+ports[1]
+			pid := server.cmd.Process.Pid
+			expectLine := func(want string) {
+				t.Helper()
+				assert.Assert(t, server.lines.Scan(), "no line %q; stderr:\n%s", want, server.stderr)
+				assert.Equal(t, server.lines.Text(), want)
+			}
+			files := openFiles(t, pid)
+			sameFiles := func() bool { return openFiles(t, pid) == files }
+
+			held := dialRaw(t, main)
+			held.send(t, "GET /hold HTTP/1.1\r\nHost: a\r\n\r\n")
+			expectLine("holding")
+			_ = held.Close()
+			expectLine("client left: AbortError")
+			eventually(t, 2*time.Second, sameFiles, "the held request's connection closes")
+
+			ignored := dialRaw(t, main)
+			ignored.send(t, "GET /ignore HTTP/1.1\r\nHost: a\r\n\r\n")
+			expectLine("ignoring")
+			_ = ignored.Close()
+			eventually(t, time.Second, sameFiles, "the connection closes before the handler answers")
+			expectLine("answered late: true")
+
+			pipelined := dialRaw(t, main)
+			go func() { _, _ = pipelined.Write([]byte(strings.Repeat("GET /tiny HTTP/1.1\r\nHost: a\r\n\r\n", 10000))) }()
+			for i := range 10000 {
+				response, body := pipelined.response(t)
+				if response.StatusCode != 200 || body != "t" {
+					t.Fatalf("pipelined response %d: %d %q", i, response.StatusCode, body)
+				}
+			}
+
+			resident := residentMB(t, pid)
+			slow := dialRaw(t, main)
+			slow.send(t, strings.Repeat("GET /big HTTP/1.1\r\nHost: a\r\n\r\n", 64))
+			time.Sleep(500 * time.Millisecond)
+			grown := residentMB(t, pid) - resident
+			assert.Assert(t, grown < 24 || run.sanitized, "64 unread 1 MB responses grew the server by %.1f MB", grown) // AddressSanitizer keeps freed memory
+			for i := range 64 {
+				_, body := slow.response(t)
+				assert.Equal(t, len(body), 1024*1024, "response %d", i)
+			}
+
+			inFlight := dialRaw(t, main)
+			inFlight.send(t, "GET /slow HTTP/1.1\r\nHost: a\r\n\r\n")
+			expectLine("slow")
+			idle := dialRaw(t, main)
+			idle.send(t, "GET /tiny HTTP/1.1\r\nHost: a\r\n\r\n")
+			_, body := idle.response(t)
+			assert.Equal(t, body, "t")
+			stopper := dialRaw(t, main)
+			stopper.send(t, "GET /stop HTTP/1.1\r\nHost: a\r\n\r\n")
+			expectLine("stopped")
+			response, body := stopper.response(t)
+			assert.Equal(t, body, "stopping")
+			assert.Assert(t, response.Close, "the answer after stop() closes its connection")
+			response, body = inFlight.response(t)
+			assert.Equal(t, body, "slow done")
+			assert.Assert(t, response.Close, "a request in flight is answered, then its connection closes")
+			assert.Assert(t, idle.closedByServer(t), "stop() closes idle connections")
+			_, err := net.Dial("tcp", main)
+			assert.ErrorContains(t, err, "connection refused")
+
+			active := dialRaw(t, second)
+			active.send(t, "GET /hold HTTP/1.1\r\nHost: a\r\n\r\n")
+			expectLine("holding on the second server")
+			stopNow := dialRaw(t, second)
+			stopNow.send(t, "GET /stop HTTP/1.1\r\nHost: a\r\n\r\n")
+			_, body = stopNow.response(t)
+			assert.Equal(t, body, "stopping now")
+			expectLine("closed by stop(true): AbortError")
+			assert.Assert(t, active.closedByServer(t), "stop(true) closes a connection whose request is in flight")
+			awaitExit(t, server)
+		})
+	}
+}

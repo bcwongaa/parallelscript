@@ -1,6 +1,9 @@
 // threads: 1 4
 // fetch (D-160, D-162) cleans up after itself: after thousands of requests, some aborted
-// at every stage, the process has the files it had before and hasn't grown much.
+// at every stage, the process has the files it had before and hasn't grown much. The
+// server's side too: it closes the connections of aborted requests that it holds, whose
+// clients have gone, without waiting for their answers, which never come (D-163; which
+// requests get that far depends on timing: TestHTTPServerLifecycle checks it exactly).
 import { serve } from "pts:http";
 import { readdirSync, readFileSync } from "pts:fs";
 
@@ -55,25 +58,13 @@ async function abortAll(count: number): Promise<number> {
   return (await Promise.all(outcomes)).filter((name) => name === "AbortError").length;
 }
 
-// Answers the held requests (their clients have gone), so the server closes their
-// connections. A request aborted just after it was sent may reach the server later.
-async function release(): Promise<void> {
-  for (let round = 0; round < 3; round++) {
-    await pause(100);
-    for (const answer of held.splice(0)) {
-      answer(new Response("too late"));
-    }
-  }
-  await pause(100);
-}
-
 console.log("warm-up:", await fetchAll(200, 20), await abortAll(100));
-await release();
+await pause(200); // for the server to see the last aborted requests' clients leave
 const files = openFiles();
 const resident = residentMB();
 console.log("requests:", await fetchAll(3000, 50));
 console.log("aborted:", await abortAll(1000));
-await release();
+await pause(200);
 console.log("files as before:", openFiles() === files || `${files} before, ${openFiles()} after`);
 const grown = residentMB() - resident;
 console.log("grew less than 40 MB:", grown < 40 || `${grown} MB`);

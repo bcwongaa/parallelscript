@@ -3,15 +3,22 @@
  * reusePort on every loop (D-137), each accepting on a socket of its own bound to the same
  * port with SO_REUSEPORT, so the kernel spreads connections across them. Each connection
  * stays on the loop that accepted it: it reads requests one at a time (pipelined ones wait
- * in its buffer), hands each to the program's request callback with an id, stops reading
- * until pts_http_respond answers that id, writes the response, and goes on with the next
- * request or closes, as keep-alive says. Ids name a loop, a slot in that loop's table and
- * the slot's generation, so an answer for a connection that has closed meanwhile finds
- * nothing and is dropped.
+ * in its buffer), hands each to the program's request callback with an id, writes the
+ * response once pts_http_respond answers that id, and goes on with the next request or
+ * closes, as keep-alive says. Ids name a loop, a slot in that loop's table and the slot's
+ * generation, so an answer for a connection that has closed meanwhile finds nothing and
+ * is dropped.
+ *
+ * While the program has a request, the connection goes on reading (up to MAX_HEAD
+ * bytes of what follows), so that it sees the client leave: then it closes at once and
+ * calls the disconnect callback with the Request the request callback returned, which
+ * aborts its signal (D-163). Responses wait in libuv's write queue: past MAX_QUEUED
+ * bytes, the connection reads and processes nothing more until the queue drains, so a
+ * client that doesn't read can't make the server queue response after response.
  *
  * libuv's handles and the bytes read and written are malloc'd: they hold no collected
  * pointers. A server is uncollectable (never freed: a program makes few), so the collector
- * sees its callback.
+ * sees its callbacks; a connection's Request is in an uncollectable cell of its own.
  */
 #include "pts.h"
 
@@ -39,6 +46,7 @@ enum {
   GENERATION_MASK = (1 << 24) - 1,
   BACKLOG = 511,
   MAX_SERVERS = 1024,
+  MAX_QUEUED = 1024 * 1024, /* bytes of responses waiting to be written, past which a connection stops taking requests */
 };
 
 /* A server's socket on one loop, and the connections that loop accepted from it; only that loop touches it once it listens. */
@@ -51,12 +59,19 @@ typedef struct listener {
 } listener;
 
 typedef struct server {
-  pts_closure *on_request; /* (id, method, target, headers, body) => void */
+  pts_closure *on_request;    /* (id, method, target, headers, body) => unknown: the Request */
+  pts_closure *on_disconnect; /* (request: unknown) => void */
   atomic_bool stopped;
+  atomic_bool close_active; /* stop(true): connections with requests in flight close too */
   int port;
   uint32_t listener_count;
   listener listeners[]; /* the calling loop's first */
 } server;
+
+/* What the collector must see of a connection: the Request the program is handling, or PTS_VALUE_ABSENT. */
+typedef struct connection_roots {
+  pts_value request;
+} connection_roots;
 
 typedef struct connection {
   uv_tcp_t tcp;
@@ -64,9 +79,11 @@ typedef struct connection {
   struct connection *next, *prev; /* the listener's connections */
   char *in;                       /* bytes read and not yet taken by a request */
   size_t in_len, in_cap;
+  connection_roots *roots; /* uncollectable */
   uint32_t slot;
-  bool busy;        /* a request is with the program */
-  bool dispatching; /* inside the request callback */
+  bool busy;        /* a request is with the program, or its last response is being written */
+  bool processing;  /* inside process(): an answer given meanwhile leaves the next request to its loop */
+  bool draining;    /* more than MAX_QUEUED bytes wait to be written: nothing more is read or processed */
   bool keep_alive;  /* of the request being answered */
   bool http10;      /* the request being answered is HTTP/1.0, which keeps alive only if asked */
   bool head;        /* the request being answered is a HEAD */
@@ -147,6 +164,7 @@ static connection *connection_of(double id) {
 
 static void on_closed(uv_handle_t *handle) {
   connection *c = (connection *)handle;
+  GC_FREE(c->roots);
   free(c->in);
   free(c);
 }
@@ -175,27 +193,43 @@ typedef struct write_request {
   char bytes[];
 } write_request;
 
+static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
+static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
+static void process(connection *c);
+
+static size_t queued(connection *c) { return uv_stream_get_write_queue_size((uv_stream_t *)&c->tcp); }
+
 static void on_written(uv_write_t *req, int status) {
   write_request *w = (write_request *)req;
   connection *c = w->connection;
   if (!c->closing && (status < 0 || w->close_after)) {
     close_connection(c);
+  } else if (!c->closing && c->draining && queued(c) <= MAX_QUEUED / 2) {
+    c->draining = false; /* the client is reading again: on with the requests it sent */
+    uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
+    process(c);
+    pts_run_microtasks();
   }
   free(w);
 }
 
-/* Writes len bytes of text and, if close_after, closes the connection once they are out. */
-static void send_bytes(connection *c, const char *text, size_t len, bool close_after) {
-  write_request *w = checked(malloc(sizeof *w + len));
-  memcpy(w->bytes, text, len);
+/* Writes the bytes of head and then of body and, if close_after, closes the connection once they are out. */
+static void send_parts(connection *c, const char *head, size_t head_len, const char *body, size_t body_len, bool close_after) {
+  write_request *w = checked(malloc(sizeof *w + head_len + body_len));
+  memcpy(w->bytes, head, head_len);
+  if (body_len > 0) {
+    memcpy(w->bytes + head_len, body, body_len);
+  }
   w->connection = c;
   w->close_after = close_after;
-  uv_buf_t buf = uv_buf_init(w->bytes, (unsigned)len);
+  uv_buf_t buf = uv_buf_init(w->bytes, (unsigned)(head_len + body_len));
   if (uv_write(&w->req, (uv_stream_t *)&c->tcp, &buf, 1, on_written) < 0) {
     free(w);
     close_connection(c);
   }
 }
+
+static void send_bytes(connection *c, const char *text, size_t len, bool close_after) { send_parts(c, text, len, NULL, 0, close_after); }
 
 /* "date: <now as HTTP-date>\r\n", formatted once a second per loop (RFC 9110 asks origin servers for a date). */
 static const char *date_line(void) {
@@ -216,6 +250,7 @@ static void send_error(connection *c, int status, const char *reason) {
   char text[192];
   int len = snprintf(text, sizeof text, "HTTP/1.1 %d %s\r\n%scontent-length: 0\r\nconnection: close\r\n\r\n", status, reason, date_line());
   c->busy = true; /* nothing more is read from it */
+  uv_read_stop((uv_stream_t *)&c->tcp);
   send_bytes(c, text, (size_t)len, true);
 }
 
@@ -428,20 +463,36 @@ static void dispatch(connection *c, request *r, const char *body, size_t body_le
   c->http10 = r->minor == 0;
   c->head = pts_http_equals_ignoring_case(r->method, r->method_len, "HEAD");
   c->continued = false;
-  uv_read_stop((uv_stream_t *)&c->tcp);
   pts_closure *on_request = c->listener->server->on_request;
   pts_handler handler;
   pts_try_enter(&handler);
   if (_setjmp(handler.jump) != 0) {
     pts_report_uncaught(pts_caught(&handler));
   }
-  c->dispatching = true;
-  ((void (*)(pts_closure *, double, pts_string *, pts_string *, pts_array *, pts_string *))on_request->code)(
+  c->roots->request = ((pts_value(*)(pts_closure *, double, pts_string *, pts_string *, pts_array *, pts_string *))on_request->code)(
       on_request, id_of(c), pts_string_from_utf8(r->method, r->method_len), pts_string_from_utf8_lossy(r->target, r->target_len), r->headers,
       pts_string_from_utf8_lossy(body, body_len));
-  c->dispatching = false;
   pts_try_leave(&handler);
   pts_run_microtasks();
+}
+
+/*
+ * The client left while the program had its request: closes the connection now (a late
+ * answer finds nothing) and calls the disconnect callback, which aborts the request's
+ * signal. The microtasks it queues are the caller's to run.
+ */
+static void disconnected(connection *c) {
+  pts_value request = c->roots->request;
+  c->roots->request = PTS_VALUE_ABSENT;
+  close_connection(c);
+  pts_closure *on_disconnect = c->listener->server->on_disconnect;
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    pts_report_uncaught(pts_caught(&handler));
+  }
+  ((void (*)(pts_closure *, pts_value))on_disconnect->code)(on_disconnect, request);
+  pts_try_leave(&handler);
 }
 
 /* Takes count bytes from the front of the connection's buffer. */
@@ -450,12 +501,13 @@ static void consume(connection *c, size_t count) {
   c->in_len -= count;
 }
 
-static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf);
-static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
-
-/* Hands the program the next complete request in the buffer, if it isn't busy with one. */
+/* Hands the program the next complete requests in the buffer, one at a time, while it isn't busy with one. */
 static void process(connection *c) {
-  while (!c->busy && !c->closing) {
+  if (c->processing) {
+    return; /* an answer given inside this loop's own dispatch: the loop goes on */
+  }
+  c->processing = true;
+  while (!c->busy && !c->closing && !c->draining) {
     size_t blank = 0;
     while (blank < c->in_len && (c->in[blank] == '\r' || c->in[blank] == '\n')) {
       blank++; /* empty lines before a request */
@@ -472,12 +524,12 @@ static void process(connection *c) {
       if (c->in_len > MAX_HEAD) {
         send_error(c, 431, "Request Header Fields Too Large");
       }
-      return;
+      break;
     }
     request r = {0};
     if (!parse_head(c->in, head_end, &r)) {
       send_error(c, 400, "Bad Request");
-      return;
+      break;
     }
     char *body = NULL;
     size_t body_len = 0, used = (size_t)(head_end - c->in);
@@ -486,27 +538,27 @@ static void process(connection *c) {
       int done = pts_http_dechunk(head_end, end, &body, &body_len, &chunked_used);
       if (done < 0) {
         send_error(c, done == -2 ? 413 : 400, done == -2 ? "Content Too Large" : "Bad Request");
-        return;
+        break;
       }
       if (done == 0) {
         if (r.expect_continue && !c->continued) {
           c->continued = true;
           send_bytes(c, "HTTP/1.1 100 Continue\r\n\r\n", 25, false);
         }
-        return;
+        break;
       }
       used += chunked_used;
     } else if (r.content_length > 0) {
       if (r.content_length > MAX_BODY) {
         send_error(c, 413, "Content Too Large");
-        return;
+        break;
       }
       if ((int64_t)(end - head_end) < r.content_length) {
         if (r.expect_continue && !c->continued) {
           c->continued = true;
           send_bytes(c, "HTTP/1.1 100 Continue\r\n\r\n", 25, false);
         }
-        return;
+        break;
       }
       body_len = (size_t)r.content_length;
       body = checked(malloc(body_len));
@@ -523,6 +575,7 @@ static void process(connection *c) {
     free(line);
     free(body);
   }
+  c->processing = false;
 }
 
 static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
@@ -538,11 +591,19 @@ static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   (void)buf;
   connection *c = (connection *)stream;
-  if (nread < 0) {
-    close_connection(c); /* the client closed, or an error */
+  if (nread < 0) { /* the client closed, or an error */
+    if (c->roots->request != PTS_VALUE_ABSENT) {
+      disconnected(c);
+      pts_run_microtasks();
+    } else {
+      close_connection(c);
+    }
     return;
   }
   c->in_len += (size_t)nread;
+  if (c->busy && c->in_len > MAX_HEAD) {
+    uv_read_stop(stream); /* pipelined requests wait in the kernel until this one is answered */
+  }
   process(c);
 }
 
@@ -558,6 +619,7 @@ static void on_connection(uv_stream_t *stream, int status) {
     return;
   }
   uv_tcp_nodelay(&c->tcp, 1);
+  c->roots = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *c->roots));
   c->listener = l;
   add_to_table(c);
   c->next = l->connections;
@@ -679,19 +741,22 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
     add_cstr(&t, "connection: keep-alive\r\n");
   }
   add_cstr(&t, "\r\n");
-  if (!bodiless && !c->head) {
-    add(&t, body->bytes, body->byte_len);
-  }
-  send_bytes(c, t.bytes, t.len, !keep_alive);
+  bool with_body = !bodiless && !c->head;
+  send_parts(c, t.bytes, t.len, with_body ? body->bytes : NULL, with_body ? body->byte_len : 0, !keep_alive);
   free(t.bytes);
+  c->roots->request = PTS_VALUE_ABSENT;
   if (!keep_alive) {
+    uv_read_stop((uv_stream_t *)&c->tcp); /* busy until the response is out and the connection closes */
     return;
   }
   c->busy = false;
-  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
-  if (!c->dispatching) {
-    process(c); /* answered after the callback returned: the buffered requests, which process's own loop would take otherwise */
+  if (queued(c) > MAX_QUEUED) {
+    c->draining = true; /* the client doesn't read: on_written goes on once it does */
+    uv_read_stop((uv_stream_t *)&c->tcp);
+    return;
   }
+  uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read); /* reading stopped if a pipelined request filled the buffer */
+  process(c);
 }
 
 /* ---------------------------------------------------------------- servers */
@@ -759,17 +824,24 @@ static void start_listening(void *data) {
   l->tcp = tcp;
 }
 
-/* On the listener's loop: stops accepting, closes the idle connections, and the busy ones after their responses. */
+/*
+ * On the listener's loop: stops accepting, closes the idle connections, and the busy ones
+ * after their responses; with stop(true), those whose requests are still with the program
+ * at once, aborting the requests' signals.
+ */
 static void stop_listening(void *data) {
   listener *l = data;
   if (l->tcp != NULL) {
     uv_close((uv_handle_t *)l->tcp, on_listener_closed);
     l->tcp = NULL;
   }
+  bool close_active = atomic_load(&l->server->close_active);
   for (connection *c = l->connections, *next; c != NULL; c = next) {
     next = c->next;
     if (!c->busy) {
       close_connection(c);
+    } else if (close_active && c->roots->request != PTS_VALUE_ABSENT) {
+      disconnected(c);
     } else {
       c->keep_alive = false;
     }
@@ -801,13 +873,14 @@ static int bind_listeners(server *s, struct sockaddr_storage *address, bool reus
   return 0;
 }
 
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request) {
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request, pts_closure *on_disconnect) {
   uv_once(&servers_once, init_servers);
   pts_uv_loop(); /* throws on a thread without a loop */
   struct sockaddr_storage address = address_of(hostname, port);
   uint32_t count = every_loop ? pts_start_loops() : 1;
   server *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s + count * sizeof(listener)));
   s->on_request = on_request;
+  s->on_disconnect = on_disconnect;
   s->listener_count = count;
   for (uint32_t i = 0; i < count; i++) { /* this loop's first, then the loops after it */
     s->listeners[i].server = s;
@@ -852,10 +925,15 @@ static server *server_of(double id) {
 
 double pts_http_port(double id) { return server_of(id)->port; }
 
-/* Stops every loop's listener: this loop's now, the others' by a message, which comes after the one that started it. */
-void pts_http_stop(double id) {
+/*
+ * Stops every loop's listener: this loop's now, the others' by a message, which comes
+ * after the one that started it. A pool thread's call sends a message to each, its own
+ * loop's too.
+ */
+void pts_http_stop(double id, bool close_active) {
   server *s = server_of(id);
   bool running = false;
+  atomic_store(&s->close_active, close_active);
   if (!atomic_compare_exchange_strong(&s->stopped, &running, true)) {
     return;
   }

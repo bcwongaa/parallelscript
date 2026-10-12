@@ -8,10 +8,11 @@
 import { AbortController, AbortSignal } from "pts:internal/abort";
 
 declare function pts_http_listen(port: number, hostname: string, everyLoop: boolean,
-    onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => void): number;
+    onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => unknown,
+    onDisconnect: (request: unknown) => void): number;
 declare function pts_http_respond(connection: number, status: number, statusText: string, headers: string[], body: string): void;
 declare function pts_http_port(server: number): number;
-declare function pts_http_stop(server: number): void;
+declare function pts_http_stop(server: number, closeActive: boolean): void;
 declare function pts_http_fetch(method: string, host: string, port: number, target: string, headers: string[], body: string, hasBody: boolean,
     done: (ok: boolean, parts: string[], failure: unknown) => void): number;
 declare function pts_http_fetch_abort(request: number): void;
@@ -203,6 +204,8 @@ export interface RequestInit {
 let bodyOf: (request: Request) => string | null;
 // The signal a request follows, or null if it was given none.
 let signalOf: (request: Request) => AbortSignal | null;
+// Aborts the signal of a request the server received, whose client has gone (D-163).
+let disconnect: (request: Request) => void;
 
 // A request: its method, its absolute URL, its headers, its body as text and its signal.
 // Made from a URL, or from another request, whose parts init replaces.
@@ -213,6 +216,8 @@ export class Request {
     readonly redirect: RequestRedirect;
     readonly #body: string | null;
     #signal: AbortSignal | null;
+    #controller: AbortController | null = null; // of the signal made when first read
+    #gone = false; // a server's request whose client has left
 
     constructor(input: string | Request, init?: RequestInit) {
         const from = typeof input === "string" ? null : input;
@@ -226,10 +231,15 @@ export class Request {
         this.#signal = signal === null ? null : AbortSignal.any([signal]); // a signal of its own that follows the one given, as the Fetch standard's
     }
 
-    // The request's signal; one that never aborts if it was given none.
+    // The request's signal. A request given none has one of its own, which aborts when the
+    // request is one a server received and its client leaves before the answer.
     get signal(): AbortSignal {
         if (this.#signal === null) {
-            this.#signal = new AbortController().signal;
+            this.#controller = new AbortController();
+            this.#signal = this.#controller.signal;
+            if (this.#gone) {
+                this.#controller.abort();
+            }
         }
         return this.#signal;
     }
@@ -245,6 +255,10 @@ export class Request {
     static {
         bodyOf = (request) => request.#body;
         signalOf = (request) => request.#signal;
+        disconnect = (request) => {
+            request.#gone = true;
+            request.#controller?.abort();
+        };
     }
 }
 
@@ -352,16 +366,17 @@ export class Server {
 
     constructor(options: ServeOptions) {
         this.hostname = options.hostname ?? "0.0.0.0";
-        this.#id = pts_http_listen(options.port ?? 3000, this.hostname, options.reusePort ?? false, (connection, method, target, headers, body) => {
-            answer(options, this, connection, method, target, headers, body);
-        });
+        this.#id = pts_http_listen(options.port ?? 3000, this.hostname, options.reusePort ?? false,
+            (connection, method, target, headers, body) => receive(options, this, connection, method, target, headers, body),
+            (request) => disconnect(request as Request)); // the runtime keeps what receive returned
         this.port = pts_http_port(this.#id);
         this.url = `http://${this.hostname === "0.0.0.0" ? "localhost" : this.hostname}:${this.port}/`;
     }
 
-    // Stops listening; idle connections close, and the others after their responses.
-    stop(): void {
-        pts_http_stop(this.#id);
+    // Stops listening; idle connections close, and the others after their responses, or at
+    // once if closeActiveConnections (their requests' signals abort), as Bun's stop does.
+    stop(closeActiveConnections: boolean = false): void {
+        pts_http_stop(this.#id, closeActiveConnections);
     }
 }
 
@@ -369,7 +384,9 @@ export function serve(options: ServeOptions): Server {
     return new Server(options);
 }
 
-async function answer(options: ServeOptions, server: Server, connection: number, method: string, target: string, fields: string[], body: string): Promise<void> {
+// A request the server received, as a Request, which the handler's answer will go to;
+// the server keeps it to abort its signal if the client leaves first.
+function receive(options: ServeOptions, server: Server, connection: number, method: string, target: string, fields: string[], body: string): Request {
     let host = `${server.hostname}:${server.port}`;
     for (let i = 0; i + 1 < fields.length; i += 2) {
         if (fields[i] === "host") {
@@ -380,6 +397,11 @@ async function answer(options: ServeOptions, server: Server, connection: number,
     const url = target.startsWith("/") ? `http://${host}${target}` : target;
     const request = new Request(url, { method, body });
     addReceived(request.headers, fields);
+    answer(options, server, connection, request);
+    return request;
+}
+
+async function answer(options: ServeOptions, server: Server, connection: number, request: Request): Promise<void> {
     let response: Response;
     try {
         response = await options.fetch(request, server);
