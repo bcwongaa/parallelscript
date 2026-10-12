@@ -171,6 +171,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 	l.function = result.Main
 	l.declareErrorClasses()
 	l.declareDateClass()
+	l.declareTypedArrayClasses()
 	for i, file := range program.Modules {
 		l.function = result.Modules[i].Init
 		l.declareClasses(file)
@@ -312,9 +313,10 @@ type lowerer struct {
 	kept                map[*ast.Node]ir.Expr            // the value of each operand evaluated before a yield in its statement (D-111)
 	hoisting            map[*ast.Node]bool               // the statements being lowered after their yields were hoisted
 	hoistedNodes        []*ast.Node                      // the nodes in yielded and kept by hoisting, to forget after their statements
-	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068) and Date (D-087), the runtime's
+	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068), Date (D-087), typed arrays and ArrayBuffer (D-125), the runtime's
 	dateClass           *ir.Class                        // Date (D-087)
 	dates               *dateFunctions                   // the runtime functions behind Date
+	typed               *typedArrays                     // typed arrays and ArrayBuffer (D-125)
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
 	undefinedTested     map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
@@ -1320,7 +1322,7 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		if x, ok := l.enumMember(node); ok {
 			return x
 		}
-		if (l.isArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node))) {
+		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node))) {
 			x := l.valueExpression(node)
 			if x == nil {
 				return nil
@@ -1342,6 +1344,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		}
 		if l.isArrayElement(node) {
 			return l.narrowed(node, l.arrayElement(node, ir.ArrayElementChecked))
+		}
+		if l.isTypedArrayElement(node) {
+			return l.typedArrayElement(node, false)
 		}
 		if l.isRecordElement(node) {
 			return l.narrowed(node, l.recordElement(node, ir.MapGetChecked))
@@ -1391,6 +1396,8 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 		return l.stringElement(inner, ir.StringElement)
 	case l.isArrayElement(inner):
 		return l.arrayElement(inner, ir.ArrayElement)
+	case l.isTypedArrayElement(inner):
+		return l.typedArrayElement(inner, true)
 	case l.isRecordElement(inner):
 		return l.recordElement(inner, ir.MapGet)
 	}
@@ -1508,6 +1515,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return nil
 	}
 	if x, handled := l.dateCall(call); handled {
+		return x
+	}
+	if x, handled := l.typedArrayCall(call); handled {
 		return x
 	}
 	if x, handled := l.asyncIteratorMethodCall(call); handled {
@@ -2193,7 +2203,7 @@ func (l *lowerer) checkedConversion(x ir.Expr, target ir.Type, node *ast.Node) i
 // names one of its properties: `totals[status]` for `Record<Status, number>`, `o[key]`
 // for `key: keyof T`. Such an element is found at run time, as through `any` (D-089).
 func (l *lowerer) isKeyedElement(node *ast.Node) bool {
-	if node.Kind != ast.KindElementAccessExpression {
+	if node.Kind != ast.KindElementAccessExpression || l.isTypedArrayElement(node) {
 		return false
 	}
 	switch receiver := l.irType(l.checker.GetNonNullableType(l.typeAt(node.Expression())), node).(type) {
@@ -2309,6 +2319,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	}
 	if l.libMemberName(node) == "Array.par" {
 		return l.parallelView(node)
+	}
+	if x, handled := l.typedArrayProperty(node); handled {
+		return x
 	}
 	if builtin := l.functionProperty(node); builtin != nil {
 		object := l.expression(node.Expression())
@@ -2779,6 +2792,8 @@ func (p place) valueType() ir.Type {
 		return p.local.Type
 	case p.field != nil:
 		return p.field.Type
+	case p.index != nil && isTypedArray(p.object.Type()):
+		return ir.Number
 	case p.index != nil:
 		return p.object.Type().(*ir.Array).Elem
 	case p.arrayLength:
@@ -2795,6 +2810,8 @@ func (p place) read() ir.Expr {
 		return &ir.LocalRef{Local: p.local}
 	case p.current != nil:
 		return &ir.LocalRef{Local: p.current}
+	case p.index != nil && isTypedArray(p.object.Type()):
+		return p.l.typedArrayRead(p.object, p.index)
 	case p.index != nil:
 		return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{p.object, p.index}}
 	case p.arrayLength:
@@ -2816,6 +2833,8 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 		return &ir.SetField{X: p.object, Field: p.field, Value: value, Postfix: postfix}
 	case p.field != nil:
 		stored = &ir.SetField{X: p.object, Field: p.field, Value: value}
+	case p.index != nil && isTypedArray(p.object.Type()):
+		stored = p.l.typedArrayStore(p.object, p.index, value)
 	case p.index != nil:
 		stored = &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{p.object, p.index, value}}
 	case p.arrayLength:
@@ -2925,6 +2944,10 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		if l.isArrayElement(node) {
 			array, index := l.arrayElementOperands(node)
 			return place{object: array, index: index}, array != nil
+		}
+		if l.isTypedArrayElement(node) {
+			array, index := l.arrayElementOperands(node)
+			return place{object: array, index: index, l: l}, array != nil
 		}
 		if l.isRecordElement(node) {
 			record, key := l.recordElementOperands(node)
@@ -3440,6 +3463,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 			return nil // the class failed, which was reported
 		}
 		return class
+	}
+	if l.reportUnsupportedTypedArray(t, node) {
+		return nil
 	}
 	if l.checker.IsArrayType(t) {
 		return l.arrayType(t, node)

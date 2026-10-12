@@ -43,6 +43,8 @@ typedef enum pts_kind {
   PTS_KIND_DATE = 11,    /* a Date (pts_date) */
   PTS_KIND_GENERATOR = 12, /* a generator object (pts_iterator, D-109) */
   PTS_KIND_PROMISE = 13,   /* a promise (pts_promise, D-112) */
+  PTS_KIND_TYPED_ARRAY = 14,  /* a typed array (pts_typed_array, D-125) of elements of its type's element kind */
+  PTS_KIND_ARRAY_BUFFER = 15, /* an ArrayBuffer (pts_arraybuffer, D-125) */
 } pts_kind;
 
 /* What a field of an object holds, so that console.log and JSON can read it. */
@@ -1447,6 +1449,215 @@ double pts_date_set(pts_date *date, double field, double argc, double a, double 
 pts_string *pts_date_format(pts_date *date, double format);
 /* toJSON: the ISO string, or null for an invalid date. */
 pts_value pts_date_to_json(pts_date *date);
+
+/* ---------------------------------------------------------------- typed arrays (D-125) */
+
+/*
+ * An ArrayBuffer: byte_length bytes, zeroed when made, in the same allocation, which the
+ * collector never scans. (pts_array_buffer is something else: an array's storage.)
+ */
+typedef struct pts_arraybuffer {
+  const pts_type *type;
+  size_t byte_length;
+  _Alignas(16) unsigned char bytes[];
+} pts_arraybuffer;
+
+extern const pts_type pts_type_builtin_ArrayBuffer;
+typedef pts_arraybuffer pts_class_builtin_ArrayBuffer;
+
+/*
+ * A typed array: a view of length elements of its descriptor's element kind in buffer,
+ * from byte byte_offset, which data points at. The length never changes, so threads
+ * racing on one may see stale elements but never read or write outside it (D-L13).
+ * Uint8ClampedArray's elements are U8, as Uint8Array's; only writes tell them apart.
+ */
+typedef struct pts_typed_array {
+  const pts_type *type;
+  pts_arraybuffer *buffer;
+  unsigned char *data;
+  size_t length;
+  size_t byte_offset;
+} pts_typed_array;
+
+/* X(name, C element type, element kind, conversion of a number to an element) for each typed array. */
+#define PTS_TYPED_ARRAYS(X)                                                \
+  X(Int8Array, int8_t, PTS_FIELD_I8, (int8_t)pts_number_to_int32)          \
+  X(Uint8Array, uint8_t, PTS_FIELD_U8, (uint8_t)pts_number_to_int32)       \
+  X(Uint8ClampedArray, uint8_t, PTS_FIELD_U8, pts_number_to_uint8_clamped) \
+  X(Int16Array, int16_t, PTS_FIELD_I16, (int16_t)pts_number_to_int32)      \
+  X(Uint16Array, uint16_t, PTS_FIELD_U16, (uint16_t)pts_number_to_int32)   \
+  X(Int32Array, int32_t, PTS_FIELD_I32, pts_number_to_int32)               \
+  X(Uint32Array, uint32_t, PTS_FIELD_U32, (uint32_t)pts_number_to_int32)   \
+  X(Float32Array, float, PTS_FIELD_F32, (float))                           \
+  X(Float64Array, double, PTS_FIELD_NUMBER, (double))
+
+/* JS's ToUint8Clamp: NaN and negatives are 0, 255 and above 255, the rest rounded half to even. */
+static inline uint8_t pts_number_to_uint8_clamped(double d) {
+  if (!(d > 0)) {
+    return 0;
+  }
+  return d >= 255 ? 255 : (uint8_t)__builtin_rint(d);
+}
+
+_Noreturn void pts_typed_array_index_error(const pts_typed_array *array, double index);
+
+/* Whether index is a whole number below array's length: an index JS reads and writes. */
+static inline bool pts_typed_array_has_index(const pts_typed_array *array, double index) {
+  return index >= 0 && index < (double)array->length && (double)(size_t)index == index;
+}
+
+/* For each typed array X, its descriptor pts_type_builtin_X and its class's struct for generated code. */
+#define PTS_TYPED_ARRAY_TYPE(name, ctype, element_kind, convert) \
+  extern const pts_type pts_type_builtin_##name;                 \
+  typedef pts_typed_array pts_class_builtin_##name;
+PTS_TYPED_ARRAYS(PTS_TYPED_ARRAY_TYPE)
+#undef PTS_TYPED_ARRAY_TYPE
+
+/* Whether a descriptor is a typed array's. */
+static inline bool pts_is_typed_array_type(const pts_type *type) { return type->kind == PTS_KIND_TYPED_ARRAY; }
+
+/* Element i (below the length) of any typed array, as a number. */
+static inline double pts_typed_array_as_number(const pts_typed_array *array, size_t i) {
+  switch (array->type->element) {
+  case PTS_FIELD_I8:
+    return ((const int8_t *)array->data)[i];
+  case PTS_FIELD_U8:
+    return ((const uint8_t *)array->data)[i];
+  case PTS_FIELD_I16:
+    return ((const int16_t *)array->data)[i];
+  case PTS_FIELD_U16:
+    return ((const uint16_t *)array->data)[i];
+  case PTS_FIELD_I32:
+    return ((const int32_t *)array->data)[i];
+  case PTS_FIELD_U32:
+    return ((const uint32_t *)array->data)[i];
+  case PTS_FIELD_F32:
+    return ((const float *)array->data)[i];
+  default:
+    return ((const double *)array->data)[i];
+  }
+}
+
+/* Stores value, converted as JS converts it for the array's kind, in element i (below the length) of any typed array. */
+static inline void pts_typed_array_store(pts_typed_array *array, size_t i, double value) {
+  switch (array->type->element) {
+  case PTS_FIELD_I8:
+    ((int8_t *)array->data)[i] = (int8_t)pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_U8:
+    ((uint8_t *)array->data)[i] = array->type == &pts_type_builtin_Uint8ClampedArray ? pts_number_to_uint8_clamped(value) : (uint8_t)pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_I16:
+    ((int16_t *)array->data)[i] = (int16_t)pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_U16:
+    ((uint16_t *)array->data)[i] = (uint16_t)pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_I32:
+    ((int32_t *)array->data)[i] = pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_U32:
+    ((uint32_t *)array->data)[i] = (uint32_t)pts_number_to_int32(value);
+    return;
+  case PTS_FIELD_F32:
+    ((float *)array->data)[i] = (float)value;
+    return;
+  default:
+    ((double *)array->data)[i] = value;
+  }
+}
+
+static inline double pts_typed_array_length(const pts_typed_array *array) { return (double)array->length; }
+static inline double pts_typed_array_byte_offset(const pts_typed_array *array) { return (double)array->byte_offset; }
+static inline double pts_typed_array_bytes_per_element(const pts_typed_array *array) { return (double)pts_field_kind_size(array->type->element); }
+static inline double pts_typed_array_byte_length(const pts_typed_array *array) { return pts_typed_array_length(array) * pts_typed_array_bytes_per_element(array); }
+static inline pts_arraybuffer *pts_typed_array_buffer(const pts_typed_array *array) { return array->buffer; }
+static inline double pts_arraybuffer_byte_length(const pts_arraybuffer *buffer) { return (double)buffer->byte_length; }
+
+/* new ArrayBuffer(length); RangeError for an invalid length. */
+pts_arraybuffer *pts_arraybuffer_new(double length);
+/* buffer.slice(start, end): a new buffer of a copy of those bytes (indices as Array's slice takes them). */
+pts_arraybuffer *pts_arraybuffer_slice(const pts_arraybuffer *buffer, double start, double end);
+/* ArrayBuffer.isView(value): whether value is a typed array. */
+bool pts_arraybuffer_is_view(pts_value value);
+
+/* new X(length), for X's descriptor type: zeros; RangeError for an invalid length. */
+pts_typed_array *pts_typed_array_new(const pts_type *type, double length);
+/* new X(array) and X.from(array): the elements of an array of any element kind, converted by ToNumber and then to X's elements. */
+pts_typed_array *pts_typed_array_from_array(const pts_type *type, const pts_array *source);
+/* new X(other) and X.from(other) for another typed array: its elements converted. */
+pts_typed_array *pts_typed_array_from_typed(const pts_type *type, const pts_typed_array *source);
+/* new X(buffer, byteOffset, length): a view of buffer, to its end if length isn't given; RangeError as JS throws it. */
+pts_typed_array *pts_typed_array_on_buffer(const pts_type *type, pts_arraybuffer *buffer, double byte_offset, double length, bool length_given);
+
+/* Reads and writes for any typed array, as pts_X_get and pts_X_set. */
+double pts_typed_array_get(const pts_typed_array *array, double index);
+double pts_typed_array_set(pts_typed_array *array, double index, double value);
+/* array[index] as a dynamic value: undefined for an index the array doesn't have, as in JS. */
+pts_value pts_typed_array_element(const pts_typed_array *array, double index);
+/* array.at(index): from the end if index is negative; undefined out of range. */
+pts_value pts_typed_array_at(const pts_typed_array *array, double index);
+
+/*
+ * The methods. Indices follow JS: negative ones count from the end, and the lowering
+ * passes 0 or Infinity for one left out. subarray makes a view of the same buffer; slice,
+ * with, toReversed and toSorted make new arrays; the others change array and return it.
+ */
+pts_typed_array *pts_typed_array_subarray(const pts_typed_array *array, double begin, double end);
+pts_typed_array *pts_typed_array_slice(const pts_typed_array *array, double start, double end);
+pts_typed_array *pts_typed_array_fill(pts_typed_array *array, double value, double start, double end);
+pts_typed_array *pts_typed_array_copy_within(pts_typed_array *array, double target, double start, double end);
+pts_typed_array *pts_typed_array_reverse(pts_typed_array *array);
+pts_typed_array *pts_typed_array_to_reversed(const pts_typed_array *array);
+/* sort(): numbers in ascending order, -0 before +0 and NaN last. */
+pts_typed_array *pts_typed_array_sort(pts_typed_array *array);
+pts_typed_array *pts_typed_array_to_sorted(const pts_typed_array *array);
+/* with(index, value): a copy with value at index (from the end if negative); RangeError out of range. */
+pts_typed_array *pts_typed_array_with(const pts_typed_array *array, double index, double value);
+/* set(source, offset): source's elements written from offset on; RangeError if they don't fit. */
+void pts_typed_array_set_array(pts_typed_array *array, const pts_array *source, double offset);
+void pts_typed_array_set_typed(pts_typed_array *array, const pts_typed_array *source, double offset);
+double pts_typed_array_index_of(const pts_typed_array *array, double value, double from);
+/* lastIndexOf(value, from): a left-out from is Infinity. */
+double pts_typed_array_last_index_of(const pts_typed_array *array, double value, double from);
+bool pts_typed_array_includes(const pts_typed_array *array, double value, double from);
+pts_string *pts_typed_array_join(const pts_typed_array *array, pts_string *separator);
+pts_string *pts_typed_array_to_locale_string(const pts_typed_array *array);
+/* The elements as a new number[]: what spreads, Array.from and iteration see. */
+pts_array *pts_typed_array_to_array(const pts_typed_array *array);
+
+/*
+ * For each typed array X, for generated code: pts_X_get(array, index), which throws
+ * RangeError for an index the array doesn't have; pts_X_set(array, index, value), which
+ * converts value as JS does (modulo 2^n for the integers, clamped for Uint8ClampedArray,
+ * rounded for Float32Array), ignores an index the array doesn't have, and returns value;
+ * and X's constructors, pts_X_new, pts_X_from_array, pts_X_from_typed and pts_X_on_buffer.
+ */
+#define PTS_TYPED_ARRAY_ACCESS(name, ctype, element_kind, convert)                                                        \
+  static inline double pts_##name##_get(const pts_typed_array *array, double index) {                                     \
+    if (!pts_typed_array_has_index(array, index)) {                                                                       \
+      pts_typed_array_index_error(array, index);                                                                          \
+    }                                                                                                                     \
+    return (double)((const ctype *)array->data)[(size_t)index];                                                           \
+  }                                                                                                                       \
+  static inline double pts_##name##_set(pts_typed_array *array, double index, double value) {                            \
+    if (pts_typed_array_has_index(array, index)) {                                                                        \
+      ((ctype *)array->data)[(size_t)index] = convert(value);                                                             \
+    }                                                                                                                     \
+    return value;                                                                                                         \
+  }                                                                                                                       \
+  static inline pts_typed_array *pts_##name##_new(double length) { return pts_typed_array_new(&pts_type_builtin_##name, length); } \
+  static inline pts_typed_array *pts_##name##_from_array(const pts_array *source) {                                       \
+    return pts_typed_array_from_array(&pts_type_builtin_##name, source);                                                  \
+  }                                                                                                                       \
+  static inline pts_typed_array *pts_##name##_from_typed(const pts_typed_array *source) {                                 \
+    return pts_typed_array_from_typed(&pts_type_builtin_##name, source);                                                  \
+  }                                                                                                                       \
+  static inline pts_typed_array *pts_##name##_on_buffer(pts_arraybuffer *buffer, double byte_offset, double length, bool length_given) { \
+    return pts_typed_array_on_buffer(&pts_type_builtin_##name, buffer, byte_offset, length, length_given);                \
+  }
+PTS_TYPED_ARRAYS(PTS_TYPED_ARRAY_ACCESS)
+#undef PTS_TYPED_ARRAY_ACCESS
 
 /* ---------------------------------------------------------------- console */
 

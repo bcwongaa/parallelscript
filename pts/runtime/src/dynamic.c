@@ -287,6 +287,27 @@ static pts_value object_get(pts_object *object, pts_value key) {
   return PTS_VALUE_UNDEFINED;
 }
 
+/* A typed array's element or property (D-125): its index, length, byteLength, byteOffset, buffer and BYTES_PER_ELEMENT. */
+static pts_value typed_array_get(const pts_typed_array *array, pts_value key) {
+  double index;
+  if (array_index(key, &index)) {
+    return pts_typed_array_element(array, index);
+  }
+  if (key_is(key, "length")) {
+    return pts_value_from_number(pts_typed_array_length(array));
+  }
+  if (key_is(key, "byteLength")) {
+    return pts_value_from_number(pts_typed_array_byte_length(array));
+  }
+  if (key_is(key, "byteOffset")) {
+    return pts_value_from_number(pts_typed_array_byte_offset(array));
+  }
+  if (key_is(key, "BYTES_PER_ELEMENT")) {
+    return pts_value_from_number(pts_typed_array_bytes_per_element(array));
+  }
+  return key_is(key, "buffer") ? pts_value_from_object(array->buffer) : PTS_VALUE_UNDEFINED;
+}
+
 pts_value pts_dynamic_get(pts_value object, pts_value key) {
   if (pts_value_is_nullish(object)) {
     char buffer[MAX_KEY];
@@ -318,6 +339,10 @@ pts_value pts_dynamic_get(pts_value object, pts_value key) {
       return pts_value_from_number(pts_tuple_length(target));
     }
     return array_index(key, &index) ? object_get(target, key) : PTS_VALUE_UNDEFINED;
+  case PTS_KIND_TYPED_ARRAY:
+    return typed_array_get((const pts_typed_array *)target, key);
+  case PTS_KIND_ARRAY_BUFFER:
+    return key_is(key, "byteLength") ? pts_value_from_number(pts_arraybuffer_byte_length((const pts_arraybuffer *)target)) : PTS_VALUE_UNDEFINED;
   case PTS_KIND_RECORD: {
     pts_string *name = pts_value_to_string(key);
     return pts_map_get_value((const pts_map *)target, &name);
@@ -519,6 +544,12 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
   case PTS_KIND_TUPLE:
     object_set(target, key, value);
     return value;
+  case PTS_KIND_TYPED_ARRAY:
+    if (!array_index(key, &index)) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));
+    }
+    pts_typed_array_set((pts_typed_array *)target, index, pts_value_to_number(value));
+    return value;
   default:
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot create property '%s' on a %s", key_text(key, buffer), target->type->name);
   }
@@ -538,6 +569,8 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
     return key_is(key, "length") || (array_index(key, &index) && index < pts_array_length((const pts_array *)target));
   case PTS_KIND_TUPLE:
     return key_is(key, "length") || (array_index(key, &index) && index < pts_tuple_length(target));
+  case PTS_KIND_TYPED_ARRAY:
+    return array_index(key, &index) && pts_typed_array_has_index((const pts_typed_array *)target, index);
   case PTS_KIND_RECORD: {
     pts_string *name = pts_value_to_string(key);
     return pts_map_has((const pts_map *)target, &name);
@@ -584,6 +617,9 @@ size_t pts_spread_length(pts_value value) {
     if (object->type->kind == PTS_KIND_TUPLE) {
       return pts_tuple_length(object);
     }
+    if (object->type->kind == PTS_KIND_TYPED_ARRAY) {
+      return ((const pts_typed_array *)object)->length;
+    }
   }
   pts_throw_new(&pts_type_builtin_TypeError, "Cannot spread %s into the arguments of a call through `any`", pts_value_description(value));
 }
@@ -592,6 +628,9 @@ pts_value pts_spread_element(pts_value value, size_t i) {
   const pts_object *object = pts_value_as_object(value);
   if (object->type->kind == PTS_KIND_ARRAY) {
     return pts_array_element((const pts_array *)object, (double)i);
+  }
+  if (object->type->kind == PTS_KIND_TYPED_ARRAY) {
+    return pts_typed_array_element((const pts_typed_array *)object, (double)i);
   }
   const pts_field *field = &object->type->fields[i]; /* a tuple's fields are its elements, in order */
   return pts_value_of_slot(field->kind, (const char *)object + field->offset);

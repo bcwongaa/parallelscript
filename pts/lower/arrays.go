@@ -655,7 +655,12 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if t := l.typeAt(s.Expression); l.isIterationSource(t) && !l.isArrayIteration(s.Expression) {
 		return l.iteratorForOf(node, label, declaration)
 	}
-	iterable := l.iterable(s.Expression)
+	var iterable ir.Expr
+	if l.typedArrayClass(s.Expression) != nil {
+		iterable = l.expression(s.Expression) // read live, as JS's iterator does
+	} else {
+		iterable = l.iterable(s.Expression)
+	}
 	if iterable == nil {
 		return nil
 	}
@@ -681,6 +686,10 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		elementAt = func(source, index ir.Expr) ir.Expr {
 			return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, index}}
 		}
+	case l.isTypedArray(t):
+		elemType = ir.Number
+		length = func(source ir.Expr) ir.Expr { return l.callExtern("pts_typed_array_length", ir.Number, source) }
+		elementAt = l.typedArrayRead
 	case t == ir.Value: // a dynamic value's items (D-078)
 		iterable = &ir.CallBuiltin{Builtin: ir.ValueIterable, Args: []ir.Expr{iterable, &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
 		elemType = ir.Value

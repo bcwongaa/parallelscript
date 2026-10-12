@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Float64Array<ArrayBufferLike>)
 // Vector and Matrix classes: arithmetic, determinant, inverse via Gauss-Jordan, transforms.
 
 class Vec {

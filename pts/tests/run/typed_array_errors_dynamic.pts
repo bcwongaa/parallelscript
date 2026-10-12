@@ -1,0 +1,89 @@
+// Typed arrays (D-125): the RangeErrors of constructors and methods with V8's messages,
+// typed arrays through `any`, generics over them, and console.log's other forms.
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    const err = e as Error;
+    console.log(label, err.name, err.message);
+  }
+}
+attempt("negative length", () => new Uint8Array(-1));
+attempt("misaligned buffer", () => new Int32Array(new ArrayBuffer(3)));
+attempt("misaligned offset", () => new Int32Array(new ArrayBuffer(8), 2));
+attempt("too long", () => new Int32Array(new ArrayBuffer(8), 4, 2));
+attempt("offset past end", () => new Uint8Array(new ArrayBuffer(4), 5));
+attempt("set out of bounds", () => new Uint8Array(2).set([1, 2, 3]));
+attempt("with out of range", () => new Uint8Array(2).with(2, 1));
+attempt("bad buffer length", () => new ArrayBuffer(-1));
+attempt("reduce empty", () => new Float32Array(0).reduce((a, b) => a + b));
+const view = new Uint8Array(new ArrayBuffer(8), 2);
+console.log(view.length, view.byteOffset, view.byteLength, view.buffer.byteLength);
+const anyArray: any = new Int16Array([1, 2, 3]);
+anyArray[0] = 70000;
+anyArray[9] = 1;
+console.log(anyArray[0], anyArray[9], anyArray.length, anyArray.byteLength, anyArray.join("+"), anyArray.at(-1), anyArray);
+console.log(Object.keys(anyArray), JSON.stringify(anyArray), String(anyArray), 2 in anyArray, 3 in anyArray);
+const back: Int16Array = anyArray;
+console.log(back.subarray(1).indexOf(3), anyArray.subarray(1).includes(2), anyArray.slice(0, 1), [...anyArray]);
+for (const x of anyArray) console.log(x);
+const box: unknown = new Float64Array(1);
+if (box instanceof Float64Array) console.log("float", box.length);
+console.log(typeof box, box instanceof Uint8Array);
+function largest<T extends { length: number }>(items: T[]): T { return items.reduce((a, b) => (b.length > a.length ? b : a)); }
+console.log(largest([new Uint8Array(1), new Uint8Array(3)]));
+function firstOf<T extends { slice(start?: number, end?: number): T }>(xs: T): T { return xs.slice(0, 1); }
+console.log(firstOf(new Float32Array([1.5, 2])), firstOf(new Int8Array([-3])));
+const sorted = new Float64Array([0.5, -1, 3]).sort((a, b) => a - b);
+console.log(sorted, new Int8Array([3, -1, 2]).toSorted((a, b) => b - a));
+const nums = Float64Array.from({ length: 3 }, (_, i) => i * i);
+console.log(nums);
+console.log([new Uint8Array(2)].concat([new Uint8Array(1)]).length, [[[new Uint8Array(2)]]], new Uint8Array(0));
+console.dir(new Uint16Array([1, 2]), { showHidden: true });
+console.log(new Uint8Array(101), new ArrayBuffer(3));
+
+// expect:
+// negative length RangeError Invalid typed array length: -1
+// misaligned buffer RangeError byte length of Int32Array should be a multiple of 4
+// misaligned offset RangeError start offset of Int32Array should be a multiple of 4
+// too long RangeError Invalid typed array length: 2
+// offset past end RangeError Start offset 5 is outside the bounds of the buffer
+// set out of bounds RangeError offset is out of bounds
+// with out of range RangeError Invalid typed array index
+// bad buffer length RangeError Invalid array buffer length
+// reduce empty TypeError Reduce of empty array with no initial value
+// 6 2 6 8
+// 4464 undefined 3 6 4464+2+3 3 Int16Array(3) [ 4464, 2, 3 ]
+// [ '0', '1', '2' ] {"0":4464,"1":2,"2":3} 4464,2,3 true false
+// 1 true Int16Array(1) [ 4464 ] [ 4464, 2, 3 ]
+// 4464
+// 2
+// 3
+// float 1
+// object false
+// Uint8Array(3) [ 0, 0, 0 ]
+// Float32Array(1) [ 1.5 ] Int8Array(1) [ -3 ]
+// Float64Array(3) [ -1, 0.5, 3 ] Int8Array(3) [ 3, 2, -1 ]
+// Float64Array(3) [ 0, 1, 4 ]
+// 2 [ [ [ [Uint8Array] ] ] ] Uint8Array(0) []
+// Uint16Array(2) [
+//   1,
+//   2,
+//   [BYTES_PER_ELEMENT]: 2,
+//   [length]: 2,
+//   [byteLength]: 4,
+//   [byteOffset]: 0,
+//   [buffer]: ArrayBuffer { [byteLength]: 4 }
+// ]
+// Uint8Array(101) [
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+//   0, 0, 0, 0,
+//   ... 1 more item
+// ] ArrayBuffer { [Uint8Contents]: <00 00 00>, [byteLength]: 3 }

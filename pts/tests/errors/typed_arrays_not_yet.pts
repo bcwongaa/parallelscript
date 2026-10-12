@@ -1,0 +1,21 @@
+// Typed array features that aren't there yet are reported (D-125): Float16Array, the
+// BigInt arrays (D-O08), DataView, SharedArrayBuffer, resizable buffers, `thisArg`
+// arguments, the base64 and hex methods, and subclasses.
+const halves = new Float16Array(2);
+const wide = new BigInt64Array(2);
+const view = new DataView(new ArrayBuffer(8));
+const shared = new SharedArrayBuffer(8);
+const growing = new ArrayBuffer(8, { maxByteLength: 16 });
+const bytes = new Uint8Array(4);
+bytes.forEach((b) => b, bytes);
+const hex = bytes.toHex();
+class Bytes extends Uint8Array {}
+
+// error: typed_arrays_not_yet.pts:4:7 - error PTS1001: Float16Array is not supported yet
+// error: typed_arrays_not_yet.pts:5:7 - error PTS1001: BigInt64Array, an array of BigInts (D-O08), is not supported yet
+// error: typed_arrays_not_yet.pts:6:7 - error PTS1001: DataView is not supported yet
+// error: typed_arrays_not_yet.pts:7:16 - error PTS1001: SharedArrayBuffer is not supported yet
+// error: typed_arrays_not_yet.pts:8:17 - error PTS1001: `new ArrayBuffer` without a length, or with options (resizable buffers), is not supported yet
+// error: typed_arrays_not_yet.pts:10:25 - error PTS1001: the `thisArg` argument of array methods is not supported yet
+// error: typed_arrays_not_yet.pts:11:13 - error PTS1001: the typed array method `toHex` is not supported yet
+// error: typed_arrays_not_yet.pts:12:21 - error PTS1001: extending `Uint8Array` is not supported yet

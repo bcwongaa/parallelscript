@@ -194,6 +194,8 @@ static void format_number(text *out, double number) {
 
 static void format_heap_object(inspector *in, text *out, const pts_object *object, size_t recurse_times);
 static void format_promise(inspector *in, text *out, const pts_object *promise, size_t recurse_times);
+static void format_typed_array(inspector *in, text *out, const pts_typed_array *array, size_t recurse_times);
+static void format_array_buffer(inspector *in, text *out, const pts_arraybuffer *buffer, size_t recurse_times, bool contents);
 static void format_error(inspector *in, text *out, pts_error *error, size_t recurse_times);
 
 const pts_type pts_bound_function = {.kind = PTS_KIND_FUNCTION, .name = "bound"};
@@ -305,6 +307,12 @@ static void format_value(inspector *in, text *out, pts_value value, size_t recur
   }
   case PTS_KIND_PROMISE:
     format_promise(in, out, object, recurse_times);
+    return;
+  case PTS_KIND_TYPED_ARRAY:
+    format_typed_array(in, out, (const pts_typed_array *)object, recurse_times);
+    return;
+  case PTS_KIND_ARRAY_BUFFER:
+    format_array_buffer(in, out, (const pts_arraybuffer *)object, recurse_times, true);
     return;
   case PTS_KIND_GENERATOR: {
     pts_array *items;
@@ -1173,6 +1181,89 @@ static void format_heap_object(inspector *in, text *out, const pts_object *objec
   reduce_to_single_string(in, out, output, count, entries, &base, open, close, recurse_times);
   free(output);
   free(base.bytes);
+}
+
+/*
+ * Node's formatTypedArray: `Uint8Array(3) [ 1, 2, 3 ]`, at most max_array_length elements,
+ * grouped in columns as a number array's; showHidden adds the view's properties (D-125).
+ */
+static void format_typed_array(inspector *in, text *out, const pts_typed_array *array, size_t recurse_times) {
+  const char *name = array->type->name;
+  if (array->length == 0 && !in->show_hidden) {
+    text_printf(out, "%s(0) []", name);
+    return;
+  }
+  if (beyond_depth(in, recurse_times)) {
+    text_printf(out, "[%s]", name);
+    return;
+  }
+  recurse_times++;
+  in->current_depth = recurse_times;
+  size_t shown = array->length < in->max_array_length ? array->length : in->max_array_length;
+  text *output = new_entries(shown + 1);
+  size_t count = 0;
+  for (; count < shown; count++) {
+    format_number(&output[count], pts_typed_array_as_number(array, count));
+  }
+  if (array->length > shown) {
+    size_t remaining = array->length - shown;
+    text_printf(&output[count++], "... %zu more item%s", remaining, remaining > 1 ? "s" : "");
+  }
+  if (in->show_hidden) {
+    const char *keys[] = {"BYTES_PER_ELEMENT", "length", "byteLength", "byteOffset"};
+    double values[] = {pts_typed_array_bytes_per_element(array), pts_typed_array_length(array), pts_typed_array_byte_length(array), pts_typed_array_byte_offset(array)};
+    for (size_t i = 0; i < 4; i++) {
+      text entry = hidden_entry(keys[i]);
+      format_number(&entry, values[i]);
+      output = append(output, &count, entry);
+    }
+    text entry = hidden_entry("buffer");
+    in->indentation += 2;
+    format_array_buffer(in, &entry, array->buffer, recurse_times, false);
+    in->indentation -= 2;
+    output = append(output, &count, entry);
+  }
+  size_t entries = count;
+  if (entries > 6) {
+    output = group_array_elements(in, output, &count, !in->show_hidden);
+  }
+  char open[64];
+  snprintf(open, sizeof open, "%s(%zu) [", name, array->length);
+  text base = {0};
+  reduce_to_single_string(in, out, output, count, entries, &base, open, "]", recurse_times);
+  free(output);
+}
+
+/*
+ * Node's formatArrayBuffer: `ArrayBuffer { [Uint8Contents]: <00 01>, [byteLength]: 2 }`,
+ * the contents left out for a typed array's [buffer] (D-125).
+ */
+static void format_array_buffer(inspector *in, text *out, const pts_arraybuffer *buffer, size_t recurse_times, bool contents) {
+  if (beyond_depth(in, recurse_times)) {
+    text_puts(out, "[ArrayBuffer]");
+    return;
+  }
+  recurse_times++;
+  in->current_depth = recurse_times;
+  text *output = new_entries(2);
+  size_t count = 0;
+  if (contents) {
+    size_t shown = buffer->byte_length < in->max_array_length ? buffer->byte_length : in->max_array_length;
+    text_puts(&output[count], "[Uint8Contents]: <");
+    for (size_t i = 0; i < shown; i++) {
+      text_printf(&output[count], i > 0 ? " %02x" : "%02x", buffer->bytes[i]);
+    }
+    if (buffer->byte_length > shown) {
+      size_t remaining = buffer->byte_length - shown;
+      text_printf(&output[count], " ... %zu more byte%s", remaining, remaining > 1 ? "s" : "");
+    }
+    text_puts(&output[count++], ">");
+  }
+  output[count] = hidden_entry("byteLength");
+  format_number(&output[count++], pts_arraybuffer_byte_length(buffer));
+  text base = {0};
+  reduce_to_single_string(in, out, output, count, count, &base, "ArrayBuffer {", "}", recurse_times);
+  free(output);
 }
 
 /* Node's formatPromise: `Promise { <pending> }`, `Promise { value }` or `Promise { <rejected> reason }` (D-112). */

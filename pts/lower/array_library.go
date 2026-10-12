@@ -262,5 +262,12 @@ func (l *lowerer) iterable(node *ast.Node) ir.Expr {
 	if x, ok := l.arrayIteration(node); ok {
 		return x
 	}
-	return l.expression(node)
+	if x, ok := l.typedArrayIteration(node); ok {
+		return x
+	}
+	x := l.expression(node)
+	if x != nil && l.isTypedArray(x.Type()) {
+		return l.callExtern("pts_typed_array_to_array", ir.NumberArray, x) // its elements, as a number[] (D-125)
+	}
+	return x
 }

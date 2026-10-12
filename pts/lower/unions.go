@@ -324,7 +324,7 @@ func looseEquality(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr {
 func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	var x ir.Expr
-	if left := ast.SkipParentheses(expr.Left); l.isArrayElement(left) || l.isStringElement(left) {
+	if left := ast.SkipParentheses(expr.Left); l.isArrayElement(left) || l.isTypedArrayElement(left) || l.isStringElement(left) {
 		x = l.valueExpression(left) // `digits[i] ?? 0`: undefined past the end, as in JS (D-089)
 	} else {
 		x = l.expression(expr.Left)

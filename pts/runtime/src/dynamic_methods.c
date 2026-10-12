@@ -1012,6 +1012,71 @@ static const named_method date_methods[] = {
     {"toUTCString", date_to_utc_string}, {"valueOf", date_get_time}, {NULL, NULL},
 };
 
+/* The methods of typed arrays that take no callbacks, through `any` (D-125). */
+static pts_typed_array *typed_array_of(pts_value self) { return (pts_typed_array *)pts_value_as_object(self); }
+
+static pts_value typed_array_value(pts_typed_array *array) { return pts_value_from_object(array); }
+
+static pts_value typed_array_at(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_typed_array_at(typed_array_of(self), number_argument(argc, argv, 0, 0));
+}
+
+static pts_value typed_array_fill(pts_value self, uint32_t argc, const pts_value *argv) {
+  return typed_array_value(pts_typed_array_fill(typed_array_of(self), number_argument(argc, argv, 0, __builtin_nan("")),
+                                                number_argument(argc, argv, 1, 0), number_argument(argc, argv, 2, __builtin_inf())));
+}
+
+static pts_value typed_array_includes(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value search = argument(argc, argv, 0);
+  return pts_value_from_bool(pts_value_is_number(search) && pts_typed_array_includes(typed_array_of(self), pts_value_as_number(search), number_argument(argc, argv, 1, 0)));
+}
+
+static pts_value typed_array_index_of(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value search = argument(argc, argv, 0);
+  return pts_value_from_number(pts_value_is_number(search) ? pts_typed_array_index_of(typed_array_of(self), pts_value_as_number(search), number_argument(argc, argv, 1, 0)) : -1);
+}
+
+static pts_value typed_array_last_index_of(pts_value self, uint32_t argc, const pts_value *argv) {
+  pts_value search = argument(argc, argv, 0);
+  return pts_value_from_number(pts_value_is_number(search) ? pts_typed_array_last_index_of(typed_array_of(self), pts_value_as_number(search), number_argument(argc, argv, 1, __builtin_inf())) : -1);
+}
+
+static pts_value typed_array_join(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_string(pts_typed_array_join(typed_array_of(self), string_argument(argc, argv, 0, NULL)));
+}
+
+static pts_value typed_array_to_string(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_value_from_string(pts_typed_array_join(typed_array_of(self), NULL));
+}
+
+static pts_value typed_array_reverse(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return typed_array_value(pts_typed_array_reverse(typed_array_of(self)));
+}
+
+static pts_value typed_array_slice(pts_value self, uint32_t argc, const pts_value *argv) {
+  return typed_array_value(pts_typed_array_slice(typed_array_of(self), number_argument(argc, argv, 0, 0), number_argument(argc, argv, 1, __builtin_inf())));
+}
+
+static pts_value typed_array_subarray(pts_value self, uint32_t argc, const pts_value *argv) {
+  return typed_array_value(pts_typed_array_subarray(typed_array_of(self), number_argument(argc, argv, 0, 0), number_argument(argc, argv, 1, __builtin_inf())));
+}
+
+static pts_value typed_array_sort(pts_value self, uint32_t argc, const pts_value *argv) {
+  if (argument(argc, argv, 0) != PTS_VALUE_UNDEFINED) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Sorting a typed array with a comparator through `any` is not supported yet");
+  }
+  return typed_array_value(pts_typed_array_sort(typed_array_of(self)));
+}
+
+static const named_method typed_array_methods[] = {
+    {"at", typed_array_at},         {"fill", typed_array_fill},           {"includes", typed_array_includes},
+    {"indexOf", typed_array_index_of}, {"join", typed_array_join},        {"lastIndexOf", typed_array_last_index_of},
+    {"reverse", typed_array_reverse}, {"slice", typed_array_slice},       {"sort", typed_array_sort},
+    {"subarray", typed_array_subarray}, {"toString", typed_array_to_string}, {NULL, NULL},
+};
+
 /* ---------------------------------------------------------------- Object.keys, values, entries */
 
 /* The own enumerable string keys of value, in JS's order, as a string[]. */
@@ -1034,7 +1099,8 @@ static pts_array *own_keys(pts_value value) {
   }
   case PTS_KIND_STRING:
   case PTS_KIND_ARRAY:
-  case PTS_KIND_TUPLE: {
+  case PTS_KIND_TUPLE:
+  case PTS_KIND_TYPED_ARRAY: {
     double length = object->type->kind == PTS_KIND_STRING ? ((pts_string *)object)->utf16_len : (double)pts_spread_length(value);
     for (double i = 0; i < length; i++) {
       pts_string *index = pts_number_to_string(i);
@@ -1194,6 +1260,8 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
       return value; /* read live, as JS's array iterator does */
     case PTS_KIND_STRING:
       return pts_value_from_object(pts_array_from_string((pts_string *)object));
+    case PTS_KIND_TYPED_ARRAY:
+      return pts_value_from_object(pts_typed_array_to_array((pts_typed_array *)object));
     case PTS_KIND_MAP:
     case PTS_KIND_SET: {
       pts_map *map = (pts_map *)object;
@@ -1273,6 +1341,9 @@ bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, c
       break;
     case PTS_KIND_DATE:
       methods = date_methods;
+      break;
+    case PTS_KIND_TYPED_ARRAY:
+      methods = typed_array_methods;
       break;
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:

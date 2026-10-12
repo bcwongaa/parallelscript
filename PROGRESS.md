@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.4c Typed arrays
+- **Next task:** M5.4c2 `.par` on typed arrays
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.4c1 Typed arrays and ArrayBuffer (M5.4c split by D-125, SPEC §9.82): the nine typed arrays (Int8 … Float64, Uint8Clamped) and ArrayBuffer as builtin classes over a view struct (buffer, data, fixed length, offset); elements are numbers, written with JS's conversions through inline accessors per kind, writes out of range ignored, reads out of range RangeError where a number is required; every constructor form, `from`/`of`, `subarray` views, views of buffers, all the methods (callback ones through the array helpers), `for…of`, spreads, `Array.from`, console.log, JSON and String as Node prints them, `instanceof`, elements and the methods without callbacks through `any`. `text/hex_dump` and `oop/matrix_vector` now match Node (47 corpus programs skipped). A 20M-element sieve and Float64Array sum run at Node's speed inside a function.
 - M5.4b `.par.flatMap`, `sort` and `sortBy` (D-124, SPEC §9.81): sort is Array's sort (in place, stable, default string order) as Rayon's parallel merge sort over Array's sort of one piece per thread; sortBy by keys computed in parallel; flatMap in order. 2M numbers: 253 ms on 1 thread (Array's sort alone), 195 on 2, ~130 on 4, against Array's sort at 250–300 ms.
 - M5.4a `.par` views of arrays and ranges (M5.4 split by D-123; SPEC §5.4, §9.80): `pts:parallel` written in ParallelScript over three pool intrinsics: `ParallelArray<T>` (`xs.par`: `map`, `filter`, `forEach`, `reduce`, `some`, `every`, `find`, `count`, `sum`, `min`, `max`, `toArray`), `range`/`Range`/`ParallelRange`, `join`; branded `ParallelCallback<F>` parameters; callbacks' promise work queued on the calling loop before the method returns. forEach of `Math.sqrt` over 3M indices: 8.1 ms on 1 thread, 4.2 on 2, 2.5 on 4.
 - M5.3 The fork-join pool (D-122, SPEC §5.4, §9.79): `pts_join` and `pts_par_run` over Chase–Lev deques with Rayon's join, adaptive splitter and sleep protocol; `PTS_THREADS` − 1 workers plus the helping caller; pool threads work for the operation's loop (`PTS_LOOP_FOREIGN`), so promise work in callbacks reaches that loop as messages; a `ThreadSanitize` toolchain profile with the pool and loop tests under TSan (it found one race, fixed). A sqrt reduction over 100M indices: 179 ms on 1 thread, 89 ms on 2, 49 ms on 4.
@@ -108,7 +109,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.4c Typed arrays (see `docs/MASTER_PLAN.md`, D-103): `Uint8Array`, `Int8Array`, `Uint8ClampedArray`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array` (BigInt ones are out, D-O08) as fixed-length arrays of their element type with JS's modular writes and writes out of range ignored, `subarray` views sharing the buffer, their methods, console.log and JSON as Node prints them; then `.par` on them (a `ParallelArray` over a typed array, or a view class per kind in `pts:parallel`). The 2 corpus programs skipped for typed arrays should then pass. Probably split: the arrays and their methods first, then printing and `.par`.
+1. M5.4c2 `.par` on typed arrays (D-125): the prelude gives each typed array a `par` (as `Array<T>.par`, D-123), say a `ParallelTypedArray<A>` generic over the typed array classes in `pts:parallel`, whose methods read `items[i]` (inline accessors) and make results of the same kind for `map`/`filter` (as `ta.map` does; needs a way to make an A of length n in library code: an intrinsic, or `items.slice()`), `toArray()` a `number[]`, `sort()` numeric in place; `parallelView` must accept it. Then M5.5.
 2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too. Also seen with `.par` (M5.4a): at 8 threads on this 4-core machine with background load, operations get slower than at 4 (a descheduled thread holds up a join), and recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -124,7 +125,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (284 run tests, the parallel ones under several `PTS_THREADS`; 68 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (287 run tests, the parallel ones under several `PTS_THREADS`; 69 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -137,7 +138,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
-- **Corpus programs skipped** (D-089): 49 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line (2 wait for M5.4's typed arrays, 4 are by design, the rest are single causes).
+- **Corpus programs skipped** (D-089): 47 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line (4 are by design, the rest are single causes).
 - **A method with a default can't provide a required parameter of an interface method:** `class Sq { label(suffix = "sq") }` used as `interface { label(suffix: string): string }` is PTS1001: the method takes `(string, given)` and the interface's table entry passes `(string)`. Arrows drop the flag when their context always passes the argument (D-055); methods would need the method-table entry (or an object literal method's field) to pass `true`.
 - **Equality narrowing loses an integer type to tsc:** after `if (b === 5)` with `b: u8`, tsc types `b` in the branch as the literal `5`, so `[b + 1]` is a `number[]` to tsc while the semantic pass computes `b + 1` as a `u8` (the value is converted to number; nothing breaks). Fixing it means `replacePrimitivesWithLiterals` (`internal/checker/flow.go`) keeping D-048's types; not worth a fork edit yet.
 - **An await inside an expression-bodied async arrow, not first in it, is PTS1001** with the message about loop conditions and default values: `async () => (await p) + 1` (and so `parallel((async () => (await p) + 1)())`); a block body (`{ const v = await p; return v + 1; }`) works. The hoisting of D-111 works on statements, and an expression body has none; lowering it as `return <expr>;` would fix it.
@@ -159,6 +160,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.4c1 done (M5.4c split by D-125); `timers_async` given wider margins (it flaked under load).
 - 2026-10-12: M5.4b done (D-124).
 - 2026-10-12: M5.4a done (M5.4 split by D-123).
 - 2026-10-12: M5.3 done (D-122).

@@ -361,6 +361,10 @@ pts_string *pts_value_to_string(pts_value value) {
       return pts_string_from_cstr("[object Generator]");
     case PTS_KIND_PROMISE:
       return pts_string_from_cstr("[object Promise]");
+    case PTS_KIND_TYPED_ARRAY:
+      return pts_typed_array_join((pts_typed_array *)object, NULL);
+    case PTS_KIND_ARRAY_BUFFER:
+      return pts_string_from_cstr("[object ArrayBuffer]");
     default:
       break;
     }

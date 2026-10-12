@@ -19,20 +19,37 @@ var callbackMethods = map[string]bool{
 }
 
 // helperKey identifies a generated helper: the method (with its variant), the array
-// type, the callback type and, for a filter whose callback is a type guard, the
-// narrower array it makes.
+// type (or for a typed array's method, its class), the callback type and, for a filter
+// whose callback is a type guard, the narrower array it makes.
 type helperKey struct {
 	method      string
 	array       *ir.Array
+	typed       *ir.Class
 	callback    *ir.FuncType
 	collection  *ir.MapType
 	narrowed    *ir.Array
 	arrayUnused bool // the callback's array parameter, of another type, is one its literal doesn't declare
 }
 
+// source is the type of the array a helper's method is called on.
+func (k helperKey) source() ir.Type {
+	if k.typed != nil {
+		return k.typed
+	}
+	return k.array
+}
+
+// elem is the type of the elements of the array a helper's method is called on: a typed array's are numbers.
+func (k helperKey) elem() ir.Type {
+	if k.typed != nil {
+		return ir.Number
+	}
+	return k.array.Elem
+}
+
 // callbackMethodCall lowers `a.m(callback, …)` for an array method m that takes a
-// callback. checked is true under `!`, where find and findLast return the element
-// itself and throw if there is none.
+// callback, of an array or a typed array a. checked is true under `!`, where find and
+// findLast return the element itself and throw if there is none.
 func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, array ir.Expr, checked bool) ir.Expr {
 	args := call.Arguments.Nodes
 	if (name == "reduce" || name == "reduceRight") && len(args) > 2 || name != "reduce" && name != "reduceRight" && len(args) > 1 {
@@ -48,7 +65,6 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 		l.notSupportedYet(args[0], fmt.Sprintf("a callback of type %s is", callback.Type()))
 		return nil
 	}
-	arrayType := array.Type().(*ir.Array)
 	method := name
 	if checked && (name == "find" || name == "findLast") {
 		method += "!"
@@ -65,16 +81,21 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 		}
 		operands = append(operands, initial)
 	}
-	key := helperKey{method: method, array: arrayType, callback: ft}
+	key := helperKey{method: method, callback: ft}
+	if l.isTypedArray(array.Type()) {
+		key.typed = array.Type().(*ir.Class)
+	} else {
+		key.array = array.Type().(*ir.Array)
+	}
 	arrayAt := 2 // in (element, index, array), or reduce's (accumulator, element, index, array)
 	if name == "reduce" || name == "reduceRight" {
 		arrayAt = 3
 	}
-	if param := nthParam(ft, arrayAt); param != nil && param != ir.Type(arrayType) && declaresFewer(args[0], arrayAt+1) {
+	if param := nthParam(ft, arrayAt); param != nil && param != key.source() && declaresFewer(args[0], arrayAt+1) {
 		key.arrayUnused = true // `(a) => …` shaped as an `(a: unknown, i: number, all: unknown[]) => …` for a number[]
 	}
-	if name == "filter" {
-		key.narrowed = l.guardedFilterResult(call, arrayType)
+	if name == "filter" && key.array != nil {
+		key.narrowed = l.guardedFilterResult(call, key.array)
 	}
 	helper := l.callbackHelper(key, call.Expression)
 	if helper == nil {
@@ -150,9 +171,12 @@ func (h *helperBuilder) build() *ir.Func {
 		return nil
 	}
 	name := "Array." + baseMethod(key.method)
+	if key.typed != nil {
+		name = key.typed.Name + "." + baseMethod(key.method)
+	}
 	h.fn = &ir.Func{Name: name, Module: l.function.Module, Pos: l.pos(h.node), Result: result}
 	l.inFunction(h.fn, func() {
-		h.array, h.callback = l.newLocal("array", key.array), l.newLocal("callback", key.callback)
+		h.array, h.callback = l.newLocal("array", key.source()), l.newLocal("callback", key.callback)
 		h.fn.Params = []*ir.Local{h.array, h.callback}
 		h.fn.Body = &ir.Block{At: h.fn.Pos, Stmts: h.body()}
 	})
@@ -165,13 +189,15 @@ func (h *helperBuilder) build() *ir.Func {
 // resultType is what the helper returns, or nil (reported) if the callback can't be used.
 func (h *helperBuilder) resultType() ir.Type {
 	l, key := h.l, h.key
-	elem, returns := key.array.Elem, key.callback.Result
+	elem, returns := key.elem(), key.callback.Result
 	switch base := baseMethod(key.method); {
 	case returns == ir.Void && (base == "map" || base == "flatMap" || base == "reduce" || base == "reduceRight"):
 		l.notSupportedYet(h.node, "`"+base+"` with a callback that returns nothing is")
 		return nil
 	case base == "forEach":
 		return ir.Void
+	case base == "map" && key.typed != nil:
+		return key.typed
 	case base == "map":
 		return l.arrayOf(returns)
 	case base == "flatMap":
@@ -182,7 +208,7 @@ func (h *helperBuilder) resultType() ir.Type {
 	case base == "filter" && key.narrowed != nil:
 		return key.narrowed
 	case base == "filter":
-		return key.array
+		return key.source()
 	case base == "some" || base == "every":
 		return ir.Bool
 	case base == "findIndex" || base == "findLastIndex":
@@ -213,6 +239,9 @@ func (h *helperBuilder) body() []ir.Stmt {
 			return []ir.Stmt{h.stmt(h.call(element, index))}
 		}, nil)
 	case "map", "flatMap":
+		if h.key.typed != nil {
+			return h.typedMap()
+		}
 		result := h.l.newLocal("result", h.fn.Result)
 		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.fn.Result.(*ir.Array)})}, func(element, index ir.Expr) []ir.Stmt {
 			mapped := h.call(element, index)
@@ -222,6 +251,9 @@ func (h *helperBuilder) body() []ir.Stmt {
 			return []ir.Stmt{h.stmt(h.push(result, mapped))}
 		}, h.ret(&ir.LocalRef{Local: result}))
 	case "filter":
+		if h.key.typed != nil {
+			return h.typedFilter()
+		}
 		resultType := h.fn.Result.(*ir.Array)
 		result := h.l.newLocal("result", resultType)
 		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: resultType})}, func(element, index ir.Expr) []ir.Stmt {
@@ -244,6 +276,33 @@ func (h *helperBuilder) body() []ir.Stmt {
 		return h.find(base)
 	}
 	return h.reduce(baseMethod(h.key.method) == "reduceRight")
+}
+
+// typedMap builds a typed array's map: a new typed array of its kind, of the callback's
+// results for its elements.
+func (h *helperBuilder) typedMap() []ir.Stmt {
+	l, class := h.l, h.key.typed
+	result := l.newLocal("result", class)
+	made := l.callExtern(typedArrayFunction(class, "new"), class, h.length())
+	return h.loop(false, []ir.Stmt{h.declare(result, made)}, func(element, index ir.Expr) []ir.Stmt {
+		mapped := l.convert(h.call(element, index), ir.Number, h.node)
+		if mapped == nil {
+			h.failed = true
+			return nil
+		}
+		return []ir.Stmt{h.stmt(l.typedArrayStore(&ir.LocalRef{Local: result}, index, mapped))}
+	}, h.ret(&ir.LocalRef{Local: result}))
+}
+
+// typedFilter builds a typed array's filter: a new typed array of its kind, of the
+// elements the callback holds for.
+func (h *helperBuilder) typedFilter() []ir.Stmt {
+	l, class := h.l, h.key.typed
+	kept := l.newLocal("kept", ir.NumberArray)
+	result := l.callExtern(typedArrayFunction(class, "from_array"), class, &ir.LocalRef{Local: kept})
+	return h.loop(false, []ir.Stmt{h.declare(kept, &ir.NewArray{Array: ir.NumberArray})}, func(element, index ir.Expr) []ir.Stmt {
+		return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(h.push(kept, element)))}
+	}, h.ret(result))
 }
 
 // find builds find, findLast, findIndex and findLastIndex: the first element (or its
@@ -326,7 +385,7 @@ func (h *helperBuilder) loopFrom(backwards bool, from ir.Expr, start []ir.Stmt, 
 	}
 	// JS visits only the indices the array still has: a callback may shorten it.
 	present := &ir.Binary{Op: ir.Lt, X: i, Y: h.length()}
-	element := l.newLocal("element", h.key.array.Elem)
+	element := l.newLocal("element", h.key.elem())
 	body := append([]ir.Stmt{h.declare(element, h.element(i))}, each(&ir.LocalRef{Local: element}, i)...)
 	stmts = append(stmts, h.declare(index, from), &ir.Loop{
 		At:     at,
@@ -467,10 +526,16 @@ func (h *helperBuilder) truthy(x ir.Expr) ir.Expr {
 }
 
 func (h *helperBuilder) length() ir.Expr {
+	if h.key.typed != nil {
+		return h.l.callExtern("pts_typed_array_length", ir.Number, &ir.LocalRef{Local: h.array})
+	}
 	return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: h.array}}}
 }
 
 func (h *helperBuilder) element(index ir.Expr) ir.Expr {
+	if h.key.typed != nil {
+		return h.l.typedArrayRead(&ir.LocalRef{Local: h.array}, index)
+	}
 	return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}}
 }
 

@@ -1,0 +1,99 @@
+// Typed arrays (D-125) in classes, interfaces, unions, maps, closures and destructuring;
+// their callback methods, sorting, copies, iteration and set.
+class Image {
+  pixels: Uint8ClampedArray;
+  constructor(readonly width: number, readonly height: number) {
+    this.pixels = new Uint8ClampedArray(width * height);
+  }
+  brighten(by: number): void {
+    for (let i = 0; i < this.pixels.length; i++) this.pixels[i] += by;
+  }
+}
+const img = new Image(3, 2);
+img.pixels[0] = 250;
+img.brighten(10);
+console.log(img.pixels, img);
+interface Samples { name: string; data: Float32Array }
+const s: Samples = { name: "s", data: new Float32Array([0.1, 0.2]) };
+console.log(s, s.data[1]);
+let maybe: Int16Array | null = Math.random() > 2 ? new Int16Array(1) : null;
+console.log(maybe?.length ?? "none");
+maybe = new Int16Array(2);
+console.log(maybe?.length, maybe !== null && maybe[0] === 0);
+const byName = new Map<string, Uint16Array>();
+byName.set("a", Uint16Array.of(1, 2, 3));
+console.log(byName.get("a"), byName);
+const rows: Float64Array[] = [new Float64Array(2), new Float64Array([1, 2])];
+rows[0][1] = 5;
+console.log(rows, rows.map((r) => r.reduce((a, b) => a + b, 0)));
+const counter = new Uint32Array(1);
+const bump = () => { counter[0]++; return counter[0]; };
+bump(); bump();
+console.log(counter, bump());
+const [first, second, ...rest] = new Int8Array([1, 2, 3, 4]);
+console.log(first, second, rest);
+const t = new Int32Array([5, 6, 7]);
+t[0] |= 8; t[1] <<= 30; t[2] **= 2; t[0] -= 0.5;
+console.log(t, t === t, t.every((x, i, arr) => arr[i] === x));
+function total(xs: Float64Array): number { let n = 0; for (let i = 0; i < xs.length; i++) n += xs[i]; return n; }
+console.log(total(new Float64Array([1, 2, 3.5])));
+const u = new Uint8Array([5, 1, 4]);
+console.log(u.find((x) => x > 3), u.findIndex((x) => x > 3), u.findLast((x) => x > 3), u.findLastIndex((x) => x > 9), u.some((x) => x === 1));
+u.forEach((x, i) => console.log(i, x));
+console.log(u.reduceRight((acc, x) => acc + "," + x, ""), u.reduce((a, b) => Math.max(a, b)));
+console.log(u.toSorted(), u, u.toReversed(), u.with(0, 999), u.fill(9, 1), u.copyWithin(0, 1));
+console.log(Array.from(u, (x) => x * 10), Array.from(u.entries()), [...u.keys()], [...u.values()]);
+for (const [i, v] of u.entries()) console.log(i, v);
+console.log(new Float64Array([1, NaN]).indexOf(NaN), new Float64Array([1, NaN]).includes(NaN), new Uint8Array([1, 2, 1]).lastIndexOf(1));
+const big = new Float64Array(10).map((_, i) => i * 1.5);
+console.log(big, big.slice(-2), big.subarray(8).byteOffset);
+console.log(new Uint8Array(new Set([1, 2, 2, 3])), Uint8Array.from("123"), new Uint8Array(new Float64Array([1.9, -1])));
+const dst = new Uint8Array(5);
+dst.set([1, 2]);
+dst.set(new Uint16Array([300, 4]), 3);
+console.log(dst, dst.toString(), dst.toLocaleString(), dst.valueOf() === dst);
+console.log(ArrayBuffer.isView(dst), ArrayBuffer.isView([1]), dst.buffer.slice(1, 3), new ArrayBuffer(0));
+class DataViewLike { constructor(private b: Uint8Array) {} sum(): number { return this.b.reduce((x, y) => x + y, 0); } }
+const d = new Float64Array([1]);
+const bytes = new Uint8Array(d.buffer);
+bytes[7] = 0x40;
+console.log(d[0], new DataViewLike(bytes).sum());
+
+// expect:
+// Uint8ClampedArray(6) [ 255, 10, 10, 10, 10, 10 ] Image {
+//   width: 3,
+//   height: 2,
+//   pixels: Uint8ClampedArray(6) [ 255, 10, 10, 10, 10, 10 ]
+// }
+// {
+//   name: 's',
+//   data: Float32Array(2) [ 0.10000000149011612, 0.20000000298023224 ]
+// } 0.20000000298023224
+// none
+// 2 true
+// Uint16Array(3) [ 1, 2, 3 ] Map(1) { 'a' => Uint16Array(3) [ 1, 2, 3 ] }
+// [ Float64Array(2) [ 0, 5 ], Float64Array(2) [ 1, 2 ] ] [ 5, 3 ]
+// Uint32Array(1) [ 3 ] 3
+// 1 2 [ 3, 4 ]
+// Int32Array(3) [ 12, -2147483648, 49 ] true true
+// 6.5
+// 5 0 4 -1 true
+// 0 5
+// 1 1
+// 2 4
+// ,4,1,5 5
+// Uint8Array(3) [ 1, 4, 5 ] Uint8Array(3) [ 9, 9, 9 ] Uint8Array(3) [ 4, 1, 5 ] Uint8Array(3) [ 231, 1, 4 ] Uint8Array(3) [ 9, 9, 9 ] Uint8Array(3) [ 9, 9, 9 ]
+// [ 90, 90, 90 ] [ [ 0, 9 ], [ 1, 9 ], [ 2, 9 ] ] [ 0, 1, 2 ] [ 9, 9, 9 ]
+// 0 9
+// 1 9
+// 2 9
+// -1 true 2
+// Float64Array(10) [
+//    0,  1.5, 3,  4.5,
+//    6,  7.5, 9, 10.5,
+//   12, 13.5
+// ] Float64Array(2) [ 12, 13.5 ] 64
+// Uint8Array(3) [ 1, 2, 3 ] Uint8Array(3) [ 1, 2, 3 ] Uint8Array(2) [ 1, 255 ]
+// Uint8Array(5) [ 1, 2, 0, 44, 4 ] 1,2,0,44,4 1,2,0,44,4 true
+// true false ArrayBuffer { [Uint8Contents]: <02 00>, [byteLength]: 2 } ArrayBuffer { [Uint8Contents]: <>, [byteLength]: 0 }
+// 65536 304

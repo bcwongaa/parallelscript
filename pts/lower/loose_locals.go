@@ -169,7 +169,7 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 // hash-map object, which JS gives undefined for when it isn't there.
 func (l *lowerer) isElementRead(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
-	return l.isArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)
+	return l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)
 }
 
 // mayHoldUndefined reports whether a type has undefined among its values, or may hold

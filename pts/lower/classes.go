@@ -79,8 +79,8 @@ func (l *lowerer) declareSuperclass(node *ast.Node) {
 		l.classes[symbol] = nil
 	case parent == nil:
 		l.classes[symbol] = nil // the superclass failed, which was reported
-	case parent == l.dateClass:
-		l.notSupportedYet(heritage, "extending `Date` is")
+	case parent == l.dateClass || isTypedArray(parent) || parent == l.typed.buffer:
+		l.notSupportedYet(heritage, "extending `"+parent.Name+"` is")
 		l.classes[symbol] = nil
 	default:
 		class.Parent = parent
@@ -785,6 +785,12 @@ func (l *lowerer) newExpression(node *ast.Node) ir.Expr {
 	}
 	if l.isDateConstructor(node.Expression()) {
 		return l.newDate(node)
+	}
+	if class := l.typedArrayConstructor(node.Expression()); class != nil {
+		return l.newTypedArray(node, class)
+	}
+	if l.isArrayBufferConstructor(node.Expression()) {
+		return l.newArrayBuffer(node)
 	}
 	if l.isPromiseConstructor(node.Expression()) {
 		return l.newPromise(node)

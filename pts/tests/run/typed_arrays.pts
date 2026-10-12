@@ -1,0 +1,48 @@
+// Typed arrays (D-125): JS's conversions on writes, writes out of range ignored, subarray
+// views sharing the buffer, iteration, methods, console.log, JSON and ArrayBuffer views.
+const a = new Uint8Array(4);
+a[0] = 300;
+a[1] = -1;
+a[2] = 1.7;
+a[5] = 9;
+console.log(a, a.length, a[0] + 1);
+const f = new Float64Array([1.5, 2.5, -0]);
+console.log(f, f.byteLength, f.BYTES_PER_ELEMENT, Float64Array.BYTES_PER_ELEMENT);
+const sub = a.subarray(1, 3);
+sub[0] = 7;
+console.log(a, sub, sub.byteOffset);
+let sum = 0;
+for (const x of f) sum += x;
+console.log(sum, [...a], Array.from(f), Math.max(...a));
+console.log(a.map((x) => x * 2), a.filter((x) => x > 1), a.reduce((s, x) => s + x, 0));
+console.log(a.indexOf(7), a.includes(255), a.join("-"), String(a), `${f}`);
+console.log(JSON.stringify(a), JSON.stringify({ f }));
+console.log(Uint8Array.from([1, 2, 3]), Int16Array.of(1, -2, 70000), a instanceof Uint8Array);
+const c = new Uint8ClampedArray([300, -5, 1.5, 2.5]);
+console.log(c, new Int32Array(f), f.sort(), new Float64Array([3, 1, 2]).sort((x, y) => y - x));
+const buf = new ArrayBuffer(8);
+const view = new Uint32Array(buf);
+view[0] = 0xdeadbeef;
+console.log(new Uint8Array(buf), buf.byteLength, buf, view.buffer === buf);
+a[3] += 10;
+a[3]++;
+console.log(a[3], a.at(-1), a.at(10));
+
+// expect:
+// Uint8Array(4) [ 44, 255, 1, 0 ] 4 45
+// Float64Array(3) [ 1.5, 2.5, -0 ] 24 8 8
+// Uint8Array(4) [ 44, 7, 1, 0 ] Uint8Array(2) [ 7, 1 ] 1
+// 4 [ 44, 7, 1, 0 ] [ 1.5, 2.5, -0 ] 44
+// Uint8Array(4) [ 88, 14, 2, 0 ] Uint8Array(2) [ 44, 7 ] 52
+// 1 false 44-7-1-0 44,7,1,0 1.5,2.5,0
+// {"0":44,"1":7,"2":1,"3":0} {"f":{"0":1.5,"1":2.5,"2":0}}
+// Uint8Array(3) [ 1, 2, 3 ] Int16Array(3) [ 1, -2, 4464 ] true
+// Uint8ClampedArray(4) [ 255, 0, 2, 2 ] Int32Array(3) [ 1, 2, 0 ] Float64Array(3) [ -0, 1.5, 2.5 ] Float64Array(3) [ 3, 2, 1 ]
+// Uint8Array(8) [
+//   239, 190, 173, 222,
+//     0,   0,   0,   0
+// ] 8 ArrayBuffer {
+//   [Uint8Contents]: <ef be ad de 00 00 00 00>,
+//   [byteLength]: 8
+// } true
+// 11 11 undefined
