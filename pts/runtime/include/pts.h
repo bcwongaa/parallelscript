@@ -1890,6 +1890,14 @@ struct pts_par_op {
 void pts_par_run(const pts_par_op *op, size_t count, void *result);
 /* The threads operations run on: the pool's workers and the caller. */
 unsigned pts_pool_threads(void);
+/*
+ * The intrinsics of pts:parallel (D-123), whose closures are the library's: run leaf(from,
+ * to) over pieces covering 0..count; the same with leaf returning a piece's value, folded
+ * by combine(left, right) into the value of all; join of two closures of no parameters.
+ */
+void pts_parallel_for(struct pts_closure *leaf, double count);
+pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *combine, double count);
+void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);

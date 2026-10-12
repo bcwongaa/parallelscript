@@ -670,6 +670,11 @@ static void run_task(pts_value task, pts_promise *promise) {
 }
 
 void pts_message_run(pts_message *header) {
+  pts_message_apply(header);
+  pts_run_microtasks();
+}
+
+void pts_message_apply(pts_message *header) {
   message *m = (message *)header;
   switch (m->kind) {
   case SETTLE:
@@ -688,7 +693,6 @@ void pts_message_run(pts_message *header) {
     run_task(m->value, m->promise);
     break;
   }
-  pts_run_microtasks();
 }
 
 pts_value pts_parallel(pts_value task) {

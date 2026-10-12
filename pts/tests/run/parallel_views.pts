@@ -1,0 +1,129 @@
+// `.par` views of arrays and ranges, and join, from pts:parallel (D-123): every method
+// gives what the sequential version would, whatever the number of threads; callbacks
+// run on the fork-join pool's threads (D-122).
+// threads: 1 2 4
+import { join, range } from "pts:parallel";
+
+const numbers = Array.from({ length: 1000 }, (_, i) => i + 1);
+console.log(numbers.par.map((n) => n * 2).slice(0, 5), numbers.par.map((n, i, all) => all.length - i).slice(-3));
+console.log(numbers.par.filter((n) => n % 97 === 0));
+console.log(numbers.par.reduce((a, b) => a + b, 0), numbers.par.sum(), numbers.par.min(), numbers.par.max());
+console.log(numbers.par.some((n) => n === 500), numbers.par.some((n) => n > 1000), numbers.par.every((n) => n > 0), numbers.par.every((n) => n < 1000));
+console.log(numbers.par.find((n) => n * n === 144), numbers.par.find((n) => n < 0), numbers.par.count((n) => n % 10 === 0));
+console.log(numbers.par.toArray().length, numbers.par.toArray() !== numbers);
+
+// Objects and strings, made on any thread and read back on this one, in order.
+class Point {
+    constructor(readonly x: number, readonly y: number) {}
+}
+const points = numbers.par.map((n) => new Point(n, n * n));
+console.log(points.length, points[9], points.par.filter((p) => p.y < 20));
+const words = ["alpha", "beta", "gamma", "delta"];
+console.log(words.par.map((w, i) => `${i}:${w.toUpperCase()}`), words.par.reduce((a, b) => a + b, ""));
+
+// Empty arrays.
+const none: number[] = [];
+console.log(none.par.map((n) => n), none.par.sum(), none.par.min(), none.par.max(), none.par.some((n) => n > 0), none.par.every((n) => n > 0));
+
+// A named function as a callback, and forEach writing to the elements it is given.
+function square(n: number): number {
+    return n * n;
+}
+console.log(numbers.par.map(square).slice(0, 4));
+const cells = numbers.map((n) => ({ value: n, doubled: 0 }));
+cells.par.forEach((cell) => {
+    cell.doubled = cell.value * 2;
+});
+console.log(cells.every((cell) => cell.doubled === cell.value * 2));
+
+// An operation inside another's callback.
+const table = range(1, 6).par.map((row) => range(1, 6).par.map((column) => row * column));
+console.log(table[4]);
+
+// Ranges.
+console.log(range(4).toArray(), [...range(3, 6)], range(5, 2).length, range(0, 10).par.map((i) => i * i));
+console.log(range(0, 1000).par.filter((i) => i % 250 === 0), range(1, 101).par.sum(), range(1, 101).par.reduce((a, b) => a + b, 0));
+console.log(range(0, 50).par.some((i) => i === 49), range(0, 50).par.every((i) => i < 49), range(0, 50).par.find((i) => i * 2 === 30), range(0, 50).par.count((i) => i % 2 === 1));
+console.log(range(3, 8).par.min(), range(3, 8).par.max(), range(3, 3).par.min(), range(3, 8).par.toArray());
+
+// join.
+function fib(n: number): number {
+    return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+function parallelFib(n: number): number {
+    if (n < 15) {
+        return fib(n);
+    }
+    const [a, b] = join(() => parallelFib(n - 1), () => parallelFib(n - 2));
+    return a + b;
+}
+console.log(parallelFib(25), join(() => "left", () => [1, 2]));
+
+// A throw in a callback is rethrown once the operation is done: the leftmost piece's.
+try {
+    range(0, 10000).par.forEach((i) => {
+        if (i === 1234 || i === 9000) {
+            throw new RangeError(`failed at ${i}`);
+        }
+    });
+} catch (e: any) {
+    console.log("caught", e.message);
+}
+try {
+    join(() => {
+        throw new TypeError("left");
+    }, () => {
+        throw new TypeError("right");
+    });
+} catch (e: any) {
+    console.log("caught", e.message);
+}
+
+// Microtasks a callback queues run on this loop once the operation is done.
+let ran = 0;
+range(0, 8).par.forEach(() => {
+    queueMicrotask(() => {
+        ran++;
+    });
+});
+console.log("before the microtasks", ran);
+await Promise.resolve();
+console.log("after", ran);
+
+// A task on another loop uses `.par` too.
+console.log(await parallel range(0, 100).par.sum());
+// expect:
+// [ 2, 4, 6, 8, 10 ] [ 3, 2, 1 ]
+// [
+//    97, 194, 291, 388,
+//   485, 582, 679, 776,
+//   873, 970
+// ]
+// 500500 500500 1 1000
+// true false true false
+// 12 undefined 100
+// 1000 true
+// 1000 Point { x: 10, y: 100 } [
+//   Point { x: 1, y: 1 },
+//   Point { x: 2, y: 4 },
+//   Point { x: 3, y: 9 },
+//   Point { x: 4, y: 16 }
+// ]
+// [ '0:ALPHA', '1:BETA', '2:GAMMA', '3:DELTA' ] alphabetagammadelta
+// [] 0 Infinity -Infinity false true
+// [ 1, 4, 9, 16 ]
+// true
+// [ 5, 10, 15, 20, 25 ]
+// [ 0, 1, 2, 3 ] [ 3, 4, 5 ] 0 [
+//    0,  1,  4,  9, 16,
+//   25, 36, 49, 64, 81
+// ]
+// [ 0, 250, 500, 750 ] 5050 5050
+// true false 15 25
+// 3 7 Infinity [ 3, 4, 5, 6, 7 ]
+// 75025 [ 'left', [ 1, 2 ] ]
+// caught failed at 1234
+// caught left
+// before the microtasks 0
+// after 8
+// 4950

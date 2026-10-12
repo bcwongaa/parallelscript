@@ -435,3 +435,83 @@ void pts_par_run(const pts_par_op *op, size_t count, void *result) {
   part root = {op, 0, count, pool_threads, result};
   run_part(&root, false);
 }
+
+/* ---------------------------------------------------------------- pts:parallel's intrinsics (D-123) */
+
+/* An operation whose pieces call the library's closures: leaf(from, to), and combine(left, right) for a reduction. */
+typedef struct closure_op {
+  pts_par_op op;
+  pts_closure *leaf;
+  pts_closure *combine;
+} closure_op;
+
+/* A count of indices from a number: its integer part, 0 if it isn't positive. */
+static size_t index_count(double count) { return count >= 1 ? (size_t)count : 0; }
+
+static void call_closure(void *closure, bool migrated) {
+  (void)migrated;
+  ((void (*)(pts_closure *))((pts_closure *)closure)->code)(closure);
+}
+
+/*
+ * Runs an operation for the library: on the loop's own thread, the loop's inbox exists
+ * first (callbacks on other threads post their promise work to it), and that work is
+ * done before the operation returns or throws.
+ */
+static void operate(const pts_par_op *op, size_t count, void *result, bool join) {
+  bool on_loop = !(pts_current_loop & PTS_LOOP_FOREIGN);
+  if (on_loop) {
+    pts_uv_loop();
+  }
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    if (on_loop) {
+      pts_absorb_messages();
+    }
+    pts_throw(pts_caught(&handler));
+  }
+  if (join) {
+    const closure_op *pair = (const closure_op *)op;
+    pts_join(call_closure, pair->leaf, call_closure, pair->combine);
+  } else {
+    pts_par_run(op, count, result);
+  }
+  pts_try_leave(&handler);
+  if (on_loop) {
+    pts_absorb_messages();
+  }
+}
+
+static void for_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
+  (void)result;
+  pts_closure *leaf = ((const closure_op *)op)->leaf;
+  ((void (*)(pts_closure *, double, double))leaf->code)(leaf, (double)from, (double)to);
+}
+
+void pts_parallel_for(pts_closure *leaf, double count) {
+  closure_op op = {.op = {.leaf = for_leaf}, .leaf = leaf};
+  operate(&op.op, index_count(count), NULL, false);
+}
+
+static void reduce_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
+  pts_closure *leaf = ((const closure_op *)op)->leaf;
+  *(pts_value *)result = ((pts_value(*)(pts_closure *, double, double))leaf->code)(leaf, (double)from, (double)to);
+}
+
+static void reduce_combine(const pts_par_op *op, void *left, void *right) {
+  pts_closure *combine = ((const closure_op *)op)->combine;
+  *(pts_value *)left = ((pts_value(*)(pts_closure *, pts_value, pts_value))combine->code)(combine, *(pts_value *)left, *(pts_value *)right);
+}
+
+pts_value pts_parallel_reduce(pts_closure *leaf, pts_closure *combine, double count) {
+  closure_op op = {.op = {.leaf = reduce_leaf, .combine = reduce_combine, .result_size = sizeof(pts_value)}, .leaf = leaf, .combine = combine};
+  volatile pts_value result = PTS_VALUE_UNDEFINED;
+  operate(&op.op, index_count(count), (pts_value *)&result, false);
+  return result;
+}
+
+void pts_parallel_join(pts_closure *a, pts_closure *b) {
+  closure_op pair = {.leaf = a, .combine = b};
+  operate(&pair.op, 0, NULL, true);
+}

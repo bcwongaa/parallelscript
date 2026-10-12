@@ -86,3 +86,8 @@ declare namespace NodeJS {
 // argument, and `parallel(e)` is one when no binding named parallel is in scope, so the
 // checker types both as a promise of e's awaited value. The compiler runs e as a task.
 declare function parallel<T>(task: T): Promise<Awaited<T>>;
+
+// `xs.par`: a parallel view of an array (D-123), whose methods run on the fork-join pool.
+interface Array<T> {
+    readonly par: import("pts:parallel").ParallelArray<T>;
+}

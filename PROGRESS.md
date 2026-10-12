@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.4 `.par` views
+- **Next task:** M5.4b `flatMap`, `sort` and `sortBy`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.4a `.par` views of arrays and ranges (M5.4 split by D-123; SPEC §5.4, §9.80): `pts:parallel` written in ParallelScript over three pool intrinsics: `ParallelArray<T>` (`xs.par`: `map`, `filter`, `forEach`, `reduce`, `some`, `every`, `find`, `count`, `sum`, `min`, `max`, `toArray`), `range`/`Range`/`ParallelRange`, `join`; branded `ParallelCallback<F>` parameters; callbacks' promise work queued on the calling loop before the method returns. forEach of `Math.sqrt` over 3M indices: 8.1 ms on 1 thread, 4.2 on 2, 2.5 on 4.
 - M5.3 The fork-join pool (D-122, SPEC §5.4, §9.79): `pts_join` and `pts_par_run` over Chase–Lev deques with Rayon's join, adaptive splitter and sleep protocol; `PTS_THREADS` − 1 workers plus the helping caller; pool threads work for the operation's loop (`PTS_LOOP_FOREIGN`), so promise work in callbacks reaches that loop as messages; a `ThreadSanitize` toolchain profile with the pool and loop tests under TSan (it found one race, fixed). A sqrt reduction over 100M indices: 179 ms on 1 thread, 89 ms on 2, 49 ms on 4.
 - M5.2 Multi-loop runtime (D-121, SPEC §5.1, §5.3, §9.78): `parallel e` runs e as a task on the least-loaded other loop (a loop per core, `PTS_THREADS`, started at the first `parallel`); promises settle on the loop that made them and reactions run on the loop that added them, through per-loop inboxes woken with `uv_async_send`; idle loops take unstarted tasks from others; the program ends when every loop sleeps; one exit lock for every way the process ends. `// threads:` runs a test under several `PTS_THREADS`. fib fan-out: 1.84× at 2 loops, 3× at 8 on the 4-core/8-thread machine; TSan clean with collection off.
 - M5.1 The `parallel` keyword (D-120, SPEC §9.77): the fork's parser makes `parallel e` a call of `parallel` marked `NodeFlagsPtsParallel` and `parallel for` a marked for statement (three `// PTS:` hooks, `internal/parser/pts.go`); the prelude's `parallel<T>(task: T): Promise<Awaited<T>>` types both forms through tsc; PTS1002 for a shadowing binding and a function operand; running either is PTS1001 until M5.2/M5.5. `parallel` as a name keeps working.
@@ -106,8 +107,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.4 `.par` views (see `docs/MASTER_PLAN.md`; likely split: typed arrays first, then `.par`, then `pts:parallel`): build the `.par` methods on `pts_par_run` (`pts.h`, D-122; `docs/agent/NOTES-rayon.md` §6 for each method's leaf and combine) and `join` on `pts_join`. Callbacks run on pool threads as foreign threads of the calling loop (D-122): promises they make are that loop's; timers and async I/O from a pool worker throw for now (`own_slot` in `scheduler.c`) — decide whether to allow them. Each callback call through a closure from a leaf; exceptions propagate through `pts_join` (the leftmost wins). `PTS_THREADS=1` runs one piece on the caller.
-2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too.
+1. M5.4b `flatMap`, `sort` and `sortBy` (see `docs/MASTER_PLAN.md`): add them to `ParallelArray`/`ParallelRange` in `pts/lib/parallel.pts` over `pts_parallel_reduce`/`pts_parallel_join` (D-123); sort as Rayon's parallel merge sort (`docs/agent/NOTES-rayon.md` §6): stable sequential sort of the leaves, then merges split at the larger run's midpoint. `sort(compare?)` should follow Array.prototype.sort's default order (strings of the elements) when there is no comparator. Then M5.4c typed arrays.
+2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too. Also seen with `.par` (M5.4a): at 8 threads on this 4-core machine with background load, operations get slower than at 4 (a descheduled thread holds up a join), and recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -122,7 +123,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (281 run tests, the parallel ones under several `PTS_THREADS`; 68 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (283 run tests, the parallel ones under several `PTS_THREADS`; 68 error tests; 300 corpus programs, 49 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -157,6 +158,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.4a done (M5.4 split by D-123).
 - 2026-10-12: M5.3 done (D-122).
 - 2026-10-12: M5.2 done (D-121).
 - 2026-10-12: M5.1 done (D-120).

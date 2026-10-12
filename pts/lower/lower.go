@@ -2307,6 +2307,9 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 	if x, ok := l.constructorName(node); ok {
 		return x
 	}
+	if l.libMemberName(node) == "Array.par" {
+		return l.parallelView(node)
+	}
 	if builtin := l.functionProperty(node); builtin != nil {
 		object := l.expression(node.Expression())
 		if object == nil {
@@ -3415,6 +3418,7 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 	if t.Flags()&checker.TypeFlagsTypeParameter != 0 && t.AsTypeParameter().IsThisType() {
 		t = l.checker.GetConstraintOfTypeParameter(t) // a fluent method's `this`: its class (D-089)
 	}
+	t = l.withoutParallelBrand(t)
 	if t.Flags()&checker.TypeFlagsIntersection != 0 {
 		if member := l.coveringMember(t); member != nil {
 			t = member // `Settings & { width: number }`, which Object.assign gives, is a Settings (D-086)

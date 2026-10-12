@@ -149,6 +149,27 @@ static pts_message *take(loop_slot *slot) {
   return message;
 }
 
+void pts_absorb_messages(void) {
+  if (own == NULL) {
+    return;
+  }
+  for (;;) {
+    pthread_mutex_lock(&own->lock);
+    pts_message *message = own->first;
+    if (message != NULL) {
+      own->first = message->next;
+      if (own->first == NULL) {
+        own->last = NULL;
+      }
+    }
+    pthread_mutex_unlock(&own->lock);
+    if (message == NULL) {
+      return;
+    }
+    pts_message_apply(message);
+  }
+}
+
 /* Runs what is in slot's inbox, up to TASKS_PER_WAKE tasks; with more, the loop wakes itself to go on after its other callbacks. */
 static void run_inbox(loop_slot *slot) {
   size_t tasks = 0;

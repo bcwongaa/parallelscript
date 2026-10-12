@@ -245,9 +245,10 @@ Async functions and generators compile to state machines. Locals that live acros
 - These methods are synchronous: they return when the work is done.
 - `.par.map` preserves order.
 - `reduce`'s function must be associative.
+- How (D-123): `xs.par` is a `ParallelArray<T>` of `pts:parallel` (a library written in ParallelScript); `range(start, end).par` a `ParallelRange`. `filter` keeps order; `find` gives any match (the leftmost among the pieces that ran) or undefined; `some`, `every` and `find` stop early; `reduce(fn, initial)` folds elements with `fn(a, b)` from `initial`, which must be `fn`'s identity; `count(predicate)` counts the elements it holds for; `sum`, `min` and `max` take the elements as numbers, as `Number` and `Math.min`/`Math.max` do (0, Infinity and -Infinity for none); `toArray()` copies. Promise work in callbacks run on other threads (a `then`, `queueMicrotask`) is queued on the calling loop before the method returns.
 - With `PTS_THREADS=1`, `.par` runs sequentially on the caller (D-O06).
 
-**Helpers** (from `pts:parallel` or the prelude):
+**Helpers** (from `pts:parallel` or the prelude; D-123: from `pts:parallel`):
 - `range(start, end)`, so `range(0, n).par.forEach(...)` works.
 - `join(a, b)` runs two closures, potentially in parallel, and returns both results; it is for recursive divide-and-conquer.
 
@@ -1003,3 +1004,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Runtime** (`pool.c`, D-122): `deque` (Lê et al.'s Chase–Lev deque: `push`, `pop`, `steal` returning `CONTENDED` on a lost race; `grow` into a collected buffer), `worker` (deque, `own_loop`, random start for `steal_any`), `deques[]` registered under `deques_lock` and published by a release store of `deque_count`, `work_until` (own deque, then stealing, `SPINS_BEFORE_SLEEP` yields, then `sleep_until_changed`), `notify` (Rayon's sleepy count and event counter), `execute` (sets `pts_current_loop` to the job's loop, with `PTS_LOOP_FOREIGN` on another thread), `start_pool`, `current_worker`, `pts_join` (`join_job` on the stack, `run_stolen`, `run_catching`), `try_split`, `run_part`, `pts_par_run`, `pts_pool_threads`. `PTS_LOOP_FOREIGN` and `pts_configured_threads` (`scheduler_internal.h`); promise.c masks it for homes and owners, and `pts_queue_microtask` posts from a foreign thread; `own_slot` throws on a pool worker.
 - **Toolchain:** `toolchain.ThreadSanitize` (`-fsanitize=thread`).
 - **Tests:** `pts/runtime/tests/pool_test.c` (join, a stolen second closure, splitting, nesting, the leftmost throw, microtasks queued by pool threads running on the loop), under ASan/UBSan and, with `scheduler_test.c`, under TSan with `GC_DONT_GC=1` (`TestThreadedRuntimeTestsPassUnderThreadSanitizer`).
+
+### 9.80 `.par` views and pts:parallel (M5.4a)
+
+- **Library** (`pts/lib/parallel.pts`, D-123): `ParallelArray<T>`, `ParallelRange`, `Range`, `range`, `join`, `ParallelCallback<F>`/`ParallelBrand`, over the intrinsics `pts_parallel_for`, `pts_parallel_reduce`, `pts_parallel_join`. **Prelude:** `Array<T>.par`.
+- **Front end:** `usesParallelView` (`load.go`) adds `lib.ParallelModule` to the modules run.
+- **Lowering** (`parallel.go`): `parallelView` (`xs.par` as `ir.New` of tsc's class instance), `withoutParallelBrand`/`isParallelBrand`, used by `irType` and `functionType`.
+- **Runtime** (`pool.c`): `closure_op`, `operate` (makes the loop's inbox, absorbs its messages after the operation), `pts_parallel_for`, `pts_parallel_reduce`, `pts_parallel_join`; `pts_absorb_messages` (`scheduler.c`), `pts_message_apply` (`promise.c`).
+- **Tests:** `pts/tests/run/parallel_views`, `parallel_views_microtasks` (each under several `PTS_THREADS`).

@@ -1,0 +1,329 @@
+// pts:parallel: data parallelism over the fork-join pool (D-122, D-123). `xs.par` is a
+// ParallelArray view of an array, range(start, end) the integers start..end-1, whose
+// `.par` is a ParallelRange, and join(a, b) runs two closures, perhaps at once. Every
+// method is synchronous: it returns once every piece is done, its results in the order of
+// the elements. A callback may run on several threads at once (D-L16, D-L17).
+
+declare function pts_parallel_for(leaf: (from: number, to: number) => void, count: number): void;
+declare function pts_parallel_reduce(leaf: (from: number, to: number) => any, combine: (left: any, right: any) => any, count: number): any;
+declare function pts_parallel_join(a: () => void, b: () => void): void;
+
+// What marks a callback that runs on several threads at once: the function type F,
+// branded, so that the compiler knows its body is a parallel body (D-L17).
+export interface ParallelBrand {
+    readonly __ptsParallel?: undefined;
+}
+export type ParallelCallback<F> = F & ParallelBrand;
+
+// The result of a search over a piece: whether it found something, and what.
+interface Found<T> {
+    found: boolean;
+    value: T | undefined;
+}
+
+export class ParallelArray<T> {
+    constructor(private readonly items: T[]) {}
+
+    // A new array of callback's value for each element, in order.
+    map<U>(callback: ParallelCallback<(value: T, index: number, array: T[]) => U>): U[] {
+        const items = this.items;
+        const results = new Array<U>(items.length);
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                results[i] = callback(items[i], i, items);
+            }
+        }, items.length);
+        return results;
+    }
+
+    forEach(callback: ParallelCallback<(value: T, index: number, array: T[]) => void>): void {
+        const items = this.items;
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                callback(items[i], i, items);
+            }
+        }, items.length);
+    }
+
+    // The elements predicate holds for, in order.
+    filter(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): T[] {
+        const items = this.items;
+        const kept = pts_parallel_reduce((from, to) => {
+            const piece: T[] = [];
+            for (let i = from; i < to; i++) {
+                if (predicate(items[i], i, items)) {
+                    piece.push(items[i]);
+                }
+            }
+            return piece;
+        }, (left, right) => {
+            const joined = left as T[];
+            joined.push(...(right as T[]));
+            return joined;
+        }, items.length);
+        return kept as T[];
+    }
+
+    // The elements folded with callback, which must be associative, from initial, which must be its identity.
+    reduce(callback: ParallelCallback<(left: T, right: T) => T>, initial: T): T {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let accumulator = initial;
+            for (let i = from; i < to; i++) {
+                accumulator = callback(accumulator, items[i]);
+            }
+            return accumulator;
+        }, (left, right) => callback(left as T, right as T), items.length);
+        return total as T;
+    }
+
+    // Whether predicate holds for some element; it stops looking once one piece finds one.
+    some(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): boolean {
+        return this.findFound(predicate).found;
+    }
+
+    // Whether predicate holds for every element; it stops looking once one piece finds one it doesn't hold for.
+    every(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): boolean {
+        return !this.findFound((value, index, array) => !predicate(value, index, array)).found;
+    }
+
+    // An element predicate holds for (any one, not necessarily the first), or undefined.
+    find(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): T | undefined {
+        return this.findFound(predicate).value;
+    }
+
+    // How many elements predicate holds for.
+    count(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): number {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let n = 0;
+            for (let i = from; i < to; i++) {
+                if (predicate(items[i], i, items)) {
+                    n++;
+                }
+            }
+            return n;
+        }, (left, right) => (left as number) + (right as number), items.length);
+        return total as number;
+    }
+
+    // The sum of the elements as numbers (0 for none).
+    sum(): number {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            let sum = 0;
+            for (let i = from; i < to; i++) {
+                sum += Number(items[i]);
+            }
+            return sum;
+        }, (left, right) => (left as number) + (right as number), items.length);
+        return total as number;
+    }
+
+    // The least element as a number, as Math.min gives it (Infinity for none).
+    min(): number {
+        const items = this.items;
+        const least = pts_parallel_reduce((from, to) => {
+            let min = Infinity;
+            for (let i = from; i < to; i++) {
+                min = Math.min(min, Number(items[i]));
+            }
+            return min;
+        }, (left, right) => Math.min(left as number, right as number), items.length);
+        return least as number;
+    }
+
+    // The greatest element as a number, as Math.max gives it (-Infinity for none).
+    max(): number {
+        const items = this.items;
+        const greatest = pts_parallel_reduce((from, to) => {
+            let max = -Infinity;
+            for (let i = from; i < to; i++) {
+                max = Math.max(max, Number(items[i]));
+            }
+            return max;
+        }, (left, right) => Math.max(left as number, right as number), items.length);
+        return greatest as number;
+    }
+
+    // A new array of the elements.
+    toArray(): T[] {
+        return this.items.slice();
+    }
+
+    private findFound(predicate: (value: T, index: number, array: T[]) => unknown): Found<T> {
+        const items = this.items;
+        const done = { found: false };
+        const result = pts_parallel_reduce((from, to) => {
+            const piece: Found<T> = { found: false, value: undefined };
+            for (let i = from; i < to && !done.found; i++) {
+                if (predicate(items[i], i, items)) {
+                    piece.found = true;
+                    piece.value = items[i];
+                    done.found = true;
+                }
+            }
+            return piece;
+        }, (left, right) => ((left as Found<T>).found ? left : right), items.length);
+        return result as Found<T>;
+    }
+}
+
+// The integers start, start + 1, …, end - 1 (none if end <= start).
+export class Range {
+    constructor(readonly start: number, readonly end: number) {}
+
+    get length(): number {
+        return Math.max(0, this.end - this.start);
+    }
+
+    // A parallel view of the range.
+    get par(): ParallelRange {
+        return new ParallelRange(this.start, this.length);
+    }
+
+    toArray(): number[] {
+        const values = new Array<number>(this.length);
+        for (let i = 0; i < values.length; i++) {
+            values[i] = this.start + i;
+        }
+        return values;
+    }
+
+    *[Symbol.iterator](): Generator<number, void, undefined> {
+        for (let i = this.start; i < this.end; i++) {
+            yield i;
+        }
+    }
+}
+
+// range(start, end): the integers start..end-1; range(end): 0..end-1.
+export function range(start: number, end?: number): Range {
+    return end === undefined ? new Range(0, Math.trunc(start)) : new Range(Math.trunc(start), Math.trunc(end));
+}
+
+export class ParallelRange {
+    constructor(private readonly start: number, private readonly length: number) {}
+
+    map<U>(callback: ParallelCallback<(value: number) => U>): U[] {
+        const start = this.start;
+        const results = new Array<U>(this.length);
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                results[i] = callback(start + i);
+            }
+        }, this.length);
+        return results;
+    }
+
+    forEach(callback: ParallelCallback<(value: number) => void>): void {
+        const start = this.start;
+        pts_parallel_for((from, to) => {
+            for (let i = from; i < to; i++) {
+                callback(start + i);
+            }
+        }, this.length);
+    }
+
+    filter(predicate: ParallelCallback<(value: number) => unknown>): number[] {
+        const start = this.start;
+        const kept = pts_parallel_reduce((from, to) => {
+            const piece: number[] = [];
+            for (let i = from; i < to; i++) {
+                if (predicate(start + i)) {
+                    piece.push(start + i);
+                }
+            }
+            return piece;
+        }, (left, right) => {
+            const joined = left as number[];
+            joined.push(...(right as number[]));
+            return joined;
+        }, this.length);
+        return kept as number[];
+    }
+
+    // The integers folded with callback, which must be associative, from initial, which must be its identity.
+    reduce(callback: ParallelCallback<(left: number, right: number) => number>, initial: number): number {
+        const start = this.start;
+        const total = pts_parallel_reduce((from, to) => {
+            let accumulator = initial;
+            for (let i = from; i < to; i++) {
+                accumulator = callback(accumulator, start + i);
+            }
+            return accumulator;
+        }, (left, right) => callback(left as number, right as number), this.length);
+        return total as number;
+    }
+
+    some(predicate: ParallelCallback<(value: number) => unknown>): boolean {
+        return this.findFound(predicate).found;
+    }
+
+    every(predicate: ParallelCallback<(value: number) => unknown>): boolean {
+        return !this.findFound((value) => !predicate(value)).found;
+    }
+
+    find(predicate: ParallelCallback<(value: number) => unknown>): number | undefined {
+        return this.findFound(predicate).value;
+    }
+
+    count(predicate: ParallelCallback<(value: number) => unknown>): number {
+        const start = this.start;
+        const total = pts_parallel_reduce((from, to) => {
+            let n = 0;
+            for (let i = from; i < to; i++) {
+                if (predicate(start + i)) {
+                    n++;
+                }
+            }
+            return n;
+        }, (left, right) => (left as number) + (right as number), this.length);
+        return total as number;
+    }
+
+    sum(): number {
+        return this.length * this.start + (this.length * (this.length - 1)) / 2;
+    }
+
+    min(): number {
+        return this.length > 0 ? this.start : Infinity;
+    }
+
+    max(): number {
+        return this.length > 0 ? this.start + this.length - 1 : -Infinity;
+    }
+
+    toArray(): number[] {
+        return new Range(this.start, this.start + this.length).toArray();
+    }
+
+    private findFound(predicate: (value: number) => unknown): Found<number> {
+        const start = this.start;
+        const done = { found: false };
+        const result = pts_parallel_reduce((from, to) => {
+            const piece: Found<number> = { found: false, value: undefined };
+            for (let i = from; i < to && !done.found; i++) {
+                if (predicate(start + i)) {
+                    piece.found = true;
+                    piece.value = start + i;
+                    done.found = true;
+                }
+            }
+            return piece;
+        }, (left, right) => ((left as Found<number>).found ? left : right), this.length);
+        return result as Found<number>;
+    }
+}
+
+// Runs a and b, perhaps at once on two threads, and returns both results once both are
+// done; a throw out of either is rethrown then, a's first (D-122).
+export function join<A, B>(a: ParallelCallback<() => A>, b: ParallelCallback<() => B>): [A, B] {
+    const results: any[] = [undefined, undefined];
+    pts_parallel_join(() => {
+        results[0] = a();
+    }, () => {
+        results[1] = b();
+    });
+    return [results[0] as A, results[1] as B];
+}

@@ -36,5 +36,13 @@ void pts_task_finished(void);
 
 /* Runs a message on this loop (promise.c), followed by the microtasks it queued. */
 void pts_message_run(pts_message *message);
+/* Runs a message on this loop without the microtasks it queues (promise.c). */
+void pts_message_apply(pts_message *message);
+/*
+ * After a parallel operation on this loop's thread (D-123): applies the messages (not
+ * tasks) waiting in its inbox, so the promise work the operation's callbacks did on other
+ * threads is done, and their microtasks queued, before the operation returns.
+ */
+void pts_absorb_messages(void);
 
 #endif /* PTS_SCHEDULER_INTERNAL_H */

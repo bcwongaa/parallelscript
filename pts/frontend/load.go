@@ -76,8 +76,8 @@ func internalImports(ts *compiler.Program) []diagnostic.Diagnostic {
 }
 
 // globalModulesUsed are the pts: modules whose default export is a global (lib.GlobalModules)
-// that one of modules uses: the program runs them first, as Node sets its globals up
-// before any module runs.
+// that one of modules uses, and pts:parallel if one uses `.par` (D-123): the program runs
+// them first, as Node sets its globals up before any module runs.
 func globalModulesUsed(ctx context.Context, ts *compiler.Program, modules []*ast.SourceFile) []*ast.SourceFile {
 	var used []*ast.SourceFile
 	for name, specifier := range lib.GlobalModules {
@@ -85,6 +85,10 @@ func globalModulesUsed(ctx context.Context, ts *compiler.Program, modules []*ast
 		if module != nil && !slices.Contains(modules, module) && slices.ContainsFunc(modules, func(file *ast.SourceFile) bool { return usesGlobal(ctx, ts, file, name) }) {
 			used = append(used, module)
 		}
+	}
+	parallel := ts.GetSourceFile(lib.ModulePath(lib.ParallelModule))
+	if parallel != nil && !slices.Contains(modules, parallel) && slices.ContainsFunc(modules, func(file *ast.SourceFile) bool { return usesParallelView(ctx, ts, file) }) {
+		used = append(used, parallel)
 	}
 	slices.SortFunc(used, func(a, b *ast.SourceFile) int { return strings.Compare(a.FileName(), b.FileName()) })
 	return used
@@ -106,6 +110,25 @@ func usesGlobal(ctx context.Context, ts *compiler.Program, file *ast.SourceFile,
 		return node.ForEachChild(visit)
 	}
 	return global != nil && file.AsNode().ForEachChild(visit)
+}
+
+// usesParallelView reports whether file reads the prelude's Array.par.
+func usesParallelView(ctx context.Context, ts *compiler.Program, file *ast.SourceFile) bool {
+	if _, ok := file.Identifiers["par"]; !ok {
+		return false
+	}
+	checker, release := ts.GetTypeCheckerForFile(ctx, file)
+	defer release()
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		if node.Kind == ast.KindPropertyAccessExpression && node.AsPropertyAccessExpression().Name().Text() == "par" {
+			if symbol := checker.GetSymbolAtLocation(node); symbol != nil && symbol.ValueDeclaration != nil && lib.IsLibPath(ast.GetSourceFileOfNode(symbol.ValueDeclaration).FileName()) {
+				return true
+			}
+		}
+		return node.ForEachChild(visit)
+	}
+	return file.AsNode().ForEachChild(visit)
 }
 
 // evaluationOrder lists the modules reachable from first and then entry in ES module

@@ -39,6 +39,10 @@ func IsModulePath(path string) bool {
 // the global `process` is pts:process's (D-116).
 var GlobalModules = map[string]string{"process": "pts:process"}
 
+// ParallelModule is the module of `.par` views (D-123), which the prelude's Array.par
+// names: a program that uses `.par` runs it.
+const ParallelModule = "pts:parallel"
+
 // ModulePath is the path of the source of the pts: module named by specifier (`pts:path`).
 func ModulePath(specifier string) string {
 	return scheme + strings.TrimPrefix(specifier, "pts:") + ".pts"

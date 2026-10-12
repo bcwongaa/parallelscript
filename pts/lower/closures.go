@@ -15,6 +15,7 @@ import (
 // function type, or reports why it can't (at node) and returns nil. ok is false if t
 // isn't such a type.
 func (l *lowerer) functionType(t *checker.Type, node *ast.Node) (ft *ir.FuncType, ok bool) {
+	t = l.withoutParallelBrand(t)
 	if t.Flags()&checker.TypeFlagsObject == 0 || t.ObjectFlags()&checker.ObjectFlagsClass != 0 {
 		return nil, false
 	}
