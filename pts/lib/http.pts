@@ -547,7 +547,7 @@ export async function fetch(input: string | Request, init?: RequestInit): Promis
     const headers = new Headers(request.headers);
     for (let redirects = 0; ; redirects++) {
         if (target.scheme !== "http") {
-            throw fetchFailed(new Error(target.scheme === "https" ? "https: is not supported yet: fetch speaks plain HTTP (D-O10)" : "unknown scheme"));
+            throw fetchFailed(new Error(target.scheme === "https" ? "https: is not supported yet: fetch speaks plain HTTP" : "unknown scheme"));
         }
         if (BAD_PORTS.includes(target.port)) {
             throw fetchFailed(new Error("bad port"));

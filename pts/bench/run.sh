@@ -23,7 +23,8 @@
 # Environment: RUNS (default 10) runs of each implementation in all, split over ROUNDS
 # (default 2) rounds, each with WARMUP (default 2) warm-up runs; RESULTS (default
 # pts/bench/results/latest) keeps hyperfine's JSON of every round and <name>.json, every
-# run's time merged, from which the table's means and standard deviations come.
+# run's time merged, from which the table's means and standard deviations come;
+# TABLE_ONLY=1 runs nothing and prints the tables of the results RESULTS already holds.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -44,10 +45,11 @@ if [ $# -gt 0 ]; then
 else
   names=()
   for dir in "$bench"/*/; do
-    if [ ! -f "$dir/request" ]; then names+=("$(basename "$dir")"); fi
+    if [ -f "$dir/main.pts" ] && [ ! -f "$dir/request" ]; then names+=("$(basename "$dir")"); fi
   done
 fi
 
+if [ -z "${TABLE_ONLY:-}" ]; then
 echo "Building pts..." >&2
 go build -o "$work/pts" "$root/cmd/pts"
 export PTS_HOME=$root
@@ -108,6 +110,7 @@ for name in "${names[@]}"; do
   done
   if [ -f "$dir/label" ]; then cp "$dir/label" "$results/$name.label"; else rm -f "$results/$name.label"; fi
 done
+fi
 
 # Each benchmark's rounds merged into <name>.json, then one table row per benchmark:
 # mean ± standard deviation, and how many times faster ParallelScript is; parallel

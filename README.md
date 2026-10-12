@@ -1,5 +1,7 @@
 # ParallelScript
 
+**TypeScript, compiled to native code, running on every core.**
+
 ParallelScript is TypeScript compiled ahead of time to native binaries, with a garbage collector and real parallelism.
 
 You write TypeScript, plus one new keyword, `parallel`. The compiler, `pts`, type-checks the program with a fork of the TypeScript 7 compiler ([typescript-go](https://github.com/microsoft/typescript-go), pinned at `typescript/v7.0.2`), lowers it to a typed intermediate representation, emits C and compiles that with clang into one executable. There is no VM, no JIT and no JavaScript engine. Memory is garbage collected (bdwgc). The runtime starts one event loop per core over one shared heap: `await` keeps its JavaScript meaning, and the parallel features spread work over the cores.
@@ -8,7 +10,15 @@ The aim is a language that reads and feels like TypeScript, runs as native code 
 
 A plain TypeScript program (no `parallel`, no integer types, no `pts:` imports) must print exactly what Node prints. The test suite checks this by running such programs under Node too. The exceptions are listed in [SPEC §8](docs/SPEC.md#8-documented-differences-from-typescript-and-node).
 
-**Status:** experimental. Milestones M0 to M5 are done, M6 is in progress ([status](#status)). It runs on x86-64 Linux only. There is no editor support yet.
+Why use it:
+
+- **It is TypeScript.** The front end is the TypeScript 7 compiler itself, so the types, the inference and the error messages are tsc's. The test suite runs hundreds of programs under Node too and compares what they print, among them a corpus of 300 realistic programs, 267 of which print exactly what Node prints (each of the others says why).
+- **Native binaries that start in a millisecond.** `pts build` makes one executable that needs only libc and libm. Hello world starts in about 1 ms, where Node takes 74 ms.
+- **Every core, one heap.** `parallel f()` runs a task on another core's event loop, `xs.par.map(f)` splits work over a work-stealing pool, and `parallel for` runs a loop's iterations in parallel. Threads share objects directly; nothing is copied or serialized. A data race can make a program read a stale value, but it can't crash it or corrupt memory.
+- **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
+- **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node.
+
+**Status:** experimental. Milestones M0 to M6 are done; M7, editor support, is next ([status](#status)). It runs on x86-64 Linux only. There is no editor support yet.
 
 ```ts
 import { range } from "pts:parallel";
@@ -42,7 +52,9 @@ console.log(await parallel collatzSteps(77_031));
 
 - [Quick start](#quick-start)
 - [Feature tour](#feature-tour)
+- [Examples](#examples)
 - [Benchmarks](#benchmarks)
+- [Differences from TypeScript and Node](#differences-from-typescript-and-node)
 - [Status](#status)
 - [Known gaps](#known-gaps)
 - [Repository layout](#repository-layout)
@@ -468,52 +480,106 @@ John Smith
 09:20 ERROR disk full on SDB2
 ```
 
+### HTTP and `fetch`
+
+`pts:http` serves HTTP/1.1 with the Fetch standard's `Request` and `Response`, in the style of Bun's `serve`. With `reusePort: true`, every event loop accepts connections, so requests are handled on every core. `fetch` is global, as in Node, with `AbortController` for cancelling requests.
+
+```ts
+import { serve, Response } from "pts:http";
+
+// An HTTP/1.1 server in the style of Bun's serve; reusePort accepts connections on every core.
+const server = serve({
+  port: 0, // any free port; a real server names one, such as 3000
+  hostname: "127.0.0.1",
+  reusePort: true,
+  async fetch(request) {
+    const { name } = await request.json();
+    return Response.json({ greeting: `hello, ${name}` });
+  },
+});
+
+// fetch, Request, Response and Headers are globals, as in Node.
+const response = await fetch(server.url, { method: "POST", body: JSON.stringify({ name: "Ada" }) });
+console.log(response.status, response.headers.get("content-type"), await response.json());
+server.stop(); // a real server keeps serving; this sample stops so that it ends
+```
+
+```
+200 application/json { greeting: 'hello, Ada' }
+```
+
 ### Also there
 
-Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, the `pts:fs` (sync and promises), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules, and `pts:http`, an HTTP/1.1 server in the style of Bun's `serve` that can accept connections on every core (`reusePort: true`). The full list is [docs/SPEC.md](docs/SPEC.md).
+Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, and the `pts:fs` (sync and promises, text and bytes), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules. The full list is [docs/SPEC.md](docs/SPEC.md).
+
+## Examples
+
+[examples/](examples/README.md) has four programs written the way real ones are. The test suite builds each one, runs it under one thread and under four, and checks its output against an independent answer. The numbers are from the development machine, a 4-core, 8-thread laptop.
+
+| Example | What it does | Numbers |
+|---|---|---|
+| [hasher](examples/hasher/main.pts) | SHA-256 of files, written in ParallelScript with `u32` arithmetic, one file per `.par.map` job | 200 MB in 8 files: 5.8 s on one thread, 2.1 s on four (Node runs the same code in 4.6 s) |
+| [mandelbrot](examples/mandelbrot/main.pts) | Renders the set into a PNG, rows painted by `range(…).par.forEach`, with a PNG writer in ParallelScript | 1920×1280: 2.07 s on one thread, 0.31 s on eight (6.8×) |
+| [api-server](examples/api-server/main.pts) | A JSON API that answers on every core, its state in a `pts:sync` `Mutex<Map>`, with `request.signal` for clients that leave | `GET /items/1`: 51,000 requests/s on one loop, 99,000 on four |
+| [log-analyzer](examples/log-analyzer/main.pts) | Parses access logs with a RegExp per line, counts with `.par.map` over pieces of the files, prints a report | 146 MB of logs: 2.79 s on one thread, 1.16 s on four (Node runs the same program in 1.72 s) |
+
+```sh
+pts-bin/pts build examples/log-analyzer/main.pts -o log-analyzer
+./log-analyzer /var/log/nginx/access.log      # PTS_THREADS=1 ./log-analyzer … uses one thread
+```
+
 
 ## Benchmarks
 
-These are the benchmarks added from M1 to M6, with their latest numbers, from the M5 run and, for the HTTP servers, the M6.2b run (2026-10-12). The machine is a laptop with an Intel Core i5-8250U (4 cores, 8 hardware threads, clocked lower when all cores run) and 15 GB of RAM, running Linux Mint 22.2, clang 18, Node 24.21.0, Bun 1.4.3 and Go 1.26.9. It also runs other services, so timings vary. Times are wall-clock means from hyperfine, process start included; lower is better. "vs Node" is Node's time divided by ParallelScript's, and "vs Go" likewise: above 1× means ParallelScript is faster. Node and Bun run the same program as ParallelScript. Every milestone's table, with notes on each benchmark, is in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+The latest numbers, from the M6 run (2026-10-13). The machine is a laptop with an Intel Core i5-8250U (4 cores, 8 hardware threads, clocked lower when all cores run) and 15 GB of RAM, running Linux Mint 22.2, clang 18, Node 24.21.0, Bun 1.4.3 and Go 1.26.9. It also runs other services, so timings vary; [docs/BENCHMARKS.md](docs/BENCHMARKS.md) gives each mean with its standard deviation, every milestone's table and notes on each benchmark, and `pts/bench/results/m6/` keeps every run's time. Times are wall-clock means of 10 runs in 2 interleaved rounds, process start included; lower is better. "vs Node" is Node's time divided by ParallelScript's, and "vs Go" likewise: above 1× means ParallelScript is faster. Node and Bun run the same program as ParallelScript, and every implementation must print the same output; an audit made every twin do the same work (D-167).
 
 One thread:
 
 | Benchmark | ParallelScript | Node | Bun | Go | vs Node | vs Go |
 |---|---|---|---|---|---|---|
-| fib (recursive, `number`) | 254 ms | 670 ms | 505 ms | 272 ms | 2.64× | 1.07× |
-| fib_int (the same on `int`) | 132 ms | – | – | 235 ms | – | 1.78× |
-| async_fib (1.7 million async calls) | 162 ms | 259 ms | 272 ms | – | 1.60× | – |
-| string_building | 1096 ms | 1760 ms | 6632 ms | 403 ms | 1.61× | 0.37× |
-| file_io (`fs/promises`) | 519 ms | 825 ms | 361 ms | 350 ms | 1.59× | 0.67× |
-| nbody | 810 ms | 853 ms | 870 ms | 592 ms | 1.05× | 0.73× |
-| word_freq (`Map` of 2 million words) | 1988 ms | 1769 ms | 1474 ms | 754 ms | 0.89× | 0.38× |
-| binary_trees (GC stress) | 1774 ms | 1379 ms | 1598 ms | 3126 ms | 0.78× | 1.76× |
-| json (stringify and parse) | 1119 ms | 765 ms | 419 ms | 1770 ms | 0.68× | 1.58× |
+| startup (hello world) | 1.2 ms | 73 ms | 4.7 ms | 1.3 ms | 60.48× | 1.08× |
+| fib (recursive, `number`) | 254 ms | 636 ms | 416 ms | 258 ms | 2.50× | 1.01× |
+| fib_int (the same on `int`) | 127 ms | – | – | 214 ms | – | 1.69× |
+| async_fib (1.7 million async calls) | 148 ms | 228 ms | 205 ms | – | 1.53× | – |
+| string_building | 1064 ms | 1654 ms | 3924 ms | 572 ms | 1.56× | 0.54× |
+| file_io (`fs/promises`, warm cache) | 428 ms | 710 ms | 299 ms | 292 ms | 1.66× | 0.68× |
+| nbody | 779 ms | 853 ms | 842 ms | 504 ms | 1.09× | 0.65× |
+| word_freq (`Map` of 2 million words) | 1493 ms | 1302 ms | 1035 ms | 1051 ms | 0.87× | 0.70× |
+| binary_trees (GC stress) | 1684 ms | 1424 ms | 1579 ms | 2883 ms | 0.85× | 1.71× |
+| spectral_norm | 2788 ms | 1948 ms | 2227 ms | 1430 ms | 0.70× | 0.51× |
+| json (stringify and parse) | 1097 ms | 729 ms | 471 ms | 1807 ms | 0.67× | 1.65× |
 
 Parallel, with `PTS_THREADS` at 1, 4 and 8. "Speedup ×8" is the 1-thread time divided by the 8-thread time. Node and Bun run the same program without `.par` and `parallel`, on one thread; Go uses goroutines.
 
 | Benchmark | PTS ×1 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Go | ×8 vs Node | ×8 vs Go |
 |---|---|---|---|---|---|---|---|---|
-| mandelbrot (`.par.forEach` over rows) | 1525 ms | 521 ms | 328 ms | 4.65× | 1649 ms | 321 ms | 5.03× | 0.98× |
-| fan_out (64 `parallel` tasks) | 935 ms | 347 ms | 343 ms | 2.72× | 1011 ms | 312 ms | 2.95× | 0.91× |
-| sum_reduce (100 million doubles) | 4080 ms | 2886 ms | 2390 ms | 1.71× | 5423 ms | 907 ms | 2.27× | 0.38× |
-| word_count (`.par.map` into maps) | 2073 ms | 948 ms | 1737 ms | 1.19× | 2275 ms | 220 ms | 1.31× | 0.13× |
+| mandelbrot (`.par.forEach` over rows) | 1465 ms | 379 ms | 241 ms | 6.09× | 1592 ms | 223 ms | 6.62× | 0.93× |
+| fan_out (64 `parallel` tasks) | 874 ms | 238 ms | 250 ms | 3.49× | 998 ms | 249 ms | 3.99× | 0.99× |
+| sum_reduce (100 million doubles) | 3542 ms | 1779 ms | 1677 ms | 2.11× | 4514 ms | 686 ms | 2.69× | 0.41× |
+| word_count (`.par.map` into maps, warm cache) | 1344 ms | 587 ms | 1018 ms | 1.32× | 1087 ms | 185 ms | 1.07× | 0.18× |
 
-What the numbers say:
-
-- **Wins.** Recursive calls, async calls and string building are faster than Node and Bun, and file_io is 1.59× Node's speed. One `pts:http` loop serves 2.2 to 2.7 times as many requests as Node, and four loops beat Go's `net/http`. fib_int is 1.78× Go's speed. On 8 threads, every parallel benchmark beats Node's single thread, and mandelbrot and fan_out come close to Go (0.98× and 0.91×).
-- **Losses.** Programs that allocate a lot are slower than Node: binary_trees (0.78×), json (0.68×) and word_freq (0.89×). json is 0.37× Bun's speed, and file_io 0.70×. Against Go, ParallelScript loses on string_building (0.37×), word_freq (0.38×), nbody (0.73×) and file_io (0.67×), and on 8 threads on sum_reduce (0.38×) and word_count (0.13×).
-- **Why.** bdwgc is a conservative, non-moving, non-generational collector. With threads, it refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads: word_count is slower on 8 threads than on 4. nbody's loop indices are doubles until integer inference (M8). sum_reduce is bound by memory bandwidth, and one thread zeroes its 800 MB array.
-- **Noise.** The machine was busier during this run than during the M5.7b run an hour earlier, which measured 8-thread speedups of 5.78× (mandelbrot), 3.26× (fan_out), 2.22× (word_count) and 1.83× (sum_reduce). Both runs are in BENCHMARKS.md.
-
-HTTP servers (M6.2b), in requests per second, higher is better: `pts:http` on 1 and 4 loops (`reusePort: true`), Node's `node:http` and `Bun.serve` on one thread, Go's `net/http` on every core, each loaded by oha with 64 connections on the same machine.
+HTTP servers, in requests per second, higher is better: `pts:http` on 1 and 4 loops (`reusePort: true`), Node's `node:http` and `Bun.serve` on one thread, Go's `net/http` on every core, each loaded by oha with 64 connections on the same machine.
 
 | Benchmark | PTS ×1 | PTS ×4 | Node | Bun | Go | ×4 vs Node | ×4 vs Go |
 |---|---|---|---|---|---|---|---|
-| http_hello (13-byte text) | 56,818 | 84,739 | 20,939 | 59,753 | 69,483 | 4.05× | 1.22× |
-| http_json (parse an order, total it, answer JSON) | 34,096 | 56,132 | 15,592 | 34,189 | 48,436 | 3.60× | 1.16× |
+| http_hello (13-byte text) | 61,572 | 109,696 | 24,133 | 71,162 | 85,174 | 4.55× | 1.29× |
+| http_json (parse an order, total it, answer JSON) | 30,878 | 59,681 | 18,548 | 41,334 | 48,238 | 3.22× | 1.24× |
 
-Start-up, measured at M0: hello world runs in 1.4 ms, against 75.4 ms for Node and 4.3 ms for Bun.
+What the numbers say:
+
+- **Wins.** A ParallelScript program starts in about a millisecond. Recursive calls, async calls and string building are faster than Node and Bun, and file_io is 1.66× Node's speed. One `pts:http` loop serves 1.7 to 2.6 times as many requests as Node, and four loops beat Go's `net/http` by 24 to 29%. fib_int is 1.69× Go's speed, and binary_trees and json beat Go. On 8 threads, every parallel benchmark beats Node's single thread, and mandelbrot and fan_out match Go (0.93× and 0.99×).
+- **Losses.** Programs that allocate a lot are slower than Node: binary_trees (0.85×), json (0.67×) and word_freq (0.87×); json is 0.43× Bun's speed. spectral_norm is 0.70× Node. Against Go, ParallelScript loses on string_building (0.54×), nbody (0.65×), spectral_norm (0.51×), file_io (0.68×) and word_freq (0.70×), and on 8 threads on sum_reduce (0.41×) and word_count (0.18×).
+- **Why.** bdwgc is a conservative, non-moving, non-generational collector. With threads, it refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads: word_count is slower on 8 threads than on 4. nbody's and spectral_norm's loop indices are doubles until integer inference (M8), and spectral_norm's inner loop rechecks a module-level constant at every read. sum_reduce is bound by memory bandwidth, and one thread zeroes its 800 MB array.
+
+## Differences from TypeScript and Node
+
+ParallelScript keeps JavaScript's semantics wherever it can; [SPEC §8](docs/SPEC.md#8-documented-differences-from-typescript-and-node) lists every difference, and [docs/GUIDE.md](docs/GUIDE.md) explains them for TypeScript developers. The main ones:
+
+- **Types are enforced at run time.** Values have fixed representations: a `number` is a double, an object type has a fixed shape. Objects can't gain or lose properties, except values of hash-map types (`Record<string, T>`, index signatures). `any` is a checked dynamic value: where it flows into typed code, and in every cast, a value of the wrong type throws `TypeError` instead of travelling on.
+- **Integer types.** `int`, `i8` … `u64` and `f32` are real machine types with wrapping arithmetic, conversions without loss are implicit, and the rest need `as`.
+- **No holes.** Arrays have no holes. Reading an array or a string past its end, or a missing key of a hash-map object, gives `undefined` where the context can hold it and throws `RangeError` where a value of the element's type is required.
+- **Left out by design,** each with a compile error that says why: `eval`, `new Function`, `with`, `var`, `arguments`, prototype manipulation, `Proxy`, `Reflect`, namespaces and declaration merging other than of interfaces.
+- **One new keyword.** `parallel` is a keyword only in `parallel <expression>` and `parallel for`; as a name it still works.
 
 ## Status
 
@@ -527,7 +593,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M3 The TypeScript feel | Unions, optional chaining, exceptions and stack traces, checked `any`, JSON, the standard built-ins, `console.log` parity, a 300-program corpus compared with Node | done (`m3`) |
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
-| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md): a file hasher, a mandelbrot PNG renderer, a JSON API server on every core and a log analyzer (done) | in progress |
+| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md) (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), the fixes from an independent review, a benchmark audit | done (`m6`) |
 | M7 Editor support | `pts lsp`, a VS Code extension, a usability pass | planned |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
@@ -536,27 +602,18 @@ Planned after M7, if the project goes on: M8, performance work (escape analysis,
 
 Not built yet:
 
-- `https://` for `fetch` (no TLS yet), `pts lsp`, the VS Code extension and `pts test` (M7).
+- `https://` for `fetch` (no TLS yet), streamed request and response bodies, `pts lsp`, the VS Code extension and `pts test` (M7).
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
-- npm packages and `node_modules`.
-
-Left out by design, each with a compile error that says why: `eval`, `new Function`, `with`, `var`, `arguments`, prototype manipulation, `Proxy`, `Reflect`, declaration merging, namespaces, `Symbol` other than `Symbol.iterator` and `Symbol.asyncIterator`. `bigint` is not supported yet.
-
-Differences from Node ([SPEC §8](docs/SPEC.md#8-documented-differences-from-typescript-and-node) has the full list). The main ones:
-
-- Objects have fixed shapes: no adding or deleting properties, except on hash-map types.
-- `any` is checked where it flows into typed code, and casts are checked at run time: both throw `TypeError` on a mismatch.
-- Arrays have no holes. Reading an array or a string past its end, or a missing key of a hash-map object, gives `undefined` where any value can go, but throws `RangeError` where a value of the element's type is required.
+- npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 
-- 47 of the 300 corpus programs still print something other than Node; each file says why.
-- No temporal dead zone checks for captured variables and classes: a closure that runs before the declaration of a variable it captures sees a zero value (or crashes, for a string or an object), and `new C()` before `class C` has run works. Node throws `ReferenceError` in both cases.
+- 33 of the 300 corpus programs still print something other than Node; each file says why (24 use features that aren't built yet, 8 differ by design, 1 is a bug).
 - `await` inside an expression-bodied async arrow, other than first, is a compile error; a block body works.
 - Overrides must keep the overridden method's parameter types.
-- RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` matches an astral character whole.
-- Indexing a non-ASCII string is O(n).
-- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers and async I/O started from a `.par` callback on a pool thread throw `Error`; recursive `join` is slower than sequential code, because each join allocates.
+- RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` and character classes match an astral character whole.
+- Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).
+- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131).
 
 ## Repository layout
 

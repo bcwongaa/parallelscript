@@ -151,7 +151,7 @@ server.stop();
 // request object patched
 // refused TypeError: fetch failed | cause: connect ECONNREFUSED 127.0.0.1:PORT ECONNREFUSED connect
 // invalid url TypeError: Failed to parse URL from not a url | cause: Invalid URL
-// https TypeError: fetch failed | cause: https: is not supported yet: fetch speaks plain HTTP (D-O10)
+// https TypeError: fetch failed | cause: https: is not supported yet: fetch speaks plain HTTP
 // ftp TypeError: fetch failed | cause: unknown scheme
 // bad port TypeError: fetch failed | cause: bad port
 // get with body TypeError: Request with GET/HEAD method cannot have body. | cause: undefined

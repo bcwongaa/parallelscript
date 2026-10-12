@@ -4,48 +4,47 @@ Honest numbers, losses included (D-O15). Produced by `pts/bench/run.sh` (`make b
 
 ## Summary
 
-The latest numbers for every benchmark. All but the HTTP servers, spectral_norm and startup come from the M5 section below (M5.8, measured 2026-10-12 on a busy machine); the servers come from the M6.2b section, spectral_norm and startup from M6.5a. M6.5a made several twins do the same work as `main.pts` (D-167): the M5 rows of fan_out, file_io, json, mandelbrot, string_building, sum_reduce, word_count and word_freq were measured with the old twins, which did less work in Node's sum_reduce and mandelbrot and in several Go twins; M6.6's table is the first with the audited twins. The "vs Bun" columns are computed here from the same times; the milestone tables don't list them. The milestone sections below are the history, unchanged.
+The latest numbers for every benchmark, from the M6 run (2026-10-13, below): the first with the audited twins (D-167), mean times of 10 runs in 2 interleaved rounds. The "vs Bun" columns are computed here from the same JSON (`pts/bench/results/m6/`); the milestone tables don't list them. The milestone sections below are the history, unchanged.
 
 Single-threaded:
 
 | Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Bun | PTS vs Go |
 |---|---|---|---|---|---|---|---|
-| async_fib | 162 ms | 259 ms | 272 ms | – | 1.60× | 1.68× | – |
-| binary_trees | 1774 ms | 1379 ms | 1598 ms | 3126 ms | 0.78× | 0.90× | 1.76× |
-| fib | 254 ms | 670 ms | 505 ms | 272 ms | 2.64× | 1.99× | 1.07× |
-| fib_int | 132 ms | – | – | 235 ms | – | – | 1.78× |
-| file_io | 519 ms | 825 ms | 361 ms | 350 ms | 1.59× | 0.70× | 0.67× |
-| json | 1119 ms | 765 ms | 419 ms | 1770 ms | 0.68× | 0.37× | 1.58× |
-| nbody | 810 ms | 853 ms | 870 ms | 592 ms | 1.05× | 1.07× | 0.73× |
-| spectral_norm | 2676 ms | 1954 ms | 2235 ms | 1433 ms | 0.73× | 0.84× | 0.54× |
-| startup (process start only) | 1.2 ms | 74 ms | 4.7 ms | 1.3 ms | 61.48× | 3.93× | 1.11× |
-| string_building | 1096 ms | 1760 ms | 6632 ms | 403 ms | 1.61× | 6.05× | 0.37× |
-| word_freq | 1988 ms | 1769 ms | 1474 ms | 754 ms | 0.89× | 0.74× | 0.38× |
+| async_fib | 148 ms | 228 ms | 205 ms | – | 1.53× | 1.38× | – |
+| binary_trees | 1684 ms | 1424 ms | 1579 ms | 2883 ms | 0.85× | 0.94× | 1.71× |
+| fib | 254 ms | 636 ms | 416 ms | 258 ms | 2.50× | 1.64× | 1.01× |
+| fib_int | 127 ms | – | – | 214 ms | – | – | 1.69× |
+| file_io (warm cache) | 428 ms | 710 ms | 299 ms | 292 ms | 1.66× | 0.70× | 0.68× |
+| json | 1097 ms | 729 ms | 471 ms | 1807 ms | 0.67× | 0.43× | 1.65× |
+| nbody | 779 ms | 853 ms | 842 ms | 504 ms | 1.09× | 1.08× | 0.65× |
+| spectral_norm | 2788 ms | 1948 ms | 2227 ms | 1430 ms | 0.70× | 0.80× | 0.51× |
+| startup (process start only) | 1.2 ms | 73 ms | 4.7 ms | 1.3 ms | 60.48× | 3.92× | 1.08× |
+| string_building | 1064 ms | 1654 ms | 3924 ms | 572 ms | 1.56× | 3.69× | 0.54× |
+| word_freq | 1493 ms | 1302 ms | 1035 ms | 1051 ms | 0.87× | 0.69× | 0.70× |
 
 Parallel: ParallelScript under `PTS_THREADS` = 1, 4 and 8; Node and Bun run the same program without `.par` and `parallel`, on one thread; Go uses goroutines.
 
 | Benchmark | PTS ×1 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Bun | Go | PTS ×8 vs Node | PTS ×8 vs Bun | PTS ×8 vs Go |
 |---|---|---|---|---|---|---|---|---|---|---|
-| fan_out | 935 ms | 347 ms | 343 ms | 2.72× | 1011 ms | 924 ms | 312 ms | 2.95× | 2.69× | 0.91× |
-| mandelbrot | 1525 ms | 521 ms | 328 ms | 4.65× | 1649 ms | 1661 ms | 321 ms | 5.03× | 5.06× | 0.98× |
-| sum_reduce | 4080 ms | 2886 ms | 2390 ms | 1.71× | 5423 ms | 6649 ms | 907 ms | 2.27× | 2.78× | 0.38× |
-| word_count | 2073 ms | 948 ms | 1737 ms | 1.19× | 2275 ms | 1360 ms | 220 ms | 1.31× | 0.78× | 0.13× |
+| fan_out | 874 ms | 238 ms | 250 ms | 3.49× | 998 ms | 948 ms | 249 ms | 3.99× | 3.79× | 0.99× |
+| mandelbrot | 1465 ms | 379 ms | 241 ms | 6.09× | 1592 ms | 1601 ms | 223 ms | 6.62× | 6.66× | 0.93× |
+| sum_reduce | 3542 ms | 1779 ms | 1677 ms | 2.11× | 4514 ms | 4656 ms | 686 ms | 2.69× | 2.78× | 0.41× |
+| word_count (warm cache) | 1344 ms | 587 ms | 1018 ms | 1.32× | 1087 ms | 1224 ms | 185 ms | 1.07× | 1.20× | 0.18× |
 
 HTTP servers, in requests per second (higher is better; `pts/bench/serve.sh` with oha): ParallelScript on 1 and 4 loops (`reusePort`), Node and Bun on one thread, Go on every core.
 
 | Benchmark | PTS ×1 | PTS ×4 | Node | Bun | Go | PTS ×4 vs Node | PTS ×4 vs Bun | PTS ×4 vs Go |
 |---|---|---|---|---|---|---|---|---|
-| http_hello | 56,818 | 84,739 | 20,939 | 59,753 | 69,483 | 4.05× | 1.42× | 1.22× |
-| http_json | 34,096 | 56,132 | 15,592 | 34,189 | 48,436 | 3.60× | 1.64× | 1.16× |
+| http_hello | 61,572 | 109,696 | 24,133 | 71,162 | 85,174 | 4.55× | 1.54× | 1.29× |
+| http_json | 30,878 | 59,681 | 18,548 | 41,334 | 48,238 | 3.22× | 1.44× | 1.24× |
 
 Wins and losses:
-- HTTP: one loop is 2.7× Node on hello world and 2.2× on JSON, and just behind or level with Bun (0.95×, 1.00×); four loops beat Go's net/http by 16 to 22%.
-- Against Node: ParallelScript is faster on async_fib, fib, file_io and string_building, and barely on nbody (1.05×). It is slower on binary_trees, json, spectral_norm and word_freq. On 8 threads it beats Node's single thread on all four parallel benchmarks.
-- Against Bun: faster on async_fib, fib, nbody and string_building; slower on binary_trees, file_io, json, spectral_norm and word_freq. On 8 threads, faster on fan_out, mandelbrot and sum_reduce, slower on word_count (its 4-thread time, 948 ms, does beat Bun's 1360 ms).
-- Against Go: faster on binary_trees, fib, fib_int and json; slower on file_io, nbody, spectral_norm, string_building and word_freq. On 8 threads, close on mandelbrot (0.98×) and fan_out (0.91×), far behind on sum_reduce (0.38×) and word_count (0.13×).
-- The M5.7b run, an hour before M5.8 on a calmer machine, scaled better: 8-thread speedups of 5.78× (mandelbrot), 3.26× (fan_out), 2.22× (word_count) and 1.83× (sum_reduce).
+- Against Node: ParallelScript is faster on async_fib (1.53×), fib (2.50×), file_io (1.66×), nbody (1.09×) and string_building (1.56×), and starts 60 times sooner. It is slower on binary_trees (0.85×), json (0.67×), spectral_norm (0.70×) and word_freq (0.87×). On 8 threads it beats Node's single thread on all four parallel benchmarks, word_count only just (1.07×; 1.85× on 4 threads).
+- Against Bun: faster on async_fib, fib, nbody and string_building; slower on binary_trees (0.94×), file_io (0.70×), json (0.43×), spectral_norm (0.80×) and word_freq (0.69×). On 8 threads, faster on all four parallel benchmarks.
+- Against Go: faster on binary_trees (1.71×), fib_int (1.69×) and json (1.65×), level on fib; slower on file_io (0.68×), nbody (0.65×), spectral_norm (0.51×), string_building (0.54×) and word_freq (0.70×). On 8 threads, level on fan_out (0.99×) and close on mandelbrot (0.93×), far behind on sum_reduce (0.41×) and word_count (0.18×).
+- HTTP: one loop serves 2.6 times Node's hello-world requests and 1.7 times its JSON ones, and 0.87× and 0.75× of Bun's; four loops are ahead of Go's every-core `net/http` by 24 to 29%.
 
-What's slow and why: programs that allocate a lot (binary_trees, json, word_freq, word_count) pay for bdwgc, a conservative, non-moving, non-generational collector, and with threads bdwgc refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads (D-131; the fixes, allocating less through escape analysis or a collector with per-thread heaps, are M8 work). nbody trails Go because its loop indices are doubles until integer inference (M8), and sum_reduce is bound by memory bandwidth and by one thread zeroing its 800 MB array.
+What's slow and why: programs that allocate a lot (binary_trees, json, word_freq, word_count) pay for bdwgc, a conservative, non-moving, non-generational collector, and with threads bdwgc refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads (D-131; the fixes, allocating less through escape analysis or a collector with per-thread heaps, are M8 work). nbody and spectral_norm trail Go because their loop indices are doubles until integer inference (M8), and spectral_norm also reloads and rechecks a module-level constant at every read in its inner loop (D-167). sum_reduce is bound by memory bandwidth and by one thread zeroing its 800 MB array.
 
 ## Template
 
@@ -206,4 +205,43 @@ Notes:
 - `startup` prints one line. Every other row includes this cost: about 74 ms for Node, 5 ms for Bun, about 1 ms for ParallelScript and Go.
 - `spectral_norm` (the Benchmarks Game's, n = 4000) is a loss: 0.73× Node, 0.54× Go. Its inner loops read the module-level `const N`, which a function checks for readiness and reloads at every read (D-021); with the typed-array reads being relaxed atomics (D-143), clang hoists neither out of the loop. Written as a literal, the same program runs in 2.0 s. A literal constant that is ready before any function can run could be emitted as a C constant (M8).
 - What the audit changed in the twins (D-167): Node's sum_reduce made one pass for the sum and the max, and Node's mandelbrot counted with `filter(…).length`; Go's mandelbrot, word_count and fan_out fused a total into another loop; Go's file_io sorted the directory listing and counted bytes without making strings; Go's word_freq and the json and string_building checksums used integers where JS uses doubles. Kept as differences of the languages: Go's one-lookup `m[k]++` against a JS Map's `get` and `set`, Go substrings sharing their bytes, `encoding/json` decoding into structs, Go's `strings.Builder`.
+
+## M6
+
+Measured on 2026-10-13 with `RESULTS=pts/bench/results/m6 pts/bench/run.sh` and `pts/bench/serve.sh` (`make bench`, `make bench-http`): 2 warm-ups per round, 10 runs in 2 interleaved rounds, mean ± standard deviation; every run's time is in `pts/bench/results/m6/`. It is the first run with the twins the M6.5a audit made do the same work as `main.pts` (D-167), so the rows of fan_out, file_io, json, mandelbrot, string_building, sum_reduce, word_count and word_freq aren't comparable with earlier milestones'. The machine ran its usual services (load average 0.3 at the start, rising with the doc-writing subagents of the same session). The run stopped after nine benchmarks on a runner bug (it took `pts/bench/results/` for a benchmark; fixed), so the other six ran after the HTTP servers, and `TABLE_ONLY=1` made the table from all fifteen benchmarks' JSON.
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| async_fib | 148 ± 2 ms | 228 ± 9 ms | 205 ± 16 ms | – | 1.53× | – |
+| binary_trees | 1684 ± 135 ms | 1424 ± 63 ms | 1579 ± 67 ms | 2883 ± 154 ms | 0.85× | 1.71× |
+| fib | 254 ± 22 ms | 636 ± 15 ms | 416 ± 24 ms | 258 ± 10 ms | 2.50× | 1.01× |
+| fib_int | 127 ± 6 ms | – | – | 214 ± 8 ms | – | 1.69× |
+| file_io (warm cache) | 428 ± 32 ms | 710 ± 27 ms | 299 ± 5 ms | 292 ± 4 ms | 1.66× | 0.68× |
+| json | 1097 ± 37 ms | 729 ± 30 ms | 471 ± 26 ms | 1807 ± 51 ms | 0.67× | 1.65× |
+| nbody | 779 ± 9 ms | 853 ± 15 ms | 842 ± 12 ms | 504 ± 13 ms | 1.09× | 0.65× |
+| spectral_norm | 2788 ± 134 ms | 1948 ± 37 ms | 2227 ± 72 ms | 1430 ± 8 ms | 0.70× | 0.51× |
+| startup (process start only) | 1.2 ± 0.0 ms | 73 ± 5 ms | 4.7 ± 0.0 ms | 1.3 ± 0.1 ms | 60.48× | 1.08× |
+| string_building | 1064 ± 33 ms | 1654 ± 44 ms | 3924 ± 354 ms | 572 ± 22 ms | 1.56× | 0.54× |
+| word_freq | 1493 ± 57 ms | 1302 ± 47 ms | 1035 ± 49 ms | 1051 ± 41 ms | 0.87× | 0.70× |
+
+| Benchmark | PTS ×1 | PTS ×2 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Bun | Go | PTS ×8 vs Node | PTS ×8 vs Go |
+|---|---|---|---|---|---|---|---|---|---|---|
+| fan_out | 874 ± 18 ms | 443 ± 6 ms | 238 ± 2 ms | 250 ± 4 ms | 3.49× | 998 ± 20 ms | 948 ± 61 ms | 249 ± 4 ms | 3.99× | 0.99× |
+| mandelbrot | 1465 ± 23 ms | 735 ± 10 ms | 379 ± 13 ms | 241 ± 5 ms | 6.09× | 1592 ± 14 ms | 1601 ± 22 ms | 223 ± 6 ms | 6.62× | 0.93× |
+| sum_reduce | 3542 ± 25 ms | 2352 ± 127 ms | 1779 ± 31 ms | 1677 ± 157 ms | 2.11× | 4514 ± 75 ms | 4656 ± 110 ms | 686 ± 216 ms | 2.69× | 0.41× |
+| word_count (warm cache) | 1344 ± 16 ms | 824 ± 62 ms | 587 ± 75 ms | 1018 ± 388 ms | 1.32× | 1087 ± 26 ms | 1224 ± 64 ms | 185 ± 11 ms | 1.07× | 0.18× |
+
+Mean ± standard deviation of 10 runs in 2 interleaved rounds; wall-clock time of the whole process, its start included.
+
+HTTP servers (requests per second, oha with 64 connections for 10 s after 2 s of warm-up, on the same machine):
+
+| Benchmark (requests/s) | PTS ×1 | PTS ×2 | PTS ×4 | Speedup ×4 | Node | Bun | Go | PTS ×4 vs Node | PTS ×4 vs Go |
+|---|---|---|---|---|---|---|---|---|---|
+| http_hello | 61,572 | 83,129 | 109,696 | 1.78× | 24,133 | 71,162 | 85,174 | 4.55× | 1.29× |
+| http_json | 30,878 | 46,100 | 59,681 | 1.93× | 18,548 | 41,334 | 48,238 | 3.22× | 1.24× |
+
+Notes:
+- Single-threaded against M5: async_fib 162 → 148 ms, binary_trees 1774 → 1684 ms, nbody 810 → 779 ms, string_building 1096 → 1064 ms, word_freq 1988 → 1493 ms (Node's word_freq also went from 1769 to 1302 ms: a calmer machine), json and fib within the noise. spectral_norm and startup are new (M6.5a).
+- Parallel: mandelbrot scales 6.09× on 8 threads (4.65× in M5's run, 5.78× in M5.7b's) and fan_out 3.49×. sum_reduce (2.11×) is bound by memory bandwidth. word_count is again slower on 8 threads than on 4 (1018 ± 388 ms against 587 ms): every thread allocates a string per word, and bdwgc refills free lists under one lock (D-131).
+- HTTP: one loop's hello world rose from 56,818 (M6.2b) to 61,572 requests a second and four loops' from 84,739 to 109,696; the JSON server is within the noise of M6.2b's.
 

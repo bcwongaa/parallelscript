@@ -1,0 +1,20 @@
+import { serve, Response } from "pts:http";
+
+// An HTTP/1.1 server in the style of Bun's serve; reusePort accepts connections on every core.
+const server = serve({
+  port: 0, // any free port; a real server names one, such as 3000
+  hostname: "127.0.0.1",
+  reusePort: true,
+  async fetch(request) {
+    const { name } = await request.json();
+    return Response.json({ greeting: `hello, ${name}` });
+  },
+});
+
+// fetch, Request, Response and Headers are globals, as in Node.
+const response = await fetch(server.url, { method: "POST", body: JSON.stringify({ name: "Ada" }) });
+console.log(response.status, response.headers.get("content-type"), await response.json());
+server.stop(); // a real server keeps serving; this sample stops so that it ends
+
+// expect:
+// 200 application/json { greeting: 'hello, Ada' }
