@@ -17,7 +17,7 @@ import (
 type DocumentUri string // !!!
 
 func (uri DocumentUri) FileName() string {
-	if bundled.IsBundled(string(uri)) {
+	if bundled.IsBundled(string(uri)) || strings.HasPrefix(string(uri), "ptslib:///") { // PTS: ParallelScript's library
 		return string(uri)
 	}
 	if strings.HasPrefix(string(uri), "file://") {

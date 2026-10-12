@@ -4,7 +4,7 @@ ParallelScript is TypeScript compiled ahead of time to native binaries, with a g
 
 Order of authority: `docs/BRIEF.md` (with the owner overrides in `CLAUDE.md`) → this spec → `docs/DECISIONS.md`. Decision ids such as `D-L03` or `D-O05` point into `docs/DECISIONS.md`.
 
-**Status.** Sections 1–8 describe the language as built through M6: milestones M0–M6 (tags `m0` … `m6`); M6 added RegExp, the `pts:http` server, the global `fetch` with `AbortController`, `Object.freeze`, bytes in `pts:fs`, and the fixes from the independent review of 2026-10-12 (M6.0). What isn't built yet is marked *planned* with its milestone: `pts lsp` and editor support (M7), and performance work such as escape analysis and a precise collector (M8). Valid TypeScript that the compiler can't lower yet is the compile error PTS1001 "… is not supported yet" (§2.3); the sections below name the main cases. Section 9 holds the implementation notes of each task.
+**Status.** Sections 1–8 describe the language as built through M6: milestones M0–M6 (tags `m0` … `m6`); M6 added RegExp, the `pts:http` server, the global `fetch` with `AbortController`, `Object.freeze`, bytes in `pts:fs`, and the fixes from the independent review of 2026-10-12 (M6.0). `pts lsp`, the language server, is built (M7.1). What isn't built yet is marked *planned* with its milestone: the VS Code extension and `pts test` (M7), and performance work such as escape analysis and a precise collector (M8). Valid TypeScript that the compiler can't lower yet is the compile error PTS1001 "… is not supported yet" (§2.3); the sections below name the main cases. Section 9 holds the implementation notes of each task.
 
 ---
 
@@ -33,7 +33,7 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 
 ### 2.1 Front end
 
-- The front end is a fork of TypeScript 7 (typescript-go), pinned at `typescript/v7.0.2`. It provides the scanner, parser, binder, checker, and the language server that `pts lsp` will serve (planned, M7.1).
+- The front end is a fork of TypeScript 7 (typescript-go), pinned at `typescript/v7.0.2`. It provides the scanner, parser, binder, checker, and the language server that `pts lsp` serves (D-168).
 - The compiler, `pts`, is written in Go inside the fork's module (it needs the fork's `internal/` packages). New code lives in `cmd/pts/` and `pts/`.
 - Upstream modifications are minimal, marked `// PTS:` and listed in `docs/FORK.md`: the `.pts` extension in module resolution (D-001, D-004), the integer types as number types of their own in the checker (D-048), and `parallel` in the parser (D-120).
 - Options are fixed (D-005): every program is checked with `strict`, target and module `ESNext`, `moduleResolution: bundler`, `allowImportingTsExtensions`, `moduleDetection: force`, `lib: ["esnext"]` (no DOM: `document` is an unknown name; `fetch`, `AbortController` and their classes are the prelude's, §7.1) and `types: []`. `tsconfig.json` is not read.
@@ -67,7 +67,7 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 | `pts emit-c file.pts [-o file.c]` | Print the generated C (or write it to a file), for debugging |
 | `pts help` | Show the usage |
 | `pts test` | Test runner (planned, M7.3) |
-| `pts lsp` | Language server (planned, M7.1) |
+| `pts lsp [--stdio]` | The language server, over stdin and stdout, for editors (D-168): typescript-go's own server, whose programs are the compiler's (its fixed options, the prelude, the `pts:` modules), with ParallelScript's checks (the numeric rules, the guardrail, the features left out) reported as diagnostics with `pts` as their source after tsc's, once a file and its imports have no tsc errors. Definitions in the library have `ptslib:///` URIs. |
 
 - **Exit codes** (D-006): 0 on success, 1 for compile or toolchain errors, 2 for a malformed command line. `pts run` exits with the program's own code, or 128 + the signal number if the program was killed.
 - **Diagnostics** (D-006): one per line, `file:line:col - error CODE: message`, the file relative to the working directory when it is below it. tsc's errors keep their `TSnnnn` codes; semantic errors are reported only when there are no syntax errors, as in tsc. ParallelScript's own codes:
@@ -108,7 +108,7 @@ A `.pts` program that uses only plain TypeScript features (no `parallel`, no int
 - `number` keeps JavaScript semantics exactly: IEEE-754 f64, including `NaN`, `Infinity` and `-0`.
 - The added numeric types are `int` (meaning i64) and `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64` (`f64` is `number`), declared in a global prelude.
   - They start as aliases of `number` in the prelude, so the editor accepts them immediately.
-  - The numeric rules below are enforced by the PTS semantic pass, and later surfaced in the language server (M7).
+  - The numeric rules below are enforced by the PTS semantic pass, whose errors the language server shows too (D-168).
   - To the checker each is a number type of its own (D-048), so it can be an array element, a `Map` or `Set` key or value, a parameter or result of a function type, or a type argument (`u8[]`, `Map<string, int>`, `(n: int) => int`), and inferred types keep it: `ints.map(x => x * 2)` is an `int[]`. tsc relates every numeric type to every other, as it relates `number` to itself, so overloads match as they would for `number`: on a `u8[]`, `reduce(f, 0 as int)` takes `reduce`'s `T` overload (and fails the conversion rule); write `reduce<int>(f, 0)`.
 - **Literals take their type from context.** `const x: u8 = 200` is fine; `const y = 5` is `number`, as in TS. So does an array literal's element or an argument (`bytes.push(7)` for `bytes: u8[]`); without a context a literal is a `number`, so `[byte, 1]` is a `number[]`.
   - An integer literal is checked exactly against its type's range, from its source text, so a 64-bit value keeps every digit (`const b: u8 = 256` is PTS2002, D-012).
@@ -661,7 +661,8 @@ Known divergence from the brief (D-153, ruling 5 of `docs/agent/OWNER_ANSWERS.md
 | IR | `pts/ir` | Data types and a text printer (`Program.String()`) used by lowering tests. |
 | C emitter | `pts/cgen` | `Emit(program)` → one C translation unit (D-007). |
 | Driver | `pts/driver` | `EmitC(ctx, entry)` and `Build(ctx, entry, output)`: the pipeline end to end; compile errors come back as `*diagnostic.Error`. |
-| CLI | `cmd/pts` | `build`, `run`, `emit-c`, `help`; exit codes in D-006. |
+| CLI | `cmd/pts` | `build`, `run`, `emit-c`, `lsp`, `help`; exit codes in D-006. |
+| Language server | `pts/lsp` | `pts lsp` (D-168). |
 
 - **Added in M2.2a:** class declarations at module scope, `new`, `this`, fields, constructors and methods (§9.11).
 - **Added in M1.4b2:** `import` and `export` in every static form between modules (§6, §9.9).
@@ -1484,3 +1485,10 @@ Known divergence from the brief (D-153, ruling 5 of `docs/agent/OWNER_ANSWERS.md
 
 - **Benchmarks** (D-167): `pts/bench/spectral_norm` (`main.pts` for ParallelScript, Node and Bun; `main.go` in float64) and `pts/bench/startup` (one line printed; `label`: process start only). Twins changed to do `main.pts`'s work: `sum_reduce/main.ts` (three passes), `mandelbrot/main.ts` (a counting `reduce`) and `main.go` (two passes), `word_count/main.go` and `fan_out/main.go` (the total in a pass of its own), `file_io/main.go` (`Readdirnames`, unsorted; strings made from the bytes read), `word_freq/main.go`, and the `json` and `string_building` checksums (float64 with `math.Mod`).
 - **Runner:** `run.sh`'s `ROUNDS` (default 2) and `RESULTS` (default `pts/bench/results/latest`, git-ignored): hyperfine's `<name>.roundN.json` for each round and a merged `<name>.json` (every run's time, mean, standard deviation, min, max); tables of mean ± standard deviation (a decimal under 10 ms) and a line saying how many runs and rounds; a benchmark's `label` file shown after its name (`warm cache` for `file_io` and `word_count`). `serve.sh` copies oha's JSON reports and their labels to `RESULTS`. `pts/bench/results/m6.5a/` holds the M6.5a run.
+
+### 9.115 `pts lsp` (M7.1)
+
+- **Server** (D-168, `pts/lsp`): `ServerOptions` (upstream's `lsp.ServerOptions` with the library's file system wrapped around the given one, automatic type acquisition off, npm refused) and `Run`; `cmd/pts`'s `lsp` command (`--stdio`, the only transport, may be given). It sets two upstream hooks once: `project.ProgramCommandLine` (`programCommandLine`: the project's roots plus `lib.PreludePath`, with `frontend.CompilerOptions()`) and `ls.ExtraDiagnostics` (`ptsDiagnostics`: `check.Program` over `frontend.Of(program, file)`, the modules reachable from the file, when none has a tsc error; the file's own diagnostics as LSP errors with their PTS code and source `pts`; a panic in the checks becomes one warning instead of ending the server).
+- **Diagnostics** carry `Start` and `End` offsets (`pts/diagnostic`), set by `diagnostic.At` (the node's token start and end) and `FromTS`, so the editor underlines what they are about.
+- **Upstream edits** (`docs/FORK.md`): the two hooks; `ptslib:///` URIs kept as they are (`lsconv.FileNameToDocumentURI`, `DocumentUri.FileName`); `.pts` in the project service's relevant file names and in the file globs for new files and renames; `ptslib:///` files not watched.
+- **Tests:** `pts/lsp/lsp_test.go` (in process, over `lsptestutil`'s pipes: a `.pts` file with `parallel for`, `u8` and `pts:parallel` gets no tsc errors and gets PTS2002 and PTS3001 at their ranges; tsc's errors come first and hold back the PTS checks; go to definition of `range` reaches `ptslib:///parallel.pts`), `TestLSPServesOverStdio` (`cmd/pts`: initialize answered, exit code 0 after shutdown and exit; an unknown option is a usage error).

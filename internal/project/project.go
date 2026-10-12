@@ -283,8 +283,20 @@ func (p *Project) SetCommandLine(commandLine *tsoptions.ParsedCommandLine) {
 	p.dirtyFilePath = ""
 }
 
+// PTS: ProgramCommandLine, when set, makes the command line a project's program is built
+// from out of the project's own: ParallelScript fixes the options and adds its prelude (D-168).
+var ProgramCommandLine func(commandLine *tsoptions.ParsedCommandLine, currentDirectory string, useCaseSensitiveFileNames bool) *tsoptions.ParsedCommandLine
+
 // getCommandLineWithTypingsFiles returns the command line augmented with typing files if ATA is enabled.
 func (p *Project) getCommandLineWithTypingsFiles() *tsoptions.ParsedCommandLine {
+	if ProgramCommandLine != nil { // PTS: memoized, so that an edit keeps the program's command line and reuses the program
+		p.commandLineWithTypingsFilesOnce.Do(func() {
+			if p.commandLineWithTypingsFiles == nil {
+				p.commandLineWithTypingsFiles = ProgramCommandLine(p.CommandLine, p.currentDirectory, p.host.FS().UseCaseSensitiveFileNames())
+			}
+		})
+		return p.commandLineWithTypingsFiles
+	}
 	if len(p.typingsFiles) == 0 {
 		return p.CommandLine
 	}

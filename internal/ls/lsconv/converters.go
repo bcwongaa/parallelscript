@@ -108,7 +108,7 @@ var extraEscapeReplacer = strings.NewReplacer(
 )
 
 func FileNameToDocumentURI(fileName string) lsproto.DocumentUri {
-	if bundled.IsBundled(fileName) {
+	if bundled.IsBundled(fileName) || strings.HasPrefix(fileName, "ptslib:///") { // PTS: ParallelScript's library, a URI as bundled files are
 		return lsproto.DocumentUri(fileName)
 	}
 	if tspath.IsDynamicFileName(fileName) {

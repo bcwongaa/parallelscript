@@ -282,7 +282,7 @@ func createResolutionLookupGlobMapper(workspaceDirectory string, libDirectory st
 
 		if data != nil {
 			data.Range(func(path tspath.Path) bool {
-				if tspath.IsDynamicFileName(string(path)) {
+				if tspath.IsDynamicFileName(string(path)) || strings.HasPrefix(string(path), "ptslib:///") { // PTS: ParallelScript's library is never on disk
 					return true
 				}
 				// Assuming all of the input paths are file paths, we can avoid

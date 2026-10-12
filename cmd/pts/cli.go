@@ -12,8 +12,10 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
+	"github.com/microsoft/typescript-go/pts/lsp"
 )
 
 const (
@@ -29,6 +31,7 @@ Commands:
   build <file.pts> [-o <output>]   Compile to a native executable (default output: the file's base name)
   run <file.pts> [args...]         Compile and run; arguments after the file go to the program
   emit-c <file.pts> [-o <file.c>]  Print the generated C (or write it to a file)
+  lsp [--stdio]                    Run the language server for editors, over stdin and stdout
   help                             Show this help
 `
 
@@ -57,6 +60,8 @@ func (c *cli) run(ctx context.Context, args []string) int {
 		return c.result(c.emitC(ctx, rest))
 	case "run":
 		return c.runProgram(ctx, rest)
+	case "lsp":
+		return c.result(c.languageServer(ctx, rest))
 	case "help", "-h", "--help":
 		fmt.Fprint(c.stdout, usage)
 		return 0
@@ -203,4 +208,16 @@ func (c *cli) execute(exe string, args []string) int {
 		return c.fail(err)
 	}
 	return 0
+}
+
+// languageServer serves an editor over stdin and stdout until it exits (D-168).
+func (c *cli) languageServer(ctx context.Context, args []string) error {
+	for _, arg := range args {
+		if arg != "--stdio" { // stdio is the only transport, and the default
+			return &usageError{fmt.Sprintf("unknown option %q for lsp", arg)}
+		}
+	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return lsp.Run(ctx, c.stdin, c.stdout, c.stderr, c.cwd, osvfs.FS())
 }

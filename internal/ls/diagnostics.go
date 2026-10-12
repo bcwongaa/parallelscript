@@ -22,6 +22,10 @@ func getAllDiagnostics(ctx context.Context, program *compiler.Program, file *ast
 	return diags
 }
 
+// PTS: ExtraDiagnostics, when set, gives a file's diagnostics that tsc's checks don't make
+// (ParallelScript's own, D-168); they follow tsc's.
+var ExtraDiagnostics func(ctx context.Context, program *compiler.Program, file *ast.SourceFile, converters *lsconv.Converters) []*lsproto.Diagnostic
+
 func (l *LanguageService) ProvideDiagnostics(ctx context.Context, uri lsproto.DocumentUri) (lsproto.DocumentDiagnosticResponse, error) {
 	program, file := l.getProgramAndFile(uri)
 
@@ -35,10 +39,14 @@ func (l *LanguageService) ProvideDiagnostics(ctx context.Context, uri lsproto.Do
 	}
 
 	diagnostics := getAllDiagnostics(ctx, program, file)
+	items := l.toLSPDiagnostics(ctx, diagnostics)
+	if ExtraDiagnostics != nil { // PTS:
+		items = append(items, ExtraDiagnostics(ctx, program, file, l.converters)...)
+	}
 
 	return lsproto.RelatedFullDocumentDiagnosticReportOrUnchangedDocumentDiagnosticReport{
 		FullDocumentDiagnosticReport: &lsproto.RelatedFullDocumentDiagnosticReport{
-			Items: l.toLSPDiagnostics(ctx, diagnostics),
+			Items: items,
 		},
 	}, nil
 }

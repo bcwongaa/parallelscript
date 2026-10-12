@@ -90,6 +90,7 @@ The commands (`pts help`):
 | `pts build file.pts [-o out]` | Compile to a native executable (by default named after the file). It links statically against the runtime and needs only libc and libm. |
 | `pts run file.pts [args...]` | Compile and run; the arguments after the file go to the program. |
 | `pts emit-c file.pts [-o file.c]` | Print the generated C, which carries `#line` directives back to the `.pts` source, so gdb and crash backtraces show `.pts` lines. |
+| `pts lsp [--stdio]` | The language server, for any editor that speaks the Language Server Protocol: TypeScript's own completions, hovers, definitions and errors for `.pts` files, with ParallelScript's prelude and `pts:` modules, plus ParallelScript's errors (numeric rules, the guardrail). |
 
 `PTS_THREADS=n` sets the number of event loops and pool threads; by default it is the number of cores the process may use. With `PTS_THREADS=1`, `parallel` and `.par` still work, on the one thread. A copy of `pts` outside the repository needs `PTS_HOME` set to the repository root, where it finds the runtime sources.
 
@@ -594,7 +595,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
 | M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md) (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), the fixes from an independent review, a benchmark audit | done (`m6`) |
-| M7 Editor support | `pts lsp`, a VS Code extension, a usability pass | planned |
+| M7 Editor support | `pts lsp` (done), a VS Code extension, a usability pass | in progress |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
 
@@ -602,7 +603,7 @@ Planned after M7, if the project goes on: M8, performance work (escape analysis,
 
 Not built yet:
 
-- `https://` for `fetch` (no TLS yet), streamed request and response bodies, `pts lsp`, the VS Code extension and `pts test` (M7).
+- `https://` for `fetch` (no TLS yet), streamed request and response bodies, the VS Code extension and `pts test` (M7).
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`; `bigint`, decorators, `Symbol` beyond `Symbol.iterator` and `Symbol.asyncIterator`, `WeakRef`, `WeakMap` and `WeakSet` (each a compile error saying it isn't supported yet).
 
@@ -623,6 +624,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 |---|---|
 | `cmd/pts/` | The `pts` command |
 | `pts/frontend/` | Loads `.pts` programs through the forked TypeScript front end |
+| `pts/lsp/` | `pts lsp`: the forked language server with ParallelScript's programs and checks |
 | `pts/check/` | The semantic pass: the rules tsc doesn't know (numeric types, the guardrail, unsupported features) |
 | `pts/numeric/` | The numeric types and their conversion rules |
 | `pts/lower/` | Lowering from the checked AST to IR: classes, closures, generics, unions, generator and async state machines, `parallel` and `.par` |

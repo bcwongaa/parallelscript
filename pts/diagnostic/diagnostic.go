@@ -42,13 +42,17 @@ type Diagnostic struct {
 	Column  int    // 1-based, in UTF-16 code units as tsc counts them
 	Code    string // "TS2322", "PTS1001", …
 	Message string
+	// Start and End are the offsets in the file's text of what the diagnostic is about,
+	// for an editor to underline (Start at Line and Column).
+	Start, End int
 }
 
 // At reports a diagnostic at the start of node, skipping its leading trivia.
 func At(node *ast.Node, code string, format string, args ...any) Diagnostic {
 	file := ast.GetSourceFileOfNode(node)
-	line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, scanner.GetTokenPosOfNode(node, file, false))
-	return Diagnostic{File: file.FileName(), Line: line + 1, Column: int(column) + 1, Code: code, Message: fmt.Sprintf(format, args...)}
+	start := scanner.GetTokenPosOfNode(node, file, false)
+	line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, start)
+	return Diagnostic{File: file.FileName(), Line: line + 1, Column: int(column) + 1, Code: code, Message: fmt.Sprintf(format, args...), Start: start, End: node.End()}
 }
 
 // FromTS converts one of tsc's diagnostics, flattening its message chain.
@@ -59,6 +63,7 @@ func FromTS(d *ast.Diagnostic) Diagnostic {
 	if file := d.File(); file != nil {
 		line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, d.Pos())
 		result.File, result.Line, result.Column = file.FileName(), line+1, int(column)+1
+		result.Start, result.End = d.Pos(), d.End()
 	}
 	return result
 }

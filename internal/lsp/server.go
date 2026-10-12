@@ -83,7 +83,7 @@ var (
 		{
 			Scheme: new("file"),
 			Pattern: &lsproto.FileOperationPattern{
-				Glob: "**/*.{ts,tsx,js,jsx,cts,cjs,mts,mjs,json}",
+				Glob: "**/*.{ts,tsx,js,jsx,cts,cjs,mts,mjs,json,pts}", // PTS: pts
 			},
 		},
 	}

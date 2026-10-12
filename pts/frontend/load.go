@@ -33,7 +33,7 @@ type Program struct {
 func Load(ctx context.Context, fs vfs.FS, entry string) (*Program, []diagnostic.Diagnostic) {
 	entry = tspath.NormalizePath(entry)
 	host := compiler.NewCompilerHost(tspath.GetDirectoryPath(entry), lib.WrapFS(bundled.WrapFS(fs)), bundled.LibPath(), nil, nil)
-	config := tsoptions.NewParsedCommandLine(compilerOptions(), []string{lib.PreludePath, entry}, tspath.ComparePathsOptions{
+	config := tsoptions.NewParsedCommandLine(CompilerOptions(), []string{lib.PreludePath, entry}, tspath.ComparePathsOptions{
 		UseCaseSensitiveFileNames: host.FS().UseCaseSensitiveFileNames(),
 		CurrentDirectory:          host.GetCurrentDirectory(),
 	})
@@ -49,6 +49,13 @@ func Load(ctx context.Context, fs vfs.FS, entry string) (*Program, []diagnostic.
 		}
 	}
 	return program, errors
+}
+
+// Of is the program of an already type-checked TS program whose entry module is entry:
+// the modules reachable from it, as Load finds them, without the global modules (which
+// only matter to running the program).
+func Of(ts *compiler.Program, entry *ast.SourceFile) *Program {
+	return &Program{TS: ts, Entry: entry, Modules: evaluationOrder(ts, nil, entry)}
 }
 
 // internalImports reports the imports of the library's internal modules (lib.IsInternalModule)
@@ -188,10 +195,10 @@ func moduleRequests(file *ast.SourceFile) []*ast.Node {
 	return specifiers
 }
 
-// compilerOptions are fixed for every program (D-005): strict TypeScript, ES modules,
+// CompilerOptions are fixed for every program (D-005): strict TypeScript, ES modules,
 // and the ES library without the DOM, plus ParallelScript's prelude; `pts:` specifiers
 // resolve to the library's modules (D-116).
-func compilerOptions() *core.CompilerOptions {
+func CompilerOptions() *core.CompilerOptions {
 	paths := collections.NewOrderedMapWithSizeHint[string, []string](len(lib.ModulePaths))
 	for pattern, substitutions := range lib.ModulePaths {
 		paths.Set(pattern, substitutions)

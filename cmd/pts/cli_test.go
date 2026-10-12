@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -177,4 +180,60 @@ func TestExecutePassesThroughTheProgramsExitCode(t *testing.T) {
 
 	assert.Equal(t, c.execute("/bin/sh", []string{"-c", "exit 3"}), 3)
 	assert.Equal(t, c.execute("/bin/sh", []string{"-c", "kill -TERM $$"}), exitSignalBase+15)
+}
+
+// frame writes a JSON-RPC message as the language server protocol frames it.
+func frame(message string) string {
+	return "Content-Length: " + strconv.Itoa(len(message)) + "\r\n\r\n" + message
+}
+
+// readFrame reads one framed message.
+func readFrame(t *testing.T, r *bufio.Reader) string {
+	t.Helper()
+	header, err := r.ReadString('\n')
+	assert.NilError(t, err)
+	length, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(header, "Content-Length:")))
+	assert.NilError(t, err, header)
+	_, err = r.ReadString('\n') // the blank line ending the header
+	assert.NilError(t, err)
+	body := make([]byte, length)
+	_, err = io.ReadFull(r, body)
+	assert.NilError(t, err)
+	return string(body)
+}
+
+// `pts lsp` serves the language server protocol over stdin and stdout: it answers
+// initialize with its capabilities and ends after shutdown and exit, with exit code 0.
+func TestLSPServesOverStdio(t *testing.T) {
+	t.Parallel()
+	stdinReader, stdin := io.Pipe()
+	stdoutReader, stdout := io.Pipe()
+	c := &cli{stdin: stdinReader, stdout: stdout, stderr: io.Discard, cwd: t.TempDir()}
+	exited := make(chan int, 1)
+	go func() {
+		exited <- c.run(t.Context(), []string{"lsp", "--stdio"})
+		stdout.Close()
+	}()
+	send := func(message string) {
+		_, err := io.WriteString(stdin, frame(message))
+		assert.NilError(t, err)
+	}
+	messages := bufio.NewReader(stdoutReader)
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":null,"capabilities":{}}}`)
+	for {
+		message := readFrame(t, messages)
+		if strings.Contains(message, `"id":1`) {
+			assert.Assert(t, strings.Contains(message, `"result":{"capabilities":`), message)
+			break
+		}
+	}
+	go func() { _, _ = io.Copy(io.Discard, messages) }()
+	send(`{"jsonrpc":"2.0","id":2,"method":"shutdown"}`)
+	send(`{"jsonrpc":"2.0","method":"exit"}`)
+	stdin.Close() // as a client does once it has told the server to exit
+	assert.Equal(t, <-exited, 0)
+
+	r := runIn(t, t.TempDir(), "lsp", "--socket")
+	assert.Equal(t, r.code, exitUsage)
+	assert.Assert(t, strings.Contains(r.stderr, `unknown option "--socket" for lsp`), r.stderr)
 }
