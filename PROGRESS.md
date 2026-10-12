@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.5 `parallel for` and the guardrail
+- **Next task:** M5.6 `pts:sync`
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.5 `parallel for` and the guardrail (D-127, SPEC §9.84): `parallel for (const x of items)` over arrays, typed arrays, pts:parallel ranges and any iterable, lowered to a leaf closure over pieces of the indices run by the pool's new `pts_parallel_for_each`, whose pieces stop starting runs of 256 once an iteration throws and rethrow the first error; `continue` (also to the loop's own label) works, other jumps out are PTS3002; the guardrail PTS3001 rejects assigning a `let` or parameter declared outside a parallel body (`parallel` operands, `parallel for` bodies, functions passed to ParallelCallback parameters, inline or by name).
 - M5.4c2 `.par` on typed arrays (D-126, SPEC §9.83): `ParallelTypedArray<A>` in `pts:parallel` (ParallelArray's methods over numbers; `map`/`filter` make typed arrays of the view's kind; `sort()` numeric in place), the prelude's `par` on the nine typed arrays; D-124's merge sort is now generic over arrays and typed arrays, whose pieces sort with the typed array's own C sort. M5.4 is complete.
 - M5.4c1 Typed arrays and ArrayBuffer (M5.4c split by D-125, SPEC §9.82): the nine typed arrays (Int8 … Float64, Uint8Clamped) and ArrayBuffer as builtin classes over a view struct (buffer, data, fixed length, offset); elements are numbers, written with JS's conversions through inline accessors per kind, writes out of range ignored, reads out of range RangeError where a number is required; every constructor form, `from`/`of`, `subarray` views, views of buffers, all the methods (callback ones through the array helpers), `for…of`, spreads, `Array.from`, console.log, JSON and String as Node prints them, `instanceof`, elements and the methods without callbacks through `any`. `text/hex_dump` and `oop/matrix_vector` now match Node (47 corpus programs skipped). A 20M-element sieve and Float64Array sum run at Node's speed inside a function.
 - M5.4b `.par.flatMap`, `sort` and `sortBy` (D-124, SPEC §9.81): sort is Array's sort (in place, stable, default string order) as Rayon's parallel merge sort over Array's sort of one piece per thread; sortBy by keys computed in parallel; flatMap in order. 2M numbers: 253 ms on 1 thread (Array's sort alone), 195 on 2, ~130 on 4, against Array's sort at 250–300 ms.
@@ -110,7 +111,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.5 `parallel for` and the guardrail (see `docs/MASTER_PLAN.md`, D-L16, D-L17): M5.1 parses `parallel for` as a marked for statement (PTS1001 when run); lower it to a parallel `forEach` over arrays, typed arrays and ranges (pts:parallel), with `continue` allowed and `break`/`return`/`yield`/`await`/labelled jumps out as compile errors, the first throw cancelling the rest and rethrown after joining; then the single guardrail: assigning a captured outer `let` inside a parallel body (a `parallel for` body, or a callback typed `ParallelCallback`) is a compile error with a suggestion. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
+1. M5.6 `pts:sync` (see `docs/MASTER_PLAN.md`, D-L18): `Mutex<T>` (`withLock` and async `lock`), `AtomicInt`/`Atomic<int>`, `Channel<T>` (bounded and unbounded, async `send`/`recv`, `close`, `for await`) and `Once`, as a pts: module over runtime intrinsics (D-116's pattern); the guardrail's message already points at `Atomic`. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too. Also seen with `.par` (M5.4a): at 8 threads on this 4-core machine with background load, operations get slower than at 4 (a descheduled thread holds up a join), and recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -126,7 +127,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (288 run tests, the parallel ones under several `PTS_THREADS`; 69 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (289 run tests, the parallel ones under several `PTS_THREADS`; 70 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -161,6 +162,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.5 done (D-127).
 - 2026-10-12: M5.4c2 done (D-126); M5.4 complete.
 - 2026-10-12: M5.4c1 done (M5.4c split by D-125); `timers_async` given wider margins (it flaked under load).
 - 2026-10-12: M5.4b done (D-124).

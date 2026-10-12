@@ -151,6 +151,40 @@ static void a_throw_in_a_piece_is_rethrown_after_the_others_are_done(void) {
   CHECK(length == 9 && memcmp(text, "index 777", 9) == 0); /* the leftmost piece's, as a's comes before b's */
 }
 
+/* ---------------------------------------------------------------- parallel for (D-127) */
+
+static atomic_long for_each_runs;
+
+/* A `parallel for` leaf: it counts its runs and throws at index 100. */
+static void counting_leaf(pts_closure *self, double from, double to) {
+  (void)self;
+  atomic_fetch_add(&for_each_runs, 1);
+  if (from <= 100 && 100 < to) {
+    pts_throw_new(&pts_type_builtin_RangeError, "index 100");
+  }
+}
+
+static const pts_type leaf_type = {.kind = PTS_KIND_FUNCTION, .gc_descr = PTS_GC_NO_POINTERS, .name = "", .size = sizeof(pts_closure)};
+
+static void a_throw_in_a_parallel_for_stops_the_runs_not_started(void) {
+  pts_closure leaf = {.type = &leaf_type, .code = (pts_function)counting_leaf};
+  enum { COUNT = 10000000 };
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_parallel_for_each(&leaf, COUNT);
+    pts_try_leave(&handler);
+    CHECK(!"the loop should have thrown");
+    return;
+  }
+  pts_value caught = pts_caught(&handler);
+  size_t length;
+  const char *text = pts_string_to_utf8(((pts_error *)pts_value_as_object(caught))->message, &length);
+  CHECK(length == 9 && memcmp(text, "index 100", 9) == 0);
+  /* Without the cancellation every run would start: COUNT / PTS_PARALLEL_FOR_RUN of them. */
+  CHECK(atomic_load(&for_each_runs) < COUNT / PTS_PARALLEL_FOR_RUN);
+}
+
 /* ---------------------------------------------------------------- promise work on the pool's threads */
 
 static pthread_t main_thread;
@@ -193,6 +227,7 @@ int main(int argc, char **argv) {
   an_operation_covers_every_index_once_in_pieces();
   operations_nest();
   a_throw_in_a_piece_is_rethrown_after_the_others_are_done();
+  a_throw_in_a_parallel_for_stops_the_runs_not_started();
   microtasks_queued_by_pieces_run_on_the_operations_loop();
   return CHECK_DONE();
 }

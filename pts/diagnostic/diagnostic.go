@@ -26,6 +26,13 @@ const (
 	NumericLiteral = "PTS2002"
 	// NumericMix marks an operator on two numeric types with no lossless common type.
 	NumericMix = "PTS2003"
+
+	// ParallelAssignment marks the single guardrail (§5.6): a parallel body assigning a
+	// variable declared outside it.
+	ParallelAssignment = "PTS3001"
+	// ParallelFor marks a `parallel for` that isn't a `for…of` loop, or a jump out of its
+	// body (§5.5).
+	ParallelFor = "PTS3002"
 )
 
 // Diagnostic is one compile error.

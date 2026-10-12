@@ -643,6 +643,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		return nil
 	}
 	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
+	if node.Flags&ast.NodeFlagsPtsParallel != 0 {
+		return l.parallelFor(node, label, declaration) // D-127
+	}
 	if s.AwaitModifier != nil {
 		return l.asyncForOf(node, label, declaration) // D-115
 	}

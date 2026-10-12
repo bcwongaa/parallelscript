@@ -22,18 +22,16 @@ var typedArrayNames = []string{
 	"Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array",
 }
 
-// typedArrays holds the builtin classes of typed arrays and ArrayBuffer and the runtime
-// functions behind them, made once per program.
+// typedArrays holds the builtin classes of typed arrays and ArrayBuffer.
 type typedArrays struct {
 	classes map[*ir.Class]bool
 	buffer  *ir.Class // ArrayBuffer, also SharedArrayBuffer's type (which can't be made)
-	externs map[string]*ir.Func
 }
 
 // declareTypedArrayClasses makes the builtin classes of the lib's typed arrays and of
 // ArrayBuffer, which the runtime defines.
 func (l *lowerer) declareTypedArrayClasses() {
-	l.typed = &typedArrays{classes: map[*ir.Class]bool{}, externs: map[string]*ir.Func{}}
+	l.typed = &typedArrays{classes: map[*ir.Class]bool{}}
 	for _, name := range typedArrayNames {
 		symbol := l.checker.GetGlobalSymbol(name, ast.SymbolFlagsValue, nil)
 		class := &ir.Class{Name: name, Builtin: true}
@@ -55,14 +53,14 @@ func (l *lowerer) extern(c string, result ir.Type, params ...ir.Type) *ir.Func {
 	for _, param := range params {
 		key += fmt.Sprintf(" %p", param)
 	}
-	if fn, ok := l.typed.externs[key]; ok {
+	if fn, ok := l.externs[key]; ok {
 		return fn
 	}
 	fn := &ir.Func{Name: strings.TrimPrefix(c, "pts_"), Result: result, Extern: c}
 	for i, t := range params {
 		fn.Params = append(fn.Params, &ir.Local{Name: fmt.Sprintf("p%d", i), Type: t})
 	}
-	l.typed.externs[key] = fn
+	l.externs[key] = fn
 	return fn
 }
 

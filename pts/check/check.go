@@ -55,9 +55,11 @@ func Program(ctx context.Context, program *frontend.Program) (*Info, []diagnosti
 		symbols:   map[*ast.Symbol]Numeric{},
 		declared:  map[*ast.Node]bool{},
 		functions: map[*ast.Node]*function{},
+		guarded:   map[*ast.Node]bool{},
 	}
 	for _, module := range program.Modules {
 		c.unsupportedFeatures(module.AsNode())
+		c.parallelBodies(module.AsNode())
 		c.visit(module.AsNode())
 	}
 	return c.info, c.errors
@@ -71,6 +73,7 @@ type pass struct {
 	declared  map[*ast.Node]bool      // the variable declarations and `export default`s checked so far
 	functions map[*ast.Node]*function // by declaration
 	current   *functionBody           // the function whose body is being checked, or nil at the top level
+	guarded   map[*ast.Node]bool      // the parallel bodies checked by the guardrail
 	errors    []diagnostic.Diagnostic
 }
 

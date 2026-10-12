@@ -1,0 +1,114 @@
+// `parallel for (const x of items)` (D-127): a parallel forEach over arrays, typed arrays,
+// ranges and any other iterable, with `continue`; the first error thrown cancels the
+// iterations that haven't started and is rethrown once the others are done.
+// threads: 1 2 4
+import { range } from "pts:parallel";
+
+const squares = new Float64Array(20);
+parallel for (const i of range(0, 20)) {
+  if (i % 5 === 0) continue;
+  squares[i] = i * i;
+}
+console.log(squares.subarray(0, 8), squares.par.sum());
+
+// Arrays, with destructuring; object fields may change.
+class Image {
+  constructor(public name: string, public width: number) {}
+  resize(width: number): void {
+    this.width = width;
+  }
+}
+const images = [new Image("a", 100), new Image("b", 200), new Image("c", 300)];
+parallel for (const image of images) {
+  image.resize(image.width / 2);
+}
+console.log(images);
+const pairs: [string, number][] = [["x", 1], ["y", 2], ["z", 3]];
+const values = new Array<number>(pairs.length).fill(0);
+parallel for (const [index, [, value]] of pairs.entries()) {
+  values[index] = value * 2;
+}
+console.log(values);
+
+// Typed arrays are read live; a labelled continue names the loop itself.
+const bytes = new Uint8Array([3, 1, 4, 1, 5, 9, 2, 6]);
+const seen = new Uint8Array(10);
+each: parallel for (const b of bytes) {
+  for (let k = 0; k < 10; k++) {
+    if (k === b) {
+      seen[k] = 1;
+      continue each;
+    }
+  }
+}
+console.log(seen);
+
+// Strings, sets, maps and generators are iterated into an array first.
+const letters = new Array<string>(3).fill("");
+parallel for (const [i, ch] of [..."héé"].entries()) {
+  letters[i] = ch.toUpperCase();
+}
+const set = new Set([1, 2, 3]);
+const fromSet = new Float64Array(4);
+parallel for (const n of set) {
+  fromSet[n] = n * 10;
+}
+function* evens(): Generator<number> {
+  for (let i = 0; i < 6; i += 2) yield i;
+}
+const fromGenerator = new Int32Array(6);
+parallel for (const n of evens()) {
+  fromGenerator[n] = 1;
+}
+console.log(letters, fromSet, fromGenerator);
+
+// In functions and methods: the body captures locals and `this`.
+class Grid {
+  cells = new Float64Array(16);
+  fill(value: number): this {
+    parallel for (const i of range(0, this.cells.length)) {
+      this.cells[i] = value + i;
+    }
+    return this;
+  }
+}
+console.log(new Grid().fill(0.5).cells.par.max());
+async function scaled(by: number): Promise<number[]> {
+  const out = [0, 0, 0];
+  parallel for (const i of range(0, 3)) {
+    out[i] = i * by;
+  }
+  return out;
+}
+console.log(await scaled(7));
+
+// A throw cancels the iterations that haven't started; the error comes out after the others finish.
+const ran = new Uint8Array(200_000);
+try {
+  parallel for (const i of range(0, ran.length)) {
+    ran[i] = 1;
+    if (i === 10) throw new RangeError("stopped at " + i);
+  }
+} catch (e: any) {
+  console.log(e.name, e.message, ran.par.sum() < ran.length);
+}
+
+// expect:
+// Float64Array(8) [
+//    0, 1,  4,  9,
+//   16, 0, 36, 49
+// ] 2120
+// [
+//   Image { name: 'a', width: 50 },
+//   Image { name: 'b', width: 100 },
+//   Image { name: 'c', width: 150 }
+// ]
+// [ 2, 4, 6 ]
+// Uint8Array(10) [
+//   0, 1, 1, 1, 1,
+//   1, 1, 0, 0, 1
+// ]
+// [ 'H', 'É', 'É' ] Float64Array(4) [ 0, 10, 20, 30 ] Int32Array(6) [ 1, 0, 1, 0, 1, 0 ]
+// 15.5
+// [ 0, 7, 14 ]
+// RangeError stopped at 10 true

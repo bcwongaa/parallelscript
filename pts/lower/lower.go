@@ -151,7 +151,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
-		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}}
+		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}}
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	result := &ir.Program{}
@@ -317,6 +317,7 @@ type lowerer struct {
 	dateClass           *ir.Class                        // Date (D-087)
 	dates               *dateFunctions                   // the runtime functions behind Date
 	typed               *typedArrays                     // typed arrays and ArrayBuffer (D-125)
+	externs             map[string]*ir.Func              // the runtime functions calls reach directly, by C name and types (extern)
 	libObjectTypes      map[*ast.Symbol]bool             // the library's interfaces that are object types: ErrorOptions
 	errors              []diagnostic.Diagnostic
 	undefinedTested     map[*ast.Symbol]bool        // variables the program tests for undefined (collectUndefinedTests)
@@ -366,10 +367,6 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 
 // statement lowers one statement to zero or more IR statements.
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
-	if node.Flags&ast.NodeFlagsPtsParallel != 0 {
-		l.notSupportedYet(node, "`parallel for` (M5.5) is")
-		return nil
-	}
 	if l.function.Generator && !l.hoisting[node] {
 		if yield := statementYield(node); yield != nil && l.yielded[yield] == nil && !l.hasYield(yield.Expression()) {
 			return l.yieldingStatement(node, yield)

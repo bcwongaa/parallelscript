@@ -1,0 +1,58 @@
+// The single guardrail (D-L17, D-127): a parallel body (a function passed to a `.par`
+// method or join, by itself or by name, the operand of `parallel`, a `parallel for` body)
+// can't assign a variable declared outside it, even in a function it makes; its own
+// locals, and fields, may change. And what can't leave a `parallel for` body.
+import { join, range } from "pts:parallel";
+let count = 0;
+let total = 0;
+const xs = [1, 2, 3];
+xs.par.forEach(() => {
+  count++;
+});
+const sums = xs.par.map((x) => {
+  let local = 0;
+  local += x;
+  return local;
+});
+function addTo(n: number): void {
+  join(() => { n = 1; }, () => 2);
+}
+function bump(): void { total += 1; }
+xs.par.forEach(bump);
+parallel for (const x of xs) {
+  total += x;
+  [count, total] = [1, 2];
+  ({ count } = { count: 3 });
+  let mine = x;
+  mine++;
+}
+const p = parallel (count = 5);
+function g(): void {
+outer: for (const y of xs) {
+  parallel for (const x of xs) {
+    if (x > 1) break;
+    if (x > 2) continue outer;
+    if (x > 3) return;
+    for (const z of xs) { if (z) break; }
+    inner: { break inner; }
+  }
+}
+}
+parallel for (let i = 0; i < 3; i++) {}
+async function f() {
+  parallel for (const x of xs) { await Promise.resolve(x); }
+}
+
+// error: parallel_guardrail.pts:10:3 - error PTS3001: `count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:18:16 - error PTS3001: `n` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:20:25 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:23:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:24:4 - error PTS3001: `count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:24:11 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:25:6 - error PTS3001: `count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:29:21 - error PTS3001: `count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: parallel_guardrail.pts:33:16 - error PTS3002: `break` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
+// error: parallel_guardrail.pts:34:16 - error PTS3002: `continue outer` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
+// error: parallel_guardrail.pts:35:16 - error PTS3002: `return` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
+// error: parallel_guardrail.pts:41:1 - error PTS3002: `parallel for` takes a `for...of` loop: `parallel for (const x of items) { … }`
+// error: parallel_guardrail.pts:43:34 - error PTS3002: `await` can't be in a `parallel for` body, whose iterations run at once on the fork-join pool's threads

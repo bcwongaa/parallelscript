@@ -494,6 +494,48 @@ void pts_parallel_for(pts_closure *leaf, double count) {
   operate(&op.op, index_count(count), NULL, false);
 }
 
+/* A `parallel for` (D-127): the leaf closure, whether a run of it has thrown, and the first error thrown. */
+typedef struct for_each_op {
+  closure_op base;
+  bool *cancelled;
+  pts_value *first;
+} for_each_op;
+
+static void for_each_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
+  (void)result;
+  const for_each_op *self = (const for_each_op *)op;
+  pts_closure *leaf = self->base.leaf;
+  for (size_t start = from; start < to && !__atomic_load_n(self->cancelled, __ATOMIC_RELAXED); start += PTS_PARALLEL_FOR_RUN) {
+    size_t end = to - start > PTS_PARALLEL_FOR_RUN ? start + PTS_PARALLEL_FOR_RUN : to;
+    pts_handler handler;
+    pts_try_enter(&handler);
+    if (_setjmp(handler.jump) != 0) {
+      pts_value exception = pts_caught(&handler);
+      bool expected = false;
+      if (__atomic_compare_exchange_n(self->cancelled, &expected, true, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+        *self->first = exception;
+      }
+      pts_throw(exception);
+    }
+    ((void (*)(pts_closure *, double, double))leaf->code)(leaf, (double)start, (double)end);
+    pts_try_leave(&handler);
+  }
+}
+
+void pts_parallel_for_each(pts_closure *leaf, double count) {
+  bool cancelled = false;
+  volatile pts_value first = 0;
+  for_each_op op = {.base = {.op = {.leaf = for_each_leaf}, .leaf = leaf}, .cancelled = &cancelled, .first = (pts_value *)&first};
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    pts_value caught = pts_caught(&handler);
+    pts_throw(first != 0 ? first : caught); /* the error thrown first, not the lowest piece's */
+  }
+  operate(&op.base.op, index_count(count), NULL, false);
+  pts_try_leave(&handler);
+}
+
 static void reduce_leaf(const pts_par_op *op, size_t from, size_t to, void *result) {
   pts_closure *leaf = ((const closure_op *)op)->leaf;
   *(pts_value *)result = ((pts_value(*)(pts_closure *, double, double))leaf->code)(leaf, (double)from, (double)to);

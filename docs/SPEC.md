@@ -258,6 +258,7 @@ Async functions and generators compile to state machines. Locals that live acros
 - `parallel for (const x of iterable) { ... }` is sugar for a parallel `forEach`. The statement finishes when every iteration has.
 - Inside the body, `continue` is allowed. `break`, `return`, `yield`, `await` and labelled jumps out of the loop are compile errors.
 - If an iteration throws, the remaining iterations are cancelled as far as possible and the first error is rethrown after joining.
+- How (D-127): the items are read once: an array or typed array as it is (its length then; a typed array's elements are read live), a `Range` of `pts:parallel` as its integers, any other iterable as `Array.from` would copy it. The body runs on the pool as a closure over pieces of the indices, so it captures what it uses as an arrow function would. A piece runs its indices in runs of 256 and starts no run once an iteration has thrown; the error thrown first is rethrown. Only `for…of` over a declared variable can be `parallel` (PTS3002); `continue` may name the loop's own label; the jumps out are PTS3002.
 
 ```ts
 const hashes = files.par.map((f) => sha256(f));
@@ -275,6 +276,7 @@ parallel for (const img of images) {
 - The stdlib declarations mark parallel-callback parameters with a branded function type, so the check knows which closures run in parallel.
 - Mutating object fields from parallel code is allowed.
 - **No other parallelism checks** are added without asking the owner.
+- How (D-127): PTS3001, lexical: an assignment (`=`, compound, `++`/`--`, a destructuring or `for…of` target) anywhere in the body, functions inside it included, to a `let` or parameter declared outside it. A function passed by name (a function declaration or a const's arrow function) to a ParallelCallback parameter is checked too. `parallel(e)` is the operator here as it is when it runs (D-O05).
 
 ```ts
 let count = 0;
@@ -402,7 +404,7 @@ Representation choices, runtime layouts, and anything a later session needs to k
 | Declarations | `pts/lib` | `*.d.ts` embedded in the binary, served at `ptslib:///` by `lib.WrapFS` (D-005). `prelude.d.ts` is a root file of every program. |
 | Semantic checks | `pts/check` | `Program(ctx, program)` → `*check.Info` (numeric types of expressions, variable names and binary operands) plus PTS diagnostics (D-012). |
 | Load and type-check | `pts/frontend` | `Load(ctx, fs, entry)` → `*Program{TS, Entry}` plus tsc errors (syntax errors hide semantic ones). Options are fixed (D-005). |
-| Diagnostics | `pts/diagnostic` | One format for tsc and PTS errors; codes `PTS1001` (not supported yet), `PTS1002` (unsupported by design) (D-006). |
+| Diagnostics | `pts/diagnostic` | One format for tsc and PTS errors; codes `PTS1001` (not supported yet), `PTS1002` (unsupported by design) (D-006), `PTS2001`–`PTS2003` (numeric types), `PTS3001` (the guardrail) and `PTS3002` (`parallel for`) (D-127). |
 | Lowering | `pts/lower` | `Program(ctx, program)` → `*ir.Program` plus diagnostics. Every construct it doesn't handle is reported as `PTS1001`, so the supported subset is exactly what it lowers. |
 | IR | `pts/ir` | Data types and a text printer (`Program.String()`) used by lowering tests. |
 | C emitter | `pts/cgen` | `Emit(program)` → one C translation unit (D-007). |
@@ -1032,4 +1034,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Library** (`pts/lib/parallel.pts`, D-126): `ParallelTypedArray<A extends TypedArrayLike>`, `compareNumbers`; `sortRun` and `mergeRuns` generic over `Indexed<T>` (an array or a typed array), `sortRun` taking the leaf sort (`sortPiece`). **Prelude:** `par` on each of the nine typed arrays.
 - **Lowering:** `typedArrayProperty` makes `ta.par` with `parallelView`.
 - **Tests:** `pts/tests/run/parallel_typed_arrays` (under several `PTS_THREADS`).
+
+### 9.84 `parallel for` and the guardrail (M5.5)
+
+- **Check** (`pts/check/parallel.go`, D-127): `parallelBodies` (run per module before the numeric pass), `parallelFor`, `parallelForJumps`, `parallelCallback`/`isParallelCallbackType`, `guardrail`, `assignedOutside`, `reportOuterVariable`, `isParallelCall`; codes `ParallelAssignment` (PTS3001) and `ParallelFor` (PTS3002) in `pts/diagnostic`.
+- **Lowering** (`parallel.go`): `parallelFor` (from `forOfStatement`) makes the leaf closure (`from`, `to`; the loop's own label as its only jump target) and calls `pts_parallel_for_each`; `parallelForItems`, `parallelRangeClass`. `extern`/`callExtern` moved to the lowerer (`l.externs`).
+- **Runtime** (`pool.c`): `pts_parallel_for_each`, `for_each_leaf`, `PTS_PARALLEL_FOR_RUN`.
+- **Tests:** `pts/runtime/tests/pool_test.c` (`a_throw_in_a_parallel_for_stops_the_runs_not_started`); `pts/tests/run/parallel_for` (under several `PTS_THREADS`); `pts/tests/errors/parallel_guardrail`.
 

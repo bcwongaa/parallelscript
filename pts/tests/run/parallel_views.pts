@@ -80,15 +80,15 @@ try {
 }
 
 // Microtasks a callback queues run on this loop once the operation is done.
-let ran = 0;
+const microtasks = { ran: 0 };
 range(0, 8).par.forEach(() => {
     queueMicrotask(() => {
-        ran++;
+        microtasks.ran++;
     });
 });
-console.log("before the microtasks", ran);
+console.log("before the microtasks", microtasks.ran);
 await Promise.resolve();
-console.log("after", ran);
+console.log("after", microtasks.ran);
 
 // A task on another loop uses `.par` too.
 console.log(await parallel range(0, 100).par.sum());

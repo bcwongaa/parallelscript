@@ -2107,6 +2107,14 @@ unsigned pts_pool_threads(void);
  * by combine(left, right) into the value of all; join of two closures of no parameters.
  */
 void pts_parallel_for(struct pts_closure *leaf, double count);
+/*
+ * `parallel for` (D-127): pts_parallel_for that stops early once an iteration throws.
+ * Each piece calls leaf on runs of at most PTS_PARALLEL_FOR_RUN indices and starts no
+ * run after any run of the operation has thrown; the error thrown first is rethrown once
+ * every piece is done.
+ */
+enum { PTS_PARALLEL_FOR_RUN = 256 };
+void pts_parallel_for_each(struct pts_closure *leaf, double count);
 pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *combine, double count);
 void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
 /* pts_pool_threads() as a number. */
