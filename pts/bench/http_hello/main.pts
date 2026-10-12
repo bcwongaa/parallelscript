@@ -1,0 +1,11 @@
+// HTTP hello world: every request answered with a short text by pts:http on every loop
+// (reusePort), run under each PTS_THREADS in `threads`. main.ts is the same server on
+// Node's node:http, bun.ts on Bun.serve, main.go on Go's net/http; pts/bench/serve.sh
+// loads each with oha.
+import { serve, Response } from "pts:http";
+
+serve({
+    port: Number(process.env.PORT ?? 3000),
+    reusePort: true,
+    fetch: () => new Response("Hello, World!"),
+});

@@ -1,0 +1,67 @@
+// The server TestHTTPServerEveryLoop talks to (D-137): with reusePort every loop accepts
+// connections, so handlers on different loops run at the same time. GET /meet holds its
+// loop until a handler on another loop is inside too (or two seconds pass); GET /later
+// and GET /fib await a timer and a task from the loop that took the request; GET /count
+// says how many requests came; GET /stop stops the server on every loop, so the program ends.
+import { serve, Response } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const inside = new AtomicInt();
+const met = new AtomicInt();
+const requests = new AtomicInt();
+
+// "together" if another handler came in while this one waited, "late" once two have met, else "alone".
+function meet(): string {
+  if (met.load() === 1) {
+    return "late";
+  }
+  inside.add(1);
+  const deadline = performance.now() + 2000;
+  let result = "alone";
+  while (performance.now() < deadline) {
+    if (inside.load() >= 2) {
+      met.store(1);
+      result = "together";
+      break;
+    }
+    if (met.load() === 1) {
+      result = "late";
+      break;
+    }
+  }
+  inside.add(-1);
+  return result;
+}
+
+function fib(n: number): number {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true,
+  async fetch(request, server) {
+    requests.add(1);
+    const path = request.url.slice(request.url.indexOf("/", "http://".length));
+    if (path === "/meet") {
+      return new Response(meet());
+    }
+    if (path === "/later") {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response("later");
+    }
+    if (path === "/fib") {
+      return new Response(String(await parallel fib(20)));
+    }
+    if (path === "/count") {
+      return new Response(String(requests.load()));
+    }
+    if (path === "/stop") {
+      server.stop();
+      return new Response("bye");
+    }
+    return new Response("hello");
+  },
+});
+console.log("listening", server.port);

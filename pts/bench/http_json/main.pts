@@ -1,0 +1,30 @@
+// HTTP JSON: each request posts an order as JSON; pts:http on every loop (reusePort)
+// parses it into typed records, totals its items and answers JSON, under each PTS_THREADS
+// in `threads`. main.ts is the same server on Node's node:http, bun.ts on Bun.serve,
+// main.go on Go's net/http with encoding/json; pts/bench/serve.sh loads each with oha.
+import { serve, Response } from "pts:http";
+
+interface Item {
+    sku: string;
+    quantity: number;
+    price: number;
+}
+
+interface Order {
+    id: number;
+    customer: string;
+    items: Item[];
+}
+
+serve({
+    port: Number(process.env.PORT ?? 3000),
+    reusePort: true,
+    async fetch(request) {
+        const order: Order = await request.json();
+        let total = 0;
+        for (const item of order.items) {
+            total += item.quantity * item.price;
+        }
+        return Response.json({ id: order.id, customer: order.customer, items: order.items.length, total });
+    },
+});

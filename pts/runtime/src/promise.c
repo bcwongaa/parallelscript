@@ -70,8 +70,8 @@ typedef struct pts_reaction {
   uint16_t owner;          /* the loop it runs on: the one that added it to its promise */
 } reaction;
 
-/* Work for another loop (D-121): settling or resolving a promise of its own, adding a reaction to one, running a reaction of its own, or starting a task. */
-enum { SETTLE, RESOLVE, THEN, REACTION, TASK };
+/* Work for another loop (D-121): settling or resolving a promise of its own, adding a reaction to one, running a reaction of its own, starting a task, or calling a runtime function there (D-137). */
+enum { SETTLE, RESOLVE, THEN, REACTION, TASK, CALL };
 
 typedef struct message {
   pts_message header;
@@ -80,6 +80,8 @@ typedef struct message {
   pts_promise *promise;
   reaction *reaction;
   pts_value value; /* SETTLE's result, RESOLVE's resolution, TASK's closure */
+  void (*call)(void *data); /* CALL's function and its argument */
+  void *data;
 } message;
 
 typedef struct rejection {
@@ -692,7 +694,18 @@ void pts_message_apply(pts_message *header) {
   case TASK:
     run_task(m->value, m->promise);
     break;
+  case CALL:
+    m->call(m->data);
+    break;
   }
+}
+
+void pts_post_call(uint16_t loop, void (*call)(void *data), void *data) {
+  message *m = allocate(sizeof *m);
+  m->kind = CALL;
+  m->call = call;
+  m->data = data;
+  pts_post(loop, &m->header);
 }
 
 pts_value pts_parallel(pts_value task) {

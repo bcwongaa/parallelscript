@@ -351,11 +351,12 @@ These live in `error.c` (D-068, D-069).
 
 These live in `loop.c` and `scheduler.c` (D-114, D-121).
 
-- **One loop per thread.** Each event loop is a libuv `uv_loop_t` on its own thread, and all loops share one heap. The main thread's loop runs the modules. The other loops start the first time `parallel` runs, so a program that never uses it has one thread. There are `PTS_THREADS` loops (at most 256), or one per core.
+- **One loop per thread.** Each event loop is a libuv `uv_loop_t` on its own thread, and all loops share one heap. The main thread's loop runs the modules. The other loops start the first time `parallel` runs, or when a `pts:http` server listens with `reusePort`, so a program that uses neither has one thread. There are `PTS_THREADS` loops (at most 256), or one per core.
 - **Timers** are Node's: a heap of timers behind one `uv_timer_t`, `setImmediate` on a check handle, and a microtask drain after every callback (`loop.c`).
-- **Inboxes.** Each loop has an inbox of messages and tasks, guarded by a mutex, and a `uv_async_t` that other threads wake it with.
+- **Inboxes.** Each loop has an inbox of messages and tasks, guarded by a mutex, and a `uv_async_t` that other threads wake it with. Besides promise work and tasks, a message can run a runtime function on its loop (`pts_post_call`, D-137).
 - **Promises never change on two threads.** A promise belongs to the loop that made it and settles only there; a reaction runs on the loop that added it. Settling another loop's promise is a message to that loop. So single-loop code takes no locks, and an async function resumes on the loop where it started.
 - **Tasks.** `parallel e` calls `pts_parallel(closure)`, which makes a promise on the calling loop and posts a task to the least-loaded other loop. That loop runs the closure, and the promise settles back on the caller's loop. A loop out of work takes a task that another loop has queued but not started, then sleeps.
+- **HTTP.** `http.c` is `pts:http`'s HTTP/1.1 server over libuv TCP (D-136): it parses requests, hands each to the library's callback with a connection id, and writes the response the library gives back. With `reusePort` (D-137) the calling thread binds a SO_REUSEPORT socket per loop and each loop listens on its own, so the kernel spreads connections over the loops; a connection stays on its loop.
 - **Ending.** When every loop sleeps, none can wake another, and the program ends, as Node does when nothing is left to do. `process.exit`, an uncaught error and a panic take one process-wide exit lock first (`pts_begin_exit`).
 
 ### 4.11 The fork-join pool
@@ -485,7 +486,7 @@ The runtime's sources by area:
 | JSON, Date, RegExp | `json.c`, `date.c`, `regexp.c`, `regexp_object.c`, `regexp_string.c` |
 | Generators and promises | `generator.c`, `promise.c` |
 | Loops, tasks and the pool | `loop.c`, `scheduler.c`, `pool.c` |
-| Library intrinsics | `process.c`, `fs.c`, `sync.c` |
+| Library intrinsics | `process.c`, `fs.c`, `sync.c`, `http.c` |
 
 ## 8. Adding a feature
 
@@ -501,7 +502,6 @@ Log the design in `docs/DECISIONS.md`, and add a section to SPEC §9 that names 
 
 ## 9. What is planned
 
-- **M6.2** `pts:http`: a server that can accept connections on every loop (`SO_REUSEPORT`). SPEC §7.3 lists the module already, but it isn't built.
 - **M6.3** A global `fetch` over HTTP/1.1.
 - **M6.4 and M6.5** Example apps in `examples/`, and a README that presents them.
 - **M7** Editor support: `pts lsp` (the forked language server, with the prelude and PTS diagnostics), a VS Code extension, and a usability pass that adds `pts test`.

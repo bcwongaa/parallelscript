@@ -33,6 +33,9 @@ const main = serve({
       headers.append("x-test", "b");
       return new Response(null, { status: 201, statusText: "Made", headers });
     }
+    if (path === "/dated") {
+      return new Response("", { headers: { date: "Tue, 01 Jan 2030 00:00:00 GMT" } });
+    }
     if (path === "/later") {
       await sleep(20);
       return new Response("later");

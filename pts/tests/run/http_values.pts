@@ -21,6 +21,18 @@ try {
 } catch (e) {
   console.log((e as Error).name);
 }
+for (const [name, value] of [["", "x"], ["é", "x"], ["x", "a\rb"], ["x", "a\0b"], ["x", "a\nb"], ["x-é", "x"]]) {
+  try {
+    new Headers().append(name, value);
+    console.log("accepted", name);
+  } catch (e) {
+    console.log((e as Error).name);
+  }
+}
+const trimmed = new Headers();
+trimmed.append("x", "\t a b \r\n");
+trimmed.append("y", "é ");
+console.log(JSON.stringify(trimmed.get("x")), JSON.stringify(trimmed.get("y")));
 
 const made = new Response("made", { status: 201, statusText: "Made", headers: { "x-y": "z" } });
 console.log(made.status, made.statusText, made.ok, made.headers.get("content-type"), made.headers.get("x-y"), await made.text());
@@ -53,6 +65,13 @@ console.log(plain.method, JSON.stringify(await plain.text()), [...plain.headers]
 //   [ 'set-cookie', 'b=2' ]
 // ]
 // TypeError
+// TypeError
+// TypeError
+// TypeError
+// TypeError
+// TypeError
+// TypeError
+// "a b" "é"
 // 201 Made true text/plain;charset=UTF-8 z made
 // 404 false application/json { list: [ 1, 2 ], ok: true }
 // application/vnd.test+json [1]

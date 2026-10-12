@@ -29,6 +29,10 @@ unsigned pts_configured_threads(void);
 
 /* Hands message to the inbox of loop and wakes it. */
 void pts_post(uint16_t loop, pts_message *message);
+/* Runs call(data) on loop, in order with the other messages it gets, followed by the microtasks it queues (D-137). The message keeps data alive. */
+void pts_post_call(uint16_t loop, void (*call)(void *data), void *data);
+/* Starts the loops other than the main thread's, if they haven't started, and returns how many loops there are. */
+unsigned pts_start_loops(void);
 /* The loop a new task goes to (starting the other loops the first time): the least-loaded other one, or this one if there is no other. */
 uint16_t pts_place_task(void);
 /* A task that ran on this loop is done: it no longer counts towards the loop's load. */

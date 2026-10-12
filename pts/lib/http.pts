@@ -11,22 +11,48 @@ declare function pts_http_stop(server: number): void;
 
 export type HeadersInit = Headers | Record<string, string> | [string, string][];
 
-const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+// 1 for the characters of an HTTP token (RFC 9110's tchar), by character code.
+const TOKEN_CODES = tokenCodes();
 
+function tokenCodes(): Uint8Array {
+    const codes = new Uint8Array(128);
+    for (const ch of "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") {
+        codes[ch.charCodeAt(0)] = 1;
+    }
+    return codes;
+}
+
+// Checked by character codes rather than a regex: every header of every response goes through here.
 function headerName(name: string): string {
-    if (!TOKEN.test(name)) {
+    let valid = name.length > 0;
+    for (let i = 0; i < name.length && valid; i++) {
+        const code = name.charCodeAt(i);
+        valid = code < 128 && TOKEN_CODES[code] === 1;
+    }
+    if (!valid) {
         throw new TypeError(`Headers: invalid header name "${name}"`);
     }
     return name.toLowerCase();
 }
 
+function isHttpWhitespace(ch: string): boolean {
+    return ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
+}
+
 function headerValue(value: string): string {
-    const trimmed = value.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
-    if (/[\0\r\n]/.test(trimmed)) {
+    let trimmed = value;
+    if (value.length > 0 && (isHttpWhitespace(value[0]) || isHttpWhitespace(value[value.length - 1]))) {
+        trimmed = value.replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
+    }
+    if (trimmed.includes("\0") || trimmed.includes("\r") || trimmed.includes("\n")) {
         throw new TypeError(`Headers: invalid header value "${trimmed}"`);
     }
     return trimmed;
 }
+
+// Adds fields (names and values in turn) the server has already checked to headers, as
+// they came; Headers' static block sets it, since only the class sees its fields.
+let addReceived: (headers: Headers, fields: string[]) => void;
 
 // Header fields: names (lowercase, as HTTP compares them) and values, in the order added.
 export class Headers {
@@ -64,14 +90,7 @@ export class Headers {
 
     // The field's values, joined by ", " as the Fetch standard combines them; null if it has none.
     get(name: string): string | null {
-        const key = headerName(name);
-        const found: string[] = [];
-        for (let i = 0; i < this.#names.length; i++) {
-            if (this.#names[i] === key) {
-                found.push(this.#values[i]);
-            }
-        }
-        return found.length === 0 ? null : found.join(", ");
+        return this.#combined(headerName(name));
     }
 
     getSetCookie(): string[] {
@@ -106,6 +125,15 @@ export class Headers {
         }
     }
 
+    static {
+        addReceived = (headers, fields) => {
+            for (let i = 0; i + 1 < fields.length; i += 2) {
+                headers.#names.push(fields[i]);
+                headers.#values.push(fields[i + 1]);
+            }
+        };
+    }
+
     *entries(): Generator<[string, string]> {
         yield* this.#sorted();
     }
@@ -135,10 +163,20 @@ export class Headers {
                     fields.push([name, cookie]);
                 }
             } else {
-                fields.push([name, this.get(name) ?? ""]);
+                fields.push([name, this.#combined(name) ?? ""]);
             }
         }
         return fields;
+    }
+
+    #combined(key: string): string | null {
+        let combined: string | null = null;
+        for (let i = 0; i < this.#names.length; i++) {
+            if (this.#names[i] === key) {
+                combined = combined === null ? this.#values[i] : `${combined}, ${this.#values[i]}`;
+            }
+        }
+        return combined;
     }
 }
 
@@ -269,13 +307,16 @@ export function serve(options: ServeOptions): Server {
 }
 
 async function answer(options: ServeOptions, server: Server, connection: number, method: string, target: string, fields: string[], body: string): Promise<void> {
-    const headers = new Headers();
+    let host = `${server.hostname}:${server.port}`;
     for (let i = 0; i + 1 < fields.length; i += 2) {
-        headers.append(fields[i], fields[i + 1]);
+        if (fields[i] === "host") {
+            host = fields[i + 1];
+            break;
+        }
     }
-    const host = headers.get("host") ?? `${server.hostname}:${server.port}`;
     const url = target.startsWith("/") ? `http://${host}${target}` : target;
-    const request = new Request(url, { method, headers, body });
+    const request = new Request(url, { method, body });
+    addReceived(request.headers, fields);
     let response: Response;
     try {
         response = await options.fetch(request, server);

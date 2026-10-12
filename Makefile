@@ -10,7 +10,7 @@ UPSTREAM_PACKAGES := ./internal/tspath/... ./internal/core/... ./internal/ast/..
 # A pre-existing upstream failure at the fork base (PROGRESS.md, Known issues).
 UPSTREAM_KNOWN_FAILURE := TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped
 
-.PHONY: build test test-diff test-stress test-upstream test-upstream-cli bench
+.PHONY: build test test-diff test-stress test-upstream test-upstream-cli bench bench-http
 
 # The compiler, at pts-bin/pts (it finds the runtime sources from there).
 build:
@@ -40,3 +40,7 @@ test-upstream-cli:
 # ParallelScript against Node, Bun and Go (hyperfine); prints a table for docs/BENCHMARKS.md.
 bench:
 	pts/bench/run.sh
+
+# HTTP servers against Node, Bun and Go (oha, requests per second; D-137).
+bench-http:
+	pts/bench/serve.sh

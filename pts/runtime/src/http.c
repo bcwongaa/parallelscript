@@ -1,43 +1,66 @@
 /*
- * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens. Each
- * connection reads requests one at a time (pipelined ones wait in its buffer), hands each
- * to the program's request callback with an id, stops reading until pts_http_respond
- * answers that id, writes the response, and goes on with the next request or closes, as
- * keep-alive says. Ids name a slot in the loop's table and its generation, so an answer
- * for a connection that has closed meanwhile finds nothing and is dropped.
+ * pts:http's server (D-136): HTTP/1.1 over libuv's TCP on the loop that listens, or with
+ * reusePort on every loop (D-137), each accepting on a socket of its own bound to the same
+ * port with SO_REUSEPORT, so the kernel spreads connections across them. Each connection
+ * stays on the loop that accepted it: it reads requests one at a time (pipelined ones wait
+ * in its buffer), hands each to the program's request callback with an id, stops reading
+ * until pts_http_respond answers that id, writes the response, and goes on with the next
+ * request or closes, as keep-alive says. Ids name a loop, a slot in that loop's table and
+ * the slot's generation, so an answer for a connection that has closed meanwhile finds
+ * nothing and is dropped.
  *
  * libuv's handles and the bytes read and written are malloc'd: they hold no collected
- * pointers. A server is uncollectable while it listens, so the collector sees its callback.
+ * pointers. A server is uncollectable (never freed: a program makes few), so the collector
+ * sees its callback.
  */
 #include "pts.h"
 
+#include "scheduler_internal.h"
+
 #include <arpa/inet.h>
+#include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
 #include <uv.h>
 
 enum {
   MAX_HEAD = 64 * 1024,          /* the request line and headers: more is 431 */
   MAX_BODY = 64 * 1024 * 1024,   /* a request body: more is 413 */
   READ_SIZE = 64 * 1024,         /* bytes asked of each read */
-  SLOT_BITS = 20,                /* an id is generation * 2^20 + slot */
+  SLOT_BITS = 20,                /* an id is (generation * 2^LOOP_BITS + loop) * 2^SLOT_BITS + slot, */
+  LOOP_BITS = 8,                 /* which is at most 2^52, so a double holds it exactly */
+  GENERATION_MASK = (1 << 24) - 1,
+  BACKLOG = 511,
   MAX_SERVERS = 1024,
 };
 
+/* A server's socket on one loop, and the connections that loop accepted from it; only that loop touches it once it listens. */
+typedef struct listener {
+  uv_tcp_t *tcp; /* NULL until the loop listens, and once it stops */
+  struct server *server;
+  struct connection *connections;
+  int fd; /* the bound socket, until the loop takes it over */
+  uint16_t loop;
+} listener;
+
 typedef struct server {
   pts_closure *on_request; /* (id, method, target, headers, body) => void */
-  uv_tcp_t *listener;      /* NULL once stopped */
-  struct connection *connections;
+  atomic_bool stopped;
   int port;
-  bool stopped;
+  uint32_t listener_count;
+  listener listeners[]; /* the calling loop's first */
 } server;
 
 typedef struct connection {
   uv_tcp_t tcp;
-  server *server;
-  struct connection *next, *prev; /* the server's connections */
+  listener *listener;
+  struct connection *next, *prev; /* the listener's connections */
   char *in;                       /* bytes read and not yet taken by a request */
   size_t in_len, in_cap;
   uint32_t slot;
@@ -72,7 +95,9 @@ static void *checked(void *memory) {
 
 /* ---------------------------------------------------------------- ids */
 
-static double id_of(const connection *c) { return (double)table.generations[c->slot] * (1 << SLOT_BITS) + c->slot; }
+static double id_of(const connection *c) {
+  return ((double)table.generations[c->slot] * (1 << LOOP_BITS) + pts_current_loop) * (1 << SLOT_BITS) + c->slot;
+}
 
 static void add_to_table(connection *c) {
   if (table.free_head == UINT32_MAX) {
@@ -98,19 +123,20 @@ static void add_to_table(connection *c) {
 
 static void remove_from_table(const connection *c) {
   table.connections[c->slot] = NULL;
-  table.generations[c->slot] = (table.generations[c->slot] + 1) & 0xFFFFFFFFu;
+  table.generations[c->slot] = (table.generations[c->slot] + 1) & GENERATION_MASK;
   table.free_next[c->slot] = table.free_head;
   table.free_head = c->slot;
 }
 
-/* The connection id names on this loop, if it is still open. */
+/* The connection id names, if it is still open and on this loop. */
 static connection *connection_of(double id) {
   if (!(id >= 0) || id != (double)(uint64_t)id) {
     return NULL;
   }
   uint64_t n = (uint64_t)id;
-  uint32_t slot = (uint32_t)(n & ((1u << SLOT_BITS) - 1)), generation = (uint32_t)(n >> SLOT_BITS);
-  if (slot >= table.capacity || table.connections[slot] == NULL || table.generations[slot] != generation) {
+  uint32_t slot = (uint32_t)(n & ((1u << SLOT_BITS) - 1)), loop = (uint32_t)(n >> SLOT_BITS) & ((1u << LOOP_BITS) - 1);
+  uint32_t generation = (uint32_t)(n >> (SLOT_BITS + LOOP_BITS));
+  if (loop != pts_current_loop || slot >= table.capacity || table.connections[slot] == NULL || table.generations[slot] != generation) {
     return NULL;
   }
   return table.connections[slot];
@@ -133,7 +159,7 @@ static void close_connection(connection *c) {
   if (c->prev != NULL) {
     c->prev->next = c->next;
   } else {
-    c->server->connections = c->next;
+    c->listener->connections = c->next;
   }
   if (c->next != NULL) {
     c->next->prev = c->prev;
@@ -170,10 +196,24 @@ static void send_bytes(connection *c, const char *text, size_t len, bool close_a
   }
 }
 
+/* "date: <now as HTTP-date>\r\n", formatted once a second per loop (RFC 9110 asks origin servers for a date). */
+static const char *date_line(void) {
+  static _Thread_local char line[64];
+  static _Thread_local time_t formatted = -1;
+  time_t now = time(NULL);
+  if (now != formatted) {
+    struct tm utc;
+    gmtime_r(&now, &utc);
+    strftime(line, sizeof line, "date: %a, %d %b %Y %H:%M:%S GMT\r\n", &utc);
+    formatted = now;
+  }
+  return line;
+}
+
 /* An error the server answers itself, closing the connection after it. */
 static void send_error(connection *c, int status, const char *reason) {
-  char text[160];
-  int len = snprintf(text, sizeof text, "HTTP/1.1 %d %s\r\ncontent-length: 0\r\nconnection: close\r\n\r\n", status, reason);
+  char text[192];
+  int len = snprintf(text, sizeof text, "HTTP/1.1 %d %s\r\n%scontent-length: 0\r\nconnection: close\r\n\r\n", status, reason, date_line());
   c->busy = true; /* nothing more is read from it */
   send_bytes(c, text, (size_t)len, true);
 }
@@ -283,6 +323,9 @@ static bool parse_head(const char *bytes, const char *head_end, request *r) {
       value_end--;
     }
     size_t value_len = (size_t)(value_end - value);
+    if (memchr(value, '\0', value_len) != NULL || memchr(value, '\r', value_len) != NULL) {
+      return false; /* RFC 9112 asks to reject these; pts:http's Headers take the rest as they are */
+    }
     if (equals_ignoring_case(p, name_len, "content-length")) {
       char *digits_end;
       char digits[24];
@@ -386,12 +429,12 @@ static int dechunk(const char *body, const char *end, char **out, size_t *out_le
 
 static void dispatch(connection *c, request *r, const char *body, size_t body_len) {
   c->busy = true;
-  c->keep_alive = r->keep_alive && !c->server->stopped;
+  c->keep_alive = r->keep_alive && !atomic_load(&c->listener->server->stopped);
   c->http10 = r->minor == 0;
   c->head = equals_ignoring_case(r->method, r->method_len, "HEAD");
   c->continued = false;
   uv_read_stop((uv_stream_t *)&c->tcp);
-  pts_closure *on_request = c->server->on_request;
+  pts_closure *on_request = c->listener->server->on_request;
   pts_handler handler;
   pts_try_enter(&handler);
   if (_setjmp(handler.jump) != 0) {
@@ -508,25 +551,25 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   process(c);
 }
 
-static void on_connection(uv_stream_t *listener, int status) {
-  server *s = listener->data;
-  if (status < 0 || s->stopped) {
+static void on_connection(uv_stream_t *stream, int status) {
+  listener *l = stream->data;
+  if (status < 0 || atomic_load(&l->server->stopped)) {
     return;
   }
   connection *c = checked(calloc(1, sizeof *c));
-  uv_tcp_init(listener->loop, &c->tcp);
-  if (uv_accept(listener, (uv_stream_t *)&c->tcp) < 0) {
+  uv_tcp_init(stream->loop, &c->tcp);
+  if (uv_accept(stream, (uv_stream_t *)&c->tcp) < 0) {
     uv_close((uv_handle_t *)&c->tcp, on_closed);
     return;
   }
   uv_tcp_nodelay(&c->tcp, 1);
-  c->server = s;
+  c->listener = l;
   add_to_table(c);
-  c->next = s->connections;
-  if (s->connections != NULL) {
-    s->connections->prev = c;
+  c->next = l->connections;
+  if (l->connections != NULL) {
+    l->connections->prev = c;
   }
-  s->connections = c;
+  l->connections = c;
   uv_read_start((uv_stream_t *)&c->tcp, on_alloc, on_read);
 }
 
@@ -604,7 +647,7 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
   }
   int code = status >= 100 && status <= 999 ? (int)status : 500;
   bool bodiless = (code >= 100 && code < 200) || code == 204 || code == 304;
-  bool keep_alive = c->keep_alive && !c->server->stopped;
+  bool keep_alive = c->keep_alive && !atomic_load(&c->listener->server->stopped);
   text t = {0};
   char line[96];
   add(&t, line, (size_t)snprintf(line, sizeof line, "HTTP/1.1 %d ", code));
@@ -615,6 +658,7 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
   }
   add_cstr(&t, "\r\n");
   size_t count = pts_array_length_of(headers);
+  bool dated = false;
   for (size_t i = 0; i + 1 < count; i += 2) {
     const pts_string *name = pts_value_as_string(pts_array_element(headers, (double)i));
     const pts_string *value = pts_value_as_string(pts_array_element(headers, (double)i + 1));
@@ -622,10 +666,14 @@ void pts_http_respond(double id, double status, pts_string *status_text, pts_arr
         memchr(value->bytes, '\n', value->byte_len) != NULL || memchr(value->bytes, '\r', value->byte_len) != NULL) {
       continue; /* framed by the server; a line break would split the response */
     }
+    dated = dated || equals_ignoring_case(name->bytes, name->byte_len, "date");
     add(&t, name->bytes, name->byte_len);
     add_cstr(&t, ": ");
     add(&t, value->bytes, value->byte_len);
     add_cstr(&t, "\r\n");
+  }
+  if (!dated) {
+    add_cstr(&t, date_line());
   }
   if (!bodiless) {
     add(&t, line, (size_t)snprintf(line, sizeof line, "content-length: %u\r\n", body->byte_len));
@@ -657,48 +705,142 @@ static void init_servers(void) { uv_mutex_init(&servers_lock); }
 
 static void on_listener_closed(uv_handle_t *handle) { free(handle); }
 
-double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request) {
-  (void)every_loop;
-  uv_once(&servers_once, init_servers);
+/* The address to listen on: an IPv4 or IPv6 address ("localhost" is 127.0.0.1) and the port. */
+static struct sockaddr_storage address_of(pts_string *hostname, double port) {
   char host[256];
   snprintf(host, sizeof host, "%.*s", (int)hostname->byte_len, hostname->bytes);
   if (strcmp(host, "localhost") == 0) {
     strcpy(host, "127.0.0.1");
   }
   struct sockaddr_storage address;
-  int error = uv_ip4_addr(host, (int)port, (struct sockaddr_in *)&address);
-  if (error != 0) {
-    error = uv_ip6_addr(host, (int)port, (struct sockaddr_in6 *)&address);
-  }
-  if (error != 0) {
+  if (uv_ip4_addr(host, (int)port, (struct sockaddr_in *)&address) != 0 && uv_ip6_addr(host, (int)port, (struct sockaddr_in6 *)&address) != 0) {
     pts_throw_new(&pts_type_builtin_TypeError, "Invalid hostname \"%s\": an IPv4 or IPv6 address is expected", host);
   }
-  uv_tcp_t *listener = checked(malloc(sizeof *listener));
-  uv_tcp_init(pts_uv_loop(), listener);
-  error = uv_tcp_bind(listener, (const struct sockaddr *)&address, 0);
+  return address;
+}
+
+static socklen_t address_length(const struct sockaddr_storage *address) {
+  return address->ss_family == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+}
+
+static in_port_t *port_of(struct sockaddr_storage *address) {
+  return address->ss_family == AF_INET6 ? &((struct sockaddr_in6 *)address)->sin6_port : &((struct sockaddr_in *)address)->sin_port;
+}
+
+/* A socket bound to address and listening (SO_REUSEADDR as libuv sets it, SO_REUSEPORT if asked), or a libuv error code. */
+static int listening_socket(const struct sockaddr_storage *address, bool reuse_port, int *fd) {
+  *fd = socket(address->ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  if (*fd < 0) {
+    return -errno;
+  }
+  int on = 1;
+  if (setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on) != 0 || (reuse_port && setsockopt(*fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on) != 0) ||
+      bind(*fd, (const struct sockaddr *)address, address_length(address)) != 0 || listen(*fd, BACKLOG) != 0) {
+    int error = -errno;
+    close(*fd);
+    return error;
+  }
+  return 0;
+}
+
+/* On the listener's loop: accepts connections from its socket, unless the server stopped before the loop got here. */
+static void start_listening(void *data) {
+  listener *l = data;
+  if (atomic_load(&l->server->stopped)) {
+    close(l->fd);
+    return;
+  }
+  uv_tcp_t *tcp = checked(malloc(sizeof *tcp));
+  uv_tcp_init(pts_uv_loop(), tcp);
+  tcp->data = l;
+  int error = uv_tcp_open(tcp, l->fd);
   if (error == 0) {
-    error = uv_listen((uv_stream_t *)listener, 511, on_connection);
+    error = uv_listen((uv_stream_t *)tcp, BACKLOG, on_connection);
   }
   if (error != 0) {
-    uv_close((uv_handle_t *)listener, on_listener_closed);
-    pts_throw_new(&pts_type_builtin_Error, "listen %s: %s %s:%d", uv_err_name(error), uv_strerror(error), host, (int)port);
+    uv_close((uv_handle_t *)tcp, on_listener_closed); /* closes the socket too: the other loops serve the port */
+    return;
   }
-  struct sockaddr_storage bound;
-  int bound_len = sizeof bound;
-  uv_tcp_getsockname(listener, (struct sockaddr *)&bound, &bound_len);
-  server *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s));
+  l->tcp = tcp;
+}
+
+/* On the listener's loop: stops accepting, closes the idle connections, and the busy ones after their responses. */
+static void stop_listening(void *data) {
+  listener *l = data;
+  if (l->tcp != NULL) {
+    uv_close((uv_handle_t *)l->tcp, on_listener_closed);
+    l->tcp = NULL;
+  }
+  for (connection *c = l->connections, *next; c != NULL; c = next) {
+    next = c->next;
+    if (!c->busy) {
+      close_connection(c);
+    } else {
+      c->keep_alive = false;
+    }
+  }
+}
+
+/*
+ * Binds a socket per listener to the same port (the first one's, if port is 0), before any
+ * loop listens, so that every error is the caller's to throw: 0, or a libuv error code
+ * with no socket left open.
+ */
+static int bind_listeners(server *s, struct sockaddr_storage *address, bool reuse_port) {
+  for (uint32_t i = 0; i < s->listener_count; i++) {
+    int error = listening_socket(address, reuse_port, &s->listeners[i].fd);
+    if (error != 0) {
+      for (uint32_t j = 0; j < i; j++) {
+        close(s->listeners[j].fd);
+      }
+      return error;
+    }
+    if (i == 0) {
+      struct sockaddr_storage bound;
+      socklen_t bound_len = sizeof bound;
+      getsockname(s->listeners[0].fd, (struct sockaddr *)&bound, &bound_len);
+      *port_of(address) = *port_of(&bound);
+      s->port = ntohs(*port_of(&bound));
+    }
+  }
+  return 0;
+}
+
+double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_closure *on_request) {
+  uv_once(&servers_once, init_servers);
+  pts_uv_loop(); /* throws on a thread without a loop */
+  struct sockaddr_storage address = address_of(hostname, port);
+  uint32_t count = every_loop ? pts_start_loops() : 1;
+  server *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s + count * sizeof(listener)));
   s->on_request = on_request;
-  s->listener = listener;
-  s->port = ntohs(bound.ss_family == AF_INET6 ? ((struct sockaddr_in6 *)&bound)->sin6_port : ((struct sockaddr_in *)&bound)->sin_port);
-  listener->data = s;
+  s->listener_count = count;
+  for (uint32_t i = 0; i < count; i++) { /* this loop's first, then the loops after it */
+    s->listeners[i].server = s;
+    s->listeners[i].loop = (uint16_t)((pts_current_loop + i) % (every_loop ? count : 1u << LOOP_BITS));
+  }
+  int error = bind_listeners(s, &address, every_loop);
+  if (error != 0) {
+    GC_FREE(s);
+    char host[INET6_ADDRSTRLEN] = "";
+    uv_ip_name((const struct sockaddr *)&address, host, sizeof host);
+    pts_throw_new(&pts_type_builtin_Error, "listen %s: %s %s:%d", uv_err_name(error), uv_strerror(error), host, ntohs(*port_of(&address)));
+  }
   uv_mutex_lock(&servers_lock);
   if (server_count == MAX_SERVERS) {
     uv_mutex_unlock(&servers_lock);
+    for (uint32_t i = 0; i < count; i++) {
+      close(s->listeners[i].fd);
+    }
+    GC_FREE(s);
     pts_throw_new(&pts_type_builtin_RangeError, "Too many HTTP servers");
   }
   uint32_t id = server_count++;
   servers[id] = s;
   uv_mutex_unlock(&servers_lock);
+  start_listening(&s->listeners[0]);
+  for (uint32_t i = 1; i < count; i++) {
+    pts_post_call(s->listeners[i].loop, start_listening, &s->listeners[i]);
+  }
   return id;
 }
 
@@ -715,20 +857,18 @@ static server *server_of(double id) {
 
 double pts_http_port(double id) { return server_of(id)->port; }
 
+/* Stops every loop's listener: this loop's now, the others' by a message, which comes after the one that started it. */
 void pts_http_stop(double id) {
   server *s = server_of(id);
-  if (s->stopped) {
+  bool running = false;
+  if (!atomic_compare_exchange_strong(&s->stopped, &running, true)) {
     return;
   }
-  s->stopped = true;
-  uv_close((uv_handle_t *)s->listener, on_listener_closed);
-  s->listener = NULL;
-  for (connection *c = s->connections, *next; c != NULL; c = next) {
-    next = c->next;
-    if (!c->busy) {
-      close_connection(c); /* idle: nothing to finish */
+  for (uint32_t i = 0; i < s->listener_count; i++) {
+    if (s->listeners[i].loop == pts_current_loop) {
+      stop_listening(&s->listeners[i]);
     } else {
-      c->keep_alive = false; /* closes after its response */
+      pts_post_call(s->listeners[i].loop, stop_listening, &s->listeners[i]);
     }
   }
 }

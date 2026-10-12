@@ -470,7 +470,7 @@ John Smith
 
 ### Also there
 
-Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, and the `pts:fs` (sync and promises), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules. The full list is [docs/SPEC.md](docs/SPEC.md).
+Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, the `pts:fs` (sync and promises), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules, and `pts:http`, an HTTP/1.1 server in the style of Bun's `serve` that can accept connections on every core (`reusePort: true`). The full list is [docs/SPEC.md](docs/SPEC.md).
 
 ## Benchmarks
 
@@ -520,7 +520,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M3 The TypeScript feel | Unions, optional chaining, exceptions and stack traces, checked `any`, JSON, the standard built-ins, `console.log` parity, a 300-program corpus compared with Node | done (`m3`) |
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
-| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop (done); the server on every loop, `fetch`, example apps (planned) | in progress |
+| M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop (done); `fetch`, example apps (planned) | in progress |
 | M7 Editor support | `pts lsp`, a VS Code extension, a usability pass | planned |
 
 Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
@@ -529,7 +529,7 @@ Planned after M7, if the project goes on: M8, performance work (escape analysis,
 
 Not built yet:
 
-- `pts:http` on every loop and `fetch` (M6), `pts lsp`, the VS Code extension and `pts test` (M7).
+- `fetch` (M6), `pts lsp`, the VS Code extension and `pts test` (M7).
 - Platforms other than x86-64 Linux. The vendored libraries are configured for it, and publishing new objects to other threads relies on x86's store order (D-130).
 - npm packages and `node_modules`.
 

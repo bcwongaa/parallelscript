@@ -1,0 +1,18 @@
+import { serve, Response } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const served = new AtomicInt();
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true, // a listener on every loop
+  fetch() {
+    const n = served.add(1) + 1; // `count++` on a shared `let` would lose counts
+    return new Response(`request ${n}`);
+  },
+});
+console.log(server.port > 0, served.load());
+server.stop();
+
+// expect:
+// true 0

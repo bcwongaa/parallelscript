@@ -12,6 +12,7 @@
 # A parallel benchmark has a file `threads` listing PTS_THREADS values ("1 2 4 8"):
 # ParallelScript runs once per value, main.ts is its sequential twin for Node and Bun,
 # and main.go uses every core; its table row gives the speedup over one thread (D-131).
+# Server benchmarks (a directory with a `request` file) are serve.sh's, and run.sh skips them.
 # Environment: RUNS (default 10) and WARMUP (default 2) are passed to hyperfine.
 set -euo pipefail
 
@@ -28,7 +29,9 @@ if [ $# -gt 0 ]; then
   names=("$@")
 else
   names=()
-  for dir in "$bench"/*/; do names+=("$(basename "$dir")"); done
+  for dir in "$bench"/*/; do
+    if [ ! -f "$dir/request" ]; then names+=("$(basename "$dir")"); fi
+  done
 fi
 
 echo "Building pts..." >&2

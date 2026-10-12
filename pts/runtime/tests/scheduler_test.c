@@ -1,6 +1,10 @@
-/* The loops and tasks (D-121): tasks run on every loop, promises cross loops, and the program ends once every loop is idle. */
+/*
+ * The loops and tasks (D-121): tasks run on every loop, promises cross loops, calls run on
+ * the loops they are posted to (D-137), and the program ends once every loop is idle.
+ */
 #include "pts.h" /* first: it asks for the POSIX declarations, setenv among them */
 
+#include "../src/scheduler_internal.h"
 #include "check.h"
 
 #include <stdatomic.h>
@@ -72,10 +76,43 @@ static void tasks_on_every_loop_settle_their_promises_on_the_starting_loop(void)
   CHECK(sum == expected);
 }
 
+/* Calls posted to each loop, two per loop: the loop each ran on, and its place among its loop's calls. */
+enum { LOOPS = 4, CALLS = 2 * LOOPS };
+static atomic_int ran_on[CALLS];
+static atomic_int place[CALLS];
+static atomic_int calls_per_loop[LOOPS];
+
+static void record_call(void *data) {
+  int call = (int)(intptr_t)data;
+  atomic_store(&ran_on[call], pts_current_loop);
+  atomic_store(&place[call], atomic_fetch_add(&calls_per_loop[pts_current_loop], 1));
+}
+
+static void post_two_calls_to_every_loop(void) {
+  CHECK(pts_start_loops() == LOOPS);
+  for (int call = 0; call < CALLS; call++) {
+    pts_post_call((uint16_t)(call / 2), record_call, (void *)(intptr_t)call);
+  }
+}
+
+/* After the loops ran: each call ran once, on its loop, the first posted first. */
+static void calls_ran_on_their_loops_in_order(void) {
+  for (int call = 0; call < CALLS; call++) {
+    CHECK(atomic_load(&ran_on[call]) == call / 2);
+    CHECK(atomic_load(&place[call]) == call % 2);
+  }
+  for (int loop = 0; loop < LOOPS; loop++) {
+    CHECK(atomic_load(&calls_per_loop[loop]) == 2);
+  }
+}
+
+/* The loops run once per program, so both tests share the one pts_run_loop. */
 int main(int argc, char **argv) {
   setenv("PTS_THREADS", "4", 1);
   pts_runtime_init(argc, argv);
   pts_loop_init();
+  post_two_calls_to_every_loop();
   tasks_on_every_loop_settle_their_promises_on_the_starting_loop();
+  calls_ran_on_their_loops_in_order();
   return CHECK_DONE();
 }

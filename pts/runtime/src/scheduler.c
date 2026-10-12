@@ -340,9 +340,13 @@ static void start_workers(void) {
   atomic_store(&loop_count, started);
 }
 
-uint16_t pts_place_task(void) {
+unsigned pts_start_loops(void) {
   pthread_once(&workers_once, start_workers);
-  unsigned count = atomic_load(&loop_count);
+  return atomic_load(&loop_count);
+}
+
+uint16_t pts_place_task(void) {
+  unsigned count = pts_start_loops();
   uint16_t self = pts_current_loop & ~PTS_LOOP_FOREIGN;
   uint16_t best = self;
   size_t best_load = SIZE_MAX;

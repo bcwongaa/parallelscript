@@ -964,7 +964,29 @@ server.stop(); // a real server keeps serving; this sample stops so that it ends
 
 It prints `true` (`docs/examples/guide_http.pts`).
 
-`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). An HTTP server, `pts:http`, and `fetch` are planned.
+With `reusePort: true` the server accepts connections on every event loop (one per core, or `PTS_THREADS`), each loop with its own socket on the same port, so requests are handled in parallel. The handler then runs on several threads at once, as a `.par` callback does, but the guardrail doesn't check it: count with an `AtomicInt`, not a `let`.
+
+```ts
+import { serve, Response } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const served = new AtomicInt();
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true, // a listener on every loop
+  fetch() {
+    const n = served.add(1) + 1; // `count++` on a shared `let` would lose counts
+    return new Response(`request ${n}`);
+  },
+});
+console.log(server.port > 0, served.load());
+server.stop();
+```
+
+It prints `true 0` (`docs/examples/guide_http_every_loop.pts`). On the development machine, hello world runs at about 54,000 requests a second on one loop and 114,000 on four ([BENCHMARKS.md](BENCHMARKS.md)).
+
+`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). A global `fetch` is planned (M6.3).
 
 [examples/guide_node_modules.pts](examples/guide_node_modules.pts):
 

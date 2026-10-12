@@ -48,11 +48,30 @@ static pcre2_general_context *shared_context;
 
 static void make_general_context(void) { shared_context = pcre2_general_context_create(collected_malloc, collected_free, NULL); }
 
-/* The memory functions every PCRE2 call allocates through: the collector's, made once. */
+/* The memory functions compiling allocates through: the collector's, made once, so compiled code goes with its RegExp. */
 static pcre2_general_context *general_context(void) {
   static pthread_once_t once = PTHREAD_ONCE_INIT;
   pthread_once(&once, make_general_context);
   return shared_context;
+}
+
+/*
+ * The thread's match data, reused by every match on the thread: malloc'd (it holds no
+ * collected pointers once a match returns), with room for at least `pairs` offset pairs.
+ * PCRE2 keeps its backtracking frames in it between matches, so a match allocates
+ * nothing; allocating through the collector took its global lock twice per match, which
+ * serialized threads that match (D-137).
+ */
+static pcre2_match_data *match_data(uint32_t pairs) {
+  static _Thread_local pcre2_match_data *data;
+  if (data == NULL || pcre2_get_ovector_count(data) < pairs) {
+    pcre2_match_data_free(data);
+    data = pcre2_match_data_create(pairs < 16 ? 16 : pairs, NULL);
+    if (data == NULL) {
+      pts_panic("RangeError", "Out of memory matching a regular expression");
+    }
+  }
+  return data;
 }
 
 /* ---------------------------------------------------------------- the translation */
@@ -998,14 +1017,12 @@ bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t 
     return false;
   }
   seek_unit(subject, cursor, from);
-  pcre2_match_data *data = pcre2_match_data_create_from_pattern(regex->code, general_context());
+  pcre2_match_data *data = match_data(regex->groups + 1);
   int found = pcre2_match(regex->code, (PCRE2_SPTR)subject->bytes, subject->byte_len, cursor->byte, anchored ? PCRE2_ANCHORED : 0, data, NULL);
   if (found == PCRE2_ERROR_NOMATCH) {
-    pcre2_match_data_free(data);
     return false;
   }
   if (found < 0) {
-    pcre2_match_data_free(data);
     pts_throw_new(&pts_type_builtin_RangeError, "Maximum call stack size exceeded");
   }
   PCRE2_SIZE *offsets = pcre2_get_ovector_pointer(data);
@@ -1024,6 +1041,5 @@ bool pts_regex_exec(const pts_regex *regex, const pts_string *subject, uint32_t 
       *cursor = at;
     }
   }
-  pcre2_match_data_free(data);
   return true;
 }
