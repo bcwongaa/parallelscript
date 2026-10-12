@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.6b `pts:sync`: Channel
+- **Next task:** M5.7 Stress and scaling
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.6b `pts:sync`: Channel (D-129, SPEC §9.86): `Channel<T>(capacity = Infinity)` in ParallelScript over the futex lock: FIFO `send`/`recv` with back-pressure and rendezvous at capacity 0, `close` (drain, then done; sends reject), `closed`, `for await`; promises settle on their loops. M5.6 is complete.
 - M5.6a `pts:sync`: atomics, Mutex and Once (M5.6 split by D-128, SPEC §9.85): a ParallelScript library over seven intrinsics on ArrayBuffer cells (64-bit atomics; a futex lock any thread may release); `AtomicInt`/`Atomic<int>` (`load`, `store`, `add`, `compareExchange`, JS Atomics' return values), `Mutex<T>` (`withLock` blocking, `lock()` a promise of a `MutexGuard` handed over by releases), `Once`.
 - M5.5 `parallel for` and the guardrail (D-127, SPEC §9.84): `parallel for (const x of items)` over arrays, typed arrays, pts:parallel ranges and any iterable, lowered to a leaf closure over pieces of the indices run by the pool's new `pts_parallel_for_each`, whose pieces stop starting runs of 256 once an iteration throws and rethrow the first error; `continue` (also to the loop's own label) works, other jumps out are PTS3002; the guardrail PTS3001 rejects assigning a `let` or parameter declared outside a parallel body (`parallel` operands, `parallel for` bodies, functions passed to ParallelCallback parameters, inline or by name).
 - M5.4c2 `.par` on typed arrays (D-126, SPEC §9.83): `ParallelTypedArray<A>` in `pts:parallel` (ParallelArray's methods over numbers; `map`/`filter` make typed arrays of the view's kind; `sort()` numeric in place), the prelude's `par` on the nine typed arrays; D-124's merge sort is now generic over arrays and typed arrays, whose pieces sort with the typed array's own C sort. M5.4 is complete.
@@ -112,7 +113,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.6b `Channel<T>` in `pts:sync` (D-L18, D-128): bounded and unbounded, async `send` (waits while full) and `recv` (waits while empty; undefined once closed and drained), `close` (waiting receivers get done, waiting and later senders an error), `for await` through an async generator `[Symbol.asyncIterator]`; written like `Mutex.lock()`: a state lock (`pts_sync_lock` on an ArrayBuffer word) around a queue and queues of resolvers, which settle on their loops. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
+1. M5.7 Stress and scaling (see `docs/MASTER_PLAN.md`): parallel stress tests with a nightly CI job running them 100 times; benchmarks (mandelbrot `.par`, sum/reduce over 100M numbers, word count over many files, `parallel` fan-out) with speedups against one thread; the race-safety invariant (brief §2.5) by targeted tests. Item 2 below (the collector's scaling) belongs here. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too. Also seen with `.par` (M5.4a): at 8 threads on this 4-core machine with background load, operations get slower than at 4 (a descheduled thread holds up a join), and recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library.
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -128,7 +129,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (290 run tests, the parallel ones under several `PTS_THREADS`; 70 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (291 run tests, the parallel ones under several `PTS_THREADS`; 70 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
 | Touched upstream suites | `make test-upstream` | ok (see the rows above) |
@@ -163,6 +164,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.6b done (D-129); M5.6 complete.
 - 2026-10-12: M5.6a done (M5.6 split by D-128).
 - 2026-10-12: M5.5 done (D-127).
 - 2026-10-12: M5.4c2 done (D-126); M5.4 complete.

@@ -1,0 +1,89 @@
+// pts:sync's Channel<T> (D-129): bounded and unbounded channels between loops, async send
+// and recv, back-pressure, close, and `for await`.
+// threads: 1 2 4
+import { AtomicInt, Channel } from "pts:sync";
+
+// Producers and consumers on other loops; the channel's capacity makes producers wait.
+const jobs = new Channel<number>(8);
+const results = new Channel<number>();
+async function produce(from: number, count: number): Promise<void> {
+  for (let i = from; i < from + count; i++) {
+    await jobs.send(i);
+  }
+}
+async function consume(): Promise<number> {
+  let handled = 0;
+  for await (const job of jobs) {
+    await results.send(job * job);
+    handled++;
+  }
+  return handled;
+}
+const producers = Promise.all([0, 1000, 2000, 3000].map((from) => parallel produce(from, 500)));
+const consumers = Promise.all([1, 2, 3].map(() => parallel consume()));
+await producers;
+jobs.close();
+const handled = await consumers;
+results.close();
+let sum = 0;
+let count = 0;
+for await (const square of results) {
+  sum += square;
+  count++;
+}
+console.log(handled.reduce((a, b) => a + b, 0), count, sum);
+
+// Back-pressure: a send into a full channel waits for a receiver.
+const pipe = new Channel<string>(1);
+const log: string[] = [];
+await pipe.send("a");
+const blocked = pipe.send("b").then(() => log.push("b sent"));
+await Promise.resolve();
+log.push("before recv");
+log.push(`got ${await pipe.recv()}`);
+await blocked;
+log.push(`got ${await pipe.recv()}`);
+console.log(log.join(", "));
+
+// Capacity 0: each send waits for its receiver.
+const handoff = new Channel<{ id: number }>(0);
+const sent = handoff.send({ id: 7 }).then(() => "handed over");
+console.log(await handoff.recv(), await sent);
+
+// Close: receivers get what is queued, then undefined; senders, waiting or later, reject.
+const closing = new Channel<number>(1);
+await closing.send(1);
+const stuck = closing.send(2).catch((e: Error) => `waiting send: ${e.message}`);
+const receiver = new Channel<number>();
+const pending = receiver.recv();
+closing.close();
+receiver.close();
+closing.close();
+console.log(await closing.recv(), await closing.recv(), await stuck, await pending, closing.closed);
+try {
+  await closing.send(3);
+} catch (e: any) {
+  console.log(e.message);
+}
+try {
+  new Channel<number>(-1);
+} catch (e: any) {
+  console.log(e.name, e.message);
+}
+
+// Channels inside parallel code count with an atomic.
+const seen = new AtomicInt();
+const many = new Channel<number>();
+for (let i = 0; i < 100; i++) await many.send(i);
+many.close();
+for await (const n of many) seen.add(n as int);
+console.log(seen.load());
+
+// expect:
+// 2000 2000 8663167000
+// before recv, b sent, got a, got b
+// { id: 7 } handed over
+// 1 undefined waiting send: Send on a closed channel undefined true
+// Send on a closed channel
+// RangeError A channel's capacity must be 0 or more
+// 4950

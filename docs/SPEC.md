@@ -293,6 +293,7 @@ files.par.forEach(() => { count++; }); // compile error: use .par.reduce() or an
 A concurrent map may come later if benchmarks or examples want one.
 
 - How (D-128): `pts:sync` is a ParallelScript library over intrinsics that keep atomic cells and lock words in small ArrayBuffers. `AtomicInt` holds an `int` (i64), sequentially consistent; `add` wraps and, like `compareExchange`, returns the value before (as JS's `Atomics` do); `Atomic<int>` is `AtomicInt`. `Mutex<T>(value)`: `withLock(fn)` runs `fn(value)` holding the lock, blocking the thread while it waits; `lock()` gives a promise of a `MutexGuard<T>` (`value`, `unlock()`), waiting without blocking the loop; a release passes the lock to the longest-waiting `lock()` first; a guard used after `unlock()` throws `Error`. `Once.run(fn)` runs fn the first time (a concurrent call blocks until it is done; if fn throws, it hasn't run); `done` tells whether it has.
+- `Channel<T>(capacity = Infinity)` (D-129): `send(v)` resolves once a receiver has v or it is queued, waiting while `capacity` items are queued (with capacity 0, until a receiver takes it); `recv()` resolves to the next item, or undefined once the channel is closed and empty; `close()` lets receivers drain what is queued and rejects later sends and those waiting (`Error: Send on a closed channel`); closing twice does nothing; `closed` tells; `for await (const x of channel)` takes items until it is closed and empty. Items go to receivers in the order they were queued; waiting receivers and senders are served first come, first served.
 
 ---
 
@@ -340,7 +341,7 @@ Semantics (D-022), as in Node:
 
 The `pts:` modules that mirror Node's (`pts:fs`, `pts:path`, `pts:process`) behave as `node:fs`, `node:path` and `node:process` do, so a program that imports only those prints what Node prints with the `node:` modules. They are written in ParallelScript and compiled with the program that imports them (D-116).
 | `pts:http` | A server with an option to accept connections on every loop, plus `fetch` as a global |
-| `pts:sync` | Synchronization primitives (§5.7): `AtomicInt`, `Atomic<int>`, `Mutex<T>`, `MutexGuard<T>`, `Once` (D-128) |
+| `pts:sync` | Synchronization primitives (§5.7): `AtomicInt`, `Atomic<int>`, `Mutex<T>`, `MutexGuard<T>`, `Once` (D-128), `Channel<T>` (D-129) |
 | `pts:parallel` | `range`, `join` and related helpers |
 
 ---
@@ -1049,4 +1050,9 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Library** (`pts/lib/sync.pts`, D-128): `AtomicInt`, `Atomic<T>`, `MutexGuard<T>`, `Mutex<T>` (`#release` hands the lock to the first waiter of `lock()`), `Once`.
 - **Runtime** (`sync.c`): `pts_atomic_load`/`store`/`add`/`compare_exchange` on an 8-byte cell, `pts_sync_lock`/`try_lock`/`unlock` (a futex mutex any thread may release, spinning 100 times first) on a 4-byte word, both the first bytes of an ArrayBuffer.
 - **Tests:** `pts/runtime/tests/sync_test.c` (also under TSan); `pts/tests/run/sync` (under several `PTS_THREADS`).
+
+### 9.86 pts:sync: Channel (M5.6b)
+
+- **Library** (`pts/lib/sync.pts`, D-129): `Channel<T>` (`#next`, used by `recv` and the async generator `[Symbol.asyncIterator]`), `Received<T>`, `WaitingSender<T>`, over `pts_sync_lock` (D-128).
+- **Tests:** `pts/tests/run/channel` (under several `PTS_THREADS`).
 

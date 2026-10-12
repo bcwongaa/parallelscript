@@ -1,5 +1,6 @@
-// pts:sync: synchronization for code that runs on several threads at once (D-L18, D-128):
-// atomic integers, a mutex whose lock can be awaited, and a once-only initializer. Each
+// pts:sync: synchronization for code that runs on several threads at once (D-L18, D-128,
+// D-129): atomic integers, a mutex whose lock can be awaited, a once-only initializer and
+// channels. Each
 // keeps its lock word or cell in a small ArrayBuffer, which the runtime's intrinsics read
 // atomically; the waiting of `lock()` is a promise, settled on the loop that made it.
 
@@ -148,5 +149,136 @@ export class Once {
 
     get done(): boolean {
         return this.#ran.load() === 1;
+    }
+}
+
+// What a receiver gets: an item, or done once the channel is closed and empty.
+interface Received<T> {
+    done: boolean;
+    value: T | undefined;
+}
+
+// A sender waiting for room, with its item.
+interface WaitingSender<T> {
+    value: T;
+    resolve: (value: void) => void;
+    reject: (reason: unknown) => void;
+}
+
+// A queue of items between loops and threads (D-129): send waits while a bounded channel
+// is full, recv while it is empty; after close, receivers get what is queued, then done.
+export class Channel<T> {
+    readonly #lock = new ArrayBuffer(4); // guards everything below
+    readonly #items: T[] = [];
+    readonly #receivers: ((received: Received<T>) => void)[] = [];
+    readonly #senders: WaitingSender<T>[] = [];
+    readonly #capacity: number;
+    #closed = false;
+
+    // A channel that queues up to capacity items for receivers: Infinity (unbounded) by
+    // default; 0 makes each send wait until a receiver takes its item.
+    constructor(capacity: number = Infinity) {
+        if (!(capacity >= 0)) {
+            throw new RangeError("A channel's capacity must be 0 or more");
+        }
+        this.#capacity = capacity;
+    }
+
+    // Sends value: resolves once a receiver has it or it is queued; rejects if the channel
+    // is closed, or closes while the send waits.
+    send(value: T): Promise<void> {
+        pts_sync_lock(this.#lock);
+        if (this.#closed) {
+            pts_sync_unlock(this.#lock);
+            return Promise.reject(new Error("Send on a closed channel"));
+        }
+        const receiver = this.#receivers.shift();
+        if (receiver !== undefined) {
+            pts_sync_unlock(this.#lock);
+            receiver({ done: false, value });
+            return Promise.resolve();
+        }
+        if (this.#items.length < this.#capacity) {
+            this.#items.push(value);
+            pts_sync_unlock(this.#lock);
+            return Promise.resolve();
+        }
+        const waiting = Promise.withResolvers<void>();
+        this.#senders.push({ value, resolve: waiting.resolve, reject: waiting.reject });
+        pts_sync_unlock(this.#lock);
+        return waiting.promise;
+    }
+
+    // The next item, or undefined once the channel is closed and empty.
+    async recv(): Promise<T | undefined> {
+        return (await this.#next()).value;
+    }
+
+    // Closes the channel: later sends reject, as do those waiting; receivers get the items
+    // queued, then done. Closing a closed channel does nothing.
+    close(): void {
+        pts_sync_lock(this.#lock);
+        if (this.#closed) {
+            pts_sync_unlock(this.#lock);
+            return;
+        }
+        this.#closed = true;
+        const receivers = this.#receivers.splice(0);
+        const senders = this.#senders.splice(0);
+        pts_sync_unlock(this.#lock);
+        for (const receiver of receivers) {
+            receiver({ done: true, value: undefined });
+        }
+        for (const sender of senders) {
+            sender.reject(new Error("Send on a closed channel"));
+        }
+    }
+
+    get closed(): boolean {
+        pts_sync_lock(this.#lock);
+        const closed = this.#closed;
+        pts_sync_unlock(this.#lock);
+        return closed;
+    }
+
+    // The items until the channel is closed and empty.
+    async *[Symbol.asyncIterator](): AsyncGenerator<T, void, undefined> {
+        while (true) {
+            const received = await this.#next();
+            if (received.done) {
+                return;
+            }
+            yield received.value as T;
+        }
+    }
+
+    #next(): Promise<Received<T>> {
+        pts_sync_lock(this.#lock);
+        if (this.#items.length > 0) {
+            const value = this.#items.shift() as T;
+            const sender = this.#senders.shift(); // there is room for the first sender waiting
+            if (sender !== undefined) {
+                this.#items.push(sender.value);
+            }
+            pts_sync_unlock(this.#lock);
+            if (sender !== undefined) {
+                sender.resolve();
+            }
+            return Promise.resolve({ done: false, value });
+        }
+        const sender = this.#senders.shift(); // a channel of capacity 0: the sender hands its item over
+        if (sender !== undefined) {
+            pts_sync_unlock(this.#lock);
+            sender.resolve();
+            return Promise.resolve({ done: false, value: sender.value });
+        }
+        if (this.#closed) {
+            pts_sync_unlock(this.#lock);
+            return Promise.resolve({ done: true, value: undefined });
+        }
+        const waiting = Promise.withResolvers<Received<T>>();
+        this.#receivers.push(waiting.resolve);
+        pts_sync_unlock(this.#lock);
+        return waiting.promise;
     }
 }
