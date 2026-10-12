@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.7b Parallel benchmarks and scaling
+- **Next task:** M5.8 Milestone M5
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.7b Parallel benchmarks and scaling (D-131, SPEC §9.88): `pts/bench/mandelbrot`, `sum_reduce`, `word_count`, `fan_out`, each with a sequential `main.ts` for Node and Bun and a goroutine `main.go`; a `threads` file makes `run.sh` run ParallelScript per `PTS_THREADS` and print speedups (`docs/BENCHMARKS.md`, M5.7b: mandelbrot 5.78× on 8 threads and 6.5× Node, fan_out 3.26×, word_count 2.22×, sum_reduce 1.83×). bdwgc now marks on 2 threads instead of one per core (single-threaded allocation was up to 60% slower with 8 markers). M5.7 is complete.
 - M5.7a Stress tests and the race-safety invariant (M5.7 split by D-130; SPEC §4.1, §9.87): `pts/tests/stress/` (11 programs: tasks, `.par` and `parallel for` allocating under the collector, pts:sync under contention, recursive join with throws, promises across loops, cancelled `parallel for`; and `race_*` tests of the invariant on arrays, maps/sets/records, fields, strings and typed arrays), `TestStress` with `PTS_STRESS_REPEAT`, `make test-stress`, a nightly CI job running them 100 times. The race tests and a runtime audit found real holes, now fixed: a map's size went below zero under racing deletes (then read as 1.8e19 and aborted console.log/JSON), its index could fill so lookups looped forever, an append after a replace could write past the table; `Array.with` could write past its copy, `shift` of an empty buffer published length 2^64 − 1, `new Set(array)` and `filter` through `any` read holes as elements, a record's key-order snapshot hid keys from the collector, typed arrays' `sort` ran qsort over shared memory.
 - M5.6b `pts:sync`: Channel (D-129, SPEC §9.86): `Channel<T>(capacity = Infinity)` in ParallelScript over the futex lock: FIFO `send`/`recv` with back-pressure and rendezvous at capacity 0, `close` (drain, then done; sends reject), `closed`, `for await`; promises settle on their loops. M5.6 is complete.
 - M5.6a `pts:sync`: atomics, Mutex and Once (M5.6 split by D-128, SPEC §9.85): a ParallelScript library over seven intrinsics on ArrayBuffer cells (64-bit atomics; a futex lock any thread may release); `AtomicInt`/`Atomic<int>` (`load`, `store`, `add`, `compareExchange`, JS Atomics' return values), `Mutex<T>` (`withLock` blocking, `lock()` a promise of a `MutexGuard` handed over by releases), `Once`.
@@ -114,8 +115,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.7b Parallel benchmarks and scaling (see `docs/MASTER_PLAN.md`): benchmarks (mandelbrot `.par`, sum/reduce over 100M numbers, word count over many files, `parallel` fan-out) with speedups against one thread, and item 2 below (the collector's scaling). A first look (2026-10-12): 32 tasks each building and walking 40 binary trees of depth 14 took 0.86 s on 1 thread, 1.54 s on 2, 1.30 s on 4 and 3.20 s on 8: allocation-heavy parallel code gets slower with threads. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
-2. For M5.7 (scaling): allocation-heavy tasks don't scale past 4 loops here. Measured on `/tmp`-style tests: bdwgc's parallel marking (7 marker threads by default) costs 70% on a one-loop program with a small heap (`GC_MARKERS=1` was faster at every loop count on that test), and a collection that stops 8 busy threads took about 12 ms. Try fewer markers, a larger initial heap per loop, or `GC_MARKERS` tied to `PTS_THREADS`, and measure binary_trees too. Also seen with `.par` (M5.4a): at 8 threads on this 4-core machine with background load, operations get slower than at 4 (a descheduled thread holds up a join), and recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library.
+1. M5.8 Milestone M5 (see `docs/MASTER_PLAN.md`): the checklist (suite and CI green, `docs/BENCHMARKS.md` M5 table from `make bench`, which now includes the four parallel benchmarks; tag `m5`; Telegram message showing off `parallel` and `.par` with the speedups of D-131).
+2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
 ## Build and test commands
@@ -140,7 +141,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `fe9ca158b` (M5.6b), both jobs (PTS tests; upstream CLI and LSP suites): about 8 min |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
 
-`make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the table for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int).
+`make bench` (= `pts/bench/run.sh [name …]`) builds every benchmark under `pts/bench/`, checks the implementations agree, runs hyperfine and prints the tables for `docs/BENCHMARKS.md` (needs hyperfine, Node, Bun, Go and python3; about 30 s for fib and fib_int). A benchmark with a `threads` file runs under each `PTS_THREADS` it lists and goes in a second table with its speedup (D-131); the four parallel ones take about 8 minutes with `RUNS=5 WARMUP=1`.
 
 ## Known issues
 
@@ -168,6 +169,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.7b done (D-131); M5.7 complete.
 - 2026-10-12: M5.7a done (M5.7 split by D-130).
 - 2026-10-12: M5.6b done (D-129); M5.6 complete.
 - 2026-10-12: M5.6a done (M5.6 split by D-128).

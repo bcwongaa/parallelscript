@@ -87,3 +87,21 @@ Notes:
 - async_fib: an async call is a generator frame, an await of an already settled promise one reaction and one microtask (D-112); no allocation per await beyond the frame.
 - file_io: each call is a job on libuv's threadpool of 4 (as Node's), its promise settled from the event loop; Bun and Go do these system calls more directly. The machine's ext4 disk, warm page cache.
 - binary_trees, json, word_freq: the collector and dynamic data, as at M3; parallelism arrives in M5, every number here is one thread.
+
+## M5.7b: parallel benchmarks
+
+Measured on 2026-10-12 (M5.7b), `pts/bench/run.sh` with 1 warm-up and 5 runs. The machine is a laptop part, an Intel i5-8250U: 4 cores with 2 hardware threads each (8 in all), clocked lower when all cores run, and it runs other services (load average 2 to 5 during these runs), so ×8 means hyperthreads and its timings vary most. ParallelScript runs each program under `PTS_THREADS` = 1, 2, 4 and 8 (D-O06: with 1, `.par` and `parallel` run on the one thread). Node and Bun run `main.ts`, the same program without `.par` and `parallel` (they have no shared-memory threads to compare with), so their column is one thread; Go's twin uses a goroutine per core or per task. "Speedup ×8" is ParallelScript ×1's time divided by ×8's; "PTS ×8 vs X" is X's time divided by ParallelScript ×8's (D-131).
+
+| Benchmark | PTS ×1 | PTS ×2 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Bun | Go | PTS ×8 vs Node | PTS ×8 vs Go |
+|---|---|---|---|---|---|---|---|---|---|---|
+| mandelbrot | 1469 ms | 729 ms | 455 ms | 254 ms | 5.78× | 1661 ms | 1614 ms | 235 ms | 6.53× | 0.93× |
+| sum_reduce | 3610 ms | 2282 ms | 1740 ms | 1978 ms | 1.83× | 4427 ms | 4781 ms | 688 ms | 2.24× | 0.35× |
+| word_count | 1552 ms | 1082 ms | 713 ms | 700 ms | 2.22× | 1110 ms | 1166 ms | 187 ms | 1.58× | 0.27× |
+| fan_out | 1045 ms | 495 ms | 310 ms | 320 ms | 3.26× | 1060 ms | 923 ms | 362 ms | 3.31× | 1.13× |
+
+Notes:
+- mandelbrot (2400×1600, at most 500 iterations, `.par.forEach` over rows into a Uint16Array): floating-point multiplies and adds, which hyperthreads share well, so ×8 still gains on ×4.
+- fan_out (64 tasks of 1 to 8 million terms with a square root and a division, started with `parallel`): tasks go to the least-loaded loop and idle loops take tasks not started yet (D-121); ×8 gains nothing on ×4, because the two hyperthreads of a core share its divider and square-root unit.
+- sum_reduce (100 million doubles, 800 MB: filled by `parallel for`, then `.par.sum`, `.par.reduce` and `.par.max`, two rounds): bound by memory bandwidth from ×4 (a pass of `sum` reads 800 MB in about 75 ms), and the 800 MB array is zeroed by one thread when it is made (about 0.4 s), as the collector's memory isn't known to be zero. The fill uses `&`, not `%`: `%` on doubles is C's fmod until integer inference (M8).
+- word_count (64 files, 6.4 million words, `.par.map` counting into maps): every word is a new string and a map lookup, so the threads allocate all the time; bdwgc refills each thread's free lists under one lock and stops every thread to collect, so it stops gaining past ×4. Go's substrings share their text and allocate nothing.
+- The collector now marks on 2 threads instead of one per core (D-131): with 8 marker threads, programs that allocate were up to 60% slower on one thread (the extra markers burn the cores), and single-threaded binary_trees, json and word_freq are as fast or faster with 2.

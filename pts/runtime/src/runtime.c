@@ -15,8 +15,14 @@ enum { FREE_SPACE_DIVISOR = 1 };
  * little alive isn't collected every few hundred KiB (D-112). GC_INITIAL_HEAP_SIZE overrides it. */
 enum { INITIAL_HEAP_SIZE = 4 << 20 };
 
+/* Marking runs on this many threads (D-131): bdwgc's default, one per core, made threads
+ * that allocate heavily slower on every count we measured, and one was slower than two
+ * for one thread. The GC_MARKERS environment variable still overrides it. */
+enum { GC_MARKER_THREADS = 2 };
+
 void pts_runtime_init(int argc, char **argv) {
   pts_process_init(argc, argv);
+  GC_set_markers_count(GC_MARKER_THREADS);
   GC_INIT();
   if (getenv("GC_FREE_SPACE_DIVISOR") == NULL) {
     GC_set_free_space_divisor(FREE_SPACE_DIVISOR);

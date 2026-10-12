@@ -1,0 +1,33 @@
+// The Mandelbrot set with `.par`: the escape time of every pixel of a 2400×1600 view (at
+// most 500 iterations) into an image, a row per callback; prints the escape times' total
+// and the pixels inside the set. main.ts does the same without `.par`, for Node and Bun.
+import { range } from "pts:parallel";
+
+const WIDTH = 2400;
+const HEIGHT = 1600;
+const MAX_ITERATIONS = 500;
+
+function escapeTime(cx: number, cy: number): number {
+    let x = 0;
+    let y = 0;
+    let i = 0;
+    while (i < MAX_ITERATIONS && x * x + y * y <= 4) {
+        const t = x * x - y * y + cx;
+        y = 2 * x * y + cy;
+        x = t;
+        i++;
+    }
+    return i;
+}
+
+const image = new Uint16Array(WIDTH * HEIGHT);
+
+function renderRow(py: number): void {
+    const cy = (py / HEIGHT) * 2.4 - 1.2;
+    for (let px = 0; px < WIDTH; px++) {
+        image[py * WIDTH + px] = escapeTime((px / WIDTH) * 3.5 - 2.5, cy);
+    }
+}
+
+range(0, HEIGHT).par.forEach(renderRow);
+console.log(image.par.sum(), image.par.count((n) => n === MAX_ITERATIONS));

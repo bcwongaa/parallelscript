@@ -1,0 +1,22 @@
+// Sum and reduce over 100 million numbers: a Float64Array filled by `parallel for`, then
+// `.par.sum()`, `.par.reduce` with an addition and `.par.max()` over it, two rounds.
+// Every value is a multiple of 1/4 below 256, so every sum is exact in any order.
+// main.ts does the same sequentially, for Node and Bun.
+import { range } from "pts:parallel";
+
+const COUNT = 100_000_000;
+const ROUNDS = 2;
+
+const values = new Float64Array(COUNT);
+parallel for (const i of range(0, COUNT)) {
+    values[i] = (i & 1023) * 0.25;
+}
+let sum = 0;
+let reduced = 0;
+let max = 0;
+for (let round = 0; round < ROUNDS; round++) {
+    sum += values.par.sum();
+    reduced += values.par.reduce((a, b) => a + b, 0);
+    max = Math.max(max, values.par.max());
+}
+console.log(sum, reduced, max);

@@ -9,6 +9,9 @@
 # Node and Bun run main.ts if there is one, otherwise main.pts itself when it is plain
 # TypeScript; a main.pts with ParallelScript's integer types and no main.ts runs under
 # ParallelScript and Go only. Every program must print the same output.
+# A parallel benchmark has a file `threads` listing PTS_THREADS values ("1 2 4 8"):
+# ParallelScript runs once per value, main.ts is its sequential twin for Node and Bun,
+# and main.go uses every core; its table row gives the speedup over one thread (D-131).
 # Environment: RUNS (default 10) and WARMUP (default 2) are passed to hyperfine.
 set -euo pipefail
 
@@ -41,8 +44,17 @@ for name in "${names[@]}"; do
   dir=$bench/$name
   echo "== $name" >&2
   "$work/pts" build "$dir/main.pts" -o "$work/$name-pts"
-  labels=(ParallelScript)
-  commands=("$work/$name-pts")
+  labels=()
+  commands=()
+  if [ -f "$dir/threads" ]; then
+    for threads in $(cat "$dir/threads"); do
+      labels+=("ParallelScript x$threads")
+      commands+=("env PTS_THREADS=$threads $work/$name-pts")
+    done
+  else
+    labels+=(ParallelScript)
+    commands+=("$work/$name-pts")
+  fi
   script=""
   if [ -f "$dir/main.ts" ]; then
     script=$dir/main.ts
@@ -76,18 +88,43 @@ for name in "${names[@]}"; do
   hyperfine --shell=none --warmup "${WARMUP:-2}" --runs "${RUNS:-10}" --export-json "$work/$name.json" "${args[@]}" >&2
 done
 
-# One table row per benchmark: mean times, and how many times faster ParallelScript is.
+# One table row per benchmark: mean times, and how many times faster ParallelScript is;
+# parallel benchmarks get a table of their own, with ParallelScript at each thread count.
 python3 - "$work" "${names[@]}" <<'EOF'
 import json, sys
 
 work, names = sys.argv[1], sys.argv[2:]
-print("| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |")
-print("|---|---|---|---|---|---|---|")
+results = {}
 for name in names:
     with open(f"{work}/{name}.json") as f:
-        means = {r["command"]: r["mean"] * 1000 for r in json.load(f)["results"]}
-    pts = means["ParallelScript"]
-    cell = lambda label: f"{means[label]:.0f} ms" if label in means else "–"
-    ratio = lambda label: f"{means[label] / pts:.2f}×" if label in means else "–"
-    print(f"| {name} | {pts:.0f} ms | {cell('Node')} | {cell('Bun')} | {cell('Go')} | {ratio('Node')} | {ratio('Go')} |")
+        results[name] = {r["command"]: r["mean"] * 1000 for r in json.load(f)["results"]}
+sequential = [name for name in names if "ParallelScript" in results[name]]
+parallel = [name for name in names if name not in sequential]
+
+def cell(means, label):
+    return f"{means[label]:.0f} ms" if label in means else "–"
+
+def ratio(means, label, pts):
+    return f"{means[label] / pts:.2f}×" if label in means else "–"
+
+if sequential:
+    print("| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |")
+    print("|---|---|---|---|---|---|---|")
+    for name in sequential:
+        means = results[name]
+        pts = means["ParallelScript"]
+        print(f"| {name} | {pts:.0f} ms | {cell(means, 'Node')} | {cell(means, 'Bun')} | {cell(means, 'Go')} | {ratio(means, 'Node', pts)} | {ratio(means, 'Go', pts)} |")
+if parallel:
+    counts = sorted({int(label.split("x")[-1]) for name in parallel for label in results[name] if label.startswith("ParallelScript x")})
+    most = counts[-1]
+    if sequential:
+        print()
+    print("| Benchmark | " + " | ".join(f"PTS ×{n}" for n in counts) + f" | Speedup ×{most} | Node | Bun | Go | PTS ×{most} vs Node | PTS ×{most} vs Go |")
+    print("|---|" + "---|" * (len(counts) + 6))
+    for name in parallel:
+        means = results[name]
+        one, best = means.get("ParallelScript x1"), means.get(f"ParallelScript x{most}")
+        speedup = f"{one / best:.2f}×" if one and best else "–"
+        threads = " | ".join(cell(means, f"ParallelScript x{n}") for n in counts)
+        print(f"| {name} | {threads} | {speedup} | {cell(means, 'Node')} | {cell(means, 'Bun')} | {cell(means, 'Go')} | {ratio(means, 'Node', best)} | {ratio(means, 'Go', best)} |")
 EOF
