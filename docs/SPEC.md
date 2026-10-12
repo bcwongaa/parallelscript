@@ -316,7 +316,7 @@ Semantics (D-022), as in Node:
 
 | Module | Contents |
 |---|---|
-| `pts:fs` | Sync and promise-based file APIs |
+| `pts:fs` | Sync and promise-based file APIs: Node's `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `accessSync`, `statSync`, `lstatSync`, `mkdirSync`, `readdirSync`, `unlinkSync`, `rmdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `symlinkSync`, `readlinkSync`, `realpathSync`, `chmodSync`, `mkdtempSync`, `constants`, `Stats`, `Dirent`, with Node's errors (D-117); text in UTF-8 |
 | `pts:path` | Path utilities: Node's `path` for POSIX (`join`, `resolve`, `relative`, `normalize`, `dirname`, `basename`, `extname`, `parse`, `format`, `isAbsolute`, `sep`, `delimiter`; the default export is the object of them, D-116) |
 | `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is also the global `process`, as in Node (D-116) |
 
@@ -359,6 +359,7 @@ The compatibility principle (§1.1) holds except for these:
 - Type-level features through run-time checks (D-089): `x as T` that isn't an upcast is checked, and to an array or object type that isn't the value's own it makes a checked copy, as converting from `any` does; keyed elements (`o[k]` for `k: keyof T`), members of unions of objects and other values, and values of unions that recur through arrays or hash-map objects (`type Json = … | Json[]`) are found at run time and checked where they become typed. A tuple used with array methods or `for…of` is copied into an array. Each use of an enum object as a value makes a new hash-map object, so `E === E` is false. A property tsc narrowed to a primitive that a call has changed since throws `TypeError` where it is read as that type, where JS reads the new value; printed or compared, it is read as it is.
 - Generators (D-109): a `yield` can only come first in its statement (as the statement, the first variable's initializer, an assignment's right side or a return's value); elsewhere it is a compile error for now. A generator function's default parameter values are evaluated when its generator first runs, where JS evaluates them at the call. Destructuring more elements than an iterator yields into typed locals throws `RangeError` as reading past an array's end does (D-038).
 - Process (D-116): `process.argv` starts with the executable's path twice, where Node has its own path and the script's (`argv.slice(2)` is the arguments in both); `process.env` is a copy of the environment made at startup, so writing it doesn't change what the system sees; Node's `nextTick`, `hrtime`, `on(…)` and `stdin` are not there. `pts:path` is the POSIX path module only (no `win32`, no `matchesGlob`).
+- Files (D-117): `pts:fs` reads and writes text (UTF-8) only: reading without an encoding, which gives a Buffer in Node, is a compile error until typed arrays (M5.4); other encodings, file descriptors, streams and watchers are not there. console.log of a `Dirent` leaves out Node's `Symbol(type)` entry; `rmSync` of a directory without `recursive` throws an `Error` (Node: a `SystemError`) with Node's message and code.
 - Array methods with callbacks (D-042): a callback that shortens the array makes `map`, `flatMap` and `filter` skip the indices it no longer has, so `map`'s result is shorter where JS's would have holes; `find(…)!` and `findLast(…)!` throw `RangeError` when no element matches, where JS gives `undefined`. `sort` with a comparator is a stable merge sort: the order is V8's for any consistent comparator, but the comparator may be called on other pairs, in another order.
 
 ---
@@ -955,3 +956,10 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering** (`pts/lower/library.go`): `intrinsicCall`/`declareIntrinsic` (bodiless declarations in `pts:` modules are extern functions), `globalModuleBindings` (used by `followAliases`); positions name modules by specifier.
 - **Runtime** (`process.c`): `pts_process_argv`, `_environ`, `_exec_path`, `_pid`, `_cwd`, `_exit`, `_set_exit_code`, `_write`; `pts_runtime_exit` returns `process.exitCode`'s code; frames show `pts:` module names (`add_source_frame`).
 - **Tests:** `pts/tests/run/path_posix`, `path_module`, `process_basics`, `process_exit`, `process_exit_code` (also run under Node with `node:` modules); `pts/tests/errors/pts_module_unknown.pts`; front-end tests of resolution and order.
+
+### 9.75 pts:fs, synchronous (M4.5b)
+
+- **Library** (`pts/lib/fs.pts`): the functions, `Stats`, `Dirent`, `constants`, the `FileSystem` default export; ports of Node's `stringToFlags`, MKDirpSync (`makeDirectories`), `readdirSyncRecursive` (`readTree`), `getDirent` (`direntOf`) and `realpathSync`; `NodeJS.ErrnoException` (prelude) is `pts:process`'s `ErrnoException` (D-117).
+- **Lowering:** `overloadResult`/`isOverloadSignature`/`implementationOf` (`lower.go`): calls of overloaded functions and methods; `isBuiltinFieldOfObjectType`: Error's fields on object types extending it; `unsupportedOverloadCall`/`notSupportedYetTag` (`library.go`): the `@notSupportedYet` tag.
+- **Runtime:** `fs.c` (`pts_fs_*` over `uv_fs_*` synchronous calls); `pts_system_error`, `pts_type_builtin_SystemError`, `pts_uv_error_new`, `pts_throw_uv_error` (`error.c`); `pts_string_from_utf8_lossy`, `pts_string_to_utf8` (`string.c`), also for argv and the environment.
+- **Tests:** `pts/tests/run/fs_sync`, `fs_errors`, `fs_uncaught`, `overloads` (also run under Node); `pts/tests/errors/fs_buffers_not_yet.pts`; `string_test.c` (lossy decoding).

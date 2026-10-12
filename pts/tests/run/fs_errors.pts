@@ -1,0 +1,41 @@
+// pts:fs's errors are read the ways Node programs read them (D-117): through any, cast to
+// NodeJS.ErrnoException or an object type, as an Error, and as JSON.
+import { readFileSync, statSync } from "pts:fs";
+
+function readOr(path: string, fallback: string): string {
+    try {
+        return readFileSync(path, "utf8");
+    } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+            return fallback;
+        }
+        throw e;
+    }
+}
+
+console.log(readOr("/nonexistent/pts-test", "fallback"));
+try {
+    readOr("/", "unused");
+} catch (e) {
+    console.log("rethrown:", (e as NodeJS.ErrnoException).code);
+}
+try {
+    statSync("/nonexistent/pts-test");
+} catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    console.log(e.code, e.syscall, e.errno, e.path, e.name, e.message);
+}
+try {
+    readFileSync("/nonexistent/pts-test", "utf8");
+} catch (e: any) {
+    console.log(e.code, e.errno, e.syscall, e.path, e.dest, e instanceof Error, e.name);
+}
+try {
+    readFileSync("/nonexistent/pts-test", "utf8");
+} catch (e) {
+    const error = e as { code?: string; message: string };
+    console.log(error.code, error.message);
+    if (e instanceof Error) {
+        console.log(e.message, JSON.stringify(e), String(e));
+    }
+}

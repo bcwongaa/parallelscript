@@ -5,6 +5,7 @@
 #include "pts.h"
 
 #include <backtrace.h>
+#include <uv.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -116,9 +117,40 @@ const pts_type pts_type_builtin_AggregateError = {
     .methods = error_methods,
 };
 
+/*
+ * Node's errors of system calls (D-117): Errors (the class is named "Error", as their
+ * constructor is in Node) with the call's errno, code, syscall, path and dest, which
+ * console.log shows after the stack; path and dest are absent if the call had none.
+ */
+static const pts_field system_error_fields[] = {
+    {"name", offsetof(pts_error, name), PTS_FIELD_STRING},
+    {"message", offsetof(pts_error, message), PTS_FIELD_STRING},
+    {"cause", offsetof(pts_error, cause), PTS_FIELD_VALUE},
+    {"errno", offsetof(pts_system_error, errno_value), PTS_FIELD_VALUE},
+    {"code", offsetof(pts_system_error, code), PTS_FIELD_VALUE},
+    {"syscall", offsetof(pts_system_error, syscall), PTS_FIELD_VALUE},
+    {"path", offsetof(pts_system_error, path), PTS_FIELD_VALUE},
+    {"dest", offsetof(pts_system_error, dest), PTS_FIELD_VALUE},
+};
+
+const pts_type pts_type_builtin_SystemError = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = ERROR_LAYOUT | PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_system_error, errno_value) | PTS_GC_WORD(pts_system_error, code) |
+                                                    PTS_GC_WORD(pts_system_error, syscall) | PTS_GC_WORD(pts_system_error, path) |
+                                                    PTS_GC_WORD(pts_system_error, dest)),
+    .name = "Error",
+    .parent = &pts_type_builtin_Error,
+    .size = sizeof(pts_system_error),
+    .field_count = sizeof system_error_fields / sizeof system_error_fields[0],
+    .fields = system_error_fields,
+    .method_count = sizeof error_methods / sizeof error_methods[0],
+    .methods = error_methods,
+};
+
 static const pts_type *const native_errors[] = {
-    &pts_type_builtin_Error,       &pts_type_builtin_TypeError, &pts_type_builtin_RangeError, &pts_type_builtin_ReferenceError,
-    &pts_type_builtin_SyntaxError, &pts_type_builtin_EvalError, &pts_type_builtin_URIError, &pts_type_builtin_AggregateError,
+    &pts_type_builtin_Error,       &pts_type_builtin_TypeError, &pts_type_builtin_RangeError,     &pts_type_builtin_ReferenceError,
+    &pts_type_builtin_SyntaxError, &pts_type_builtin_EvalError, &pts_type_builtin_URIError,       &pts_type_builtin_AggregateError,
+    &pts_type_builtin_SystemError,
 };
 enum { NATIVE_ERROR_COUNT = sizeof native_errors / sizeof native_errors[0] };
 
@@ -300,6 +332,43 @@ pts_value pts_aggregate_error_new(pts_value errors, pts_string *message) {
   pts_aggregate_error *error = pts_object_new(&pts_type_builtin_AggregateError);
   pts_aggregate_error_init(error, errors, message, true, NULL, false);
   return pts_value_from_object(error);
+}
+
+pts_value pts_system_error_new(int error, pts_string *message, const char *syscall, pts_string *path, pts_string *dest) {
+  pts_system_error *system_error = pts_object_new(&pts_type_builtin_SystemError);
+  pts_error_init((pts_error *)system_error, message, true, NULL, false);
+  system_error->errno_value = pts_value_from_number(error);
+  system_error->code = pts_value_from_string(pts_string_from_cstr(uv_err_name(error)));
+  system_error->syscall = pts_value_from_string(pts_string_from_cstr(syscall));
+  system_error->path = path != NULL && path->byte_len > 0 ? pts_value_from_string(path) : PTS_VALUE_ABSENT;
+  system_error->dest = dest != NULL && dest->byte_len > 0 ? pts_value_from_string(dest) : PTS_VALUE_ABSENT;
+  return pts_value_from_object(system_error);
+}
+
+/* Node's uvException: "CODE: description, syscall 'path' -> 'dest'", without the parts the call hasn't. */
+pts_value pts_uv_error_new(int error, const char *syscall, pts_string *path, pts_string *dest) {
+  trace message = {0};
+  const char *parts[] = {uv_err_name(error), ": ", uv_strerror(error), ", ", syscall};
+  for (size_t i = 0; i < sizeof parts / sizeof parts[0]; i++) {
+    trace_add(&message, parts[i], strlen(parts[i]));
+  }
+  if (path != NULL && path->byte_len > 0) {
+    trace_add(&message, " '", 2);
+    trace_add(&message, path->bytes, path->byte_len);
+    trace_add(&message, "'", 1);
+  }
+  if (dest != NULL && dest->byte_len > 0) {
+    trace_add(&message, " -> '", 5);
+    trace_add(&message, dest->bytes, dest->byte_len);
+    trace_add(&message, "'", 1);
+  }
+  pts_string *text = pts_string_from_utf8(message.bytes, message.len);
+  free(message.bytes);
+  return pts_system_error_new(error, text, syscall, path, dest);
+}
+
+_Noreturn void pts_throw_uv_error(int error, const char *syscall, pts_string *path, pts_string *dest) {
+  pts_throw(pts_uv_error_new(error, syscall, path, dest));
 }
 
 pts_error *pts_error_new(const pts_type *type, pts_string *message) {

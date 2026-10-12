@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strings"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
@@ -25,6 +27,44 @@ func (l *lowerer) globalModuleBindings(modules []*ast.SourceFile) map[*ast.Symbo
 		}
 	}
 	return bindings
+}
+
+// unsupportedOverloadCall reports a call that tsc resolved to an overload a pts: module
+// marks with `@notSupportedYet <what>` (`readFileSync(path)`, which would give a Buffer);
+// handled is false for other calls.
+func (l *lowerer) unsupportedOverloadCall(call *ast.CallExpression) (handled bool) {
+	signature := l.checker.GetResolvedSignature(call.AsNode())
+	if signature == nil || signature.Declaration() == nil {
+		return false
+	}
+	what := notSupportedYetTag(signature.Declaration())
+	if what == "" {
+		return false
+	}
+	l.notSupportedYet(call.AsNode(), what)
+	return true
+}
+
+// notSupportedYetTag is the text of the `@notSupportedYet` JSDoc tag of a declaration in
+// a pts: module, or "".
+func notSupportedYetTag(declaration *ast.Node) string {
+	if !lib.IsModulePath(ast.GetSourceFileOfNode(declaration).FileName()) {
+		return ""
+	}
+	for _, doc := range declaration.JSDoc(nil) {
+		if tags := doc.AsJSDoc().Tags; tags != nil {
+			for _, tag := range tags.Nodes {
+				if tag.TagName().Text() == "notSupportedYet" {
+					var text strings.Builder
+					for _, comment := range tag.Comments() {
+						text.WriteString(comment.Text())
+					}
+					return strings.TrimSpace(text.String())
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // intrinsicCall lowers a call of an intrinsic; handled is false for other calls.

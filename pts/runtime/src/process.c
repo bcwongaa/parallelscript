@@ -36,7 +36,7 @@ static pts_string *exec_path(void) {
     }
     ssize_t length = readlink("/proc/self/exe", buffer, size);
     if (length >= 0 && (size_t)length < size) {
-      pts_string *path = pts_string_from_utf8(buffer, (size_t)length);
+      pts_string *path = pts_string_from_utf8_lossy(buffer, (size_t)length);
       free(buffer);
       return path;
     }
@@ -56,7 +56,7 @@ pts_array *pts_process_argv(void) {
   pts_array_push(argv, &path, 1);
   pts_array_push(argv, &path, 1);
   for (int i = 1; i < program_argc; i++) {
-    pts_string *argument = pts_string_from_cstr(program_argv[i]);
+    pts_string *argument = pts_string_from_utf8_lossy(program_argv[i], strlen(program_argv[i]));
     pts_array_push(argv, &argument, 1);
   }
   return argv;
@@ -65,7 +65,7 @@ pts_array *pts_process_argv(void) {
 pts_array *pts_process_environ(void) {
   pts_array *entries = pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0);
   for (char **entry = environ; entry != NULL && *entry != NULL; entry++) {
-    pts_string *string = pts_string_from_cstr(*entry);
+    pts_string *string = pts_string_from_utf8_lossy(*entry, strlen(*entry));
     pts_array_push(entries, &string, 1);
   }
   return entries;
@@ -80,7 +80,7 @@ pts_string *pts_process_cwd(void) {
       pts_panic("Error", "out of memory");
     }
     if (getcwd(buffer, size) != NULL) {
-      pts_string *cwd = pts_string_from_cstr(buffer);
+      pts_string *cwd = pts_string_from_utf8_lossy(buffer, strlen(buffer));
       free(buffer);
       return cwd;
     }

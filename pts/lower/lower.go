@@ -834,9 +834,23 @@ func (l *lowerer) memberDeclaration(node *ast.Node) *ast.Node {
 		return nil
 	}
 	if symbol := l.memberSymbol(node); symbol != nil {
-		return symbol.ValueDeclaration
+		return implementationOf(symbol.ValueDeclaration)
 	}
 	return nil
+}
+
+// implementationOf is the implementation of a method declared with overloads, the
+// declaration with a body, for declaration, one of its overloads; otherwise declaration.
+func implementationOf(declaration *ast.Node) *ast.Node {
+	if declaration == nil || !isOverloadSignature(declaration) {
+		return declaration
+	}
+	for _, d := range declaration.Symbol().Declarations {
+		if d.Kind == declaration.Kind && d.Body() != nil {
+			return d
+		}
+	}
+	return declaration
 }
 
 // memberSymbol is the symbol of the member a property access names. In an instance of a
@@ -1483,6 +1497,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if x, handled := l.intrinsicCall(call); handled {
 		return x
 	}
+	if l.unsupportedOverloadCall(call) {
+		return nil
+	}
 	if x, handled := l.dateCall(call); handled {
 		return x
 	}
@@ -1526,7 +1543,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		return l.genericMethodCall(call, generic)
 	}
 	if fn, ok := l.staticMethods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
-		return l.staticCall(call, fn)
+		return l.overloadResult(node, l.staticCall(call, fn))
 	}
 	if method, ok := l.membersAt(ast.SkipParentheses(call.Expression)).methods[l.memberDeclaration(ast.SkipParentheses(call.Expression))]; ok {
 		switch {
@@ -1535,7 +1552,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 		case method.Kind != ir.Plain:
 			return l.valueCall(call) // `o.p()` calls the function a getter returns
 		}
-		return l.instanceMethodCall(call, method)
+		return l.overloadResult(node, l.instanceMethodCall(call, method))
 	}
 	if l.isObjectTypeMethod(l.memberDeclaration(ast.SkipParentheses(call.Expression))) {
 		return l.interfaceMethodCall(call)
@@ -1613,7 +1630,7 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	}
 	switch {
 	case isUserFunction:
-		return l.userCall(call, fn)
+		return l.overloadResult(node, l.userCall(call, fn))
 	case l.hasSpreadArgument(call):
 		return nil
 	}
@@ -1645,6 +1662,42 @@ func (l *lowerer) userCall(call *ast.CallExpression, fn *ir.Func) ir.Expr {
 		return nil
 	}
 	return &ir.Call{Func: fn, Closure: closure, Args: args}
+}
+
+// overloadResult converts x, the result of a call (node) of a function or method declared
+// with overloads, from its implementation's result type to the result type of the
+// overload tsc chose, checked as a cast is (D-117): `pick("x")` is a string where the
+// implementation returns `string | number`.
+func (l *lowerer) overloadResult(node *ast.Node, x ir.Expr) ir.Expr {
+	if x == nil || x.Type() == ir.Void {
+		return x
+	}
+	signature := l.checker.GetResolvedSignature(node)
+	if signature == nil || signature.Declaration() == nil || !isOverloadSignature(signature.Declaration()) {
+		return x
+	}
+	target := l.irType(l.typeAt(node), node)
+	if target == nil || target == x.Type() || target == ir.Void {
+		return x
+	}
+	if isUnion(x.Type()) && !isUnion(target) && !isUpcastOfMembers(x.Type().(*ir.Union), target) {
+		return l.checkedConversion(x, target, node)
+	}
+	return l.convert(x, target, node)
+}
+
+// isOverloadSignature reports whether declaration is an overload of a function or method
+// that has an implementation: a declaration of it without a body.
+func isOverloadSignature(declaration *ast.Node) bool {
+	switch declaration.Kind {
+	case ast.KindFunctionDeclaration, ast.KindMethodDeclaration:
+	default:
+		return false
+	}
+	if declaration.Body() != nil || declaration.Symbol() == nil {
+		return false
+	}
+	return slices.ContainsFunc(declaration.Symbol().Declarations, func(d *ast.Node) bool { return d.Kind == declaration.Kind && d.Body() != nil })
 }
 
 // arguments lowers the arguments of a call of a function of the program, each converted
@@ -2290,7 +2343,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return l.recordElement(node, ir.MapGetChecked)
 	}
 	member := l.memberDeclaration(node)
-	if field := l.membersAt(node).fields[member]; field != nil {
+	if field := l.membersAt(node).fields[member]; field != nil && !l.isBuiltinFieldOfObjectType(node, field) {
 		return l.fieldAccess(node, field)
 	}
 	if static, ok := l.statics[member]; ok {
@@ -2305,7 +2358,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return &ir.Call{Func: accessors.getter}
 	}
-	if l.isShapeProperty(member) || l.isMappedProperty(node) {
+	if l.isShapeProperty(member) || l.isMappedProperty(node) || l.membersAt(node).fields[member] != nil {
 		object, field := l.shapeProperty(node)
 		switch {
 		case field != nil:
@@ -2355,6 +2408,22 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return nil
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{receiver}}
+}
+
+// isBuiltinFieldOfObjectType reports whether `o.p` (node) reads a field of a builtin class
+// (Error's message) on an object of an object type that extends it (`interface
+// ErrnoException extends Error`), whose fields are the object type's: found by name.
+func (l *lowerer) isBuiltinFieldOfObjectType(node *ast.Node, field *ir.Field) bool {
+	if !field.Class.Builtin {
+		return false
+	}
+	switch t := l.irType(l.typeAt(node.Expression()), node.Expression()).(type) {
+	case *ir.Interface:
+		return true
+	case *ir.Class:
+		return t.Shape
+	}
+	return false
 }
 
 // constructorName lowers `o.constructor.name`, and `new.target.name` in a constructor

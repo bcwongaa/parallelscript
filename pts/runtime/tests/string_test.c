@@ -175,8 +175,39 @@ static void racing_appends_never_mix_bytes(void) {
   }
 }
 
+/* Decodes len bytes leniently and checks the result's UTF-8. */
+static void check_lossy(const char *bytes, size_t len, const char *expected) {
+  pts_string *s = pts_string_from_utf8_lossy(bytes, len);
+  CHECK(s->byte_len == strlen(expected));
+  CHECK_STR(s->bytes, expected);
+}
+
+static void lossy_decoding_replaces_each_invalid_sequence(void) {
+  check_lossy("plain é😀", 12, "plain é😀");
+  check_lossy("\xFF", 1, "\xEF\xBF\xBD");
+  check_lossy("a\x80\x80" "b", 4, "a\xEF\xBF\xBD\xEF\xBF\xBD" "b");                         /* lone continuation bytes, one each */
+  check_lossy("\xE2\x82" "A", 3, "\xEF\xBF\xBD" "A");                                        /* a truncated sequence is one */
+  check_lossy("x\xE2\x82", 3, "x\xEF\xBF\xBD");                                        /* also at the end */
+  check_lossy("\xED\xA0\x80", 3, "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD");             /* a surrogate's encoding is invalid */
+  check_lossy("\xC0\xAF", 2, "\xEF\xBF\xBD\xEF\xBF\xBD");                               /* an overlong form */
+  check_lossy("\xF4\x90\x80\x80", 4, "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"); /* above U+10FFFF */
+  check_lossy("\xF0\x9F\x98", 3, "\xEF\xBF\xBD");
+}
+
+static void encoding_replaces_lone_surrogates(void) {
+  pts_string *pair = pts_string_concat(pts_string_from_cstr(HIGH), pts_string_from_cstr(LOW));
+  size_t len;
+  const char *bytes = pts_string_to_utf8(pair, &len);
+  CHECK(bytes == pair->bytes && len == 4); /* a pair is already UTF-8 */
+  pts_string *lone = pts_string_concat(pts_string_from_cstr("a"), pts_string_from_cstr(LOW));
+  bytes = pts_string_to_utf8(lone, &len);
+  CHECK(len == 4 && memcmp(bytes, "a\xEF\xBF\xBD", 4) == 0);
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
+  lossy_decoding_replaces_each_invalid_sequence();
+  encoding_replaces_lone_surrogates();
   ascii_string_is_flagged_and_measured();
   utf16_length_counts_code_units();
   concat_joins_bytes_lengths_and_flags();

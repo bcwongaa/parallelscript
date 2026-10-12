@@ -15,6 +15,14 @@ export interface ProcessEnv {
     [key: string]: string | undefined;
 }
 
+// What Node's errors of system calls hold besides an Error's members (NodeJS.ErrnoException).
+export interface ErrnoException extends Error {
+    errno?: number | undefined;
+    code?: string | undefined;
+    path?: string | undefined;
+    syscall?: string | undefined;
+}
+
 // A stream the program writes text to: process.stdout or process.stderr. Writes go out
 // in order with console.log's and console.error's.
 export class WriteStream {
@@ -42,10 +50,15 @@ function environment(): ProcessEnv {
     return env;
 }
 
+// Node's ERR_OUT_OF_RANGE: a RangeError with that code.
+class OutOfRangeError extends RangeError {
+    readonly code: string = "ERR_OUT_OF_RANGE";
+}
+
 // Node's check of an exit code: undefined or an integer.
 function checkExitCode(code: number | undefined): void {
     if (code !== undefined && !Number.isInteger(code)) {
-        throw new RangeError(`The value of "code" is out of range. It must be an integer. Received ${code}`);
+        throw new OutOfRangeError(`The value of "code" is out of range. It must be an integer. Received ${code}`);
     }
 }
 

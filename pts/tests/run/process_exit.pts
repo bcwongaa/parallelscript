@@ -11,7 +11,7 @@ function stop(code: number): never {
 try {
     process.exit(1.5);
 } catch (e) {
-    console.log((e as Error).name, (e as Error).message);
+    console.log((e as Error).name, (e as Error).message, (e as { code: string }).code);
 }
 setTimeout(() => console.log("timer never runs"), 0);
 setImmediate(() => console.log("immediate never runs"));
@@ -23,7 +23,7 @@ Promise.resolve().then(() => {
 });
 console.log("end of the module");
 // expect:
-// RangeError The value of "code" is out of range. It must be an integer. Received 1.5
+// RangeError The value of "code" is out of range. It must be an integer. Received 1.5 ERR_OUT_OF_RANGE
 // end of the module
 // in a microtask
 // stopping with 5

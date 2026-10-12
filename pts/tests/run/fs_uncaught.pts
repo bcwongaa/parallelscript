@@ -1,0 +1,10 @@
+// An fs error nobody catches ends the program as any uncaught error does (D-117).
+import { readFileSync } from "pts:fs";
+
+console.log("before");
+console.log(readFileSync("/nonexistent/pts-uncaught.txt", "utf8"));
+console.log("not reached");
+// expect:
+// before
+// exit: 1
+// stderr: Error: ENOENT: no such file or directory, open '/nonexistent/pts-uncaught.txt'

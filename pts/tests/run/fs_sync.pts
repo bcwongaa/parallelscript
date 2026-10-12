@@ -1,0 +1,104 @@
+// pts:fs's synchronous functions do what Node's do, with Node's errors (D-117): every
+// function, its options and its failures, in a fresh directory under /tmp. Node runs it
+// with node:fs. Paths in the output show that directory as <tmp>.
+import fs, { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, constants, accessSync, chmodSync } from "pts:fs";
+import * as fsNamespace from "pts:fs";
+import { join } from "pts:path";
+
+const tmp = mkdtempSync("/tmp/pts-fs-sync-");
+const at = (name: string): string => join(tmp, name);
+const show = (text: string | undefined): string | undefined => text === undefined ? undefined : text.split(tmp).join("<tmp>");
+
+function attempt(label: string, f: () => unknown): void {
+    try {
+        const result = f();
+        console.log(label, "->", typeof result === "string" ? show(result) : result);
+    } catch (e) {
+        const error = e as { message: string; code?: string; syscall?: string; errno?: number; path?: string; dest?: string };
+        console.log(label, "!!", show(error.message), error.code, error.syscall, error.errno, show(error.path), show(error.dest));
+    }
+}
+
+// Reading and writing text.
+writeFileSync(at("a.txt"), "first line\n");
+appendFileSync(at("a.txt"), "second line: ünïcödé 🎉\n");
+fs.appendFileSync(at("a.txt"), "third\n", "utf8");
+console.log(JSON.stringify(readFileSync(at("a.txt"), "utf8")));
+console.log(readFileSync(at("a.txt"), { encoding: "utf-8" }).split("\n").length);
+writeFileSync(at("b.txt"), "replaced?", { flag: "w" });
+writeFileSync(at("b.txt"), "!", { flag: "a" });
+console.log(readFileSync(at("b.txt"), "utf8"));
+attempt("exclusive write", () => writeFileSync(at("b.txt"), "x", { flag: "wx" }));
+attempt("bad flag", () => readFileSync(at("b.txt"), { encoding: "utf8", flag: "q" }));
+writeFileSync(at("lone.txt"), "a\uD800b");
+console.log(JSON.stringify(readFileSync(at("lone.txt"), "utf8")), statSync(at("lone.txt")).size);
+writeFileSync(at("empty.txt"), "");
+console.log(JSON.stringify(readFileSync(at("empty.txt"), "utf8")));
+
+// Existence, access, stat.
+console.log(existsSync(at("a.txt")), existsSync(at("nope")), existsSync(""), existsSync(tmp));
+attempt("access", () => accessSync(at("a.txt"), constants.R_OK | constants.W_OK));
+attempt("access missing", () => accessSync(at("nope")));
+const stats = statSync(at("a.txt"));
+console.log(stats.size, stats.isFile(), stats.isDirectory(), stats.isSymbolicLink(), stats.mode & constants.S_IFMT, stats.nlink);
+console.log(stats.mtime.getTime() === Math.round(stats.mtimeMs), stats.mtimeMs > 1.6e12, typeof stats.ino, stats.blocks >= 0);
+console.log(statSync(tmp).isDirectory(), statSync(at("nope"), { throwIfNoEntry: false }), lstatSync(at("nope"), { throwIfNoEntry: false }));
+attempt("stat missing", () => statSync(at("nope")));
+chmodSync(at("b.txt"), 0o600);
+console.log((statSync(at("b.txt")).mode & 0o777).toString(8));
+
+// Directories.
+console.log(show(mkdirSync(at("d1/d2/d3"), { recursive: true })), mkdirSync(at("d1/d2"), { recursive: true }));
+console.log(mkdirSync(at("plain")), mkdirSync(at("moded"), 0o755));
+attempt("mkdir exists", () => mkdirSync(at("plain")));
+attempt("mkdir missing parent", () => mkdirSync(at("q/r")));
+attempt("mkdir under a file", () => mkdirSync(at("a.txt/x"), { recursive: true }));
+attempt("mkdir over a file", () => mkdirSync(at("a.txt"), { recursive: true }));
+writeFileSync(at("d1/one.txt"), "1");
+writeFileSync(at("d1/d2/two.txt"), "22");
+console.log(readdirSync(tmp));
+console.log(readdirSync(at("d1"), { recursive: true }), readdirSync(at("d1"), "utf8"));
+for (const entry of readdirSync(at("d1"), { withFileTypes: true })) {
+    console.log(entry.name, show(entry.parentPath), entry.isFile(), entry.isDirectory(), entry.isSymbolicLink());
+}
+console.log(readdirSync(at("d1"), { withFileTypes: true, recursive: true }).map((e) => `${show(e.parentPath)}|${e.name}|${e.isDirectory()}`));
+attempt("readdir of a file", () => readdirSync(at("a.txt")));
+attempt("readdir missing", () => readdirSync(at("nope")));
+attempt("read a directory", () => readFileSync(at("d1"), "utf8"));
+
+// Links.
+symlinkSync("a.txt", at("link"));
+symlinkSync("missing", at("broken"));
+console.log(readlinkSync(at("link")), lstatSync(at("link")).isSymbolicLink(), statSync(at("link")).isFile());
+console.log(show(realpathSync(at("link"))), show(realpathSync(at("d1/d2/../d2/./two.txt"))), show(realpathSync(tmp)));
+attempt("realpath broken", () => realpathSync(at("broken")));
+attempt("realpath missing", () => realpathSync(at("d1/zz/y")));
+attempt("readlink of a file", () => readlinkSync(at("a.txt")));
+attempt("symlink exists", () => symlinkSync("x", at("link")));
+
+// Moving, copying, removing.
+renameSync(at("b.txt"), at("c.txt"));
+copyFileSync(at("c.txt"), at("copy.txt"));
+console.log(existsSync(at("b.txt")), readFileSync(at("copy.txt"), "utf8"));
+attempt("rename missing", () => renameSync(at("b.txt"), at("x.txt")));
+attempt("copy missing", () => copyFileSync(at("nope"), at("y.txt")));
+attempt("copy exclusive", () => copyFileSync(at("c.txt"), at("copy.txt"), constants.COPYFILE_EXCL));
+unlinkSync(at("copy.txt"));
+attempt("unlink missing", () => unlinkSync(at("copy.txt")));
+attempt("unlink a directory", () => unlinkSync(at("plain")));
+rmdirSync(at("plain"));
+attempt("rmdir not empty", () => rmdirSync(at("d1")));
+attempt("rmdir a file", () => rmdirSync(at("c.txt")));
+attempt("rm missing", () => rmSync(at("nope")));
+attempt("rm missing forced", () => rmSync(at("nope"), { force: true }));
+attempt("rm a directory", () => rmSync(at("d1")));
+rmSync(at("c.txt"));
+rmSync(at("d1"), { recursive: true });
+console.log(readdirSync(tmp));
+
+// The module object and namespace.
+console.log(fs.existsSync(tmp), fsNamespace.existsSync(tmp), fs.constants.O_CREAT, fsNamespace.constants.S_IFDIR, fs.F_OK, fs.W_OK);
+console.log(fs.statSync(tmp).isDirectory(), fs.readdirSync(tmp).length, fs.readdirSync(tmp, { withFileTypes: true }).length);
+
+rmSync(tmp, { recursive: true, force: true });
+console.log(existsSync(tmp));

@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 const pts_type pts_string_type = {.kind = PTS_KIND_STRING, .gc_descr = PTS_GC_NO_POINTERS, .name = "string"};
 
@@ -105,6 +106,110 @@ pts_string *pts_string_from_utf8(const char *bytes, size_t len) {
 }
 
 pts_string *pts_string_from_cstr(const char *cstr) { return pts_string_from_utf8(cstr, strlen(cstr)); }
+
+/*
+ * The length of the valid UTF-8 sequence at bytes[0..len) (1 to 4), or 0 if the bytes
+ * there don't start one: the WHATWG decoder's byte ranges, which leave out overlong
+ * forms, surrogates and code points above U+10FFFF. *valid_prefix is how many of its
+ * bytes were valid before it failed (so the decoder can replace just those).
+ */
+static size_t utf8_sequence_length(const unsigned char *bytes, size_t len, size_t *valid_prefix) {
+  unsigned char lead = bytes[0];
+  size_t needed;
+  unsigned char lower = 0x80, upper = 0xBF;
+  if (lead < 0x80) {
+    return 1;
+  } else if (lead >= 0xC2 && lead <= 0xDF) {
+    needed = 1;
+  } else if (lead >= 0xE0 && lead <= 0xEF) {
+    needed = 2;
+    lower = lead == 0xE0 ? 0xA0 : 0x80;
+    upper = lead == 0xED ? 0x9F : 0xBF;
+  } else if (lead >= 0xF0 && lead <= 0xF4) {
+    needed = 3;
+    lower = lead == 0xF0 ? 0x90 : 0x80;
+    upper = lead == 0xF4 ? 0x8F : 0xBF;
+  } else {
+    *valid_prefix = 0;
+    return 0;
+  }
+  for (size_t i = 1; i <= needed; i++) {
+    if (i >= len || bytes[i] < lower || bytes[i] > upper) {
+      *valid_prefix = i;
+      return 0;
+    }
+    lower = 0x80, upper = 0xBF;
+  }
+  return needed + 1;
+}
+
+pts_string *pts_string_from_utf8_lossy(const char *bytes, size_t len) {
+  const unsigned char *in = (const unsigned char *)bytes;
+  size_t i = 0, prefix;
+  while (i < len) {
+    size_t n = utf8_sequence_length(in + i, len - i, &prefix);
+    if (n == 0) {
+      break;
+    }
+    i += n;
+  }
+  if (i == len) {
+    return pts_string_from_utf8(bytes, len);
+  }
+  /* Each maximal invalid subpart (at least one byte) becomes the 3 bytes of U+FFFD. */
+  size_t capacity = i + (len - i) * 3;
+  char *out = malloc(capacity);
+  if (out == NULL) {
+    pts_panic("RangeError", "Out of memory decoding %zu bytes of UTF-8", len);
+  }
+  memcpy(out, bytes, i);
+  size_t written = i;
+  while (i < len) {
+    size_t n = utf8_sequence_length(in + i, len - i, &prefix);
+    if (n > 0) {
+      memcpy(out + written, bytes + i, n);
+      written += n;
+      i += n;
+    } else {
+      memcpy(out + written, "\xEF\xBF\xBD", 3);
+      written += 3;
+      i += prefix > 0 ? prefix : 1;
+    }
+  }
+  pts_string *string = pts_string_from_utf8(out, written);
+  free(out);
+  return string;
+}
+
+const char *pts_string_to_utf8(const pts_string *string, size_t *len) {
+  size_t surrogates = 0;
+  if (!(string->flags & PTS_STRING_ASCII)) {
+    for (size_t i = 0; i < string->byte_len; i++) {
+      surrogates += pts_wtf8_surrogate_at(string->bytes, string->byte_len, i, 0xA0, 0xBF);
+    }
+  }
+  if (surrogates == 0) {
+    *len = string->byte_len;
+    return string->bytes;
+  }
+  /* A lone surrogate's 3 bytes become U+FFFD's 3 (a pair is already a 4-byte sequence in WTF-8). */
+  char *out = GC_MALLOC_ATOMIC(string->byte_len + 1);
+  if (out == NULL) {
+    pts_panic("RangeError", "Out of memory encoding a string of %u bytes", string->byte_len);
+  }
+  for (size_t i = 0; i < string->byte_len;) {
+    if (pts_wtf8_surrogate_at(string->bytes, string->byte_len, i, 0xA0, 0xBF)) {
+      memcpy(out + i, "\xEF\xBF\xBD", 3);
+      i += PTS_SURROGATE_BYTES;
+    } else {
+      out[i] = string->bytes[i];
+      i++;
+    }
+  }
+  out[string->byte_len] = '\0';
+  *len = string->byte_len;
+  return out;
+}
 
 pts_string *pts_string_concat(pts_string *left, pts_string *right) {
   if (left->byte_len == 0) {

@@ -389,6 +389,10 @@ extern const pts_type pts_string_type;
 /* Copies `len` bytes of valid UTF-8 into a new GC string. */
 pts_string *pts_string_from_utf8(const char *bytes, size_t len);
 pts_string *pts_string_from_cstr(const char *cstr);
+/* Decodes UTF-8 as the WHATWG decoder (and Node) does: each invalid sequence becomes U+FFFD. */
+pts_string *pts_string_from_utf8_lossy(const char *bytes, size_t len);
+/* The string as UTF-8, lone surrogates as U+FFFD: its own bytes if it has none, else a new buffer (collected); stores the length. */
+const char *pts_string_to_utf8(const pts_string *string, size_t *len);
 /* encodeURI (component false) and encodeURIComponent of string; URIError for a lone surrogate. */
 pts_string *pts_uri_encode(pts_string *string, bool component);
 /* decodeURI (component false) and decodeURIComponent of string; URIError for a malformed escape. */
@@ -1548,6 +1552,32 @@ extern const pts_type pts_type_builtin_AggregateError;
 void pts_aggregate_error_init(pts_aggregate_error *error, pts_value errors, pts_string *message, bool message_given, pts_object *options,
                               bool options_given);
 
+/*
+ * Node's errors of system calls (D-117): an Error's members, then the call's errno (a
+ * negative number), code ("ENOENT"), syscall, and path and dest (PTS_VALUE_ABSENT if the
+ * call had none). Their class is named "Error", as in Node.
+ */
+typedef struct pts_system_error {
+  const pts_type *pts_header;
+  pts_string *name;
+  pts_string *message;
+  pts_value cause;
+  pts_value pts_private_stack;
+  void *pts_private_frames;
+  pts_value errno_value;
+  pts_value code;
+  pts_value syscall;
+  pts_value path;
+  pts_value dest;
+} pts_system_error;
+
+extern const pts_type pts_type_builtin_SystemError;
+/* A system error with message and the call's details; error is libuv's (a negative errno). path and dest may be NULL. */
+pts_value pts_system_error_new(int error, pts_string *message, const char *syscall, pts_string *path, pts_string *dest);
+/* Node's uvException: the system error "CODE: description, syscall 'path' -> 'dest'". */
+pts_value pts_uv_error_new(int error, const char *syscall, pts_string *path, pts_string *dest);
+_Noreturn void pts_throw_uv_error(int error, const char *syscall, pts_string *path, pts_string *dest);
+
 extern const pts_type pts_type_builtin_Error;
 extern const pts_type pts_type_builtin_TypeError;
 extern const pts_type pts_type_builtin_RangeError;
@@ -1846,5 +1876,31 @@ _Noreturn void pts_process_exit(double code);
 void pts_process_set_exit_code(double code);
 /* process.stdout.write (fd 1) and process.stderr.write (fd 2), in order with console's output. */
 void pts_process_write(double fd, pts_string *chunk);
+
+/* ---------------------------------------------------------------- pts:fs */
+
+/*
+ * The intrinsics of pts:fs (D-117), over libuv's synchronous calls. Those that return
+ * data throw Node's error; those that return a number return 0 or libuv's negative errno.
+ */
+pts_string *pts_fs_read_file(pts_string *path, double flags);
+void pts_fs_write_file(pts_string *path, pts_string *data, double flags, double mode);
+double pts_fs_access(pts_string *path, double mode);
+/* stat or lstat (follow false) into stats: dev, mode, nlink, uid, gid, rdev, blksize, ino, size, blocks, then (seconds, nanoseconds) of atime, mtime, ctime, birthtime. */
+double pts_fs_stat(pts_string *path, bool follow, struct pts_array *stats);
+double pts_fs_mkdir(pts_string *path, double mode);
+/* The sorted names in a directory; their UV_DIRENT_* types go to types. */
+struct pts_array *pts_fs_scandir(pts_string *path, struct pts_array *types);
+double pts_fs_unlink(pts_string *path);
+double pts_fs_rmdir(pts_string *path);
+double pts_fs_rename(pts_string *from, pts_string *to);
+double pts_fs_copy_file(pts_string *source, pts_string *destination, double mode);
+double pts_fs_symlink(pts_string *target, pts_string *path, double flags);
+double pts_fs_chmod(pts_string *path, double mode);
+pts_string *pts_fs_readlink(pts_string *path);
+pts_string *pts_fs_mkdtemp(pts_string *prefix);
+/* Node's error of a call that returned the errno error; path and dest may be empty. */
+pts_error *pts_fs_error(double error, pts_string *syscall, pts_string *path, pts_string *dest);
+pts_error *pts_fs_rm_directory_error(pts_string *path);
 
 #endif /* PTS_H */

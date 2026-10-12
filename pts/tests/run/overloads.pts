@@ -1,0 +1,47 @@
+// Calls of functions and methods declared with overloads give the result type of the
+// overload tsc chose, converted from the implementation's (D-117).
+function pick(x: string): string;
+function pick(x: string, n: true): number;
+function pick(x: string, n?: boolean): string | number {
+    return n ? x.length : x.toUpperCase();
+}
+const upper: string = pick("ab");
+const length: number = pick("abc", true);
+console.log(upper, length, pick("q").length + pick("qq", true));
+
+class Entry {
+    constructor(readonly name: string, readonly size: number) {}
+}
+
+function list(dir: string): string[];
+function list(dir: string, options: { withSizes: true }): Entry[];
+function list(dir: string, options?: { withSizes: boolean }): string[] | Entry[] {
+    const names = ["a.txt", "b.md"].map((n) => `${dir}/${n}`);
+    return options?.withSizes ? names.map((n, i) => new Entry(n, i * 10)) : names;
+}
+const names = list("/d");
+names.push("/d/c");
+console.log(names, names.length);
+const entries = list("/e", { withSizes: true });
+console.log(entries.map((e) => e.size), entries[0].name);
+
+class Store {
+    private values = new Map<string, number>();
+    get(key: string): number | undefined;
+    get(key: string, fallback: number): number;
+    get(key: string, fallback?: number): number | undefined {
+        return this.values.get(key) ?? fallback;
+    }
+    static make(): Store;
+    static make(initial: [string, number][]): Store;
+    static make(initial?: [string, number][]): Store {
+        const store = new Store();
+        for (const [k, v] of initial ?? []) {
+            store.values.set(k, v);
+        }
+        return store;
+    }
+}
+const store = Store.make([["x", 1]]);
+const x: number = store.get("x", 0) + store.get("y", 41);
+console.log(x, store.get("z"), Store.make().get("x", 7));

@@ -75,3 +75,9 @@ declare const performance: Performance;
 
 // The program's process as Node's global process: pts:process's default export (D-116).
 declare var process: import("pts:process").Process;
+
+// Node's global types that programs name: NodeJS.ErrnoException, the type of the errors of
+// pts:fs and pts:process (D-117).
+declare namespace NodeJS {
+    type ErrnoException = import("pts:process").ErrnoException;
+}
