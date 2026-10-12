@@ -1,0 +1,129 @@
+// A realistic little program written without looking at the test suite:
+// parse some log lines, aggregate with classes + Map, use async, generics,
+// unions, regex, JSON, errors, and the parallel features.
+import { range } from "pts:parallel";
+import { AtomicInt } from "pts:sync";
+
+type Level = "INFO" | "WARN" | "ERROR";
+
+interface Entry {
+  ts: number;
+  level: Level;
+  service: string;
+  ms?: number;
+  msg: string;
+}
+
+class Stats<K> {
+  private counts = new Map<K, number>();
+  add(k: K, n = 1): void {
+    this.counts.set(k, (this.counts.get(k) ?? 0) + n);
+  }
+  top(n: number): [K, number][] {
+    return [...this.counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+  }
+}
+
+class ParseError extends Error {
+  constructor(public line: number, msg: string) {
+    super(`line ${line}: ${msg}`);
+    this.name = "ParseError";
+  }
+}
+
+const LINE = /^(\d+) (INFO|WARN|ERROR) \[(\w+)\] (?:(\d+)ms )?(.*)$/;
+
+function parse(text: string): Entry[] {
+  const out: Entry[] = [];
+  text.split("\n").forEach((raw, i) => {
+    if (raw.trim() === "") return;
+    const m = LINE.exec(raw);
+    if (!m) throw new ParseError(i + 1, `bad line ${JSON.stringify(raw)}`);
+    out.push({
+      ts: Number(m[1]),
+      level: m[2] as Level,
+      service: m[3],
+      ms: m[4] !== undefined ? Number(m[4]) : undefined,
+      msg: m[5],
+    });
+  });
+  return out;
+}
+
+const LOG = `
+1000 INFO [api] 12ms GET /users
+1001 WARN [db] 340ms slow query on orders
+1002 ERROR [api] 5ms upstream timeout
+1003 INFO [auth] login ok user=42
+1004 INFO [api] 8ms GET /orders
+1005 ERROR [db] 1200ms deadlock detected
+`;
+
+function describe(e: Entry): string {
+  switch (e.level) {
+    case "ERROR": return `!! ${e.service}: ${e.msg}`;
+    case "WARN": return `?  ${e.service}: ${e.msg}`;
+    default: return `   ${e.service}: ${e.msg}`;
+  }
+}
+
+async function fetchConfig(): Promise<{ slowMs: number }> {
+  await new Promise<void>((r) => setTimeout(r, 10));
+  return JSON.parse('{"slowMs": 100}');
+}
+
+function isPrime(n: int): boolean {
+  if (n < 2) return false;
+  for (let d: int = 2; d * d <= n; d++) if (n % d === 0) return false;
+  return true;
+}
+
+async function work(name: string, hits: AtomicInt): Promise<string> {
+  hits.add(1);
+  return `${name}:${name.charCodeAt(0)}`;
+}
+
+async function main() {
+  const entries = parse(LOG);
+  const cfg = await fetchConfig();
+
+  const byService = new Stats<string>();
+  for (const e of entries) byService.add(e.service);
+  console.log("top services:", byService.top(2));
+
+  const slow = entries.filter((e) => (e.ms ?? 0) > cfg.slowMs);
+  console.log("slow:", slow.map((e) => `${e.service}=${e.ms}ms`).join(", "));
+  entries.filter((e) => e.level !== "INFO").forEach((e) => console.log(describe(e)));
+
+  try {
+    parse("1006 DEBUG [x] nope");
+  } catch (err) {
+    if (err instanceof ParseError) console.log(`${err.name} at ${err.line}: ${err.message}`);
+  }
+
+  // data parallelism
+  const primes = range(0, 2_000_000).par.filter((n) => isPrime(n as int)).length;
+  const squares = [1, 2, 3, 4, 5].par.map((x) => x * x);
+  console.log("primes below 2M:", primes, "squares:", squares);
+
+  // task parallelism
+  const hits = new AtomicInt(0);
+  const results = await Promise.all(
+    ["a", "b", "c"].map((name) => parallel work(name, hits)),
+  );
+  console.log(results, "tasks:", hits.load());
+
+  // parallel for, mutating object fields is allowed
+  const boxes = [{ v: 1 }, { v: 2 }, { v: 3 }];
+  parallel for (const b of boxes) {
+    b.v *= 10;
+  }
+  console.log(boxes, { total: boxes.reduce((s, b) => s + b.v, 0) });
+
+  // integers
+  const big: u8 = 250;
+  const wrapped = (big + (10 as u8)) as u8;
+  console.log("u8 wrap:", wrapped, "int div:", (7 as int) / (2 as int), "0.1+0.2 =", 0.1 + 0.2);
+}
+
+await main();

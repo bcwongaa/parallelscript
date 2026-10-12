@@ -1,0 +1,4 @@
+// Guardrail check: this should NOT compile.
+let count = 0;
+[1, 2, 3].par.forEach(() => { count++; });
+console.log(count);

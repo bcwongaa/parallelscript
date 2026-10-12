@@ -323,6 +323,9 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - Error-message quality, `pts --help`, `pts test`.
   - A `docs/GUIDE.md` tutorial covering TS developers' most common questions.
   - Fix the top papercuts found by writing two new small programs from scratch.
+  - Papercuts from the orchestrator's smoke test (`docs/reviews/2026-10-13-orchestrator-smoke/demo.pts`, which compiles and runs correctly after two edits):
+    - `.par.filter(f).count()` didn't compile, because `.par.filter` returns a plain array. Rayon-style chaining is the natural expectation: either return a parallel view from `.par.filter`/`.par.map` (with `.toArray()`, `count()`, `sum()` and so on, keeping plain-array use working), or make the error message suggest `.length`. Decide, log it, and test it.
+    - `parallel (async () => {...})()` parses as a call of `parallel` (D-O05), so tsc reports "Promise<() => Promise<string>> has no call signatures". At least add a targeted diagnostic explaining the rule and suggesting `parallel f()` or `parallel (async () => ...)` without the trailing call. Consider whether a parenthesised immediately-invoked function after `parallel` should be the operator.
 - [ ] **M7.4 Milestone M7 and "usable".**
   - Run the checklist.
   - Write `docs/agent/DONE`.
