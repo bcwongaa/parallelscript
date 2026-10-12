@@ -211,6 +211,8 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 		fn.Result = ir.Number // an inferred integer result widens to the context's number, losslessly
 	case contextInterface && node.Type() == nil:
 		fn.Result = context.Result // `(b) => (b ? new Square() : new Circle())` for a `(b: boolean) => Shape`
+	case isUnion(context.Result) && node.Type() == nil && isNullableOf(context.Result.(*ir.Union), fn.Result):
+		fn.Result = context.Result // `(b, x) => (b === null || x > b ? x : b)` for reduce's `number | null` accumulator
 	}
 	return true
 }
@@ -829,4 +831,17 @@ func (p *cellPass) expr(x ir.Expr) {
 			}
 		}
 	})
+}
+
+// isNullableOf reports whether u is t with null or undefined (or both) added.
+func isNullableOf(u *ir.Union, t ir.Type) bool {
+	if !u.Has(t) || isNullish(t) {
+		return false
+	}
+	for _, m := range u.Members {
+		if m != t && !isNullish(m) {
+			return false
+		}
+	}
+	return true
 }

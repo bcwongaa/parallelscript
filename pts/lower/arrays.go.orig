@@ -1,0 +1,902 @@
+package lower
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
+	"github.com/microsoft/typescript-go/pts/ir"
+)
+
+// arrayOf returns the array type of an element type: one per element type.
+func (l *lowerer) arrayOf(elem ir.Type) *ir.Array {
+	array, ok := l.arrays[elem]
+	if !ok {
+		array = &ir.Array{Elem: elem}
+		l.arrays[elem] = array
+	}
+	return array
+}
+
+// arrayType maps an array type of the checker (T[], Array<T>, readonly T[]) to its IR
+// type, or reports why it can't (at node) and returns nil. The elements of an empty
+// literal's type (never[]) are dynamic values, which they can't be anyway.
+func (l *lowerer) arrayType(t *checker.Type, node *ast.Node) ir.Type {
+	elem := l.checker.GetElementTypeOfArrayType(t)
+	if elem.Flags()&checker.TypeFlagsNever != 0 {
+		return l.arrayOf(ir.Value)
+	}
+	if l.arraysInProgress[t] {
+		if elem, ok := l.recurring(); ok {
+			return l.arrayOf(elem) // `type Json = … | Json[]` (D-089)
+		}
+		l.notSupportedYet(node, fmt.Sprintf("recursive array types (%s) are", l.checker.TypeToString(t)))
+		return nil
+	}
+	l.arraysInProgress[t] = true
+	elemType := l.irType(elem, node)
+	delete(l.arraysInProgress, t)
+	if elemType == nil {
+		return nil
+	}
+	return l.arrayOf(elemType)
+}
+
+func isArray(t ir.Type) bool {
+	_, ok := t.(*ir.Array)
+	return ok
+}
+
+// isArrayExpression reports whether tsc types node as an array.
+func (l *lowerer) isArrayExpression(node *ast.Node) bool {
+	t := l.typeAt(node)
+	return l.isArrayType(t) || isRestTuple(t) // `[number, ...number[]]` is an array (D-100)
+}
+
+// isRestTuple reports whether t is a tuple type with a rest element.
+func isRestTuple(t *checker.Type) bool {
+	return checker.IsTupleType(t) && slices.ContainsFunc(t.TargetTupleType().ElementFlags(), func(f checker.ElementFlags) bool {
+		return f&checker.ElementFlagsVariable != 0
+	})
+}
+
+// arrayLiteral lowers `[a, b, c]`: an array of the literal's contextual type if that is
+// an array type, so that `const s: Shape[] = [circle]` holds Shapes, and otherwise of its own.
+func (l *lowerer) arrayLiteral(node *ast.Node) ir.Expr {
+	t := l.typeAt(node)
+	if contextual := l.contextualType(node); contextual != nil && checker.IsTupleType(contextual) {
+		t = contextual // [1, "a"] where a [number, string] goes
+	}
+	if checker.IsTupleType(t) {
+		switch made := l.irType(t, node).(type) {
+		case *ir.Class:
+			return l.tupleLiteral(node, made)
+		case *ir.Array:
+			return l.arrayLiteralOf(node, made) // a tuple with a rest element (D-100)
+		}
+		return nil // reported
+	}
+	if contextual := l.contextualType(node); contextual != nil && l.checker.IsArrayType(contextual) {
+		t = contextual
+	} else if contextual == nil {
+		t = l.literalTarget(node) // `[{ xs: [1] }, { xs: [] }]`'s second `xs`, and the widened `[{ a: 1 }, { b: 2 }]` (D-089)
+	}
+	if !l.checker.IsArrayType(t) {
+		l.notSupportedYet(node, fmt.Sprintf("array literals of type %s are", l.checker.TypeToString(t)))
+		return nil
+	}
+	arrayType := l.arrayType(t, node)
+	if arrayType == nil {
+		return nil
+	}
+	return l.arrayLiteralOf(node, arrayType.(*ir.Array))
+}
+
+// arrayLiteralOf lowers an array literal to a new array of type array, or reports why it
+// can't and returns nil.
+func (l *lowerer) arrayLiteralOf(node *ast.Node, array *ir.Array) ir.Expr {
+	elements := node.AsArrayLiteralExpression().Elements.Nodes
+	if slices.ContainsFunc(elements, isSpreadElement) {
+		return l.spreadArray(elements, array)
+	}
+	elems := make([]ir.Expr, len(elements))
+	for i, element := range elements {
+		switch element.Kind {
+		case ast.KindOmittedExpression:
+			l.notSupportedYet(node, "arrays with holes are")
+			return nil
+		}
+		elem := l.expression(element)
+		if elem == nil {
+			return nil
+		}
+		if elems[i] = l.convert(elem, array.Elem, element); elems[i] == nil {
+			return nil
+		}
+	}
+	return &ir.NewArray{Array: array, Elems: elems}
+}
+
+func isSpreadElement(node *ast.Node) bool { return node.Kind == ast.KindSpreadElement }
+
+// spreadArray lowers elements with spreads (`...x`, of an array literal or of push's
+// arguments) to a new array of type array (D-057): each element converted to the element
+// type, and in place of each spread, the elements of an array of that type, of a tuple
+// (a literal, or a variable read once per element), of a string (its code points) or of
+// a map or set (its entries or elements). It reports what it can't lower and returns nil.
+func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
+	var parts []ir.Expr
+	for _, element := range elements {
+		var values []ir.Expr
+		switch {
+		case element.Kind == ast.KindOmittedExpression:
+			l.notSupportedYet(element, "arrays with holes are")
+			return nil
+		case element.Kind != ast.KindSpreadElement:
+			values = l.argumentValues(element)
+		default:
+			values = l.spreadParts(element, array)
+		}
+		if values == nil {
+			return nil
+		}
+		for _, value := range values {
+			if s, ok := value.(*spreadValue); ok {
+				part := l.spreadPart(s, array, element)
+				if part == nil {
+					return nil
+				}
+				parts = append(parts, part)
+				continue
+			}
+			converted := l.convert(value, array.Elem, element)
+			if converted == nil {
+				return nil
+			}
+			parts = append(parts, converted)
+		}
+	}
+	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
+}
+
+// spreadPart is the array of type array whose elements a spread (s, at node) adds: an
+// array of that type as it is, or a dynamic value's items converted to it with a check
+// (D-078). It reports what it can't spread and returns nil.
+func (l *lowerer) spreadPart(s *spreadValue, array *ir.Array, node *ast.Node) ir.Expr {
+	switch s.x.Type() {
+	case array:
+		return s.x
+	case ir.ValueArray: // a dynamic value's items
+		return l.dynamicConversion(box(s.x), array, node)
+	}
+	if isArray(s.x.Type()) { // `["a", ...numbers]`: a spread only reads its array, so a checked copy of it can't be told apart (D-094)
+		return l.dynamicConversion(box(s.x), array, node)
+	}
+	l.notSupportedYet(node, fmt.Sprintf("spreading a %s into a %s is", s.x.Type(), array))
+	return nil
+}
+
+// spreadParts lowers a spread element `...x` into an array of type array: as an argument
+// is (argumentValues), or for a string or a map or set, a new array of its items.
+func (l *lowerer) spreadParts(element *ast.Node, array *ir.Array) []ir.Expr {
+	if it, ok := l.mapIterableOf(element.Expression()); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		items := l.mapItemsArray(it, element)
+		if items == nil {
+			return nil
+		}
+		return []ir.Expr{&spreadValue{items}}
+	}
+	if l.typeAt(element.Expression()).Flags()&checker.TypeFlagsStringLike != 0 {
+		s := l.expression(element.Expression())
+		if s == nil {
+			return nil
+		}
+		return []ir.Expr{&spreadValue{&ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{s}}}}
+	}
+	return l.argumentValues(element)
+}
+
+// isEmptyArrayLiteral reports whether x is the array of a literal without elements.
+func isEmptyArrayLiteral(x ir.Expr) bool {
+	literal, ok := x.(*ir.NewArray)
+	return ok && len(literal.Elems) == 0
+}
+
+// isArrayElement reports whether node is a[i] for an array a.
+func (l *lowerer) isArrayElement(node *ast.Node) bool {
+	return node.Kind == ast.KindElementAccessExpression && l.isArrayExpression(node.Expression())
+}
+
+// arrayElement lowers a[i]: ArrayElement where any value can go, which is undefined
+// for an index out of range, and ArrayElementChecked elsewhere, which throws (D-015).
+func (l *lowerer) arrayElement(node *ast.Node, op ir.ArrayOp) ir.Expr {
+	array, index := l.arrayElementOperands(node)
+	if array == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: op, Args: []ir.Expr{array, index}}
+}
+
+// arrayElementOperands lowers the array and the index of a[i], or reports the access and returns nils.
+func (l *lowerer) arrayElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
+	if l.isUnloweredOptionalChain(node) {
+		l.notSupportedYet(node, "optional chaining `?.` is")
+		return nil, nil
+	}
+	access := node.AsElementAccessExpression()
+	array := l.expression(access.Expression)
+	index := l.expression(access.ArgumentExpression)
+	if array == nil || index == nil {
+		return nil, nil
+	}
+	if !ir.IsNumeric(index.Type()) {
+		l.notSupportedYet(access.ArgumentExpression, fmt.Sprintf("indexing an array with a %s is", index.Type()))
+		return nil, nil
+	}
+	if index = l.convert(index, ir.Number, access.ArgumentExpression); index == nil {
+		return nil, nil
+	}
+	return array, index
+}
+
+// arrayProperty lowers `a.length`, the one property of arrays (methods are calls).
+func (l *lowerer) arrayProperty(node *ast.Node) ir.Expr {
+	if name := node.AsPropertyAccessExpression().Name().Text(); name != "length" {
+		l.notSupportedYet(node, fmt.Sprintf("the array property `%s` is", name))
+		return nil
+	}
+	array := l.arrayObject(node)
+	if array == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{array}}
+}
+
+// arrayObject lowers the array of `a.p` or `a.m(…)`, or reports why it can't and returns nil.
+func (l *lowerer) arrayObject(access *ast.Node) ir.Expr {
+	if l.isUnloweredOptionalChain(access) {
+		l.notSupportedYet(access, "optional chaining `?.` is")
+		return nil
+	}
+	x := l.expression(access.Expression())
+	if x != nil && isTuple(x.Type()) {
+		return l.tupleArray(x, l.typeAt(access.Expression()), access.Expression()) // `pair.map(f)`
+	}
+	return x
+}
+
+// arrayRemovers are the array methods that return an element or undefined: the dynamic
+// op, then the one a `!` after the call asks for.
+var arrayRemovers = map[string][2]ir.ArrayOp{"pop": {ir.ArrayPop, ir.ArrayPopChecked}, "shift": {ir.ArrayShift, ir.ArrayShiftChecked}}
+
+// arrayParam is a parameter of an array method: its type (nil for the element type) and
+// the argument a call that leaves it out gets (nil if it can't be left out).
+type arrayParam struct {
+	t       ir.Type
+	leftOut ir.Expr
+}
+
+var (
+	elementParam = arrayParam{}
+	startParam   = arrayParam{ir.Number, fromStart}
+	endParam     = arrayParam{ir.Number, toEnd}
+)
+
+// arrayMethods are the array methods with fixed parameters, and their ops.
+var arrayMethods = map[string]struct {
+	op     ir.ArrayOp
+	params []arrayParam
+}{
+	"slice":       {ir.ArraySlice, []arrayParam{startParam, endParam}},
+	"indexOf":     {ir.ArrayIndexOf, []arrayParam{elementParam, startParam}},
+	"lastIndexOf": {ir.ArrayLastIndexOf, []arrayParam{elementParam, endParam}},
+	"includes":    {ir.ArrayIncludes, []arrayParam{elementParam, startParam}},
+	"join":        {ir.ArrayJoin, []arrayParam{{ir.String, &ir.StringConst{Value: ","}}}},
+	"toString":    {ir.ArrayJoin, []arrayParam{{ir.String, &ir.StringConst{Value: ","}}}}, // tsc passes it nothing
+	"reverse":     {ir.ArrayReverse, nil},
+	"sort":        {ir.ArraySort, nil},
+	"fill":        {ir.ArrayFill, []arrayParam{elementParam, startParam, endParam}},
+	"at":          {ir.ArrayAt, []arrayParam{startParam}},
+}
+
+// arrayMethodCall lowers `a.m(args)` for an array a. checked is true under `!`
+// (`stack.pop()!`), where pop and shift return the element itself and throw if a is empty.
+func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Expr {
+	callee := ast.SkipParentheses(call.Expression)
+	name := callee.AsPropertyAccessExpression().Name().Text()
+	method, fixed := arrayMethods[name]
+	removers, removes := arrayRemovers[name]
+	sortWith := name == "sort" && len(call.Arguments.Nodes) > 0
+	if l.isArrayIteration(call.AsNode()) {
+		return l.arrayIterator(call)
+	}
+	if !fixed && !removes && !callbackMethods[name] && !copyingMethods[name] && name != "push" && name != "unshift" && name != "splice" && name != "concat" && name != "flat" {
+		l.notSupportedYet(callee, fmt.Sprintf("the array method `%s` is", name))
+		return nil
+	}
+	for _, argument := range call.Arguments.Nodes {
+		if argument.Kind == ast.KindSpreadElement && name != "push" && name != "unshift" {
+			l.notSupportedYet(argument, fmt.Sprintf("spread arguments of `%s` are", name))
+			return nil
+		}
+	}
+	array := l.arrayObject(callee)
+	if array == nil {
+		return nil
+	}
+	if array.Type() == ir.Value { // an unknown that Array.isArray narrowed, or a recursive type's array (D-089)
+		t := l.irType(l.typeAt(call.AsNode()), call.AsNode())
+		result := l.dynamicMethodCall(call, callee, array)
+		if t == nil || result == nil || t == ir.Void || t == ir.Value {
+			return result
+		}
+		return l.checkedConversion(result, t, call.AsNode())
+	}
+	arrayType := array.Type().(*ir.Array)
+	args := call.Arguments.Nodes
+	switch {
+	case callbackMethods[name]:
+		return l.callbackMethodCall(call, name, array, checked)
+	case copyingMethods[name]:
+		return l.copyingMethodCall(call, name, array)
+	case sortWith:
+		return l.sortWith(array, args[0])
+	case removes:
+		op := removers[0]
+		if checked {
+			op = removers[1]
+		}
+		return &ir.ArrayCall{Op: op, Args: []ir.Expr{array}}
+	case fixed:
+		operands := l.arrayOperands(args, method.params, arrayType)
+		if operands == nil {
+			return nil
+		}
+		return &ir.ArrayCall{Op: method.op, Args: append([]ir.Expr{array}, operands...)}
+	case (name == "push" || name == "unshift") && slices.ContainsFunc(args, isSpreadElement):
+		values := l.spreadArray(args, arrayType) // a new array, of the values in order
+		if values == nil {
+			return nil
+		}
+		op := ir.ArrayPushAll
+		if name == "unshift" {
+			op = ir.ArrayUnshiftAll
+		}
+		return &ir.ArrayCall{Op: op, Args: []ir.Expr{array, values}}
+	case name == "push" || name == "unshift":
+		values := l.arrayValues(args, arrayType, false)
+		if values == nil {
+			return nil
+		}
+		op := ir.ArrayPush
+		if name == "unshift" {
+			op = ir.ArrayUnshift
+		}
+		return &ir.ArrayCall{Op: op, Args: append([]ir.Expr{array}, values...)}
+	case name == "splice":
+		return l.splice(array, args)
+	case name == "concat":
+		values := l.arrayValues(args, arrayType, true)
+		if values == nil {
+			return nil
+		}
+		return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{array}, values...)}
+	}
+	return l.flat(array, args)
+}
+
+// sortWith lowers a.sort(compare): compare becomes a function value that takes two
+// elements and returns a number.
+func (l *lowerer) sortWith(array ir.Expr, arg *ast.Node) ir.Expr {
+	compare := l.expression(arg)
+	if compare == nil {
+		return nil
+	}
+	elem := array.Type().(*ir.Array).Elem
+	if compare = l.convert(compare, l.funcType([]ir.Type{elem, elem}, ir.Number), arg); compare == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: ir.ArraySortWith, Args: []ir.Expr{array, compare}}
+}
+
+// arrayOperands lowers the arguments of an array method with fixed parameters, giving
+// left-out ones their defaults, or reports one and returns nil.
+func (l *lowerer) arrayOperands(args []*ast.Node, params []arrayParam, array *ir.Array) []ir.Expr {
+	operands := make([]ir.Expr, len(params))
+	for i, param := range params {
+		t := param.t
+		if t == nil {
+			t = array.Elem
+		}
+		if i >= len(args) || isUndefined(args[i]) && param.leftOut != nil {
+			operands[i] = param.leftOut // tsc checked that required arguments are there
+			continue
+		}
+		value := l.expression(args[i])
+		if value == nil {
+			return nil
+		}
+		if param.leftOut != nil {
+			value = l.orLeftOut(value, param.leftOut)
+		}
+		if operands[i] = l.convert(value, t, args[i]); operands[i] == nil {
+			return nil
+		}
+	}
+	return operands
+}
+
+// orLeftOut is value, an argument of a library method, or leftOut, what the method takes
+// for an argument left out, where value is undefined at run time (`a.slice(i, n ??
+// undefined)`, D-099): value itself unless it is of a union of one type and undefined.
+func (l *lowerer) orLeftOut(value ir.Expr, leftOut ir.Expr) ir.Expr {
+	u, ok := value.Type().(*ir.Union)
+	if !ok || len(u.Members) != 2 || !u.Has(ir.Undefined) {
+		return value
+	}
+	other := u.Members[0]
+	if other == ir.Undefined {
+		other = u.Members[1]
+	}
+	tmp := l.newLocal("argument", u)
+	ref := &ir.LocalRef{Local: tmp}
+	converted := l.convert(leftOut, other, nil)
+	if converted == nil {
+		return value
+	}
+	return &ir.Bind{Local: tmp, Value: value, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: converted, Else: fromUnion(ref, other)}}
+}
+
+// isUndefined reports whether node is the identifier undefined, which a left-out argument is.
+func isUndefined(node *ast.Node) bool {
+	return node.Kind == ast.KindIdentifier && node.Text() == "undefined"
+}
+
+// arrayValues lowers arguments that are values of an array's element type, or with
+// arrays true, also arrays of its type (concat's).
+func (l *lowerer) arrayValues(args []*ast.Node, array *ir.Array, arrays bool) []ir.Expr {
+	values := make([]ir.Expr, len(args))
+	for i, arg := range args {
+		var value ir.Expr
+		if literal := ast.SkipParentheses(arg); arrays && literal.Kind == ast.KindArrayLiteralExpression {
+			value = l.arrayLiteralOf(literal, array) // tsc types [7] in a.concat([7]) number[], whatever a's elements are
+		} else {
+			value = l.expression(arg)
+		}
+		if value == nil {
+			return nil
+		}
+		if arrays && value.Type() == array {
+			values[i] = value
+			continue
+		}
+		if values[i] = l.convert(value, array.Elem, arg); values[i] == nil {
+			return nil
+		}
+	}
+	return values
+}
+
+// splice lowers a.splice(start, deleteCount, items…). Without arguments it removes
+// nothing; without a delete count it removes everything from start on.
+func (l *lowerer) splice(array ir.Expr, args []*ast.Node) ir.Expr {
+	arrayType := array.Type().(*ir.Array)
+	if len(args) == 0 {
+		return &ir.ArrayCall{Op: ir.ArraySplice, Args: []ir.Expr{array, &ir.NumberConst{Value: 0}, &ir.NumberConst{Value: 0}}}
+	}
+	bounds := l.arrayOperands(args[:min(len(args), 2)], []arrayParam{startParam, endParam}, arrayType)
+	items := l.arrayValues(args[min(len(args), 2):], arrayType, false)
+	if bounds == nil || items == nil {
+		return nil
+	}
+	return &ir.ArrayCall{Op: ir.ArraySplice, Args: append(append([]ir.Expr{array}, bounds...), items...)}
+}
+
+// flat lowers a.flat(depth) for a constant depth (1 if left out): a new array with the
+// nested arrays depth levels down spread into it.
+func (l *lowerer) flat(array ir.Expr, args []*ast.Node) ir.Expr {
+	depth := 1.0
+	if len(args) > 0 {
+		constant, ok := l.expression(args[0]).(*ir.NumberConst)
+		if !ok {
+			l.notSupportedYet(args[0], "`flat` with a depth that isn't a constant is")
+			return nil
+		}
+		depth = constant.Value
+	}
+	result := array.Type().(*ir.Array)
+	for d := depth; d >= 1; d-- {
+		inner, ok := result.Elem.(*ir.Array)
+		if !ok {
+			break
+		}
+		result = inner
+	}
+	return &ir.ArrayCall{Op: ir.ArrayFlat, Args: []ir.Expr{array, &ir.NumberConst{Value: depth}}, To: result}
+}
+
+// isArrayMethodCall reports whether node calls a method of an array.
+func (l *lowerer) isArrayMethodCall(node *ast.Node) bool {
+	if node.Kind != ast.KindCallExpression {
+		return false
+	}
+	callee := ast.SkipParentheses(node.AsCallExpression().Expression)
+	if callee.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	return l.isArrayExpression(callee.Expression()) ||
+		checker.IsTupleType(l.typeAt(callee.Expression())) && tupleCopyMethods[callee.AsPropertyAccessExpression().Name().Text()]
+}
+
+// isArrayStatic reports whether a callee is the static method name of the global Array.
+func (l *lowerer) isArrayStatic(callee *ast.Node, name string) bool {
+	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Text() != name {
+		return false
+	}
+	object := callee.Expression()
+	return object.Kind == ast.KindIdentifier && object.Text() == "Array" && l.isDeclaredInDefaultLib(l.target(object))
+}
+
+// arrayIsArray lowers Array.isArray(x), which the static type of x decides, unless x is
+// a dynamic value or a union, whose value does (D-076).
+func (l *lowerer) arrayIsArray(call *ast.CallExpression) ir.Expr {
+	x := l.valueExpression(call.Arguments.Nodes[0])
+	if x == nil {
+		return nil
+	}
+	if x.Type() == ir.Value || isUnion(x.Type()) {
+		return &ir.CallBuiltin{Builtin: ir.ValueIsArray, Args: []ir.Expr{box(x)}}
+	}
+	return discard(x, &ir.BoolConst{Value: isArray(x.Type())})
+}
+
+// arrayFrom lowers Array.from(x) for an array x (a copy) or a string (its code points).
+func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
+	args := call.Arguments.Nodes
+	if len(args) > 2 {
+		l.notSupportedYet(args[2], "the `thisArg` argument of `Array.from` is")
+		return nil
+	}
+	if length := lengthObject(args[0]); length != nil {
+		return l.arrayFromLength(call, length)
+	}
+	if it, ok := l.mapIterableOf(args[0]); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		return l.arrayFromMap(call, it)
+	}
+	x := l.iterable(args[0])
+	if x != nil && (x.Type() == ir.Value || l.hasIteratorMethod(l.typeAt(args[0]))) { // a generator object's values, a dynamic value's items, an object's by its [Symbol.iterator]: an any[] (D-078, D-109, D-111)
+		x = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(args[0])}}}
+	}
+	switch {
+	case x == nil:
+		return nil
+	case len(args) == 2 && (isArray(x.Type()) || x.Type() == ir.String):
+		return l.arrayFromWithMapper(call, x)
+	case isArray(x.Type()):
+		return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, fromStart, toEnd}}
+	case x.Type() == ir.String:
+		return &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{x}}
+	}
+	l.notSupportedYet(args[0], fmt.Sprintf("`Array.from` of a %s is", x.Type()))
+	return nil
+}
+
+// nonNull lowers `x!`. Under it, a.pop() and a.shift() give the element itself, and
+// throw if a is empty; a union becomes its type without null and undefined, and throws
+// TypeError if it is either (D-062); elsewhere `!` changes nothing.
+func (l *lowerer) nonNull(node *ast.Node) ir.Expr {
+	inner := ast.SkipParentheses(node.Expression())
+	if l.isArrayMethodCall(inner) {
+		name := ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text()
+		if _, removes := arrayRemovers[name]; removes || name == "find" || name == "findLast" {
+			return l.arrayMethodCall(inner.AsCallExpression(), true)
+		}
+	}
+	if l.isMapMethodCall(inner) && ast.SkipParentheses(inner.Expression()).AsPropertyAccessExpression().Name().Text() == "get" {
+		return l.mapMethodCall(inner.AsCallExpression(), true)
+	}
+	x := l.expression(inner)
+	if x == nil || !isUnion(x.Type()) {
+		return x
+	}
+	t := l.irType(l.checker.GetNonNullableType(l.typeAt(node)), node) // in a chain, tsc's type keeps the chain's undefined
+	if t == nil {
+		return nil
+	}
+	return &ir.FromUnion{X: x, To: t, Checked: true} // throws on null and undefined (docs/SPEC.md §3.5)
+}
+
+// forOfBinding declares the local that the variable declaration of a for…of statement
+// binds each item to: its name's, or for a pattern, a local of type elemType that the
+// destructured statements take apart. ok is false if it failed (reported).
+func (l *lowerer) forOfBinding(declaration *ast.Node, elemType ir.Type) (element *ir.Local, destructured []ir.Stmt, ok bool) {
+	name := declaration.Name()
+	if name.Kind != ast.KindIdentifier { // `for (const [k, v] of pairs)`: each element is destructured
+		element = l.newLocal("element", elemType)
+		destructured, ok = l.destructure(name, &ir.LocalRef{Local: element}, l.pos(declaration))
+		return element, destructured, ok
+	}
+	symbol := l.checker.GetSymbolAtLocation(name)
+	t := l.bindingType(symbol, name)
+	if t == nil {
+		return nil, nil, false
+	}
+	element = l.newLocal(name.Text(), t)
+	l.locals[symbol] = element
+	return element, nil, true
+}
+
+// forOfStatement lowers `for (const x of a) body` for an array a to a loop over its
+// indices: like JS's array iterator, it reads the length before each iteration, so it
+// sees elements pushed meanwhile. A string's code points come from a new array of them.
+func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
+	s := node.AsForInOrOfStatement()
+	switch {
+	case s.Initializer.Kind != ast.KindVariableDeclarationList || len(s.Initializer.AsVariableDeclarationList().Declarations.Nodes) != 1:
+		l.notSupportedYet(s.Initializer, "`for...of` without a declaration of its variable is")
+		return nil
+	}
+	declaration := s.Initializer.AsVariableDeclarationList().Declarations.Nodes[0]
+	if node.Flags&ast.NodeFlagsPtsParallel != 0 {
+		return l.parallelFor(node, label, declaration) // D-127
+	}
+	if s.AwaitModifier != nil {
+		return l.asyncForOf(node, label, declaration) // D-115
+	}
+	if it, ok := l.mapIterableOf(s.Expression); ok {
+		if it.m == nil {
+			return nil // reported
+		}
+		return l.mapForOf(node, label, it, declaration.Name(), s.Statement)
+	}
+	if t := l.typeAt(s.Expression); l.isIterationSource(t) && !l.isArrayIteration(s.Expression) {
+		return l.iteratorForOf(node, label, declaration)
+	}
+	var iterable ir.Expr
+	if l.typedArrayClass(s.Expression) != nil {
+		iterable = l.expression(s.Expression) // read live, as JS's iterator does
+	} else {
+		iterable = l.iterable(s.Expression)
+	}
+	if iterable == nil {
+		return nil
+	}
+	if iterable.Type() == ir.String {
+		iterable = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{iterable}} // its code points
+	}
+	if isTuple(iterable.Type()) {
+		if iterable = l.tupleArray(iterable, l.typeAt(s.Expression), s.Expression); iterable == nil {
+			return nil
+		}
+	}
+	if isUnion(iterable.Type()) {
+		iterable = box(iterable) // `index.get(k) ?? []`: a set or an array, iterated as a dynamic value (D-089)
+	}
+	// The loop reads element index of source while index is below its length.
+	var elemType ir.Type
+	var length func(source ir.Expr) ir.Expr
+	var elementAt func(source, index ir.Expr) ir.Expr
+	switch t := iterable.Type(); {
+	case isArray(t):
+		elemType = t.(*ir.Array).Elem
+		length = func(source ir.Expr) ir.Expr { return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}} }
+		elementAt = func(source, index ir.Expr) ir.Expr {
+			return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, index}}
+		}
+	case l.isTypedArray(t):
+		elemType = ir.Number
+		length = func(source ir.Expr) ir.Expr { return l.callExtern("pts_typed_array_length", ir.Number, source) }
+		elementAt = l.typedArrayRead
+	case t == ir.Value: // a dynamic value's items (D-078)
+		iterable = &ir.CallBuiltin{Builtin: ir.ValueIterable, Args: []ir.Expr{iterable, &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
+		elemType = ir.Value
+		length = func(source ir.Expr) ir.Expr {
+			return &ir.CallBuiltin{Builtin: ir.ValueIterableLength, Args: []ir.Expr{source}}
+		}
+		elementAt = func(source, index ir.Expr) ir.Expr {
+			return &ir.CallBuiltin{Builtin: ir.ValueIterableElement, Args: []ir.Expr{source, index}}
+		}
+	default:
+		l.notSupportedYet(s.Expression, fmt.Sprintf("`for...of` over a %s is", iterable.Type()))
+		return nil
+	}
+	at := l.pos(node)
+	source, index := l.newLocal("array", iterable.Type()), l.newLocal("index", ir.Number)
+	element, destructured, ok := l.forOfBinding(declaration, elemType)
+	if !ok {
+		return nil
+	}
+	value := l.convert(elementAt(&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}), element.Type, declaration)
+	if value == nil {
+		return nil
+	}
+	body := l.statementBlock(s.Statement)
+	body.Stmts = append(append([]ir.Stmt{&ir.LocalDecl{At: l.pos(declaration), Local: element, Init: value}}, destructured...), body.Stmts...)
+	loop := &ir.Loop{
+		At:     at,
+		Label:  label,
+		Cond:   &ir.Binary{Op: ir.Lt, X: &ir.LocalRef{Local: index}, Y: length(&ir.LocalRef{Local: source})},
+		Update: &ir.Assign{Local: index, Value: &ir.Binary{Op: ir.Add, X: &ir.LocalRef{Local: index}, Y: &ir.NumberConst{Value: 1}}},
+		Body:   body,
+	}
+	return []ir.Stmt{&ir.Block{At: at, Stmts: []ir.Stmt{
+		&ir.LocalDecl{At: at, Local: source, Init: iterable},
+		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
+		loop,
+	}}}
+}
+
+// newArrayMembers are the library functions and methods (as libMemberName names them)
+// whose result is a new array that nothing else holds.
+var newArrayMembers = map[string]bool{
+	"ArrayConstructor.from": true, "ArrayConstructor.of": true, "String.split": true,
+	"ObjectConstructor.keys": true, "ObjectConstructor.values": true, "ObjectConstructor.entries": true,
+}
+
+// newArrayMethods are the methods of arrays whose result is a new array.
+var newArrayMethods = map[string]bool{
+	"map": true, "filter": true, "slice": true, "concat": true, "flat": true, "flatMap": true, "splice": true,
+	"toSorted": true, "toReversed": true, "toSpliced": true, "with": true,
+}
+
+// sameArrayMethods are the methods of arrays that return the array they are called on.
+var sameArrayMethods = map[string]bool{"sort": true, "reverse": true, "fill": true, "copyWithin": true}
+
+// isNewArray reports whether node makes an array that nothing else holds, which a copy
+// can't be told apart from (D-094): an array literal, a call of a function or method that
+// makes a new array, or a const whose only use is node and whose initializer is one.
+func (l *lowerer) isNewArray(node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindArrayLiteralExpression:
+		return true
+	case ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression:
+		return l.isNewArray(node.Expression())
+	case ast.KindNewExpression:
+		return l.typeAt(node).Symbol() != nil && l.typeAt(node).Symbol().Name == "Array"
+	case ast.KindCallExpression:
+		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
+		if callee.Kind != ast.KindPropertyAccessExpression {
+			return false
+		}
+		member := l.libMemberName(callee)
+		if newArrayMembers[member] {
+			return true
+		}
+		owner, method, _ := strings.Cut(member, ".")
+		if owner != "Array" && owner != "ReadonlyArray" {
+			return false
+		}
+		return newArrayMethods[method] || sameArrayMethods[method] && l.isNewArray(callee.Expression())
+	case ast.KindIdentifier:
+		return l.isSingleUseConst(node)
+	}
+	return false
+}
+
+// isSingleUseConst reports whether node names a local const whose initializer makes a
+// new array (isNewArray) and which node is the only use of.
+func (l *lowerer) isSingleUseConst(node *ast.Node) bool {
+	symbol := l.checker.GetSymbolAtLocation(node)
+	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindVariableDeclaration {
+		return false
+	}
+	declaration := symbol.ValueDeclaration
+	if declaration.Parent.Flags&ast.NodeFlagsConst == 0 || declaration.Initializer() == nil || !l.isNewArray(declaration.Initializer()) {
+		return false
+	}
+	uses := 0
+	var visit func(n *ast.Node) bool
+	visit = func(n *ast.Node) bool {
+		if n.Kind == ast.KindIdentifier && n != declaration.Name() && n.Text() == node.Text() && l.checker.GetSymbolAtLocation(n) == symbol {
+			uses++
+		}
+		return uses > 1 || n.ForEachChild(visit)
+	}
+	ast.GetSourceFileOfNode(node).AsNode().ForEachChild(visit)
+	return uses == 1
+}
+
+// readOnlyArrayMethods are the methods of arrays that don't change the array.
+var readOnlyArrayMethods = map[string]bool{
+	"at": true, "concat": true, "entries": true, "every": true, "filter": true, "find": true, "findIndex": true,
+	"findLast": true, "findLastIndex": true, "flat": true, "flatMap": true, "forEach": true, "includes": true,
+	"indexOf": true, "join": true, "keys": true, "lastIndexOf": true, "map": true, "reduce": true, "reduceRight": true,
+	"slice": true, "some": true, "toReversed": true, "toSorted": true, "toSpliced": true, "toString": true,
+	"values": true, "with": true,
+}
+
+// isReadOnlyArgument reports whether node is an argument of a call of a function of the
+// program whose parameter for it the function only reads (onlyReads), so a copy passed
+// there can't be told apart from the array (D-094).
+func (l *lowerer) isReadOnlyArgument(node *ast.Node) bool {
+	call := node.Parent
+	if call == nil || call.Kind != ast.KindCallExpression && call.Kind != ast.KindNewExpression {
+		return false
+	}
+	index := slices.Index(call.Arguments(), node)
+	signature := l.checker.GetResolvedSignature(call)
+	if index < 0 || signature == nil || signature.Declaration() == nil {
+		return false
+	}
+	fn := signature.Declaration()
+	if !ast.IsFunctionLike(fn) || fn.Body() == nil || index >= len(fn.Parameters()) {
+		return false // a library function has no body
+	}
+	param := fn.Parameters()[index]
+	if param.AsParameterDeclaration().DotDotDotToken != nil || param.Name().Kind != ast.KindIdentifier || ast.IsParameterPropertyDeclaration(param, fn) {
+		return false
+	}
+	return l.onlyReads(fn, l.checker.GetSymbolAtLocation(param.Name()))
+}
+
+// onlyReads reports whether every use of the array parameter param in the body of fn
+// reads it: its elements, its length, the methods that don't change it, `for…of` and
+// spreads, in fn itself or in callbacks of array methods, which can't keep it.
+func (l *lowerer) onlyReads(fn *ast.Node, param *ast.Symbol) bool {
+	readOnly := true
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		if node.Kind == ast.KindIdentifier && node.Text() == param.Name && l.checker.GetSymbolAtLocation(node) == param {
+			readOnly = l.isInCallbacksOf(node, fn) && isArrayRead(node)
+			return !readOnly
+		}
+		return node.ForEachChild(visit)
+	}
+	visit(fn.Body())
+	return readOnly
+}
+
+// isInCallbacksOf reports whether node is in fn, directly or in functions passed to array
+// methods there (`as.map(() => bs.map(…))`), which run before the method returns.
+func (l *lowerer) isInCallbacksOf(node *ast.Node, fn *ast.Node) bool {
+	for inner := ast.GetContainingFunction(node); inner != fn; inner = ast.GetContainingFunction(inner) {
+		if inner == nil || inner.Parent == nil || inner.Parent.Kind != ast.KindCallExpression || !slices.Contains(inner.Parent.Arguments(), inner) {
+			return false
+		}
+		call := inner.Parent
+		callee := ast.SkipParentheses(call.Expression())
+		owner, _, _ := strings.Cut(l.libMemberName(callee), ".")
+		if callee.Kind != ast.KindPropertyAccessExpression || owner != "Array" && owner != "ReadonlyArray" {
+			return false
+		}
+	}
+	return true
+}
+
+// isArrayRead reports whether the identifier of an array is used only to read it there.
+func isArrayRead(identifier *ast.Node) bool {
+	node := identifier
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	parent := node.Parent
+	switch parent.Kind {
+	case ast.KindElementAccessExpression:
+		return parent.Expression() == node && !ast.IsWriteAccess(parent)
+	case ast.KindPropertyAccessExpression:
+		if parent.Expression() != node || ast.IsWriteAccess(parent) {
+			return false
+		}
+		name := parent.Name().Text()
+		isCalled := parent.Parent.Kind == ast.KindCallExpression && parent.Parent.Expression() == parent
+		return name == "length" && !isCalled || isCalled && readOnlyArrayMethods[name]
+	case ast.KindForOfStatement:
+		return parent.Expression() == node
+	case ast.KindSpreadElement:
+		return true
+	}
+	return false
+}

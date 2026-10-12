@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: `Object.prototype.toString`
+// skip: unsupported: PTS1001: `Object.prototype.toString`
 // Overriding toString and printing class instances in many ways: console.log, templates, join, format strings.
 
 class Money {

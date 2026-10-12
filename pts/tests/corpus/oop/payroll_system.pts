@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: using a `Employee` as a `Salaried`
 // Employee payroll with salaried, hourly and commissioned staff.
 
 enum Department {

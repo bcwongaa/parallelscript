@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `this.head?.value`
 // Generic linked list, stack, queue and deque classes used for a few small tasks.
 
 class ListNode<T> {

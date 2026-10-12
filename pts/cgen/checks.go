@@ -62,7 +62,7 @@ func (e *emitter) collectChecks(program *ir.Program) {
 			}
 		})
 	}
-	e.declaredTypes = e.declaredTypes || len(targets) > 0 || implementsIteration(program) || definesConversions(program)
+	e.declaredTypes = e.declaredTypes || len(targets) > 0 || implementsIteration(program) || definesConversions(program) || providesWithFewerParams(program)
 	for _, t := range targets {
 		e.check(t)
 	}
@@ -395,4 +395,20 @@ func (e *emitter) checkProperties(name string, fields []*ir.Field, shape *ir.Cla
 	}
 	e.line(0, "};")
 	return []string{fmt.Sprintf(".count = %d", len(fields)), ".properties = " + name + "_properties"}
+}
+
+// providesWithFewerParams reports whether a class has a method of an interface's name
+// that takes fewer parameters than the interface's: calls through the interface reach it
+// through the method's adapter, which needs the declared types.
+func providesWithFewerParams(program *ir.Program) bool {
+	for _, iface := range program.Interfaces {
+		for _, method := range iface.Methods {
+			for _, class := range program.Classes {
+				if own := class.Method(method.Name, ir.Plain); own != nil && len(own.Func.Params) < len(method.Params)+1 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

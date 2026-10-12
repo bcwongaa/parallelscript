@@ -1,0 +1,9 @@
+// Arrays and sets of integers spread where numbers go, as checked copies (D-094, D-149);
+// it was PTS1001 before.
+const bytes: u8[] = [1, 2, 255];
+const widened: number[] = [...bytes, 0.5];
+const fromSet: number[] = [...new Set<u8>([7, 7, 8])];
+console.log(widened, fromSet);
+
+// expect:
+// [ 1, 2, 255, 0.5 ] [ 7, 8 ]

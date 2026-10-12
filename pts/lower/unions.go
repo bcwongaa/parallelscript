@@ -176,6 +176,17 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 		if u.Has(from) {
 			return &ir.ToUnion{X: value, To: u}
 		}
+		if class, ok := from.(*ir.Class); ok && !class.Shape && node != nil {
+			// `e instanceof A ? e : new B()` where an `A | B` goes: e as the subclass the
+			// checker narrowed it to (checked), as the member that subclass is or extends.
+			if narrow, ok := l.irType(l.typeAt(node), node).(*ir.Class); ok && narrow != class && narrow.IsSubclassOf(class) {
+				for _, m := range u.Members {
+					if member, ok := m.(*ir.Class); ok && !member.Shape && narrow.IsSubclassOf(member) {
+						return &ir.ToUnion{X: upcast(downcast(value, narrow), member), To: u}
+					}
+				}
+			}
+		}
 		if member := l.memberFor(from, u); member != nil {
 			if converted := l.convert(value, member, node); converted != nil {
 				return &ir.ToUnion{X: converted, To: u}

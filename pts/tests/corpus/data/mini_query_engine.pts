@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Employee)
+// skip: unsupported: PTS1001: object types with an index signature and methods, optional properties or properties of other types (Employee)
 type Primitive = string | number | boolean;
 type Op = "=" | "!=" | ">" | ">=" | "<" | "<=" | "in" | "contains";
 

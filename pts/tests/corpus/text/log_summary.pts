@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: spreading a {user: string} | {} into an object
+// skip: unsupported: PTS1001: spreading a {user: string} | {} into an object
 // Parses web-server style log lines and produces a summary report: status classes,
 // slowest endpoints, per-hour traffic, error details and malformed lines.
 enum Level { DEBUG = "DEBUG", INFO = "INFO", WARN = "WARN", ERROR = "ERROR" }

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: recursive tuple types ([Tree, Tree])
+// skip: unsupported: PTS1001: recursive tuple types ([Tree, Tree])
 // Matrix chain multiplication: optimal parenthesization by DP, verified by actually multiplying.
 
 class Matrix {

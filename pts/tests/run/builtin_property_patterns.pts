@@ -1,0 +1,21 @@
+// Builtin properties in object patterns, and strings of literal types (M6.0b5): an
+// object pattern may take `length` of an array or a string and `size` of a map or set;
+// a string literal union or a string enum indexes as a string; and a template calls an
+// object literal's `toString` that is a function-valued property (D-142).
+const count = ({ length }: number[]): number => length;
+const { length } = "abcd";
+const sizeOf = ({ size }: Map<string, number>): number => size;
+const { size: members } = new Set([1, 2, 2, 3]);
+console.log(count([1, 2, 3]), length, sizeOf(new Map([["a", 1]])), members);
+type Light = "red" | "green";
+function initial(c: Light): string {
+  return c[0];
+}
+enum Phase {
+  Go = "go",
+  Stop = "stop",
+}
+const phase: Phase = Phase.Stop;
+console.log(initial("green"), phase[0] + Phase.Go[1]);
+const version = { major: 2, toString: () => "v2.14.3" };
+console.log(`${version}`, `build ${version}`, String(version));

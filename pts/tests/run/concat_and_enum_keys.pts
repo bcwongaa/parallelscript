@@ -1,0 +1,14 @@
+// `concat` of an array of other elements copies it with a check (D-094, M6.0b5), and an
+// enum read with a string key that names no member statically reads the enum's object.
+const code: number[] = [1, 2];
+console.log(code.concat(new Array(3).fill(0), [233]));
+const loose: any[] = [7, 8];
+console.log(code.concat(loose));
+enum Opcode {
+  LDA = 16,
+  STA = 17,
+}
+function opcodeOf(name: string): Opcode | undefined {
+  return Opcode[name.toUpperCase() as keyof typeof Opcode];
+}
+console.log(opcodeOf("lda"), opcodeOf("sta"), opcodeOf("nop"));

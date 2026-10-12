@@ -106,7 +106,9 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	if l.firstDynamicCall == nil {
 		l.firstDynamicCall = call.AsNode()
 	}
-	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee)) {
+	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
+	// whose signature mentions an erased type parameter, is found at run time too.
+	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
 		object := l.expression(callee.Expression())
 		if object == nil {
 			return nil

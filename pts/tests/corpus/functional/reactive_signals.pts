@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: values of type Function
+// skip: unsupported: PTS1001: values of type Function
 // Reactive signals: writable signals, computed values with dependency tracking, and effects.
 
 type Effect = { run: () => void; deps: Set<SignalNode>; name: string };

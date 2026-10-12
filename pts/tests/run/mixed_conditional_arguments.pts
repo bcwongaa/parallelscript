@@ -1,0 +1,15 @@
+// Conditional expressions whose branches go where a union with number goes keep their
+// own types (M6.0b5), and an arrow without a return type takes the nullable result its
+// context expects (`reduce`'s `T | null` accumulator).
+function show(v: number | string): string {
+  return typeof v === "number" ? `number ${v + 1}` : `string ${v.toUpperCase()}`;
+}
+const input: string = "cell";
+console.log(show(input.length > 3 ? "long" : input), show(input.length > 3 ? input.length : input));
+const scores: number[] = [3, 9, 4];
+const best = scores.reduce<number | null>((b, x) => (b === null || x > b ? x : b), null);
+const none = ([] as number[]).reduce<number | null>((b, x) => (b === null || x > b ? x : b), null);
+console.log(best, none);
+const pairs: [string, number][] = [["a", 2], ["b", 7]];
+const top = pairs.reduce<[string, number] | null>((b, r) => (b === null || r[1] > b[1] ? r : b), null);
+console.log(top);

@@ -19,8 +19,20 @@ static int64_t method_named(const pts_type *type, const char *name, pts_method_k
  * it) and its result comes back as a dynamic value whatever its type. False if the
  * object's class has no such method.
  */
+static const pts_field *field_named(const pts_type *type, const char *name);
+
 static bool call_conversion_method(const pts_object *object, const char *name, pts_value *result) {
   int64_t index = object->type->kind == PTS_KIND_OBJECT ? method_named(object->type, name, PTS_METHOD) : -1;
+  if (index < 0 && object->type->kind == PTS_KIND_OBJECT) { /* a field holding a function (`toString: () => …`) */
+    const pts_field *field = field_named(object->type, name);
+    if (field != NULL) {
+      pts_value value = pts_value_present(pts_value_of_slot(field->kind, (const char *)object + field->offset));
+      if (pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_FUNCTION) {
+        *result = pts_dynamic_call_closure((pts_closure *)pts_value_as_object(value), 0, NULL);
+        return true;
+      }
+    }
+  }
   if (index < 0 || object->type->methods[index].dynamic == NULL) {
     return false;
   }

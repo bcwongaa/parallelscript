@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: spread arguments of `splice`
+// skip: unsupported: PTS1001: spread arguments of `splice`
 // Backtracking enumerations: permutations (with duplicates), subsets, combinations and combination sum.
 
 function permutations<T>(items: T[]): T[][] {

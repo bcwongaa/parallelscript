@@ -1,4 +1,4 @@
-// skip: diverges: an object outside its declared union (a `never` check) fails the union conversion (TypeError: Expected …)
+// skip: by design: D-L09: `JSON.parse(…) as Shape[]` is checked, so an object outside the declared union (which a `never` check would report) throws TypeError: Expected …
 // Exhaustive switches over discriminated unions, with a `never` check that
 // throws when an unexpected value slips through at run time.
 

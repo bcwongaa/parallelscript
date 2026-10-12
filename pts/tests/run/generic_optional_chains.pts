@@ -1,0 +1,42 @@
+// Optional chains on generic class instances (M6.0b5): `this.head?.value` reads the
+// member of the instance class the receiver is, as it does for other classes.
+class ListNode<T> {
+  constructor(
+    public value: T,
+    public next: ListNode<T> | null = null,
+  ) {}
+  get label(): string {
+    return `node(${String(this.value)})`;
+  }
+  doubled(): T[] {
+    return [this.value, this.value];
+  }
+}
+class LinkedList<T> {
+  head: ListNode<T> | null = null;
+  tail: ListNode<T> | null = null;
+  push(value: T): this {
+    const node = new ListNode(value);
+    if (this.tail) this.tail.next = node;
+    else this.head = node;
+    this.tail = node;
+    return this;
+  }
+  first(): T | undefined {
+    return this.head?.value;
+  }
+  last(): T | undefined {
+    return this.tail?.value;
+  }
+  describe(): string {
+    return `${this.head?.label ?? "empty"} ${JSON.stringify(this.head?.next?.doubled() ?? [])}`;
+  }
+}
+const empty = new LinkedList<number>();
+console.log(empty.first(), empty.last(), empty.describe());
+const list = new LinkedList<string>().push("a").push("b").push("c");
+console.log(list.first(), list.last(), list.describe());
+function peek<T>(node: ListNode<T> | null): T | undefined {
+  return node?.value;
+}
+console.log(peek(list.head), peek<number>(null));

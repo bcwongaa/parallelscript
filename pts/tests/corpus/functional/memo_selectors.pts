@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: this call of a generic function
+// skip: unsupported: PTS1001: functions with properties (`Object.assign(selector, { recomputations, label })` as a `((s: S) => R) & { … }`, D-086)
 // Memoized selectors (reselect-style) over an immutable store, with recomputation counters.
 
 type Selector<S, R> = ((s: S) => R) & { recomputations: () => number; label: string };

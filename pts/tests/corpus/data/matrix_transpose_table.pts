@@ -1,4 +1,4 @@
-// skip: by design (D-038): maps elements past the end of ragged rows into a number[] (RangeError; JS gives undefined)
+// skip: by design: D-038: maps elements past the end of ragged rows into a number[] (RangeError; JS gives undefined)
 type Table = (string | number)[][];
 
 function transpose<T>(m: T[][]): T[][] {

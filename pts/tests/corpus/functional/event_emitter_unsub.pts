@@ -1,4 +1,4 @@
-// skip: diverges: a function converted to another function type is a new adapter, so Set.delete of the handler finds nothing
+// skip: by design: D-075: a function converted to another function type is a new adapter, so Set.delete of the handler finds nothing
 // A typed event emitter whose `on` returns an unsubscribe closure.
 
 type Events = {

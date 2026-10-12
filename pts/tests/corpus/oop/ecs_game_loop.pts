@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: values of type ComponentClass<Position>
+// skip: unsupported: PTS1001: values of type ComponentClass<Position>
 // Tiny entity-component-system game loop: movement, collisions, health and a scoring system.
 
 class Position {

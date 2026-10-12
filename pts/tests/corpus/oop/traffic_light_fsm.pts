@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: element access other than indexing a string
 // Traffic intersection controller: a finite state machine with timed phases and pedestrian requests.
 
 enum Light {

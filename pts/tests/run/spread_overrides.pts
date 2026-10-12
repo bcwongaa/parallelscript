@@ -1,0 +1,17 @@
+// Spreads whose properties are written again, or whose arrays go where other element
+// types do (M6.0b5): a later property replaces a spread one of another type, and an
+// array spreads into an array literal or a call of another element type as a copy.
+const page = { title: "first", items: ["a", "b"], size: 2 };
+const counted = { ...page, items: page.items.length, extra: true };
+console.log(counted, counted.items + 1);
+const named = { ...{ v: "s", n: 2 }, v: 5 };
+console.log(named, named.v * 2);
+const xs: number[] = [1, 2, 3];
+const mixed = ["a", ...xs];
+console.log(mixed, mixed.length);
+const row: (string | number)[] = ["total"];
+row.push(...xs);
+console.log(row);
+const ints: Int8Array = new Int8Array([4, 5]);
+const widened: number[] = [0, ...Array.from(ints)];
+console.log(widened);

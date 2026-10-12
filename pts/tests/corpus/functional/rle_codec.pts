@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: `new Array` of type value
 // Run-length encoding and decoding written as pure functions with reduce and recursion.
 
 type Run<T> = readonly [value: T, count: number];

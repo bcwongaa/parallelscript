@@ -37,6 +37,15 @@ func TestDirectivesAreCollected(t *testing.T) {
 	assert.Equal(t, spec.skip, "known issue")
 }
 
+func TestSkipCausesStartWithTheirCategory(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, skipCategory("by design: D-038: reads past the end"), "by design")
+	assert.Equal(t, skipCategory("unsupported: PTS1001: recursive tuple types"), "unsupported")
+	assert.Equal(t, skipCategory("bug: converting string to number"), "bug")
+	assert.Equal(t, skipCategory("diverges: an adapter"), "")
+	assert.Equal(t, skipCategory("by design (D-038)"), "")
+}
+
 func TestMalformedDirectivesAreErrors(t *testing.T) {
 	t.Parallel()
 	for _, source := range []string{"// expect:\n// a\nx;\n// expect:\n// b\n", "// expect: inline\n", "// exit: one\n", "// no-diff:\n", "// skip:\n"} {

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting (number) => number to {label: string}
+// skip: unsupported: PTS1001: functions with properties (`Object.assign(fn, { label })`, D-086)
 // Function factories: validators, formatters and unit converters produced by higher-order functions.
 
 type Validator = (value: string) => string | null;

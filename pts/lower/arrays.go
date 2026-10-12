@@ -172,6 +172,9 @@ func (l *lowerer) spreadPart(s *spreadValue, array *ir.Array, node *ast.Node) ir
 	case ir.ValueArray: // a dynamic value's items
 		return l.dynamicConversion(box(s.x), array, node)
 	}
+	if isArray(s.x.Type()) { // `["a", ...numbers]`: a spread only reads its array, so a checked copy of it can't be told apart (D-094)
+		return l.dynamicConversion(box(s.x), array, node)
+	}
 	l.notSupportedYet(node, fmt.Sprintf("spreading a %s into a %s is", s.x.Type(), array))
 	return nil
 }
@@ -471,6 +474,13 @@ func (l *lowerer) arrayValues(args []*ast.Node, array *ir.Array, arrays bool) []
 		}
 		if arrays && value.Type() == array {
 			values[i] = value
+			continue
+		}
+		if arrays && isArray(value.Type()) && value.Type() != array.Elem && !isArray(array.Elem) {
+			// `a.concat(new Array(n).fill(0))`: an array of other elements, copied as concat reads it (D-094)
+			if values[i] = l.convert(value, array, arg); values[i] == nil {
+				return nil
+			}
 			continue
 		}
 		if values[i] = l.convert(value, array.Elem, arg); values[i] == nil {

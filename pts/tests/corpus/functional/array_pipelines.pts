@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: spreading a number[] into a number | string[]
 // Higher-order array pipelines over a sales dataset: map/filter/reduce/flatMap/sort/every/some.
 
 interface Sale {

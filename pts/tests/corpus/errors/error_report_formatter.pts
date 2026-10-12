@@ -1,4 +1,4 @@
-// skip: diverges: a subclass's `name` getter isn't the name errors print (an error's name is a field, D-068)
+// skip: by design: D-068: a subclass's `name` getter isn't the name errors print (an error's name is a field)
 // Formats errors for a log file without stack traces: name, message, own
 // fields, and the cause chain, plus String()/toString()/template behaviour.
 

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: recursive function types (() => Thunk<any>)
+// skip: unsupported: PTS1001: recursive function types (() => Thunk<any>)
 // Trampolining deep recursion: thunks returned instead of direct calls, run by a loop.
 
 type Thunk<T> = { kind: "more"; next: () => Thunk<T> } | { kind: "done"; value: T };

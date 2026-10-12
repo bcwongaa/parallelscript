@@ -291,7 +291,15 @@ func (l *lowerer) genericMethodCall(call *ast.CallExpression, generic *genericFu
 // for the type arguments of tsc's resolved signature, or its erased copy if they mention
 // type parameters whose values are dynamic; nil if it failed (reported).
 func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc) *ir.Func {
-	arguments := l.checker.PtsTypeArgumentsOfSignature(l.checker.GetResolvedSignature(call.AsNode()))
+	resolved := l.checker.GetResolvedSignature(call.AsNode())
+	arguments := l.checker.PtsTypeArgumentsOfSignature(resolved)
+	if declaration := resolved.Declaration(); declaration != nil && declaration != generic.node && isOverloadSignature(declaration) {
+		// An overload's type arguments aren't the implementation's (it may have other type
+		// parameters, or the same in another order): infer those from the overload's
+		// instantiated signature, as for a generic function in a context (D-078).
+		implementation := l.checker.GetSignatureFromDeclaration(generic.node)
+		arguments = l.checker.PtsTypeArgumentsOfSignature(l.checker.PtsInstantiateSignatureInContextOf(implementation, resolved))
+	}
 	if len(arguments) != len(generic.parameters) {
 		l.notSupportedYet(call.AsNode(), "this call of a generic function is")
 		return nil

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: `#private in` on a value
+// skip: unsupported: PTS1001: `#private in` on a value
 // ECMAScript #private fields and methods: a crypto-style wallet with a PIN, nonce and audit trail.
 
 class WalletLockedError extends Error {

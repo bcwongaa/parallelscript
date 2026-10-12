@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: a callback of type value (`f(x).reduce(next, acc)` with next from an erased generic arrow)
 // Transducers: composable reducer transformers for single-pass collection processing.
 
 type Reducer<A, T> = (acc: A, x: T) => A;

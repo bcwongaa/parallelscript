@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: optional methods and accessors (`setup?` in Plugin)
+// skip: unsupported: PTS1001: optional methods and accessors (`setup?` in Plugin)
 // Plugin system: a markdown-ish text processor whose features are plugins with hooks and dependencies.
 
 interface PluginContext {

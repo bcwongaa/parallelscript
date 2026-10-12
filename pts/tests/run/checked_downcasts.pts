@@ -1,0 +1,52 @@
+// A class value narrowed to a subclass is checked (SPEC §3.4): a type guard that lies
+// throws TypeError instead of reading fields the object doesn't have (it read past the
+// object before M6.0b5), while `instanceof` and honest guards narrow as before, also
+// where the value goes to a union of classes (`e instanceof A ? e : new B()`).
+class Base {
+  constructor(readonly id: number) {}
+}
+class Wide extends Base {
+  constructor(id: number, readonly label: string, readonly extra: number[]) {
+    super(id);
+  }
+}
+interface HasId {
+  id: number;
+}
+function isWide(b: Base): b is Wide {
+  return true; // lies for a Base
+}
+function isWideId(h: HasId): h is Wide {
+  return true;
+}
+const items: Base[] = [new Base(1), new Wide(2, "w", [1, 2])];
+for (const b of items) {
+  try {
+    if (isWide(b)) console.log("guard", b.label.length, b.extra.length);
+  } catch (error: any) {
+    console.log("guard", error.name);
+  }
+  try {
+    console.log("as", (b as Wide).label.length);
+  } catch (error: any) {
+    console.log("as", error.name);
+  }
+  const h: HasId = b;
+  try {
+    if (isWideId(h)) console.log("interface", h.label.length);
+  } catch (error: any) {
+    console.log("interface", error.name);
+  }
+  if (b instanceof Wide) console.log("instanceof", b.label);
+}
+
+class Fatal extends Error {}
+class Exhausted extends Error {}
+function outcome(last: Error): Fatal | Exhausted {
+  return last instanceof Fatal ? last : new Exhausted("gave up after " + last.message);
+}
+function kept(last: Error): Fatal | Exhausted {
+  if (last instanceof Fatal) return last;
+  return new Exhausted("kept " + last.message);
+}
+console.log(outcome(new Fatal("disk")).message, outcome(new Error("net")).message, kept(new Fatal("f")) instanceof Fatal, kept(new Error("e")).message);

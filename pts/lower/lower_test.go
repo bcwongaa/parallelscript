@@ -575,7 +575,7 @@ func Tile.constructor(this: Tile) void {
 }
 func measure(shape: Shape, tile: Tile, cube: Cube) number {
   14: if (shape instanceof Square) {
-    15: (let object = (shape as Square) in (object.side = (object.side + 1)))
+    15: (let object = checked Square(box(shape)) in (object.side = (object.side + 1)))
   }
   17: return ((((virtual Shape.area(shape) + Square.area((tile as Square))) + Cube.area(cube)) + Shape.twice((tile as Shape))) + tile.side)
 }

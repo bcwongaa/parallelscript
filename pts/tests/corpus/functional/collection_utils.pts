@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: `Object.fromEntries` of a value
+// skip: unsupported: PTS1001: `Object.fromEntries` of a value
 // Generic collection utilities: groupBy, zip, chunk, uniqBy, partition, countBy, keyBy, windows.
 
 function groupBy<T, K extends string | number>(xs: readonly T[], key: (x: T) => K): Map<K, T[]> {

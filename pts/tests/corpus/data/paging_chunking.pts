@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: using a {id: number; name: string}[] as a number[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is o...
 interface Page<T> {
   items: T[];
   page: number;

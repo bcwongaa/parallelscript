@@ -56,7 +56,7 @@ func (l *lowerer) isArrayConstructor(callee *ast.Node) bool {
 // other arguments are the elements. Without type arguments the array takes the type its
 // context gives it, where tsc says any[].
 func (l *lowerer) arrayConstructor(node *ast.Node, arguments []*ast.Node) ir.Expr {
-	t := l.irType(l.typeAt(node), node)
+	t := l.irType(l.instantiateMade(l.checker.GetTypeAtLocation(node)), node) // `Array<T>(n)` in erased code makes an any[], as `new Array<T>(n)` does
 	if contextual := l.contextualType(node); contextual != nil && node.TypeArgumentList() == nil {
 		if ct, ok := l.irType(contextual, node).(*ir.Array); ok && ct != nil {
 			t = ct

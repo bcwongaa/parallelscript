@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -60,6 +61,9 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 	if callback == nil {
 		return nil
 	}
+	if callback.Type() == ir.Value && !l.isTypedArray(array.Type()) {
+		return l.dynamicCallbackMethodCall(call, name, array, callback)
+	}
 	ft, ok := callback.Type().(*ir.FuncType)
 	if !ok {
 		l.notSupportedYet(args[0], fmt.Sprintf("a callback of type %s is", callback.Type()))
@@ -108,15 +112,24 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 // guard that narrows a's union elements (`shapes.filter(isCircle)` is a Circle[]), or
 // nil when it makes an array of a's own type.
 func (l *lowerer) guardedFilterResult(call *ast.CallExpression, array *ir.Array) *ir.Array {
-	union, ok := array.Elem.(*ir.Union)
-	if !ok {
-		return nil
-	}
 	result, ok := l.irType(l.typeAt(call.AsNode()), call.AsNode()).(*ir.Array)
-	if !ok || result == array || !isNarrowing(union, result.Elem) {
+	if !ok || result == array {
 		return nil
 	}
-	return result
+	if union, ok := array.Elem.(*ir.Union); ok && isNarrowing(union, result.Elem) {
+		return result
+	}
+	if isSubclassElement(array.Elem, result.Elem) {
+		return result // `staff.filter((e) => e instanceof Salaried)` is a Salaried[]
+	}
+	return nil
+}
+
+// isSubclassElement reports whether to is a class (not a shape) that descends from from, a class.
+func isSubclassElement(from, to ir.Type) bool {
+	base, ok := from.(*ir.Class)
+	sub, ok2 := to.(*ir.Class)
+	return ok && ok2 && !base.Shape && !sub.Shape && sub != base && sub.IsSubclassOf(base)
 }
 
 // arrayFromWithMapper lowers `Array.from(source, mapper)`: the mapper applied to each
@@ -258,7 +271,9 @@ func (h *helperBuilder) body() []ir.Stmt {
 		result := h.l.newLocal("result", resultType)
 		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: resultType})}, func(element, index ir.Expr) []ir.Stmt {
 			kept := element
-			if h.key.narrowed != nil {
+			if h.key.narrowed != nil && isSubclassElement(h.key.array.Elem, resultType.Elem) {
+				kept = downcast(element, resultType.Elem.(*ir.Class)) // the guard held for it, unless it lies (checked)
+			} else if h.key.narrowed != nil {
 				kept = &ir.FromUnion{X: element, To: resultType.Elem} // the guard held for it
 			}
 			return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(h.push(result, kept)))}
@@ -562,4 +577,27 @@ func (h *helperBuilder) ret(x ir.Expr) ir.Stmt { return &ir.Return{At: h.fn.Pos,
 
 func (h *helperBuilder) when(cond ir.Expr, then ...ir.Stmt) ir.Stmt {
 	return &ir.If{At: h.fn.Pos, Cond: cond, Then: &ir.Block{At: h.fn.Pos, Stmts: slices.Clone(then)}}
+}
+
+// dynamicCallbackMethodCall lowers `a.m(callback, …)` for a callback that is a dynamic
+// value (any, or a function of erased code's whose type mentions its type parameters,
+// D-078): the array's method found at run time calls it, and its result is converted
+// to the call's type with a check.
+func (l *lowerer) dynamicCallbackMethodCall(call *ast.CallExpression, name string, array ir.Expr, callback ir.Expr) ir.Expr {
+	if l.firstDynamicCall == nil {
+		l.firstDynamicCall = call.AsNode()
+	}
+	t := l.irType(l.typeAt(call.AsNode()), call.AsNode())
+	if t == nil {
+		return nil
+	}
+	operands := []ir.Expr{box(array), box(&ir.StringConst{Value: name}), &ir.StringConst{Value: scanner.GetTextOfNode(call.Expression)}, box(callback)}
+	for _, argument := range call.Arguments.Nodes[1:] {
+		value := l.valueExpression(argument)
+		if value == nil {
+			return nil
+		}
+		operands = append(operands, box(value))
+	}
+	return l.convert(&ir.CallBuiltin{Builtin: ir.DynamicCallMethod, Args: operands}, t, call.AsNode())
 }

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: destructuring a [string, boolean] | [string, null] with an array pattern
+// skip: unsupported: PTS1001: destructuring a [string, boolean] | [string, null] with an array pattern
 // A hand-written JSON parser and pretty-printer with sorted keys and compact arrays.
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 

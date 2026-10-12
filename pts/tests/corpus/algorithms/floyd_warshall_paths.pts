@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: a tuple's elements at an index that isn't a constant
+// skip: unsupported: PTS1001: a tuple's elements at an index that isn't a constant
 // Floyd-Warshall all-pairs shortest paths for flight connections, with route reconstruction.
 
 const airports = ["AMS", "CDG", "FRA", "LHR", "MAD", "FCO", "ZRH"] as const;

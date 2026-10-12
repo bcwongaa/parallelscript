@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: destructuring the property `length` of a number[]
 // Immediately-invoked function expressions for scoped initialization, lookup tables and feature flags.
 
 const VERSION = (() => {

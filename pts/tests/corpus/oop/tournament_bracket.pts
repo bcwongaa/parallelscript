@@ -1,4 +1,4 @@
-// skip: diverges: `seeded[i] ?? null` in a map callback tsc types as returning Team is null past the end (TypeError: Expected Team, got null)
+// skip: by design: D-038: `seeded[i] ?? null` in a map callback tsc types as returning Team is null past the end (TypeError: Expected Team, got null)
 // Single-elimination tournament bracket with seeding, byes, Elo ratings and a deterministic match simulator.
 
 class Team {

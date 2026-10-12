@@ -118,6 +118,47 @@ func TestCorpusMatchesNode(t *testing.T) {
 	}
 }
 
+// skipCategories are the kinds of cause a skipped corpus program's `// skip:` line starts
+// with (M6.0b5): a documented difference from Node (SPEC §8), a feature that isn't built
+// yet (PTS1001), or a bug, which the corpus report counts as intentional differences,
+// unsupported and failing.
+var skipCategories = []string{"by design", "unsupported", "bug"}
+
+// skipCategory is the category a corpus program's skip cause starts with (`by design:
+// D-038: …`), or "" if it starts with none.
+func skipCategory(skip string) string {
+	category, _, ok := strings.Cut(skip, ": ")
+	if !ok || !slices.Contains(skipCategories, category) {
+		return ""
+	}
+	return category
+}
+
+// TestCorpusSkipsAreClassified requires every skipped corpus program's cause to start
+// with its category, and logs the corpus report's counts (`corpus/report.sh` lists the
+// programs): the others are the programs TestCorpusMatchesNode requires to print what
+// Node prints.
+func TestCorpusSkipsAreClassified(t *testing.T) {
+	t.Parallel()
+	paths := testFiles(t, filepath.Join("corpus", "*"))
+	counts := map[string]int{}
+	for _, path := range paths {
+		spec, err := readSpec(path)
+		assert.NilError(t, err, "malformed test directives in %s", path)
+		if spec.skip == "" {
+			continue
+		}
+		category := skipCategory(spec.skip)
+		if category == "" {
+			t.Errorf("%s: the cause of a corpus skip starts with one of %q and a colon: %q", path, skipCategories, spec.skip)
+		}
+		counts[category]++
+	}
+	skipped := counts["by design"] + counts["unsupported"] + counts["bug"] + counts[""]
+	t.Logf("corpus: %d programs: %d Node-identical, %d intentional differences, %d unsupported, %d failing",
+		len(paths), len(paths)-skipped, counts["by design"], counts["unsupported"], counts["bug"])
+}
+
 func assertMatchesNode(t *testing.T, node string, path string) {
 	t.Helper()
 	spec := ensureSpec(t, path)

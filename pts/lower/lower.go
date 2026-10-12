@@ -2502,7 +2502,7 @@ func (l *lowerer) isStringElement(node *ast.Node) bool {
 		return false
 	}
 	access := node.AsElementAccessExpression()
-	return l.hasTypeFlags(access.Expression, checker.TypeFlagsStringLike) && l.hasTypeFlags(access.ArgumentExpression, checker.TypeFlagsNumberLike)
+	return l.isStringTyped(access.Expression) && l.hasTypeFlags(access.ArgumentExpression, checker.TypeFlagsNumberLike)
 }
 
 func (l *lowerer) hasTypeFlags(node *ast.Node, flags checker.TypeFlags) bool {
@@ -3185,7 +3185,12 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		return nil, nil
 	}
 	if t := l.numericType(node); t != nil && !isNullish(x.Type()) && !isNullish(y.Type()) { // `c ? undefined : n` is a number | undefined
-		x, y = l.convert(x, t, a), l.convert(y, t, b)
+		if !isNonNumeric(x.Type()) { // `c ? n : s` for a number | string keeps s a string
+			x = l.convert(x, t, a)
+		}
+		if x != nil && !isNonNumeric(y.Type()) {
+			y = l.convert(y, t, b)
+		}
 		if x == nil || y == nil {
 			return nil, nil
 		}
@@ -3234,6 +3239,12 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		return nil, nil
 	}
 	return x, y
+}
+
+// isNonNumeric reports whether values of type t are never numbers: not a numeric type, a
+// dynamic value, a union or a void call.
+func isNonNumeric(t ir.Type) bool {
+	return !ir.IsNumeric(t) && t != ir.Value && !isUnion(t) && t != ir.Void
 }
 
 // asContextualInterface converts two references to objects to the object type that the

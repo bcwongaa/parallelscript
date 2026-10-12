@@ -1056,11 +1056,21 @@ func (l *lowerer) asInstanceOf(object ir.Expr, class *ir.Class, node *ast.Node) 
 // reported (at node) as not supported yet.
 func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr {
 	from := value.Type().(*ir.Class)
-	if from.IsSubclassOf(to) || to.IsSubclassOf(from) && l.isNarrowedTo(node, to) {
+	switch {
+	case from.IsSubclassOf(to):
 		return &ir.ClassCast{X: value, To: to}
+	case to.IsSubclassOf(from) && l.isNarrowedTo(node, to):
+		return downcast(value, to)
 	}
 	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
 	return nil
+}
+
+// downcast is value, a reference to an object, as an instance of class, which the
+// checker narrowed it to: checked (TypeError: Expected …), since a type guard or a cast
+// may be wrong at run time, and the fields the program would read may not be there.
+func downcast(value ir.Expr, class *ir.Class) ir.Expr {
+	return &ir.FromUnion{X: box(value), To: class, Checked: true}
 }
 
 // isNarrowedTo reports whether the checker knows node to be an instance of class.

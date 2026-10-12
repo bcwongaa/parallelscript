@@ -1,4 +1,4 @@
-// skip: by design (D-068): an error's name is a field of its own, so Object.keys of an error doesn't list a name the constructor set
+// skip: by design: D-068: an error's name is a field of its own, so Object.keys of an error doesn't list a name the constructor set
 // A small user-registration service with a custom error hierarchy.
 
 class AppError extends Error {

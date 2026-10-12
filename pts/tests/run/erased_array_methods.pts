@@ -1,0 +1,12 @@
+// Arrays that erased code makes, and dynamic callbacks (D-078, M6.0b5): `Array<T>(n)`
+// makes an any[] as `new Array<T>(n)` does, its methods are found at run time, and a
+// callback whose type mentions an erased type parameter (or a callback of type any) is
+// called by the array method found at run time, its result converted with a check.
+const repeat = <T>(value: T, n: number): T[] => Array<T>(n).fill(value);
+const filled = <T>(value: T, n: number): T[] => new Array<T>(n).fill(value);
+const rest = <T>(value: T): T[] => [value, value, value].slice(1);
+console.log(repeat(7, 3), filled("x", 2), rest(true));
+const fold = <A>(xs: number[], next: (acc: A, x: number) => A, start: A): A => xs.reduce(next, start);
+console.log(fold([1, 2, 3], (acc: number, x: number) => acc + x, 0), fold([1, 2], (acc: string, x: number) => acc + x, ">"));
+const mapper: any = (x: number) => x * 10;
+console.log([1, 2, 3].map(mapper));

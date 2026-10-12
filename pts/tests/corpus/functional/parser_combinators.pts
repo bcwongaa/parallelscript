@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: converting {at: string; expected: string; ok: boolean} | {ok: boolean; rest: string; value: boolean} to {at: string; expected: string; ok: boolean} | {ok: boolean; rest:...
+// skip: unsupported: PTS1001: converting a Parser<boolean>'s result union to a Parser<string | number | boolean>'s (an object of another field representation; SPEC §3.4)
 // A tiny parser-combinator library used to parse arithmetic and key=value lists.
 
 type Result<T> = { ok: true; value: T; rest: string } | { ok: false; expected: string; at: string };

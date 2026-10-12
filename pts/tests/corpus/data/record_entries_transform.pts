@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: spreading a Record<string, number> into an object
+// skip: unsupported: PTS1001: spreading a Record<string, number> into an object
 type Currency = "USD" | "EUR" | "GBP" | "JPY";
 
 const priceList: Record<string, number> = {

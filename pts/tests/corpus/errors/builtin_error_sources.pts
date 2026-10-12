@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: values of type ErrorConstructor
+// skip: unsupported: PTS1001: values of type ErrorConstructor
 // Collects the built-in exceptions JavaScript itself throws from ordinary
 // library calls and reports their constructor names.
 

@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: object types with an index signature and methods, optional properties or properties of other types (TemplateStringsArray)
+// skip: unsupported: PTS1001: object types with an index signature and methods, optional properties or properties of other types (TemplateStringsArray)
 // Tagged template literals as functions: escaping, SQL-like parameter binding, dedent, and units.
 
 function html(strings: TemplateStringsArray, ...values: unknown[]): string {

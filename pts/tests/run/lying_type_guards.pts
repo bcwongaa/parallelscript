@@ -1,0 +1,34 @@
+// no-diff: Node keeps the elements a lying guard lets through, and reads undefined from them
+// A type guard that lies about a class (`e is Salaried` for an Employee) throws TypeError
+// where pts would otherwise hold an object as a class it isn't (SPEC §3.4, M6.0b5): in
+// `filter`, and in a branch the guard narrows. Node goes on with undefined properties.
+class Employee {
+  constructor(readonly name: string) {}
+}
+class Salaried extends Employee {
+  constructor(name: string, readonly salary: number) {
+    super(name);
+  }
+}
+const staff: Employee[] = [new Salaried("ada", 120), new Employee("bob")];
+try {
+  const all = staff.filter((e): e is Salaried => e.name.length > 0);
+  console.log(all.length);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+function isSalaried(e: Employee): e is Salaried {
+  return true;
+}
+for (const e of staff) {
+  try {
+    if (isSalaried(e)) console.log(e.name, e.salary);
+  } catch (error: any) {
+    console.log(error.name, error.message);
+  }
+}
+
+// expect:
+// TypeError Expected Salaried, got Employee
+// ada 120
+// TypeError Expected Salaried, got Employee

@@ -1,0 +1,40 @@
+// A class's method may provide an interface's method with fewer parameters (M6.0b5), as
+// a function value may (D-055): calls through the interface reach it through the
+// method's adapter, which leaves the extra arguments out, also when it is read as a
+// value through the interface, and a union of such classes converts to the interface.
+interface State {
+  readonly label: string;
+  insert(coins: number, note: string): string;
+  cancel(reason: string): string;
+}
+class Idle implements State {
+  readonly label = "idle";
+  insert(coins: number, note: string): string {
+    return `${this.label}: ${coins} (${note})`;
+  }
+  cancel(): string {
+    return "idle: nothing to cancel";
+  }
+}
+class SoldOut implements State {
+  readonly label = "sold out";
+  insert(): string {
+    return `${this.label}: refused`;
+  }
+  cancel(): string {
+    return "sold out: refunded";
+  }
+}
+function run(state: State): void {
+  console.log(state.insert(2, "two"), "|", state.cancel("asked"));
+  const cancel = state.cancel;
+  console.log(cancel("again"));
+}
+run(new Idle());
+run(new SoldOut());
+const empty = true;
+const next: State = empty ? new SoldOut() : new Idle();
+run(next);
+const states: State[] = [new SoldOut(), new Idle()];
+console.log(states.map((s) => s.insert(1, "one")));
+console.log(new SoldOut().insert());

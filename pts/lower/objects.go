@@ -551,6 +551,12 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		}
 		values[field] = value
 	}
+	lastWritten := map[*ir.Field]int{} // the last property written for each field
+	for i, part := range parts {
+		if part.source == nil {
+			lastWritten[part.field] = i
+		}
+	}
 	for i, part := range parts {
 		if part.source == nil {
 			if !isPure(part.value) {
@@ -572,6 +578,10 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			if field == nil || read == nil {
 				l.notSupportedYet(part.node, fmt.Sprintf("spreading the property `%s` of a %s is", name, source.Type()))
 				return nil
+			}
+			if last, ok := lastWritten[field]; ok && last > i {
+				set(field, nil) // a later property replaces it, whatever its type (`{ ...page, items: [] }`): only its place in the order counts
+				continue
 			}
 			if earlier, ok := values[field]; ok && isOptionalRead(read) {
 				read = l.spreadOver(read.(*ir.FieldRef), earlier, field, part.node)
@@ -869,7 +879,7 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 			return l.classCast(value, class, node)
 		}
 		if l.isNarrowedTo(node, class) {
-			return &ir.ClassCast{X: value, To: class}
+			return downcast(value, class)
 		}
 	} else if missing := unprovided(value.Type(), target.(*ir.Interface)); missing == "" {
 		return &ir.ClassCast{X: value, To: target}
@@ -939,15 +949,16 @@ func providesMethod(t ir.Type, method *ir.InterfaceMethod) bool {
 			return ft.Result == method.Result && slices.Equal(ft.Params[1:], method.Params)
 		}
 		own := from.Method(method.Name, ir.Plain)
-		if own == nil || own.Func.Result != method.Result || len(own.Func.Params) != len(method.Params)+1 {
+		if own == nil || own.Func.Result != method.Result || len(own.Func.Params) > len(method.Params)+1 {
 			return false
 		}
-		for i, param := range method.Params {
-			if own.Func.Params[i+1].Type != param {
+		for i, param := range own.Func.Params[1:] { // fewer parameters are called through the method's adapter
+			if param.Type != method.Params[i] {
 				return false
 			}
 		}
-		return true
+		n := len(own.Func.Params) - 1
+		return n == len(method.Params) || method.Params[n] != ir.Given // not a parameter the interface may leave out that the method requires
 	case *ir.Interface:
 		return from.Method(method.Name) != nil && slices.Equal(from.Method(method.Name).Params, method.Params) && from.Method(method.Name).Result == method.Result
 	}

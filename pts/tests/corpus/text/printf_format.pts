@@ -1,4 +1,4 @@
-// skip: by design (D-038): a function returns an array element past the end (`() => args[i++]`; RangeError, caught; JS gives undefined)
+// skip: by design: D-038: a function returns an array element past the end (`() => args[i++]`; RangeError, caught; JS gives undefined)
 // A printf-style formatter: %d %i %u %f %e %x %X %o %b %s %c %%, with flags (-, 0, +, space, #),
 // width, precision and '*' arguments, tested against hand-computed expectations.
 type Arg = number | string;

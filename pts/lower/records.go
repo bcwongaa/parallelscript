@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -160,7 +161,7 @@ func (l *lowerer) isRecordExpression(node *ast.Node) bool {
 func (l *lowerer) isRecordElement(node *ast.Node) bool {
 	switch node.Kind {
 	case ast.KindElementAccessExpression:
-		return l.isRecordExpression(node.Expression())
+		return l.isRecordExpression(node.Expression()) || l.isEnumKeyedElement(node)
 	case ast.KindPropertyAccessExpression:
 		return l.isRecordExpression(node.Expression()) && !l.isObjectPrototypeMember(node)
 	}
@@ -605,4 +606,11 @@ func (l *lowerer) forInKeys(object ir.Expr, key ir.Expr, node *ast.Node) (keys i
 		present = &ir.CallBuiltin{Builtin: ir.ValueHasOwn, Args: []ir.Expr{box(object), box(key)}} // a hash-map object's may be deleted
 	}
 	return keys, present
+}
+
+// isEnumKeyedElement reports whether node is E[k] for an enum E and a string key k that
+// names no member statically (`Op[name as keyof typeof Op]`): a read of E's object.
+func (l *lowerer) isEnumKeyedElement(node *ast.Node) bool {
+	key := ast.SkipParentheses(node.AsElementAccessExpression().ArgumentExpression)
+	return l.enumOf(node.Expression()) != nil && !ast.IsStringLiteralLike(key) && !check.IsNumber(l.typeAt(key))
 }

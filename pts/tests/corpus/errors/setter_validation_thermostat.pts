@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: `err.constructor`
+// skip: unsupported: PTS1001: `err.constructor`
 // A thermostat whose setters validate input and throw; getters derive
 // values. Shows that a failed setter leaves the old state intact.
 

@@ -1,0 +1,15 @@
+// `filter` with a guard that narrows a class's instances to a subclass makes an array of
+// the subclass (D-089, M6.0b5), whether tsc infers the guard (`instanceof`) or it is
+// written (`run/lying_type_guards.pts` has one that lies).
+class Employee {
+  constructor(readonly name: string) {}
+}
+class Salaried extends Employee {
+  constructor(name: string, readonly salary: number) {
+    super(name);
+  }
+}
+const staff: Employee[] = [new Salaried("ada", 120), new Employee("bob"), new Salaried("cy", 90)];
+const salaried = staff.filter((e) => e instanceof Salaried).sort((a, b) => a.salary - b.salary);
+console.log(salaried.map((s) => `${s.name}:${s.salary}`));
+staff.filter((e): e is Salaried => e instanceof Salaried).forEach((s) => console.log(s.name, s.salary * 2));

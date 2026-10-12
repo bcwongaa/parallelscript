@@ -1,4 +1,4 @@
-// skip: not supported yet: PTS1001: calling a {hits: () => number; size: () => number}
+// skip: unsupported: PTS1001: calling a {hits: () => number; size: () => number}
 // Memoization with Map caches: fibonacci, grid path counting, and a generic memoize wrapper.
 
 function memoize<A extends unknown[], R>(fn: (...args: A) => R, keyOf: (...args: A) => string): ((...args: A) => R) & { hits: () => number; size: () => number } {

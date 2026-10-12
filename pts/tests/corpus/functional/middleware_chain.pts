@@ -1,4 +1,4 @@
-// skip: by design (D-059): reads a header a Record<string, string> lacks into a local it compares with strings (RangeError; JS gives undefined)
+// skip: by design: D-059: reads a header a Record<string, string> lacks into a local it compares with strings (RangeError; JS gives undefined)
 // An Express-like middleware chain with synchronous `next` and error middleware.
 
 interface Request {

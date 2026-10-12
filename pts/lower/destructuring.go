@@ -167,6 +167,9 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	if read := propertyOf(source, name); read != nil {
 		return read
 	}
+	if read := lengthOrSize(source, name); read != nil {
+		return read
+	}
 	if m, ok := l.objectTypeMethod(source.Type(), name); ok {
 		return l.boundMethod(property, m, source, nil, name, false) // bound to the object, as `o.m` is (D-044)
 	}
@@ -554,4 +557,23 @@ func (l *lowerer) assignShorthand(element *ast.Node, value ir.Expr) ir.Expr {
 		return nil
 	}
 	return place{local: local}.store(value, false)
+}
+
+// lengthOrSize reads `length` of an array or a string and `size` of a map or set, the
+// properties of builtins an object pattern may name; nil for others.
+func lengthOrSize(source ir.Expr, name string) ir.Expr {
+	switch t := source.Type().(type) {
+	case *ir.Array:
+		if name == "length" {
+			return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}}
+		}
+	case *ir.MapType:
+		if name == "size" && !t.Record {
+			return &ir.MapCall{Op: ir.MapSize, Args: []ir.Expr{source}, Map: t}
+		}
+	}
+	if source.Type() == ir.String && name == "length" {
+		return &ir.CallBuiltin{Builtin: ir.StringLength, Args: []ir.Expr{source}}
+	}
+	return nil
 }

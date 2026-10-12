@@ -1,4 +1,3 @@
-// skip: not supported yet: PTS1001: converting value[] to number
 // A two-pass assembler for a toy accumulator machine: labels, comments, immediate and
 // memory operands, error reporting with line numbers, a disassembler and a simulator.
 enum Opcode { LDA = 0x10, LDI = 0x11, STA = 0x20, ADD = 0x30, ADI = 0x31, SUB = 0x40, JMP = 0x50, JZ = 0x51, JNZ = 0x52, OUT = 0x60, HLT = 0xff }
