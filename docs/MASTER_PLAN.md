@@ -225,7 +225,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M3.8 Milestone M3.** (m3)
 
 ## M4: Async on one loop
-- [ ] **M4.1a Generators** (split from M4.1 by D-109). An IR state-machine transform with heap frames; `function*` declarations, expressions and class methods; `yield` and `yield*` (over generators, arrays, strings, maps and sets); generator objects with `next`, `return`, `throw` and their results; `for…of`, spread, `Array.from` and array destructuring over generator objects, closing them when a loop or pattern stops early; `try`/`catch`/`finally` around yields.
+- [x] **M4.1a Generators** (714490c40) (split from M4.1 by D-109). An IR state-machine transform with heap frames; `function*` declarations, expressions and class methods; `yield` and `yield*` (over generators, arrays, strings, maps and sets); generator objects with `next`, `return`, `throw` and their results; `for…of`, spread, `Array.from` and array destructuring over generator objects, closing them when a loop or pattern stops early; `try`/`catch`/`finally` around yields.
 - [ ] **M4.1b Iterables and iterators** (split from M4.1 by D-109). The iteration protocol: `[Symbol.iterator]()` methods of classes and objects, `Iterable<T>`, `Iterator<T>` and `IterableIterator<T>` values of any object that provides them, objects with their own `next()`, generator objects' `[Symbol.iterator]()`, generator methods of object literals, `yield` inside larger expressions; unskip the corpus's iterator programs.
   - Map and Set iterators as values (`const it = m.keys()`, `it.next()`, `new Set(m.keys())`) (moved from M2.6d3 by D-056); array and string iterators as values.
 - [ ] **M4.2 Async and promises.**
