@@ -70,7 +70,7 @@ The order of work (`Program` in `lower.go`):
 
 The lowering asks tsc's checker for types everywhere and maps them to IR types (`irType`). Its main choices:
 
-- **Generics are monomorphized.** Each generic function or class gets one instance per distinct list of IR type arguments (D-049, D-050). A generic function used as a value where no single instance fits becomes an erased copy over dynamic values (D-078).
+- **Generics are monomorphized.** Each generic function or class gets one instance per distinct list of IR type arguments (D-049, D-050). A generic function used as a value where no single instance fits becomes an erased copy over dynamic values (D-078). Its closure's descriptor, and the descriptors of classes whose generic methods are dispatched by name (D-101), list the instances that typed calls look up by signature at run time, so that what such a call gets is made for its type arguments (D-148).
 - **Narrowing is tsc's.** Where tsc narrows a union, the lowering inserts a conversion (D-062).
 - **`finally` is lowered** to plain tries and jumps, so the C emitter never sees it (D-068).
 - **Generators and async functions stay structured.** `yield` and `await` become `ir.Yield` statements. A yield inside a larger expression is hoisted into frame locals first (D-109, D-111, D-112).

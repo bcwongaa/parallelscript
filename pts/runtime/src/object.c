@@ -126,6 +126,18 @@ pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t
   return object->type->methods[index].dynamic(object, argc, argv);
 }
 
+pts_function pts_instance_find(const void *value, const char *name, const pts_check *signature) {
+  for (const pts_type *type = ((const pts_object *)value)->type; type != NULL; type = type->parent) {
+    for (uint32_t i = 0; i < type->instance_count; i++) {
+      const pts_instance *instance = &type->instances[i];
+      if (instance->signature == signature && (name == NULL ? instance->name == NULL : instance->name != NULL && strcmp(instance->name, name) == 0)) {
+        return instance->function;
+      }
+    }
+  }
+  return NULL;
+}
+
 /* Whether a field or accessor declared `declared` is exactly what a site of check's type writes: then the site may cache it (D-072). */
 static bool exact(pts_field_kind kind, const pts_check *declared, const pts_check *check) {
   return check == NULL || pts_check_same(pts_check_declared(kind, declared), check);

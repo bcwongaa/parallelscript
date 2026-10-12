@@ -325,6 +325,8 @@ func FormatExpr(expr Expr) string {
 		return "virtual " + e.Method.Func.Name + formatArgs(e.Args)
 	case *InterfaceCall:
 		return "interface " + e.Method.Name + formatArgs(e.Args)
+	case *InstanceCall:
+		return "instance " + e.Name + formatArgs(append([]Expr{e.X}, e.Args...)) + " else " + FormatExpr(e.Otherwise)
 	case *NewArray:
 		if e.Length != nil {
 			return "new " + e.Array.String() + "(" + FormatExpr(e.Length) + ")"

@@ -659,7 +659,7 @@ func mayRecurse(f *ir.Func) bool {
 	found := false
 	ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
 		switch x := x.(type) {
-		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
+		case *ir.Call, *ir.CallValue, *ir.VirtualCall, *ir.InterfaceCall, *ir.InstanceCall, *ir.New, *ir.ArrayCall, *ir.ToString:
 			found = true
 		case *ir.CallBuiltin: // one that may convert an object to a string calls its toString()
 			found = found || !ir.IsConsole(x.Builtin) && slices.ContainsFunc(x.Args, func(arg ir.Expr) bool { return isDynamic(arg.Type()) || isObject(arg.Type()) })
@@ -913,6 +913,8 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.InterfaceCall:
 		e.receiverMembers[x.Args[0]] = x.Method.Name
 		return e.interfaceCall(x)
+	case *ir.InstanceCall:
+		return e.instanceCall(x)
 	case *ir.NewArray:
 		return e.newArray(x)
 	case *ir.ArrayCall:

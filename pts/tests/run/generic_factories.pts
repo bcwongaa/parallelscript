@@ -1,0 +1,114 @@
+// Erased generic factories (D-148): a generic function, static method or generic const
+// passed as a value of a generic function type, and an abstract or overridden generic
+// method, make generic class instances that convert to the type each typed call gives
+// them: the call finds the monomorphized instance for its type arguments.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(value: T): Box<T> {
+  return new Box(value);
+}
+function exercise(label: string, factory: <T>(value: T) => Box<T>): void {
+  const box: Box<number> = factory(9);
+  const named: Box<string> = factory("nine");
+  console.log(label, box.value + 1, named.value.length, box instanceof Box, named);
+}
+exercise("declaration", make);
+class Boxes {
+  static of<T>(value: T): Box<T> {
+    return new Box(value);
+  }
+}
+exercise("static", Boxes.of);
+const boxed = <T>(value: T): Box<T> => new Box(value);
+exercise("const", boxed);
+
+// The review's probe 3.
+function probe(factory: <T>(value: T) => Box<T>): void {
+  try {
+    const box: Box<number> = factory(9);
+    console.log("box", box.value);
+  } catch (error: any) {
+    console.log("generic", error.name, error.message);
+  }
+}
+probe(make);
+
+// Tuples of instances, and a generic function calling a generic value with its own type
+// parameter and with an instance of it.
+function pairUp<A, B>(a: A, b: B): [Box<A>, Box<B>] {
+  return [new Box(a), new Box(b)];
+}
+function usePairer(pairer: <A, B>(a: A, b: B) => [Box<A>, Box<B>]): void {
+  const [x, y] = pairer(21, "one");
+  console.log(x.value * 2, y.value.toUpperCase());
+}
+usePairer(pairUp);
+function twice<T>(factory: <U>(value: U) => Box<U>, value: T): Box<Box<T>> {
+  return factory(factory(value));
+}
+const nested = twice(make, 5);
+console.log(nested.value.value + 1, nested);
+
+// A value that makes no generic class instances keeps its erased copy.
+function wrap<T>(value: T): T[] {
+  return [value, value];
+}
+function useWrap(f: <T>(value: T) => T[]): void {
+  const xs: number[] = f(3);
+  console.log(xs.length, xs[0] + xs[1]);
+}
+useWrap(wrap);
+
+// Abstract generic methods (D-101): each class's instance for the call's type arguments.
+abstract class Option<T> {
+  abstract map<U>(f: (v: T) => U): Option<U>;
+  abstract getOrElse(d: T): T;
+}
+class Some<T> extends Option<T> {
+  constructor(readonly value: T) {
+    super();
+  }
+  map<U>(f: (v: T) => U): Option<U> {
+    return new Some(f(this.value));
+  }
+  getOrElse(): T {
+    return this.value;
+  }
+}
+class None<T> extends Option<T> {
+  map<U>(): Option<U> {
+    return new None<U>();
+  }
+  getOrElse(d: T): T {
+    return d;
+  }
+}
+const options: Option<string>[] = [new Some("four"), new None<string>()];
+for (const option of options) {
+  const lengths: Option<number> = option.map((s) => s.length);
+  console.log(lengths.getOrElse(-1) + 1, lengths instanceof Some, lengths);
+}
+
+// An overridden generic method whose override returns its own class, in generic classes
+// whose instances the erased copies made after the method joined the method tables.
+class Shelf<T> {
+  constructor(readonly items: T[]) {}
+  mapAll<U>(f: (v: T) => U): Shelf<U> {
+    const out: U[] = [];
+    for (const item of this.items) out.push(f(item));
+    return new Shelf(out);
+  }
+}
+class SortedShelf<T> extends Shelf<T> {
+  mapAll<U>(f: (v: T) => U): SortedShelf<U> {
+    const out: U[] = [];
+    for (const item of this.items) out.push(f(item));
+    return new SortedShelf(out.sort());
+  }
+}
+const shelves: Shelf<number>[] = [new Shelf([3, 1, 2]), new SortedShelf([3, 1, 2])];
+for (const shelf of shelves) {
+  const labels: Shelf<string> = shelf.mapAll((n) => "#" + n);
+  console.log(labels.items.join(","), labels.constructor.name);
+}

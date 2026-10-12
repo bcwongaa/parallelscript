@@ -1,0 +1,42 @@
+// no-diff: Node doesn't check conversions from any, so it prints the boxes
+// Typed calls of generic function values take the erased copy where the value lists no
+// instance of their signature (D-148): a generic arrow function that isn't a module-scope
+// const, and a factory whose instance would narrow its value to a type it can't have
+// (`typeof x === "number"` for a string), which instances don't lower (D-102). Its
+// instance for number is listed, and the program compiles.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function show<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("a number", x + 1);
+  }
+  return new Box(x);
+}
+function use(f: <T>(x: T) => Box<T>): void {
+  try {
+    const n: Box<number> = f(2);
+    console.log("number", n.value);
+  } catch (error: any) {
+    console.log(error.name, error.message);
+  }
+  try {
+    const s: Box<string> = f("s");
+    console.log("string", s.value);
+  } catch (error: any) {
+    console.log(error.name, error.message);
+  }
+}
+use(show);
+use(<T>(x: T) => new Box(x));
+const anyShow: any = show;
+console.log(anyShow(5).value);
+
+// expect:
+// a number 3
+// number 2
+// TypeError Expected Box<string>, got Box<any>
+// TypeError Expected Box<number>, got Box<any>
+// TypeError Expected Box<string>, got Box<any>
+// a number 6
+// 5

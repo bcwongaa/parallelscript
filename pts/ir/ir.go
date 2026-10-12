@@ -85,9 +85,10 @@ type Class struct {
 	Module      *Module // nil for a shape
 	Parent      *Class  // the superclass, or nil
 	Abstract    bool
-	Fields      []*Field  // the fields it declares, not those it inherits or redeclares
-	Constructor *Func     // runs the field initialisers, then the constructor's body; in a subclass, the initialisers run when super(...) returns
-	Methods     []*Method // the methods it declares, overrides included
+	Fields      []*Field    // the fields it declares, not those it inherits or redeclares
+	Constructor *Func       // runs the field initialisers, then the constructor's body; in a subclass, the initialisers run when super(...) returns
+	Methods     []*Method   // the methods it declares, overrides included
+	Instances   []*Instance // the instances of the generic methods it declares that dispatched calls find (D-148)
 
 	// Shape marks the anonymous struct type of an object type (D-033): only Fields, in
 	// name order. Its objects print without a class name, each listing its properties in
@@ -482,6 +483,9 @@ type Func struct {
 	// show as the function they wrap.
 	Adapts bool
 	Binds  bool
+	// Instances, for a function whose closures are a generic function's erased copy, are
+	// the instances of the generic function that typed calls of the closures find (D-148).
+	Instances []*Instance
 	// Extern is the runtime function that implements a method of a Builtin class; such a
 	// function has no Body and isn't among the program's functions.
 	Extern string
@@ -965,6 +969,27 @@ type VirtualCall struct {
 	Args   []Expr
 }
 
+// Instance is a monomorphized instance of a generic function or method that typed calls
+// knowing their type arguments find at run time by its signature, instead of the erased
+// copy a function value or a method table holds (D-148).
+type Instance struct {
+	Name      string    // the method's; "" for a function value's
+	Signature *FuncType // the calls' function type, after `this` for a method
+	Func      *Func     // nil for a method that has no instance of Signature, which ends the search
+}
+
+// InstanceCall calls the instance of Signature (D-148) that X lists, with X and Args: X is a
+// closure, or for a method named Name an object, whose class or nearest ancestor with an
+// entry for the method lists it. If there is none, it is Otherwise, a call of the erased
+// copy. X and Args are local references, which Otherwise uses too.
+type InstanceCall struct {
+	X         Expr
+	Name      string
+	Signature *FuncType
+	Args      []Expr
+	Otherwise Expr
+}
+
 // InterfaceCall calls a method of an interface on Args[0], a reference of that interface
 // type: the method that the class of the object it refers to has, found at run time.
 type InterfaceCall struct {
@@ -1443,6 +1468,7 @@ func (*SpreadArg) Type() Type       { return Value }
 func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
 func (e *Call) Type() Type          { return e.Func.Result }
 func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
+func (e *InstanceCall) Type() Type  { return e.Signature.Result }
 func (e *InterfaceCall) Type() Type { return e.Method.Result }
 func (e *NewArray) Type() Type      { return e.Array }
 func (e *MakeClosure) Type() Type   { return e.FuncType }

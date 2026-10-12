@@ -81,6 +81,8 @@ func children(x Expr) []Expr {
 		return append([]Expr{x.Callee}, x.Args...)
 	case *VirtualCall:
 		return x.Args
+	case *InstanceCall:
+		return append(append([]Expr{x.X}, x.Args...), x.Otherwise)
 	case *InterfaceCall:
 		return x.Args
 	case *ArrayCall:

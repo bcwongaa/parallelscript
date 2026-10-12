@@ -151,7 +151,8 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
-		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{}}
+		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
+		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}}
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	l.collectOutsideAssignments(program.Modules)
@@ -193,8 +194,10 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		l.function.Body = l.block(file.AsNode(), file.Statements.Nodes)
 	}
 	// Function bodies come last, when every module-scope binding they may use is known;
-	// then the instances of generic functions that the bodies call, and that they call.
-	for len(l.bodies) > 0 || len(l.instances) > 0 || len(l.classInstanceBodies) > 0 {
+	// then the instances of generic functions that the bodies call, and that they call,
+	// and the instances that typed calls of erased copies look up (D-148).
+lowering:
+	for {
 		switch {
 		case len(l.bodies) > 0:
 			body := l.bodies[0]
@@ -204,10 +207,12 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 			inst := l.instances[0]
 			l.instances = l.instances[1:]
 			l.instanceBody(inst)
-		default:
+		case len(l.classInstanceBodies) > 0:
 			inst := l.classInstanceBodies[0]
 			l.classInstanceBodies = l.classInstanceBodies[1:]
 			l.classInstanceBody(inst)
+		case !l.specialize():
+			break lowering
 		}
 	}
 	result.Funcs = append(result.Funcs, l.lowered...)
@@ -291,6 +296,10 @@ type lowerer struct {
 	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
 	reports             int                              // how many diagnostics were reported, repeats included
 	genericConsts       map[*ast.Symbol]*genericFunc     // module-scope consts of generic arrow functions, whose calls are monomorphized (D-102)
+	genericConstNodes   map[*ast.Node]*genericFunc       // the same, by their functions
+	demands             []*demand                        // the typed calls of erased copies that look up instances (D-148)
+	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
+	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped

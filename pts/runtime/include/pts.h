@@ -114,6 +114,18 @@ typedef struct pts_method {
 } pts_method;
 
 /*
+ * A monomorphized instance of a generic function or method (D-148), which a typed call
+ * that knows its type arguments finds by its signature, where it would otherwise call the
+ * erased copy a function value or a method table holds: a closure's descriptor lists its
+ * function's instances, a class's descriptor those of the generic methods it declares.
+ */
+typedef struct pts_instance {
+  const char *name;                  /* the method's; NULL for a function value's */
+  const struct pts_check *signature; /* the call's function type, after the closure or `this` */
+  pts_function function;             /* takes the closure or the object first; NULL if the method has none of this signature, which ends the search */
+} pts_instance;
+
+/*
  * Every runtime type has a descriptor, and every heap object starts with a pointer
  * to its type's. The descriptor is also the object's layout for the collector:
  * bdwgc's gcj-style allocation reads gc_descr from the descriptor's second word.
@@ -137,6 +149,8 @@ typedef struct pts_type {
   const struct pts_check *signature; /* a closure's function type, which its code takes and returns (D-075) */
   uint32_t length;                   /* a closure's function's `length` in JS (D-098) */
   const char *display_name;          /* a generic class instance's name with its type arguments (Box<number>), for errors (D-147) */
+  uint32_t instance_count;
+  const pts_instance *instances; /* a closure's function's instances, or the instances of a class's own generic methods (D-148) */
 } pts_type;
 
 _Static_assert(offsetof(pts_type, gc_descr) == sizeof(GC_word), "bdwgc's gcj allocation reads the descriptor from word 1");
@@ -942,6 +956,12 @@ pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t ar
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* Calls the method name of object through its dynamic entry, as a method adapter does (D-078). */
 pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t argc, const pts_value *argv);
+/*
+ * The instance of signature (D-148) that value, a closure, lists for its function (name
+ * NULL), or that the nearest class of the object value with an entry for its method name
+ * lists; NULL if there is none, and then the call takes the erased copy.
+ */
+pts_function pts_instance_find(const void *value, const char *name, const struct pts_check *signature);
 /* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
 pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);

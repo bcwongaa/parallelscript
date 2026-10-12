@@ -98,6 +98,8 @@ func effectsOf(expr ir.Expr) effects {
 		return callEffects(x.Args)
 	case *ir.InterfaceCall:
 		return callEffects(x.Args)
+	case *ir.InstanceCall:
+		return callEffects(append([]ir.Expr{x.X}, x.Args...)) | effectsOf(x.Otherwise)
 	case *ir.ArrayCall:
 		f := arrayEffects(x.Op)
 		for _, arg := range x.Args {

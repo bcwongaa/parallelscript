@@ -93,6 +93,7 @@ func (e *emitter) closureDefinitions() {
 		case f.Binds:
 			jsName = "NULL /* bound: console.log shows \"bound \" and the name of the function it binds */"
 		}
+		instances := e.instanceTable("closure_"+name, f.Instances)
 		e.line(0, "static const pts_type pts_type_closure_%s = {", name)
 		e.line(1, ".kind = PTS_KIND_FUNCTION,")
 		e.line(1, ".gc_descr = %s,", layout)
@@ -115,6 +116,9 @@ func (e *emitter) closureDefinitions() {
 		if e.declaredTypes {
 			e.line(1, ".call = %s,", closureDynamicEntry(name))
 			e.line(1, ".signature = %s,", e.signatureCheck(paramTypes(f.Params), f.Result))
+		}
+		for _, member := range instances {
+			e.line(1, "%s,", member)
 		}
 		e.line(0, "};")
 		code := e.funcNames[f]

@@ -334,6 +334,7 @@ func (e *emitter) classDescriptors(classes []*ir.Class) {
 		if class.Display != "" {
 			members = append(members, ".display_name = "+cString(class.Display))
 		}
+		members = append(members, e.instanceTable(name, class.Instances)...)
 		if !hasMethodTable(class) {
 			e.line(0, "static const pts_type pts_type_%s = {", name)
 			for _, member := range members {
@@ -847,6 +848,77 @@ func (e *emitter) interfaceCall(call *ir.InterfaceCall) string {
 	}
 	function := fmt.Sprintf("((%s(*)(%s))({ static pts_site %s; %s; }))", e.declarator(call.Method.Result), strings.Join(params, ", "), site, find)
 	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
+}
+
+// instanceCall writes a call of the instance (D-148) that the closure or object X lists
+// for the call's signature, or if it lists none, of the erased copy (Otherwise). X and the
+// arguments are locals, which both calls read.
+func (e *emitter) instanceCall(call *ir.InstanceCall) string {
+	x := e.expr(call.X)
+	name, params := "NULL", []string{"pts_closure *"}
+	if call.Name != "" {
+		name, params = cString(call.Name), []string{"pts_object *"}
+	}
+	args := []string{"(" + params[0] + ")" + x}
+	for i, arg := range call.Args {
+		params = append(params, strings.TrimSuffix(e.declarator(call.Signature.Params[i]), " "))
+		args = append(args, e.expr(arg))
+	}
+	found := e.temporary()
+	return fmt.Sprintf("({ pts_function %s = pts_instance_find(%s, %s, %s); %s != NULL ? ((%s(*)(%s))%s)(%s) : %s; })", found, x, name,
+		e.signatureCheck(call.Signature.Params, call.Signature.Result), found, e.declarator(call.Signature.Result), strings.Join(params, ", "), found,
+		strings.Join(args, ", "), e.expr(call.Otherwise))
+}
+
+// instanceTable writes the table of the instances (D-148) that a closure's or class's
+// descriptor (owner) lists, with an entry of each one's signature: it takes the closure
+// or the object, then the call's arguments, and calls the instance with those it takes.
+// It returns the descriptor's members for the table, or nil if there is none.
+func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string {
+	if len(instances) == 0 {
+		return nil
+	}
+	entries := make([]string, len(instances))
+	for i, inst := range instances {
+		entries[i] = "NULL"
+		if inst.Func == nil {
+			continue
+		}
+		entries[i] = fmt.Sprintf("pts_instance_%s_%d", owner, i+1)
+		params, args, takes := []string{"pts_closure *pts_env"}, []string(nil), inst.Func.Params
+		if inst.Name != "" {
+			params = []string{"pts_object *self"}
+			args = []string{"(" + strings.TrimSuffix(e.declarator(takes[0].Type), " ") + ")self"}
+			takes = takes[1:]
+		}
+		for j, param := range inst.Signature.Params {
+			arg := fmt.Sprintf("a%d", j+1)
+			params = append(params, e.declarator(param)+arg)
+			if j < len(takes) {
+				args = append(args, arg)
+			}
+		}
+		call := e.funcNames[inst.Func] + "(" + strings.Join(args, ", ") + ")"
+		switch {
+		case inst.Signature.Result == ir.Void:
+		case inst.Func.Result != inst.Signature.Result: // a covariant result, a pointer to a subclass's instance
+			call = "return (" + strings.TrimSuffix(e.declarator(inst.Signature.Result), " ") + ")" + call
+		default:
+			call = "return " + call
+		}
+		e.line(0, "static %s%s(%s) { %s; }", e.declarator(inst.Signature.Result), entries[i], strings.Join(params, ", "), call)
+	}
+	table := "pts_instances_" + owner
+	e.line(0, "static const pts_instance %s[] = {", table)
+	for i, inst := range instances {
+		name := "NULL"
+		if inst.Name != "" {
+			name = cString(inst.Name)
+		}
+		e.line(1, "{%s, %s, (pts_function)%s},", name, e.signatureCheck(inst.Signature.Params, inst.Signature.Result), entries[i])
+	}
+	e.line(0, "};")
+	return []string{fmt.Sprintf(".instance_count = %d", len(instances)), ".instances = " + table}
 }
 
 // classCast writes an instance as one of a related class: their structs start alike.

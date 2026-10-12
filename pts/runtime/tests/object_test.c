@@ -112,6 +112,53 @@ static void instance_of_follows_the_parent_chain(void) {
   CHECK(!pts_instance_of(lp, &node_type));
 }
 
+/* Instances of generic methods and of a function value's function (D-148), and the signatures calls find them by. */
+static const pts_check signature_number = {.kind = PTS_CHECK_FUNCTION, .name = "(number) => Box<number>"};
+static const pts_check signature_string = {.kind = PTS_CHECK_FUNCTION, .name = "(string) => Box<string>"};
+
+static double base_instance(pts_object *self) {
+  (void)self;
+  return 1;
+}
+
+static double override_instance(pts_object *self) {
+  (void)self;
+  return 2;
+}
+
+static const pts_instance base_instances[] = {{"map", &signature_number, (pts_function)base_instance}, {"map", &signature_string, (pts_function)base_instance}};
+static const pts_instance override_instances[] = {{"map", &signature_number, (pts_function)override_instance}, {"map", &signature_string, NULL}};
+static const pts_instance closure_instances[] = {{NULL, &signature_number, (pts_function)base_instance}};
+
+static const pts_type instances_base_type = {
+    .kind = PTS_KIND_OBJECT, .gc_descr = PTS_GC_NO_POINTERS, .name = "Base", .size = sizeof(pts_object), .instance_count = 2, .instances = base_instances};
+static const pts_type instances_override_type = {.kind = PTS_KIND_OBJECT,
+                                                 .gc_descr = PTS_GC_NO_POINTERS,
+                                                 .name = "Override",
+                                                 .parent = &instances_base_type,
+                                                 .size = sizeof(pts_object),
+                                                 .instance_count = 2,
+                                                 .instances = override_instances};
+static const pts_type instances_leaf_type = {
+    .kind = PTS_KIND_OBJECT, .gc_descr = PTS_GC_NO_POINTERS, .name = "Leaf", .parent = &instances_override_type, .size = sizeof(pts_object)};
+static const pts_type instances_closure_type = {
+    .kind = PTS_KIND_FUNCTION, .gc_descr = PTS_GC_NO_POINTERS, .name = "make", .size = sizeof(pts_closure), .instance_count = 1, .instances = closure_instances};
+
+static void instances_are_found_by_name_and_signature(void) {
+  pts_object *base = pts_object_new(&instances_base_type);
+  pts_object *leaf = pts_object_new(&instances_leaf_type);
+  pts_closure *make = pts_object_new(&instances_closure_type);
+  CHECK(pts_instance_find(base, "map", &signature_number) == (pts_function)base_instance);
+  CHECK(pts_instance_find(base, "map", &signature_string) == (pts_function)base_instance);
+  CHECK(pts_instance_find(leaf, "map", &signature_number) == (pts_function)override_instance); /* the nearest class's */
+  CHECK(pts_instance_find(leaf, "map", &signature_string) == NULL); /* the override has none, so the base's would be the wrong method */
+  CHECK(pts_instance_find(base, "flatMap", &signature_number) == NULL);
+  CHECK(pts_instance_find(base, NULL, &signature_number) == NULL); /* a method's instance isn't a function value's */
+  CHECK(pts_instance_find(make, NULL, &signature_number) == (pts_function)base_instance);
+  CHECK(pts_instance_find(make, NULL, &signature_string) == NULL);
+  CHECK(pts_instance_find(make, "map", &signature_number) == NULL);
+}
+
 /* An object with a property x at another offset than point's. */
 typedef struct tagged {
   const pts_type *type;
@@ -406,6 +453,7 @@ int main(int argc, char **argv) {
   pointer_free_objects_are_allocated_atomic();
   methods_are_found_through_the_descriptor();
   instance_of_follows_the_parent_chain();
+  instances_are_found_by_name_and_signature();
   field_addresses_are_cached_per_layout();
   method_sites_cache_the_index_per_layout();
   property_sites_use_fields_or_accessors();

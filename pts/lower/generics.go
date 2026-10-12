@@ -185,6 +185,7 @@ func (l *lowerer) declareGenericConsts(statement *ast.Node) {
 			generic.parameters = append(generic.parameters, l.checker.GetDeclaredTypeOfSymbol(parameter.Symbol()))
 		}
 		l.genericConsts[l.declaredSymbol(declaration)] = generic
+		l.genericConstNodes[fn] = generic
 	}
 }
 
@@ -223,24 +224,12 @@ func (l *lowerer) makesGenericInstances(generic *genericFunc, seen map[*genericF
 	return found
 }
 
-// returnsGenericObjects reports whether a generic const's function returns objects of a
+// returnsGenericObjects reports whether a generic function's result may hold objects of a
 // type that mentions its type parameters other than an array's (`List<T>`, `Parser<T>`,
-// `Map<K, V>`): its erased copy would make them for any (`List<any>`), which doesn't
-// convert to an instance's type, as instances of generic classes don't (D-102).
+// `Map<K, V>`, `Box<T>[]`): its erased copy would make them for any (`List<any>`), which
+// don't convert to an instance's type, as instances of generic classes don't (D-102).
 func (l *lowerer) returnsGenericObjects(generic *genericFunc) bool {
-	result := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(generic.node))
-	members := []*checker.Type{result}
-	if result.Flags()&checker.TypeFlagsUnion != 0 {
-		members = result.Types()
-	}
-	anys := make([]*checker.Type, len(generic.parameters))
-	for i := range anys {
-		anys[i] = l.checker.GetAnyType()
-	}
-	return slices.ContainsFunc(members, func(m *checker.Type) bool {
-		return m.Flags()&checker.TypeFlagsObject != 0 && !l.checker.IsArrayType(m) &&
-			l.checker.PtsInstantiateType(m, generic.parameters, anys) != l.checker.PtsInstantiateType(m, generic.parameters, generic.parameters)
-	})
+	return l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(generic.node)), generic.parameters)
 }
 
 // isGeneric reports whether a declaration has type parameters of its own, other than as
@@ -417,7 +406,15 @@ func (l *lowerer) genericValue(node *ast.Node, generic *genericFunc) ir.Expr {
 	if fn == nil {
 		return nil
 	}
+	l.addErasedValueOf(fn, generic)
 	return l.functionValue(node, fn)
+}
+
+// addErasedValueOf records fn as an erased value (D-148) if it is generic's erased copy.
+func (l *lowerer) addErasedValueOf(fn *ir.Func, generic *genericFunc) {
+	if generic.erased != nil && generic.erased.fn == fn {
+		l.addErasedValue(fn, generic)
+	}
 }
 
 // valueInstance is the function a generic function or method of type t (node names it)
@@ -439,6 +436,7 @@ func (l *lowerer) genericMethodValue(node *ast.Node, generic *genericFunc) ir.Ex
 		return nil
 	}
 	if generic.static != nil {
+		l.addErasedValueOf(fn, generic)
 		return l.functionValue(node, fn)
 	}
 	receiver := l.expression(node.Expression())
@@ -547,7 +545,8 @@ func (l *lowerer) declareGenericMethod(member *ast.Node, class *ir.Class) {
 	case member.Kind != ast.KindMethodDeclaration:
 		l.notSupportedYet(nameOf(member), "generic accessors are")
 		return
-	case !ast.IsStatic(member) && class.Parent != nil && class.Parent.Method(name, ir.Plain) != nil:
+	case !ast.IsStatic(member) && class.Parent != nil && class.Parent.Method(name, ir.Plain) != nil && l.inheritedGenericMethod(class.Parent, name) == nil:
+		// (A generic method's erased copy in a method table is a plain method.)
 		l.notSupportedYet(nameOf(member), "overriding a method with a generic method is")
 		return
 	}
@@ -588,6 +587,9 @@ func (l *lowerer) dispatchedGenericCall(call *ast.CallExpression, generic *gener
 	receiver := l.expression(receiverNode)
 	if method == nil || receiver == nil {
 		return nil
+	}
+	if x, ok := l.dispatchedInstanceCall(call, generic, receiver, method); ok {
+		return x // the instance of the receiver's class's method, if it lists one (D-148)
 	}
 	args := l.typedArguments(call.Arguments.Nodes, method.Params)
 	if args == nil {

@@ -66,6 +66,28 @@ func (e *emitter) collectChecks(program *ir.Program) {
 	for _, t := range targets {
 		e.check(t)
 	}
+	e.collectInstanceSignatures(program)
+}
+
+// collectInstanceSignatures names the checks of the signatures that instance calls look
+// instances up by and instance tables list them by (D-148).
+func (e *emitter) collectInstanceSignatures(program *ir.Program) {
+	signature := func(ft *ir.FuncType) { e.check(e.canonicalFuncType(ft.Params, ft.Result)) }
+	for _, f := range program.Funcs {
+		for _, inst := range f.Instances {
+			signature(inst.Signature)
+		}
+		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
+			if call, ok := x.(*ir.InstanceCall); ok {
+				signature(call.Signature)
+			}
+		})
+	}
+	for _, class := range program.Classes {
+		for _, inst := range class.Instances {
+			signature(inst.Signature)
+		}
+	}
 }
 
 // collectDeclaredTypes names, if descriptors carry declared types, the checks of every

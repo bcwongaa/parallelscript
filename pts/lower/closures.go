@@ -161,6 +161,9 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 		l.locals[l.declaredSymbol(node)] = fn.Self
 	}
 	l.inFunction(fn, func() { fn.Body = l.functionExpressionBody(node) })
+	if generic := l.genericConstNodes[node]; generic != nil {
+		l.addErasedValue(fn, generic) // a generic const's value, whose calls by name are its instances' (D-102, D-148)
+	}
 	ft := l.typeOfFunc(fn)
 	return &ir.MakeClosure{Func: fn, FuncType: ft}
 }
@@ -442,6 +445,9 @@ func (l *lowerer) valueCall(call *ast.CallExpression) ir.Expr {
 		l.notSupportedYet(call.Expression, fmt.Sprintf("calling a %s is", callee.Type()))
 		return nil
 	}
+	if x, ok := l.instanceValueCall(call, callee, ft); ok {
+		return x // a generic function type's, which an erased copy with instances may be (D-148)
+	}
 	args := l.typedArguments(call.Arguments.Nodes, ft.Params)
 	if args == nil {
 		return nil
@@ -464,11 +470,7 @@ func isFunctionUnion(t ir.Type) bool {
 // the type tsc gives the call, with a check (D-078), or to the union of object types its
 // result goes to (objectUnionContext).
 func (l *lowerer) fromErased(value ir.Expr, node *ast.Node) ir.Expr {
-	t := l.typeAt(node)
-	if contextual := l.objectUnionContext(node); contextual != nil && l.checker.IsTypeAssignableTo(t, contextual) {
-		t = contextual
-	}
-	target := l.irType(t, node)
+	target := l.erasedTarget(node)
 	switch {
 	case target == nil:
 		return nil
@@ -476,6 +478,16 @@ func (l *lowerer) fromErased(value ir.Expr, node *ast.Node) ir.Expr {
 		return value
 	}
 	return l.dynamicConversion(value, target, node)
+}
+
+// erasedTarget is the type fromErased converts the result of a call of an erased copy
+// (node) to, or nil (reported).
+func (l *lowerer) erasedTarget(node *ast.Node) ir.Type {
+	t := l.typeAt(node)
+	if contextual := l.objectUnionContext(node); contextual != nil && l.checker.IsTypeAssignableTo(t, contextual) {
+		t = contextual
+	}
+	return l.irType(t, node)
 }
 
 // isValueCall reports whether a call's callee is a function value of the program rather
