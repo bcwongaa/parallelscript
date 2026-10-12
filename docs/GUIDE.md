@@ -982,7 +982,7 @@ server.stop();
 
 It prints `true 0` (`docs/examples/guide_http_every_loop.pts`). On the development machine, with the load generator on the same machine, hello world runs at about 57,000 requests a second on one loop and 85,000 on four, against 21,000 for Node and 69,000 for Go ([BENCHMARKS.md](BENCHMARKS.md#m62b-http-servers)).
 
-`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). A global `fetch` is planned (M6.3).
+`pts:fs`, `pts:path` and `pts:process` behave as Node's `node:fs`, `node:path` and `node:process`. Change `node:` to `pts:` in the imports and the program prints what it printed under Node, apart from the [differences](#other-differences-you-may-meet) such as `process.argv`. Importing `node:fs` itself is a tsc error ([below](#tscs-errors)). `fetch` is a global, as in Node, with `Request`, `Response`, `Headers` and `AbortController` for cancelling a request (`http://` only for now; [SPEC §7.1](SPEC.md#71-globals)).
 
 [examples/guide_node_modules.pts](examples/guide_node_modules.pts):
 

@@ -1,0 +1,9 @@
+// A fetch that fails, with no handler for its rejection, ends the program with exit
+// code 1 once its promise rejects, as Node's unhandled rejections do (D-O07).
+console.log("fetching from a blocked port");
+fetch("http://127.0.0.1:1/");
+
+// exit: 1
+// stderr: TypeError: fetch failed
+// expect:
+// fetching from a blocked port

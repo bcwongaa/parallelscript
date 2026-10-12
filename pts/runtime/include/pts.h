@@ -1913,12 +1913,17 @@ double pts_http_port(double id);
 /* Stops server id: no more connections; idle ones close, busy ones after their responses. */
 void pts_http_stop(double id);
 /*
- * fetch's request (D-160): method target HTTP/1.1 to host:port with the headers (names
- * and values in turn) and, if has_body, the body with its content-length. The promise
- * fulfills with [status, status text, body, name, value, …] as a string[], or rejects with
- * the cause of fetch's TypeError.
+ * fetch's request (D-160, D-162): method target HTTP/1.1 to host:port with the headers
+ * (names and values in turn) and, if has_body, the body with its content-length, on this
+ * loop (a pool thread's on its operation's loop). Returns the request's id; done, an
+ * (ok, parts, failure) => void, gets [status, status text, body, name, value, …] as a
+ * string[], or the cause of fetch's TypeError (undefined if the request was aborted), on
+ * the request's loop, possibly before pts_http_fetch returns.
  */
-pts_value pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body);
+double pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body,
+                      struct pts_closure *done);
+/* Ends request id, if it hasn't ended, closing its connection; from any thread. */
+void pts_http_fetch_abort(double id);
 
 /* ---------------------------------------------------------------- String.prototype.normalize (D-135) */
 

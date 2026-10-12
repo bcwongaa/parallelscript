@@ -1,7 +1,9 @@
-// fetch (D-160) against the Go server of TestFetchFromGoServer, whose URL is the first
-// argument: chunked and read-until-close bodies, a 103 before the response, several fields
-// of one name, a redirect, an unusual status, 204, what the request looks like, and the
-// failures of a malformed response and a connection closed before the body's end.
+// fetch (D-160, D-162) against the Go server of TestFetchFromGoServer, whose URL is the
+// first argument: chunked and read-until-close bodies, a 103 before the response, several
+// fields of one name, a redirect, an unusual status, 204, what the request looks like, a
+// 20 MB body; the failures of a malformed response, a connection closed or reset before
+// the body's end, and a body declared larger than 64 MB (whose HEAD is fine). At the end,
+// fetches nobody awaits, here and on another loop, keep the program running.
 
 const base = process.argv[2];
 
@@ -45,3 +47,23 @@ await attempt("request", async () => {
   const response = await fetch(base + "/echo?q=1 2#fragment", { method: "post", body: "body ✓", headers: [["X-Test", "a"], ["x-test", "b"]] });
   return await response.text();
 });
+await attempt("reset", () => text("/reset"));
+await attempt("declared too large", () => text("/huge"));
+await attempt("head of too large", async () => {
+  const response = await fetch(base + "/huge", { method: "HEAD" });
+  return `${response.status} ${response.headers.get("content-length")}`;
+});
+await attempt("big", async () => {
+  const response = await fetch(base + "/big");
+  const body = await response.text();
+  return `${body.length}`;
+});
+
+fetch(base + "/chunked")
+  .then((response) => Promise.all([response.status, response.text()]))
+  .then(([status, body]) => {
+    console.log("not awaited", status, body);
+    parallel fetch(base + "/close")
+      .then((response) => response.text())
+      .then((body) => console.log("not awaited, on another loop", body));
+  });

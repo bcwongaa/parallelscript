@@ -88,6 +88,22 @@ type RequestInit = import("pts:http").RequestInit;
 type ResponseInit = import("pts:http").ResponseInit;
 type HeadersInit = import("pts:http").HeadersInit;
 
+// AbortController and what it stands on, as Node's globals: pts:internal/abort's (D-162).
+declare var AbortController: typeof import("pts:internal/abort").AbortController;
+type AbortController = import("pts:internal/abort").AbortController;
+declare var AbortSignal: typeof import("pts:internal/abort").AbortSignal;
+type AbortSignal = import("pts:internal/abort").AbortSignal;
+declare var DOMException: typeof import("pts:internal/abort").DOMException;
+type DOMException = import("pts:internal/abort").DOMException;
+declare var Event: typeof import("pts:internal/abort").Event;
+type Event = import("pts:internal/abort").Event;
+declare var EventTarget: typeof import("pts:internal/abort").EventTarget;
+type EventTarget = import("pts:internal/abort").EventTarget;
+type EventInit = import("pts:internal/abort").EventInit;
+type EventListener = import("pts:internal/abort").EventListener;
+type AddEventListenerOptions = import("pts:internal/abort").AddEventListenerOptions;
+type EventListenerOptions = import("pts:internal/abort").EventListenerOptions;
+
 // Node's global types that programs name: NodeJS.ErrnoException, the type of the errors of
 // pts:fs and pts:process (D-117).
 declare namespace NodeJS {

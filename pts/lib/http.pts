@@ -3,14 +3,18 @@
 // fetch for each request, then sends the Response it returns (or a promise of one).
 // The connections, parsing and keep-alive are the runtime's (http.c). The global fetch
 // (D-160) is this module's: it makes requests over HTTP/1.1 (fetch.c), and fetch,
-// Request, Response and Headers are globals.
+// Request, Response and Headers are globals. An AbortSignal (D-162) aborts a fetch.
+
+import { AbortController, AbortSignal } from "pts:internal/abort";
 
 declare function pts_http_listen(port: number, hostname: string, everyLoop: boolean,
     onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => void): number;
 declare function pts_http_respond(connection: number, status: number, statusText: string, headers: string[], body: string): void;
 declare function pts_http_port(server: number): number;
 declare function pts_http_stop(server: number): void;
-declare function pts_http_fetch(method: string, host: string, port: number, target: string, headers: string[], body: string, hasBody: boolean): Promise<string[]>;
+declare function pts_http_fetch(method: string, host: string, port: number, target: string, headers: string[], body: string, hasBody: boolean,
+    done: (ok: boolean, parts: string[], failure: unknown) => void): number;
+declare function pts_http_fetch_abort(request: number): void;
 
 export type HeadersInit = Headers | Record<string, string> | [string, string][];
 
@@ -191,19 +195,24 @@ export interface RequestInit {
     body?: string | null;
     // What fetch does with a redirect: follow it (the default), fail, or return it.
     redirect?: RequestRedirect;
+    // Aborts the fetch: it rejects with the signal's reason, and its connection closes.
+    signal?: AbortSignal | null;
 }
 
 // The body of a request, or null if it has none; Request's static block sets it.
 let bodyOf: (request: Request) => string | null;
+// The signal a request follows, or null if it was given none.
+let signalOf: (request: Request) => AbortSignal | null;
 
-// A request: its method, its absolute URL, its headers and its body as text. Made from a
-// URL, or from another request, whose parts init replaces.
+// A request: its method, its absolute URL, its headers, its body as text and its signal.
+// Made from a URL, or from another request, whose parts init replaces.
 export class Request {
     readonly method: string;
     readonly url: string;
     readonly headers: Headers;
     readonly redirect: RequestRedirect;
     readonly #body: string | null;
+    #signal: AbortSignal | null;
 
     constructor(input: string | Request, init?: RequestInit) {
         const from = typeof input === "string" ? null : input;
@@ -213,6 +222,16 @@ export class Request {
         this.redirect = init?.redirect ?? (from === null ? "follow" : from.redirect);
         const body = init?.body;
         this.#body = body !== undefined ? body : from === null ? null : from.#body;
+        const signal = init?.signal !== undefined ? init.signal : from === null ? null : from.#signal;
+        this.#signal = signal === null ? null : AbortSignal.any([signal]); // a signal of its own that follows the one given, as the Fetch standard's
+    }
+
+    // The request's signal; one that never aborts if it was given none.
+    get signal(): AbortSignal {
+        if (this.#signal === null) {
+            this.#signal = new AbortController().signal;
+        }
+        return this.#signal;
     }
 
     text(): Promise<string> {
@@ -225,6 +244,7 @@ export class Request {
 
     static {
         bodyOf = (request) => request.#body;
+        signalOf = (request) => request.#signal;
     }
 }
 
@@ -462,15 +482,41 @@ function fetchFailed(cause: unknown): TypeError {
     return new TypeError("fetch failed", { cause });
 }
 
+// One request over a connection of its own (fetch.c): the response's status, status text,
+// body and header fields, in turn. If signal aborts first, the connection closes and the
+// promise rejects with undefined.
+function exchange(method: string, target: Target, fields: string[], body: string, sendsBody: boolean, signal: AbortSignal | null): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+        let ended = false;
+        let request = -1;
+        const onAbort = (): void => pts_http_fetch_abort(request);
+        request = pts_http_fetch(method, target.host, target.port, target.path, fields, body, sendsBody, (ok, parts, failure) => {
+            ended = true;
+            signal?.removeEventListener("abort", onAbort);
+            if (ok) {
+                resolve(parts);
+            } else {
+                reject(failure);
+            }
+        });
+        if (!ended) {
+            signal?.addEventListener("abort", onAbort);
+        }
+    });
+}
+
 // Fetches a resource over HTTP/1.1 (D-O10): http:// URLs only, one connection per request,
 // redirects followed (up to 20) unless init.redirect says otherwise. The promise rejects
-// with a TypeError for a URL it can't parse, an unsupported scheme or a network failure.
+// with a TypeError for a URL it can't parse, an unsupported scheme or a network failure,
+// and with the signal's reason if the request's signal aborts before the response is in.
 export async function fetch(input: string | Request, init?: RequestInit): Promise<Response> {
     const request = new Request(input, init);
     let target = parseUrl(request.url);
     if (target === null) {
         throw new TypeError(`Failed to parse URL from ${request.url}`, { cause: new TypeError("Invalid URL") });
     }
+    const signal = signalOf(request);
+    signal?.throwIfAborted();
     let method = request.method;
     let body = bodyOf(request);
     if (body !== null && (method === "GET" || method === "HEAD")) {
@@ -502,10 +548,12 @@ export async function fetch(input: string | Request, init?: RequestInit): Promis
         const sendsBody = body !== null || method === "POST" || method === "PUT" || method === "PATCH";
         let parts: string[];
         try {
-            parts = await pts_http_fetch(method, target.host, target.port, target.path, fields, body ?? "", sendsBody);
+            parts = await exchange(method, target, fields, body ?? "", sendsBody, signal);
         } catch (cause) {
+            signal?.throwIfAborted();
             throw fetchFailed(cause);
         }
+        signal?.throwIfAborted(); // aborted while the response was on its way to this function
         const status = Number(parts[0]);
         const received: Received = { status, statusText: parts[1], fields: parts.slice(3), url: target.href, redirected: redirects > 0 };
         const text: string | null = method === "HEAD" || status === 204 || status === 304 ? null : parts[2];

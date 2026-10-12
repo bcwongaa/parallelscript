@@ -1,0 +1,12 @@
+// An aborted fetch that nobody handles ends the program with exit code 1 (D-O07). The
+// program uses fetch and AbortController only as globals, so both pts:http and the
+// module pts:http imports AbortController from run first, each once.
+const controller = new AbortController();
+fetch("http://127.0.0.1:1/", { signal: controller.signal }).catch(() => {});
+fetch("http://localhost:1/", { signal: AbortSignal.abort() });
+console.log("an aborted fetch nobody handles");
+
+// exit: 1
+// stderr: AbortError: This operation was aborted
+// expect:
+// an aborted fetch nobody handles

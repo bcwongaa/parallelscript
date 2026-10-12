@@ -1,0 +1,83 @@
+// AbortController, AbortSignal, DOMException, Event and EventTarget as Node's globals
+// (D-162): abort events and onabort in the order added, reasons given and default,
+// throwIfAborted, AbortSignal.abort, any and timeout, DOMException's names and codes,
+// listeners added once, removed, once-only, removed by a signal, canceled events.
+
+const controller = new AbortController();
+const signal = controller.signal;
+console.log(signal.aborted, signal.reason, signal.onabort, controller);
+
+const order: string[] = [];
+signal.addEventListener("abort", (event: Event) => {
+  order.push(`listener ${event.type} ${event.target === signal} ${event.currentTarget === signal} ${event.isTrusted} ${event.eventPhase} ${event.cancelable}`);
+});
+signal.onabort = (event: Event) => order.push(`onabort ${event.type}`);
+signal.addEventListener("abort", () => order.push("once"), { once: true });
+controller.abort();
+controller.abort("again"); // a signal aborts once
+console.log(order, signal.aborted, controller);
+
+const reason = signal.reason as DOMException;
+console.log(reason instanceof DOMException, reason instanceof Error, reason.name, reason.message, reason.code, String(reason), Object.keys(reason));
+try {
+  signal.throwIfAborted();
+} catch (e) {
+  console.log("throwIfAborted throws the reason:", e === reason);
+}
+try {
+  new AbortSignal();
+} catch (e) {
+  console.log((e as Error).name, (e as Error).message);
+}
+
+console.log(AbortSignal.abort().reason.name, AbortSignal.abort("why").reason, AbortSignal.abort(null).reason);
+const a = new AbortController();
+const b = new AbortController();
+const either = AbortSignal.any([a.signal, b.signal]);
+either.addEventListener("abort", () => console.log("any aborted with", either.reason));
+b.abort(42);
+a.abort(7);
+console.log(either.aborted, either.reason, AbortSignal.any([AbortSignal.abort("first")]).reason, AbortSignal.any([]).aborted);
+
+for (const name of ["AbortError", "TimeoutError", "SyntaxError", "NotFoundError", "DataCloneError", "Custom"]) {
+  const e = new DOMException(`about ${name}`, name);
+  console.log(name, e.code, e.message, `${e}`);
+}
+console.log(new DOMException().name, JSON.stringify(new DOMException().message));
+
+const target = new EventTarget();
+const ping = new Event("ping", { cancelable: true });
+target.addEventListener("ping", (event: Event) => {
+  event.preventDefault();
+  console.log("ping canceled:", event.defaultPrevented);
+});
+console.log(target.dispatchEvent(ping), ping.defaultPrevented, ping.target === target, ping.currentTarget, ping.eventPhase);
+const plain = new Event("plain");
+plain.preventDefault();
+console.log("not cancelable:", plain.defaultPrevented, plain.bubbles, plain.isTrusted);
+
+const pong = (event: Event): void => console.log("pong", event.type);
+target.addEventListener("pong", pong);
+target.addEventListener("pong", pong); // added once
+target.dispatchEvent(new Event("pong"));
+target.removeEventListener("pong", pong);
+console.log("removed:", target.dispatchEvent(new Event("pong")));
+
+const unsubscribe = new AbortController();
+target.addEventListener("tick", () => console.log("tick"), { signal: unsubscribe.signal });
+target.dispatchEvent(new Event("tick"));
+unsubscribe.abort();
+target.dispatchEvent(new Event("tick"));
+target.addEventListener("tick", () => console.log("never added"), { signal: unsubscribe.signal });
+target.dispatchEvent(new Event("tick"));
+
+target.addEventListener("stop", (event: Event) => {
+  console.log("first stops the rest");
+  event.stopImmediatePropagation();
+});
+target.addEventListener("stop", () => console.log("not reached"));
+target.dispatchEvent(new Event("stop"));
+
+const timeout = AbortSignal.timeout(10);
+timeout.onabort = () => console.log("timeout", timeout.reason.name, timeout.reason.message, timeout.reason.code);
+setTimeout(() => console.log("done"), 50);

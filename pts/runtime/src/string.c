@@ -100,7 +100,9 @@ void pts_string_measure(pts_string *string) {
 
 pts_string *pts_string_from_utf8(const char *bytes, size_t len) {
   pts_string *string = pts_string_alloc(len);
-  memcpy(string->bytes, bytes, len);
+  if (len > 0) { /* bytes may be NULL then (a request without a body), which memcpy may not take */
+    memcpy(string->bytes, bytes, len);
+  }
   pts_string_measure(string);
   return string;
 }

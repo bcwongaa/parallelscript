@@ -37,13 +37,19 @@ func IsModulePath(path string) bool {
 
 // GlobalModules name the globals that are a pts: module's top-level binding of the same
 // name, with the module: the global `process` is pts:process's (D-116), and `fetch`,
-// `Request`, `Response` and `Headers` are pts:http's (D-160).
+// `Request`, `Response` and `Headers` are pts:http's (D-160), and `AbortController`,
+// `AbortSignal`, `DOMException`, `Event` and `EventTarget` pts:internal/abort's (D-162).
 var GlobalModules = map[string]string{
-	"process":  "pts:process",
-	"fetch":    "pts:http",
-	"Request":  "pts:http",
-	"Response": "pts:http",
-	"Headers":  "pts:http",
+	"process":         "pts:process",
+	"fetch":           "pts:http",
+	"Request":         "pts:http",
+	"Response":        "pts:http",
+	"Headers":         "pts:http",
+	"AbortController": "pts:internal/abort",
+	"AbortSignal":     "pts:internal/abort",
+	"DOMException":    "pts:internal/abort",
+	"Event":           "pts:internal/abort",
+	"EventTarget":     "pts:internal/abort",
 }
 
 // ParallelModule is the module of `.par` views (D-123), which the prelude's Array.par

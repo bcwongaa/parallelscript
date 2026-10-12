@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/microsoft/typescript-go/pts/driver"
+	"github.com/microsoft/typescript-go/pts/toolchain"
 	"gotest.tools/v3/assert"
 )
 
@@ -255,9 +256,11 @@ func TestHTTPServerEveryLoop(t *testing.T) {
 	}
 }
 
-// TestFetchFromGoServer runs http/fetch_client.pts against a Go server (D-160), for the
-// responses pts:http doesn't send: chunked and read-until-close bodies, a 1xx before the
-// response, a malformed response and connections closed before the body's end.
+// TestFetchFromGoServer runs http/fetch_client.pts against a Go server (D-160, D-162), for
+// the responses pts:http doesn't send: chunked and read-until-close bodies, a 1xx before
+// the response, a malformed response, connections closed or reset before the body's end,
+// bodies too large to take and a large chunked one; and fetches nobody awaits, which keep
+// the program running until they are done.
 func TestFetchFromGoServer(t *testing.T) {
 	t.Parallel()
 	exe := buildServer(t, "fetch_client")
@@ -290,6 +293,25 @@ func TestFetchFromGoServer(t *testing.T) {
 	})
 	mux.HandleFunc("/truncated-chunks", func(w http.ResponseWriter, r *http.Request) {
 		hijack(w, "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n")
+	})
+	mux.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			panic(err)
+		}
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\npartial"))
+		_ = conn.(*net.TCPConn).SetLinger(0) // closing sends a reset
+		_ = conn.Close()
+	})
+	mux.HandleFunc("/huge", func(w http.ResponseWriter, r *http.Request) {
+		hijack(w, "HTTP/1.1 200 OK\r\ncontent-length: 100000000\r\n\r\nabc")
+	})
+	mux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) {
+		piece := strings.Repeat("y", 64*1024)
+		for range 320 {
+			_, _ = io.WriteString(w, piece)
+			w.(http.Flusher).Flush()
+		}
 	})
 	mux.HandleFunc("/headers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("X-Multi", "a")
@@ -333,6 +355,60 @@ redirect 200 true /chunked one two three
 status 418 I'm a teapot false short and stout
 no content 204 ""
 request POST /echo?q=1%202 127.0.0.1 close=true length=8 accept=*/* connection=close content-length=8 content-type=text/plain;charset=UTF-8 user-agent=ParallelScript x-test=a, b "body ✓"
+reset TypeError: fetch failed | read ECONNRESET
+declared too large TypeError: fetch failed | Response body is larger than 64 MB
+head of too large 200 100000000
+big 20971520
+not awaited 200 one two three
+not awaited, on another loop read until the end
 `)
 }
 
+
+// buildSanitized builds the program at source with AddressSanitizer and
+// UndefinedBehaviorSanitizer (toolchain.Sanitize) and returns the executable's path.
+func buildSanitized(t *testing.T, source string) string {
+	t.Helper()
+	heavyJobs <- struct{}{}
+	defer func() { <-heavyJobs }()
+	c, err := driver.EmitC(t.Context(), source)
+	assert.NilError(t, err)
+	tc, err := toolchain.New()
+	assert.NilError(t, err)
+	rt, err := tc.Runtime(t.Context(), toolchain.Sanitize)
+	assert.NilError(t, err)
+	cFile := filepath.Join(t.TempDir(), "main.c")
+	assert.NilError(t, os.WriteFile(cFile, []byte(c), 0o644))
+	exe := filepath.Join(buildDir, "sanitized_"+strings.TrimSuffix(filepath.Base(source), ".pts"))
+	assert.NilError(t, tc.CompileProgram(t.Context(), rt, []string{cFile}, exe))
+	return exe
+}
+
+// sanitizerNoise matches the line of run/fetch_many.pts that measures how much the process
+// grew, which AddressSanitizer's quarantine of freed memory makes meaningless.
+var sanitizerNoise = regexp.MustCompile(`(?m)^grew less than 40 MB: .*\n`)
+
+// TestFetchUnderSanitizers runs the fetch programs that abort requests at every stage
+// (D-162) built with AddressSanitizer and UndefinedBehaviorSanitizer, on one loop and on
+// four, so that a client freed too early or twice, or a handle used after it closed, fails.
+func TestFetchUnderSanitizers(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"fetch_abort", "fetch_many"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			source, err := filepath.Abs(filepath.Join("run", name+".pts"))
+			assert.NilError(t, err)
+			spec, err := readSpec(source)
+			assert.NilError(t, err)
+			exe := buildSanitized(t, source)
+			for _, threads := range []string{"1", "4"} {
+				cmd := exec.CommandContext(t.Context(), exe)
+				// As the runtime's tests under sanitizers: the loops live as long as the process, and the collector scans real stacks.
+				cmd.Env = append(os.Environ(), "PTS_THREADS="+threads, "TZ=America/New_York", "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
+				out, err := cmd.CombinedOutput()
+				assert.NilError(t, err, "PTS_THREADS=%s:\n%s", threads, out)
+				assert.Equal(t, sanitizerNoise.ReplaceAllString(string(out), ""), sanitizerNoise.ReplaceAllString(*spec.stdout, ""), "PTS_THREADS=%s", threads)
+			}
+		})
+	}
+}

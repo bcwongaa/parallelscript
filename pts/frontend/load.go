@@ -158,9 +158,13 @@ func evaluationOrder(ts *compiler.Program, first []*ast.SourceFile, entry *ast.S
 		order = append(order, file)
 	}
 	for _, module := range first {
-		visit(module)
+		if !seen[module] { // pts:http imports pts:internal/abort, whose globals may be used too
+			visit(module)
+		}
 	}
-	visit(entry)
+	if !seen[entry] {
+		visit(entry)
+	}
 	return order
 }
 

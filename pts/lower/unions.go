@@ -147,13 +147,13 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		return box(x) // narrowed to a type only dynamic values hold (`E & Error` after `e instanceof Error`, D-095)
 	}
 	if narrow != nil && isNarrowing(union, narrow) {
-		if node.Kind == ast.KindIdentifier && l.isLoose(l.target(node)) {
+		if node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
 			if l.isTestedOperand(node) {
 				return x // tested for undefined: the union it holds
 			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}
-		if !isClass(narrow) && (node.Kind != ast.KindIdentifier || l.assignedOutside[l.target(node)]) {
+		if !isClass(narrow) && (node.Kind != ast.KindIdentifier || l.assignedOutside[l.readSymbol(node)]) {
 			// A property tsc narrowed, or a variable another function assigns, may have
 			// changed since, through a call that tsc doesn't follow, so its value is
 			// checked as a dynamic value is (classes' always are) (D-089, D-140).
@@ -162,6 +162,15 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		return &ir.FromUnion{X: x, To: narrow}
 	}
 	return x
+}
+
+// readSymbol is the variable an identifier reads: the shorthand property `{ x }`'s value
+// symbol, which isn't the symbol at its name (the property's).
+func (l *lowerer) readSymbol(node *ast.Node) *ast.Symbol {
+	if node.Parent != nil && node.Parent.Kind == ast.KindShorthandPropertyAssignment {
+		return l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(node.Parent))
+	}
+	return l.target(node)
 }
 
 // toUnion converts value, of a member of u or a union of some of them, to u; nil if it

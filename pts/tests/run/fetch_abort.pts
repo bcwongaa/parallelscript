@@ -1,0 +1,144 @@
+// threads: 1 4
+// Aborting fetch (D-162) against a pts:http server in the same program: an AbortController
+// before the request is sent, while the host resolves and while the server holds the
+// request; reasons given and not; AbortSignal.timeout and AbortSignal.abort; a Request's
+// own signal; an abort after the response, which changes nothing; an abort from another
+// loop. fetch also works from another loop (`parallel`) and from a pool thread (`.par`),
+// and a fetch a pool thread started can be aborted from the loop.
+import { serve } from "pts:http";
+
+let seen = 0;
+let arrived: () => void = () => {};
+const held: ((response: Response) => void)[] = [];
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch(request) {
+    seen++;
+    const path = request.url.slice(request.url.indexOf("/", 8));
+    if (path === "/hold") {
+      arrived();
+      return new Promise<Response>((resolve) => held.push(resolve));
+    }
+    return new Response(`echo ${path}`);
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// A promise of the next request to reach /hold.
+function nextArrival(): Promise<void> {
+  return new Promise((resolve) => {
+    arrived = () => resolve();
+  });
+}
+
+async function outcome(label: string, response: Promise<Response>): Promise<void> {
+  try {
+    const r = await response;
+    console.log(label, "fulfilled", r.status, await r.text());
+  } catch (e) {
+    if (e instanceof DOMException) {
+      console.log(label, "rejected", `${e.name} (${e.code}): ${e.message}`);
+    } else if (e instanceof Error) {
+      console.log(label, "rejected", `${e.name}: ${e.message}`);
+    } else {
+      console.log(label, "rejected with", e);
+    }
+  }
+}
+
+{
+  const controller = new AbortController();
+  const response = fetch(`${base}/hold`, { signal: controller.signal });
+  await nextArrival();
+  controller.abort();
+  await outcome("held", response);
+  const reason = await response.catch((e) => e);
+  console.log("rejects with the signal's reason:", reason === controller.signal.reason);
+}
+{
+  const controller = new AbortController();
+  const response = fetch(`${base}/hold`, { signal: controller.signal });
+  await nextArrival();
+  const why = new Error("changed my mind");
+  controller.abort(why);
+  console.log("custom reason:", (await response.catch((e) => e)) === why);
+  const other = new AbortController();
+  const second = fetch(`${base}/hold`, { signal: other.signal });
+  await nextArrival();
+  other.abort("a string");
+  await outcome("string reason", second);
+}
+{
+  const started = performance.now();
+  await outcome("timeout", fetch(`${base}/hold`, { signal: AbortSignal.timeout(50) }));
+  console.log("waited for the timeout:", performance.now() - started >= 40);
+}
+{
+  const before = seen;
+  await outcome("aborted before", fetch(`${base}/echo`, { signal: AbortSignal.abort() }));
+  const controller = new AbortController();
+  const resolving = fetch(`http://localhost:${server.port}/echo`, { signal: controller.signal });
+  controller.abort();
+  await outcome("aborted while resolving", resolving);
+  console.log("the server saw neither:", seen === before);
+}
+{
+  const controller = new AbortController();
+  const request = new Request(`${base}/hold`, { signal: controller.signal });
+  console.log("a request's own signal:", request.signal !== controller.signal, request.signal.aborted, new Request(base).signal.aborted);
+  const response = fetch(request);
+  await nextArrival();
+  controller.abort();
+  await outcome("request's signal", response);
+  console.log("it follows the controller's:", request.signal.aborted);
+}
+{
+  const controller = new AbortController();
+  const response = await fetch(`${base}/after`, { signal: controller.signal });
+  controller.abort();
+  console.log("aborted after the response:", response.status, await response.text());
+}
+{
+  const controller = new AbortController();
+  const response = fetch(`${base}/hold`, { signal: controller.signal });
+  await nextArrival();
+  const reported = outcome("aborted from another loop", response); // handled before it rejects on this loop
+  await parallel controller.abort();
+  await reported;
+}
+{
+  const fromLoop = await parallel fetch(`${base}/loop`);
+  console.log("from another loop:", fromLoop.status, await fromLoop.text());
+  const statuses = await Promise.all([1, 2, 3, 4].par.map((i) => fetch(`${base}/pool/${i}`).then((r) => r.text())));
+  console.log("from the pool:", statuses.join(", "));
+  const controller = new AbortController();
+  const fromPool = [0].par.map(() => fetch(`${base}/hold`, { signal: controller.signal }));
+  await nextArrival();
+  controller.abort();
+  await outcome("started on the pool, aborted on the loop", fromPool[0]);
+}
+
+for (const answer of held) {
+  answer(new Response("too late"));
+}
+server.stop();
+
+// expect:
+// held rejected AbortError (20): This operation was aborted
+// rejects with the signal's reason: true
+// custom reason: true
+// string reason rejected with a string
+// timeout rejected TimeoutError (23): The operation was aborted due to timeout
+// waited for the timeout: true
+// aborted before rejected AbortError (20): This operation was aborted
+// aborted while resolving rejected AbortError (20): This operation was aborted
+// the server saw neither: true
+// a request's own signal: true false false
+// request's signal rejected AbortError (20): This operation was aborted
+// it follows the controller's: true
+// aborted after the response: 200 echo /after
+// aborted from another loop rejected AbortError (20): This operation was aborted
+// from another loop: 200 echo /loop
+// from the pool: echo /pool/1, echo /pool/2, echo /pool/3, echo /pool/4
+// started on the pool, aborted on the loop rejected AbortError (20): This operation was aborted

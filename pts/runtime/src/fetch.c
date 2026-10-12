@@ -1,15 +1,21 @@
 /*
- * fetch's HTTP/1.1 client (D-O10, D-160). Each request is one connection on the calling
- * loop: it resolves the host (uv_getaddrinfo), tries the addresses in order until one
- * connects, writes the request with `connection: close`, and reads the response: its
- * head (skipping 1xx ones), then a body framed by Content-Length, by chunks, or by the
- * connection's end. The promise pts_http_fetch returns settles with a string[] of the
- * status, the status text, the body (decoded as UTF-8, as text() does) and the header
- * fields, names lowercased and values trimmed, in turn; or it rejects with the error that
- * fetch gives as its TypeError's cause (Node's system errors for the system calls).
+ * fetch's HTTP/1.1 client (D-O10, D-160, D-162). Each request is one connection on the
+ * calling loop (a pool thread's requests run on its operation's loop): it resolves the
+ * host (uv_getaddrinfo), tries the addresses in order until one connects, writes the
+ * request with `connection: close`, and reads the response: its head (skipping 1xx ones),
+ * then a body framed by Content-Length, by chunks, or by the connection's end. The
+ * request's callback gets a string[] of the status, the status text, the body (decoded
+ * as UTF-8, as text() does) and the header fields, names lowercased and values trimmed,
+ * in turn; or the error that fetch gives as its TypeError's cause (Node's system errors
+ * for the system calls).
+ *
+ * Requests have ids, so that any thread may abort one (pts_http_fetch_abort): a table
+ * shared by the threads maps an id to its client and loop, and the loop ends the request,
+ * whatever it was doing. Only the loop frees its clients: while the resolver or a closing
+ * connection still holds one, its callback frees it.
  *
  * The client and libuv's handles are malloc'd and hold no collected pointers; the
- * promise is in uncollectable memory until it settles.
+ * callback is in uncollectable memory until it is called.
  */
 #include "pts.h"
 
@@ -17,6 +23,7 @@
 #include "scheduler_internal.h"
 
 #include <arpa/inet.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,11 +32,13 @@
 enum {
   MAX_HEAD = 64 * 1024, /* a response's status line and headers */
   READ_SIZE = 64 * 1024,
+  SLOT_BITS = 22, /* an id is generation * 2^SLOT_BITS + slot, at most 2^53, so a double holds it exactly */
+  GENERATION_MASK = (1u << 31) - 1,
 };
 
 /* What the collector must see while a request is in flight. */
 typedef struct roots {
-  pts_value promise;
+  pts_closure *done; /* (ok, parts, failure) => void */
 } roots;
 
 typedef struct client {
@@ -37,8 +46,12 @@ typedef struct client {
   uv_getaddrinfo_t resolver;
   uv_connect_t connect;
   uv_write_t write;
-  bool tcp_open;
-  bool done;      /* settled: callbacks of the connection's closing do nothing more */
+  double id;
+  uint16_t loop;  /* the loop the request runs on */
+  bool tcp_open;  /* the connection is open and not closing */
+  bool resolving; /* the resolver holds the client: on_resolved frees it if the request has ended */
+  bool retrying;  /* the connection is closing to try the next address: on_closed_retry frees the client if the request has ended */
+  bool done;      /* ended: callbacks still to come do nothing more */
   bool head_only; /* a HEAD request, whose response has no body */
   char *request;  /* the request's bytes */
   size_t request_len;
@@ -71,24 +84,118 @@ static void free_client(client *c) {
 
 static void on_closed_free(uv_handle_t *handle) { free_client(handle->data); }
 
-/* Ends the request: closes the connection (the client is freed once it has closed) and settles the promise. */
-static void finish(client *c, bool fulfilled, pts_value result) {
+/* ---------------------------------------------------------------- ids */
+
+/* A request in flight, or a free slot (client NULL), whose generation tells its ids apart. */
+typedef struct request_slot {
+  client *client;
+  uint32_t generation;
+  uint32_t free_next;
+  uint16_t loop;
+} request_slot;
+
+static struct {
+  uv_mutex_t lock;
+  request_slot *slots;
+  uint32_t capacity, free_head;
+} requests = {.free_head = UINT32_MAX};
+static uv_once_t requests_once = UV_ONCE_INIT;
+
+static void init_requests(void) { uv_mutex_init(&requests.lock); }
+
+/* Gives c an id that names it, on its loop, until forget. */
+static void remember(client *c) {
+  uv_once(&requests_once, init_requests);
+  uv_mutex_lock(&requests.lock);
+  if (requests.free_head == UINT32_MAX) {
+    uint32_t old = requests.capacity, capacity = old == 0 ? 64 : old * 2;
+    if (capacity > (1u << SLOT_BITS)) {
+      uv_mutex_unlock(&requests.lock);
+      pts_panic("RangeError", "Too many fetch requests in flight");
+    }
+    requests.slots = checked(realloc(requests.slots, capacity * sizeof *requests.slots));
+    for (uint32_t s = old; s < capacity; s++) {
+      requests.slots[s] = (request_slot){.free_next = s + 1 < capacity ? s + 1 : UINT32_MAX};
+    }
+    requests.free_head = old;
+    requests.capacity = capacity;
+  }
+  uint32_t slot = requests.free_head;
+  request_slot *entry = &requests.slots[slot];
+  requests.free_head = entry->free_next;
+  entry->client = c;
+  entry->loop = c->loop;
+  c->id = (double)entry->generation * (1u << SLOT_BITS) + slot;
+  uv_mutex_unlock(&requests.lock);
+}
+
+static void forget(const client *c) {
+  uint32_t slot = (uint32_t)((uint64_t)c->id & ((1u << SLOT_BITS) - 1));
+  uv_mutex_lock(&requests.lock);
+  request_slot *entry = &requests.slots[slot];
+  entry->client = NULL;
+  entry->generation = (entry->generation + 1) & GENERATION_MASK;
+  entry->free_next = requests.free_head;
+  requests.free_head = slot;
+  uv_mutex_unlock(&requests.lock);
+}
+
+/* The client id names and its loop, or NULL if the request has ended. Only the client's loop may use the client. */
+static client *client_of(double id, uint16_t *loop) {
+  if (!(id >= 0) || id != (double)(uint64_t)id) {
+    return NULL;
+  }
+  uv_once(&requests_once, init_requests);
+  uint64_t n = (uint64_t)id;
+  uint32_t slot = (uint32_t)(n & ((1u << SLOT_BITS) - 1)), generation = (uint32_t)(n >> SLOT_BITS);
+  uv_mutex_lock(&requests.lock);
+  client *c = NULL;
+  if (slot < requests.capacity && requests.slots[slot].generation == generation) {
+    c = requests.slots[slot].client;
+    *loop = requests.slots[slot].loop;
+  }
+  uv_mutex_unlock(&requests.lock);
+  return c;
+}
+
+/* ---------------------------------------------------------------- ending */
+
+/* Calls the request's callback, on its loop; a throw from it is uncaught, as one from a timer's callback is. */
+static void call_back(pts_closure *done, bool ok, pts_array *parts, pts_value failure) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) != 0) {
+    pts_report_uncaught(pts_caught(&handler));
+  }
+  ((void (*)(pts_closure *, bool, pts_array *, pts_value))done->code)(done, ok, parts, failure);
+  pts_try_leave(&handler);
+}
+
+/*
+ * Ends the request: frees its id, closes the connection (the client is freed once it has
+ * closed, or by the resolver's or a retry's callback if one is to come), and calls the
+ * callback with the response's parts, or with failure. The microtasks it queues run when
+ * the libuv callback that called it returns, or the message, or the program's code that
+ * aborted the request, as JS runs them.
+ */
+static void finish(client *c, pts_array *parts, pts_value failure) {
   roots *r = c->roots;
   c->done = true;
+  forget(c);
   if (c->tcp_open) {
+    c->tcp_open = false;
     uv_close((uv_handle_t *)&c->tcp, on_closed_free);
-  } else {
+  } else if (!c->resolving && !c->retrying) {
     free_client(c);
   }
-  pts_value promise = r->promise;
+  pts_closure *done = r->done;
   GC_FREE(r);
-  pts_promise_settle(promise, fulfilled, result);
-  pts_run_microtasks();
+  call_back(done, parts != NULL, parts != NULL ? parts : pts_array_of(&pts_array_types[PTS_FIELD_STRING], NULL, 0), failure);
 }
 
 /* Fails with an Error of the message (a protocol error, as undici's). */
 static void fail_with(client *c, const char *message) {
-  finish(c, false, pts_value_from_object(pts_error_new(&pts_type_builtin_Error, pts_string_from_cstr(message))));
+  finish(c, NULL, pts_value_from_object(pts_error_new(&pts_type_builtin_Error, pts_string_from_cstr(message))));
 }
 
 /* Fails with Node's system error for a system call that failed with error: "syscall CODE detail". */
@@ -102,7 +209,7 @@ static void fail_system(client *c, int error, const char *syscall, const char *c
   pts_value failure = pts_system_error_new(error, pts_string_from_cstr(message), syscall, NULL, NULL);
   free(message);
   ((pts_system_error *)pts_value_as_object(failure))->code = pts_value_from_string(pts_string_from_cstr(code));
-  finish(c, false, failure);
+  finish(c, NULL, failure);
 }
 
 /* ---------------------------------------------------------------- the response */
@@ -115,6 +222,7 @@ typedef struct head {
   size_t reason_len;
   int64_t content_length; /* -1 if not given */
   bool chunked;
+  bool too_large; /* Content-Length is more than PTS_HTTP_MAX_BODY */
 } head;
 
 /* The end of the line starting at p (its \n), or NULL if there is none before end. */
@@ -148,6 +256,7 @@ static int parse_head(const char *bytes, size_t len, head *h, pts_array *fields)
   h->reason_len = status_len > 12 ? status_len - 13 : 0;
   h->content_length = -1;
   h->chunked = false;
+  h->too_large = false;
   for (const char *p = newline + 1;;) {
     newline = line_end(p, end);
     if (newline == NULL) {
@@ -174,11 +283,14 @@ static int parse_head(const char *bytes, size_t len, head *h, pts_array *fields)
     if (pts_http_equals_ignoring_case(p, name_len, "content-length")) {
       int64_t length = 0;
       for (size_t i = 0; i < value_len; i++) {
-        if (value[i] < '0' || value[i] > '9' || length > PTS_HTTP_MAX_BODY) {
+        if (value[i] < '0' || value[i] > '9') {
           return -1;
         }
-        length = length * 10 + (value[i] - '0');
+        if (length <= PTS_HTTP_MAX_BODY) {
+          length = length * 10 + (value[i] - '0');
+        }
       }
+      h->too_large = h->too_large || length > PTS_HTTP_MAX_BODY;
       if (value_len == 0 || (h->content_length >= 0 && h->content_length != length)) {
         return -1;
       }
@@ -208,7 +320,7 @@ static void respond(client *c, const head *h, const char *body, size_t body_len)
   pts_array *result = pts_array_of(&pts_array_types[PTS_FIELD_STRING], parts, 3);
   head again;
   parse_head(c->in, h->len, &again, result);
-  finish(c, true, pts_value_from_object(result));
+  finish(c, result, PTS_VALUE_UNDEFINED);
 }
 
 /* Goes on with the response so far; at_end when the connection has ended. */
@@ -239,6 +351,8 @@ static void advance(client *c, bool at_end) {
   size_t available = (size_t)(end - body);
   if (c->head_only || h.status == 204 || h.status == 304) {
     respond(c, &h, body, 0);
+  } else if (h.too_large && !h.chunked) {
+    fail_with(c, "Response body is larger than 64 MB");
   } else if (h.chunked) {
     char *bytes = NULL;
     size_t len = 0, used = 0;
@@ -290,12 +404,14 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   } else if (nread < 0) {
     fail_system(c, (int)nread, "read", NULL, "");
   }
+  pts_run_microtasks();
 }
 
 static void on_written(uv_write_t *write, int status) {
   client *c = write->data;
   if (status < 0 && !c->done) {
     fail_system(c, status, "write", NULL, "");
+    pts_run_microtasks();
   }
 }
 
@@ -305,15 +421,30 @@ static void try_next(client *c);
 
 static void on_closed_retry(uv_handle_t *handle) {
   client *c = handle->data;
-  c->tcp_open = false;
+  c->retrying = false;
+  if (c->done) {
+    free_client(c);
+    return;
+  }
   try_next(c);
+  pts_run_microtasks();
+}
+
+/* Closes the connection to try the next address, having failed with error. */
+static void retry(client *c, int error) {
+  c->error = error;
+  c->tcp_open = false;
+  c->retrying = true;
+  uv_close((uv_handle_t *)&c->tcp, on_closed_retry);
 }
 
 static void on_connected(uv_connect_t *connect, int status) {
   client *c = connect->data;
+  if (c->done) {
+    return; /* ended meanwhile, closing the connection, which cancelled the connect */
+  }
   if (status < 0) {
-    c->error = status;
-    uv_close((uv_handle_t *)&c->tcp, on_closed_retry);
+    retry(c, status);
     return;
   }
   uv_buf_t out = uv_buf_init(c->request, (unsigned)c->request_len);
@@ -324,6 +455,7 @@ static void on_connected(uv_connect_t *connect, int status) {
   }
   if (error < 0) {
     fail_system(c, error, "write", NULL, "");
+    pts_run_microtasks();
   }
 }
 
@@ -357,8 +489,7 @@ static void try_next(client *c) {
     c->connect.data = c;
     error = uv_tcp_connect(&c->connect, &c->tcp, address->ai_addr, on_connected);
     if (error < 0) {
-      c->error = error;
-      uv_close((uv_handle_t *)&c->tcp, on_closed_retry);
+      retry(c, error);
     }
     return;
   }
@@ -367,14 +498,23 @@ static void try_next(client *c) {
 
 static void on_resolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *addresses) {
   client *c = resolver->data;
+  c->resolving = false;
+  if (c->done) { /* aborted while resolving */
+    if (addresses != NULL) {
+      uv_freeaddrinfo(addresses);
+    }
+    free_client(c);
+    return;
+  }
   if (status < 0) {
     /* Node names a host that doesn't resolve ENOTFOUND. */
     const char *code = status == UV_EAI_NONAME || status == UV_EAI_NODATA ? "ENOTFOUND" : NULL;
     fail_system(c, status, "getaddrinfo", code, c->host);
-    return;
+  } else {
+    c->addresses = c->next = addresses;
+    try_next(c);
   }
-  c->addresses = c->next = addresses;
-  try_next(c);
+  pts_run_microtasks();
 }
 
 /* ---------------------------------------------------------------- the intrinsic */
@@ -392,7 +532,48 @@ static void add_string(char **bytes, size_t *len, size_t *cap, const pts_string 
 
 static void add_cstr(char **bytes, size_t *len, size_t *cap, const char *s) { add(bytes, len, cap, s, strlen(s)); }
 
-pts_value pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body) {
+/* On the request's loop: resolves the host, which starts the request. */
+static void start(void *data) {
+  client *c = data;
+  char service[8];
+  snprintf(service, sizeof service, "%d", c->port);
+  struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+  c->resolver.data = c;
+  int error = uv_getaddrinfo(pts_uv_loop(), &c->resolver, on_resolved, c->host, service, &hints);
+  if (error < 0) {
+    fail_system(c, error, "getaddrinfo", NULL, c->host);
+    return;
+  }
+  c->resolving = true;
+}
+
+/* On the request's loop: ends the request id names, if it hasn't ended, as aborted (no parts, an undefined failure). */
+static void abort_request(void *data) {
+  uint16_t loop;
+  client *c = client_of((double)(uintptr_t)data, &loop);
+  if (c == NULL || c->done) {
+    return;
+  }
+  if (c->resolving) {
+    uv_cancel((uv_req_t *)&c->resolver); /* on_resolved still comes, and frees the client */
+  }
+  finish(c, NULL, PTS_VALUE_UNDEFINED);
+}
+
+void pts_http_fetch_abort(double id) {
+  uint16_t loop;
+  if (client_of(id, &loop) == NULL) {
+    return;
+  }
+  if (loop == pts_current_loop) {
+    abort_request((void *)(uintptr_t)id);
+  } else {
+    pts_post_call(loop, abort_request, (void *)(uintptr_t)id); /* after the message that started it, if a pool thread did */
+  }
+}
+
+double pts_http_fetch(pts_string *method, pts_string *host, double port, pts_string *target, pts_array *headers, pts_string *body, bool has_body,
+                      pts_closure *done) {
   client *c = checked(calloc(1, sizeof *c));
   size_t cap = 0;
   add_string(&c->request, &c->request_len, &cap, method);
@@ -418,14 +599,14 @@ pts_value pts_http_fetch(pts_string *method, pts_string *host, double port, pts_
   c->host = checked(strndup(host->bytes, host->byte_len));
   c->port = (int)port;
   c->roots = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *c->roots));
-  pts_value promise = c->roots->promise = pts_promise_pending();
-  char service[8];
-  snprintf(service, sizeof service, "%d", c->port);
-  struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
-  c->resolver.data = c;
-  int error = uv_getaddrinfo(pts_uv_loop(), &c->resolver, on_resolved, c->host, service, &hints);
-  if (error < 0) {
-    fail_system(c, error, "getaddrinfo", NULL, c->host);
+  c->roots->done = done;
+  c->loop = pts_current_loop & ~PTS_LOOP_FOREIGN;
+  remember(c);
+  double id = c->id;
+  if (pts_current_loop & PTS_LOOP_FOREIGN) {
+    pts_post_call(c->loop, start, c); /* a parallel operation's callback: the request runs on the operation's loop */
+  } else {
+    start(c);
   }
-  return promise;
+  return id;
 }

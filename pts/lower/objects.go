@@ -777,7 +777,7 @@ func (l *lowerer) shorthandValue(property *ast.Node) ir.Expr {
 			}
 			return nil
 		}
-		return x
+		return l.narrowed(name, x)
 	}
 	l.notSupportedYet(name, fmt.Sprintf("using `%s` is", name.Text()))
 	return nil

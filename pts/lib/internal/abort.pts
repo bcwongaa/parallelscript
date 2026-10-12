@@ -1,0 +1,304 @@
+// pts:internal/abort: AbortController and what it stands on, as Node's globals (D-162):
+// DOMException, Event, EventTarget, AbortSignal and AbortController. Only the library's
+// modules may import it; programs see its classes as globals.
+
+// The legacy codes of DOMException's names (WebIDL); other names have code 0.
+const DOM_EXCEPTION_CODES = new Map<string, number>([
+    ["IndexSizeError", 1], ["HierarchyRequestError", 3], ["WrongDocumentError", 4], ["InvalidCharacterError", 5],
+    ["NoModificationAllowedError", 7], ["NotFoundError", 8], ["NotSupportedError", 9], ["InvalidStateError", 11],
+    ["SyntaxError", 12], ["InvalidModificationError", 13], ["NamespaceError", 14], ["InvalidAccessError", 15],
+    ["TypeMismatchError", 17], ["SecurityError", 18], ["NetworkError", 19], ["AbortError", 20], ["URLMismatchError", 21],
+    ["QuotaExceededError", 22], ["TimeoutError", 23], ["InvalidNodeTypeError", 24], ["DataCloneError", 25],
+]);
+
+// WebIDL's error for the web platform's failures: a name ("AbortError") and its legacy code.
+export class DOMException extends Error {
+    readonly #code: number;
+
+    constructor(message: string = "", name: string = "Error") {
+        super(message);
+        this.name = name;
+        this.#code = DOM_EXCEPTION_CODES.get(name) ?? 0;
+    }
+
+    get code(): number {
+        return this.#code;
+    }
+}
+
+export interface EventInit {
+    bubbles?: boolean;
+    cancelable?: boolean;
+    composed?: boolean;
+}
+
+// What dispatchEvent needs of an event, which only Event's own code can reach; its static block sets them.
+let beginDispatch: (event: Event, target: EventTarget) => void;
+let endDispatch: (event: Event) => boolean;
+let stopped: (event: Event) => boolean;
+let markTrusted: (event: Event) => Event;
+
+// An event an EventTarget dispatches to its listeners. Events have no propagation path
+// (there is no document tree), so an event is always at its target while dispatched.
+export class Event {
+    static readonly NONE = 0;
+    static readonly CAPTURING_PHASE = 1;
+    static readonly AT_TARGET = 2;
+    static readonly BUBBLING_PHASE = 3;
+
+    readonly type: string;
+    readonly bubbles: boolean;
+    readonly cancelable: boolean;
+    readonly composed: boolean;
+    readonly timeStamp: number;
+    #target: EventTarget | null = null;
+    #dispatching = false;
+    #canceled = false;
+    #stopped = false;
+    #trusted = false;
+
+    constructor(type: string, init?: EventInit) {
+        this.type = type;
+        this.bubbles = init?.bubbles ?? false;
+        this.cancelable = init?.cancelable ?? false;
+        this.composed = init?.composed ?? false;
+        this.timeStamp = performance.now();
+    }
+
+    get target(): EventTarget | null {
+        return this.#target;
+    }
+
+    get currentTarget(): EventTarget | null {
+        return this.#dispatching ? this.#target : null;
+    }
+
+    get srcElement(): EventTarget | null {
+        return this.#target;
+    }
+
+    get eventPhase(): number {
+        return this.#dispatching ? Event.AT_TARGET : Event.NONE;
+    }
+
+    get defaultPrevented(): boolean {
+        return this.#canceled;
+    }
+
+    // Whether the runtime fired the event (an AbortSignal's abort) rather than the program.
+    get isTrusted(): boolean {
+        return this.#trusted;
+    }
+
+    preventDefault(): void {
+        if (this.cancelable) {
+            this.#canceled = true;
+        }
+    }
+
+    // Nothing to stop: an event never goes past its target.
+    stopPropagation(): void {}
+
+    stopImmediatePropagation(): void {
+        this.#stopped = true;
+    }
+
+    composedPath(): EventTarget[] {
+        return this.#dispatching && this.#target !== null ? [this.#target] : [];
+    }
+
+    static {
+        beginDispatch = (event, target) => {
+            if (event.#dispatching) {
+                throw new DOMException("The event is already being dispatched.", "InvalidStateError");
+            }
+            event.#target = target;
+            event.#dispatching = true;
+            event.#stopped = false;
+        };
+        endDispatch = (event) => {
+            event.#dispatching = false;
+            return !event.#canceled;
+        };
+        stopped = (event) => event.#stopped;
+        markTrusted = (event) => {
+            event.#trusted = true;
+            return event;
+        };
+    }
+}
+
+export type EventListener = (event: Event) => void;
+
+export interface EventListenerOptions {
+    capture?: boolean;
+}
+
+export interface AddEventListenerOptions extends EventListenerOptions {
+    once?: boolean;
+    passive?: boolean;
+    // Removes the listener when the signal aborts.
+    signal?: AbortSignal;
+}
+
+interface Registration {
+    type: string;
+    callback: EventListener;
+    once: boolean;
+    removed: boolean;
+}
+
+// Something events are dispatched to: listeners by event type, each added once, called in
+// the order added. A listener that throws doesn't stop the others; its error is reported
+// as uncaught, as Node reports it.
+export class EventTarget {
+    readonly #registrations: Registration[] = [];
+
+    addEventListener(type: string, callback: EventListener | null, options?: AddEventListenerOptions | boolean): void {
+        const once = typeof options === "object" && options.once === true;
+        const signal = typeof options === "object" ? options.signal : undefined;
+        if (callback === null || signal?.aborted === true || this.#find(type, callback) >= 0) {
+            return;
+        }
+        this.#registrations.push({ type, callback, once, removed: false });
+        signal?.addEventListener("abort", () => this.removeEventListener(type, callback));
+    }
+
+    removeEventListener(type: string, callback: EventListener | null, options?: EventListenerOptions | boolean): void {
+        const found = callback === null ? -1 : this.#find(type, callback);
+        if (found >= 0) {
+            this.#registrations[found].removed = true; // a dispatch already under way skips it
+            this.#registrations.splice(found, 1);
+        }
+    }
+
+    // Calls the listeners of the event's type; false if one of them canceled the event.
+    dispatchEvent(event: Event): boolean {
+        beginDispatch(event, this);
+        for (const registration of this.#registrations.slice()) {
+            if (registration.removed || registration.type !== event.type) {
+                continue;
+            }
+            if (registration.once) {
+                this.removeEventListener(registration.type, registration.callback);
+            }
+            try {
+                registration.callback(event);
+            } catch (error) {
+                queueMicrotask(() => {
+                    throw error;
+                });
+            }
+            if (stopped(event)) {
+                break;
+            }
+        }
+        return endDispatch(event);
+    }
+
+    #find(type: string, callback: EventListener): number {
+        return this.#registrations.findIndex((registration) => registration.type === type && registration.callback === callback);
+    }
+}
+
+// Programs get signals from AbortController and AbortSignal's statics, never from AbortSignal's constructor.
+let constructing = false;
+let signalAbort: (signal: AbortSignal, reason: any) => void;
+
+function newSignal(): AbortSignal {
+    constructing = true;
+    try {
+        return new AbortSignal();
+    } finally {
+        constructing = false;
+    }
+}
+
+// Whether an operation should stop, and why: aborted once, with a reason, firing an
+// "abort" event at its listeners (onabort among them).
+export class AbortSignal extends EventTarget {
+    // A field rather than a getter, so that console.log shows it as Node does: `AbortSignal { aborted: false }`.
+    readonly aborted: boolean = false;
+    #reason: any = undefined;
+    #onabort: EventListener | null = null;
+    #handlerAdded = false;
+
+    constructor() {
+        super();
+        if (!constructing) {
+            throw new TypeError("Illegal constructor");
+        }
+    }
+
+    get reason(): any {
+        return this.#reason;
+    }
+
+    get onabort(): EventListener | null {
+        return this.#onabort;
+    }
+
+    // The handler is called from a listener added the first time one is set, as event handler attributes are.
+    set onabort(handler: EventListener | null) {
+        this.#onabort = handler;
+        if (handler !== null && !this.#handlerAdded) {
+            this.#handlerAdded = true;
+            this.addEventListener("abort", (event) => this.#onabort?.(event));
+        }
+    }
+
+    throwIfAborted(): void {
+        if (this.aborted) {
+            throw this.#reason;
+        }
+    }
+
+    // A signal aborted already, with reason (an AbortError DOMException if none is given).
+    static abort(reason?: any): AbortSignal {
+        const signal = newSignal();
+        signalAbort(signal, reason);
+        return signal;
+    }
+
+    // A signal that aborts with a TimeoutError after ms milliseconds; its timer doesn't keep the program running.
+    static timeout(ms: number): AbortSignal {
+        const signal = newSignal();
+        setTimeout(() => signalAbort(signal, new DOMException("The operation was aborted due to timeout", "TimeoutError")), ms).unref();
+        return signal;
+    }
+
+    // A signal that aborts when the first of signals does, with its reason.
+    static any(signals: AbortSignal[]): AbortSignal {
+        const signal = newSignal();
+        for (const source of signals) {
+            if (source.aborted) {
+                signalAbort(signal, source.reason);
+                return signal;
+            }
+        }
+        for (const source of signals) {
+            source.addEventListener("abort", () => signalAbort(signal, source.reason));
+        }
+        return signal;
+    }
+
+    static {
+        signalAbort = (signal, reason) => {
+            if (signal.aborted) {
+                return;
+            }
+            (signal as { aborted: boolean }).aborted = true;
+            signal.#reason = reason === undefined ? new DOMException("This operation was aborted", "AbortError") : reason;
+            signal.dispatchEvent(markTrusted(new Event("abort")));
+        };
+    }
+}
+
+// Aborts its signal: abort(reason) aborts it with reason, or an AbortError DOMException.
+export class AbortController {
+    readonly signal: AbortSignal = newSignal();
+
+    abort(reason?: any): void {
+        signalAbort(this.signal, reason);
+    }
+}

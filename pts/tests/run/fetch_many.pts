@@ -1,0 +1,87 @@
+// threads: 1 4
+// fetch (D-160, D-162) cleans up after itself: after thousands of requests, some aborted
+// at every stage, the process has the files it had before and hasn't grown much.
+import { serve } from "pts:http";
+import { readdirSync, readFileSync } from "pts:fs";
+
+const held: ((response: Response) => void)[] = [];
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch(request) {
+    if (request.url.endsWith("/hold")) {
+      return new Promise<Response>((resolve) => held.push(resolve));
+    }
+    return new Response("x".repeat(1000));
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+function openFiles(): number {
+  return readdirSync("/proc/self/fd").length;
+}
+
+function residentMB(): number {
+  const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync("/proc/self/status", "utf8"));
+  return m === null ? 0 : Number(m[1]) / 1024;
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// count requests, concurrency at a time; returns how many bodies were whole.
+async function fetchAll(count: number, concurrency: number): Promise<number> {
+  let whole = 0;
+  for (let done = 0; done < count; done += concurrency) {
+    const bodies = await Promise.all(Array.from({ length: concurrency }, () => fetch(base).then((r) => r.text())));
+    whole += bodies.filter((body) => body.length === 1000).length;
+  }
+  return whole;
+}
+
+// count requests to /hold, each aborted after a delay of 0 to 4 ms (some before they connect); returns how many rejected with AbortError.
+async function abortAll(count: number): Promise<number> {
+  const outcomes: Promise<string>[] = [];
+  for (let i = 0; i < count; i++) {
+    const controller = new AbortController();
+    outcomes.push(fetch(`${base}/hold`, { signal: controller.signal }).then(() => "fulfilled", (e: Error) => e.name));
+    if (i % 5 === 0) {
+      controller.abort();
+    } else {
+      setTimeout(() => controller.abort(), i % 5);
+    }
+  }
+  return (await Promise.all(outcomes)).filter((name) => name === "AbortError").length;
+}
+
+// Answers the held requests (their clients have gone), so the server closes their
+// connections. A request aborted just after it was sent may reach the server later.
+async function release(): Promise<void> {
+  for (let round = 0; round < 3; round++) {
+    await pause(100);
+    for (const answer of held.splice(0)) {
+      answer(new Response("too late"));
+    }
+  }
+  await pause(100);
+}
+
+console.log("warm-up:", await fetchAll(200, 20), await abortAll(100));
+await release();
+const files = openFiles();
+const resident = residentMB();
+console.log("requests:", await fetchAll(3000, 50));
+console.log("aborted:", await abortAll(1000));
+await release();
+console.log("files as before:", openFiles() === files || `${files} before, ${openFiles()} after`);
+const grown = residentMB() - resident;
+console.log("grew less than 40 MB:", grown < 40 || `${grown} MB`);
+server.stop();
+
+// expect:
+// warm-up: 200 100
+// requests: 3000
+// aborted: 1000
+// files as before: true
+// grew less than 40 MB: true
