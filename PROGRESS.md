@@ -181,7 +181,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Upstream suites the fork touches | `go test ./internal/tspath/... ./internal/core/... ./internal/ast/... ./internal/module/... ./internal/compiler/... ./internal/tsoptions/... ./internal/checker/... ./internal/modulespecifiers/... ./internal/parser/... ./internal/scanner/... ./internal/binder/...` | ok |
 | `pts test` | `pts-bin/pts test [paths]` (after `make build`); a test file also runs alone with `pts run x.test.pts` | `cmd/pts/test_test.go` runs it (about 10 s) |
 | Upstream CLI/LSP suites | `make test-upstream-cli` (= `go test ./internal/execute/... ./internal/project/... ./internal/ls/... ./internal/lsp/...` with the known failure skipped; slow) | ok |
-| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `eb48b2e93` (M7.1), both jobs (PTS tests; upstream CLI and LSP suites): about 10 min |
+| CI | `gh run list -L 3 --workflow PTS` (the repo's default for `gh` is set to `bcwongaa/parallelscript`; without that, `gh` picks the `upstream` remote) | green on `3d112c454` (M7.4, tagged `m7`), all three jobs (PTS tests; upstream CLI and LSP suites; VS Code extension, with its end-to-end suite in a headless VS Code): about 10 min |
 | VS Code extension | `make vscode` (= `npm ci && npm test && npm run package` in `pts/editors/vscode`; needs `~/.local/node/bin` on PATH and the npm registry) | ok (type check, 4 grammar tests over 41 samples; `dist/parallelscript.vsix`, 9 files) |
 | The extension in VS Code | `npm run test:vscode` in `pts/editors/vscode` (after `make build`; headless, `DISPLAY` unset; `PTS_E2E_SERVER` picks another `pts`) | ok (about 15 s once VS Code is cached) |
 | Local compiler baselines | `go test ./internal/testrunner/ -run TestLocal` | ok (about 324 subtests; the TypeScript submodule is not checked out, so `TestSubmodule` skips) |
@@ -223,7 +223,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
-- 2026-10-13: M7.4 done: milestone M7 tagged `m7`, `docs/agent/DONE` written, final Telegram report sent; all of M0–M7 done.
+- 2026-10-13: M7.4 done: CI green on `3d112c454`, tagged `m7`, `docs/agent/DONE` written, the M7 and final Telegram reports sent; all of M0–M7 done.
 - 2026-10-13: M7.3c done (D-172: papercuts from two programs written from scratch, the guide's tutorial and questions); M7.3 complete.
 - 2026-10-13: M7.3b done (D-171: `pts test`, `pts:test`, `pts:assert`).
 - 2026-10-13: M7.2 done (D-169: the VS Code extension; `workspace/textDocumentContent` and no semantic token for the `parallel` keyword in the server); CI green on `42eda1be4` (all three jobs, the VS Code one included). M7.3 split by D-170; M7.3a done (hints, decimal-point literals, `Function`'s message, help and version).
