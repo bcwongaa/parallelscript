@@ -10,7 +10,7 @@ UPSTREAM_PACKAGES := ./internal/tspath/... ./internal/core/... ./internal/ast/..
 # A pre-existing upstream failure at the fork base (PROGRESS.md, Known issues).
 UPSTREAM_KNOWN_FAILURE := TestTscCommandline/tsc/show_help_with_ExitStatus.DiagnosticsPresent_OutputsSkipped
 
-.PHONY: build test test-diff test-stress test-upstream test-upstream-cli bench bench-http
+.PHONY: build test test-diff test-stress test-upstream test-upstream-cli bench bench-http vscode
 
 # The compiler, at pts-bin/pts (it finds the runtime sources from there).
 build:
@@ -44,3 +44,8 @@ bench:
 # HTTP servers against Node, Bun and Go (oha, requests per second; D-137).
 bench-http:
 	pts/bench/serve.sh
+
+# The VS Code extension (pts/editors/vscode, D-169): its tests, then the package,
+# pts/editors/vscode/dist/parallelscript.vsix (needs npm and the registry).
+vscode:
+	cd pts/editors/vscode && npm ci && npm test && npm run package

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+syntaxes/ParallelScript.tmLanguage.json
+*.vsix
+# The root .gitignore ignores *.txt.
+!ThirdPartyNotices.txt

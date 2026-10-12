@@ -1,0 +1,8 @@
+**
+!package.json
+!README.md
+!LICENSE
+!language-configuration.json
+!syntaxes/ParallelScript.tmLanguage.json
+!dist/extension.js
+!dist/ThirdPartyNotices.txt

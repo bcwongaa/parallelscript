@@ -43,6 +43,7 @@ func ServerOptions(in lsp.Reader, out lsp.Writer, errOut io.Writer, cwd string, 
 	installHooks.Do(func() {
 		project.ProgramCommandLine = programCommandLine
 		ls.ExtraDiagnostics = ptsDiagnostics
+		lsp.ContentSchemes = contentSchemes()
 	})
 	return lsp.ServerOptions{
 		In:                 in,
@@ -62,6 +63,16 @@ func ServerOptions(in lsp.Reader, out lsp.Writer, errOut io.Writer, cwd string, 
 func Run(ctx context.Context, in io.Reader, out io.Writer, errOut io.Writer, cwd string, fs vfs.FS) error {
 	options := ServerOptions(lsp.ToReader(in), lsp.ToWriter(out), errOut, cwd, fs)
 	return lsp.NewServer(&options).Run(ctx)
+}
+
+// contentSchemes are the schemes of the library files that exist only in the server's file
+// system, whose text a client asks the server for (D-169): ParallelScript's, and
+// TypeScript's when they are embedded in the binary.
+func contentSchemes() []string {
+	if bundled.Embedded {
+		return []string{lib.URIScheme, "bundled"}
+	}
+	return []string{lib.URIScheme}
 }
 
 // programCommandLine is the command line a project's program is built from: the project's

@@ -15,8 +15,11 @@ import (
 //go:embed *.d.ts *.pts fs internal
 var files embed.FS
 
+// URIScheme is the URI scheme of the library's files.
+const URIScheme = "ptslib"
+
 // scheme is a URL root, which tspath treats like a drive, so lib paths never clash with real files.
-const scheme = "ptslib:///"
+const scheme = URIScheme + ":///"
 
 // PreludePath is the path of the prelude inside a file system wrapped by WrapFS.
 const PreludePath = scheme + "prelude.d.ts"

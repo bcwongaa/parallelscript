@@ -811,6 +811,7 @@ var handlers = sync.OnceValue(func() handlerMap {
 
 	registerRequestHandler(handlers, lsproto.CustomInitializeAPISessionInfo, (*Server).handleInitializeAPISession)
 	registerRequestHandler(handlers, lsproto.CustomProjectInfoInfo, (*Server).handleProjectInfo)
+	registerRequestHandler(handlers, lsproto.WorkspaceTextDocumentContentInfo, (*Server).handleTextDocumentContent) // PTS: library files
 	return handlers
 })
 
@@ -1177,6 +1178,7 @@ func (s *Server) handleInitialize(ctx context.Context, params *lsproto.Initializ
 						Filters: fileRenameFilters,
 					},
 				},
+				TextDocumentContent: textDocumentContentOptions(), // PTS: library files
 			},
 			SemanticTokensProvider: &lsproto.SemanticTokensOptionsOrRegistrationOptions{
 				Options: &lsproto.SemanticTokensOptions{

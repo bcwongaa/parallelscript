@@ -210,7 +210,7 @@ func (l *LanguageService) collectSemanticTokensInRange(ctx context.Context, c *c
 			inJSXElement = false
 		}
 
-		if ast.IsIdentifier(node) && node.Text() != "" && !inJSXElement && !isInImportClause(node) && !isInfinityOrNaNString(node.Text()) {
+		if ast.IsIdentifier(node) && node.Text() != "" && !inJSXElement && !isInImportClause(node) && !isInfinityOrNaNString(node.Text()) && !isPtsParallelOperator(node) { // PTS: isPtsParallelOperator
 			symbol := c.GetSymbolAtLocation(node)
 			if symbol != nil {
 				// Resolve aliases
@@ -469,6 +469,12 @@ func isExpressionInCallExpression(node *ast.Node) bool {
 	}
 	parent := node.Parent
 	return parent != nil && ast.IsCallExpression(parent) && parent.Expression() == node
+}
+
+// PTS: isPtsParallelOperator reports whether node is the keyword of ParallelScript's `parallel e`,
+// which parses as a call of `parallel` (D-120); a token would show the keyword as a function.
+func isPtsParallelOperator(node *ast.Node) bool {
+	return ast.IsCallExpression(node.Parent) && node.Parent.Flags&ast.NodeFlagsPtsParallel != 0 && node.Parent.Expression() == node
 }
 
 func isInfinityOrNaNString(text string) bool {

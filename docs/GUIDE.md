@@ -35,6 +35,8 @@ That prints `Hello, ParallelScript`. The first build also compiles the runtime a
 
 `pts` exits with 0 on success, 1 on compile errors and 2 on a malformed command line. `pts run` exits with the program's own exit code.
 
+For VS Code, `pts/editors/vscode` is an extension that highlights `parallel` as a keyword and runs `pts lsp`, the language server: completions, hovers, go to definition (into the `pts:` modules too) and errors, ParallelScript's own among tsc's. `make vscode` builds `pts/editors/vscode/dist/parallelscript.vsix`; install it with `code --install-extension`, then put `pts` on your PATH or point the setting `parallelscript.server.path` at it ([its README](../pts/editors/vscode/README.md) has the details). Other editors that speak the Language Server Protocol can run `pts lsp --stdio` for `.pts` files.
+
 For whole programs to start from, [examples/](../examples/README.md) at the repository root has four, each a single `main.pts` that the test suite runs: a file hasher, a mandelbrot renderer that writes a PNG, a JSON API server and a log analyzer.
 
 There is no `tsconfig.json`: the options are fixed.

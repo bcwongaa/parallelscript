@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "rootDir": "./src",
+        "noEmit": true,
+
+        "target": "es2022",
+        "module": "preserve",
+        "moduleResolution": "bundler",
+        "types": ["node"],
+
+        "strict": true,
+        "noImplicitOverride": true
+    },
+    "include": ["./src/**/*"]
+}

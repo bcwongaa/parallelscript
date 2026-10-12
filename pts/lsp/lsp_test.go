@@ -21,6 +21,14 @@ const dir = "/home/projects/app"
 // startServer starts pts's language server on files, initialized and with each file open.
 func startServer(t *testing.T, files map[string]string) *lsptestutil.LSPClient {
 	t.Helper()
+	client, _ := startServerWithCapabilities(t, files, &lsproto.ClientCapabilities{})
+	return client
+}
+
+// startServerWithCapabilities is startServer for a client of the given capabilities that
+// also returns the server's.
+func startServerWithCapabilities(t *testing.T, files map[string]string, capabilities *lsproto.ClientCapabilities) (*lsptestutil.LSPClient, *lsproto.ServerCapabilities) {
+	t.Helper()
 	if !bundled.Embedded {
 		t.Skip("the TypeScript library files aren't embedded")
 	}
@@ -35,8 +43,8 @@ func startServer(t *testing.T, files map[string]string) *lsptestutil.LSPClient {
 	}
 	client, closeClient := lsptestutil.NewLSPClient(t, lsp.ServerOptions(nil, nil, io.Discard, dir, vfstest.FromMap(files, false)), answer)
 	t.Cleanup(func() { _ = closeClient() })
-	initialized, _, ok := lsptestutil.SendRequest(t, client, lsproto.InitializeInfo, &lsproto.InitializeParams{Capabilities: &lsproto.ClientCapabilities{}})
-	assert.Assert(t, ok && initialized.AsResponse().Error == nil, "initialize failed")
+	response, initialized, ok := lsptestutil.SendRequest(t, client, lsproto.InitializeInfo, &lsproto.InitializeParams{Capabilities: capabilities})
+	assert.Assert(t, ok && response.AsResponse().Error == nil, "initialize failed")
 	lsptestutil.SendNotification(t, client, lsproto.InitializedInfo, &lsproto.InitializedParams{})
 	<-client.Server.InitComplete()
 	for path, text := range files {
@@ -44,7 +52,7 @@ func startServer(t *testing.T, files map[string]string) *lsptestutil.LSPClient {
 			TextDocument: &lsproto.TextDocumentItem{Uri: uriOf(path), LanguageId: "parallelscript", Text: text},
 		})
 	}
-	return client
+	return client, initialized.Capabilities
 }
 
 func uriOf(path string) lsproto.DocumentUri {
@@ -137,4 +145,72 @@ func TestDefinitionsReachTheLibrary(t *testing.T) {
 	}
 	assert.Assert(t, slices.Contains(uris, lsproto.DocumentUri("ptslib:///parallel.pts")), "%v", uris)
 	assert.DeepEqual(t, diagnosticsOf(t, client, main), []string(nil))
+}
+
+// A client opens the library's files, which exist only in the server, by asking the server
+// for their text (LSP 3.18's workspace/textDocumentContent, D-169); files of other schemes
+// aren't served.
+func TestLibraryFilesAreServedToTheClient(t *testing.T) {
+	t.Parallel()
+	main := dir + "/main.pts"
+	client, capabilities := startServerWithCapabilities(t, map[string]string{main: "console.log(1);\n"}, &lsproto.ClientCapabilities{})
+	assert.DeepEqual(t, capabilities.Workspace.TextDocumentContent.Options.Schemes, []string{"ptslib", "bundled"})
+
+	assert.Assert(t, strings.Contains(libraryText(t, client, "ptslib:///parallel.pts"), "export class ParallelArray<T>"))
+	assert.Assert(t, strings.Contains(libraryText(t, client, "ptslib:/parallel.pts"), "export class ParallelArray<T>"), "as VS Code writes the URI")
+	assert.Assert(t, strings.Contains(libraryText(t, client, "bundled:///libs/lib.es5.d.ts"), "interface Array<T>"))
+
+	for _, uri := range []lsproto.DocumentUri{uriOf(main), "ptslib:///missing.pts"} {
+		response, _, _ := lsptestutil.SendRequest(t, client, lsproto.WorkspaceTextDocumentContentInfo, &lsproto.TextDocumentContentParams{Uri: uri})
+		assert.Assert(t, response.AsResponse().Error != nil, "%s was served", uri)
+	}
+}
+
+func libraryText(t *testing.T, client *lsptestutil.LSPClient, uri lsproto.DocumentUri) string {
+	t.Helper()
+	response, result, ok := lsptestutil.SendRequest(t, client, lsproto.WorkspaceTextDocumentContentInfo, &lsproto.TextDocumentContentParams{Uri: uri})
+	assert.Assert(t, ok && response.AsResponse().Error == nil && result != nil, "no text for %s", uri)
+	return result.Text
+}
+
+// The keyword of `parallel e` gets no semantic token, which would color it as the function
+// it parses as a call of, over the grammar's keyword (D-169); `parallel(e)` is a call.
+func TestParallelKeywordHasNoSemanticToken(t *testing.T) {
+	t.Parallel()
+	main := dir + "/main.pts"
+	client, _ := startServerWithCapabilities(t, map[string]string{main: `function fib(n: number): number { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
+const p = parallel fib(30);
+const q = parallel(fib(20));
+console.log(await p, await q);
+`}, &lsproto.ClientCapabilities{TextDocument: &lsproto.TextDocumentClientCapabilities{
+		SemanticTokens: &lsproto.SemanticTokensClientCapabilities{
+			Requests:       &lsproto.ClientSemanticTokensRequestOptions{Full: &lsproto.BooleanOrClientSemanticTokensRequestFullDelta{Boolean: new(true)}},
+			TokenTypes:     []string{"function", "variable"},
+			TokenModifiers: []string{"declaration", "readonly"},
+			Formats:        []lsproto.TokenFormat{lsproto.TokenFormatRelative},
+		},
+	}})
+	_, result, ok := lsptestutil.SendRequest(t, client, lsproto.TextDocumentSemanticTokensFullInfo, &lsproto.SemanticTokensParams{
+		TextDocument: lsproto.TextDocumentIdentifier{Uri: uriOf(main)},
+	})
+	assert.Assert(t, ok && result.SemanticTokens != nil)
+	starts := tokenStarts(result.SemanticTokens.Data)
+	assert.Assert(t, !slices.Contains(starts, lsproto.Position{Line: 1, Character: 10}), "parallel e has a token: %v", starts)
+	assert.Assert(t, slices.Contains(starts, lsproto.Position{Line: 1, Character: 19}), "its operand has none: %v", starts)
+	assert.Assert(t, slices.Contains(starts, lsproto.Position{Line: 2, Character: 10}), "parallel(e) has none: %v", starts)
+}
+
+// tokenStarts decodes where each semantic token starts from LSP's relative encoding.
+func tokenStarts(data []uint32) []lsproto.Position {
+	var starts []lsproto.Position
+	var line, character uint32
+	for i := 0; i+4 < len(data); i += 5 {
+		if data[i] != 0 {
+			character = 0
+		}
+		line += data[i]
+		character += data[i+1]
+		starts = append(starts, lsproto.Position{Line: line, Character: character})
+	}
+	return starts
 }

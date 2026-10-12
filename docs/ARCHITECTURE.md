@@ -192,7 +192,7 @@ Some things to notice:
 | `pts emit-c file.pts [-o file.c]` | Prints the generated C, or writes it to a file |
 | `pts help` | Prints the usage |
 
-Exit codes (D-006): 0 on success, 1 for compile or toolchain errors, and 2 for a malformed command line. `pts run` exits with the program's own code, or with 128 plus the signal number if a signal killed it. `pts lsp` runs the language server (`pts/lsp`, D-168): typescript-go's own, with two hooks set, one making every project's program the compiler's (the fixed options and the prelude as a root) and one adding ParallelScript's checks to a file's diagnostics. `pts test` (M7.3) is planned.
+Exit codes (D-006): 0 on success, 1 for compile or toolchain errors, and 2 for a malformed command line. `pts run` exits with the program's own code, or with 128 plus the signal number if a signal killed it. `pts lsp` runs the language server (`pts/lsp`, D-168): typescript-go's own, with three hooks set, one making every project's program the compiler's (the fixed options and the prelude as a root), one adding ParallelScript's checks to a file's diagnostics, and one naming the schemes of the library files, which exist only in its memory (`ptslib:///`), whose text it serves through LSP 3.18's `workspace/textDocumentContent` (D-169). It gives the keyword of `parallel e` no semantic token, so the VS Code extension (`pts/editors/vscode`, D-169) shows it with its grammar's keyword color. `pts test` (M7.3) is planned.
 
 ## 3. The `pts:` library modules (`pts/lib`)
 
@@ -482,6 +482,7 @@ CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the
 | `cmd/pts/` | The command line: `build`, `run`, `emit-c`, `help` |
 | `pts/frontend/` | Loads a program through the forked tsc, with fixed options; orders modules |
 | `pts/lsp/` | `pts lsp`: upstream's language server with the compiler's programs and ParallelScript's diagnostics (D-168) |
+| `pts/editors/vscode/` | The VS Code extension: starts `pts lsp --stdio` for `.pts` files, with a grammar generated from TypeScript's that highlights `parallel` (D-169) |
 | `pts/lib/prelude.d.ts` | Global declarations: `console`, numeric types, timers, `process`, `fetch` and the Fetch classes, the abort classes, `parallel`, `.par` |
 | `pts/lib/*.pts`, `pts/lib/fs/`, `pts/lib/internal/` | The `pts:` modules, in ParallelScript |
 | `pts/lib/lib.go` | Embeds the library and serves it at `ptslib:///`; `GlobalModules` |

@@ -1,0 +1,116 @@
+{
+    "name": "parallelscript",
+    "displayName": "ParallelScript",
+    "description": "ParallelScript (.pts) for VS Code: highlighting and the pts language server.",
+    "version": "0.7.0",
+    "publisher": "parallelscript",
+    "license": "Apache-2.0",
+    "private": true,
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/bcwongaa/parallelscript",
+        "directory": "pts/editors/vscode"
+    },
+    "engines": {
+        "vscode": "^1.91.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "keywords": [
+        "parallelscript",
+        "pts",
+        "typescript"
+    ],
+    "main": "./dist/extension.js",
+    "activationEvents": [
+        "onLanguage:parallelscript"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "parallelscript",
+                "aliases": [
+                    "ParallelScript",
+                    "pts"
+                ],
+                "extensions": [
+                    ".pts"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "parallelscript",
+                "scopeName": "source.pts",
+                "path": "./syntaxes/ParallelScript.tmLanguage.json",
+                "unbalancedBracketScopes": [
+                    "keyword.operator.relational",
+                    "storage.type.function.arrow",
+                    "keyword.operator.bitwise.shift",
+                    "meta.brace.angle",
+                    "punctuation.definition.tag",
+                    "keyword.operator.assignment.compound.bitwise.pts"
+                ],
+                "tokenTypes": {
+                    "punctuation.definition.template-expression": "other",
+                    "entity.name.type.instance.jsdoc": "other",
+                    "entity.name.function.tagged-template": "other",
+                    "meta.import string.quoted": "other",
+                    "variable.other.jsdoc": "other"
+                }
+            }
+        ],
+        "configuration": {
+            "title": "ParallelScript",
+            "properties": {
+                "parallelscript.server.path": {
+                    "type": "string",
+                    "default": "pts",
+                    "markdownDescription": "The `pts` binary that runs the language server (`pts lsp --stdio`): a command on `PATH`, or a path. A relative path is taken from the first workspace folder; `~` is the home directory."
+                },
+                "parallelscript.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Traces the messages between VS Code and the ParallelScript language server in its output channel."
+                }
+            }
+        },
+        "commands": [
+            {
+                "command": "parallelscript.restartServer",
+                "title": "Restart Language Server",
+                "category": "ParallelScript"
+            }
+        ]
+    },
+    "scripts": {
+        "grammar": "node scripts/grammar.mjs",
+        "bundle": "node scripts/bundle.mjs",
+        "build": "npm run grammar && npm run bundle",
+        "typecheck": "tsc --noEmit -p .",
+        "test": "npm run typecheck && npm run grammar && node --test test/*.test.mjs",
+        "test:vscode": "npm run build && node test/e2e/run.mjs",
+        "package": "vsce package --no-dependencies --out dist/parallelscript.vsix",
+        "vscode:prepublish": "npm run build"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^10.1.2"
+    },
+    "devDependencies": {
+        "@types/node": "^20.19.0",
+        "@types/vscode": "~1.91.0",
+        "@vscode/test-electron": "^3.1.0",
+        "@vscode/vsce": "^4.0.0",
+        "esbuild": "^0.28.2",
+        "typescript": "^7.0.2",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.3.2"
+    }
+}
