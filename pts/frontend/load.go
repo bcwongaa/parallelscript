@@ -39,7 +39,7 @@ func Load(ctx context.Context, fs vfs.FS, entry string) (*Program, []diagnostic.
 	})
 	ts := compiler.NewProgram(compiler.ProgramOptions{Config: config, Host: host})
 	program := &Program{TS: ts, Entry: ts.GetSourceFile(entry)}
-	errors := errorsOf(ctx, ts)
+	errors := append(errorsOf(ctx, ts), internalImports(ts)...)
 	if program.Entry != nil {
 		program.Modules = evaluationOrder(ts, nil, program.Entry)
 		if len(errors) == 0 {
@@ -49,6 +49,30 @@ func Load(ctx context.Context, fs vfs.FS, entry string) (*Program, []diagnostic.
 		}
 	}
 	return program, errors
+}
+
+// internalImports reports the imports of the library's internal modules (lib.IsInternalModule)
+// outside the library.
+func internalImports(ts *compiler.Program) []diagnostic.Diagnostic {
+	var errors []diagnostic.Diagnostic
+	for _, file := range ts.GetSourceFiles() {
+		if lib.IsModulePath(file.FileName()) || lib.IsLibPath(file.FileName()) {
+			continue
+		}
+		for _, statement := range file.Statements.Nodes {
+			var specifier *ast.Node
+			switch statement.Kind {
+			case ast.KindImportDeclaration:
+				specifier = statement.AsImportDeclaration().ModuleSpecifier
+			case ast.KindExportDeclaration:
+				specifier = statement.AsExportDeclaration().ModuleSpecifier
+			}
+			if specifier != nil && ast.IsStringLiteralLike(specifier) && lib.IsInternalModule(specifier.Text()) {
+				errors = append(errors, diagnostic.At(specifier, diagnostic.Unsupported, "`%s` is internal to ParallelScript's library", specifier.Text()))
+			}
+		}
+	}
+	return errors
 }
 
 // globalModulesUsed are the pts: modules whose default export is a global (lib.GlobalModules)

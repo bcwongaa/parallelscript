@@ -1797,6 +1797,9 @@ bool pts_value_is_promise(pts_value value);
 /* Promise.resolve(value) and Promise.reject(reason). */
 pts_value pts_promise_resolved(pts_value value);
 pts_value pts_promise_rejected(pts_value reason);
+/* A pending promise that the runtime settles (D-118): resolved with result if fulfilled, else rejected with it. */
+pts_value pts_promise_pending(void);
+void pts_promise_settle(pts_value promise, bool fulfilled, pts_value result);
 /* For console.log: a promise's state (0 pending, 1 fulfilled, 2 rejected) and its value or reason. */
 int32_t pts_promise_state(const pts_object *promise, pts_value *result);
 /*
@@ -1835,6 +1838,8 @@ typedef struct pts_timer pts_timer;
 extern const pts_type pts_type_builtin_Timeout;
 
 void pts_loop_init(void);
+/* The thread's libuv loop (a uv_loop_t), started if it wasn't. */
+struct uv_loop_s *pts_uv_loop(void);
 /* Runs the loop until nothing referenced is left to wait for. */
 void pts_run_loop(void);
 /* setTimeout (repeat false) and setInterval: a Timeout; ms as Node coerces it; args may be NULL. */
@@ -1902,5 +1907,19 @@ pts_string *pts_fs_mkdtemp(pts_string *prefix);
 /* Node's error of a call that returned the errno error; path and dest may be empty. */
 pts_error *pts_fs_error(double error, pts_string *syscall, pts_string *path, pts_string *dest);
 pts_error *pts_fs_rm_directory_error(pts_string *path);
+/*
+ * The promise API's intrinsics (D-118): each runs its call on libuv's threadpool and
+ * returns a promise its result settles, with Node's error for those that return data;
+ * pts_fs_call_async ("access", "mkdir", "unlink", "rmdir", "rename", "copyfile",
+ * "symlink", "chmod") and pts_fs_stat_async resolve with 0 or the negative errno.
+ */
+pts_value pts_fs_read_file_async(pts_string *path, double flags);
+pts_value pts_fs_write_file_async(pts_string *path, pts_string *data, double flags, double mode);
+pts_value pts_fs_call_async(pts_string *call, pts_string *path, pts_string *dest, double mode);
+pts_value pts_fs_stat_async(pts_string *path, bool follow, struct pts_array *stats);
+pts_value pts_fs_scandir_async(pts_string *path, struct pts_array *types);
+pts_value pts_fs_readlink_async(pts_string *path);
+pts_value pts_fs_mkdtemp_async(pts_string *prefix);
+pts_value pts_fs_realpath_async(pts_string *path);
 
 #endif /* PTS_H */

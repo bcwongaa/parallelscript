@@ -12,7 +12,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs/wrapvfs"
 )
 
-//go:embed *.d.ts *.pts
+//go:embed *.d.ts *.pts fs internal
 var files embed.FS
 
 // scheme is a URL root, which tspath treats like a drive, so lib paths never clash with real files.
@@ -44,6 +44,12 @@ func ModulePath(specifier string) string {
 	return scheme + strings.TrimPrefix(specifier, "pts:") + ".pts"
 }
 
+// IsInternalModule reports whether specifier names a module internal to the library
+// (`pts:internal/fs`), which only the library's own modules may import.
+func IsInternalModule(specifier string) bool {
+	return strings.HasPrefix(specifier, "pts:internal/")
+}
+
 // ModuleSpecifier is the specifier of the pts: module whose source is at path
 // (`pts:path` for ptslib:///path.pts), or path itself for any other file.
 func ModuleSpecifier(path string) string {
@@ -72,7 +78,8 @@ func WrapFS(inner vfs.FS) vfs.FS {
 		},
 		DirectoryExists: func(path string) bool {
 			if name, ok := strings.CutPrefix(path, scheme); ok {
-				return name == ""
+				info, err := fs.Stat(files, strings.TrimSuffix(name, "/"))
+				return name == "" || err == nil && info.IsDir()
 			}
 			return inner.DirectoryExists(path)
 		},

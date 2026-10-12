@@ -90,6 +90,11 @@ void pts_loop_init(void) {
   state = s;
 }
 
+uv_loop_t *pts_uv_loop(void) {
+  pts_loop_init();
+  return state->loop;
+}
+
 /* ---------------------------------------------------------------- the heap of timers */
 
 static bool earlier(const pts_timer *a, const pts_timer *b) { return a->due < b->due || (a->due == b->due && a->order < b->order); }

@@ -27,6 +27,11 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				if x.X.Type() == ir.Value && !hasValueTest(x.To) {
 					targets = append(targets, x.To)
 				}
+			case *ir.Call:
+				if x.Func.Settles { // the loop settles its promise (D-118)
+					e.usesLoop = true
+					e.usesPromises = true
+				}
 			case *ir.CallBuiltin:
 				switch x.Builtin {
 				case ir.DynamicSet, ir.DynamicHas: // `k in o` finds methods in method tables too

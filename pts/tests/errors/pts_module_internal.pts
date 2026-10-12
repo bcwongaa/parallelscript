@@ -1,0 +1,4 @@
+// The library's internal modules are only for its own modules (D-118).
+import { constants } from "pts:internal/fs";
+console.log(constants.F_OK);
+// error: pts_module_internal.pts:2:27 - error PTS1002: `pts:internal/fs` is internal to ParallelScript's library

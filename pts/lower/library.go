@@ -111,6 +111,7 @@ func intrinsicDeclaration(symbol *ast.Symbol) *ast.Node {
 func (l *lowerer) declareIntrinsic(declaration *ast.Node) *ir.Func {
 	name := declaration.Name().Text()
 	fn := &ir.Func{Name: name, Extern: name, Result: l.resultType(declaration)}
+	fn.Settles = l.isPromiseType(l.returnTypeOf(l.checker.GetSignatureFromDeclaration(declaration)))
 	for _, param := range declaration.Parameters() {
 		t := l.parameterType(param)
 		if t == nil {

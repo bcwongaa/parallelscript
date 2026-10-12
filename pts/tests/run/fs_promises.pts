@@ -1,0 +1,96 @@
+// pts:fs/promises does what Node's fs/promises does (D-118): every function, its options
+// and its rejections, in a fresh directory under /tmp; calls run on the threadpool and
+// settle from the event loop, after the code and microtasks queued before them. Node
+// runs it with node:fs/promises. Paths in the output show that directory as <tmp>.
+import fsp, { access, appendFile, chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile, constants } from "pts:fs/promises";
+import fs, { promises } from "pts:fs";
+import { join } from "pts:path";
+
+const tmp = await mkdtemp("/tmp/pts-fs-promises-");
+const at = (name: string): string => join(tmp, name);
+const show = (text: string | undefined): string | undefined => text === undefined ? undefined : text.split(tmp).join("<tmp>");
+
+async function attempt(label: string, f: () => Promise<unknown>): Promise<void> {
+    try {
+        const result = await f();
+        console.log(label, "->", typeof result === "string" ? show(result) : result);
+    } catch (e) {
+        const error = e as { message: string; code?: string; syscall?: string; errno?: number; path?: string; dest?: string };
+        console.log(label, "!!", show(error.message), error.code, error.syscall, error.errno, show(error.path), show(error.dest));
+    }
+}
+
+// Reading and writing.
+await writeFile(at("a.txt"), "first\n");
+await appendFile(at("a.txt"), "second: ünïcödé 🎉\n");
+await fsp.appendFile(at("a.txt"), "third\n", { flag: "a" });
+console.log(JSON.stringify(await readFile(at("a.txt"), "utf8")), (await readFile(at("a.txt"), { encoding: "utf8" })).length);
+await attempt("exclusive write", () => writeFile(at("a.txt"), "x", { flag: "wx" }));
+await attempt("read missing", () => readFile(at("nope"), "utf8"));
+await attempt("read a directory", () => readFile(tmp, "utf8"));
+
+// Order: a call settles after the synchronous code and the microtasks queued before it.
+const order: string[] = [];
+const reading = readFile(at("a.txt"), "utf8").then(() => order.push("read"));
+Promise.resolve().then(() => order.push("microtask"));
+queueMicrotask(() => order.push("queued"));
+order.push("sync");
+await reading;
+console.log(order);
+
+// Many at once.
+const names = ["one", "two", "three", "four", "five"];
+await Promise.all(names.map((name, i) => writeFile(at(`${name}.txt`), name.repeat(i + 1))));
+const contents = await Promise.all(names.map((name) => readFile(at(`${name}.txt`), "utf8")));
+console.log(contents.map((text) => text.length));
+const settled = await Promise.allSettled([readFile(at("one.txt"), "utf8"), readFile(at("zero.txt"), "utf8")]);
+console.log(settled.map((result) => result.status));
+
+// Access and stat.
+await attempt("access", () => access(at("a.txt"), constants.R_OK));
+await attempt("access missing", () => access(at("nope")));
+const stats = await stat(at("a.txt"));
+console.log(stats.size, stats.isFile(), stats.isDirectory(), (await stat(tmp)).isDirectory(), stats.mtime.getTime() === Math.round(stats.mtimeMs));
+console.log(await stat(at("nope"), { throwIfNoEntry: false }), await stat(at("a.txt/x"), { throwIfNoEntry: false }));
+await attempt("lstat under a file", () => lstat(at("a.txt/x")));
+await attempt("stat missing", () => stat(at("nope")));
+await chmod(at("a.txt"), 0o640);
+console.log(((await stat(at("a.txt"))).mode & 0o777).toString(8));
+
+// Directories.
+console.log(show(await mkdir(at("d1/d2/d3"), { recursive: true })), await mkdir(at("d1/d2"), { recursive: true }), await mkdir(at("plain")));
+await attempt("mkdir exists", () => mkdir(at("plain")));
+await attempt("mkdir under a file", () => mkdir(at("a.txt/x"), { recursive: true }));
+await writeFile(at("d1/one.txt"), "1");
+await writeFile(at("d1/d2/two.txt"), "2");
+await mkdir(at("d1/e"));
+await writeFile(at("d1/e/three.txt"), "3");
+console.log(await readdir(at("d1")), await readdir(at("d1"), { recursive: true }));
+console.log((await readdir(at("d1"), { withFileTypes: true })).map((d) => `${d.name}:${d.isDirectory()}:${show(d.parentPath)}`));
+console.log((await readdir(at("d1"), { withFileTypes: true, recursive: true })).map((d) => `${show(d.parentPath)}|${d.name}`));
+await attempt("readdir of a file", () => readdir(at("a.txt")));
+
+// Links, moving, copying, removing.
+await symlink("a.txt", at("link"));
+console.log(await readlink(at("link")), show(await realpath(at("link"))), (await lstat(at("link"))).isSymbolicLink());
+await attempt("realpath missing", () => realpath(at("d1/zz")));
+await attempt("readlink of a file", () => readlink(at("a.txt")));
+await rename(at("one.txt"), at("uno.txt"));
+await copyFile(at("uno.txt"), at("copy.txt"));
+console.log(await readFile(at("copy.txt"), "utf8"), fs.existsSync(at("one.txt")));
+await attempt("rename missing", () => rename(at("one.txt"), at("x.txt")));
+await attempt("copy exclusive", () => copyFile(at("uno.txt"), at("copy.txt"), constants.COPYFILE_EXCL));
+await unlink(at("copy.txt"));
+await attempt("unlink missing", () => unlink(at("copy.txt")));
+await rmdir(at("plain"));
+await attempt("rmdir not empty", () => rmdir(at("d1")));
+await attempt("rm missing", () => rm(at("nope")));
+await attempt("rm missing forced", () => rm(at("nope"), { force: true }));
+await attempt("rm a directory", () => rm(at("d1")));
+await rm(at("d1"), { recursive: true });
+console.log(await readdir(tmp));
+
+// The module objects.
+console.log(promises === fsp, fs.promises === fsp, fsp.constants.O_CREAT, (await fsp.readdir(tmp)).length, (await promises.stat(tmp)).isDirectory());
+await fsp.rm(tmp, { recursive: true, force: true });
+console.log(fs.existsSync(tmp));

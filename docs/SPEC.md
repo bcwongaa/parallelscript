@@ -316,7 +316,7 @@ Semantics (D-022), as in Node:
 
 | Module | Contents |
 |---|---|
-| `pts:fs` | Sync and promise-based file APIs: Node's `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `accessSync`, `statSync`, `lstatSync`, `mkdirSync`, `readdirSync`, `unlinkSync`, `rmdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `symlinkSync`, `readlinkSync`, `realpathSync`, `chmodSync`, `mkdtempSync`, `constants`, `Stats`, `Dirent`, with Node's errors (D-117); text in UTF-8 |
+| `pts:fs` | Sync and promise-based file APIs: Node's `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `accessSync`, `statSync`, `lstatSync`, `mkdirSync`, `readdirSync`, `unlinkSync`, `rmdirSync`, `rmSync`, `renameSync`, `copyFileSync`, `symlinkSync`, `readlinkSync`, `realpathSync`, `chmodSync`, `mkdtempSync`, `constants`, `Stats`, `Dirent`, with Node's errors (D-117); text in UTF-8; the promise API is `pts:fs/promises` (also `fs.promises`): `readFile`, `writeFile`, `appendFile`, `access`, `stat`, `lstat`, `mkdir`, `readdir`, `unlink`, `rmdir`, `rm`, `rename`, `copyFile`, `symlink`, `readlink`, `realpath`, `chmod`, `mkdtemp` (D-118) |
 | `pts:path` | Path utilities: Node's `path` for POSIX (`join`, `resolve`, `relative`, `normalize`, `dirname`, `basename`, `extname`, `parse`, `format`, `isAbsolute`, `sep`, `delimiter`; the default export is the object of them, D-116) |
 | `pts:process` | `argv`, `env`, `exit`, `exitCode`, `cwd`, `platform`, `arch`, `pid`, `execPath`, `stdout.write`, `stderr.write`; the default export is also the global `process`, as in Node (D-116) |
 
@@ -963,3 +963,11 @@ Representation choices, runtime layouts, and anything a later session needs to k
 - **Lowering:** `overloadResult`/`isOverloadSignature`/`implementationOf` (`lower.go`): calls of overloaded functions and methods; `isBuiltinFieldOfObjectType`: Error's fields on object types extending it; `unsupportedOverloadCall`/`notSupportedYetTag` (`library.go`): the `@notSupportedYet` tag.
 - **Runtime:** `fs.c` (`pts_fs_*` over `uv_fs_*` synchronous calls); `pts_system_error`, `pts_type_builtin_SystemError`, `pts_uv_error_new`, `pts_throw_uv_error` (`error.c`); `pts_string_from_utf8_lossy`, `pts_string_to_utf8` (`string.c`), also for argv and the environment.
 - **Tests:** `pts/tests/run/fs_sync`, `fs_errors`, `fs_uncaught`, `overloads` (also run under Node); `pts/tests/errors/fs_buffers_not_yet.pts`; `string_test.c` (lossy decoding).
+
+### 9.76 pts:fs, promises (M4.5c)
+
+- **Library:** `pts/lib/fs/promises.pts` (`pts:fs/promises`); `pts/lib/internal/fs.pts` (`pts:internal/fs`, what the two modules share); `lib.IsInternalModule`, embedded subdirectories (`WrapFS`'s DirectoryExists) (D-118).
+- **Front end:** `internalImports` reports imports of `pts:internal/…` outside the library (PTS1002).
+- **Lowering and C:** `ir.Func.Settles` (an intrinsic returning a Promise, `declareIntrinsic`), which sets cgen's `usesLoop`.
+- **Runtime:** `fs.c` jobs (`run`, `finish`, `run_now`, `start`/`work`/`done` over `uv_queue_work`); `pts_promise_pending`, `pts_promise_settle` (`promise.c`); `pts_uv_loop` (`loop.c`).
+- **Tests:** `pts/tests/run/fs_promises` (also run under Node); `pts/tests/errors/pts_module_internal.pts`.

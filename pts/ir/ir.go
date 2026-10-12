@@ -484,6 +484,9 @@ type Func struct {
 	// Extern is the runtime function that implements a method of a Builtin class; such a
 	// function has no Body and isn't among the program's functions.
 	Extern string
+	// Settles marks an extern function that returns a promise it settles from the event
+	// loop (an intrinsic of pts:fs/promises, D-118), so a program that calls it runs the loop.
+	Settles bool
 	// Generator marks a generator function (`function*`, D-109). A call makes a generator
 	// object, a Value (Result), and returns it without running Body, which runs when the
 	// object is resumed, holding every local in the object's frame. A Yield in Body

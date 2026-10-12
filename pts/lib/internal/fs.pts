@@ -1,0 +1,322 @@
+// pts:internal/fs: what pts:fs and pts:fs/promises share (D-118): types, constants, flags,
+// Stats and Dirent. Only the library's modules may import it.
+
+export type PathLike = string;
+// The encodings files are read and written in; Node's others wait for Buffers.
+export type BufferEncoding = "utf8" | "utf-8";
+
+// Node's fs.constants on Linux.
+export const constants = {
+    UV_FS_SYMLINK_DIR: 1, UV_FS_SYMLINK_JUNCTION: 2, O_RDONLY: 0, O_WRONLY: 1, O_RDWR: 2,
+    UV_DIRENT_UNKNOWN: 0, UV_DIRENT_FILE: 1, UV_DIRENT_DIR: 2, UV_DIRENT_LINK: 3, UV_DIRENT_FIFO: 4,
+    UV_DIRENT_SOCKET: 5, UV_DIRENT_CHAR: 6, UV_DIRENT_BLOCK: 7,
+    S_IFMT: 61440, S_IFREG: 32768, S_IFDIR: 16384, S_IFCHR: 8192, S_IFBLK: 24576, S_IFIFO: 4096,
+    S_IFLNK: 40960, S_IFSOCK: 49152,
+    O_CREAT: 64, O_EXCL: 128, UV_FS_O_FILEMAP: 0, O_NOCTTY: 256, O_TRUNC: 512, O_APPEND: 1024,
+    O_DIRECTORY: 65536, O_NOATIME: 262144, O_NOFOLLOW: 131072, O_SYNC: 1052672, O_DSYNC: 4096,
+    O_DIRECT: 16384, O_NONBLOCK: 2048,
+    S_IRWXU: 448, S_IRUSR: 256, S_IWUSR: 128, S_IXUSR: 64, S_IRWXG: 56, S_IRGRP: 32, S_IWGRP: 16,
+    S_IXGRP: 8, S_IRWXO: 7, S_IROTH: 4, S_IWOTH: 2, S_IXOTH: 1,
+    F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1,
+    UV_FS_COPYFILE_EXCL: 1, COPYFILE_EXCL: 1, UV_FS_COPYFILE_FICLONE: 2, COPYFILE_FICLONE: 2,
+    UV_FS_COPYFILE_FICLONE_FORCE: 4, COPYFILE_FICLONE_FORCE: 4,
+};
+
+// Node keeps these on its fs object only (deprecated there), not as named exports of pts:fs.
+export const F_OK = 0;
+export const R_OK = 4;
+export const W_OK = 2;
+export const X_OK = 1;
+
+export const S_IFMT = 61440;
+export const S_IFREG = 32768;
+export const S_IFDIR = 16384;
+export const S_IFCHR = 8192;
+export const S_IFBLK = 24576;
+export const S_IFIFO = 4096;
+export const S_IFLNK = 40960;
+export const S_IFSOCK = 49152;
+
+export const UV_DIRENT_UNKNOWN = 0;
+export const UV_DIRENT_FILE = 1;
+export const UV_DIRENT_DIR = 2;
+export const UV_DIRENT_LINK = 3;
+export const UV_DIRENT_FIFO = 4;
+export const UV_DIRENT_SOCKET = 5;
+export const UV_DIRENT_CHAR = 6;
+export const UV_DIRENT_BLOCK = 7;
+
+// libuv's errors on Linux.
+export const UV_EPERM = -1;
+export const UV_ENOENT = -2;
+export const UV_EACCES = -13;
+export const UV_EEXIST = -17;
+export const UV_ENOTDIR = -20;
+export const UV_ENOSPC = -28;
+
+// Node's ERR_INVALID_ARG_VALUE: a TypeError with that code.
+export class InvalidArgValueError extends TypeError {
+    readonly code: string = "ERR_INVALID_ARG_VALUE";
+}
+
+// Node's stringToFlags: the open flags a flag string such as "a+" stands for.
+export function stringToFlags(flags: string | number | undefined): number {
+    if (typeof flags === "number") {
+        return flags + 0;
+    }
+    switch (flags) {
+        case undefined:
+        case "r": return constants.O_RDONLY;
+        case "rs":
+        case "sr": return constants.O_RDONLY | constants.O_SYNC;
+        case "r+": return constants.O_RDWR;
+        case "rs+":
+        case "sr+": return constants.O_RDWR | constants.O_SYNC;
+        case "w": return constants.O_TRUNC | constants.O_CREAT | constants.O_WRONLY;
+        case "wx":
+        case "xw": return constants.O_TRUNC | constants.O_CREAT | constants.O_WRONLY | constants.O_EXCL;
+        case "w+": return constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR;
+        case "wx+":
+        case "xw+": return constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR | constants.O_EXCL;
+        case "a": return constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY;
+        case "ax":
+        case "xa": return constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_EXCL;
+        case "as":
+        case "sa": return constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_SYNC;
+        case "a+": return constants.O_APPEND | constants.O_CREAT | constants.O_RDWR;
+        case "ax+":
+        case "xa+": return constants.O_APPEND | constants.O_CREAT | constants.O_RDWR | constants.O_EXCL;
+        case "as+":
+        case "sa+": return constants.O_APPEND | constants.O_CREAT | constants.O_RDWR | constants.O_SYNC;
+    }
+    throw new InvalidArgValueError(`The argument 'flags' is invalid. Received '${flags}'`);
+}
+
+// ---------------------------------------------------------------- Stats and Dirent
+
+export function msFromTimeSpec(seconds: number, nanoseconds: number): number {
+    return seconds * 1000 + nanoseconds / 1000000;
+}
+
+// What stat returns, as Node's Stats: the numbers, and the dates as getters.
+export class Stats {
+    dev: number;
+    mode: number;
+    nlink: number;
+    uid: number;
+    gid: number;
+    rdev: number;
+    blksize: number;
+    ino: number;
+    size: number;
+    blocks: number;
+    atimeMs: number;
+    mtimeMs: number;
+    ctimeMs: number;
+    birthtimeMs: number;
+
+    // values: pts_fs_stat's numbers.
+    constructor(values: number[]) {
+        this.dev = values[0];
+        this.mode = values[1];
+        this.nlink = values[2];
+        this.uid = values[3];
+        this.gid = values[4];
+        this.rdev = values[5];
+        this.blksize = values[6];
+        this.ino = values[7];
+        this.size = values[8];
+        this.blocks = values[9];
+        this.atimeMs = msFromTimeSpec(values[10], values[11]);
+        this.mtimeMs = msFromTimeSpec(values[12], values[13]);
+        this.ctimeMs = msFromTimeSpec(values[14], values[15]);
+        this.birthtimeMs = msFromTimeSpec(values[16], values[17]);
+    }
+
+    get atime(): Date {
+        return new Date(Math.round(this.atimeMs));
+    }
+
+    get mtime(): Date {
+        return new Date(Math.round(this.mtimeMs));
+    }
+
+    get ctime(): Date {
+        return new Date(Math.round(this.ctimeMs));
+    }
+
+    get birthtime(): Date {
+        return new Date(Math.round(this.birthtimeMs));
+    }
+
+    isFile(): boolean {
+        return (this.mode & S_IFMT) === S_IFREG;
+    }
+
+    isDirectory(): boolean {
+        return (this.mode & S_IFMT) === S_IFDIR;
+    }
+
+    isSymbolicLink(): boolean {
+        return (this.mode & S_IFMT) === S_IFLNK;
+    }
+
+    isFIFO(): boolean {
+        return (this.mode & S_IFMT) === S_IFIFO;
+    }
+
+    isSocket(): boolean {
+        return (this.mode & S_IFMT) === S_IFSOCK;
+    }
+
+    isCharacterDevice(): boolean {
+        return (this.mode & S_IFMT) === S_IFCHR;
+    }
+
+    isBlockDevice(): boolean {
+        return (this.mode & S_IFMT) === S_IFBLK;
+    }
+}
+
+// The dirent type of a file of the given mode.
+export function direntTypeOf(mode: number): number {
+    switch (mode & S_IFMT) {
+        case S_IFREG: return UV_DIRENT_FILE;
+        case S_IFDIR: return UV_DIRENT_DIR;
+        case S_IFLNK: return UV_DIRENT_LINK;
+        case S_IFIFO: return UV_DIRENT_FIFO;
+        case S_IFSOCK: return UV_DIRENT_SOCKET;
+        case S_IFCHR: return UV_DIRENT_CHAR;
+        case S_IFBLK: return UV_DIRENT_BLOCK;
+    }
+    return UV_DIRENT_UNKNOWN;
+}
+
+// An entry of a directory, as readdirSync with withFileTypes gives it.
+export class Dirent {
+    name: string;
+    parentPath: string;
+    #type: number;
+
+    constructor(name: string, type: number, parentPath: string) {
+        this.name = name;
+        this.parentPath = parentPath;
+        this.#type = type;
+    }
+
+    isFile(): boolean {
+        return this.#type === UV_DIRENT_FILE;
+    }
+
+    isDirectory(): boolean {
+        return this.#type === UV_DIRENT_DIR;
+    }
+
+    isSymbolicLink(): boolean {
+        return this.#type === UV_DIRENT_LINK;
+    }
+
+    isFIFO(): boolean {
+        return this.#type === UV_DIRENT_FIFO;
+    }
+
+    isSocket(): boolean {
+        return this.#type === UV_DIRENT_SOCKET;
+    }
+
+    isCharacterDevice(): boolean {
+        return this.#type === UV_DIRENT_CHAR;
+    }
+
+    isBlockDevice(): boolean {
+        return this.#type === UV_DIRENT_BLOCK;
+    }
+}
+
+export interface ReadFileOptions {
+    encoding: BufferEncoding;
+    flag?: string;
+}
+
+export interface WriteFileOptions {
+    encoding?: BufferEncoding | null;
+    mode?: number;
+    flag?: string;
+}
+
+// What reading without an encoding gives in Node; reading so waits for typed arrays (M5.4).
+export interface Buffer {
+    readonly length: number;
+    toString(): string;
+}
+
+export interface ReadFileBufferOptions {
+    encoding?: null;
+    flag?: string;
+}
+
+export interface StatSyncOptions {
+    bigint?: false;
+    throwIfNoEntry?: boolean;
+}
+
+export interface MakeDirectoryOptions {
+    recursive?: boolean;
+    mode?: number;
+}
+
+export interface ReaddirOptions {
+    encoding?: BufferEncoding | null;
+    withFileTypes?: boolean;
+    recursive?: boolean;
+}
+
+export interface RmOptions {
+    force?: boolean;
+    recursive?: boolean;
+    maxRetries?: number;
+    retryDelay?: number;
+}
+
+// The open flags, mode and default flag of a write's options.
+export function writeOptions(options: BufferEncoding | WriteFileOptions | null | undefined, defaultFlag: string): [number, number] {
+    let flag: string = defaultFlag;
+    let mode = 0o666;
+    if (typeof options === "object" && options !== null) {
+        flag = options.flag ?? defaultFlag;
+        mode = options.mode ?? 0o666;
+    }
+    return [stringToFlags(flag), mode];
+}
+
+// The flag of a read's options.
+export function readFlags(options: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null | undefined): number {
+    const flag = typeof options === "object" && options !== null ? options.flag : undefined;
+    return stringToFlags(flag ?? "r");
+}
+
+// symlink's flags for Node's type argument.
+export function symlinkFlags(type: "file" | "dir" | "junction" | null | undefined): number {
+    return type === "dir" ? constants.UV_FS_SYMLINK_DIR : type === "junction" ? constants.UV_FS_SYMLINK_JUNCTION : 0;
+}
+
+// mkdir's mode and recursive flag for Node's options argument.
+export function mkdirOptions(options: number | MakeDirectoryOptions | undefined): [number, boolean] {
+    if (typeof options === "number") {
+        return [options, false];
+    }
+    return [options?.mode ?? 0o777, options?.recursive ?? false];
+}
+
+// readdir's withFileTypes and recursive flags for Node's options argument.
+export function readdirOptions(options: BufferEncoding | ReaddirOptions | null | undefined): [boolean, boolean] {
+    if (typeof options === "object" && options !== null) {
+        return [options.withFileTypes ?? false, options.recursive ?? false];
+    }
+    return [false, false];
+}
+
+// Whether a stat's mode is a directory's.
+export function isDirectoryMode(mode: number): boolean {
+    return (mode & S_IFMT) === S_IFDIR;
+}

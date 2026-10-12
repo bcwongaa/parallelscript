@@ -562,6 +562,17 @@ void pts_queue_microtask(pts_value callback) {
 
 pts_value pts_promise_resolved(pts_value value) { return pts_value_from_object(promise_resolve(value)); }
 
+pts_value pts_promise_pending(void) { return pts_value_from_object(new_promise()); }
+
+void pts_promise_settle(pts_value promise, bool fulfilled, pts_value result) {
+  pts_promise *settled = (pts_promise *)pts_value_as_object(promise);
+  if (fulfilled) {
+    resolve(settled, result);
+  } else {
+    settle(settled, REJECTED, result);
+  }
+}
+
 pts_value pts_promise_rejected(pts_value reason) {
   pts_promise *promise = new_promise();
   settle(promise, REJECTED, reason);

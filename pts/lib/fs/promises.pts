@@ -1,0 +1,352 @@
+// pts:fs/promises: Node's fs/promises (D-118). Each call runs on libuv's threadpool, as
+// Node's do, and its promise settles from the event loop; failures reject with Node's
+// errors, as pts:fs's synchronous functions throw them (D-117).
+
+import { join, relative } from "pts:path";
+import {
+    constants, Dirent, direntTypeOf, F_OK, isDirectoryMode, mkdirOptions, readdirOptions, readFlags, Stats, symlinkFlags,
+    UV_DIRENT_DIR, UV_DIRENT_UNKNOWN, UV_EACCES, UV_EEXIST, UV_ENOENT, UV_ENOSPC, UV_ENOTDIR, UV_EPERM, writeOptions,
+} from "pts:internal/fs";
+import type {
+    Buffer, BufferEncoding, MakeDirectoryOptions, PathLike, ReaddirOptions, ReadFileBufferOptions, ReadFileOptions, RmOptions, StatSyncOptions,
+    WriteFileOptions,
+} from "pts:internal/fs";
+
+export { constants } from "pts:internal/fs";
+
+declare function pts_fs_read_file_async(path: string, flags: number): Promise<string>;
+declare function pts_fs_write_file_async(path: string, data: string, flags: number, mode: number): Promise<void>;
+declare function pts_fs_call_async(call: string, path: string, dest: string, mode: number): Promise<number>;
+declare function pts_fs_stat_async(path: string, follow: boolean, stats: number[]): Promise<number>;
+declare function pts_fs_scandir_async(path: string, types: number[]): Promise<string[]>;
+declare function pts_fs_readlink_async(path: string): Promise<string>;
+declare function pts_fs_mkdtemp_async(prefix: string): Promise<string>;
+declare function pts_fs_realpath_async(path: string): Promise<string>;
+declare function pts_fs_stat(path: string, follow: boolean, stats: number[]): number;
+declare function pts_fs_error(error: number, syscall: string, path: string, dest: string): Error;
+declare function pts_fs_rm_directory_error(path: string): Error;
+
+// Runs the call named syscall, which gives 0 or the negative errno; Node's error if it failed.
+async function call(syscall: string, path: string, dest: string, mode: number): Promise<void> {
+    const error = await pts_fs_call_async(syscall, path, dest, mode);
+    if (error < 0) {
+        throw pts_fs_error(error, syscall, path, dest);
+    }
+}
+
+// Node's getDirent for an entry whose type the directory didn't tell: lstat'ed.
+function direntOf(parentPath: string, name: string, type: number): Dirent {
+    if (type === UV_DIRENT_UNKNOWN) {
+        const stats: number[] = [];
+        const path = join(parentPath, name);
+        const error = pts_fs_stat(path, false, stats);
+        if (error < 0) {
+            throw pts_fs_error(error, "lstat", path, "");
+        }
+        type = direntTypeOf(stats[1]);
+    }
+    return new Dirent(name, type, parentPath);
+}
+
+/** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
+export function readFile(path: PathLike, options?: ReadFileBufferOptions | null): Promise<Buffer>;
+export function readFile(path: PathLike, options: BufferEncoding | ReadFileOptions): Promise<string>;
+export async function readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string> {
+    return await pts_fs_read_file_async(path, readFlags(options));
+}
+
+export async function writeFile(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    const [flags, mode] = writeOptions(options, "w");
+    await pts_fs_write_file_async(file, data, flags, mode);
+}
+
+export async function appendFile(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+    const [flags, mode] = writeOptions(options, "a");
+    await pts_fs_write_file_async(path, data, flags, mode);
+}
+
+export async function access(path: PathLike, mode: number = F_OK): Promise<void> {
+    await call("access", path, "", mode);
+}
+
+async function statWith(path: PathLike, follow: boolean, options: StatSyncOptions | undefined): Promise<Stats | undefined> {
+    const values: number[] = [];
+    const error = await pts_fs_stat_async(path, follow, values);
+    if ((error === UV_ENOENT || error === UV_ENOTDIR) && options !== undefined && options.throwIfNoEntry === false) {
+        return undefined;
+    }
+    if (error < 0) {
+        throw pts_fs_error(error, follow ? "stat" : "lstat", path, "");
+    }
+    return new Stats(values);
+}
+
+export function stat(path: PathLike, options: { bigint?: false; throwIfNoEntry: false }): Promise<Stats | undefined>;
+export function stat(path: PathLike, options?: StatSyncOptions): Promise<Stats>;
+export async function stat(path: PathLike, options?: StatSyncOptions): Promise<Stats | undefined> {
+    return await statWith(path, true, options);
+}
+
+// Unlike stat, Node's lstat has no throwIfNoEntry.
+export async function lstat(path: PathLike, options?: { bigint?: false }): Promise<Stats> {
+    return await statWith(path, false, undefined) as Stats;
+}
+
+// Node's MKDirpAsync: makes path and the directories missing above it; the first it made.
+async function makeDirectories(path: string, mode: number): Promise<string | undefined> {
+    const paths = [path];
+    let first: string | undefined = undefined;
+    while (paths.length > 0) {
+        const next = paths.pop() as string;
+        let error = await pts_fs_call_async("mkdir", next, "", mode);
+        if (error === 0) {
+            first ??= next;
+            continue;
+        }
+        if (error === UV_EACCES || error === UV_ENOSPC || error === UV_ENOTDIR || error === UV_EPERM) {
+            throw pts_fs_error(error, "mkdir", path, "");
+        }
+        if (error === UV_ENOENT) {
+            const slash = next.lastIndexOf("/");
+            const dirname = slash < 0 ? next : next.slice(0, slash);
+            if (dirname !== next) {
+                paths.push(next, dirname);
+                continue;
+            } else if (paths.length > 0) {
+                continue;
+            }
+            error = UV_EEXIST;
+        }
+        const values: number[] = [];
+        const statError = await pts_fs_stat_async(next, true, values);
+        if (statError === 0 && !isDirectoryMode(values[1])) {
+            throw pts_fs_error(error === UV_EEXIST && paths.length > 0 ? UV_ENOTDIR : UV_EEXIST, "mkdir", path, "");
+        }
+        if (statError < 0) {
+            throw pts_fs_error(statError, "mkdir", path, "");
+        }
+    }
+    return first;
+}
+
+export async function mkdir(path: PathLike, options?: number | MakeDirectoryOptions): Promise<string | undefined> {
+    const [mode, recursive] = mkdirOptions(options);
+    if (recursive) {
+        return await makeDirectories(path, mode);
+    }
+    await call("mkdir", path, "", mode);
+    return undefined;
+}
+
+// Node's readdirRecursive for promises: depth first, each directory read when it is met.
+async function readTree(base: string, withFileTypes: boolean): Promise<string[] | Dirent[]> {
+    const names: string[] = [];
+    const dirents: Dirent[] = [];
+    const baseTypes: number[] = [];
+    const queue: [string, string[], number[]][] = [[base, await pts_fs_scandir_async(base, baseTypes), baseTypes]];
+    while (queue.length > 0) {
+        const [path, entries, types] = queue.pop() as [string, string[], number[]];
+        for (let i = 0; i < entries.length; i++) {
+            const entryPath = join(path, entries[i]);
+            let isDirectory: boolean;
+            if (withFileTypes) {
+                const dirent = direntOf(path, entries[i], types[i]);
+                dirents.push(dirent);
+                isDirectory = dirent.isDirectory();
+            } else {
+                const stats: number[] = [];
+                isDirectory = pts_fs_stat(entryPath, true, stats) === 0 && isDirectoryMode(stats[1]);
+                names.push(relative(base, entryPath));
+            }
+            if (isDirectory) {
+                const entryTypes: number[] = [];
+                queue.push([entryPath, await pts_fs_scandir_async(entryPath, entryTypes), entryTypes]);
+            }
+        }
+    }
+    return withFileTypes ? dirents : names;
+}
+
+async function readdirWith(path: PathLike, options: BufferEncoding | ReaddirOptions | null | undefined): Promise<string[] | Dirent[]> {
+    const [withFileTypes, recursive] = readdirOptions(options);
+    if (recursive) {
+        return await readTree(path, withFileTypes);
+    }
+    const types: number[] = [];
+    const names = await pts_fs_scandir_async(path, types);
+    if (!withFileTypes) {
+        return names;
+    }
+    return names.map((name, i) => direntOf(path, name, types[i]));
+}
+
+export function readdir(path: PathLike, options: { encoding?: BufferEncoding | null; withFileTypes: true; recursive?: boolean }): Promise<Dirent[]>;
+export function readdir(path: PathLike, options?: BufferEncoding | { encoding?: BufferEncoding | null; withFileTypes?: false; recursive?: boolean } | null): Promise<string[]>;
+export async function readdir(path: PathLike, options?: BufferEncoding | ReaddirOptions | null): Promise<string[] | Dirent[]> {
+    return await readdirWith(path, options);
+}
+
+export async function unlink(path: PathLike): Promise<void> {
+    await call("unlink", path, "", 0);
+}
+
+export async function rmdir(path: PathLike): Promise<void> {
+    await call("rmdir", path, "", 0);
+}
+
+// Removes the directory path and everything in it.
+async function removeTree(path: string): Promise<void> {
+    const types: number[] = [];
+    const names = await pts_fs_scandir_async(path, types);
+    for (let i = 0; i < names.length; i++) {
+        const child = join(path, names[i]);
+        let type = types[i];
+        if (type === UV_DIRENT_UNKNOWN) {
+            const stats: number[] = [];
+            const error = await pts_fs_stat_async(child, false, stats);
+            if (error < 0) {
+                throw pts_fs_error(error, "lstat", child, "");
+            }
+            type = direntTypeOf(stats[1]);
+        }
+        if (type === UV_DIRENT_DIR) {
+            await removeTree(child);
+        } else {
+            await call("unlink", child, "", 0);
+        }
+    }
+    await call("rmdir", path, "", 0);
+}
+
+export async function rm(path: PathLike, options?: RmOptions): Promise<void> {
+    const stats: number[] = [];
+    const error = await pts_fs_stat_async(path, false, stats);
+    if (error === UV_ENOENT && options?.force === true) {
+        return;
+    }
+    if (error < 0) {
+        throw pts_fs_error(error, "lstat", path, "");
+    }
+    if (!isDirectoryMode(stats[1])) {
+        await call("unlink", path, "", 0);
+    } else if (options?.recursive === true) {
+        await removeTree(path);
+    } else {
+        throw pts_fs_rm_directory_error(path);
+    }
+}
+
+export async function rename(oldPath: PathLike, newPath: PathLike): Promise<void> {
+    await call("rename", oldPath, newPath, 0);
+}
+
+export async function copyFile(src: PathLike, dest: PathLike, mode: number = 0): Promise<void> {
+    await call("copyfile", src, dest, mode);
+}
+
+export async function symlink(target: PathLike, path: PathLike, type?: "file" | "dir" | "junction" | null): Promise<void> {
+    await call("symlink", target, path, symlinkFlags(type));
+}
+
+export async function readlink(path: PathLike): Promise<string> {
+    return await pts_fs_readlink_async(path);
+}
+
+export async function realpath(path: PathLike): Promise<string> {
+    return await pts_fs_realpath_async(path);
+}
+
+export async function chmod(path: PathLike, mode: number): Promise<void> {
+    await call("chmod", path, "", mode);
+}
+
+export async function mkdtemp(prefix: string): Promise<string> {
+    return await pts_fs_mkdtemp_async(prefix);
+}
+
+// The default export, as Node's fs/promises object (and pts:fs's promises): the functions as methods.
+export class FilePromises {
+    readonly constants = constants;
+
+    /** @notSupportedYet reading a file without an encoding (into a Buffer, until typed arrays) is */
+    readFile(path: PathLike, options?: ReadFileBufferOptions | null): Promise<Buffer>;
+    readFile(path: PathLike, options: BufferEncoding | ReadFileOptions): Promise<string>;
+    readFile(path: PathLike, options?: BufferEncoding | ReadFileOptions | ReadFileBufferOptions | null): Promise<string> {
+        return pts_fs_read_file_async(path, readFlags(options));
+    }
+
+    writeFile(file: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+        return writeFile(file, data, options);
+    }
+
+    appendFile(path: PathLike, data: string, options?: BufferEncoding | WriteFileOptions | null): Promise<void> {
+        return appendFile(path, data, options);
+    }
+
+    access(path: PathLike, mode: number = F_OK): Promise<void> {
+        return access(path, mode);
+    }
+
+    stat(path: PathLike, options: { bigint?: false; throwIfNoEntry: false }): Promise<Stats | undefined>;
+    stat(path: PathLike, options?: StatSyncOptions): Promise<Stats>;
+    stat(path: PathLike, options?: StatSyncOptions): Promise<Stats | undefined> {
+        return statWith(path, true, options);
+    }
+
+    lstat(path: PathLike, options?: { bigint?: false }): Promise<Stats> {
+        return lstat(path, options);
+    }
+
+    mkdir(path: PathLike, options?: number | MakeDirectoryOptions): Promise<string | undefined> {
+        return mkdir(path, options);
+    }
+
+    readdir(path: PathLike, options: { encoding?: BufferEncoding | null; withFileTypes: true; recursive?: boolean }): Promise<Dirent[]>;
+    readdir(path: PathLike, options?: BufferEncoding | { encoding?: BufferEncoding | null; withFileTypes?: false; recursive?: boolean } | null): Promise<string[]>;
+    readdir(path: PathLike, options?: BufferEncoding | ReaddirOptions | null): Promise<string[] | Dirent[]> {
+        return readdirWith(path, options);
+    }
+
+    unlink(path: PathLike): Promise<void> {
+        return unlink(path);
+    }
+
+    rmdir(path: PathLike): Promise<void> {
+        return rmdir(path);
+    }
+
+    rm(path: PathLike, options?: RmOptions): Promise<void> {
+        return rm(path, options);
+    }
+
+    rename(oldPath: PathLike, newPath: PathLike): Promise<void> {
+        return rename(oldPath, newPath);
+    }
+
+    copyFile(src: PathLike, dest: PathLike, mode: number = 0): Promise<void> {
+        return copyFile(src, dest, mode);
+    }
+
+    symlink(target: PathLike, path: PathLike, type?: "file" | "dir" | "junction" | null): Promise<void> {
+        return symlink(target, path, type);
+    }
+
+    readlink(path: PathLike): Promise<string> {
+        return readlink(path);
+    }
+
+    realpath(path: PathLike): Promise<string> {
+        return realpath(path);
+    }
+
+    chmod(path: PathLike, mode: number): Promise<void> {
+        return chmod(path, mode);
+    }
+
+    mkdtemp(prefix: string): Promise<string> {
+        return mkdtemp(prefix);
+    }
+}
+
+const promises: FilePromises = new FilePromises();
+export default promises;
