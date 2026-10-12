@@ -311,7 +311,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - **M6.4 Example apps** in `examples/`, each with a test or smoke script in CI. Split by D-164 into:
   - [x] **M6.4a Bytes and the file hasher:** (5086c767d) `pts:fs` reads files as bytes (a `Uint8Array` for Node's `Buffer`) and writes `Uint8Array`s, sync and promises; a parallel file hasher (SHA-256 in `.pts`, files hashed by `.par`), tested against Go's digests.
   - [x] **M6.4b The mandelbrot PNG renderer:** (4bf608f83) a mandelbrot renderer that writes a PNG, with a zlib-free stored-deflate PNG writer in `.pts` (CRC-32, Adler-32), rows computed by `.par`; its PNG decoded and checked by the test.
-  - [ ] **M6.4c The JSON API server and the log analyzer:** a JSON API server that uses every core (`reusePort`), and a parallel log analyzer; `examples/README.md`; each example tested or smoke-run in CI.
+  - [x] **M6.4c The JSON API server and the log analyzer:** (ce18d9d98) a JSON API server that uses every core (`reusePort`), and a parallel log analyzer; `examples/README.md`; each example tested or smoke-run in CI.
 - [ ] **M6.5a Benchmark audit (review).** Add spectral-norm (brief §5). Make the Node/Go twins do equal work (the sum_reduce twin fuses its scans). Keep hyperfine's JSON and the spread, and label warm-cache and startup-inclusive results as such.
 - [ ] **M6.5 README.** A README that sells the language: the pitch, install and build steps, these examples, benchmark tables, and the documented differences from TypeScript.
 - [ ] **M6.6 Milestone M6.**
