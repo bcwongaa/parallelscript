@@ -265,7 +265,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M5.7a Stress tests and the race-safety invariant** (d91ca8bd6) (split from M5.7 by D-130).
   - Parallel stress tests, with a nightly CI job that runs them 100 times.
   - The race-safety invariant from brief §2.5, verified by targeted tests, with the runtime fixes they call for.
-- [ ] **M5.7b Parallel benchmarks and scaling** (split from M5.7 by D-130).
+- [x] **M5.7b Parallel benchmarks and scaling** (1b3b47989) (split from M5.7 by D-130).
   - Parallel benchmarks: mandelbrot `.par`, sum/reduce over 100M numbers, word count over many files, and `parallel` fan-out. Report speedup against one thread.
   - The collector's scaling with threads (`PROGRESS.md`, Next).
 - [ ] **M5.8 Milestone M5.** The Telegram message must show off `parallel` and `.par`, with speedup numbers.
