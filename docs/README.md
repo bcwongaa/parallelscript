@@ -5,7 +5,7 @@ Every document in the project, one line each. Paths are from the repo root.
 ## Start here
 
 - [README.md](../README.md): the project's front page: what ParallelScript is, a quick start, a feature tour, benchmark highlights, status by milestone and the repo layout.
-- [docs/GUIDE.md](GUIDE.md): a tour for TypeScript developers: what stays the same, what differs, the integer types, the parallel features and the guardrail, and the common compile errors with their fixes.
+- [docs/GUIDE.md](GUIDE.md): a tutorial and a tour for TypeScript developers: common questions, what stays the same, what differs, the integer types, the parallel features and the guardrail, the `pts:` modules, testing, and the common compile errors with their fixes.
 
 ## Reference
 

@@ -1,9 +1,15 @@
-// An error class as a value is not supported yet; the message says how to test an
-// error's class instead, also for pts:assert's throws (D-171).
+// A class as a value is not supported yet; the message says how to test a value's class
+// instead, also for pts:assert's throws (D-171, D-172).
 import assert from "pts:assert";
 
 assert.throws(() => {
   throw new TypeError("bad");
 }, TypeError);
 
-// error: error_class_values.pts:7:4 - error PTS1001: the class `TypeError` as a value is not supported yet; to test an error's class, use `instanceof TypeError`, or its name: `e.name === "TypeError"` (in `assert.throws`, `{ name: "TypeError" }`)
+class ParseError extends Error {}
+assert.throws(() => {
+  throw new ParseError("bad");
+}, ParseError);
+
+// error: error_class_values.pts:7:4 - error PTS1001: the class `TypeError` as a value is not supported yet; to test a value's class, use `instanceof TypeError` (in `assert.throws`, `(e) => e instanceof TypeError`)
+// error: error_class_values.pts:12:4 - error PTS1001: the class `ParseError` as a value is not supported yet; to test a value's class, use `instanceof ParseError` (in `assert.throws`, `(e) => e instanceof ParseError`)

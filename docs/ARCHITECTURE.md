@@ -1,6 +1,6 @@
 # ParallelScript architecture
 
-This document explains how ParallelScript is built, for a developer joining the project. It describes what exists today (milestones M0 to M5 are done, M6 is under way) and says so where something is only planned.
+This document explains how ParallelScript is built, for a developer joining the project. It describes what exists today (milestones M0 to M7 are done, which completes the plan) and says so where something is only planned.
 
 It is an overview. For detail, see `docs/SPEC.md` (§9 has implementation notes for every task, down to function names), `docs/DECISIONS.md` (cited here as D-nnn), `docs/FORK.md` (every edit to upstream) and the study notes `docs/agent/NOTES-tsgo.md` and `docs/agent/NOTES-rayon.md`.
 
@@ -35,15 +35,16 @@ Three ideas shape the whole design:
 - **Fixed options** (D-005). No `tsconfig.json` is read. Every program is `strict`, targets ESNext with ES modules, uses `moduleResolution: bundler` and `moduleDetection: force` (every file is a module), and has `lib: esnext` with no DOM and no `@types`.
 - **The prelude.** The root files are the entry file and `ptslib:///prelude.d.ts`. `pts/lib` embeds its files in the compiler binary, and `lib.WrapFS` serves them under the `ptslib:///` URL root.
 - **`pts:` imports.** The compiler option `paths` maps `pts:*` to `ptslib:///*.pts`, so `import … from "pts:path"` resolves to the embedded `pts/lib/path.pts` (D-116). This needs no fork edit.
-- **Errors.** As in tsc, syntax errors hide semantic errors.
+- **Errors.** As in tsc, syntax errors hide semantic errors. `frontend.Hint` (`hints.go`) adds a hint to tsc's errors that ParallelScript's features lead to, such as a `.par` view's method called on an array or `parallel (f)(x)`; the CLI prints it on the line after the error, and the language server shows it as information (D-170).
 - **Module order.** `Program.Modules` lists the source files in ES module evaluation order, entry last (D-022). `import type` requests nothing. If a module uses the global `process`, `fetch`, `AbortController` or another global of a library module (`lib.GlobalModules`), or a `.par` view, the front end runs that module (`pts:process`, `pts:http`, `pts:internal/abort`, `pts:parallel`) first, each once.
 - An import of `pts:internal/…` outside the library is an error (D-118).
 
-The fork's own edits (`docs/FORK.md`) are in three areas:
+The fork's own edits (`docs/FORK.md`) are in four areas:
 
 - **The `.pts` extension.** `.pts` is a TypeScript extension, and an extensionless import tries `x.pts` first (`internal/tspath`, `internal/core`, `internal/module`; D-001, D-004).
 - **Integer types in the checker.** `internal/checker/pts.go` makes the prelude's aliases `int`, `i8` … `u64` and `f32` number types of their own, and types arithmetic on them by `pts/numeric`'s rules (D-048). It also exports a few helpers that the lowering uses to instantiate generics (D-049, D-078, D-095).
 - **The `parallel` keyword.** `internal/parser/pts.go` parses `parallel e` as a call of the prelude's `parallel<T>(task: T): Promise<Awaited<T>>`, and `parallel for` as a for statement. Both are marked with a new node flag, `NodeFlagsPtsParallel` (D-120). There are no new AST node kinds, so tsc types `parallel e` with no checker change.
+- **The language server.** Three hooks, nil in upstream's own use, that `pts/lsp` sets: `project.ProgramCommandLine` (`internal/project`), `ls.ExtraDiagnostics` (`internal/ls`) and `lsp.ContentSchemes` (`internal/lsp/pts_content.go`); and a line each so that `ptslib:///` URIs round-trip, `.pts` files are watched and globbed, and the keyword of `parallel e` gets no semantic token (D-168, D-169; §2.7).
 
 ### 2.2 PTS semantic checks (`pts/check`, `pts/numeric`, `pts/diagnostic`)
 
@@ -51,7 +52,7 @@ The fork's own edits (`docs/FORK.md`) are in three areas:
 
 - **Features left out by design** (`unsupported.go`, SPEC §3.10, D-020): `var`, `eval`, `new Function`, `with`, `arguments`, `Proxy`, `Reflect`, BigInt, namespaces, symbols other than `Symbol.iterator` and `Symbol.asyncIterator`, and so on. Each is error PTS1002 with a reason.
 - **The guardrail** (`parallel.go`, SPEC §5.6, D-127). A *parallel body* is the operand of `parallel`, a `parallel for` body, or a function passed for a `ParallelCallback` parameter (the `.par` methods and `join`). Inside one, assigning a `let` or parameter declared outside is PTS3001. A malformed `parallel for` is PTS3002.
-- **Numeric types** (`check.go`, `functions.go`, `numeric.go`; SPEC §3.2, D-012). The pass works out a numeric type for every number-typed expression and variable. It checks that implicit conversions are lossless (PTS2001), that literals fit their type (PTS2002), and that mixed operands have a common type (PTS2003). It records the results in `check.Info` for the lowering.
+- **Numeric types** (`check.go`, `functions.go`, `numeric.go`; SPEC §3.2, D-012). The pass works out a numeric type for every number-typed expression and variable. It checks that implicit conversions are lossless (PTS2001), that literals fit their type and that a literal written with a decimal point isn't made an integer (PTS2002, D-170), and that mixed operands have a common type (PTS2003). It records the results in `check.Info` for the lowering.
 
 `pts/numeric` holds the numeric rules, such as `Unify` and `ImplicitlyConvertible`. Both this pass and the fork's checker use it. `pts/diagnostic` defines the diagnostic type and the PTS codes.
 
@@ -190,9 +191,12 @@ Some things to notice:
 | `pts build file.pts [-o out]` | Compiles to an executable, named after the file by default |
 | `pts run file.pts [args…]` | Builds into a temporary directory and runs the program with the arguments; forwards Ctrl-C to it |
 | `pts emit-c file.pts [-o file.c]` | Prints the generated C, or writes it to a file |
-| `pts help` | Prints the usage |
+| `pts test [paths…]` | Builds and runs the test files under the paths, and prints the totals and failures of all (below) |
+| `pts lsp [--stdio]` | Runs the language server over stdin and stdout (below) |
+| `pts help [command]` | Prints the usage, or a command's (also `pts <command> --help`, D-170) |
+| `pts version` | Prints the version, the commit it was built from and typescript-go's version |
 
-Exit codes (D-006): 0 on success, 1 for compile or toolchain errors, and 2 for a malformed command line. `pts run` exits with the program's own code, or with 128 plus the signal number if a signal killed it. `pts lsp` runs the language server (`pts/lsp`, D-168): typescript-go's own, with three hooks set, one making every project's program the compiler's (the fixed options and the prelude as a root), one adding ParallelScript's checks to a file's diagnostics, and one naming the schemes of the library files, which exist only in its memory (`ptslib:///`), whose text it serves through LSP 3.18's `workspace/textDocumentContent` (D-169). It gives the keyword of `parallel e` no semantic token, so the VS Code extension (`pts/editors/vscode`, D-169) shows it with its grammar's keyword color. `pts test` (`cmd/pts/test.go`, D-171) builds each test file, runs it with `PTS_TEST_RESULTS` naming a file where `pts:test` (a library module, as `pts:assert` is) writes its totals and failures, and prints the totals of all files.
+Exit codes (D-006): 0 on success, 1 for compile or toolchain errors, and 2 for a malformed command line. `pts run` exits with the program's own code, or with 128 plus the signal number if a signal killed it. `pts lsp` runs the language server (`pts/lsp`, D-168): typescript-go's own, with three hooks set, one making every project's program the compiler's (the fixed options and the prelude as a root), one adding ParallelScript's checks to a file's diagnostics (or, where tsc has errors, their hints), and one naming the schemes of the library files, which exist only in its memory (`ptslib:///`), whose text it serves through LSP 3.18's `workspace/textDocumentContent` (D-169). It gives the keyword of `parallel e` no semantic token, so the VS Code extension (`pts/editors/vscode`, D-169) shows it with its grammar's keyword color. The errors that only the lowering finds (most PTS1001s) aren't shown in the editor yet. `pts test` (`cmd/pts/test.go`, D-171) builds each test file, runs it with `PTS_TEST_RESULTS` naming a file where `pts:test` (a library module, as `pts:assert` is) writes its totals and failures, and prints the totals of all files.
 
 ## 3. The `pts:` library modules (`pts/lib`)
 
@@ -206,6 +210,8 @@ The standard modules are written in ParallelScript (D-116). Each is a `.pts` fil
 | `pts:parallel` | `parallel.pts` | `.par` views, `range` and `join` (D-123, D-124, D-126) |
 | `pts:sync` | `sync.pts` | `AtomicInt`, `Mutex`, `Once` and `Channel` (D-128, D-129) |
 | `pts:http` | `http.pts` | Bun-style `serve` and `Server`, the Fetch standard's `Request`, `Response` and `Headers`, and `fetch`; all but `serve` and `Server` are also globals (D-136, D-160) |
+| `pts:test` | `test.pts` | Node's `node:test`: tests, suites, hooks, the spec reporter's output, and the results file `pts test` reads (D-171) |
+| `pts:assert` | `assert.pts` | Node's `node:assert/strict`, with Node's messages and `AssertionError` (D-171) |
 | `pts:internal/abort` | `internal/abort.pts` | `AbortController`, `AbortSignal`, `DOMException`, `Event` and `EventTarget`, as the DOM standard has them; reached only as globals (D-162) |
 
 `internal/` modules can't be imported from programs (D-118). A global that is a library module's binding of the same name is listed in `lib.GlobalModules` (`pts/lib/lib.go`): the front end adds the module when a program uses the global (§2.1), and the lowering binds the global to the module's export.
@@ -462,7 +468,7 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
 - **Go unit tests** in each package. The lowering tests compare printed IR, and the cgen tests check generated C. The fork's parser changes are tested in `internal/parser/pts_test.go`.
 - **Runtime C tests.** Each `pts/runtime/tests/*_test.c` file is its own program. `go test ./pts/toolchain/` runs them under ASan and UBSan, and the threaded ones (pool, scheduler, sync, and the typed arrays' race test) under ThreadSanitizer too, with collection off (bdwgc's signals don't work under TSan).
 - **Programs** in `pts/tests/`:
-  - `run/*.pts` (about 340) must build, run and print their `// expect:` block (`TestRun`). Directives also give the exit code, stderr texts, or `// threads: 1 2 4` to run under each `PTS_THREADS` value.
+  - `run/*.pts` (about 350) must build, run and print their `// expect:` block (`TestRun`). Directives also give the exit code, stderr texts, or `// threads: 1 2 4` to run under each `PTS_THREADS` value.
   - `errors/*.pts` (about 80) must fail to compile with the `// error:` texts they name (`TestErrors`).
   - `http/*.pts` are servers and clients that Go tests drive over TCP (`http_test.go`): `TestHTTPServer`, `TestHTTPServerEveryLoop`, `TestHTTPServerLifecycle` (disconnects, slow readers, `stop()`), `TestFetchFromGoServer`, and `TestFetchUnderSanitizers` (ASan and UBSan). Simpler fetch and server cases are run tests (`run/fetch_*.pts`, `run/http_values.pts`).
   - `examples_test.go` builds each program in `examples/` and checks it under 1 and 4 threads against an independent answer (Go's `crypto/sha256`, Go's PNG decoder, a Go HTTP client, a Go log generator's counts).
@@ -470,17 +476,18 @@ These are git submodules, pinned in `.gitmodules` and listed in `docs/FORK.md`. 
   - `stress/*.pts`: 13 parallel programs that race on the scheduler, the pool, the collector and shared data (`TestStress`). A nightly CI job runs them 100 times.
   - Generated corpora (`numbers_test.go`, `strings_test.go`): programs written at test time, with thousands of number literals and operations, String methods on random strings, and the case mapping and normalization of planes 0 and 1, compared with Node line by line.
   - `docs/examples/*.pts`: the docs' samples, run as run tests (named `docs/<name>`).
-- **Differential tests against Node** (D-O04, D-009). Every test named `…MatchesNode` is one. A program that uses no ParallelScript feature must print exactly what Node prints and exit with the same code; stderr isn't compared. The features are `parallel`, `.par`, the integer types, and `pts:` imports other than the Node-like `pts:fs`, `pts:fs/promises`, `pts:path` and `pts:process`, which the harness maps to Node's `node:` modules. Node runs a copy of each module as an `.mts` file, with `--experimental-transform-types`. Without Node on PATH these tests skip, unless `PTS_REQUIRE_NODE` is set; `make test-diff` and CI set it.
+- **Differential tests against Node** (D-O04, D-009). Every test named `…MatchesNode` is one. A program that uses no ParallelScript feature must print exactly what Node prints and exit with the same code; stderr isn't compared. The features are `parallel`, `.par`, the integer types, and `pts:` imports other than the Node-like `pts:fs`, `pts:fs/promises`, `pts:path`, `pts:process` and `pts:assert`, which the harness maps to Node's `node:` modules (`node:assert/strict` for `pts:assert`). Node runs a copy of each module as an `.mts` file, with `--experimental-transform-types`. Without Node on PATH these tests skip, unless `PTS_REQUIRE_NODE` is set; `make test-diff` and CI set it.
+- **Tools.** `pts/lsp/lsp_test.go` drives the language server in process over pipes, and `TestLSPServesOverStdio` (`cmd/pts`) over real stdio. `pts/lsp/grammar_test.go` and the extension's grammar test (`make vscode`, with vscode-textmate) check the parser and the grammar against the same samples of `parallel` (`pts/editors/vscode/test/parallel_samples.json`). `npm run test:vscode` runs the extension in a headless VS Code. `cmd/pts/test_test.go` runs `pts test` over projects with suites, hooks, skips and failures. CI's `vscode` job runs `make vscode` and the headless suite.
 - **Upstream suites.** `make test-upstream` runs the upstream packages the fork touches, plus `TestLocal`. `make test-upstream-cli` runs the CLI and language-server suites.
 
-CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the stress programs. The benchmarks in `pts/bench/` aren't gates (D-O15). `make bench` (`run.sh`) runs them with hyperfine against Node, Bun and Go twins (`main.ts` where Node and Bun need their own, `main.go`), in interleaved rounds (D-167). `make bench-http` (`serve.sh`) loads the server benchmarks (`http_hello`, `http_json`) with oha (D-137). Both keep the raw JSON of every run in `pts/bench/results/latest/` (not committed); a milestone's runs are kept as `pts/bench/results/<milestone>/`, such as `m6.5a/`. `docs/BENCHMARKS.md` records the tables.
+CI runs `.github/workflows/pts.yml` (the PTS tests, the upstream CLI and LSP suites, and the extension) on every push, and `pts-nightly.yml` for the stress programs. The benchmarks in `pts/bench/` aren't gates (D-O15). `make bench` (`run.sh`) runs them with hyperfine against Node, Bun and Go twins (`main.ts` where Node and Bun need their own, `main.go`), in interleaved rounds (D-167). `make bench-http` (`serve.sh`) loads the server benchmarks (`http_hello`, `http_json`) with oha (D-137). Both keep the raw JSON of every run in `pts/bench/results/latest/` (not committed); a milestone's runs are kept as `pts/bench/results/<milestone>/`, such as `m6.5a/`. `docs/BENCHMARKS.md` records the tables.
 
 ## 7. Where things live
 
 | Path | Purpose |
 |---|---|
-| `cmd/pts/` | The command line: `build`, `run`, `emit-c`, `help` |
-| `pts/frontend/` | Loads a program through the forked tsc, with fixed options; orders modules |
+| `cmd/pts/` | The command line: `build`, `run`, `emit-c`, `test`, `lsp`, `help`, `version` |
+| `pts/frontend/` | Loads a program through the forked tsc, with fixed options; orders modules; hints on tsc's errors |
 | `pts/lsp/` | `pts lsp`: upstream's language server with the compiler's programs and ParallelScript's diagnostics (D-168) |
 | `pts/editors/vscode/` | The VS Code extension: starts `pts lsp --stdio` for `.pts` files, with a grammar generated from TypeScript's that highlights `parallel` (D-169) |
 | `pts/lib/prelude.d.ts` | Global declarations: `console`, numeric types, timers, `process`, `fetch` and the Fetch classes, the abort classes, `parallel`, `.par` |
@@ -506,9 +513,10 @@ CI runs `.github/workflows/pts.yml` on every push, and `pts-nightly.yml` for the
 | `internal/parser/pts.go` | Fork: the `parallel` keyword |
 | `internal/checker/pts.go` | Fork: numeric types in the checker; exports for the lowering |
 | `internal/tspath/`, `internal/module/`, `internal/core/` | Fork: `.pts` as a TypeScript extension (`docs/FORK.md` lists every edit) |
+| `internal/project/`, `internal/ls/`, `internal/lsp/` | Fork: the language server's hooks for `pts lsp` (`internal/lsp/pts_content.go` serves the library's files) |
 | `docs/` | The spec, decisions, guide, fork ledger, benchmarks, plan and this document; `reviews/` holds independent reviews |
 | `docs/examples/` | The docs' samples, run as tests |
-| `Makefile` | `build`, `test`, `test-diff`, `test-stress`, `test-upstream`, `test-upstream-cli`, `bench`, `bench-http` |
+| `Makefile` | `build`, `test`, `test-diff`, `test-stress`, `test-upstream`, `test-upstream-cli`, `bench`, `bench-http`, `vscode` |
 | `pts-bin/pts` | The compiler, as `make build` makes it (not committed) |
 | Everything else | Upstream typescript-go |
 
@@ -544,7 +552,8 @@ Log the design in `docs/DECISIONS.md`, and add a section to SPEC §9 that names 
 
 ## 9. What is planned
 
-- **M6.5** A README that presents the language, the examples in `examples/` and the benchmark tables. The example apps (M6.4) and the benchmark audit (M6.5a) are done.
-- **M7** Editor support: `pts lsp` (the forked language server, with the prelude and PTS diagnostics), a VS Code extension, and a usability pass that adds `pts test`.
-- **M8, after M7**, if the run is extended: escape analysis, integer inference, unboxed arrays, inline caches for `any`, an experiment with a precise collector, and the generator and async state machines moved into an IR pass (D-153).
+The plan's milestones, M0 to M7, are done; M7 added the language server, the VS Code extension, hints on tsc's errors and `pts test` (D-168 … D-172).
+
+- **M8**, if the run is extended: escape analysis, integer inference, unboxed arrays, inline caches for `any`, an experiment with a precise collector, and the generator and async state machines moved into an IR pass (D-153).
 - **Known limits of `pts:http`** that later work may lift: no TLS, no streamed bodies, no WebSocket, and one connection per `fetch` request, with no keep-alive pool (D-136, D-160).
+- **Known limits of the tools:** `pts lsp` doesn't show the errors that only the lowering finds, most PTS1001s (D-168); `pts:test` has no subtests, `only`, mocks or snapshots, and `pts test` runs files one after another (D-171); the extension isn't published to the Marketplace (D-169).

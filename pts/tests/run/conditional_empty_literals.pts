@@ -1,0 +1,25 @@
+// An empty literal in a branch of `?:` takes its kind of value from the other branch or
+// from where the value goes (D-172): `c ? {} : options` and `c ? [] : counts` were PTS1001.
+interface Options {
+  skip?: boolean;
+  reason?: string;
+}
+
+function normalize(input: Options | (() => void)): Options {
+  const options = typeof input === "function" ? {} : input;
+  return options;
+}
+const pick = (flag: boolean, given: Options) => (flag ? given : {});
+console.log(normalize({ skip: true }), normalize(() => {}), pick(true, { reason: "x" }), pick(false, {}));
+
+const counts = new Map([["a", 1]]);
+function either(flag: boolean): Map<string, number> | number[] {
+  const value: Map<string, number> | number[] = flag ? [] : counts;
+  return value;
+}
+const empty = either(true);
+console.log(empty, either(false), Array.isArray(empty));
+if (Array.isArray(empty)) {
+  empty.push(3);
+  console.log(empty);
+}

@@ -746,6 +746,15 @@ func (l *lowerer) impliedType(node *ast.Node) *checker.Type {
 		if property := l.checker.GetPropertyOfType(outer, parent.Name().Text()); property != nil && l.isObjectType(outer) {
 			return l.checker.GetNonNullableType(l.typeOfSymbol(property))
 		}
+	case parent.Kind == ast.KindConditionalExpression && parent.AsConditionalExpression().Condition != node:
+		conditional := parent.AsConditionalExpression()
+		other := conditional.WhenTrue
+		if other == node {
+			other = conditional.WhenFalse
+		}
+		if t := l.typeAt(other); l.isObjectType(t) && ast.SkipParentheses(other).Kind != ast.KindObjectLiteralExpression {
+			return t // `c ? {} : options` makes an object of options' type, if it fits (D-172)
+		}
 	}
 	return nil
 }

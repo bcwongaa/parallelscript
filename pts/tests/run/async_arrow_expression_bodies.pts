@@ -1,0 +1,10 @@
+// An async arrow function with an expression body may await anywhere in it (D-172): it
+// is lowered as a return of the expression, whose awaits run first in JS's order.
+const double = async (n: number) => await Promise.resolve(n * 2);
+const plusOne = async (n: number) => (await double(n)) + 1;
+const both = async () => [await double(1), await plusOne(2)];
+const log = async (s: string) => console.log(await Promise.resolve(s));
+const files = ["a", "bb"];
+const lengths = await Promise.all(files.map(async (f) => (await Promise.resolve(f)).length));
+await log("logged");
+console.log(await double(4), await plusOne(4), await both(), lengths);

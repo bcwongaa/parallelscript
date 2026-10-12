@@ -131,12 +131,16 @@ func isNullishLiteral(node *ast.Node) bool {
 // JS binds undefined past the end and a program may use arg only where it is there), or
 // whose initializer reads an element and that the program tests for undefined.
 func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
-	if symbol == nil || symbol.ValueDeclaration == nil || !l.undefinedTested[symbol] && symbol.ValueDeclaration.Kind != ast.KindBindingElement {
+	if symbol == nil || symbol.ValueDeclaration == nil {
 		return false
 	}
 	loose, known := l.looseSymbols[symbol]
 	if !known {
-		loose = l.readsElement(symbol.ValueDeclaration) && !mayHoldUndefined(l.typeOfSymbol(symbol))
+		// A local declared `T | undefined` holds undefined whether or not it is tested, but
+		// tsc narrows it to T by its initializer: its reads as a T are checked too (D-172).
+		declaredWithUndefined := mayHoldUndefined(l.typeOfSymbol(symbol))
+		tested := l.undefinedTested[symbol] || symbol.ValueDeclaration.Kind == ast.KindBindingElement
+		loose = (tested || declaredWithUndefined) && l.readsElement(symbol.ValueDeclaration)
 		l.looseSymbols[symbol] = loose
 	}
 	return loose

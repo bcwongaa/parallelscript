@@ -7,5 +7,5 @@ function make(): { weight: i8 } {
 }
 
 // error: object_literal_conversions.pts:3:27 - error PTS2002: 300 doesn't fit in u8 (0 to 255)
-// error: object_literal_conversions.pts:3:39 - error PTS2002: 1.5 is not an integer, so it can't be a int
+// error: object_literal_conversions.pts:3:39 - error PTS2002: 1.5 is not an integer, so it can't be an int
 // error: object_literal_conversions.pts:6:20 - error PTS2001: a number doesn't convert to i8 implicitly

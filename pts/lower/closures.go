@@ -291,20 +291,26 @@ func (l *lowerer) functionExpressionBody(node *ast.Node) *ir.Block {
 		return l.block(body, body.Statements())
 	}
 	at := l.pos(body)
-	value := l.expression(body)
+	var hoisted []ir.Stmt
+	var value ir.Expr
+	if l.function.Generator && l.hasYield(body) {
+		hoisted, value = l.hoistedExpression(body)
+	} else {
+		value = l.expression(body)
+	}
 	if value == nil {
 		return &ir.Block{At: at}
 	}
 	if l.function.Result == ir.Void {
 		if isPure(value) {
-			return &ir.Block{At: at}
+			return &ir.Block{At: at, Stmts: hoisted}
 		}
-		return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.ExprStmt{At: at, X: value}}}
+		return &ir.Block{At: at, Stmts: append(hoisted, &ir.ExprStmt{At: at, X: value})}
 	}
 	if value = l.convert(value, l.function.Result, body); value == nil {
 		return &ir.Block{At: at}
 	}
-	return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Return{At: at, Value: value}}}
+	return &ir.Block{At: at, Stmts: append(hoisted, &ir.Return{At: at, Value: value})}
 }
 
 // closureName is the IR name of a closure's function: the name it has in JS, or "arrow"

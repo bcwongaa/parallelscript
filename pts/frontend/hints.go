@@ -42,6 +42,9 @@ func Hint(ctx context.Context, program *compiler.Program, d *ast.Diagnostic) str
 		if hint := parallelMethodHint(tc, name); hint != "" {
 			return hint
 		}
+		if hint := parallelViewHint(tc, name); hint != "" {
+			return hint
+		}
 		return testModifierHint(tc, name)
 	case diagnostics.This_expression_is_not_callable.Code():
 		tc, release := program.GetTypeCheckerForFile(ctx, file)
@@ -70,6 +73,23 @@ func parallelMethodHint(tc *checker.Checker, name *ast.Node) string {
 		return "Arrays have no `count`: take `.length`, or count matches in parallel with `.par.count(predicate)`."
 	}
 	return fmt.Sprintf("Arrays have no `%s`; their parallel view has: `.par.%s`.", method, parallelOnlyMethods[method])
+}
+
+// parallelViewHint is the hint for `.par` on what has no parallel view: a readonly array
+// (`as const` included), a Map or a Set.
+func parallelViewHint(tc *checker.Checker, name *ast.Node) string {
+	access := name.Parent
+	if name.Kind != ast.KindIdentifier || name.Text() != "par" || access == nil || !ast.IsPropertyAccessExpression(access) || access.Name() != name {
+		return ""
+	}
+	t := tc.GetTypeAtLocation(access.Expression())
+	if tc.IsArrayLikeType(t) {
+		return "`.par` is on arrays a program may change, and this one is readonly: write `[...xs].par`, or `(xs as T[]).par` without the copy."
+	}
+	if symbol := t.Symbol(); symbol != nil && (symbol.Name == "Map" || symbol.Name == "Set") {
+		return fmt.Sprintf("A %s has no parallel view; spread it into an array first: `[...m].par` for its %s, or `[...m.keys()].par`.", symbol.Name, map[string]string{"Map": "entries", "Set": "elements"}[symbol.Name])
+	}
+	return ""
 }
 
 // testModifierHint is the hint for Node's `test.skip(…)`, `it.todo(…)` or `test.only(…)`

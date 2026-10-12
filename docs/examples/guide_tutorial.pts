@@ -1,0 +1,52 @@
+// The guide's tutorial: one question answered by a plain loop, by `.par`, by tasks on
+// other threads and with integer types, each giving the same answer.
+import { range } from "pts:parallel";
+
+const LIMIT = 1_000_000;
+
+// The sum of n's decimal digits.
+function digitSum(n: number): number {
+  let sum = 0;
+  while (n > 0) {
+    sum += n % 10;
+    n = Math.floor(n / 10);
+  }
+  return sum;
+}
+
+// 1. Plain TypeScript, on one thread: how many numbers below LIMIT have a digit sum
+//    that is a multiple of 7?
+function countBetween(from: number, to: number): number {
+  let found = 0;
+  for (let n = from; n < to; n++) {
+    if (digitSum(n) % 7 === 0) {
+      found++;
+    }
+  }
+  return found;
+}
+console.log("loop: ", countBetween(1, LIMIT));
+
+// 2. The same test over every core: `.par.count` runs it on pieces of the range at once.
+console.log(".par: ", range(1, LIMIT).par.count((n) => digitSum(n) % 7 === 0));
+
+// 3. Two tasks, each on another thread's event loop, awaited together.
+const halves = await Promise.all([parallel countBetween(1, LIMIT / 2), parallel countBetween(LIMIT / 2, LIMIT)]);
+console.log("tasks:", halves[0] + halves[1]);
+
+// 4. With an integer type, `/` divides as integers, so there is no Math.floor.
+function digitSumInt(n: int): int {
+  let sum: int = 0;
+  while (n > 0) {
+    sum += n % 10;
+    n = n / 10;
+  }
+  return sum;
+}
+console.log("int:  ", range(1, LIMIT).par.count((n) => digitSumInt(n as int) % 7 === 0));
+
+// expect:
+// loop:  142879
+// .par:  142879
+// tasks: 142879
+// int:   142879

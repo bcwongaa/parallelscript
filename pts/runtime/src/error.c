@@ -269,7 +269,9 @@ static bool ends_with(const char *text, const char *suffix) {
 static int add_source_frame(void *data, uintptr_t pc, const char *file, int line, const char *function) {
   (void)pc;
   trace *t = data;
-  if (file == NULL || line == 0 || ends_with(file, ".c") || ends_with(file, ".h") || t->shown == STACK_TRACE_LIMIT) {
+  /* Frames of C and assembly (the runtime's, libc's thread start) aren't the program's. */
+  if (file == NULL || line == 0 || ends_with(file, ".c") || ends_with(file, ".h") || ends_with(file, ".S") || ends_with(file, ".s") ||
+      t->shown == STACK_TRACE_LIMIT) {
     return 0;
   }
   const pts_function_name *name = function_name_of(function);

@@ -7,5 +7,5 @@ const maker: any = Point;
 const made = new maker();
 console.log(made);
 
-// error: any_not_yet.pts:6:20 - error PTS1001: using `Point` is not supported yet
+// error: any_not_yet.pts:6:20 - error PTS1001: the class `Point` as a value is not supported yet
 // error: any_not_yet.pts:7:14 - error PTS1001: `new` of anything but a class of the program is not supported yet

@@ -1368,7 +1368,7 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 			return l.typedArrayElement(node, false)
 		}
 		if l.isRecordElement(node) {
-			return l.narrowed(node, l.recordElement(node, ir.MapGetChecked))
+			return l.narrowed(node, l.recordRead(node))
 		}
 		if l.isKeyedElement(node) {
 			return l.keyedElementRead(node)
@@ -1455,8 +1455,10 @@ func (l *lowerer) identifier(node *ast.Node) ir.Expr {
 	if l.isConversionFunction(node) {
 		return l.conversionFunction(node.Text(), node)
 	}
-	if slices.Contains(errorClassNames, node.Text()) && l.isDeclaredInDefaultLib(symbol) {
-		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "the class `%s` as a value is not supported yet; to test an error's class, use `instanceof %s`, or its name: `e.name === %q` (in `assert.throws`, `{ name: %q }`)", node.Text(), node.Text(), node.Text(), node.Text()))
+	libraryErrorClass := slices.Contains(errorClassNames, node.Text()) && l.isDeclaredInDefaultLib(symbol)
+	programClass := symbol != nil && symbol.Flags&ast.SymbolFlagsClass != 0 && !l.isDeclaredInDefaultLib(symbol)
+	if libraryErrorClass || programClass {
+		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "the class `%s` as a value is not supported yet; to test a value's class, use `instanceof %s` (in `assert.throws`, `(e) => e instanceof %s`)", node.Text(), node.Text(), node.Text()))
 	} else if l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) {
 		l.notSupportedYet(node, fmt.Sprintf("the global `%s` is", node.Text()))
 	} else {
@@ -2413,7 +2415,7 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		return l.mapProperty(node)
 	}
 	if l.isRecordElement(node) {
-		return l.recordElement(node, ir.MapGetChecked)
+		return l.narrowed(node, l.recordRead(node))
 	}
 	member := l.memberDeclaration(node)
 	if field := l.membersAt(node).fields[member]; field != nil && !l.isBuiltinFieldOfObjectType(node, field) {
@@ -3211,6 +3213,40 @@ func neverFalsy(t ir.Type) bool {
 	return false
 }
 
+// takesContextualUnion reports whether the branches x and y of a conditional make a value
+// of the union their context expects rather than of tsc's type for the conditional: an
+// empty array literal is an array of the context's element type, and an integer next to
+// null or undefined keeps the integer type the semantic pass gave it, which tsc's
+// `7 | undefined` loses.
+func takesContextualUnion(x, y ir.Expr) bool {
+	if isEmptyArrayLiteral(x) || isEmptyArrayLiteral(y) {
+		return true
+	}
+	isInteger := func(t ir.Type) bool { return ir.IsNumeric(t) && t != ir.Number }
+	return isNullish(x.Type()) && isInteger(y.Type()) || isNullish(y.Type()) && isInteger(x.Type())
+}
+
+// emptyArrayAs is x converted to u's array type if x is an empty array literal and u has
+// one array member (`c ? [] : counts` for a `Map<…> | number[]`, D-172), else x.
+func (l *lowerer) emptyArrayAs(x ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
+	if !isEmptyArrayLiteral(x) {
+		return x
+	}
+	var array ir.Type
+	for _, member := range u.Members {
+		if isArray(member) {
+			if array != nil {
+				return x
+			}
+			array = member
+		}
+	}
+	if array == nil {
+		return x
+	}
+	return l.convert(x, array, node)
+}
+
 // sameType lowers two expressions that must end up with one type (the branches of ?:,
 // the operands of && and ||), converting numbers to the type the semantic pass chose.
 // Either both results are nil or neither is.
@@ -3244,8 +3280,14 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		t := l.typeAt(node)
 		if objects := l.objectUnion(contextual); objects != nil && l.checker.IsTypeAssignableTo(t, objects) {
 			t = objects // `c ? { ok: true, … } : { ok: false, … }` where a Result goes (D-095)
+		} else if contextual != nil && t.Flags()&checker.TypeFlagsUnion != 0 && takesContextualUnion(x, y) && l.checker.IsTypeAssignableTo(t, contextual) {
+			t = contextual // `c ? [] : counts` where a `Map<…> | number[]` goes, `c ? 7 : undefined` where an `int | undefined` does (D-172)
 		}
 		if u, ok := l.irType(t, node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird
+			x, y = l.emptyArrayAs(x, u, a), l.emptyArrayAs(y, u, b)
+			if x == nil || y == nil {
+				return nil, nil
+			}
 			x, y = l.convert(x, u, a), l.convert(y, u, b)
 			if x == nil || y == nil {
 				return nil, nil

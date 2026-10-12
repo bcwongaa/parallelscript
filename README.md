@@ -18,7 +18,7 @@ Why use it:
 - **One guardrail, not a borrow checker.** The compiler rejects assigning a captured outer `let` inside a parallel body, and checks nothing else about how threads share data. `pts:sync` has atomics, a mutex and channels for the code that needs them.
 - **Batteries for servers and tools.** `pts:http` is a server in the style of Bun's `serve` that accepts connections on every core, and `fetch`, `pts:fs`, `pts:path`, `pts:process`, RegExp and JSON behave as they do in Node, and `pts test` runs tests written for Node's `node:test` and `node:assert`.
 
-**Status:** experimental. Milestones M0 to M6 are done; M7, editor support, is under way: the language server and a VS Code extension work ([status](#status)). It runs on x86-64 Linux only.
+**Status:** experimental. Milestones M0 to M7 are done, the last with a language server, a VS Code extension and `pts test` ([status](#status)). It runs on x86-64 Linux only.
 
 ```ts
 import { range } from "pts:parallel";
@@ -523,7 +523,7 @@ server.stop(); // a real server keeps serving; this sample stops so that it ends
 
 ### Also there
 
-Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, and the `pts:fs` (sync and promises, text and bytes), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules. The full list is [docs/SPEC.md](docs/SPEC.md).
+Unions with every form of narrowing, optional chaining and `??`, enums, tuples, destructuring, spread and rest, generic functions and classes, exceptions with `.pts` stack traces, `any` as a checked dynamic value (`JSON.parse(s).user?.name` works; assigning a wrong type from it throws `TypeError`), `JSON`, `Map` and `Set`, `Math`, basic `Date`, typed arrays, generators and iterators, ES modules with relative imports, `console` with Node's formatting, and the `pts:fs` (sync and promises, text and bytes), `pts:path` and `pts:process` modules, which behave as Node's `node:` modules, and tests written with `pts:test` and `pts:assert` as for `node:test` and `node:assert/strict`, run by `pts test`. The full list is [docs/SPEC.md](docs/SPEC.md).
 
 ## Examples
 
@@ -582,7 +582,7 @@ What the numbers say:
 
 - **Wins.** A ParallelScript program starts in about a millisecond. Recursive calls, async calls and string building are faster than Node and Bun, and file_io is 1.66× Node's speed. One `pts:http` loop serves 1.7 to 2.6 times as many requests as Node, and four loops beat Go's `net/http` by 24 to 29%. fib_int is 1.69× Go's speed, and binary_trees and json beat Go. On 8 threads, every parallel benchmark beats Node's single thread, and mandelbrot and fan_out match Go (0.93× and 0.99×).
 - **Losses.** Programs that allocate a lot are slower than Node: binary_trees (0.85×), json (0.67×) and word_freq (0.87×); json is 0.43× Bun's speed. spectral_norm is 0.70× Node. Against Go, ParallelScript loses on string_building (0.54×), nbody (0.65×), spectral_norm (0.51×), file_io (0.68×) and word_freq (0.70×), and on 8 threads on sum_reduce (0.41×) and word_count (0.18×).
-- **Why.** bdwgc is a conservative, non-moving, non-generational collector. With threads, it refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads: word_count is slower on 8 threads than on 4. nbody's and spectral_norm's loop indices are doubles until integer inference (M8), and spectral_norm's inner loop rechecks a module-level constant at every read. sum_reduce is bound by memory bandwidth, and one thread zeroes its 800 MB array.
+- **Why.** bdwgc is a conservative, non-moving, non-generational collector. With threads, it refills each thread's free lists under one lock and stops every thread to collect, so allocation-heavy parallel code stops gaining past 4 threads: word_count is slower on 8 threads than on 4, and code that does little but allocate can be several times slower on 8 threads than on one (`PTS_THREADS=4` avoids it; the guide's Performance section has an example). nbody's and spectral_norm's loop indices are doubles until integer inference (M8), and spectral_norm's inner loop rechecks a module-level constant at every read. sum_reduce is bound by memory bandwidth, and one thread zeroes its 800 MB array.
 
 ## Differences from TypeScript and Node
 
@@ -607,9 +607,9 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M4 Async on one loop | Generators, iterators, async/await, promises, the libuv event loop and timers, async iteration, `pts:fs`, `pts:path`, `pts:process` | done (`m4`) |
 | M5 Parallel | The `parallel` keyword, one event loop per core, the fork-join pool, `.par`, typed arrays, `parallel for` and the guardrail, `pts:sync`, stress tests, parallel benchmarks | done (`m5`) |
 | M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md) (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), the fixes from an independent review, a benchmark audit | done (`m6`) |
-| M7 Editor support | `pts lsp` (done), a VS Code extension (done), a usability pass (hints, help and `pts test` done) | in progress |
+| M7 Editor support | `pts lsp`, the language server; a VS Code extension; a usability pass: hints on tsc's errors, `pts help` and `pts version`, `pts test` with `pts:test` and `pts:assert`, fixes for the papercuts that two programs written from scratch found, the guide's tutorial | done (`m7`) |
 
-Planned after M7, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
+M7 completes the plan. Planned after it, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
 
 ## Known gaps
 
@@ -622,11 +622,11 @@ Not built yet:
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 
 - 33 of the 300 corpus programs still print something other than Node; each file says why (24 use features that aren't built yet, 8 differ by design, 1 is a bug).
-- `await` inside an expression-bodied async arrow, other than first, is a compile error; a block body works.
 - Overrides must keep the overridden method's parameter types.
 - RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` and character classes match an astral character whole.
 - Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).
-- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131).
+- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131), and code that does little but allocate can be several times slower on eight threads than on one (D-172).
+- The language server doesn't show the errors that only the lowering finds (most PTS1001 "not supported yet"); `pts build` reports them (D-168).
 
 ## Repository layout
 
@@ -635,7 +635,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 | Path | Contents |
 |---|---|
 | `cmd/pts/` | The `pts` command |
-| `pts/frontend/` | Loads `.pts` programs through the forked TypeScript front end |
+| `pts/frontend/` | Loads `.pts` programs through the forked TypeScript front end; the hints on tsc's errors |
 | `pts/lsp/` | `pts lsp`: the forked language server with ParallelScript's programs and checks |
 | `pts/editors/vscode/` | The VS Code extension: the language server for `.pts` files and a grammar that highlights `parallel` |
 | `pts/check/` | The semantic pass: the rules tsc doesn't know (numeric types, the guardrail, unsupported features) |
@@ -658,7 +658,7 @@ The repository is a fork of [microsoft/typescript-go](https://github.com/microso
 ## Documentation
 
 - [docs/README.md](docs/README.md): an index of all the docs.
-- [docs/GUIDE.md](docs/GUIDE.md): a tour for TypeScript developers: what's the same, what's different, the parallel features, common compile errors.
+- [docs/GUIDE.md](docs/GUIDE.md): a tutorial and a tour for TypeScript developers: common questions, what's the same, what's different, the parallel features, testing, common compile errors.
 - [docs/SPEC.md](docs/SPEC.md): the language reference, with the differences from Node in §8.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the compiler pipeline and the runtime.
 - [docs/DECISIONS.md](docs/DECISIONS.md): every design decision, with its reasons.

@@ -7,6 +7,7 @@ package check
 import (
 	"context"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -116,7 +117,7 @@ func (c *pass) visit(node *ast.Node) {
 	case node.Kind == ast.KindReturnStatement && c.current != nil:
 		c.returnStatement(node)
 		return
-	case ast.IsExpression(node) && c.isNumber(node):
+	case ast.IsExpression(node) && (c.isNumber(node) || c.isNullableNumber(node)):
 		c.contextualExpr(node)
 		return
 	case node.Kind == ast.KindCallExpression && c.calledFunction(node) != nil:
@@ -334,7 +335,7 @@ func (c *pass) switchStatement(node *ast.Node) {
 func (c *pass) requireConvertible(node *ast.Node, from Numeric, target Numeric) {
 	if !numeric.ImplicitlyConvertible(from, target) {
 		c.report(node, diagnostic.NumericConversion,
-			"a %s doesn't convert to %s implicitly because the value could change; write `as %s` to convert it", from, target, target)
+			"%s doesn't convert to %s implicitly because the value could change; write `as %s` to convert it", withArticle(from), target, target)
 	}
 }
 
@@ -357,7 +358,9 @@ func (c *pass) expr(node *ast.Node, expected *Numeric) Numeric {
 		return *expected // an any converts to every numeric type, with a check at run time (D-070)
 	}
 	result := c.exprType(node, expected)
-	c.info.types[node] = result
+	if !c.isNullableNumber(node) { // an int | undefined isn't an int; its operands keep their types (D-172)
+		c.info.types[node] = result
+	}
 	return result
 }
 
@@ -443,6 +446,9 @@ func (c *pass) exprType(node *ast.Node, expected *Numeric) Numeric {
 	if n, ok := NumericOf(c.tc.GetTypeAtLocation(node)); ok {
 		return n // e.g. an element of a u8[], or what a function value returns
 	}
+	if n, ok := NumericContext(c.tc.GetTypeAtLocation(node)); ok && c.isNullableNumber(node) {
+		return n // an int | undefined, where its int goes (D-172)
+	}
 	return Number
 }
 
@@ -475,7 +481,7 @@ func (c *pass) literal(literal *ast.Node, at *ast.Node, negated bool, expected *
 	}
 	value, ok := numeric.IntegerLiteralValue(literal)
 	if !ok {
-		c.report(at, diagnostic.NumericLiteral, "%s is not an integer, so it can't be a %s; write `as %s` to convert it", scanner.GetTextOfNode(literal), *expected, *expected)
+		c.report(at, diagnostic.NumericLiteral, "%s is not an integer, so it can't be %s; write `as %s` to convert it", scanner.GetTextOfNode(literal), withArticle(*expected), *expected)
 		return *expected
 	}
 	if text := scanner.GetTextOfNode(literal); hasDecimalPoint(text) {
@@ -506,9 +512,9 @@ func (c *pass) reportDecimalPoint(at *ast.Node, text string, value *big.Int, exp
 	c.report(at, diagnostic.NumericLiteral, "%s has a decimal point, so it can't be %s; write %s", text, withArticle(expected), value)
 }
 
-// withArticle is "an int", "a u8", ….
+// withArticle is "an int", "a u8", "a number", ….
 func withArticle(n Numeric) string {
-	if name := n.String(); name[0] == 'u' {
+	if name := n.String(); name[0] == 'u' || name[0] == 'n' {
 		return "a " + name
 	}
 	return "an " + n.String()
@@ -574,6 +580,15 @@ func (c *pass) compoundAssignment(node *ast.Node) Numeric {
 func (c *pass) pair(node *ast.Node, a *ast.Node, aType *Numeric, b *ast.Node, expected *Numeric, what string) Numeric {
 	var result Numeric
 	aUntyped, bUntyped := aType == nil && numeric.IsUntyped(a), numeric.IsUntyped(b)
+	if aType == nil && !aUntyped && what == "??" {
+		aType = ptr(c.nullishLeft(a, expected))
+	}
+	if expected != nil && aType == nil && c.isNullish(b) { // `c ? 7 : undefined` where an int | undefined goes (D-172)
+		return c.expr(a, expected)
+	}
+	if expected != nil && aType == nil && c.isNullish(a) {
+		return c.expr(b, expected)
+	}
 	switch {
 	case aUntyped && bUntyped:
 		result = Number
@@ -604,6 +619,37 @@ func (c *pass) pair(node *ast.Node, a *ast.Node, aType *Numeric, b *ast.Node, ex
 }
 
 func ptr(n Numeric) *Numeric { return &n }
+
+// isNullableNumber reports whether tsc types node as one numeric type with null or
+// undefined (`int | undefined`).
+func (c *pass) isNullableNumber(node *ast.Node) bool {
+	t := c.tc.GetTypeAtLocation(node)
+	if t.Flags()&checker.TypeFlagsUnion == 0 {
+		return false
+	}
+	_, numeric := NumericContext(t)
+	return numeric && slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {
+		return member.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined) != 0
+	})
+}
+
+// isNullish reports whether tsc types node as null or undefined.
+func (c *pass) isNullish(node *ast.Node) bool {
+	return c.tc.GetTypeAtLocation(node).Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined|checker.TypeFlagsVoid) != 0
+}
+
+// nullishLeft types the left operand of `??`, whose null and undefined the right replaces,
+// as its numeric type without them: `counts.get(k) ?? 0` on a Map<string, int> is an int (D-172).
+func (c *pass) nullishLeft(a *ast.Node, expected *Numeric) Numeric {
+	n := c.expr(a, expected)
+	if n != Number {
+		return n
+	}
+	if withoutNullish, ok := NumericContext(c.tc.GetTypeAtLocation(a)); ok {
+		return withoutNullish
+	}
+	return n
+}
 
 // withUntyped types an untyped operand next to an operand of type typed: integer
 // constants take the typed side's type; other constants are numbers.

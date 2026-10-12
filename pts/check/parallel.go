@@ -93,6 +93,10 @@ func (c *pass) parallelForJumps(node *ast.Node, own string, inner bool, labels m
 	case node.Kind == ast.KindReturnStatement:
 		c.report(node, diagnostic.ParallelFor, "`return` can't leave a `parallel for` body: %s", why)
 	case node.Kind == ast.KindYieldExpression || node.Kind == ast.KindAwaitExpression:
+		if node.Kind == ast.KindAwaitExpression {
+			c.report(node, diagnostic.ParallelFor, "`await` can't be in a `parallel for` body, whose iterations run at once on the fork-join pool's threads; to wait for async work per item, start a task for each and await them together: `await Promise.all(items.map((x) => parallel work(x)))`")
+			return
+		}
 		c.report(node, diagnostic.ParallelFor, "`%s` can't be in a `parallel for` body, whose iterations run at once on the fork-join pool's threads", scannerText(node))
 	case node.Kind == ast.KindForOfStatement && node.AsForInOrOfStatement().AwaitModifier != nil:
 		c.report(node, diagnostic.ParallelFor, "`for await` can't be in a `parallel for` body, whose iterations run at once on the fork-join pool's threads")
@@ -246,5 +250,5 @@ func (c *pass) reportOuterVariable(name *ast.Node, symbol *ast.Symbol, boundary 
 		}
 	}
 	c.report(name, diagnostic.ParallelAssignment,
-		"`%s` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync", name.Text())
+		"`%s` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else", name.Text())
 }

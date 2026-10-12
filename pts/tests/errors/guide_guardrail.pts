@@ -30,9 +30,9 @@ parallel for (const price of prices) {
 
 parallel for (let i = 0; i < prices.length; i++) {}
 
-// error: guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
-// error: guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
-// error: guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+// error: guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
+// error: guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
+// error: guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
 // error: guide_guardrail.pts:22:24 - error PTS3002: `return` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
 // error: guide_guardrail.pts:28:20 - error PTS3002: `break` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
 // error: guide_guardrail.pts:31:1 - error PTS3002: `parallel for` takes a `for...of` loop: `parallel for (const x of items) { … }`

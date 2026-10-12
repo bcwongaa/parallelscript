@@ -26,6 +26,9 @@ func (l *lowerer) optionalChain(node *ast.Node) ir.Expr {
 	objectNode := link.Expression()
 	var object ir.Expr
 	element := l.isElementRead(objectNode)
+	// tsc's type of the object, and so of the chain, may lack the undefined it holds: an
+	// element past the end, or a loose local (`const raw = args[2]; raw?.length`, D-090, D-172).
+	mayBeMissing := element || l.isLooseIdentifier(objectNode)
 	if element {
 		object = l.valueExpression(objectNode) // `terms[t]?.length` past the end is undefined, as in JS
 	} else {
@@ -68,8 +71,8 @@ func (l *lowerer) optionalChain(node *ast.Node) ir.Expr {
 			return nil
 		}
 		required := result
-		if element {
-			result = l.withUndefined(result) // tsc's result may lack the undefined an element past the end gives
+		if mayBeMissing {
+			result = l.withUndefined(result)
 		}
 		if whenNullish, whenNot = l.convert(whenNullish, result, node), l.convert(rest, result, node); whenNullish == nil || whenNot == nil {
 			return nil

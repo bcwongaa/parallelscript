@@ -55,16 +55,8 @@ func (l *lowerer) hasYield(node *ast.Node) bool {
 // in it: the statements that hoist them (hoistYields), then the statement.
 func (l *lowerer) hoistingStatement(node *ast.Node, expression *ast.Node) []ir.Stmt {
 	l.hoisting[node] = true
-	mark := len(l.hoistedNodes)
-	defer func() {
-		delete(l.hoisting, node)
-		for _, hoisted := range l.hoistedNodes[mark:] {
-			delete(l.yielded, hoisted)
-			delete(l.kept, hoisted)
-			delete(l.keptCurrent, hoisted)
-		}
-		l.hoistedNodes = l.hoistedNodes[:mark]
-	}()
+	defer delete(l.hoisting, node)
+	defer l.forgetHoisted(len(l.hoistedNodes))
 	hoisted, ok := l.hoistYields(expression)
 	if !ok {
 		return nil
@@ -73,6 +65,29 @@ func (l *lowerer) hoistingStatement(node *ast.Node, expression *ast.Node) []ir.S
 		return hoisted // `yield (yield x);`: its value is unused
 	}
 	return append(hoisted, l.statement(node)...)
+}
+
+// hoistedExpression lowers expression, which holds yields, after the statements that hoist
+// them (hoistYields): an arrow function's expression body (`async (f) => await read(f)`),
+// which no statement holds, is lowered as a return's value is (D-172). value is nil if
+// either failed, which was reported.
+func (l *lowerer) hoistedExpression(expression *ast.Node) (hoisted []ir.Stmt, value ir.Expr) {
+	defer l.forgetHoisted(len(l.hoistedNodes))
+	hoisted, ok := l.hoistYields(expression)
+	if !ok {
+		return nil, nil
+	}
+	return hoisted, l.expression(expression)
+}
+
+// forgetHoisted drops what lowering the expressions hoisted since mark kept for them.
+func (l *lowerer) forgetHoisted(mark int) {
+	for _, hoisted := range l.hoistedNodes[mark:] {
+		delete(l.yielded, hoisted)
+		delete(l.kept, hoisted)
+		delete(l.keptCurrent, hoisted)
+	}
+	l.hoistedNodes = l.hoistedNodes[:mark]
 }
 
 // hoistYields lowers the yields in node, and the operands JS evaluates before each, to

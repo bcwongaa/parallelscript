@@ -66,10 +66,10 @@ const converted: int = n as int;
 `)
 	assert.DeepEqual(t, formatted(errors), []string{
 		"main.pts:2:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
-		"main.pts:4:21 - error PTS2001: a int doesn't convert to i32 implicitly because the value could change; write `as i32` to convert it",
-		"main.pts:6:16 - error PTS2001: a i8 doesn't convert to u16 implicitly because the value could change; write `as u16` to convert it",
+		"main.pts:4:21 - error PTS2001: an int doesn't convert to i32 implicitly because the value could change; write `as i32` to convert it",
+		"main.pts:6:16 - error PTS2001: an i8 doesn't convert to u16 implicitly because the value could change; write `as u16` to convert it",
 		"main.pts:7:16 - error PTS2001: a number doesn't convert to f32 implicitly because the value could change; write `as f32` to convert it",
-		"main.pts:8:16 - error PTS2001: a int doesn't convert to f32 implicitly because the value could change; write `as f32` to convert it",
+		"main.pts:8:16 - error PTS2001: an int doesn't convert to f32 implicitly because the value could change; write `as f32` to convert it",
 	})
 }
 
@@ -94,7 +94,7 @@ const l: Count = 300;
 		"main.pts:4:15 - error PTS2002: -129 doesn't fit in i8 (-128 to 127)",
 		"main.pts:5:15 - error PTS2002: -1 doesn't fit in u8 (0 to 255)",
 		"main.pts:8:16 - error PTS2002: 9223372036854775808 doesn't fit in int (-9223372036854775808 to 9223372036854775807)",
-		"main.pts:11:16 - error PTS2002: 1.5 is not an integer, so it can't be a int; write `as int` to convert it",
+		"main.pts:11:16 - error PTS2002: 1.5 is not an integer, so it can't be an int; write `as int` to convert it",
 		"main.pts:13:18 - error PTS2002: 300 doesn't fit in u8 (0 to 255)",
 	})
 }
@@ -145,7 +145,7 @@ later = n;
 `)
 	assert.DeepEqual(t, formatted(errors), []string{
 		"main.pts:9:9 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
-		"main.pts:10:9 - error PTS2001: a int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
+		"main.pts:10:9 - error PTS2001: an int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 		"main.pts:11:1 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
 		"main.pts:13:9 - error PTS2001: a number doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 	})
@@ -222,7 +222,7 @@ byte(256);
 `)
 	assert.DeepEqual(t, formatted(errors), []string{
 		"main.pts:12:16 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it",
-		"main.pts:13:26 - error PTS2001: a int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
+		"main.pts:13:26 - error PTS2001: an int doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it",
 		"main.pts:14:6 - error PTS2002: 256 doesn't fit in u8 (0 to 255)",
 	})
 }

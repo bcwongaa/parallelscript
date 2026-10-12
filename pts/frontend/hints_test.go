@@ -51,6 +51,19 @@ func TestTestModifiersGetAHint(t *testing.T) {
 	assert.Equal(t, hintOf(t, "const test = (f: () => void) => f();\ntest.skip(() => {});"), "")
 }
 
+// `.par` on a readonly array, a Map or a Set says how to get an array to view.
+func TestParallelViewsOfWhatHasNoneGetAHint(t *testing.T) {
+	t.Parallel()
+	for program, want := range map[string]string{
+		"const xs = [1, 2] as const;\nconst n = xs.par.sum();":        "`.par` is on arrays a program may change, and this one is readonly",
+		"const xs: readonly number[] = [1];\nconst n = xs.par.sum();": "`.par` is on arrays a program may change, and this one is readonly",
+		"const m = new Map<string, number>();\nconst n = m.par;":      "A Map has no parallel view; spread it into an array first: `[...m].par` for its entries",
+		"const s = new Set<number>();\nconst n = s.par;":              "A Set has no parallel view; spread it into an array first: `[...m].par` for its elements",
+	} {
+		assert.Assert(t, strings.HasPrefix(hintOf(t, program), want), "%q: %q", program, hintOf(t, program))
+	}
+}
+
 func TestParallelThenACallGetsAHint(t *testing.T) {
 	t.Parallel()
 	hint := hintOf(t, "const p = parallel (async () => 1)();")

@@ -1,4 +1,4 @@
 const i: int = 1;
 const f: f32 = i;
 
-// error: integer_to_f32.pts:2:16 - error PTS2001: a int doesn't convert to f32 implicitly
+// error: integer_to_f32.pts:2:16 - error PTS2001: an int doesn't convert to f32 implicitly

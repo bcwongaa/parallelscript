@@ -187,6 +187,23 @@ func (l *lowerer) recordElement(node *ast.Node, op ir.MapOp) ir.Expr {
 	return &ir.MapCall{Op: op, Args: []ir.Expr{record, key}, Map: record.Type().(*ir.MapType)}
 }
 
+// recordRead is o[k] or o.k of a hash-map object read as its entry type: undefined for a
+// missing key where the entry type holds undefined (ProcessEnv's `string | undefined`,
+// D-172), else a RangeError (D-059).
+func (l *lowerer) recordRead(node *ast.Node) ir.Expr {
+	x := l.recordElement(node, ir.MapGetChecked)
+	if x == nil {
+		return nil
+	}
+	read := x.(*ir.MapCall)
+	entry := read.Map.Value
+	if u, ok := entry.(*ir.Union); entry != ir.Value && (!ok || !u.Has(ir.Undefined)) {
+		return x
+	}
+	read.Op = ir.MapGet
+	return l.checkedConversion(read, entry, node)
+}
+
 // recordElementOperands lowers the object and the key of o[k] or o.k, or reports the
 // access and returns nils.
 func (l *lowerer) recordElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {

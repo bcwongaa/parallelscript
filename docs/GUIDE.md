@@ -9,14 +9,16 @@ Every program in this guide is a file in [docs/examples/](examples/), with its e
 ## Contents
 
 1. [Getting started](#getting-started)
-2. [What stays the same](#what-stays-the-same)
-3. [What's different](#whats-different)
-4. [Integer types](#integer-types)
-5. [Parallelism](#parallelism)
-6. [The `pts:` modules](#the-pts-modules)
-7. [Testing](#testing)
-8. [Common compile errors](#common-compile-errors)
-9. [Where to go next](#where-to-go-next)
+2. [Tutorial: from a loop to every core](#tutorial-from-a-loop-to-every-core)
+3. [Questions TypeScript developers ask](#questions-typescript-developers-ask)
+4. [What stays the same](#what-stays-the-same)
+5. [What's different](#whats-different)
+6. [Integer types](#integer-types)
+7. [Parallelism](#parallelism)
+8. [The `pts:` modules](#the-pts-modules)
+9. [Testing](#testing)
+10. [Common compile errors](#common-compile-errors)
+11. [Where to go next](#where-to-go-next)
 
 ## Getting started
 
@@ -27,6 +29,8 @@ Build the compiler once, from the repository root, with `make build`. It lands a
 | `pts run app.pts [args…]` | Compiles and runs the program. Arguments after the file go to the program. |
 | `pts build app.pts -o app` | Compiles to a native executable. Without `-o`, the executable is named after the file. |
 | `pts emit-c app.pts` | Prints the generated C, whose `#line` directives point at your `.pts` lines (gdb and lldb show those lines too). |
+| `pts test [paths…]` | Builds and runs the test files (`name.test.pts` and Node's other test file names) under the paths ([Testing](#testing)). |
+| `pts help [command]` | Prints the usage, or a command's (as does `pts <command> --help`); `pts version` prints the version. |
 
 ```sh
 pts-bin/pts run docs/examples/hello.pts
@@ -47,6 +51,99 @@ There is no `tsconfig.json`: the options are fixed.
 - The standard library is ECMAScript's, without the DOM: `document` is "Cannot find name 'document'".
 - Source files end in `.pts`. `import "./util"` finds `util.pts` first, then the usual TypeScript extensions.
 - Imports are relative files or the standard library's `pts:` modules. There is no npm or `node_modules` yet.
+
+## Tutorial: from a loop to every core
+
+This walk-through takes one question, how many numbers below a million have a digit sum that is a multiple of 7, and answers it four ways. The whole program is [examples/guide_tutorial.pts](examples/guide_tutorial.pts); run it with `pts-bin/pts run docs/examples/guide_tutorial.pts`.
+
+```ts
+// The guide's tutorial: one question answered by a plain loop, by `.par`, by tasks on
+// other threads and with integer types, each giving the same answer.
+import { range } from "pts:parallel";
+
+const LIMIT = 1_000_000;
+
+// The sum of n's decimal digits.
+function digitSum(n: number): number {
+  let sum = 0;
+  while (n > 0) {
+    sum += n % 10;
+    n = Math.floor(n / 10);
+  }
+  return sum;
+}
+
+// 1. Plain TypeScript, on one thread: how many numbers below LIMIT have a digit sum
+//    that is a multiple of 7?
+function countBetween(from: number, to: number): number {
+  let found = 0;
+  for (let n = from; n < to; n++) {
+    if (digitSum(n) % 7 === 0) {
+      found++;
+    }
+  }
+  return found;
+}
+console.log("loop: ", countBetween(1, LIMIT));
+
+// 2. The same test over every core: `.par.count` runs it on pieces of the range at once.
+console.log(".par: ", range(1, LIMIT).par.count((n) => digitSum(n) % 7 === 0));
+
+// 3. Two tasks, each on another thread's event loop, awaited together.
+const halves = await Promise.all([parallel countBetween(1, LIMIT / 2), parallel countBetween(LIMIT / 2, LIMIT)]);
+console.log("tasks:", halves[0] + halves[1]);
+
+// 4. With an integer type, `/` divides as integers, so there is no Math.floor.
+function digitSumInt(n: int): int {
+  let sum: int = 0;
+  while (n > 0) {
+    sum += n % 10;
+    n = n / 10;
+  }
+  return sum;
+}
+console.log("int:  ", range(1, LIMIT).par.count((n) => digitSumInt(n as int) % 7 === 0));
+```
+
+```text
+loop:  142879
+.par:  142879
+tasks: 142879
+int:   142879
+```
+
+1. **Plain TypeScript.** `digitSum` and `countBetween` are what you'd write for Node, and they compile as they are: no annotations beyond TypeScript's, no new syntax. The executable runs them on one thread.
+2. **`.par` for data.** `range(1, LIMIT)` is the numbers from 1 to LIMIT − 1 without an array, and `.par` is its parallel view: `count` cuts the range into pieces, tests them on every core, and adds up the pieces' counts. Arrays have the same view (`xs.par.map(f)`, `xs.par.sum()`). The callback runs on several threads at once, so it may read anything but must not assign variables from outside it: `let found = 0; range(1, LIMIT).par.forEach((n) => { if (digitSum(n) % 7 === 0) found++; })` is the compile error PTS3001, whose message suggests `.par.reduce`, `.par.sum`, an `AtomicInt` or a `Mutex` ([The guardrail](#the-guardrail)).
+3. **`parallel` for tasks.** `parallel countBetween(1, LIMIT / 2)` starts the call on another thread's event loop and gives a promise of its result, so `Promise.all` waits for both halves. A task can do anything a function can, async work included ([Tasks](#tasks-parallel-e)).
+4. **Integer types.** In `digitSumInt`, `n: int` makes `n / 10` integer division and `n % 10` integer arithmetic, so `Math.floor` goes. The integer types are opt-in: `number` is still JavaScript's double ([Integer types](#integer-types)).
+
+The four agree on every run and with any number of threads. On an 8-thread laptop the program takes 0.40 s with `PTS_THREADS=1` and 0.21 s with all threads; the plain loop stays on one thread whatever `PTS_THREADS` says. To check it in a test, see [Testing](#testing).
+
+## Questions TypeScript developers ask
+
+**Will my TypeScript run as it is?** Mostly. A program that uses only TypeScript prints what Node prints; of 300 realistic programs in the test suite, 267 print exactly Node's output, and each other one says why. What can't compile is an error that names the construct: features left out by design, such as `eval`, `Proxy` and `var` (PTS1002), and features not built yet, such as decorators and `bigint` (PTS1001). See [What's different](#whats-different) and [Common compile errors](#common-compile-errors).
+
+**Why does my program throw where Node printed `undefined`?** Types are enforced at run time where JavaScript would carry on with a wrong value: reading past an array's end into a `number`, a cast that isn't true, a missing key of a `Record`. The error says how to write a read that may miss (`?? fallback`, `| undefined`, `in`). See [Checks that throw where Node carries on](#checks-that-throw-where-node-carries-on).
+
+**Can I use npm packages, `node_modules` or a `tsconfig.json`?** Not yet. Imports are relative files and the standard library's `pts:` modules, which cover files, paths, the process, HTTP, `fetch`, tests and parallelism. The compiler's options are fixed: strict TypeScript, ES modules, no DOM.
+
+**Is `number` still a double?** Yes, `number` is JavaScript's number. `int`, `u8`, `i32` and the other integer types are for code that wants integer arithmetic; a program that doesn't name them never meets them.
+
+**How do I use every core?** `.par` on arrays and ranges for data, `parallel f()` for tasks, `parallel for` for loops, as in the tutorial above. Objects are shared between threads, not copied, so passing big data to a task is free.
+
+**Is sharing objects between threads safe?** It can't crash the program or corrupt memory, whatever the threads do. Two threads updating one value without coordination can still lose an update, as in any language with threads: the compiler rejects the commonest case, assigning an outer variable in a parallel body, and `pts:sync` has `AtomicInt`, `Mutex` and `Channel` for the rest ([Sharing state](#sharing-state-ptssync)).
+
+**How fast is it?** Executables start in about a millisecond, where Node takes about 70 ms. On one thread, numeric code ranges from somewhat slower than Node (spectral norm) to two and a half times as fast (recursive `fib`), and it scales with cores; code that allocates many small objects is slower than Node, stops gaining past four threads, and can be slower on eight threads than on one ([Performance](#performance)). [BENCHMARKS.md](BENCHMARKS.md) has the numbers, losses included.
+
+**How do I debug?** `console.log` prints what Node prints, and an uncaught error's stack shows `.pts` files and lines. `pts emit-c` shows the generated C, whose `#line` directives let gdb and lldb step through the `.pts` source.
+
+**How do I write tests?** As for Node's built-in runner, with `pts:test` and `pts:assert`, run by `pts test` ([Testing](#testing)).
+
+**Does my editor understand `.pts` files?** VS Code does with the extension in `pts/editors/vscode`; other editors can run `pts lsp --stdio` ([Getting started](#getting-started)).
+
+**Can I call C libraries?** Not yet: there is no foreign function interface for programs. The standard library reaches the runtime's C through declarations that only it may write.
+
+**Which platforms?** x86-64 Linux. The executables need only libc and libm.
 
 ## What stays the same
 
@@ -239,7 +336,7 @@ detached method -> TypeError: Cannot read properties of undefined (reading 'coun
 - `process.argv` starts with the executable's path twice, where Node has its own path and the script's. `process.argv.slice(2)` is the arguments in both. `process.env` is a copy made at startup.
 - `pts:fs` reads a file without an encoding as bytes, a `Uint8Array` where Node gives a `Buffer` (a `Uint8Array` with more methods): indexing, `length`, `subarray` and the typed array methods work, and `console.log` shows `Uint8Array(n) [ … ]` where Node shows `<Buffer …>`. A Buffer's own methods don't exist. Its text (`toString()`, `${buffer}`, `String(buffer)`) and its `slice` (a view in Node, a copy for a `Uint8Array`) are compile errors that say what to write instead: read the file with `"utf8"`, or use `subarray`. Writing takes text or a `Uint8Array` ([Reading bytes](#reading-bytes)).
 - `toLocaleString` on numbers always formats as Node's default English locale does. `Date`'s `toLocaleDateString` and the other locale formats aren't supported yet, and `localeCompare` takes no locale but English.
-- In a generator, `yield` must come first in its statement: as the statement itself, a variable's initializer, the right side of an assignment or a returned value.
+- A `yield`, or an `await`, can't be in a loop's condition or update, a `case` label, a declaration's variables after the first, a default value or an optional chain yet: `while (await next())` is PTS1001. Await before the loop and at the end of its body instead.
 - A stack frame shows the file and line without a column: `at check (/src/app.pts:2)`.
 - A function can't be converted to a string, where JavaScript gives its source text.
 
@@ -270,6 +367,7 @@ Some valid TypeScript isn't supported yet. It is a compile error with code PTS10
 | a class declared inside a function or a block | declare it at module scope |
 | `for (x of xs)` with a variable declared earlier | `for (const x of xs)` |
 | `map` with a callback that returns nothing | `forEach` |
+| the type `Function` | a function type, such as `(...args: any[]) => unknown` |
 | a `Dog[]` used as an `Animal[]` that may be changed or kept, where a copy would behave differently | declare the array as `Animal[]` |
 | an object with known properties passed as a `Record<string, T>` | pass a copy, `{ ...o }` |
 | a class that extends `Map`, `Date`, `RegExp` or a typed array | a class that holds one (extending `Error` works) |
@@ -408,10 +506,10 @@ console.log(signed + unsigned);
 
 ```text
 guide_integer_errors.pts:4:20 - error PTS2001: a number doesn't convert to int implicitly because the value could change; write `as int` to convert it
-guide_integer_errors.pts:6:20 - error PTS2001: a int doesn't convert to i32 implicitly because the value could change; write `as i32` to convert it
-guide_integer_errors.pts:8:20 - error PTS2001: a i8 doesn't convert to u16 implicitly because the value could change; write `as u16` to convert it
+guide_integer_errors.pts:6:20 - error PTS2001: an int doesn't convert to i32 implicitly because the value could change; write `as i32` to convert it
+guide_integer_errors.pts:8:20 - error PTS2001: an i8 doesn't convert to u16 implicitly because the value could change; write `as u16` to convert it
 guide_integer_errors.pts:9:19 - error PTS2002: 256 doesn't fit in u8 (0 to 255)
-guide_integer_errors.pts:10:20 - error PTS2002: 2.5 is not an integer, so it can't be a int; write `as int` to convert it
+guide_integer_errors.pts:10:20 - error PTS2002: 2.5 is not an integer, so it can't be an int; write `as int` to convert it
 guide_integer_errors.pts:11:28 - error PTS2002: -3 doesn't fit in u8 (0 to 255)
 guide_integer_errors.pts:14:13 - error PTS2003: `+` can't mix int and u64, because neither converts to the other without loss; convert one with `as`
 ```
@@ -862,9 +960,9 @@ parallel for (let i = 0; i < prices.length; i++) {}
 ```
 
 ```text
-guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
-guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
-guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use an `Atomic` from pts:sync
+guide_guardrail.pts:7:3 - error PTS3001: `total` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
+guide_guardrail.pts:12:5 - error PTS3001: `sum` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
+guide_guardrail.pts:18:24 - error PTS3001: `last` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else
 guide_guardrail.pts:22:24 - error PTS3002: `return` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
 guide_guardrail.pts:28:20 - error PTS3002: `break` can't leave a `parallel for` body: its iterations run at once, so nothing can leave it but `continue` and a throw
 guide_guardrail.pts:31:1 - error PTS3002: `parallel for` takes a `for...of` loop: `parallel for (const x of items) { … }`
@@ -933,11 +1031,11 @@ true 12
 4
 ```
 
-What the guardrail doesn't check: the rule is lexical, so it doesn't follow calls (a function called from the body that assigns an outer variable isn't reported), and writes to fields and elements are allowed even when two threads make them at once. Such races can't crash the program: the runtime guarantees that a program with data races may see stale or lost values, but never crashes, corrupts memory or reads out of bounds. They can lose updates, though. A `Map` that several threads change at once can lose entries, so share it through a `Mutex`, as the `pts:sync` sample does.
+What the guardrail doesn't check: the rule is lexical, so it doesn't follow calls (a function called from the body that assigns an outer variable isn't reported), and writes to fields and elements are allowed even when two threads make them at once. Such races can't crash the program: the runtime guarantees that a program with data races may see stale or lost values, but never crashes, corrupts memory or reads out of bounds. They can leave the data wrong, though. A `Map`, `Set` or array that several threads change at once can lose entries, hold a key twice, report a `size` that differs from what iterating finds, or show an element pushed once twice (SPEC §4.1), so share it through a `Mutex`, as the `pts:sync` sample does, or build it with `.par.map`, `.par.filter` or `.par.reduce`.
 
 ### Performance
 
-[BENCHMARKS.md](BENCHMARKS.md) has the numbers, losses included. On 8 threads, mandelbrot runs 6.09 times as fast as on one (M6's run). Code that allocates a lot stops gaining past about 4 threads, because the garbage collector refills each thread's free lists under one lock and stops every thread to collect. A binary starts in about a millisecond, where Node takes 74 ms.
+[BENCHMARKS.md](BENCHMARKS.md) has the numbers, losses included. On 8 threads, mandelbrot runs 6.09 times as fast as on one (M6's run). Code that allocates a lot stops gaining past about 4 threads, because the garbage collector refills each thread's free lists under one lock and stops every thread to collect, and code that does little but allocate can get much slower beyond that: `.par.map((s) => s.split(" ").length)` over 300,000 short strings takes 93 ms on one thread, 61 ms on two, 85 ms on four and about 500 ms on eight, where a plain `map` takes 100 ms. For such programs, set `PTS_THREADS=4` (or 2), or do more work per element. A binary starts in about a millisecond, where Node takes 74 ms.
 
 [The examples' README](../examples/README.md) has the times of whole programs: the PNG renderer runs 6.8 times as fast on eight threads as on one, and the log analyzer, which allocates about ten objects per line, stops gaining past four.
 
@@ -1228,7 +1326,7 @@ pts-bin/pts test docs/examples/testing
 - A failed test is listed again after the totals, where it was registered (`test at stats.test.pts:7`) and with its error, and the exit code is 1. So is a file that doesn't compile, or that ends before its tests report, for example through an error thrown at its top level.
 - A test file is an ordinary program: `pts run stats.test.pts` prints the same results and totals.
 - Tests run one at a time, in order, after the file's top-level code. A test function may be `async`; it gets a context whose `skip()` and `todo()` mark it while it runs. There are no subtests (`t.test`), `only`, mocks or snapshots, and `test.skip(…)` is written `test(…, { skip: true }, …)`, because a function can't have properties in ParallelScript.
-- `pts:assert`'s default export has no call form: write `assert.ok(x)` for `assert(x)`. `throws` and `rejects` take a RegExp, a function or an object of the error's properties, but not an error class: write `{ name: "TypeError" }` for `TypeError`. A message that shows two objects lays them out as `console.log` does, where Node puts each property on a line.
+- `pts:assert`'s default export has no call form: write `assert.ok(x)` for `assert(x)`. `throws` and `rejects` take a RegExp, a function or an object of the error's properties, but not a class: write `(e) => e instanceof TypeError` for `TypeError`. A message that shows two objects lays them out as `console.log` does, where Node puts each property on a line.
 
 ## Common compile errors
 

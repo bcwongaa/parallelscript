@@ -1,0 +1,18 @@
+// `??` keeps the integer type of its left operand without undefined (D-172): the counting
+// idiom on a Map<string, int> was PTS2001.
+function find(key: string): int | undefined {
+  return key === "seven" ? 7 : undefined;
+}
+const zero: int = 0;
+const found: int = find("seven") ?? zero;
+const missing: int = find("eight") ?? zero;
+const counts = new Map<string, int>();
+for (const word of ["to", "be", "or", "not", "to", "be"]) {
+  counts.set(word, (counts.get(word) ?? 0) + 1);
+}
+const small: u8 | undefined = 200;
+const byte: u8 = small ?? 1;
+console.log(found, missing, counts, byte, (find("seven") ?? 2) / 4);
+
+// expect:
+// 7 0 Map(4) { 'to' => 2, 'be' => 2, 'or' => 1, 'not' => 1 } 200 1

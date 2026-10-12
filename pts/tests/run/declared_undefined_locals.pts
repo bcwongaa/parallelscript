@@ -1,0 +1,32 @@
+// Locals that may hold undefined though tsc narrows them to their element type (D-172):
+// declared `T | undefined` and set from an element read, or bound by an array pattern
+// from a `(T | undefined)[]`. `raw?.length` segfaulted, and reading one as a T is checked.
+import process from "pts:process";
+
+const args: string[] = ["a"];
+const raw: string | undefined = args[2];
+console.log(raw?.length, raw ?? "(none)");
+const inferred = args[2];
+console.log(inferred?.length);
+const present: string | undefined = args[0];
+console.log(present.length);
+try {
+  console.log(raw.length);
+} catch (e) {
+  console.log((e as Error).name);
+}
+
+const rest: (string | undefined)[] = ["SKU-1"];
+const [sku, name] = rest;
+console.log(sku, name ?? "(no name)");
+const words: string[] = ["one"];
+const [first, second, third] = words;
+console.log(first, second, third?.split(",") ?? []);
+
+// A hash-map object whose entries may be undefined reads undefined for a missing key.
+function setting(): string | undefined {
+  return process.env.PTS_TEST_SURELY_UNSET;
+}
+const debug: string | undefined = process.env.PTS_TEST_SURELY_UNSET;
+const labels: { [key: string]: string | undefined } = { a: "A" };
+console.log(setting(), debug, labels.a, labels.b, labels["c"]);
