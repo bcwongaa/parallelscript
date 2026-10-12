@@ -1,0 +1,85 @@
+// Locals that closures capture before their declarations run (D-140): reading or writing
+// one early throws ReferenceError, as in Node. The first function is the review's probe 12,
+// which crashed (finding 3).
+function probe(): void {
+  function read(): void {
+    console.log(value.length);
+  }
+  try {
+    read();
+  } catch (error: any) {
+    console.log(error.name);
+  }
+  const value = "ready";
+}
+probe();
+
+function strings(): void {
+  function read(): number {
+    return text.length;
+  }
+  function write(): void {
+    text = "early";
+  }
+  try {
+    read();
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+  try {
+    write();
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+  let text = "ready";
+  console.log(read());
+  write();
+  console.log(text, read());
+}
+strings();
+
+function numbers(): void {
+  const show = () => console.log(count + 1);
+  try {
+    show();
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+  const count = 41;
+  show();
+}
+numbers();
+
+function objects(): void {
+  const getX = () => point.x;
+  try {
+    getX();
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+  const point = { x: 3 };
+  console.log(getX());
+}
+objects();
+
+function loops(): void {
+  const fns: (() => number)[] = [];
+  for (let i = 0; i < 3; i++) {
+    fns.push(() => i * square);
+    const square = i * i;
+  }
+  console.log(fns.map((f) => f()));
+}
+loops();
+
+// expect:
+// ReferenceError
+// ReferenceError Cannot access 'text' before initialization
+// ReferenceError Cannot access 'text' before initialization
+// 5
+// early 5
+// ReferenceError Cannot access 'count' before initialization
+// 42
+// ReferenceError Cannot access 'point' before initialization
+// 3
+// [ 0, 1, 8 ]

@@ -224,7 +224,15 @@ func usesLocal(f *ir.Func, local *ir.Local) bool {
 
 // cellAllocation allocates the cell of a local that lives in one.
 func (e *emitter) cellAllocation(local *ir.Local) string {
-	return fmt.Sprintf("pts_cell_new(sizeof(%s), %t)", e.cellType(local), holdsPointer(local.Type))
+	return fmt.Sprintf("pts_cell_new(%s, %t)", e.cellSize(local), holdsPointer(local.Type))
+}
+
+// cellSize is the size of a local's cell: its value's, and an early cell's ready flag after it (D-140).
+func (e *emitter) cellSize(local *ir.Local) string {
+	if local.Early {
+		return fmt.Sprintf("sizeof(%s) + sizeof(bool)", e.cellType(local))
+	}
+	return fmt.Sprintf("sizeof(%s)", e.cellType(local))
 }
 
 // cellType is the C type a local's cell holds.

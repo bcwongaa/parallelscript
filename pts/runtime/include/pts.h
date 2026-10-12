@@ -333,6 +333,8 @@ static inline bool pts_name_is_symbol(const char *name) { return name[0] == '@' 
 void *pts_cell_new(size_t size, bool holds_pointers);
 /* A new cell holding a copy of cell's value: the next iteration's copy of a loop's `let` variable. */
 void *pts_cell_copy(const void *cell, size_t size, bool holds_pointers);
+/* The ready flag after the value in the cell of a local captured before its declaration ran (D-140). */
+#define PTS_CELL_READY(cell) (*(bool *)((cell) + 1))
 
 /* Whether object, an instance, is one of type or of a subclass: JS's instanceof on classes. */
 static inline bool pts_instance_of(const void *object, const pts_type *type) {

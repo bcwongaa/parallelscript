@@ -526,6 +526,10 @@ type Local struct {
 	// assigned after its declaration, or captured before its declaration has run. It lives
 	// in a heap cell that its function and the closures share (D-041).
 	Cell bool
+	// Early marks a Cell captured before its declaration has run: its cell has a ready
+	// flag, which the declaration sets and the closures' reads and writes check, so a use
+	// before the declaration throws ReferenceError, as in JS (D-140).
+	Early bool
 }
 
 // Stmt is a statement. Every statement knows the source line it came from.

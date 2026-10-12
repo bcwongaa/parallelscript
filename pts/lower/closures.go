@@ -812,6 +812,7 @@ func (p *cellPass) expr(x ir.Expr) {
 			for _, local := range x.Func.Captures {
 				if !p.declared[local] {
 					local.Cell = true
+					local.Early = true
 				}
 			}
 		}

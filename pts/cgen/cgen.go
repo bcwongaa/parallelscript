@@ -448,6 +448,9 @@ func (e *emitter) statement(stmt ir.Stmt, depth int) {
 		}
 		if s.Local.Cell {
 			e.line(depth, "*%s = %s;", e.locals[s.Local], init) // its block made the cell
+			if s.Local.Early {
+				e.line(depth, "PTS_CELL_READY(%s) = true;", e.locals[s.Local])
+			}
 			return
 		}
 		if e.frameLocal(s.Local) {
@@ -542,7 +545,7 @@ func (e *emitter) perIterationCopies(loop *ir.Loop) []string {
 	for _, local := range loop.Bindings {
 		if local.Cell {
 			name := e.locals[local]
-			copies = append(copies, fmt.Sprintf("%s = pts_cell_copy(%s, sizeof(%s), %t)", name, name, e.cellType(local), holdsPointer(local.Type)))
+			copies = append(copies, fmt.Sprintf("%s = pts_cell_copy(%s, %s, %t)", name, name, e.cellSize(local), holdsPointer(local.Type)))
 		}
 	}
 	return copies
@@ -933,10 +936,16 @@ func (e *emitter) assignment(assign *ir.Assign) string {
 	return text
 }
 
-// local is the C lvalue of a local: its C name, the global it became, or its cell's contents.
+// local is the C lvalue of a local: its C name, the global it became, or its cell's
+// contents; a closure reaches an early cell's contents after checking its ready flag (D-140).
 func (e *emitter) local(local *ir.Local) string {
 	if name, ok := e.globals[local]; ok {
 		return name
+	}
+	if local.Early && e.current != nil && slices.Contains(e.current.Captures, local) {
+		cell := e.locals[local]
+		name, _, _ := strings.Cut(local.Name, ".")
+		return fmt.Sprintf("(*(pts_check_ready(PTS_CELL_READY(%s), %s), %s))", cell, cString(name), cell)
 	}
 	if local.Cell {
 		return "(*" + e.locals[local] + ")"

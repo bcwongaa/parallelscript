@@ -154,6 +154,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}}
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
+	l.collectOutsideAssignments(program.Modules)
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -326,6 +327,7 @@ type lowerer struct {
 	looseSymbols        map[*ast.Symbol]bool        // loose locals and the variables known not to be (isLoose)
 	intrinsics          map[*ast.Symbol]*ir.Func    // the extern functions of the pts: modules' intrinsics (D-116); nil if reported
 	globalBindings      map[*ast.Symbol]*ast.Symbol // the globals that are a pts: module's default export, with the module's binding
+	assignedOutside     map[*ast.Symbol]bool        // variables a function other than their own assigns, whose narrowed reads are checked (D-140)
 }
 
 // jumpTarget is a statement that break (and for a loop, continue) can target.

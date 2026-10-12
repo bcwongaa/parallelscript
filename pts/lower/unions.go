@@ -153,9 +153,10 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}
-		if node.Kind != ast.KindIdentifier && isCheckable(narrow) && !isClass(narrow) && !isUnion(narrow) {
-			// A property tsc narrowed may have changed since, through a call that tsc
-			// doesn't follow, so its value is checked (classes' always are) (D-089).
+		if !isClass(narrow) && (node.Kind != ast.KindIdentifier || l.assignedOutside[l.target(node)]) {
+			// A property tsc narrowed, or a variable another function assigns, may have
+			// changed since, through a call that tsc doesn't follow, so its value is
+			// checked as a dynamic value is (classes' always are) (D-089, D-140).
 			return &ir.FromUnion{X: box(x), To: narrow}
 		}
 		return &ir.FromUnion{X: x, To: narrow}

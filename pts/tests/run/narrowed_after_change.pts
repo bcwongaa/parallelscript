@@ -1,0 +1,91 @@
+// Narrowed values that a call changed behind tsc's back (D-140): reading one as the type
+// tsc narrowed it to is checked, and throws TypeError if it no longer is one, where it read
+// a wrong pointer before. The first function is the review's probe 1 (finding 2).
+// no-diff: Node reads the changed value (undefined, or the string's length) where ParallelScript throws TypeError (SPEC §8)
+function probe(): void {
+  let value: string | number = "abc";
+  const replace = (): void => {
+    value = 123;
+  };
+  if (typeof value === "string") {
+    replace();
+    try {
+      console.log(value.length);
+    } catch (error) {
+      console.log((error as Error).name, (error as Error).message);
+    }
+  }
+}
+probe();
+
+// A variable a closure sets to another member of its union of object types, or to null.
+interface A {
+  kind: "a";
+  items: string[];
+}
+interface B {
+  kind: "b";
+  count: number;
+}
+let shape: A | B | null = { kind: "a", items: ["x"] };
+const toB = () => {
+  shape = { kind: "b", count: 3 };
+};
+const reset = () => {
+  shape = null;
+};
+if (shape !== null && shape.kind === "a") {
+  toB();
+  try {
+    console.log(shape.items.length);
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+}
+shape = { kind: "a", items: ["y", "z"] };
+if (shape !== null && shape.kind === "a") {
+  console.log(shape.items.length);
+  reset();
+  try {
+    console.log(shape.items.length);
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+}
+
+// A property narrowed to an array that a call made a string.
+interface Holder {
+  v: number[] | string;
+}
+const holder: Holder = { v: [1, 2] };
+function change(): void {
+  holder.v = "not an array";
+}
+if (Array.isArray(holder.v)) {
+  console.log(holder.v.length);
+  change();
+  try {
+    console.log(holder.v.length);
+  } catch (error) {
+    console.log((error as Error).name, (error as Error).message);
+  }
+}
+
+// Narrowed reads that nothing changed read as before, whatever the property order.
+interface Point {
+  x: number;
+  y: number;
+}
+const box: { p: Point | null; list: number[] | string } = { p: { y: 2, x: 1 }, list: [1, 2, 3] };
+if (box.p !== null && Array.isArray(box.list)) {
+  console.log(box.p.x + box.p.y, box.list.length);
+}
+
+// expect:
+// TypeError Expected string, got number
+// TypeError Expected {items: string[]; kind: string}, got Object
+// 2
+// TypeError Expected {items: string[]; kind: string}, got null
+// 2
+// TypeError Expected number[], got string
+// 3 3

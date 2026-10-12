@@ -468,6 +468,9 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     return false;
   }
   pts_object *object = pts_value_as_object(value);
+  if (check->kind == PTS_CHECK_OBJECT && check->type != NULL && object->type == check->type) {
+    return true; /* an object of the check's own descriptor, as a checked narrowed read finds (D-140) */
+  }
   if (!enter(c, object, check)) {
     return false; /* a cycle of dynamic data, which a copy can't hold (JSON has none) */
   }
