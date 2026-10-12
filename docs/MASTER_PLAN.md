@@ -253,7 +253,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
   - `map` (order-preserving), `filter`, `forEach`, `reduce`, `some`, `every`, `find`, `count`, `sum`, `min`, `max` and `toArray`.
   - `pts:parallel` exporting `range` and `join`.
   - Lib `.d.ts` declarations with branded parallel-callback types.
-- [ ] **M5.4b `flatMap`, `sort` and `sortBy`** (split from M5.4 by D-123). `.par.flatMap`, and `sort`/`sortBy` as a parallel merge sort, on arrays and ranges.
+- [x] **M5.4b `flatMap`, `sort` and `sortBy`** (473aee33d) (split from M5.4 by D-123). `.par.flatMap`, and `sort`/`sortBy` as a parallel merge sort, on arrays and ranges.
 - [ ] **M5.4c Typed arrays** (split from M5.4 by D-123).
   - Typed arrays themselves (`Uint8Array`, `Int32Array`, `Float64Array`, …): fixed-length arrays of their element type with JS's modular writes, writes out of range ignored, `subarray` views, their methods, console.log and JSON as Node prints them (moved from M3.7b by D-103).
   - `.par` on typed arrays.
