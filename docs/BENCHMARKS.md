@@ -105,3 +105,30 @@ Notes:
 - sum_reduce (100 million doubles, 800 MB: filled by `parallel for`, then `.par.sum`, `.par.reduce` and `.par.max`, two rounds): bound by memory bandwidth from ×4 (a pass of `sum` reads 800 MB in about 75 ms), and the 800 MB array is zeroed by one thread when it is made (about 0.4 s), as the collector's memory isn't known to be zero. The fill uses `&`, not `%`: `%` on doubles is C's fmod until integer inference (M8).
 - word_count (64 files, 6.4 million words, `.par.map` counting into maps): every word is a new string and a map lookup, so the threads allocate all the time; bdwgc refills each thread's free lists under one lock and stops every thread to collect, so it stops gaining past ×4. Go's substrings share their text and allocate nothing.
 - The collector now marks on 2 threads instead of one per core (D-131): with 8 marker threads, programs that allocate were up to 60% slower on one thread (the extra markers burn the cores), and single-threaded binary_trees, json and word_freq are as fast or faster with 2.
+
+## M5
+
+Measured on 2026-10-12 (M5.8), `pts/bench/run.sh` with 2 warm-ups and 10 runs, on the machine of the M5.7b section above, which was busier during this run than an hour earlier: Node's word_count took 2275 ms here against 1110 ms in M5.7b's run, and every parallel row lost to it (mandelbrot 4.65× on 8 threads here, 5.78× there). Both runs are kept as measured; the M5.7b table is the calmer one. New in M5: the four parallel benchmarks (D-131). The single-threaded rows now run with bdwgc marking on 2 threads instead of one per core.
+
+| Benchmark | ParallelScript | Node | Bun | Go | PTS vs Node | PTS vs Go |
+|---|---|---|---|---|---|---|
+| async_fib | 162 ms | 259 ms | 272 ms | – | 1.60× | – |
+| binary_trees | 1774 ms | 1379 ms | 1598 ms | 3126 ms | 0.78× | 1.76× |
+| fib | 254 ms | 670 ms | 505 ms | 272 ms | 2.64× | 1.07× |
+| fib_int | 132 ms | – | – | 235 ms | – | 1.78× |
+| file_io | 519 ms | 825 ms | 361 ms | 350 ms | 1.59× | 0.67× |
+| json | 1119 ms | 765 ms | 419 ms | 1770 ms | 0.68× | 1.58× |
+| nbody | 810 ms | 853 ms | 870 ms | 592 ms | 1.05× | 0.73× |
+| string_building | 1096 ms | 1760 ms | 6632 ms | 403 ms | 1.61× | 0.37× |
+| word_freq | 1988 ms | 1769 ms | 1474 ms | 754 ms | 0.89× | 0.38× |
+
+| Benchmark | PTS ×1 | PTS ×2 | PTS ×4 | PTS ×8 | Speedup ×8 | Node | Bun | Go | PTS ×8 vs Node | PTS ×8 vs Go |
+|---|---|---|---|---|---|---|---|---|---|---|
+| fan_out | 935 ms | 492 ms | 347 ms | 343 ms | 2.72× | 1011 ms | 924 ms | 312 ms | 2.95× | 0.91× |
+| mandelbrot | 1525 ms | 861 ms | 521 ms | 328 ms | 4.65× | 1649 ms | 1661 ms | 321 ms | 5.03× | 0.98× |
+| sum_reduce | 4080 ms | 2978 ms | 2886 ms | 2390 ms | 1.71× | 5423 ms | 6649 ms | 907 ms | 2.27× | 0.38× |
+| word_count | 2073 ms | 1213 ms | 948 ms | 1737 ms | 1.19× | 2275 ms | 1360 ms | 220 ms | 1.31× | 0.13× |
+
+Notes:
+- Single-threaded rows against M4: async_fib 183 → 162 ms, binary_trees 1861 → 1774 ms, json 1206 → 1119 ms (the collector's 2 markers, D-131); word_freq 1510 → 1988 ms and nbody, string_building within the run's noise (Node's word_freq also went from 1488 to 1769 ms).
+- Parallel rows: see the M5.7b notes. word_count's ×8 (1737 ms, slower than ×4) is allocation-heavy code meeting a loaded machine: every thread allocates a string per word, and bdwgc refills free lists under one lock and stops all threads to collect.

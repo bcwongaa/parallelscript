@@ -4,13 +4,14 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** M5 (Parallel); M0 to M4 tagged `m0` … `m4`
-- **Next task:** M5.8 Milestone M5
+- **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
+- **Next task:** M6.1 RegExp
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow)
 
 ## Done
 
+- M5.8 Milestone M5: checklist run, suite green locally and CI green, M5 table in `docs/BENCHMARKS.md` (the four parallel benchmarks with speedups; a busier machine than M5.7b's run: mandelbrot 4.65× on 8 threads there, 5.78× in M5.7b's), tag `m5`, Telegram report.
 - M5.7b Parallel benchmarks and scaling (D-131, SPEC §9.88): `pts/bench/mandelbrot`, `sum_reduce`, `word_count`, `fan_out`, each with a sequential `main.ts` for Node and Bun and a goroutine `main.go`; a `threads` file makes `run.sh` run ParallelScript per `PTS_THREADS` and print speedups (`docs/BENCHMARKS.md`, M5.7b: mandelbrot 5.78× on 8 threads and 6.5× Node, fan_out 3.26×, word_count 2.22×, sum_reduce 1.83×). bdwgc now marks on 2 threads instead of one per core (single-threaded allocation was up to 60% slower with 8 markers). M5.7 is complete.
 - M5.7a Stress tests and the race-safety invariant (M5.7 split by D-130; SPEC §4.1, §9.87): `pts/tests/stress/` (11 programs: tasks, `.par` and `parallel for` allocating under the collector, pts:sync under contention, recursive join with throws, promises across loops, cancelled `parallel for`; and `race_*` tests of the invariant on arrays, maps/sets/records, fields, strings and typed arrays), `TestStress` with `PTS_STRESS_REPEAT`, `make test-stress`, a nightly CI job running them 100 times. The race tests and a runtime audit found real holes, now fixed: a map's size went below zero under racing deletes (then read as 1.8e19 and aborted console.log/JSON), its index could fill so lookups looped forever, an append after a replace could write past the table; `Array.with` could write past its copy, `shift` of an empty buffer published length 2^64 − 1, `new Set(array)` and `filter` through `any` read holes as elements, a record's key-order snapshot hid keys from the collector, typed arrays' `sort` ran qsort over shared memory.
 - M5.6b `pts:sync`: Channel (D-129, SPEC §9.86): `Channel<T>(capacity = Infinity)` in ParallelScript over the futex lock: FIFO `send`/`recv` with back-pressure and rendezvous at capacity 0, `close` (drain, then done; sends reject), `closed`, `for await`; promises settle on their loops. M5.6 is complete.
@@ -115,7 +116,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M5.8 Milestone M5 (see `docs/MASTER_PLAN.md`): the checklist (suite and CI green, `docs/BENCHMARKS.md` M5 table from `make bench`, which now includes the four parallel benchmarks; tag `m5`; Telegram message showing off `parallel` and `.par` with the speedups of D-131).
+1. M6.1 RegExp (see `docs/MASTER_PLAN.md`): vendor PCRE2 as a pinned submodule (D-O09) and translate JS syntax and flags (`g i m s u y`): `test`, `exec`, `match`, `matchAll`, `replace`, `split`, named groups, `lastIndex`; `String.prototype.normalize` with Unicode's normalization tables (moved from M3.5a by D-082). Regex literals are a compile error until then.
 2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -169,6 +170,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M5.8 done; tagged `m5`.
 - 2026-10-12: M5.7b done (D-131); M5.7 complete.
 - 2026-10-12: M5.7a done (M5.7 split by D-130).
 - 2026-10-12: M5.6b done (D-129); M5.6 complete.

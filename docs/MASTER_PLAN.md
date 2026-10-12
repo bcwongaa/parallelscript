@@ -268,7 +268,7 @@ Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECI
 - [x] **M5.7b Parallel benchmarks and scaling** (1b3b47989) (split from M5.7 by D-130).
   - Parallel benchmarks: mandelbrot `.par`, sum/reduce over 100M numbers, word count over many files, and `parallel` fan-out. Report speedup against one thread.
   - The collector's scaling with threads (`PROGRESS.md`, Next).
-- [ ] **M5.8 Milestone M5.** The Telegram message must show off `parallel` and `.par`, with speedup numbers.
+- [x] **M5.8 Milestone M5.** (m5) The Telegram message must show off `parallel` and `.par`, with speedup numbers.
 
 ## M6: Real programs
 - [ ] **M6.1 RegExp.** Vendor PCRE2 and support JS syntax and flags (decision O09): `test`, `exec`, `match`, `matchAll`, `replace`, `split`, named groups and `lastIndex`.
