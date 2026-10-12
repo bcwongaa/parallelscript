@@ -1,0 +1,35 @@
+// String.prototype.normalize (D-135): the four forms on composed and decomposed letters,
+// marks in every order, compatibility characters, Hangul, a lone surrogate; a bad form.
+const samples = ["café", "café", "Å", "Å", "ﬁ", "①", "한글", "한", "ḉ", "ḉ", "ḉ", "ą̴́", "\uD83D", "ẍ́", "ǖ", "̈́", "Ⅻ", "ｶﾞ", "ཱི", "𝐀", "ﷺ", ""];
+for (const s of samples) {
+  const forms = ["NFC", "NFD", "NFKC", "NFKD"].map((f) => [...s.normalize(f as "NFC")].map((c) => c.codePointAt(0)!.toString(16)).join(" "));
+  console.log(JSON.stringify(s), forms.join(" | "), s.normalize() === s.normalize("NFC"));
+}
+try { "x".normalize("nfc" as "NFC"); } catch (e) { console.log((e as Error).name, (e as Error).message); }
+const dyn: any = "é";
+console.log(dyn.normalize().length, dyn.normalize("NFD").length);
+// expect:
+// "café" 63 61 66 e9 | 63 61 66 65 301 | 63 61 66 e9 | 63 61 66 65 301 true
+// "café" 63 61 66 e9 | 63 61 66 65 301 | 63 61 66 e9 | 63 61 66 65 301 true
+// "Å" c5 | 41 30a | c5 | 41 30a true
+// "Å" c5 | 41 30a | c5 | 41 30a true
+// "ﬁ" fb01 | fb01 | 66 69 | 66 69 true
+// "①" 2460 | 2460 | 31 | 31 true
+// "한글" d55c ae00 | 1112 1161 11ab 1100 1173 11af | d55c ae00 | 1112 1161 11ab 1100 1173 11af true
+// "한" d55c | 1112 1161 11ab | d55c | 1112 1161 11ab true
+// "ḉ" 1e09 | 63 327 301 | 1e09 | 63 327 301 true
+// "ḉ" 1e09 | 63 327 301 | 1e09 | 63 327 301 true
+// "ḉ" 1e09 | 63 327 301 | 1e09 | 63 327 301 true
+// "ą̴́" 105 334 301 | 61 334 328 301 | 105 334 301 | 61 334 328 301 true
+// "\ud83d" d83d | d83d | d83d | d83d true
+// "ẍ́" 1e8d 301 | 78 308 301 | 1e8d 301 | 78 308 301 true
+// "ǖ" 1d6 | 75 308 304 | 1d6 | 75 308 304 true
+// "̈́" 308 301 | 308 301 | 308 301 | 308 301 true
+// "Ⅻ" 216b | 216b | 58 49 49 | 58 49 49 true
+// "ｶﾞ" ff76 ff9e | ff76 ff9e | 30ac | 30ab 3099 true
+// "ཱི" f71 f72 | f71 f72 | f71 f72 | f71 f72 true
+// "𝐀" 1d400 | 1d400 | 41 | 41 true
+// "ﷺ" fdfa | fdfa | 635 644 649 20 627 644 644 647 20 639 644 64a 647 20 648 633 644 645 | 635 644 649 20 627 644 644 647 20 639 644 64a 647 20 648 633 644 645 true
+// ""  |  |  |  true
+// RangeError The normalization form should be one of NFC, NFD, NFKC, NFKD.
+// 1 2

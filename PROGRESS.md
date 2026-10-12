@@ -5,12 +5,13 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M6 (Real programs); M0 to M5 tagged `m0` … `m5`
-- **Next task:** M6.1c2 `normalize`
+- **Next task:** M6.1d Documentation refresh (owner request)
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally and in CI (`PTS` workflow; the nightly stress workflow passed its first run, dispatched with 5 repeats)
 
 ## Done
 
+- M6.1c2 `normalize` (D-135, SPEC §9.92): UAX #15's four forms in `normalize.c` over tables generated from Node's ICU (`pts/runtime/gen/normalization_tables.mjs`: full decompositions, ranks of the combining classes found through NFD, composition pairs), Hangul by arithmetic; statically and through `any`; the string corpus compares every code point of planes 0 and 1 in the four forms, and random mark sequences, with Node. M6.1 is complete.
 - M6.1c1 String methods with regexes (M6.1c split by D-134, SPEC §9.91): `match`, `matchAll`, `search`, `split`, `replace` and `replaceAll` with RegExps as runtime functions over a boxed pattern (a RegExp, a string, or `string | RegExp`), following @@match … @@replace: GetSubstitution's `$` references, split's captures and limit, empty matches advancing by a character, matchAll's iterator of match arrays; replacement callbacks through a generated helper that reads the match's arguments from an `any[]`; the global loops keep lastIndex out (0 at the end), so threads may share a global RegExp; all through `any` too.
 - M6.1b `RegExp` in the language (D-133, SPEC §9.90): a builtin class (`pts_regexp`, `PTS_KIND_REGEXP`) whose `lastIndex` is a real field; regex literals (a new RegExp per evaluation over code compiled once into a static per literal), `new RegExp`/`RegExp()` with string or RegExp patterns, `source`, `flags` and the flag properties, `exec`/`test` with RegExpBuiltinExec's lastIndex rules for `g` and `y`, `toString`, `RegExp.escape`; match arrays are `string[]`s with `index`, `input` and `groups` kept after the array (`pts_match_array`), printed as Node prints them, groups that took no part being holes read as loose elements (`m[2] || "px"` works); console.log, String, JSON and `any` as Node. The String methods that take regexes stay compile errors until M6.1c.
 - M6.1a The RegExp core (M6.1 split by D-132, SPEC §9.89): PCRE2 10.49 vendored (8-bit, Unicode, no JIT) and built by the toolchain; `regexp.c` translates JS patterns into PCRE2's syntax with JS's meanings (line terminators, `\v`, Annex B identity escapes and literal braces, classes without POSIX syntax, backreferences by number, named groups kept by the runtime, `\p{…}` forms, `(?ims-ims:)` modifiers) and V8's SyntaxError messages, and matches from UTF-16 indices with a cursor for loops; `regexp_test.c` checks it against Node's answers.
@@ -119,7 +120,7 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. M6.1c2 `normalize` (see `docs/MASTER_PLAN.md`; D-082 moved it here): NFC, NFD, NFKC and NFKD (RangeError `The normalization form should be one of NFC, NFD, NFKC, NFKD.` otherwise), statically and through `any`. Needs Unicode's decomposition mappings, canonical combining classes and composition exclusions, generated into a table (as `case_tables.h` was, `pts/runtime/gen/`); match Node's Unicode version (Node 24: ICU 77, Unicode 16), checking against Node with a generated corpus (as `strings_test.go` does). Then M6.1d (the owner's documentation refresh: subagents per document, verified samples).
+1. M6.1d Documentation refresh (owner request, see `docs/MASTER_PLAN.md`): subagents in parallel, one per document (README with the upstream README moved to `docs/UPSTREAM_README.md`, SPEC, new ARCHITECTURE, new GUIDE, BENCHMARKS summary, FORK, PROGRESS, `pts/tests/README.md`, a topic index at the top of DECISIONS, new `docs/README.md`); check every claim against code, tests and `pts` output; every sample a real `.pts` file under `pts/tests/run/` or `docs/examples/` covered by a test. M6.1 (RegExp and normalize) is now done and belongs in the docs too.
 2. Allocation-heavy parallel code stops scaling past 4 threads on this machine (D-131): bdwgc refills thread-local free lists under one lock and stops every thread to collect; with markers at 2, 8 threads all building trees are slower than 1 marker would be. Options for M8: escape analysis to allocate less, larger heap blocks (bdwgc needs aligned mappings above the page size), or a collector with per-thread heaps. Recursive `join` (parallel fib) is slower than sequential because each join allocates its closures, a results array and a tuple in the library. Library code in generic classes over typed arrays should constrain with an interface, not a union (D-126).
 3. Optional cleanup: the generated corpora could put each case in a function now; tsc's flow analysis and clang slow down sharply on one huge top-level function (`pts/tests/README.md`).
 
@@ -135,7 +136,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
 | PTS Go tests (front end, lowering, C emitter, driver, runtime C unit tests under ASan/UBSan and the pool and loop tests under TSan, number-format differential) and the CLI | `go test ./pts/... ./cmd/pts/` | ok (about 10 s with a cold cache) |
 | Build the CLI | `make build` (= `go build -o pts-bin/pts ./cmd/pts`; `pts-bin/` is ignored), then `pts-bin/pts run file.pts`. A copy outside the repo needs `PTS_HOME` set to the repo root. | ok |
-| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (296 run tests, the parallel ones under several `PTS_THREADS`; 72 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 13 string-corpus parts; about 2.5 min on a busy machine) |
+| Corpus only | `go test ./pts/tests/` (run, differential, stress and error tests, the realistic-program corpus, the generated number and string corpora); `make test-diff` for the Node differential tests alone | ok (297 run tests, the parallel ones under several `PTS_THREADS`; 72 error tests; 300 corpus programs, 47 skipped with their causes; 8 number-corpus and 16 string-corpus parts; about 2.5 min on a busy machine) |
 | Stress tests | `make test-stress` (= `go test -run TestStress ./pts/tests/`); `PTS_STRESS_REPEAT=n` runs each program n times per thread count (the nightly CI job: 100) | ok (11 programs; about 13 s for 3 runs each) |
 | One corpus program | `pts/tests/corpus/compare.sh path.pts…` (after `make build`; ignores `// skip:`) | prints PASS or the first differing lines |
 | All PTS tests | `make test` (= `go test ./pts/... ./cmd/pts/`) | ok |
@@ -174,6 +175,7 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Session log
 
+- 2026-10-12: M6.1c2 done (D-135); M6.1 complete.
 - 2026-10-12: M6.1c1 done (M6.1c split by D-134).
 - 2026-10-12: M6.1b done (D-133).
 - 2026-10-12: M6.1a done (M6.1 split by D-132); the owner added M6.1d (documentation refresh) during the session.

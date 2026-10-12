@@ -12,8 +12,8 @@ import (
 // The String methods and functions of M3.5a whose calls aren't one runtime function with
 // fixed parameters, as the builtins table's are (D-082): concat takes any number of
 // strings, replace and replaceAll a replacement string or a callback, localeCompare
-// locales and options, and String.fromCharCode and String.fromCodePoint their arguments
-// as an array.
+// locales and options, normalize an optional form (D-135), and String.fromCharCode and
+// String.fromCodePoint their arguments as an array.
 
 // stringLibraryCall lowers a call of one of those methods or functions; handled is
 // false if the call isn't one.
@@ -29,6 +29,8 @@ func (l *lowerer) stringLibraryCall(call *ast.CallExpression) (x ir.Expr, handle
 		return l.stringReplace(call, member == "String.replaceAll"), true
 	case "String.localeCompare":
 		return l.localeCompare(call), true
+	case "String.normalize":
+		return l.stringNormalize(call), true
 	case "StringConstructor.fromCharCode", "StringConstructor.fromCodePoint":
 		builtin := ir.StringFromCharCode
 		if member == "StringConstructor.fromCodePoint" {
@@ -289,6 +291,23 @@ func (l *lowerer) localeCompare(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	return &ir.CallBuiltin{Builtin: ir.StringLocaleCompare, Args: []ir.Expr{operands[0], that}}
+}
+
+// stringNormalize lowers `s.normalize(form)`: the runtime's function of the form as a
+// dynamic value (undefined is NFC; another string than the four forms, RangeError) (D-135).
+func (l *lowerer) stringNormalize(call *ast.CallExpression) ir.Expr {
+	if l.hasSpreadArgument(call) {
+		return nil
+	}
+	operands := l.expressions(append([]*ast.Node{ast.SkipParentheses(call.Expression).Expression()}, call.Arguments.Nodes...))
+	if operands == nil {
+		return nil
+	}
+	form := box(&ir.UndefinedConst{})
+	if len(operands) > 1 {
+		form = box(operands[1])
+	}
+	return l.callExtern("pts_string_normalize", ir.String, operands[0], form)
 }
 
 // isEnglishLocale reports whether node is a string literal naming an English locale.

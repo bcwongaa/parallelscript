@@ -26,9 +26,9 @@ attempt("push data", () => { looseItems.push({ name: "c" }); });
 console.log(numbers, items.map((item) => item.name));
 const doubled: number[] = loose.map((n: number) => n * 2);
 console.log(doubled, doubled === loose, (loose.filter((n: number) => n > 1) as number[]).length);
-attempt("a missing string method", () => { const s: any = "abc"; s.normalize(); });
+attempt("a missing string method", () => { const s: any = "abc"; s.anchor("x"); });
 
-// no-diff: JS writes whatever it is given; normalize comes with M6.1
+// no-diff: JS writes whatever it is given and has the deprecated anchor
 // expect:
 // push a string -> TypeError: Cannot set property element of Array: expected number, got string
 // unshift null -> TypeError: Cannot set property element of Array: expected number, got null
@@ -38,4 +38,4 @@ attempt("a missing string method", () => { const s: any = "abc"; s.normalize(); 
 // push data -> TypeError: Cannot set property element of Array: expected Item, got Object
 // [ 1, 2, 3 ] [ 'a', 'b' ]
 // [ 2, 4, 6 ] false 2
-// a missing string method -> TypeError: s.normalize is not a function
+// a missing string method -> TypeError: s.anchor is not a function

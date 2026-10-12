@@ -149,6 +149,10 @@ static pts_value string_match_all(pts_value self, uint32_t argc, const pts_value
   return pts_string_match_all(string_of(self), argument(argc, argv, 0));
 }
 
+static pts_value string_normalize(pts_value self, uint32_t argc, const pts_value *argv) {
+  return pts_value_from_string(pts_string_normalize(string_of(self), argument(argc, argv, 0)));
+}
+
 static pts_value string_search(pts_value self, uint32_t argc, const pts_value *argv) {
   return pts_value_from_number(pts_string_search(string_of(self), argument(argc, argv, 0)));
 }
@@ -339,6 +343,7 @@ static const named_method string_methods[] = {
     {"localeCompare", string_locale_compare},
     {"match", string_match},
     {"matchAll", string_match_all},
+    {"normalize", string_normalize},
     {"padEnd", string_pad_end},
     {"padStart", string_pad_start},
     {"repeat", string_repeat},

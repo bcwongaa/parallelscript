@@ -41,6 +41,12 @@ var stringCorpusParts = append(methodCorpusParts(8),
 	corpusPart{"final_sigma", 103, emitFinalSigmaCases},
 	corpusPart{"locale_compare_1", 104, emitLocaleCompareCases},
 	corpusPart{"locale_compare_2", 105, emitLocaleCompareCases},
+	corpusPart{"normalize_bmp", 106, func(_ *rand.Rand, emit func(string)) { emitNormalizations(0x80, 0xFFFF, emit) }},
+	corpusPart{"normalize_supplementary", 107, func(_ *rand.Rand, emit func(string)) {
+		emitNormalizations(0x10000, 0x1FFFF, emit)
+		emitNormalizations(0x2F800, 0x2FA1F, emit) // the CJK compatibility ideographs, which decompose
+	}},
+	corpusPart{"normalize_sequences", 108, emitNormalizationSequences},
 )
 
 func methodCorpusParts(n int) []corpusPart {
@@ -159,6 +165,52 @@ func emitCaseMappings(first rune, last rune, emit func(string)) {
 		}
 	}
 	flush()
+}
+
+// emitNormalizations normalizes every code point in [first, last] in the four forms,
+// skipping surrogates and the C1 controls, a chunk per line (D-135).
+func emitNormalizations(first rune, last rune, emit func(string)) {
+	var chunk strings.Builder
+	count := 0
+	flush := func() {
+		if count > 0 {
+			emit(fmt.Sprintf("{ const s = \"%s\"; console.log(s.normalize(\"NFC\"), s.normalize(\"NFD\"), s.normalize(\"NFKC\"), s.normalize(\"NFKD\")); }", chunk.String()))
+		}
+		chunk.Reset()
+		count = 0
+	}
+	for cp := first; cp <= last; cp++ {
+		if (cp >= 0xD800 && cp <= 0xDFFF) || (cp >= 0x80 && cp <= 0x9F) {
+			continue
+		}
+		fmt.Fprintf(&chunk, "\\u{%X}", cp)
+		if count++; count == codePointsPerChunk {
+			flush()
+		}
+	}
+	flush()
+}
+
+// normalizationPieces are what the normalization sequences are made of: starters that
+// compose (Latin letters, precomposed ones, Hangul jamo and syllables, Tamil and Tibetan
+// pieces), marks of many combining classes in every order, compatibility characters, a
+// lone surrogate and an astral letter.
+var normalizationPieces = []string{"a", "e", "o", "u", "c", "s", "A", "\\u00C5", "\\u00E7", "\\u1E63", "\\u0301", "\\u0300", "\\u0308",
+	"\\u0327", "\\u0328", "\\u0323", "\\u0334", "\\u0345", "\\u0315", "\\u031B", "\\u05B0", "\\u0F72", "\\u0F71", "\\u0F80",
+	"\\u1100", "\\u1161", "\\u11A8", "\\uAC00", "\\uD55C", "\\u0B92", "\\u0BD7", "\\uFB01", "\\u2460", "\\uFF76", "\\uFF9E", "\\u3131",
+	"\\u212B", "\\u0344", "\\uD83D", "𝐀", " "} // the astral letter raw: Node's parser rejects "\\uD83D\\u{1D400}"
+
+// emitNormalizationSequences normalizes random sequences of normalizationPieces in the
+// four forms: canonical ordering, composition and its blocking, Hangul.
+func emitNormalizationSequences(rng *rand.Rand, emit func(string)) {
+	for range sigmaWords {
+		var word strings.Builder
+		for range 1 + rng.IntN(7) {
+			word.WriteString(normalizationPieces[rng.IntN(len(normalizationPieces))])
+		}
+		w := word.String()
+		emit(fmt.Sprintf("{ const s = \"%s\"; console.log(s.normalize(), s.normalize(\"NFD\"), s.normalize(\"NFKC\"), s.normalize(\"NFKD\"), s.normalize().length); }", w))
+	}
 }
 
 // sigmaContext are the characters around capital sigmas in the Final_Sigma cases: cased

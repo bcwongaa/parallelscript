@@ -1768,6 +1768,11 @@ pts_value pts_match_index(const pts_array *array);
 pts_value pts_match_input(const pts_array *array);
 pts_value pts_match_groups(const pts_array *array);
 
+/* ---------------------------------------------------------------- String.prototype.normalize (D-135) */
+
+/* s.normalize(form): NFC (form undefined), NFD, NFKC or NFKD; RangeError for another form. */
+pts_string *pts_string_normalize(pts_string *string, pts_value form);
+
 /* ---------------------------------------------------------------- String methods with RegExps (D-134) */
 
 /* s.match(pattern): exec's match array without g, an array of every match's text with g; null for none. A pattern not a RegExp is made one. */
