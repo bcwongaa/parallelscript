@@ -27,7 +27,7 @@ ParallelScript lives inside a fork of [microsoft/typescript-go](https://github.c
 | `.gitmodules` | Pinned submodules `pts/third_party/bdwgc` (v8.2.12) and `pts/third_party/libuv` (v1.53.0). Upstream's `_submodules/TypeScript` entry is unchanged. | M0.4 | 26476ae |
 | `.gitmodules` | Pinned submodule `pts/third_party/ryu` (v2.0, D-011). | M1.1 | 554c989 |
 | `.gitmodules` | Pinned submodule `pts/third_party/libbacktrace` (commit 0b9b49c; it has no release tags, D-069). | M3.2b | d0b802bb0 |
-| `.gitmodules` | Pinned submodule `pts/third_party/pcre2` (pcre2-10.49; its own `deps/sljit` submodule is not checked out, as the JIT is off, D-132). | M6.1a | (this commit) |
+| `.gitmodules` | Pinned submodule `pts/third_party/pcre2` (pcre2-10.49; its own `deps/sljit` submodule is not checked out, as the JIT is off, D-132). | M6.1a | 1d51bd14f |
 | `.github/workflows/ci.yml` | `on:` reduced to `workflow_dispatch`: upstream's CI (hereby build, full test matrix, release build, extension, lint) runs only on demand. See below. | M0.7 | 6ee609b |
 | `.github/dependabot.yml` | `open-pull-requests-limit: 0` for both ecosystems: no version-update PRs (the fork commits straight to `main`, D-O02). | M0.7 | 6ee609b |
 | `internal/checker/pts.go` (new file) | ParallelScript's numeric types (D-048): `ptsNumericAliasType` makes the prelude's `int`, `i8 … u32`, `u64` and `f32` aliases intrinsic number types of their own; `ptsArithmeticType`, `ptsUnaryType` and `ptsNumericType` type arithmetic by `pts/numeric`'s rules. Imports `pts/lib` and `pts/numeric` (neither imports the checker). Inactive unless the PTS prelude is loaded. | M2.6a | 5ebc5408e |
