@@ -1,6 +1,10 @@
 package cgen
 
-import "github.com/microsoft/typescript-go/pts/ir"
+import (
+	"strings"
+
+	"github.com/microsoft/typescript-go/pts/ir"
+)
 
 // effects says how evaluating an expression can interact with evaluating others, which
 // is what decides whether C's unspecified evaluation order could differ from JS's.
@@ -12,29 +16,59 @@ const (
 	mayThrow                        // may stop with an error, whose order among errors and effects is observable
 )
 
-// throwingBuiltins are the builtins that can throw (beyond running out of memory).
+// throwingBuiltins are the builtins of String, Number and Math that can throw (beyond
+// running out of memory), and others that can only throw.
 var throwingBuiltins = map[*ir.Builtin]bool{
 	ir.StringElementChecked: true, ir.StringRepeat: true, ir.StringPadStart: true, ir.StringPadEnd: true, ir.ThrowError: true,
 	ir.StringFromCodePoint: true, ir.NumberToFixed: true, ir.NumberToExponential: true, ir.NumberToPrecision: true,
 	ir.NumberToStringRadix: true, ir.I64ToStringRadix: true, ir.U64ToStringRadix: true, ir.ObjectAssign: true, ir.ValueKeyArray: true,
 }
 
+// computedBuiltins are builtins outside String, Number and Math that compute their result
+// from their arguments alone, without running the program's code.
+var computedBuiltins = map[*ir.Builtin]bool{
+	ir.ValueTypeOf: true, ir.ValueStrictEquals: true, ir.ValueIsArray: true, ir.ValueSameValue: true, ir.TupleLength: true,
+	ir.FunctionName: true, ir.FunctionLength: true, ir.ValueIsPromise: true, ir.ValueConstructorName: true, ir.ParseInt: true,
+	ir.ParseFloat: true, ir.ArrayFromString: true,
+}
+
+// builtinEffects are what calling a builtin does beyond evaluating its arguments. The
+// members of String, Number and Math and computedBuiltins compute from their arguments
+// (some may throw); Math.random and performance.now give each call a value that depends
+// on the calls before it; console methods write. Any other builtin may run the program's
+// code (a getter, a toString, a callback) or change what other expressions read, so it
+// writes and may throw.
+func builtinEffects(b *ir.Builtin) effects {
+	switch {
+	case ir.IsConsole(b), b == ir.MathRandom, b == ir.PerformanceNow:
+		return writes
+	case b == ir.ObjectAssign:
+		return writes | mayThrow
+	case throwingBuiltins[b]:
+		return mayThrow
+	case computedBuiltins[b], strings.HasPrefix(b.Name, "String."), strings.HasPrefix(b.Name, "Number."), strings.HasPrefix(b.Name, "Math."):
+		return 0
+	}
+	return writes | mayThrow
+}
+
+// effectsOf classifies every kind of expression; one it doesn't know is taken to do
+// anything (D-145).
 func effectsOf(expr ir.Expr) effects {
 	switch x := expr.(type) {
+	case *ir.NumberConst, *ir.IntConst, *ir.BoolConst, *ir.StringConst, *ir.NullConst, *ir.UndefinedConst, *ir.GivenConst,
+		*ir.Absent, *ir.LeftOut:
+		return 0
+	case *ir.Resumed, *ir.ResumedBy:
+		return readsLocals // what resumed the generator, kept in its frame
 	case *ir.LocalRef:
 		return readsLocals
 	case *ir.Assign:
 		return readsLocals | writes | effectsOf(x.Value)
 	case *ir.CallBuiltin:
-		var f effects
+		f := builtinEffects(x.Builtin)
 		for _, arg := range x.Args {
 			f |= effectsOf(arg)
-		}
-		if ir.IsConsole(x.Builtin) || x.Builtin == ir.ObjectAssign {
-			f |= writes
-		}
-		if throwingBuiltins[x.Builtin] {
-			f |= mayThrow
 		}
 		return f
 	case *ir.Call:
@@ -111,6 +145,9 @@ func effectsOf(expr ir.Expr) effects {
 	case *ir.SpreadArg:
 		return effectsOf(x.X)
 	case *ir.ToString:
+		if isDynamic(x.X.Type()) {
+			return callEffects([]ir.Expr{x.X}) // a boxed object's toString or valueOf runs (D-142)
+		}
 		return effectsOf(x.X)
 	case *ir.Truthy:
 		return effectsOf(x.X)
@@ -157,7 +194,7 @@ func effectsOf(expr ir.Expr) effects {
 		}
 		return readsLocals | writes | effectsOf(x.X) | effectsOf(x.Value)
 	}
-	return 0 // constants
+	return readsLocals | writes | mayThrow
 }
 
 // callEffects are the effects of a call of a function of the program with args.

@@ -1,0 +1,111 @@
+// Operands JS evaluates before a yield or an await keep the values they had then, even if
+// other code changes them while the function is suspended (D-145). The first lines are the
+// review's probe 6 (finding 6), which returned 12 and ran the getter after the resume.
+
+let value = 1;
+function* numbers(): Generator<number, number, number> {
+  return value + (yield 0);
+}
+const iterator = numbers();
+console.log(iterator.next());
+value = 2;
+console.log(iterator.next(10));
+
+let calls = 0;
+const object = {
+  get amount(): number {
+    calls++;
+    return calls;
+  },
+};
+function* properties(): Generator<number, number, number> {
+  return object.amount + (yield 0);
+}
+const propertiesIterator = properties();
+console.log(propertiesIterator.next(), calls);
+console.log(propertiesIterator.next(10), calls);
+
+// A compound assignment reads its target before the right side suspends.
+let total = 100;
+function* accumulate(): Generator<string, number, number> {
+  total += yield "first";
+  return total;
+}
+const accumulator = accumulate();
+accumulator.next();
+total = 1000;
+console.log("compound", accumulator.next(5).value);
+
+const counter = { count: 1 };
+const elements = [10, 20];
+function* fields(): Generator<string, string, number> {
+  counter.count += yield "field";
+  elements[1] *= yield "element";
+  return `${counter.count} ${elements[1]}`;
+}
+const fieldsIterator = fields();
+fieldsIterator.next();
+counter.count = 50;
+fieldsIterator.next(2);
+elements[1] = 7;
+console.log("fields", fieldsIterator.next(3).value);
+
+// An element read, a name read and a callee read before an await.
+let scale = 2;
+let report = (n: number): string => `old ${n}`;
+const changes = new Promise<number>((resolve) =>
+  setTimeout(() => {
+    scale = 3;
+    elements[0] = 99;
+    report = (n: number): string => `new ${n}`;
+    resolve(1);
+  }, 5),
+);
+async function awaited(): Promise<void> {
+  const sum = elements[0] * scale + (await changes);
+  console.log("await", sum);
+}
+async function callee(): Promise<void> {
+  const delay = new Promise<number>((resolve) => setTimeout(() => resolve(7), 10));
+  console.log("callee", report(await delay));
+}
+await Promise.all([awaited(), callee()]);
+
+// toString runs when a template reaches its substitution, before a later yield.
+const order: string[] = [];
+const shown = {
+  toString(): string {
+    order.push("toString");
+    return "shown";
+  },
+};
+function* template(): Generator<number, string, number> {
+  return `${shown}-${yield 1}`;
+}
+const templateIterator = template();
+templateIterator.next();
+order.push("resumed");
+console.log("template", templateIterator.next(2).value, order.join(","));
+
+// Locals nothing else assigns, constants and functions aren't kept, and give the same.
+function* locals(): Generator<number, number, number> {
+  const base = 5;
+  let step = 2;
+  step = step * 3;
+  return base + step + (yield 0);
+}
+const localsIterator = locals();
+localsIterator.next();
+console.log("locals", localsIterator.next(4).value);
+
+// expect:
+// { value: 0, done: false }
+// { value: 11, done: true }
+// { value: 0, done: false } 1
+// { value: 11, done: true } 1
+// compound 105
+// fields 3 60
+// await 21
+// callee old 7
+// template shown-2 toString,resumed
+// locals 15

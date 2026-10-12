@@ -2,6 +2,7 @@ package lower
 
 import (
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -10,9 +11,11 @@ import (
 // evaluate, in JS's order, each of its yields and each operand JS evaluates before one,
 // keeping their values in locals (which live in the generator's frame, D-109); then the
 // statement itself, whose lowering finds those values in place of the expressions
-// (l.yielded, l.kept). An operand without side effects (a literal, a name, a property or
-// element of one, a function expression) isn't kept but evaluated where it is, after the
-// yields: only a change to it while the generator is suspended would show. A yield in a
+// (l.yielded, l.kept). An operand whose value can't change while the function is
+// suspended (a literal, a function expression, `this`, a name nothing else assigns meanwhile,
+// operators of those) isn't kept but evaluated where it is, after the yields (D-145); a
+// property or element read is always kept, since a getter or other code could change it.
+// A compound assignment whose right side yields keeps its target's value first. A yield in a
 // branch of `?:` or in the right operand of `&&`, `||` or `??` makes the expression an if
 // statement that assigns a local. A yield anywhere else (a loop's condition or update, a
 // case label, a later declaration of a variable statement, a default value, an optional
@@ -58,6 +61,7 @@ func (l *lowerer) hoistingStatement(node *ast.Node, expression *ast.Node) []ir.S
 		for _, hoisted := range l.hoistedNodes[mark:] {
 			delete(l.yielded, hoisted)
 			delete(l.kept, hoisted)
+			delete(l.keptCurrent, hoisted)
 		}
 		l.hoistedNodes = l.hoistedNodes[:mark]
 	}()
@@ -93,12 +97,25 @@ func (l *lowerer) hoistYields(node *ast.Node) (stmts []ir.Stmt, ok bool) {
 		}
 	}
 	for i, operand := range operands[:last+1] {
+		if i == len(operands)-1 && l.readsTargetFirst(node) {
+			kept, ok := l.keepCurrent(node)
+			if !ok {
+				return nil, false
+			}
+			stmts = append(stmts, kept...)
+		}
 		inner, ok := l.hoistYields(operand)
 		if !ok {
 			return nil, false
 		}
 		stmts = append(stmts, inner...)
-		if i < last && !l.isSettled(operand) {
+		if i < last && node.Kind == ast.KindTemplateExpression && !l.isPrimitive(operand) {
+			kept, ok := l.keepString(operand)
+			if !ok {
+				return nil, false
+			}
+			stmts = append(stmts, kept)
+		} else if i < last && !l.isSettled(operand) {
 			kept, ok := l.keep(operand)
 			if !ok {
 				return nil, false
@@ -250,7 +267,8 @@ func (l *lowerer) hoisted(node *ast.Node) {
 }
 
 // isSettled reports whether an operand evaluated after the yields that follow it gives
-// what it gives before them: it has no side effects, or its value is kept.
+// what it gives before them, and runs no code of the program's out of order: its value is
+// kept, or nothing can change it while the function is suspended (D-145).
 func (l *lowerer) isSettled(node *ast.Node) bool {
 	if l.kept[node] != nil {
 		return true
@@ -258,21 +276,36 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 	switch node.Kind {
 	case ast.KindYieldExpression, ast.KindAwaitExpression:
 		return l.yielded[node] != nil
-	case ast.KindIdentifier, ast.KindThisKeyword, ast.KindSuperKeyword, ast.KindNumericLiteral, ast.KindBigIntLiteral,
-		ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral, ast.KindTrueKeyword, ast.KindFalseKeyword,
-		ast.KindNullKeyword, ast.KindRegularExpressionLiteral, ast.KindArrowFunction, ast.KindFunctionExpression:
+	case ast.KindIdentifier:
+		return l.isUnchangedWhileSuspended(node)
+	case ast.KindThisKeyword, ast.KindSuperKeyword, ast.KindNumericLiteral, ast.KindBigIntLiteral, ast.KindStringLiteral,
+		ast.KindNoSubstitutionTemplateLiteral, ast.KindTrueKeyword, ast.KindFalseKeyword, ast.KindNullKeyword,
+		ast.KindRegularExpressionLiteral, ast.KindArrowFunction, ast.KindFunctionExpression:
 		return true
 	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression,
 		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression, ast.KindSpreadElement:
 		return l.isSettled(node.Expression())
-	case ast.KindPropertyAccessExpression:
-		return !ast.IsOptionalChain(node) && l.isSettled(node.Expression())
+	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
+		return false // a getter could run, or other code change the property meanwhile
 	case ast.KindPrefixUnaryExpression:
 		expr := node.AsPrefixUnaryExpression()
-		return expr.Operator != ast.KindPlusPlusToken && expr.Operator != ast.KindMinusMinusToken && l.isSettled(expr.Operand)
+		switch expr.Operator {
+		case ast.KindPlusPlusToken, ast.KindMinusMinusToken:
+			return false
+		case ast.KindExclamationToken:
+			return l.isSettled(expr.Operand)
+		}
+		return l.isSettled(expr.Operand) && l.isPrimitive(expr.Operand) // ToNumber of an object would call its valueOf now
 	case ast.KindBinaryExpression:
 		expr := node.AsBinaryExpression()
 		return !ast.IsAssignmentOperator(expr.OperatorToken.Kind) && l.isSettled(expr.Left) && l.isSettled(expr.Right)
+	case ast.KindTemplateExpression:
+		for _, span := range node.AsTemplateExpression().TemplateSpans.Nodes {
+			if !l.isSettled(span.Expression()) || !l.isPrimitive(span.Expression()) { // ToString of an object would call its toString now
+				return false
+			}
+		}
+		return true
 	}
 	operands := evaluationOrder(node)
 	if operands == nil || node.Kind == ast.KindCallExpression || node.Kind == ast.KindNewExpression {
@@ -283,7 +316,104 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 			return false
 		}
 	}
-	return true // an element of settled operands, an array or object literal or template of them
+	return true // an array or object literal of settled operands
+}
+
+// isUnchangedWhileSuspended reports whether a name's value can't change while the function
+// reading it is suspended: a constant, a function, class, enum or import, or a variable of
+// the function itself that no other function assigns (only the function's own code, which
+// isn't running, could), or a variable of an enclosing scope that nothing assigns.
+func (l *lowerer) isUnchangedWhileSuspended(name *ast.Node) bool {
+	symbol := l.target(name)
+	if symbol == nil || symbol.ValueDeclaration == nil {
+		return name.Text() == "undefined"
+	}
+	declaration := symbol.ValueDeclaration
+	switch declaration.Kind {
+	case ast.KindVariableDeclaration, ast.KindParameter, ast.KindBindingElement:
+		if declaration.Kind == ast.KindVariableDeclaration && ast.IsVarConst(declaration) {
+			return true
+		}
+		if functionOf(declaration) == functionOf(name) {
+			return !l.assignedOutside[symbol]
+		}
+		return !l.assignedAnywhere[symbol]
+	}
+	return true
+}
+
+// isPrimitive reports whether node's type is primitive, so converting its value runs no code.
+func (l *lowerer) isPrimitive(node *ast.Node) bool {
+	return l.typeAt(node).Flags()&checker.TypeFlagsPrimitive != 0
+}
+
+// readsTargetFirst reports whether node is a compound assignment that reads its target
+// before evaluating its right side, which holds a yield: `x += yield v` adds to x's value
+// from before the yield. The logical assignments read it to decide whether to evaluate
+// the right side, which their lowering does in order.
+func (l *lowerer) readsTargetFirst(node *ast.Node) bool {
+	if node.Kind != ast.KindBinaryExpression {
+		return false
+	}
+	expr := node.AsBinaryExpression()
+	switch expr.OperatorToken.Kind {
+	case ast.KindEqualsToken, ast.KindAmpersandAmpersandEqualsToken, ast.KindBarBarEqualsToken, ast.KindQuestionQuestionEqualsToken:
+		return false
+	}
+	return ast.IsAssignmentOperator(expr.OperatorToken.Kind) && l.hasYield(expr.Right)
+}
+
+// keepCurrent keeps the value of a compound assignment's target before its right side's
+// yields, for the assignment's lowering (l.keptCurrent): a name's, a field's or an
+// element's. A target read through a getter or `any` is read where it is assigned, after
+// them (D-145's known gap: reading it twice would run the getter twice).
+func (l *lowerer) keepCurrent(node *ast.Node) ([]ir.Stmt, bool) {
+	target := ast.SkipParentheses(node.AsBinaryExpression().Left)
+	switch target.Kind {
+	case ast.KindIdentifier:
+		if l.isUnchangedWhileSuspended(target) {
+			return nil, true
+		}
+	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
+		if isDynamic(l.irType(l.typeAt(target.Expression()), target)) || l.isAccessor(target) {
+			return nil, true
+		}
+	default:
+		return nil, true
+	}
+	x := l.expression(target)
+	if x == nil {
+		return nil, false
+	}
+	local := l.newLocal("current", x.Type())
+	l.hoisted(node)
+	l.keptCurrent[node] = &ir.LocalRef{Local: local}
+	return []ir.Stmt{&ir.LocalDecl{At: l.pos(target), Local: local, Init: x}}, true
+}
+
+// keepString keeps a template's substitution as its string before a later yield: JS
+// converts each substitution when it reaches it, so an object's toString runs before the
+// yield (D-145).
+func (l *lowerer) keepString(node *ast.Node) (ir.Stmt, bool) {
+	x := l.valueExpression(node)
+	if x == nil {
+		return nil, false
+	}
+	if x = l.toString(x, node); x == nil {
+		return nil, false
+	}
+	local := l.newLocal("kept", ir.String)
+	l.keepAs(node, local)
+	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: x}, true
+}
+
+// isAccessor reports whether a property access names an accessor property, whose getter a read runs.
+func (l *lowerer) isAccessor(access *ast.Node) bool {
+	if access.Kind != ast.KindPropertyAccessExpression {
+		return false
+	}
+	symbol := l.checker.GetSymbolAtLocation(access.Name())
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsAccessor != 0
 }
 
 // evaluationOrder is the operands of an expression in the order JS evaluates them, where
@@ -309,6 +439,9 @@ func evaluationOrder(node *ast.Node) []*ast.Node {
 			return nil
 		}
 		call := node.AsCallExpression()
+		if callee := ast.SkipParentheses(call.Expression); callee.Kind == ast.KindIdentifier {
+			return append([]*ast.Node{callee}, call.Arguments.Nodes...) // the function a name holds is read before the arguments
+		}
 		return append(referenceOperands(call.Expression), call.Arguments.Nodes...)
 	case ast.KindNewExpression:
 		if args := node.AsNewExpression().Arguments; args != nil {

@@ -9,9 +9,11 @@ import (
 // checks narrowed reads of such variables (D-140), as it checks narrowed properties.
 
 // collectOutsideAssignments records the variables and parameters that a function other than
-// the one declaring them assigns: their narrowed reads are checked.
+// the one declaring them assigns: their narrowed reads are checked. It also records every
+// variable and parameter assigned at all, which a suspended function's reads need (D-145).
 func (l *lowerer) collectOutsideAssignments(files []*ast.SourceFile) {
 	l.assignedOutside = map[*ast.Symbol]bool{}
+	l.assignedAnywhere = map[*ast.Symbol]bool{}
 	var visit ast.Visitor
 	visit = func(node *ast.Node) bool {
 		for _, target := range assignmentTargets(node) {
@@ -79,6 +81,7 @@ func (l *lowerer) markIfOutside(symbol *ast.Symbol, fn *ast.Node) {
 	}
 	switch symbol.ValueDeclaration.Kind {
 	case ast.KindVariableDeclaration, ast.KindParameter, ast.KindBindingElement:
+		l.assignedAnywhere[symbol] = true
 		if functionOf(symbol.ValueDeclaration) != fn {
 			l.assignedOutside[symbol] = true
 		}
