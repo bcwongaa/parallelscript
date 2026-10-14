@@ -1,0 +1,11 @@
+// compare-node
+const text = "café 🚀 naïve 東京";
+console.log("length", text.length);
+console.log("spread", [...text].join("|"));
+console.log("upper", "istanbul".toLocaleUpperCase(), "é".toUpperCase());
+console.log("nfc", "é".normalize("NFC") === "é");
+console.log("nfd", "é".normalize("NFD") === "é");
+console.log("index", text.indexOf("東"), text.codePointAt(text.indexOf("🚀")));
+const matches = text.match(/[\p{L}]+/gu);
+console.log("letters", matches?.join(","));
+console.log("reverse", [..."naïve"].reverse().join(""));

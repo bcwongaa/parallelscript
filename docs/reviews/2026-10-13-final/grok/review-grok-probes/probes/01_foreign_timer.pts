@@ -1,0 +1,5 @@
+// Previous review finding 1: clearTimeout from another loop.
+const timer = setTimeout(() => console.log("timer fired"), 1000);
+await parallel clearTimeout(timer);
+await new Promise((resolve) => setTimeout(resolve, 50));
+console.log("cleared");

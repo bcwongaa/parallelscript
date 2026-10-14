@@ -1,0 +1,33 @@
+interface User { id: number; name: string; email?: string; roles: string[]; address: { city: string; zip?: string } }
+const raw = '[{"id":1,"name":"Ada","roles":["admin"],"address":{"city":"London"}},{"id":2,"name":"Bob","email":"b@x","roles":[],"address":{"city":"Paris","zip":"75001"},"extra":true}]';
+const users: User[] = JSON.parse(raw);
+console.log(users.length, users[0].email ?? "(none)", users[1].address.zip, users.map((u) => u.roles.length));
+console.log(users[1]);
+const data: any = JSON.parse('{"a":{"b":[1,2,{"c":"deep"}]},"n":null,"list":[1,"two",3]}');
+console.log(data.a.b[2].c, data.missing?.thing, data.n ?? "nullish", data.list.length, typeof data.list[1]);
+console.log(data.a.b.map((x: any) => typeof x), Object.keys(data), JSON.stringify(data.a));
+let total = 0;
+for (const v of data.list) if (typeof v === "number") total += v;
+console.log(total);
+const u: unknown = JSON.parse('{"kind":"circle","r":2}');
+if (typeof u === "object" && u !== null && "kind" in u && (u as { kind: unknown }).kind === "circle") {
+  console.log("circle with r", (u as unknown as { r: number }).r);
+}
+function isUser(x: any): x is User { return typeof x?.id === "number" && typeof x?.name === "string"; }
+const maybe: any[] = JSON.parse('[{"id":3,"name":"Cy","roles":[],"address":{"city":"Rome"}},{"nope":1}]');
+console.log(maybe.filter(isUser).map((x) => x.name));
+const dyn: any = { count: 1 };
+dyn.count += 1;
+dyn["count"]++;
+console.log(dyn.count, String(dyn), `${dyn.count}`);
+const arr: any = [3, 1, 2];
+console.log(arr.sort(), arr.length, arr.includes(2), arr.join("-"));
+const fn: any = (a: number, b: number) => a + b;
+console.log(fn(2, 3), typeof fn);
+try { const n: number = data.a; console.log(n); } catch (e) { console.log("expected:", (e as Error).name); }
+const rec: Record<string, number> = JSON.parse('{"x":1,"y":2}');
+console.log(Object.entries(rec), rec.z ?? 0);
+const s = JSON.stringify({ when: new Date(0), nested: [undefined, () => 1, NaN], m: new Map([[1, 2]]) });
+console.log(s);
+console.log(JSON.stringify({ a: 1, b: [1, 2] }, null, "\t"), JSON.stringify(" \ud800"));
+console.log(JSON.parse('"\\ud83d\\ude00"'), JSON.parse("1e400"), JSON.parse('{"__proto__": 1}'));

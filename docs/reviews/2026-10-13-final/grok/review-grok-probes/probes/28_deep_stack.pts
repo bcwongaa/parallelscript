@@ -1,0 +1,8 @@
+function recurse(n: number): number {
+    return n <= 0 ? 0 : 1 + recurse(n - 1);
+}
+try {
+    console.log("depth", recurse(250000));
+} catch (error) {
+    console.log("threw", (error as Error).name, (error as Error).message);
+}

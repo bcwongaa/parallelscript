@@ -1,0 +1,4 @@
+import { readFileSync } from "pts:fs";
+const text = readFileSync("/dev/stdin", "utf8");
+const lines = text.split("\n").filter((l) => l.length > 0);
+console.log(lines.length, lines.map((l) => l.toUpperCase()).join(" "));

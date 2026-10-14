@@ -1,0 +1,18 @@
+// compare-node
+const point = { x: 1, y: 2 };
+Object.freeze(point);
+try {
+    (point as any).x = 3;
+    console.log("write", point.x);
+} catch (error) {
+    console.log("write", (error as Error).name);
+}
+const nums = [1, 2, 3];
+Object.freeze(nums);
+try {
+    nums.push(4);
+    console.log("push", nums.length);
+} catch (error) {
+    console.log("push", (error as Error).name, nums.length);
+}
+console.log("frozen", Object.isFrozen(point), Object.isFrozen(nums));

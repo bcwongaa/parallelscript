@@ -1,0 +1,256 @@
+// Expense-ledger core: parse a CSV, check each row, and summarise it.
+// Plain TypeScript so the same file can be compared with Node.
+
+export interface Expense {
+    date: string;
+    category: string;
+    cents: number;
+    note: string;
+    line: number;
+}
+
+export interface ParseIssue {
+    line: number;
+    message: string;
+}
+
+export interface Ledger {
+    expenses: Expense[];
+    issues: ParseIssue[];
+}
+
+export interface CategoryTotal {
+    category: string;
+    count: number;
+    cents: number;
+}
+
+export interface Summary {
+    count: number;
+    cents: number;
+    categories: CategoryTotal[];
+}
+
+export interface LedgerQuery {
+    month?: string;
+    category?: string;
+}
+
+// RFC-style CSV: quoted fields may contain commas, quotes and newlines.
+export function parseCsv(text: string): string[][] {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = "";
+    let quoted = false;
+    const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const n = src.length;
+    let i = 0;
+    while (i < n) {
+        const ch = src[i] ?? "";
+        if (quoted) {
+            if (ch === '"') {
+                if (src[i + 1] === '"') {
+                    field += '"';
+                    i += 2;
+                    continue;
+                }
+                quoted = false;
+                i++;
+                continue;
+            }
+            field += ch;
+            i++;
+            continue;
+        }
+        if (ch === '"') {
+            quoted = true;
+            i++;
+            continue;
+        }
+        if (ch === ",") {
+            row.push(field);
+            field = "";
+            i++;
+            continue;
+        }
+        if (ch === "\n" || ch === "\r") {
+            if (ch === "\r" && src[i + 1] === "\n") {
+                i++;
+            }
+            row.push(field);
+            // A trailing newline is not an extra empty record.
+            if (row.length > 1 || row[0] !== "" || i + 1 < n) {
+                rows.push(row);
+            }
+            row = [];
+            field = "";
+            i++;
+            continue;
+        }
+        field += ch;
+        i++;
+    }
+    if (quoted) {
+        row.push(field);
+        rows.push(row);
+    } else if (field !== "" || row.length > 0) {
+        row.push(field);
+        rows.push(row);
+    }
+    return rows;
+}
+
+function isLeap(year: number): boolean {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysInMonth(year: number, month: number): number {
+    switch (month) {
+        case 2:
+            return isLeap(year) ? 29 : 28;
+        case 4:
+        case 6:
+        case 9:
+        case 11:
+            return 30;
+        default:
+            return 31;
+    }
+}
+
+export function isIsoDate(value: string): boolean {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (match === null) {
+        return false;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month < 1 || month > 12) {
+        return false;
+    }
+    return day >= 1 && day <= daysInMonth(year, month);
+}
+
+// Dollars to integer cents. Rejects more than two decimal places and unsafe magnitudes.
+export function parseAmount(raw: string): number | undefined {
+    const text = raw.trim().replace(/[$,]/g, "");
+    const match = /^([+-])?(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+    if (match === null) {
+        return undefined;
+    }
+    const whole = Number(match[2]);
+    const frac = match[3] === undefined ? 0 : Number(match[3].padEnd(2, "0"));
+    const cents = whole * 100 + frac;
+    if (!Number.isSafeInteger(cents)) {
+        return undefined;
+    }
+    return match[1] === "-" ? -cents : cents;
+}
+
+function columnIndex(header: string[], name: string): number {
+    const found = header.findIndex((cell) => cell.trim().toLowerCase() === name);
+    return found;
+}
+
+export function parseLedger(text: string): Ledger {
+    const table = parseCsv(text);
+    const expenses: Expense[] = [];
+    const issues: ParseIssue[] = [];
+    if (table.length === 0) {
+        issues.push({ line: 1, message: "file is empty" });
+        return { expenses, issues };
+    }
+    const header = table[0] ?? [];
+    const dateCol = columnIndex(header, "date");
+    const categoryCol = columnIndex(header, "category");
+    const amountCol = columnIndex(header, "amount");
+    const noteCol = columnIndex(header, "note");
+    if (dateCol < 0 || categoryCol < 0 || amountCol < 0) {
+        issues.push({ line: 1, message: "header must include date, category and amount" });
+        return { expenses, issues };
+    }
+    for (let r = 1; r < table.length; r++) {
+        const cells = table[r] ?? [];
+        const line = r + 1;
+        if (cells.every((cell) => cell.trim() === "")) {
+            continue;
+        }
+        const date = (cells[dateCol] ?? "").trim();
+        const category = (cells[categoryCol] ?? "").trim().toLowerCase();
+        const amountRaw = cells[amountCol] ?? "";
+        const note = noteCol < 0 ? "" : (cells[noteCol] ?? "").trim();
+        const problems: string[] = [];
+        if (!isIsoDate(date)) {
+            problems.push(`bad date ${JSON.stringify(date)}`);
+        }
+        if (category === "" || !/^[a-z0-9][a-z0-9 _-]{0,40}$/.test(category)) {
+            problems.push(`bad category ${JSON.stringify(category)}`);
+        }
+        const cents = parseAmount(amountRaw);
+        if (cents === undefined) {
+            problems.push(`bad amount ${JSON.stringify(amountRaw.trim())}`);
+        }
+        if (problems.length > 0 || cents === undefined) {
+            issues.push({ line, message: problems.join("; ") });
+            continue;
+        }
+        expenses.push({ date, category, cents, note, line });
+    }
+    return { expenses, issues };
+}
+
+export function filterExpenses(expenses: Expense[], query: LedgerQuery): Expense[] {
+    return expenses.filter((row) => {
+        if (query.month !== undefined && !row.date.startsWith(query.month)) {
+            return false;
+        }
+        if (query.category !== undefined && row.category !== query.category.toLowerCase()) {
+            return false;
+        }
+        return true;
+    });
+}
+
+export function summarize(expenses: Expense[]): Summary {
+    const totals = new Map<string, CategoryTotal>();
+    let cents = 0;
+    for (const row of expenses) {
+        cents += row.cents;
+        const existing = totals.get(row.category);
+        if (existing === undefined) {
+            totals.set(row.category, { category: row.category, count: 1, cents: row.cents });
+        } else {
+            existing.count++;
+            existing.cents += row.cents;
+        }
+    }
+    const categories = [...totals.values()].sort((a, b) => b.cents - a.cents || a.category.localeCompare(b.category));
+    return { count: expenses.length, cents, categories };
+}
+
+export function formatMoney(cents: number): string {
+    const sign = cents < 0 ? "-" : "";
+    const abs = Math.abs(cents);
+    const whole = Math.floor(abs / 100).toString();
+    const frac = (abs % 100).toString().padStart(2, "0");
+    return `${sign}$${whole}.${frac}`;
+}
+
+export function formatSummary(summary: Summary): string {
+    const lines = [`${summary.count} expenses, total ${formatMoney(summary.cents)}`];
+    const width = summary.categories.reduce((n, row) => Math.max(n, row.category.length), 8);
+    for (const row of summary.categories) {
+        lines.push(
+            `${row.category.padEnd(width)}  ${String(row.count).padStart(4)}  ${formatMoney(row.cents).padStart(12)}`,
+        );
+    }
+    return lines.join("\n");
+}
+
+export function formatList(expenses: Expense[]): string {
+    const ordered = [...expenses].sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line);
+    return ordered
+        .map((row) => `${row.date}  ${formatMoney(row.cents).padStart(10)}  ${row.category.padEnd(12)}  ${row.note}`)
+        .join("\n");
+}

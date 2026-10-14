@@ -1,0 +1,55 @@
+// Deliberate data races: results may be wrong, but nothing may crash (SPEC §4.1).
+import { range } from "pts:parallel";
+const N = 200_000;
+// 1. Racing pushes into one array.
+const shared: number[] = [];
+parallel for (const i of range(0, N)) { shared.push(i); }
+console.log("push race: length <= N:", shared.length <= N);
+// 2. Racing Map set/delete/get.
+const m = new Map<number, string>();
+range(0, N).par.forEach((i) => {
+  m.set(i % 1000, `v${i}`);
+  if (i % 7 === 0) m.delete((i * 31) % 1000);
+  const v = m.get((i * 17) % 1000);
+  if (v !== undefined && !v.startsWith("v")) throw new Error("torn map value " + v);
+});
+console.log("map race: size <= 1000:", m.size <= 1000);
+// 3. Racing Set add/delete and iteration of a copy.
+const s = new Set<string>();
+range(0, N).par.forEach((i) => { s.add(`k${i % 500}`); if (i % 3 === 0) s.delete(`k${(i * 7) % 500}`); });
+console.log("set race: size <= 500:", s.size <= 500, [...s].every((k) => k.startsWith("k")));
+// 4. Racing writes of different union members into one field.
+class Holder { value: string | number | number[] | null = null; }
+const h = new Holder();
+let bad = 0;
+range(0, N).par.forEach((i) => {
+  if (i % 3 === 0) h.value = `s${i}`;
+  else if (i % 3 === 1) h.value = i;
+  else h.value = [i, i];
+  const v = h.value;
+  if (typeof v === "string" && !v.startsWith("s")) throw new Error("torn string");
+  if (Array.isArray(v) && v.length !== 2) throw new Error("torn array");
+});
+console.log("union race ok", typeof h.value);
+// 5. Racing string concatenation into a field, and shift/pop races.
+const box = { text: "" };
+range(0, 20_000).par.forEach((i) => { box.text += String.fromCharCode(97 + (i % 26)); });
+console.log("concat race: length <= 20000:", box.text.length <= 20_000, /^[a-z]*$/.test(box.text));
+const q = Array.from({ length: N }, (_, i) => i);
+try { range(0, N).par.forEach(() => { const x = q.pop(); if (x !== undefined && typeof x !== "number") throw new Error("bad pop"); }); } catch (e) { console.log("pop race threw", (e as Error).name); }
+const q2 = Array.from({ length: 50_000 }, (_, i) => i);
+try { range(0, 60_000).par.forEach((i) => { if (i % 2) q2.shift(); else q2.unshift(i); }); } catch (e) { console.log("shift race threw", (e as Error).name); }
+console.log("pop/shift race survived", q.length >= 0, q2.length >= 0);
+// 6. Racing splice/sort on a shared array.
+const arr = Array.from({ length: 10_000 }, (_, i) => i);
+try { range(0, 2000).par.forEach((i) => {
+  if (i % 4 === 0) arr.sort((a, b) => b - a);
+  else if (i % 4 === 1) arr.splice(i % 100, 3);
+  else if (i % 4 === 2) arr.push(i, i, i);
+  else arr.reverse();
+}); } catch (e) { console.log("splice race threw", (e as Error).name, (e as Error).message.slice(0, 60)); }
+console.log("splice/sort race survived", arr.length > 0);
+// 7. Racing on a Record (hash-map object).
+const rec: Record<string, number> = {};
+range(0, N).par.forEach((i) => { rec[`k${i % 300}`] = (rec[`k${i % 300}`] ?? 0) + 1; if (i % 11 === 0) delete rec[`k${(i * 3) % 300}`]; });
+console.log("record race: keys <= 300:", Object.keys(rec).length <= 300);

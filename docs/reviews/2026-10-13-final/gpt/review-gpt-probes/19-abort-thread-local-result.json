@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/19-abort-thread-local.pts"
+    ],
+    "exit": 0,
+    "stdout": "passed 369090 failed 30910 [\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor'\n]\n",
+    "stderr": ""
+  }
+}

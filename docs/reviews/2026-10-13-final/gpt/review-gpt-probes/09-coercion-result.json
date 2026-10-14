@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/09-coercion.pts"
+    ],
+    "exit": 0,
+    "stdout": "8 seven 7 seven [ 'valueOf', 'toString', 'valueOf', 'toString' ]\nTypeError\n0 16 -0 true\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/09-coercion.mts"
+    ],
+    "exit": 0,
+    "stdout": "8 seven 7 seven [ 'valueOf', 'toString', 'valueOf', 'toString' ]\nTypeError\n0 16 -0 true\n",
+    "stderr": ""
+  }
+}

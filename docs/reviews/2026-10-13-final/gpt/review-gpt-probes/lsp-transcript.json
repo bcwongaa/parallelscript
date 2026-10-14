@@ -1,0 +1,721 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Resolved client capabilities: {}"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "capabilities": {
+        "positionEncoding": "utf-16",
+        "textDocumentSync": {
+          "openClose": true,
+          "change": 2,
+          "save": true
+        },
+        "completionProvider": {
+          "triggerCharacters": [
+            ".",
+            "\"",
+            "'",
+            "`",
+            "/",
+            "@",
+            "<",
+            "#",
+            " ",
+            "*"
+          ],
+          "resolveProvider": true,
+          "completionItem": {
+            "labelDetailsSupport": true
+          }
+        },
+        "hoverProvider": true,
+        "signatureHelpProvider": {
+          "triggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ],
+          "retriggerCharacters": [
+            ")"
+          ]
+        },
+        "definitionProvider": true,
+        "typeDefinitionProvider": true,
+        "implementationProvider": true,
+        "referencesProvider": true,
+        "documentHighlightProvider": true,
+        "documentSymbolProvider": true,
+        "codeActionProvider": {
+          "codeActionKinds": [
+            "quickfix",
+            "source.organizeImports",
+            "source.removeUnusedImports",
+            "source.sortImports",
+            "source.fixAll"
+          ]
+        },
+        "codeLensProvider": {
+          "resolveProvider": true
+        },
+        "workspaceSymbolProvider": true,
+        "documentFormattingProvider": true,
+        "documentRangeFormattingProvider": true,
+        "documentOnTypeFormattingProvider": {
+          "firstTriggerCharacter": "{",
+          "moreTriggerCharacter": [
+            "}",
+            ";",
+            "\n"
+          ]
+        },
+        "renameProvider": {
+          "prepareProvider": true
+        },
+        "foldingRangeProvider": true,
+        "selectionRangeProvider": true,
+        "callHierarchyProvider": true,
+        "linkedEditingRangeProvider": true,
+        "semanticTokensProvider": {
+          "legend": {
+            "tokenTypes": [],
+            "tokenModifiers": []
+          },
+          "range": true,
+          "full": true
+        },
+        "inlayHintProvider": true,
+        "diagnosticProvider": {
+          "identifier": "typescript",
+          "interFileDependencies": true,
+          "workspaceDiagnostics": false
+        },
+        "workspace": {
+          "fileOperations": {
+            "willRename": {
+              "filters": [
+                {
+                  "scheme": "file",
+                  "pattern": {
+                    "glob": "**/*.{ts,tsx,js,jsx,cts,cjs,mts,mjs,json,pts}"
+                  }
+                }
+              ]
+            }
+          },
+          "textDocumentContent": {
+            "schemes": [
+              "ptslib",
+              "bundled"
+            ]
+          }
+        },
+        "experimental": {
+          "customSourceDefinitionProvider": true,
+          "customMultiDocumentHighlightProvider": true
+        },
+        "_vs_onAutoInsertProvider": {
+          "_vs_triggerCharacters": [
+            ">"
+          ]
+        },
+        "_vs_referencesProvider": true
+      },
+      "serverInfo": {
+        "name": "typescript-go",
+        "version": "7.0.2"
+      }
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "file watching: disabled (client lacks dynamic watch registration and builtin watcher backend is not fast-recursive)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": "ts1",
+    "method": "client/registerCapability",
+    "params": {
+      "registrations": [
+        {
+          "id": "typescript-config-watch-id",
+          "method": "workspace/didChangeConfiguration",
+          "registerOptions": {
+            "section": [
+              "js/ts",
+              "typescript",
+              "javascript",
+              "editor"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'initialized' in 620.094µs"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Processed 1 file changes in 51.471µs"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/didOpen' in 55.621336ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Adopted snapshot 1 (parent 0) as current session snapshot (replacing 0)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "======== Cloning snapshot 0 ========\n[12:37:31.076] Reason: DidOpenFile - file:///tmp/pts-review-gpt/type-error.pts\n[12:37:31.076] DidChangeCustomConfigFileName\n[12:37:31.076] DidChangeFiles\n\t[12:37:31.076] Checking for changes affecting config files\n\t\t[12:37:31.076] Summarizing file changes\n\t\t[12:37:31.076] Checking if any changed files are config files\n\t[12:37:31.076] computeConfigFileName:: File: /tmp/pts-review-gpt/type-error.pts:: Result: \n\t[12:37:31.076] Creating InferredProject: /dev/null/inferred, currentDirectory: /tmp/pts-review-gpt\n[12:37:31.076] DidRequestFile\n\t[12:37:31.076] CompilerHost\n\t[12:37:31.131] Program update for /dev/null/inferred completed in 54.398053ms\n\t[12:37:31.131] Completed file request for /tmp/pts-review-gpt/type-error.pts in 54.419373ms\n[12:37:31.131] Removed 0 cached file(s) in 138.886µs\n[12:37:31.131] UpdateAutoImports\n\t[12:37:31.131] Building autoimport registry\n\t\t[12:37:31.131] Added project: /dev/null/inferred\n\t\t[12:37:31.131] Added directory: /tmp/pts-review-gpt\n\t\t[12:37:31.131] Added directory: /tmp\n\t\t[12:37:31.131] Added directory: /\n\t\t[12:37:31.131] Updated buckets and directories in 107.345µs\n\t\t[12:37:31.131] Built autoimport registry in 123.805µs\n[12:37:31.131] Finished cloning snapshot 0 into snapshot 1 in 55.382207ms\n"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\nProject '/dev/null/inferred'\n\tFiles (93)\n-----------------------------------------------"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\n======== Cache Statistics ========"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Open file count:        1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Cached disk files:     92"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Realpath aliases:       0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Project count:          1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Config count:           0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": ""
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Adopted snapshot 2 (parent 1) as current session snapshot (replacing 1)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "======== Cloning snapshot 1 ========\n[12:37:31.131] Reason: RequestedLanguageService (pending file changes) -  Documents: [file:///tmp/pts-review-gpt/type-error.pts]\n[12:37:31.131] DidChangeCustomConfigFileName\n[12:37:31.131] DidRequestFile\n[12:37:31.131] UpdateAutoImports\n\t[12:37:31.131] Building autoimport registry\n\t\t[12:37:31.131] Updated buckets and directories in 48.656µs\n\t\t[12:37:31.131] Built autoimport registry in 56.277µs\n[12:37:31.131] Finished cloning snapshot 1 into snapshot 2 in 118.069µs\n"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": ""
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "kind": "full",
+      "items": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 6
+            },
+            "end": {
+              "line": 0,
+              "character": 7
+            }
+          },
+          "severity": 1,
+          "code": 2322,
+          "source": "ts",
+          "message": "Type 'string' is not assignable to type 'number'."
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/diagnostic' (2) in 2.581579ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Processed 1 file changes in 25.952µs"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/didOpen' in 4.150696ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Adopted snapshot 3 (parent 2) as current session snapshot (replacing 2)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "======== Cloning snapshot 2 ========\n[12:37:31.200] Reason: DidOpenFile - file:///tmp/pts-review-gpt/numeric-error.pts\n[12:37:31.200] DidChangeCustomConfigFileName\n[12:37:31.200] DidChangeFiles\n\t[12:37:31.200] Checking for changes affecting config files\n\t\t[12:37:31.200] Summarizing file changes\n\t\t[12:37:31.200] Checking if any changed files are config files\n\t[12:37:31.201] computeConfigFileName:: File: /tmp/pts-review-gpt/numeric-error.pts:: Result: \n\t[12:37:31.201] Updating inferred project config with 2 root files\n[12:37:31.201] DidRequestFile\n\t[12:37:31.201] CompilerHost\n\t[12:37:31.204] Program update for /dev/null/inferred completed in 3.678784ms\n\t[12:37:31.204] Completed file request for /tmp/pts-review-gpt/numeric-error.pts in 3.693603ms\n[12:37:31.204] Removed 0 cached file(s) in 87.994µs\n[12:37:31.204] UpdateAutoImports\n\t[12:37:31.204] Building autoimport registry\n\t\t[12:37:31.204] Updated buckets and directories in 56.88µs\n\t\t[12:37:31.204] Built autoimport registry in 67.335µs\n[12:37:31.204] Finished cloning snapshot 2 into snapshot 3 in 3.995959ms\n"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\nProject '/dev/null/inferred'\n\tFiles (94)\n-----------------------------------------------"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\n======== Cache Statistics ========"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Open file count:        2"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Cached disk files:     92"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Realpath aliases:       0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Project count:          1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Config count:           0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": ""
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "kind": "full",
+      "items": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 17
+            },
+            "end": {
+              "line": 0,
+              "character": 20
+            }
+          },
+          "severity": 1,
+          "code": "PTS2002",
+          "source": "pts",
+          "message": "256 doesn't fit in u8 (0 to 255)"
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/diagnostic' (3) in 2.281597ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Processed 1 file changes in 19.431µs"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/didOpen' in 5.954683ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Adopted snapshot 4 (parent 3) as current session snapshot (replacing 3)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "======== Cloning snapshot 3 ========\n[12:37:31.247] Reason: DidOpenFile - file:///tmp/pts-review-gpt/guardrail-error.pts\n[12:37:31.247] DidChangeCustomConfigFileName\n[12:37:31.247] DidChangeFiles\n\t[12:37:31.247] Checking for changes affecting config files\n\t\t[12:37:31.247] Summarizing file changes\n\t\t[12:37:31.247] Checking if any changed files are config files\n\t[12:37:31.247] computeConfigFileName:: File: /tmp/pts-review-gpt/guardrail-error.pts:: Result: \n\t[12:37:31.247] Updating inferred project config with 3 root files\n[12:37:31.247] DidRequestFile\n\t[12:37:31.247] CompilerHost\n\t[12:37:31.252] Program update for /dev/null/inferred completed in 5.37717ms\n\t[12:37:31.252] Completed file request for /tmp/pts-review-gpt/guardrail-error.pts in 5.392833ms\n[12:37:31.252] Removed 0 cached file(s) in 105.815µs\n[12:37:31.252] UpdateAutoImports\n\t[12:37:31.252] Building autoimport registry\n\t\t[12:37:31.252] Updated buckets and directories in 63.607µs\n\t\t[12:37:31.252] Built autoimport registry in 90.204µs\n[12:37:31.252] Finished cloning snapshot 3 into snapshot 4 in 5.779553ms\n"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\nProject '/dev/null/inferred'\n\tFiles (95)\n-----------------------------------------------"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\n======== Cache Statistics ========"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Open file count:        3"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Cached disk files:     92"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Realpath aliases:       0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Project count:          1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Config count:           0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": ""
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+      "kind": "full",
+      "items": [
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "character": 33
+            },
+            "end": {
+              "line": 2,
+              "character": 38
+            }
+          },
+          "severity": 1,
+          "code": "PTS3001",
+          "source": "pts",
+          "message": "`count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else"
+        }
+      ]
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/diagnostic' (4) in 47.521591ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Processed 1 file changes in 22.319µs"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/didOpen' in 108.022165ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Adopted snapshot 5 (parent 4) as current session snapshot (replacing 4)"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "======== Cloning snapshot 4 ========\n[12:37:31.405] Reason: DidOpenFile - file:///tmp/pts-review-gpt/destructuring-editor.pts\n[12:37:31.405] DidChangeCustomConfigFileName\n[12:37:31.405] DidChangeFiles\n\t[12:37:31.405] Checking for changes affecting config files\n\t\t[12:37:31.405] Summarizing file changes\n\t\t[12:37:31.405] Checking if any changed files are config files\n\t[12:37:31.405] computeConfigFileName:: File: /tmp/pts-review-gpt/destructuring-editor.pts:: Result: \n\t[12:37:31.405] Updating inferred project config with 4 root files\n[12:37:31.405] DidRequestFile\n\t[12:37:31.405] CompilerHost\n\t[12:37:31.513] Program update for /dev/null/inferred completed in 107.54822ms\n\t[12:37:31.513] Completed file request for /tmp/pts-review-gpt/destructuring-editor.pts in 107.560887ms\n[12:37:31.513] Removed 0 cached file(s) in 52.231µs\n[12:37:31.513] UpdateAutoImports\n\t[12:37:31.513] Building autoimport registry\n\t\t[12:37:31.513] Updated buckets and directories in 52.88µs\n\t\t[12:37:31.513] Built autoimport registry in 62.622µs\n[12:37:31.513] Finished cloning snapshot 4 into snapshot 5 in 107.826857ms\n"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\nProject '/dev/null/inferred'\n\tFiles (96)\n-----------------------------------------------"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "\n======== Cache Statistics ========"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Open file count:        4"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Cached disk files:     92"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Realpath aliases:       0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Project count:          1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "Config count:           0"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": ""
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+      "kind": "full",
+      "items": []
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 3,
+      "message": "handled method 'textDocument/diagnostic' (5) in 1.847838ms"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 1,
+      "message": "error handling method 'shutdown' (9): InvalidParams: expected no params, got null"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "error": {
+      "code": -32602,
+      "message": "InvalidParams: expected no params, got null"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "window/logMessage",
+    "params": {
+      "type": 1,
+      "message": "error handling method 'exit': EOF"
+    }
+  }
+]

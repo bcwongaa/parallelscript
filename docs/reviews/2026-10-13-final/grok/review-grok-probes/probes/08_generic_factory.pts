@@ -1,0 +1,16 @@
+// compare-node
+// Previous review finding 8. A generic function value must build the specialised class.
+class Box<T> {
+    constructor(public value: T) {}
+    label(): string {
+        return `box ${this.value}`;
+    }
+}
+function make<T>(value: T): Box<T> {
+    return new Box(value);
+}
+function exercise(factory: <T>(value: T) => Box<T>): string {
+    const box = factory(9);
+    return box.label();
+}
+console.log(exercise(make));

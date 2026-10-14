@@ -1,0 +1,7 @@
+function groupBy<T>(xs: T[], f: (x: T) => string): Record<string, T[]> {
+  const acc: Record<string, T[]> = {};
+  for (const x of xs) (acc[f(x)] ||= []).push(x);
+  return acc;
+}
+console.log(groupBy([1, 2, 3, 4, 5], (n) => (n % 2 ? "odd" : "even")));
+console.log(groupBy(["a", "bb", "cc"], (s) => String(s.length)));

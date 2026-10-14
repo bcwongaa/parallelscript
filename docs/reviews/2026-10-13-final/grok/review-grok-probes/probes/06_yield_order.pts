@@ -1,0 +1,31 @@
+// compare-node
+// Previous review finding 6. The operand of + is evaluated before yield.
+function* added(box: { value: number }): Generator<number, number, number> {
+    return box.value + (yield 0);
+}
+const box = { value: 1 };
+const iter = added(box);
+console.log("first", JSON.stringify(iter.next()));
+box.value = 2;
+console.log("second", JSON.stringify(iter.next(10)));
+
+let reads = 0;
+let stored = 1;
+const left = {
+    get value(): number {
+        reads++;
+        return stored;
+    },
+    set value(next: number) {
+        stored = next;
+    },
+};
+function* compound(): Generator<number, number, number> {
+    left.value += yield 0;
+    return left.value;
+}
+const step = compound();
+console.log("compound first", JSON.stringify(step.next()));
+console.log("reads after first", reads);
+console.log("compound second", JSON.stringify(step.next(10)));
+console.log("reads after second", reads);

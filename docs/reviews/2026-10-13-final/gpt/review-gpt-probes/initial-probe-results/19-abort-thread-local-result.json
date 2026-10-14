@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/19-abort-thread-local.pts"
+    ],
+    "exit": 0,
+    "stdout": "passed 380536 failed 19464\n",
+    "stderr": ""
+  }
+}

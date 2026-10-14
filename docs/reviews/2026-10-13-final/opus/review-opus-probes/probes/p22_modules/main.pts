@@ -1,0 +1,6 @@
+import { clamp, PI2, Vec, strings, type Pair } from "./lib/index";
+import DefaultVec from "./lib/math";
+export const counter = { value: 41 };
+counter.value++;
+const p: Pair = [1, 2];
+console.log(clamp(15, 0, 10), PI2.toFixed(3), new Vec(1, 2).add(new DefaultVec(3, 4)), p, strings.shout("hi"), strings.describeCounter());

@@ -1,0 +1,9 @@
+const min: int = -9223372036854775808;
+const max: int = 9223372036854775807;
+const umax: u64 = 18446744073709551615;
+console.log(min / -1, min % -1, max + 1, umax + 1);
+console.log(Infinity as int, -Infinity as int, NaN as int, 1e30 as u64, -1.5 as u64);
+console.log(umax as int, min as u64, (255 as u8) + 1, (1 as u8) << 8);
+console.log(JSON.stringify([min, max]), String(umax), umax.toString(16));
+try { console.log(min / (0 as int)); } catch (e) { console.log(String(e)); }
+try { console.log((2 as int) ** (-1 as int)); } catch (e) { console.log(String(e)); }

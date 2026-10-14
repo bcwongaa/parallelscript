@@ -1,0 +1,14 @@
+id,date,region,product,units,price,customer
+1,2026-01-03,North,Widget,12,9.99,"Acme, Inc."
+2,2026-01-04,South,Gadget,3,24.50,Globex
+3,2026-01-04,North,Gizmo,7,14.25,"Initech ""West"""
+4,2026-01-05,East,Widget,20,9.99,Umbrella
+5,2026-01-06,West,Gadget,1,24.50,
+6,2026-01-06,South,Widget,15,9.49,Hooli
+7,2026-01-07,East,Gizmo,4,15.00,"Stark Industries"
+8,2026-01-08,North,Gadget,9,23.75,Acme
+9,2026-01-09,West,Widget,30,8.99,Wayne Ent.
+10,2026-01-10,South,Gizmo,2,14.25,Café Ünïcode
+11,2026-01-11,East,Gadget,6,24.50,Globex
+12,2026-01-12,North,Widget,11,9.99,"Multi
+line"

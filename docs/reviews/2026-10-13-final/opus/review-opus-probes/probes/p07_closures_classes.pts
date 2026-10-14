@@ -1,0 +1,68 @@
+const fns: (() => number)[] = [];
+for (let i = 0; i < 3; i++) fns.push(() => i * 10);
+console.log(fns.map((f) => f()));
+function counter(start = 0) { let n = start; return { inc: () => ++n, dec: () => --n, get value() { return n; } }; }
+const c = counter(5); c.inc(); c.inc(); c.dec();
+console.log(c.value);
+class Emitter<E extends Record<string, unknown[]>> {
+  private handlers: { [K in keyof E]?: ((...args: E[K]) => void)[] } = {};
+  on<K extends keyof E>(event: K, h: (...args: E[K]) => void): () => void {
+    const list = this.handlers[event] ?? []; list.push(h); this.handlers[event] = list;
+    return () => { this.handlers[event] = this.handlers[event]!.filter((x) => x !== h); };
+  }
+  emit<K extends keyof E>(event: K, ...args: E[K]): void { for (const h of this.handlers[event] ?? []) h(...args); }
+}
+const em = new Emitter<{ data: [string, number]; end: [] }>();
+const off = em.on("data", (s, n) => console.log("data", s, n));
+em.on("end", () => console.log("end"));
+em.emit("data", "x", 1); off(); em.emit("data", "y", 2); em.emit("end");
+abstract class Animal {
+  static count = 0;
+  #secret = "hidden";
+  constructor(protected name: string) { Animal.count++; }
+  abstract sound(): string;
+  speak(): string { return `${this.name} says ${this.sound()}`; }
+  get secretLength(): number { return this.#secret.length; }
+}
+class Dog extends Animal { sound() { return "woof"; } override speak() { return super.speak() + "!"; } }
+class Puppy extends Dog { constructor() { super("puppy"); } sound() { return "yip"; } }
+const animals: Animal[] = [new Dog("rex"), new Puppy()];
+console.log(animals.map((a) => a.speak()), Animal.count, animals[1] instanceof Dog, animals[0].secretLength);
+console.log(animals);
+class Temp {
+  private _c = 0;
+  get f(): number { return this._c * 9 / 5 + 32; }
+  set f(v: number) { this._c = (v - 32) * 5 / 9; }
+  static from(c: number): Temp { const t = new Temp(); t._c = c; return t; }
+}
+const t = Temp.from(100); console.log(t.f); t.f = 32; console.log(t.f, t);
+class Matrix {
+  constructor(readonly rows: number, readonly cols: number, private data = new Float64Array(rows * cols)) {}
+  get(r: number, c: number) { return this.data[r * this.cols + c]; }
+  set(r: number, c: number, v: number) { this.data[r * this.cols + c] = v; return this; }
+  mul(o: Matrix): Matrix {
+    const out = new Matrix(this.rows, o.cols);
+    for (let i = 0; i < this.rows; i++) for (let j = 0; j < o.cols; j++) {
+      let s = 0; for (let k = 0; k < this.cols; k++) s += this.get(i, k) * o.get(k, j); out.set(i, j, s);
+    }
+    return out;
+  }
+}
+const a = new Matrix(2, 2).set(0, 0, 1).set(0, 1, 2).set(1, 0, 3).set(1, 1, 4);
+console.log(a.mul(a).get(1, 1));
+const compose = <T>(...fs: ((x: T) => T)[]) => (x: T) => fs.reduceRight((acc, f) => f(acc), x);
+console.log(compose((x: number) => x + 1, (x: number) => x * 2)(5));
+function makeAdders() { const out: Record<string, (n: number) => number> = {}; for (const k of [1, 5, 10]) out[`add${k}`] = (n) => n + k; return out; }
+const adders = makeAdders(); console.log(adders.add5(1), Object.keys(adders));
+const obj = { name: "o", greet() { return `hi ${this.name}`; }, later() { return [1].map(() => this.name); } };
+console.log(obj.greet(), obj.later());
+let fib: (n: number) => number = (n) => (n < 2 ? n : fib(n - 1) + fib(n - 2));
+console.log(fib(20));
+enum Color { Red, Green = 5, Blue }
+enum Dir { Up = "UP", Down = "DOWN" }
+console.log(Color.Blue, Color[5], Dir.Down, Object.values(Dir));
+label: for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) { if (j === 2) continue label; if (i === 2) break label; console.log(i, j); } }
+const tuple: [name: string, age: number, ...tags: string[]] = ["ann", 30, "x", "y"];
+console.log(tuple[0], tuple.slice(2), tuple.length);
+const { a: aa = 1, b: { c: cc } = { c: 9 }, ...restObj } = { a: undefined, d: 4, e: 5 } as { a?: number; b?: { c: number }; d: number; e: number };
+console.log(aa, cc, restObj);

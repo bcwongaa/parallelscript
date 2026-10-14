@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/12-optional-order.pts"
+    ],
+    "exit": 0,
+    "stdout": "undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/12-optional-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n",
+    "stderr": ""
+  }
+}

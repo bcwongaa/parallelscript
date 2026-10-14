@@ -1,0 +1,2 @@
+const byte: u8 = 256;
+console.log(byte);

@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/telemetry",
+    "/tmp/pts-review-gpt/report-1.json",
+    "/tmp/pts-review-gpt/events.ndjson"
+  ],
+  "threads": "1",
+  "exit": 0,
+  "stdout": "readings=777 sensors=7 groups=3 rejected=4\n2026-10-01 east 259 5.627199\n2026-10-02 ouest 259 5.765766\n2026-10-03 Café 259 5.739597\n",
+  "stderr": ""
+}

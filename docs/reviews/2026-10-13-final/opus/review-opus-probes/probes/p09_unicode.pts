@@ -1,0 +1,17 @@
+const s = "héllo wörld 👋🏽 café 日本語 \u{1F600}";
+console.log(s.length, [...s].length, s.toUpperCase(), s.split(" ").map((w) => w.length));
+console.log(s.charCodeAt(12), s.codePointAt(12), s[12], s.slice(12, 16), s.at(-1), s.substring(0, 5));
+console.log("ß".toUpperCase(), "İ".toLowerCase().length, "ﬁ".toUpperCase(), "Σσς".toLowerCase());
+const decomposed: string = "e\u0301", composed: string = "é";
+console.log(decomposed === composed, decomposed.normalize() === composed, composed.normalize("NFD").length);
+console.log("👋🏽".padStart(6, "*"), "abc".padEnd(6, "日"), "x".repeat(3));
+console.log(Array.from("a👋b"), "a👋b".split(""), [..."a👋b"].reverse().join(""));
+console.log(/\p{L}+/gu.exec("123 Ünïcödé")?.[0], "日本語テキスト".match(/[぀-ヿ]+/)?.[0]);
+console.log("😀".charCodeAt(0).toString(16), String.fromCodePoint(0x1f680), String.fromCharCode(0xd83d, 0xde00));
+console.log(JSON.stringify({ e: "😀", lone: "\ud800", ctl: "\u0007" }), encodeURIComponent("é 😀/"), decodeURIComponent("%F0%9F%98%80"));
+console.log(["b", "a", "é", "z", "E"].sort(), ["b", "a", "é", "z", "E"].sort((x, y) => x.localeCompare(y)));
+console.log("café".indexOf("é"), "naïve café".lastIndexOf("é"), "abc😀def".includes("😀d"), "Straße".startsWith("Stra"));
+console.log("  \t trim me  \n".trim(), "a-b_c d".replace(/[-_ ]/g, "."), "AbC".localeCompare("abc"));
+for (const ch of "a😀") console.log(ch, ch.length);
+const big = "é".repeat(100000) + "end";
+console.log(big.length, big.slice(-3), big.indexOf("end"), big.charCodeAt(99999));

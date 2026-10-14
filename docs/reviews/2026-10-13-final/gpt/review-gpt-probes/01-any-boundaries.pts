@@ -1,0 +1,12 @@
+interface Item { name: string; count: number }
+const data: any = JSON.parse('{"name":"tea","count":4}');
+const item: Item = data;
+console.log(item.name, item.count);
+for (const bad of [null, 5, "wrong", {}, { name: "tea", count: "4" }]) {
+  try { const checked: Item = bad as any; console.log("accepted", checked); }
+  catch (e) { console.log((e as Error).name); }
+}
+const xs: number[] = [1, 2];
+const dynamic: any = xs;
+try { dynamic.push("bad"); } catch (e) { console.log((e as Error).name); }
+console.log(xs);

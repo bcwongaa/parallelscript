@@ -1,0 +1,17 @@
+// compare-node for the parts Node allows; the cast is a documented throw.
+const parsed: any = JSON.parse('{"count":"seven","user":{"name":"Ada"}}');
+console.log("name", parsed.user?.name, "missing", parsed.nope?.x);
+try {
+    const count: number = parsed.count;
+    console.log("count", count);
+} catch (error) {
+    console.log("count", (error as Error).name, (error as Error).message);
+}
+try {
+    JSON.stringify({ a: { b: null as any } });
+    const cycle: any = {};
+    cycle.self = cycle;
+    console.log(JSON.stringify(cycle));
+} catch (error) {
+    console.log("cycle", (error as Error).message);
+}

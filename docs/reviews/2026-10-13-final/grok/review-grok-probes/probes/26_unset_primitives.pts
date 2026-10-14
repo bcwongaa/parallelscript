@@ -1,0 +1,21 @@
+// compare-node
+// A definite-assignment assertion does not initialise the field.
+class Late {
+    name!: string;
+    count!: number;
+    flag!: boolean;
+}
+const late = new Late();
+console.log("string", JSON.stringify(late.name), late.name === undefined, late.name === "");
+console.log("number", late.count, late.count === undefined);
+console.log("bool", late.flag, late.flag === undefined);
+try {
+    console.log("length", late.name.length);
+} catch (error) {
+    console.log("length", (error as Error).name);
+}
+try {
+    console.log("upper", late.name.toUpperCase());
+} catch (error) {
+    console.log("upper", (error as Error).name);
+}

@@ -1,0 +1,9 @@
+const trace: string[] = [];
+function arg(): number { trace.push("arg"); return 3; }
+function key(): string { trace.push("key"); return "n"; }
+function missing(): { n: number; f: (n: number) => number } | undefined { return undefined; }
+console.log(missing()?.[key()], missing()?.f(arg()), trace);
+const object: { n?: number; nested?: { v: number }; f?: (n: number) => number } = { n: 0, nested: { v: 8 } };
+console.log(object.n ?? arg(), object.n || arg(), object.f?.(arg()), object.nested?.v, trace);
+const receiver = { calls: 0, get value(): number | undefined { this.calls++; return undefined; } };
+console.log(receiver.value ?? arg(), receiver.calls);

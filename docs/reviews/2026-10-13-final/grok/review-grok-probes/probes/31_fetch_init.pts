@@ -1,0 +1,19 @@
+// The notes client wanted one fetch() and a conditional header. Neither of these compiles.
+async function withVariable(): Promise<void> {
+    const body: string | undefined = "{\"a\":1}";
+    const init = {
+        method: "POST",
+        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        body,
+    };
+    await fetch("http://127.0.0.1:9/notes", init);
+}
+
+async function withAnnotation(): Promise<void> {
+    const init: { method: string; headers?: { "content-type": string }; body?: string } = {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+    };
+    await fetch("http://127.0.0.1:9/notes", init);
+}

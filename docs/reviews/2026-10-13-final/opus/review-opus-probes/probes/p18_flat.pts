@@ -1,0 +1,8 @@
+const a = [[1, [2]], [3]];
+console.log(a.flat(), a.flat(2), a.flat(Infinity));
+const deep = [1, [2, [3, [4, [5]]]]];
+console.log(deep.flat(1), deep.flat(2), deep.flat(3), deep.flat(Infinity));
+const anyArr: any = [[1, [2]], [3]];
+console.log(anyArr.flat(2));
+const mixed: (number | number[] | number[][])[] = [1, [2], [[3]]];
+console.log(mixed.flat(2));

@@ -1,0 +1,41 @@
+// Exceptions across async and parallel boundaries.
+async function boom(message: string): Promise<number> {
+    await Promise.resolve();
+    throw new Error(message);
+}
+try {
+    console.log(await parallel boom("task"));
+} catch (error) {
+    console.log("task", (error as Error).name, (error as Error).message);
+}
+try {
+    const values = await Promise.all([parallel boom("a"), parallel Promise.resolve(1)]);
+    console.log("all", values);
+} catch (error) {
+    console.log("all", (error as Error).message);
+}
+try {
+    [1, 2, 3].par.map((n) => {
+        if (n === 2) {
+            throw new Error("map");
+        }
+        return n;
+    });
+    console.log("map survived");
+} catch (error) {
+    console.log("map", (error as Error).message);
+}
+try {
+    parallel for (const n of [1, 2, 3]) {
+        if (n === 2) {
+            throw new Error("pfor");
+        }
+    }
+    console.log("pfor survived");
+} catch (error) {
+    console.log("pfor", (error as Error).message);
+}
+const rejection = parallel boom("unhandled");
+rejection.catch((error) => console.log("handled later", (error as Error).message));
+await rejection.catch(() => undefined);
+console.log("done");

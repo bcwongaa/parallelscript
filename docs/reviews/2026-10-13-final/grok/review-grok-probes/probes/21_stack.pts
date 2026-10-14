@@ -1,0 +1,19 @@
+function inner(): never {
+    throw new Error("boom");
+}
+function outer(): void {
+    inner();
+}
+try {
+    outer();
+} catch (error) {
+    console.log((error as Error).stack);
+}
+function recurse(n: number): number {
+    return n <= 0 ? 0 : 1 + recurse(n - 1);
+}
+try {
+    console.log(recurse(100000));
+} catch (error) {
+    console.log("recurse", (error as Error).name);
+}

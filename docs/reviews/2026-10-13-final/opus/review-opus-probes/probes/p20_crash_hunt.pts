@@ -1,0 +1,35 @@
+function attempt(label: string, f: () => unknown): void {
+  try { console.log(label, "->", f()); } catch (e) { console.log(label, "-> threw", (e as Error).name, (e as Error).message.slice(0, 70)); }
+}
+class Base {
+  constructor() { this.init(); }
+  init(): void {}
+}
+class Derived extends Base {
+  items: string[] = [];
+  cfg: { n: number } = { n: 1 };
+  override init(): void { attempt("base ctor reads subclass array", () => this.items.length); attempt("push", () => this.items.push("x")); attempt("cfg.n", () => this.cfg.n); }
+}
+new Derived();
+class Point { constructor(public x: number, public y: number) {} len(): number { return Math.hypot(this.x, this.y); } }
+attempt("JSON into class then method", () => { const p: Point = JSON.parse('{"x":3,"y":4}'); return p.len(); });
+attempt("any into class then method", () => { const raw: any = { x: 3, y: 4 }; const p: Point = raw; return p.len(); });
+attempt("holes of objects", () => { const arr = new Array<Point>(3); return arr[0].x; });
+attempt("holes printed", () => new Array<Point>(2));
+attempt("null through any into class", () => { const n: any = null; const p: Point = n; return p.x; });
+attempt("non-null assertion on null field", () => { const o: { p?: Point } = {}; return o.p!.x; });
+attempt("destructure undefined", () => { const f = (o?: { a: number }) => { const { a } = o!; return a; }; return f(); });
+attempt("map.get!", () => new Map<string, Point>().get("k")!.x);
+attempt("array find!", () => [new Point(1, 1)].find((p) => p.x > 5)!.x);
+attempt("cast lie", () => ({ x: 1 } as unknown as Point).len());
+attempt("interface dispatch on lie", () => { interface HasLen { len(): number } const v: any = { len: 5 }; const h: HasLen = v; return h.len(); });
+attempt("call undefined through any", () => { const o: any = {}; return o.missing(); });
+attempt("index string past end into string", () => { const s = "abc"; const c: string = s[10]; return c.length; });
+attempt("sort with throwing comparator", () => [3, 1, 2].sort(() => { throw new Error("cmp"); }));
+attempt("JSON cyclic", () => { const a: any = {}; a.self = a; return JSON.stringify(a); });
+attempt("console.log cyclic", () => { const a: any = { name: "a" }; a.self = a; console.log(a); return "printed"; });
+// Was 2 ** 31 in the review run: that zero-fills 16 GB (11 GB RSS, 34 s). Kept small here.
+attempt("huge array", () => new Array<number>(2 ** 24).length);
+attempt("negative array length", () => new Array<number>(-1).length);
+attempt("repeat huge", () => "x".repeat(2 ** 31).length);
+attempt("string too long", () => { let s = "x".repeat(1 << 20); for (let i = 0; i < 12; i++) s += s; return s.length; });

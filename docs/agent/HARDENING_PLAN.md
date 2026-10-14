@@ -1,0 +1,72 @@
+# ParallelScript post-M7: correctness, hardening and measured improvement
+
+Owner authorisation (2026-10-14): "let's do them one by one, automatically, with subagents. This time use gpt-6-1-sol for all work."
+
+## Operating contract
+- Canonical available model identifier: **gpt-6.1-sol**, **xhigh**, for the parent and every child. No Opus/Grok/Haiku fallback. If unavailable, checkpoint and wait/retry.
+- This phase supersedes CLAUDE.md's M0–M7 stop rule. The historical `docs/agent/DONE` remains intact; it records the first usable language. This phase stops only at `docs/agent/HARDENING_DONE`.
+- Work through the first unchecked item below **one item per session**. Split overly large items into testable slices without dropping scope. Complete, test, review, commit and push each slice before starting the next.
+- Read PROGRESS.md, this plan, docs/DECISIONS.md and relevant SPEC sections every session. Original semantics and race-safety constraints remain authoritative. Do not add an extra captured-collection parallel guardrail without owner approval.
+- Use GPT subagents on **every substantive item**: a reproducer/test designer, then an independent reviewer. Children receive model `gpt-6.1-sol` explicitly, xhigh effort through the configured environment, scope/paths, guide paths and the current task. Read-only children can inspect the parent's files; writing children use separate worktrees/branches and may not share the parent's dirty tree. Parent integrates and independently runs the evidence. Never let a child tick the task for you.
+- Follow ../LLM-dev-guides/guides/protocol/RULES.md plus relevant code-style/testing/orchestration guides; project's existing direct-to-main green commit workflow wins. No protected instruction-file edits are necessary for this phase.
+- Reproduce claims before fixing them. Store RED (failing regression) and GREEN command/output evidence in docs/agent/hardening-evidence/<task-id>.md. Never weaken expected output to pass. Genuine incorrect review reports are closed with explanation and evidence, not implemented blindly.
+- Safety regressions and public API correctness precede optimisation. Run the focused regression, affected-package tests, full PTS suite (timeout 40m, -p 2), Node differential, and relevant upstream tests for fork changes. Inspect review output before accepting a fix. Run the full matrix/VS Code suite at group boundaries and final acceptance; verify GitHub Actions for the exact pushed SHA. Use pipefail; never treat a pipeline's last command's success as test success.
+- Maintain PROGRESS.md, README, GUIDE/SPEC/ARCHITECTURE and the corpus report as behaviour changes. Record decisions append-only.
+- Use no more than 4 heavy worker jobs total on this shared 8-core machine. Scratch files belong in $TMPDIR. Model credentials are managed by the launcher; agents must never read or print secrets.
+- If a bug survives five serious approaches, record a reproducer and an open blocked entry, work on another item. A blocked item is not done. Final completion must not hide unfinished work. If an optimisation experiment does not improve things, retain measurements and explain the result rather than faking a win or making semantics worse.
+- Notify this Telegram thread after each completed group A–E or a material blocker, not every test. Decide reversible details autonomously; questions never pause other work.
+- Each final session reply: `SESSION_RESULT: done=<id> next=<id> green=<yes|no>`.
+
+## Source evidence
+Three independent review reports of f2323ccf4 and their probes:
+- docs/reviews/2026-10-13-final/opus/REVIEW-opus.md
+- docs/reviews/2026-10-13-final/gpt/REVIEW-gpt.md
+- docs/reviews/2026-10-13-final/grok/REVIEW-grok.md
+
+Reviewer reports are claims, not proof until reproduced. Map every finding to a task in a consolidated report; track confirmed, rejected, intentional, unverified and fixed independently. Baseline is M7, 267 classified compatible programs, 8 intentional differences, 24 unsupported, 1 known bug; GPT reported five compatible programs falsely skipped by feature detection.
+
+## A: reproduce and correct
+- [ ] **H01 Review consolidation and baseline.** Deduplicate all findings from all three reports into docs/reviews/2026-10-13-final/CONSOLIDATED.md with reviewer/item references, minimal repro paths, acceptance and task IDs. Run fresh build/test baseline. Independently reproduce the two compiler panic families, wrong-array results and local AbortController concurrency failure. Do not fix code yet. Save parent/child model evidence; retain useful independently written programs as smoke tests.
+- [ ] **H02 Compiler panic: erased record logical assignments.** Fix `(record[key] ??= []).push(x)` and `||=` in generic arrows/classes; preserve evaluation order and checked dynamics. Add RED→GREEN regressions against Node where applicable. Source: Opus #4.
+- [ ] **H03 Compiler panic: getter iterator results/void.** Fix `for…of` over dynamic iterator results with done/value getters and void-producing expressions; verify done is read before an unneeded value getter. Include typed IteratorResult getter layouts when feasible; valid supported code must run, otherwise give an honest diagnostic, never panic. Grok #1, GPT #6.
+- [ ] **H04 Compiler failure containment.** Add clean source-located internal compiler error handling at CLI boundary without swallowing arbitrary errors; optional debug traceback. Audit risky assertions on touched paths and add malformed/tsc-valid-program smoke or fuzz tests that fail on panic.
+- [ ] **H05 Array flattening.** Correct flat/flatMap across union, tuple and heterogeneous arrays, dynamic and typed paths, depth 0/1/2/Infinity where supported, preserving order/holes. Node differential matrix. Opus #1.
+- [ ] **H06 Array sort.** Follow SortCompare for undefined/null/holes with and without comparator and for toSorted/parallel sorting paths; undefined never reaches comparator. Audit adjacent array built-ins with generated differential cases. Opus #2.
+- [ ] **H07 AbortController construction race.** Remove shared mutable constructor-permission state; audit internal stdlib globals for independent-object concurrency. Many independent controllers on 1/2/4 threads, reusePort handlers and parallel fetch. GPT #1.
+- [ ] **H08 Suspension reference snapshots.** Fix accessor/any compound assignments and method lookup before yield/await; preserve receiver, reference, argument and getter ordering with differential side-effect matrices. GPT #2, Grok #2, Opus prior-review residual.
+- [ ] **H09 Generic callable specialization.** Preserve specialization through inline higher-order generic factories, generic arrows and applicable any paths without weakening checked-any boundaries. GPT #3, Opus residuals.
+- [ ] **H10 Generic instanceof narrowing.** Infer actual applicable type arguments rather than checking MapLRU<any,any>; unskip and compare LRU corpus when correct. GPT #3, Grok #3.
+- [ ] **H11 Optional loose values.** No redundant string/number check when a destructured loose local flows into a destination admitting undefined; include optional/shorthand properties and parameters. Opus #3.
+- [ ] **H12 Destructuring defaults.** Apply defaults for exact undefined as well as union undefined; cover object/array, binding/assignment/parameter patterns and side-effect ordering. GPT #5.
+
+## B: harden server and API interoperability
+- [ ] **H13 HTTP framing.** Validate digit-only Content-Length, duplicate/conflicting lengths, TE order and CL+TE ambiguity, with independent raw-wire regressions and explicit close policy. Reject ambiguous framing; don't claim a proxy exploit without proof. GPT #4.
+- [ ] **H14 Server resource bounds.** Header/request/idle/keepalive timeouts and connection caps with documented units/defaults and configurable policy. Slowloris, slow reader, overload, disconnect, cancellation and descriptor/memory cleanup tests. Opus #6.
+- [ ] **H15 TCP half-close semantics.** Preserve an HTTP response after write-half-close where appropriate, distinguishing EOF from reset/full disconnect; slow async handler tests. If retained as intentional, explain precisely and justify against the compatibility contract. Grok #6.
+- [ ] **H16 Structural RequestInit.** Support subtype-compatible options variables, optional body/header unions, and shorten diagnostics to the offending field without internal objectN names. Grok #4.
+- [ ] **H17 Defaulted methods through interfaces.** Adapt default-parameter/given flags so compatible required-parameter interface methods work, including inheritance and callbacks. Grok #5.
+
+## C: trustworthy verification and tooling
+- [ ] **H18 Execute corpus classifications.** Run skipped/unsupported cases with expected diagnostics or documented differences; never silently skip crashes. Replace regex source-feature detection with scanner/parser-based detection. Derive compatibility counts from executed results; enforce comparison of the five false skips. GPT #7, Opus #10.
+- [ ] **H19 Generated differential fuzzing.** Seeded bounded typed-expression, array/string/union built-in and suspension tests against Node; shrink/store divergences, fixed CI budgets and timeouts, no fabricated successes.
+- [ ] **H20 Generated-code race assurance.** Exercise collecting GC and stdlib/generated parallel code under sanitizers where supported; broaden randomized stress and compiler-version gates. Clearly distinguish tested guarantees from platform assumptions and exclusions; no claim that finite tests prove absence of C data-race risk.
+- [ ] **H21 LSP parity and shutdown.** Show lowering-only errors without C generation/unsafe side effects if feasible, fix successful shutdown/exit status, serverInfo branding, clean editor lifecycle tests. Preserve performance and type-check-first policy. GPT #8, Opus #12.
+- [ ] **H22 Diagnostics and numerical papercuts.** Eliminate internal objectN names, name failing JSON fields, improve stack locations/error metadata, explain narrow integer reduce and literal-as precision without changing Rust/number rules arbitrarily. Include .par numeric-only and Atomic<number> misuse diagnostics where justified by numeric semantics, not extra parallel guardrails.
+
+## D: speed with evidence, not semantic shortcuts
+- [ ] **H23 Faster edit-run builds.** Explicit development optimisation profile for run/test while build defaults stay documented; measure O0/O1/O2 with correctness/stack checks. Cache compatible library code or split translation units where measured useful; preserve standalone binaries and readable source mapping. Opus #7.
+- [ ] **H24 Explicit suspension IR.** Move generator/async state machines and reference sequencing into a typed IR pass; exhaustive visitors/verifier tests. Preserve all differential ordering and exception semantics. Existing approved M8 item.
+- [ ] **H25 Escape analysis.** Stack-allocate provably non-escaping objects/closures where safe; never stack-allocate captures reaching tasks/await or pointers escaping shared heap. Measured allocation counts, ASan/GC and differential gates.
+- [ ] **H26 Parallel GC scaling.** Benchmark larger thread-local blocks/per-thread allocation options in the existing collector first, then a precise/per-thread heap experiment only with a written design and safety tests. Keep current GC unless an exercised alternative is demonstrably better; retain results including failed experiments.
+- [ ] **H27 Numeric and array code generation.** Safe number-local integer inference, literal constants, inline unfrozen array stores and integer-index bounds paths. Preserve f64/NaN/-0/overflow and race-safety semantics. Validate fib/nbody/spectral-norm/SHA workloads and regressions.
+- [ ] **H28 RegExp/dynamic/string optimisations.** PCRE2 JIT with fallback, less eager captures, inline caches for any property access and lazy UTF-16 indexes. Differential Unicode/lone-surrogate, GC and shared-string stress; benchmark before/after.
+
+## E: common TypeScript coverage and release quality
+- [ ] **H29 Everyday TS patterns.** Conditional object spreads, tagged templates/String.raw, representable {}-as-T builders, local classes, variadic/computed tuple use, copyWithin and concat spreads. Split by feature; tests and clear unsupported diagnostics for anything intentionally not supported. Do not silently enable dynamic property addition to fixed-layout objects (locked brief); improve suggestion to Record<string, any> instead.
+- [ ] **H30 URL APIs.** WHATWG-compatible URL/URLSearchParams sufficient for realistic HTTP services, audited dependency/license or tested implementation. Relative bases, encoding, host/port/query and invalid URLs; Node differential. No ad-hoc security-sensitive URL parser advertised as full WHATWG.
+- [ ] **H31 Text/clone/base64/stdin.** TextEncoder/TextDecoder, atob/btoa, structuredClone for documented supported values and process stdin APIs; streaming/error semantics stated and tested. No deceptive claim of complete clone semantics.
+- [ ] **H32 Secure random APIs.** OS-backed crypto.getRandomValues/randomUUID, never Math.random substitutes; errors, lengths, UUID format and cross-thread tests.
+- [ ] **H33 HTTPS.** A pinned audited TLS library built statically with real certificate/hostname verification and a documented trust store; TLS fetch/local trusted/untrusted/hostname-mismatch tests. Never bypass verification to pass. Record dependency/license/distribution requirements and retain http-only support until verified.
+- [ ] **H34 Final integration and release.** Re-run all imported review probes and realistic applications on 1/2/4 threads, full tests/upstream/VS Code/clean-clone quick start, exact-SHA CI, interleaved benchmarks. Update all public docs and consolidate open/intentional/deferred gaps. Tag a finished phase only when acceptance gates pass. Write docs/agent/HARDENING_DONE with tasks/evidence/benchmark summary and genuine limitations; no silent deletion of remaining scope. Parent and final audit subagents must all use gpt-6.1-sol.
+
+M7 stays the historical usable prototype. This plan is its subsequent hardening/reliability/coverage phase, not a claim that optimisation or production readiness is already achieved.

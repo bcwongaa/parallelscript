@@ -1,0 +1,46 @@
+{
+  "pts": {
+    "ambiguous-pipeline": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+      "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:37:56 GMT\r\ncontent-length: 2\r\n\r\n{}HTTP/1.1 200 OK\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:37:56 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+      "closed": true
+    },
+    "nonfinal-chunked": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked, gzip\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+      "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:37:56 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+      "closed": true
+    },
+    "unsupported-transfer": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 2\r\nTransfer-Encoding: gzip\r\n\r\n{}",
+      "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:37:56 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+      "closed": true
+    },
+    "signed-length": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: +2\r\n\r\n{}",
+      "response": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:37:56 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+      "closed": true
+    }
+  },
+  "node": {
+    "ambiguous-pipeline": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+      "response": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+      "closed": true
+    },
+    "nonfinal-chunked": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked, gzip\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+      "response": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+      "closed": true
+    },
+    "unsupported-transfer": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 2\r\nTransfer-Encoding: gzip\r\n\r\n{}",
+      "response": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+      "closed": true
+    },
+    "signed-length": {
+      "wire": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: +2\r\n\r\n{}",
+      "response": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+      "closed": true
+    }
+  }
+}

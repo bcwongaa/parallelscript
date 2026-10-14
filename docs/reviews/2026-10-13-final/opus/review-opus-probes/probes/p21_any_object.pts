@@ -1,0 +1,9 @@
+const a: any = {};
+try { a.name = "x"; console.log("dot add ok", a); } catch (e) { console.log("dot add:", String(e)); }
+const b: any = {};
+try { b["k" + 1] = 1; console.log("computed add ok", b); } catch (e) { console.log("computed add:", String(e)); }
+const c: Record<string, any> = {};
+c.name = "x"; c.self = c; console.log(c);
+const parsed: any = JSON.parse("{}");
+parsed.added = true; console.log(parsed);
+const big = new Array<number>(2 ** 27).length; console.log(big);

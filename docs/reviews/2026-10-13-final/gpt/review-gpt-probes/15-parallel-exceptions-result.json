@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/15-parallel-exceptions.pts"
+    ],
+    "exit": 0,
+    "stdout": "remote\nmap\nfor\njoin\n49995000\n110\ntrue\n",
+    "stderr": ""
+  }
+}

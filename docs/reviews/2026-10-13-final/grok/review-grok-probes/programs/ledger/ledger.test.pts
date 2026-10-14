@@ -1,0 +1,54 @@
+import assert from "pts:assert";
+import { test } from "pts:test";
+import { formatMoney, formatSummary, parseAmount, parseCsv, parseLedger, summarize } from "./ledger_lib.pts";
+
+const sample = [
+    "date,category,amount,note",
+    "2026-01-02,Food,12.50,lunch",
+    '2026-01-03,transport,"1,200.00","taxi, airport"',
+    "2026-02-01,food,-3.25,refund",
+    '2024-02-29,rent,10,"leap day"',
+    "2026-13-01,food,1.00,bad month",
+    "2026-01-04,food,1.009,too precise",
+    "",
+].join("\n");
+
+test("parses quoted commas and escaped quotes", () => {
+    const rows = parseCsv('a,"b,c","d""e"\n');
+    assert.deepEqual(rows, [["a", "b,c", 'd"e']]);
+});
+
+test("keeps a newline inside quotes as one field", () => {
+    const rows = parseCsv('date,note\n2026-01-01,"line1\nline2"\n');
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1]?.[1], "line1\nline2");
+});
+
+test("parses money to cents", () => {
+    assert.equal(parseAmount("$1,200.50"), 120050);
+    assert.equal(parseAmount("-3.2"), -320);
+    assert.equal(parseAmount("1.009"), undefined);
+    assert.equal(parseAmount(""), undefined);
+});
+
+test("rejects a bad date and a bad amount, keeps the rest", () => {
+    const ledger = parseLedger(sample);
+    assert.equal(ledger.expenses.length, 4);
+    assert.equal(ledger.issues.length, 2);
+    assert.equal(ledger.issues[0]?.line, 6);
+    assert.match(ledger.issues[0]?.message ?? "", /bad date/);
+    assert.match(ledger.issues[1]?.message ?? "", /bad amount/);
+});
+
+test("summarises by category, largest first", () => {
+    const summary = summarize(parseLedger(sample).expenses);
+    assert.equal(summary.count, 4);
+    assert.equal(summary.cents, 12_50 + 120_000 - 3_25 + 10_00);
+    // food is 12.50 - 3.25 = 9.25, rent is 10.00, so rent ranks above food.
+    assert.deepEqual(
+        summary.categories.map((row) => row.category),
+        ["transport", "rent", "food"],
+    );
+    assert.equal(formatMoney(-325), "-$3.25");
+    assert.match(formatSummary(summary), /transport/);
+});

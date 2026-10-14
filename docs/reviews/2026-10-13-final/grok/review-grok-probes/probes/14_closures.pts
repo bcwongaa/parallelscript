@@ -1,0 +1,23 @@
+// compare-node
+const fns: (() => number)[] = [];
+for (let i = 0; i < 3; i++) {
+    fns.push(() => i);
+}
+console.log("loop", fns.map((fn) => fn()).join(","));
+
+function outer() {
+    let n = 1;
+    const inc = () => {
+        n++;
+    };
+    const read = () => n;
+    inc();
+    return read() + n;
+}
+console.log("shared", outer());
+
+const sorted = [3, 1, 2].sort((a, b) => a - b);
+console.log("stable", [1, 1].map((n, i) => ({ n, i })).sort((a, b) => a.n - b.n).map((x) => x.i).join(","));
+console.log("sorted", sorted.join(","));
+console.log("negzero", Object.is(-0, 1 / -Infinity), Object.is(0, -0));
+console.log("json -0", JSON.stringify(-0));

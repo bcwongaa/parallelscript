@@ -1,0 +1,12 @@
+interface Agg { kind: string; column?: string }
+const aggs: Agg[] = [];
+for (const spec of "count,sum:units".split(",")) {
+  const [kind, column] = spec.split(":");
+  aggs.push({ kind, column });
+}
+console.log(aggs);
+function parse(spec: string): Agg {
+  const [kind, column] = spec.split(":");
+  return { kind, column };
+}
+console.log(parse("count"));

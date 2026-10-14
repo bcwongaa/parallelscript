@@ -1,0 +1,9 @@
+interface Labeller {
+    label(suffix: string): string;
+}
+class Sq implements Labeller {
+    label(suffix = "sq"): string {
+        return suffix;
+    }
+}
+console.log(new Sq().label());

@@ -1,0 +1,15 @@
+import { serve } from "pts:http";
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(request) {
+    if (request.url.endsWith("/json")) return Response.json(await request.json());
+    if (request.url.endsWith("/head")) return new Response("PAYLOAD");
+    if (request.url.endsWith("/no-content")) return new Response("PAYLOAD", { status: 204 });
+    if (request.url.endsWith("/slow")) await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    return new Response("ok");
+  },
+  error(error) { return new Response(error instanceof Error ? error.message : String(error), { status: 400 }); },
+});
+console.log(server.port);
+setTimeout(() => server.stop(true), 10000);

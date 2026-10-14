@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/03-closures.pts"
+    ],
+    "exit": 0,
+    "stdout": "3 3 4 4\n[ 0, 1, 2, 3, 4 ]\n8\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/03-closures.mts"
+    ],
+    "exit": 0,
+    "stdout": "3 3 4 4\n[ 0, 1, 2, 3, 4 ]\n8\n",
+    "stderr": ""
+  }
+}

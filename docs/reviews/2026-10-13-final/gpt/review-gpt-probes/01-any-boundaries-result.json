@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/01-any-boundaries.pts"
+    ],
+    "exit": 0,
+    "stdout": "tea 4\nTypeError\nTypeError\nTypeError\nTypeError\nTypeError\nTypeError\n[ 1, 2 ]\n",
+    "stderr": ""
+  }
+}

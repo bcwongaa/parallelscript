@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/05-array-callbacks.pts"
+    ],
+    "exit": 0,
+    "stdout": "[ 2, 4, 6 ] [ 1, 2, 3, 4 ]\n13\n[ 1, 'a' ] [ '1', 'a', 'null', 'undefined', 'false' ]\ntrue false\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/05-array-callbacks.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 2, 4, 6 ] [ 1, 2, 3, 4 ]\n13\n[ 1, 'a' ] [ '1', 'a', 'null', 'undefined', 'false' ]\ntrue false\n",
+    "stderr": ""
+  }
+}

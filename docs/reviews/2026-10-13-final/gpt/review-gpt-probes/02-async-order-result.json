@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/02-async-order.pts"
+    ],
+    "exit": 0,
+    "stdout": "start,await,then,queued,inner,done,main\n[{\"status\":\"fulfilled\",\"value\":1},{\"status\":\"rejected\",\"reason\":\"bad\"}]\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/02-async-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "start,await,then,queued,inner,done,main\n[{\"status\":\"fulfilled\",\"value\":1},{\"status\":\"rejected\",\"reason\":\"bad\"}]\n",
+    "stderr": ""
+  }
+}

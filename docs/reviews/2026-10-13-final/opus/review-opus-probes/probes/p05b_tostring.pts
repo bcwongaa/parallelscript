@@ -1,0 +1,5 @@
+const o = { count: 1 };
+console.log(o.toString(), `${o}`, o.hasOwnProperty("count"), Object.hasOwn(o, "count"));
+const d: any = o;
+try { console.log(d.toString()); } catch (e) { console.log(String(e)); }
+try { console.log(d.hasOwnProperty("count")); } catch (e) { console.log(String(e)); }

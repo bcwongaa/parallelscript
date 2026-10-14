@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "-I",
+    "/tmp/pts-review-gpt/rerun-2r70yk1q/http-framing-compare.py"
+  ],
+  "threads": "4",
+  "exit": 0,
+  "stdout": "pts ambiguous-pipeline HTTP/1.1 200 OK responses 2 closed True\npts nonfinal-chunked HTTP/1.1 200 OK responses 1 closed True\npts unsupported-transfer HTTP/1.1 200 OK responses 1 closed True\npts signed-length HTTP/1.1 200 OK responses 1 closed True\nnode ambiguous-pipeline HTTP/1.1 400 Bad Request responses 1 closed True\nnode nonfinal-chunked HTTP/1.1 400 Bad Request responses 1 closed True\nnode unsupported-transfer HTTP/1.1 400 Bad Request responses 1 closed True\nnode signed-length HTTP/1.1 400 Bad Request responses 1 closed True\n",
+  "stderr": ""
+}

@@ -1,0 +1,11 @@
+function classify(value: string | undefined): string {
+    switch (value) {
+        case undefined:
+            return "missing";
+        case "ok":
+            return "ok";
+        default:
+            return "other";
+    }
+}
+console.log(classify(undefined), classify("ok"));

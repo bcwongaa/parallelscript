@@ -1,0 +1,10 @@
+async function next(): Promise<boolean> {
+    return false;
+}
+async function loop(): Promise<void> {
+    while (await next()) {
+        console.log("tick");
+    }
+}
+await loop();
+console.log("done");

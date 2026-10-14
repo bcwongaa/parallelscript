@@ -1,0 +1,11 @@
+interface Labeller {
+    label(suffix: string): string;
+}
+class Sq implements Labeller {
+    label(suffix = "sq"): string {
+        return `label:${suffix}`;
+    }
+}
+const through: Labeller = new Sq();
+console.log("direct", new Sq().label());
+console.log("iface", through.label("x"));

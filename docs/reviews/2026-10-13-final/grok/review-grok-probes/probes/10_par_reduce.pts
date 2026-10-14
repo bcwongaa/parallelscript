@@ -1,0 +1,11 @@
+// Previous review finding 9b. reduce(add, 10) over 0..3999 is 10 + sum, not N * 10 + sum.
+import { range } from "pts:parallel";
+const sequential = [0, 1, 2, 3, 4].reduce((a, b) => a + b, 10);
+const parallel = [0, 1, 2, 3, 4].par.reduce((a, b) => a + b, 10);
+console.log("small", sequential, parallel);
+let seq = 10;
+for (let n = 0; n < 4000; n++) {
+    seq += n;
+}
+const big = range(0, 4000).par.reduce((a, b) => a + b, 10);
+console.log("big", seq, big, seq === big);

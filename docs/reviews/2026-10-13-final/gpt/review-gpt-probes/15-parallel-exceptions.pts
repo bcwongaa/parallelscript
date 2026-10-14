@@ -1,0 +1,11 @@
+import { join, range } from "pts:parallel";
+async function fail(): Promise<number> { await 0; throw new Error("remote"); }
+try { await parallel fail(); } catch (e) { console.log((e as Error).message); }
+try { range(0, 10000).par.map((n) => { if (n === 411) throw new Error("map"); return n; }); }
+catch (e) { console.log((e as Error).message); }
+try { parallel for (const n of range(0, 10000)) { if (n === 123) throw new Error("for"); } }
+catch (e) { console.log((e as Error).message); }
+try { join(() => { throw new Error("join"); }, () => 5); } catch (e) { console.log((e as Error).message); }
+console.log(range(0, 10000).par.sum());
+console.log([1, 2, 3, 4].par.reduce((a, b) => a + b, 100));
+console.log(range(0, 5000).par.map((i) => String(i)).every((s, i) => s === String(i)));

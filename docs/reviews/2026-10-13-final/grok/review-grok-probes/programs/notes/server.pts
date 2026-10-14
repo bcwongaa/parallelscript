@@ -1,0 +1,267 @@
+// A small JSON notes service. Listens on 127.0.0.1 and prints "listening <port>".
+//   GET    /health
+//   GET    /notes?tag=work
+//   POST   /notes          { "title", "body", "tags"? }
+//   GET    /notes/:id
+//   PATCH  /notes/:id      any subset of title, body, tags
+//   DELETE /notes/:id
+
+import { serve, Response, type Request } from "pts:http";
+import { Mutex } from "pts:sync";
+
+interface Note {
+    id: number;
+    title: string;
+    body: string;
+    tags: string[];
+    updated: number;
+}
+
+interface Db {
+    next: number;
+    items: Map<number, Note>;
+}
+
+const db = new Mutex<Db>({ next: 1, items: new Map() });
+
+function json(data: unknown, status = 200): Response {
+    return Response.json(data, { status });
+}
+
+function fail(status: number, message: string): Response {
+    return json({ error: message }, status);
+}
+
+interface PathQuery {
+    path: string;
+    query: Map<string, string>;
+}
+
+function splitUrl(url: string): PathQuery {
+    const scheme = url.indexOf("://");
+    const start = scheme < 0 ? 0 : url.indexOf("/", scheme + 3);
+    const rest = start < 0 ? "/" : url.slice(start);
+    const q = rest.indexOf("?");
+    const path = q < 0 ? rest : rest.slice(0, q);
+    const query = new Map<string, string>();
+    if (q >= 0) {
+        for (const part of rest.slice(q + 1).split("&")) {
+            if (part === "") {
+                continue;
+            }
+            const eq = part.indexOf("=");
+            const key = decodeURIComponent(eq < 0 ? part : part.slice(0, eq));
+            const value = decodeURIComponent(eq < 0 ? "" : part.slice(eq + 1).replace(/\+/g, " "));
+            query.set(key, value);
+        }
+    }
+    const trimmed = path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+    return { path: trimmed, query };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+    }
+    return value as Record<string, unknown>;
+}
+
+function readString(obj: Record<string, unknown>, key: string, max: number): string | undefined {
+    const value = obj[key];
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const text = value.trim();
+    if (text.length === 0 || text.length > max) {
+        return undefined;
+    }
+    return text;
+}
+
+function readTags(value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const tags: string[] = [];
+    for (const item of value) {
+        if (typeof item !== "string") {
+            return undefined;
+        }
+        const tag = item.trim().toLowerCase();
+        if (!/^[a-z0-9-]{1,24}$/.test(tag)) {
+            return undefined;
+        }
+        if (!tags.includes(tag)) {
+            tags.push(tag);
+        }
+    }
+    tags.sort();
+    return tags;
+}
+
+function noteId(path: string): number | undefined {
+    const match = /^\/notes\/(\d+)$/.exec(path);
+    if (match === null || match[1] === undefined) {
+        return undefined;
+    }
+    const id = Number(match[1]);
+    if (!Number.isSafeInteger(id) || id < 1) {
+        return undefined;
+    }
+    return id;
+}
+
+function clone(note: Note): Note {
+    return { id: note.id, title: note.title, body: note.body, tags: [...note.tags], updated: note.updated };
+}
+
+async function readJson(request: Request): Promise<Record<string, unknown> | Response> {
+    let parsed: unknown;
+    try {
+        parsed = await request.json();
+    } catch {
+        return fail(400, "body is not JSON");
+    }
+    const obj = asRecord(parsed);
+    if (obj === undefined) {
+        return fail(400, "body must be a JSON object");
+    }
+    return obj;
+}
+
+function createNote(obj: Record<string, unknown>): Note | Response {
+    const title = readString(obj, "title", 120);
+    const body = readString(obj, "body", 8000);
+    if (title === undefined) {
+        return fail(400, "title must be 1 to 120 characters");
+    }
+    if (body === undefined) {
+        return fail(400, "body must be 1 to 8000 characters");
+    }
+    const tags = obj.tags === undefined ? [] : readTags(obj.tags);
+    if (tags === undefined) {
+        return fail(400, "tags must be an array of short identifiers");
+    }
+    return db.withLock((store) => {
+        const note: Note = { id: store.next, title, body, tags, updated: Date.now() };
+        store.next++;
+        store.items.set(note.id, note);
+        return clone(note);
+    });
+}
+
+function patchNote(id: number, obj: Record<string, unknown>): Note | Response {
+    if (obj.title !== undefined && readString(obj, "title", 120) === undefined) {
+        return fail(400, "title must be 1 to 120 characters");
+    }
+    if (obj.body !== undefined && readString(obj, "body", 8000) === undefined) {
+        return fail(400, "body must be 1 to 8000 characters");
+    }
+    if (obj.tags !== undefined && readTags(obj.tags) === undefined) {
+        return fail(400, "tags must be an array of short identifiers");
+    }
+    return db.withLock((store) => {
+        const note = store.items.get(id);
+        if (note === undefined) {
+            return fail(404, "note not found");
+        }
+        if (obj.title !== undefined) {
+            const title = readString(obj, "title", 120);
+            if (title !== undefined) {
+                note.title = title;
+            }
+        }
+        if (obj.body !== undefined) {
+            const body = readString(obj, "body", 8000);
+            if (body !== undefined) {
+                note.body = body;
+            }
+        }
+        if (obj.tags !== undefined) {
+            const tags = readTags(obj.tags);
+            if (tags !== undefined) {
+                note.tags = tags;
+            }
+        }
+        note.updated = Date.now();
+        return clone(note);
+    });
+}
+
+async function handle(request: Request): Promise<Response> {
+    if (request.signal.aborted) {
+        return fail(499, "client gone");
+    }
+    const { path, query } = splitUrl(request.url);
+    if (request.method === "GET" && path === "/health") {
+        const count = db.withLock((store) => store.items.size);
+        return json({ ok: true, notes: count });
+    }
+    if (path === "/notes" && request.method === "GET") {
+        const tag = query.get("tag");
+        const notes = db.withLock((store) => {
+            const all = [...store.items.values()].map(clone);
+            return tag === undefined ? all : all.filter((note) => note.tags.includes(tag.toLowerCase()));
+        });
+        notes.sort((a, b) => a.id - b.id);
+        return json({ notes });
+    }
+    if (path === "/notes" && request.method === "POST") {
+        const body = await readJson(request);
+        if (body instanceof Response) {
+            return body;
+        }
+        const created = createNote(body);
+        if (created instanceof Response) {
+            return created;
+        }
+        return json(created, 201);
+    }
+    const id = noteId(path);
+    if (id === undefined) {
+        return fail(404, `no route ${request.method} ${path}`);
+    }
+    if (request.method === "GET") {
+        const note = db.withLock((store) => {
+            const found = store.items.get(id);
+            return found === undefined ? undefined : clone(found);
+        });
+        return note === undefined ? fail(404, "note not found") : json(note);
+    }
+    if (request.method === "DELETE") {
+        const removed = db.withLock((store) => store.items.delete(id));
+        return removed ? json({ deleted: id }) : fail(404, "note not found");
+    }
+    if (request.method === "PATCH") {
+        const body = await readJson(request);
+        if (body instanceof Response) {
+            return body;
+        }
+        const updated = patchNote(id, body);
+        return updated instanceof Response ? updated : json(updated);
+    }
+    return fail(405, `method ${request.method} is not allowed`);
+}
+
+const portArg = process.argv[2];
+const port = portArg === undefined ? 0 : Number(portArg);
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    process.stderr.write("usage: notes-server [port]\n");
+    process.exit(2);
+}
+
+const server = serve({
+    port,
+    hostname: "127.0.0.1",
+    reusePort: true,
+    async fetch(request) {
+        return handle(request);
+    },
+    error(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`notes: ${message}\n`);
+        return fail(500, message);
+    },
+});
+
+process.stdout.write(`listening ${server.port}\n`);

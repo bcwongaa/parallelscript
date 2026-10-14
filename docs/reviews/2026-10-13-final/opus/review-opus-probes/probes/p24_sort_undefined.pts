@@ -1,0 +1,6 @@
+const xs: (number | undefined)[] = [3, undefined, 1, undefined, 2];
+console.log([...xs].sort(), [...xs].sort((a, b) => (a ?? 0) - (b ?? 0)));
+const ss: (string | undefined)[] = ["b", undefined, "a"];
+console.log([...ss].sort(), [...ss].sort((a, b) => String(a).localeCompare(String(b))), ss.toSorted());
+const ns: (number | null)[] = [3, null, 1];
+console.log([...ns].sort());

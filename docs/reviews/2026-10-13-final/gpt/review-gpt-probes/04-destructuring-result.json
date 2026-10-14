@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/04-destructuring.pts"
+    ],
+    "exit": 0,
+    "stdout": "3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/04-destructuring.mts"
+    ],
+    "exit": 0,
+    "stdout": "3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n",
+    "stderr": ""
+  }
+}

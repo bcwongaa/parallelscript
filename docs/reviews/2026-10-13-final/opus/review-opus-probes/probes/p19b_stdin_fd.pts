@@ -1,0 +1,2 @@
+import { readFileSync } from "pts:fs";
+console.log(readFileSync(0, "utf8").length);

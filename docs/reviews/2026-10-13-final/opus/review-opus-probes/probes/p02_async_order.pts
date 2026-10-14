@@ -1,0 +1,39 @@
+// Async ordering: microtasks, timers, async generators, thenables, finally.
+const log: string[] = [];
+const p = (s: string) => log.push(s);
+setTimeout(() => p("timeout 0"), 0);
+setTimeout(() => p("timeout 1"), 1);
+queueMicrotask(() => p("microtask 1"));
+Promise.resolve().then(() => p("then 1")).then(() => p("then 2"));
+(async () => {
+  p("async start");
+  await null;
+  p("after await null");
+  await new Promise<void>((r) => setTimeout(r, 0));
+  p("after timer await");
+})();
+const thenable = { then(res: (v: number) => void) { p("thenable.then called"); res(7); } };
+(async () => { const v = await thenable; p(`thenable gave ${v}`); })();
+async function* gen() {
+  try {
+    for (let i = 0; i < 5; i++) { p(`yield ${i}`); yield i; }
+  } finally { p("gen finally"); }
+}
+(async () => {
+  for await (const v of gen()) { if (v === 2) break; p(`got ${v}`); }
+  p("for await done");
+})();
+Promise.race([new Promise((r) => setTimeout(() => r("slow"), 5)), Promise.resolve("fast")]).then((v) => p(`race ${v}`));
+Promise.allSettled([Promise.reject(new Error("x")), Promise.resolve(1)]).then((rs) => p(rs.map((r) => r.status).join(",")));
+Promise.any([Promise.reject(new Error("a")), Promise.reject(new Error("b"))]).catch((e: AggregateError) => p(`any: ${e.constructor.name} ${e.errors.length}`));
+async function withFinally(): Promise<string> {
+  try { await null; throw new Error("boom"); }
+  catch (e) { p(`caught ${(e as Error).message}`); return "from catch"; }
+  finally { await null; p("finally after await"); }
+}
+withFinally().then((v) => p(`withFinally -> ${v}`));
+const { promise, resolve } = Promise.withResolvers<string>();
+promise.then((v) => p(`withResolvers ${v}`));
+resolve("ok");
+p("sync end");
+setTimeout(() => { console.log(log.join("\n")); }, 30);

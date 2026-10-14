@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/20-competing-errors.pts"
+    ],
+    "exit": 0,
+    "stdout": "arguments TypeError: The field 'values' is undefined: it is read before the constructor sets it\nsequenced TypeError: The field 'values' is undefined: it is read before the constructor sets it\n",
+    "stderr": ""
+  }
+}

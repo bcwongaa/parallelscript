@@ -1,0 +1,19 @@
+import { range } from "pts:parallel";
+function depth(n: number): number { return n === 0 ? 0 : 1 + depth(n - 1); }
+function runaway(n: number): number { return runaway(n + 1) + 1; }
+function tryOverflow(where: string): void {
+  try { runaway(0); console.log(where, "no overflow?"); } catch (e) { console.log(where, (e as Error).name, (e as Error).message); }
+}
+console.log(depth(50_000));
+tryOverflow("main:");
+async function inTask(): Promise<number> { tryOverflow("task:"); return depth(20_000); }
+console.log(await parallel inTask());
+range(0, 4).par.forEach((i) => { if (i === 2) tryOverflow("pool:"); });
+console.log(range(0, 8).par.map((i) => depth(10_000 + i)).length);
+function* deepGen(n: number): Generator<number> { if (n > 0) yield* deepGen(n - 1); yield n; }
+try { let c = 0; for (const _ of deepGen(5000)) c++; console.log("gen depth ok", c); } catch (e) { console.log("gen:", (e as Error).name); }
+async function asyncDeep(n: number): Promise<number> { return n === 0 ? 0 : 1 + (await asyncDeep(n - 1)); }
+console.log("async deep", await asyncDeep(10_000));
+const nested: any = JSON.parse("[".repeat(5000) + "]".repeat(5000));
+console.log("nested JSON ok", Array.isArray(nested));
+try { const deepObj: any[] = []; let cur = deepObj; for (let i = 0; i < 100000; i++) { const n: any[] = []; cur.push(n); cur = n; } console.log(JSON.stringify(deepObj).length); } catch (e) { console.log("stringify deep:", (e as Error).name); }

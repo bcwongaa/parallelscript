@@ -1,0 +1,40 @@
+// compare-node
+// Previous review finding 5. Node resolves with the then captured on the first get.
+let gets = 0;
+const thenable = {
+    get then() {
+        gets++;
+        const seen = gets;
+        return (resolve: (value: number) => void) => {
+            resolve(seen);
+        };
+    },
+};
+const resolved = await Promise.resolve(thenable);
+console.log("resolved", resolved, "gets", gets);
+
+const bomb = {
+    get then(): (resolve: (value: number) => void) => void {
+        throw new Error("getter");
+    },
+};
+try {
+    const pending = Promise.resolve(bomb);
+    console.log("resolve threw sync");
+    await pending;
+} catch (error) {
+    console.log("resolve rejected", (error as Error).message);
+}
+let settled = "pending";
+const made = new Promise((resolve) => resolve(bomb));
+made.then(
+    () => {
+        settled = "fulfilled";
+    },
+    () => {
+        settled = "rejected";
+    },
+);
+await Promise.resolve();
+await new Promise((resolve) => setTimeout(resolve, 20));
+console.log("new Promise", settled);

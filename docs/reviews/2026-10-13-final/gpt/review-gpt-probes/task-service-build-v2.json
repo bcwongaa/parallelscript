@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/pts",
+    "build",
+    "/tmp/pts-review-gpt/task-service.pts",
+    "-o",
+    "/tmp/pts-review-gpt/task-service"
+  ],
+  "threads": "4",
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}

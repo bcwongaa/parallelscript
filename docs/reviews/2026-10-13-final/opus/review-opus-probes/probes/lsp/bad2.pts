@@ -1,0 +1,8 @@
+import { range } from "pts:parallel";
+let count = 0;
+count++;
+const n: number = 3.5;
+const i: int = n as int;
+function f(): void { const parallel = 1; console.log(parallel); }
+class Local { m() { class Inner {} return new Inner(); } }
+const x = await parallel f();

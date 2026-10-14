@@ -1,0 +1,141 @@
+// Memento pattern: an RPG character whose state is saved to and restored from snapshots, plus JSON save files.
+
+interface Stats {
+  hp: number;
+  mp: number;
+  str: number;
+  int: number;
+}
+
+interface Snapshot {
+  readonly label: string;
+  readonly turn: number;
+  readonly state: string;
+}
+
+class Character {
+  private stats: Stats;
+  private inventory: Map<string, number> = new Map();
+  private level = 1;
+  private xp = 0;
+  private position: [number, number] = [0, 0];
+
+  constructor(readonly name: string, base: Stats) {
+    this.stats = { ...base };
+  }
+
+  move(dx: number, dy: number): void {
+    this.position = [this.position[0] + dx, this.position[1] + dy];
+  }
+  pickUp(item: string, n = 1): void {
+    this.inventory.set(item, (this.inventory.get(item) ?? 0) + n);
+  }
+  use(item: string): boolean {
+    const n = this.inventory.get(item) ?? 0;
+    if (n === 0) return false;
+    if (n === 1) this.inventory.delete(item);
+    else this.inventory.set(item, n - 1);
+    if (item === "potion") this.stats.hp = Math.min(this.stats.hp + 25, 100 + this.level * 10);
+    return true;
+  }
+  takeDamage(d: number): void {
+    this.stats.hp = Math.max(0, this.stats.hp - d);
+  }
+  gainXp(n: number): void {
+    this.xp += n;
+    while (this.xp >= this.level * 100) {
+      this.xp -= this.level * 100;
+      this.level++;
+      this.stats.str += 2;
+      this.stats.int += 1;
+      this.stats.hp += 10;
+    }
+  }
+  get alive(): boolean {
+    return this.stats.hp > 0;
+  }
+
+  save(label: string, turn: number): Snapshot {
+    const state = JSON.stringify({
+      stats: this.stats,
+      inventory: [...this.inventory],
+      level: this.level,
+      xp: this.xp,
+      position: this.position,
+    });
+    return Object.freeze({ label, turn, state });
+  }
+
+  restore(s: Snapshot): void {
+    const data = JSON.parse(s.state) as {
+      stats: Stats;
+      inventory: [string, number][];
+      level: number;
+      xp: number;
+      position: [number, number];
+    };
+    this.stats = data.stats;
+    this.inventory = new Map(data.inventory);
+    this.level = data.level;
+    this.xp = data.xp;
+    this.position = data.position;
+  }
+
+  summary(): string {
+    const inv = [...this.inventory].map(([k, v]) => `${k}x${v}`).join(",") || "empty";
+    return `${this.name} L${this.level} xp=${this.xp} hp=${this.stats.hp} str=${this.stats.str} at (${this.position.join(",")}) inv=${inv}`;
+  }
+}
+
+class SaveManager {
+  private slots: Snapshot[] = [];
+  constructor(private readonly maxSlots: number) {}
+
+  push(s: Snapshot): void {
+    this.slots.push(s);
+    if (this.slots.length > this.maxSlots) {
+      const dropped = this.slots.shift();
+      console.log(`  (autosave slot full, dropped "${dropped?.label}")`);
+    }
+  }
+  latest(): Snapshot | undefined {
+    return this.slots[this.slots.length - 1];
+  }
+  find(label: string): Snapshot | undefined {
+    return this.slots.find((s) => s.label === label);
+  }
+  list(): string[] {
+    return this.slots.map((s) => `${s.label}@${s.turn}`);
+  }
+}
+
+const hero = new Character("Rin", { hp: 100, mp: 30, str: 8, int: 12 });
+const saves = new SaveManager(3);
+const script: Array<[string, (c: Character) => void]> = [
+  ["explore", (c) => { c.move(3, 1); c.pickUp("potion", 2); c.pickUp("key"); }],
+  ["fight goblins", (c) => { c.takeDamage(35); c.gainXp(130); }],
+  ["heal", (c) => { c.use("potion"); }],
+  ["enter dungeon", (c) => { c.move(0, 5); c.use("key"); }],
+  ["fight dragon", (c) => { c.takeDamage(150); }],
+];
+script.forEach(([label, action], turn) => {
+  action(hero);
+  console.log(`turn ${turn}: ${label.padEnd(14)} ${hero.summary()}`);
+  if (hero.alive) saves.push(hero.save(label, turn));
+  else console.log("  hero fell!");
+});
+console.log("slots:", saves.list());
+const last = saves.latest();
+if (!hero.alive && last) {
+  hero.restore(last);
+  console.log("restored", last.label, "->", hero.summary());
+}
+const older = saves.find("heal");
+if (older) {
+  hero.restore(older);
+  console.log("rolled back to heal ->", hero.summary());
+}
+console.log(saves.find("explore"), hero.alive);
+const snap = hero.save("final", 99);
+console.log(Object.isFrozen(snap), snap.state.length, JSON.parse(snap.state).inventory);
+console.log(hero);

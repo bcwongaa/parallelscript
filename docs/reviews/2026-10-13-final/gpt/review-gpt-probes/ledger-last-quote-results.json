@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "exit": 0,
+    "stdout": "{\n  \"source\": \"expenses-last-quote.csv\",\n  \"accepted\": 1,\n  \"rejected\": 0,\n  \"cents\": 120,\n  \"categories\": [\n    {\n      \"category\": \"food\",\n      \"count\": 1,\n      \"cents\": 120,\n      \"merchants\": [\n        \"Market\"\n      ]\n    }\n  ],\n  \"months\": {\n    \"2026-02\": 120\n  },\n  \"errors\": []\n}\n",
+    "stderr": ""
+  },
+  "node": {
+    "exit": 0,
+    "stdout": "{\n  \"source\": \"expenses-last-quote.csv\",\n  \"accepted\": 1,\n  \"rejected\": 0,\n  \"cents\": 120,\n  \"categories\": [\n    {\n      \"category\": \"food\",\n      \"count\": 1,\n      \"cents\": 120,\n      \"merchants\": [\n        \"Market\"\n      ]\n    }\n  ],\n  \"months\": {\n    \"2026-02\": 120\n  },\n  \"errors\": []\n}\n",
+    "stderr": ""
+  }
+}

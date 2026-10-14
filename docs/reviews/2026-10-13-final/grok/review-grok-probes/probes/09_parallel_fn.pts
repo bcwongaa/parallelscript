@@ -1,0 +1,11 @@
+// A function expression is a valid parallel operand (review finding 9).
+const value = await parallel function (): number {
+    return 42;
+};
+console.log("function", value);
+const arrow = await parallel (() => 7);
+console.log("arrow", arrow);
+async function eleven(): Promise<number> {
+    return 11;
+}
+console.log("async", await parallel eleven());

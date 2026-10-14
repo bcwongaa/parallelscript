@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/bryan/.local/node/bin/node",
+    "--experimental-strip-types",
+    "/tmp/pts-review-gpt/ledger.mts",
+    "/tmp/pts-review-gpt/expenses.csv",
+    "--json"
+  ],
+  "threads": "4",
+  "exit": 1,
+  "stdout": "{\n  \"source\": \"expenses.csv\",\n  \"accepted\": 5,\n  \"rejected\": 2,\n  \"cents\": 5250,\n  \"categories\": [\n    {\n      \"category\": \"travel\",\n      \"count\": 1,\n      \"cents\": 3000,\n      \"merchants\": [\n        \"Train\"\n      ]\n    },\n    {\n      \"category\": \"food\",\n      \"count\": 4,\n      \"cents\": 2250,\n      \"merchants\": [\n        \"Café\",\n        \"Café, Montréal\",\n        \"Double \\\"Quote\\\"\",\n        \"Shop\"\n      ]\n    }\n  ],\n  \"months\": {\n    \"2026-01\": 1125,\n    \"2026-02\": 4125\n  },\n  \"errors\": [\n    \"line 6: Invalid date invalid\",\n    \"line 7: Invalid amount wat\"\n  ]\n}\n",
+  "stderr": ""
+}

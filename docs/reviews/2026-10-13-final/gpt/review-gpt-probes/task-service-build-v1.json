@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/pts",
+    "build",
+    "/tmp/pts-review-gpt/task-service.pts",
+    "-o",
+    "/tmp/pts-review-gpt/task-service"
+  ],
+  "threads": "4",
+  "exit": 1,
+  "stdout": "",
+  "stderr": "/tmp/pts-review-gpt/task-service.pts:152:3 - error TS2322: Type '(error: Error) => Response' is not assignable to type '(error: unknown) => Promise<Response> | Response'.\n  Types of parameters 'error' and 'error' are incompatible.\n    Type 'unknown' is not assignable to type 'Error'.\n"
+}

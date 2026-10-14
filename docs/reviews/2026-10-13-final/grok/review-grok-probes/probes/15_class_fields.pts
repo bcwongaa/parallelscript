@@ -1,0 +1,33 @@
+// compare-node
+class Holder {
+    name: string;
+    child: Holder | undefined;
+    constructor(name: string) {
+        this.name = name;
+    }
+    label(): string {
+        return this.child === undefined ? this.name : `${this.name}>${this.child.label()}`;
+    }
+}
+function make(): void {
+    const early = new Holder("a");
+    console.log("unset", early.child?.name);
+    early.child = new Holder("b");
+    console.log("set", early.label());
+}
+make();
+
+class Late {
+    #hidden = 1;
+    value!: string;
+    get hidden(): number {
+        return this.#hidden;
+    }
+}
+const late = new Late();
+try {
+    console.log("definite", late.value.length);
+} catch (error) {
+    console.log("definite", (error as Error).name, (error as Error).message);
+}
+console.log("private", late.hidden);

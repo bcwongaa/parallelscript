@@ -1,0 +1,157 @@
+// ledger: summarise an expenses CSV.
+//   pts run ledger.pts -- summary --file expenses.csv [--month YYYY-MM] [--category name] [--json]
+//   pts run ledger.pts -- list --file expenses.csv [--limit N]
+//   pts run ledger.pts -- validate --file expenses.csv
+
+import { readFileSync } from "pts:fs";
+import { resolve } from "pts:path";
+import {
+    filterExpenses,
+    formatList,
+    formatSummary,
+    parseLedger,
+    summarize,
+    type Expense,
+    type LedgerQuery,
+} from "./ledger_lib.pts";
+
+interface Options {
+    command: string;
+    file: string;
+    month?: string;
+    category?: string;
+    json: boolean;
+    limit?: number;
+}
+
+function fail(message: string): never {
+    process.stderr.write(`ledger: ${message}\n`);
+    process.exit(1);
+}
+
+function usage(): never {
+    process.stderr.write(
+        [
+            "usage: ledger summary --file PATH [--month YYYY-MM] [--category NAME] [--json]",
+            "       ledger list --file PATH [--month YYYY-MM] [--category NAME] [--limit N]",
+            "       ledger validate --file PATH",
+            "",
+        ].join("\n"),
+    );
+    process.exit(2);
+}
+
+function takeValue(args: string[], i: number, flag: string): string {
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+        fail(`${flag} needs a value`);
+    }
+    return value;
+}
+
+function parseArgs(argv: string[]): Options {
+    const command = argv[0];
+    if (command === undefined || command === "-h" || command === "--help") {
+        usage();
+    }
+    if (command !== "summary" && command !== "list" && command !== "validate") {
+        fail(`unknown command ${JSON.stringify(command)}`);
+    }
+    let file = "";
+    let month: string | undefined;
+    let category: string | undefined;
+    let json = false;
+    let limit: number | undefined;
+    for (let i = 1; i < argv.length; i++) {
+        const arg = argv[i] ?? "";
+        if (arg === "--file") {
+            file = takeValue(argv, i, arg);
+            i++;
+        } else if (arg === "--month") {
+            month = takeValue(argv, i, arg);
+            i++;
+        } else if (arg === "--category") {
+            category = takeValue(argv, i, arg);
+            i++;
+        } else if (arg === "--limit") {
+            const raw = takeValue(argv, i, arg);
+            const n = Number(raw);
+            if (!Number.isInteger(n) || n < 0) {
+                fail(`--limit wants a non-negative integer, got ${JSON.stringify(raw)}`);
+            }
+            limit = n;
+            i++;
+        } else if (arg === "--json") {
+            json = true;
+        } else if (arg === "--help" || arg === "-h") {
+            usage();
+        } else {
+            fail(`unexpected argument ${JSON.stringify(arg)}`);
+        }
+    }
+    if (file === "") {
+        fail("missing --file");
+    }
+    if (month !== undefined && !/^\d{4}-\d{2}$/.test(month)) {
+        fail(`--month wants YYYY-MM, got ${JSON.stringify(month)}`);
+    }
+    return { command, file, month, category, json, limit };
+}
+
+function load(path: string): string {
+    try {
+        return readFileSync(resolve(path), "utf8");
+    } catch (error) {
+        const err = error as Error;
+        fail(`cannot read ${path}: ${err.message}`);
+    }
+}
+
+function queryOf(options: Options): LedgerQuery {
+    return { month: options.month, category: options.category };
+}
+
+function applyLimit(rows: Expense[], limit: number | undefined): Expense[] {
+    if (limit === undefined || rows.length <= limit) {
+        return rows;
+    }
+    return rows.slice(0, limit);
+}
+
+const options = parseArgs(process.argv.slice(2));
+const ledger = parseLedger(load(options.file));
+if (options.command === "validate") {
+    if (ledger.issues.length === 0) {
+        process.stdout.write(`ok ${ledger.expenses.length} expenses\n`);
+        process.exit(0);
+    }
+    for (const issue of ledger.issues) {
+        process.stderr.write(`line ${issue.line}: ${issue.message}\n`);
+    }
+    process.exit(1);
+}
+if (ledger.issues.length > 0) {
+    for (const issue of ledger.issues) {
+        process.stderr.write(`line ${issue.line}: ${issue.message}\n`);
+    }
+}
+const rows = filterExpenses(ledger.expenses, queryOf(options));
+if (options.command === "list") {
+    const shown = applyLimit(rows, options.limit);
+    if (options.json) {
+        process.stdout.write(`${JSON.stringify(shown)}\n`);
+    } else {
+        const text = formatList(shown);
+        process.stdout.write(text === "" ? "(no expenses)\n" : `${text}\n`);
+    }
+} else {
+    const summary = summarize(rows);
+    if (options.json) {
+        process.stdout.write(`${JSON.stringify(summary)}\n`);
+    } else {
+        process.stdout.write(`${formatSummary(summary)}\n`);
+    }
+}
+if (ledger.issues.length > 0) {
+    process.exit(1);
+}

@@ -1,0 +1,13 @@
+async function attempt(url: string): Promise<void> {
+    try {
+        const response = await fetch(url);
+        console.log(url, response.status);
+    } catch (error) {
+        const err = error as Error;
+        const cause = (err as any).cause;
+        console.log(url, err.name, err.message, cause === undefined ? "" : String(cause));
+    }
+}
+await attempt("https://example.com/");
+await attempt("http://127.0.0.1:1/");
+await attempt("http://no-such-host.invalid/");

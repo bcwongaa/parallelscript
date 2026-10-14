@@ -1,0 +1,139 @@
+{
+  "04-destructuring-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/04-destructuring.pts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n",
+    "stderr": ""
+  },
+  "04-destructuring-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/04-destructuring.mts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n",
+    "stderr": ""
+  },
+  "08-generics-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/08-generics.pts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "[ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n",
+    "stderr": ""
+  },
+  "08-generics-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/08-generics.mts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "[ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n",
+    "stderr": ""
+  },
+  "12-optional-order-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/12-optional-order.pts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n",
+    "stderr": ""
+  },
+  "12-optional-order-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/12-optional-order.mts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n",
+    "stderr": ""
+  },
+  "destructuring-undefined-min-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/destructuring-undefined-min.pts"
+    ],
+    "threads": "4",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "/tmp/pts-review-gpt/destructuring-undefined-min.pts:1:9 - error PTS1001: converting undefined to number is not supported yet\n"
+  },
+  "destructuring-undefined-min-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/destructuring-undefined-min.mts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "4\n",
+    "stderr": ""
+  },
+  "abort-build": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "build",
+      "/tmp/pts-review-gpt/abort-local-min.pts",
+      "-o",
+      "/tmp/pts-review-gpt/abort-local-min"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "abort-1-9": {
+    "command": [
+      "/tmp/pts-review-gpt/abort-local-min"
+    ],
+    "threads": "1",
+    "exit": 0,
+    "stdout": "[{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"}]\n",
+    "stderr": ""
+  },
+  "abort-4-10": {
+    "command": [
+      "/tmp/pts-review-gpt/abort-local-min"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "[{\"passed\":9286,\"failed\":714,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9477,\"failed\":523,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9225,\"failed\":775,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9236,\"failed\":764,\"first\":\"TypeError: Illegal constructor\"}]\n",
+    "stderr": ""
+  },
+  "abort-4-11": {
+    "command": [
+      "/tmp/pts-review-gpt/abort-local-min"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "[{\"passed\":9239,\"failed\":761,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9011,\"failed\":989,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9320,\"failed\":680,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9026,\"failed\":974,\"first\":\"TypeError: Illegal constructor\"}]\n",
+    "stderr": ""
+  },
+  "abort-4-12": {
+    "command": [
+      "/tmp/pts-review-gpt/abort-local-min"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "[{\"passed\":9165,\"failed\":835,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9108,\"failed\":892,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9129,\"failed\":871,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9026,\"failed\":974,\"first\":\"TypeError: Illegal constructor\"}]\n",
+    "stderr": ""
+  }
+}

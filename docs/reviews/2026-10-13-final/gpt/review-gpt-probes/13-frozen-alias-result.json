@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/13-frozen-alias.pts"
+    ],
+    "exit": 0,
+    "stdout": "TypeError\na [ 1, 2, 3 ] true false\n[ [ 'a', 1 ], [ 'b', 2 ] ]\nTypeError [ 1, 2 ]\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/13-frozen-alias.mts"
+    ],
+    "exit": 0,
+    "stdout": "TypeError\na [ 1, 2, 3 ] true false\n[ [ 'a', 1 ], [ 'b', 2 ] ]\nTypeError [ 1, 2 ]\n",
+    "stderr": ""
+  }
+}

@@ -1,0 +1,23 @@
+import { AtomicInt, Channel, Mutex, Once } from "pts:sync";
+const object = { count: 0 };
+const mutex = new Mutex(object);
+const channel = new Channel<number>(0);
+const once = new Once();
+const seen = new AtomicInt();
+async function producer(): Promise<void> {
+    for (let i = 1; i <= 5; i++) {
+        const guard = await mutex.lock();
+        guard.value.count += i;
+        guard.unlock();
+        once.run(() => seen.add(1));
+        await channel.send(i);
+    }
+    channel.close();
+}
+const task = parallel producer();
+let sum = 0;
+for await (const value of channel) sum += value;
+await task;
+console.log(sum, object.count, seen.load(), channel.closed, once.done);
+try { await channel.send(6); }
+catch (error: any) { console.log(error.message); }

@@ -1,0 +1,13 @@
+const checks: [string, () => unknown][] = [
+  ["structuredClone", () => structuredClone({ a: [1] })],
+  ["URL", () => new URL("http://x.com/a?b=1").searchParams.get("b")],
+  ["URLSearchParams", () => new URLSearchParams("a=1&b=2").get("b")],
+  ["TextEncoder", () => new TextEncoder().encode("hé").length],
+  ["Intl.NumberFormat", () => new Intl.NumberFormat("en-US").format(1234.5)],
+  ["Array.prototype.group", () => Object.groupBy([1, 2, 3], (x) => (x % 2 ? "odd" : "even"))],
+  ["crypto.randomUUID", () => crypto.randomUUID().length],
+  ["setImmediate", () => typeof setImmediate],
+  ["atob", () => atob(btoa("hi"))],
+  ["WeakMap", () => new WeakMap().has({})],
+];
+for (const [name, f] of checks) { try { console.log(name, f()); } catch (e) { console.log(name, "threw", String(e)); } }

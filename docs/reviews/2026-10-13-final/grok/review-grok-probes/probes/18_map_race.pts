@@ -1,0 +1,17 @@
+// Racing pushes must not crash. Lost updates are allowed; a hang or abort is not.
+const shared: number[] = [];
+parallel for (const n of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    shared.push(n);
+}
+shared.sort((a, b) => a - b);
+console.log("len", shared.length, "vals", shared.join(","));
+
+const record: Record<string, number> = {};
+try {
+    parallel for (const n of [1, 2, 3, 4]) {
+        record[`k${n}`] = n;
+    }
+    console.log("record", JSON.stringify(record));
+} catch (error) {
+    console.log("record threw", (error as Error).name, (error as Error).message);
+}

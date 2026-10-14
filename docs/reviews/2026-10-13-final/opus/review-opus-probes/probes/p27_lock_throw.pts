@@ -1,0 +1,21 @@
+import { Mutex, Once, Channel } from "pts:sync";
+import { range } from "pts:parallel";
+const m = new Mutex({ n: 0 });
+try { m.withLock(() => { throw new Error("inside lock"); }); } catch (e) { console.log("caught", (e as Error).message); }
+console.log("relocked:", m.withLock((v) => ++v.n));
+try { range(0, 100).par.forEach((i) => { m.withLock((v) => { v.n++; if (i === 50) throw new Error("par in lock"); }); }); } catch (e) { console.log("par caught", (e as Error).message); }
+console.log("after par:", m.withLock((v) => v.n > 1));
+const g = await m.lock();
+const waiter = (async () => { const g2 = await m.lock(); g2.unlock(); return "second lock acquired"; })();
+g.unlock();
+console.log(await waiter);
+try { g.value.n = 5; } catch (e) { console.log("guard after unlock:", (e as Error).message); }
+const once = new Once();
+try { once.run(() => { throw new Error("first run fails"); }); } catch (e) { console.log("once:", (e as Error).message); }
+once.run(() => console.log("once retried")); console.log(once.done);
+const ch = new Channel<number>(1);
+await ch.send(1);
+const timeout = new Promise<string>((r) => setTimeout(() => r("send blocked as expected"), 20));
+console.log(await Promise.race([ch.send(2).then(() => "sent?"), timeout]));
+ch.close();
+console.log(await ch.recv(), await ch.recv());

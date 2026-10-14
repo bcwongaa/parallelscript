@@ -1,0 +1,13 @@
+const minimum: int = -9223372036854775808;
+const maximum: int = 9223372036854775807;
+const negativeOne: int = -1;
+console.log(minimum / negativeOne, minimum % negativeOne, maximum + 1);
+const big: u64 = 18446744073709551615;
+console.log(big + 1, big >> 63);
+const nan = NaN;
+const positiveInfinity = Infinity;
+const negativeInfinity = -Infinity;
+console.log(nan as int, positiveInfinity as i8, negativeInfinity as u8, (-129.9) as i8);
+try { const zero: int = 0; console.log(maximum / zero); }
+catch (error: any) { console.log(error.name); }
+console.log(typeof maximum, (255 as u8) + (1 as u8));

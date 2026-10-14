@@ -1,0 +1,4 @@
+const j: any = JSON.parse('{"a":1,"list":[1,2]}');
+for (const key in j) {
+  if (j.hasOwnProperty(key)) console.log("own", key);
+}

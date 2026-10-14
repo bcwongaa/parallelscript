@@ -1,0 +1,12 @@
+class Emitter<E extends Record<string, unknown[]>> {
+  private handlers: { [K in keyof E]?: ((...args: E[K]) => void)[] } = {};
+  on<K extends keyof E>(event: K, h: (...args: E[K]) => void): void {
+    const list = this.handlers[event] ?? [];
+    list.push(h);
+    this.handlers[event] = list;
+  }
+  emit<K extends keyof E>(event: K, ...args: E[K]): void { for (const h of this.handlers[event] ?? []) h(...args); }
+}
+const e = new Emitter<{ data: [string, number] }>();
+e.on("data", (s, n) => console.log(s, n));
+e.emit("data", "x", 1);

@@ -1,0 +1,24 @@
+// Known issue: instanceof narrowing of a generic class throws MapLRU<any, any>.
+interface Cache<K, V> {
+    get(key: K): V | undefined;
+}
+class MapLRU<K, V> implements Cache<K, V> {
+    #value: V | undefined;
+    constructor(value?: V) {
+        this.#value = value;
+    }
+    get(_key: K): V | undefined {
+        return this.#value;
+    }
+}
+function read(cache: Cache<string, number>): string {
+    if (cache instanceof MapLRU) {
+        return `hit ${cache.get("a")}`;
+    }
+    return "other";
+}
+try {
+    console.log(read(new MapLRU<string, number>(4)));
+} catch (error) {
+    console.log("threw", (error as Error).message);
+}

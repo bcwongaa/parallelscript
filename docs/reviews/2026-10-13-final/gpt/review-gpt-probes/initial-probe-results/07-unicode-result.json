@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/07-unicode.pts"
+    ],
+    "exit": 0,
+    "stdout": "8 \"A😀é\\ud800Z\\udc00\" false \"A😀é�Z�\"\n[\n     65, 128512,\n    101,    769,\n  55296,     90,\n  56320\n]\n[\n   65, 55357, 56832,\n  101,   769, 55296,\n   90, 56320\n]\n\"\\ud83d\" \"\\ude00\"\né Å STRASSE\n[a][😀][b]\n[ 'a', '😀', 'b' ]\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/07-unicode.mts"
+    ],
+    "exit": 0,
+    "stdout": "8 \"A😀é\\ud800Z\\udc00\" false \"A😀é�Z�\"\n[\n     65, 128512,\n    101,    769,\n  55296,     90,\n  56320\n]\n[\n   65, 55357, 56832,\n  101,   769, 55296,\n   90, 56320\n]\n\"\\ud83d\" \"\\ude00\"\né Å STRASSE\n[a][😀][b]\n[ 'a', '😀', 'b' ]\n",
+    "stderr": ""
+  }
+}

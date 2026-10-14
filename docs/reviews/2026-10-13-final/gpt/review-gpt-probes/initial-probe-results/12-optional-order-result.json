@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/12-optional-order.pts"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "/tmp/pts-review-gpt/12-optional-order.pts:5:13 - error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ n: number; f: (n: number) => number; }'.\n  No index signature with a parameter of type 'string' was found on type '{ n: number; f: (n: number) => number; }'.\n"
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/12-optional-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n",
+    "stderr": ""
+  }
+}

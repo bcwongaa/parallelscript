@@ -1,0 +1,46 @@
+import { range, join } from "pts:parallel";
+class AppError extends Error {
+  constructor(message: string, public code: number, options?: { cause?: unknown }) { super(message, options); this.name = "AppError"; }
+}
+async function failsLater(n: number): Promise<number> {
+  await new Promise((r) => setTimeout(r, n));
+  if (n % 2 === 1) throw new AppError(`odd ${n}`, n, { cause: new RangeError("inner") });
+  return n;
+}
+// 1. A task that rejects after an await, caught across loops; class identity survives.
+try { await parallel failsLater(3); } catch (e) {
+  console.log("1:", e instanceof AppError, (e as AppError).code, ((e as Error).cause as Error).name);
+}
+// 2. allSettled over tasks.
+const settled = await Promise.allSettled([1, 2, 3, 4].map((n) => parallel failsLater(n)));
+console.log("2:", settled.map((s) => s.status === "fulfilled" ? s.value : (s.reason as Error).message));
+// 3. A throw inside .par.map inside a task.
+async function parInTask(): Promise<number[]> {
+  return range(0, 1000).par.map((i) => { if (i === 777) throw new AppError("in par", 777); return i; });
+}
+try { await parallel parInTask(); } catch (e) { console.log("3:", (e as AppError).code, (e as Error).message); }
+// 4. join where both sides throw: one error comes out.
+try { join(() => { throw new Error("left"); }, () => { throw new Error("right"); }); } catch (e) { console.log("4:", ["left", "right"].includes((e as Error).message)); }
+// 5. Nested: a task starting tasks, one throws a non-Error value.
+async function outer(): Promise<string> {
+  const inner = await Promise.all([parallel Promise.resolve("a"), parallel ((async () => { throw "plain string"; })())]);
+  return inner.join();
+}
+try { await parallel outer(); } catch (e) { console.log("5:", typeof e, e); }
+// 6. finally runs on every path inside tasks.
+let finals = 0;
+async function withFinally(i: number): Promise<number> {
+  try { if (i % 3 === 0) throw new Error("x"); return i; } finally { await null; }
+}
+const fr = await Promise.allSettled([...range(0, 9)].map((i) => parallel withFinally(i)));
+console.log("6:", fr.filter((r) => r.status === "rejected").length);
+// 7. Stack trace of an error thrown in a task.
+try { await parallel failsLater(5); } catch (e) { console.log("7:", ((e as Error).stack ?? "").split("\n").slice(0, 3).join(" | ")); }
+// 8. parallel for: first error rethrown, others skipped.
+try {
+  parallel for (const i of range(0, 10_000)) { if (i % 1000 === 999) throw new AppError(`it ${i}`, i); }
+} catch (e) { console.log("8:", e instanceof AppError, (e as AppError).code % 1000); }
+// 9. An unhandled rejection in a task nobody awaits: the process should report it.
+parallel failsLater(9);
+await new Promise((r) => setTimeout(r, 50));
+console.log("9: still running after unawaited rejection");

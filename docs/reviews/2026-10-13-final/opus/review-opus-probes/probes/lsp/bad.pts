@@ -1,0 +1,9 @@
+import { range } from "pts:parallel";
+let count = 0;
+range(0, 10).par.forEach(() => { count++; });
+const n: number = 3.5;
+const i: int = n;
+const s: string = 42;
+function f(): void { const parallel = 1; console.log(parallel); }
+class Local { m() { class Inner {} return new Inner(); } }
+const x = await parallel f();

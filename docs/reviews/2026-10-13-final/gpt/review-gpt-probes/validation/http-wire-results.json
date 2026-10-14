@@ -1,0 +1,82 @@
+[
+  {
+    "case": "healthy",
+    "sent": "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+  },
+  {
+    "case": "head",
+    "sent": "HEAD /head HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\ncontent-length: 7\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "no-content",
+    "sent": "GET /no-content HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    "received": "HTTP/1.1 204 No Content\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "nul-header",
+    "sent": "GET / HTTP/1.1\r\nHost: localhost\r\nX: a\u0000b\r\n\r\n",
+    "received": "HTTP/1.1 400 Bad Request\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "duplicate-length",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\n{}",
+    "received": "HTTP/1.1 400 Bad Request\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "length-and-chunks",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:39 GMT\r\ncontent-length: 2\r\n\r\n{}"
+  },
+  {
+    "case": "bad-chunk",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\nG\r\nabc\r\n0\r\n\r\n",
+    "received": "HTTP/1.1 400 Bad Request\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "oversized-body",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999999\r\n\r\n",
+    "received": "HTTP/1.1 413 Content Too Large\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+  },
+  {
+    "case": "chunked",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n7\r\n{\"x\":1}\r\n0\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 7\r\nconnection: close\r\n\r\n{\"x\":1}"
+  },
+  {
+    "case": "ambiguous-pipeline",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\n\r\n{}HTTP/1.1 200 OK\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+  },
+  {
+    "case": "nonfinal-chunked",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked, gzip\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}"
+  },
+  {
+    "case": "unsupported-transfer",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 2\r\nTransfer-Encoding: gzip\r\n\r\n{}",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}"
+  },
+  {
+    "case": "signed-length",
+    "sent": "POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: +2\r\n\r\n{}",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}"
+  },
+  {
+    "case": "healthy-with-eight-slow-clients",
+    "sent": "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    "received": "HTTP/1.1 200 OK\r\ncontent-type: text/plain;charset=UTF-8\r\ndate: Tue, 13 Oct 2026 04:56:40 GMT\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+  },
+  {
+    "case": "64-connections",
+    "success": 64
+  },
+  {
+    "case": "server-exit",
+    "exit": -15,
+    "stdout": "",
+    "stderr": ""
+  }
+]

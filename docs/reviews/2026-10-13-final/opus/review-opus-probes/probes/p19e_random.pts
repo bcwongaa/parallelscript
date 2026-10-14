@@ -1,0 +1,3 @@
+const xs = Array.from({ length: 5 }, () => Math.random());
+console.log(xs.every((x) => x >= 0 && x < 1), new Set(xs).size);
+console.log(typeof Date.now(), typeof performance.now(), process.argv.length >= 2, typeof process.env.HOME);

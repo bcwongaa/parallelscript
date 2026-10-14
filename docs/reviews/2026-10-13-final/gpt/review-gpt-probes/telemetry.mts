@@ -1,0 +1,206 @@
+import { readFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+
+interface Event {
+  timestamp: string;
+  site: string;
+  sensor: string;
+  value: number;
+  unit: "C" | "F";
+}
+interface Reading {
+  day: string;
+  site: string;
+  sensor: string;
+  celsius: number;
+}
+interface Statistics {
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  buckets: number[];
+}
+interface BatchResult {
+  groups: Map<string, Statistics>;
+  sensors: Set<string>;
+  rejected: string[];
+}
+interface ReportRow {
+  day: string;
+  site: string;
+  count: number;
+  mean: number;
+  min: number;
+  max: number;
+  buckets: number[];
+}
+interface Report {
+  files: string[];
+  readings: number;
+  sensors: string[];
+  rows: ReportRow[];
+  rejected: string[];
+}
+
+const BATCH_LINES = 128;
+const BUCKET_WIDTH = 10;
+const BUCKET_COUNT = 10;
+const LOWEST_BUCKET = -30;
+
+function readEvent(text: string): Event {
+  const value: any = JSON.parse(text);
+  if (value === null || typeof value !== "object") throw new TypeError("Event must be an object");
+  if (typeof value.timestamp !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value.timestamp)) {
+    throw new TypeError("Invalid timestamp");
+  }
+  if (!Number.isFinite(Date.parse(value.timestamp))) throw new TypeError("Invalid timestamp");
+  if (typeof value.site !== "string" || value.site.trim() === "") throw new TypeError("Invalid site");
+  if (typeof value.sensor !== "string") throw new TypeError("Invalid sensor");
+  if (typeof value.value !== "number" || !Number.isFinite(value.value)) throw new TypeError("Invalid value");
+  if (value.unit !== "C" && value.unit !== "F") throw new TypeError("Invalid unit");
+  return {
+    timestamp: value.timestamp,
+    site: value.site.trim().normalize("NFC"),
+    sensor: value.sensor,
+    value: value.value,
+    unit: value.unit,
+  };
+}
+
+function normalizeReading(event: Event): Reading {
+  return {
+    day: new Date(event.timestamp).toISOString().slice(0, 10),
+    site: event.site,
+    sensor: event.sensor,
+    celsius: event.unit === "F" ? (event.value - 32) * 5 / 9 : event.value,
+  };
+}
+
+function emptyStatistics(): Statistics {
+  return {
+    count: 0,
+    sum: 0,
+    min: Infinity,
+    max: -Infinity,
+    buckets: new Array<number>(BUCKET_COUNT).fill(0),
+  };
+}
+
+function bucketFor(value: number): number {
+  return Math.max(0, Math.min(BUCKET_COUNT - 1, Math.floor((value - LOWEST_BUCKET) / BUCKET_WIDTH)));
+}
+
+function addReading(statistics: Statistics, reading: Reading): void {
+  statistics.count++;
+  statistics.sum += reading.celsius;
+  statistics.min = Math.min(statistics.min, reading.celsius);
+  statistics.max = Math.max(statistics.max, reading.celsius);
+  statistics.buckets[bucketFor(reading.celsius)]++;
+}
+
+function analyzeBatch(lines: string[], offset: number): BatchResult {
+  const groups = new Map<string, Statistics>();
+  const sensors = new Set<string>();
+  const rejected: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === "") continue;
+    try {
+      const reading = normalizeReading(readEvent(lines[i]));
+      const key = JSON.stringify([reading.day, reading.site]);
+      let statistics = groups.get(key);
+      if (statistics === undefined) {
+        statistics = emptyStatistics();
+        groups.set(key, statistics);
+      }
+      addReading(statistics, reading);
+      sensors.add(reading.sensor);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      rejected.push(`line ${offset + i + 1}: ${message}`);
+    }
+  }
+  return { groups, sensors, rejected };
+}
+
+function mergeStatistics(target: Statistics, source: Statistics): void {
+  target.count += source.count;
+  target.sum += source.sum;
+  target.min = Math.min(target.min, source.min);
+  target.max = Math.max(target.max, source.max);
+  for (let i = 0; i < target.buckets.length; i++) target.buckets[i] += source.buckets[i];
+}
+
+function mergeBatches(batches: BatchResult[]): BatchResult {
+  const merged: BatchResult = { groups: new Map(), sensors: new Set(), rejected: [] };
+  for (const batch of batches) {
+    for (const [key, source] of batch.groups) {
+      let target = merged.groups.get(key);
+      if (target === undefined) {
+        target = emptyStatistics();
+        merged.groups.set(key, target);
+      }
+      mergeStatistics(target, source);
+    }
+    for (const sensor of batch.sensors) merged.sensors.add(sensor);
+    merged.rejected.push(...batch.rejected);
+  }
+  return merged;
+}
+
+function analyzeText(text: string): BatchResult {
+  const lines = text.split(/\r?\n/);
+  const slices: { offset: number; lines: string[] }[] = [];
+  for (let offset = 0; offset < lines.length; offset += BATCH_LINES) {
+    slices.push({ offset, lines: lines.slice(offset, offset + BATCH_LINES) });
+  }
+  return mergeBatches(slices.map((batch) => analyzeBatch(batch.lines, batch.offset)));
+}
+
+function reportRows(groups: Map<string, Statistics>): ReportRow[] {
+  const rows: ReportRow[] = [];
+  for (const [key, statistics] of groups) {
+    const [day, site]: string[] = JSON.parse(key);
+    rows.push({
+      day,
+      site,
+      count: statistics.count,
+      mean: Number((statistics.sum / statistics.count).toFixed(6)),
+      min: statistics.min,
+      max: statistics.max,
+      buckets: [...statistics.buckets],
+    });
+  }
+  return rows.sort((a, b) => a.day.localeCompare(b.day) || a.site.localeCompare(b.site));
+}
+
+async function buildReport(files: string[]): Promise<Report> {
+  const contents = await Promise.all(files.map((file) => readFile(file, "utf8")));
+  const batches = contents.map((text) => analyzeText(text));
+  const combined = mergeBatches(batches);
+  const rows = reportRows(combined.groups);
+  return {
+    files: files.map((file) => path.basename(file)),
+    readings: rows.reduce((sum, row) => sum + row.count, 0),
+    sensors: [...combined.sensors].sort(),
+    rows,
+    rejected: combined.rejected,
+  };
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const output = args[0];
+  const files = args.slice(1);
+  if (output === undefined || files.length === 0) {
+    console.error("Usage: telemetry output.json input.ndjson ...");
+    process.exitCode = 2;
+    return;
+  }
+  const report = await buildReport(files);
+  writeFileSync(output, JSON.stringify(report, null, 2) + "\n");
+  console.log(`readings=${report.readings} sensors=${report.sensors.length} groups=${report.rows.length} rejected=${report.rejected.length}`);
+  console.log(report.rows.map((row) => `${row.day} ${row.site} ${row.count} ${row.mean}`).join("\n"));
+}
+await main();

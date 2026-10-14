@@ -1,0 +1,122 @@
+// Drives the notes server and prints one line per check. Exits 1 on a mismatch.
+//   pts run client.pts -- http://127.0.0.1:PORT
+
+interface Note {
+    id: number;
+    title: string;
+    body: string;
+    tags: string[];
+}
+
+class CheckError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "CheckError";
+    }
+}
+
+const base = process.argv[2];
+if (base === undefined || !base.startsWith("http://")) {
+    process.stderr.write("usage: notes-client http://127.0.0.1:PORT\n");
+    process.exit(2);
+}
+
+let failed = 0;
+
+function report(ok: boolean, line: string): void {
+    process.stdout.write(`${ok ? "ok  " : "FAIL"} ${line}\n`);
+    if (!ok) {
+        failed++;
+    }
+}
+
+async function call(method: string, path: string, body?: unknown): Promise<{ status: number; text: string }> {
+    // Building RequestInit in a variable is PTS1001: optional fields must match the
+    // library type exactly (`body?: string` is not `body?: string | null`). Inline literals work.
+    const url = `${base}${path}`;
+    const response = body === undefined
+        ? await fetch(url, { method })
+        : await fetch(url, {
+            method,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+        });
+    return { status: response.status, text: await response.text() };
+}
+
+function parse(text: string): any {
+    return JSON.parse(text);
+}
+
+async function expectStatus(method: string, path: string, status: number, body?: unknown): Promise<any> {
+    const response = await call(method, path, body);
+    const ok = response.status === status;
+    report(ok, `${method} ${path} -> ${response.status}${ok ? "" : ` (wanted ${status}) ${response.text}`}`);
+    if (!ok) {
+        throw new CheckError(`${method} ${path}`);
+    }
+    return response.text === "" ? undefined : parse(response.text);
+}
+
+async function scenario(): Promise<void> {
+    const health = await expectStatus("GET", "/health", 200);
+    report(health.ok === true && health.notes === 0, `health notes=${health.notes}`);
+
+    const first = await expectStatus("POST", "/notes", 201, {
+        title: "Ship the review",
+        body: "Write three programs and keep the notes.",
+        tags: ["work", "pts"],
+    });
+    const second = await expectStatus("POST", "/notes", 201, {
+        title: "Buy milk",
+        body: "Oat, if they have it.",
+        tags: ["home"],
+    });
+    const third = await expectStatus("POST", "/notes", 201, {
+        title: "Parallel indexer",
+        body: "Count words across a directory.",
+        tags: ["work", "pts"],
+    });
+    report(first.id === 1 && second.id === 2 && third.id === 3, `ids ${first.id},${second.id},${third.id}`);
+
+    const listed = await expectStatus("GET", "/notes", 200);
+    report(listed.notes.length === 3, `list count ${listed.notes.length}`);
+
+    const work = await expectStatus("GET", "/notes?tag=work", 200);
+    const workIds = (work.notes as Note[]).map((note) => note.id).join(",");
+    report(workIds === "1,3", `tag=work ids ${workIds}`);
+
+    const encoded = await expectStatus("GET", "/notes?tag=home", 200);
+    report(encoded.notes.length === 1 && encoded.notes[0].title === "Buy milk", "tag=home");
+
+    const got = await expectStatus("GET", "/notes/2", 200);
+    report(got.body.includes("Oat"), "get body");
+
+    const patched = await expectStatus("PATCH", "/notes/2", 200, { body: "Oat milk, two cartons.", tags: ["home", "shop"] });
+    report(patched.tags.join(",") === "home,shop" && patched.body.startsWith("Oat milk"), `patched tags ${patched.tags.join(",")}`);
+
+    const removed = await expectStatus("DELETE", "/notes/3", 200);
+    report(removed.deleted === 3, "deleted 3");
+    await expectStatus("GET", "/notes/3", 404);
+    await expectStatus("DELETE", "/notes/3", 404);
+    await expectStatus("POST", "/notes", 400, { title: "", body: "x" });
+    await expectStatus("POST", "/notes", 400, { title: "nope" });
+    await expectStatus("POST", "/notes", 400, "not-json");
+    await expectStatus("GET", "/missing", 404);
+    await expectStatus("PUT", "/notes/1", 405);
+
+    const left = await expectStatus("GET", "/notes", 200);
+    report((left.notes as Note[]).length === 2, `remaining ${left.notes.length}`);
+}
+
+try {
+    await scenario();
+} catch (error) {
+    if (!(error instanceof CheckError)) {
+        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        process.stderr.write(`client crashed: ${message}\n`);
+        failed++;
+    }
+}
+process.stdout.write(failed === 0 ? "client: all checks passed\n" : `client: ${failed} checks failed\n`);
+process.exit(failed === 0 ? 0 : 1);

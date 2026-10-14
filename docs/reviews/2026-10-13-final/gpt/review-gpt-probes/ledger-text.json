@@ -1,0 +1,10 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/ledger",
+    "/tmp/pts-review-gpt/expenses.csv"
+  ],
+  "threads": "4",
+  "exit": 1,
+  "stdout": "Ledger: expenses.csv\nAccepted 5; rejected 2\nTotal 52.50\n\nCategory          Count       Total\ntravel                1       30.00\n  Train\nfood                  4       22.50\n  Café, Café, Montréal, Double \"Quote\", Shop\n\nRejected records:\nline 6: Invalid date invalid\nline 7: Invalid amount wat\n",
+  "stderr": ""
+}

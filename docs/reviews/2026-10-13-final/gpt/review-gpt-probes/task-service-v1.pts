@@ -1,0 +1,204 @@
+import { serve, Request, Response } from "pts:http";
+import { AtomicInt, Mutex } from "pts:sync";
+
+interface Task {
+  id: number;
+  title: string;
+  completed: boolean;
+  version: number;
+  labels: string[];
+}
+interface TaskInput {
+  title: string;
+  labels: string[];
+}
+interface TaskPatch {
+  title?: string;
+  completed?: boolean;
+}
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+class TaskStore {
+  private records = new Map<number, Task>();
+  private nextId = 1;
+
+  create(input: TaskInput): Task {
+    const task: Task = {
+      id: this.nextId++,
+      title: input.title,
+      labels: [...input.labels],
+      completed: false,
+      version: 1,
+    };
+    this.records.set(task.id, task);
+    return this._copy(task);
+  }
+
+  list(label?: string): Task[] {
+    return [...this.records.values()]
+      .filter((task) => label === undefined || task.labels.includes(label))
+      .sort((a, b) => a.id - b.id)
+      .map((task) => this._copy(task));
+  }
+
+  get(id: number): Task | undefined {
+    const task = this.records.get(id);
+    return task === undefined ? undefined : this._copy(task);
+  }
+
+  patch(id: number, patch: TaskPatch, version: number): Task {
+    const task = this.records.get(id);
+    if (task === undefined) throw new HttpError(404, "Task not found");
+    if (task.version !== version) throw new HttpError(409, "Version conflict");
+    if (patch.title !== undefined) task.title = patch.title;
+    if (patch.completed !== undefined) task.completed = patch.completed;
+    task.version++;
+    return this._copy(task);
+  }
+
+  remove(id: number): boolean {
+    return this.records.delete(id);
+  }
+
+  private _copy(task: Task): Task {
+    return { ...task, labels: [...task.labels] };
+  }
+}
+
+function readTitle(input: any): string {
+  if (typeof input !== "string" || input.trim().length < 1 || input.trim().length > 100) {
+    throw new HttpError(400, "Title must have 1 to 100 characters");
+  }
+  return input.trim();
+}
+
+function readInput(input: any): TaskInput {
+  const title = readTitle(input.title);
+  const labels: string[] = [];
+  if (input.labels !== undefined) {
+    if (!Array.isArray(input.labels)) throw new HttpError(400, "Labels must be an array");
+    for (const label of input.labels) {
+      if (typeof label !== "string") throw new HttpError(400, "Every label must be a string");
+      if (!labels.includes(label)) labels.push(label);
+    }
+  }
+  return { title, labels };
+}
+
+function readPatch(input: any): TaskPatch {
+  const patch: TaskPatch = {};
+  if (input.title !== undefined) patch.title = readTitle(input.title);
+  if (input.completed !== undefined) {
+    if (typeof input.completed !== "boolean") throw new HttpError(400, "Completed must be boolean");
+    patch.completed = input.completed;
+  }
+  return patch;
+}
+
+function taskId(requestPath: string): number {
+  const tail = requestPath.slice("/tasks/".length);
+  if (!/^\d+$/.test(tail)) throw new HttpError(404, "Unknown route");
+  return Number(tail);
+}
+
+const store = new Mutex(new TaskStore());
+const requests = new AtomicInt();
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true,
+  async fetch(request: Request): Promise<Response> {
+    requests.add(1);
+    const requestPath = request.url.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+    if (requestPath === "/health") return Response.json({ ok: true });
+    if (requestPath === "/stats") {
+      const tasks = store.withLock((s) => s.list());
+      return Response.json({ total: tasks.length, completed: tasks.par.count((t) => t.completed) });
+    }
+    if (requestPath === "/tasks") {
+      if (request.method === "GET") return Response.json(store.withLock((s) => s.list()));
+      if (request.method === "POST") {
+        const input = readInput(await request.json());
+        const task = store.withLock((s) => s.create(input));
+        return Response.json(task, { status: 201, headers: { etag: String(task.version) } });
+      }
+      throw new HttpError(405, "Method not allowed");
+    }
+    if (requestPath.startsWith("/tasks/")) {
+      const id = taskId(requestPath);
+      if (request.method === "GET") {
+        const task = store.withLock((s) => s.get(id));
+        if (task === undefined) throw new HttpError(404, "Task not found");
+        return Response.json(task, { headers: { etag: String(task.version) } });
+      }
+      if (request.method === "PATCH") {
+        const patch = readPatch(await request.json());
+        const version = Number(request.headers.get("if-match") ?? "0");
+        const task = store.withLock((s) => s.patch(id, patch, version));
+        return Response.json(task, { headers: { etag: String(task.version) } });
+      }
+      if (request.method === "DELETE") {
+        if (!store.withLock((s) => s.remove(id))) throw new HttpError(404, "Task not found");
+        return new Response(null, { status: 204 });
+      }
+    }
+    throw new HttpError(404, "Unknown route");
+  },
+  error(error: Error): Response {
+    const status = error instanceof HttpError ? error.status : error instanceof SyntaxError ? 400 : 500;
+    return Response.json({ error: error.message }, { status });
+  },
+});
+
+async function api(method: string, route: string, body?: any, version?: number): Promise<Response> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (version !== undefined) headers["if-match"] = String(version);
+  return fetch(`${server.url}${route}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function check(condition: boolean, message: string): void {
+  if (!condition) throw new Error(message);
+}
+
+async function exerciseService(): Promise<void> {
+  const created = await Promise.all(
+    Array.from({ length: 12 }, (_, i) => api("POST", "/tasks", { title: `Task ${i}`, labels: ["review"] })),
+  );
+  check(created.every((response) => response.status === 201), "create statuses");
+  const tasks: Task[] = [];
+  for (const response of created) tasks.push(await response.json());
+  const task = tasks[0];
+  const updates = await Promise.all([
+    api("PATCH", `/tasks/${task.id}`, { completed: true }, 1),
+    api("PATCH", `/tasks/${task.id}`, { completed: true }, 1),
+  ]);
+  console.log("versions", updates.map((r) => r.status).sort());
+  check(updates.some((r) => r.status === 409), "conflict is detected");
+  const list = await api("GET", "/tasks");
+  console.log("created", (await list.json()).length);
+  const statistics = await api("GET", "/stats");
+  console.log("stats", JSON.stringify(await statistics.json()));
+  const invalid = await api("POST", "/tasks", { title: " " });
+  console.log("invalid", invalid.status, await invalid.text());
+  const malformed = await fetch(`${server.url}/tasks`, { method: "POST", body: "{" });
+  console.log("malformed", malformed.status);
+  const deleted = await api("DELETE", `/tasks/${task.id}`);
+  console.log("delete", deleted.status, JSON.stringify(await deleted.text()));
+  console.log("missing", (await api("GET", `/tasks/${task.id}`)).status);
+}
+
+try {
+  await exerciseService();
+  console.log("requests", requests.load());
+} finally {
+  server.stop(true);
+}

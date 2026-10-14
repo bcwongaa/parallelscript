@@ -1,0 +1,7 @@
+const checks: [string, () => unknown][] = [
+  ["Intl.NumberFormat", () => new Intl.NumberFormat("en-US").format(1234.5)],
+  ["Array.prototype.group", () => Object.groupBy([1, 2, 3], (x) => (x % 2 ? "odd" : "even"))],
+  ["setImmediate", () => typeof setImmediate],
+  ["WeakMap", () => new WeakMap().has({})],
+];
+for (const [name, f] of checks) { try { console.log(name, f()); } catch (e) { console.log(name, "threw", String(e)); } }

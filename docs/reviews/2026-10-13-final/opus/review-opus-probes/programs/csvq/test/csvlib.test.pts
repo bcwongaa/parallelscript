@@ -1,0 +1,15 @@
+import { describe, it, test, beforeEach } from "pts:test";
+import assert from "pts:assert";
+import { parseCsvLine, slowDouble } from "./csvlib";
+describe("parseCsvLine", () => {
+  let calls = 0;
+  beforeEach(() => { calls++; });
+  it("splits plain fields", () => { assert.deepEqual(parseCsvLine("a,b,c"), ["a", "b", "c"]); });
+  it("handles quotes", () => { assert.deepEqual(parseCsvLine('"a,b","say ""hi"""'), ["a,b", 'say "hi"']); });
+  it("keeps empty fields", () => { assert.equal(parseCsvLine(",,").length, 3); assert.ok(calls >= 3); });
+  it("fails on purpose", () => { assert.deepEqual(parseCsvLine("x,y"), ["x", "z"]); });
+});
+test("async ok", async () => { assert.equal(await slowDouble(4), 8); });
+test("async rejects", async () => { await assert.rejects(slowDouble(-1), { name: "RangeError" }); });
+test("skipped", { skip: "not today" }, () => { assert.fail("never"); });
+test("throws on purpose", () => { throw new TypeError("boom"); });

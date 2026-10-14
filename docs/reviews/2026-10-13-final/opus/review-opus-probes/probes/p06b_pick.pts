@@ -1,0 +1,6 @@
+function pick<T, K extends keyof T>(o: T, ...keys: K[]): Pick<T, K> {
+  const out = {} as Pick<T, K>;
+  for (const k of keys) out[k] = o[k];
+  return out;
+}
+console.log(pick({ a: 1, b: "two", c: true }, "a", "c"));

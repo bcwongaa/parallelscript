@@ -1,0 +1,16 @@
+{
+  "build": {
+    "exit": 0,
+    "stderr": ""
+  },
+  "1": {
+    "exit": 0,
+    "stdout": "server URL http://127.0.0.1:39847/ create statuses [\n  201, 201, 201, 201,\n  201, 201, 201, 201,\n  201, 201, 201, 201\n]\nversions [ 200, 409 ]\ncreated 12\nstats {\"total\":12,\"completed\":1}\ninvalid 400 {\"error\":\"Title must have 1 to 100 characters\"}\nmalformed 400\ndelete 204 \"\"\nmissing 404\nrequests 20\n",
+    "stderr": ""
+  },
+  "4": {
+    "exit": 0,
+    "stdout": "server URL http://127.0.0.1:40563/ create statuses [\n  201, 201, 201, 201,\n  201, 201, 201, 201,\n  201, 201, 201, 201\n]\nversions [ 200, 409 ]\ncreated 12\nstats {\"total\":12,\"completed\":1}\ninvalid 400 {\"error\":\"Title must have 1 to 100 characters\"}\nmalformed 400\ndelete 204 \"\"\nmissing 404\nrequests 20\n",
+    "stderr": ""
+  }
+}

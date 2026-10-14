@@ -1,0 +1,6 @@
+function groupBy<T, K extends string>(xs: T[], f: (x: T) => K): Record<K, T[]> {
+  const acc = {} as Record<K, T[]>;
+  for (const x of xs) (acc[f(x)] ||= []).push(x);
+  return acc;
+}
+console.log(groupBy([1, 2, 3], (n) => (n % 2 ? "odd" : "even")));

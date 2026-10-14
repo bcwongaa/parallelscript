@@ -1,0 +1,2 @@
+const n: number = "wrong";
+console.log(n);

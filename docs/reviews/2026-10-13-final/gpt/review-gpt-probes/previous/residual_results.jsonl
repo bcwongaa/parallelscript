@@ -1,0 +1,3 @@
+{"name": "06_residual", "build": {"exit": 0, "stdout": "", "stderr": ""}, "native": {"exit": 0, "stdout": "accessor 12\nany 12\nmethod new 10\n", "stderr": ""}, "node": {"exit": 0, "stdout": "accessor 11\nany 11\nmethod old 10\n", "stderr": ""}}
+{"name": "07_residual", "build": {"exit": 1, "stdout": "", "stderr": "/tmp/pts-review-gpt/previous/07_residual.pts:5:16 - error PTS1001: converting object4 to object1 | object2 is not supported yet\n"}, "native": null, "node": {"exit": 0, "stdout": "done\n", "stderr": ""}}
+{"name": "08_residual", "build": {"exit": 0, "stdout": "", "stderr": ""}, "native": {"exit": 0, "stdout": "TypeError Expected Box<number>, got Box<any>\n", "stderr": ""}, "node": {"exit": 0, "stdout": "box 9\n", "stderr": ""}}

@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/08-generics.pts"
+    ],
+    "exit": 0,
+    "stdout": "[ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/08-generics.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n",
+    "stderr": ""
+  }
+}

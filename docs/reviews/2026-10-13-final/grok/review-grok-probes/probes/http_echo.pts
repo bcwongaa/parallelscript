@@ -1,0 +1,32 @@
+// Tiny server for the HTTP probes. Prints "listening PORT" and answers until killed.
+import { Response, serve, type Request } from "pts:http";
+
+function pathOf(url: string): string {
+    const scheme = url.indexOf("://");
+    const start = scheme < 0 ? 0 : url.indexOf("/", scheme + 3);
+    const rest = start < 0 ? "/" : url.slice(start);
+    const query = rest.indexOf("?");
+    return query < 0 ? rest : rest.slice(0, query);
+}
+
+const server = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    reusePort: true,
+    async fetch(request: Request) {
+        const path = pathOf(request.url);
+        if (path === "/slow") {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        if (path === "/big") {
+            return new Response("x".repeat(200000));
+        }
+        const body = await request.text();
+        return Response.json({ method: request.method, path, body });
+    },
+    error(error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ error: message }, { status: 500 });
+    },
+});
+process.stdout.write(`listening ${server.port}\n`);

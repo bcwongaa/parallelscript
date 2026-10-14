@@ -4,8 +4,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Current state
 
-- **Milestone:** all done: M0 to M7, tagged `m0` … `m7`; `docs/agent/DONE` has the summary. M8 (performance) only if the owner extends the run (`docs/MASTER_PLAN.md`, "After DONE").
-- **Next task:** none in the plan. If extended: M8, starting from the notes under Next.
+- **Milestone:** M0–M7 are the completed usable prototype (tags `m0` … `m7`; historical `docs/agent/DONE`). Owner extended the run on 2026-10-14 to the ordered post-M7 correctness/hardening/performance/coverage backlog in `docs/agent/HARDENING_PLAN.md`.
+- **Next task:** H01, independent reproduction and consolidation of all three final reviews, then H02–H34 in order. All implementation/review subagents use **gpt-6.1-sol xhigh**; no other-model fallback. New completion marker: `docs/agent/HARDENING_DONE`.
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally (CI: see the CI row below)
 

@@ -1,0 +1,21 @@
+// Timers created on one loop, cleared or refreshed from another.
+let ticks = 0;
+const interval = setInterval(() => { ticks++; }, 2);
+async function stopLater(): Promise<string> { await new Promise((r) => setTimeout(r, 30)); clearInterval(interval); return "stopped"; }
+console.log(await parallel stopLater());
+const at = ticks;
+await new Promise((r) => setTimeout(r, 30));
+console.log("interval stopped from another loop:", ticks === at, ticks > 3);
+async function timerInTask(): Promise<number> {
+  let n = 0;
+  await new Promise<void>((resolve) => { const h = setInterval(() => { if (++n === 5) { clearInterval(h); resolve(); } }, 1); });
+  return n;
+}
+console.log("intervals in tasks:", await Promise.all([1, 2, 3, 4].map(() => parallel timerInTask())));
+const t = setTimeout(() => console.log("SHOULD NOT FIRE"), 40);
+async function refresh(): Promise<void> { t.refresh(); t.unref(); clearTimeout(t); }
+await parallel refresh();
+const t2 = setTimeout(() => console.log("t2 fired"), 20);
+async function reref(): Promise<void> { t2.unref(); t2.ref(); }
+await parallel reref();
+console.log("end of main");

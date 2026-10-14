@@ -1,0 +1,56 @@
+import { range, join } from "pts:parallel";
+import { AtomicInt, Channel, Mutex } from "pts:sync";
+// 1. Nested .par inside .par.
+const grid = range(0, 50).par.map((r) => range(0, 200).par.map((c) => r * c).par.sum());
+console.log("1:", grid.par.sum(), grid.length);
+// 2. A parallel task from inside a .par callback, awaited later.
+const promises = range(0, 8).par.map((i) => parallel (i * i));
+console.log("2:", await Promise.all(promises));
+// 3. A promise made on main, resolved from tasks on other loops.
+const { promise, resolve } = Promise.withResolvers<string>();
+async function resolver(): Promise<void> { await new Promise((r) => setTimeout(r, 5)); resolve("resolved remotely"); }
+parallel resolver();
+console.log("3:", await promise);
+// 4. Many producers and consumers on an unbuffered channel.
+const ch = new Channel<number>(0);
+const consumed = new AtomicInt();
+async function producer(base: number): Promise<void> { for (let i = 0; i < 500; i++) await ch.send(base + i); }
+async function consumer(): Promise<number> { let s = 0; for await (const v of ch) { s += v; consumed.add(1); } return s; }
+const consumers = [1, 2, 3].map(() => parallel consumer());
+await Promise.all([0, 1000, 2000, 3000].map((b) => parallel producer(b)));
+ch.close();
+const sums = await Promise.all(consumers);
+console.log("4:", consumed.load(), sums.reduce((a, b) => a + b, 0) === 4 * (499 * 500) / 2 + 500 * (1000 + 2000 + 3000));
+// 5. Async Mutex across loops with awaits inside the critical section.
+const acct = new Mutex({ balance: 0, history: [] as number[] });
+async function deposit(n: number): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    const g = await acct.lock();
+    try { const b = g.value.balance; await null; g.value.balance = b + n; g.value.history.push(n); } finally { g.unlock(); }
+  }
+}
+await Promise.all([1, 2, 3, 4, 5, 6].map((n) => parallel deposit(n)));
+console.log("5:", acct.withLock((a) => [a.balance, a.history.length]));
+// 6. 100k tiny tasks.
+const t0 = performance.now();
+const many = await Promise.all(Array.from({ length: 100_000 }, (_, i) => parallel (i % 7)));
+console.log("6:", many.reduce((a, b) => a + b, 0), (performance.now() - t0) < 10_000);
+// 7. join recursion depth and results.
+function psum(lo: number, hi: number): number {
+  if (hi - lo <= 1000) { let s = 0; for (let i = lo; i < hi; i++) s += i; return s; }
+  const mid = (lo + hi) >> 1;
+  const [a, b] = join(() => psum(lo, mid), () => psum(mid, hi));
+  return a + b;
+}
+console.log("7:", psum(0, 2_000_000));
+// 8. fetch-free: a parallel task that itself uses .par and awaits timers.
+async function mixed(): Promise<number> { await new Promise((r) => setTimeout(r, 2)); return range(0, 1000).par.map((x) => x * 2).par.sum(); }
+console.log("8:", await Promise.all([parallel mixed(), parallel mixed()]));
+// 9. Mutex.withLock nested inside .par with a nested .par inside the lock.
+const m = new Mutex(0);
+range(0, 16).par.forEach((i) => { m.withLock((v) => range(0, 10).par.sum() + v + i); });
+console.log("9: nested par inside withLock finished");
+// 10. Captured loop variable in parallel tasks.
+const out: Promise<number>[] = [];
+for (let i = 0; i < 5; i++) out.push(parallel (i * 10));
+console.log("10:", await Promise.all(out));

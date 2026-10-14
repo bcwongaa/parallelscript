@@ -1,0 +1,22 @@
+import { range } from "pts:parallel";
+const state: { value: string | number; rows: number[]; map: Map<string, number>; when: Date } = {
+  value: "hello", rows: [1, 2, 3], map: new Map(), when: new Date(0),
+};
+const tasks = range(0, 4).toArray().map((worker) => parallel churn(worker));
+function churn(worker: number): number {
+  let caught = 0;
+  for (let i = 0; i < 5000; i++) {
+    try {
+      state.value = i % 2 === 0 ? "hello" : i;
+      if (worker % 2 === 0) { state.rows.push(i); if (state.rows.length > 30) state.rows.length = 0; }
+      else { state.rows.shift(); state.rows.slice().sort((a, b) => a - b); }
+      state.map.set(String(i % 32), i);
+      if (i % 3 === 0) state.map.delete(String(i % 32));
+      if (i % 61 === 0) state.map.clear();
+      state.when.setTime(i);
+      JSON.stringify({ value: state.value, rows: state.rows, map: [...state.map], when: state.when });
+    } catch { caught++; }
+  }
+  return caught;
+}
+console.log((await Promise.all(tasks)).length === 4, state.map.size >= 0);

@@ -1,0 +1,5 @@
+const a = "\u{1F600}", b = "！", c = "", d = "z";
+console.log(a < b, b < a, a < c, [b, a, c, d].sort().map((s) => s.codePointAt(0)!.toString(16)), a > d);
+console.log(["é", "e", "f", "E"].sort(), "a" < "B", "abc" < "abd", "" < "a", "10" < "9", ["\u{10000}", "￿"].sort().map((s) => s.length));
+const m = new Map<string, number>([[b, 1], [a, 2]]); console.log([...m.keys()].length);
+console.log(Math.max(..."hello".split("").map((ch) => ch.charCodeAt(0))), "b".localeCompare("a"), ["😀", "！"].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)).map((s) => s.length));

@@ -1,0 +1,83 @@
+{
+  "files": [
+    "events.ndjson"
+  ],
+  "readings": 777,
+  "sensors": [
+    "sensor-0",
+    "sensor-1",
+    "sensor-2",
+    "sensor-3",
+    "sensor-4",
+    "sensor-5",
+    "sensor-6"
+  ],
+  "rows": [
+    {
+      "day": "2026-10-01",
+      "site": "east",
+      "count": 259,
+      "mean": 5.627199,
+      "min": -28.88888888888889,
+      "max": 59,
+      "buckets": [
+        27,
+        47,
+        46,
+        45,
+        32,
+        16,
+        16,
+        15,
+        15,
+        0
+      ]
+    },
+    {
+      "day": "2026-10-02",
+      "site": "ouest",
+      "count": 259,
+      "mean": 5.765766,
+      "min": -28.88888888888889,
+      "max": 59,
+      "buckets": [
+        26,
+        47,
+        47,
+        44,
+        32,
+        17,
+        16,
+        15,
+        15,
+        0
+      ]
+    },
+    {
+      "day": "2026-10-03",
+      "site": "Café",
+      "count": 259,
+      "mean": 5.739597,
+      "min": -28.88888888888889,
+      "max": 59,
+      "buckets": [
+        27,
+        46,
+        47,
+        45,
+        31,
+        17,
+        16,
+        15,
+        15,
+        0
+      ]
+    }
+  ],
+  "rejected": [
+    "line 778: Invalid timestamp",
+    "line 779: Event must be an object",
+    "line 780: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+    "line 781: Invalid value"
+  ]
+}

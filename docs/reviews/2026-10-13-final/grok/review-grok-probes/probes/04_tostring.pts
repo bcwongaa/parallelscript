@@ -1,0 +1,9 @@
+// Previous review finding 4. Node prints 7,7.
+class NumberString {
+    toString(): any {
+        return 7;
+    }
+}
+const dynamic: any = new NumberString();
+dynamic.toString();
+console.log([new NumberString(), new NumberString()].join(","));

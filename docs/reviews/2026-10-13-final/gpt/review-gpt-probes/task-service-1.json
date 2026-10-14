@@ -1,0 +1,9 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/task-service"
+  ],
+  "threads": "1",
+  "exit": 1,
+  "stdout": "",
+  "stderr": "Uncaught Error: create statuses\n    at check (/tmp/pts-review-gpt/task-service.pts:170)\n"
+}

@@ -1,0 +1,43 @@
+interface Todo { id: number; text: string; done: boolean; due?: string; tags?: string[] }
+interface State { todos: Todo[]; filter: "all" | "open" | "done"; lastError?: string; meta: { version: number; updatedBy?: string } }
+type Action =
+  | { type: "add"; text: string; due?: string }
+  | { type: "toggle"; id: number }
+  | { type: "tag"; id: number; tag: string }
+  | { type: "filter"; filter: State["filter"] }
+  | { type: "fail"; message: string }
+  | { type: "touch"; who: string };
+const initial: State = { todos: [], filter: "all", meta: { version: 0 } };
+let nextId = 1;
+function reducer(state: State, action: Action): State {
+  const bump = { ...state.meta, version: state.meta.version + 1 };
+  switch (action.type) {
+    case "add": {
+      const todo: Todo = { id: nextId++, text: action.text, done: false };
+      if (action.due) todo.due = action.due;
+      return { ...state, todos: [...state.todos, todo], meta: bump, lastError: undefined };
+    }
+    case "toggle":
+      return { ...state, todos: state.todos.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t)), meta: bump };
+    case "tag":
+      return { ...state, todos: state.todos.map((t) => (t.id === action.id ? { ...t, tags: [...(t.tags ?? []), action.tag] } : t)), meta: bump };
+    case "filter":
+      return { ...state, filter: action.filter };
+    case "fail":
+      return { ...state, lastError: action.message };
+    case "touch":
+      return { ...state, meta: { ...state.meta, updatedBy: action.who } };
+  }
+}
+const actions: Action[] = [
+  { type: "add", text: "write review" }, { type: "add", text: "run probes", due: "2026-10-14" },
+  { type: "toggle", id: 1 }, { type: "tag", id: 2, tag: "urgent" }, { type: "tag", id: 2, tag: "pts" },
+  { type: "fail", message: "oops" }, { type: "add", text: "third" }, { type: "filter", filter: "open" }, { type: "touch", who: "ada" },
+];
+const states = actions.reduce<State[]>((acc, a) => [...acc, reducer(acc[acc.length - 1], a)], [initial]);
+const final = states[states.length - 1];
+console.log(final);
+console.log(JSON.stringify(final));
+console.log(states.map((s) => s.meta.version), initial, states[1] === states[0], states[1].todos === states[0].todos);
+const visible = final.todos.filter((t) => final.filter === "all" || (final.filter === "done" ? t.done : !t.done));
+console.log(visible.map(({ id, text, ...rest }) => `${id}:${text}:${Object.keys(rest).join("+")}`));

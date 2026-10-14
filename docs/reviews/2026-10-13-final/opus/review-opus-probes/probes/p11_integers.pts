@@ -1,0 +1,35 @@
+const max: i64 = 9223372036854775807;
+const min: i64 = -9223372036854775808;
+console.log(max + 1 === min, max * 2, min - 1);
+try { console.log(min / -1); } catch (e) { console.log("min/-1:", String(e)); }
+try { console.log(min % -1); } catch (e) { console.log("min%-1:", String(e)); }
+const z: int = 0;
+try { console.log((7 as int) % z); } catch (e) { console.log("mod0:", String(e)); }
+const u: u64 = 18446744073709551615;
+console.log(u, u + 1, u as number, u as i64, u > 0, u / 3);
+const big: u64 = 9223372036854775808;
+console.log(big, big as number, big > (9223372036854775807 as u64), big % 10);
+const b: u8 = 255;
+const sh: int = 64;
+console.log(b + 1, (b + 1) as u8, b << 1, (b << 1) as u8, (1 as int) << sh, (1 as int) << 63, -1 as u32, (-1 as int) >> 1, (-1 as int) >>> 1);
+console.log(3.99 as u8, -3.99 as u8, 1e20 as i32, -1e20 as i32, Infinity as int, -Infinity as u16, NaN as u8, 255.9 as u8, 256 as u8);
+const i: i32 = 2147483647;
+console.log(i + 1, (i + 1) as i32, i * i, typeof i, `${i}`, i.toString(16), i.toFixed(2), JSON.stringify({ i, u, max }));
+const x: int = 7, y: int = 2;
+console.log(x / y, -x / y, x % y, -x % y, x / (y as number), Math.floor(x / y), x ** y, (2 as int) ** (62 as int), (2 as int) ** (64 as int));
+const f: f32 = 0.1;
+console.log(f, f + (0.2 as f32), f as number, (16777217 as f32), Math.fround(0.1));
+const arr: u8[] = [250, 251, 252];
+console.log(arr.map((v) => v + 10), arr.reduce((s, v) => s + v, 0), arr.reduce<int>((s, v) => s + v, 0));
+const bytes = new Uint8Array([200, 100]);
+const sum: u8 = (bytes[0] + bytes[1]) as u8;
+console.log(sum, bytes[0] + bytes[1]);
+const parsed: int = parseInt("123") as int;
+console.log(parsed + 1, Number.MAX_SAFE_INTEGER as int + (1 as int), (2 ** 53 as int) + (1 as int));
+const neg: i8 = -128;
+console.log(-neg, Math.abs(neg), neg - 1, (neg - 1) as i8, neg as u8);
+let counter: u16 = 65530;
+for (let k = 0; k < 10; k++) counter++;
+console.log(counter);
+const m = new Map<int, string>([[1, "a"]]);
+console.log(m.get(1), m.has(1 as int), [1, 2, 3].indexOf(2 as int));

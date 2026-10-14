@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/08-generics.pts"
+    ],
+    "exit": 0,
+    "stdout": "[ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/08-generics.mts"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nfile:///tmp/pts-review-gpt/08-generics.mts:1\nclass Box<T> { constructor(public value: T) {} map<U>(f: (x: T) => U): Box<U> { return new Box(f(this.value)); } }\n                                  ^^^^^^^^\nfunction apply<T, U>(items: T[], f: (item: T) => U): U[] { return items.map(f); }\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:68:40)\n    at processTypeScriptCode (node:internal/modules/typescript:146:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:215:22)\n    at ModuleLoader.<anonymous> (node:internal/modules/esm/translators:680:29)\n    at #translate (node:internal/modules/esm/loader:438:20)\n    at afterLoad (node:internal/modules/esm/loader:506:29)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:511:12)\n    at #getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:564:36)\n    at afterResolve (node:internal/modules/esm/loader:611:52)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:617:12) {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v24.21.0\n"
+  }
+}

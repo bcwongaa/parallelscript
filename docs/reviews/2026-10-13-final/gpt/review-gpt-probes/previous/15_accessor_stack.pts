@@ -1,0 +1,7 @@
+class Recursive {
+    get value(): number { return this.value + 1; }
+}
+try { console.log(new Recursive().value); }
+catch (error: any) { console.log(error.name); }
+const factory = await parallel function (): number { return 42; };
+console.log(factory());

@@ -1,0 +1,5 @@
+async function f(): Promise<void> { await new Promise((r) => setTimeout(r, 5)); throw new Error("unhandled one"); }
+f();
+setTimeout(() => console.log("timer after rejection ran"), 30);
+await new Promise((r) => setTimeout(r, 50));
+console.log("still running");

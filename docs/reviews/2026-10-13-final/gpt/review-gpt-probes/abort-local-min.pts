@@ -1,0 +1,19 @@
+import { range } from "pts:parallel";
+const results = range(0, 4).par.map(() => {
+  let passed = 0;
+  let failed = 0;
+  let first = "";
+  for (let i = 0; i < 10000; i++) {
+    try {
+      const controller = new AbortController();
+      controller.abort("local");
+      if (!controller.signal.aborted || controller.signal.reason !== "local") throw new Error("wrong local signal");
+      passed++;
+    } catch (e) {
+      failed++;
+      if (first === "") first = e instanceof Error ? e.name + ": " + e.message : String(e);
+    }
+  }
+  return { passed, failed, first };
+});
+console.log(JSON.stringify(results));

@@ -1,0 +1,21 @@
+// Valid TypeScript. Node reads `done` and ends the loop.
+// `pts build` panics in cgen: "no check for void" (pts/cgen/checks.go:305).
+const early: any = {
+    [Symbol.iterator]() {
+        return {
+            next() {
+                return {
+                    get done() {
+                        return true;
+                    },
+                    get value() {
+                        throw new Error("unneeded");
+                    },
+                };
+            },
+        };
+    },
+};
+for (const item of early) {
+    console.log(item);
+}

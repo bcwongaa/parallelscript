@@ -1,0 +1,8 @@
+date,category,merchant,amount,tags
+2026-01-01,Food,"Café, Montréal",12.50,lunch
+2026-01-02,food,Café,-1.25,refund
+2026-02-03,Travel,Train,30.00,work; rail
+2026-02-04,Food,Shop,4,
+invalid,Food,X,2.00,
+2026-02-05,Food,Bad,wat,
+2026-02-06,Food,"Double ""Quote""",7.25,

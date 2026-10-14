@@ -1,0 +1,35 @@
+// Integer edges: min int, wrapping, division, saturation.
+const min: int = -9223372036854775808;
+const max: int = 9223372036854775807;
+const negOne: int = -1;
+const one: int = 1;
+const zero: int = 0;
+
+function show(label: string, run: () => string): void {
+    try {
+        console.log(label, run());
+    } catch (error) {
+        const err = error as Error;
+        console.log(label, `THREW ${err.name}: ${err.message}`);
+    }
+}
+
+console.log("min", min);
+console.log("max", max);
+console.log("max+1", max + one);
+console.log("min-1", min - one);
+console.log("min+min", min + min);
+show("neg min", () => String(-min));
+show("min * -1", () => String(min * negOne));
+show("min / -1", () => String(min / negOne));
+show("min % -1", () => String(min % negOne));
+show("1/0", () => String(one / zero));
+show("min/-1 already done", () => "skip");
+console.log("u8 wrap", (255 as u8) + (1 as u8));
+console.log("i8 wrap", (-128 as i8) - (1 as i8));
+console.log("sat", (300 as u8), (-1 as u8), (NaN as int), (Infinity as i16), (-1.9 as int));
+console.log("literal as", 9007199254740993 as int);
+const exact: int = 9007199254740993;
+console.log("annotated", exact);
+show("u64/int mix via casts", () => String((1 as u64) + (1 as u64)));
+console.log("shr", (min >> one), ((128 as u8) >> one), ((-8 as i8) >> one));

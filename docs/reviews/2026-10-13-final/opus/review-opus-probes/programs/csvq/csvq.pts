@@ -1,0 +1,389 @@
+// csvq: a small CSV query tool.
+//   csvq <file.csv> [--where col=val|col>num|col<num]... [--group-by col]
+//        [--agg count|sum:col|avg:col|min:col|max:col]... [--sort [-]col] [--limit n]
+//        [--format table|json|csv] [--stats]
+import { readFileSync, existsSync } from "pts:fs";
+import path from "pts:path";
+import process from "pts:process";
+
+type Cell = string | number | null;
+type Row = Record<string, Cell>;
+
+type ColumnType = "number" | "string" | "empty";
+
+interface Column {
+  name: string;
+  type: ColumnType;
+}
+
+type Filter =
+  | { kind: "eq"; column: string; value: string }
+  | { kind: "gt"; column: string; value: number }
+  | { kind: "lt"; column: string; value: number };
+
+type AggKind = "count" | "sum" | "avg" | "min" | "max";
+interface Aggregate {
+  kind: AggKind;
+  column?: string;
+}
+
+type OutputFormat = "table" | "json" | "csv";
+
+interface Options {
+  file: string;
+  filters: Filter[];
+  groupBy?: string;
+  aggregates: Aggregate[];
+  sort?: { column: string; descending: boolean };
+  limit?: number;
+  format: OutputFormat;
+  stats: boolean;
+}
+
+class UsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
+
+class CsvError extends Error {
+  constructor(
+    message: string,
+    public readonly line: number,
+  ) {
+    super(`line ${line}: ${message}`);
+    this.name = "CsvError";
+  }
+}
+
+// ---------- CSV parsing ----------
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let line = 1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        if (ch === "\n") line++;
+        field += ch;
+      }
+      continue;
+    }
+    switch (ch) {
+      case '"':
+        if (field.length > 0) throw new CsvError("unexpected quote", line);
+        inQuotes = true;
+        break;
+      case ",":
+        row.push(field);
+        field = "";
+        break;
+      case "\r":
+        break;
+      case "\n":
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = "";
+        line++;
+        break;
+      default:
+        field += ch;
+    }
+  }
+  if (inQuotes) throw new CsvError("unterminated quoted field", line);
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function inferColumns(header: string[], body: string[][]): Column[] {
+  return header.map((name, index) => {
+    let sawNumber = false;
+    let sawString = false;
+    for (const r of body) {
+      const raw = (r[index] ?? "").trim();
+      if (raw === "") continue;
+      if (/^-?\d+(\.\d+)?$/.test(raw)) sawNumber = true;
+      else sawString = true;
+    }
+    const type: ColumnType = sawString ? "string" : sawNumber ? "number" : "empty";
+    return { name, type };
+  });
+}
+
+function toRows(columns: Column[], body: string[][]): Row[] {
+  return body.map((cells, lineIndex) => {
+    if (cells.length !== columns.length) {
+      throw new CsvError(`expected ${columns.length} fields, got ${cells.length}`, lineIndex + 2);
+    }
+    const row: Row = {};
+    columns.forEach((col, i) => {
+      const raw = cells[i].trim();
+      if (raw === "") row[col.name] = null;
+      else row[col.name] = col.type === "number" ? Number(raw) : raw;
+    });
+    return row;
+  });
+}
+
+// ---------- argument parsing ----------
+
+function parseArgs(argv: string[]): Options {
+  const opts: Options = { file: "", filters: [], aggregates: [], format: "table", stats: false };
+  const rest = [...argv];
+  const next = (flag: string): string => {
+    const v = rest.shift();
+    if (v === undefined) throw new UsageError(`${flag} needs a value`);
+    return v;
+  };
+  while (rest.length > 0) {
+    const arg = rest.shift()!;
+    switch (arg) {
+      case "--where": {
+        const expr = next(arg);
+        const m = /^(\w+)\s*(=|>|<)\s*(.*)$/.exec(expr);
+        if (!m) throw new UsageError(`bad --where expression: ${expr}`);
+        const [, column, op, value] = m;
+        if (op === "=") opts.filters.push({ kind: "eq", column, value });
+        else {
+          const n = Number(value);
+          if (Number.isNaN(n)) throw new UsageError(`--where ${column}${op} needs a number`);
+          opts.filters.push({ kind: op === ">" ? "gt" : "lt", column, value: n });
+        }
+        break;
+      }
+      case "--group-by":
+        opts.groupBy = next(arg);
+        break;
+      case "--agg": {
+        for (const spec of next(arg).split(",")) {
+          const [kind, column] = spec.split(":");
+          if (!["count", "sum", "avg", "min", "max"].includes(kind)) {
+            throw new UsageError(`unknown aggregate: ${kind}`);
+          }
+          if (kind !== "count" && !column) throw new UsageError(`${kind} needs a column`);
+          opts.aggregates.push({ kind: kind as AggKind, column });
+        }
+        break;
+      }
+      case "--sort": {
+        const s = next(arg);
+        opts.sort = s.startsWith("-") ? { column: s.slice(1), descending: true } : { column: s, descending: false };
+        break;
+      }
+      case "--limit": {
+        const n = parseInt(next(arg), 10);
+        if (!Number.isInteger(n) || n < 0) throw new UsageError("--limit needs a non-negative integer");
+        opts.limit = n;
+        break;
+      }
+      case "--format": {
+        const f = next(arg);
+        if (f !== "table" && f !== "json" && f !== "csv") throw new UsageError(`unknown format: ${f}`);
+        opts.format = f;
+        break;
+      }
+      case "--stats":
+        opts.stats = true;
+        break;
+      default:
+        if (arg.startsWith("--")) throw new UsageError(`unknown flag: ${arg}`);
+        if (opts.file) throw new UsageError("only one input file");
+        opts.file = arg;
+    }
+  }
+  if (!opts.file) throw new UsageError("missing input file");
+  return opts;
+}
+
+// ---------- query ----------
+
+function matches(row: Row, f: Filter): boolean {
+  const v = row[f.column];
+  switch (f.kind) {
+    case "eq":
+      return String(v ?? "") === f.value;
+    case "gt":
+      return typeof v === "number" && v > f.value;
+    case "lt":
+      return typeof v === "number" && v < f.value;
+  }
+}
+
+function groupBy<T, K>(items: T[], key: (item: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = groups.get(k);
+    if (list) list.push(item);
+    else groups.set(k, [item]);
+  }
+  return groups;
+}
+
+function aggregate(rows: Row[], agg: Aggregate): number {
+  if (agg.kind === "count") return rows.length;
+  const values = rows.map((r) => r[agg.column!]).filter((v): v is number => typeof v === "number");
+  switch (agg.kind) {
+    case "sum":
+      return values.reduce((a, b) => a + b, 0);
+    case "avg":
+      return values.length === 0 ? NaN : values.reduce((a, b) => a + b, 0) / values.length;
+    case "min":
+      return Math.min(...values);
+    case "max":
+      return Math.max(...values);
+  }
+}
+
+function aggName(a: Aggregate): string {
+  return a.column ? `${a.kind}_${a.column}` : a.kind;
+}
+
+function compareCells(a: Cell, b: Cell): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b));
+}
+
+function runQuery(rows: Row[], opts: Options): Row[] {
+  let result = rows.filter((r) => opts.filters.every((f) => matches(r, f)));
+  if (opts.groupBy !== undefined) {
+    const col = opts.groupBy;
+    const aggs: Aggregate[] = opts.aggregates.length > 0 ? opts.aggregates : [{ kind: "count" }];
+    const groups = groupBy(result, (r) => r[col]);
+    result = [...groups].map(([key, members]) => {
+      const out: Row = { [col]: key };
+      for (const a of aggs) out[aggName(a)] = Math.round(aggregate(members, a) * 100) / 100;
+      return out;
+    });
+  }
+  if (opts.sort) {
+    const { column, descending } = opts.sort;
+    result.sort((a, b) => (descending ? -1 : 1) * compareCells(a[column] ?? null, b[column] ?? null));
+  }
+  if (opts.limit !== undefined) result = result.slice(0, opts.limit);
+  return result;
+}
+
+// ---------- output ----------
+
+function formatCell(v: Cell): string {
+  if (v === null) return "";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  return v.replace(/\n/g, "\\n");
+}
+
+function renderTable(rows: Row[]): string {
+  if (rows.length === 0) return "(no rows)";
+  const headers = Object.keys(rows[0]);
+  const widths = headers.map((h) => Math.max(h.length, ...rows.map((r) => formatCell(r[h] ?? null).length)));
+  const line = (cells: string[]) =>
+    cells.map((c, i) => (/^-?[\d.]+$/.test(c) ? c.padStart(widths[i]) : c.padEnd(widths[i]))).join(" | ");
+  const sep = widths.map((w) => "-".repeat(w)).join("-+-");
+  return [line(headers), sep, ...rows.map((r) => line(headers.map((h) => formatCell(r[h] ?? null))))].join("\n");
+}
+
+function csvEscape(s: string): string {
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function renderCsv(rows: Row[]): string {
+  if (rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  return [headers.join(","), ...rows.map((r) => headers.map((h) => csvEscape(String(r[h] ?? ""))).join(","))].join("\n");
+}
+
+function describeColumns(columns: Column[], rows: Row[]): string[] {
+  return columns.map((c) => {
+    const values = rows.map((r) => r[c.name]);
+    const nonNull = values.filter((v) => v !== null);
+    const distinct = new Set(nonNull).size;
+    let extra = "";
+    if (c.type === "number") {
+      const nums = nonNull as number[];
+      const sorted = [...nums].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      extra = ` min=${sorted[0]} max=${sorted[sorted.length - 1]} median=${median}`;
+    }
+    return `${c.name.padEnd(10)} ${c.type.padEnd(6)} non-null=${nonNull.length} distinct=${distinct}${extra}`;
+  });
+}
+
+function main(argv: string[]): number {
+  let opts: Options;
+  try {
+    opts = parseArgs(argv);
+  } catch (e) {
+    if (e instanceof UsageError) {
+      console.error(`csvq: ${e.message}`);
+      console.error("usage: csvq <file.csv> [--where expr] [--group-by col] [--agg spec] [--sort col] [--limit n] [--format f]");
+      return 2;
+    }
+    throw e;
+  }
+  if (!existsSync(opts.file)) {
+    console.error(`csvq: no such file: ${path.resolve(opts.file)}`);
+    return 1;
+  }
+  const started = performance.now();
+  let rows: Row[];
+  let columns: Column[];
+  try {
+    const [header, ...body] = parseCsv(readFileSync(opts.file, "utf8"));
+    columns = inferColumns(header, body);
+    rows = toRows(columns, body);
+  } catch (e) {
+    if (e instanceof CsvError) {
+      console.error(`csvq: ${path.basename(opts.file)}: ${e.message}`);
+      return 1;
+    }
+    throw e;
+  }
+  for (const f of opts.filters) {
+    if (!columns.some((c) => c.name === f.column)) {
+      console.error(`csvq: unknown column in --where: ${f.column}`);
+      return 1;
+    }
+  }
+  if (opts.stats) {
+    console.log(`${rows.length} rows, ${columns.length} columns`);
+    for (const line of describeColumns(columns, rows)) console.log(line);
+    return 0;
+  }
+  const result = runQuery(rows, opts);
+  switch (opts.format) {
+    case "json":
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    case "csv":
+      console.log(renderCsv(result));
+      break;
+    default:
+      console.log(renderTable(result));
+      console.log(`\n${result.length} of ${rows.length} rows`);
+  }
+  const elapsed = performance.now() - started;
+  if (elapsed > 1000) console.error(`(took ${elapsed.toFixed(0)} ms)`);
+  return 0;
+}
+
+process.exitCode = main(process.argv.slice(2));

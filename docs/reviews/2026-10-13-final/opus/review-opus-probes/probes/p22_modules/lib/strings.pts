@@ -1,0 +1,3 @@
+import { counter } from "../main";
+export const shout = (s: string): string => s.toUpperCase() + "!";
+export function describeCounter(): string { return `counter is ${counter.value}`; }

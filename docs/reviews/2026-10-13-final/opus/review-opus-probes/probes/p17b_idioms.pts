@@ -1,0 +1,55 @@
+type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
+function render(j: Json, indent = 0): string {
+  const pad = " ".repeat(indent);
+  if (Array.isArray(j)) return `[\n${j.map((x) => pad + "  " + render(x, indent + 2)).join(",\n")}\n${pad}]`;
+  if (j !== null && typeof j === "object") return `{ ${Object.entries(j).map(([k, v]) => `${k}: ${render(v, indent)}`).join(", ")} }`;
+  return JSON.stringify(j);
+}
+console.log(render({ a: [1, "two", { b: null }], c: true }));
+class Btn {
+  clicks = 0;
+  label: string;
+  onClick = () => { this.clicks++; return this.label; };
+  constructor(label: string) { this.label = label; }
+}
+const btn = new Btn("ok"); const handler = btn.onClick; handler(); handler();
+console.log(btn.clicks, [1, 2].map(btn.onClick));
+interface Cfg { name?: string; nested?: { deep?: { fn?: () => string } } }
+const cfgs: Cfg[] = [{}, { nested: {} }, { nested: { deep: { fn: () => "called" } } }];
+console.log(cfgs.map((c) => c.nested?.deep?.fn?.() ?? "none"), cfgs[0].name?.toUpperCase());
+type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number } | { kind: "tri"; a: number; b: number; c: number };
+function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle": return Math.PI * s.r ** 2;
+    case "rect": return s.w * s.h;
+    case "tri": { const p = (s.a + s.b + s.c) / 2; return Math.sqrt(p * (p - s.a) * (p - s.b) * (p - s.c)); }
+    default: { const never: never = s; return never; }
+  }
+}
+console.log([{ kind: "circle", r: 1 }, { kind: "rect", w: 2, h: 3 }, { kind: "tri", a: 3, b: 4, c: 5 }].map((s) => area(s as Shape).toFixed(3)));
+const people = [{ n: "b", age: 30 }, { n: "a", age: 30 }, { n: "c", age: 25 }];
+console.log(people.toSorted((x, y) => x.age - y.age || x.n.localeCompare(y.n)).map((p) => p.n), people.map((p) => p.n));
+console.log([1, 2, 3].at(-1), [1, 2, 3].findLast((x) => x < 3), [3, 1, 2].toReversed(), [1, 2, 3].with(1, 9), [[1, [2]], [3]].flat(2));
+const levels = { debug: 0, info: 1, warn: 2 } as const;
+type Level = keyof typeof levels;
+const lv: Level[] = Object.keys(levels) as Level[];
+console.log(lv.map((k) => `${k}:${levels[k]}`), lv.includes("warn"));
+const counts: Record<"a" | "b", number> = { a: 0, b: 0 };
+for (const ch of "abba") counts[ch as "a" | "b"]++;
+console.log(counts);
+function f(a: number, b = a * 2, ...rest: number[]) { return [a, b, rest.length]; }
+console.log(f(1), f(1, undefined, 5, 6));
+const wm = new Map<object, string>(); const k1 = {}; wm.set(k1, "obj key"); console.log(wm.get(k1), wm.get({}));
+class Point { constructor(public x: number, public y: number) {} static readonly ORIGIN = new Point(0, 0); plus(o: Point) { return new Point(this.x + o.x, this.y + o.y); } }
+console.log(Point.ORIGIN.plus(new Point(1, 2)), { ...new Point(3, 4) }, Object.keys(new Point(5, 6)), JSON.stringify(new Point(1, 1)));
+console.log([1, 2, 3, 4].reduce((acc, x) => ({ ...acc, [x]: x * x }), {} as Record<number, number>));
+let maybe: string | undefined; maybe ??= "default"; let num = 0; num ||= 5; let t = 1; t &&= 7;
+console.log(maybe, num, t, typeof null, typeof undefined, typeof (() => 1), typeof [], typeof {});
+const date = new Date(2026, 0, 15, 10, 30); console.log(date.getFullYear(), date.getMonth(), date.getDay(), date.toISOString().slice(0, 10));
+console.log("a,b,,c".split(","), "abc".split(""), " x y ".split(" "), "a1b2c3".replace(/\d/g, (d) => String(Number(d) * 2)));
+console.log([..."mississippi"].reduce((m, c) => m.set(c, (m.get(c) ?? 0) + 1), new Map<string, number>()));
+console.log(new Set([1, 2, 2, 3]), new Map([[{ a: 1 }, [1, 2]]]), [1, [2, [3, [4, [5]]]]]);
+console.log({ s: "str", n: 1, b: false, u: undefined, nul: null, arr: [1, "a"], nested: { a: { b: { c: { d: 1 } } } }, f() {} });
+console.log(Array.from({ length: 30 }, (_, i) => i * 1.5));
+console.log(["x".repeat(20), "y".repeat(30), "z".repeat(10), "w".repeat(25), "v".repeat(5), "u".repeat(40), "t"]);
+console.log(new Error("plain").message, String(new TypeError("te")));

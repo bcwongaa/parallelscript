@@ -1,0 +1,285 @@
+// A small JSON todo service on every core, plus a client that exercises it with fetch.
+//   todo_service            start on a free port, run the client against it, stop
+//   todo_service --serve N  serve on port N until killed
+import { serve, Response } from "pts:http";
+import type { Request } from "pts:http";
+import { AtomicInt, Mutex } from "pts:sync";
+import process from "pts:process";
+
+// ---------- model ----------
+
+interface Todo {
+  id: number;
+  title: string;
+  done: boolean;
+  tags: string[];
+  createdAt: string;
+}
+
+interface NewTodo {
+  title: string;
+  tags?: string[];
+}
+
+class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+const store = new Mutex(new Map<number, Todo>());
+const nextId = new AtomicInt(1);
+const requestCount = new AtomicInt(0);
+
+function validateNewTodo(body: unknown): NewTodo {
+  if (typeof body !== "object" || body === null) throw new HttpError(400, "body must be a JSON object");
+  const b = body as Record<string, unknown>;
+  if (typeof b.title !== "string" || b.title.trim() === "") throw new HttpError(400, "title must be a non-empty string");
+  if (b.title.length > 200) throw new HttpError(400, "title is too long");
+  let tags: string[] | undefined;
+  if (b.tags !== undefined) {
+    if (!Array.isArray(b.tags) || !b.tags.every((t) => typeof t === "string")) {
+      throw new HttpError(400, "tags must be an array of strings");
+    }
+    tags = b.tags as string[];
+  }
+  return { title: b.title.trim(), tags };
+}
+
+// ---------- routing ----------
+
+type Handler = (req: Request, params: Record<string, string>, query: Map<string, string>) => Promise<Response> | Response;
+
+interface Route {
+  method: string;
+  pattern: RegExp;
+  keys: string[];
+  handler: Handler;
+}
+
+class Router {
+  private routes: Route[] = [];
+
+  add(method: string, path: string, handler: Handler): this {
+    const keys: string[] = [];
+    const source = path.replace(/:(\w+)/g, (_m, key: string) => {
+      keys.push(key);
+      return "([^/]+)";
+    });
+    this.routes.push({ method, pattern: new RegExp(`^${source}$`), keys, handler });
+    return this;
+  }
+
+  async handle(req: Request): Promise<Response> {
+    const { pathname, query } = splitUrl(req.url);
+    let pathMatched = false;
+    for (const route of this.routes) {
+      const m = route.pattern.exec(pathname);
+      if (!m) continue;
+      pathMatched = true;
+      if (route.method !== req.method) continue;
+      const params: Record<string, string> = {};
+      route.keys.forEach((k, i) => {
+        params[k] = decodeURIComponent(m[i + 1]);
+      });
+      return await route.handler(req, params, query);
+    }
+    throw new HttpError(pathMatched ? 405 : 404, pathMatched ? "method not allowed" : `no route for ${pathname}`);
+  }
+}
+
+function splitUrl(url: string): { pathname: string; query: Map<string, string> } {
+  const withoutOrigin = url.replace(/^https?:\/\/[^/]+/, "");
+  const [pathname, search = ""] = withoutOrigin.split("?", 2);
+  const query = new Map<string, string>();
+  for (const pair of search.split("&")) {
+    if (!pair) continue;
+    const [k, v = ""] = pair.split("=");
+    query.set(decodeURIComponent(k), decodeURIComponent(v.replace(/\+/g, " ")));
+  }
+  return { pathname, query };
+}
+
+async function readJson(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    throw new HttpError(400, "invalid JSON body");
+  }
+}
+
+function parseId(params: Record<string, string>): number {
+  const id = Number(params.id);
+  if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, `bad id: ${params.id}`);
+  return id;
+}
+
+const router = new Router()
+  .add("GET", "/health", () => Response.json({ ok: true, requests: requestCount.load() }))
+  .add("GET", "/todos", (_req, _params, query) => {
+    const done = query.get("done");
+    const tag = query.get("tag");
+    const todos = store.withLock((m) => [...m.values()]);
+    const filtered = todos
+      .filter((t) => done === undefined || String(t.done) === done)
+      .filter((t) => tag === undefined || t.tags.includes(tag))
+      .sort((a, b) => a.id - b.id);
+    return Response.json({ count: filtered.length, items: filtered });
+  })
+  .add("POST", "/todos", async (req) => {
+    const input = validateNewTodo(await readJson(req));
+    const todo: Todo = {
+      id: nextId.add(1),
+      title: input.title,
+      done: false,
+      tags: input.tags ?? [],
+      createdAt: new Date(0).toISOString(),
+    };
+    store.withLock((m) => m.set(todo.id, todo));
+    return Response.json(todo, { status: 201, headers: { location: `/todos/${todo.id}` } });
+  })
+  .add("GET", "/todos/:id", (_req, params) => {
+    const id = parseId(params);
+    const todo = store.withLock((m) => m.get(id));
+    if (!todo) throw new HttpError(404, `todo ${id} not found`);
+    return Response.json(todo);
+  })
+  .add("PATCH", "/todos/:id", async (req, params) => {
+    const id = parseId(params);
+    const patch = (await readJson(req)) as Partial<Todo>;
+    const updated = store.withLock((m) => {
+      const existing = m.get(id);
+      if (!existing) return undefined;
+      const next: Todo = { ...existing, ...patch, id };
+      m.set(id, next);
+      return next;
+    });
+    if (!updated) throw new HttpError(404, `todo ${id} not found`);
+    return Response.json(updated);
+  })
+  .add("DELETE", "/todos/:id", (_req, params) => {
+    const id = parseId(params);
+    const removed = store.withLock((m) => m.delete(id));
+    return removed ? new Response(null, { status: 204 }) : Response.json({ error: "not found" }, { status: 404 });
+  })
+  .add("GET", "/slow", async () => {
+    await new Promise((r) => setTimeout(r, 500));
+    return new Response("finally");
+  });
+
+function startServer(port: number) {
+  return serve({
+    port,
+    hostname: "127.0.0.1",
+    reusePort: true,
+    async fetch(req) {
+      requestCount.add(1);
+      try {
+        return await router.handle(req);
+      } catch (e) {
+        if (e instanceof HttpError) return Response.json({ error: e.message }, { status: e.status });
+        console.error("unexpected error:", e);
+        return Response.json({ error: "internal error" }, { status: 500 });
+      }
+    },
+  });
+}
+
+// ---------- client ----------
+
+async function api<T>(base: string, method: string, path: string, body?: unknown): Promise<{ status: number; data: T }> {
+  const res = await fetch(base + path, {
+    method,
+    headers: body === undefined ? {} : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, data: (text ? JSON.parse(text) : null) as T };
+}
+
+async function runClient(base: string): Promise<void> {
+  const health = await api<{ ok: boolean }>(base, "GET", "/health");
+  console.log("health:", health.status, health.data.ok);
+
+  // Create 40 todos at once.
+  const titles = Array.from({ length: 40 }, (_, i) => `task #${i + 1}`);
+  const created = await Promise.all(
+    titles.map((title, i) => api<Todo>(base, "POST", "/todos", { title, tags: i % 3 === 0 ? ["urgent"] : [] })),
+  );
+  console.log("created:", created.length, "all 201:", created.every((r) => r.status === 201));
+  const ids = created.map((r) => r.data.id).sort((a, b) => a - b);
+  console.log("ids unique:", new Set(ids).size === ids.length, "range:", ids[0], "-", ids[ids.length - 1]);
+
+  // Fetch from other event loops too.
+  const fromTasks = await Promise.all([1, 2, 3, 4].map((n) => parallel api<Todo>(base, "GET", `/todos/${ids[n]}`)));
+  console.log("from tasks:", fromTasks.map((r) => `${r.status}:${r.data.title}`).join(", "));
+
+  // Update a few.
+  for (const id of ids.slice(0, 5)) {
+    await api<Todo>(base, "PATCH", `/todos/${id}`, { done: true });
+  }
+  const doneList = await api<{ count: number; items: Todo[] }>(base, "GET", "/todos?done=true");
+  console.log("done:", doneList.data.count, doneList.data.items.map((t) => t.id).join(","));
+  const urgent = await api<{ count: number }>(base, "GET", "/todos?tag=urgent");
+  console.log("urgent:", urgent.data.count);
+
+  // Errors.
+  const bad = await fetch(`${base}/todos`, { method: "POST", body: "{not json" });
+  console.log("bad json:", bad.status, await bad.json());
+  const empty = await api<{ error: string }>(base, "POST", "/todos", { title: "   " });
+  console.log("empty title:", empty.status, empty.data.error);
+  const badTags = await api<{ error: string }>(base, "POST", "/todos", { title: "x", tags: [1, 2] });
+  console.log("bad tags:", badTags.status, badTags.data.error);
+  const missing = await api<{ error: string }>(base, "GET", "/todos/9999");
+  console.log("missing:", missing.status, missing.data.error);
+  const badId = await api<{ error: string }>(base, "GET", "/todos/abc");
+  console.log("bad id:", badId.status, badId.data.error);
+  const wrongMethod = await api<{ error: string }>(base, "PUT", "/todos/1");
+  console.log("wrong method:", wrongMethod.status, wrongMethod.data.error);
+  const noRoute = await api<{ error: string }>(base, "GET", "/nope");
+  console.log("no route:", noRoute.status, noRoute.data.error);
+
+  // Delete one, twice.
+  const del1 = await fetch(`${base}/todos/${ids[0]}`, { method: "DELETE" });
+  const del2 = await fetch(`${base}/todos/${ids[0]}`, { method: "DELETE" });
+  console.log("delete:", del1.status, del2.status);
+
+  // Timeouts.
+  try {
+    await fetch(`${base}/slow`, { signal: AbortSignal.timeout(50) });
+    console.log("slow: no timeout?");
+  } catch (e) {
+    console.log("slow:", (e as Error).name);
+  }
+
+  // Connection refused.
+  try {
+    await fetch("http://127.0.0.1:1/");
+  } catch (e) {
+    const err = e as Error;
+    console.log("refused:", err.message, "/", (err.cause as Error).message);
+  }
+
+  const all = await api<{ count: number }>(base, "GET", "/todos");
+  console.log("final count:", all.data.count);
+}
+
+const args = process.argv.slice(2);
+if (args[0] === "--serve") {
+  const port = Number(args[1] ?? "8080");
+  const server = startServer(port);
+  console.log(`listening on ${server.url}`);
+} else {
+  const server = startServer(0);
+  const base = `http://127.0.0.1:${server.port}`;
+  try {
+    await runClient(base);
+  } finally {
+    server.stop(true);
+  }
+  console.log("requests served:", requestCount.load());
+}

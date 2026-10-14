@@ -1,0 +1,26 @@
+import { AtomicInt, Channel, Mutex, Once } from "pts:sync";
+import { range } from "pts:parallel";
+const sent = new Channel<number>(0);
+const guard = new Mutex({ count: 0 });
+const once = new Once();
+const setups = new AtomicInt();
+async function producer(): Promise<void> {
+  for (let i = 0; i < 100; i++) await sent.send(i);
+  sent.close();
+}
+const job = parallel producer();
+let sum = 0;
+for await (const n of sent) sum += n;
+await job;
+console.log(sum, sent.closed, await sent.recv());
+range(0, 1000).par.forEach(() => {
+  once.run(() => { setups.add(1); });
+  guard.withLock((state) => { state.count++; });
+});
+console.log(setups.load(), guard.withLock((state) => state.count));
+async function critical(): Promise<void> {
+  const lease = await guard.lock();
+  try { await Promise.resolve(); lease.value.count++; } finally { lease.unlock(); }
+}
+await Promise.all(range(0, 100).toArray().map(() => parallel critical()));
+console.log(guard.withLock((state) => state.count));

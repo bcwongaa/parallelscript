@@ -1,0 +1,14 @@
+// Climb until the runtime reports the overflow, or the process dies.
+function recurse(n: number): number {
+    return n <= 0 ? 0 : 1 + recurse(n - 1);
+}
+for (const depth of [500000, 1000000, 2000000, 4000000]) {
+    try {
+        const value = recurse(depth);
+        console.log("ok", depth, value);
+    } catch (error) {
+        const caught = error as Error;
+        console.log("threw", depth, caught.name, caught.message);
+        break;
+    }
+}

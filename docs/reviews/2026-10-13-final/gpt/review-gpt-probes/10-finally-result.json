@@ -1,0 +1,22 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/10-finally.pts"
+    ],
+    "exit": 0,
+    "stdout": "2 [ 'finally' ]\n1\n[ 'finally', 'close', '0', 'body', '1', '2', '3' ]\nsecond\n",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/10-finally.mts"
+    ],
+    "exit": 0,
+    "stdout": "2 [ 'finally' ]\n1\n[ 'finally', 'close', '0', 'body', '1', '2', '3' ]\nsecond\n",
+    "stderr": ""
+  }
+}

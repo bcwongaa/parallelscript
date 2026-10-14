@@ -1,0 +1,12 @@
+// compare-node
+// The M7.3c segfault: a narrowed optional local's length.
+function lengths(args: (string | undefined)[]): void {
+    const raw: string | undefined = args[2];
+    console.log("opt", raw?.length);
+    const [first, second, third] = args;
+    console.log("destructure", first, second, third);
+}
+lengths(["only"]);
+lengths(["a", "b", "hello"]);
+const env = process.env.PTS_REVIEW_MISSING;
+console.log("env", env, env?.length);

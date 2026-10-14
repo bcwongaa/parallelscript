@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/14-sync-channels.pts"
+    ],
+    "exit": 0,
+    "stdout": "4950 true undefined\n1 1000\n1100\n",
+    "stderr": ""
+  }
+}

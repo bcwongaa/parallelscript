@@ -1,0 +1,332 @@
+{
+  "compiler-build": {
+    "command": [
+      "go",
+      "build",
+      "-p",
+      "1",
+      "-o",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "./cmd/pts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "ledger-build": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "build",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/ledger.pts",
+      "-o",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/ledger"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "task-service-build": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "build",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/task-service.pts",
+      "-o",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/task-service"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "telemetry-build": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "build",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/telemetry.pts",
+      "-o",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/telemetry"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "ledger-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/ledger",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/expenses.csv",
+      "--json"
+    ],
+    "threads": "4",
+    "exit": 1,
+    "stdout": "{\n  \"source\": \"expenses.csv\",\n  \"accepted\": 5,\n  \"rejected\": 2,\n  \"cents\": 5250,\n  \"categories\": [\n    {\n      \"category\": \"travel\",\n      \"count\": 1,\n      \"cents\": 3000,\n      \"merchants\": [\n        \"Train\"\n      ]\n    },\n    {\n      \"category\": \"food\",\n      \"count\": 4,\n      \"cents\": 2250,\n      \"merchants\": [\n        \"Caf\u00e9\",\n        \"Caf\u00e9, Montr\u00e9al\",\n        \"Double \\\"Quote\\\"\",\n        \"Shop\"\n      ]\n    }\n  ],\n  \"months\": {\n    \"2026-01\": 1125,\n    \"2026-02\": 4125\n  },\n  \"errors\": [\n    \"line 6: Invalid date invalid\",\n    \"line 7: Invalid amount wat\"\n  ]\n}\n",
+    "stderr": ""
+  },
+  "ledger-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/ledger.mts",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/expenses.csv",
+      "--json"
+    ],
+    "threads": "4",
+    "exit": 1,
+    "stdout": "{\n  \"source\": \"expenses.csv\",\n  \"accepted\": 5,\n  \"rejected\": 2,\n  \"cents\": 5250,\n  \"categories\": [\n    {\n      \"category\": \"travel\",\n      \"count\": 1,\n      \"cents\": 3000,\n      \"merchants\": [\n        \"Train\"\n      ]\n    },\n    {\n      \"category\": \"food\",\n      \"count\": 4,\n      \"cents\": 2250,\n      \"merchants\": [\n        \"Caf\u00e9\",\n        \"Caf\u00e9, Montr\u00e9al\",\n        \"Double \\\"Quote\\\"\",\n        \"Shop\"\n      ]\n    }\n  ],\n  \"months\": {\n    \"2026-01\": 1125,\n    \"2026-02\": 4125\n  },\n  \"errors\": [\n    \"line 6: Invalid date invalid\",\n    \"line 7: Invalid amount wat\"\n  ]\n}\n",
+    "stderr": ""
+  },
+  "service-1": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/task-service"
+    ],
+    "threads": "1",
+    "exit": 0,
+    "stdout": "server URL http://127.0.0.1:36375/ create statuses [\n  201, 201, 201, 201,\n  201, 201, 201, 201,\n  201, 201, 201, 201\n]\nversions [ 200, 409 ]\ncreated 12\nstats {\"total\":12,\"completed\":1}\ninvalid 400 {\"error\":\"Title must have 1 to 100 characters\"}\nmalformed 400\ndelete 204 \"\"\nmissing 404\nrequests 20\n",
+    "stderr": ""
+  },
+  "telemetry-1": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/telemetry",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/report-1.json",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/events.ndjson"
+    ],
+    "threads": "1",
+    "exit": 0,
+    "stdout": "readings=777 sensors=7 groups=3 rejected=4\n2026-10-01 east 259 5.627199\n2026-10-02 ouest 259 5.765766\n2026-10-03 Caf\u00e9 259 5.739597\n",
+    "stderr": ""
+  },
+  "service-4": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/task-service"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "server URL http://127.0.0.1:40555/ create statuses [\n  201, 201, 201, 201,\n  201, 201, 201, 201,\n  201, 201, 201, 201\n]\nversions [ 200, 409 ]\ncreated 12\nstats {\"total\":12,\"completed\":1}\ninvalid 400 {\"error\":\"Title must have 1 to 100 characters\"}\nmalformed 400\ndelete 204 \"\"\nmissing 404\nrequests 20\n",
+    "stderr": ""
+  },
+  "telemetry-4": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/telemetry",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/report-4.json",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/events.ndjson"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "readings=777 sensors=7 groups=3 rejected=4\n2026-10-01 east 259 5.627199\n2026-10-02 ouest 259 5.765766\n2026-10-03 Caf\u00e9 259 5.739597\n",
+    "stderr": ""
+  },
+  "telemetry-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/telemetry.mts",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/report-node.json",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/events.ndjson"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "readings=777 sensors=7 groups=3 rejected=4\n2026-10-01 east 259 5.627199\n2026-10-02 ouest 259 5.765766\n2026-10-03 Caf\u00e9 259 5.739597\n",
+    "stderr": ""
+  },
+  "probe-run": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/probe-run.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "01-any-boundaries.pts pts exit= 0 tea 4\nTypeError\nTypeError\nTypeError\nTypeError\nTypeError\nTypeError\n[ 1, 2 ]\n \n02-async-order.pts pts exit= 0 start,await,then,queued,inner,done,main\n[{\"status\":\"fulfilled\",\"value\":1},{\"status\":\"rejected\",\"reason\":\"bad\"}]\n \n02-async-order.pts node exit= 0 start,await,then,queued,inner,done,main\n[{\"status\":\"fulfilled\",\"value\":1},{\"status\":\"rejected\",\"reason\":\"bad\"}]\n \nsame: True\n03-closures.pts pts exit= 0 3 3 4 4\n[ 0, 1, 2, 3, 4 ]\n8\n \n03-closures.pts node exit= 0 3 3 4 4\n[ 0, 1, 2, 3, 4 ]\n8\n \nsame: True\n04-destructuring.pts pts exit= 0 3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n \n04-destructuring.pts node exit= 0 3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n \nsame: True\n05-array-callbacks.pts pts exit= 0 [ 2, 4, 6 ] [ 1, 2, 3, 4 ]\n13\n[ 1, 'a' ] [ '1', 'a', 'null', 'undefined', 'false' ]\ntrue false\n \n05-array-callbacks.pts node exit= 0 [ 2, 4, 6 ] [ 1, 2, 3, 4 ]\n13\n[ 1, 'a' ] [ '1', 'a', 'null', 'undefined', 'false' ]\ntrue false\n \nsame: True\n06-map-live.pts pts exit= 0 [ 'a', 1 ]\n[ 'c', 3 ] [ 'd', 4 ] true\n[ 1, 3, 4 ] 3\n \n06-map-live.pts node exit= 0 [ 'a', 1 ]\n[ 'c', 3 ] [ 'd', 4 ] true\n[ 1, 3, 4 ] 3\n \nsame: True\n07-unicode.pts pts exit= 0 8 \"A\ud83d\ude00e\u0301\\ud800Z\\udc00\" false \"A\ud83d\ude00e\u0301\ufffdZ\ufffd\"\n[\n     65, 128512,\n    101,    769,\n  55296,     90,\n  56320\n]\n[\n   65, 55357, 56832,\n  101,   769, 55296,\n   90, 56320\n]\n\"\\ud83d\" \"\\ude00\"\n\u00e9 A\u030a STRASSE\n[a][\ud83d\ude00][b]\n[ 'a', '\ud83d\ude00', 'b' ]\n \n07-unicode.pts node exit= 0 8 \"A\ud83d\ude00e\u0301\\ud800Z\\udc00\" false \"A\ud83d\ude00e\u0301\ufffdZ\ufffd\"\n[\n     65, 128512,\n    101,    769,\n  55296,     90,\n  56320\n]\n[\n   65, 55357, 56832,\n  101,   769, 55296,\n   90, 56320\n]\n\"\\ud83d\" \"\\ude00\"\n\u00e9 A\u030a STRASSE\n[a][\ud83d\ude00][b]\n[ 'a', '\ud83d\ude00', 'b' ]\n \nsame: True\n08-generics.pts pts exit= 0 [ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n \n08-generics.pts node exit= 0 [ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n \nsame: True\n09-coercion.pts pts exit= 0 8 seven 7 seven [ 'valueOf', 'toString', 'valueOf', 'toString' ]\nTypeError\n0 16 -0 true\n \n09-coercion.pts node exit= 0 8 seven 7 seven [ 'valueOf', 'toString', 'valueOf', 'toString' ]\nTypeError\n0 16 -0 true\n \nsame: True\n10-finally.pts pts exit= 0 2 [ 'finally' ]\n1\n[ 'finally', 'close', '0', 'body', '1', '2', '3' ]\nsecond\n \n10-finally.pts node exit= 0 2 [ 'finally' ]\n1\n[ 'finally', 'close', '0', 'body', '1', '2', '3' ]\nsecond\n \nsame: True\n11-integer-edges.pts pts exit= 0 -9223372036854775808 0 -9223372036854775808 0\n9223372036854775807 -9223372036854775808 0 18446744073709551615 0\n-1 9223372036854775808 0 1\n[-9223372036854775808,9223372036854775807] 18446744073709551615 ffffffffffffffff\nRangeError: Division by zero\nRangeError: Exponent must be non-negative\n \n12-optional-order.pts pts exit= 0 undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n \n12-optional-order.pts node exit= 0 undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n \nsame: True\n13-frozen-alias.pts pts exit= 0 TypeError\na [ 1, 2, 3 ] true false\n[ [ 'a', 1 ], [ 'b', 2 ] ]\nTypeError [ 1, 2 ]\n \n13-frozen-alias.pts node exit= 0 TypeError\na [ 1, 2, 3 ] true false\n[ [ 'a', 1 ], [ 'b', 2 ] ]\nTypeError [ 1, 2 ]\n \nsame: True\n14-sync-channels.pts pts exit= 0 4950 true undefined\n1 1000\n1100\n \n15-parallel-exceptions.pts pts exit= 0 remote\nmap\nfor\njoin\n49995000\n110\ntrue\n \n16-racy-containers.pts pts exit= 0 true true\n \n17-typed-array-races.pts pts exit= 0 0\n0,2,2,255,0\n \n19-abort-thread-local.pts pts exit= 0 passed 373465 failed 26535 [\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor',\n  'TypeError: Illegal constructor'\n]\n \n20-competing-errors.pts pts exit= 0 arguments TypeError: The field 'values' is undefined: it is read before the constructor sets it\nsequenced TypeError: The field 'values' is undefined: it is read before the constructor sets it\n \n",
+    "stderr": ""
+  },
+  "recheck": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/recheck.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "04-destructuring-pts 0 3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n \n04-destructuring-node 0 3 4 get,4\n2 7 get,4,2,7\n2 [ 30, 40 ]\n11 17\n \n08-generics-pts 0 [ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n \n08-generics-node 0 [ '1', '2', '3' ]\n[ 3, 3 ] [ 'a', 'a' ]\nretained\n \n12-optional-order-pts 0 undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n \n12-optional-order-node 0 undefined undefined []\n0 3 undefined 8 [ 'arg' ]\n3 1\n \ndestructuring-undefined-min-pts 1  /tmp/pts-review-gpt/rerun-2r70yk1q/destructuring-undefined-min.pts:1:9 - error PTS1001: converting undefined to number is not supported yet\n\ndestructuring-undefined-min-node 0 4\n \nabort-build 0  \nabort-1-9 0 [{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"},{\"passed\":10000,\"failed\":0,\"first\":\"\"}]\n \nabort-4-10 0 [{\"passed\":9500,\"failed\":500,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9164,\"failed\":836,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9538,\"failed\":462,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9181,\"failed\":819,\"first\":\"TypeError: Illegal constructor\"}]\n \nabort-4-11 0 [{\"passed\":9435,\"failed\":565,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9494,\"failed\":506,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9414,\"failed\":586,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9519,\"failed\":481,\"first\":\"TypeError: Illegal constructor\"}]\n \nabort-4-12 0 [{\"passed\":9507,\"failed\":493,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9260,\"failed\":740,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9510,\"failed\":490,\"first\":\"TypeError: Illegal constructor\"},{\"passed\":9268,\"failed\":732,\"first\":\"TypeError: Illegal constructor\"}]\n \n",
+    "stderr": ""
+  },
+  "http-wire": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/http-wire.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "build 0 \nhealthy 'HTTP/1.1 200 OK\\r\\ncontent-type: text/plain;charset=UTF-8\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\nok'\nhead 'HTTP/1.1 200 OK\\r\\ncontent-type: text/plain;charset=UTF-8\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\ncontent-length: 7\\r\\nconnection: close\\r\\n\\r\\n'\nno-content 'HTTP/1.1 204 No Content\\r\\ncontent-type: text/plain;charset=UTF-8\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\nconnection: close\\r\\n\\r\\n'\nnul-header 'HTTP/1.1 400 Bad Request\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\ncontent-length: 0\\r\\nconnection: close\\r\\n\\r\\n'\nduplicate-length 'HTTP/1.1 400 Bad Request\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\ncontent-length: 0\\r\\nconnection: close\\r\\n\\r\\n'\nlength-and-chunks 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:39 GMT\\r\\ncontent-length: 2\\r\\n\\r\\n{}'\nbad-chunk 'HTTP/1.1 400 Bad Request\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 0\\r\\nconnection: close\\r\\n\\r\\n'\noversized-body 'HTTP/1.1 413 Content Too Large\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 0\\r\\nconnection: close\\r\\n\\r\\n'\nchunked 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 7\\r\\nconnection: close\\r\\n\\r\\n{\"x\":1}'\nambiguous-pipeline 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\n\\r\\n{}HTTP/1.1 200 OK\\r\\ncontent-type: text/plain;charset=UTF-8\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\nok'\nnonfinal-chunked 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\n{}'\nunsupported-transfer 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\n{}'\nsigned-length 'HTTP/1.1 200 OK\\r\\ncontent-type: application/json\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\n{}'\nhealthy-with-eight-slow-clients 'HTTP/1.1 200 OK\\r\\ncontent-type: text/plain;charset=UTF-8\\r\\ndate: Tue, 13 Oct 2026 04:56:40 GMT\\r\\ncontent-length: 2\\r\\nconnection: close\\r\\n\\r\\nok'\n64 connections: 200= 64\nserver stopped -15 \n",
+    "stderr": ""
+  },
+  "http-framing-compare": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/http-framing-compare.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "pts ambiguous-pipeline HTTP/1.1 200 OK responses 2 closed True\npts nonfinal-chunked HTTP/1.1 200 OK responses 1 closed True\npts unsupported-transfer HTTP/1.1 200 OK responses 1 closed True\npts signed-length HTTP/1.1 200 OK responses 1 closed True\nnode ambiguous-pipeline HTTP/1.1 400 Bad Request responses 1 closed True\nnode nonfinal-chunked HTTP/1.1 400 Bad Request responses 1 closed True\nnode unsupported-transfer HTTP/1.1 400 Bad Request responses 1 closed True\nnode signed-length HTTP/1.1 400 Bad Request responses 1 closed True\n",
+    "stderr": ""
+  },
+  "lsp-smoke": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/lsp-smoke.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "initialize error: None\ntype-error.pts {\"jsonrpc\": \"2.0\", \"id\": 2, \"result\": {\"kind\": \"full\", \"items\": [{\"range\": {\"start\": {\"line\": 0, \"character\": 6}, \"end\": {\"line\": 0, \"character\": 7}}, \"severity\": 1, \"code\": 2322, \"source\": \"ts\", \"message\": \"Type 'string' is not assignable to type 'number'.\"}]}}\nnumeric-error.pts {\"jsonrpc\": \"2.0\", \"id\": 3, \"result\": {\"kind\": \"full\", \"items\": [{\"range\": {\"start\": {\"line\": 0, \"character\": 17}, \"end\": {\"line\": 0, \"character\": 20}}, \"severity\": 1, \"code\": \"PTS2002\", \"source\": \"pts\", \"message\": \"256 doesn't fit in u8 (0 to 255)\"}]}}\nguardrail-error.pts {\"jsonrpc\": \"2.0\", \"id\": 4, \"result\": {\"kind\": \"full\", \"items\": [{\"range\": {\"start\": {\"line\": 2, \"character\": 33}, \"end\": {\"line\": 2, \"character\": 38}}, \"severity\": 1, \"code\": \"PTS3001\", \"source\": \"pts\", \"message\": \"`count` is declared outside this parallel body, which runs on several threads at once, so assigning it here would race; combine the results with `.par.reduce` or `.par.sum`, or use pts:sync: an `AtomicInt` for an integer count, a `Mutex` for anything else\"}]}}\ndestructuring-editor.pts {\"jsonrpc\": \"2.0\", \"id\": 5, \"result\": {\"kind\": \"full\", \"items\": []}}\nlsp exit: 1\npts: context canceled\n\n",
+    "stderr": ""
+  },
+  "check-excluded-corpus": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/check-excluded-corpus.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "functional/debounce_throttle_clock pts 0 t=0 typed p         pending=true queue=1\nt=80 typed pa        pending=true queue=1\nt=150 typed par       pending=true queue=1\nt=210 typed para      pending=true queue=1\nt=700 typed paral     pending=true queue=1\nt=760 typed parall    pending=true queue=1\nt=1200 typed parallel  pending=true queue=1\n[\n  't=510 search(\"para\")',\n  't=1060 search(\"parall\")',\n  't=1500 search(\"parallel\")'\n]\nscroll events: 16, renders: 6\n[\n  { t: 0, y: 0 },\n  { t: 100, y: 180 },\n  { t: 200, y: 360 },\n  { t: 300, y: 540 },\n  { t: 400, y: 780 },\n  { t: 500, y: 900 }\n]\nsaves at: [ 1000, 1050, 1650, 2650 ] pending: 0\n \nfunctional/debounce_throttle_clock node 0 t=0 typed p         pending=true queue=1\nt=80 typed pa        pending=true queue=1\nt=150 typed par       pending=true queue=1\nt=210 typed para      pending=true queue=1\nt=700 typed paral     pending=true queue=1\nt=760 typed parall    pending=true queue=1\nt=1200 typed parallel  pending=true queue=1\n[\n  't=510 search(\"para\")',\n  't=1060 search(\"parall\")',\n  't=1500 search(\"parallel\")'\n]\nscroll events: 16, renders: 6\n[\n  { t: 0, y: 0 },\n  { t: 100, y: 180 },\n  { t: 200, y: 360 },\n  { t: 300, y: 540 },\n  { t: 400, y: 780 },\n  { t: 500, y: 900 }\n]\nsaves at: [ 1000, 1050, 1650, 2650 ] pending: 0\n \nsame: True\nalgorithms/lcs_diff pts 0 + function greet(name: string): string {\n+   const msg = `Hello, ${name}!`;\n- function greet(name) {\n-   const msg = \"Hello, \" + name;\n    console.log(msg);\n    return msg;\n  }\n  greet(\"world\");\n+ greet(\"again\");\nstats: { keep: 4, add: 3, del: 2 }\n\"AGGTAB\" vs \"GXTXAYB\" -> 'GTAB' (similarity 0.615)\n\"kitten\" vs \"sitting\" -> 'ittn' (similarity 0.615)\n\"parallel\" vs \"script\" -> 'r' (similarity 0.143)\n\"\" vs \"abc\" -> '' (similarity 0.000)\n\"typescript\" vs \"javascript\" -> 'script' (similarity 0.600)\ncommon words: 4 of 7\ncase-insensitive LCS length: 5\n[\n  { kind: 'keep', text: 'a' },\n  { kind: 'del', te \nalgorithms/lcs_diff node 0 + function greet(name: string): string {\n+   const msg = `Hello, ${name}!`;\n- function greet(name) {\n-   const msg = \"Hello, \" + name;\n    console.log(msg);\n    return msg;\n  }\n  greet(\"world\");\n+ greet(\"again\");\nstats: { keep: 4, add: 3, del: 2 }\n\"AGGTAB\" vs \"GXTXAYB\" -> 'GTAB' (similarity 0.615)\n\"kitten\" vs \"sitting\" -> 'ittn' (similarity 0.615)\n\"parallel\" vs \"script\" -> 'r' (similarity 0.143)\n\"\" vs \"abc\" -> '' (similarity 0.000)\n\"typescript\" vs \"javascript\" -> 'script' (similarity 0.600)\ncommon words: 4 of 7\ncase-insensitive LCS length: 5\n[\n  { kind: 'keep', text: 'a' },\n  { kind: 'del', te \nsame: True\ntext/word_search_puzzle pts 0 placed 14/14 \n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 \u00b7 \u00b7 \u00b7 T H R E A D E \u00b7 E\n 1 \u00b7 \u00b7 H \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 R P U V\n 2 E T E \u00b7 \u00b7 \u00b7 E U A N T I\n 3 N U A \u00b7 \u00b7 G S R I P C T\n 4 U P P \u00b7 A O A O I O S A\n 5 M L \u00b7 B L L N R M \u00b7 T N\n 6 \u00b7 E R C L \u00b7 C P \u00b7 \u00b7 A \u00b7\n 7 \u00b7 A \u00b7 E \u00b7 S I \u00b7 \u00b7 \u00b7 C \u00b7\n 8 G \u00b7 L \u00b7 E L \u00b7 \u00b7 \u00b7 \u00b7 K \u00b7\n 9 \u00b7 \u00b7 \u00b7 P E G E N E R I C\n10 \u00b7 \u00b7 Y R \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7\n11 \u00b7 T \u00b7 \u00b7 \u00b7 B I N A R Y \u00b7\n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 D M F T H R E A D E M E\n 1 D G H U N S C V R P U V\n 2 E T E D J C E U A N T I\n 3 N U A L I G S R I P C T\n 4 U P P E A O A O I O S A\n 5 M L N B L L N R M N T N\n 6 F E R C L R C P I E A S\n 7 I A G E R S I T  \ntext/word_search_puzzle node 0 placed 14/14 \n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 \u00b7 \u00b7 \u00b7 T H R E A D E \u00b7 E\n 1 \u00b7 \u00b7 H \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 R P U V\n 2 E T E \u00b7 \u00b7 \u00b7 E U A N T I\n 3 N U A \u00b7 \u00b7 G S R I P C T\n 4 U P P \u00b7 A O A O I O S A\n 5 M L \u00b7 B L L N R M \u00b7 T N\n 6 \u00b7 E R C L \u00b7 C P \u00b7 \u00b7 A \u00b7\n 7 \u00b7 A \u00b7 E \u00b7 S I \u00b7 \u00b7 \u00b7 C \u00b7\n 8 G \u00b7 L \u00b7 E L \u00b7 \u00b7 \u00b7 \u00b7 K \u00b7\n 9 \u00b7 \u00b7 \u00b7 P E G E N E R I C\n10 \u00b7 \u00b7 Y R \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7\n11 \u00b7 T \u00b7 \u00b7 \u00b7 B I N A R Y \u00b7\n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 D M F T H R E A D E M E\n 1 D G H U N S C V R P U V\n 2 E T E D J C E U A N T I\n 3 N U A L I G S R I P C T\n 4 U P P E A O A O I O S A\n 5 M L N B L L N R M N T N\n 6 F E R C L R C P I E A S\n 7 I A G E R S I T  \nsame: True\ntext/spell_suggest pts 0 dictionary size: 117\nkitten   sitting  lev=3 dam=3\nflaw     lawn     lev=2 dam=2\nca       abc      lev=3 dam=3\nrecieve  receive  lev=2 dam=1\n         abc      lev=3 dam=3\nsame     same     lev=0 dam=0\nteh         -> the(1), to(2), he(2)\nrecieve     -> receive(1), believe(2)\nseperate    -> separate(1)\ndefinately  -> definitely(1)\nlangauge    -> language(1)\ncomplier    -> compiler(1)\ngarbge      -> garbage(1)\nthred       -> thread(1), the(2), they(2)\nxyzzy       -> no suggestions\nThe         ok\n[\n  { word: 'the', distance: 2, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  {  \ntext/spell_suggest node 0 dictionary size: 117\nkitten   sitting  lev=3 dam=3\nflaw     lawn     lev=2 dam=2\nca       abc      lev=3 dam=3\nrecieve  receive  lev=2 dam=1\n         abc      lev=3 dam=3\nsame     same     lev=0 dam=0\nteh         -> the(1), to(2), he(2)\nrecieve     -> receive(1), believe(2)\nseperate    -> separate(1)\ndefinately  -> definitely(1)\nlangauge    -> language(1)\ncomplier    -> compiler(1)\ngarbge      -> garbage(1)\nthred       -> thread(1), the(2), they(2)\nxyzzy       -> no suggestions\nThe         ok\n[\n  { word: 'the', distance: 2, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  {  \nsame: True\noop/memento_game_save pts 0 turn 0: explore        Rin L1 xp=0 hp=100 str=8 at (3,1) inv=potionx2,keyx1\nturn 1: fight goblins  Rin L2 xp=30 hp=75 str=10 at (3,1) inv=potionx2,keyx1\nturn 2: heal           Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nturn 3: enter dungeon  Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\n  (autosave slot full, dropped \"explore\")\nturn 4: fight dragon   Rin L2 xp=30 hp=0 str=10 at (3,6) inv=potionx1\n  hero fell!\nslots: [ 'fight goblins@1', 'heal@2', 'enter dungeon@3' ]\nrestored enter dungeon -> Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\nrolled back to heal -> Rin L2 xp=30 hp= \noop/memento_game_save node 0 turn 0: explore        Rin L1 xp=0 hp=100 str=8 at (3,1) inv=potionx2,keyx1\nturn 1: fight goblins  Rin L2 xp=30 hp=75 str=10 at (3,1) inv=potionx2,keyx1\nturn 2: heal           Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nturn 3: enter dungeon  Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\n  (autosave slot full, dropped \"explore\")\nturn 4: fight dragon   Rin L2 xp=30 hp=0 str=10 at (3,6) inv=potionx1\n  hero fell!\nslots: [ 'fight goblins@1', 'heal@2', 'enter dungeon@3' ]\nrestored enter dungeon -> Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\nrolled back to heal -> Rin L2 xp=30 hp= \nsame: True\n",
+    "stderr": ""
+  },
+  "run_originals": {
+    "command": [
+      "python3",
+      "-I",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/run_originals.py"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "{\"name\": \"11_foreign_timer\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/11_foreign_timer.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"cleared\\n\", \"stderr\": \"\"}, \"node\": null}\n{\"name\": \"01_union_capture\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/01_union_capture.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 1, \"stdout\": \"\", \"stderr\": \"Uncaught TypeError: Expected string, got number\\n    at demo (/tmp/pts-review-gpt/rerun-2r70yk1q/previous/01_union_capture.pts:6)\\n    at /tmp/pts-review-gpt/rerun-2r70yk1q/previous/01_union_capture.pts:9\\n\"}, \"node\": {\"exit\": 0, \"stdout\": \"undefined\\n\", \"stderr\": \"\"}}\n{\"name\": \"12_captured_tdz\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/12_captured_tdz.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"ReferenceError\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"ReferenceError\\n\", \"stderr\": \"\"}}\n{\"name\": \"14_tostring_dynamic\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/14_tostring_dynamic.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"7,7\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"7,7\\n\", \"stderr\": \"\"}}\n{\"name\": \"05_thenable_getters\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/05_thenable_getters.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"changing 1 1\\nreturned\\ncaught getter\\nexecutor rejected\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"changing 1 1\\nreturned\\ncaught getter\\nexecutor rejected\\n\", \"stderr\": \"\"}}\n{\"name\": \"06_yield_order\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/06_yield_order.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"{ value: 0, done: false }\\n{ value: 11, done: true }\\n{ value: 0, done: false } 1\\n{ value: 11, done: true } 1\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"{ value: 0, done: false }\\n{ value: 11, done: true }\\n{ value: 0, done: false } 1\\n{ value: 11, done: true } 1\\n\", \"stderr\": \"\"}}\n{\"name\": \"13_iterator_protocol\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/13_iterator_protocol.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"done\\ncaught body\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"done\\ncaught body\\n\", \"stderr\": \"\"}}\n{\"name\": \"03_generics_any\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/03_generics_any.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"7\\n8 true\\nbox 9\\nboundary TypeError\\n\", \"stderr\": \"\"}, \"node\": {\"exit\": 0, \"stdout\": \"7\\n8 true\\nbox 9\\nboundary text\\n\", \"stderr\": \"\"}}\n{\"name\": \"15_accessor_stack\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/15_accessor_stack.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"RangeError\\n42\\n\", \"stderr\": \"\"}, \"node\": null}\n{\"name\": \"09_par_map\", \"source\": \"/tmp/pts-review-gpt/rerun-2r70yk1q/previous/09_par_map.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"true 4000\\nError map failure\\n6,2,4\\nreduce 7998010 7998010\\n\", \"stderr\": \"\"}, \"node\": null}\n{\"name\": \"generic_factories_fallbacks\", \"source\": \"/home/bryan/projects/pts-review-gpt/pts/tests/run/generic_factories_fallbacks.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"a number 3\\nnumber 2\\nTypeError Expected Box<string>, got Box<any>\\nTypeError Expected Box<number>, got Box<any>\\nTypeError Expected Box<string>, got Box<any>\\na number 6\\n5\\n\", \"stderr\": \"\"}, \"node\": null}\n{\"name\": \"async_generators_foreign\", \"source\": \"/home/bryan/projects/pts-review-gpt/pts/tests/run/async_generators_foreign.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"items: 2000 each once: true\\nsum from another loop: 4950\\nfirst: 0\\nreturn: { value: 'stopped', done: true }\\nafter return: { value: undefined, done: true }\\n\", \"stderr\": \"\"}, \"node\": null}\n{\"name\": \"remote_rejection\", \"source\": \"/home/bryan/projects/pts-review-gpt/pts/tests/run/remote_rejection.pts\", \"build\": {\"exit\": 0, \"stdout\": \"\", \"stderr\": \"\"}, \"native\": {\"exit\": 0, \"stdout\": \"caught late\\n\", \"stderr\": \"\"}, \"node\": null}\n",
+    "stderr": ""
+  },
+  "06_residual-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "run",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/06_residual.pts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "accessor 12\nany 12\nmethod new 10\n",
+    "stderr": ""
+  },
+  "06_residual-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/06_residual.ts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "accessor 11\nany 11\nmethod old 10\n",
+    "stderr": ""
+  },
+  "07_residual-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "run",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/07_residual.pts"
+    ],
+    "threads": "2",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/07_residual.pts:5:16 - error PTS1001: converting object4 to object1 | object2 is not supported yet\n"
+  },
+  "07_residual-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/07_residual.ts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "done\n",
+    "stderr": ""
+  },
+  "08_residual-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "run",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/08_residual.pts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "TypeError Expected Box<number>, got Box<any>\n",
+    "stderr": ""
+  },
+  "08_residual-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-strip-types",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/previous/08_residual.ts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "box 9\n",
+    "stderr": ""
+  },
+  "known-lru-pts": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "run",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/known-lru.pts"
+    ],
+    "threads": "2",
+    "exit": 1,
+    "stdout": "map    gets: a=1 b=miss c=3 d=miss a=10  final order: c,e,a\nlinked gets: a=1 b=miss c=3 d=miss a=10  final order: c,e,a\n",
+    "stderr": "Uncaught TypeError: Expected MapLRU<any, any>, got MapLRU<string, number>\n    at /tmp/pts-review-gpt/rerun-2r70yk1q/known-lru.pts:117\n"
+  },
+  "known-lru-node": {
+    "command": [
+      "/home/bryan/.local/node/bin/node",
+      "--experimental-transform-types",
+      "--no-warnings",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/known-lru.mts"
+    ],
+    "threads": "2",
+    "exit": 0,
+    "stdout": "map    gets: a=1 b=miss c=3 d=miss a=10  final order: c,e,a\nlinked gets: a=1 b=miss c=3 d=miss a=10  final order: c,e,a\nevicted: [ 'b', 'd' ]\nhits=3 misses=2 ratio=0.60\nfib(70) = 190392490709135 cache size: 50 hits: 67\ncapacity 3: 10 page faults, resident [ '3', '4', '5' ]\ncapacity 4: 8 page faults, resident [ '2', '3', '4', '5' ]\nMapLRU {\n  capacity: 2,\n  store: Map(2) { 'x' => { id: 1 }, 'y' => { id: 2 } },\n  evictions: []\n}\n",
+    "stderr": ""
+  },
+  "guide-tutorial": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "run",
+      "docs/examples/guide_tutorial.pts"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "loop:  142879\n.par:  142879\ntasks: 142879\nint:   142879\n",
+    "stderr": ""
+  },
+  "guide-tests": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "test",
+      "docs/examples/testing"
+    ],
+    "threads": "4",
+    "exit": 0,
+    "stdout": "\u25b6 mean\n  \u2714 averages the values (0.492312ms)\n  \u2714 throws for no values (0.047188ms)\n\u2714 mean (0.572294ms)\n\u2714 the median of an even count is the mean of the middle two (0.004241ms)\n\u2714 median leaves its input as it was (0.009837ms)\n\u2139 tests 4\n\u2139 suites 1\n\u2139 pass 4\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 3564.33\n",
+    "stderr": ""
+  },
+  "expected-test-failure": {
+    "command": [
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/pts",
+      "test",
+      "/tmp/pts-review-gpt/rerun-2r70yk1q/review-failure.test.pts"
+    ],
+    "threads": "4",
+    "exit": 1,
+    "stdout": "\u2716 deliberate failure (0.021202ms)\n\u2139 tests 1\n\u2139 suites 0\n\u2139 pass 0\n\u2139 fail 1\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 2595.48\n\n\u2716 failing tests:\n\ntest at ../../../../tmp/pts-review-gpt/rerun-2r70yk1q/review-failure.test.pts:3\n\u2716 deliberate failure (0.021202ms)\n  AssertionError: Expected values to be strictly equal:\n  \n  2 !== 3\n  \n      at /tmp/pts-review-gpt/rerun-2r70yk1q/review-failure.test.pts:3 {\n    code: 'ERR_ASSERTION',\n    actual: 2,\n    expected: 3,\n    operator: 'strictEqual',\n    generatedMessage: true\n  }\n",
+    "stderr": ""
+  }
+}

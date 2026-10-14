@@ -1,0 +1,16 @@
+interface Agg { kind: string; column?: string }
+function parseSpec(spec: string): Agg {
+  const [kind, column] = spec.split(":");
+  const agg: Agg = { kind, column };
+  return agg;
+}
+function validate(n: number): number {
+  if (n > 2) throw new RangeError(`too big: ${n}`);
+  return n;
+}
+function main(): void {
+  console.log(validate(1));
+  try { validate(3); } catch (e) { console.log(((e as Error).stack ?? "").split("\n").slice(0, 3).join(" | ")); }
+  console.log(parseSpec("count"));
+}
+main();

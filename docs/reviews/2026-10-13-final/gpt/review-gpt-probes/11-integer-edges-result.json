@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/11-integer-edges.pts"
+    ],
+    "exit": 0,
+    "stdout": "-9223372036854775808 0 -9223372036854775808 0\n9223372036854775807 -9223372036854775808 0 18446744073709551615 0\n-1 9223372036854775808 0 1\n[-9223372036854775808,9223372036854775807] 18446744073709551615 ffffffffffffffff\nRangeError: Division by zero\nRangeError: Exponent must be non-negative\n",
+    "stderr": ""
+  }
+}

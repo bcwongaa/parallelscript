@@ -1,0 +1,53 @@
+interface Comparable<T> { compareTo(other: T): number }
+class Version implements Comparable<Version> {
+  constructor(public major: number, public minor: number) {}
+  compareTo(o: Version): number { return this.major - o.major || this.minor - o.minor; }
+  toString(): string { return `v${this.major}.${this.minor}`; }
+}
+function maxOf<T extends Comparable<T>>(xs: T[]): T | undefined {
+  return xs.reduce<T | undefined>((best, x) => (best === undefined || x.compareTo(best) > 0 ? x : best), undefined);
+}
+console.log(String(maxOf([new Version(1, 2), new Version(1, 10), new Version(0, 99)])));
+class Stack<T> {
+  private items: T[] = [];
+  push(...xs: T[]): this { this.items.push(...xs); return this; }
+  pop(): T | undefined { return this.items.pop(); }
+  peek(): T | undefined { return this.items[this.items.length - 1]; }
+  get size(): number { return this.items.length; }
+  map<U>(f: (x: T) => U): Stack<U> { const s = new Stack<U>(); s.push(...this.items.map(f)); return s; }
+  *[Symbol.iterator](): Iterator<T> { for (let i = this.items.length - 1; i >= 0; i--) yield this.items[i]; }
+}
+const st = new Stack<number>().push(1, 2, 3);
+console.log([...st.map((x) => `#${x}`)], st.peek(), st.size, st.pop(), st.size);
+type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E };
+function tryParse<T>(s: string, guard: (x: unknown) => x is T): Result<T, string> {
+  try { const v: unknown = JSON.parse(s); return guard(v) ? { ok: true, value: v } : { ok: false, error: "shape" }; }
+  catch (e) { return { ok: false, error: (e as Error).name }; }
+}
+const isNums = (x: unknown): x is number[] => Array.isArray(x) && x.every((n) => typeof n === "number");
+for (const s of ["[1,2]", "[1,\"a\"]", "{"]) { const r = tryParse(s, isNums); console.log(r.ok ? r.value : r.error); }
+function memo<A extends string | number, R>(f: (a: A) => R): (a: A) => R {
+  const cache = new Map<A, R>();
+  return (a) => { if (!cache.has(a)) cache.set(a, f(a)); return cache.get(a)!; };
+}
+let calls = 0;
+const slowSquare = memo((n: number) => { calls++; return n * n; });
+console.log(slowSquare(4), slowSquare(4), slowSquare(5), calls);
+type Tree<T> = { value: T; children: Tree<T>[] };
+function depth<T>(t: Tree<T>): number { return 1 + Math.max(0, ...t.children.map(depth)); }
+const tree: Tree<string> = { value: "r", children: [{ value: "a", children: [{ value: "b", children: [] }] }] };
+console.log(depth(tree));
+class Registry<K, V extends { id: K }> {
+  private byId = new Map<K, V>();
+  add(v: V): void { this.byId.set(v.id, v); }
+  get(k: K): V | undefined { return this.byId.get(k); }
+  values(): V[] { return [...this.byId.values()]; }
+}
+const reg = new Registry<string, { id: string; n: number }>();
+reg.add({ id: "x", n: 1 }); reg.add({ id: "y", n: 2 });
+console.log(reg.get("y"), reg.values().length);
+function zip<A, B>(as: A[], bs: B[]): [A, B][] { return as.slice(0, Math.min(as.length, bs.length)).map((a, i) => [a, bs[i]]); }
+console.log(zip([1, 2, 3], ["a", "b"]));
+function groupBy<T>(xs: T[], f: (x: T) => string) { return
+  xs.reduce((acc, x) => { (acc[f(x)] ||= []).push(x); return acc; }, {} as Record<string, T[]>); }
+console.log(groupBy([1, 2, 3, 4, 5], (n) => (n % 2 ? "odd" : "even")));

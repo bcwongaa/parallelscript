@@ -1,0 +1,16 @@
+class Holder { values!: number[]; }
+function consume(values: number[], n: number): void { console.log(values, n); }
+const holder = new Holder();
+const numbers = [1];
+try {
+  consume(holder.values, numbers[5]);
+} catch (e) {
+  console.log("arguments", e instanceof Error ? e.name + ": " + e.message : String(e));
+}
+try {
+  const first: number[] = holder.values;
+  const second = numbers[5];
+  consume(first, second);
+} catch (e) {
+  console.log("sequenced", e instanceof Error ? e.name + ": " + e.message : String(e));
+}

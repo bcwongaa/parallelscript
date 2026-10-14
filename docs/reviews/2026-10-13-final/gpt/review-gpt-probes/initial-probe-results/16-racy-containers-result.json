@@ -1,0 +1,12 @@
+{
+  "pts": {
+    "command": [
+      "/tmp/pts-review-gpt/pts",
+      "run",
+      "/tmp/pts-review-gpt/16-racy-containers.pts"
+    ],
+    "exit": 0,
+    "stdout": "true true\n",
+    "stderr": ""
+  }
+}

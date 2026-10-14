@@ -1,0 +1,219 @@
+// Index words in every text file under a directory.
+// Sequential and parallel counts are both computed; the program exits 1 if they differ.
+//   pts run indexer.pts -- --demo
+//   pts run indexer.pts -- <directory> [--top N] [--json]
+
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "pts:fs";
+import { join } from "pts:path";
+import { AtomicInt } from "pts:sync";
+
+interface FileCounts {
+    path: string;
+    lines: number;
+    words: number;
+    counts: Map<string, number>;
+}
+
+interface Report {
+    files: number;
+    lines: number;
+    words: number;
+    top: { word: string; count: number }[];
+}
+
+const STOP = new Set([
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the",
+    "to", "was", "with",
+]);
+
+const wordPattern = /[\p{L}\p{N}]+/gu;
+
+function tokenize(text: string): string[] {
+    const found = text.toLowerCase().match(wordPattern);
+    if (found === null) {
+        return [];
+    }
+    return found.filter((word) => word.length > 1 && !STOP.has(word));
+}
+
+function countText(path: string, text: string): FileCounts {
+    const counts = new Map<string, number>();
+    let words = 0;
+    for (const word of tokenize(text)) {
+        words++;
+        counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+    let lines = 0;
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] === "\n") {
+            lines++;
+        }
+    }
+    if (text.length > 0 && !text.endsWith("\n")) {
+        lines++;
+    }
+    return { path, lines, words, counts };
+}
+
+function walk(dir: string): string[] {
+    const out: string[] = [];
+    const names = readdirSync(dir).slice().sort();
+    for (const name of names) {
+        if (name.startsWith(".")) {
+            continue;
+        }
+        const path = join(dir, name);
+        const info = statSync(path);
+        if (info.isDirectory()) {
+            out.push(...walk(path));
+        } else if (info.isFile() && (name.endsWith(".txt") || name.endsWith(".md"))) {
+            out.push(path);
+        }
+    }
+    return out;
+}
+
+function merge(parts: FileCounts[]): Map<string, number> {
+    const totals = new Map<string, number>();
+    for (const part of parts) {
+        for (const [word, count] of part.counts) {
+            totals.set(word, (totals.get(word) ?? 0) + count);
+        }
+    }
+    return totals;
+}
+
+function topWords(totals: Map<string, number>, limit: number): { word: string; count: number }[] {
+    return [...totals.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, limit)
+        .map(([word, count]) => ({ word, count }));
+}
+
+function reportOf(parts: FileCounts[], limit: number): Report {
+    return {
+        files: parts.length,
+        lines: parts.reduce((n, part) => n + part.lines, 0),
+        words: parts.reduce((n, part) => n + part.words, 0),
+        top: topWords(merge(parts), limit),
+    };
+}
+
+function loadSequential(files: string[]): FileCounts[] {
+    return files.map((path) => countText(path, readFileSync(path, "utf8")));
+}
+
+function loadParallel(files: string[]): FileCounts[] {
+    // Each task reads and counts one file. The returned maps are merged afterwards.
+    return files.par.map((path) => countText(path, readFileSync(path, "utf8")));
+}
+
+function sameCounts(left: Map<string, number>, right: Map<string, number>): boolean {
+    if (left.size !== right.size) {
+        return false;
+    }
+    for (const [word, count] of left) {
+        if (right.get(word) !== count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function formatReport(report: Report): string {
+    const lines = [
+        `${report.files} files, ${report.lines} lines, ${report.words} words`,
+        ...report.top.map((row) => `${String(row.count).padStart(6)}  ${row.word}`),
+    ];
+    return lines.join("\n");
+}
+
+function writeDemo(root: string): void {
+    mkdirSync(join(root, "notes"));
+    const paragraph = [
+        "The parallel indexer counts every word in the corpus.",
+        "Café menus and naïve tokenisers still count café as one word.",
+        "Numbers like v2 and item42 stay attached to their digits.",
+        "A stop word list drops the, and, of.",
+    ].join(" ");
+    const files = [
+        ["readme.md", `# Indexer\n\n${paragraph}\n${paragraph}\n`],
+        ["notes/alpha.txt", `${"alpha beta gamma café\n".repeat(40)}`],
+        ["notes/beta.txt", `${"beta beta delta naïve\n".repeat(25)}the and of\n`],
+        ["notes/empty.txt", ""],
+        ["notes/unicode.txt", "TOKYO 東京 repeats 東京 and café.\n"],
+        ["skip.log", "this extension is ignored\n"],
+    ] as const;
+    for (const [name, body] of files) {
+        writeFileSync(join(root, name), body);
+    }
+}
+
+function parseTop(argv: string[]): { dir: string; top: number; json: boolean; demo: boolean } {
+    let top = 15;
+    let json = false;
+    let demo = false;
+    const positionals: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i] ?? "";
+        if (arg === "--top") {
+            const raw = argv[i + 1];
+            const n = Number(raw);
+            if (raw === undefined || !Number.isInteger(n) || n < 1) {
+                process.stderr.write("indexer: --top wants a positive integer\n");
+                process.exit(2);
+            }
+            top = n;
+            i++;
+        } else if (arg === "--json") {
+            json = true;
+        } else if (arg === "--demo") {
+            demo = true;
+        } else if (arg === "--help") {
+            process.stderr.write("usage: indexer [--demo] [directory] [--top N] [--json]\n");
+            process.exit(0);
+        } else if (arg.startsWith("--")) {
+            process.stderr.write(`indexer: unexpected ${arg}\n`);
+            process.exit(2);
+        } else {
+            positionals.push(arg);
+        }
+    }
+    return { dir: positionals[0] ?? "", top, json, demo };
+}
+
+const options = parseTop(process.argv.slice(2));
+const dir = options.demo ? mkdtempSync("/tmp/pts-indexer-") : options.dir;
+if (dir === "") {
+    process.stderr.write("usage: indexer [--demo] [directory] [--top N] [--json]\n");
+    process.exit(2);
+}
+if (options.demo) {
+    writeDemo(dir);
+    process.stderr.write(`demo corpus ${dir}\n`);
+}
+
+const files = walk(dir);
+const started = performance.now();
+const parallelParts = loadParallel(files);
+const parallelMs = performance.now() - started;
+const sequential = loadSequential(files);
+const parallelOk = sameCounts(merge(parallelParts), merge(sequential));
+const orderOk = parallelParts.every((part, i) => part.path === files[i]);
+const report = reportOf(parallelParts, options.top);
+
+// A second pass touches an atomic only to show the count of files finished.
+const seen = new AtomicInt();
+files.par.forEach(() => {
+    seen.add(1);
+});
+
+if (options.json) {
+    process.stdout.write(`${JSON.stringify({ ...report, parallelMs: Math.round(parallelMs), parallelOk, orderOk })}\n`);
+} else {
+    process.stdout.write(`${formatReport(report)}\n`);
+    process.stdout.write(`parallel ${parallelMs.toFixed(1)} ms, maps ${parallelOk ? "match" : "DIFFER"}, order ${orderOk ? "ok" : "WRONG"}, seen ${seen.load()}\n`);
+}
+if (!parallelOk || !orderOk || Number(seen.load()) !== files.length) {
+    process.exit(1);
+}

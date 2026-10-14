@@ -1,0 +1,27 @@
+// compare-node
+// Close-versus-body half of the previous review's iterator finding, without result getters.
+const closing: any = {
+    [Symbol.iterator]() {
+        let sent = false;
+        return {
+            next() {
+                if (sent) {
+                    return { value: undefined, done: true };
+                }
+                sent = true;
+                return { value: 1, done: false };
+            },
+            return() {
+                throw new Error("close");
+            },
+        };
+    },
+};
+try {
+    for (const item of closing) {
+        console.log("body", item);
+        throw new Error("body");
+    }
+} catch (error) {
+    console.log("caught", (error as Error).message);
+}

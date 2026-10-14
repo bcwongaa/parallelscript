@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/tmp/pts-review-gpt/ledger",
+    "/tmp/pts-review-gpt/expenses.csv",
+    "--category"
+  ],
+  "threads": "4",
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Missing value after --category\n"
+}
