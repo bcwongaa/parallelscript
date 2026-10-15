@@ -1,0 +1,26 @@
+// no-diff: an item of the wrong type through `any` throws a checked TypeError (D-071), where JS goes on
+// A checked conversion that throws while an array pattern binds an item closes the
+// iterator at once, as a throwing default does (array_pattern_abrupt.pts; H03, D-177):
+// the generator is resumed only for the items the pattern took.
+function* labels(): Generator<any> {
+  try {
+    for (const label of [1, "two", 3, 4]) {
+      console.log("yield", label);
+      yield label;
+    }
+  } finally {
+    console.log("closed");
+  }
+}
+try {
+  const [a, b, c] = labels() as Iterable<number>;
+  console.log(a, b, c);
+} catch (e: any) {
+  console.log("caught", e.message);
+}
+
+// expect:
+// yield 1
+// yield two
+// closed
+// caught Expected number | undefined, got string

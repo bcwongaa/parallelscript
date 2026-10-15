@@ -1,0 +1,425 @@
+// An array pattern takes as many items as it has elements, one next() each, and then
+// closes the iterator with return() unless it is done; a rest element takes the rest
+// (C18; D-109/D-110's consumer rule, SPEC §3.14, D-146). This holds for values typed
+// `any` and for typed iterables: an iterable class instance and `Iterable<number>`
+// values and parameters, and `Generator<number>` items bound without an initializer
+// (parameter patterns, for…of bindings, nested elements), as it already does for a
+// `Generator<number>` initializer. Elements bind in order as they are stepped: a nested
+// pattern takes from its item before the outer pattern asks for the next item or closes
+// its iterator. Once the iterator is done, the remaining elements take their defaults
+// without more next() calls.
+// (Defaults for items that are undefined are H12's; reading past the end into an `any`
+// local without a default is reported apart.)
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+function* counted(label: string, limit: number): Generator<number> {
+    try {
+        for (let n = 0; n < limit; n++) {
+            console.log(label, "yield", n);
+            yield n;
+        }
+        console.log(label, "ran to the end");
+    } finally {
+        console.log(label, "closed");
+    }
+}
+
+// An iterable object (its own iterator) whose next() and return() log their calls;
+// `values` are the items it gives.
+function steps(label: string, values: any[]): any {
+    let step = 0;
+    return {
+        [Symbol.iterator]() {
+            return this;
+        },
+        next() {
+            console.log(label, "next", step);
+            const current = step++;
+            return current < values.length ? { done: false, value: values[current] } : { done: true, value: undefined };
+        },
+        return() {
+            console.log(label, "return");
+            return { done: true, value: undefined };
+        },
+    };
+}
+
+class Steps implements Iterable<number> {
+    label: string;
+    limit: number;
+    constructor(label: string, limit: number) {
+        this.label = label;
+        this.limit = limit;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        const label = this.label;
+        const limit = this.limit;
+        let step = 0;
+        return {
+            next(): IteratorResult<number> {
+                console.log(label, "next", step);
+                return step < limit ? { done: false, value: step++ } : { done: true, value: undefined };
+            },
+            return(): IteratorResult<number> {
+                console.log(label, "return");
+                return { done: true, value: undefined };
+            },
+        };
+    }
+}
+
+attempt("any generator", () => {
+    const numbers: any = counted("any generator", 4);
+    const [a, b] = numbers;
+    console.log("any generator values", a, b);
+});
+
+attempt("any object", () => {
+    const [a] = steps("any object", [5, 6, 7]);
+    console.log("any object values", a);
+});
+
+attempt("class instance", () => {
+    const [a, b] = new Steps("class instance", 5);
+    console.log("class instance values", a, b);
+});
+
+attempt("Iterable value", () => {
+    const values: Iterable<number> = new Steps("Iterable value", 5);
+    const [a, b] = values;
+    console.log("Iterable value values", a, b);
+});
+
+function firstTwo(values: Iterable<number>): string {
+    const [a, b] = values;
+    return a + " " + b;
+}
+attempt("Iterable parameter", () => {
+    console.log("Iterable parameter values", firstTwo(counted("Iterable parameter", 4)));
+});
+
+function firstTwoOfParameter([a, b]: Iterable<number>): string {
+    return a + " " + b;
+}
+attempt("parameter pattern", () => {
+    console.log("parameter pattern values", firstTwoOfParameter(counted("parameter pattern", 4)));
+});
+
+function firstTwoOfAny([a, b]: any): string {
+    return a + " " + b;
+}
+attempt("any parameter pattern", () => {
+    console.log("any parameter pattern values", firstTwoOfAny(counted("any parameter pattern", 4)));
+});
+
+function firstTwoOfGeneratorParameter([a, b]: Generator<number>): string {
+    return a + " " + b;
+}
+attempt("Generator pattern parameter", () => {
+    console.log("Generator pattern parameter values", firstTwoOfGeneratorParameter(counted("Generator pattern parameter", 4)));
+});
+
+attempt("Generator for-of binding", () => {
+    const rows: Generator<number>[] = [counted("Generator for-of binding row 0", 4), counted("Generator for-of binding row 1", 4)];
+    for (const [a, b] of rows) {
+        console.log("Generator for-of binding pair", a, b);
+    }
+});
+
+// Items that are iterators themselves: the inner pattern takes from the first item
+// before the outer pattern asks for its next one.
+function* rowsOf(label: string): Generator<any> {
+    try {
+        console.log(label, "yield row");
+        yield counted(label + " row", 4);
+        console.log(label, "yield 2");
+        yield 2;
+        console.log(label, "yield 3");
+        yield 3;
+    } finally {
+        console.log(label, "closed");
+    }
+}
+attempt("nested", () => {
+    const rows: any = rowsOf("nested");
+    const [[a, b], c] = rows;
+    console.log("nested values", a, b, c);
+});
+
+function* generatorRows(label: string): Generator<Generator<number>> {
+    try {
+        console.log(label, "yield row");
+        yield counted(label + " row", 4);
+        console.log(label, "yield second row");
+        yield counted(label + " second row", 4);
+    } finally {
+        console.log(label, "closed");
+    }
+}
+attempt("Generator nested", () => {
+    const [[a, b]] = generatorRows("Generator nested");
+    console.log("Generator nested values", a, b);
+});
+
+attempt("elision", () => {
+    const [, b] = steps("elision", [5, 6, 7]);
+    console.log("elision values", b);
+});
+
+attempt("unused defaults", () => {
+    const [a = 7, b = 8] = steps("unused defaults", [1, 2, 3]);
+    console.log("unused defaults values", a, b);
+});
+
+// Longer than the iterator: next() until it is done, then no more next() and no return().
+attempt("defaults past the end", () => {
+    const [a = 7, b = 8, c = 9] = steps("defaults past the end", [1]);
+    console.log("defaults past the end values", a, b, c);
+});
+
+attempt("longer pattern", () => {
+    const [a, b, c = "none"] = steps("longer pattern", [5, 6]);
+    console.log("longer pattern values", a, b, c);
+});
+
+attempt("rest", () => {
+    const [a, ...rest] = steps("rest", [5, 6, 7]);
+    console.log("rest values", a, rest);
+});
+
+attempt("generator rest", () => {
+    const numbers: any = counted("generator rest", 3);
+    const [a, ...rest] = numbers;
+    console.log("generator rest values", a, rest);
+});
+
+// Result objects with done/value getters: done first, value only when not done.
+function getterResults(label: string, limit: number): any {
+    let step = 0;
+    return {
+        [Symbol.iterator]() {
+            return this;
+        },
+        next() {
+            const current = step++;
+            return {
+                get done(): boolean {
+                    console.log(label, "read done", current);
+                    return current >= limit;
+                },
+                get value(): number {
+                    console.log(label, "read value", current);
+                    return current * 10;
+                },
+            };
+        },
+    };
+}
+attempt("getters", () => {
+    const [a, b] = getterResults("getters", 5);
+    console.log("getters values", a, b);
+});
+attempt("getters short", () => {
+    const [a, b = -1, c = -2] = getterResults("getters short", 1);
+    console.log("getters short values", a, b, c);
+});
+
+// A binding pattern in for…of over items that are iterators: each item gives two values
+// and is closed before the body runs.
+function* tableOf(label: string): Generator<any> {
+    try {
+        for (let row = 0; row < 2; row++) {
+            console.log(label, "row", row);
+            yield counted(label + " row " + row, 4);
+        }
+    } finally {
+        console.log(label, "closed");
+    }
+}
+attempt("for-of binding", () => {
+    const table: any = tableOf("for-of binding");
+    for (const [a, b] of table) {
+        console.log("for-of binding pair", a, b);
+    }
+});
+attempt("typed for-of binding", () => {
+    const table: Iterable<Iterable<number>> = tableOf("typed for-of binding");
+    for (const [a, b] of table) {
+        console.log("typed for-of binding pair", a, b);
+    }
+});
+
+// Iterators of maps and arrays as values: a pattern takes the first item, and the
+// iterator goes on from the second (read here through typed handles).
+attempt("map iterator", () => {
+    const m = new Map<string, number>([["a", 1], ["b", 2], ["c", 3]]);
+    const keys = m.keys();
+    const asAny: any = keys;
+    const [first] = asAny;
+    console.log("map iterator values", first, keys.next().value);
+});
+attempt("array iterator", () => {
+    const values = [10, 20, 30].values();
+    const asAny: any = values;
+    const [first] = asAny;
+    console.log("array iterator values", first, values.next().value);
+});
+
+// Controls (these work today): pattern declarations whose initializer is a
+// Generator<number> value or parameter or a typed map iterator, and `any` arrays and
+// strings. (So do the rest, past-the-end and short-getter cases above.)
+attempt("Generator value", () => {
+    const numbers: Generator<number> = counted("Generator value", 4);
+    const [a, b] = numbers;
+    console.log("Generator value values", a, b);
+});
+function firstTwoOfGenerator(numbers: Generator<number>): string {
+    const [a, b] = numbers;
+    return a + " " + b;
+}
+attempt("Generator parameter", () => {
+    console.log("Generator parameter values", firstTwoOfGenerator(counted("Generator parameter", 4)));
+});
+attempt("typed map iterator", () => {
+    const m = new Map<string, number>([["a", 1], ["b", 2]]);
+    const keys = m.keys();
+    const [first] = keys;
+    console.log("typed map iterator values", first, keys.next().value);
+});
+const list: any = [1, 2, 3];
+const [x, y] = list;
+const word: any = "hé";
+const [c1, c2] = word;
+console.log("any array and string", x, y, c1, c2);
+console.log("end");
+
+// expect:
+// any generator yield 0
+// any generator yield 1
+// any generator closed
+// any generator values 0 1
+// any object next 0
+// any object return
+// any object values 5
+// class instance next 0
+// class instance next 1
+// class instance return
+// class instance values 0 1
+// Iterable value next 0
+// Iterable value next 1
+// Iterable value return
+// Iterable value values 0 1
+// Iterable parameter yield 0
+// Iterable parameter yield 1
+// Iterable parameter closed
+// Iterable parameter values 0 1
+// parameter pattern yield 0
+// parameter pattern yield 1
+// parameter pattern closed
+// parameter pattern values 0 1
+// any parameter pattern yield 0
+// any parameter pattern yield 1
+// any parameter pattern closed
+// any parameter pattern values 0 1
+// Generator pattern parameter yield 0
+// Generator pattern parameter yield 1
+// Generator pattern parameter closed
+// Generator pattern parameter values 0 1
+// Generator for-of binding row 0 yield 0
+// Generator for-of binding row 0 yield 1
+// Generator for-of binding row 0 closed
+// Generator for-of binding pair 0 1
+// Generator for-of binding row 1 yield 0
+// Generator for-of binding row 1 yield 1
+// Generator for-of binding row 1 closed
+// Generator for-of binding pair 0 1
+// nested yield row
+// nested row yield 0
+// nested row yield 1
+// nested row closed
+// nested yield 2
+// nested closed
+// nested values 0 1 2
+// Generator nested yield row
+// Generator nested row yield 0
+// Generator nested row yield 1
+// Generator nested row closed
+// Generator nested closed
+// Generator nested values 0 1
+// elision next 0
+// elision next 1
+// elision return
+// elision values 6
+// unused defaults next 0
+// unused defaults next 1
+// unused defaults return
+// unused defaults values 1 2
+// defaults past the end next 0
+// defaults past the end next 1
+// defaults past the end values 1 8 9
+// longer pattern next 0
+// longer pattern next 1
+// longer pattern next 2
+// longer pattern values 5 6 none
+// rest next 0
+// rest next 1
+// rest next 2
+// rest next 3
+// rest values 5 [ 6, 7 ]
+// generator rest yield 0
+// generator rest yield 1
+// generator rest yield 2
+// generator rest ran to the end
+// generator rest closed
+// generator rest values 0 [ 1, 2 ]
+// getters read done 0
+// getters read value 0
+// getters read done 1
+// getters read value 1
+// getters values 0 10
+// getters short read done 0
+// getters short read value 0
+// getters short read done 1
+// getters short values 0 -1 -2
+// for-of binding row 0
+// for-of binding row 0 yield 0
+// for-of binding row 0 yield 1
+// for-of binding row 0 closed
+// for-of binding pair 0 1
+// for-of binding row 1
+// for-of binding row 1 yield 0
+// for-of binding row 1 yield 1
+// for-of binding row 1 closed
+// for-of binding pair 0 1
+// for-of binding closed
+// typed for-of binding row 0
+// typed for-of binding row 0 yield 0
+// typed for-of binding row 0 yield 1
+// typed for-of binding row 0 closed
+// typed for-of binding pair 0 1
+// typed for-of binding row 1
+// typed for-of binding row 1 yield 0
+// typed for-of binding row 1 yield 1
+// typed for-of binding row 1 closed
+// typed for-of binding pair 0 1
+// typed for-of binding closed
+// map iterator values a b
+// array iterator values 10 20
+// Generator value yield 0
+// Generator value yield 1
+// Generator value closed
+// Generator value values 0 1
+// Generator parameter yield 0
+// Generator parameter yield 1
+// Generator parameter closed
+// Generator parameter values 0 1
+// typed map iterator values a b
+// any array and string 1 2 h é
+// end

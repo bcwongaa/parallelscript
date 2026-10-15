@@ -1,0 +1,60 @@
+// An object literal or class whose getter is typed `void` can be used as an interface
+// with a `void` property, as one whose getter is typed `undefined` already can (C02):
+// reading the property through the interface runs the getter.
+
+interface Audited {
+    readonly audit: void;
+}
+
+function readAudit(source: Audited): void {
+    console.log("read through parameter:", source.audit);
+}
+
+const literal: Audited = {
+    get audit(): void {
+        console.log("literal getter ran");
+        return;
+    },
+};
+console.log("literal through interface:", literal.audit);
+readAudit(literal);
+
+class Ledger implements Audited {
+    entries = 2;
+    get audit(): void {
+        console.log("class getter ran with", this.entries, "entries");
+        return;
+    }
+}
+const ledger: Audited = new Ledger();
+console.log("class through interface:", ledger.audit);
+readAudit(new Ledger());
+
+// Controls (these work today): an `undefined` getter and a `void` data property.
+interface Cleared {
+    readonly cleared: undefined;
+}
+const cleared: Cleared = {
+    get cleared(): undefined {
+        console.log("undefined getter ran");
+        return undefined;
+    },
+};
+console.log("undefined getter through interface:", cleared.cleared);
+const plain: Audited = { audit: undefined };
+readAudit(plain);
+console.log("end");
+
+// expect:
+// literal getter ran
+// literal through interface: undefined
+// literal getter ran
+// read through parameter: undefined
+// class getter ran with 2 entries
+// class through interface: undefined
+// class getter ran with 2 entries
+// read through parameter: undefined
+// undefined getter ran
+// undefined getter through interface: undefined
+// read through parameter: undefined
+// end

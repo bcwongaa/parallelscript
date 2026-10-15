@@ -1,0 +1,165 @@
+{
+ "task": "H03a",
+ "date": "2026-10-15",
+ "base_sha": "7f0a4131a2fba0d857a6317dad118a34ccf0fba3",
+ "command": "PATH=$HOME/.local/node/bin:$PATH GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/",
+ "counting": "test events with a Test field and Action pass/skip/fail (parents and subtests); corpus = TestCorpusMatchesNode/<theme>/<program>",
+ "baseline": {
+  "source": "7f0a4131a (unmodified tree)",
+  "exit": 0,
+  "pass": 1306,
+  "skip": 252,
+  "fail": 0,
+  "packages_tested": 10,
+  "packages_no_tests": 19,
+  "corpus_pass": 262,
+  "corpus_skip": 38,
+  "raw": "h03-baseline.jsonl.gz"
+ },
+ "intermediate_runs": [
+  {
+   "name": "fix1",
+   "exit": 1,
+   "pass": 1307,
+   "skip": 252,
+   "fail": 2,
+   "failed": [
+    "TestErrors/iterator_result_getters",
+    "TestErrors"
+   ],
+   "cause": "the new test's own // error: line said line 22 for the error at line 23; the test was corrected"
+  },
+  {
+   "name": "fix2",
+   "exit": 0,
+   "pass": 1323,
+   "skip": 256,
+   "fail": 0
+  },
+  {
+   "name": "fix3",
+   "exit": 0,
+   "pass": 1326,
+   "skip": 257,
+   "fail": 0
+  },
+  {
+   "name": "fix4 (the tree review round 2 saw, before R2-S2 and C35's test)",
+   "exit": 0,
+   "pass": 1334,
+   "skip": 257,
+   "fail": 0
+  },
+  {
+   "source": "H03a tree before the round-3 fixes",
+   "cli_sha256": "663583e4c498b372fffeae2296f6c4149d099d31f111cc41f4b956080dd00fe0",
+   "exit": 0,
+   "pass": 1334,
+   "skip": 259,
+   "fail": 0,
+   "packages_tested": 10,
+   "packages_no_tests": 19,
+   "corpus_pass": 262,
+   "corpus_skip": 38,
+   "stderr_bytes": 0,
+   "delta_vs_baseline": {
+    "new_pass": 28,
+    "new_skip": 7,
+    "removed": 0,
+    "changed": 0,
+    "new_skips": [
+     "TestRun/iterator_next_result_getters (C30, H03b)",
+     "TestRun/iterator_result_as_cast (C35, H03b)",
+     "TestRun/iterator_result_getters_typed (C03, decided)",
+     "TestRunMatchesNode/ the same three",
+     "TestRunMatchesNode/array_pattern_checked_close (no-diff)"
+    ]
+   },
+   "name": "before review round 4 fixes (review round 3 saw this CLI)"
+  },
+  {
+   "source": "H03a tree after the round-3 fixes",
+   "cli_sha256": "f2566013d179a0f53534829d462ddea379b9857ff810577a560ef4ce3b674496",
+   "exit": 0,
+   "pass": 1338,
+   "skip": 259,
+   "fail": 0,
+   "packages_tested": 10,
+   "packages_no_tests": 19,
+   "corpus_pass": 262,
+   "corpus_skip": 38,
+   "stderr_bytes": 0,
+   "delta_vs_baseline": {
+    "new_pass": 32,
+    "new_skip": 7,
+    "removed": 0,
+    "changed": 0,
+    "new_skips": [
+     "TestRun/iterator_next_result_getters (C30, H03b)",
+     "TestRun/iterator_result_as_cast (C35, H03b)",
+     "TestRun/iterator_result_getters_typed (C03, decided)",
+     "TestRunMatchesNode/ the same three",
+     "TestRunMatchesNode/array_pattern_checked_close (no-diff)"
+    ]
+   },
+   "name": "before the round-4 fixes (review round 4 saw this CLI)"
+  },
+  {
+   "source": "H03a tree after the round-4 fixes",
+   "cli_sha256": "48f89ff21c6ae326d3e17ec1d4d99ad81ac5da9841cf53d836404d2724ef1474",
+   "exit": 0,
+   "pass": 1343,
+   "skip": 260,
+   "fail": 0,
+   "packages_tested": 10,
+   "packages_no_tests": 19,
+   "corpus_pass": 262,
+   "corpus_skip": 38,
+   "stderr_bytes": 0,
+   "delta_vs_baseline": {
+    "new_pass": 37,
+    "new_skip": 8,
+    "removed": 0,
+    "changed": 0,
+    "new_skips": [
+     "TestRun/iterator_next_result_getters (C30, H03b)",
+     "TestRun/iterator_result_as_cast (C35, H03b)",
+     "TestRun/iterator_result_getters_typed (C03, decided)",
+     "TestRunMatchesNode/ the same three",
+     "TestRunMatchesNode/array_pattern_checked_close (no-diff)",
+     "TestRunMatchesNode/array_pattern_loose_int64 (ParallelScript number types)"
+    ]
+   },
+   "name": "before the round-5 fixes (review round 5 saw this tree)"
+  }
+ ],
+ "after": {
+  "source": "final H03a tree (committed as the H03a fix commit)",
+  "cli_sha256": "48f89ff21c6ae326d3e17ec1d4d99ad81ac5da9841cf53d836404d2724ef1474",
+  "runtime_note": "the CLI binary is the round-5 one; the runtime (compiled from PTS_HOME) carries the convert.c change",
+  "exit": 0,
+  "pass": 1345,
+  "skip": 260,
+  "fail": 0,
+  "packages_tested": 10,
+  "packages_no_tests": 19,
+  "corpus_pass": 262,
+  "corpus_skip": 38,
+  "stderr_bytes": 0,
+  "raw": "h03-suite.jsonl.gz",
+  "delta_vs_baseline": {
+   "new_pass": 39,
+   "new_skip": 8,
+   "removed": 0,
+   "changed": 0,
+   "new_skips": [
+    "TestRun/iterator_next_result_getters (C30, H03b)",
+    "TestRun/iterator_result_as_cast (C35, H03b)",
+    "TestRun/iterator_result_getters_typed (C03, decided)",
+    "TestRunMatchesNode/ the same three",
+    "TestRunMatchesNode/array_pattern_checked_close (no-diff)",
+    "TestRunMatchesNode/array_pattern_loose_int64 (ParallelScript number types)"
+   ]
+  }
+ }
+}

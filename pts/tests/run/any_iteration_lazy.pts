@@ -1,0 +1,417 @@
+// for…of over an `any`-typed iterable steps it lazily, as over a typed one (C18; SPEC
+// §3.14, D-109, D-111, D-146): one next() per item, run before the body sees that item;
+// done read before value, and a done result's value never read; return() when the loop
+// ends early by break, return, a throw or a labelled jump, but not when next() throws,
+// a result isn't an object or the iterator is done; an error from return() after a
+// break is the loop's, and a body's error wins over it. Arrays held as `any` are read
+// live and strings by code point, as before.
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+function* counted(label: string, limit: number): Generator<number> {
+    try {
+        for (let n = 0; n < limit; n++) {
+            console.log(label, "yield", n);
+            yield n;
+        }
+        console.log(label, "ran to the end");
+    } finally {
+        console.log(label, "closed");
+    }
+}
+
+// An iterable object (its own iterator) whose next() and return() log their calls.
+function steps(label: string, limit: number): any {
+    let step = 0;
+    return {
+        [Symbol.iterator]() {
+            console.log(label, "opened");
+            return this;
+        },
+        next() {
+            console.log(label, "next", step);
+            const current = step++;
+            return current < limit ? { done: false, value: current } : { done: true, value: undefined };
+        },
+        return() {
+            console.log(label, "return");
+            return { done: true, value: undefined };
+        },
+    };
+}
+
+attempt("break", () => {
+    const numbers: any = counted("break", 4);
+    for (const n of numbers) {
+        console.log("break item", n);
+        if (n === 1) break;
+    }
+    console.log("break after loop");
+});
+
+attempt("completes", () => {
+    const numbers: any = counted("completes", 2);
+    for (const n of numbers) {
+        console.log("completes item", n);
+    }
+    console.log("completes after loop");
+});
+
+function firstAbove(values: any, limit: number): number {
+    for (const value of values) {
+        console.log("return item", value);
+        if (value > limit) return value;
+    }
+    return -1;
+}
+attempt("return", () => {
+    console.log("return found", firstAbove(counted("return", 5), 1));
+});
+
+attempt("throw", () => {
+    const numbers: any = counted("throw", 4);
+    try {
+        for (const n of numbers) {
+            console.log("throw item", n);
+            if (n === 1) throw new Error("body failed");
+        }
+    } catch (error: any) {
+        console.log("throw caught", error.message);
+    }
+});
+
+attempt("labels", () => {
+    outer: for (const row of [1, 2, 3]) {
+        const inner: any = counted("labels row " + row, 3);
+        for (const n of inner) {
+            console.log("labels row", row, "item", n);
+            if (row === 1 && n === 1) continue outer;
+            if (row === 2 && n === 0) break outer;
+        }
+        console.log("labels row", row, "finished");
+    }
+    console.log("labels after loops");
+});
+
+attempt("nested", () => {
+    const rows: any = counted("nested outer", 2);
+    for (const row of rows) {
+        const columns: any = counted("nested inner " + row, 3);
+        for (const column of columns) {
+            console.log("nested pair", row, column);
+            if (column === 0) break;
+        }
+    }
+    console.log("nested after loops");
+});
+
+attempt("shared", () => {
+    // The body advances the generator the loop is stepping (through a typed handle).
+    const generator = counted("shared", 6);
+    const numbers: any = generator;
+    for (const n of numbers) {
+        console.log("shared item", n, "then", generator.next().value);
+    }
+});
+
+attempt("object break", () => {
+    for (const n of steps("object break", 4)) {
+        console.log("object break item", n);
+        if (n === 1) break;
+    }
+    console.log("object break after loop");
+});
+
+attempt("object completes", () => {
+    for (const n of steps("object completes", 2)) {
+        console.log("object completes item", n);
+    }
+    console.log("object completes after loop");
+});
+
+attempt("object throw", () => {
+    try {
+        for (const n of steps("object throw", 4)) {
+            console.log("object throw item", n);
+            throw new Error("body failed");
+        }
+    } catch (error: any) {
+        console.log("object throw caught", error.message);
+    }
+});
+
+// Results with done/value getters: done first, value only for a result that isn't done.
+function getterResults(label: string, limit: number): any {
+    return {
+        [Symbol.iterator]() {
+            let step = 0;
+            return {
+                next() {
+                    const current = step++;
+                    console.log(label, "next", current);
+                    return {
+                        get done(): boolean {
+                            console.log(label, "read done", current);
+                            return current >= limit;
+                        },
+                        get value(): number {
+                            console.log(label, "read value", current);
+                            return current * 10;
+                        },
+                    };
+                },
+            };
+        },
+    };
+}
+attempt("getters", () => {
+    for (const n of getterResults("getters", 2)) {
+        console.log("getters item", n);
+    }
+    console.log("getters after loop");
+});
+attempt("getters break", () => {
+    for (const n of getterResults("getters break", 5)) {
+        console.log("getters break item", n);
+        if (n === 10) break;
+    }
+    console.log("getters break after loop");
+});
+
+// An iterator of at most four items whose next() or return() can misbehave: `mode` is
+// "close throws", "next throws" (at the third step), "not an object" (the second
+// result is 1) or "close result" (return() gives 5).
+function misbehaving(label: string, mode: string): any {
+    let step = 0;
+    return {
+        [Symbol.iterator]() {
+            return this;
+        },
+        next() {
+            console.log(label, "next", step);
+            const current = step++;
+            if (mode === "next throws" && current === 2) throw new Error("next failed");
+            if (mode === "not an object" && current === 1) return 1;
+            return current < 4 ? { done: false, value: current } : { done: true, value: undefined };
+        },
+        return() {
+            console.log(label, "return");
+            if (mode === "close throws") throw new Error("return failed");
+            let result: any = { done: true, value: undefined };
+            if (mode === "close result") result = 5;
+            return result;
+        },
+    };
+}
+attempt("close throws", () => {
+    try {
+        for (const n of misbehaving("close throws", "close throws")) {
+            console.log("close throws item", n);
+            if (n === 1) break;
+        }
+        console.log("close throws not reached");
+    } catch (error: any) {
+        console.log("close throws caught", error.message);
+    }
+});
+attempt("body wins", () => {
+    try {
+        for (const n of misbehaving("body wins", "close throws")) {
+            console.log("body wins item", n);
+            if (n === 1) throw new Error("body failed");
+        }
+    } catch (error: any) {
+        console.log("body wins caught", error.message);
+    }
+});
+attempt("next throws", () => {
+    try {
+        for (const n of misbehaving("next throws", "next throws")) {
+            console.log("next throws item", n);
+        }
+    } catch (error: any) {
+        console.log("next throws caught", error.message);
+    }
+});
+attempt("not an object", () => {
+    try {
+        for (const n of misbehaving("not an object", "not an object")) {
+            console.log("not an object item", n);
+        }
+    } catch (error: any) {
+        console.log("not an object caught", error.name + ": " + error.message);
+    }
+});
+attempt("close result", () => {
+    try {
+        for (const n of misbehaving("close result", "close result")) {
+            console.log("close result item", n);
+            break;
+        }
+    } catch (error: any) {
+        console.log("close result caught", error.name + ": " + error.message);
+    }
+});
+
+// Controls: arrays held as `any` are read live, strings by code point.
+const growing: any = [1, 2];
+for (const x of growing) {
+    console.log("array item", x);
+    if (growing.length < 4) growing.push(x * 10);
+}
+const text: any = "a😀b";
+for (const ch of text) {
+    console.log("char", ch, ch.length);
+}
+const pairs: any = new Map<string, number>([["a", 1], ["b", 2]]);
+for (const [key, value] of pairs) {
+    console.log("map entry", key, value);
+}
+const members: any = new Set<number>([3, 4]);
+for (const member of members) {
+    console.log("set member", member);
+    if (member === 3) break;
+}
+console.log("end");
+
+// expect:
+// break yield 0
+// break item 0
+// break yield 1
+// break item 1
+// break closed
+// break after loop
+// completes yield 0
+// completes item 0
+// completes yield 1
+// completes item 1
+// completes ran to the end
+// completes closed
+// completes after loop
+// return yield 0
+// return item 0
+// return yield 1
+// return item 1
+// return yield 2
+// return item 2
+// return closed
+// return found 2
+// throw yield 0
+// throw item 0
+// throw yield 1
+// throw item 1
+// throw closed
+// throw caught body failed
+// labels row 1 yield 0
+// labels row 1 item 0
+// labels row 1 yield 1
+// labels row 1 item 1
+// labels row 1 closed
+// labels row 2 yield 0
+// labels row 2 item 0
+// labels row 2 closed
+// labels after loops
+// nested outer yield 0
+// nested inner 0 yield 0
+// nested pair 0 0
+// nested inner 0 closed
+// nested outer yield 1
+// nested inner 1 yield 0
+// nested pair 1 0
+// nested inner 1 closed
+// nested outer ran to the end
+// nested outer closed
+// nested after loops
+// shared yield 0
+// shared yield 1
+// shared item 0 then 1
+// shared yield 2
+// shared yield 3
+// shared item 2 then 3
+// shared yield 4
+// shared yield 5
+// shared item 4 then 5
+// shared ran to the end
+// shared closed
+// object break opened
+// object break next 0
+// object break item 0
+// object break next 1
+// object break item 1
+// object break return
+// object break after loop
+// object completes opened
+// object completes next 0
+// object completes item 0
+// object completes next 1
+// object completes item 1
+// object completes next 2
+// object completes after loop
+// object throw opened
+// object throw next 0
+// object throw item 0
+// object throw return
+// object throw caught body failed
+// getters next 0
+// getters read done 0
+// getters read value 0
+// getters item 0
+// getters next 1
+// getters read done 1
+// getters read value 1
+// getters item 10
+// getters next 2
+// getters read done 2
+// getters after loop
+// getters break next 0
+// getters break read done 0
+// getters break read value 0
+// getters break item 0
+// getters break next 1
+// getters break read done 1
+// getters break read value 1
+// getters break item 10
+// getters break after loop
+// close throws next 0
+// close throws item 0
+// close throws next 1
+// close throws item 1
+// close throws return
+// close throws caught return failed
+// body wins next 0
+// body wins item 0
+// body wins next 1
+// body wins item 1
+// body wins return
+// body wins caught body failed
+// next throws next 0
+// next throws item 0
+// next throws next 1
+// next throws item 1
+// next throws next 2
+// next throws caught next failed
+// not an object next 0
+// not an object item 0
+// not an object next 1
+// not an object caught TypeError: Iterator result 1 is not an object
+// close result next 0
+// close result item 0
+// close result return
+// close result caught TypeError: Iterator result 5 is not an object
+// array item 1
+// array item 2
+// array item 10
+// array item 20
+// char a 1
+// char 😀 2
+// char b 1
+// map entry a 1
+// map entry b 2
+// set member 3
+// end

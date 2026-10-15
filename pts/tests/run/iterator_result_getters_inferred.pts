@@ -1,0 +1,65 @@
+// Getter results that nothing converts to D-109's result shapes work, as they did before
+// H03: an iterator object literal whose next() has no annotated result (tsc only gives
+// the result literal IteratorResult<number> as its context), and a result whose accessor
+// is neither `done` nor `value`. The PTS1001 for typed getter results is only where the
+// conversion happens (errors/iterator_result_getters.pts, D-177).
+const iterable: Iterable<number> = {
+  [Symbol.iterator]() {
+    let i = 0;
+    return {
+      next() {
+        const k = i++;
+        return {
+          get done() {
+            console.log("read done", k);
+            return k >= 2;
+          },
+          get value() {
+            console.log("read value", k);
+            return k * 10;
+          },
+        };
+      },
+    };
+  },
+};
+for (const x of iterable) {
+  console.log("item", x);
+}
+console.log([...iterable]);
+const it: Iterator<number> = {
+  next() {
+    return {
+      get done() {
+        console.log("direct read done");
+        return false;
+      },
+      get value() {
+        return 5;
+      },
+    };
+  },
+};
+console.log(it.next().done);
+function mk(k: number): IteratorResult<number> {
+  return { done: false, value: k, set extra(v: number) {} } as IteratorResult<number>;
+}
+console.log(mk(1).value);
+
+// expect:
+// read done 0
+// read value 0
+// item 0
+// read done 1
+// read value 1
+// item 10
+// read done 2
+// read done 0
+// read value 0
+// read done 1
+// read value 1
+// read done 2
+// [ 0, 10 ]
+// direct read done
+// false
+// 1

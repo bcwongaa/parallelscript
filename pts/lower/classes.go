@@ -1062,7 +1062,9 @@ func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr
 	case to.IsSubclassOf(from) && l.isNarrowedTo(node, to):
 		return downcast(value, to)
 	}
-	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
+	if !l.reportedGetterResult(node) {
+		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
+	}
 	return nil
 }
 

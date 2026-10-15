@@ -259,13 +259,15 @@ static bool implies(implying *s, const pts_check *sub, const pts_check *super) {
 }
 
 bool pts_check_implies(const pts_check *sub, const pts_check *super) {
-  implying s = {.depth = 0};
+  implying s; /* not zero-filled: only the entries below depth are read, and the stack is 4 KB */
+  s.depth = 0;
   return implies(&s, sub, super);
 }
 
 /* Whether an object is one of an object type as it is: its descriptor's declared types imply the type's properties. */
 static bool object_fits(const pts_object *object, const pts_check *check) {
-  implying s = {.depth = 0};
+  implying s; /* not zero-filled, as in pts_check_implies */
+  s.depth = 0;
   return descriptor_implies(&s, object->type, check);
 }
 
@@ -504,7 +506,8 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
 }
 
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out) {
-  converting c = {.depth = 0};
+  converting c; /* not zero-filled: only the entries below depth are read, and a 4 KB memset per conversion showed in hot loops */
+  c.depth = 0;
   return convert(&c, value, check, true, out);
 }
 

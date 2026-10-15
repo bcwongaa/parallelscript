@@ -1,0 +1,25 @@
+// skip: known issue (H03b, C35): `as IteratorResult<T>` accepts an object literal of another layout (a getter, extra properties), and a read of `.value` narrowed on `done` reads IteratorYieldResult's field offset: the getter's closure, or memory past the object (SIGSEGV)
+// An object literal asserted to be an iterator result keeps its own properties: a getter
+// `value` runs when it is read, and extra properties don't move `value`. Both
+// IteratorResult<number> members are read by name, as JS reads them.
+function withGetter(): IteratorResult<number> {
+  return { done: false, get value(): number { return 42; } } as IteratorResult<number>;
+}
+const got = withGetter();
+console.log(got.done);
+if (!got.done) {
+  const v = got.value;
+  console.log(typeof v, v + 1);
+}
+function withExtras(): IteratorResult<number> {
+  return { done: false, a: true, aa: true, ab: true, ac: true, b: true, c: true, d: true, e: true, f: true, g: true, value: 42 } as IteratorResult<number>;
+}
+const extra = withExtras();
+if (!extra.done) {
+  console.log("value is", extra.value);
+}
+
+// expect:
+// false
+// number 43
+// value is 42

@@ -1,0 +1,175 @@
+// A getter typed `void` (a body that only throws, or `: void` with `return;` or `return
+// undefined`) or `never` compiles and runs as in JS (C02): reading it runs its body and
+// gives undefined or its throw, directly, through `any` or on a generic class; an unread
+// one costs nothing; console.log shows an object literal's getter as [Getter] without
+// calling it, and JSON.stringify calls an object literal's getters (not a class's).
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "caught:", error.message);
+    }
+}
+
+const literal = {
+    count: 1,
+    get audited(): void {
+        console.log("literal audited read");
+        return;
+    },
+    get cleared(): void {
+        console.log("literal cleared read");
+        return undefined;
+    },
+    get missing() {
+        throw new Error("literal missing");
+    },
+    get impossible(): never {
+        throw new Error("literal impossible");
+    },
+};
+console.log("literal audited:", literal.audited);
+console.log("literal cleared:", literal.cleared);
+console.log("literal audited is undefined:", literal.audited === undefined);
+attempt("literal missing", () => console.log(literal.missing));
+attempt("literal impossible", () => console.log(literal.impossible));
+console.log(literal);
+
+const viaAny: any = literal;
+console.log("via any audited:", viaAny.audited);
+attempt("via any missing", () => console.log(viaAny.missing));
+attempt("via any impossible", () => console.log(viaAny.impossible));
+
+const unread = {
+    count: 2,
+    get missing() {
+        throw new Error("never read");
+    },
+};
+console.log("unread count:", unread.count);
+
+const serialised = {
+    count: 3,
+    get audited(): void {
+        console.log("serialised audited read");
+        return;
+    },
+};
+console.log(JSON.stringify(serialised));
+attempt("JSON.stringify of a throwing getter", () => console.log(JSON.stringify(literal)));
+
+class Settings {
+    count = 4;
+    get audited(): void {
+        console.log("class audited read");
+        return;
+    }
+    get missing() {
+        throw new Error("class missing");
+    }
+    get impossible(): never {
+        throw new Error("class impossible");
+    }
+}
+const settings = new Settings();
+console.log("class audited:", settings.audited);
+attempt("class missing", () => console.log(settings.missing));
+attempt("class impossible", () => console.log(settings.impossible));
+console.log(settings);
+console.log(JSON.stringify(settings));
+const settingsAny: any = settings;
+console.log("class via any audited:", settingsAny.audited);
+attempt("class via any missing", () => console.log(settingsAny.missing));
+
+class Box<T> {
+    item: T;
+    constructor(item: T) {
+        this.item = item;
+    }
+    get audited(): void {
+        console.log("box audited read", this.item);
+        return;
+    }
+    get missing(): never {
+        throw new Error("box missing " + String(this.item));
+    }
+}
+console.log("box audited:", new Box<number>(5).audited, new Box<string>("s").audited);
+attempt("box missing", () => console.log(new Box<boolean>(true).missing));
+
+// Controls (these work today): a static void getter, getters typed undefined or number,
+// a void method and a void data property.
+class Registry {
+    static get audited(): void {
+        console.log("static audited read");
+        return;
+    }
+}
+console.log("static audited:", Registry.audited);
+const controls = {
+    get cleared(): undefined {
+        console.log("undefined getter read");
+        return undefined;
+    },
+    get missing(): number {
+        throw new Error("number getter");
+    },
+    clear(): void {
+        console.log("void method ran");
+    },
+};
+console.log("undefined getter:", controls.cleared);
+attempt("number getter", () => console.log(controls.missing));
+controls.clear();
+const box: { v: void } = { v: undefined };
+console.log("void data property:", box.v);
+console.log("end");
+
+// expect:
+// literal audited read
+// literal audited: undefined
+// literal cleared read
+// literal cleared: undefined
+// literal audited read
+// literal audited is undefined: true
+// literal missing caught: literal missing
+// literal impossible caught: literal impossible
+// {
+//   count: 1,
+//   audited: [Getter],
+//   cleared: [Getter],
+//   missing: [Getter],
+//   impossible: [Getter]
+// }
+// literal audited read
+// via any audited: undefined
+// via any missing caught: literal missing
+// via any impossible caught: literal impossible
+// unread count: 2
+// serialised audited read
+// {"count":3}
+// literal audited read
+// literal cleared read
+// JSON.stringify of a throwing getter caught: literal missing
+// class audited read
+// class audited: undefined
+// class missing caught: class missing
+// class impossible caught: class impossible
+// Settings { count: 4 }
+// {"count":4}
+// class audited read
+// class via any audited: undefined
+// class via any missing caught: class missing
+// box audited read 5
+// box audited read s
+// box audited: undefined undefined
+// box missing caught: box missing true
+// static audited read
+// static audited: undefined
+// undefined getter read
+// undefined getter: undefined
+// number getter caught: number getter
+// void method ran
+// void data property: undefined
+// end

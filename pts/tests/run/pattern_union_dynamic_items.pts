@@ -1,0 +1,26 @@
+// Dynamic items that a pattern binds to names of a union type with an array, shape or
+// tuple member become values of that member's own layout at the binding: from JSON data
+// through an object pattern, and from a map's entries through an async function's
+// parameter pattern (C37's family; H03 review round 5, R5-S2). The base wrote a double
+// into the dynamic array's slot and threw, or rejected the entry as not a tuple.
+const data: any = JSON.parse('{"list":[1,2],"obj":{"x":1}}');
+const { list }: { list: number[] | null } = data;
+list?.push(3);
+console.log("list", list);
+const { obj }: { obj: { x: number } | null } = data;
+if (obj) {
+  obj.x = 9;
+}
+console.log("obj", obj);
+async function entry([e]: Iterable<[string, number] | null>): Promise<[string, number] | null> {
+  if (e) {
+    e[1] = 9;
+  }
+  return e;
+}
+entry(new Map([["a", 1]])).then((v) => console.log("async parameter", v));
+
+// expect:
+// list [ 1, 2, 3 ]
+// obj { x: 9 }
+// async parameter [ 'a', 9 ]

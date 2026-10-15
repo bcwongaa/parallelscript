@@ -951,7 +951,13 @@ static inline pts_string *pts_value_as_string(pts_value value) {
   }
   return (pts_string *)pts_value_as_object(value);
 }
-double pts_value_to_number_checked(pts_value value);
+double pts_value_to_number_slow(pts_value value);
+static inline double pts_value_to_number_checked(pts_value value) {
+  if (__builtin_expect(pts_value_is_number(value), 1)) {
+    return pts_value_as_number(value);
+  }
+  return pts_value_to_number_slow(value); /* a boxed 64-bit integer, or TypeError */
+}
 static inline bool pts_value_as_bool(pts_value value) {
   if (__builtin_expect(value != PTS_VALUE_TRUE && value != PTS_VALUE_FALSE, 0)) {
     pts_throw_not_primitive(value, "boolean");
@@ -1003,14 +1009,12 @@ bool pts_value_same_value(pts_value a, pts_value b);
 void pts_value_freeze(pts_value value);
 bool pts_value_is_frozen(pts_value value);
 /*
- * What `for…of` iterates over for a dynamic value (D-078): an array or tuple itself, read
- * live, or a new array of a string's code points, a set's elements or a map's [key,
- * value] entries; TypeError `text is not iterable` for anything else. Its length and
- * element i, boxed; and a new any[] of a dynamic value's items, for spreading.
+ * A dynamic value's items (D-078): an array or tuple itself, read live, or a new array of
+ * a string's code points, a set's elements, a map's [key, value] entries or all that an
+ * iterator or an object's iterator yields; TypeError `text is not iterable` for anything
+ * else. And a new any[] of them, for spreading.
  */
 pts_value pts_value_iterable(pts_value value, const pts_string *text);
-double pts_value_iterable_length(pts_value iterable);
-pts_value pts_value_iterable_element(pts_value iterable, double i);
 struct pts_array *pts_value_to_array(pts_value value, const pts_string *text);
 /* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
@@ -2281,9 +2285,9 @@ pts_iterator *pts_generator_new(size_t size, bool (*step)(pts_iterator *));
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
 /*
  * An iterator over an iterable value: a generator object itself, what an object's
- * [Symbol.iterator]() (its method `@@iterator`) returns, as pts_iterator_of, or a runtime
- * iterator over what an array, string, map or set yields (an array's elements read live);
- * TypeError `text is not iterable` for anything else.
+ * [Symbol.iterator]() (its method `@@iterator`) returns, as pts_iterator_of, a map's or
+ * set's live iterator, or a runtime iterator over what an array or string yields (an
+ * array's elements read live); TypeError `text is not iterable` for anything else.
  */
 pts_value pts_iterator_open(pts_value iterable, const pts_string *text);
 /*
@@ -2296,6 +2300,23 @@ pts_value pts_iterator_get(pts_value iterable, const pts_string *text);
 pts_value pts_iterator_of(pts_value iterator);
 /* Whether value is an object of the program's with a method `@@iterator` ([Symbol.iterator]). */
 bool pts_value_has_iterator_method(pts_value value);
+/*
+ * A `for…of` or an array pattern (D-109, H03) steps through the source
+ * pts_iteration_open gives: the iterator of an iterable that has one to step (a generator
+ * or runtime iterator itself, an object's [Symbol.iterator]() result, or a map's or set's
+ * live iterator, as pts_iterator_open), or else an array's, tuple's or typed array's
+ * items (itself, read live) or a string's code points (a new array), which it reads by
+ * index without making an iterator. pts_iteration_next steps past the index-th item (an iterator's
+ * next()) and reports whether the source is done; pts_iteration_value is the item it
+ * stepped to; pts_iteration_rest is a new any[] of the items from the index-th on, all
+ * that an iterator yields until it is done (none if the source is done);
+ * pts_iteration_close closes an iterator that a loop or pattern leaves early.
+ */
+pts_value pts_iteration_open(pts_value iterable, const pts_string *text);
+bool pts_iteration_next(pts_value source, double index);
+pts_value pts_iteration_value(pts_value source, double index);
+struct pts_array *pts_iteration_rest(pts_value source, double index, bool done);
+void pts_iteration_close(pts_value source);
 /* An iterator over a map's or set's values (0), keys (1) or [key, value] entries (2), as m.values(), m.keys() and m.entries() make: live, as JS's. */
 pts_value pts_map_iterator_new(pts_value map, int32_t items);
 /*
@@ -2309,8 +2330,6 @@ pts_value pts_iterator_value(pts_value iterator);
 void pts_iterator_close(pts_value iterator);
 /* A new any[] of the values an iterator yields until it is done. */
 struct pts_array *pts_iterator_to_array(pts_value iterator);
-/* A new any[] of the first count values an iterator yields, after which it is closed if it isn't done; with rest, of all of them. */
-struct pts_array *pts_iterator_take(pts_value iterator, double count, bool rest);
 
 /* ---------------------------------------------------------------- promises */
 

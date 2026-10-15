@@ -1,0 +1,522 @@
+{
+ "task": "H03a",
+ "base_cli": "/home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts-bin/pts",
+ "final_cli": "/home/bryan/projects/parallelscript/pts-bin/pts",
+ "contract": "run tests: stdout equal to the // expect: block and the expected exit code; error tests: every // error: text in the compiler output",
+ "results": [
+  {
+   "test": "pts/tests/run/getter_void_never.pts",
+   "sha256": "29a1dd530a43db30c70d01a69cb6200200e71341c4bc9fed61883af4e4bf52f1",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 2,
+    "stderr_head": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0xb81a6496288, {0x1622be0, 0x1fbe9f0})\n\t/home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0xb81a6496288)\n\t/home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0xb81a6496288, 0xb81a6848880)\n\t/home/bryan/projects/parallelscript/.",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/getter_void_interface.pts",
+   "sha256": "993c8301e167a2517e2ecd0e482bebe94a4399393b8ac9f2429827ca41f3b966",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/run/getter_void_interface.pts:13:26 - error PTS1001: using a `object1` as a `{audit: undefined}`, whose `audit` it doesn't provide with the same types, is not supported yet\npts/tests/run/getter_void_interface.pts:29:25 - error PTS1001: using a `Ledger` as a `{audit: undefined}`, whose `audit` it doesn't provide with the same types, is not supported yet\npts/tests/run/getter_void_interface.pts:31:11 - error PTS1001: using a `Ledger` as a `{audit: undefined}`, whose `audit` it doesn't provide with the same types, is not supported yet\n",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/return_bare_undefined.pts",
+   "sha256": "11bc217f7e09249770d4f34a03f5f6fd4b1107832a2242f9ca11cd7cd5a8f6fb",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts: clang -O2 -g -ffp-contract=off -fno-math-errno -falign-functions=32 -std=c11 -o /tmp/pts-h03/regr/bin/return_bare_undefined.base -I /home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/runtime/include -I /home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/third_party/bdwgc/include -I /home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/third_party/libuv/include -I /home/bryan/projects/parallelscript/.claude/worktrees/agent-afb5379bc12f20b9e/pts/third_party/ryu -I /home/bryan/projects/parallelscript/.cl",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/any_iteration_lazy.pts",
+   "sha256": "d0e6fa541341a7a6fe1ac869f325e488f5fd78716a003f2556985d46f478ef6d",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 2,
+     "expected": "break item 0",
+     "got": "break yield 1"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_lazy.pts",
+   "sha256": "900f838fd76ce7258736ca1fcb4f5604136d68e1ca7a495dde837123ba8a7e9d",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "any generator closed",
+     "got": "any generator yield 2"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/iteration_unbounded_lazy.pts",
+   "sha256": "32d08f6be05602373984b036a18f67698aa46ffe2c0a5c77e80ecd9568fc4562",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 1,
+     "expected": "any generator loop item 0",
+     "got": "any generator loop closed after 1000000"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/iterable_collections_live.pts",
+   "sha256": "7bd7fd8ca6cfc81c0bba119dbf648a481d9ded7e687cf6074704891e395c3cbe",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 2,
+     "expected": "any map entry c 3",
+     "got": "any map entry b 2"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/iterator_result_getters_any.pts",
+   "sha256": "7a081341663dc8a1a5aa8d496c1ee4e044b39b17d150329f223a7bee8352ebc2",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught RangeError: Array index 2 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first\n    at pts/tests/run/iterator_result_getters_any.pts:41\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 10,
+     "expected": "any item 0",
+     "got": "any read done 1"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_abrupt.pts",
+   "sha256": "80f84e8115b4dea7261da1fe474359078d106d28d3505e5c2481b0f0699349fe",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught TypeError: [7, 8] is not iterable\n    at pts/tests/run/array_pattern_abrupt.pts:29\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "default closed",
+     "got": "default yield 2"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_checked_close.pts",
+   "sha256": "4a482a9faf4775eb9b663f2efc6ac020cafb103839d5c82c1c0714cf273c88e7",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "closed",
+     "got": "yield 3"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_past_end.pts",
+   "sha256": "d34ba4376ccb9db9ace3522cf0ccf1ed6aa6db382f249cab255e020aca66e64c",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught RangeError: Array index 2 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 1,
+     "expected": "any array 1 2 undefined",
+     "got": ""
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/typed_array_iteration_live.pts",
+   "sha256": "b15c6b91b24c6a9b3e9775af1898e981364a104e755e950de15d418d8826b69f",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught RangeError: Array index 2 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first\n    at pts/tests/run/typed_array_iteration_live.pts:24\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "any loop 99",
+     "got": "any loop 3"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_loose_identity.pts",
+   "sha256": "52a8ff757444d760efd8b6662ed900709f4abc1a8fc4ef75c806978dcdb303cd",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught RangeError: Array index 2 is out of range (length 2); if it may be missing, read it with `?? fallback`, give the element type `| undefined`, or check the length first\n    at pts/tests/run/array_pattern_loose_identity.pts:39\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 10,
+     "expected": "past the end [ 'a', 1 ] [ 'b', 2 ] undefined",
+     "got": ""
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_loose_concat.pts",
+   "sha256": "92e27c78c1c4e740dbce8e32b66811bee9676d967cdbd366bc38479a95b132d8",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/run/array_pattern_loose_concat.pts:15:1 - error PTS1001: the `+=` operator on string and string is not supported yet\npts/tests/run/array_pattern_loose_concat.pts:16:1 - error PTS1001: the `+=` operator on string and number is not supported yet\n",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_union_items.pts",
+   "sha256": "a9879180331a153e848723bb4161f37e25411e4720e78aafbf95ba88ef51cb34",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": -11,
+    "stderr_head": "timeout: the monitored command dumped core\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 1,
+     "expected": "tuple|null [ 'a', 5 ] true",
+     "got": ""
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/pattern_union_dynamic_items.pts",
+   "sha256": "3a76c2fa6646b8a34bce4212d4ebb9c388ec4f007f3a34b445f5b70a7c381f37",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught TypeError: Cannot add property x, object is not extensible\n    at pts/tests/run/pattern_union_dynamic_items.pts:12\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 1,
+     "expected": "list [ 1, 2, 3 ]",
+     "got": "list [ 1, 2, 2.75 ]"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/compound_concat_valueof.pts",
+   "sha256": "756e5bdc7c5c946a8be75b4c6f59b9a72ed6fca21af2743f68607940c777d394",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/run/compound_concat_valueof.pts:19:3 - error PTS1001: the `+=` operator on string and V is not supported yet\npts/tests/run/compound_concat_valueof.pts:23:1 - error PTS1001: the `+=` operator on string and V is not supported yet\n",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/array_pattern_loose_int64.pts",
+   "sha256": "651c32e241646ecc2a8a6cd0206b4513c71e39d9f6603ac1ed756979445295aa",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 5,
+     "expected": "int[] 9007199254740993 true",
+     "got": "int[] 9007199254740992 false"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/for_let_pattern_iterables.pts",
+   "sha256": "074b16756d1d8732bfe0174cbb2f9ee65df7fc4c89ba01fad45b7c48f703eea3",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/iterator_result_getters_inferred.pts",
+   "sha256": "e38ea6d19fef29834f7cf0823c5edbace06588d7077b40d6ad0416552e790c20",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "pass"
+   }
+  },
+  {
+   "test": "pts/tests/run/iterator_result_getters_typed.pts",
+   "sha256": "48a422cb3dd97dc2e366f1acf8fd14ffea0f9078214233536f4e0fa9141863d3",
+   "skip": "known issue (C03, D-177): an object literal with getters as a typed IteratorResult is PTS1001, since D-109's result shapes hold done and value in fields (errors/iterator_result_getters.pts); a `next(): any` can return one (run/iterator_result_getters_any.pts)",
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/run/iterator_result_getters_typed.pts:21:24 - error PTS1001: converting object4 to object1 | object2 is not supported yet\npts/tests/run/iterator_result_getters_typed.pts:55:24 - error PTS1001: converting object4 to object1 | object2 is not supported yet\n",
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/run/iterator_result_getters_typed.pts:21:24 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one\npts/tests/run/iterator_result_getters_typed.pts:55:24 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one\n",
+    "verdict": "fail"
+   }
+  },
+  {
+   "test": "pts/tests/run/iterator_next_result_getters.pts",
+   "sha256": "00895de10c3d8d658fd7e822da32f3a239ad1d68e55bf9dd5b4c9d75f0411b1b",
+   "skip": "known issue (H03b, C30): it.next() on a typed iterator makes a D-109 result shape at the call, reading done and then value (a done result's too), where JS hands back the object next() returned",
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "first done: false",
+     "got": "manual read value 0"
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 0,
+    "stderr_head": "",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 3,
+     "expected": "first done: false",
+     "got": "manual read value 0"
+    }
+   }
+  },
+  {
+   "test": "pts/tests/run/iterator_result_as_cast.pts",
+   "sha256": "909dd1486a82b5d994c948b4555421560a52ab33d99f629152c387b18c49de32",
+   "skip": "known issue (H03b, C35): `as IteratorResult<T>` accepts an object literal of another layout (a getter, extra properties), and a read of `.value` narrowed on `done` reads IteratorYieldResult's field offset: the getter's closure, or memory past the object (SIGSEGV)",
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught TypeError: Expected number, got function\n    at pts/tests/run/iterator_result_as_cast.pts:11\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 2,
+     "expected": "number 43",
+     "got": ""
+    }
+   },
+   "final": {
+    "build_exit": 0,
+    "exit": 1,
+    "stderr_head": "Uncaught TypeError: Expected number, got function\n    at pts/tests/run/iterator_result_as_cast.pts:11\n",
+    "verdict": "fail",
+    "first_difference": {
+     "line": 2,
+     "expected": "number 43",
+     "got": ""
+    }
+   }
+  },
+  {
+   "test": "pts/tests/errors/iterator_result_getters.pts",
+   "sha256": "b3c839316f5c403f67d0da41587c1e0114ac31860cf978572534d8bfdd566fb5",
+   "skip": null,
+   "expected_exit": 0,
+   "base": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/errors/iterator_result_getters.pts:10:16 - error PTS1001: converting object5 to object1 | object3 is not supported yet\npts/tests/errors/iterator_result_getters.pts:23:10 - error PTS1001: using a `object6` as a `object1` is not supported yet\npts/tests/errors/iterator_result_getters.pts:32:10 - error PTS1001: using a `object7` as a `object2` is not supported yet\n",
+    "errors_present": [],
+    "verdict": "fail"
+   },
+   "final": {
+    "build_exit": 1,
+    "stderr_head": "pts/tests/errors/iterator_result_getters.pts:10:16 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one\npts/tests/errors/iterator_result_getters.pts:23:10 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorYieldResult<number>`) is not supported yet; a `next(): any` can return one\npts/tests/errors/iterator_result_getters.pts:32:10 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<string, string>`)",
+    "errors_present": [
+     "iterator_result_getters.pts:10:16 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one",
+     "iterator_result_getters.pts:23:10 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorYieldResult<number>`) is not supported yet; a `next(): any` can return one",
+     "iterator_result_getters.pts:32:10 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<string, string>`) is not supported yet; a `next(): any` can return one"
+    ],
+    "verdict": "pass"
+   }
+  }
+ ]
+}

@@ -1,0 +1,136 @@
+// Iterating a map or set is live in JS: an entry deleted before the loop reaches it is
+// skipped, and one added during the loop is visited. This holds when the map or set is
+// held as `any` or as an `Iterable<T>`, as it already does for a typed Map or Set and
+// for their iterators used straight in for…of (D-056, D-110).
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+function letters(): Map<string, number> {
+    return new Map<string, number>([["a", 1], ["b", 2], ["c", 3]]);
+}
+
+attempt("any map", () => {
+    const m = letters();
+    const held: any = m;
+    for (const [key, value] of held) {
+        console.log("any map entry", key, value);
+        if (key === "a") {
+            m.delete("b");
+            m.set("d", 4);
+        }
+    }
+});
+
+attempt("any set", () => {
+    const s = new Set<number>([1, 2, 3]);
+    const held: any = s;
+    for (const member of held) {
+        console.log("any set member", member);
+        if (member === 1) {
+            s.delete(2);
+            s.add(9);
+        }
+    }
+});
+
+attempt("Iterable map", () => {
+    const m = letters();
+    const held: Iterable<[string, number]> = m;
+    for (const [key, value] of held) {
+        console.log("Iterable map entry", key, value);
+        if (key === "a") {
+            m.delete("c");
+            m.set("e", 5);
+        }
+    }
+});
+
+attempt("Iterable set", () => {
+    const s = new Set<string>(["x", "y", "z"]);
+    const held: Iterable<string> = s;
+    for (const member of held) {
+        console.log("Iterable set member", member);
+        if (member === "x") {
+            s.delete("y");
+            s.add("w");
+        }
+    }
+});
+
+attempt("any map keys", () => {
+    const m = letters();
+    const keys: any = m.keys();
+    for (const key of keys) {
+        console.log("any map keys key", key);
+        if (key === "a") {
+            m.delete("c");
+            m.set("f", 6);
+        }
+    }
+});
+
+// Controls (live today): a typed Map and Set, and a map's iterator straight in for…of.
+attempt("typed map", () => {
+    const m = letters();
+    for (const [key, value] of m) {
+        console.log("typed map entry", key, value);
+        if (key === "a") {
+            m.delete("b");
+            m.set("d", 4);
+        }
+    }
+});
+attempt("typed set", () => {
+    const s = new Set<number>([1, 2, 3]);
+    for (const member of s) {
+        console.log("typed set member", member);
+        if (member === 1) {
+            s.delete(2);
+            s.add(9);
+        }
+    }
+});
+attempt("typed map keys", () => {
+    const m = letters();
+    for (const key of m.keys()) {
+        console.log("typed map keys key", key);
+        if (key === "a") {
+            m.delete("c");
+            m.set("f", 6);
+        }
+    }
+});
+console.log("end");
+
+// expect:
+// any map entry a 1
+// any map entry c 3
+// any map entry d 4
+// any set member 1
+// any set member 3
+// any set member 9
+// Iterable map entry a 1
+// Iterable map entry b 2
+// Iterable map entry e 5
+// Iterable set member x
+// Iterable set member z
+// Iterable set member w
+// any map keys key a
+// any map keys key b
+// any map keys key f
+// typed map entry a 1
+// typed map entry c 3
+// typed map entry d 4
+// typed set member 1
+// typed set member 3
+// typed set member 9
+// typed map keys key a
+// typed map keys key b
+// typed map keys key f
+// end

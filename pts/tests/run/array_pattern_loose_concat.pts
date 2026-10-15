@@ -1,0 +1,37 @@
+// `+=` concatenates onto a string a declaration's array pattern binds from a string, a
+// set, a map's values, an array or a string parameter (loose locals hold
+// `string | undefined`, D-172; H03 review round 3, R3-B2).
+let [i, j] = "ab";
+i += "+";
+j = j + "-";
+console.log("string", i, j);
+let [k] = new Set(["s"]);
+k += "!";
+console.log("set", k);
+let [s1, s2] = new Map([["a", "b"], ["c", "d"]]).values();
+s1 += "?";
+console.log("map values", s1, s2);
+let [w1, w2] = "a b".split(" ");
+w1 += w2;
+w2 += 1;
+console.log("array", w1, w2);
+function joined(text: string): string {
+  let [first, second] = text;
+  first += second;
+  return first;
+}
+console.log("parameter", joined("xy"));
+let total = 0;
+for (let [x, y] = "12"; total < 2; total++) {
+  x += y;
+  console.log("for", x);
+}
+
+// expect:
+// string a+ b-
+// set s!
+// map values b? d
+// array ab b1
+// parameter xy
+// for 12
+// for 122

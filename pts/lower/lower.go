@@ -564,7 +564,7 @@ func (l *lowerer) forStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		init = l.declarationList(node, s.Initializer)
 		failed = init == nil
 		if s.Initializer.Flags&ast.NodeFlagsLet != 0 {
-			bindings = declaredLocals(init)
+			bindings = l.declaredNames(s.Initializer)
 		}
 	default:
 		x := l.expression(s.Initializer)
@@ -590,11 +590,26 @@ func (l *lowerer) forStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	return []ir.Stmt{&ir.Block{At: l.pos(node), Stmts: append(init, loop)}}
 }
 
-// declaredLocals are the locals that declarations (LocalDecls) declare.
-func declaredLocals(stmts []ir.Stmt) []*ir.Local {
-	locals := make([]*ir.Local, len(stmts))
-	for i, stmt := range stmts {
-		locals[i] = stmt.(*ir.LocalDecl).Local
+// declaredNames are the locals of the names a lowered declaration list declares, those
+// its patterns bind included (not the locals a pattern's lowering adds).
+func (l *lowerer) declaredNames(list *ast.Node) []*ir.Local {
+	var locals []*ir.Local
+	var visit func(name *ast.Node)
+	visit = func(name *ast.Node) {
+		if name.Kind == ast.KindIdentifier {
+			if local := l.locals[l.checker.GetSymbolAtLocation(name)]; local != nil {
+				locals = append(locals, local)
+			}
+			return
+		}
+		for _, element := range name.AsBindingPattern().Elements.Nodes {
+			if element.Kind == ast.KindBindingElement {
+				visit(element.Name())
+			}
+		}
+	}
+	for _, declaration := range list.AsVariableDeclarationList().Declarations.Nodes {
+		visit(declaration.Name())
 	}
 	return locals
 }
@@ -1201,6 +1216,9 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	}
 	result := l.returnTypeOf(l.checker.GetSignatureFromDeclaration(node))
 	if result.Flags()&(checker.TypeFlagsVoid|checker.TypeFlagsNever) != 0 {
+		if node.Kind == ast.KindGetAccessor {
+			return ir.Undefined // a property's value, which a getter of type void gives as undefined (one of never only throws)
+		}
 		return ir.Void // a function that returns never only throws
 	}
 	if contextual := l.contextualResult(node, result); contextual != nil {
@@ -1234,8 +1252,15 @@ func (l *lowerer) functionBody(node *ast.Node) {
 // returnStatement lowers `return value`, converting the value to the function's result type.
 func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 	at := l.pos(node)
-	if node.Expression() == nil {
+	if node.Expression() == nil && (l.function.Result == ir.Void || l.function.Generator) {
 		return l.leaveFunction(at, nil)
+	}
+	if node.Expression() == nil { // `return;` where the result may be undefined: `number | undefined`, `any`, a getter's
+		value := l.convert(&ir.UndefinedConst{}, l.function.Result, node)
+		if value == nil {
+			return nil
+		}
+		return l.leaveFunction(at, value)
 	}
 	value := l.expression(node.Expression())
 	if value == nil {
@@ -2820,8 +2845,10 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		}
 		var value ir.Expr
 		switch op, ok := binaryOps[operator]; {
-		case operator == ast.KindPlusToken && t == ir.String:
-			if y := l.valueExpression(expr.Right); y != nil {
+		case operator == ast.KindPlusToken && (t == ir.String || current.Type() == ir.String): // a loose local's narrowed read too
+			if y := l.valueExpression(expr.Right); y != nil && hasValueOf(y.Type()) { // `s += c` is `s + c.valueOf()`, as for `+` (D-089)
+				value = l.checkedConversion(&ir.CallBuiltin{Builtin: ir.ValueAdd, Args: []ir.Expr{box(current), box(y)}}, ir.String, node)
+			} else if y != nil {
 				if y = l.toString(y, expr.Right); y != nil {
 					value = &ir.Binary{Op: ir.Concat, X: current, Y: y}
 				}

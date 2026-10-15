@@ -1352,10 +1352,6 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
   pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not iterable", (int)text->byte_len, text->bytes);
 }
 
-double pts_value_iterable_length(pts_value iterable) { return (double)pts_spread_length(iterable); }
-
-pts_value pts_value_iterable_element(pts_value iterable, double i) { return pts_spread_element(iterable, (size_t)i); }
-
 pts_array *pts_value_to_array(pts_value value, const pts_string *text) {
   pts_value items = pts_value_iterable(value, text);
   pts_array *array = any_array();

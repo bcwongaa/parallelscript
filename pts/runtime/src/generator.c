@@ -214,6 +214,20 @@ static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pt
   return true;
 }
 
+/* Whether value is a map or a set, whose iterators are live (pts_map_iterator_new). */
+static bool is_collection(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return false;
+  }
+  pts_kind kind = pts_value_as_object(value)->type->kind;
+  return kind == PTS_KIND_MAP || kind == PTS_KIND_SET;
+}
+
+/* An iterator over a map's entries or a set's elements, as their [Symbol.iterator]() makes. */
+static pts_value collection_iterator(pts_value collection) {
+  return pts_map_iterator_new(collection, pts_value_as_object(collection)->type->kind == PTS_KIND_SET ? 0 : 2);
+}
+
 pts_value pts_iterator_get(pts_value iterable, const pts_string *text) {
   if (is_iterator(iterable)) {
     return iterable; /* a generator's or runtime iterator's [Symbol.iterator]() is itself */
@@ -224,9 +238,8 @@ pts_value pts_iterator_get(pts_value iterable, const pts_string *text) {
   if (pts_value_is_object(iterable)) {
     switch (pts_value_as_object(iterable)->type->kind) {
     case PTS_KIND_MAP:
-      return pts_map_iterator_new(iterable, 2);
     case PTS_KIND_SET:
-      return pts_map_iterator_new(iterable, 0);
+      return collection_iterator(iterable);
     case PTS_KIND_STRING:
       return items_iterator_new(&string_iterator_type, pts_value_iterable(iterable, text));
     default:
@@ -243,7 +256,52 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
   if (has_method(iterable, iterator_key)) {
     return pts_iterator_of(call_method(iterable, iterator_key, 0, NULL));
   }
+  if (is_collection(iterable)) {
+    return collection_iterator(iterable);
+  }
   return items_iterator_new(&array_iterator_type, pts_value_iterable(iterable, text));
+}
+
+pts_value pts_iteration_open(pts_value iterable, const pts_string *text) {
+  if (is_iterator(iterable) || has_method(iterable, iterator_key) || is_collection(iterable)) {
+    return pts_iterator_open(iterable, text); /* stepped by next(), lazily, and a map's or set's live */
+  }
+  if (pts_value_is_object(iterable) && pts_value_as_object(iterable)->type->kind == PTS_KIND_TYPED_ARRAY) {
+    return iterable; /* read live, as an array is */
+  }
+  return pts_value_iterable(iterable, text);
+}
+
+bool pts_iteration_next(pts_value source, double index) {
+  if (is_iterator(source)) {
+    return pts_iterator_resume(source, PTS_RESUME_NEXT, PTS_VALUE_UNDEFINED);
+  }
+  return index >= (double)pts_spread_length(source);
+}
+
+pts_value pts_iteration_value(pts_value source, double index) {
+  if (is_iterator(source)) {
+    return pts_iterator_value(source);
+  }
+  return pts_spread_element(source, (size_t)index);
+}
+
+pts_array *pts_iteration_rest(pts_value source, double index, bool done) {
+  if (is_iterator(source) && !done) {
+    return pts_iterator_to_array(source);
+  }
+  pts_array *rest = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
+  for (size_t i = (size_t)index, n = done ? 0 : pts_spread_length(source); i < n; i++) {
+    pts_value item = pts_spread_element(source, i);
+    pts_array_push(rest, &item, 1);
+  }
+  return rest;
+}
+
+void pts_iteration_close(pts_value source) {
+  if (is_iterator(source)) {
+    pts_iterator_close(source);
+  }
 }
 
 /* A runtime iterator over a map or set (pts_map_iterator_new). */
@@ -437,18 +495,3 @@ pts_array *pts_iterator_to_array(pts_value iterator) {
   return values;
 }
 
-pts_array *pts_iterator_take(pts_value iterator, double count, bool rest) {
-  if (rest) {
-    return pts_iterator_to_array(iterator);
-  }
-  pts_array *values = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], NULL, 0);
-  for (double i = 0; i < count; i++) {
-    if (pts_iterator_resume(iterator, PTS_RESUME_NEXT, PTS_VALUE_UNDEFINED)) {
-      return values;
-    }
-    pts_value value = pts_iterator_value(iterator);
-    pts_array_push(values, &value, 1);
-  }
-  pts_iterator_close(iterator);
-  return values;
-}

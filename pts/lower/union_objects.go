@@ -102,6 +102,12 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	return l.asUnionInterface(object, iface, node), iface.Fields[0]
 }
 
+// isIteratorResultType reports whether t is an iterator result or a union of them (IteratorResult<T, R>).
+func (l *lowerer) isIteratorResultType(t *checker.Type) bool {
+	_, ok := l.iteratorResultValue(t)
+	return ok || l.isIteratorResultUnion(t)
+}
+
 // isIteratorResultUnion reports whether every member of the union t is an iterator result.
 func (l *lowerer) isIteratorResultUnion(t *checker.Type) bool {
 	return t.Flags()&checker.TypeFlagsUnion != 0 && !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {

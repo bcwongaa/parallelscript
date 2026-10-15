@@ -1,0 +1,75 @@
+// An array pattern over an iterator closes it when binding an element throws (a default,
+// a nested pattern over an item that is not iterable), so a generator's finally runs
+// before the error goes on, and doesn't close one whose next() threw (H03, D-177).
+function* counted(tag: string): Generator<any> {
+  try {
+    for (let i = 0; i < 4; i++) {
+      console.log(tag, "yield", i);
+      yield i === 1 ? undefined : i;
+    }
+  } finally {
+    console.log(tag, "closed");
+  }
+}
+function boom(): number {
+  throw new Error("default threw");
+}
+try {
+  const [a, b = boom(), c] = counted("default");
+  console.log(a, b, c);
+} catch (e: any) {
+  console.log("caught", e.message);
+}
+try {
+  const [x, [y]] = counted("nested not iterable");
+  console.log(x, y);
+} catch (e: any) {
+  console.log("caught", e instanceof TypeError);
+}
+const [p, [q, r] = [7, 8], s = 9] = counted("nested default");
+console.log(p, q, r, s);
+const [first, ...others] = counted("rest");
+console.log(first, others);
+const [u = 5, v = 6] = counted("top");
+console.log(u, v);
+function* throws(): Generator<number> {
+  try {
+    yield 1;
+    throw new Error("next threw");
+  } finally {
+    console.log("throws finally");
+  }
+}
+try {
+  const [m, n = 3] = throws();
+  console.log(m, n);
+} catch (e: any) {
+  console.log("caught", e.message);
+}
+
+// expect:
+// default yield 0
+// default yield 1
+// default closed
+// caught default threw
+// nested not iterable yield 0
+// nested not iterable yield 1
+// nested not iterable closed
+// caught true
+// nested default yield 0
+// nested default yield 1
+// nested default yield 2
+// nested default closed
+// 0 7 8 2
+// rest yield 0
+// rest yield 1
+// rest yield 2
+// rest yield 3
+// rest closed
+// 0 [ undefined, 2, 3 ]
+// top yield 0
+// top yield 1
+// top closed
+// 0 6
+// throws finally
+// caught next threw

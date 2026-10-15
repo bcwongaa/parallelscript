@@ -314,51 +314,62 @@ func (l *lowerer) iteratorResult(done ir.Expr, iterator ir.Expr, t ir.Type, ct *
 	return &ir.Bind{Local: finished, Value: done, In: made}
 }
 
-// iteratorForOf lowers `for (const x of it)` over an iterator or an Iterable (opened with
-// pts_iterator_open, which gives a generator itself): next() until it is done,
-// and if the loop ends early (break, return, a jump out, a throw), the iterator closed, as
-// JS's IteratorClose does.
+// iteratorForOf lowers `for (const x of it)` over an iterator or an Iterable: a loop over
+// its iterator (iteratorLoop) whose elements have its yield type.
 func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *ast.Node) []ir.Stmt {
 	s := node.AsForInOrOfStatement()
-	at := l.pos(node)
-	iterator := l.expression(s.Expression)
-	if iterator == nil {
+	iterable := l.expression(s.Expression)
+	if iterable == nil {
 		return nil
-	}
-	it, done := l.newLocal("iterator", ir.Value), l.newLocal("done", ir.Bool)
-	opened := &ir.CallBuiltin{Builtin: ir.IteratorOpen, Args: []ir.Expr{box(iterator), &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
-	stmts := []ir.Stmt{
-		&ir.LocalDecl{At: at, Local: it, Init: opened},
-		&ir.LocalDecl{At: at, Local: done, Init: &ir.BoolConst{Value: false}},
 	}
 	yieldType, _, _ := l.iterationTypes(l.typeAt(s.Expression))
 	elemType := l.irType(yieldType, s.Expression)
 	if elemType == nil {
 		return nil
 	}
+	return l.iteratorLoop(node, label, declaration, iterable, elemType)
+}
+
+// iteratorLoop lowers a `for…of` over iterable as JS's iteration protocol runs it: the
+// iterable's iterator (a generator itself, an object's [Symbol.iterator]() result, a
+// map's or set's) resumed by next() once per iteration until it is done, and if the loop
+// ends early (break, return, a jump out, a throw), closed, as JS's IteratorClose does; an
+// array's, typed array's or string's items are read by index instead, which JS's
+// iterators over them can't be told apart from (ir.IterationOpen).
+func (l *lowerer) iteratorLoop(node *ast.Node, label *ir.Label, declaration *ast.Node, iterable ir.Expr, elemType ir.Type) []ir.Stmt {
+	s := node.AsForInOrOfStatement()
+	at := l.pos(node)
+	source, index, done := l.newLocal("iteration", ir.Value), l.newLocal("index", ir.Number), l.newLocal("done", ir.Bool)
+	opened := &ir.CallBuiltin{Builtin: ir.IterationOpen, Args: []ir.Expr{box(iterable), &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
+	stmts := []ir.Stmt{
+		&ir.LocalDecl{At: at, Local: source, Init: opened},
+		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
+		&ir.LocalDecl{At: at, Local: done, Init: &ir.BoolConst{Value: false}},
+	}
 	protected := func() *ir.Block {
 		element, destructured, ok := l.forOfBinding(declaration, elemType)
 		if !ok {
 			return nil
 		}
-		value := l.checkedConversion(&ir.CallBuiltin{Builtin: ir.IteratorValue, Args: []ir.Expr{&ir.LocalRef{Local: it}}}, element.Type, declaration)
+		value := l.checkedConversion(&ir.CallBuiltin{Builtin: ir.IterationValue, Args: []ir.Expr{&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}}}, element.Type, declaration)
 		if value == nil {
 			return nil
 		}
-		resume := &ir.CallBuiltin{Builtin: ir.IteratorResume, Args: []ir.Expr{&ir.LocalRef{Local: it}, modeConst(ir.ResumeNext), box(&ir.UndefinedConst{})}}
+		step := &ir.CallBuiltin{Builtin: ir.IterationNext, Args: []ir.Expr{&ir.LocalRef{Local: source}, &ir.LocalRef{Local: index}}}
 		body := l.statementBlock(s.Statement)
 		next := []ir.Stmt{
 			&ir.ExprStmt{At: at, X: &ir.Assign{Local: done, Value: &ir.BoolConst{Value: true}}}, // if next() throws, the iterator isn't closed
-			&ir.ExprStmt{At: at, X: &ir.Assign{Local: done, Value: resume}},
+			&ir.ExprStmt{At: at, X: &ir.Assign{Local: done, Value: step}},
 			&ir.If{At: at, Cond: &ir.LocalRef{Local: done}, Then: &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Break{At: at, Target: label}}}},
 			&ir.LocalDecl{At: l.pos(declaration), Local: element, Init: value},
+			&ir.ExprStmt{At: at, X: &ir.Assign{Local: index, Value: &ir.Binary{Op: ir.Add, X: &ir.LocalRef{Local: index}, Y: &ir.NumberConst{Value: 1}}}},
 		}
 		body.Stmts = append(append(next, destructured...), body.Stmts...)
 		return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.Loop{At: at, Label: label, Body: body}}}
 	}
 	closing := func(f *finallyContext) []ir.Stmt {
 		return l.iteratorClosing(at, f, done, func() []ir.Stmt {
-			return []ir.Stmt{&ir.ExprStmt{At: at, X: &ir.CallBuiltin{Builtin: ir.IteratorClose, Args: []ir.Expr{&ir.LocalRef{Local: it}}}}}
+			return []ir.Stmt{&ir.ExprStmt{At: at, X: &ir.CallBuiltin{Builtin: ir.IterationClose, Args: []ir.Expr{&ir.LocalRef{Local: source}}}}}
 		})
 	}
 	// The loop's own label is inside the protected code: its break and continue stay there.
@@ -367,25 +378,6 @@ func (l *lowerer) iteratorForOf(node *ast.Node, label *ir.Label, declaration *as
 		return nil
 	}
 	return []ir.Stmt{&ir.Block{At: at, Stmts: append(stmts, finally...)}}
-}
-
-// iteratorTake is what an array pattern destructures out of an iterator: an any[] of the
-// values it yields for the pattern's count elements, after which it is closed, or of all
-// it yields for a pattern with a rest element.
-func (l *lowerer) iteratorTake(pattern *ast.Node, iterator ir.Expr) ir.Expr {
-	elements := pattern.AsBindingPattern().Elements.Nodes
-	count, rest := len(elements), false
-	if count > 0 && elements[count-1].Kind == ast.KindBindingElement && elements[count-1].AsBindingElement().DotDotDotToken != nil {
-		rest = true
-	}
-	return &ir.CallBuiltin{Builtin: ir.IteratorTake, Args: []ir.Expr{box(iterator), &ir.NumberConst{Value: float64(count)}, &ir.BoolConst{Value: rest}}}
-}
-
-// isIteratorSource reports whether a binding pattern destructures an iterator: the value
-// of its declaration's initializer is one.
-func (l *lowerer) isIteratorSource(pattern *ast.Node) bool {
-	parent := pattern.Parent
-	return parent != nil && parent.Name() == pattern && parent.Initializer() != nil && l.isIteratorType(l.typeAt(parent.Initializer()))
 }
 
 // isIteratorResultDeclaration reports whether declaration declares one of the ES

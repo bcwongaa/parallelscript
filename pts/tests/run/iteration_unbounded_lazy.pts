@@ -1,0 +1,198 @@
+// Lazy consumers of unbounded iterators (C18): for…of with break, array patterns and
+// for…of bindings take the few items they need from an iterator that never finishes and
+// close it, whether the value is typed `any`, an iterable class, an `Iterable<number>`
+// or a `Generator<number>`. Each source here would be infinite, but throws once it has
+// given 1,000,000 items, so that a consumer that drains it fails quickly with a bounded
+// allocation instead of exhausting memory.
+
+const SAFETY_BOUND = 1_000_000;
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+function* naturals(label: string): Generator<number> {
+    let n = 0;
+    try {
+        while (true) {
+            if (n >= SAFETY_BOUND) throw new Error(label + " ran past the safety bound");
+            yield n++;
+        }
+    } finally {
+        console.log(label, "closed after", n);
+    }
+}
+
+function forever(label: string): any {
+    let n = 0;
+    return {
+        [Symbol.iterator]() {
+            return this;
+        },
+        next() {
+            if (n >= SAFETY_BOUND) throw new Error(label + " ran past the safety bound");
+            return { done: false, value: n++ };
+        },
+        return() {
+            console.log(label, "return after", n);
+            return { done: true, value: undefined };
+        },
+    };
+}
+
+class Naturals implements Iterable<number> {
+    label: string;
+    constructor(label: string) {
+        this.label = label;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        const label = this.label;
+        let n = 0;
+        return {
+            next(): IteratorResult<number> {
+                if (n >= SAFETY_BOUND) throw new Error(label + " ran past the safety bound");
+                return { done: false, value: n++ };
+            },
+            return(): IteratorResult<number> {
+                console.log(label, "return after", n);
+                return { done: true, value: undefined };
+            },
+        };
+    }
+}
+
+attempt("any generator loop", () => {
+    const numbers: any = naturals("any generator loop");
+    for (const n of numbers) {
+        if (n >= 3) break;
+        console.log("any generator loop item", n);
+    }
+});
+
+attempt("any object loop", () => {
+    for (const n of forever("any object loop")) {
+        if (n >= 3) break;
+        console.log("any object loop item", n);
+    }
+});
+
+attempt("any generator pattern", () => {
+    const numbers: any = naturals("any generator pattern");
+    const [a, b, c] = numbers;
+    console.log("any generator pattern values", a, b, c);
+});
+
+attempt("any object pattern", () => {
+    const [a, , c] = forever("any object pattern");
+    console.log("any object pattern values", a, c);
+});
+
+attempt("class pattern", () => {
+    const [a, b] = new Naturals("class pattern");
+    console.log("class pattern values", a, b);
+});
+
+function firstTwo(values: Iterable<number>): string {
+    const [a, b] = values;
+    return a + " " + b;
+}
+attempt("Iterable parameter pattern", () => {
+    console.log("Iterable parameter pattern values", firstTwo(naturals("Iterable parameter pattern")));
+});
+
+function* rowsOfNaturals(label: string): Generator<any> {
+    for (let row = 0; row < 2; row++) {
+        yield naturals(label + " row " + row);
+    }
+}
+attempt("any for-of binding", () => {
+    const rows: any = rowsOfNaturals("any for-of binding");
+    for (const [a, b] of rows) {
+        console.log("any for-of binding pair", a, b);
+    }
+});
+attempt("typed for-of binding", () => {
+    const rows: Iterable<Iterable<number>> = rowsOfNaturals("typed for-of binding");
+    for (const [a, b] of rows) {
+        console.log("typed for-of binding pair", a, b);
+    }
+});
+
+attempt("nested pattern", () => {
+    const rows: any = rowsOfNaturals("nested pattern");
+    const [[a, b]] = rows;
+    console.log("nested pattern values", a, b);
+});
+
+function firstTwoOfGeneratorParameter([a, b]: Generator<number>): string {
+    return a + " " + b;
+}
+attempt("Generator pattern parameter", () => {
+    console.log("Generator pattern parameter values", firstTwoOfGeneratorParameter(naturals("Generator pattern parameter")));
+});
+attempt("Generator for-of binding", () => {
+    const rows: Generator<number>[] = [naturals("Generator for-of binding row 0")];
+    for (const [a, b] of rows) {
+        console.log("Generator for-of binding pair", a, b);
+    }
+});
+
+// Controls (lazy today): typed for…of, and a pattern declaration whose initializer is a
+// Generator<number> parameter.
+attempt("typed loop", () => {
+    for (const n of new Naturals("typed loop")) {
+        if (n >= 3) break;
+        console.log("typed loop item", n);
+    }
+});
+function firstTwoOfGenerator(numbers: Generator<number>): string {
+    const [a, b] = numbers;
+    return a + " " + b;
+}
+attempt("Generator parameter", () => {
+    console.log("Generator parameter values", firstTwoOfGenerator(naturals("Generator parameter")));
+});
+console.log("end");
+
+// expect:
+// any generator loop item 0
+// any generator loop item 1
+// any generator loop item 2
+// any generator loop closed after 4
+// any object loop item 0
+// any object loop item 1
+// any object loop item 2
+// any object loop return after 4
+// any generator pattern closed after 3
+// any generator pattern values 0 1 2
+// any object pattern return after 3
+// any object pattern values 0 2
+// class pattern return after 2
+// class pattern values 0 1
+// Iterable parameter pattern closed after 2
+// Iterable parameter pattern values 0 1
+// any for-of binding row 0 closed after 2
+// any for-of binding pair 0 1
+// any for-of binding row 1 closed after 2
+// any for-of binding pair 0 1
+// typed for-of binding row 0 closed after 2
+// typed for-of binding pair 0 1
+// typed for-of binding row 1 closed after 2
+// typed for-of binding pair 0 1
+// nested pattern row 0 closed after 2
+// nested pattern values 0 1
+// Generator pattern parameter closed after 2
+// Generator pattern parameter values 0 1
+// Generator for-of binding row 0 closed after 2
+// Generator for-of binding pair 0 1
+// typed loop item 0
+// typed loop item 1
+// typed loop item 2
+// typed loop return after 4
+// Generator parameter closed after 2
+// Generator parameter values 0 1
+// end

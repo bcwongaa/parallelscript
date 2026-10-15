@@ -10,10 +10,10 @@ import (
 // Loose locals (D-090). tsc types `const next = argv[i + 1]` as a string, though the
 // element may be past the array's end, and programs check such locals for undefined
 // later (`if (next === undefined)`). A local whose initializer reads an element of an
-// array, a string or a hash-map object, or that an array pattern binds, and that the
-// program tests for undefined, holds `T | undefined`: its initializer reads undefined
-// past the end as JS does, and each use of it as a T is checked (TypeError if it is
-// undefined), as a dynamic value's is.
+// array, a string or a hash-map object and that the program tests for undefined, or that
+// a declaration's array pattern binds from anything but a tuple, holds `T | undefined`:
+// its initializer reads undefined past the end as JS does, and each use of it as a T is
+// checked (TypeError if it is undefined), as a dynamic value's is.
 
 // collectUndefinedTests records the symbols of the variables that files test for
 // undefined: compare with undefined or null, test for truth, `??`, `?.` or `typeof`.
@@ -127,9 +127,10 @@ func isNullishLiteral(node *ast.Node) bool {
 }
 
 // isLoose reports whether a variable is a loose local: one of a type without undefined
-// that an array pattern binds from an array (`const [op, arg] = line.split(" ")`, where
-// JS binds undefined past the end and a program may use arg only where it is there), or
-// whose initializer reads an element and that the program tests for undefined.
+// that a declaration's array pattern binds from anything but a tuple (`const [op, arg] =
+// line.split(" ")`, where JS binds undefined past the end and a program may use arg only
+// where it is there), or whose initializer reads an element and that the program tests
+// for undefined.
 func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return false
@@ -148,7 +149,9 @@ func (l *lowerer) isLoose(symbol *ast.Symbol) bool {
 
 // readsElement reports whether a variable declaration's initializer reads an element of
 // an array, a string or a hash-map object, or a binding element of an array pattern
-// binds one of an array's elements, without a default.
+// binds, without a default, one of the items of what the declaration destructures other
+// than a tuple: an array, string, map, set, iterator, iterable or dynamic value, which
+// may end before the pattern does (D-172, H03).
 func (l *lowerer) readsElement(declaration *ast.Node) bool {
 	switch declaration.Kind {
 	case ast.KindVariableDeclaration:
@@ -164,7 +167,16 @@ func (l *lowerer) readsElement(declaration *ast.Node) bool {
 			return false
 		}
 		initializer := pattern.Parent.Initializer()
-		return initializer != nil && l.isArrayType(l.typeAt(initializer))
+		if initializer == nil {
+			return false
+		}
+		t := l.typeAt(initializer)
+		if t.Flags()&checker.TypeFlagsTypeParameter != 0 {
+			if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {
+				t = constraint // the same for every instance, which share this answer
+			}
+		}
+		return !checker.IsTupleType(t) // a tuple's length is known; anything else may end before the pattern does
 	}
 	return false
 }
@@ -194,5 +206,8 @@ func mayHoldUndefined(t *checker.Type) bool {
 // looseRead is the use of a loose local, x, where tsc gives it the type narrow: checked,
 // since it may be undefined.
 func (l *lowerer) looseRead(x ir.Expr, narrow ir.Type, node *ast.Node) ir.Expr {
+	if narrow == ir.I64 || narrow == ir.U64 {
+		return &ir.FromUnion{X: box(x), To: narrow} // exact past 2^53: it holds one of these integers or undefined, never a double (D-012)
+	}
 	return l.checkedConversion(x, narrow, node)
 }

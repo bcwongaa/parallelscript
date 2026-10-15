@@ -1,0 +1,50 @@
+// `+=` onto a string calls a right side's valueOf before its toString, as `+` does
+// (ToPrimitive with the default hint): for string, `string | number`, narrowed `any`
+// and loose string places (H03 review round 4, R4-S3; C38 for plain strings).
+class V {
+  valueOf(): number {
+    return 7;
+  }
+  toString(): string {
+    return "T";
+  }
+}
+const o: any = { s: "x" };
+if (typeof o.s === "string") {
+  o.s += new V();
+}
+console.log("any property", o.s);
+let a: any = "q";
+if (typeof a === "string") {
+  a += new V();
+}
+console.log("any local", a);
+let u: string | number = "u";
+u += new V();
+console.log("union local", u);
+let s = "s";
+s += new V();
+console.log("string local", s);
+let [w] = "w";
+w += new V();
+console.log("loose local", w);
+let t = "t";
+t += new V() + "!";
+console.log("binary inside", t);
+class OnlyString {
+  toString(): string {
+    return "S";
+  }
+}
+let plain = "p";
+plain += new OnlyString();
+console.log("toString only", plain);
+
+// expect:
+// any property x7
+// any local q7
+// union local u7
+// string local s7
+// loose local w7
+// binary inside t7!
+// toString only pS

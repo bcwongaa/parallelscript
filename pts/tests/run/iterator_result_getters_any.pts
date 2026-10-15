@@ -1,0 +1,64 @@
+// A `next()` typed `any` can return an object literal with getters as its result (D-146,
+// H03): a `for…of` reads `done` first and `value` only while the iterator isn't done,
+// through a typed iterable and through `any` alike. `errors/iterator_result_getters.pts`
+// is the typed `IteratorResult` that can't (C03).
+function results(tag: string, limit: number): any {
+  let step = 0;
+  return {
+    next(): any {
+      const current = step++;
+      return {
+        get done() {
+          console.log(tag, "read done", current);
+          return current >= limit;
+        },
+        get value() {
+          if (current >= limit) {
+            throw new Error("the value of a done result was read");
+          }
+          console.log(tag, "read value", current);
+          return current * 10;
+        },
+      };
+    },
+  };
+}
+
+class Steps implements Iterable<number> {
+  [Symbol.iterator](): Iterator<number> {
+    return results("typed", 2);
+  }
+}
+for (const item of new Steps()) {
+  console.log("typed item", item);
+}
+
+const dynamic: any = { [Symbol.iterator]: () => results("any", 2) };
+for (const item of dynamic) {
+  console.log("any item", item);
+}
+
+const [first, second, third] = new Steps();
+console.log(first, second, third, third === undefined);
+
+// expect:
+// typed read done 0
+// typed read value 0
+// typed item 0
+// typed read done 1
+// typed read value 1
+// typed item 10
+// typed read done 2
+// any read done 0
+// any read value 0
+// any item 0
+// any read done 1
+// any read value 1
+// any item 10
+// any read done 2
+// typed read done 0
+// typed read value 0
+// typed read done 1
+// typed read value 1
+// typed read done 2
+// 0 10 undefined true

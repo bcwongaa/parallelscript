@@ -1211,10 +1211,20 @@ var (
 	IteratorResume = &Builtin{Name: "Iterator.next", Params: []Type{Value, I32, Value}, Result: Bool}
 	IteratorValue  = &Builtin{Name: "Iterator.value", Params: []Type{Value}, Result: Value}
 	IteratorClose  = &Builtin{Name: "Iterator.return", Params: []Type{Value}, Result: Void}
-	// IteratorTake is an any[] of the first n values an iterator yields, after which it is
-	// closed, or with its Bool argument true, of all it yields: what an array pattern
-	// destructures out of an iterator.
-	IteratorTake = &Builtin{Name: "iterator take", Params: []Type{Value, Number, Bool}, Result: ValueArray}
+	// A `for…of` or an array pattern over an iterable (D-109, H03) steps through what
+	// IterationOpen gives (its second argument the iterable's source text): the iterable's
+	// iterator, if it has one to step (a generator, runtime iterator, map, set or object
+	// with a [Symbol.iterator] method), or its items (an array's, typed array's or
+	// string's), which are read by index. IterationNext reports whether the source is done
+	// at the index of its Number argument, resuming an iterator with next() to find out;
+	// IterationValue is the item there, IterationRest an any[] of the items from there on
+	// (none if its Bool argument says the source is done), and IterationClose is what a
+	// loop or pattern that leaves its iterator early calls.
+	IterationOpen  = &Builtin{Name: "iteration", Params: []Type{Value, String}, Result: Value}
+	IterationNext  = &Builtin{Name: "iteration.next", Params: []Type{Value, Number}, Result: Bool}
+	IterationValue = &Builtin{Name: "iteration.value", Params: []Type{Value, Number}, Result: Value}
+	IterationRest  = &Builtin{Name: "iteration.rest", Params: []Type{Value, Number, Bool}, Result: ValueArray}
+	IterationClose = &Builtin{Name: "iteration.return", Params: []Type{Value}, Result: Void}
 	// IteratorGet is iterable[Symbol.iterator]() (its second argument the iterable's source
 	// text); IteratorOf is an iterator itself, or one that calls an object's next() (D-111).
 	IteratorGet = &Builtin{Name: "Symbol.iterator", Params: []Type{Value, String}, Result: Value}
@@ -1274,15 +1284,11 @@ var (
 	// ValueFreeze marks an object frozen, which ValueIsFrozen tests (D-105).
 	ValueFreeze   = &Builtin{Name: "Object.freeze", Params: []Type{Value}, Result: Void}
 	ValueIsFrozen = &Builtin{Name: "Object.isFrozen", Params: []Type{Value}, Result: Bool}
-	// ValueIterable is what `for…of` iterates over for a dynamic value: an array or tuple
-	// itself, or a new array of the items of a string, set or map (D-078); its second
-	// argument is the iterated expression's source text, for V8's `TypeError: x is not
-	// iterable`. ValueIterableLength and ValueIterableElement read it; ValueToArray is a new
-	// any[] of a dynamic value's items, for spreading.
-	ValueIterable        = &Builtin{Name: "iterable", Params: []Type{Value, String}, Result: Value}
-	ValueIterableLength  = &Builtin{Name: "iterable.length", Params: []Type{Value}, Result: Number}
-	ValueIterableElement = &Builtin{Name: "iterable.element", Params: []Type{Value, Number}, Result: Value}
-	ValueToArray         = &Builtin{Name: "Array.from", Params: []Type{Value, String}, Result: ValueArray}
+	// ValueToArray is a new any[] of a dynamic value's items (D-078), for spreading: an
+	// array's or tuple's elements, a string's code points, a set's elements, a map's entries
+	// or all an iterator yields; its second argument is the value's source text, for V8's
+	// `TypeError: x is not iterable`.
+	ValueToArray = &Builtin{Name: "Array.from", Params: []Type{Value, String}, Result: ValueArray}
 	// JSONParse is JSON.parse of a string: a dynamic value (D-080). JSONStringify is
 	// JSON.stringify(value, replacer, space): a string, or undefined.
 	JSONParse = &Builtin{Name: "JSON.parse", Params: []Type{String}, Result: Value}

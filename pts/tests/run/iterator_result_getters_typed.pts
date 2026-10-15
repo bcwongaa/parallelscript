@@ -1,0 +1,102 @@
+// skip: known issue (C03, D-177): an object literal with getters as a typed IteratorResult is PTS1001, since D-109's result shapes hold done and value in fields (errors/iterator_result_getters.pts); a `next(): any` can return one (run/iterator_result_getters_any.pts)
+// A typed iterator's `next(): IteratorResult<number>` may return an object literal whose
+// `done` and `value` are getters (C03; D-146's known gap). Consumers (for…of, spread,
+// Array.from, new Set) read done first and value only for a result that isn't done, so
+// the done result's value getter never runs.
+
+class GetterSteps implements Iterable<number> {
+    label: string;
+    limit: number;
+    constructor(label: string, limit: number) {
+        this.label = label;
+        this.limit = limit;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        const label = this.label;
+        const limit = this.limit;
+        let step = 0;
+        return {
+            next(): IteratorResult<number> {
+                const current = step++;
+                return {
+                    get done(): boolean {
+                        console.log(label, "read done", current);
+                        return current >= limit;
+                    },
+                    get value(): number {
+                        console.log(label, "read value", current);
+                        if (current >= limit) throw new Error("the value of a done result was read");
+                        return current * 10;
+                    },
+                };
+            },
+        };
+    }
+}
+
+for (const n of new GetterSteps("for-of", 2)) {
+    console.log("for-of item", n);
+}
+
+for (const n of new GetterSteps("break", 5)) {
+    console.log("break item", n);
+    if (n === 10) break;
+}
+
+console.log("spread", [...new GetterSteps("spread", 2)]);
+console.log("Array.from", Array.from(new GetterSteps("Array.from", 1)));
+console.log("Set", new Set(new GetterSteps("Set", 1)).size);
+
+// A result that is done at once, with a value getter that throws if read.
+class Finished implements Iterable<number> {
+    [Symbol.iterator](): Iterator<number> {
+        return {
+            next(): IteratorResult<number> {
+                return {
+                    get done(): true {
+                        console.log("finished read done");
+                        return true;
+                    },
+                    get value(): number {
+                        throw new Error("the value of a done result was read");
+                    },
+                };
+            },
+        };
+    }
+}
+for (const n of new Finished()) {
+    console.log("finished item", n);
+}
+console.log("end");
+
+// expect:
+// for-of read done 0
+// for-of read value 0
+// for-of item 0
+// for-of read done 1
+// for-of read value 1
+// for-of item 10
+// for-of read done 2
+// break read done 0
+// break read value 0
+// break item 0
+// break read done 1
+// break read value 1
+// break item 10
+// spread read done 0
+// spread read value 0
+// spread read done 1
+// spread read value 1
+// spread read done 2
+// spread [ 0, 10 ]
+// Array.from read done 0
+// Array.from read value 0
+// Array.from read done 1
+// Array.from [ 0 ]
+// Set read done 0
+// Set read value 0
+// Set read done 1
+// Set 1
+// finished read done
+// end

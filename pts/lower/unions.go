@@ -203,7 +203,9 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 			return nil
 		}
 	}
-	l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), u))
+	if node == nil || !l.reportedGetterResult(node) {
+		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), u))
+	}
 	return nil
 }
 

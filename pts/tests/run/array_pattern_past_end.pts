@@ -1,0 +1,73 @@
+// A name a declaration's array pattern binds past the end of what it destructures is
+// undefined, as in JS, for dynamic values (arrays, strings, sets, generators held as
+// `any`, in declarations, parameters and for…of bindings alike) and for declarations
+// over iterators and iterables, typed or held as an interface that extends Iterable,
+// and over typed sets, maps, strings and typed arrays (C31; loose locals, D-172; H03,
+// D-177).
+function* one(): Generator<number> {
+  yield 1;
+}
+interface Bag extends Iterable<number> {
+  readonly size: number;
+}
+class NumBag implements Bag {
+  size = 1;
+  *[Symbol.iterator](): Iterator<number> {
+    yield 1;
+  }
+}
+const pair: any = [1, 2];
+const [p, q, r] = pair;
+console.log("any array", p, q, r);
+const text: any = "ab";
+const [c1, c2, c3] = text;
+console.log("any string", c1, c2, c3);
+const [s1, s2] = new Set([5]) as any;
+console.log("any set", s1, s2);
+const held: any = one();
+const [g1, g2] = held;
+console.log("any generator", g1, g2);
+function parameter([x, y, z]: any) {
+  console.log("any parameter", x, y, z);
+}
+parameter(pair);
+for (const [k, v, w] of [[1, 2]] as any) {
+  console.log("any binding", k, v, w);
+}
+const [d1, d2] = one();
+console.log("Generator", d1, d2, d2 === undefined);
+const plain: Iterable<number> = new NumBag();
+const [i1, i2] = plain;
+console.log("Iterable", i1, i2);
+const bag: Bag = new NumBag();
+const [b1, b2] = bag;
+console.log("Bag", b1, b2, b2 ?? "missing");
+const [n1, n2] = new NumBag();
+console.log("class", n1, n2);
+const [e1, e2] = new Set([1]);
+console.log("Set", e1, e2, e2 === undefined);
+const [m1, m2] = new Map([["k", 1]]);
+console.log("Map", m1, m2);
+const [t1, t2] = "x";
+console.log("string", t1, t2, t2 ?? "missing");
+const [f1, f2, f3] = new Float64Array([1, 2]);
+console.log("Float64Array", f1, f2, f3);
+const [y1, y2] = new Map([["k", 1]]).keys();
+console.log("map keys", y1, y2);
+
+// expect:
+// any array 1 2 undefined
+// any string a b undefined
+// any set 5 undefined
+// any generator 1 undefined
+// any parameter 1 2 undefined
+// any binding 1 2 undefined
+// Generator 1 undefined true
+// Iterable 1 undefined
+// Bag 1 undefined missing
+// class 1 undefined
+// Set 1 undefined true
+// Map [ 'k', 1 ] undefined
+// string x undefined missing
+// Float64Array 1 2 undefined
+// map keys k undefined

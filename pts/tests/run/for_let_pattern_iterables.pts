@@ -1,0 +1,41 @@
+// A `let` array pattern in a `for` loop's initializer over a dynamic value, a generator
+// or an iterable class: its names get a copy per iteration, as plain `let` names do, so
+// closures made in each iteration keep that iteration's (D-041). The lowering of these
+// patterns (H03, D-177) panicked here before the loop took only the pattern's names.
+function* bounds(): Generator<number> {
+  yield 0;
+  yield 2;
+}
+class Range implements Iterable<number> {
+  *[Symbol.iterator](): Iterator<number> {
+    yield 1;
+    yield 3;
+  }
+}
+const kept: (() => string)[] = [];
+for (let [i, n] = [1, 3] as any; i < n; i++) {
+  kept.push(() => `any ${i} ${n}`);
+}
+for (let [i, n = 3] = [0] as any; i < n; i++) {
+  kept.push(() => `default ${i} ${n}`);
+}
+for (let [i, n] = bounds(); i < n; i++) {
+  kept.push(() => `generator ${i} ${n}`);
+}
+for (let [i, n] = new Range(); i < n; i++) {
+  kept.push(() => `class ${i} ${n}`);
+}
+for (const show of kept) {
+  console.log(show());
+}
+
+// expect:
+// any 1 3
+// any 2 3
+// default 0 3
+// default 1 3
+// default 2 3
+// generator 0 2
+// generator 1 2
+// class 1 3
+// class 2 3

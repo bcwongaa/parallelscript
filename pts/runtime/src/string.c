@@ -450,10 +450,7 @@ void pts_throw_non_null(pts_value value) {
 
 void pts_throw_not_primitive(pts_value value, const char *type_name) { pts_throw_type_mismatch(value, type_name); }
 
-double pts_value_to_number_checked(pts_value value) {
-  if (pts_value_is_number(value)) {
-    return pts_value_as_number(value);
-  }
+double pts_value_to_number_slow(pts_value value) {
   if (pts_value_is_object(value)) {
     const pts_object *object = pts_value_as_object(value);
     if (object->type->kind == PTS_KIND_INT64) {

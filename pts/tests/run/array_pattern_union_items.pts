@@ -1,0 +1,47 @@
+// A map's entry (an array at run time) that a pattern binds through an element type that
+// is a union with a tuple member becomes one tuple at the binding: writes and identity
+// stay, in declarations (loose names), parameter patterns and `for…of` bindings (H03
+// review round 4: R4-S1, and C37, where a parameter pattern read the array's memory as
+// a tuple's fields).
+const m = new Map([["a", 1]]);
+const it: Iterable<[string, number] | null> = m;
+const [e] = it;
+if (e) {
+  e[1] = 5;
+  console.log("tuple|null", e, e === e);
+}
+const it2: Iterable<[string, number] | string> = m;
+const [f] = it2;
+if (typeof f !== "string") {
+  f[1] = 6;
+  console.log("tuple|string", f, f === f);
+}
+const arrs: ([string, number] | null)[] = [...m];
+const [g] = arrs;
+if (g) {
+  g[1] = 7;
+  console.log("array of tuple|null", g, g === g, arrs[0] === g);
+}
+function parameter([p]: Iterable<[string, number] | null>): void {
+  if (p) {
+    p[1] = 8;
+    console.log("parameter pattern", p.length, p[0], p[1], p === p);
+  }
+}
+parameter(m);
+const sources: Iterable<[string, number] | null>[] = [m];
+for (const [q] of sources) {
+  if (q) {
+    q[1] += 1;
+    console.log("for-of binding", q, q === q);
+  }
+}
+console.log("map unchanged", m.get("a"));
+
+// expect:
+// tuple|null [ 'a', 5 ] true
+// tuple|string [ 'a', 6 ] true
+// array of tuple|null [ 'a', 7 ] true true
+// parameter pattern 2 a 8 true
+// for-of binding [ 'a', 2 ] true
+// map unchanged 1

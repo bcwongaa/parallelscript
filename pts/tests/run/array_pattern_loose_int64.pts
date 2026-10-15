@@ -1,0 +1,41 @@
+// A 64-bit integer name a declaration's array pattern binds (a loose local, D-090) keeps
+// every digit past 2^53, from an array, a set, a map's keys, a generator or a typed set
+// (D-012; H03 review round 4, R4-B1: it was read through a double).
+const big: int = 9007199254740993;
+const [a] = new Set<int>([big]);
+console.log("Set<int>", a, a === big);
+function* g(): Generator<int> {
+  yield big;
+}
+const [b] = g();
+console.log("Generator<int>", b, b === big);
+const [k] = new Map<int, string>([[big, "v"]]).keys();
+console.log("map keys", k, k === big);
+const ub: u64 = 9007199254740993;
+const [u] = new Set<u64>([ub]);
+console.log("Set<u64>", u, u === ub);
+const arr: int[] = [big];
+const [c] = arr;
+console.log("int[]", c, c === big);
+const [c2 = 0] = new Set<int>([big]);
+console.log("default", c2, c2 === big);
+const top: u64 = 18446744073709551615;
+const tops: u64[] = [top];
+const [t] = tops;
+console.log("u64[] max", t, t === top);
+const i64s: Set<i64> = new Set([big as i64]);
+const [i] = i64s;
+console.log("Set<i64>", i, i + 1);
+const [p, q] = arr;
+console.log("past the end", p, q === undefined);
+
+// expect:
+// Set<int> 9007199254740993 true
+// Generator<int> 9007199254740993 true
+// map keys 9007199254740993 true
+// Set<u64> 9007199254740993 true
+// int[] 9007199254740993 true
+// default 9007199254740993 true
+// u64[] max 18446744073709551615 true
+// Set<i64> 9007199254740993 9007199254740994
+// past the end 9007199254740993 true

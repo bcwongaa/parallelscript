@@ -1,0 +1,94 @@
+// skip: known issue (H03b, C30): it.next() on a typed iterator makes a D-109 result shape at the call, reading done and then value (a done result's too), where JS hands back the object next() returned
+// it.next() on a typed `Iterator<number>` gives the object the iterator's next()
+// returned, so getters on it run when the caller reads them, in the caller's order, and
+// a done result's value getter runs only if the caller reads value. The results here
+// come from `next(): any`, which for…of already reads lazily (D-146).
+
+class GetterSteps implements Iterable<number> {
+    label: string;
+    limit: number;
+    constructor(label: string, limit: number) {
+        this.label = label;
+        this.limit = limit;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        const label = this.label;
+        const limit = this.limit;
+        let step = 0;
+        return {
+            next(): any {
+                const current = step++;
+                console.log(label, "next", current);
+                return {
+                    get done(): boolean {
+                        console.log(label, "read done", current);
+                        return current >= limit;
+                    },
+                    get value(): number {
+                        console.log(label, "read value", current);
+                        if (current >= limit) throw new Error("the value of a done result was read");
+                        return current * 10;
+                    },
+                };
+            },
+        };
+    }
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("manual", () => {
+    const iterator = new GetterSteps("manual", 1)[Symbol.iterator]();
+    const first = iterator.next();
+    console.log("first done:", first.done);
+    console.log("first value:", first.value);
+    const second = iterator.next();
+    console.log("second done:", second.done);
+});
+
+attempt("value first", () => {
+    const iterator = new GetterSteps("value first", 1)[Symbol.iterator]();
+    const result = iterator.next();
+    console.log("value before done:", result.value, result.done);
+});
+
+attempt("unread", () => {
+    const iterator = new GetterSteps("unread", 0)[Symbol.iterator]();
+    iterator.next();
+    console.log("unread result dropped");
+});
+
+// Control (works today): the same results through for…of.
+for (const n of new GetterSteps("for-of", 1)) {
+    console.log("for-of item", n);
+}
+console.log("end");
+
+// expect:
+// manual next 0
+// manual read done 0
+// first done: false
+// manual read value 0
+// first value: 0
+// manual next 1
+// manual read done 1
+// second done: true
+// value first next 0
+// value first read value 0
+// value first read done 0
+// value before done: 0 false
+// unread next 0
+// unread result dropped
+// for-of next 0
+// for-of read done 0
+// for-of read value 0
+// for-of item 0
+// for-of next 1
+// for-of read done 1
+// end

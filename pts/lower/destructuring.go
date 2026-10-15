@@ -36,12 +36,10 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 	}
 	switch {
 	case pattern.Kind != ast.KindArrayBindingPattern:
-	case value.Type() == ir.Value && l.isIteratorSource(pattern):
-		value = l.iteratorTake(pattern, value) // as many values as the pattern takes, then closed (D-109)
 	case isMap(value.Type()):
 		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(value), &ir.StringConst{Value: patternSource(pattern)}}} // a set's elements, a map's entries (D-110)
-	case value.Type() == ir.Value || isPlainObject(value.Type()):
-		value = &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(value), &ir.StringConst{Value: patternSource(pattern)}}} // its items (D-078), an object's by its [Symbol.iterator] (D-111)
+	case isIterablePatternSource(value.Type()):
+		return l.destructureIterable(pattern, value, at) // its items (D-078), or its iterator's (D-111), as the pattern takes them
 	case value.Type() == ir.String:
 		value = &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{value}} // its code points
 	}
@@ -63,21 +61,135 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 		if part == nil {
 			return nil, false
 		}
-		if binding.Name().Kind != ast.KindIdentifier {
-			nested, ok := l.destructure(binding.Name(), part, l.pos(element))
+		bound, ok := l.bindElement(element, part)
+		if !ok {
+			return nil, false
+		}
+		stmts = append(stmts, bound...)
+	}
+	return stmts, true
+}
+
+// destructureIterable binds the names of an array pattern to what an iterable value
+// yields, as JS's IteratorBindingInitialization does (D-109, H03): one next() per
+// element, elisions included, until the iterator is done (undefined after), each element
+// bound, with its default or by its nested pattern, before the next is stepped; a rest
+// element takes all that is left. The iterator is closed at the end unless it is done,
+// and if binding throws (a default, a nested pattern, a checked conversion), it is closed
+// before the error goes on, as a loop's is (iteratorLoop); one whose next() threw isn't.
+// An array's, typed array's or string's items are read by index instead (ir.IterationOpen).
+func (l *lowerer) destructureIterable(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir.Stmt, bool) {
+	source, index, done := l.newLocal("iteration", ir.Value), l.newLocal("index", ir.Number), l.newLocal("done", ir.Bool)
+	ref := func(local *ir.Local) ir.Expr { return &ir.LocalRef{Local: local} }
+	set := func(local *ir.Local, value ir.Expr) ir.Stmt {
+		return &ir.ExprStmt{At: at, X: &ir.Assign{Local: local, Value: value}}
+	}
+	stmts := []ir.Stmt{
+		&ir.LocalDecl{At: at, Local: source, Init: &ir.CallBuiltin{Builtin: ir.IterationOpen, Args: []ir.Expr{box(value), &ir.StringConst{Value: patternSource(pattern)}}}},
+		&ir.LocalDecl{At: at, Local: index, Init: &ir.NumberConst{Value: 0}},
+		&ir.LocalDecl{At: at, Local: done, Init: &ir.BoolConst{Value: false}},
+	}
+	var body []ir.Stmt
+	mayThrow := false // whether binding may throw with the iterator open
+	for _, element := range pattern.AsBindingPattern().Elements.Nodes {
+		if element.Kind == ast.KindBindingElement && element.AsBindingElement().DotDotDotToken != nil {
+			remaining, items := l.newLocal("remaining", ir.Bool), l.newLocal("rest", ir.ValueArray)
+			body = append(body,
+				&ir.LocalDecl{At: at, Local: remaining, Init: &ir.Unary{Op: ir.Not, X: ref(done)}},
+				set(done, &ir.BoolConst{Value: true}), // drained, or if next() throws, not closed
+				&ir.LocalDecl{At: l.pos(element), Local: items, Init: &ir.CallBuiltin{Builtin: ir.IterationRest, Args: []ir.Expr{ref(source), ref(index), &ir.Unary{Op: ir.Not, X: ref(remaining)}}}})
+			bound, ok := l.bindElement(element, ref(items))
 			if !ok {
 				return nil, false
 			}
-			stmts = append(stmts, nested...)
+			body = append(body, bound...)
 			continue
 		}
-		stmt := l.bindName(binding.Name(), part, element)
-		if stmt == nil {
+		step := []ir.Stmt{
+			set(done, &ir.BoolConst{Value: true}), // if next() throws, the iterator isn't closed
+			set(done, &ir.CallBuiltin{Builtin: ir.IterationNext, Args: []ir.Expr{ref(source), ref(index)}}),
+		}
+		body = append(body, &ir.If{At: at, Cond: &ir.Unary{Op: ir.Not, X: ref(done)}, Then: &ir.Block{At: at, Stmts: step}})
+		advance := set(index, &ir.Binary{Op: ir.Add, X: ref(index), Y: &ir.NumberConst{Value: 1}})
+		if element.Kind == ast.KindOmittedExpression || element.Name() == nil {
+			body = append(body, advance) // an elision: `[a, , c]` steps past an item
+			continue
+		}
+		item := l.newLocal("item", ir.Value)
+		read := &ir.Conditional{Cond: ref(done), Then: box(&ir.UndefinedConst{}), Else: &ir.CallBuiltin{Builtin: ir.IterationValue, Args: []ir.Expr{ref(source), ref(index)}}}
+		body = append(body, &ir.LocalDecl{At: l.pos(element), Local: item, Init: read}, advance)
+		initializer := element.AsBindingElement().Initializer
+		part := l.withDefault(ref(item), initializer, element.Name())
+		if part == nil {
 			return nil, false
 		}
-		stmts = append(stmts, stmt)
+		bound, ok := l.bindElement(element, part)
+		if !ok {
+			return nil, false
+		}
+		mayThrow = mayThrow || initializer != nil || !isPlainBinding(bound, item)
+		body = append(body, bound...)
 	}
-	return stmts, true
+	closeIt := func() []ir.Stmt {
+		return []ir.Stmt{&ir.ExprStmt{At: at, X: &ir.CallBuiltin{Builtin: ir.IterationClose, Args: []ir.Expr{ref(source)}}}}
+	}
+	if !mayThrow || isTypedArray(value.Type()) { // a typed array's items are read by index: there is nothing to close
+		return append(append(stmts, body...), &ir.If{At: at, Cond: &ir.Unary{Op: ir.Not, X: ref(done)}, Then: &ir.Block{At: at, Stmts: closeIt()}}), true
+	}
+	// The names are declared outside the protected code, which only assigns them, so that
+	// they stay in scope after it.
+	var assigned []ir.Stmt
+	for _, stmt := range body {
+		if decl, ok := stmt.(*ir.LocalDecl); ok {
+			stmts = append(stmts, &ir.LocalDecl{At: decl.At, Local: decl.Local})
+			if decl.Init == nil {
+				continue
+			}
+			stmt = &ir.ExprStmt{At: decl.At, X: &ir.Assign{Local: decl.Local, Value: decl.Init}}
+		}
+		assigned = append(assigned, stmt)
+	}
+	protected := func() *ir.Block { return &ir.Block{At: at, Stmts: assigned} }
+	closing := func(f *finallyContext) []ir.Stmt { return l.iteratorClosing(at, f, done, closeIt) }
+	finally := l.withFinally(at, len(l.targets), protected, closing) // a pattern has no jumps; every target is outside
+	if finally == nil {
+		return nil, false
+	}
+	return append(stmts, finally...), true
+}
+
+// isPlainBinding reports whether an element's binding is one name declared with the item
+// itself, a dynamic value: nothing that could throw.
+func isPlainBinding(bound []ir.Stmt, item *ir.Local) bool {
+	if len(bound) != 1 {
+		return false
+	}
+	decl, ok := bound[0].(*ir.LocalDecl)
+	if !ok {
+		return false
+	}
+	init, ok := decl.Init.(*ir.LocalRef)
+	return ok && init.Local == item
+}
+
+// isIterablePatternSource reports whether an array pattern binds values of type t from
+// what their iterator yields (destructureIterable): dynamic values, and classes, shapes
+// and interfaces, which tsc lets a pattern take only with a [Symbol.iterator] method.
+func isIterablePatternSource(t ir.Type) bool {
+	return t == ir.Value || isPlainObject(t)
+}
+
+// bindElement binds an element of a pattern to its part: its name, or the names of its
+// nested pattern.
+func (l *lowerer) bindElement(element *ast.Node, part ir.Expr) ([]ir.Stmt, bool) {
+	if element.Name().Kind != ast.KindIdentifier {
+		return l.destructure(element.Name(), part, l.pos(element))
+	}
+	stmt := l.bindName(element.Name(), part, element)
+	if stmt == nil {
+		return nil, false
+	}
+	return []ir.Stmt{stmt}, true
 }
 
 // patternSource is the source text V8 names in its TypeError for destructuring a value
@@ -137,11 +249,72 @@ func (l *lowerer) bindName(name *ast.Node, value ir.Expr, node *ast.Node) ir.Stm
 	if local == nil {
 		return nil
 	}
+	if value.Type() == ir.Value && !isTypedElementRead(value) {
+		value = l.patternItem(value, local.Type, l.isLoose(symbol), node)
+	}
+	if value == nil {
+		l.locals[symbol] = nil
+		return nil
+	}
 	if value = l.convert(value, local.Type, node); value == nil {
 		l.locals[symbol] = nil
 		return nil
 	}
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: value}
+}
+
+// patternItem is what a local of type t that a pattern binds holds of a dynamic item:
+// the item converted once, at the binding, to a type without an in-place run-time check
+// (a tuple, array, shape or interface, or a union with one), so that every read shares a
+// value of the type's own layout; for a loose local (`T | undefined`, D-090), undefined
+// stays undefined. Stored as it was, a map's entry (an array) was copied into a new tuple
+// at each read of a loose name, losing its writes and identity, or, narrowed out of a
+// union, read as a tuple's fields past the array's memory.
+func (l *lowerer) patternItem(item ir.Expr, t ir.Type, loose bool, node *ast.Node) ir.Expr {
+	target := t
+	if union, ok := t.(*ir.Union); ok && loose {
+		target = l.withoutUndefined(union)
+	}
+	if isCheckable(target) || target == ir.Value || !loose && !isUnion(target) {
+		return item // checked at each read, or converted once by bindName
+	}
+	once := func(x ir.Expr) ir.Expr {
+		if !isUnion(target) {
+			return l.convert(x, target, node)
+		}
+		if l.prepareDynamicTarget(target, node, map[ir.Type]bool{}) != "" {
+			return &ir.ToUnion{X: x, To: target.(*ir.Union)} // a member dynamic data can't convert to yet (a generator, an iterator): as convert stores it
+		}
+		return &ir.FromUnion{X: x, To: target}
+	}
+	if !loose {
+		return once(item)
+	}
+	held := l.newLocal("item", ir.Value)
+	ref := &ir.LocalRef{Local: held}
+	present := once(ref)
+	if present == nil {
+		return nil
+	}
+	if present = l.convert(present, t, node); present == nil {
+		return nil
+	}
+	missing := l.convert(&ir.UndefinedConst{}, t, node)
+	if missing == nil {
+		return nil
+	}
+	return &ir.Bind{Local: held, Value: item, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref, Only: ir.Undefined}, Then: missing, Else: present}}
+}
+
+// isTypedElementRead reports whether value reads an element of an array whose elements
+// have a type, so that it is one of it already, or undefined past the end (D-090).
+func isTypedElementRead(value ir.Expr) bool {
+	read, ok := value.(*ir.ArrayCall)
+	if !ok || read.Op != ir.ArrayElement {
+		return false
+	}
+	array, ok := read.Args[0].Type().(*ir.Array)
+	return ok && array.Elem != ir.Value
 }
 
 // propertyPart reads from source the property that an element of an object pattern (or

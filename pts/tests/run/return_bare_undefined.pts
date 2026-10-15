@@ -1,0 +1,197 @@
+// A bare `return;` in an ordinary function, arrow or method whose result type admits
+// undefined (`T | undefined`, `any`, `unknown`, `undefined`, `null | undefined`) returns
+// undefined, as JS does (C27). Async, generator and `: void` functions, `return undefined`
+// and falling off the end are the controls at the bottom.
+
+function maybeNumber(skip: boolean): number | undefined {
+    if (skip) return;
+    return 1;
+}
+console.log("number | undefined:", maybeNumber(true), maybeNumber(false), maybeNumber(true) === undefined, maybeNumber(true) ?? "fallback");
+
+function anything(skip: boolean): any {
+    if (skip) return;
+    return "value";
+}
+console.log("any:", anything(true), anything(false), anything(true) === undefined, anything(true) ?? "fallback");
+
+function unknownResult(skip: boolean): unknown {
+    if (skip) return;
+    return 2;
+}
+console.log("unknown:", unknownResult(true), unknownResult(false), unknownResult(true) === undefined);
+
+function onlyUndefined(): undefined {
+    console.log("onlyUndefined ran");
+    return;
+}
+console.log("undefined:", onlyUndefined(), onlyUndefined() === undefined);
+
+function nullable(mode: number): number | null | undefined {
+    if (mode === 0) return;
+    if (mode === 1) return null;
+    return 3;
+}
+console.log("number | null | undefined:", nullable(0), nullable(1), nullable(2), nullable(0) === undefined, nullable(1) === undefined);
+console.log("?? on it:", nullable(0) ?? "fallback", nullable(1) ?? "fallback", nullable(2) ?? "fallback");
+
+function numberOrVoid(skip: boolean): number | void {
+    if (skip) return;
+    return 5;
+}
+console.log("number | void:", numberOrVoid(true), numberOrVoid(false), numberOrVoid(true) === undefined);
+
+class Lookup {
+    names: string[] = ["ada", "bob"];
+    find(prefix: string): string | undefined {
+        for (const name of this.names) {
+            if (name.startsWith(prefix)) return name;
+        }
+        return;
+    }
+    get last(): string | undefined {
+        if (this.names.length === 0) return;
+        return this.names[this.names.length - 1];
+    }
+    static parse(text: string): number | undefined {
+        const value = Number(text);
+        if (Number.isNaN(value)) return;
+        return value;
+    }
+}
+const lookup = new Lookup();
+console.log("method:", lookup.find("b"), lookup.find("z"), lookup.find("z") === undefined, lookup.find("z") ?? "nobody");
+console.log("getter:", lookup.last, new Lookup().last);
+const emptied = new Lookup();
+emptied.names = [];
+console.log("getter on empty:", emptied.last, emptied.last === undefined, emptied.last ?? "none");
+console.log("static method:", Lookup.parse("12"), Lookup.parse("x"), Lookup.parse("x") ?? -1);
+
+const arrow = (n: number): string | undefined => {
+    if (n < 0) return;
+    return "n=" + n;
+};
+console.log("arrow:", arrow(-1), arrow(2), arrow(-1) ?? "negative");
+
+function counterUpTo(limit: number): () => number | undefined {
+    let count = 0;
+    return () => {
+        count++;
+        if (count > limit) return;
+        return count;
+    };
+}
+const nextCount = counterUpTo(2);
+console.log("closure:", nextCount(), nextCount(), nextCount(), nextCount() === undefined);
+
+function firstOf<T>(items: T[]): T | undefined {
+    if (items.length === 0) return;
+    return items[0];
+}
+console.log("generic:", firstOf([5, 6]), firstOf<number>([]), firstOf(["a"]), firstOf<string>([]) ?? "empty");
+
+function withFinally(skip: boolean): number | undefined {
+    try {
+        if (skip) return;
+        return 4;
+    } finally {
+        console.log("finally ran, skip =", skip);
+    }
+}
+console.log("try/finally:", withFinally(true), withFinally(false));
+
+const literal = {
+    pick(n: number): number | undefined {
+        if (n === 0) return;
+        return n * 10;
+    },
+};
+console.log("literal method:", literal.pick(0), literal.pick(1));
+
+function fromLoop(items: number[]): number | undefined {
+    for (const item of items) {
+        if (item > 10) return item;
+        if (item < 0) return;
+    }
+    return 0;
+}
+console.log("loop:", fromLoop([1, 20]), fromLoop([1, -1, 20]), fromLoop([]));
+
+function makeChecker(): (flag: boolean) => boolean | undefined {
+    return function (flag: boolean): boolean | undefined {
+        if (!flag) return;
+        return flag;
+    };
+}
+console.log("function expression:", makeChecker()(false), makeChecker()(true));
+
+const results: (number | undefined)[] = [true, false].map((skip) => maybeNumber(skip));
+console.log("stored:", results, results.length, results[0] === undefined);
+
+// Controls (these work today).
+function explicitUndefined(skip: boolean): number | undefined {
+    if (skip) return undefined;
+    return 1;
+}
+console.log("return undefined:", explicitUndefined(true), explicitUndefined(false));
+
+function fallsOff(give: boolean): number | undefined {
+    if (give) {
+        return 1;
+    }
+}
+console.log("falls off:", fallsOff(true), fallsOff(false));
+
+function voidResult(skip: boolean): void {
+    if (skip) return;
+    console.log("voidResult body ran");
+}
+voidResult(true);
+voidResult(false);
+
+function* yieldsThenReturns(skip: boolean): Generator<number, number | undefined> {
+    yield 1;
+    if (skip) return;
+    return 2;
+}
+console.log("generator:", yieldsThenReturns(true).next(), [...yieldsThenReturns(true)]);
+const finished = yieldsThenReturns(true);
+finished.next();
+console.log("generator return:", finished.next());
+
+async function settles(skip: boolean): Promise<number | undefined> {
+    if (skip) return;
+    return 1;
+}
+settles(true).then((value) => console.log("async:", value, value === undefined));
+
+// expect:
+// number | undefined: undefined 1 true fallback
+// any: undefined value true fallback
+// unknown: undefined 2 true
+// onlyUndefined ran
+// onlyUndefined ran
+// undefined: undefined true
+// number | null | undefined: undefined null 3 true false
+// ?? on it: fallback fallback 3
+// number | void: undefined 5 true
+// method: bob undefined true nobody
+// getter: bob bob
+// getter on empty: undefined true none
+// static method: 12 undefined -1
+// arrow: undefined n=2 negative
+// closure: 1 2 undefined true
+// generic: 5 undefined a empty
+// finally ran, skip = true
+// finally ran, skip = false
+// try/finally: undefined 4
+// literal method: undefined 10
+// loop: 20 undefined 0
+// function expression: undefined true
+// stored: [ undefined, 1 ] 2 true
+// return undefined: undefined 1
+// falls off: 1 undefined
+// voidResult body ran
+// generator: { value: 1, done: false } [ 1 ]
+// generator return: { value: undefined, done: true }
+// async: undefined true

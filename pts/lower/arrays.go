@@ -645,6 +645,8 @@ func (l *lowerer) forOfBinding(declaration *ast.Node, elemType ir.Type) (element
 // forOfStatement lowers `for (const x of a) body` for an array a to a loop over its
 // indices: like JS's array iterator, it reads the length before each iteration, so it
 // sees elements pushed meanwhile. A string's code points come from a new array of them.
+// Iterators, iterables and dynamic values are iterated through their iterators
+// (iteratorLoop), which a generator or an object's next() may give lazily.
 func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	s := node.AsForInOrOfStatement()
 	switch {
@@ -688,6 +690,9 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	if isUnion(iterable.Type()) {
 		iterable = box(iterable) // `index.get(k) ?? []`: a set or an array, iterated as a dynamic value (D-089)
 	}
+	if iterable.Type() == ir.Value { // a dynamic value's items (D-078), or its iterator's, one next() at a time
+		return l.iteratorLoop(node, label, declaration, iterable, ir.Value)
+	}
 	// The loop reads element index of source while index is below its length.
 	var elemType ir.Type
 	var length func(source ir.Expr) ir.Expr
@@ -703,15 +708,6 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		elemType = ir.Number
 		length = func(source ir.Expr) ir.Expr { return l.callExtern("pts_typed_array_length", ir.Number, source) }
 		elementAt = l.typedArrayRead
-	case t == ir.Value: // a dynamic value's items (D-078)
-		iterable = &ir.CallBuiltin{Builtin: ir.ValueIterable, Args: []ir.Expr{iterable, &ir.StringConst{Value: scanner.GetTextOfNode(s.Expression)}}}
-		elemType = ir.Value
-		length = func(source ir.Expr) ir.Expr {
-			return &ir.CallBuiltin{Builtin: ir.ValueIterableLength, Args: []ir.Expr{source}}
-		}
-		elementAt = func(source, index ir.Expr) ir.Expr {
-			return &ir.CallBuiltin{Builtin: ir.ValueIterableElement, Args: []ir.Expr{source, index}}
-		}
 	default:
 		l.notSupportedYet(s.Expression, fmt.Sprintf("`for...of` over a %s is", iterable.Type()))
 		return nil

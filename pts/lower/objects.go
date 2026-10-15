@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/internal/jsnum"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
@@ -896,11 +897,42 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node})
 		return &ir.ClassCast{X: value, To: target}
 	} else {
-		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
+		if !l.reportedGetterResult(node) {
+			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
+		}
 		return nil
 	}
-	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", value.Type(), target))
+	if !l.reportedGetterResult(node) {
+		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", value.Type(), target))
+	}
 	return nil
+}
+
+// reportedGetterResult reports, for an object literal with a getter or setter `done` or
+// `value` that fails to convert to an iterator result (its contextual type), why: D-109's
+// result shapes hold done and value in fields, which can't wait to call a getter (D-146,
+// D-177). It reports nothing and returns false for any other node.
+func (l *lowerer) reportedGetterResult(node *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	if node.Kind != ast.KindObjectLiteralExpression {
+		return false
+	}
+	context := l.literalContext(node)
+	if context == nil || !l.isIteratorResultType(context) || !slices.ContainsFunc(node.AsObjectLiteralExpression().Properties.Nodes, isResultAccessor) {
+		return false
+	}
+	l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "an object literal with getters or setters as an iterator result (`%s`) is not supported yet; a `next(): any` can return one", l.checker.TypeToString(context)))
+	return true
+}
+
+// isResultAccessor reports whether an object literal's property is a getter or setter of
+// an iterator result's `done` or `value`.
+func isResultAccessor(property *ast.Node) bool {
+	if !ast.IsAccessor(property) || property.Name().Kind != ast.KindIdentifier {
+		return false
+	}
+	name := property.Name().Text()
+	return name == "done" || name == "value"
 }
 
 // unprovided returns the name of a member of an interface that values of type t (a class,
