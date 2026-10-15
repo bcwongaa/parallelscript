@@ -1,0 +1,28 @@
+// H01b C03 red: a typed `next(): IteratorResult<number>` returning `get done(): true` / `get value(): number` getters (D-146)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `read done` then `end` (value is never read), exit 0
+// baseline PTS: `pts build` rejects it, no panic: PTS1001 converting object4 to object1 | object2 is not supported yet, exit 1
+// failure: PTS1001: converting object4 to object1 \| object2 is not supported yet
+class Completed implements Iterable<number> {
+    [Symbol.iterator](): Iterator<number> {
+        return {
+            next(): IteratorResult<number> {
+                return {
+                    get done(): true {
+                        console.log("read done");
+                        return true;
+                    },
+                    get value(): number {
+                        throw new Error("value of a done result was read");
+                    },
+                };
+            },
+        };
+    }
+}
+for (const item of new Completed()) {
+    console.log("item", item);
+}
+console.log("end");

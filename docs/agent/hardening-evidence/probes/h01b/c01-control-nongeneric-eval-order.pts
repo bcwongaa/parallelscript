@@ -1,0 +1,28 @@
+// H01b C01 control: non-generic `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const trace: string[] = [];
+const add = (groups: Record<string, number[]>, key: string, item: number): void => {
+    const receiver = (): Record<string, number[]> => {
+        trace.push("receiver");
+        return groups;
+    };
+    const keyOf = (): string => {
+        trace.push("key");
+        return key;
+    };
+    const fresh = (): number[] => {
+        trace.push("rhs");
+        return [];
+    };
+    (receiver()[keyOf()] ??= fresh()).push(item);
+};
+const groups: Record<string, number[]> = {};
+add(groups, "a", 1);
+add(groups, "a", 2);
+add(groups, "b", 3);
+console.log(trace.join(" "));
+console.log(groups);

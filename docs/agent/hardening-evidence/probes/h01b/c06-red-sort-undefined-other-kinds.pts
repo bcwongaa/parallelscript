@@ -1,0 +1,18 @@
+// H01b C06 red: undefined goes last in `sort()` for object and boolean element unions too
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `a b undefined` and `[ false, true, undefined ]`, exit 0
+// baseline PTS: builds and runs but sorts undefined first: `undefined a b`, `[ undefined, false, true ]`, exit 0
+// failure: ^undefined a b$
+class Item {
+    constructor(readonly name: string) {}
+
+    toString(): string {
+        return this.name;
+    }
+}
+const items: (Item | undefined)[] = [new Item("b"), undefined, new Item("a")];
+console.log(items.sort().map((item) => (item === undefined ? "undefined" : item.name)).join(" "));
+const flags: (boolean | undefined)[] = [true, undefined, false];
+console.log(flags.sort());

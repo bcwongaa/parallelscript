@@ -1,0 +1,16 @@
+// H01b C01 control: the `??=` record idiom in a generic method of a non-generic class (monomorphized per call)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+class Grouper {
+    group<T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> {
+        const groups: Record<string, T[]> = {};
+        for (const item of items) {
+            (groups[keyOf(item)] ??= []).push(item);
+        }
+        return groups;
+    }
+}
+console.log(new Grouper().group([1, 2, 3, 4, 5], (n) => (n % 2 === 1 ? "odd" : "even")));

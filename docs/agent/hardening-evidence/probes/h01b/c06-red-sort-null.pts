@@ -1,0 +1,12 @@
+// H01b C06 red: `sort()` / `toSorted()` without a comparator compare null as the string "null"
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 20, 3, null ]`, `[ 'a', 'nuk', null, 'nz' ]` twice, exit 0
+// baseline PTS: builds and runs but sorts null first: `[ null, 1, 20, 3 ]`, `[ null, 'a', 'nuk', 'nz' ]` twice, exit 0
+// failure: ^\[ null, 1, 20, 3 \]$
+const numbers: (number | null)[] = [3, null, 1, 20];
+console.log(numbers.sort());
+const words: (string | null)[] = ["nz", null, "a", "nuk"];
+console.log(words.toSorted());
+console.log(words.sort());

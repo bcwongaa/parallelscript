@@ -1,0 +1,11 @@
+// H01b C20 red: .par.flatMap with an explicit union type argument that Array's flatMap accepts
+// oracle: node:c20-red-parent-par-flatmap-type-argument.oracle.mts
+// threads: 1
+// runs: 1
+// expected (Node): [ 1, [ 2 ] ] twice
+// baseline PTS: PTS1001 for the .par.flatMap call only (Array's flatMap line compiles, but prints the C05-wrong [ 1, [ [ 2 ] ] ], so GREEN needs H05's C05 fix too)
+// failure: PTS1001: converting number \| number\[\]\[\] to number \| number \| number\[\]\[\] \| number\[\] is not supported yet
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const values: number[] = [1, 2];
+console.log(values.flatMap<number | number[]>((x) => (x === 1 ? x : [[x]])));
+console.log(values.par.flatMap<number | number[]>((x) => (x === 1 ? x : [[x]])));

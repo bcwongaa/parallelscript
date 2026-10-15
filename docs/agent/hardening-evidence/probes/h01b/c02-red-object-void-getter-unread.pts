@@ -1,0 +1,14 @@
+// H01b C02 red: an object literal with a getter that only throws (type `void`) that the program never reads
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `1`, exit 0
+// baseline PTS: `pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2
+// failure: ^panic: cgen: no check for void(?s:.*)pts/cgen/checks\.go:305
+const settings = {
+    count: 1,
+    get missing() {
+        throw new Error("thrown by getter");
+    },
+};
+console.log(settings.count);

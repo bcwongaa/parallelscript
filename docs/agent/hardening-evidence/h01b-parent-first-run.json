@@ -1,0 +1,546 @@
+{
+ "task": "H01b",
+ "date": "2026-10-15",
+ "source_sha": "5d0bd01bc54aa71c298229525b3a08fc05a83837",
+ "cli": "/home/bryan/projects/parallelscript/pts-bin/pts",
+ "cli_sha256": "9a68653080c90f5fb927b93d2b74a91cc2031dfc4310253c395cec11b9d9aa78",
+ "tools": {
+  "go": "go version go1.26.9 linux/amd64",
+  "node": "v24.21.0",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+ },
+ "comparison_contract": "stdout and exit code; stderr retained, not compared",
+ "results": [
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+   "row": "C01",
+   "kind": "red",
+   "description": "generic arrow const groups items with (groups[key] ??= []).push(item)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{\"odd\":[1,3],\"even\":[2]}",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+     "-o",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c01-red-parent-generic-arrow-group-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x27adb3380488, {0x1621cc0, 0x27adb2fbc4a0}, {0x1621cc0, 0x27adb2fbc4c0}, 0x1, {0x1621b40, 0x1fb8a00}, 0x27adb19cc0a0, 0x27adb29bc2b0)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x27adb2fbc4a0}, {0x0, 0x0}, {0x1621cc0, 0x27adb2fbc4c0}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x27adb3380488, {0x0, {0x1621cc0, 0x27adb2fbc4a0}, {0x0, 0x0}, {0x1621cc0, 0x27adb2fbc4c0}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x27adb3380488, 0x27adb1a3add0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x27adb3380488, 0x27adb1a3add0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x27adb3380488, 0x27adb1a3add0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x27adb3380488, 0x27adb1a3add0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x27adb3380488, 0x27adb1a2c0e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x27adb3380488, 0x27adb1a2c0e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x27adb3380488, 0x27adb1a4e1e0, 0x27adb1a760b0)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x27adb3380488, 0x27adb1a4e1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x27adb3380488, 0x27adb1a4e1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (95 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c01-red-parent-generic-arrow-group.mts"
+    ],
+    "exit": 0,
+    "stdout": "{\"odd\":[1,3],\"even\":[2]}\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter.pts",
+   "row": "C02",
+   "kind": "red",
+   "description": "for\u2026of over an any iterator whose result has done/value getters; done is true",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "\"read done\" then \"after loop\"; value is never read and the body never runs",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter.pts",
+     "-o",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c02-red-parent-done-getter-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c02-red-parent-done-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c02-red-parent-done-getter-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+   "row": "C05",
+   "kind": "red",
+   "description": "flat() over a union-element array and over a tuple array",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, 2, 3, 4 ] then [ 'a', 1, 'b', 2 ]",
+   "baseline_pts": "the nested arrays are left unflattened",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+     "-o",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c05-red-parent-flat-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c05-red-parent-flat-union.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ 'a', 1, 'b', 2 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c05-red-parent-flat-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2, 3 ], 4 ]\n[ [ 'a', 1 ], [ 'b', 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c06-red-parent-sort-undefined.pts",
+   "row": "C06",
+   "kind": "red",
+   "description": "sort() and sort(comparator) of an array holding undefined",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, 3, undefined ], then a comparator that never sees undefined, then [ 1, 3, undefined ]",
+   "baseline_pts": "undefined sorts first, and the comparator is called with undefined",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c06-red-parent-sort-undefined.pts",
+     "-o",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c06-red-parent-sort-undefined-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c06-red-parent-sort-undefined.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 3, undefined ]\ncomparator saw undefined: false\n[ 1, 3, undefined ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c06-red-parent-sort-undefined-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, 1, 3 ]\ncomparator saw undefined: true\n[ 3, undefined, 1 ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.pts",
+   "row": "C07",
+   "kind": "red",
+   "description": "each .par.map task constructs and aborts its own AbortController",
+   "oracle": "node:c07-red-parent-abortcontroller-par.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 10,
+   "expected_node": "constructed 20000, failures 0",
+   "baseline_pts": "on several threads some constructions throw TypeError: Illegal constructor",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.pts",
+     "-o",
+     "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "constructed 20000, failures 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 10,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 10,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 10,
+     "runs_not_matching_node": 10,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 144\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 659\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 145\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 171\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 1\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 535\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 367\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 96\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 296\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 572\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 10,
+     "runs_not_matching_node": 10,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 96\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 251\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 582\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 590\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 370\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 321\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 704\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 586\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 3\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h01b-parent.c0Moed/parent-probes/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "constructed 20000, failures 154\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  }
+ ]
+}

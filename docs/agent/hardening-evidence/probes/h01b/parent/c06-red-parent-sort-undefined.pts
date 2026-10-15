@@ -1,0 +1,23 @@
+// H01b C06 red: sort() and sort(comparator) of an array holding undefined
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): [ 1, 3, undefined ], then a comparator that never sees undefined, then [ 1, 3, undefined ]
+// baseline PTS: undefined sorts first, and the comparator is called with undefined
+// failure: ^\[ undefined, 1, 3 \]$
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const plain: (number | undefined)[] = [3, undefined, 1];
+plain.sort();
+console.log(plain);
+
+let sawUndefined = false;
+const compared: (number | undefined)[] = [3, undefined, 1];
+compared.sort((a, b) => {
+  if (a === undefined || b === undefined) {
+    sawUndefined = true;
+    return 0;
+  }
+  return a - b;
+});
+console.log("comparator saw undefined:", sawUndefined);
+console.log(compared);

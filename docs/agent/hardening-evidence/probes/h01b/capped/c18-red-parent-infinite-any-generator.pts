@@ -1,0 +1,20 @@
+// C18 red, run by hand rather than by run_probes.py: an infinite generator held as `any`, broken
+// out of after three items. Expected (Node): 0, 1, 2, end. Baseline PTS drains the generator before
+// the loop body and allocates without end, so run the binary only under a memory cap:
+//   (ulimit -v 1048576; PTS_THREADS=1 timeout 20 ./binary)
+// The parent's run is recorded in h01b-c18-infinite-capped.json. Parent-written probe.
+function* naturals(): Generator<number> {
+  let n = 0;
+  while (true) {
+    yield n++;
+  }
+}
+
+const numbers: any = naturals();
+for (const n of numbers) {
+  if (n >= 3) {
+    break;
+  }
+  console.log(n);
+}
+console.log("end");

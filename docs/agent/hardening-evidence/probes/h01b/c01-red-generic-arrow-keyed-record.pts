@@ -1,0 +1,15 @@
+// H01b C01 red: `(out[key] ||= []).push(i)` on a `Record<K, number[]>` with `K extends string` in a generic arrow
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const positions = <K extends string,>(keys: K[]): Record<K, number[]> => {
+    const out = {} as Record<K, number[]>;
+    keys.forEach((key, i) => {
+        (out[key] ||= []).push(i);
+    });
+    return out;
+};
+console.log(positions(["a", "b", "a"]));

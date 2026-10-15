@@ -1,0 +1,22 @@
+// H01b C18 red: an array pattern takes two items from a generator held as any and then closes it
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): yield 0, yield 1, closed, then 0 1
+// baseline PTS: the generator is drained first: yield 0 … yield 3, closed, then 0 1
+// failure: ^yield 0\nyield 1\nyield 2\n
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+function* counted(): Generator<number> {
+  try {
+    for (let i = 0; i < 4; i++) {
+      console.log("yield", i);
+      yield i;
+    }
+  } finally {
+    console.log("closed");
+  }
+}
+
+const values: any = counted();
+const [first, second] = values;
+console.log(first, second);

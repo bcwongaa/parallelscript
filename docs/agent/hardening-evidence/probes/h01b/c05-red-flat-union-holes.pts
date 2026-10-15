@@ -1,0 +1,11 @@
+// H01b C05 red: `flat()` over a union-element array with a hole: the hole is skipped and the array element is spread
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]`, exit 0
+// baseline PTS: builds and runs; the hole is skipped but the array is not spread: `... [ 1, [ 2, 3 ] ]`, exit 0
+// failure: ^\[ 1, <1 empty item>, \[ 2, 3 \] \] \[ 1, \[ 2, 3 \] \]$
+const holes = new Array<number | number[]>(3);
+holes[0] = 1;
+holes[2] = [2, 3];
+console.log(holes, holes.flat());

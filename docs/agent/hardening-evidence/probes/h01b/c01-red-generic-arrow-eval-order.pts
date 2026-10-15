@@ -1,0 +1,29 @@
+// H01b C01 red: in a generic arrow, `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const trace: string[] = [];
+const add = <T,>(groups: Record<string, T[]>, key: string, item: T): void => {
+    const receiver = (): Record<string, T[]> => {
+        trace.push("receiver");
+        return groups;
+    };
+    const keyOf = (): string => {
+        trace.push("key");
+        return key;
+    };
+    const fresh = (): T[] => {
+        trace.push("rhs");
+        return [];
+    };
+    (receiver()[keyOf()] ??= fresh()).push(item);
+};
+const groups: Record<string, number[]> = {};
+add(groups, "a", 1);
+add(groups, "a", 2);
+add(groups, "b", 3);
+console.log(trace.join(" "));
+console.log(groups);

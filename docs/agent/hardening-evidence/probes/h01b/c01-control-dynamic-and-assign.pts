@@ -1,0 +1,14 @@
+// H01b C01 control: `&&=` and `+=` on the same erased-record and `any` targets that `??=` / `||=` panic on
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `5 0 { one: 5, zero: 0 }` and `{ count: 6 }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const replaceTruthy = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] &&= value);
+const counts: Record<string, number> = { one: 1, zero: 0 };
+console.log(replaceTruthy(counts, "one", 5), replaceTruthy(counts, "zero", 6), counts);
+const box: any = JSON.parse('{"count":1}');
+const key = "count";
+box[key] &&= 5;
+box[key] += 1;
+console.log(box);

@@ -1,0 +1,31 @@
+// H01b C07 red: four `.par.map` tasks each construct and abort 20,000 local, unshared AbortControllers; none may fail
+// oracle: node:c07-red-local-abortcontroller-par.oracle.mts
+// threads: 1,2,4
+// runs: 20
+// expected (Node): prints `task 0: failed 0` ... `task 3: failed 0` (4 lines), exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads constructions fail with `TypeError: Illegal constructor` (counts in the report), exit 0
+// failure: TypeError: Illegal constructor
+import { range } from "pts:parallel";
+
+const lines = range(0, 4).par.map((task) => {
+    let failed = 0;
+    let first = "";
+    for (let i = 0; i < 20000; i++) {
+        try {
+            const controller = new AbortController();
+            controller.abort("local");
+            if (!controller.signal.aborted || controller.signal.reason !== "local") {
+                throw new Error("wrong local signal");
+            }
+        } catch (error) {
+            failed++;
+            if (first === "") {
+                first = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            }
+        }
+    }
+    return `task ${task}: failed ${failed}${first === "" ? "" : ` (first ${first})`}`;
+});
+for (const line of lines) {
+    console.log(line);
+}

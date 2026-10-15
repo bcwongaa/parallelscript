@@ -1,0 +1,8 @@
+// H01b C02 control: a `void`-typed DATA property (not a getter) is fine, so the panic needs a void/never getter
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `undefined`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const box: { v: void } = { v: undefined };
+console.log(box.v);

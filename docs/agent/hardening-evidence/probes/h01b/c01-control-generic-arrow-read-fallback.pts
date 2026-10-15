@@ -1,0 +1,10 @@
+// H01b C01 control: reading `record[key] ?? []` / `record[key] || []` (no assignment) inside generic arrows
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `2 0 2 0`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const nullishCount = <T,>(groups: Record<string, T[]>, key: string): number => (groups[key] ?? []).length;
+const orCount = <T,>(groups: Record<string, T[]>, key: string): number => (groups[key] || []).length;
+const groups: Record<string, number[]> = { a: [1, 2] };
+console.log(nullishCount(groups, "a"), nullishCount(groups, "b"), orCount(groups, "a"), orCount(groups, "b"));

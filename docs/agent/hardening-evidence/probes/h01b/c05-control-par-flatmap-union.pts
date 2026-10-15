@@ -1,0 +1,10 @@
+// H01b C05 control: `.par.flatMap` over a union-element array with an identity mapper, and a mapper result flattened once
+// oracle: node:c05-control-par-flatmap-union.oracle.mts
+// threads: 1,2,4
+// runs: 1
+// expected (Node): prints `[ 1, 2, 3, 4 ]` and `[ [ 1 ], [ 2 ] ]`, exit 0
+// baseline PTS: builds and runs, stdout identical to the oracle at 1, 2 and 4 threads, exit 0
+const nested: (number | number[])[] = [1, [2, 3], 4];
+console.log(nested.par.flatMap((x) => x));
+const ones: number[] = [1, 2];
+console.log(ones.par.flatMap((x) => [[x]]));

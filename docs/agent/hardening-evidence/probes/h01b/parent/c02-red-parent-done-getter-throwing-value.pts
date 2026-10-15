@@ -1,0 +1,30 @@
+// H01b C02 red: for…of over an any iterator whose result has getters; done is true and value only throws
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): "read done" then "after loop"; value is never read and the body never runs
+// baseline PTS: the compiler panics (Go stack trace) instead of building
+// failure: ^panic: cgen: no check for void(?s:.*)pts/cgen/checks\.go:305
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const iterable: any = {
+  [Symbol.iterator]() {
+    return {
+      next() {
+        return {
+          get done() {
+            console.log("read done");
+            return true;
+          },
+          get value() {
+            throw new Error("value must not be read when done is true");
+          },
+        };
+      },
+    };
+  },
+};
+
+for (const item of iterable) {
+  console.log("body", item);
+}
+console.log("after loop");

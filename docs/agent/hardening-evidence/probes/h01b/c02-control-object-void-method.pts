@@ -1,0 +1,16 @@
+// H01b C02 control: an object-literal METHOD declared `: void` (not a getter) whose body only throws
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `caught thrown by method`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const settings = {
+    missing(): void {
+        throw new Error("thrown by method");
+    },
+};
+try {
+    settings.missing();
+} catch (error: any) {
+    console.log("caught", error.message);
+}

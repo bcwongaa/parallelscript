@@ -1,0 +1,15 @@
+// H01b C01 red: `(record[key] ??= []).push(x)` inside a generic function expression (not a declaration)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const groupBy = function <T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> {
+    const groups: Record<string, T[]> = {};
+    for (const item of items) {
+        (groups[keyOf(item)] ??= []).push(item);
+    }
+    return groups;
+};
+console.log(groupBy([1, 2, 3, 4, 5], (n) => (n % 2 === 1 ? "odd" : "even")));

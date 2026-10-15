@@ -1,0 +1,13 @@
+// H01b C01 red: in a generic arrow, `??=` keeps an existing falsy entry (0, "") and `||=` replaces it
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `0 6 7 { zero: 6, fresh: 7 }` and `"" b { empty: 'b' }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const keepOrSet = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] ??= value);
+const replaceFalsy = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] ||= value);
+const counts: Record<string, number> = { zero: 0 };
+console.log(keepOrSet(counts, "zero", 5), replaceFalsy(counts, "zero", 6), keepOrSet(counts, "fresh", 7), counts);
+const names: Record<string, string> = { empty: "" };
+console.log(JSON.stringify(keepOrSet(names, "empty", "a")), replaceFalsy(names, "empty", "b"), names);

@@ -1,0 +1,31 @@
+// H01b C18 red: `any` iterable, getter results done=false,false,true; logs getter calls; each step must run before the body
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `read done 0, read value 0, item 0, read done 1, read value 1, item 10, read done 2, end` (one per line), exit 0
+// baseline PTS: builds, no panic; done is read before value and the done result's value is unread, but all steps run before the body, exit 0
+// failure: ^read done 0\nread value 0\nread done 1\n
+const iterable: any = {
+    [Symbol.iterator]() {
+        let step = 0;
+        return {
+            next() {
+                const current = step++;
+                return {
+                    get done() {
+                        console.log("read done", current);
+                        return current >= 2;
+                    },
+                    get value() {
+                        console.log("read value", current);
+                        return current * 10;
+                    },
+                };
+            },
+        };
+    },
+};
+for (const item of iterable) {
+    console.log("item", item);
+}
+console.log("end");

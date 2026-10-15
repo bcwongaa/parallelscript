@@ -1,0 +1,29 @@
+// H01b C18 control: the break/return() iterator of c18-red-any-iterator-break-return through a typed `Iterable<number>` class
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `next 0, item 0, next 1, item 1, return, end` (one per line), exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+class Steps implements Iterable<number> {
+    [Symbol.iterator](): Iterator<number> {
+        let step = 0;
+        return {
+            next(): IteratorResult<number> {
+                console.log("next", step);
+                const current = step++;
+                return current >= 4 ? { done: true, value: undefined } : { done: false, value: current };
+            },
+            return(): IteratorResult<number> {
+                console.log("return");
+                return { done: true, value: undefined };
+            },
+        };
+    }
+}
+for (const item of new Steps()) {
+    console.log("item", item);
+    if (item === 1) {
+        break;
+    }
+}
+console.log("end");

@@ -1,0 +1,11 @@
+// H01b C05 red: `flatMap` whose mapper returns a union of a value and an array; the result flattens exactly one level
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 2, 3, 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ 2 ] ]`, exit 0
+// baseline PTS: builds and runs; a union-typed mapper result is not flattened: `[ 1, [ 2, 3 ], 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ [ 2 ] ] ]`, exit 0
+// failure: ^\[ 1, \[ 2, 3 \], 4 \]$
+const nested: (number | number[])[] = [1, [2, 3], 4];
+console.log(nested.flatMap((x) => x));
+console.log(nested.flatMap((x) => (Array.isArray(x) ? x : [x, x])));
+console.log([1, 2].flatMap<number | number[]>((x) => (x === 1 ? x : [[x]])));

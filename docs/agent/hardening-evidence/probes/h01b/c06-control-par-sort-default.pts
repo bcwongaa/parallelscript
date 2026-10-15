@@ -1,0 +1,16 @@
+// H01b C06 control: `.par.sort()` WITHOUT a comparator, small and 6000-element arrays with undefined and null
+// oracle: node:c06-control-par-sort-default.oracle.mts
+// threads: 1,2,4
+// runs: 3
+// expected (Node): `[ 1, 20, 3, null, undefined ]`, `first [ 1, 1001, 1002, 1003, 1004 ]`, `last [ undefined, undefined, undefined ]`, `null at 5399`, exit 0
+// baseline PTS: builds and runs, stdout identical to the oracle at 1, 2 and 4 threads, exit 0
+const small: (number | undefined | null)[] = [3, undefined, 1, null, 20];
+console.log(small.par.sort());
+const values: (number | undefined | null)[] = [];
+for (let i = 0; i < 6000; i++) {
+    values.push(i % 10 === 0 ? undefined : i === 7 ? null : (i * 7919) % 6000);
+}
+values.par.sort();
+console.log("first", values.slice(0, 5));
+console.log("last", values.slice(values.length - 3));
+console.log("null at", values.indexOf(null));

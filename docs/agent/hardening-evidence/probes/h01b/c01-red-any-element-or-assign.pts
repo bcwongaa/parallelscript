@@ -1,0 +1,11 @@
+// H01b C01 red: `box[key] ||= 5` with a computed key on a plain `any` object (no generics)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ count: 5 }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const box: any = JSON.parse("{}");
+const key = "count";
+box[key] ||= 5;
+console.log(box);

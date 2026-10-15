@@ -1,0 +1,16 @@
+// H01b C05 control: the red probes' heterogeneous, tuple and union shapes held as `any` (runtime dynamic flat/flatMap)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `[ 1, 2, [ 3 ] ]`, `[ 1, 2, 3 ]` x2, `[ 'b', 2, 'a', 1 ]`, `[ 1, 2, 3, 4 ]`, `[ 1, [ 2 ] ]`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const mixed: any = [1, [2], [[3]]];
+console.log(mixed.flat());
+console.log(mixed.flat(2));
+console.log(mixed.flat(Infinity));
+const entries: any = [["b", 2], ["a", 1]];
+console.log(entries.flat());
+const nested: any = [1, [2, 3], 4];
+console.log(nested.flatMap((x: any) => x));
+const ones: any = [1, 2];
+console.log(ones.flatMap((x: number) => (x === 1 ? x : [[x]])));

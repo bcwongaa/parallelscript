@@ -1,0 +1,17 @@
+// H01b C19 red: a generic arrow reads and writes a concrete Record<string, number> keyed directly by an erased callback's call
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): { short: 2, long: 1 }
+// baseline PTS: PTS1001 "a key of type value is not supported yet" at both keys, although tsc types them string
+// failure: PTS1001: a key of type value is not supported yet
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const countBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    counts[keyOf(item)] = (counts[keyOf(item)] ?? 0) + 1;
+  }
+  return counts;
+};
+
+console.log(countBy(["a", "bbbb", "c"], (word) => (word.length > 2 ? "long" : "short")));

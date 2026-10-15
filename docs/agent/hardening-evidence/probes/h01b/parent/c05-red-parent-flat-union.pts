@@ -1,0 +1,13 @@
+// H01b C05 red: flat() over a union-element array and over a tuple array
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): [ 1, 2, 3, 4 ] then [ 'a', 1, 'b', 2 ]
+// baseline PTS: the nested arrays are left unflattened
+// failure: ^\[ 1, \[ 2, 3 \], 4 \]$
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const mixed: (number | number[])[] = [1, [2, 3], 4];
+console.log(mixed.flat());
+
+const pairs: [string, number][] = [["a", 1], ["b", 2]];
+console.log(pairs.flat());

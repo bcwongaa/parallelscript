@@ -1,0 +1,21 @@
+// H01b C02 control: the same `any` iterable shape whose next() returns plain data properties `{ done, value }` (no getters)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `item 0`, `item 10`, `end`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const iterable: any = {
+    [Symbol.iterator]() {
+        let step = 0;
+        return {
+            next() {
+                const current = step++;
+                return { done: current >= 2, value: current * 10 };
+            },
+        };
+    },
+};
+for (const item of iterable) {
+    console.log("item", item);
+}
+console.log("end");

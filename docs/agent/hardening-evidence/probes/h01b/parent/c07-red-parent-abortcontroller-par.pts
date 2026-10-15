@@ -1,0 +1,33 @@
+// H01b C07 red: each .par.map task constructs and aborts its own AbortController
+// oracle: node:c07-red-parent-abortcontroller-par.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): ok: 20000
+// baseline PTS: on 2 and 4 threads some constructions throw TypeError: Illegal constructor
+// failure: TypeError: Illegal constructor
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+import { range } from "pts:parallel";
+
+const COUNT = 20_000;
+
+// "ok", or what went wrong for controller i.
+function constructAndAbort(i: number): string {
+  try {
+    const controller = new AbortController();
+    controller.abort(i);
+    return controller.signal.aborted && controller.signal.reason === i ? "ok" : "wrong state";
+  } catch (error) {
+    return error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown";
+  }
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome}: ${counts.get(outcome)}`);
+}
+
+console.log(tally(range(0, COUNT).par.map(constructAndAbort)).join("\n"));

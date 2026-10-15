@@ -1,0 +1,18 @@
+// H01b C05 control: `flat` / `flatMap` over homogeneous nested arrays (no unions, no tuples), with a hole
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `[ 1, 2, 3 ]`, `[ [ 1 ], [ 2 ], [ 3 ] ]`, `[ 1, 2, 3 ]` x3, `[ 1, 1, 2, 2, 3, 3 ]`, `[ 1, 2, 3 ]`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const rows: number[][] = [[1, 2], [3], []];
+console.log(rows.flat());
+const cube: number[][][] = [[[1], [2]], [[3]]];
+console.log(cube.flat());
+console.log(cube.flat(2));
+console.log(cube.flat(Infinity));
+console.log(rows.flatMap((row) => row));
+console.log([1, 2, 3].flatMap((x) => [x, x]));
+const holes = new Array<number[]>(3);
+holes[0] = [1];
+holes[2] = [2, 3];
+console.log(holes.flat());

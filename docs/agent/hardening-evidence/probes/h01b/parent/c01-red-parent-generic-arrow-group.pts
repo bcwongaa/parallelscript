@@ -1,0 +1,17 @@
+// H01b C01 red: generic arrow const groups items with (groups[key] ??= []).push(item)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): {"odd":[1,3],"even":[2]}
+// baseline PTS: the compiler panics (Go stack trace) instead of building
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const groupBy = <T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> => {
+  const groups: Record<string, T[]> = {};
+  for (const item of items) {
+    (groups[keyOf(item)] ??= []).push(item);
+  }
+  return groups;
+};
+
+console.log(JSON.stringify(groupBy([1, 2, 3], (n) => (n % 2 === 1 ? "odd" : "even"))));

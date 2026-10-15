@@ -1,0 +1,31 @@
+// H01b C18 control: the c18-red-any-generator-break generator through a typed `Iterable<number>` parameter, with break
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `yield 0, item 0, yield 1, item 1, closed, [ 0, 1 ]` (one per line), exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+function* upToThree(): Generator<number> {
+    try {
+        for (let n = 0; ; n++) {
+            if (n > 3) {
+                throw new Error("resumed after the loop broke");
+            }
+            console.log("yield", n);
+            yield n;
+        }
+    } finally {
+        console.log("closed");
+    }
+}
+function firstTwo(values: Iterable<number>): number[] {
+    const taken: number[] = [];
+    for (const value of values) {
+        console.log("item", value);
+        taken.push(value);
+        if (taken.length === 2) {
+            break;
+        }
+    }
+    return taken;
+}
+console.log(firstTwo(upToThree()));

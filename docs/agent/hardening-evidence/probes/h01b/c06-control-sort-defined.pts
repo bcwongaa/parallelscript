@@ -1,0 +1,12 @@
+// H01b C06 control: `sort()` / `toSorted()` with and without a comparator over arrays with neither undefined nor null
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 20, 3 ]`, `[ 'a', 'v', 'z' ]`, `[ 1, 3, 20 ]`, `[ 3, 1, 20 ]`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const numbers: number[] = [3, 1, 20];
+console.log(numbers.toSorted());
+const letters: string[] = ["v", "a", "z"];
+console.log(letters.sort());
+console.log(numbers.toSorted((a, b) => a - b));
+console.log(numbers);

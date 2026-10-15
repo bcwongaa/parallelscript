@@ -1,0 +1,11 @@
+// H01b C05 red: `flat(depth)` over `(number | number[])[][]`: level 1 is all arrays, level 2 is a union
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, [ 2 ], 3 ]`, `[ 1, 2, 3 ]`, `[ 1, 2, 3 ]`, exit 0
+// baseline PTS: builds and runs; depth 1 is right, depth 2 and Infinity stop at the union: `[ 1, [ 2 ], 3 ]` x3, exit 0
+// failure: ^\[ 1, \[ 2 \], 3 \]\n\[ 1, \[ 2 \], 3 \]$
+const nested: (number | number[])[][] = [[1, [2]], [3]];
+console.log(nested.flat());
+console.log(nested.flat(2));
+console.log(nested.flat(Infinity));

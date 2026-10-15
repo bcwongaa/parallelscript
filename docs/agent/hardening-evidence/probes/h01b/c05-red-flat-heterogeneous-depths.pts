@@ -1,0 +1,17 @@
+// H01b C05 red: `flat(depth)` at depths 0, 1 (default and explicit), 2 and Infinity over heterogeneous nesting
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): 8 lines, `[ 1, [ 2 ], [ [ 3 ] ] ]`, `[ 1, 2, [ 3 ] ]` x2, `[ 1, 2, 3 ]` x2, `[ 1, 2, [ 3, [ 4 ] ] ]`, `[ 1, 2, 3, [ 4 ] ]`, `[ 1, 2, 3, 4 ]`, exit 0
+// baseline PTS: builds and runs but no depth flattens anything: `[ 1, [ 2 ], [ [ 3 ] ] ]` x5, `[ 1, [ 2, [ 3, [Array] ] ] ]` x3, exit 0
+// failure: ^\[ 1, \[ 2, \[ 3, \[Array\] \] \] \]$
+const mixed: (number | number[] | number[][])[] = [1, [2], [[3]]];
+console.log(mixed.flat(0));
+console.log(mixed.flat());
+console.log(mixed.flat(1));
+console.log(mixed.flat(2));
+console.log(mixed.flat(Infinity));
+const deep = [1, [2, [3, [4]]]];
+console.log(deep.flat(1));
+console.log(deep.flat(2));
+console.log(deep.flat(Infinity));

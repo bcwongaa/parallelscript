@@ -1,0 +1,18 @@
+// H01b C01 control: the same grouping in a generic arrow written with `=== undefined` and plain `=` instead of `??=`
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const groupBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, T[]> => {
+    const groups: Record<string, T[]> = {};
+    for (const item of items) {
+        const key = keyOf(item);
+        if (groups[key] === undefined) {
+            groups[key] = [];
+        }
+        groups[key].push(item);
+    }
+    return groups;
+};
+console.log(groupBy([1, 2, 3, 4, 5], (n) => (n % 2 === 1 ? "odd" : "even")));

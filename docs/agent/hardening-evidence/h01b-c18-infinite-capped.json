@@ -1,0 +1,27 @@
+{
+ "task": "H01b",
+ "date": "2026-10-15",
+ "row": "C18",
+ "source_sha": "5d0bd01bc54aa71c298229525b3a08fc05a83837",
+ "cli_sha256": "9a68653080c90f5fb927b93d2b74a91cc2031dfc4310253c395cec11b9d9aa78",
+ "probe": "docs/agent/hardening-evidence/probes/h01b/capped/c18-red-parent-infinite-any-generator.pts",
+ "probe_sha256": "f92534cf6299792e485cbbf63a106b337df806db297422ee2cf54541883d587c",
+ "why_not_in_runner": "an eagerly drained infinite iterator allocates until the address space runs out; it is run by hand under a 1 GiB cap rather than the runner's 4 GiB one, so the shared host never comes near running out of memory",
+ "build": {
+  "command": "pts-bin/pts build docs/agent/hardening-evidence/probes/h01b/capped/c18-red-parent-infinite-any-generator.pts -o /tmp/pts-h01b-parent.c0Moed/capped/native",
+  "exit": 0
+ },
+ "pts": {
+  "command": "(ulimit -v 1048576; PTS_THREADS=1 timeout 20 /tmp/pts-h01b-parent.c0Moed/capped/native)",
+  "exit": 1,
+  "stdout": "",
+  "stderr": "GC Warning: Failed to expand heap by 540676 KiB\nGC Warning: Failed to expand heap by 524292 KiB\nGC Warning: Out of Memory! Heap size: 578 MiB. Returning NULL!\nUncaught RangeError: Out of memory allocating an array of 67108864 elements\n"
+ },
+ "node": {
+  "command": "timeout 20 ~/.local/node/bin/node --no-warnings --experimental-transform-types /tmp/pts-h01b-parent.c0Moed/capped/probe.mts",
+  "exit": 0,
+  "stdout": "0\n1\n2\nend\n",
+  "stderr": ""
+ },
+ "same": false
+}

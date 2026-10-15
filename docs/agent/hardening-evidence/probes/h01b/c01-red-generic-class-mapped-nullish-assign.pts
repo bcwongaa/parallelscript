@@ -1,0 +1,19 @@
+// H01b C01 red: `(this.lists[key] ??= []).push(v)` in a generic class over a mapped-type field, generic method key `K extends keyof E`
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ a: [ 1, 2 ], b: [ 'x' ] }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+class Buckets<E extends Record<string, unknown>> {
+    readonly lists: { [K in keyof E]?: E[K][] } = {};
+
+    add<K extends keyof E>(key: K, value: E[K]): void {
+        (this.lists[key] ??= []).push(value);
+    }
+}
+const buckets = new Buckets<{ a: number; b: string }>();
+buckets.add("a", 1);
+buckets.add("b", "x");
+buckets.add("a", 2);
+console.log(buckets.lists);

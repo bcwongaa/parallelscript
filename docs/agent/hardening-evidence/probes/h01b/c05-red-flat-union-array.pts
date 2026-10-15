@@ -1,0 +1,11 @@
+// H01b C05 red: `flat()` over arrays whose element type is a union of a value and an array
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 2, 3, 4, 5 ]` and `[ 'a', 'b', 'c' ]`, exit 0
+// baseline PTS: builds and runs but returns the elements unflattened: `[ 1, [ 2, 3 ], 4, [ 5 ] ]`, `[ [ 'a' ], 'b', [ 'c' ] ]`, exit 0
+// failure: ^\[ 1, \[ 2, 3 \], 4, \[ 5 \] \]$
+const numbers: (number | number[])[] = [1, [2, 3], 4, [5]];
+console.log(numbers.flat());
+const letters: (string | string[])[] = [["a"], "b", ["c"]];
+console.log(letters.flat());

@@ -1,0 +1,19 @@
+// H01b C19 control: a generic arrow indexes a concrete Record<string, number> with a local holding an erased callback's string
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): { short: 2, long: 1 }
+// baseline PTS: matches Node. The parent first wrote this as a red probe for the reported
+// diagnostic; it built and matched, so it is kept as the boundary control: the diagnostic needs
+// the callback's call itself as the key (see c19-red-parent-erased-callback-key-direct.pts)
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+const countBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const key = keyOf(item);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+};
+
+console.log(countBy(["a", "bbbb", "c"], (word) => (word.length > 2 ? "long" : "short")));

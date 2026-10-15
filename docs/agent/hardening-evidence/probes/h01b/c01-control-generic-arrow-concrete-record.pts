@@ -1,0 +1,14 @@
+// H01b C01 control: `??=` inside a generic arrow on a record whose type does not mention the type parameter
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const positions = <T,>(items: T[], keys: string[]): Record<string, number[]> => {
+    const out: Record<string, number[]> = {};
+    for (let i = 0; i < keys.length && i < items.length; i++) {
+        (out[keys[i]] ??= []).push(i);
+    }
+    return out;
+};
+console.log(positions([1, 2, 3], ["a", "b", "a"]));

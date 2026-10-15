@@ -1,0 +1,17 @@
+// H01b C02 red: an object-literal getter explicitly declared `: never` whose body only throws
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `caught thrown by getter`, exit 0
+// baseline PTS: `pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2
+// failure: ^panic: cgen: no check for void(?s:.*)pts/cgen/checks\.go:305
+const settings = {
+    get missing(): never {
+        throw new Error("thrown by getter");
+    },
+};
+try {
+    console.log(settings.missing);
+} catch (error: any) {
+    console.log("caught", error.message);
+}

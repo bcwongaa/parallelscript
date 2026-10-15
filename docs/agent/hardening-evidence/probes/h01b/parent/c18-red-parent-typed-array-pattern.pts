@@ -1,0 +1,44 @@
+// H01b C18 red: array patterns over a typed iterable class and an Iterable<number> parameter take two items and close the iterator
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): next 0, next 1, return, 0 1, then yield 0, yield 1, closed, 0 1
+// baseline PTS: both iterators are drained first (next 0 … next 5 and no return; yield 0 … yield 3, closed)
+// failure: ^next 0\nnext 1\nnext 2\n
+// Parent-written probe (independent of the reviewers' and the reproducer's programs). The same
+// iterators under for…of with break are lazy and closed (c18-control-typed-iterator-break-return).
+class Steps implements Iterable<number> {
+  [Symbol.iterator](): Iterator<number> {
+    let i = 0;
+    return {
+      next(): IteratorResult<number> {
+        console.log("next", i);
+        return i < 5 ? { done: false, value: i++ } : { done: true, value: undefined };
+      },
+      return(): IteratorResult<number> {
+        console.log("return");
+        return { done: true, value: undefined };
+      },
+    };
+  }
+}
+
+function* counted(): Generator<number> {
+  try {
+    for (let i = 0; i < 4; i++) {
+      console.log("yield", i);
+      yield i;
+    }
+  } finally {
+    console.log("closed");
+  }
+}
+
+function firstTwo(values: Iterable<number>): string {
+  const [first, second] = values;
+  return `${first} ${second}`;
+}
+
+const [x, y] = new Steps();
+console.log(x, y);
+console.log(firstTwo(counted()));

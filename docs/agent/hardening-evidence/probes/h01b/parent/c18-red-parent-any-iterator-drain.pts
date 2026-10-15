@@ -1,0 +1,33 @@
+// H01b C18 red: for…of over an any iterator with break; next() calls interleave with the body and break calls return()
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): next 1, body 1, next 2, body 2, next 3, return, after loop
+// baseline PTS: every next() runs before the body (the iterator is drained eagerly) and return() is never called
+// failure: ^next 1\nnext 2\n
+// Parent-written probe (independent of the reviewers' and the reproducer's programs).
+function countTo(limit: number): any {
+  let current = 0;
+  return {
+    [Symbol.iterator]() {
+      return this;
+    },
+    next() {
+      current++;
+      console.log("next", current);
+      return current <= limit ? { done: false, value: current } : { done: true, value: undefined };
+    },
+    return() {
+      console.log("return");
+      return { done: true, value: undefined };
+    },
+  };
+}
+
+for (const n of countTo(5)) {
+  if (n === 3) {
+    break;
+  }
+  console.log("body", n);
+}
+console.log("after loop");

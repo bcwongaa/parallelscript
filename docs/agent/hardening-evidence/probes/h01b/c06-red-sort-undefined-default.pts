@@ -1,0 +1,11 @@
+// H01b C06 red: `sort()` without a comparator puts every undefined last (never compared as a string)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 20, 3, undefined, undefined ]` and `[ 'a', 'v', 'z', undefined ]`, exit 0
+// baseline PTS: builds and runs but sorts undefined first: `[ undefined, undefined, 1, 20, 3 ]`, `[ undefined, 'a', 'v', 'z' ]`, exit 0
+// failure: ^\[ undefined, undefined, 1, 20, 3 \]$
+const numbers: (number | undefined)[] = [3, undefined, 1, undefined, 20];
+console.log(numbers.sort());
+const letters: (string | undefined)[] = ["v", undefined, "a", "z"];
+console.log(letters.sort());

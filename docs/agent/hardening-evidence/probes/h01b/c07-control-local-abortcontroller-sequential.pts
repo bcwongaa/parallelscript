@@ -1,0 +1,28 @@
+// H01b C07 control: the same 4 x 20,000 local AbortController constructions on the main thread only (no `.par`)
+// oracle: node-self
+// threads: 1,4
+// runs: 5
+// expected (Node): prints `task 0: failed 0` ... `task 3: failed 0` (4 lines), exit 0
+// baseline PTS: builds and runs, stdout identical to Node at 1 and 4 threads in every run, exit 0
+const lines = Array.from({ length: 4 }, (_, task) => {
+    let failed = 0;
+    let first = "";
+    for (let i = 0; i < 20000; i++) {
+        try {
+            const controller = new AbortController();
+            controller.abort("local");
+            if (!controller.signal.aborted || controller.signal.reason !== "local") {
+                throw new Error("wrong local signal");
+            }
+        } catch (error) {
+            failed++;
+            if (first === "") {
+                first = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            }
+        }
+    }
+    return `task ${task}: failed ${failed}${first === "" ? "" : ` (first ${first})`}`;
+});
+for (const line of lines) {
+    console.log(line);
+}

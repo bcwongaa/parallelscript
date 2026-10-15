@@ -1,0 +1,30 @@
+// H01b C18 red: new defect beyond the ledger: for...of over an `any` iterable runs next() lazily and calls return() on break
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `next 0, item 0, next 1, item 1, return, end` (one per line), exit 0
+// baseline PTS: drains the iterator first and never calls return(): `next 0..next 4, item 0, item 1, end`, exit 0
+// failure: ^next 0\nnext 1\n
+const iterable: any = {
+    [Symbol.iterator]() {
+        let step = 0;
+        return {
+            next() {
+                console.log("next", step);
+                const current = step++;
+                return { done: current >= 4, value: current };
+            },
+            return() {
+                console.log("return");
+                return { done: true, value: undefined };
+            },
+        };
+    },
+};
+for (const item of iterable) {
+    console.log("item", item);
+    if (item === 1) {
+        break;
+    }
+}
+console.log("end");

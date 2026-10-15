@@ -1,0 +1,12 @@
+// H01b C01 red: `box.list ??= []` and `box.name ||= "x"` on a plain `any` object (no generics)
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ list: [ 1 ], name: 'x' }`, exit 0
+// baseline PTS: `pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2
+// failure: ^panic: interface conversion: ir\.Type is \*ir\.Primitive, not \*ir\.MapType(?s:.*)pts/lower/records\.go:280
+const box: any = JSON.parse("{}");
+box.list ??= [];
+box.list.push(1);
+box.name ||= "x";
+console.log(box);

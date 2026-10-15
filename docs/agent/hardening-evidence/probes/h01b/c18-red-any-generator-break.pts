@@ -1,0 +1,29 @@
+// H01b C18 red: new defect beyond the ledger: a generator held as `any` must be resumed lazily by for...of and closed on break
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): `yield 0, item 0, yield 1, item 1, closed, end` (one per line), exit 0
+// baseline PTS: drains the generator before the body: `yield 0..yield 3, closed`, then Uncaught Error: resumed after the loop broke, exit 1
+// failure: ^yield 0\nyield 1\n
+// (An unbounded generator here makes PTS allocate until it runs out of memory; the throw at 4 keeps the probe bounded.)
+function* upToThree(): Generator<number> {
+    try {
+        for (let n = 0; ; n++) {
+            if (n > 3) {
+                throw new Error("resumed after the loop broke");
+            }
+            console.log("yield", n);
+            yield n;
+        }
+    } finally {
+        console.log("closed");
+    }
+}
+const numbers: any = upToThree();
+for (const n of numbers) {
+    console.log("item", n);
+    if (n === 1) {
+        break;
+    }
+}
+console.log("end");

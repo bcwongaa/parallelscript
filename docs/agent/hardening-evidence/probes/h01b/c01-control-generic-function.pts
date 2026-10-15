@@ -1,0 +1,22 @@
+// H01b C01 control: the same `??=` / `||=` record idiom in generic function declarations
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` and `{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+function groupByNullish<T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> {
+    const groups: Record<string, T[]> = {};
+    for (const item of items) {
+        (groups[keyOf(item)] ??= []).push(item);
+    }
+    return groups;
+}
+function groupByOr<T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> {
+    const groups: Record<string, T[]> = {};
+    for (const item of items) {
+        (groups[keyOf(item)] ||= []).push(item);
+    }
+    return groups;
+}
+console.log(groupByNullish([1, 2, 3, 4, 5], (n) => (n % 2 === 1 ? "odd" : "even")));
+console.log(groupByOr(["a", "bb", "cc"], (s) => String(s.length)));

@@ -1,0 +1,27 @@
+// H01b C01 control: `??=` / `||=` on a `Record<string, T[]>` field of a generic class whose methods are not generic
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ a: [ 1, 3 ], b: [ 2 ] }` and `{ x: [ 'p', 'r' ], y: [ 'q' ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+class Buckets<T> {
+    readonly lists: Record<string, T[]> = {};
+
+    addNullish(key: string, value: T): void {
+        (this.lists[key] ??= []).push(value);
+    }
+
+    addOr(key: string, value: T): void {
+        (this.lists[key] ||= []).push(value);
+    }
+}
+const numbers = new Buckets<number>();
+numbers.addNullish("a", 1);
+numbers.addNullish("b", 2);
+numbers.addNullish("a", 3);
+console.log(numbers.lists);
+const strings = new Buckets<string>();
+strings.addOr("x", "p");
+strings.addOr("y", "q");
+strings.addOr("x", "r");
+console.log(strings.lists);

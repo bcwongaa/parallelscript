@@ -1,0 +1,35 @@
+// H01b C01 control: the same `??=` / `||=` record idiom in non-generic arrows and a non-generic class
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` twice, then `{ a: [ 1, 3 ], b: [ 2 ] }`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node, exit 0
+const groupByNullish = (items: number[], keyOf: (item: number) => string): Record<string, number[]> => {
+    const groups: Record<string, number[]> = {};
+    for (const item of items) {
+        (groups[keyOf(item)] ??= []).push(item);
+    }
+    return groups;
+};
+const groupByOr = (items: number[], keyOf: (item: number) => string): Record<string, number[]> => {
+    const groups: Record<string, number[]> = {};
+    for (const item of items) {
+        (groups[keyOf(item)] ||= []).push(item);
+    }
+    return groups;
+};
+class NumberBuckets {
+    readonly lists: Record<string, number[]> = {};
+
+    add(key: string, value: number): void {
+        (this.lists[key] ??= []).push(value);
+    }
+}
+const parity = (n: number): string => (n % 2 === 1 ? "odd" : "even");
+console.log(groupByNullish([1, 2, 3, 4, 5], parity));
+console.log(groupByOr([1, 2, 3, 4, 5], parity));
+const buckets = new NumberBuckets();
+buckets.add("a", 1);
+buckets.add("b", 2);
+buckets.add("a", 3);
+console.log(buckets.lists);

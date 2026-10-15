@@ -1,0 +1,18 @@
+// H01b C06 red: `sort(comparator)` never passes undefined to the comparator and puts undefined last; every call is logged
+// oracle: node-self
+// threads: 1
+// runs: 1
+// expected (Node): prints `[ 1, 2, 3, undefined, undefined ]`, `arguments seen: 1 2 3`, `calls with undefined: 0`, exit 0
+// baseline PTS: builds and runs; undefined reaches the comparator and sorts first: `[ undefined, undefined, 1, 2, 3 ]`, exit 0
+// failure: ^arguments seen: .*undefined$
+// Every call's arguments are logged, then printed independently of the engine's call order (the ledger
+// says pair order need not equal V8's): the distinct arguments, sorted, and the calls that got undefined.
+const values: (number | undefined)[] = [3, undefined, 1, undefined, 2];
+const calls: string[][] = [];
+values.sort((a, b) => {
+    calls.push([String(a), String(b)]);
+    return (a ?? -100) - (b ?? -100);
+});
+console.log(values);
+console.log("arguments seen:", [...new Set(calls.flat())].sort().join(" "));
+console.log("calls with undefined:", calls.filter((pair) => pair.includes("undefined")).length);
