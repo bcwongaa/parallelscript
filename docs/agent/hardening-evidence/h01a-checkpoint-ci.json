@@ -1,0 +1,20 @@
+{
+  "task": "H01a",
+  "date": "2026-10-15",
+  "checkpoint_sha": "8f54114a17493a7efec9b182a6a4958d1a12a29c",
+  "command": "gh run watch 38683600481 --repo bcwongaa/parallelscript --exit-status --interval 30",
+  "watch_exit": 0,
+  "observed_result": {
+    "conclusion": "success",
+    "databaseId": 38683600481,
+    "headSha": "8f54114a17493a7efec9b182a6a4958d1a12a29c",
+    "jobs": [
+      {"conclusion": "success", "name": "VS Code extension", "status": "completed"},
+      {"conclusion": "success", "name": "Upstream CLI and LSP suites", "status": "completed"},
+      {"conclusion": "success", "name": "PTS tests", "status": "completed"}
+    ],
+    "status": "completed",
+    "url": "https://github.com/bcwongaa/parallelscript/actions/runs/38683600481"
+  },
+  "scope": "Certifies this exact evidence-checkpoint SHA only. The reviewed completion/correction follow-up must have its own pushed SHA checked separately; the final session result reports that outcome. No H01b reproduction or compiler/runtime fix is certified."
+}
