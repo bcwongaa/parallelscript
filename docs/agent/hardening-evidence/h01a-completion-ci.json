@@ -1,0 +1,38 @@
+{
+  "task": "H01a",
+  "observed_date": "2026-10-15",
+  "completion_sha": "e87cd43c35fb834a00fc0b2410ad2c41d68c05d8",
+  "command": "gh run view 38684594648 --repo bcwongaa/parallelscript --json databaseId,headSha,status,conclusion,url,jobs",
+  "command_exit": 0,
+  "observed_result": {
+    "conclusion": "success",
+    "databaseId": 38684594648,
+    "headSha": "e87cd43c35fb834a00fc0b2410ad2c41d68c05d8",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "databaseId": 116256447493,
+        "name": "VS Code extension",
+        "status": "completed",
+        "completedAt": "2026-10-15T05:05:21Z"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 116256447829,
+        "name": "PTS tests",
+        "status": "completed",
+        "completedAt": "2026-10-15T05:10:57Z"
+      },
+      {
+        "conclusion": "success",
+        "databaseId": 116256447846,
+        "name": "Upstream CLI and LSP suites",
+        "status": "completed",
+        "completedAt": "2026-10-15T05:06:19Z"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/bcwongaa/parallelscript/actions/runs/38684594648"
+  },
+  "scope": "Certifies the exact reviewed H01a completion/correction SHA only, independently of evidence checkpoint 8f54114a1. This receipt does not certify a later documentation commit, H01b reproduction acceptance, or any compiler/runtime fix. H01 and H01b remain unchecked and blocked; H02 has not started."
+}

@@ -1,0 +1,77 @@
+{
+  "source_sha": "e87cd43c35fb834a00fc0b2410ad2c41d68c05d8",
+  "scratch": "/tmp/pts-h01a-closeout.VPr905",
+  "build_exit": 0,
+  "cli_build_exit": 0,
+  "suite_exit": 0,
+  "test_events": {
+    "pass": 1289,
+    "skip": 247,
+    "fail": 0
+  },
+  "corpus_events": {
+    "pass": 262,
+    "skip": 38,
+    "fail": 0
+  },
+  "package_outcomes": {
+    "github.com/microsoft/typescript-go/pts/bench/binary_trees": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fan_out": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib_int": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/file_io": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_hello": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/mandelbrot": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/nbody": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/spectral_norm": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/startup": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/string_building": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/sum_reduce": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_count": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_freq": "skip",
+    "github.com/microsoft/typescript-go/pts/cgen": "pass",
+    "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+    "github.com/microsoft/typescript-go/pts/check": "pass",
+    "github.com/microsoft/typescript-go/pts/driver": "pass",
+    "github.com/microsoft/typescript-go/pts/ir": "skip",
+    "github.com/microsoft/typescript-go/pts/lib": "skip",
+    "github.com/microsoft/typescript-go/pts/frontend": "pass",
+    "github.com/microsoft/typescript-go/pts/lower": "pass",
+    "github.com/microsoft/typescript-go/pts/lsp": "pass",
+    "github.com/microsoft/typescript-go/pts/numeric": "skip",
+    "github.com/microsoft/typescript-go/pts/toolchain": "pass",
+    "github.com/microsoft/typescript-go/cmd/pts": "pass",
+    "github.com/microsoft/typescript-go/pts/tests": "pass"
+  },
+  "failures": [],
+  "stderr": "",
+  "task": "H01a CI closeout (no new hardening task)",
+  "date": "2026-10-15",
+  "commands": [
+    "GOMAXPROCS=2 go build -p 2 ./...",
+    "GOMAXPROCS=2 make build",
+    "PATH=\"$HOME/.local/node/bin:$PATH\" GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/"
+  ],
+  "counts_include_parent_tests_and_subtests": true,
+  "package_events": {
+    "skip": 19,
+    "pass": 10
+  },
+  "toolchain": {
+    "go": "go1.26.9 linux/amd64",
+    "node": "v24.21.0",
+    "clang": "Ubuntu clang version 18.1.3 (1ubuntu1), x86_64-pc-linux-gnu"
+  },
+  "build_output": {
+    "build.stdout": "",
+    "build.stderr": "",
+    "cli.stdout": "go build -o pts-bin/pts ./cmd/pts\n",
+    "cli.stderr": ""
+  },
+  "raw_event_file": "h01a-closeout-baseline.jsonl.gz",
+  "raw_event_sha256": "548758ea8004ad9330d0b4bef28ef3980a1636c3763dd4c2e74f556a43a6f109",
+  "archive_sha256": "4da8e0bac27b24a20e453f5cd65ce9b538e50b211b754ec9ec316fbf8c30ac54",
+  "scope": "Fresh existing-suite baseline from immutable e87 completion source; only documentation/evidence files changed during the run. No H01b assignment/probes were rerun. Corpus totals are actual suite comparison events; the five previously manual comparisons were not repeated in this closeout. No new fix or task completion is claimed."
+}

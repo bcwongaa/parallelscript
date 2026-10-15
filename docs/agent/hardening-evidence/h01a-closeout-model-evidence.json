@@ -1,0 +1,18 @@
+{
+  "task": "H01a CI closeout (no new hardening task)",
+  "date": "2026-10-15",
+  "configured_model": "gpt-6.1-sol",
+  "configured_effort": "xhigh",
+  "environment_observed": {
+    "CLAUDE_CODE_EFFORT_LEVEL": "xhigh",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "gpt-6.1-sol"
+  },
+  "assistant_envelopes_at_observation": [
+    {"scope": "parent", "assistant_message_model_counts": {"gpt-6.1-sol": 95}},
+    {"scope": "named gpt-reproducer, read-only completion CI audit", "assistant_message_model_counts": {"gpt-6.1-sol": 29}},
+    {"scope": "named gpt-reviewer, direct read-only documentation review", "assistant_message_model_counts": {"gpt-6.1-sol": 26}},
+    {"scope": "review skill internal fork", "assistant_message_model_counts": {"gpt-6.1-sol": 35}}
+  ],
+  "internal_fork_limitation": "The reviewer invoked the available code-review skill with GPT-only, read-only, no-test/no-child constraints. The tool reported forked execution and returned an empty list without model/provenance details. The parent independently inspected only assistant-envelope model labels in the current session and its three subagent transcripts, observing only gpt-6.1-sol. The empty skill return is not accepted as independent review evidence; the named reviewer's direct review is the acceptance gate.",
+  "limits": "Configuration and harness-envelope observations at a point in time, not cryptographic/backend attestation of reasoning effort. Named Agent calls use their configured GPT model because the optional model override enum has no GPT entry. No provider/model fallback requested. No transcript content or credentials are reproduced here."
+}
