@@ -3,6 +3,8 @@
 Owner authorisation (2026-10-14): "let's do them one by one, automatically, with subagents. This time use gpt-6-1-sol for all work."
 
 ## Operating contract
+- **Owner directive 2026-10-15 (supersedes the GPT-only lines below):** "now use claude-opus-5-5 for the remaining work, and continue" / "Let's continue with opus again". Parent and every subagent use **claude-opus-5-5 at xhigh** (native login), no fallback. Read "GPT"/"gpt-6.1-sol" in older lines as this model. Named subagents: `opus-reproducer`, `opus-reviewer`.
+- **H01b under Opus:** the GPT-provider refusal stays on record as historical evidence. The owner switched models for *all* remaining work, so H01b is now an ordinary task on Opus: do it fresh with its original scope (no rewording to dodge a filter). If Opus also refuses, mark H01b blocked with the exact error and continue with H02 onward, since the fix tasks carry their own RED reproductions.
 - Canonical available model identifier: **gpt-6.1-sol**, **xhigh**, for the parent and every child. No Opus/Grok/Haiku fallback. If unavailable, checkpoint and wait/retry.
 - This phase supersedes CLAUDE.md's M0–M7 stop rule. The historical `docs/agent/DONE` remains intact; it records the first usable language. This phase stops only at `docs/agent/HARDENING_DONE`.
 - Work through the first unchecked item below **one item per session**. Split overly large items into testable slices without dropping scope. Complete, test, review, commit and push each slice before starting the next.

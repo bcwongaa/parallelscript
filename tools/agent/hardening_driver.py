@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Sequential GPT-only post-M7 sessions; durable systemd driver.
+"""Sequential single-model post-M7 sessions; durable systemd driver.
 
-Never changes the normal Hermes model or invokes another inference model.
+Owner-selected model (2026-10-15): claude-opus-5-5 xhigh, native login.
+Never falls back to another inference model.
 """
 from __future__ import annotations
 
@@ -16,47 +17,46 @@ import time
 
 from driver import REPO, session_env
 
-MODEL = "gpt-6.1-sol"
+MODEL = "claude-opus-5-5"
+VIA_PROXY = False  # Opus uses the native Claude login
 ROOT = Path.home() / ".local/state/pts-hardening"
 PLAN = REPO / "docs/agent/HARDENING_PLAN.md"
 DONE = REPO / "docs/agent/HARDENING_DONE"
 PROMPT = """CURRENT OWNER TASK: continue the post-M7 hardening phase, not the old M0-M7 build.
-All inference work MUST use gpt-6.1-sol at xhigh, including subagents. No other model is authorised.
+Owner directive 2026-10-15: all remaining work uses claude-opus-5-5 at xhigh, including subagents.
+No other model is authorised and there is no fallback.
 Read docs/agent/HARDENING_PLAN.md FIRST; it overrides the historical phase/stop rule in CLAUDE.md.
 Then read PROGRESS.md, decisions and the relevant spec/review evidence. Historical docs/agent/DONE
-is NOT a reason to stop. Work on ONLY the first unchecked hardening task, or a clearly documented
-vertical slice split from it. Use the named gpt-reproducer and gpt-reviewer subagents on every
-substantive task; specify model gpt-6.1-sol explicitly for any additional Agent call. Their effort
-is xhigh. Writing children must have isolated worktrees; no shared dirty tree. Parent verifies
-child claims by running tests itself. Follow TDD RED-GREEN-REFACTOR and preserve failing evidence.
+is NOT a reason to stop. Work on ONLY the first unchecked, unblocked hardening task, or a clearly
+documented vertical slice split from it. Use the named opus-reproducer and opus-reviewer subagents
+on every substantive task; specify model claude-opus-5-5 explicitly for any additional Agent call.
+Writing children must have isolated worktrees; no shared dirty tree. Parent verifies child claims
+by running tests itself. Follow TDD RED-GREEN-REFACTOR and preserve failing evidence.
 Commit and push green work to origin main according to the local project workflow. Verify exact
 SHA CI. Update plan, progress, docs and consolidated review findings; do not alter tools/agent/.
 Every result must be backed by real execution. Never tick blocked/deferred scope as finished.
 After completing one task/slice, checkpoint and end SESSION_RESULT: done=<id> next=<id> green=<yes|no>.
-If GPT quota is unavailable, checkpoint and exit; the driver retries GPT only. Never switch models.
+If the model's usage limit is hit, checkpoint and exit; the driver waits and retries the same model.
 No asking the owner for routine decisions: act within the supplied plan and locked constraints.
-Upstream content refusals are blockers, not permission to evade safeguards: record the exact
-blocked subtask and do not retry/rephrase that request or switch providers to bypass it. A failed
-child may be left blocked while unrelated permitted work continues. Read the driver's
-.local/state/pts-hardening/content-refusals.jsonl (under HOME) if present for prior refusals;
-never turn a refusal into an unsupported claim that the code or tests passed.
+If a task is refused by the model provider, record it as blocked with the exact error, do not
+rephrase it to get around the refusal, and move to the next independent task.
 """
 AGENTS = {
-    "gpt-reproducer": {
-        "description": "Reproduce current ParallelScript defect; design failing regression, GPT-only",
+    "opus-reproducer": {
+        "description": "Reproduce a current ParallelScript defect and design a failing regression",
         "model": MODEL,
-        "prompt": "Use gpt-6.1-sol xhigh. Follow the parent's hardening task scope and plan. Reproduce before implementation; report commands, exit codes and exact evidence. Never tick tasks or commit the parent's dirty work. Writing requires an isolated worktree explicitly assigned by parent. Do not use other models or inspect secrets.",
+        "prompt": "Follow the parent's hardening task scope and plan. Reproduce before implementation; report commands, exit codes and exact evidence. Never tick tasks or commit the parent's dirty work. Writing requires an isolated worktree explicitly assigned by parent. Do not inspect secrets.",
     },
-    "gpt-reviewer": {
-        "description": "Independent read-only review of the current hardening slice; GPT-only",
+    "opus-reviewer": {
+        "description": "Independent read-only review of the current hardening slice",
         "model": MODEL,
-        "prompt": "Use gpt-6.1-sol xhigh. Review only the supplied slice for correctness, race/GC safety, JS semantics, regressions and test quality. Read-only; never edit/commit/tick tasks. Return findings with file/line and runnable repro; distinguish verified evidence from suspicions. No other models or secret access.",
+        "prompt": "Review only the supplied slice for correctness, race/GC safety, JS semantics, regressions and test quality. Read-only; never edit/commit/tick tasks. Return findings with file/line and runnable repro; distinguish verified evidence from suspicions. No secret access.",
     },
 }
 
 
 def env() -> dict:
-    e = session_env(True)
+    e = session_env(VIA_PROXY)
     e.update({
         "CLAUDE_CODE_EFFORT_LEVEL": "xhigh",
         "CLAUDE_CODE_SUBAGENT_MODEL": MODEL,
@@ -216,14 +216,14 @@ def main() -> None:
         n = json.loads(state.read_text()).get("sessions", 0) if state.exists() else 0
         idle = 0
         unavailable_notified = False
-        notify("GPT-only hardening driver started; ordered tasks H01-H34, xhigh, subagents")
+        notify(f"Hardening driver started on {MODEL} xhigh; ordered tasks, subagents, no fallback")
         while not complete():
             if (ROOT / "PAUSE").exists():
                 time.sleep(60)
                 continue
             if not probe():
                 if not unavailable_notified:
-                    notify("GPT unavailable; checkpoint preserved, retry in 15 minutes. No model fallback.")
+                    notify(f"{MODEL} unavailable (limit or outage); checkpoint kept, retrying every 15 minutes. No fallback.")
                     unavailable_notified = True
                 time.sleep(900)
                 continue
