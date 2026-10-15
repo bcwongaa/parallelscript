@@ -1,0 +1,1692 @@
+{
+  "task": "H01a",
+  "date": "2026-10-15",
+  "source_sha": "1b13cfd954c0f6e62a250ffaab8f79ce0aa7b377",
+  "commands": [
+    "GOMAXPROCS=2 go build -p 2 ./...",
+    "GOMAXPROCS=2 make build",
+    "PATH=\"$HOME/.local/node/bin:$PATH\" GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/"
+  ],
+  "build_exit": 0,
+  "cli_build_exit": 0,
+  "suite_exit": 0,
+  "test_events": {
+    "pass": 1289,
+    "skip": 247,
+    "fail": 0
+  },
+  "package_events": {
+    "pass": 10,
+    "skip": 19,
+    "fail": 0
+  },
+  "corpus_events": {
+    "pass": 262,
+    "skip": 38,
+    "fail": 0
+  },
+  "counts_include_parent_tests_and_subtests": true,
+  "package_outcomes": [
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/binary_trees",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/fan_out",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/fib",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/fib_int",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/file_io",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/http_hello",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/http_json",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/json",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/mandelbrot",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/nbody",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/spectral_norm",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/startup",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/string_building",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/sum_reduce",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/word_count",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/bench/word_freq",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/cgen",
+      "Action": "pass",
+      "Elapsed": 1.931
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/diagnostic",
+      "Action": "pass",
+      "Elapsed": 0.004
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/check",
+      "Action": "pass",
+      "Elapsed": 0.88
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/driver",
+      "Action": "pass",
+      "Elapsed": 0.777
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/ir",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/lib",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/frontend",
+      "Action": "pass",
+      "Elapsed": 5.118
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/lower",
+      "Action": "pass",
+      "Elapsed": 3.8369999999999997
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/lsp",
+      "Action": "pass",
+      "Elapsed": 0.168
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/numeric",
+      "Action": "skip",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/toolchain",
+      "Action": "pass",
+      "Elapsed": 12.594
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/cmd/pts",
+      "Action": "pass",
+      "Elapsed": 15.936
+    },
+    {
+      "Package": "github.com/microsoft/typescript-go/pts/tests",
+      "Action": "pass",
+      "Elapsed": 342.957
+    }
+  ],
+  "corpus_outcomes": [
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/astar_grid",
+      "Elapsed": 0.91
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/lenses_immutable",
+      "Elapsed": 1.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/lazy_thunk_streams",
+      "Elapsed": 1.07
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/json_visitor",
+      "Elapsed": 1.11
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/interval_merge",
+      "Elapsed": 1.23
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/iife_config",
+      "Elapsed": 1.04
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/expr_tree_fold",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/file_tree_recursion",
+      "Elapsed": 1.41
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/event_emitter_unsub",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/event_sourcing",
+      "Elapsed": 1.07
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/either_result",
+      "Elapsed": 1.31
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/di_container",
+      "Elapsed": 1.72
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/debounce_throttle_clock",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/default_rest_spread",
+      "Elapsed": 1.07
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/curry_partial",
+      "Elapsed": 1.3
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/cons_list",
+      "Elapsed": 1.56
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/compose_pipe",
+      "Elapsed": 1.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/comparator_compose",
+      "Elapsed": 1.66
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/collection_utils",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/closure_counters",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/combinatorics_recursive",
+      "Elapsed": 1.41
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/call_apply_bind",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/church_combinators",
+      "Elapsed": 1.41
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/errors/validation_error_hierarchy",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/array_pipelines",
+      "Elapsed": 1.59
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/undo_transaction_commands",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/uncaught_string_throw",
+      "Elapsed": 0.55
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/uncaught_in_callback_finally",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/uncaught_after_output",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/try_finally_loop_cleanup",
+      "Elapsed": 0.56
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/throw_non_error_values",
+      "Elapsed": 0.54
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/switch_fallthrough_status",
+      "Elapsed": 0.51
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/template_engine_errors",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/strict_number_parsing",
+      "Elapsed": 0.58
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/sudoku_validator_errors",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/state_machine_transitions",
+      "Elapsed": 0.57
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/errors/setter_validation_thermostat",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/stack_vm_errors",
+      "Elapsed": 0.55
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/scheduler_failure_propagation",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/xml_parser",
+      "Elapsed": 0.92
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/sanitize_inputs_range_type",
+      "Elapsed": 0.55
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/route_finder_no_path",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/retry_with_backoff",
+      "Elapsed": 0.59
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/rethrow_with_wrapping",
+      "Elapsed": 0.56
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/result_type_parsing",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/rate_limiter_errors",
+      "Elapsed": 0.58
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/password_policy_checker",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/money_currency_mismatch",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/mini_json_parser_positions",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/matrix_dimension_errors",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/labelled_loops_search",
+      "Elapsed": 0.57
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/json_parse_errors",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/hotel_booking_dates",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/guard_clauses_shipping",
+      "Elapsed": 0.6
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/form_validation_library",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/errors/exhaustive_switch_never",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/finally_ordering_trace",
+      "Elapsed": 0.53
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/errors/error_report_formatter",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/error_tojson_serialization",
+      "Elapsed": 0.56
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/error_aggregation",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/discriminated_error_union",
+      "Elapsed": 0.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/dependency_cycle_detection",
+      "Elapsed": 0.63
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/deep_recursion_error",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/csv_import_errors",
+      "Elapsed": 0.6
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/constructor_throws_factory",
+      "Elapsed": 0.55
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/connection_pool_finally",
+      "Elapsed": 0.63
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/config_parser_line_col",
+      "Elapsed": 0.56
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/circuit_breaker_states",
+      "Elapsed": 0.53
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/cause_chain_report",
+      "Elapsed": 0.53
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/callback_errors",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/errors/builtin_error_sources",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/calculator_errors",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/bounded_queue_errors",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/bank_transfer_rollback",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/errors/assertion_functions",
+      "Elapsed": 0.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/word_frequency_map",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/tree_from_parent_ids",
+      "Elapsed": 0.9
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/top_n_queries",
+      "Elapsed": 0.82
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/timeseries_bucketing",
+      "Elapsed": 0.57
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/temporal_history_asof",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/survey_crosstab",
+      "Elapsed": 0.94
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/statistics_summary",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/shopping_cart_discounts",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/set_operations_audiences",
+      "Elapsed": 0.87
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/sensor_gap_interpolation",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/schema_validation_guards",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/sales_group_by_region",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/running_totals_moving_avg",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/data/record_entries_transform",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/room_booking_conflicts",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/ratings_recommendations",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/progressive_tax_brackets",
+      "Elapsed": 0.55
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/pivot_table_report",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/payroll_overtime",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/paging_chunking",
+      "Elapsed": 0.65
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/object_snapshot_diff",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/nested_api_normalize",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/data/mini_query_engine",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/text/word_search_puzzle",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/data/matrix_transpose_table",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/multi_key_sorting",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/loan_amortization",
+      "Elapsed": 0.65
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/linear_regression_fit",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/library_catalog_index",
+      "Elapsed": 0.93
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/league_standings",
+      "Elapsed": 0.88
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/kmeans_clustering",
+      "Elapsed": 0.89
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/json_roundtrip_orders",
+      "Elapsed": 0.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/invoice_tax_calc",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/inventory_reorder",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/inner_left_join",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/histogram_buckets",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/fifo_cost_basis",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/gradebook_report",
+      "Elapsed": 0.82
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/employee_directory_table",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/event_sessionization",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/deep_merge_config",
+      "Elapsed": 0.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/dedupe_user_records",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/date_range_calendar",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/data_cleaning_contacts",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/currency_conversion_table",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/csv_rows_objects",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/cohort_retention",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/budget_variance_report",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/bank_reconciliation",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/access_log_parsing",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/data/ab_test_analysis",
+      "Elapsed": 0.65
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/word_break_dictionary",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/trie_autocomplete",
+      "Elapsed": 0.78
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/tower_of_hanoi_josephus",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/topological_sort_courses",
+      "Elapsed": 0.82
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/tarjan_scc",
+      "Elapsed": 0.93
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/sliding_window_two_pointers",
+      "Elapsed": 0.81
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/sieve_primes",
+      "Elapsed": 1.11
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/segment_tree_range",
+      "Elapsed": 1.11
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/rod_cutting",
+      "Elapsed": 0.6
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/rle_lz_compression",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/quicksort_partition_schemes",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/priority_scheduler",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/algorithms/permutations_subsets",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/prim_mst",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/n_queens_solver",
+      "Elapsed": 0.65
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/merge_sort_records",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/maze_generation_prng",
+      "Elapsed": 0.87
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/algorithms/matrix_chain_order",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/algorithms/lru_cache_map",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/matrix_gaussian_elimination",
+      "Elapsed": 0.96
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/algorithms/lcs_diff",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/lis_patience",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/kruskal_union_find",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/knapsack_dp",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/kmp_string_search",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/interval_merging",
+      "Elapsed": 0.82
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/insertion_sort_comparators",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/huffman_coding",
+      "Elapsed": 0.78
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/heap_sort_class",
+      "Elapsed": 0.9
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/grid_bfs_shortest_path",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/graph_dfs_components",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/gcd_modpow",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/algorithms/floyd_warshall_paths",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/game_of_life",
+      "Elapsed": 0.81
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/word_ladder",
+      "Elapsed": 0.82
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/flood_fill_islands",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/fibonacci_memo",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/fenwick_tree_inversions",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/edit_distance_alignment",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/dijkstra_binary_heap",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/counting_radix_sort",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/convex_hull_geometry",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/coin_change_ways",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/closest_pair_points",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/bit_manipulation_tricks",
+      "Elapsed": 0.9
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/bipartite_check",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/binary_search_variants",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/bignum_digits",
+      "Elapsed": 0.78
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/bellman_ford_negative",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/word_frequency",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/url_parser",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/unicode_handling",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/trie_autocomplete",
+      "Elapsed": 0.93
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/toy_assembler",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/text_wrap_justify",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/text_adventure_parser",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/text_statistics",
+      "Elapsed": 1.01
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/template_engine",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/table_formatter",
+      "Elapsed": 0.95
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/string_similarity",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/string_search",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/text/spell_suggest",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/sql_query_parser",
+      "Elapsed": 1.02
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/soundex_phonetic",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/slugify",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/semver",
+      "Elapsed": 1.11
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/run_length_encoding",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/rot13_atbash",
+      "Elapsed": 0.74
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/roman_numerals",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/text/printf_format",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/query_string",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/pig_latin",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/palindromes_anagrams",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/number_to_words",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/morse_code",
+      "Elapsed": 1.01
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/markdown_to_html",
+      "Elapsed": 1.01
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/text/log_summary",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/lzw_compression",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/line_diff_lcs",
+      "Elapsed": 0.78
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/text/json_pretty_printer",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/lisp_interpreter",
+      "Elapsed": 1.51
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/ini_config_parser",
+      "Elapsed": 0.62
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/huffman_coding",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/html_escape",
+      "Elapsed": 0.61
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/hex_dump",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/glob_matcher",
+      "Elapsed": 0.64
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/email_validator",
+      "Elapsed": 0.6
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/expr_parser",
+      "Elapsed": 0.96
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/csv_parser",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/case_converters",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/caesar_vigenere",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/cron_describer",
+      "Elapsed": 2.43
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/bracket_matcher",
+      "Elapsed": 0.58
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/base64_codec",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/bibliography_formatter",
+      "Elapsed": 0.96
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/request_builder",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/text/argv_parser",
+      "Elapsed": 0.78
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/zoo_animals",
+      "Elapsed": 0.72
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/vending_machine_state",
+      "Elapsed": 0.71
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/vehicle_rental",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/validated_setters",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/tournament_bracket",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/tostring_inspection",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/traffic_light_fsm",
+      "Elapsed": 0.68
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/todo_app_model",
+      "Elapsed": 0.88
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/text_editor_undo",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/super_chain",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/support_ticket_chain",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/static_counters_factories",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/stack_vm_interpreter",
+      "Elapsed": 0.92
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/spreadsheet_cells",
+      "Elapsed": 1.01
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/shape_hierarchy",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/restaurant_orders",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/result_option",
+      "Elapsed": 1.19
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/private_fields_wallet",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/protected_members",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/priority_task_scheduler",
+      "Elapsed": 1.07
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/plugin_system",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/pricing_strategy",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/payroll_system",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/parking_garage",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/memento_game_save",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/mixin_delegation",
+      "Elapsed": 0.65
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/lru_cache_ttl",
+      "Elapsed": 0.87
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/matrix_vector",
+      "Elapsed": 1
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/logger_decorators",
+      "Elapsed": 0.66
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/library_lending",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/inventory_suppliers",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/instanceof_dispatch",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/hotel_bookings",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/grade_book",
+      "Elapsed": 0.95
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/generic_collections",
+      "Elapsed": 1.02
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/filesystem_composite",
+      "Elapsed": 0.83
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/factory_registry",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/expression_visitor",
+      "Elapsed": 1.08
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/event_sourced_cart",
+      "Elapsed": 0.8
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/event_bus_observer",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/oop/ecs_game_loop",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/elevator_controller",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/config_singleton",
+      "Elapsed": 0.76
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/complex_numbers",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/chess_move_validator",
+      "Elapsed": 0.98
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/card_game_blackjack",
+      "Elapsed": 0.84
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/bank_accounts",
+      "Elapsed": 0.67
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/auction_house",
+      "Elapsed": 0.77
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/oop/airline_seating",
+      "Elapsed": 0.94
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/validator_factories",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/writer_logging",
+      "Elapsed": 0.73
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/validation_combinators",
+      "Elapsed": 0.85
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/undo_redo_history",
+      "Elapsed": 0.75
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/trampoline_recursion",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/tagged_templates",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/transducers",
+      "Elapsed": 0.96
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/state_monad_rng",
+      "Elapsed": 1
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/state_machine_fns",
+      "Elapsed": 0.69
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/stack_language",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/persistent_queue",
+      "Elapsed": 0.94
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/rle_codec",
+      "Elapsed": 0.79
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/retry_backoff",
+      "Elapsed": 0.7
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/reactive_signals",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/redux_store",
+      "Elapsed": 0.85
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/query_builder",
+      "Elapsed": 1.06
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/parser_combinators",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/pattern_match",
+      "Elapsed": 0.89
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/once_and_guards",
+      "Elapsed": 0.6
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/option_maybe",
+      "Elapsed": 0.93
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/module_pattern_bank",
+      "Elapsed": 0.86
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/middleware_chain",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/memo_selectors",
+      "Elapsed": 0
+    },
+    {
+      "Action": "skip",
+      "Test": "TestCorpusMatchesNode/functional/memo_fib_paths",
+      "Elapsed": 0
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/observable_streams",
+      "Elapsed": 1.34
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/matrix_functional",
+      "Elapsed": 1.02
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/functional/lru_ttl_cache",
+      "Elapsed": 0.81
+    },
+    {
+      "Action": "pass",
+      "Test": "TestCorpusMatchesNode/algorithms/sudoku_solver",
+      "Elapsed": 0.84
+    }
+  ],
+  "toolchain": {
+    "go": "go1.26.9 linux/amd64",
+    "node": "v24.21.0",
+    "clang": "18.1.3"
+  },
+  "raw_evidence_directory": "/tmp/pts-h01a-parent.sLIaSD",
+  "retained_raw_events": "h01a-baseline.jsonl.gz",
+  "raw_events_sha256": "8ec07461fe0ac3eaadd49422fc6cbe74412f3428d51e7466fb3ae91eab656555",
+  "raw_archive_sha256": "5ebdac13091ff11629528da7d94d3a2bd3c6c6f2e44c0b8c9c6b1301938f1fb3",
+  "build_stdout": "",
+  "build_stderr": "",
+  "cli_build_stdout": "go build -o pts-bin/pts ./cmd/pts\n",
+  "cli_build_stderr": "",
+  "suite_stderr": ""
+}

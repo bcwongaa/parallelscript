@@ -596,7 +596,7 @@ ParallelScript keeps JavaScript's semantics wherever it can; [SPEC §8](docs/SPE
 
 ## Status
 
-The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone is a git tag.
+The historical M0–M7 plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone is a git tag. The active post-M7 work is ordered in [docs/agent/HARDENING_PLAN.md](docs/agent/HARDENING_PLAN.md), with findings tracked in the [consolidated review ledger](docs/reviews/2026-10-13-final/CONSOLIDATED.md).
 
 | Milestone | What it covers | State |
 |---|---|---|
@@ -609,7 +609,7 @@ The plan is [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md); each finished milestone 
 | M6 Real programs | RegExp, String methods with RegExps and `normalize`, the documentation refresh, `pts:http`'s server on one loop or every loop, the global `fetch` with `AbortController`, bytes in `pts:fs`, the example apps in [examples/](examples/README.md) (a file hasher, a mandelbrot PNG renderer, a JSON API server on every core, a log analyzer), the fixes from an independent review, a benchmark audit | done (`m6`) |
 | M7 Editor support | `pts lsp`, the language server; a VS Code extension; a usability pass: hints on tsc's errors, `pts help` and `pts version`, `pts test` with `pts:test` and `pts:assert`, fixes for the papercuts that two programs written from scratch found, the guide's tutorial | done (`m7`) |
 
-M7 completes the plan. Planned after it, if the project goes on: M8, performance work (escape analysis, integer inference, unboxed arrays, inline caches for `any`, a precise GC experiment).
+M7 completes the usable prototype, not correctness or production hardening. The owner extended the project to H01–H34: reproduce and correct review findings first, then server/API hardening, verification/tooling, measured performance work and broader TypeScript coverage. H01a records the baseline/consolidation without changing compiler/runtime behavior; H01b's independent defect reproduction is blocked by an upstream content refusal and remains incomplete ([evidence and scope](docs/agent/hardening-evidence/h01.md#blocked-h01b-assignment)).
 
 ## Known gaps
 
@@ -621,7 +621,7 @@ Not built yet:
 
 Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 
-- 33 of the 300 corpus programs still print something other than Node; each file says why (24 use features that aren't built yet, 8 differ by design, 1 is a bug).
+- The 300-program corpus inventory classifies 267 as compatible, 24 as unsupported, 8 as intentional differences and 1 as a bug. H01a verified all 267 compatible cases (262 suite comparisons plus five manual comparisons), but the default suite currently compares only 262: feature detection falsely skips five ordinary programs. The [executed corpus baseline](pts/tests/corpus/REPORT.md) separates these counts; H18 will fix enforcement and execute the other classifications.
 - Overrides must keep the overridden method's parameter types.
 - RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` and character classes match an astral character whole.
 - Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).

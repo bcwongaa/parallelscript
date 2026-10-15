@@ -209,6 +209,7 @@ custom-gcl.hash
 # PTS: ParallelScript additions (see docs/FORK.md)
 .venv/
 __pycache__/
+/.claude/worktrees/
 # Root and PTS build dirs only: upstream tracks sources under internal/execute/build/.
 /build/
 /pts/**/build/

@@ -5,7 +5,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 ## Current state
 
 - **Milestone:** M0–M7 are the completed usable prototype (tags `m0` … `m7`; historical `docs/agent/DONE`). Owner extended the run on 2026-10-14 to the ordered post-M7 correctness/hardening/performance/coverage backlog in `docs/agent/HARDENING_PLAN.md`.
-- **Next task:** H01, independent reproduction and consolidation of all three final reviews, then H02–H34 in order. All implementation/review subagents use **gpt-6.1-sol xhigh**; no other-model fallback. New completion marker: `docs/agent/HARDENING_DONE`.
+- **Current slice:** H01a, fresh baseline and final-review consolidation (D-174). H01b retains the independent defect-reproduction acceptance and is **blocked/unchecked** by the 2026-10-14 upstream content refusal; H01 is not done and H02 has not started. Do not retry/rephrase the refused assignment or switch providers/models. Exact scope, refusal and evidence: `docs/agent/hardening-evidence/h01.md`.
+- **Next task:** H01b (blocked), after the H01a checkpoint is verified and pushed. All implementation/review subagents use **gpt-6.1-sol xhigh**; no other-model fallback. New completion marker: `docs/agent/HARDENING_DONE`.
 - **Fork base:** `typescript/v7.0.2` (see `docs/FORK.md`)
 - **Main is green:** yes, locally (CI: see the CI row below)
 
@@ -152,7 +153,8 @@ Read this first every session, then `docs/MASTER_PLAN.md`, `docs/DECISIONS.md` a
 
 ## Next
 
-1. The plan is done. If the run is extended, M8 (`docs/MASTER_PLAN.md`, "After DONE"): the items below, and `docs/agent/DONE`'s suggested M8.
+1. Complete and verify the H01a baseline/consolidation checkpoint, then hold on blocked H01b. The active order is `docs/agent/HARDENING_PLAN.md`, not the completed M0–M7 plan. H01b must not be ticked or bypassed as though its reproduction acceptance passed. No retry/rephrasing of the content-refused assignment is authorized.
+   Historical M8 backlog below is retained as context for H02–H34, not permission to start another task in this session.
    Papercuts the M7.3c programs found that are left (D-172), for M8 or later: a generic `Result<never, E>` helper returning a subclass of E is PTS1001 (`converting {error: Error; ok: boolean} | {ok: boolean; value: value} …`, a confusing message); `case undefined:` in a switch over `string | undefined` is PTS1001; `(SORT_KEYS as readonly string[]).includes(s)` on an `as const` tuple is PTS1001; `Math.min(...ints)` is PTS1001 and `Math.max(a, b)` of ints is a `number`; `.par.reduce` over Maps points into `ptslib:///parallel.pts`; `.par.sum()`/`max()` type-check on arrays of objects (NaN); `Atomic<number>` is accepted but holds an int; `await` in a `while` condition is PTS1001; checked casts of JSON don't name the field that failed; `pts:fs/promises` errors have no stack and print without code, path and syscall; stack frames in an async `main` are confusing; `structuredClone`, `process.hrtime`, `performance.timeOrigin`, `Map.groupBy`/`Object.groupBy`, Set's `union`/`intersection`, `Intl.NumberFormat` and `toLocaleString`/`localeCompare` with options aren't there; single-threaded, the indexer took about twice Node's time.
    Language-server gaps after M7.2: errors only lowering finds (most PTS1001 "not supported yet") aren't shown; `serverInfo` says typescript-go 7.0.2. The extension's end-to-end suite downloads VS Code 1.141.0 (344 MB) into `~/.cache/pts-vscode-test` once.
    Performance seen in M6, for M8: PCRE2's interpreter is most of the log analyzer's single-thread time (its JIT would close much of the gap with Node); each match slices every capture eagerly; spectral_norm (0.70× Node) rereads and rechecks a module-level `const` in its inner loop (D-021), which clang can't hoist past relaxed-atomic typed-array reads (D-143): emit literal consts that are ready before any function runs as C constants.
@@ -167,7 +169,9 @@ Run from the repo root. Go, Node, Bun and clang are on PATH (see `CLAUDE.md` →
 A fresh clone needs the vendored C libraries: `git submodule update --init pts/third_party` (don't init `_submodules/TypeScript`; it's huge and only upstream's `TestSubmodule` uses it).
 Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); deleting it is always safe.
 
-| What | Command | Baseline (2026-10-12) |
+**H01a fresh baseline (2026-10-15, source `1b13cfd95`):** `GOMAXPROCS=2 go build -p 2 ./...` and `GOMAXPROCS=2 make build` exited 0. With `~/.local/node/bin` first on PATH, `GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/` exited 0: 1,289 pass / 247 skip / 0 fail test events (parents and subtests), 10 tested / 19 no-test packages. Corpus: 262 pass / 38 skip / 0 fail; five separate manual Node comparisons pass, giving 267 verified compatible programs without fixing the default enforcement gap. Counts, commands, per-path outcomes and compressed raw events: `docs/agent/hardening-evidence/h01a-baseline.json`; manual results: `h01a-additional-comparisons.json`. Local upstream/VS Code suites below were not rerun for this docs-only slice; exact-SHA CI is recorded separately.
+
+| What | Command | Historical baseline (2026-10-12; fresh H01a result above) |
 |---|---|---|
 | Build everything | `go build ./...` | ok, about 3 min cold, seconds warm |
 | Front-end upstream tests | `go test ./internal/tspath/... ./internal/module/... ./internal/core/... ./internal/parser/... ./internal/scanner/...` | 5/5 packages ok |
@@ -192,6 +196,8 @@ Built C archives are cached in `~/.cache/pts/` (override with `PTS_CACHE_DIR`); 
 
 ## Known issues
 
+- **H01b content-refusal blocker (2026-10-14; recorded 2026-10-15):** the previous `gpt-reproducer` assignment covering the two compiler panic families, flat/sort wrong results and independent AbortController concurrency was refused upstream. Its unfinished isolated worktree is retained, not parent-verified or integrated. H01a may record the unrelated baseline/consolidation, but H01/H01b remain unchecked; no retry/rephrase/provider switch. See `docs/agent/hardening-evidence/h01.md#blocked-h01b-assignment`.
+- **Green-suite coverage caveat:** both the inherited baseline and fresh H01a suite compared 262 corpus programs and skipped 38, not 267/33; five classified-compatible programs were falsely excluded by raw-text feature detection. Current parent manual Node comparisons also pass all five. H18 still owns detector/enforcement changes and execution of the 33 directive-classified divergences. See `pts/tests/corpus/REPORT.md`.
 - **The server takes a client's half-close as leaving** (D-163): a client that shuts its side down and waits for the answer loses it (HTTP/1.1 clients don't, some tools do). It notices a client that leaves while responses are queued only when writing fails. `serve` from a pool task throws.
 - **fetch's gaps (D-160, D-162):** no `https://`, streamed bodies or `arrayBuffer()`; a chunked body is decoded again on every read (a 60 MB body takes about twice Node's time); listeners are functions only, `capture` is ignored, DOMException takes no options object and prints as `AbortError: …` rather than Node's `DOMException [AbortError]: …`; an abort right after `fetch()` returns can't overtake a failure fetch finds synchronously (a bad port), where Node's abort wins.
 - **Corpus programs skipped** (D-089, D-149): 33 of the 300 in `pts/tests/corpus/` diverge from Node; each says why in its `// skip:` line, starting with its category: 1 is a bug (the next entry), 8 are by design, 24 use features not built yet (functions with properties, tuples at computed indices, recursive tuple and function types, `Function` and constructor values, optional methods, objects used as another representation, `Object.prototype.toString`, …). `pts/tests/corpus/report.sh` lists them.

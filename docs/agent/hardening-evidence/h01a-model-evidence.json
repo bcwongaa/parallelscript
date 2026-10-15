@@ -1,0 +1,39 @@
+{
+  "task": "H01a",
+  "date": "2026-10-15",
+  "source_sha": "1b13cfd954c0f6e62a250ffaab8f79ce0aa7b377",
+  "configured_model": "gpt-6.1-sol",
+  "configured_effort": "xhigh",
+  "configuration_source": "tools/agent/hardening_driver.py (inspected, not edited)",
+  "environment_observed": {
+    "CLAUDE_CODE_EFFORT_LEVEL": "xhigh",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "gpt-6.1-sol"
+  },
+  "assistant_envelopes_at_observation": [
+    {
+      "scope": "parent",
+      "assistant_message_model_counts": {
+        "gpt-6.1-sol": 133
+      }
+    },
+    {
+      "scope": "named gpt-reviewer, H01a documentation checkpoint",
+      "assistant_message_model_counts": {
+        "gpt-6.1-sol": 3
+      }
+    },
+    {
+      "scope": "named gpt-reproducer, H01a read-only corpus evidence audit",
+      "assistant_message_model_counts": {
+        "gpt-6.1-sol": 36
+      }
+    },
+    {
+      "scope": "automatic /code-review child, inherited configured GPT model",
+      "assistant_message_model_counts": {
+        "gpt-6.1-sol": 55
+      }
+    }
+  ],
+  "limits": "Configuration and harness envelope observations only; not a cryptographic/backend attestation of reasoning effort. Named agents use their explicit driver model; the Agent override enum has no GPT value. No provider/model fallback requested."
+}

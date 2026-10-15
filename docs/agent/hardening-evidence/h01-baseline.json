@@ -1,0 +1,37 @@
+{
+  "task": "H01",
+  "source_sha": "a35aff6f81d4e70d60546f0be5bb3fddb1b4dc19",
+  "commands": [
+    "GOMAXPROCS=2 go build -p 2 ./...",
+    "GOMAXPROCS=2 make build",
+    "GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/"
+  ],
+  "build_exit": 0,
+  "cli_build_exit": 0,
+  "suite_exit": 0,
+  "test_events": {"pass": 1289, "skip": 247, "fail": 0},
+  "package_events": {"pass": 10, "skip": 19, "fail": 0},
+  "counts_include_parent_tests_and_subtests": true,
+  "corpus_events": {"pass": 262, "skip": 38, "fail": 0},
+  "false_feature_skips": [
+    "functional/debounce_throttle_clock",
+    "algorithms/lcs_diff",
+    "text/word_search_puzzle",
+    "text/spell_suggest",
+    "oop/memento_game_save"
+  ],
+  "tested_package_elapsed_seconds": {
+    "pts/cgen": 1.898,
+    "pts/diagnostic": 0.004,
+    "pts/check": 1.044,
+    "pts/driver": 0.583,
+    "pts/frontend": 4.574,
+    "pts/lower": 3.694,
+    "pts/lsp": 0.168,
+    "pts/toolchain": 11.997,
+    "cmd/pts": 16.036,
+    "pts/tests": 359.49
+  },
+  "toolchain": {"go": "go1.26.9 linux/amd64", "node": "v24.21.0", "clang": "18.1.3"},
+  "raw_evidence_directory": "/tmp/pts-h01-parent.UekR9H"
+}

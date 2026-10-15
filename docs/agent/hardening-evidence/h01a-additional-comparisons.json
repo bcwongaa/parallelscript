@@ -1,0 +1,246 @@
+{
+  "task": "H01a",
+  "date": "2026-10-15",
+  "source_sha": "1b13cfd954c0f6e62a250ffaab8f79ce0aa7b377",
+  "cli_sha256": "87f441bb449091a02fca46ed5284ca9bbf26cd444c5e17da68bf7e569a606b8f",
+  "comparison_contract": "stdout and exit code; stderr retained, not compared",
+  "results": [
+    {
+      "source": "pts/tests/corpus/functional/debounce_throttle_clock.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/pts/tests/corpus/functional/debounce_throttle_clock.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/0-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/0.mts"
+        ],
+        "exit": 0,
+        "stdout": "t=0 typed p         pending=true queue=1\nt=80 typed pa        pending=true queue=1\nt=150 typed par       pending=true queue=1\nt=210 typed para      pending=true queue=1\nt=700 typed paral     pending=true queue=1\nt=760 typed parall    pending=true queue=1\nt=1200 typed parallel  pending=true queue=1\n[\n  't=510 search(\"para\")',\n  't=1060 search(\"parall\")',\n  't=1500 search(\"parallel\")'\n]\nscroll events: 16, renders: 6\n[\n  { t: 0, y: 0 },\n  { t: 100, y: 180 },\n  { t: 200, y: 360 },\n  { t: 300, y: 540 },\n  { t: 400, y: 780 },\n  { t: 500, y: 900 }\n]\nsaves at: [ 1000, 1050, 1650, 2650 ] pending: 0\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/0-native"
+        ],
+        "exit": 0,
+        "stdout": "t=0 typed p         pending=true queue=1\nt=80 typed pa        pending=true queue=1\nt=150 typed par       pending=true queue=1\nt=210 typed para      pending=true queue=1\nt=700 typed paral     pending=true queue=1\nt=760 typed parall    pending=true queue=1\nt=1200 typed parallel  pending=true queue=1\n[\n  't=510 search(\"para\")',\n  't=1060 search(\"parall\")',\n  't=1500 search(\"parallel\")'\n]\nscroll events: 16, renders: 6\n[\n  { t: 0, y: 0 },\n  { t: 100, y: 180 },\n  { t: 200, y: 360 },\n  { t: 300, y: 540 },\n  { t: 400, y: 780 },\n  { t: 500, y: 900 }\n]\nsaves at: [ 1000, 1050, 1650, 2650 ] pending: 0\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "pts/tests/corpus/algorithms/lcs_diff.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/pts/tests/corpus/algorithms/lcs_diff.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/1-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/1.mts"
+        ],
+        "exit": 0,
+        "stdout": "+ function greet(name: string): string {\n+   const msg = `Hello, ${name}!`;\n- function greet(name) {\n-   const msg = \"Hello, \" + name;\n    console.log(msg);\n    return msg;\n  }\n  greet(\"world\");\n+ greet(\"again\");\nstats: { keep: 4, add: 3, del: 2 }\n\"AGGTAB\" vs \"GXTXAYB\" -> 'GTAB' (similarity 0.615)\n\"kitten\" vs \"sitting\" -> 'ittn' (similarity 0.615)\n\"parallel\" vs \"script\" -> 'r' (similarity 0.143)\n\"\" vs \"abc\" -> '' (similarity 0.000)\n\"typescript\" vs \"javascript\" -> 'script' (similarity 0.600)\ncommon words: 4 of 7\ncase-insensitive LCS length: 5\n[\n  { kind: 'keep', text: 'a' },\n  { kind: 'del', text: 'b' },\n  { kind: 'keep', text: 'c' },\n  { kind: 'add', text: 'd' }\n]\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/1-native"
+        ],
+        "exit": 0,
+        "stdout": "+ function greet(name: string): string {\n+   const msg = `Hello, ${name}!`;\n- function greet(name) {\n-   const msg = \"Hello, \" + name;\n    console.log(msg);\n    return msg;\n  }\n  greet(\"world\");\n+ greet(\"again\");\nstats: { keep: 4, add: 3, del: 2 }\n\"AGGTAB\" vs \"GXTXAYB\" -> 'GTAB' (similarity 0.615)\n\"kitten\" vs \"sitting\" -> 'ittn' (similarity 0.615)\n\"parallel\" vs \"script\" -> 'r' (similarity 0.143)\n\"\" vs \"abc\" -> '' (similarity 0.000)\n\"typescript\" vs \"javascript\" -> 'script' (similarity 0.600)\ncommon words: 4 of 7\ncase-insensitive LCS length: 5\n[\n  { kind: 'keep', text: 'a' },\n  { kind: 'del', text: 'b' },\n  { kind: 'keep', text: 'c' },\n  { kind: 'add', text: 'd' }\n]\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "pts/tests/corpus/text/word_search_puzzle.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/pts/tests/corpus/text/word_search_puzzle.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/2-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/2.mts"
+        ],
+        "exit": 0,
+        "stdout": "placed 14/14 \n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 \u00b7 \u00b7 \u00b7 T H R E A D E \u00b7 E\n 1 \u00b7 \u00b7 H \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 R P U V\n 2 E T E \u00b7 \u00b7 \u00b7 E U A N T I\n 3 N U A \u00b7 \u00b7 G S R I P C T\n 4 U P P \u00b7 A O A O I O S A\n 5 M L \u00b7 B L L N R M \u00b7 T N\n 6 \u00b7 E R C L \u00b7 C P \u00b7 \u00b7 A \u00b7\n 7 \u00b7 A \u00b7 E \u00b7 S I \u00b7 \u00b7 \u00b7 C \u00b7\n 8 G \u00b7 L \u00b7 E L \u00b7 \u00b7 \u00b7 \u00b7 K \u00b7\n 9 \u00b7 \u00b7 \u00b7 P E G E N E R I C\n10 \u00b7 \u00b7 Y R \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7\n11 \u00b7 T \u00b7 \u00b7 \u00b7 B I N A R Y \u00b7\n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 D M F T H R E A D E M E\n 1 D G H U N S C V R P U V\n 2 E T E D J C E U A N T I\n 3 N U A L I G S R I P C T\n 4 U P P E A O A O I O S A\n 5 M L N B L L N R M N T N\n 6 F E R C L R C P I E A S\n 7 I A G E R S I T C J C F\n 8 G T L M E L C I N S K J\n 9 A U L P E G E N E R I C\n10 G L Y R U L S Y G C T V\n11 E T B V L B I N A R Y S\n  TYPESCRIPT  at (11,1) going NE\n  COMPILER    at (3,10) going SW\n  PARALLEL    at (1,9) going SW\n  THREAD      at (0,3) going E\n  GARBAGE     at (8,0) going NE\n  NATIVE      at (5,11) going N\n  BINARY      at (11,5) going E\n  CLOSURE     at (6,3) going NE\n  GENERIC     at (9,5) going E\n  UNION       at (1,10) going SW\n  TUPLE       at (2,1) going S\n  ENUM        at (2,0) going S\n  HEAP        at (1,2) going S\n  STACK       at (4,10) going S\nmissing: []\n{ NE: 3, SW: 3, E: 3, N: 1, S: 4 }\n[\n  [ 'E', 15 ],\n  [ 'L', 11 ],\n  [ 'R', 10 ],\n  [ 'A', 10 ],\n  [ 'N', 10 ],\n  [ 'C', 10 ]\n]\n[ '0.601104', '0.448291', '0.852466', '0.669734', '0.174814' ]\n{ word: 'TYPESCRIPT', row: 11, col: 1, dir: 'NE' }\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/2-native"
+        ],
+        "exit": 0,
+        "stdout": "placed 14/14 \n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 \u00b7 \u00b7 \u00b7 T H R E A D E \u00b7 E\n 1 \u00b7 \u00b7 H \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 R P U V\n 2 E T E \u00b7 \u00b7 \u00b7 E U A N T I\n 3 N U A \u00b7 \u00b7 G S R I P C T\n 4 U P P \u00b7 A O A O I O S A\n 5 M L \u00b7 B L L N R M \u00b7 T N\n 6 \u00b7 E R C L \u00b7 C P \u00b7 \u00b7 A \u00b7\n 7 \u00b7 A \u00b7 E \u00b7 S I \u00b7 \u00b7 \u00b7 C \u00b7\n 8 G \u00b7 L \u00b7 E L \u00b7 \u00b7 \u00b7 \u00b7 K \u00b7\n 9 \u00b7 \u00b7 \u00b7 P E G E N E R I C\n10 \u00b7 \u00b7 Y R \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 \u00b7\n11 \u00b7 T \u00b7 \u00b7 \u00b7 B I N A R Y \u00b7\n   0 1 2 3 4 5 6 7 8 9 0 1\n 0 D M F T H R E A D E M E\n 1 D G H U N S C V R P U V\n 2 E T E D J C E U A N T I\n 3 N U A L I G S R I P C T\n 4 U P P E A O A O I O S A\n 5 M L N B L L N R M N T N\n 6 F E R C L R C P I E A S\n 7 I A G E R S I T C J C F\n 8 G T L M E L C I N S K J\n 9 A U L P E G E N E R I C\n10 G L Y R U L S Y G C T V\n11 E T B V L B I N A R Y S\n  TYPESCRIPT  at (11,1) going NE\n  COMPILER    at (3,10) going SW\n  PARALLEL    at (1,9) going SW\n  THREAD      at (0,3) going E\n  GARBAGE     at (8,0) going NE\n  NATIVE      at (5,11) going N\n  BINARY      at (11,5) going E\n  CLOSURE     at (6,3) going NE\n  GENERIC     at (9,5) going E\n  UNION       at (1,10) going SW\n  TUPLE       at (2,1) going S\n  ENUM        at (2,0) going S\n  HEAP        at (1,2) going S\n  STACK       at (4,10) going S\nmissing: []\n{ NE: 3, SW: 3, E: 3, N: 1, S: 4 }\n[\n  [ 'E', 15 ],\n  [ 'L', 11 ],\n  [ 'R', 10 ],\n  [ 'A', 10 ],\n  [ 'N', 10 ],\n  [ 'C', 10 ]\n]\n[ '0.601104', '0.448291', '0.852466', '0.669734', '0.174814' ]\n{ word: 'TYPESCRIPT', row: 11, col: 1, dir: 'NE' }\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "pts/tests/corpus/text/spell_suggest.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/pts/tests/corpus/text/spell_suggest.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/3-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/3.mts"
+        ],
+        "exit": 0,
+        "stdout": "dictionary size: 117\nkitten   sitting  lev=3 dam=3\nflaw     lawn     lev=2 dam=2\nca       abc      lev=3 dam=3\nrecieve  receive  lev=2 dam=1\n         abc      lev=3 dam=3\nsame     same     lev=0 dam=0\nteh         -> the(1), to(2), he(2)\nrecieve     -> receive(1), believe(2)\nseperate    -> separate(1)\ndefinately  -> definitely(1)\nlangauge    -> language(1)\ncomplier    -> compiler(1)\ngarbge      -> garbage(1)\nthred       -> thread(1), the(2), they(2)\nxyzzy       -> no suggestions\nThe         ok\n[\n  { word: 'the', distance: 2, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  { word: 'he', distance: 2, frequency: 991 },\n  { word: 'they', distance: 2, frequency: 983 },\n  { word: 'be', distance: 2, frequency: 981 }\n]\n[\n  { word: 'the', distance: 1, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  { word: 'he', distance: 2, frequency: 991 },\n  { word: 'they', distance: 2, frequency: 983 },\n  { word: 'be', distance: 2, frequency: 981 }\n]\nthe compiler will receive as parallel script and it native binary\n[\n  [ 'teh', 'the' ],\n  [ 'wil', 'will' ],\n  [ 'recieve', 'receive' ],\n  [ 'a', 'as' ],\n  [ 'paralel', 'parallel' ],\n  [ 'scrpt', 'script' ],\n  [ 'adn', 'and' ],\n  [ 'emit', 'it' ],\n  [ 'bianry', 'binary' ]\n]\nSet(6) { 3, 4, 7, 2, 8, 6 }\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/3-native"
+        ],
+        "exit": 0,
+        "stdout": "dictionary size: 117\nkitten   sitting  lev=3 dam=3\nflaw     lawn     lev=2 dam=2\nca       abc      lev=3 dam=3\nrecieve  receive  lev=2 dam=1\n         abc      lev=3 dam=3\nsame     same     lev=0 dam=0\nteh         -> the(1), to(2), he(2)\nrecieve     -> receive(1), believe(2)\nseperate    -> separate(1)\ndefinately  -> definitely(1)\nlangauge    -> language(1)\ncomplier    -> compiler(1)\ngarbge      -> garbage(1)\nthred       -> thread(1), the(2), they(2)\nxyzzy       -> no suggestions\nThe         ok\n[\n  { word: 'the', distance: 2, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  { word: 'he', distance: 2, frequency: 991 },\n  { word: 'they', distance: 2, frequency: 983 },\n  { word: 'be', distance: 2, frequency: 981 }\n]\n[\n  { word: 'the', distance: 1, frequency: 1000 },\n  { word: 'to', distance: 2, frequency: 997 },\n  { word: 'he', distance: 2, frequency: 991 },\n  { word: 'they', distance: 2, frequency: 983 },\n  { word: 'be', distance: 2, frequency: 981 }\n]\nthe compiler will receive as parallel script and it native binary\n[\n  [ 'teh', 'the' ],\n  [ 'wil', 'will' ],\n  [ 'recieve', 'receive' ],\n  [ 'a', 'as' ],\n  [ 'paralel', 'parallel' ],\n  [ 'scrpt', 'script' ],\n  [ 'adn', 'and' ],\n  [ 'emit', 'it' ],\n  [ 'bianry', 'binary' ]\n]\nSet(6) { 3, 4, 7, 2, 8, 6 }\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "pts/tests/corpus/oop/memento_game_save.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/pts/tests/corpus/oop/memento_game_save.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/4-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/4.mts"
+        ],
+        "exit": 0,
+        "stdout": "turn 0: explore        Rin L1 xp=0 hp=100 str=8 at (3,1) inv=potionx2,keyx1\nturn 1: fight goblins  Rin L2 xp=30 hp=75 str=10 at (3,1) inv=potionx2,keyx1\nturn 2: heal           Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nturn 3: enter dungeon  Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\n  (autosave slot full, dropped \"explore\")\nturn 4: fight dragon   Rin L2 xp=30 hp=0 str=10 at (3,6) inv=potionx1\n  hero fell!\nslots: [ 'fight goblins@1', 'heal@2', 'enter dungeon@3' ]\nrestored enter dungeon -> Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\nrolled back to heal -> Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nundefined true\ntrue 118 [ [ 'potion', 1 ], [ 'key', 1 ] ]\nCharacter {\n  name: 'Rin',\n  stats: { hp: 100, mp: 30, str: 10, int: 13 },\n  inventory: Map(2) { 'potion' => 1, 'key' => 1 },\n  level: 2,\n  xp: 30,\n  position: [ 3, 1 ]\n}\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/4-native"
+        ],
+        "exit": 0,
+        "stdout": "turn 0: explore        Rin L1 xp=0 hp=100 str=8 at (3,1) inv=potionx2,keyx1\nturn 1: fight goblins  Rin L2 xp=30 hp=75 str=10 at (3,1) inv=potionx2,keyx1\nturn 2: heal           Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nturn 3: enter dungeon  Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\n  (autosave slot full, dropped \"explore\")\nturn 4: fight dragon   Rin L2 xp=30 hp=0 str=10 at (3,6) inv=potionx1\n  hero fell!\nslots: [ 'fight goblins@1', 'heal@2', 'enter dungeon@3' ]\nrestored enter dungeon -> Rin L2 xp=30 hp=100 str=10 at (3,6) inv=potionx1\nrolled back to heal -> Rin L2 xp=30 hp=100 str=10 at (3,1) inv=potionx1,keyx1\nundefined true\ntrue 118 [ [ 'potion', 1 ], [ 'key', 1 ] ]\nCharacter {\n  name: 'Rin',\n  stats: { hp: 100, mp: 30, str: 10, int: 13 },\n  inventory: Map(2) { 'potion' => 1, 'key' => 1 },\n  level: 2,\n  xp: 30,\n  position: [ 3, 1 ]\n}\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "docs/agent/hardening-evidence/probes/h01/setimmediate-call.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/docs/agent/hardening-evidence/probes/h01/setimmediate-call.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/5-native"
+        ],
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/5.mts"
+        ],
+        "exit": 0,
+        "stdout": "immediate\n",
+        "stderr": ""
+      },
+      "pts": {
+        "command": [
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/5-native"
+        ],
+        "exit": 0,
+        "stdout": "immediate\n",
+        "stderr": ""
+      },
+      "same": true
+    },
+    {
+      "source": "docs/agent/hardening-evidence/probes/h01/setimmediate.pts",
+      "build": {
+        "command": [
+          "/home/bryan/projects/parallelscript/pts-bin/pts",
+          "build",
+          "/home/bryan/projects/parallelscript/docs/agent/hardening-evidence/probes/h01/setimmediate.pts",
+          "-o",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/6-native"
+        ],
+        "exit": 1,
+        "stdout": "",
+        "stderr": "docs/agent/hardening-evidence/probes/h01/setimmediate.pts:4:20 - error PTS1001: the global `setImmediate` is not supported yet\n"
+      },
+      "node": {
+        "command": [
+          "/home/bryan/.local/node/bin/node",
+          "--no-warnings",
+          "--experimental-transform-types",
+          "/tmp/pts-h01a-parent.sLIaSD/comparisons-_u58bc2x/6.mts"
+        ],
+        "exit": 0,
+        "stdout": "function\nimmediate\n",
+        "stderr": ""
+      },
+      "same": false
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "source": "docs/agent/hardening-evidence/probes/h01/setimmediate-call.pts",
+  "build": {
+    "command": [
+      "/home/bryan/projects/parallelscript/pts-bin/pts",
+      "build",
+      "/home/bryan/projects/parallelscript/docs/agent/hardening-evidence/probes/h01/setimmediate-call.pts",
+      "-o",
+      "/tmp/pts-h01-parent.UekR9H/immediate-call-ou0idaot/call"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "node": {
+    "command": [
+      "node",
+      "--no-warnings",
+      "--experimental-transform-types",
+      "/tmp/pts-h01-parent.UekR9H/immediate-call-ou0idaot/call.mts"
+    ],
+    "exit": 0,
+    "stdout": "immediate\n",
+    "stderr": ""
+  },
+  "pts": {
+    "command": [
+      "/tmp/pts-h01-parent.UekR9H/immediate-call-ou0idaot/call"
+    ],
+    "exit": 0,
+    "stdout": "immediate\n",
+    "stderr": ""
+  },
+  "same": true
+}

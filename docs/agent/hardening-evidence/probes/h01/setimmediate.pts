@@ -1,0 +1,5 @@
+// expect:
+// function
+// immediate
+console.log(typeof setImmediate);
+setImmediate(() => console.log("immediate"));

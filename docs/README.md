@@ -20,7 +20,11 @@ Every document in the project, one line each. Paths are from the repo root.
 
 ## Plan and status
 
-- [docs/MASTER_PLAN.md](MASTER_PLAN.md): the ordered task list, milestones M0 to M7, each task ticked with its commit hash, and the milestone checklist.
+- [docs/MASTER_PLAN.md](MASTER_PLAN.md): the historical M0–M7 task list, each task ticked with its commit hash, and the milestone checklist.
+- [docs/agent/HARDENING_PLAN.md](agent/HARDENING_PLAN.md): the active ordered post-M7 phase, H01–H34; GPT-only reproduction, independent review and exact-SHA CI gates.
+- [docs/reviews/2026-10-13-final/CONSOLIDATED.md](reviews/2026-10-13-final/CONSOLIDATED.md): deduplicated review findings, independent verification/resolution status, repro paths, acceptance and hardening task IDs.
+- [docs/agent/hardening-evidence/h01.md](agent/hardening-evidence/h01.md): fresh H01a baseline, retained unsupported-value diagnostic and H01b's blocked reproduction scope.
+- [pts/tests/corpus/REPORT.md](../pts/tests/corpus/REPORT.md): classified corpus inventory versus comparisons actually executed in H01a.
 - [PROGRESS.md](../PROGRESS.md): the current state: milestone and next task, what's done, build and test commands with their baselines, known issues, needs from the owner and the session log.
 - [docs/BRIEF.md](BRIEF.md): the owner's original mission brief: the pitch, the locked design decisions (§2), the tie-breakers (§3), testing, benchmarks and milestones. The source of truth behind the spec.
 - [docs/UPSTREAM_README.md](UPSTREAM_README.md): TypeScript 7's README from typescript-go, kept as it was upstream.
