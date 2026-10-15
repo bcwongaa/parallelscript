@@ -579,7 +579,8 @@ void pts_call_setter(pts_function setter, pts_field_kind kind, pts_object *objec
 #undef SET
 }
 
-static void object_set(pts_object *object, pts_value key, pts_value value) {
+/* Writes a field or calls a setter; returns the value stored or passed, a copy if converting made one. */
+static pts_value object_set(pts_object *object, pts_value key, pts_value value) {
   const pts_type *type = object->type;
   char buffer[MAX_KEY];
   const char *name = key_text(key, buffer);
@@ -588,14 +589,16 @@ static void object_set(pts_object *object, pts_value key, pts_value value) {
     if (type->frozen) {
       pts_throw_frozen_field(object, name); /* D-157; a frozen object's setters still run */
     }
-    pts_store_value_in_slot(field->kind, (char *)object + field->offset, pts_storable(field->kind, field->check, value, name, type));
-    return;
+    pts_value stored = pts_storable(field->kind, field->check, value, name, type);
+    pts_store_value_in_slot(field->kind, (char *)object + field->offset, stored);
+    return stored;
   }
   int64_t setter = method_named(type, name, PTS_SETTER);
   if (setter >= 0) {
     pts_field_kind kind = type->methods[setter].result;
-    pts_call_setter(type->methods[setter].function, kind, object, pts_storable(kind, type->methods[setter].check, value, name, type));
-    return;
+    pts_value passed = pts_storable(kind, type->methods[setter].check, value, name, type);
+    pts_call_setter(type->methods[setter].function, kind, object, passed);
+    return passed;
   }
   if (method_named(type, name, PTS_GETTER) >= 0) {
     pts_throw_new(&pts_type_builtin_TypeError, "Cannot set property %s of #<%s> which has only a getter", name, type->name);
@@ -632,10 +635,11 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     if (array->type->frozen) {
       pts_throw_frozen_element(array, index);
     }
+    pts_value stored = pts_storable(kind, array->type->check, value, key_text(key, buffer), array->type);
     uint64_t element = 0;
-    pts_store_value_in_slot(kind, &element, pts_storable(kind, array->type->check, value, key_text(key, buffer), array->type));
+    pts_store_value_in_slot(kind, &element, stored);
     pts_array_set(array, index, &element);
-    return value;
+    return stored;
   }
   case PTS_KIND_RECORD: {
     pts_map *record = (pts_map *)target;
@@ -647,12 +651,11 @@ pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value) {
     uint64_t entry = 0;
     pts_store_value_in_slot(record->type->element, &entry, stored);
     pts_map_set(record, &name, &entry);
-    return value;
+    return stored;
   }
   case PTS_KIND_OBJECT:
   case PTS_KIND_TUPLE:
-    object_set(target, key, value);
-    return value;
+    return object_set(target, key, value);
   case PTS_KIND_TYPED_ARRAY:
     if (!array_index(key, &index)) {
       pts_throw_new(&pts_type_builtin_TypeError, "Cannot add property %s, object is not extensible", key_text(key, buffer));

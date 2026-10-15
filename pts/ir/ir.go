@@ -1171,7 +1171,8 @@ var (
 	// ValueLooseEquals is == on boxed values, with JS's conversions (D-067).
 	ValueLooseEquals = &Builtin{Name: "==", Params: []Type{Value, Value}, Result: Bool}
 	// DynamicGet and DynamicSet read and write the property (or element) a key names of a
-	// dynamic value, found at run time (D-070); DynamicSet's value is the value written.
+	// dynamic value, found at run time (D-070); DynamicSet's value is the value written,
+	// as stored: a checked copy where converting made one (D-176).
 	DynamicGet = &Builtin{Name: "get", Params: []Type{Value, Value}, Result: Value}
 	DynamicSet = &Builtin{Name: "set", Params: []Type{Value, Value, Value}, Result: Value}
 	DynamicHas = &Builtin{Name: "in", Params: []Type{Value, Value}, Result: Bool}

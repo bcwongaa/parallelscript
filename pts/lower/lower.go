@@ -2788,11 +2788,12 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	if !ok {
 		return nil
 	}
-	if target.key != nil && (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) {
-		return l.recordElementOrSet(target, expr.Right, operator == ast.KindQuestionQuestionToken)
+	if target.key != nil && !target.dynamic && (operator == ast.KindBarBarToken || operator == ast.KindQuestionQuestionToken) {
+		return l.recordElementOrSet(node, target, expr.Right, operator == ast.KindQuestionQuestionToken)
 	}
 	if operator == ast.KindQuestionQuestionToken {
-		return l.readAndStore(target, func(target place) ir.Expr { return l.nullishAssignment(target, expr.Right) })
+		x := l.readAndStore(target, func(target place) ir.Expr { return l.nullishAssignment(target, expr.Right) })
+		return l.logicalAssignmentValue(target, x, node)
 	}
 	return l.readAndStore(target, func(target place) ir.Expr {
 		current, t := l.narrowed(expr.Left, target.read()), target.valueType()
@@ -2807,7 +2808,15 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 			if value = l.convert(value, t, expr.Right); value == nil {
 				return nil
 			}
-			return &ir.Logical{Op: op, X: current, Y: target.store(value, false)}
+			stored := target.store(value, false)
+			if stored.Type() != current.Type() { // a read tsc narrowed: a dynamic place's, a loose local's
+				if _, kept := l.keptCurrent[node]; isDiscarded(node) && !kept {
+					current = target.read() // nothing uses the value, so nothing checks what was stored
+				} else if stored = l.checkedConversion(stored, current.Type(), expr.Right); stored == nil {
+					return nil
+				}
+			}
+			return l.logicalAssignmentValue(target, &ir.Logical{Op: op, X: current, Y: stored}, node)
 		}
 		var value ir.Expr
 		switch op, ok := binaryOps[operator]; {
@@ -2847,7 +2856,7 @@ type place struct {
 	accessors   property
 	current     *ir.Local // an accessor property's value, or a property's through an interface, read once by readAndStore
 	stored      *ir.Local // the value stored in an accessor property, which is the assignment's value
-	at          *ast.Node // the assignment's target, for an accessor property
+	at          *ast.Node // the assignment's target, for an accessor property or an entry of a hash-map object
 	dynamic     bool      // a property of a dynamic value (any), whose key is key (D-070)
 	l           *lowerer
 }
@@ -2887,7 +2896,7 @@ func (p place) read() ir.Expr {
 	case p.dynamic:
 		return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{p.object, p.key}}
 	case p.key != nil:
-		return &ir.MapCall{Op: ir.MapGetChecked, Args: []ir.Expr{p.object, p.key}, Map: p.object.Type().(*ir.MapType)}
+		return p.l.recordEntry(p.object, p.key, p.at)
 	}
 	return &ir.FieldRef{X: p.object, Field: p.field}
 }
@@ -3019,12 +3028,12 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 		if l.isRecordElement(node) {
 			record, key := l.recordElementOperands(node)
-			return place{object: record, key: key}, record != nil
+			return place{object: record, key: key, at: node, l: l}, record != nil
 		}
 	case ast.KindPropertyAccessExpression:
 		if l.isRecordElement(node) {
 			record, key := l.recordElementOperands(node)
-			return place{object: record, key: key}, record != nil
+			return place{object: record, key: key, at: node, l: l}, record != nil
 		}
 		if l.isArrayExpression(node.Expression()) && node.AsPropertyAccessExpression().Name().Text() == "length" {
 			array := l.arrayObject(node)

@@ -1,0 +1,1199 @@
+{
+ "task": "H01b",
+ "date": "2026-10-15",
+ "source_sha": "389baf63dc1d8eaee930facc8c079996f3e14bb3",
+ "cli": "/home/bryan/projects/parallelscript/pts-bin/pts",
+ "cli_sha256": "8ac15c2d3e6caf1444ad5b9cc7ddb87c7d9a2b647000c18916d745de565ae0f1",
+ "tools": {
+  "go": "go version go1.26.9 linux/amd64",
+  "node": "v24.21.0",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+ },
+ "comparison_contract": "stdout and exit code; stderr retained, not compared",
+ "results": [
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-dynamic-and-assign.pts",
+   "probe_sha256": "98bf72a729e6616e8db0515e910e1d5820efa0b34507d8fc8c842321e431038b",
+   "row": "C01",
+   "kind": "control",
+   "description": "`&&=` and `+=` on the same erased-record and `any` targets that `??=` / `||=` panic on",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `5 0 { one: 5, zero: 0 }` and `{ count: 6 }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-dynamic-and-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-dynamic-and-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-dynamic-and-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "5 0 { one: 5, zero: 0 }\n{ count: 6 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-dynamic-and-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "5 0 { one: 5, zero: 0 }\n{ count: 6 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-concrete-record.pts",
+   "probe_sha256": "79823a8825b2418999a93876f96efe37e498168300895eb6c74d71644df4e4f4",
+   "row": "C01",
+   "kind": "control",
+   "description": "`??=` inside a generic arrow on a record whose type does not mention the type parameter",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-concrete-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-concrete-record-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-concrete-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-arrow-concrete-record-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-plain-assign.pts",
+   "probe_sha256": "8b27b6fb7878d587b13c0254b1072b8a83790d105c17b9841f54be55ee6a0060",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same grouping in a generic arrow written with `=== undefined` and plain `=` instead of `??=`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-plain-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-plain-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-plain-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-arrow-plain-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-read-fallback.pts",
+   "probe_sha256": "f986ee89fa838d9286fea613bef429ab69b1cf6ee6b0e8b4e1b95f57be033afa",
+   "row": "C01",
+   "kind": "control",
+   "description": "reading `record[key] ?? []` / `record[key] || []` (no assignment) inside generic arrows",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `2 0 2 0`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-read-fallback.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-read-fallback-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-arrow-read-fallback.mts"
+    ],
+    "exit": 0,
+    "stdout": "2 0 2 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-arrow-read-fallback-native"
+        ],
+        "exit": 0,
+        "stdout": "2 0 2 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-class-record.pts",
+   "probe_sha256": "e3aac12551526f272e988ebd092c7d1c6836124da321c733becefaf778bf00f0",
+   "row": "C01",
+   "kind": "control",
+   "description": "`??=` / `||=` on a `Record<string, T[]>` field of a generic class whose methods are not generic",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 3 ], b: [ 2 ] }` and `{ x: [ 'p', 'r' ], y: [ 'q' ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-class-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-class-record-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-class-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n{ x: [ 'p', 'r' ], y: [ 'q' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-class-record-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n{ x: [ 'p', 'r' ], y: [ 'q' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-function.pts",
+   "probe_sha256": "152ca8b4cbb3848666c1c08713aea04c33f88ec80deb0dea4cb39304d355f5f4",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same `??=` / `||=` record idiom in generic function declarations",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` and `{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-function.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-function-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-function.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-function-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-method.pts",
+   "probe_sha256": "e4967c4fa7e31f9aaf7b6d058bbc9dcb2f1a0f3b8b1862a5bdbd04f1379a9ffd",
+   "row": "C01",
+   "kind": "control",
+   "description": "the `??=` record idiom in a generic method of a non-generic class (monomorphized per call)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-method.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-generic-method-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-generic-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-generic-method-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric-eval-order.pts",
+   "probe_sha256": "48bf3810e213397e3a7cf1b9e5ef32c126f01eed5d6d7405c2c7fb8e39cc8a82",
+   "row": "C01",
+   "kind": "control",
+   "description": "non-generic `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric-eval-order.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-nongeneric-eval-order-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-nongeneric-eval-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-nongeneric-eval-order-native"
+        ],
+        "exit": 0,
+        "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric.pts",
+   "probe_sha256": "63b97af292ce5ffb97b6ed5dc2a8c909a4bbdb5df09ab1d20224fe7b98f0ea01",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same `??=` / `||=` record idiom in non-generic arrows and a non-generic class",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` twice, then `{ a: [ 1, 3 ], b: [ 2 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-control-nongeneric-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-control-nongeneric.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ a: [ 1, 3 ], b: [ 2 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c01-control-nongeneric-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ a: [ 1, 3 ], b: [ 2 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-any-element-or-assign.pts",
+   "probe_sha256": "6259b9c29637c49d09b1adbb3404be42956545c9379a291337c3c742ed20d835",
+   "row": "C01",
+   "kind": "red",
+   "description": "`box[key] ||= 5` with a computed key on a plain `any` object (no generics)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ count: 5 }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-any-element-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-any-element-or-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x1d3b5d7ed688, {0x1621cc0, 0x1d3b5e9375b8}, {0x1621cc0, 0x1d3b5e9375d0}, 0x0, {0x1621b40, 0x1fb8a00}, 0x1d3b5d2c81c8, 0x1d3b5d5e7170)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x1d3b5e9375b8}, {0x0, 0x0}, {0x1621cc0, 0x1d3b5e9375d0}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x1d3b5d7ed688, {0x0, {0x1621cc0, 0x1d3b5e9375b8}, {0x0, 0x0}, {0x1621cc0, 0x1d3b5e9375d0}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x1d3b5d7ed688, 0x1d3b5d2a2c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x1d3b5d7ed688, 0x1d3b5d2a2c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x1d3b5d7ed688, 0x1d3b5d2a2c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x1d3b5d7ed688, 0x1d3b5d2a2c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).statement(0x1d3b5d7ed688, 0x1d3b5d2de180)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:399 +0x225\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).block(0x1d3b5d7ed688, 0x1d3b5d5e7a18?, {0x1d3b5d2a61e0, 0x4, 0x4})\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:379 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.Program({0x1626840?, 0x201b4e0?}, 0x1d3b5d5ed020, 0x1d3b5e944540)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:194 +0x1756\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x1626840, 0x201b4e0}, {0x1d3b5d27e230?, 0x6e?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:35 +0x152\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x1626840, 0x201b4e0}, {0x1d3b5d27e230?, 0x3?}, {0x7ffeedaea652, 0x3c})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x1d3b5d37fef8, {0x1626840, 0x201b4e0}, {0x1d3b5d21a070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x1d3b5d5e7ef8, {0x1626840, 0x201b4e0}, {0x1d3b5d21a060?, 0x1d3b5d23a008?, 0x1d3b5d1fa1e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-any-element-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ count: 5 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-any-property-nullish-assign.pts",
+   "probe_sha256": "6b591f94d79fd499ac31289bdd7f9922183cb89113540f72ae98f5e967449f75",
+   "row": "C01",
+   "kind": "red",
+   "description": "`box.list ??= []` and `box.name ||= \"x\"` on a plain `any` object (no generics)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ list: [ 1 ], name: 'x' }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-any-property-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-any-property-nullish-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0xcd0e4b52008, {0x1621cc0, 0xcd0e5cff1c0}, {0x1621cc0, 0xcd0e5cff1d0}, 0x1, {0x1621b40, 0x1fb8a00}, 0xcd0e47d6000, 0xcd0e457b170)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0xcd0e5cff1c0}, {0x0, 0x0}, {0x1621cc0, 0xcd0e5cff1d0}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0xcd0e4b52008, {0x0, {0x1621cc0, 0xcd0e5cff1c0}, {0x0, 0x0}, {0x1621cc0, 0xcd0e5cff1d0}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0xcd0e4b52008, 0xcd0e4786c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0xcd0e4b52008, 0xcd0e4786c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0xcd0e4b52008, 0xcd0e4786c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0xcd0e4b52008, 0xcd0e4786c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).statement(0xcd0e4b52008, 0xcd0e47c6180)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:399 +0x225\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).block(0xcd0e4b52008, 0xcd0e457ba18?, {0xcd0e47885a0, 0x5, 0x5})\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:379 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.Program({0x1626840?, 0x201b4e0?}, 0xcd0e4caabd0, 0xcd0e5c8ee10)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:194 +0x1756\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x1626840, 0x201b4e0}, {0xcd0e45bff00?, 0x74?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:35 +0x152\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x1626840, 0x201b4e0}, {0xcd0e45bff00?, 0x3?}, {0x7fff4f99064c, 0x42})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0xcd0e4719ef8, {0x1626840, 0x201b4e0}, {0xcd0e4562070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0xcd0e457bef8, {0x1626840, 0x201b4e0}, {0xcd0e4562060?, 0xcd0e4582008?, 0xcd0e45421e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-any-property-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ list: [ 1 ], name: 'x' }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-eval-order.pts",
+   "probe_sha256": "76df357557765dea75fcec918704c02d287089704d6ca0b5f10eed4a62157abc",
+   "row": "C01",
+   "kind": "red",
+   "description": "in a generic arrow, `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-eval-order.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-eval-order-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x4ee343fdb08, {0x1621cc0, 0x4ee32f83ad8}, {0x1621cc0, 0x4ee32f83b08}, 0x1, {0x1621b40, 0x1fb8a00}, 0x4ee32ff0120, 0x4ee334826c8)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x4ee32f83ad8}, {0x0, 0x0}, {0x1621cc0, 0x4ee32f83b08}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x4ee343fdb08, {0x0, {0x1621cc0, 0x4ee32f83ad8}, {0x0, 0x0}, {0x1621cc0, 0x4ee32f83b08}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x4ee343fdb08, 0x4ee32f9ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x4ee343fdb08, 0x4ee32f9ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x4ee343fdb08, 0x4ee32f9ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x4ee343fdb08, 0x4ee32f9ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x4ee343fdb08, 0x4ee32fe0070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x4ee343fdb08, 0x4ee32fe0070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x4ee343fdb08, 0x4ee32ff2008, 0x4ee32fee058)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x4ee343fdb08, 0x4ee32ff2008)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x4ee343fdb08, 0x4ee32ff2008)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (85 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-eval-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-falsy-values.pts",
+   "probe_sha256": "52c902f54364789b84f3ccd0facf6ebac305cc4d436b3be570a7371c4af32526",
+   "row": "C01",
+   "kind": "red",
+   "description": "in a generic arrow, `??=` keeps an existing falsy entry (0, \"\") and `||=` replaces it",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `0 6 7 { zero: 6, fresh: 7 }` and `\"\" b { empty: 'b' }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-falsy-values.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-falsy-values-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x154c0d752d88, {0x1621cc0, 0x154c0db9ca28}, {0x1621cc0, 0x154c0db9ca40}, 0x1, {0x1621b40, 0x1fb8a00}, 0x154c0cdc8438, 0x154c0ce58ad8)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x154c0db9ca28}, {0x0, 0x0}, {0x1621cc0, 0x154c0db9ca40}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x154c0d752d88, {0x0, {0x1621cc0, 0x154c0db9ca28}, {0x0, 0x0}, {0x1621cc0, 0x154c0db9ca40}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x154c0d752d88, 0x154c0cd86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x154c0d752d88, 0x154c0cd86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x154c0d752d88, 0x154c0cd86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x154c0d752d88, 0x154c0cd86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x154c0d752d88, 0x154c0cdd2070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x154c0d752d88, 0x154c0cdd2070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).functionExpressionBody(0x154c0d752d88, 0x154c0ce592c8?)\n\t/home/bryan/projects/parallelscript/pts/lower/closures.go:299 +0xae\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).functionExpression.func2()\n\t/home/bryan/projects/parallelscript/pts/lower/closures.go:163 +0x25\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).inFunction(0x154c0d752d88, 0x154c0e3a3b20, 0x154c0ce59480)\n\t/home/bryan/projects/parallelscript/pts/lower/classes.go:757 +0x115\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).functionExpression(0x154c0d752d88, 0x154c0cdd80b0)\n\t/home/bryan/projects/parallelscript/pts/lower/closures.go:163 +0x8f3\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x154c0d752d88, 0x154c0cdd80b0)\n\u2026 (69 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-falsy-values.mts"
+    ],
+    "exit": 0,
+    "stdout": "0 6 7 { zero: 6, fresh: 7 }\n\"\" b { empty: 'b' }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-keyed-record.pts",
+   "probe_sha256": "ca2d0ad0d9e3bceb3a4171ee66248c878c479c9047c1800bd2885b2ef83785ba",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(out[key] ||= []).push(i)` on a `Record<K, number[]>` with `K extends string` in a generic arrow",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-keyed-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-keyed-record-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x81cd1fd688, {0x1621cc0, 0x81cbda3bf8}, {0x1621cc0, 0x81cbda3c00}, 0x0, {0x1621b40, 0x1fb8a00}, 0x81cbde6050, 0x81cd36fd98)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x81cbda3bf8}, {0x0, 0x0}, {0x1621cc0, 0x81cbda3c00}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x81cd1fd688, {0x0, {0x1621cc0, 0x81cbda3bf8}, {0x0, 0x0}, {0x1621cc0, 0x81cbda3c00}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x81cd1fd688, 0x81cbd96c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x81cd1fd688, 0x81cbd96c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x81cd1fd688, 0x81cbd96c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x81cd1fd688, 0x81cbd96c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x81cd1fd688, 0x81cbde2070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x81cd1fd688, 0x81cbde2070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x81cd1fd688, 0x81cbdbc240, 0x81cbdea058)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x81cd1fd688, 0x81cbdbc240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x81cd1fd688, 0x81cbdbc240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (123 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-keyed-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-nullish-assign.pts",
+   "probe_sha256": "b578440d488650c25576844f49204f90221e033e2ae5bb983bde16a8a7355c89",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ??= []).push(x)` inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-nullish-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x1fa0ac032008, {0x1621cc0, 0x1fa0acc07d48}, {0x1621cc0, 0x1fa0acc07d68}, 0x1, {0x1621b40, 0x1fb8a00}, 0x1fa0ab85c050, 0x1fa0ac05e2b0)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x1fa0acc07d48}, {0x0, 0x0}, {0x1621cc0, 0x1fa0acc07d68}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x1fa0ac032008, {0x0, {0x1621cc0, 0x1fa0acc07d48}, {0x0, 0x0}, {0x1621cc0, 0x1fa0acc07d68}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x1fa0ac032008, 0x1fa0ab806c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x1fa0ac032008, 0x1fa0ab806c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x1fa0ac032008, 0x1fa0ab806c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x1fa0ac032008, 0x1fa0ab806c30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x1fa0ac032008, 0x1fa0ab854070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x1fa0ac032008, 0x1fa0ab854070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x1fa0ac032008, 0x1fa0ab82c1e0, 0x1fa0ab8600b0)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x1fa0ac032008, 0x1fa0ab82c1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x1fa0ac032008, 0x1fa0ab82c1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (95 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-or-assign.pts",
+   "probe_sha256": "ae8435cf1a4fe25b8d7c90051f8790040aace2f28faf58fb9fa937924ad0356b",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ||= []).push(x)` inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-or-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x14b660b58d88, {0x1621cc0, 0x14b660ee8c08}, {0x1621cc0, 0x14b660ee8c38}, 0x0, {0x1621b40, 0x1fb8a00}, 0x14b66004c0a0, 0x14b6600642b0)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x14b660ee8c08}, {0x0, 0x0}, {0x1621cc0, 0x14b660ee8c38}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x14b660b58d88, {0x0, {0x1621cc0, 0x14b660ee8c08}, {0x0, 0x0}, {0x1621cc0, 0x14b660ee8c38}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x14b660b58d88, 0x14b6600bac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x14b660b58d88, 0x14b6600bac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x14b660b58d88, 0x14b6600bac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x14b660b58d88, 0x14b6600bac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x14b660b58d88, 0x14b6600ac0e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x14b660b58d88, 0x14b6600ac0e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x14b660b58d88, 0x14b6600cc1e0, 0x14b6600f40b0)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x14b660b58d88, 0x14b6600cc1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x14b660b58d88, 0x14b6600cc1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (95 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-statement-nullish-assign.pts",
+   "probe_sha256": "c6123311351454225e3a385a8e57782ff41e733993dbd74cb77a4277d426e0e2",
+   "row": "C01",
+   "kind": "red",
+   "description": "statement form `record[key] ??= []` (its value unused) inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-statement-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-statement-nullish-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x29cad3ae9688, {0x1621cc0, 0x29cad3efe9f8}, {0x1621cc0, 0x29cad3efea18}, 0x1, {0x1621b40, 0x1fb8a00}, 0x29cad277e050, 0x29cad2fee620)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x29cad3efe9f8}, {0x0, 0x0}, {0x1621cc0, 0x29cad3efea18}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x29cad3ae9688, {0x0, {0x1621cc0, 0x29cad3efe9f8}, {0x0, 0x0}, {0x1621cc0, 0x29cad3efea18}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x29cad3ae9688, 0x29cad272ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x29cad3ae9688, 0x29cad272ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x29cad3ae9688, 0x29cad272ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x29cad3ae9688, 0x29cad272ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).statement(0x29cad3ae9688, 0x29cad2766200)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:399 +0x225\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).block(0x29cad3ae9688, 0x29cad2feedf0?, {0x29cad2776070, 0x3, 0x3})\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:379 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).statementBlock(0x29cad3ae9688, 0x29cad274c240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:470 +0x5e\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).forOfStatement(0x29cad3ae9688, 0x29cad27760e0, 0x29cad3eb9e30)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:729 +0x9b4\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).breakable(0x29cad3ae9688, 0x29cad27760e0, {0x0, 0x0})\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:526 +0x2ac\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).statement(0x29cad3ae9688, 0x29cad27760e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:411 +0x418\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).block(0x29cad3ae9688, 0x29cad3ae9688?, {0x29cad2776088, 0x3, 0x3})\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:379 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).functionExpressionBody(0x29cad3ae9688, 0x29cad2fef2c8?)\n\t/home/bryan/projects/parallelscript/pts/lower/closures.go:291 +0x67b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).functionExpression.func2()\n\u2026 (75 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-arrow-statement-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nongeneric-method.pts",
+   "probe_sha256": "38126376a7c40a5557302c1431a53b66695d302793e681865ef0181b2e3cf502",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ??= []).push(v)` on a mapped-type field of a generic class, from a NON-generic method",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 3 ], b: [ 2 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nongeneric-method.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-nongeneric-method-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x2d8053247688, {0x1621cc0, 0x2d8053566910}, {0x1621cc0, 0x2d8053566940}, 0x1, {0x1621b40, 0x1fb8a00}, 0x2d80526e20f0, 0x2d80526faa18)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x2d8053566910}, {0x0, 0x0}, {0x1621cc0, 0x2d8053566940}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x2d8053247688, {0x0, {0x1621cc0, 0x2d8053566910}, {0x0, 0x0}, {0x1621cc0, 0x2d8053566940}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x2d8053247688, 0x2d8052750b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x2d8053247688, 0x2d8052750b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x2d8053247688, 0x2d8052750b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x2d8053247688, 0x2d8052750b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x2d8053247688, 0x2d80527421c0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x2d8053247688, 0x2d80527421c0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayObject(0x2d8053247688, 0x2d8052a06058)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:267 +0x77\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayMethodCall(0x2d8053247688, 0x2d8052762240, 0x0)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:329 +0x447\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x2d8053247688, 0x2d8052762240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1607 +0xfad\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x2d8053247688, 0x2d8052762240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\u2026 (69 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-nongeneric-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nullish-assign.pts",
+   "probe_sha256": "0aaa9697760407eebb4dcd0820ffc1f34f8f7c55c3d54370970a9f095c46d82d",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ??= []).push(v)` in a generic class over a mapped-type field, generic method key `K extends keyof E`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 2 ], b: [ 'x' ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-nullish-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0xea939db9b08, {0x1621cc0, 0xea93a536268}, {0x1621cc0, 0xea93a536270}, 0x1, {0x1621b40, 0x1fb8a00}, 0xea938fd40a0, 0xea9397fcab8)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0xea93a536268}, {0x0, 0x0}, {0x1621cc0, 0xea93a536270}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0xea939db9b08, {0x0, {0x1621cc0, 0xea93a536268}, {0x0, 0x0}, {0x1621cc0, 0xea93a536270}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0xea939db9b08, 0xea938f86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0xea939db9b08, 0xea938f86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0xea939db9b08, 0xea938f86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0xea939db9b08, 0xea938f86b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0xea939db9b08, 0xea938fd2150)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0xea939db9b08, 0xea938fd2150)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayObject(0xea939db9b08, 0xea938fdc058)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:267 +0x77\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayMethodCall(0xea939db9b08, 0xea938fac240, 0x0)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:329 +0x447\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0xea939db9b08, 0xea938fac240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1607 +0xfad\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0xea939db9b08, 0xea938fac240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\u2026 (67 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-or-assign.pts",
+   "probe_sha256": "d8c631c279a59c3236ba4bc7afa6055f86f7c4d9ebb3e2a0559c2fd752bd9d39",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ||= []).push(v)` in a generic class over a mapped-type field, generic method key `K extends keyof E`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 2 ], b: [ 'x' ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-or-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x9f7f7e8c488, {0x1621cc0, 0x9f7f8e402c8}, {0x1621cc0, 0x9f7f8e402d0}, 0x0, {0x1621b40, 0x1fb8a00}, 0x9f7f79dc0a0, 0x9f7f7a72ab8)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x9f7f8e402c8}, {0x0, 0x0}, {0x1621cc0, 0x9f7f8e402d0}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x9f7f7e8c488, {0x0, {0x1621cc0, 0x9f7f8e402c8}, {0x0, 0x0}, {0x1621cc0, 0x9f7f8e402d0}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x9f7f7e8c488, 0x9f7f7990b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x9f7f7e8c488, 0x9f7f7990b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x9f7f7e8c488, 0x9f7f7990b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x9f7f7e8c488, 0x9f7f7990b60)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x9f7f7e8c488, 0x9f7f79da150)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x9f7f7e8c488, 0x9f7f79da150)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayObject(0x9f7f7e8c488, 0x9f7f79e4058)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:267 +0x77\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).arrayMethodCall(0x9f7f7e8c488, 0x9f7f79b4240, 0x0)\n\t/home/bryan/projects/parallelscript/pts/lower/arrays.go:329 +0x447\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x9f7f7e8c488, 0x9f7f79b4240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1607 +0xfad\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x9f7f7e8c488, 0x9f7f79b4240)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\u2026 (67 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-class-mapped-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-function-expression-nullish-assign.pts",
+   "probe_sha256": "0f1b541e04053cf43479ac24816e6ff500b59fa0e1373ec51d1ff4090e947ee0",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ??= []).push(x)` inside a generic function expression (not a declaration)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-function-expression-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-generic-function-expression-nullish-assign-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x17332adb3208, {0x1621cc0, 0x17332b9d77c8}, {0x1621cc0, 0x17332b9d77e8}, 0x1, {0x1621b40, 0x1fb8a00}, 0x17332a3ec050, 0x17332b3b82b0)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x17332b9d77c8}, {0x0, 0x0}, {0x1621cc0, 0x17332b9d77e8}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x17332adb3208, {0x0, {0x1621cc0, 0x17332b9d77c8}, {0x0, 0x0}, {0x1621cc0, 0x17332b9d77e8}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x17332adb3208, 0x17332a39ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x17332adb3208, 0x17332a39ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x17332adb3208, 0x17332a39ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x17332adb3208, 0x17332a39ac30)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x17332adb3208, 0x17332a3e4070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x17332adb3208, 0x17332a3e4070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x17332adb3208, 0x17332a3bc1e0, 0x17332a3f00b0)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x17332adb3208, 0x17332a3bc1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x17332adb3208, 0x17332a3bc1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (95 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-generic-function-expression-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+   "probe_sha256": "365825939fe29d8590a6d31901773e3766862f3cd24869c4b8c9dea431378016",
+   "row": "C01",
+   "kind": "red",
+   "description": "generic arrow const groups items with (groups[key] ??= []).push(item)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{\"odd\":[1,3],\"even\":[2]}",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c01-red-parent-generic-arrow-group-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordFallback(0x6ee55808008, {0x1621cc0, 0x6ee56325018}, {0x1621cc0, 0x6ee56325038}, 0x1, {0x1621b40, 0x1fb8a00}, 0x6ee54e5e050, 0x6ee54bfc2b0)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:280 +0x866\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment.(*lowerer).recordElementOrSet.func3({0x0, {0x1621cc0, 0x6ee56325018}, {0x0, 0x0}, {0x1621cc0, 0x6ee56325038}, 0x0, 0x0, {0x0, ...}, ...})\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:309 +0x1c9\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withObject(0x6ee55808008, {0x0, {0x1621cc0, 0x6ee56325018}, {0x0, 0x0}, {0x1621cc0, 0x6ee56325038}, 0x0, 0x0, ...}, ...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2976 +0x93b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).recordElementOrSet(...)\n\t/home/bryan/projects/parallelscript/pts/lower/records.go:307\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).compoundAssignment(0x6ee55808008, 0x6ee54e06dd0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2792 +0x2a5\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).binary(0x6ee55808008, 0x6ee54e06dd0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:2668 +0xafb\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x6ee55808008, 0x6ee54e06dd0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1311 +0x365\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x6ee55808008, 0x6ee54e06dd0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x6ee55808008, 0x6ee54e56070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1307 +0x41d\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1765\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression(0x6ee55808008, 0x6ee54e56070)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262 +0x6b\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).dynamicCall(0x6ee55808008, 0x6ee54e2e1e0, 0x6ee54e620b0)\n\t/home/bryan/projects/parallelscript/pts/lower/dynamic.go:127 +0x125\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).call(0x6ee55808008, 0x6ee54e2e1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1529 +0x10c\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expressionOf(0x6ee55808008, 0x6ee54e2e1e0)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1309 +0xa45\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).expression.func1(...)\n\t/home/bryan/projects/parallelscript/pts/lower/lower.go:1262\ngithub.com/microsoft/typescript-go/pts/lower.(*lowerer).withArgumentTemps(...)\n\u2026 (95 lines in all)"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c01-red-parent-generic-arrow-group.mts"
+    ],
+    "exit": 0,
+    "stdout": "{\"odd\":[1,3],\"even\":[2]}\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c19-control-parent-erased-callback-key-local.pts",
+   "probe_sha256": "b9ab0139b59bbd5b797d8496fd4de1d836153efc18ff7b07cbbe7baf51b60edf",
+   "row": "C19",
+   "kind": "control",
+   "description": "a generic arrow indexes a concrete Record<string, number> with a local holding an erased callback's string",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{ short: 2, long: 1 }",
+   "baseline_pts": "matches Node. The parent first wrote this as a red probe for the reported",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c19-control-parent-erased-callback-key-local.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c19-control-parent-erased-callback-key-local-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c19-control-parent-erased-callback-key-local.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ short: 2, long: 1 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-red/c19-control-parent-erased-callback-key-local-native"
+        ],
+        "exit": 0,
+        "stdout": "{ short: 2, long: 1 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts",
+   "probe_sha256": "085ea0c5a07993a3c54c5d24db65535de776dd2dbbf2c51473c5feddbd5f6c98",
+   "row": "C19",
+   "kind": "red",
+   "description": "a generic arrow reads and writes a concrete Record<string, number> keyed directly by an erased callback's call",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{ short: 2, long: 1 }",
+   "baseline_pts": "PTS1001 \"a key of type value is not supported yet\" at both keys, although tsc types them string",
+   "failure": "PTS1001: a key of type value is not supported yet",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts",
+     "-o",
+     "/tmp/pts-h02/probes-red/c19-red-parent-erased-callback-key-direct-native"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "docs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts:12:12 - error PTS1001: a key of type value is not supported yet\ndocs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts:12:35 - error PTS1001: a key of type value is not supported yet\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-red/c19-red-parent-erased-callback-key-direct.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ short: 2, long: 1 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-error",
+   "as_expected": true
+  }
+ ]
+}

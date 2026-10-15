@@ -968,6 +968,8 @@ bool pts_value_strict_equals(pts_value a, pts_value b);
  * Dynamic values (`any`, D-070): reads and writes of properties and elements found at run
  * time (a missing property reads as undefined; writing one an object lacks, or a value
  * its type doesn't allow, throws TypeError), and the operators with JS's conversions.
+ * A write's value is the value stored: the checked copy, where converting dynamic data
+ * to the property's type made one, so `(o.p = []).push(x)` pushes onto o.p (D-176).
  */
 pts_value pts_dynamic_get(pts_value object, pts_value key);
 pts_value pts_dynamic_set(pts_value object, pts_value key, pts_value value);

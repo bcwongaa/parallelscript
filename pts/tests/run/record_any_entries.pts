@@ -1,0 +1,108 @@
+// Entries of hash-map objects whose values are `any` or `unknown` (D-059, D-070): `??` and
+// `??=` test for null and undefined, `||` and `||=` for falsy values, and a missing key
+// reads as undefined, as in JS. H02 (C21): every present entry got through `??` and `||`
+// (`r.n ?? 1` gave null, `r.z || 3` gave 0), `??=` and `||=` didn't store, and `&&=`
+// threw RangeError for a missing key, as `+=` and `++` did; the last section's lines are
+// controls.
+const entries = (): Record<string, any> => ({ n: null, u: undefined, z: 0, e: "", f: false, nan: NaN, t: "kept" });
+const keys = ["n", "u", "z", "e", "f", "nan", "t", "missing"];
+
+// Reads with ?? and ||, by name and by computed key; the fallback is the key's position.
+const r = entries();
+console.log(r.n ?? 0, r.u ?? 1, r.z ?? 2, JSON.stringify(r.e ?? 3), r.f ?? 4, r.nan ?? 5, r.t ?? 6, r.missing ?? 7);
+console.log(r.n || 0, r.u || 1, r.z || 2, r.e || 3, r.f || 4, r.nan || 5, r.t || 6, r.missing || 7);
+console.log(keys.map((k, i) => r[k] ?? i));
+console.log(keys.map((k, i) => r[k] || i));
+
+// ??=, ||= and &&= on a fresh record each: the entry's value, stored only when needed.
+const nullish = entries();
+console.log(keys.map((k) => (nullish[k] ??= k)));
+console.log(nullish);
+const falsy = entries();
+console.log(keys.map((k) => (falsy[k] ||= k)));
+console.log(falsy);
+const truthy = entries();
+console.log(keys.map((k) => (truthy[k] &&= k)));
+console.log(truthy, "missing" in truthy);
+
+// The property forms, as statements.
+const props = entries();
+props.n ??= 7;
+props.u ??= 8;
+props.z ||= 9;
+props.t ||= 10;
+props.added ??= 11;
+console.log(props);
+
+// Values of type unknown, a string index signature of any, and number keys.
+const unknowns: Record<string, unknown> = { n: null, z: 0 };
+const indexed: { [key: string]: any } = { n: null, z: 0 };
+const numbered: Record<number, any> = { 0: null, 1: 0 };
+console.log(unknowns.n ?? 1, unknowns.z || 2, indexed.n ?? 3, indexed.z || 4, numbered[0] ?? 5, numbered[1] || 6);
+unknowns.n ??= 7;
+indexed.z ||= 8;
+numbered[0] ??= 9;
+console.log(unknowns, indexed, numbered);
+
+// Arithmetic on a missing key reads it as undefined too, as it does for an entry type
+// that holds undefined.
+const counters: Record<string, any> = { s: "a" };
+counters.missing += 1;
+counters.s += "b";
+counters.other++;
+const texts: Record<string, string | undefined> = { a: "A" };
+texts.missing += "x";
+texts.a += "y";
+console.log(counters, texts);
+
+// Controls, which already pass: a typed union's entries, and conditions and plain reads
+// of entries of any.
+const typed: Record<string, number | null> = { n: null, z: 0 };
+console.log(typed.n ?? 1, typed.z || 2, typed.missing ?? 3);
+typed.n ??= 4;
+typed.z ||= 5;
+console.log(typed, r.n ? "truthy" : "falsy", !r.z, r.missing, typeof r.missing);
+
+// expect:
+// 0 1 0 "" false NaN kept 7
+// 0 1 2 3 4 5 kept 7
+// [
+//   0,      1,     0,
+//   '',     false, NaN,
+//   'kept', 7
+// ]
+// [
+//   0,      1, 2,
+//   3,      4, 5,
+//   'kept', 7
+// ]
+// [ 'n', 'u', 0, '', false, NaN, 'kept', 'missing' ]
+// {
+//   n: 'n',
+//   u: 'u',
+//   z: 0,
+//   e: '',
+//   f: false,
+//   nan: NaN,
+//   t: 'kept',
+//   missing: 'missing'
+// }
+// [ 'n', 'u', 'z', 'e', 'f', 'nan', 'kept', 'missing' ]
+// {
+//   n: 'n',
+//   u: 'u',
+//   z: 'z',
+//   e: 'e',
+//   f: 'f',
+//   nan: 'nan',
+//   t: 'kept',
+//   missing: 'missing'
+// }
+// [ null, undefined, 0, '', false, NaN, 't', undefined ]
+// { n: null, u: undefined, z: 0, e: '', f: false, nan: NaN, t: 't' } false
+// { n: 7, u: 8, z: 9, e: '', f: false, nan: NaN, t: 'kept', added: 11 }
+// 1 2 3 4 5 6
+// { n: 7, z: 0 } { n: null, z: 8 } { '0': 9, '1': 0 }
+// { s: 'ab', missing: NaN, other: NaN } { a: 'Ay', missing: 'undefinedx' }
+// 1 2 3
+// { n: 4, z: 5 } falsy true undefined undefined

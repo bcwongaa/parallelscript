@@ -1,0 +1,58 @@
+// The value of `x ??= v` and `x ||= v` for a place of a union type has the type tsc
+// narrows it to (`string` for a `string | undefined` place), so it can be declared,
+// passed, returned and have its members used. H02 boundary (C22): PTS1001 "converting
+// number | undefined to number is not supported yet" for the first two sections, and
+// C that clang rejects for the members in the third; the last section's lines are
+// controls. No generics and no `any` are needed.
+
+// Declared, passed and returned: locals and a record's entry.
+let count: number | undefined = undefined;
+const declared: number = (count ??= 1);
+let maybe: number | null = null;
+const twice = (n: number): number => n * 2;
+console.log(declared, twice(maybe ||= 4), count, maybe);
+const totals: Record<string, number | null> = { n: null };
+const entry: number = (totals.n ??= 5);
+console.log(entry, totals);
+
+// The lazy-initialization idiom, in a class and in a generic class's instance.
+class Cache {
+  value: number | undefined = undefined;
+
+  get(make: () => number): number {
+    return (this.value ??= make());
+  }
+}
+class Lazy<T> {
+  value: T | undefined = undefined;
+
+  get(make: () => T): T {
+    return (this.value ||= make());
+  }
+}
+const cache = new Cache();
+const lazy = new Lazy<string>();
+console.log(cache.get(() => 1), cache.get(() => 2), lazy.get(() => "a"), lazy.get(() => "b"));
+
+// Members of the value: a local's, a field's and a record entry's.
+let text: string | undefined = undefined;
+let other: string | null = null;
+console.log((text ??= "ab").length, (other ||= "cd").toUpperCase(), text, other);
+class Named {
+  name: string | undefined = undefined;
+}
+const named = new Named();
+const labels: Record<string, string | null> = { a: null };
+console.log((named.name ??= "abc").toUpperCase(), (labels.a ??= "xyz").length, named, labels);
+
+// Controls, which already pass: the value printed and used in arithmetic.
+let printed: number | undefined = undefined;
+console.log((printed ??= 1), (printed ??= 2) + 1, printed);
+
+// expect:
+// 1 8 1 4
+// 5 { n: 5 }
+// 1 1 a a
+// 2 CD ab cd
+// ABC 3 Named { name: 'abc' } { a: 'xyz' }
+// 1 2 1

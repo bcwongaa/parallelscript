@@ -1,0 +1,154 @@
+// The value of `??=`, `||=` and `&&=` has the type tsc gives it wherever the place's own
+// type differs: a keyed element (D-089) or a value a type guard narrowed, which are found
+// at run time, a loose local (D-172), a union place, and a union of a Map type with
+// undefined set to an untyped `new Map()` (`Map<any, any>` to tsc). H02 review: on the
+// base, `??=` and `||=` on keyed and guarded elements panicked the compiler, `&&=` on them
+// and `||=` on a loose local printed a double's bits as a number (4617878467915022000),
+// the Map lines panicked (maps.go) and the union lines were PTS1001 or panicked; H02's
+// first fix printed such bits for keyed `||=` and segfaulted on `label &&= "hi"`.
+
+// Keyed elements, with the store branch taken and not, the value used as its type.
+type Status = "open" | "closed";
+const statuses: Status[] = ["open", "closed", "open"];
+const counts: Record<Status, number> = { open: 0, closed: 2 };
+const flags: Record<Status, boolean> = { open: false, closed: true };
+const bump = (k: Status): number => (counts[k] ||= 5) + 1;
+const keep = (k: Status): number => (counts[k] &&= 7) + 1;
+console.log(bump("open"), bump("closed"), keep("closed"), (flags[statuses[0]] ||= true) === true, counts, flags);
+interface Opts {
+  size: number;
+  depth: number;
+}
+const opts: Opts = { size: 0, depth: 3 };
+const orDefault = (k: keyof Opts): number => (opts[k] ||= 10) * 2;
+console.log(orDefault("size"), orDefault("depth"), opts);
+const lists: Record<Status, string[]> = { open: [], closed: ["c"] };
+const k: Status = statuses[1];
+console.log((lists[k] ??= ["z"]).length, (lists[k] ||= ["q"])[0], (lists[k] &&= ["y"]).length, lists);
+const totals: Partial<Record<Status, number>> = {};
+for (const s of statuses) {
+  totals[s] = (totals[s] ??= 0) + 1;
+}
+console.log(totals);
+const optionalLists: Record<Status, number[] | undefined> = { open: [5], closed: undefined };
+(optionalLists[k] ??= new Array()).push(1);
+(optionalLists[statuses[0]] ??= new Array()).push(2);
+const optionalMaps: Record<Status, Map<string, number> | undefined> = { open: undefined, closed: undefined };
+(optionalMaps[k] ??= new Map()).set("x", 1);
+console.log(optionalLists, optionalMaps);
+
+// A value a type guard narrowed from `unknown`.
+interface Config {
+  retries: number;
+  name: string;
+}
+const isConfig = (v: unknown): v is Config => typeof v === "object" && v !== null && "retries" in v;
+const data: unknown = JSON.parse('{"retries":0,"name":""}');
+if (isConfig(data)) {
+  console.log((data.retries ||= 3) + 1, (data.name ||= "anon").length, (data.retries &&= 4) + 1, (data.name ??= "x").length, data);
+  const fromWire: any = "three";
+  data.retries &&= fromWire;
+  console.log(data);
+}
+
+// A loose local (an element read the program tests for undefined).
+const argv: string[] = ["", "b"];
+let first = argv[0];
+if (first === undefined) {
+  console.log("missing");
+}
+let n = [0, 1][0];
+if (n === undefined) {
+  console.log("missing");
+}
+console.log((first ||= "d").length, first, (n ||= 5) + 1, n);
+
+// &&= gives the place's falsy value, here one a module-scope variable without a value
+// holds outside its type: a TypeError, as in Node.
+let label: string | string[];
+const shout = (): number => (label &&= "hi").length;
+try {
+  console.log(shout());
+} catch (e: any) {
+  console.log("caught", e.name);
+}
+label = ["a"];
+console.log(shout(), label);
+
+// As statements, whose values nothing uses, they test the place and nothing else.
+let unsetLabel: string | string[];
+const touch = (): void => {
+  unsetLabel &&= "hi";
+};
+touch();
+class Slot {
+  item!: { a: number } | string[];
+  poke(): void {
+    this.item &&= ["x"];
+  }
+}
+const slot = new Slot();
+slot.poke();
+let unsetCount: number | Slot;
+const bumpCount = (): void => {
+  unsetCount &&= 5;
+};
+bumpCount();
+console.log("statements ran");
+
+// Lazy initialization with an untyped new Map(): a local, a record's entry, a field.
+let byName: Map<string, number> | undefined;
+(byName ??= new Map()).set("a", 1);
+const maps: Record<string, Map<string, number> | undefined> = {};
+(maps.m ??= new Map()).set("x", 1);
+(maps.m ||= new Map()).set("y", 2);
+class Index {
+  private items?: Map<string, number[]>;
+  add(key: string, value: number): number {
+    return ((this.items ??= new Map()).get(key) ?? []).push(value);
+  }
+}
+const index = new Index();
+console.log(byName, maps, index.add("a", 1), index);
+
+// Union places holding arrays and objects: the same object, not a copy.
+interface Counter {
+  count: number;
+}
+let counter: Counter | undefined;
+(counter ??= { count: 0 }).count++;
+(counter ??= { count: 10 }).count++;
+let numbers: number[] | null = null;
+(numbers ??= []).push(1);
+(numbers ||= []).push(2);
+const byKey: Record<string, Counter | undefined> = {};
+(byKey.a ??= { count: 0 }).count++;
+(byKey.a ??= { count: 0 }).count++;
+class Registry {
+  #items: string[] | undefined;
+  static #count: number | null = null;
+  add(s: string): number {
+    Registry.#count = (Registry.#count ??= 0) + 1;
+    return (this.#items ??= []).push(s);
+  }
+  get count(): number {
+    return Registry.#count ?? 0;
+  }
+}
+const registry = new Registry();
+console.log(counter, numbers, byKey, registry.add("a"), registry.add("b"), registry.count);
+
+// expect:
+// 6 3 8 true { open: 5, closed: 7 } { open: true, closed: true }
+// 20 6 { size: 10, depth: 3 }
+// 1 c 1 { open: [], closed: [ 'y' ] }
+// { open: 2, closed: 1 }
+// { open: [ 5, 2 ], closed: [ 1 ] } { open: undefined, closed: Map(1) { 'x' => 1 } }
+// 4 4 5 4 { retries: 4, name: 'anon' }
+// { retries: 'three', name: 'anon' }
+// 1 d 6 5
+// caught TypeError
+// 2 hi
+// statements ran
+// Map(1) { 'a' => 1 } { m: Map(2) { 'x' => 1, 'y' => 2 } } 1 Index { items: Map(0) {} }
+// { count: 2 } [ 1, 2 ] { a: { count: 2 } } 1 2 2

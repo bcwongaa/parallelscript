@@ -551,7 +551,7 @@ func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
 		}
 		return &ir.Conditional{Cond: &ir.Truthy{X: current}, Then: current, Else: target.store(value, false)}
 	}
-	if !isUnion(t) && t != ir.Null && t != ir.Undefined {
+	if !isDynamic(t) && t != ir.Null && t != ir.Undefined {
 		return current // never null or undefined
 	}
 	value := l.expression(valueNode)
@@ -565,6 +565,108 @@ func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
 		return target.store(value, false)
 	}
 	return &ir.Conditional{Cond: &ir.IsNullish{X: current}, Then: target.store(value, false), Else: current}
+}
+
+// logicalAssignmentValue is x, the value of `target ??= value`, `||=` or `&&=` (node), as
+// the type logicalAssignmentType gives it, with a check, as a narrowed property and a
+// dynamic place's read are (D-089, D-140): `&&=` gives whatever falsy value the place
+// holds, and a variable or field without a value holds undefined outside its type
+// (D-141). A value nothing uses (`x &&= v;`) is left as it is.
+func (l *lowerer) logicalAssignmentValue(target place, x ir.Expr, node *ast.Node) ir.Expr {
+	if x == nil || isDiscarded(node) || l.hasTypeFlags(node, checker.TypeFlagsNever) {
+		return x
+	}
+	var p ir.Type // the place's type
+	switch u, ok := x.Type().(*ir.Union); {
+	case target.dynamic && x.Type() == ir.Value:
+		if l.hasTypeFlags(node, checker.TypeFlagsAny|checker.TypeFlagsUnknown) {
+			return x
+		}
+		p = l.irType(l.typeAt(node.AsBinaryExpression().Left), node)
+	case ok:
+		p = u
+	default:
+		return l.narrowed(node, x)
+	}
+	if p == nil {
+		return nil
+	}
+	switch t := l.logicalAssignmentType(p, node); t {
+	case nil:
+		return nil
+	case x.Type():
+		return x
+	default:
+		return l.checkedConversion(x, t, node)
+	}
+}
+
+// logicalAssignmentType is the type of the value of node, `x ??= value`, `||=` or `&&=`,
+// for a place of type p: tsc's type of node where that is p or narrows it; otherwise p
+// without null and undefined where node can't give them (`(cache ??= new Map())` is a
+// `Map<any, any>` to tsc, but its value is the place's or was stored there); otherwise p.
+func (l *lowerer) logicalAssignmentType(p ir.Type, node *ast.Node) ir.Type {
+	t := l.irType(l.typeAt(node), node)
+	u, ok := p.(*ir.Union)
+	switch {
+	case t == nil || t == p || ok && isNarrowing(u, t):
+		return t
+	case ok && l.storesNonNullish(node):
+		if rest := l.withoutNullish(u); rest != nil {
+			return rest
+		}
+	}
+	return p
+}
+
+// isDiscarded reports whether nothing uses node's value: it is an expression statement, a
+// comma's left operand (or right, if the comma's value is discarded), void's operand or a
+// for loop's update.
+func isDiscarded(node *ast.Node) bool {
+	child, parent := node, node.Parent
+	for parent != nil && parent.Kind == ast.KindParenthesizedExpression {
+		child, parent = parent, parent.Parent
+	}
+	if parent == nil {
+		return false
+	}
+	switch parent.Kind {
+	case ast.KindExpressionStatement, ast.KindVoidExpression:
+		return true
+	case ast.KindBinaryExpression:
+		comma := parent.AsBinaryExpression()
+		return comma.OperatorToken.Kind == ast.KindCommaToken && (comma.Left == child || isDiscarded(parent))
+	case ast.KindForStatement:
+		return parent.AsForStatement().Incrementor == child
+	}
+	return false
+}
+
+// storesNonNullish reports whether node, `x ??= value` or `x ||= value`, gives x or value,
+// and value can't be null or undefined, so its value is never null or undefined either.
+func (l *lowerer) storesNonNullish(node *ast.Node) bool {
+	expr := node.AsBinaryExpression()
+	operator := expr.OperatorToken.Kind
+	return (operator == ast.KindQuestionQuestionEqualsToken || operator == ast.KindBarBarEqualsToken) && !mayBeNullish(l.typeAt(expr.Right))
+}
+
+// mayBeNullish reports whether a value of type t may be null or undefined.
+func mayBeNullish(t *checker.Type) bool {
+	isNull := func(t *checker.Type) bool { return t.Flags()&checker.TypeFlagsNull != 0 }
+	return mayHoldUndefined(t) || isNull(t) || t.Flags()&checker.TypeFlagsUnion != 0 && slices.ContainsFunc(t.Types(), isNull)
+}
+
+// withoutNullish is the union u without null and undefined: its one other member, a
+// smaller union, or nil if it has no other members.
+func (l *lowerer) withoutNullish(u *ir.Union) ir.Type {
+	members := slices.DeleteFunc(slices.Clone(u.Members), func(m ir.Type) bool { return m == ir.Null || m == ir.Undefined })
+	switch len(members) {
+	case 0:
+		return nil
+	case 1:
+		return members[0]
+	}
+	return l.unionOf(members)
 }
 
 // unsetFieldFallback lowers `x ?? y` for x of an object type, which is never null or

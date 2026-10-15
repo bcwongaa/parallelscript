@@ -1,0 +1,72 @@
+// What `??=` and `||=` through `any` check (D-072), as `=` does where JS carries on: a
+// value stored in a typed place must be of the place's declared type, and a literal's
+// object has a fixed layout (D-L10). The right side is evaluated, and so checked, only
+// when the place needs it. H02 (C01): every `??=` and `||=` here made `pts build` panic
+// (records.go:280); each `=` line is the control that gives the message expected.
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {}
+class Kennel {
+  label: string | null = null;
+  count: number = 0;
+  note: string = "kept";
+}
+function attempt(what: string, f: () => void): void {
+  try {
+    f();
+    console.log(what, "ok");
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+
+// A class's fields, a record's entries and an array's elements.
+const kennel: any = new Kennel();
+attempt("label = 5", () => { kennel.label = 5; });
+attempt("label ??= 5", () => { kennel.label ??= 5; });
+attempt("count ||= 'x'", () => { kennel.count ||= "x"; });
+attempt("note ??= 1 (not needed)", () => { kennel.note ??= 1; });
+const byName: Record<string, Dog> = {};
+attempt("a = Animal", () => { (byName as any).a = new Animal("a"); });
+attempt("a ??= Animal", () => { (byName as any).a ??= new Animal("a"); });
+const labels: (string | null)[] = [null];
+attempt("[0] ||= 1", () => { (labels as any)[0] ||= 1; });
+
+// An object literal's properties keep their types, and it takes no new ones.
+const literal: any = { n: null, z: 0 };
+attempt("n = 1", () => { literal.n = 1; });
+attempt("n ??= 1", () => { literal.n ??= 1; });
+attempt("z ||= 'x'", () => { literal.z ||= "x"; });
+attempt("added = 1", () => { literal.added = 1; });
+attempt("added ??= 1", () => { literal.added ??= 1; });
+
+// Erased generic code (D-078) storing into a record and a shape of other types.
+const put = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] = value);
+const keepOrSet = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] ??= value);
+const replaceFalsy = <T,>(o: { v: T }, x: T): T => (o.v ||= x);
+const counts: Record<string, number> = {};
+attempt("erased =", () => { put(counts as any, "x", "s"); });
+attempt("erased ??=", () => { keepOrSet(counts as any, "x", "s"); });
+const shape: { v: number } = { v: 0 };
+attempt("erased ||=", () => { replaceFalsy(shape as any, "s"); });
+console.log(kennel, byName, labels, literal, counts, shape);
+
+// no-diff: JS writes whatever it is given and adds properties to any object
+// expect:
+// label = 5 -> TypeError: Cannot set property label of Kennel: expected null | string, got number
+// label ??= 5 -> TypeError: Cannot set property label of Kennel: expected null | string, got number
+// count ||= 'x' -> TypeError: Cannot set property count of Kennel: expected number, got string
+// note ??= 1 (not needed) ok
+// a = Animal -> TypeError: Cannot set property a of Object: expected Dog, got Animal
+// a ??= Animal -> TypeError: Cannot set property a of Object: expected Dog, got Animal
+// [0] ||= 1 -> TypeError: Cannot set property 0 of Array: expected null | string, got number
+// n = 1 -> TypeError: Cannot set property n of Object: expected null, got number
+// n ??= 1 -> TypeError: Cannot set property n of Object: expected null, got number
+// z ||= 'x' -> TypeError: Cannot set property z of Object: expected number, got string
+// added = 1 -> TypeError: Cannot add property added, object is not extensible
+// added ??= 1 -> TypeError: Cannot add property added, object is not extensible
+// erased = -> TypeError: Cannot set property x of Object: expected number, got string
+// erased ??= -> TypeError: Cannot set property x of Object: expected number, got string
+// erased ||= -> TypeError: Cannot set property v of Object: expected number, got string
+// Kennel { label: null, count: 0, note: 'kept' } {} [ null ] { n: null, z: 0 } {} { v: 0 }

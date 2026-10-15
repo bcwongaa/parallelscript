@@ -1,0 +1,166 @@
+{
+ "task": "H02",
+ "date": "2026-10-15",
+ "go": "go1.26.9",
+ "node": "v24.21.0",
+ "clang": "18.1.3",
+ "baseline": {
+  "source": "389baf63d (unmodified)",
+  "command": "GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/ (Node v24.21.0 first on PATH)",
+  "exit": 0,
+  "test_events": {
+   "pass": 1289,
+   "skip": 247
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "failed_tests": [],
+  "events_sha256": "d2128241de372ff1332a4c59988993ed5d9b2e4f4651cda0d7126f5361a9fe0c",
+  "raw_events": "h02-baseline.jsonl.gz"
+ },
+ "after": {
+  "source": "389baf63d + the final H02 changes (the H02 fix commit)",
+  "command": "GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/ (Node v24.21.0 first on PATH)",
+  "exit": 0,
+  "test_events": {
+   "pass": 1306,
+   "skip": 252
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "failed_tests": [],
+  "events_sha256": "e4477eddcc23005f6855aab7198b9d59cf1cfed825b5892d7a2f16dab0c30b97",
+  "raw_events": "h02-suite.jsonl.gz",
+  "cli_sha256": "fb83410202055aa665e66a52f82ca72d01767fec631b49269bf05ef8428d105b"
+ },
+ "red_suite_regressions_on_baseline": {
+  "where": "reproducer worktree .claude/worktrees/agent-aeec0a258ffd04771 at e220b6521 (389baf63d + its seven tests), run by the parent",
+  "tests": {
+   "logical_assign_any": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/logical_assign_any$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/logical_assign_any (0.07s)",
+     "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType [recovered, repanicked]"
+    ]
+   },
+   "logical_assign_any_checks": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/logical_assign_any_checks$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/logical_assign_any_checks (0.06s)",
+     "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType [recovered, repanicked]"
+    ]
+   },
+   "logical_assign_any_places": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/logical_assign_any_places$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/logical_assign_any_places (0.42s)",
+     "--- got.stdout",
+     "-null undefined 0 null undefined 0"
+    ]
+   },
+   "logical_assign_erased": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/logical_assign_erased$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/logical_assign_erased (0.08s)",
+     "panic: interface conversion: ir.Type is *ir.Primitive, not *ir.MapType [recovered, repanicked]"
+    ]
+   },
+   "logical_assign_narrowed": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/logical_assign_narrowed$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/logical_assign_narrowed (0.09s)",
+     "run_test.go:69: assertion failed: error is not nil: /home/bryan/projects/parallelscript/.claude/worktrees/agent-aeec0a258ffd04771/pts/tests/run/logical_assign_narrowed.pts:10:26 - error PTS1001: converting number | undefined to number is not supported yet",
+     "/home/bryan/projects/parallelscript/.claude/worktrees/agent-aeec0a258ffd04771/pts/tests/run/logical_assign_narrowed.pts:15:23 - error PTS1001: converting null | number to number is not supported yet"
+    ]
+   },
+   "record_any_entries": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/record_any_entries$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/record_any_entries (0.48s)",
+     "--- got.stdout",
+     "-null undefined 0 \"\" false NaN kept 7"
+    ]
+   },
+   "record_erased_keys": {
+    "command": "GOMAXPROCS=2 go test -count=1 -p 2 -timeout 20m ./pts/tests/ -run 'TestRun/record_erased_keys$'",
+    "exit": 1,
+    "first_failure_lines": [
+     "--- FAIL: TestRun/record_erased_keys (0.11s)",
+     "run_test.go:69: assertion failed: error is not nil: /home/bryan/projects/parallelscript/.claude/worktrees/agent-aeec0a258ffd04771/pts/tests/run/record_erased_keys.pts:21:12 - error PTS1001: a key of type value is not supported yet",
+     "/home/bryan/projects/parallelscript/.claude/worktrees/agent-aeec0a258ffd04771/pts/tests/run/record_erased_keys.pts:21:35 - error PTS1001: a key of type value is not supported yet"
+    ]
+   }
+  }
+ },
+ "first_fix_run": {
+  "note": "the full suite on the version the first review round saw (same command), superseded by after; raw events not retained",
+  "test_events": {
+   "pass": 1304,
+   "skip": 248
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "events_sha256": "146086317e6af64962843e4b1a98d190d78a355c4a8ab8ca43f2978793d68e55"
+ },
+ "probes": {
+  "red": {
+   "record": "h02-probes-red.json",
+   "cli": "unmodified baseline build",
+   "glob": "probes/h01b/c01-*.pts parent/c01-*.pts parent/c19-*.pts",
+   "exit": 0,
+   "summary": "24 probes, 0 not behaving as their kind says"
+  },
+  "after_all": {
+   "record": "h02-probes-after.json",
+   "cli": "final build",
+   "glob": "probes/h01b/*.pts parent/*.pts",
+   "exit": 1,
+   "summary": "73 probes, 14 not behaving as their kind says: the 13 C01 and 1 C19 red probes; 12 C01 and the C19 now match Node, c01-red-generic-arrow-keyed-record stops at C23 (H29)"
+  },
+  "after_open_rows": {
+   "glob": "c0[2-7]-* c18-* parent/c0[2-7]-* parent/c18-* parent/c20-*",
+   "exit": 0,
+   "summary": "49 probes, 0 not behaving as their kind says"
+  }
+ },
+ "review_round_2_run": {
+  "note": "the full suite on the version the second review round saw (same command), superseded by after; raw events not retained",
+  "test_events": {
+   "pass": 1306,
+   "skip": 250
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "events_sha256": "0a1f3f38e4288affee64f1d8aea5bef276644d06fdf2649f4e413c11da032eeb"
+ }
+}

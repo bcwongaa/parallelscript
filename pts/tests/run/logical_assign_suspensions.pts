@@ -1,0 +1,37 @@
+// skip: known issue (H08, C25): an await or yield on the right side of ??=, ||= or &&= is hoisted before the place is tested, so it runs even when nothing is stored
+// `??=`, `||=` and `&&=` evaluate their right side only when they store, so an `await` or
+// `yield` there suspends only then (D-111 hoists suspensions out of `??`, `||` and `&&`
+// with this in mind, but not out of the logical assignments). PTS awaits each `later`
+// below and yields 1, where Node does neither; the same for places of any type.
+const trace: string[] = [];
+const later = async <T,>(v: T): Promise<T> => {
+  await null;
+  trace.push("resolved " + String(v));
+  return v;
+};
+class Cache {
+  value: string | undefined = "x";
+}
+async function main(): Promise<void> {
+  const c = new Cache();
+  c.value ??= await later("a");
+  let n: number = 1;
+  n ||= await later(2);
+  let m: number | null = 5;
+  m ??= await later(3);
+  const r: Record<string, number> = { a: 1 };
+  r.a ??= await later(5);
+  const o: any = JSON.parse('{"b":1}');
+  o.b ??= await later(6);
+  console.log(c.value, n, m, r, o, trace.length);
+}
+function* kept(): Generator<number, string, any> {
+  let s: string | undefined = "kept";
+  s ??= yield 1;
+  return s ?? "";
+}
+main().then(() => console.log([...kept()]));
+
+// expect:
+// x 1 5 { a: 1 } { b: 1 } 0
+// []

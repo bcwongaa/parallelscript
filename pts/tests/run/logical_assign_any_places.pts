@@ -1,0 +1,105 @@
+// `??=` on places of type `any` or `unknown` that aren't properties of a dynamic value:
+// variables, parameters, fields and elements. JS stores the right side when the place
+// holds null or undefined, evaluating it only then. H02 (C21): every `??=` here left the
+// place as it was and never evaluated the right side (in erased code, the conversion of
+// the result then threw); the last section's lines are controls.
+const trace: string[] = [];
+const rhs = (label: string, value: any): any => {
+  trace.push(label);
+  return value;
+};
+
+// Module-scope variables, one declared without a value.
+let fromNull: any = null;
+let unset: any;
+let zero: any = 0;
+console.log((fromNull ??= rhs("a", 5)), (unset ??= rhs("b", "u")), (zero ??= rhs("c", 9)), fromNull, unset, zero);
+let unknownValue: unknown = undefined;
+unknownValue ??= rhs("d", [1]);
+console.log(unknownValue);
+
+// A function's local, a captured variable, and an optional parameter given a default.
+function local(): any[] {
+  let x: any = undefined;
+  const value = (x ??= [1]);
+  return [value, x];
+}
+function cache(): () => any {
+  let cached: any = null;
+  return () => (cached ??= rhs("e", { n: 1 }));
+}
+function withOptions(options?: any): any {
+  options ??= { verbose: false };
+  return options;
+}
+const cached = cache();
+console.log(local(), cached(), cached() === cached(), withOptions(), withOptions({ verbose: true }), withOptions(0));
+
+// Class fields: an instance field, one the constructor sets, and a static field.
+class Lazy {
+  static shared: any = null;
+  value: any = null;
+  late: any;
+
+  constructor() {
+    this.late ??= "init";
+  }
+
+  get(): any {
+    return (this.value ??= rhs("f", "made"));
+  }
+}
+const lazy = new Lazy();
+console.log(lazy.get(), lazy.get(), lazy.late, (Lazy.shared ??= "s"), Lazy.shared);
+lazy.value = undefined;
+lazy.value ??= "again";
+console.log(lazy);
+
+// Object-literal fields of type any, an optional one, and a parameter's field.
+const shape: { v: any; w: any; p?: any } = { v: undefined, w: null };
+shape.v ??= 3;
+console.log((shape.w ??= 4), (shape.p ??= 5), shape);
+const setDefault = (p: { v: any }): any => (p.v ??= "default");
+const param: { v: any } = { v: null };
+console.log(setDefault(param), setDefault({ v: 0 }), param);
+
+// Elements of any[].
+const xs: any[] = [null, undefined, 0, ""];
+console.log((xs[0] ??= 1), (xs[1] ??= 2), (xs[2] ??= 3), JSON.stringify(xs[3] ??= 4), xs);
+
+// Values of a type parameter in erased code (D-078): a parameter and a local.
+const orDefault = <T,>(x: T | undefined, fallback: T): T => {
+  x ??= fallback;
+  return x;
+};
+const firstDefined = <T,>(xs: (T | undefined)[], fallback: T): T => {
+  let found: T | undefined;
+  for (const x of xs) {
+    found ??= x;
+  }
+  return (found ??= fallback);
+};
+console.log(orDefault(undefined, 5), orDefault(1, 5), orDefault<string | null>(null, "n"), firstDefined([undefined, 2, 3], 0), firstDefined<number>([], 7));
+
+// Controls, which already pass: ||= and &&= on the same kinds of places. The trace shows
+// each right side of ??= evaluated once, and only where the place was nullish.
+let orPlace: any = 0;
+let andPlace: any = 1;
+const orArray: any[] = [null, "kept"];
+orPlace ||= 5;
+andPlace &&= 6;
+orArray[0] ||= "set";
+orArray[1] ||= "never";
+console.log(orPlace, andPlace, orArray, trace.join(", "));
+
+// expect:
+// 5 u 0 5 u 0
+// [ 1 ]
+// [ [ 1 ], [ 1 ] ] { n: 1 } true { verbose: false } { verbose: true } 0
+// made made init s s
+// Lazy { value: 'again', late: 'init' }
+// 4 5 { v: 3, w: 4, p: 5 }
+// default 0 { v: 'default' }
+// 1 2 0 "" [ 1, 2, 0, '' ]
+// 5 1 n 2 7
+// 5 6 [ 'set', 'kept' ] a, b, d, e, f

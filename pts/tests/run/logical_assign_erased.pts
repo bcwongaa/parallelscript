@@ -1,0 +1,174 @@
+// `??=` and `||=` in erased generic code (D-078). A generic arrow function or function
+// expression is an erased copy, so a record, shape or array whose type mentions a type
+// parameter is a dynamic value there, as is a generic class's mapped-type field. JS reads
+// the place once, evaluates the right side only when the place is nullish (for ||=,
+// falsy), stores it, and gives the place's value. H02 (C01): every `??=` and `||=` here
+// but the last section's made `pts build` panic (records.go:280); that section's lines
+// are controls.
+
+// Grouping: the expression form in an arrow and in a function expression, and the
+// statement form with the key in a local.
+const groupNullish = <T,>(items: T[], keyOf: (item: T) => string): Record<string, T[]> => {
+  const groups: Record<string, T[]> = {};
+  for (const item of items) {
+    (groups[keyOf(item)] ??= []).push(item);
+  }
+  return groups;
+};
+const groupOr = function <T>(items: T[], keyOf: (item: T) => string): Record<string, T[]> {
+  const groups: Record<string, T[]> = {};
+  for (const item of items) {
+    (groups[keyOf(item)] ||= []).push(item);
+  }
+  return groups;
+};
+const groupStatements = <T,>(items: T[], keyOf: (item: T) => string): Record<string, T[]> => {
+  const groups: Record<string, T[]> = {};
+  for (const item of items) {
+    const key = keyOf(item);
+    groups[key] ??= [];
+    groups[key].push(item);
+  }
+  return groups;
+};
+const parity = (n: number): string => (n % 2 === 1 ? "odd" : "even");
+console.log(groupNullish([1, 2, 3, 4, 5], parity));
+console.log(groupOr(["a", "bb", "c"], (s) => String(s.length)));
+console.log(groupStatements([1, 2, 3], parity));
+
+// The value is the entry: the list stored the first time, the same list after. A store
+// into a typed place converts an erased array (D-072), so the value must be what was
+// stored, not the right side; the pushes in the sections below rely on that too.
+const listFor = <T,>(groups: Record<string, T[]>, key: string): T[] => (groups[key] ??= []);
+const lists: Record<string, number[]> = {};
+const firstList = listFor(lists, "a");
+firstList.push(1);
+console.log(listFor(lists, "a") === firstList, listFor(lists, "b").length, lists);
+
+// Keys of a type parameter K extends string: a Record<K, …> with K string, and a
+// Partial<Record<K, …>> with K a union of literals.
+const positions = <K extends string,>(keys: K[]): Record<K, number[]> => {
+  const all = {} as Record<K, number[]>;
+  keys.forEach((key, i) => {
+    (all[key] ||= []).push(i);
+  });
+  return all;
+};
+const firstPositions = <K extends string,>(keys: K[]): Partial<Record<K, number>> => {
+  const firsts: Partial<Record<K, number>> = {};
+  keys.forEach((key, i) => {
+    firsts[key] ??= i;
+  });
+  return firsts;
+};
+const letters: string[] = ["a", "b", "a"];
+console.log(positions(letters), firstPositions(["a", "b", "a"]));
+
+// Existing falsy entries: ??= keeps 0, NaN, "" and false and replaces null and undefined;
+// ||= replaces them all.
+const keepOrSet = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] ??= value);
+const replaceFalsy = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] ||= value);
+const counts: Record<string, number> = { zero: 0, nan: NaN };
+console.log(keepOrSet(counts, "zero", 1), replaceFalsy(counts, "zero", 2), keepOrSet(counts, "nan", 3), replaceFalsy(counts, "nan", 4), keepOrSet(counts, "new", 5), counts);
+const names: Record<string, string> = { empty: "" };
+console.log(JSON.stringify(keepOrSet(names, "empty", "a")), replaceFalsy(names, "empty", "b"), names);
+const flags: Record<string, boolean> = { off: false };
+console.log(keepOrSet(flags, "off", true), replaceFalsy(flags, "off", true), flags);
+const maybe: Record<string, number | null | undefined> = { n: null, u: undefined, z: 0 };
+console.log(keepOrSet(maybe, "n", 1), keepOrSet(maybe, "u", 2), keepOrSet(maybe, "z", 3), replaceFalsy(maybe, "z", 4), maybe);
+
+// Shapes and arrays whose types mention a type parameter, and a generic class's field.
+const fill = <T,>(o: { v: T | undefined }, x: T): T => (o.v ??= x);
+const fillOr = <T,>(o: { v: T }, x: T): T => (o.v ||= x);
+const slot: { v: number | undefined } = { v: undefined };
+const tally: { v: number } = { v: 0 };
+console.log(fill(slot, 1), fill(slot, 2), fillOr(tally, 3), fillOr(tally, 4), slot, tally);
+const fillAt = <T,>(xs: (T | undefined)[], i: number, x: T): T => (xs[i] ??= x);
+const fillAtOr = <T,>(xs: T[], i: number, x: T): T => (xs[i] ||= x);
+const words: (string | undefined)[] = [undefined, "b"];
+const numbers: number[] = [0, 5];
+console.log(fillAt(words, 0, "a"), fillAt(words, 1, "z"), fillAtOr(numbers, 0, 1), fillAtOr(numbers, 1, 9), words, numbers);
+class Holder<T> {
+  value: T | null = null;
+}
+const fillHolder = <T,>(holder: Holder<T>, x: T): T => (holder.value ??= x);
+const holder = new Holder<string>();
+console.log(fillHolder(holder, "a"), fillHolder(holder, "b"), holder);
+
+// A generic class's mapped-type field, from generic methods and from one that isn't.
+class Buckets<E extends Record<string, unknown>> {
+  readonly lists: { [K in keyof E]?: E[K][] } = {};
+
+  add<K extends keyof E>(key: K, value: E[K]): number {
+    return (this.lists[key] ??= []).push(value);
+  }
+
+  addOr<K extends keyof E>(key: K, value: E[K]): number {
+    return (this.lists[key] ||= []).push(value);
+  }
+}
+class LooseBuckets<E extends Record<string, unknown>> {
+  readonly lists: { [K in keyof E]?: E[keyof E][] } = {};
+
+  add(key: keyof E, value: E[keyof E]): void {
+    (this.lists[key] ??= []).push(value);
+  }
+}
+const buckets = new Buckets<{ a: number; b: string }>();
+console.log(buckets.add("a", 1), buckets.addOr("b", "x"), buckets.add("a", 2), buckets.addOr("a", 3), buckets.lists);
+const loose = new LooseBuckets<{ a: number; b: number }>();
+loose.add("a", 1);
+loose.add("b", 2);
+loose.add("a", 3);
+console.log(loose.lists);
+
+// Evaluation order: the receiver and the key once each, the right side only when needed.
+const trace: string[] = [];
+const add = <T,>(groups: Record<string, T[]>, key: string, item: T, or: boolean): number => {
+  const receiver = (): Record<string, T[]> => {
+    trace.push("receiver");
+    return groups;
+  };
+  const keyOf = (): string => {
+    trace.push("key " + key);
+    return key;
+  };
+  const fresh = (): T[] => {
+    trace.push("rhs");
+    return [];
+  };
+  return or ? (receiver()[keyOf()] ||= fresh()).push(item) : (receiver()[keyOf()] ??= fresh()).push(item);
+};
+const traced: Record<string, number[]> = {};
+console.log(add(traced, "a", 1, false), add(traced, "a", 2, false), add(traced, "b", 3, true), add(traced, "b", 4, true));
+console.log(trace.join(", "));
+console.log(traced);
+
+// Controls, which already pass: &&= in erased code, and a generic declaration (an
+// instance per type argument).
+const replaceTruthy = <T,>(record: Record<string, T>, key: string, value: T): T => (record[key] &&= value);
+function keepOrSetInstance<T>(record: Record<string, T>, key: string, value: T): T {
+  return (record[key] ??= value);
+}
+const controls: Record<string, number> = { one: 1, zero: 0 };
+console.log(replaceTruthy(controls, "one", 5), replaceTruthy(controls, "zero", 6), keepOrSetInstance(controls, "zero", 7), keepOrSetInstance(controls, "new", 8), controls);
+
+// expect:
+// { odd: [ 1, 3, 5 ], even: [ 2, 4 ] }
+// { '1': [ 'a', 'c' ], '2': [ 'bb' ] }
+// { odd: [ 1, 3 ], even: [ 2 ] }
+// true 0 { a: [ 1 ], b: [] }
+// { a: [ 0, 2 ], b: [ 1 ] } { a: 0, b: 1 }
+// 0 2 NaN 4 5 { zero: 2, nan: 4, new: 5 }
+// "" b { empty: 'b' }
+// false true { off: true }
+// 1 2 0 4 { n: 1, u: 2, z: 4 }
+// 1 1 3 3 { v: 1 } { v: 3 }
+// a b 1 5 [ 'a', 'b' ] [ 1, 5 ]
+// a a Holder { value: 'a' }
+// 1 1 2 3 { a: [ 1, 2, 3 ], b: [ 'x' ] }
+// { a: [ 1, 3 ], b: [ 2 ] }
+// 1 2 1 2
+// receiver, key a, rhs, receiver, key a, receiver, key b, rhs, receiver, key b
+// { a: [ 1, 2 ], b: [ 3, 4 ] }
+// 5 0 0 8 { one: 5, zero: 0, new: 8 }

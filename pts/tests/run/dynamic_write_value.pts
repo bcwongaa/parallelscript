@@ -1,0 +1,77 @@
+// The value of a write in erased code (D-078) or through `any` is the value as stored: a
+// checked copy where converting dynamic data to the place's type made one (D-072), so
+// pushing onto it pushes onto the place, as in JS (D-176). H02 (C24): the value was the
+// right side, so these pushes were lost. The last section's lines are controls.
+
+// Erased code writing a new array into a typed record's entry, a shape's field and an
+// array's element.
+const resetList = <T,>(groups: Record<string, T[]>, key: string, item: T): void => {
+  const list: T[] = (groups[key] = []);
+  list.push(item);
+};
+const lists: Record<string, number[]> = { a: [0] };
+resetList(lists, "a", 1);
+resetList(lists, "b", 2);
+console.log(lists);
+const resetField = <T,>(holder: { items: T[] }, item: T): number => {
+  const items: T[] = (holder.items = []);
+  return items.push(item);
+};
+const holder = { items: ["x"] };
+console.log(resetField(holder, "y"), holder);
+const resetRow = <T,>(rows: T[][], i: number, item: T): number => {
+  const row: T[] = (rows[i] = []);
+  return row.push(item);
+};
+const rows: string[][] = [["p"], ["q"]];
+console.log(resetRow(rows, 1, "r"), rows);
+
+// Through `any`, dynamic data written into a class's typed field, a typed record's entry,
+// a setter, a tuple's element and a union field.
+class Inbox {
+  messages: string[] = ["old"];
+}
+const inbox: any = new Inbox();
+(inbox.messages = JSON.parse("[]")).push("hi");
+const byName: any = lists;
+(byName["c"] = JSON.parse("[]")).push(3);
+console.log(inbox, lists);
+class Store {
+  #items: string[] = [];
+  get items(): string[] {
+    return this.#items;
+  }
+  set items(value: string[]) {
+    this.#items = value;
+  }
+  pair: [string[], number] = [[], 0];
+  maybe: number[] | null = null;
+}
+const store: any = new Store();
+(store.items = JSON.parse("[]")).push("via setter");
+(store.pair[0] = JSON.parse("[]")).push("via tuple");
+(store.maybe = JSON.parse("[]")).push(7);
+console.log(store.items, store.pair, store.maybe);
+
+// Controls, which already pass: a write that converts nothing gives the right side
+// itself, as a typed array's element does (JS gives the right side as written), and a
+// typed write.
+const plain: any = JSON.parse("{}");
+const fresh: number[] = [];
+console.log((plain.list = fresh) === fresh, plain);
+const bytes: any = new Uint8Array(2);
+console.log((bytes[0] = 300), bytes[0]);
+const typed: Record<string, number[]> = {};
+const entry: number[] = (typed.k = []);
+entry.push(4);
+console.log(typed);
+
+// expect:
+// { a: [ 1 ], b: [ 2 ] }
+// 1 { items: [ 'y' ] }
+// 1 [ [ 'p' ], [ 'r' ] ]
+// Inbox { messages: [ 'hi' ] } { a: [ 1 ], b: [ 2 ], c: [ 3 ] }
+// [ 'via setter' ] [ [ 'via tuple' ], 0 ] [ 7 ]
+// true { list: [] }
+// 300 44
+// { k: [ 4 ] }

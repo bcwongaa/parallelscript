@@ -1,0 +1,11 @@
+// skip: known issue (H04, C26): the value of plain `=` on a keyed element (D-089) has no type, so using it as an array panics the C emitter (cgen/arrays.go)
+// The value of `=` on a keyed element is the value stored, of the element's type, as a
+// read of the element is. `??=`, `||=` and `&&=` give theirs that type since H02 (D-176).
+type Status = "open" | "closed";
+const statuses: Status[] = ["open", "closed", "open"];
+const lists: Record<Status, string[]> = { open: [], closed: [] };
+const k: Status = statuses[1];
+console.log((lists[k] = ["z"]).length, (lists[statuses[0]] = ["a", "b"])[1], lists);
+
+// expect:
+// 1 b { open: [ 'a', 'b' ], closed: [ 'z' ] }

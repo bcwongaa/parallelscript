@@ -187,21 +187,25 @@ func (l *lowerer) recordElement(node *ast.Node, op ir.MapOp) ir.Expr {
 	return &ir.MapCall{Op: op, Args: []ir.Expr{record, key}, Map: record.Type().(*ir.MapType)}
 }
 
-// recordRead is o[k] or o.k of a hash-map object read as its entry type: undefined for a
-// missing key where the entry type holds undefined (ProcessEnv's `string | undefined`,
-// D-172), else a RangeError (D-059).
+// recordRead is o[k] or o.k of a hash-map object read as its entry type (recordEntry;
+// ProcessEnv's `string | undefined` reads undefined for a missing key).
 func (l *lowerer) recordRead(node *ast.Node) ir.Expr {
-	x := l.recordElement(node, ir.MapGetChecked)
-	if x == nil {
+	record, key := l.recordElementOperands(node)
+	if record == nil {
 		return nil
 	}
-	read := x.(*ir.MapCall)
-	entry := read.Map.Value
-	if u, ok := entry.(*ir.Union); entry != ir.Value && (!ok || !u.Has(ir.Undefined)) {
-		return x
+	return l.recordEntry(record, key, node)
+}
+
+// recordEntry reads the entry for key of record, a hash-map object, as its entry type (at
+// node, for errors): undefined for a missing key where that type holds undefined or is
+// any (D-172), else a RangeError (D-059).
+func (l *lowerer) recordEntry(record, key ir.Expr, node *ast.Node) ir.Expr {
+	mt := record.Type().(*ir.MapType)
+	if u, ok := mt.Value.(*ir.Union); mt.Value != ir.Value && (!ok || !u.Has(ir.Undefined)) {
+		return &ir.MapCall{Op: ir.MapGetChecked, Args: []ir.Expr{record, key}, Map: mt}
 	}
-	read.Op = ir.MapGet
-	return l.checkedConversion(read, entry, node)
+	return l.checkedConversion(&ir.MapCall{Op: ir.MapGet, Args: []ir.Expr{record, key}, Map: mt}, mt.Value, node)
 }
 
 // recordElementOperands lowers the object and the key of o[k] or o.k, or reports the
@@ -224,14 +228,14 @@ func (l *lowerer) recordElementOperands(node *ast.Node) (ir.Expr, ir.Expr) {
 	return record, key
 }
 
-// recordKey lowers a key of a hash-map object: a string, or a number, which JS converts
-// to its string.
+// recordKey lowers a key of a hash-map object: a string, or a number or a dynamic value
+// (an erased call's string, `k: any`), which JS converts to its string.
 func (l *lowerer) recordKey(node *ast.Node) ir.Expr {
 	key := l.expression(node)
 	switch {
 	case key == nil:
 		return nil
-	case ir.IsNumeric(key.Type()):
+	case ir.IsNumeric(key.Type()) || key.Type() == ir.Value:
 		return &ir.ToString{X: key}
 	case key.Type() != ir.String:
 		l.notSupportedYet(node, fmt.Sprintf("a key of type %s is", key.Type()))
@@ -282,9 +286,9 @@ func (l *lowerer) recordFallback(record ir.Expr, key ir.Expr, nullish bool, resu
 	ref := &ir.LocalRef{Local: value}
 	var found ir.Expr = &ir.MapCall{Op: ir.MapGetInto, Args: []ir.Expr{record, key, ref}, Map: mt}
 	switch t := mt.Value; {
-	case !nullish && (t == ir.Bool || ir.IsNumeric(t) || t == ir.String || isUnion(t)):
+	case !nullish && (t == ir.Bool || ir.IsNumeric(t) || t == ir.String || isDynamic(t)):
 		found = &ir.Logical{Op: ir.And, X: found, Y: truthOf(ref)} // objects and functions are never falsy
-	case nullish && isUnion(t):
+	case nullish && isDynamic(t):
 		found = &ir.Logical{Op: ir.And, X: found, Y: &ir.Unary{Op: ir.Not, X: &ir.IsNullish{X: ref}}}
 	}
 	var then ir.Expr = ref
@@ -300,13 +304,13 @@ func (l *lowerer) recordFallback(record ir.Expr, key ir.Expr, nullish bool, resu
 	return &ir.Bind{Local: value, Value: &ir.LeftOut{T: mt.Value}, In: &ir.Conditional{Cond: found, Then: then, Else: otherwise}}
 }
 
-// recordElementOrSet lowers `o[k] ??= value` (nullish) and `o[k] ||= value` for an entry
-// of a hash-map object: o's value for k if it has one (that is truthy, for ||=), and
+// recordElementOrSet lowers node, `o[k] ??= value` (nullish) or `o[k] ||= value`, for an
+// entry of a hash-map object: o's value for k if it has one (that is truthy, for ||=), and
 // otherwise value, which is evaluated and set only then.
-func (l *lowerer) recordElementOrSet(target place, valueNode *ast.Node, nullish bool) ir.Expr {
+func (l *lowerer) recordElementOrSet(node *ast.Node, target place, valueNode *ast.Node, nullish bool) ir.Expr {
 	return l.withObject(target, func(target place) ir.Expr {
 		t := target.valueType()
-		return l.recordFallback(target.object, target.key, nullish, t, valueNode, func(ir.Type) ir.Expr {
+		x := l.recordFallback(target.object, target.key, nullish, t, valueNode, func(ir.Type) ir.Expr {
 			value := l.expression(valueNode)
 			if value == nil {
 				return nil
@@ -316,6 +320,7 @@ func (l *lowerer) recordElementOrSet(target place, valueNode *ast.Node, nullish 
 			}
 			return target.store(value, false)
 		})
+		return l.logicalAssignmentValue(target, x, node)
 	})
 }
 

@@ -1,0 +1,5644 @@
+{
+ "task": "H01b",
+ "date": "2026-10-15",
+ "source_sha": "389baf63dc1d8eaee930facc8c079996f3e14bb3",
+ "cli": "/home/bryan/projects/parallelscript/pts-bin/pts",
+ "cli_sha256": "fb83410202055aa665e66a52f82ca72d01767fec631b49269bf05ef8428d105b",
+ "tools": {
+  "go": "go version go1.26.9 linux/amd64",
+  "node": "v24.21.0",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+ },
+ "comparison_contract": "stdout and exit code; stderr retained, not compared",
+ "results": [
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-dynamic-and-assign.pts",
+   "probe_sha256": "98bf72a729e6616e8db0515e910e1d5820efa0b34507d8fc8c842321e431038b",
+   "row": "C01",
+   "kind": "control",
+   "description": "`&&=` and `+=` on the same erased-record and `any` targets that `??=` / `||=` panic on",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `5 0 { one: 5, zero: 0 }` and `{ count: 6 }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-dynamic-and-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-dynamic-and-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-dynamic-and-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "5 0 { one: 5, zero: 0 }\n{ count: 6 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-dynamic-and-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "5 0 { one: 5, zero: 0 }\n{ count: 6 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-concrete-record.pts",
+   "probe_sha256": "79823a8825b2418999a93876f96efe37e498168300895eb6c74d71644df4e4f4",
+   "row": "C01",
+   "kind": "control",
+   "description": "`??=` inside a generic arrow on a record whose type does not mention the type parameter",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-concrete-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-concrete-record-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-concrete-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-concrete-record-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-plain-assign.pts",
+   "probe_sha256": "8b27b6fb7878d587b13c0254b1072b8a83790d105c17b9841f54be55ee6a0060",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same grouping in a generic arrow written with `=== undefined` and plain `=` instead of `??=`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-plain-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-plain-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-plain-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-plain-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-read-fallback.pts",
+   "probe_sha256": "f986ee89fa838d9286fea613bef429ab69b1cf6ee6b0e8b4e1b95f57be033afa",
+   "row": "C01",
+   "kind": "control",
+   "description": "reading `record[key] ?? []` / `record[key] || []` (no assignment) inside generic arrows",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `2 0 2 0`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-arrow-read-fallback.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-read-fallback-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-read-fallback.mts"
+    ],
+    "exit": 0,
+    "stdout": "2 0 2 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-arrow-read-fallback-native"
+        ],
+        "exit": 0,
+        "stdout": "2 0 2 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-class-record.pts",
+   "probe_sha256": "e3aac12551526f272e988ebd092c7d1c6836124da321c733becefaf778bf00f0",
+   "row": "C01",
+   "kind": "control",
+   "description": "`??=` / `||=` on a `Record<string, T[]>` field of a generic class whose methods are not generic",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 3 ], b: [ 2 ] }` and `{ x: [ 'p', 'r' ], y: [ 'q' ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-class-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-class-record-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-class-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n{ x: [ 'p', 'r' ], y: [ 'q' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-class-record-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n{ x: [ 'p', 'r' ], y: [ 'q' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-function.pts",
+   "probe_sha256": "152ca8b4cbb3848666c1c08713aea04c33f88ec80deb0dea4cb39304d355f5f4",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same `??=` / `||=` record idiom in generic function declarations",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` and `{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-function.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-function-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-function.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-function-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ '1': [ 'a' ], '2': [ 'bb', 'cc' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-method.pts",
+   "probe_sha256": "e4967c4fa7e31f9aaf7b6d058bbc9dcb2f1a0f3b8b1862a5bdbd04f1379a9ffd",
+   "row": "C01",
+   "kind": "control",
+   "description": "the `??=` record idiom in a generic method of a non-generic class (monomorphized per call)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-generic-method.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-method-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-generic-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-generic-method-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric-eval-order.pts",
+   "probe_sha256": "48bf3810e213397e3a7cf1b9e5ef32c126f01eed5d6d7405c2c7fb8e39cc8a82",
+   "row": "C01",
+   "kind": "control",
+   "description": "non-generic `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric-eval-order.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-nongeneric-eval-order-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-nongeneric-eval-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-nongeneric-eval-order-native"
+        ],
+        "exit": 0,
+        "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric.pts",
+   "probe_sha256": "63b97af292ce5ffb97b6ed5dc2a8c909a4bbdb5df09ab1d20224fe7b98f0ea01",
+   "row": "C01",
+   "kind": "control",
+   "description": "the same `??=` / `||=` record idiom in non-generic arrows and a non-generic class",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }` twice, then `{ a: [ 1, 3 ], b: [ 2 ] }`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-control-nongeneric.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-control-nongeneric-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-control-nongeneric.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ a: [ 1, 3 ], b: [ 2 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-control-nongeneric-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n{ a: [ 1, 3 ], b: [ 2 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-any-element-or-assign.pts",
+   "probe_sha256": "6259b9c29637c49d09b1adbb3404be42956545c9379a291337c3c742ed20d835",
+   "row": "C01",
+   "kind": "red",
+   "description": "`box[key] ||= 5` with a computed key on a plain `any` object (no generics)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ count: 5 }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-any-element-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-any-element-or-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-any-element-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ count: 5 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-any-element-or-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ count: 5 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-any-property-nullish-assign.pts",
+   "probe_sha256": "6b591f94d79fd499ac31289bdd7f9922183cb89113540f72ae98f5e967449f75",
+   "row": "C01",
+   "kind": "red",
+   "description": "`box.list ??= []` and `box.name ||= \"x\"` on a plain `any` object (no generics)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ list: [ 1 ], name: 'x' }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-any-property-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-any-property-nullish-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-any-property-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ list: [ 1 ], name: 'x' }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-any-property-nullish-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ list: [ 1 ], name: 'x' }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-eval-order.pts",
+   "probe_sha256": "76df357557765dea75fcec918704c02d287089704d6ca0b5f10eed4a62157abc",
+   "row": "C01",
+   "kind": "red",
+   "description": "in a generic arrow, `(receiver()[key()] ??= rhs())` evaluates receiver, key once each, rhs only when missing",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `receiver key rhs receiver key receiver key rhs` and `{ a: [ 1, 2 ], b: [ 3 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-eval-order.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-eval-order-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-eval-order.mts"
+    ],
+    "exit": 0,
+    "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-eval-order-native"
+        ],
+        "exit": 0,
+        "stdout": "receiver key rhs receiver key receiver key rhs\n{ a: [ 1, 2 ], b: [ 3 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-falsy-values.pts",
+   "probe_sha256": "52c902f54364789b84f3ccd0facf6ebac305cc4d436b3be570a7371c4af32526",
+   "row": "C01",
+   "kind": "red",
+   "description": "in a generic arrow, `??=` keeps an existing falsy entry (0, \"\") and `||=` replaces it",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `0 6 7 { zero: 6, fresh: 7 }` and `\"\" b { empty: 'b' }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-falsy-values.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-falsy-values-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-falsy-values.mts"
+    ],
+    "exit": 0,
+    "stdout": "0 6 7 { zero: 6, fresh: 7 }\n\"\" b { empty: 'b' }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-falsy-values-native"
+        ],
+        "exit": 0,
+        "stdout": "0 6 7 { zero: 6, fresh: 7 }\n\"\" b { empty: 'b' }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-keyed-record.pts",
+   "probe_sha256": "ca2d0ad0d9e3bceb3a4171ee66248c878c479c9047c1800bd2885b2ef83785ba",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(out[key] ||= []).push(i)` on a `Record<K, number[]>` with `K extends string` in a generic arrow",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 0, 2 ], b: [ 1 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-keyed-record.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-keyed-record-native"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-keyed-record.pts:9:17 - error PTS1001: using a `object1` as a `{a: number[]; b: number[]}`, whose `a` it doesn't provide with the same types, is not supported yet\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-keyed-record.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 0, 2 ], b: [ 1 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-error",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-nullish-assign.pts",
+   "probe_sha256": "b578440d488650c25576844f49204f90221e033e2ae5bb983bde16a8a7355c89",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ??= []).push(x)` inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-nullish-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-nullish-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-or-assign.pts",
+   "probe_sha256": "ae8435cf1a4fe25b8d7c90051f8790040aace2f28faf58fb9fa937924ad0356b",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ||= []).push(x)` inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-or-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-or-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-statement-nullish-assign.pts",
+   "probe_sha256": "c6123311351454225e3a385a8e57782ff41e733993dbd74cb77a4277d426e0e2",
+   "row": "C01",
+   "kind": "red",
+   "description": "statement form `record[key] ??= []` (its value unused) inside a generic arrow function",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-arrow-statement-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-statement-nullish-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-statement-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-arrow-statement-nullish-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nongeneric-method.pts",
+   "probe_sha256": "38126376a7c40a5557302c1431a53b66695d302793e681865ef0181b2e3cf502",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ??= []).push(v)` on a mapped-type field of a generic class, from a NON-generic method",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 3 ], b: [ 2 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nongeneric-method.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nongeneric-method-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nongeneric-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nongeneric-method-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 1, 3 ], b: [ 2 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nullish-assign.pts",
+   "probe_sha256": "0aaa9697760407eebb4dcd0820ffc1f34f8f7c55c3d54370970a9f095c46d82d",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ??= []).push(v)` in a generic class over a mapped-type field, generic method key `K extends keyof E`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 2 ], b: [ 'x' ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nullish-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-nullish-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-or-assign.pts",
+   "probe_sha256": "d8c631c279a59c3236ba4bc7afa6055f86f7c4d9ebb3e2a0559c2fd752bd9d39",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(this.lists[key] ||= []).push(v)` in a generic class over a mapped-type field, generic method key `K extends keyof E`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ a: [ 1, 2 ], b: [ 'x' ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-class-mapped-or-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-or-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-or-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-class-mapped-or-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ a: [ 1, 2 ], b: [ 'x' ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-function-expression-nullish-assign.pts",
+   "probe_sha256": "0f1b541e04053cf43479ac24816e6ff500b59fa0e1373ec51d1ff4090e947ee0",
+   "row": "C01",
+   "kind": "red",
+   "description": "`(record[key] ??= []).push(x)` inside a generic function expression (not a declaration)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }`, exit 0",
+   "baseline_pts": "`pts build` panics (interface conversion: ir.Type is *ir.Primitive, not *ir.MapType), exit 2",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c01-red-generic-function-expression-nullish-assign.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-function-expression-nullish-assign-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-generic-function-expression-nullish-assign.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-generic-function-expression-nullish-assign-native"
+        ],
+        "exit": 0,
+        "stdout": "{ odd: [ 1, 3, 5 ], even: [ 2, 4 ] }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-any-iterator-data-properties.pts",
+   "probe_sha256": "facee9881e6da67288434e8d3387911937e6dcaf530fa7efe4d351f11bd7b36c",
+   "row": "C02",
+   "kind": "control",
+   "description": "the same `any` iterable shape whose next() returns plain data properties `{ done, value }` (no getters)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `item 0`, `item 10`, `end`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-any-iterator-data-properties.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-control-any-iterator-data-properties-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-control-any-iterator-data-properties.mts"
+    ],
+    "exit": 0,
+    "stdout": "item 0\nitem 10\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c02-control-any-iterator-data-properties-native"
+        ],
+        "exit": 0,
+        "stdout": "item 0\nitem 10\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-number-getter-throws.pts",
+   "probe_sha256": "2f87b22e80e6d0958fad1cd04bd08f10816811870b28de9c04e2dd5a69953cc9",
+   "row": "C02",
+   "kind": "control",
+   "description": "the same throwing object-literal getter annotated `: number` (so not `void`), read through `any`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-number-getter-throws.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-control-number-getter-throws-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-control-number-getter-throws.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c02-control-number-getter-throws-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by getter\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-object-void-method.pts",
+   "probe_sha256": "32613a7c79b0319d6742047320bed7249a991c31163098196a3692f0ea5416e6",
+   "row": "C02",
+   "kind": "control",
+   "description": "an object-literal METHOD declared `: void` (not a getter) whose body only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by method`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-object-void-method.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-control-object-void-method-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-control-object-void-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by method\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c02-control-object-void-method-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by method\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-void-data-property.pts",
+   "probe_sha256": "ddd9395dc62bacdc37de9269713cf813c27c7b62750d11f47d5ad5c06b876b15",
+   "row": "C02",
+   "kind": "control",
+   "description": "a `void`-typed DATA property (not a getter) is fine, so the panic needs a void/never getter",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `undefined`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-void-data-property.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-control-void-data-property-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-control-void-data-property.mts"
+    ],
+    "exit": 0,
+    "stdout": "undefined\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c02-control-void-data-property-native"
+        ],
+        "exit": 0,
+        "stdout": "undefined\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-data-done-throwing-value.pts",
+   "probe_sha256": "7c1bbc2028ad5406c642c8ca62d5cd275001ae975b8c5e3fd1fc1bfcbfaf67bf",
+   "row": "C02",
+   "kind": "red",
+   "description": "for...of over an `any` iterable whose result has a data property `done: true` and a `get value()` that only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-data-done-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-any-iterator-data-done-throwing-value-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x25b702a52008, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x25b702a52008)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x25b702a52008, 0x25b7032e2100)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x25b7032e2100)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x25b701ba3f00?, 0x7e?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x25b701ba3f00?, 0x3?}, {0x7ffce7c8c63f, 0x4f})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x25b701cfbef8, {0x16278e0, 0x201d4e0}, {0x25b701b46070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x25b702d1def8, {0x16278e0, 0x201d4e0}, {0x25b701b46060?, 0x25b701b66008?, 0x25b701b261e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-any-iterator-data-done-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "end\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-done-getter-throwing-value.pts",
+   "probe_sha256": "318c2b1f0fd20f8cde8de58379e5ea729e88eb91b5a5a3d216b426e551de1aec",
+   "row": "C02",
+   "kind": "red",
+   "description": "for...of over an `any` iterable whose result has `get done()` (true) and a `get value()` that only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `read done` then `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-done-getter-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-any-iterator-done-getter-throwing-value-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x1f7795602a08, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x1f7795602a08)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x1f7795602a08, 0x1f77958cea00)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x1f77958cea00)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x1f7794148900?, 0x80?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x1f7794148900?, 0x3?}, {0x7fff4a0a163d, 0x51})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x1f77942edef8, {0x16278e0, 0x201d4e0}, {0x1f7794138070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x1f7794d67ef8, {0x16278e0, 0x201d4e0}, {0x1f7794138060?, 0x1f7794158008?, 0x1f77941181e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-any-iterator-done-getter-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-class-void-getter.pts",
+   "probe_sha256": "df9f564b11f43fd263587686d87cde20da8e929dec493d02fb21ac2457c6d0ec",
+   "row": "C02",
+   "kind": "red",
+   "description": "a class getter whose body only throws (tsc infers `void`), read through the instance",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-class-void-getter.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-class-void-getter-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x30d553dd1908, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x30d553dd1908)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x30d553dd1908, 0x30d554ed7680)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x30d554ed7680)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x30d5537e0230?, 0x6a?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x30d5537e0230?, 0x3?}, {0x7ffde9135653, 0x3b})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x30d55392bef8, {0x16278e0, 0x201d4e0}, {0x30d553774070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x30d554035ef8, {0x16278e0, 0x201d4e0}, {0x30d553774060?, 0x30d553794008?, 0x30d5537541e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-class-void-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-never-getter.pts",
+   "probe_sha256": "98492e0f8c7f7296f2644a62ece54a5647585a854bc6943d0598dd8c1f80a3df",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object-literal getter explicitly declared `: never` whose body only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-never-getter.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-object-never-getter-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x9d70331ef08, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x9d70331ef08)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x9d70331ef08, 0x9d7032b7580)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x9d7032b7580)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x9d702512230?, 0x6c?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x9d702512230?, 0x3?}, {0x7ffd048f1651, 0x3d})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x9d7025fbef8, {0x16278e0, 0x201d4e0}, {0x9d702542020?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x9d70247fef8, {0x16278e0, 0x201d4e0}, {0x9d702542010?, 0x9d702492008?, 0x9d7024461e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-object-never-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter-unread.pts",
+   "probe_sha256": "aaccd2295e9fea99bb660f7c8a6d9fa24aca7b36391592ba43422e87e22be063",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object literal with a getter that only throws (type `void`) that the program never reads",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `1`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter-unread.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-object-void-getter-unread-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x316591a02f08, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x316591a02f08)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x316591a02f08, 0x31659220e780)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x31659220e780)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x316590ae7f00?, 0x72?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x316590ae7f00?, 0x3?}, {0x7fffd947364b, 0x43})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x316590c3fef8, {0x16278e0, 0x201d4e0}, {0x316590a8a070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x316590aa3ef8, {0x16278e0, 0x201d4e0}, {0x316590a8a060?, 0x316590aaa008?, 0x316590a6a1e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-object-void-getter-unread.mts"
+    ],
+    "exit": 0,
+    "stdout": "1\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter.pts",
+   "probe_sha256": "07c85788268020e17a2518083a9cabaeb8e6e19ea7ffca0496ff952fcb50e8a4",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object-literal getter whose body only throws (tsc infers `void`), read directly: no `any`, no iteration",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-object-void-getter-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x1e212a276f08, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x1e212a276f08)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x1e212a276f08, 0x1e212abce380)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x1e212abce380)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x1e21293c2230?, 0x6b?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x1e21293c2230?, 0x3?}, {0x7ffe35064652, 0x3c})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x1e212950bef8, {0x16278e0, 0x201d4e0}, {0x1e2129356070?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x1e212a3ebef8, {0x16278e0, 0x201d4e0}, {0x1e2129356060?, 0x1e2129376008?, 0x1e21293361e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-object-void-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c03-red-typed-iteratorresult-getters.pts",
+   "probe_sha256": "29842c622e9ccf2427ae084bb282898bbb522cc2e6368febef5cf3bcc2b7a9fc",
+   "row": "C03",
+   "kind": "red",
+   "description": "a typed `next(): IteratorResult<number>` returning `get done(): true` / `get value(): number` getters (D-146)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `read done` then `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` rejects it, no panic: PTS1001 converting object4 to object1 | object2 is not supported yet, exit 1",
+   "failure": "PTS1001: converting object4 to object1 \\| object2 is not supported yet",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c03-red-typed-iteratorresult-getters.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c03-red-typed-iteratorresult-getters-native"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "docs/agent/hardening-evidence/probes/h01b/c03-red-typed-iteratorresult-getters.pts:12:24 - error PTS1001: converting object4 to object1 | object2 is not supported yet\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c03-red-typed-iteratorresult-getters.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-error",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-any.pts",
+   "probe_sha256": "a5f0fbf4f168cbcb998ef1663f759eed09cde9569643b90e00c559a2b98b8f70",
+   "row": "C05",
+   "kind": "control",
+   "description": "the red probes' heterogeneous, tuple and union shapes held as `any` (runtime dynamic flat/flatMap)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 2, [ 3 ] ]`, `[ 1, 2, 3 ]` x2, `[ 'b', 2, 'a', 1 ]`, `[ 1, 2, 3, 4 ]`, `[ 1, [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-any.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-control-flat-any-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-control-flat-any.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-control-flat-any-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n[ 1, [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-homogeneous.pts",
+   "probe_sha256": "7e6848f5e612afb1b922e2ee61e37ccc8f3e4c9267acae9b9bf31ac8f1d2d875",
+   "row": "C05",
+   "kind": "control",
+   "description": "`flat` / `flatMap` over homogeneous nested arrays (no unions, no tuples), with a hole",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 2, 3 ]`, `[ [ 1 ], [ 2 ], [ 3 ] ]`, `[ 1, 2, 3 ]` x3, `[ 1, 1, 2, 2, 3, 3 ]`, `[ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-homogeneous.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-control-flat-homogeneous-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-control-flat-homogeneous.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3 ]\n[ [ 1 ], [ 2 ], [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 1, 2, 2, 3, 3 ]\n[ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-control-flat-homogeneous-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3 ]\n[ [ 1 ], [ 2 ], [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 1, 2, 2, 3, 3 ]\n[ 1, 2, 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.pts",
+   "probe_sha256": "6797fc2ae2441517c3622712fff47692329e8b8afe09c91e19206ace43752fcf",
+   "row": "C05",
+   "kind": "control",
+   "description": "`.par.flatMap` over a union-element array with an identity mapper, and a mapper result flattened once",
+   "oracle": "node:c05-control-par-flatmap-union.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4 ]` and `[ [ 1 ], [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to the oracle at 1, 2 and 4 threads, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-control-par-flatmap-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-heterogeneous-depths.pts",
+   "probe_sha256": "2c75b563e9ba5fe5dbfe324f0f8be56d53d732d707cb1b8d6a6789a496c4a9cb",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat(depth)` at depths 0, 1 (default and explicit), 2 and Infinity over heterogeneous nesting",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "8 lines, `[ 1, [ 2 ], [ [ 3 ] ] ]`, `[ 1, 2, [ 3 ] ]` x2, `[ 1, 2, 3 ]` x2, `[ 1, 2, [ 3, [ 4 ] ] ]`, `[ 1, 2, 3, [ 4 ] ]`, `[ 1, 2, 3, 4 ]`, exit 0",
+   "baseline_pts": "builds and runs but no depth flattens anything: `[ 1, [ 2 ], [ [ 3 ] ] ]` x5, `[ 1, [ 2, [ 3, [Array] ] ] ]` x3, exit 0",
+   "failure": "^\\[ 1, \\[ 2, \\[ 3, \\[Array\\] \\] \\] \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-heterogeneous-depths.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-heterogeneous-depths-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-heterogeneous-depths.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, [ 3, [ 4 ] ] ]\n[ 1, 2, 3, [ 4 ] ]\n[ 1, 2, 3, 4 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flat-heterogeneous-depths-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, [ 2, [ 3, [Array] ] ] ]\n[ 1, [ 2, [ 3, [Array] ] ] ]\n[ 1, [ 2, [ 3, [Array] ] ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-nested-union-depth.pts",
+   "probe_sha256": "c7d05ed72f610464225c3d9243dc87d152ec90a42963fdfb32513297512eef13",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat(depth)` over `(number | number[])[][]`: level 1 is all arrays, level 2 is a union",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, [ 2 ], 3 ]`, `[ 1, 2, 3 ]`, `[ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs; depth 1 is right, depth 2 and Infinity stop at the union: `[ 1, [ 2 ], 3 ]` x3, exit 0",
+   "failure": "^\\[ 1, \\[ 2 \\], 3 \\]\\n\\[ 1, \\[ 2 \\], 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-nested-union-depth.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-nested-union-depth-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-nested-union-depth.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ], 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flat-nested-union-depth-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2 ], 3 ]\n[ 1, [ 2 ], 3 ]\n[ 1, [ 2 ], 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-tuple-array.pts",
+   "probe_sha256": "a035177e007782cbcb1ceaa82a811d7b5ff6c5ef5c9d3ec179735186e6335473",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over arrays of tuples",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 'b', 2, 'a', 1 ]` and `[ 1, 2, 3, 4 ]`, exit 0",
+   "baseline_pts": "builds and runs but returns the tuples unflattened: `[ [ 'b', 2 ], [ 'a', 1 ] ]`, `[ [ 1, 2 ], [ 3, 4 ] ]`, exit 0",
+   "failure": "^\\[ \\[ 'b', 2 \\], \\[ 'a', 1 \\] \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-tuple-array.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-tuple-array-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-tuple-array.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flat-tuple-array-native"
+        ],
+        "exit": 0,
+        "stdout": "[ [ 'b', 2 ], [ 'a', 1 ] ]\n[ [ 1, 2 ], [ 3, 4 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-array.pts",
+   "probe_sha256": "d066aecf356c6904adcbe933aa060223f102fa360fb76f49a3c57bb032734cee",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over arrays whose element type is a union of a value and an array",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4, 5 ]` and `[ 'a', 'b', 'c' ]`, exit 0",
+   "baseline_pts": "builds and runs but returns the elements unflattened: `[ 1, [ 2, 3 ], 4, [ 5 ] ]`, `[ [ 'a' ], 'b', [ 'c' ] ]`, exit 0",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4, \\[ 5 \\] \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-array.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-union-array-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-union-array.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4, 5 ]\n[ 'a', 'b', 'c' ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flat-union-array-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2, 3 ], 4, [ 5 ] ]\n[ [ 'a' ], 'b', [ 'c' ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-holes.pts",
+   "probe_sha256": "5820323a10dc9c2c6df00e6e4f443924a94f1c100ea5b2e082a71ddef2ea2d4b",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over a union-element array with a hole: the hole is skipped and the array element is spread",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs; the hole is skipped but the array is not spread: `... [ 1, [ 2, 3 ] ]`, exit 0",
+   "failure": "^\\[ 1, <1 empty item>, \\[ 2, 3 \\] \\] \\[ 1, \\[ 2, 3 \\] \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-holes.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-union-holes-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flat-union-holes.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flat-union-holes-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, [ 2, 3 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flatmap-union.pts",
+   "probe_sha256": "ad4d889617cc2da1f190596c546748c37ebcf8424b568e675cadec7dae697f34",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flatMap` whose mapper returns a union of a value and an array; the result flattens exactly one level",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs; a union-typed mapper result is not flattened: `[ 1, [ 2, 3 ], 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ [ 2 ] ] ]`, exit 0",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flatmap-union.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-flatmap-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-flatmap-union.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ 1, 1, 2, 3, 4, 4 ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2, 3 ], 4 ]\n[ 1, 1, 2, 3, 4, 4 ]\n[ 1, [ [ 2 ] ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-control-par-sort-default.pts",
+   "probe_sha256": "19ef504cfe435bc1d86cebc0abc0c68c1860ce9459d7f85386d4aca5ff7d1fcb",
+   "row": "C06",
+   "kind": "control",
+   "description": "`.par.sort()` WITHOUT a comparator, small and 6000-element arrays with undefined and null",
+   "oracle": "node:c06-control-par-sort-default.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 3,
+   "expected_node": "`[ 1, 20, 3, null, undefined ]`, `first [ 1, 1001, 1002, 1003, 1004 ]`, `last [ undefined, undefined, undefined ]`, `null at 5399`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to the oracle at 1, 2 and 4 threads, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-control-par-sort-default.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-control-par-sort-default-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c06-control-par-sort-default.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 20, 3, null, undefined ]\nfirst [ 1, 1001, 1002, 1003, 1004 ]\nlast [ undefined, undefined, undefined ]\nnull at 5399\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 3,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-control-par-sort-default-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 20, 3, null, undefined ]\nfirst [ 1, 1001, 1002, 1003, 1004 ]\nlast [ undefined, undefined, undefined ]\nnull at 5399\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 3,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-control-par-sort-default-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 20, 3, null, undefined ]\nfirst [ 1, 1001, 1002, 1003, 1004 ]\nlast [ undefined, undefined, undefined ]\nnull at 5399\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 3,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-control-par-sort-default-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 20, 3, null, undefined ]\nfirst [ 1, 1001, 1002, 1003, 1004 ]\nlast [ undefined, undefined, undefined ]\nnull at 5399\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-control-sort-defined.pts",
+   "probe_sha256": "fbd5ebb84d5968780a914eb9de8a2874f018b18fcc39364629ef010a98fac822",
+   "row": "C06",
+   "kind": "control",
+   "description": "`sort()` / `toSorted()` with and without a comparator over arrays with neither undefined nor null",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 20, 3 ]`, `[ 'a', 'v', 'z' ]`, `[ 1, 3, 20 ]`, `[ 3, 1, 20 ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-control-sort-defined.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-control-sort-defined-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-control-sort-defined.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 20, 3 ]\n[ 'a', 'v', 'z' ]\n[ 1, 3, 20 ]\n[ 3, 1, 20 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-control-sort-defined-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 20, 3 ]\n[ 'a', 'v', 'z' ]\n[ 1, 3, 20 ]\n[ 3, 1, 20 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-control-sort-null-comparator.pts",
+   "probe_sha256": "8b43ca02a867dd0e0c77954b72aefe8e9b7328819b9096fd034c93edbfa910a6",
+   "row": "C06",
+   "kind": "control",
+   "description": "unlike undefined, null IS passed to a comparator, which then decides its place",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ null, 1, 3 ]` and `comparator saw null: true`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-control-sort-null-comparator.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-control-sort-null-comparator-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-control-sort-null-comparator.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ null, 1, 3 ]\ncomparator saw null: true\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-control-sort-null-comparator-native"
+        ],
+        "exit": 0,
+        "stdout": "[ null, 1, 3 ]\ncomparator saw null: true\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-par-sort-undefined-comparator.pts",
+   "probe_sha256": "d12c7aba6eb1b187869f5895eba5ab5929fd0dcbc54796cc442901a4013b6c4a",
+   "row": "C06",
+   "kind": "red",
+   "description": "`.par.sort(comparator)` over 6000 values with 600 undefined: undefined last, never passed to the comparator",
+   "oracle": "node:c06-red-par-sort-undefined-comparator.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 3,
+   "expected_node": "`first [ 1, 2, 3, 4, 5 ]`, `last [ undefined, undefined, undefined ]`, `undefined count 600`, `defined ascending: true`, `comparator saw undefined: false`, exit 0",
+   "baseline_pts": "builds and runs at 1, 2 and 4 threads but undefined reaches the comparator and sorts first: `last [ 5997, 5998, 5999 ]`, `... true`, exit 0",
+   "failure": "^comparator saw undefined: true$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-par-sort-undefined-comparator.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-par-sort-undefined-comparator-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-par-sort-undefined-comparator.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "first [ 1, 2, 3, 4, 5 ]\nlast [ undefined, undefined, undefined ]\nundefined count 600\ndefined ascending: true\ncomparator saw undefined: false\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 3,
+     "runs_not_matching_node": 3,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-par-sort-undefined-comparator-native"
+        ],
+        "exit": 0,
+        "stdout": "first [ 1, 2, 3, 4, 5 ]\nlast [ 5997, 5998, 5999 ]\nundefined count 600\ndefined ascending: true\ncomparator saw undefined: true\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 3,
+     "runs_not_matching_node": 3,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-par-sort-undefined-comparator-native"
+        ],
+        "exit": 0,
+        "stdout": "first [ 1, 2, 3, 4, 5 ]\nlast [ 5997, 5998, 5999 ]\nundefined count 600\ndefined ascending: true\ncomparator saw undefined: true\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 3,
+     "runs_not_matching_node": 3,
+     "outcomes": [
+      {
+       "count": 3,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-par-sort-undefined-comparator-native"
+        ],
+        "exit": 0,
+        "stdout": "first [ 1, 2, 3, 4, 5 ]\nlast [ 5997, 5998, 5999 ]\nundefined count 600\ndefined ascending: true\ncomparator saw undefined: true\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-any-arrays.pts",
+   "probe_sha256": "724b46ae9dd78f9a752f23672c37504398c8991967f44837ab8a884b3f029695",
+   "row": "C06",
+   "kind": "red",
+   "description": "the same SortCompare rules for `any[]` and for an array held as `any` (dynamic method dispatch)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 3, 'b', null, undefined ]` x2, `[ 3, 1, null, 'b', undefined ]`, `comparator saw undefined: false`, exit 0",
+   "baseline_pts": "builds and runs; `[ undefined, null, 1, 3, 'b' ]` x2, `[ 3, undefined, 1, null, 'b' ]`, `... true`, exit 0",
+   "failure": "^\\[ undefined, null, 1, 3, 'b' \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-any-arrays.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-any-arrays-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-any-arrays.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 3, 'b', null, undefined ]\n[ 1, 3, 'b', null, undefined ]\n[ 3, 1, null, 'b', undefined ]\ncomparator saw undefined: false\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-any-arrays-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, null, 1, 3, 'b' ]\n[ undefined, null, 1, 3, 'b' ]\n[ 3, undefined, 1, null, 'b' ]\ncomparator saw undefined: true\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-holes.pts",
+   "probe_sha256": "7e952b2a2dd7d7b0c9a920494effb2df00c69eea3974a1a94814e66780eff765",
+   "row": "C06",
+   "kind": "red",
+   "description": "holes sort after undefined (sort keeps them as holes at the end; toSorted reads them as undefined)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 3, undefined, <1 empty item>, 1, <1 empty item> ]`, `[ 1, 3, undefined, undefined, undefined ]`, `[ 1, 3, undefined, <2 empty items> ]` x2, exit 0",
+   "baseline_pts": "builds and runs; toSorted() and sort() give `[ undefined, <2 empty items>, 1, 3 ]`, sort(cmp) `[ undefined, 1, 3, <2 empty items> ]`, exit 0",
+   "failure": "^\\[ undefined, <2 empty items>, 1, 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-holes.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-holes-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-holes.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 3, undefined, <1 empty item>, 1, <1 empty item> ]\n[ 1, 3, undefined, undefined, undefined ]\n[ 1, 3, undefined, <2 empty items> ]\n[ 1, 3, undefined, <2 empty items> ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-holes-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 3, undefined, <1 empty item>, 1, <1 empty item> ]\n[ undefined, <2 empty items>, 1, 3 ]\n[ undefined, 1, 3, <2 empty items> ]\n[ undefined, <2 empty items>, 1, 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-null.pts",
+   "probe_sha256": "9260b3954f3ee4f5bde73fa1f3403176d68287d56d56eedd4b8ec06f7cbf3e63",
+   "row": "C06",
+   "kind": "red",
+   "description": "`sort()` / `toSorted()` without a comparator compare null as the string \"null\"",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 20, 3, null ]`, `[ 'a', 'nuk', null, 'nz' ]` twice, exit 0",
+   "baseline_pts": "builds and runs but sorts null first: `[ null, 1, 20, 3 ]`, `[ null, 'a', 'nuk', 'nz' ]` twice, exit 0",
+   "failure": "^\\[ null, 1, 20, 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-null.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-null-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-null.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 20, 3, null ]\n[ 'a', 'nuk', null, 'nz' ]\n[ 'a', 'nuk', null, 'nz' ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-null-native"
+        ],
+        "exit": 0,
+        "stdout": "[ null, 1, 20, 3 ]\n[ null, 'a', 'nuk', 'nz' ]\n[ null, 'a', 'nuk', 'nz' ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-comparator.pts",
+   "probe_sha256": "7f1db490cc9d52abe2e11bb97b15944137e19ab7ac268c06ac2d91a7cb619e1f",
+   "row": "C06",
+   "kind": "red",
+   "description": "`sort(comparator)` never passes undefined to the comparator and puts undefined last; every call is logged",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, undefined, undefined ]`, `arguments seen: 1 2 3`, `calls with undefined: 0`, exit 0",
+   "baseline_pts": "builds and runs; undefined reaches the comparator and sorts first: `[ undefined, undefined, 1, 2, 3 ]`, exit 0",
+   "failure": "^arguments seen: .*undefined$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-comparator.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-comparator-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-comparator.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, undefined, undefined ]\narguments seen: 1 2 3\ncalls with undefined: 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-comparator-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, undefined, 1, 2, 3 ]\narguments seen: 1 2 3 undefined\ncalls with undefined: 5\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-default.pts",
+   "probe_sha256": "342d75d515e27137cd17fdbf2f167aaf7e54e3e88fd4c80959dcf45567c2f919",
+   "row": "C06",
+   "kind": "red",
+   "description": "`sort()` without a comparator puts every undefined last (never compared as a string)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 20, 3, undefined, undefined ]` and `[ 'a', 'v', 'z', undefined ]`, exit 0",
+   "baseline_pts": "builds and runs but sorts undefined first: `[ undefined, undefined, 1, 20, 3 ]`, `[ undefined, 'a', 'v', 'z' ]`, exit 0",
+   "failure": "^\\[ undefined, undefined, 1, 20, 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-default.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-default-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-default.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 20, 3, undefined, undefined ]\n[ 'a', 'v', 'z', undefined ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-default-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, undefined, 1, 20, 3 ]\n[ undefined, 'a', 'v', 'z' ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-other-kinds.pts",
+   "probe_sha256": "fb9b80821a599775457bee805866df8b950bd83cd1272a79f6fd324276e12ecb",
+   "row": "C06",
+   "kind": "red",
+   "description": "undefined goes last in `sort()` for object and boolean element unions too",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `a b undefined` and `[ false, true, undefined ]`, exit 0",
+   "baseline_pts": "builds and runs but sorts undefined first: `undefined a b`, `[ undefined, false, true ]`, exit 0",
+   "failure": "^undefined a b$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-sort-undefined-other-kinds.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-other-kinds-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-other-kinds.mts"
+    ],
+    "exit": 0,
+    "stdout": "a b undefined\n[ false, true, undefined ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-sort-undefined-other-kinds-native"
+        ],
+        "exit": 0,
+        "stdout": "undefined a b\n[ undefined, false, true ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c06-red-tosorted-undefined.pts",
+   "probe_sha256": "7811f7e016190809ca6f0c582fb268e501412e00970520175d9b4cb141ba7783",
+   "row": "C06",
+   "kind": "red",
+   "description": "`toSorted()` with and without a comparator puts undefined last and leaves the source unchanged",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 20, 3, undefined ]`, `[ 'a', 'v', 'z', undefined ]`, `[ 1, 3, 20, undefined ]`, `comparator saw undefined: false`, `[ 3, undefined, 1, 20 ]`, exit 0",
+   "baseline_pts": "builds and runs; undefined first in all three and it reaches the comparator; source unchanged, exit 0",
+   "failure": "^\\[ undefined, 1, 20, 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c06-red-tosorted-undefined.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-tosorted-undefined-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-tosorted-undefined.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 20, 3, undefined ]\n[ 'a', 'v', 'z', undefined ]\n[ 1, 3, 20, undefined ]\ncomparator saw undefined: false\n[ 3, undefined, 1, 20 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-tosorted-undefined-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, 1, 20, 3 ]\n[ undefined, 'a', 'v', 'z' ]\n[ undefined, 1, 3, 20 ]\ncomparator saw undefined: true\n[ 3, undefined, 1, 20 ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c07-control-local-abortcontroller-sequential.pts",
+   "probe_sha256": "bcf774aa90e6aa392fd345ac4de2a0b99f13d32eef22803109c4d8513133f22e",
+   "row": "C07",
+   "kind": "control",
+   "description": "the same 4 x 20,000 local AbortController constructions on the main thread only (no `.par`)",
+   "oracle": "node-self",
+   "threads": [
+    1,
+    4
+   ],
+   "runs": 5,
+   "expected_node": "prints `task 0: failed 0` ... `task 3: failed 0` (4 lines), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node at 1 and 4 threads in every run, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c07-control-local-abortcontroller-sequential.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c07-control-local-abortcontroller-sequential-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c07-control-local-abortcontroller-sequential.mts"
+    ],
+    "exit": 0,
+    "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 5,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 5,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-control-local-abortcontroller-sequential-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 5,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 5,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-control-local-abortcontroller-sequential-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c07-red-abortsignal-abort-par.pts",
+   "probe_sha256": "9ba2f5d04597aa5bd5f01c3c6402b6924cd67daeb3b3b6a9043b802716378487",
+   "row": "C07",
+   "kind": "red",
+   "description": "four `.par.map` tasks each make 20,000 local signals with the static `AbortSignal.abort(reason)`; none may fail",
+   "oracle": "node:c07-red-abortsignal-abort-par.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 20,
+   "expected_node": "prints `task 0: failed 0` ... `task 3: failed 0` (4 lines), exit 0",
+   "baseline_pts": "1 thread passes; at 2 and 4 threads calls fail with `TypeError: Illegal constructor` (counts in the report), exit 0",
+   "failure": "TypeError: Illegal constructor",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c07-red-abortsignal-abort-par.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c07-red-abortsignal-abort-par.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 20,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 20,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 20,
+     "runs_not_matching_node": 20,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 533 (first TypeError: Illegal constructor)\ntask 1: failed 582 (first TypeError: Illegal constructor)\ntask 2: failed 943 (first TypeError: Illegal constructor)\ntask 3: failed 176 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 470 (first TypeError: Illegal constructor)\ntask 1: failed 252 (first TypeError: Illegal constructor)\ntask 2: failed 1396 (first TypeError: Illegal constructor)\ntask 3: failed 187 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 543 (first TypeError: Illegal constructor)\ntask 1: failed 580 (first TypeError: Illegal constructor)\ntask 2: failed 552 (first TypeError: Illegal constructor)\ntask 3: failed 566 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 296 (first TypeError: Illegal constructor)\ntask 1: failed 200 (first TypeError: Illegal constructor)\ntask 2: failed 1278 (first TypeError: Illegal constructor)\ntask 3: failed 179 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 361 (first TypeError: Illegal constructor)\ntask 1: failed 253 (first TypeError: Illegal constructor)\ntask 2: failed 721 (first TypeError: Illegal constructor)\ntask 3: failed 68 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1234 (first TypeError: Illegal constructor)\ntask 1: failed 244 (first TypeError: Illegal constructor)\ntask 2: failed 284 (first TypeError: Illegal constructor)\ntask 3: failed 191 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 505 (first TypeError: Illegal constructor)\ntask 1: failed 434 (first TypeError: Illegal constructor)\ntask 2: failed 485 (first TypeError: Illegal constructor)\ntask 3: failed 406 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 433 (first TypeError: Illegal constructor)\ntask 1: failed 367 (first TypeError: Illegal constructor)\ntask 2: failed 302 (first TypeError: Illegal constructor)\ntask 3: failed 316 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 672 (first TypeError: Illegal constructor)\ntask 1: failed 257 (first TypeError: Illegal constructor)\ntask 2: failed 389 (first TypeError: Illegal constructor)\ntask 3: failed 519 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 365 (first TypeError: Illegal constructor)\ntask 1: failed 428 (first TypeError: Illegal constructor)\ntask 2: failed 483 (first TypeError: Illegal constructor)\ntask 3: failed 283 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 634 (first TypeError: Illegal constructor)\ntask 1: failed 684 (first TypeError: Illegal constructor)\ntask 2: failed 620 (first TypeError: Illegal constructor)\ntask 3: failed 707 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 296 (first TypeError: Illegal constructor)\ntask 1: failed 222 (first TypeError: Illegal constructor)\ntask 2: failed 1225 (first TypeError: Illegal constructor)\ntask 3: failed 285 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 219 (first TypeError: Illegal constructor)\ntask 1: failed 312 (first TypeError: Illegal constructor)\ntask 2: failed 1075 (first TypeError: Illegal constructor)\ntask 3: failed 161 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 335 (first TypeError: Illegal constructor)\ntask 1: failed 291 (first TypeError: Illegal constructor)\ntask 2: failed 1182 (first TypeError: Illegal constructor)\ntask 3: failed 182 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 410 (first TypeError: Illegal constructor)\ntask 1: failed 260 (first TypeError: Illegal constructor)\ntask 2: failed 317 (first TypeError: Illegal constructor)\ntask 3: failed 407 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 410 (first TypeError: Illegal constructor)\ntask 1: failed 389 (first TypeError: Illegal constructor)\ntask 2: failed 387 (first TypeError: Illegal constructor)\ntask 3: failed 483 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 299 (first TypeError: Illegal constructor)\ntask 1: failed 366 (first TypeError: Illegal constructor)\ntask 2: failed 246 (first TypeError: Illegal constructor)\ntask 3: failed 290 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1283 (first TypeError: Illegal constructor)\ntask 1: failed 253 (first TypeError: Illegal constructor)\ntask 2: failed 344 (first TypeError: Illegal constructor)\ntask 3: failed 202 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1254 (first TypeError: Illegal constructor)\ntask 1: failed 268 (first TypeError: Illegal constructor)\ntask 2: failed 293 (first TypeError: Illegal constructor)\ntask 3: failed 243 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 457 (first TypeError: Illegal constructor)\ntask 1: failed 417 (first TypeError: Illegal constructor)\ntask 2: failed 480 (first TypeError: Illegal constructor)\ntask 3: failed 439 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 20,
+     "runs_not_matching_node": 20,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1517 (first TypeError: Illegal constructor)\ntask 1: failed 1023 (first TypeError: Illegal constructor)\ntask 2: failed 1627 (first TypeError: Illegal constructor)\ntask 3: failed 1685 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1536 (first TypeError: Illegal constructor)\ntask 1: failed 1603 (first TypeError: Illegal constructor)\ntask 2: failed 1543 (first TypeError: Illegal constructor)\ntask 3: failed 863 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1628 (first TypeError: Illegal constructor)\ntask 1: failed 1947 (first TypeError: Illegal constructor)\ntask 2: failed 1747 (first TypeError: Illegal constructor)\ntask 3: failed 1956 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1397 (first TypeError: Illegal constructor)\ntask 1: failed 1433 (first TypeError: Illegal constructor)\ntask 2: failed 1005 (first TypeError: Illegal constructor)\ntask 3: failed 793 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1573 (first TypeError: Illegal constructor)\ntask 1: failed 1881 (first TypeError: Illegal constructor)\ntask 2: failed 1731 (first TypeError: Illegal constructor)\ntask 3: failed 1774 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 968 (first TypeError: Illegal constructor)\ntask 1: failed 1021 (first TypeError: Illegal constructor)\ntask 2: failed 1439 (first TypeError: Illegal constructor)\ntask 3: failed 1433 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 896 (first TypeError: Illegal constructor)\ntask 1: failed 1489 (first TypeError: Illegal constructor)\ntask 2: failed 1559 (first TypeError: Illegal constructor)\ntask 3: failed 1701 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1677 (first TypeError: Illegal constructor)\ntask 1: failed 1693 (first TypeError: Illegal constructor)\ntask 2: failed 1712 (first TypeError: Illegal constructor)\ntask 3: failed 1753 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1405 (first TypeError: Illegal constructor)\ntask 1: failed 907 (first TypeError: Illegal constructor)\ntask 2: failed 1471 (first TypeError: Illegal constructor)\ntask 3: failed 743 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1536 (first TypeError: Illegal constructor)\ntask 1: failed 1404 (first TypeError: Illegal constructor)\ntask 2: failed 1634 (first TypeError: Illegal constructor)\ntask 3: failed 636 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1516 (first TypeError: Illegal constructor)\ntask 1: failed 1639 (first TypeError: Illegal constructor)\ntask 2: failed 846 (first TypeError: Illegal constructor)\ntask 3: failed 1606 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1073 (first TypeError: Illegal constructor)\ntask 1: failed 1627 (first TypeError: Illegal constructor)\ntask 2: failed 1614 (first TypeError: Illegal constructor)\ntask 3: failed 1855 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1594 (first TypeError: Illegal constructor)\ntask 1: failed 549 (first TypeError: Illegal constructor)\ntask 2: failed 1653 (first TypeError: Illegal constructor)\ntask 3: failed 1556 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1340 (first TypeError: Illegal constructor)\ntask 1: failed 1137 (first TypeError: Illegal constructor)\ntask 2: failed 1439 (first TypeError: Illegal constructor)\ntask 3: failed 1261 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1174 (first TypeError: Illegal constructor)\ntask 1: failed 1644 (first TypeError: Illegal constructor)\ntask 2: failed 1455 (first TypeError: Illegal constructor)\ntask 3: failed 1162 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1478 (first TypeError: Illegal constructor)\ntask 1: failed 1662 (first TypeError: Illegal constructor)\ntask 2: failed 1607 (first TypeError: Illegal constructor)\ntask 3: failed 941 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1365 (first TypeError: Illegal constructor)\ntask 1: failed 1592 (first TypeError: Illegal constructor)\ntask 2: failed 1395 (first TypeError: Illegal constructor)\ntask 3: failed 1525 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1203 (first TypeError: Illegal constructor)\ntask 1: failed 1189 (first TypeError: Illegal constructor)\ntask 2: failed 1193 (first TypeError: Illegal constructor)\ntask 3: failed 1468 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1563 (first TypeError: Illegal constructor)\ntask 1: failed 1161 (first TypeError: Illegal constructor)\ntask 2: failed 1609 (first TypeError: Illegal constructor)\ntask 3: failed 1444 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-abortsignal-abort-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1256 (first TypeError: Illegal constructor)\ntask 1: failed 826 (first TypeError: Illegal constructor)\ntask 2: failed 888 (first TypeError: Illegal constructor)\ntask 3: failed 1496 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c07-red-local-abortcontroller-par.pts",
+   "probe_sha256": "330e04b7cd3d214a436fe189cea01a8e59dc4b871c5ba7d31aa7d4b3eccb7914",
+   "row": "C07",
+   "kind": "red",
+   "description": "four `.par.map` tasks each construct and abort 20,000 local, unshared AbortControllers; none may fail",
+   "oracle": "node:c07-red-local-abortcontroller-par.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 20,
+   "expected_node": "prints `task 0: failed 0` ... `task 3: failed 0` (4 lines), exit 0",
+   "baseline_pts": "1 thread passes; at 2 and 4 threads constructions fail with `TypeError: Illegal constructor` (counts in the report), exit 0",
+   "failure": "TypeError: Illegal constructor",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c07-red-local-abortcontroller-par.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c07-red-local-abortcontroller-par.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 20,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 20,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 0\ntask 1: failed 0\ntask 2: failed 0\ntask 3: failed 0\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 20,
+     "runs_not_matching_node": 20,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 473 (first TypeError: Illegal constructor)\ntask 1: failed 451 (first TypeError: Illegal constructor)\ntask 2: failed 475 (first TypeError: Illegal constructor)\ntask 3: failed 449 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 478 (first TypeError: Illegal constructor)\ntask 1: failed 363 (first TypeError: Illegal constructor)\ntask 2: failed 437 (first TypeError: Illegal constructor)\ntask 3: failed 440 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 734 (first TypeError: Illegal constructor)\ntask 1: failed 592 (first TypeError: Illegal constructor)\ntask 2: failed 561 (first TypeError: Illegal constructor)\ntask 3: failed 623 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1274 (first TypeError: Illegal constructor)\ntask 1: failed 189 (first TypeError: Illegal constructor)\ntask 2: failed 343 (first TypeError: Illegal constructor)\ntask 3: failed 229 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 818 (first TypeError: Illegal constructor)\ntask 1: failed 720 (first TypeError: Illegal constructor)\ntask 2: failed 774 (first TypeError: Illegal constructor)\ntask 3: failed 767 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1182 (first TypeError: Illegal constructor)\ntask 1: failed 180 (first TypeError: Illegal constructor)\ntask 2: failed 565 (first TypeError: Illegal constructor)\ntask 3: failed 411 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 476 (first TypeError: Illegal constructor)\ntask 1: failed 392 (first TypeError: Illegal constructor)\ntask 2: failed 523 (first TypeError: Illegal constructor)\ntask 3: failed 375 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1104 (first TypeError: Illegal constructor)\ntask 1: failed 143 (first TypeError: Illegal constructor)\ntask 2: failed 516 (first TypeError: Illegal constructor)\ntask 3: failed 354 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 875 (first TypeError: Illegal constructor)\ntask 1: failed 704 (first TypeError: Illegal constructor)\ntask 2: failed 755 (first TypeError: Illegal constructor)\ntask 3: failed 733 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1147 (first TypeError: Illegal constructor)\ntask 1: failed 265 (first TypeError: Illegal constructor)\ntask 2: failed 382 (first TypeError: Illegal constructor)\ntask 3: failed 260 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 477 (first TypeError: Illegal constructor)\ntask 1: failed 363 (first TypeError: Illegal constructor)\ntask 2: failed 449 (first TypeError: Illegal constructor)\ntask 3: failed 262 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1316 (first TypeError: Illegal constructor)\ntask 1: failed 236 (first TypeError: Illegal constructor)\ntask 2: failed 434 (first TypeError: Illegal constructor)\ntask 3: failed 317 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 470 (first TypeError: Illegal constructor)\ntask 1: failed 665 (first TypeError: Illegal constructor)\ntask 2: failed 470 (first TypeError: Illegal constructor)\ntask 3: failed 668 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 827 (first TypeError: Illegal constructor)\ntask 1: failed 733 (first TypeError: Illegal constructor)\ntask 2: failed 807 (first TypeError: Illegal constructor)\ntask 3: failed 778 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1276 (first TypeError: Illegal constructor)\ntask 1: failed 206 (first TypeError: Illegal constructor)\ntask 2: failed 526 (first TypeError: Illegal constructor)\ntask 3: failed 341 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 447 (first TypeError: Illegal constructor)\ntask 1: failed 812 (first TypeError: Illegal constructor)\ntask 2: failed 538 (first TypeError: Illegal constructor)\ntask 3: failed 784 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 577 (first TypeError: Illegal constructor)\ntask 1: failed 283 (first TypeError: Illegal constructor)\ntask 2: failed 494 (first TypeError: Illegal constructor)\ntask 3: failed 257 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 520 (first TypeError: Illegal constructor)\ntask 1: failed 373 (first TypeError: Illegal constructor)\ntask 2: failed 394 (first TypeError: Illegal constructor)\ntask 3: failed 327 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 482 (first TypeError: Illegal constructor)\ntask 1: failed 358 (first TypeError: Illegal constructor)\ntask 2: failed 468 (first TypeError: Illegal constructor)\ntask 3: failed 323 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 436 (first TypeError: Illegal constructor)\ntask 1: failed 260 (first TypeError: Illegal constructor)\ntask 2: failed 455 (first TypeError: Illegal constructor)\ntask 3: failed 353 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 20,
+     "runs_not_matching_node": 20,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1533 (first TypeError: Illegal constructor)\ntask 1: failed 2068 (first TypeError: Illegal constructor)\ntask 2: failed 1826 (first TypeError: Illegal constructor)\ntask 3: failed 2021 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1728 (first TypeError: Illegal constructor)\ntask 1: failed 1350 (first TypeError: Illegal constructor)\ntask 2: failed 1760 (first TypeError: Illegal constructor)\ntask 3: failed 1890 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1671 (first TypeError: Illegal constructor)\ntask 1: failed 1089 (first TypeError: Illegal constructor)\ntask 2: failed 1739 (first TypeError: Illegal constructor)\ntask 3: failed 1654 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1710 (first TypeError: Illegal constructor)\ntask 1: failed 1487 (first TypeError: Illegal constructor)\ntask 2: failed 1705 (first TypeError: Illegal constructor)\ntask 3: failed 959 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1560 (first TypeError: Illegal constructor)\ntask 1: failed 1090 (first TypeError: Illegal constructor)\ntask 2: failed 1620 (first TypeError: Illegal constructor)\ntask 3: failed 1719 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1745 (first TypeError: Illegal constructor)\ntask 1: failed 1916 (first TypeError: Illegal constructor)\ntask 2: failed 1857 (first TypeError: Illegal constructor)\ntask 3: failed 1807 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1566 (first TypeError: Illegal constructor)\ntask 1: failed 1664 (first TypeError: Illegal constructor)\ntask 2: failed 1666 (first TypeError: Illegal constructor)\ntask 3: failed 1175 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1494 (first TypeError: Illegal constructor)\ntask 1: failed 880 (first TypeError: Illegal constructor)\ntask 2: failed 1517 (first TypeError: Illegal constructor)\ntask 3: failed 1592 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1632 (first TypeError: Illegal constructor)\ntask 1: failed 927 (first TypeError: Illegal constructor)\ntask 2: failed 1693 (first TypeError: Illegal constructor)\ntask 3: failed 1503 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1493 (first TypeError: Illegal constructor)\ntask 1: failed 1709 (first TypeError: Illegal constructor)\ntask 2: failed 1594 (first TypeError: Illegal constructor)\ntask 3: failed 883 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1565 (first TypeError: Illegal constructor)\ntask 1: failed 1022 (first TypeError: Illegal constructor)\ntask 2: failed 1680 (first TypeError: Illegal constructor)\ntask 3: failed 1684 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1520 (first TypeError: Illegal constructor)\ntask 1: failed 1863 (first TypeError: Illegal constructor)\ntask 2: failed 1693 (first TypeError: Illegal constructor)\ntask 3: failed 1504 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1141 (first TypeError: Illegal constructor)\ntask 1: failed 1616 (first TypeError: Illegal constructor)\ntask 2: failed 1600 (first TypeError: Illegal constructor)\ntask 3: failed 1764 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1622 (first TypeError: Illegal constructor)\ntask 1: failed 766 (first TypeError: Illegal constructor)\ntask 2: failed 1687 (first TypeError: Illegal constructor)\ntask 3: failed 1602 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1744 (first TypeError: Illegal constructor)\ntask 1: failed 817 (first TypeError: Illegal constructor)\ntask 2: failed 1841 (first TypeError: Illegal constructor)\ntask 3: failed 1594 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1611 (first TypeError: Illegal constructor)\ntask 1: failed 666 (first TypeError: Illegal constructor)\ntask 2: failed 1690 (first TypeError: Illegal constructor)\ntask 3: failed 1676 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1605 (first TypeError: Illegal constructor)\ntask 1: failed 1810 (first TypeError: Illegal constructor)\ntask 2: failed 1538 (first TypeError: Illegal constructor)\ntask 3: failed 1323 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1554 (first TypeError: Illegal constructor)\ntask 1: failed 886 (first TypeError: Illegal constructor)\ntask 2: failed 1660 (first TypeError: Illegal constructor)\ntask 3: failed 1561 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1533 (first TypeError: Illegal constructor)\ntask 1: failed 1025 (first TypeError: Illegal constructor)\ntask 2: failed 1359 (first TypeError: Illegal constructor)\ntask 3: failed 1781 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-local-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "task 0: failed 1299 (first TypeError: Illegal constructor)\ntask 1: failed 685 (first TypeError: Illegal constructor)\ntask 2: failed 1459 (first TypeError: Illegal constructor)\ntask 3: failed 1647 (first TypeError: Illegal constructor)\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-iterable-param-generator-break.pts",
+   "probe_sha256": "276884adb46fb3ed40884ac0e089e42c1fd99b735da59c0f8a5430df278fc6a9",
+   "row": "C18",
+   "kind": "control",
+   "description": "the c18-red-any-generator-break generator through a typed `Iterable<number>` parameter, with break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`yield 0, item 0, yield 1, item 1, closed, [ 0, 1 ]` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-iterable-param-generator-break.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-control-iterable-param-generator-break-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-control-iterable-param-generator-break.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\n[ 0, 1 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-control-iterable-param-generator-break-native"
+        ],
+        "exit": 0,
+        "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\n[ 0, 1 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-break-return.pts",
+   "probe_sha256": "a117eac7ebbf038821b9d618cc215c563746e6c646977dde3d000cf7dd20d235",
+   "row": "C18",
+   "kind": "control",
+   "description": "the break/return() iterator of c18-red-any-iterator-break-return through a typed `Iterable<number>` class",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`next 0, item 0, next 1, item 1, return, end` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-break-return.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-break-return-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-break-return.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-break-return-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-getter-results.pts",
+   "probe_sha256": "c10b1986c60ef54f7e89f38a0d55f9f5458156ddad53a59d8e8db20a3277587f",
+   "row": "C18",
+   "kind": "control",
+   "description": "getter results done=false,false,true through a typed `Iterable<number>` class (`next(): any`), logging getter calls",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`read done 0, read value 0, item 0, read done 1, read value 1, item 10, read done 2, end` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-getter-results.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-getter-results-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-getter-results.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-control-typed-iterator-getter-results-native"
+        ],
+        "exit": 0,
+        "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts",
+   "probe_sha256": "1c5859dd201a6bfb73e0631be7492642964a4fa59c409610a21f88ff524360dd",
+   "row": "C18",
+   "kind": "red",
+   "description": "new defect beyond the ledger: a generator held as `any` must be resumed lazily by for...of and closed on break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`yield 0, item 0, yield 1, item 1, closed, end` (one per line), exit 0",
+   "baseline_pts": "drains the generator before the body: `yield 0..yield 3, closed`, then Uncaught Error: resumed after the loop broke, exit 1",
+   "failure": "^yield 0\\nyield 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-any-generator-break-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-any-generator-break.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-any-generator-break-native"
+        ],
+        "exit": 1,
+        "stdout": "yield 0\nyield 1\nyield 2\nyield 3\nclosed\n",
+        "stderr": "Uncaught Error: resumed after the loop broke\n    at docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts:13\n    at docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts:23\n"
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-break-return.pts",
+   "probe_sha256": "d754b753dab81d4eadf293221a9e5608149289e70eb9063ab59d60381be94a67",
+   "row": "C18",
+   "kind": "red",
+   "description": "new defect beyond the ledger: for...of over an `any` iterable runs next() lazily and calls return() on break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`next 0, item 0, next 1, item 1, return, end` (one per line), exit 0",
+   "baseline_pts": "drains the iterator first and never calls return(): `next 0..next 4, item 0, item 1, end`, exit 0",
+   "failure": "^next 0\\nnext 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-break-return.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-any-iterator-break-return-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-any-iterator-break-return.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-any-iterator-break-return-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nnext 1\nnext 2\nnext 3\nnext 4\nitem 0\nitem 1\nend\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-getter-sequence.pts",
+   "probe_sha256": "92e6346f5a8481a03562d92287c53b31e8bc8971a3d050faeb6809a473408688",
+   "row": "C18",
+   "kind": "red",
+   "description": "`any` iterable, getter results done=false,false,true; logs getter calls; each step must run before the body",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`read done 0, read value 0, item 0, read done 1, read value 1, item 10, read done 2, end` (one per line), exit 0",
+   "baseline_pts": "builds, no panic; done is read before value and the done result's value is unread, but all steps run before the body, exit 0",
+   "failure": "^read done 0\\nread value 0\\nread done 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-getter-sequence.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-any-iterator-getter-sequence-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-any-iterator-getter-sequence.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-any-iterator-getter-sequence-native"
+        ],
+        "exit": 0,
+        "stdout": "read done 0\nread value 0\nread done 1\nread value 1\nread done 2\nitem 0\nitem 10\nend\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+   "probe_sha256": "365825939fe29d8590a6d31901773e3766862f3cd24869c4b8c9dea431378016",
+   "row": "C01",
+   "kind": "red",
+   "description": "generic arrow const groups items with (groups[key] ??= []).push(item)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{\"odd\":[1,3],\"even\":[2]}",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "failure": "^panic: interface conversion: ir\\.Type is \\*ir\\.Primitive, not \\*ir\\.MapType(?s:.*)pts/lower/records\\.go:280",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c01-red-parent-generic-arrow-group.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c01-red-parent-generic-arrow-group-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c01-red-parent-generic-arrow-group.mts"
+    ],
+    "exit": 0,
+    "stdout": "{\"odd\":[1,3],\"even\":[2]}\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c01-red-parent-generic-arrow-group-native"
+        ],
+        "exit": 0,
+        "stdout": "{\"odd\":[1,3],\"even\":[2]}\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c02-control-parent-done-getter-returns-value.pts",
+   "probe_sha256": "effe044e8917d75014646dbfc681905afe2363c537439d990b83f94b5bfd4161",
+   "row": "C02",
+   "kind": "control",
+   "description": "for\u2026of over an any iterator whose result has done/value getters; done is true, value returns a number",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "\"read done\" then \"after loop\"; value is never read and the body never runs",
+   "baseline_pts": "matches Node. The parent first wrote this as a red probe expecting the reported",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c02-control-parent-done-getter-returns-value.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-control-parent-done-getter-returns-value-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-control-parent-done-getter-returns-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c02-control-parent-done-getter-returns-value-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter-throwing-value.pts",
+   "probe_sha256": "3d4f287eabecb502405115f787459073c25ac6147a956a76295dd16adede7451",
+   "row": "C02",
+   "kind": "red",
+   "description": "for\u2026of over an any iterator whose result has getters; done is true and value only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "\"read done\" then \"after loop\"; value is never read and the body never runs",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c02-red-parent-done-getter-throwing-value-native"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "panic: cgen: no check for void\n\ngoroutine 1 [running]:\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinition(0x36a7532d3908, {0x1622be0, 0x1fba9f0})\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:305 +0x185c\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).checkDefinitions(0x36a7532d3908)\n\t/home/bryan/projects/parallelscript/pts/cgen/checks.go:277 +0x45\ngithub.com/microsoft/typescript-go/pts/cgen.(*emitter).header(0x36a7532d3908, 0x36a75441e500)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:159 +0x6c6\ngithub.com/microsoft/typescript-go/pts/cgen.Emit(0x36a75441e500)\n\t/home/bryan/projects/parallelscript/pts/cgen/cgen.go:38 +0x6cd\ngithub.com/microsoft/typescript-go/pts/driver.EmitC({0x16278e0, 0x201d4e0}, {0x36a752d2a870?, 0x81?})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:39 +0x1bd\ngithub.com/microsoft/typescript-go/pts/driver.Build({0x16278e0, 0x201d4e0}, {0x36a752d2a870?, 0x3?}, {0x7ffd7738a643, 0x4b})\n\t/home/bryan/projects/parallelscript/pts/driver/driver.go:45 +0x65\nmain.(*cli).build(0x36a752dfbef8, {0x16278e0, 0x201d4e0}, {0x36a752d42020?, 0x23?, 0x1c8?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:248 +0xe5\nmain.(*cli).run(0x36a7538c3ef8, {0x16278e0, 0x201d4e0}, {0x36a752d42010?, 0x36a752c7e008?, 0x36a752c321e0?})\n\t/home/bryan/projects/parallelscript/cmd/pts/cli.go:136 +0x2b2\nmain.main()\n\t/home/bryan/projects/parallelscript/cmd/pts/main.go:16 +0x165\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c02-red-parent-done-getter-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-panic",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+   "probe_sha256": "2432c0ba0f86a33b4fed1328100f083575ead3a564953b0b932e82d6ae3fa280",
+   "row": "C05",
+   "kind": "red",
+   "description": "flat() over a union-element array and over a tuple array",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, 2, 3, 4 ] then [ 'a', 1, 'b', 2 ]",
+   "baseline_pts": "the nested arrays are left unflattened",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c05-red-parent-flat-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c05-red-parent-flat-union.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ 'a', 1, 'b', 2 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c05-red-parent-flat-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2, 3 ], 4 ]\n[ [ 'a', 1 ], [ 'b', 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c06-red-parent-sort-undefined.pts",
+   "probe_sha256": "44c812b6584c7d3886a846795638b237c0c51cbaf849ec92f9736fa3b5d600a1",
+   "row": "C06",
+   "kind": "red",
+   "description": "sort() and sort(comparator) of an array holding undefined",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, 3, undefined ], then a comparator that never sees undefined, then [ 1, 3, undefined ]",
+   "baseline_pts": "undefined sorts first, and the comparator is called with undefined",
+   "failure": "^\\[ undefined, 1, 3 \\]$",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c06-red-parent-sort-undefined.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c06-red-parent-sort-undefined-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c06-red-parent-sort-undefined.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 3, undefined ]\ncomparator saw undefined: false\n[ 1, 3, undefined ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c06-red-parent-sort-undefined-native"
+        ],
+        "exit": 0,
+        "stdout": "[ undefined, 1, 3 ]\ncomparator saw undefined: true\n[ 3, undefined, 1 ]\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.pts",
+   "probe_sha256": "f63e8b412e64554e313f16706208dc59c910b0c03a293938633e1e41b307add4",
+   "row": "C07",
+   "kind": "red",
+   "description": "each .par.map task constructs and aborts its own AbortController",
+   "oracle": "node:c07-red-parent-abortcontroller-par.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 10,
+   "expected_node": "ok: 20000",
+   "baseline_pts": "on 2 and 4 threads some constructions throw TypeError: Illegal constructor",
+   "failure": "TypeError: Illegal constructor",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c07-red-parent-abortcontroller-par.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "ok: 20000\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 10,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 10,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "ok: 20000\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 10,
+     "runs_not_matching_node": 10,
+     "outcomes": [
+      {
+       "count": 2,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 425\nok: 19575\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 499\nok: 19501\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 495\nok: 19505\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 464\nok: 19536\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 582\nok: 19418\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 340\nok: 19660\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 434\nok: 19566\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 436\nok: 19564\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 482\nok: 19518\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 10,
+     "runs_not_matching_node": 10,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1283\nok: 18717\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1323\nok: 18677\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1294\nok: 18706\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1271\nok: 18729\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1418\nok: 18582\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1267\nok: 18733\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1398\nok: 18602\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1401\nok: 18599\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1285\nok: 18715\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      },
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c07-red-parent-abortcontroller-par-native"
+        ],
+        "exit": 0,
+        "stdout": "TypeError: Illegal constructor: 1413\nok: 18587\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-array-pattern.pts",
+   "probe_sha256": "5accf0e49930b66a33671fe8c7524fde330ca6a047c9777f83428f8926e39866",
+   "row": "C18",
+   "kind": "red",
+   "description": "an array pattern takes two items from a generator held as any and then closes it",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "yield 0, yield 1, closed, then 0 1",
+   "baseline_pts": "the generator is drained first: yield 0 \u2026 yield 3, closed, then 0 1",
+   "failure": "^yield 0\\nyield 1\\nyield 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-array-pattern.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-any-array-pattern-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-any-array-pattern.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nyield 1\nclosed\n0 1\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-parent-any-array-pattern-native"
+        ],
+        "exit": 0,
+        "stdout": "yield 0\nyield 1\nyield 2\nyield 3\nclosed\n0 1\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-iterator-drain.pts",
+   "probe_sha256": "8cf2e31a19f876f650b02fdd02e026bee570be08f9297bf5066cd719d90fc599",
+   "row": "C18",
+   "kind": "red",
+   "description": "for\u2026of over an any iterator with break; next() calls interleave with the body and break calls return()",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "next 1, body 1, next 2, body 2, next 3, return, after loop",
+   "baseline_pts": "every next() runs before the body (the iterator is drained eagerly) and return() is never called",
+   "failure": "^next 1\\nnext 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-iterator-drain.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-any-iterator-drain-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-any-iterator-drain.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 1\nbody 1\nnext 2\nbody 2\nnext 3\nreturn\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-parent-any-iterator-drain-native"
+        ],
+        "exit": 0,
+        "stdout": "next 1\nnext 2\nnext 3\nnext 4\nnext 5\nnext 6\nbody 1\nbody 2\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-typed-array-pattern.pts",
+   "probe_sha256": "d3d1ccbc393cdea1371a2393d1a393c01320edabc532b3d109f652a4dffab075",
+   "row": "C18",
+   "kind": "red",
+   "description": "array patterns over a typed iterable class and an Iterable<number> parameter take two items and close the iterator",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "next 0, next 1, return, 0 1, then yield 0, yield 1, closed, 0 1",
+   "baseline_pts": "both iterators are drained first (next 0 \u2026 next 5 and no return; yield 0 \u2026 yield 3, closed)",
+   "failure": "^next 0\\nnext 1\\nnext 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-typed-array-pattern.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-typed-array-pattern-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c18-red-parent-typed-array-pattern.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nnext 1\nreturn\n0 1\nyield 0\nyield 1\nclosed\n0 1\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 1,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c18-red-parent-typed-array-pattern-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nnext 1\nnext 2\nnext 3\nnext 4\nnext 5\n0 1\nyield 0\nyield 1\nyield 2\nyield 3\nclosed\n0 1\n",
+        "stderr": ""
+       },
+       "matches_node": false
+      }
+     ]
+    }
+   ],
+   "outcome": "run-mismatch",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c19-control-parent-erased-callback-key-local.pts",
+   "probe_sha256": "b9ab0139b59bbd5b797d8496fd4de1d836153efc18ff7b07cbbe7baf51b60edf",
+   "row": "C19",
+   "kind": "control",
+   "description": "a generic arrow indexes a concrete Record<string, number> with a local holding an erased callback's string",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{ short: 2, long: 1 }",
+   "baseline_pts": "matches Node. The parent first wrote this as a red probe for the reported",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c19-control-parent-erased-callback-key-local.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c19-control-parent-erased-callback-key-local-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c19-control-parent-erased-callback-key-local.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ short: 2, long: 1 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c19-control-parent-erased-callback-key-local-native"
+        ],
+        "exit": 0,
+        "stdout": "{ short: 2, long: 1 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts",
+   "probe_sha256": "085ea0c5a07993a3c54c5d24db65535de776dd2dbbf2c51473c5feddbd5f6c98",
+   "row": "C19",
+   "kind": "red",
+   "description": "a generic arrow reads and writes a concrete Record<string, number> keyed directly by an erased callback's call",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "{ short: 2, long: 1 }",
+   "baseline_pts": "PTS1001 \"a key of type value is not supported yet\" at both keys, although tsc types them string",
+   "failure": "PTS1001: a key of type value is not supported yet",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c19-red-parent-erased-callback-key-direct.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c19-red-parent-erased-callback-key-direct-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h02/probes-final3/c19-red-parent-erased-callback-key-direct.mts"
+    ],
+    "exit": 0,
+    "stdout": "{ short: 2, long: 1 }\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h02/probes-final3/c19-red-parent-erased-callback-key-direct-native"
+        ],
+        "exit": 0,
+        "stdout": "{ short: 2, long: 1 }\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.pts",
+   "probe_sha256": "74c0027376fde73c6331ce1ad65817a2d67ee17a8978243a969196578e99692d",
+   "row": "C20",
+   "kind": "red",
+   "description": ".par.flatMap with an explicit union type argument that Array's flatMap accepts",
+   "oracle": "node:c20-red-parent-par-flatmap-type-argument.oracle.mts",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, [ 2 ] ] twice",
+   "baseline_pts": "PTS1001 for the .par.flatMap call only (Array's flatMap line compiles, but prints the C05-wrong [ 1, [ [ 2 ] ] ], so GREEN needs H05's C05 fix too)",
+   "failure": "PTS1001: converting number \\| number\\[\\]\\[\\] to number \\| number \\| number\\[\\]\\[\\] \\| number\\[\\] is not supported yet",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.pts",
+     "-o",
+     "/tmp/pts-h02/probes-final3/c20-red-parent-par-flatmap-type-argument-native"
+    ],
+    "exit": 1,
+    "stdout": "",
+    "stderr": "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.pts:11:51 - error PTS1001: converting number | number[][] to number | number | number[][] | number[] is not supported yet\n"
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ] ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [],
+   "outcome": "build-error",
+   "as_expected": true
+  }
+ ]
+}

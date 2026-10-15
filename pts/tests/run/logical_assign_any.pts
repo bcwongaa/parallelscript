@@ -1,0 +1,149 @@
+// `??=` and `||=` on properties and elements of dynamic values (`any`, D-070), as in JS:
+// the place is read once, the right side is evaluated and stored only when the place is
+// nullish (for ||=, falsy), and the value is the place's. H02 (C01): each made `pts build`
+// panic (records.go:280); the last section's lines are controls. Keys are added only to
+// parsed JSON, since an object literal has a fixed layout (D-L10).
+
+// Present null, undefined, 0, "", false, NaN and a truthy value, and a missing key.
+const keys = ["n", "u", "z", "e", "f", "nan", "t", "missing"];
+const parse = (): any => {
+  const o: any = JSON.parse('{"n":null,"z":0,"e":"","f":false,"t":"kept"}');
+  o.u = undefined;
+  o.nan = NaN;
+  return o;
+};
+const nullish = parse();
+console.log(keys.map((k) => (nullish[k] ??= k.length)));
+console.log(nullish);
+const falsy = parse();
+console.log(keys.map((k) => (falsy[k] ||= k.length)));
+console.log(falsy);
+
+// The property forms, as statements and as values; number keys.
+const config: any = JSON.parse('{"name":"","retries":0,"list":null}');
+config.name ||= "anonymous";
+config.retries ??= 3;
+config.list ??= [];
+config.list.push(1);
+console.log((config.timeout ??= 30), (config.verbose ||= false), config);
+config[0] ??= "zero";
+config[1] ||= "one";
+console.log(config[0], config["1"], Object.keys(config));
+
+// Nested dynamic values.
+const tree: any = JSON.parse('{"a":{"b":null}}');
+console.log((tree.a.b ??= 1), (tree.a.c ||= 2), (tree.a["d"] ??= { e: 3 }), tree);
+
+// Typed objects reached through `any`: a class's fields, a record's entries, an array's
+// elements, with values of the places' types.
+class Settings {
+  label: string | undefined = undefined;
+  count: number = 0;
+  owner: string | null = "ann";
+}
+const settings = new Settings();
+const settingsAny: any = settings;
+console.log((settingsAny.label ??= "fed"), (settingsAny.count ||= 3), (settingsAny.owner ??= "bob"), settings);
+const totals: Record<string, number> = { a: 0 };
+const totalsAny: any = totals;
+console.log((totalsAny.a ||= 1), (totalsAny["b"] ??= 2), totals);
+const slots: (number | null)[] = [null, 2];
+const slotsAny: any = slots;
+console.log((slotsAny[0] ??= 1), (slotsAny[1] ??= 9), (slotsAny[1] ||= 8), slots);
+
+// Evaluation order: the object, then the key, then the getter once; the right side and
+// the setter only when needed.
+const trace: string[] = [];
+class Slot {
+  #value: any = null;
+  get p(): any {
+    trace.push("get");
+    return this.#value;
+  }
+  set p(value: any) {
+    trace.push("set " + value);
+    this.#value = value;
+  }
+}
+const target = (o: any): any => {
+  trace.push("object");
+  return o;
+};
+const key = (k: string): string => {
+  trace.push("key " + k);
+  return k;
+};
+const rhs = (v: number): number => {
+  trace.push("rhs " + v);
+  return v;
+};
+const slot: any = new Slot();
+target(slot)[key("p")] ??= rhs(1);
+target(slot)[key("p")] ??= rhs(2);
+target(slot)[key("p")] ||= rhs(3);
+console.log(trace.join(", "));
+trace.length = 0;
+let hidden: any = undefined;
+const accessors: any = {
+  get p(): any {
+    trace.push("get");
+    return hidden;
+  },
+  set p(value: any) {
+    trace.push("set " + value);
+    hidden = value;
+  },
+};
+target(accessors)[key("p")] ??= rhs(4);
+target(accessors)[key("p")] ||= rhs(5);
+console.log(trace.join(", "), hidden);
+trace.length = 0;
+const store: any = JSON.parse("{}");
+target(store)[key("a")] ??= rhs(6);
+target(store)[key("a")] ||= rhs(7);
+target(store)[key("b")] ||= rhs(8);
+console.log(trace.join(", "), store);
+
+// Controls, which already pass: =, += and &&= on the same kind of object.
+const control: any = JSON.parse('{"t":1,"z":0}');
+control.t &&= 5;
+control.z &&= 6;
+control.m &&= 7;
+control.s = "a";
+control.s += "b";
+console.log(control, "m" in control);
+
+// expect:
+// [
+//   1,      1,     0,
+//   '',     false, NaN,
+//   'kept', 7
+// ]
+// { n: 1, z: 0, e: '', f: false, t: 'kept', u: 1, nan: NaN, missing: 7 }
+// [
+//   1,      1, 1,
+//   1,      1, 3,
+//   'kept', 7
+// ]
+// { n: 1, z: 1, e: 1, f: 1, t: 'kept', u: 1, nan: 3, missing: 7 }
+// 30 false {
+//   name: 'anonymous',
+//   retries: 0,
+//   list: [ 1 ],
+//   timeout: 30,
+//   verbose: false
+// }
+// zero one [
+//   '0',       '1',
+//   'name',    'retries',
+//   'list',    'timeout',
+//   'verbose'
+// ]
+// 1 2 { e: 3 } { a: { b: 1, c: 2, d: { e: 3 } } }
+// fed 3 ann Settings { label: 'fed', count: 3, owner: 'ann' }
+// 1 2 { a: 1, b: 2 }
+// 1 2 2 [ 1, 2 ]
+// object, key p, get, rhs 1, set 1, object, key p, get, object, key p, get
+// object, key p, get, rhs 4, set 4, object, key p, get 4
+// object, key a, rhs 6, object, key a, object, key b, rhs 8 { a: 6, b: 8 }
+// { t: 5, z: 0, s: 'ab' } false

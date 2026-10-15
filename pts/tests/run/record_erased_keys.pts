@@ -1,0 +1,120 @@
+// Keys of hash-map objects (D-059) that are dynamic values: the result of an erased
+// callback in a generic arrow function (D-078), a value of a type parameter, and a
+// variable of type any. JS converts a key to a string (ToPropertyKey, String(k) here).
+// H02 (C19): each was PTS1001 "a key of type value is not supported yet"; the last
+// section, with the key in a typed local first, is the control.
+let keyCalls = 0;
+const parity = (n: number): string => {
+  keyCalls++;
+  return n % 2 === 1 ? "odd" : "even";
+};
+const self = (s: string): string => {
+  keyCalls++;
+  return s;
+};
+
+// String keys from an erased callback: read, write, +=, ++, ??= and ||=. Each key
+// expression is evaluated once.
+const countBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    counts[keyOf(item)] = (counts[keyOf(item)] ?? 0) + 1;
+  }
+  return counts;
+};
+const sumBy = <T,>(items: T[], keyOf: (item: T) => string, valueOf: (item: T) => number): Record<string, number> => {
+  const sums: Record<string, number> = { odd: 0, even: 0 };
+  for (const item of items) {
+    sums[keyOf(item)] += valueOf(item);
+    sums[keyOf(item)]++;
+  }
+  return sums;
+};
+const firstIndexBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number> => {
+  const firsts: Record<string, number> = {};
+  items.forEach((item, i) => {
+    firsts[keyOf(item)] ??= i;
+  });
+  return firsts;
+};
+const indexesBy = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number[]> => {
+  const all: Record<string, number[]> = {};
+  items.forEach((item, i) => {
+    (all[keyOf(item)] ||= []).push(i);
+  });
+  return all;
+};
+console.log(countBy([1, 2, 3], parity), keyCalls);
+console.log(sumBy([1, 2, 3], parity, (n) => n * 10), keyCalls);
+console.log(firstIndexBy(["a", "b", "a"], self), indexesBy(["a", "b", "a"], self), keyCalls);
+
+// Number keys from an erased callback, which JS converts to strings.
+const byLength = <T,>(items: T[], lengthOf: (item: T) => number): Record<number, number> => {
+  const counts: Record<number, number> = { 1: 0 };
+  for (const item of items) {
+    counts[lengthOf(item)] = (counts[lengthOf(item)] ?? 0) + 1;
+    counts[lengthOf(item)] += 10;
+  }
+  return counts;
+};
+console.log(byLength(["a", "bb", "cc"], (s) => s.length));
+
+// A key of a type parameter's type, on a record whose type doesn't mention it.
+const bump = <K extends string,>(counts: Record<string, number>, key: K): number => {
+  counts[key] = (counts[key] ?? 0) + 1;
+  return counts[key];
+};
+const hits: Record<string, number> = { a: 4 };
+console.log(bump(hits, "a"), bump(hits, "b"), hits);
+
+// in, delete and Object.hasOwn with a key from an erased callback.
+const has = <T,>(record: Record<string, number>, item: T, keyOf: (item: T) => string): boolean => keyOf(item) in record;
+const owns = <T,>(record: Record<string, number>, item: T, keyOf: (item: T) => string): boolean => Object.hasOwn(record, keyOf(item));
+const drop = <T,>(record: Record<string, number>, item: T, keyOf: (item: T) => string): boolean => delete record[keyOf(item)];
+const scores: Record<string, number> = { a: 1, b: 2 };
+console.log(has(scores, "a", self), has(scores, "z", self), owns(scores, "b", self), drop(scores, "a", self), scores);
+
+// Keys of type any holding a string or a number, in code that isn't generic.
+const named: Record<string, number> = { a: 1 };
+const textKey: any = "a";
+console.log(named[textKey], named[textKey] ?? 0);
+named[textKey] = 2;
+named[textKey] += 3;
+named[textKey]++;
+console.log((named[textKey] ??= 0), (named[textKey] ||= 0), named);
+const words: Record<string, string> = { "1": "one" };
+const numberKey: any = 1;
+const fractionKey: any = 1.5;
+const negativeZeroKey: any = -0;
+words[fractionKey] = "one and a half";
+words[negativeZeroKey] = "zero";
+console.log(words[numberKey], words);
+const byNumber: Record<number, string> = { 2: "two" };
+const stringKey: any = "2";
+byNumber[numberKey] = "uno";
+console.log(byNumber[stringKey], byNumber);
+
+// Control, which already passes: the erased callback's key in a typed local first.
+const countByLocal = <T,>(items: T[], keyOf: (item: T) => string): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const key = keyOf(item);
+    counts[key] = (counts[key] ?? 0) + 1;
+    counts[key] ||= 0;
+  }
+  return counts;
+};
+console.log(countByLocal([1, 2, 3], parity));
+
+// expect:
+// { odd: 2, even: 1 } 6
+// { odd: 42, even: 21 } 12
+// { a: 0, b: 1 } { a: [ 0, 2 ], b: [ 1 ] } 18
+// { '1': 11, '2': 22 }
+// 5 1 { a: 5, b: 1 }
+// true false true true { b: 2 }
+// 1 1
+// 6 6 { a: 6 }
+// one { '0': 'zero', '1': 'one', '1.5': 'one and a half' }
+// two { '1': 'uno', '2': 'two' }
+// { odd: 2, even: 1 }
