@@ -35,6 +35,11 @@ Every result must be backed by real execution. Never tick blocked/deferred scope
 After completing one task/slice, checkpoint and end SESSION_RESULT: done=<id> next=<id> green=<yes|no>.
 If GPT quota is unavailable, checkpoint and exit; the driver retries GPT only. Never switch models.
 No asking the owner for routine decisions: act within the supplied plan and locked constraints.
+Upstream content refusals are blockers, not permission to evade safeguards: record the exact
+blocked subtask and do not retry/rephrase that request or switch providers to bypass it. A failed
+child may be left blocked while unrelated permitted work continues. Read the driver's
+.local/state/pts-hardening/content-refusals.jsonl (under HOME) if present for prior refusals;
+never turn a refusal into an unsupported claim that the code or tests passed.
 """
 AGENTS = {
     "gpt-reproducer": {
@@ -76,6 +81,25 @@ def parse_event(line: str) -> dict | None:
         return d if isinstance(d, dict) else None
     except (ValueError, TypeError):
         return None
+
+
+def unapproved_model(event: dict) -> str | None:
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return None
+    model = message.get("model")
+    # Claude Code labels locally generated API/error notices this way.
+    # It is not an inference provider or an alternative selected model.
+    return model if isinstance(model, str) and model not in (MODEL, "<synthetic>") else None
+
+
+def is_content_refusal(event: dict) -> bool:
+    message = event.get("message")
+    if not isinstance(message, dict) or message.get("model") != "<synthetic>":
+        return False
+    content = message.get("content", [])
+    text = " ".join(str(x.get("text", "")) for x in content if isinstance(x, dict)).lower()
+    return "flagged for possible cybersecurity risk" in text or "content policy" in text
 
 
 def has_open_tasks(plan: str) -> bool:
@@ -146,13 +170,17 @@ def run_once(n: int, timeout: float = 4 * 3600) -> dict:
                     continue
                 if d.get("type") == "result":
                     result = d
-                m = d.get("message", {}).get("model") if isinstance(d.get("message"), dict) else None
-                if m and m != MODEL:
+                m = unapproved_model(d)
+                if m:
                     mismatch = True
                     log(f"STOP: unapproved model reported: {m}")
                     stop_group(p)
                     break
-                last = str(d.get("result", d.get("error", ""))) or last
+                if is_content_refusal(d):
+                    refusal = {"session": n, "event": d}
+                    with (ROOT / "content-refusals.jsonl").open("a") as rf:
+                        rf.write(json.dumps(refusal) + "\n")
+                    log("Upstream content refusal recorded; not a model switch. Block the refused subtask, no evasion.")
         p.wait()
     finally:
         timer.cancel()

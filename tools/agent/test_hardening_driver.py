@@ -31,6 +31,23 @@ class HardeningDriverTests(unittest.TestCase):
         self.assertIsNone(driver.parse_event("warning: connector unavailable"))
         self.assertIsNone(driver.parse_event("[]"))
 
+    def test_synthetic_cli_error_is_not_an_inference_model(self):
+        event = {"type": "assistant", "message": {"model": "<synthetic>", "content": [
+            {"type": "text", "text": "API Error: This content was flagged for possible cybersecurity risk."}]}}
+        self.assertIsNone(driver.unapproved_model(event))
+        self.assertTrue(driver.is_content_refusal(event))
+
+    def test_actual_different_model_still_stops_run(self):
+        event = {"type": "assistant", "message": {"model": "claude-opus-5-5"}}
+        self.assertEqual(driver.unapproved_model(event), "claude-opus-5-5")
+        self.assertIsNone(driver.unapproved_model({"type": "assistant", "message": {"model": "gpt-6.1-sol"}}))
+
+    def test_content_refusal_is_separate_from_other_synthetic_errors(self):
+        event = {"type": "assistant", "message": {"model": "<synthetic>", "content": [
+            {"type": "text", "text": "API Error: temporarily unavailable"}]}}
+        self.assertIsNone(driver.unapproved_model(event))
+        self.assertFalse(driver.is_content_refusal(event))
+
     def test_historical_done_does_not_stop_new_phase(self):
         self.assertEqual(driver.DONE.name, "HARDENING_DONE")
         self.assertTrue(driver.has_open_tasks("- [x] H01\n  - [ ] H02a"))
