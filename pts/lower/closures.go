@@ -815,6 +815,7 @@ func (p *cellPass) stmts(stmts []ir.Stmt) {
 			p.expr(s.Value)
 		case *ir.Yield:
 			p.expr(s.Value)
+			p.expr(s.Delegate)
 		}
 	}
 }

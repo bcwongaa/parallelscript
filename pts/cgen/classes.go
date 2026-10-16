@@ -2,6 +2,7 @@ package cgen
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -733,6 +734,9 @@ func (e *emitter) fieldPlace(object string, t ir.Type, field *ir.Field, find str
 // property through an interface that a getter may provide (D-036), or through an
 // interface, of an optional property, which may be absent (D-066).
 func (e *emitter) fieldRead(object string, t ir.Type, field *ir.Field) string {
+	if isResultReceiver(t) {
+		return e.resultRead(object, t, field)
+	}
 	if isOptionalThroughInterface(t, field) {
 		site := e.site()
 		return fmt.Sprintf("({ static pts_site %s; pts_optional_get(%s, &%s, %s, %s); })", site, object, site, cString(field.Name), e.siteCheck(field))
@@ -765,6 +769,9 @@ func isOptionalThroughInterface(t ir.Type, field *ir.Field) bool {
 // (fieldRef), or to a property through an interface that a setter may provide (D-036),
 // or through an interface, to an optional property (D-066).
 func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value string) string {
+	if isResultReceiver(t) {
+		return e.resultStore(object, t, field, value)
+	}
 	if isOptionalThroughInterface(t, field) {
 		site, stored := e.site(), e.temporary()
 		return fmt.Sprintf("({ static pts_site %s; pts_value %s = %s; pts_optional_set(%s, &%s, %s, %s, %s); %s; })", site, stored, value, object, site, cString(field.Name), e.siteCheck(field), stored, stored)
@@ -783,6 +790,81 @@ func (e *emitter) fieldStore(object string, t ir.Type, field *ir.Field, value st
 		macro = "PTS_SET"
 	}
 	return fmt.Sprintf("({ static pts_site %s; %s(%s, %s, &%s, %s, %s, %s); })", site, macro, strings.TrimSuffix(e.declarator(field.Type), " "), object, site, cString(field.Name), e.siteCheck(field), value)
+}
+
+// isResultReceiver reports whether t is an iterator result's type whose values may be
+// objects of any layout (D-109, H03b): a Result shape, or the interface of a property of
+// a union of them.
+func isResultReceiver(t ir.Type) bool {
+	switch t := t.(type) {
+	case *ir.Class:
+		return t.Result
+	case *ir.Interface:
+		return t.Result
+	}
+	return false
+}
+
+// isResultType reports whether t is a Result shape or a union of them, maybe with null
+// and undefined, which any of the program's objects converts to as it is (fromValue).
+func isResultType(t ir.Type) bool {
+	if u, ok := t.(*ir.Union); ok {
+		return slices.ContainsFunc(u.Members, isResultType) && !slices.ContainsFunc(u.Members, func(m ir.Type) bool {
+			return !isResultType(m) && m != ir.Undefined && m != ir.Null
+		})
+	}
+	class, ok := t.(*ir.Class)
+	return ok && class.Result
+}
+
+// resultRead writes a read of an iterator result's property (H03b): a Result shape's field
+// if the object is one of the shape, else the property found by name, converted to its
+// type with a check (resultValue).
+func (e *emitter) resultRead(object string, t ir.Type, field *ir.Field) string {
+	receiver, site := e.temporary(), e.site()
+	read := e.resultValue(fmt.Sprintf("({ static pts_site %s; pts_result_get(%s, &%s, %s); })", site, receiver, site, cString(field.Name)), field.Type)
+	if class, ok := t.(*ir.Class); ok {
+		read = fmt.Sprintf("(%s ? %s->%s : %s)", e.isShapeObject(receiver, class), receiver, fieldPath(class, field), read)
+	}
+	return fmt.Sprintf("({ %s%s = %s; %s; })", e.declarator(t), receiver, object, read)
+}
+
+// isShapeObject is a C test of whether object, a pointer to an object, is one of shape's
+// own and not frozen: its descriptor that of one of the shape's property orders, which
+// all lay it out as the shape's struct (D-108). A frozen one's twin fails it (D-157).
+func (e *emitter) isShapeObject(object string, shape *ir.Class) string {
+	if hasMethodTable(shape) || len(shape.Orders) < 2 {
+		return fmt.Sprintf("(((pts_object *)%s)->type == %s)", object, e.descriptor(shape))
+	}
+	tests := make([]string, len(shape.Orders))
+	for i := range shape.Orders {
+		tests[i] = fmt.Sprintf("((pts_object *)%s)->type == &pts_type_%s", object, shapeDescriptorName(e.classNames[shape], i))
+	}
+	return "(" + strings.Join(tests, " || ") + ")"
+}
+
+// resultValue converts value, an iterator result's property found by name, to its type t
+// with a check, as D-070 converts dynamic values; a done that isn't a boolean is its truth,
+// as IteratorComplete reads it.
+func (e *emitter) resultValue(value string, t ir.Type) string {
+	switch t {
+	case ir.Value:
+		return value
+	case ir.Bool:
+		return "pts_value_truthy(" + value + ")"
+	}
+	return e.fromValue(value, t)
+}
+
+// resultStore writes a store to an iterator result's property (H03b): to a Result shape's
+// field if the object is one of the shape, else as through `any`.
+func (e *emitter) resultStore(object string, t ir.Type, field *ir.Field, value string) string {
+	receiver, stored := e.temporary(), e.temporary()
+	store := fmt.Sprintf("pts_result_set((pts_object *)%s, %s, %s)", receiver, cString(field.Name), boxAs(stored, field.Type))
+	if class, ok := t.(*ir.Class); ok {
+		store = fmt.Sprintf("if (%s) %s->%s = %s; else %s", e.isShapeObject(receiver, class), receiver, fieldPath(class, field), stored, store)
+	}
+	return fmt.Sprintf("({ %s%s = %s; %s%s = %s; %s; %s; })", e.declarator(t), receiver, object, e.declarator(field.Type), stored, value, store, stored)
 }
 
 // siteCheck is the C expression of the check that a site reading or writing a property
@@ -936,9 +1018,17 @@ func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string
 	return []string{fmt.Sprintf(".instance_count = %d", len(instances)), ".instances = " + table}
 }
 
-// classCast writes an instance as one of a related class: their structs start alike.
+// classCast writes an instance as one of a related class: their structs start alike. An
+// iterator result's object (FromResult) is the other type as it is only if it is one of its
+// shape's; one of another layout is converted with a check.
 func (e *emitter) classCast(cast *ir.ClassCast) string {
-	return "((" + strings.TrimSuffix(e.declarator(cast.To), " ") + ")" + e.expr(cast.X) + ")"
+	to := strings.TrimSuffix(e.declarator(cast.To), " ")
+	if cast.FromResult { // an iterator result's object of another layout converted (D-178)
+		object := e.temporary()
+		converted := fmt.Sprintf("pts_value_as_object(pts_value_convert(pts_value_from_object(%s), &%s))", object, e.checks[cast.To])
+		return fmt.Sprintf("({ %s%s = %s; (%s)(%s ? (void *)%s : %s); })", e.declarator(cast.X.Type()), object, e.expr(cast.X), to, e.isShapeObject(object, cast.X.Type().(*ir.Class)), object, converted)
+	}
+	return "((" + to + ")" + e.expr(cast.X) + ")"
 }
 
 // receiverClass is the class a method's C function takes `this` as: for a virtual

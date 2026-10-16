@@ -29,7 +29,7 @@ var throwingBuiltins = map[*ir.Builtin]bool{
 var computedBuiltins = map[*ir.Builtin]bool{
 	ir.ValueTypeOf: true, ir.ValueStrictEquals: true, ir.ValueIsArray: true, ir.ValueSameValue: true, ir.TupleLength: true,
 	ir.FunctionName: true, ir.FunctionLength: true, ir.ValueIsPromise: true, ir.ValueIsMap: true, ir.ValueIsSet: true, ir.ValueConstructorName: true, ir.ParseInt: true,
-	ir.ParseFloat: true, ir.ArrayFromString: true,
+	ir.ParseFloat: true, ir.ArrayFromString: true, ir.IteratorHanded: true, ir.IteratorCallDone: true,
 }
 
 // builtinEffects are what calling a builtin does beyond evaluating its arguments. The
@@ -118,6 +118,9 @@ func effectsOf(expr ir.Expr) effects {
 	case *ir.RegExpLiteral:
 		return mayThrow // an invalid pattern tsc let through is a SyntaxError
 	case *ir.ClassCast:
+		if x.FromResult {
+			return callEffects([]ir.Expr{x.X}) // a copy reads getters, and may throw
+		}
 		return effectsOf(x.X)
 	case *ir.InstanceOf:
 		return effectsOf(x.X) // an instance's class never changes
@@ -177,7 +180,7 @@ func effectsOf(expr ir.Expr) effects {
 		}
 		return f
 	case *ir.FieldRef:
-		if x.Field.Accessor {
+		if x.Field.Accessor || isResultReceiver(x.X.Type()) {
 			return callEffects([]ir.Expr{x.X}) // a getter may run
 		}
 		return readsLocals | effectsOf(x.X)
@@ -188,7 +191,7 @@ func effectsOf(expr ir.Expr) effects {
 	case *ir.HasKey:
 		return readsLocals | effectsOf(x.X)
 	case *ir.SetField:
-		if x.Field.Accessor {
+		if x.Field.Accessor || isResultReceiver(x.X.Type()) {
 			return callEffects([]ir.Expr{x.X, x.Value}) // a setter may run
 		}
 		return readsLocals | writes | mayThrow | effectsOf(x.X) | effectsOf(x.Value) // the object may be frozen (D-157), or not hold it (D-066)

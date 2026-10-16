@@ -294,6 +294,7 @@ type lowerer struct {
 	inKeys              map[string]bool                  // the keys `in` looks up at run time (D-067)
 	firstDynamicWrite   *ast.Node                        // the first write through `any`, if any (D-072)
 	firstDynamicCall    *ast.Node                        // the first call through `any`, if any (D-074)
+	firstResult         *ast.Node                        // the first use of an iterator result type, whose values may be any object (D-178)
 	reports             int                              // how many diagnostics were reported, repeats included
 	genericConsts       map[*ast.Symbol]*genericFunc     // module-scope consts of generic arrow functions, whose calls are monomorphized (D-102)
 	genericConstNodes   map[*ast.Node]*genericFunc       // the same, by their functions
@@ -2820,7 +2821,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		x := l.readAndStore(target, func(target place) ir.Expr { return l.nullishAssignment(target, expr.Right) })
 		return l.logicalAssignmentValue(target, x, node)
 	}
-	return l.readAndStore(target, func(target place) ir.Expr {
+	return l.readKeptAndStore(target, l.keptCurrent[node], func(target place) ir.Expr {
 		current, t := l.narrowed(expr.Left, target.read()), target.valueType()
 		if kept, ok := l.keptCurrent[node]; ok {
 			current = kept // read before a yield in the right side (D-145)
@@ -2968,17 +2969,32 @@ func (p place) store(value ir.Expr, postfix bool) ir.Expr {
 // getter runs once, before build's expression; so does the read of a property through an
 // interface, which a getter may provide.
 func (l *lowerer) readAndStore(target place, build func(place) ir.Expr) ir.Expr {
+	return l.readKeptAndStore(target, nil, build)
+}
+
+// readKeptAndStore is readAndStore whose read of a place read once is kept, if not nil:
+// the place's value read before a yield in the assignment's right side (D-145), so that it
+// isn't read again after the yield.
+func (l *lowerer) readKeptAndStore(target place, kept ir.Expr, build func(place) ir.Expr) ir.Expr {
 	if target.local != nil {
 		return build(target)
 	}
 	return l.withObject(target, func(target place) ir.Expr {
 		var read ir.Expr
 		_, viaInterface := target.object.Type().(*ir.Interface)
+		if class, ok := target.object.Type().(*ir.Class); ok && class.Result {
+			viaInterface = true // found by name, maybe a getter, on an object of another layout (D-178): read once
+		}
 		switch {
 		case target.field != nil && !viaInterface:
 			return build(target)
 		case target.field != nil || target.index != nil || target.arrayLength || target.key != nil:
 			read = target.read()
+			if t := target.valueType(); kept != nil && kept.Type() == t {
+				read = kept
+			} else if u, ok := t.(*ir.Union); ok && kept != nil && u.Has(kept.Type()) {
+				read = &ir.ToUnion{X: kept, To: u} // kept as tsc narrowed it
+			}
 		case target.accessors.getter == nil:
 			l.notSupportedYet(target.at, "reading a property that has no getter is")
 			return nil
@@ -3335,6 +3351,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	if x.Type() != y.Type() && isObject(x.Type()) && isObject(y.Type()) {
 		x, y = l.asContextualInterface(node, x, y)
 	}
+	x, y = l.convertedResult(x, node), l.convertedResult(y, node)
 	if u, ok := l.irType(l.typeAt(node), node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? 1 : null`
 		x, y = l.convert(x, u, a), l.convert(y, u, b)
 		if x == nil || y == nil {
@@ -3664,6 +3681,9 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		v := l.irType(value, node)
 		if v == nil {
 			return nil
+		}
+		if l.firstResult == nil {
+			l.firstResult = node
 		}
 		// A finished generator's next() gives undefined, whatever it returned; a yield
 		// result holds it too, so that IteratorResult<T, T> is one shape.

@@ -71,14 +71,15 @@ func (l *lowerer) iterationTypes(t *checker.Type) (yield, result, next *checker.
 
 // iteratorResultShape is the shape of the results of next(), return() and throw() whose
 // value is of type value: `{ done: boolean; value: T }`, printed value first, as V8 makes
-// them.
+// them. A value of it may be any object an iterator handed back (ir.Class.Result).
 func (l *lowerer) iteratorResultShape(value ir.Type) *ir.Class {
 	fields := []*ir.Field{{Name: "done", Type: ir.Bool}, {Name: "value", Type: value}}
 	key := membersKey(fields, nil)
 	if existing, ok := l.shapesByKey[key]; ok {
+		existing.Result = true // an object type of the program's with the same fields is one, its reads testing the descriptor too
 		return existing
 	}
-	shape := &ir.Class{Shape: true, Name: "object" + strconv.Itoa(len(l.shapeList)+1), Fields: fields}
+	shape := &ir.Class{Shape: true, Result: true, Name: "object" + strconv.Itoa(len(l.shapeList)+1), Fields: fields}
 	for _, field := range fields {
 		field.Class = shape
 	}
@@ -195,7 +196,7 @@ func (l *lowerer) resumeChecks(at ir.Pos) []ir.Stmt {
 // delegation lowers `yield* x`: a loop that resumes an iterator over x as this generator
 // is resumed, by next(), throw() or return() with its value, and yields what it yields,
 // until it is done. If return() finished it, this generator returns too; otherwise the
-// yield* expression is what it returned.
+// yield* expression is what it returned, the value of its last result read once it is done.
 func (l *lowerer) delegation(node *ast.Node) ([]ir.Stmt, ir.Expr) {
 	y := node.AsYieldExpression()
 	at := l.pos(node)
@@ -213,17 +214,19 @@ func (l *lowerer) delegation(node *ast.Node) ([]ir.Stmt, ir.Expr) {
 		Else: &ir.Conditional{Cond: &ir.ResumedBy{Mode: ir.ResumeReturn}, Then: modeConst(ir.ResumeReturn), Else: modeConst(ir.ResumeNext)}}
 	loop := &ir.Loop{At: at, Label: label, Body: &ir.Block{At: at, Stmts: []ir.Stmt{
 		&ir.If{At: at, Cond: resume, Then: &ir.Block{At: at, Stmts: []ir.Stmt{returned, &ir.Break{At: at, Target: label}}}},
-		&ir.Yield{At: at, Value: value},
+		&ir.Yield{At: at, Delegate: ref(inner)}, // its value, or the inner's result object as it is
 		&ir.ExprStmt{At: at, X: &ir.Assign{Local: mode, Value: resumedMode}},
 		&ir.ExprStmt{At: at, X: &ir.Assign{Local: sent, Value: &ir.Resumed{}}},
 	}}}
+	result := l.newLocal("delegated", ir.Value)
 	stmts := []ir.Stmt{
 		&ir.LocalDecl{At: at, Local: inner, Init: &ir.CallBuiltin{Builtin: ir.IteratorOpen, Args: []ir.Expr{box(iterable), &ir.StringConst{Value: scanner.GetTextOfNode(y.Expression)}}}},
 		&ir.LocalDecl{At: at, Local: mode, Init: modeConst(ir.ResumeNext)},
 		&ir.LocalDecl{At: at, Local: sent, Init: box(&ir.UndefinedConst{})},
 		loop,
+		&ir.LocalDecl{At: at, Local: result, Init: value}, // read whether or not the expression's value is used, as JS's yield* reads it
 	}
-	return stmts, value
+	return stmts, ref(result)
 }
 
 func modeConst(mode ir.ResumeMode) ir.Expr {
@@ -231,10 +234,14 @@ func modeConst(mode ir.ResumeMode) ir.Expr {
 }
 
 // iteratorMethodCall lowers next(v), return(v) and throw(e) on an iterator: the iterator
-// (or a runtime iterator that calls an object's own methods) resumed, and a result object
-// made of what it reports. handled is false for other calls.
+// (or a runtime iterator that calls an object's own methods) called, and the result object
+// its method returned, as it is (an object's own next()'s, or what a generator's yield*
+// handed back, H03b), or one made of what it reports. handled is false for other calls.
 func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := ast.SkipParentheses(call.Expression)
+	if callee.Kind == ast.KindNonNullExpression { // `it.return!(v)`: an Iterator<T>'s return and throw are optional
+		callee = ast.SkipParentheses(callee.Expression())
+	}
 	if callee.Kind != ast.KindPropertyAccessExpression || !l.isIteratorType(l.checker.GetNonNullableType(l.typeAt(callee.Expression()))) {
 		return nil, false
 	}
@@ -257,19 +264,22 @@ func (l *lowerer) iteratorMethodCall(call *ast.CallExpression) (x ir.Expr, handl
 			return nil, true
 		}
 	}
-	it := l.newLocal("iterator", ir.Value)
-	resume := &ir.CallBuiltin{Builtin: ir.IteratorResume, Args: []ir.Expr{&ir.LocalRef{Local: it}, modeConst(mode), box(sent)}}
-	result := l.iteratorResult(resume, &ir.LocalRef{Local: it}, resultType, l.typeAt(call.AsNode()), call.AsNode())
-	if result == nil {
+	it, step := l.newLocal("iterator", ir.Value), l.newLocal("step", ir.Value)
+	done := &ir.CallBuiltin{Builtin: ir.IteratorCallDone, Args: []ir.Expr{&ir.LocalRef{Local: step}}}
+	made := l.iteratorResult(done, &ir.LocalRef{Local: it}, resultType, l.typeAt(call.AsNode()), call.AsNode())
+	if made == nil {
 		return nil, true
 	}
+	result := &ir.Conditional{Cond: &ir.CallBuiltin{Builtin: ir.IteratorHanded, Args: []ir.Expr{&ir.LocalRef{Local: step}}},
+		Then: &ir.FromUnion{X: &ir.LocalRef{Local: step}, To: resultType}, Else: made} // the object as it is (D-178)
+	called := &ir.CallBuiltin{Builtin: ir.IteratorCall, Args: []ir.Expr{&ir.LocalRef{Local: it}, modeConst(mode), box(sent), &ir.StringConst{Value: scanner.GetTextOfNode(callee)}}}
 	opened := &ir.CallBuiltin{Builtin: ir.IteratorOf, Args: []ir.Expr{box(iterator)}} // an object with its own next() is wrapped (D-111)
-	return &ir.Bind{Local: it, Value: opened, In: result}, true
+	return &ir.Bind{Local: it, Value: opened, In: &ir.Bind{Local: step, Value: called, In: result}}, true
 }
 
-// iteratorResult makes the result object of an iterator's method: done, which resumes the
-// iterator, then its value, in an object of type t (IteratorResult<T, R>, checker type
-// ct): one shape, or a union of the yield result's and the return result's shapes.
+// iteratorResult makes the result object of an iterator's method: done, whether the
+// iterator is done, then its value, in an object of type t (IteratorResult<T, R>, checker
+// type ct): one shape, or a union of the yield result's and the return result's shapes.
 func (l *lowerer) iteratorResult(done ir.Expr, iterator ir.Expr, t ir.Type, ct *checker.Type, node *ast.Node) ir.Expr {
 	finished := l.newLocal("done", ir.Bool)
 	value := &ir.CallBuiltin{Builtin: ir.IteratorValue, Args: []ir.Expr{iterator}}

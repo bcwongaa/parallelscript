@@ -40,6 +40,7 @@ func Walk(stmts []Stmt, visitStmt func(Stmt), visitExpr func(Expr)) {
 			WalkExpr(s.Value, visitExpr)
 		case *Yield:
 			WalkExpr(s.Value, visitExpr)
+			WalkExpr(s.Delegate, visitExpr)
 		}
 	}
 }

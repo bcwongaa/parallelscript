@@ -424,7 +424,6 @@ static _Thread_local pts_iterator *resuming;
 
 static void async_generator_step(pts_iterator *g, pts_resume_mode mode, pts_value sent);
 static void async_generator_returned(pts_iterator *g, int32_t state, pts_value argument);
-static pts_value iterator_result(pts_value value, bool done);
 
 /* NewPromiseReactionJob's job. */
 static void run_reaction(reaction *r) {
@@ -449,7 +448,7 @@ static void run_reaction(reaction *r) {
   }
   if (r->wrapping != NULL) {
     if (state == FULFILLED) {
-      resolve(r->wrapping, iterator_result(argument, r->wrapped_done));
+      resolve(r->wrapping, pts_iterator_result_new(argument, r->wrapped_done));
     } else {
       settle(r->wrapping, REJECTED, argument);
     }
@@ -909,12 +908,11 @@ static const pts_type async_generator_type = {
     .size = sizeof(pts_iterator),
 };
 
-static bool is_async_generator(pts_value value) {
+bool pts_value_is_async_generator(pts_value value) {
   return pts_value_is_object(value) && pts_value_as_object(value)->type == &async_generator_type;
 }
 
-/* CreateIterResultObject: a plain object { value, done }. */
-static pts_value iterator_result(pts_value value, bool done) {
+pts_value pts_iterator_result_new(pts_value value, bool done) {
   static const char *const keys[] = {"value", "done"};
   pts_value parts[] = {value, pts_value_from_bool(done)};
   return record_of(keys, parts, 2);
@@ -933,7 +931,7 @@ static void complete_request(pts_iterator *g, bool rejected, pts_value value, bo
   if (rejected) {
     settle(r->promise, REJECTED, value);
   } else {
-    settle(r->promise, FULFILLED, iterator_result(value, done));
+    settle(r->promise, FULFILLED, pts_iterator_result_new(value, done));
   }
 }
 
@@ -1046,7 +1044,7 @@ static pts_value from_sync_resume(from_sync *it, pts_resume_mode mode, pts_value
 }
 
 pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
-  if (is_async_generator(iterable)) {
+  if (pts_value_is_async_generator(iterable)) {
     return iterable;
   }
   PTS_STATIC_STRING(async_iterator_key, 1, 15, 15, "@@asyncIterator");
@@ -1063,7 +1061,7 @@ pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
 }
 
 pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
-  if (is_async_generator(iterator)) {
+  if (pts_value_is_async_generator(iterator)) {
     request *r = allocate(sizeof *r);
     r->generator = (pts_iterator *)pts_value_as_object(iterator);
     r->mode = mode;
@@ -1085,7 +1083,7 @@ pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pt
 }
 
 pts_value pts_async_iterator_close(pts_value iterator) {
-  if (is_async_generator(iterator)) {
+  if (pts_value_is_async_generator(iterator)) {
     return pts_async_iterator_resume(iterator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED);
   }
   if (pts_value_is_object(iterator) && pts_value_as_object(iterator)->type == &from_sync_type) {

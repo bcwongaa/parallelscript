@@ -1,4 +1,3 @@
-// skip: known issue (H03b, C35): `as IteratorResult<T>` accepts an object literal of another layout (a getter, extra properties), and a read of `.value` narrowed on `done` reads IteratorYieldResult's field offset: the getter's closure, or memory past the object (SIGSEGV)
 // An object literal asserted to be an iterator result keeps its own properties: a getter
 // `value` runs when it is read, and extra properties don't move `value`. Both
 // IteratorResult<number> members are read by name, as JS reads them.

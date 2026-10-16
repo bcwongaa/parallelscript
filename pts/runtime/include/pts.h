@@ -1093,6 +1093,7 @@ typedef struct pts_check {
   uint32_t method_count;
   const pts_check_method *methods;
   struct pts_closure *(*adapt)(struct pts_closure *function); /* a function type's adapter of a closure of another type (D-075) */
+  bool result; /* an iterator result's shape (D-178): any of the program's objects is one as it is, its done and value found by name */
 } pts_check;
 
 /*
@@ -1157,6 +1158,26 @@ static inline pts_value pts_optional_get(const void *object, pts_site *site, con
   }
   return pts_optional_get_slow((const pts_object *)object, site, name, check);
 }
+
+/*
+ * Iterator results (D-109, H03b). A value of an iterator result type is the object the
+ * iterator handed back: one of D-109's result shapes, whose fields typed code reads, or
+ * any other object (an object's own next()'s result, an asserted literal, one with
+ * getters), whose done and value are found by name, as JS finds them. A read site caches
+ * a field that holds a pts_value; another field, a getter or a property found as through
+ * `any` (undefined if there is none) is found each time. The caller converts the value
+ * to the property's type with a check. A write goes through `any`'s path.
+ */
+pts_value pts_result_get_slow(const pts_object *object, pts_site *site, const char *name);
+static inline pts_value pts_result_get(const void *object, pts_site *site, const char *name) {
+  const pts_type *type = ((const pts_object *)object)->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  if ((uintptr_t)type == (cache & PTS_SITE_TYPE_MASK)) {
+    return pts_value_present(*(const pts_value *)((const char *)object + (cache >> 48)));
+  }
+  return pts_result_get_slow((const pts_object *)object, site, name);
+}
+void pts_result_set(pts_object *object, const char *name, pts_value value);
 
 /* Writes value to an optional property: TypeError if the object can't hold it (no such property, or undefined for a field of another type). */
 void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name, const struct pts_check *check, pts_value value);
@@ -2264,6 +2285,12 @@ typedef struct pts_iterator {
   pts_resume_mode mode;
   pts_value sent;
   pts_value value;
+  /*
+   * The result object the last step handed back as it is, PTS_VALUE_ABSENT if it made its
+   * own: an object's next()'s (whose value is read only if asked for, value then absent),
+   * or a generator's yield* of one (GeneratorYield(innerResult), H03b).
+   */
+  pts_value result;
   struct pts_promise *promise;   /* an async function's (D-112), which its body settles */
   struct pts_reaction *reaction; /* an async function's reaction to what it awaits, reused by each await */
   struct pts_request *requests;  /* an async generator's queue of next/return/throw calls (D-115) */
@@ -2283,6 +2310,30 @@ pts_iterator *pts_generator_new(size_t size, bool (*step)(pts_iterator *));
  * for generators that haven't started, have finished or are running hold.
  */
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
+/*
+ * next(sent), throw(sent) or return(sent) called on an iterator, as a program's call of
+ * the method is (H03b): the result object the method returned, which the caller gets as it
+ * is (an object's own next()'s, TypeError if it isn't an object, or what a generator's
+ * yield* handed back), or, if the iterator made its result itself, whether it is done
+ * (PTS_VALUE_TRUE or PTS_VALUE_FALSE), its value then pts_iterator_value. Nothing of the
+ * result is read. An object without the method throws JS's `text is not a function`.
+ */
+pts_value pts_iterator_call(pts_value iterator, pts_resume_mode mode, pts_value sent, const pts_string *text);
+/*
+ * A yield* that didn't finish yields what its inner iterator's step gave (H03b): the result
+ * object the step handed back, which the generator hands back in turn (GeneratorYield(
+ * innerResult)), or else its value.
+ */
+void pts_generator_delegate(pts_iterator *generator, pts_value inner);
+/* Whether a pts_iterator_call step is a result object to give as it is, and whether one the iterator made itself says done. */
+static inline bool pts_iterator_handed(pts_value step) { return pts_value_is_object(step); }
+static inline bool pts_iterator_call_done(pts_value step) { return step == PTS_VALUE_TRUE; }
+/*
+ * Through `any`, a generator's or runtime iterator's methods next, return and throw (an
+ * async generator's give promises): false if it has no method name. A result the iterator
+ * makes is a plain object { value, done }.
+ */
+bool pts_iterator_method_call(pts_value iterator, const char *name, uint32_t argc, const pts_value *argv, pts_value *result);
 /*
  * An iterator over an iterable value: a generator object itself, what an object's
  * [Symbol.iterator]() (its method `@@iterator`) returns, as pts_iterator_of, a map's or
@@ -2317,6 +2368,8 @@ bool pts_iteration_next(pts_value source, double index);
 pts_value pts_iteration_value(pts_value source, double index);
 struct pts_array *pts_iteration_rest(pts_value source, double index, bool done);
 void pts_iteration_close(pts_value source);
+/* An array iterator over an array's (or tuple's) items, read live. */
+pts_value pts_array_iterator_new(pts_value items);
 /* An iterator over a map's or set's values (0), keys (1) or [key, value] entries (2), as m.values(), m.keys() and m.entries() make: live, as JS's. */
 pts_value pts_map_iterator_new(pts_value map, int32_t items);
 /*
@@ -2394,6 +2447,10 @@ pts_value pts_async_generator_new(pts_iterator *it);
 pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text);
 pts_value pts_async_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent);
 pts_value pts_async_iterator_close(pts_value iterator);
+/* Whether value is an async generator object (D-115). */
+bool pts_value_is_async_generator(pts_value value);
+/* CreateIterResultObject: a plain object { value, done }, a hash-map object of any. */
+pts_value pts_iterator_result_new(pts_value value, bool done);
 /* An iterator result's done (TypeError if it isn't an object) and value. */
 bool pts_iterator_result_done(pts_value result);
 pts_value pts_iterator_result_value(pts_value result);

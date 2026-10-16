@@ -1061,10 +1061,10 @@ func (l *lowerer) classCast(value ir.Expr, to *ir.Class, node *ast.Node) ir.Expr
 		return &ir.ClassCast{X: value, To: to}
 	case to.IsSubclassOf(from) && l.isNarrowedTo(node, to):
 		return downcast(value, to)
+	case to.Result:
+		return asResult(value, to)
 	}
-	if !l.reportedGetterResult(node) {
-		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
-	}
+	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", from, to))
 	return nil
 }
 

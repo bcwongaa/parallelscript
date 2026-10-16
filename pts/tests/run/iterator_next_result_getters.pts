@@ -1,4 +1,3 @@
-// skip: known issue (H03b, C30): it.next() on a typed iterator makes a D-109 result shape at the call, reading done and then value (a done result's too), where JS hands back the object next() returned
 // it.next() on a typed `Iterator<number>` gives the object the iterator's next()
 // returned, so getters on it run when the caller reads them, in the caller's order, and
 // a done result's value getter runs only if the caller reads value. The results here

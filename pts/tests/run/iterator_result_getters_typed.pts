@@ -1,6 +1,5 @@
-// skip: known issue (C03, D-177): an object literal with getters as a typed IteratorResult is PTS1001, since D-109's result shapes hold done and value in fields (errors/iterator_result_getters.pts); a `next(): any` can return one (run/iterator_result_getters_any.pts)
 // A typed iterator's `next(): IteratorResult<number>` may return an object literal whose
-// `done` and `value` are getters (C03; D-146's known gap). Consumers (for…of, spread,
+// `done` and `value` are getters (C03, H03b). Consumers (for…of, spread,
 // Array.from, new Set) read done first and value only for a result that isn't done, so
 // the done result's value getter never runs.
 

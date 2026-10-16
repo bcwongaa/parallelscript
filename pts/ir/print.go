@@ -167,6 +167,10 @@ func (pr *printer) stmt(stmt Stmt, depth int) {
 	case *Throw:
 		pr.out.WriteString("throw " + FormatExpr(s.Value) + "\n")
 	case *Yield:
+		if s.Delegate != nil {
+			pr.out.WriteString("yield the step of " + FormatExpr(s.Delegate) + "\n")
+			break
+		}
 		pr.out.WriteString("yield " + FormatExpr(s.Value) + "\n")
 	case *Break:
 		pr.out.WriteString("break " + pr.label(s.Target) + "\n")
@@ -346,6 +350,9 @@ func FormatExpr(expr Expr) string {
 		}
 		return "new " + e.Map.String() + "()"
 	case *ClassCast:
+		if e.FromResult {
+			return "(" + FormatExpr(e.X) + " as " + e.To.String() + ", converted unless one of its shape's)"
+		}
 		return "(" + FormatExpr(e.X) + " as " + e.To.String() + ")"
 	case *InstanceOf:
 		if e.Family != nil {

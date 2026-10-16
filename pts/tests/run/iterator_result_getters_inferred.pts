@@ -1,8 +1,8 @@
 // Getter results that nothing converts to D-109's result shapes work, as they did before
 // H03: an iterator object literal whose next() has no annotated result (tsc only gives
 // the result literal IteratorResult<number> as its context), and a result whose accessor
-// is neither `done` nor `value`. The PTS1001 for typed getter results is only where the
-// conversion happens (errors/iterator_result_getters.pts, D-177).
+// is neither `done` nor `value`. Typed getter results work too since H03b
+// (run/iterator_result_getter_literals.pts).
 const iterable: Iterable<number> = {
   [Symbol.iterator]() {
     let i = 0;

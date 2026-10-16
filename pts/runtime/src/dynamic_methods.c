@@ -728,6 +728,32 @@ static pts_value array_to_spliced(pts_value self, uint32_t argc, const pts_value
   return copy;
 }
 
+/*
+ * An array's values(), keys() and entries(): runtime iterators over what typed code's
+ * iterate (D-110): the array itself, read live; its indices and its [index, element]
+ * pairs as they are at the call, made then (JS's are live).
+ */
+static pts_value array_values(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_array_iterator_new(self);
+}
+
+static pts_value array_keys(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_array_iterator_new(pts_value_from_object(pts_array_keys(array_of(self))));
+}
+
+static pts_value array_entries(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  pts_array *array = array_of(self);
+  pts_array *pairs = any_array();
+  for (double i = 0; i < pts_array_length(array); i++) {
+    pts_value pair[] = {pts_value_from_number(i), pts_value_present(pts_array_element(array, i))};
+    push_any(pairs, pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], pair, 2)));
+  }
+  return pts_array_iterator_new(pts_value_from_object(pairs));
+}
+
 static pts_value array_with(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_array *array = array_of(self);
   pts_value value = argument(argc, argv, 1);
@@ -737,6 +763,7 @@ static pts_value array_with(pts_value self, uint32_t argc, const pts_value *argv
 static const named_method array_methods[] = {
     {"at", array_at},
     {"concat", array_concat},
+    {"entries", array_entries},
     {"every", array_every},
     {"fill", array_fill},
     {"filter", array_filter},
@@ -750,6 +777,7 @@ static const named_method array_methods[] = {
     {"includes", array_includes},
     {"indexOf", array_index_of},
     {"join", array_join},
+    {"keys", array_keys},
     {"lastIndexOf", array_last_index_of},
     {"map", array_map},
     {"pop", array_pop},
@@ -767,6 +795,7 @@ static const named_method array_methods[] = {
     {"toSpliced", array_to_spliced},
     {"toString", array_to_string},
     {"unshift", array_unshift},
+    {"values", array_values},
     {"with", array_with},
     {NULL, NULL},
 };
@@ -930,9 +959,20 @@ static pts_value map_for_each(pts_value self, uint32_t argc, const pts_value *ar
   return PTS_VALUE_UNDEFINED;
 }
 
-static pts_value map_iterator(pts_value self, uint32_t argc, const pts_value *argv) {
-  (void)self, (void)argc, (void)argv;
-  pts_throw_new(&pts_type_builtin_TypeError, "Iterators of maps and sets through `any` are not supported yet");
+/* A map's or set's values(), keys() and entries(): its live iterator (D-110). */
+static pts_value map_values(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_map_iterator_new(self, 0);
+}
+
+static pts_value map_keys(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_map_iterator_new(self, 1);
+}
+
+static pts_value map_entries(pts_value self, uint32_t argc, const pts_value *argv) {
+  (void)argc, (void)argv;
+  return pts_map_iterator_new(self, 2);
 }
 
 static pts_value record_has_own_property(pts_value self, uint32_t argc, const pts_value *argv) {
@@ -941,13 +981,13 @@ static pts_value record_has_own_property(pts_value self, uint32_t argc, const pt
 }
 
 static const named_method map_methods[] = {
-    {"clear", map_clear},     {"delete", map_delete}, {"entries", map_iterator}, {"forEach", map_for_each}, {"get", map_get},
-    {"has", map_has},         {"keys", map_iterator}, {"set", map_set},          {"values", map_iterator}, {NULL, NULL},
+    {"clear", map_clear},     {"delete", map_delete}, {"entries", map_entries}, {"forEach", map_for_each}, {"get", map_get},
+    {"has", map_has},         {"keys", map_keys},     {"set", map_set},         {"values", map_values},   {NULL, NULL},
 };
 
 static const named_method set_methods[] = {
-    {"add", set_add},         {"clear", map_clear},      {"delete", map_delete}, {"entries", map_iterator}, {"forEach", map_for_each},
-    {"has", map_has},         {"keys", map_iterator},    {"values", map_iterator}, {NULL, NULL},
+    {"add", set_add},         {"clear", map_clear},      {"delete", map_delete}, {"entries", map_entries}, {"forEach", map_for_each},
+    {"has", map_has},         {"keys", map_keys},        {"values", map_values},   {NULL, NULL},
 };
 
 static const named_method record_methods[] = {
@@ -1403,6 +1443,8 @@ bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, c
     case PTS_KIND_REGEXP:
       methods = regexp_methods;
       break;
+    case PTS_KIND_GENERATOR:
+      return pts_iterator_method_call(value, name, argc, argv, result);
     case PTS_KIND_INT64:
     case PTS_KIND_UINT64:
       break;

@@ -79,8 +79,11 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	if fieldType == nil {
 		return nil, nil
 	}
+	if l.holdsIteratorResults(t) {
+		return l.resultUnionProperty(node, &ir.Field{Name: name, Type: l.withUndefined(fieldType)}) // D-109's result shapes hold undefined in value
+	}
 	optional := property.Flags&ast.SymbolFlagsOptional != 0
-	if optional || l.isIteratorResultUnion(t) { // D-109's result shapes hold undefined in value
+	if optional {
 		fieldType = l.withUndefined(fieldType)
 	}
 	field := &ir.Field{Name: name, Type: fieldType, Optional: optional}
@@ -102,10 +105,39 @@ func (l *lowerer) unionProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 	return l.asUnionInterface(object, iface, node), iface.Fields[0]
 }
 
+// resultUnionProperty returns the object of a property access on a union of iterator
+// results (IteratorResult<T, R>), or of them and other object types, as the interface of
+// just that property, field, and the interface's field: its objects may be D-109's result
+// shapes or any other object an iterator handed back, so the property is found by name
+// (ir.Interface.Result, D-178).
+func (l *lowerer) resultUnionProperty(node *ast.Node, field *ir.Field) (ir.Expr, *ir.Field) {
+	key := "result " + membersKey([]*ir.Field{field}, nil)
+	iface, ok := l.interfacesByKey[key]
+	if !ok {
+		iface = &ir.Interface{Fields: []*ir.Field{field}, Result: true}
+		l.interfacesByKey[key] = iface
+		l.interfaceList = append(l.interfaceList, iface)
+	}
+	object := l.expression(node.Expression())
+	if object == nil || object.Type() == ir.Value {
+		return object, nil // a recursive union's dynamic data: its property is found at run time
+	}
+	return l.asUnionInterface(object, iface, node), iface.Fields[0]
+}
+
 // isIteratorResultType reports whether t is an iterator result or a union of them (IteratorResult<T, R>).
 func (l *lowerer) isIteratorResultType(t *checker.Type) bool {
 	_, ok := l.iteratorResultValue(t)
 	return ok || l.isIteratorResultUnion(t)
+}
+
+// holdsIteratorResults reports whether a member of the union t is an iterator result, whose
+// objects may be of any layout (D-178), so that its properties are found by name.
+func (l *lowerer) holdsIteratorResults(t *checker.Type) bool {
+	return t.Flags()&checker.TypeFlagsUnion != 0 && slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {
+		_, ok := l.iteratorResultValue(member)
+		return ok
+	})
 }
 
 // isIteratorResultUnion reports whether every member of the union t is an iterator result.

@@ -240,7 +240,11 @@ func resumeLabel(point int) string {
 // try blocks around it left, a return from the step function, and the resume point.
 func (e *emitter) yieldStatement(s *ir.Yield, depth int) {
 	point := e.frame.yields[s]
-	e.line(depth, "pts_frame->header.value = %s;", e.expr(s.Value))
+	if s.Delegate != nil {
+		e.line(depth, "pts_generator_delegate(&pts_frame->header, %s);", e.expr(s.Delegate))
+	} else {
+		e.line(depth, "pts_frame->header.value = %s;", e.expr(s.Value))
+	}
 	if e.current.AsyncGenerator {
 		e.line(depth, "pts_frame->header.awaiting = %t;", s.Await) // D-115
 	}

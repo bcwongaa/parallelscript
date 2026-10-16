@@ -181,6 +181,9 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 		if !slices.ContainsFunc(from.Members, func(m ir.Type) bool { return !u.Has(m) }) || l.holdsMembersOf(node, u) {
 			return &ir.ToUnion{X: value, To: u}
 		}
+		if isResultUnion(u) && !slices.ContainsFunc(from.Members, func(m ir.Type) bool { return !isObjectOfProgram(m) }) {
+			return asResult(value, u) // `IteratorResult<T, undefined>` where an `IteratorResult<T>` goes
+		}
 	default:
 		if u.Has(from) {
 			return &ir.ToUnion{X: value, To: u}
@@ -196,6 +199,9 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 				}
 			}
 		}
+		if isResultUnion(u) && isObjectOfProgram(from) {
+			return asResult(value, u)
+		}
 		if member := l.memberFor(from, u); member != nil {
 			if converted := l.convert(value, member, node); converted != nil {
 				return &ir.ToUnion{X: converted, To: u}
@@ -203,10 +209,39 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 			return nil
 		}
 	}
-	if node == nil || !l.reportedGetterResult(node) {
-		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), u))
-	}
+	l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", value.Type(), u))
 	return nil
+}
+
+// asResult converts value, an object of the program's of another layout than D-109's
+// result shapes (an object literal with getters or more properties, a class's instance),
+// to an iterator result's type t, a Result shape or a union of them, as it is: reads of a
+// result's done and value find them by name on such an object (ir.Class.Result, H03b), so
+// no getter runs before it is read.
+func asResult(value ir.Expr, t ir.Type) ir.Expr {
+	if u, ok := t.(*ir.Union); ok {
+		return &ir.ToUnion{X: value, To: u}
+	}
+	return &ir.ClassCast{X: value, To: t}
+}
+
+// isResultUnion reports whether every member of u is a shape of iterator results.
+func isResultUnion(u *ir.Union) bool {
+	return !slices.ContainsFunc(u.Members, func(m ir.Type) bool {
+		class, ok := m.(*ir.Class)
+		return !ok || !class.Result
+	})
+}
+
+// isObjectOfProgram reports whether values of t are objects with descriptors the program
+// makes, whose properties can be found by name: instances of classes and shapes, and what
+// interfaces refer to.
+func isObjectOfProgram(t ir.Type) bool {
+	switch t.(type) {
+	case *ir.Class, *ir.Interface:
+		return true
+	}
+	return false
 }
 
 // memberFor is the member of u that a value of type t converts to: the one numeric
@@ -477,6 +512,9 @@ func (l *lowerer) asUnion(node *ast.Node, t *checker.Type) ir.Expr {
 	x := l.expression(node.Expression())
 	if !ok || x == nil {
 		return nil
+	}
+	if isResultUnion(u) && isObjectOfProgram(x.Type()) {
+		return asResult(x, u) // a class's instance as an iterator result
 	}
 	if fits := x.Type() == u || u.Has(x.Type()) || isUnion(x.Type()) && !isNarrowing(x.Type().(*ir.Union), u); !fits {
 		l.notSupportedYet(node, fmt.Sprintf("`as` from %s to %s (a downcast) is", x.Type(), u))
