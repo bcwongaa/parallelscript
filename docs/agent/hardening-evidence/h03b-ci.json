@@ -1,0 +1,29 @@
+{
+ "conclusion": "success",
+ "createdAt": "2026-10-16T13:32:22Z",
+ "databaseId": 38908617240,
+ "event": "push",
+ "headSha": "9de0f0977ad8db718094ba46faabb7e2eda6270c",
+ "jobs": [
+  {
+   "conclusion": "success",
+   "name": "VS Code extension",
+   "status": "completed"
+  },
+  {
+   "conclusion": "success",
+   "name": "Upstream CLI and LSP suites",
+   "status": "completed"
+  },
+  {
+   "conclusion": "success",
+   "name": "PTS tests",
+   "status": "completed"
+  }
+ ],
+ "status": "completed",
+ "updatedAt": "2026-10-16T13:42:37Z",
+ "url": "https://github.com/bcwongaa/parallelscript/actions/runs/38908617240",
+ "task": "H03b",
+ "note": "exact-SHA CI of the H03b fix commit; certifies this SHA only"
+}
