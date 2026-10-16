@@ -1,0 +1,58 @@
+// The compile-time check of flatMap's typed leaves (D-180) rejects only conversions that
+// would copy a typed object or an array kept elsewhere: functions of other types than the
+// result's element type are adapted at run time, and an annotated callback's values are
+// already of its result type, converted where it returns them (H05 review round 3, N1: an
+// internal compiler error, an adapter made by the check's probe and then dropped; N2: PTS1001
+// for new arrays of narrower objects behind an annotation).
+const f = (): number => 7;
+const adapted = [1].flatMap<(a: number) => number>(() => [f]);
+console.log(adapted.length, adapted[0](5));
+type Listener = (e: string) => void;
+class Button {
+  constructor(public name: string) {}
+  onClick = () => console.log(this.name, "click");
+  onHover = (e: string) => console.log(this.name, "hover", e);
+}
+const buttons = [new Button("ok"), new Button("cancel")];
+const listeners = buttons.flatMap((b): Listener[] => [b.onClick, b.onHover]);
+for (const l of listeners) l("evt");
+type Item = string | ((n: number) => string);
+const g = (): string => "g";
+const items = [1].flatMap<Item>(() => ["a", g]);
+for (const x of items) console.log(typeof x === "string" ? x : x(1));
+const fs: (() => number)[] = [() => 42];
+const wider = [1].flatMap<() => number | string>(() => fs);
+console.log(typeof wider[0](), wider[0]());
+interface Named {
+  name: string;
+  size: number | string;
+}
+console.log([[1, 2], [3]].flatMap((ns): Named[] => ns.map((n) => ({ name: "n" + n, size: n }))));
+interface Row {
+  key: string;
+  value: number | null;
+}
+const groups: Record<string, number[]> = { a: [1, -2], b: [3] };
+const rows: Row[] = Object.entries(groups).flatMap(([key, vs]): Row[] => {
+  return vs.filter((v) => v > 0).map((v) => ({ key, value: v }));
+});
+console.log(rows);
+const base = [{ name: "a", size: 1 }];
+console.log([1, 2].flatMap((n): Named[] => base.slice()));
+
+// expect:
+// 1 7
+// ok click
+// ok hover evt
+// cancel click
+// cancel hover evt
+// a
+// g
+// number 42
+// [
+//   { name: 'n1', size: 1 },
+//   { name: 'n2', size: 2 },
+//   { name: 'n3', size: 3 }
+// ]
+// [ { key: 'a', value: 1 }, { key: 'b', value: 3 } ]
+// [ { name: 'a', size: 1 }, { name: 'a', size: 1 } ]

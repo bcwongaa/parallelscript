@@ -5,8 +5,8 @@ const a = [1, 2, 3];
 // (Spreading other element types works since D-149: run/spread_integer_elements.pts.)
 const mapped = a.map((x) => x, a);
 a.map((x) => {});
-const depth = 2;
-const flat = [[1]].flat(depth);
+// (A depth that isn't a constant works since D-180: run/flat_depths.pts; the result has
+// tsc's type for the call.)
 let n = 0;
 for (n of a) {
 }
@@ -26,7 +26,6 @@ const nested: Nested = [];
 
 // error: arrays_not_yet.pts:6:32 - error PTS1001: the `thisArg` argument of array methods is not supported yet
 // error: arrays_not_yet.pts:7:1 - error PTS1001: `map` with a callback that returns nothing is not supported yet
-// error: arrays_not_yet.pts:9:25 - error PTS1001: `flat` with a depth that isn't a constant is not supported yet
 // error: arrays_not_yet.pts:11:6 - error PTS1001: `for...of` without a declaration of its variable is not supported yet
 // error: arrays_not_yet.pts:23:25 - error PTS1001: using a Pixel[] as a {x: number; y: number}[] where it may be changed or kept
 // error: arrays_not_yet.pts:25:7 - error PTS1001: recursive array types (Nested) are not supported yet

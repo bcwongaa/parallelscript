@@ -1,0 +1,10 @@
+// flat() on a tuple, as on an array of its elements: flatMap and the other methods that
+// don't change an array already take tuples (D-089); flat was PTS1001 (H05).
+const t: [number[], number[]] = [[1], [2, 3]];
+console.log(t.flat());
+const pair: [number, string[]] = [1, ["a", "b"]];
+console.log(pair.flat());
+
+// expect:
+// [ 1, 2, 3 ]
+// [ 1, 'a', 'b' ]

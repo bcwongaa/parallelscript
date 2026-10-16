@@ -1,0 +1,15 @@
+// `.par.flatMap` over match arrays keeps the groups that took no part as undefined
+// elements at every thread count, as Array's flatMap does: the pieces are joined by the
+// runtime's flatten step (H05 review round 2, F4: holes at 2 and 4 threads, and a TypeError
+// for a second undefined group in a result). The expected output is Array's flatMap under Node.
+// threads: 1 2 4
+console.log(["ab", "b"].par.flatMap((s) => /(a)?(b)/.exec(s)!));
+console.log(["a", "b"].par.flatMap((s) => /(a)|(b)/.exec(s)!));
+const inputs = Array.from({ length: 4000 }, (_, i) => (i % 2 ? "a" : "b"));
+const groups = inputs.par.flatMap((s) => /(a)|(b)/.exec(s)!);
+console.log(groups.length, groups.slice(0, 6), groups.slice(-3));
+
+// expect:
+// [ 'ab', 'a', 'b', 'b', undefined, 'b' ]
+// [ 'a', 'a', undefined, 'b', undefined, 'b' ]
+// 12000 [ 'b', undefined, 'b', 'a', 'a', undefined ] [ 'a', 'a', undefined ]

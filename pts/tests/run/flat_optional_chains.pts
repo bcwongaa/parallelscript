@@ -1,0 +1,23 @@
+// `?.flat()` and `?.flatMap()`: the call's result has tsc's type without the undefined the
+// chain adds (H05 review round 1, finding 1: PTS1001 "the compiler failed to lower without
+// saying why", where the base and Node print the arrays).
+type Box = { items?: (number | number[])[] };
+const c = Math.random() < 2;
+const maybe: number[][] | undefined = c ? [[3]] : undefined;
+const none: number[][] | undefined = c ? undefined : [[4]];
+console.log(maybe?.flat(), none?.flat());
+console.log(maybe?.flatMap((x) => x), none?.flatMap((x) => [x]));
+const b: Box = { items: [1, [2, 3]] };
+const n: Box = {};
+console.log(b.items?.flat(), n.items?.flat());
+const bb: Box | null = c ? b : null;
+console.log(bb?.items?.flatMap((x) => x));
+const flat: number[] | undefined = b.items?.flat();
+console.log(flat?.length ?? -1, n.items?.flat().length ?? -1);
+
+// expect:
+// [ 3 ] undefined
+// [ 3 ] undefined
+// [ 1, 2, 3 ] undefined
+// [ 1, 2, 3 ]
+// 3 -1

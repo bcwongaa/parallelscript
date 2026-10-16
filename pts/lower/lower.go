@@ -1000,7 +1000,7 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		}
 		return l.dynamicConversion(box(value), target, node) // `leaves.map(…)` as an HNode[]: a copy no one can tell from the array (D-094)
 	case (isArray(value.Type()) || isTuple(value.Type())) && isArray(target):
-		l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is", value.Type(), target))
+		l.reportKeptCopy(value.Type(), target, node)
 		return nil
 	case isObject(value.Type()) && isRecord(target):
 		l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "using a `%s` as a hash-map object (`%s`) is not supported yet; a copy of its properties, `{ ...o }`, is one", value.Type(), target))
@@ -3357,16 +3357,28 @@ func neverFalsy(t ir.Type) bool {
 }
 
 // takesContextualUnion reports whether the branches x and y of a conditional make a value
-// of the union their context expects rather than of tsc's type for the conditional: an
-// empty array literal is an array of the context's element type, and an integer next to
-// null or undefined keeps the integer type the semantic pass gave it, which tsc's
-// `7 | undefined` loses.
-func takesContextualUnion(x, y ir.Expr) bool {
+// of the union contextual, which their context expects, rather than of tsc's type for the
+// conditional: an array literal is an array of the context's array type, converted where it
+// is made (an empty one fits any, and a new one that a member holds is copied into it, no one
+// else holding it, D-094, D-180), and an integer next to null or undefined keeps the integer
+// type the semantic pass gave it, which tsc's `7 | undefined` loses.
+func (l *lowerer) takesContextualUnion(x, y ir.Expr, contextual *checker.Type, node *ast.Node) bool {
 	if isEmptyArrayLiteral(x) || isEmptyArrayLiteral(y) {
 		return true
 	}
+	if isArrayLiteral(x) || isArrayLiteral(y) {
+		u, ok := l.irType(contextual, node).(*ir.Union)
+		return ok && l.holdsLiteral(u, x) && l.holdsLiteral(u, y)
+	}
 	isInteger := func(t ir.Type) bool { return ir.IsNumeric(t) && t != ir.Number }
 	return isNullish(x.Type()) && isInteger(y.Type()) || isNullish(y.Type()) && isInteger(x.Type())
+}
+
+// holdsLiteral reports whether a member of u holds x as it is made, if x is an array or
+// tuple literal: one whose elements hold its own (memberFor). Another literal, say one whose
+// elements are arrays of other element types, keeps tsc's type for the conditional.
+func (l *lowerer) holdsLiteral(u *ir.Union, x ir.Expr) bool {
+	return !isArrayLiteral(x) || u.Has(x.Type()) || l.memberFor(x.Type(), u) != nil
 }
 
 // emptyArrayAs is x converted to u's array type if x is an empty array literal and u has
@@ -3423,7 +3435,7 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		t := l.typeAt(node)
 		if objects := l.objectUnion(contextual); objects != nil && l.checker.IsTypeAssignableTo(t, objects) {
 			t = objects // `c ? { ok: true, … } : { ok: false, … }` where a Result goes (D-095)
-		} else if contextual != nil && t.Flags()&checker.TypeFlagsUnion != 0 && takesContextualUnion(x, y) && l.checker.IsTypeAssignableTo(t, contextual) {
+		} else if contextual != nil && t.Flags()&checker.TypeFlagsUnion != 0 && l.checker.IsTypeAssignableTo(t, contextual) && l.takesContextualUnion(x, y, contextual, node) {
 			t = contextual // `c ? [] : counts` where a `Map<…> | number[]` goes, `c ? 7 : undefined` where an `int | undefined` does (D-172)
 		}
 		if u, ok := l.irType(t, node).(*ir.Union); ok && x.Type() != y.Type() { // `c ? new Dog() : new Bird()` is a Dog | Bird

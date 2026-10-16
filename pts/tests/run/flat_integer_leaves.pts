@@ -1,0 +1,30 @@
+// Integers flattened into a number[] convert to numbers, rounding past 2^53, as every
+// integer does where a number goes (D-012; H05 review round 1, finding 4: `TypeError:
+// Expected number, got int`; round 2, F3: in a result of a union with number they were
+// kept as 64-bit integers, which `typeof` took for numbers and `+` for NaN).
+const big: i64 = (1 as i64) << (62 as i64);
+const xs: i64[] = [big];
+const n: (number | i64[])[] = [1.5, xs];
+console.log(n.flat());
+console.log([1.5].flatMap((v) => (v > 1 ? xs : v)));
+const ub: u64[] = [(1 as u64) << (63 as u64)];
+const mixed: (u64[] | number[])[] = [ub, [1.5]];
+console.log(mixed.flat());
+const small: (number | u8[])[] = [0.5, [7 as u8, 255 as u8]];
+console.log(small.flat());
+const bigs: i64[] = [big, 5];
+const r = [1].flatMap<number | boolean>(() => bigs);
+let total = 0;
+for (const v of r) {
+  if (typeof v === "number") total += v;
+}
+console.log(r, total);
+console.log(([[true], bigs] as (boolean[] | i64[])[]).flat()); // a (boolean | i64)[]: exact
+
+// expect:
+// [ 1.5, 4611686018427388000 ]
+// [ 4611686018427388000 ]
+// [ 9223372036854776000, 1.5 ]
+// [ 0.5, 7, 255 ]
+// [ 4611686018427388000, 5 ] 4611686018427388000
+// [ true, 4611686018427387904, 5 ]

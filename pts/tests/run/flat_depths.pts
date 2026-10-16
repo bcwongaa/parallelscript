@@ -1,0 +1,40 @@
+// flat(depth) at depths 0, 1 (left out and given), 2, 3, Infinity, -0 and NaN over
+// heterogeneous nesting: every level down that is an array at run time is spread, as many
+// levels as the depth says (ToIntegerOrInfinity; NaN is 0). A union-typed level stopped
+// the flattening, at any depth (C05, H05). Negative and fractional depths, which tsc types
+// wrongly, are errors/flat_odd_depths.pts (D-180).
+const deep = [1, [2, [3, [4]]]];
+console.log(deep.flat(0));
+console.log(deep.flat());
+console.log(deep.flat(1));
+console.log(deep.flat(2));
+console.log(deep.flat(3));
+console.log(deep.flat(Infinity));
+const kinds = [1, "a", [true, ["b", [2]]]];
+console.log(kinds.flat(), kinds.flat(Infinity));
+const declared: (number | number[] | number[][])[] = [1, [2], [[3]]];
+console.log(declared.flat(), declared.flat(2), declared.flat(Infinity));
+const nested: (number | number[])[][] = [[1, [2]], [3]];
+console.log(nested.flat(), nested.flat(2), nested.flat(Infinity));
+const twoLevels: (number | (number | number[])[])[] = [1, [2, [3]]];
+console.log(twoLevels.flat(), twoLevels.flat(2));
+const odd: (number | number[])[] = [1, [2, 3]];
+console.log(odd.flat(0), odd.flat(-0), odd.flat(NaN));
+enum Depth {
+  Two = 2,
+}
+console.log(deep.flat(Depth.Two));
+
+// expect:
+// [ 1, [ 2, [ 3, [Array] ] ] ]
+// [ 1, 2, [ 3, [ 4 ] ] ]
+// [ 1, 2, [ 3, [ 4 ] ] ]
+// [ 1, 2, 3, [ 4 ] ]
+// [ 1, 2, 3, 4 ]
+// [ 1, 2, 3, 4 ]
+// [ 1, 'a', true, [ 'b', [ 2 ] ] ] [ 1, 'a', true, 'b', 2 ]
+// [ 1, 2, [ 3 ] ] [ 1, 2, 3 ] [ 1, 2, 3 ]
+// [ 1, [ 2 ], 3 ] [ 1, 2, 3 ] [ 1, 2, 3 ]
+// [ 1, 2, [ 3 ] ] [ 1, 2, 3 ]
+// [ 1, [ 2, 3 ] ] [ 1, [ 2, 3 ] ] [ 1, [ 2, 3 ] ]
+// [ 1, 2, 3, [ 4 ] ]

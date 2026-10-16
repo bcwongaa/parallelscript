@@ -246,8 +246,15 @@ func isObjectOfProgram(t ir.Type) bool {
 
 // memberFor is the member of u that a value of type t converts to: the one numeric
 // member for a number, the one function type for a function, or the one member that
-// is an object type for an object; nil if there isn't exactly one.
+// is an object type for an object; nil if there isn't exactly one. Among several array
+// members an array goes to the one holding its elements as they are, and a tuple of
+// another layout than u's tuples to the array member holding its elements (D-180).
 func (l *lowerer) memberFor(t ir.Type, u *ir.Union) ir.Type {
+	if tuple, ok := t.(*ir.Class); ok && tuple.Tuple {
+		if array := tupleArray(tuple, u); array != nil {
+			return array // a tuple of another layout than u's tuples, which no cast makes one of them
+		}
+	}
 	var fits func(ir.Type) bool
 	switch {
 	case ir.IsNumeric(t):
@@ -264,10 +271,65 @@ func (l *lowerer) memberFor(t ir.Type, u *ir.Union) ir.Type {
 	var found ir.Type
 	for _, m := range u.Members {
 		if fits(m) {
+			if found != nil && isArray(t) {
+				return holdingArray(t.(*ir.Array), u)
+			}
 			if found != nil {
 				return providedMember(t, u) // several object members: the one t provides as it is
 			}
 			found = m
+		}
+	}
+	return found
+}
+
+// tupleArray is the array member of u whose elements hold every element of tuple as it is,
+// or nil if that is not one: a new [number, string] where a `number | string | (number |
+// string)[]` goes is a (number | string)[] (D-180).
+func tupleArray(tuple *ir.Class, u *ir.Union) ir.Type {
+	var found ir.Type
+	for _, m := range u.Members {
+		member, ok := m.(*ir.Array)
+		if !ok || slices.ContainsFunc(tuple.Fields, func(f *ir.Field) bool { return !holdsAsItIs(member.Elem, f.Type) }) {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = member
+	}
+	return found
+}
+
+// holdsAsItIs reports whether a place of type place holds a value of type t without
+// converting it beyond ToUnion: t itself, a member of the union place, or a union of its
+// members (a (number | string)[]'s elements where a (number | string | number[])[]'s go).
+func holdsAsItIs(place, t ir.Type) bool {
+	union, ok := place.(*ir.Union)
+	if place == t || !ok {
+		return place == t
+	}
+	if members, ok := t.(*ir.Union); ok {
+		return !slices.ContainsFunc(members.Members, func(m ir.Type) bool { return !union.Has(m) })
+	}
+	return union.Has(t)
+}
+
+// holdingArray is the array member of u whose elements hold array's as they are (its
+// element type, or a union of it), or nil if that is not one: a number[][] where a
+// `number | number[] | (number | number[])[]` goes is a (number | number[])[] (D-180).
+func holdingArray(array *ir.Array, u *ir.Union) ir.Type {
+	var found ir.Type
+	for _, m := range u.Members {
+		member, ok := m.(*ir.Array)
+		if !ok {
+			continue
+		}
+		if holdsAsItIs(member.Elem, array.Elem) {
+			if found != nil {
+				return nil
+			}
+			found = member
 		}
 	}
 	return found

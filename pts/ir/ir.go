@@ -290,8 +290,9 @@ var ValueArray = &Array{Elem: Value}
 var NumberArray = &Array{Elem: Number}
 
 func (a *Array) String() string {
-	if _, ok := a.Elem.(*FuncType); ok {
-		return "(" + a.Elem.String() + ")[]"
+	switch a.Elem.(type) {
+	case *FuncType, *Union:
+		return "(" + a.Elem.String() + ")[]" // TypeScript's (number | number[])[], not number | number[][]
 	}
 	return a.Elem.String() + "[]"
 }
@@ -861,13 +862,14 @@ const (
 	ArrayJoin                          // a.join(separator): the elements' strings, joined
 	ArrayReverse                       // a.reverse(): a, reversed in place
 	ArraySort                          // a.sort(): a, sorted in place by the elements' strings, stably
-	ArrayFlat                          // a.flat(depth): a new array of To's type, nested arrays flattened depth levels
+	ArrayFlat                          // a.flat(depth): a new array of To's type, arrays and tuples in it flattened depth levels; depth is a number or a dynamic value (D-180)
 	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
 	ArraySortWith                      // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
 	ArrayAt                            // a.at(i) as a dynamic value: from the end for a negative i, undefined out of range (D-085)
 	ArrayCopy                          // a new array of a's elements
 	ArrayWith                          // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
 	ArrayKeys                          // a.keys() as a number[] of a's indices
+	ArrayPushFlat                      // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
@@ -875,7 +877,7 @@ var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength"
 	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
 	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
 	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith", ArrayAt: "at", ArrayCopy: "copy", ArrayWith: "with",
-	ArrayKeys: "keys"}
+	ArrayKeys: "keys", ArrayPushFlat: "pushFlat"}
 
 func (op ArrayOp) String() string { return arrayOpText[op] }
 
@@ -1549,6 +1551,8 @@ func (e *ArrayCall) Type() Type {
 		return e.Args[0].Type()
 	case ArrayFlat:
 		return e.To
+	case ArrayPushFlat:
+		return Void
 	}
 	return e.Args[0].Type().(*Array).Elem
 }

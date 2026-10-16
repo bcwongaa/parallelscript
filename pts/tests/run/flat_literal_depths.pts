@@ -1,0 +1,17 @@
+// flat with a depth that tsc types as a number literal, a const holding one or an
+// `as const` property, is a constant depth: tsc types `cube.flat(D)` for `const D = 2`
+// exactly as `cube.flat(2)` (number[]). It was PTS1001 (`flat` with a depth that isn't a
+// constant), as errors/arrays_not_yet.pts pinned (H05).
+const D = 2;
+const cube: number[][][] = [[[1], [2]], [[3]]];
+console.log(cube.flat(D));
+const options = { depth: 1 } as const;
+console.log(cube.flat(options.depth));
+const mixed: (number | number[])[] = [1, [2, 3]];
+const ONE = 1;
+console.log(mixed.flat(ONE));
+
+// expect:
+// [ 1, 2, 3 ]
+// [ [ 1 ], [ 2 ], [ 3 ] ]
+// [ 1, 2, 3 ]

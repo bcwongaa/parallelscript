@@ -1,0 +1,22 @@
+// flat reads the array's length before it converts its depth, as JS's does: a depth whose
+// valueOf adds elements doesn't flatten them (H05 review round 2, F6: it did).
+const xs: (number | number[])[] = [1, [2]];
+const depth: any = {
+  valueOf() {
+    xs.push(99);
+    return 1;
+  },
+};
+console.log(xs.flat(depth), xs.length);
+const ys: any = [1, [2]];
+const dynamicDepth = {
+  valueOf() {
+    ys.push(7);
+    return 1;
+  },
+};
+console.log(ys.flat(dynamicDepth), ys.length);
+
+// expect:
+// [ 1, 2 ] 3
+// [ 1, 2 ] 3

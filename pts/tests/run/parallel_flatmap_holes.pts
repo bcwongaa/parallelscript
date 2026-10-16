@@ -1,0 +1,17 @@
+// `.par.flatMap` skips the holes of its array and of the arrays the callback returns, as
+// Array's flatMap does: the library read every index (RangeError at a hole) and spread the
+// callback's arrays, holes and all. The expected output is Array's flatMap under Node (H05).
+// threads: 1 2 4
+const src = new Array<string>(3);
+src[0] = "a";
+src[2] = "c";
+console.log(src.par.flatMap((x) => [x, x]));
+console.log(["a", "b"].par.flatMap((x) => {
+  const out = new Array<string>(2);
+  out[1] = x;
+  return out;
+}));
+
+// expect:
+// [ 'a', 'a', 'c', 'c' ]
+// [ 'a', 'b' ]

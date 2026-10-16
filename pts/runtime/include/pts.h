@@ -1318,7 +1318,18 @@ bool pts_array_includes(const pts_array *array, const void *value, double from);
 pts_string *pts_array_join(const pts_array *array, pts_string *separator);
 pts_array *pts_array_reverse(pts_array *array);
 pts_array *pts_array_sort(pts_array *array);
+/* array.flat(depth) as a new array of result_type: arrays and tuples in slots of any kind
+   spread depth levels down, holes skipped (a match's undefined groups kept), other elements
+   stored as its element type holds them, checked unless their slots have that type
+   (TypeError if one isn't of it; D-180). */
 pts_array *pts_array_flat(const pts_array *array, double depth, const pts_type *result_type);
+/* pts_array_flat with a depth of any value: 1 for undefined, else ToNumber of it, converted after the length is read, as JS's flat does. */
+pts_array *pts_array_flat_value(const pts_array *array, pts_value depth, const pts_type *result_type);
+/* flatMap's step for one callback result: an array's elements (holes skipped) or a tuple's
+   pushed onto result, else value itself, each converted as pts_array_flat converts them. */
+void pts_array_push_flat(pts_array *result, pts_value value);
+/* Whether index is one of array's elements, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133). */
+bool pts_array_has(const pts_array *array, double index);
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
 /*
  * array.sort(compare): sorts array in place, stably, by the numbers compare returns for
@@ -2541,6 +2552,9 @@ pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *comb
 void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
 /* pts_pool_threads() as a number. */
 double pts_parallel_threads(void);
+/* pts_array_has and pts_array_push_flat for pts:parallel's flatMap, whose arrays it passes as dynamic values (D-180). */
+bool pts_parallel_has(pts_value array, double index);
+void pts_parallel_push_flat(pts_value result, pts_value value);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);

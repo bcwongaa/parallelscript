@@ -541,21 +541,8 @@ static pts_value array_fill(pts_value self, uint32_t argc, const pts_value *argv
   return self;
 }
 
-static void flatten_into(pts_array *result, pts_value part, double depth) {
-  for (size_t i = 0, length = pts_spread_length(part); i < length; i++) {
-    pts_value element = pts_spread_element(part, i);
-    if (depth >= 1 && is_array_like(element)) {
-      flatten_into(result, element, depth - 1);
-    } else {
-      push_any(result, element);
-    }
-  }
-}
-
 static pts_value array_flat(pts_value self, uint32_t argc, const pts_value *argv) {
-  pts_array *result = any_array();
-  flatten_into(result, self, integer_or_infinity(number_argument(argc, argv, 0, 1)));
-  return pts_value_from_object(result);
+  return pts_value_from_object(pts_array_flat_value(array_of(self), argc > 0 ? argv[0] : PTS_VALUE_UNDEFINED, &pts_array_types[PTS_FIELD_VALUE]));
 }
 
 /* The element kind of the array a comparator sorts, for the comparator's call: sorts nest only through comparators. */
@@ -633,12 +620,9 @@ static pts_value array_filter(pts_value self, uint32_t argc, const pts_value *ar
 static pts_value array_flat_map(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_closure *callback = function_argument(argc, argv, 0);
   pts_array *result = any_array();
-  for (double i = 0; i < pts_array_length(array_of(self)); i++) {
-    pts_value mapped = call_back(callback, self, i);
-    if (is_array_like(mapped)) {
-      flatten_into(result, mapped, 0);
-    } else {
-      push_any(result, mapped);
+  for (double i = 0, length = pts_array_length(array_of(self)); i < length; i++) {
+    if (pts_array_has(array_of(self), i)) { /* JS's flatMap visits the elements there are when it starts, skipping holes */
+      pts_array_push_flat(result, call_back(callback, self, i));
     }
   }
   return pts_value_from_object(result);

@@ -1,0 +1,31 @@
+// The results of flat() and flatMap() have the element type tsc gives them (FlatArray, the
+// callback's U), so they go into typed code as such: pushed to, mapped with arithmetic,
+// summed, indexed, filtered. They had the receiver's (or the callback's) type, and the
+// conversion to tsc's type threw `TypeError: Expected number[], got Array` (C05, H05).
+const a: (number | number[])[] = [1, [2, 3], 4];
+const r = a.flat();
+r.push(9);
+console.log(r.map((x) => x * 2), r.reduce((s, x) => s + x, 0), typeof r[1], r[1] + 1, JSON.stringify(r));
+const deep = [1, [2, [3]]];
+const d = deep.flat(2);
+console.log(d.map((x) => x * 2), d.reduce((s, x) => s + x, 0));
+const nested: (number | number[])[][] = [[1, [2]], [3]];
+const n = nested.flat(2);
+console.log(n.map((x) => x + 1), typeof n[1]);
+const entries: [string, number][] = [["a", 1], ["b", 2]];
+const e = entries.flat();
+const counts: number[] = e.filter((x): x is number => typeof x === "number");
+console.log(e.length, typeof e[0], counts.reduce((s, x) => s + x, 0));
+const doubled = [1, 2, 3].flatMap((x) => (x % 2 ? x : [x, x]));
+doubled.push(9);
+console.log(doubled.map((x) => x * 2), doubled.reduce((s, x) => s + x, 0), typeof doubled[2], JSON.stringify(doubled));
+const tens = [1, 2].flatMap((x): [number, number] => [x, x * 10]);
+console.log(tens.length, tens.reduce((s, x) => s + x, 0), JSON.stringify(tens));
+
+// expect:
+// [ 2, 4, 6, 8, 18 ] 19 number 3 [1,2,3,4,9]
+// [ 2, 4, 6 ] 6
+// [ 2, 3, 4 ] number
+// 4 string 3
+// [ 2, 4, 4, 6, 18 ] 17 number [1,2,2,3,9]
+// 4 33 [1,10,2,20]

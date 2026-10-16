@@ -1,0 +1,31 @@
+// A group that took no part in a match is an undefined element of exec's and split's
+// arrays (D-133), not a hole: flat and flatMap keep it, as JS does (H05 review round 1,
+// finding 2: they were skipped as holes; round 2, F1: a second one in the same result threw).
+const m = /(a)|(b)/.exec("b")!;
+console.log(m.flat(), m.flat().length);
+console.log([m.slice()].flat());
+const anyM: any = m;
+console.log(anyM.flat(), anyM.flatMap((g: any) => [g ?? "none"]));
+const parts = "a,b".split(/(,)|(;)/);
+console.log(parts.flat(), [parts, ["c"]].flat().length);
+const anyParts: any = parts;
+console.log(anyParts.flatMap((p: any) => (p === undefined ? ["none"] : p)));
+const groups: string[][] = [m.slice(1), ["z"]];
+console.log(groups.flat());
+const twice = "a,b;c".split(/(,)|(;)/);
+console.log(twice.flat());
+const n = /(a)|(b)/.exec("a")!;
+console.log([m, n].flat(), [m.slice(), n.slice()].flat().length);
+console.log(["a", "b"].flatMap((s) => /(a)|(b)/.exec(s)!));
+
+
+// expect:
+// [ 'b', undefined, 'b' ] 3
+// [ 'b', undefined, 'b' ]
+// [ 'b', undefined, 'b' ] [ 'b', 'none', 'b' ]
+// [ 'a', ',', undefined, 'b' ] 5
+// [ 'a', ',', 'none', 'b' ]
+// [ undefined, 'b', 'z' ]
+// [ 'a', ',', undefined, 'b', undefined, ';', 'c' ]
+// [ 'b', undefined, 'b', 'a', 'a', undefined ] 6
+// [ 'a', 'a', undefined, 'b', undefined, 'b' ]

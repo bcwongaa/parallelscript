@@ -1,0 +1,22 @@
+// flatMap skips the holes of its array (the callback isn't called for them) and the holes
+// of the arrays the callback returns, as JS does. The helper read each element as a
+// required one and threw RangeError at the first hole (H05). Arrays of numbers have no
+// holes (their slots start as 0, D-085), so these are arrays of strings.
+const src = new Array<string>(3);
+src[0] = "a";
+src[2] = "c";
+let calls = 0;
+console.log(src.flatMap((x) => {
+  calls++;
+  return [x, x];
+}), calls);
+const r = ["a", "b"].flatMap((x) => {
+  const out = new Array<string>(2);
+  out[1] = x;
+  return out;
+});
+console.log(r, r.length);
+
+// expect:
+// [ 'a', 'a', 'c', 'c' ] 2
+// [ 'a', 'b' ] 2

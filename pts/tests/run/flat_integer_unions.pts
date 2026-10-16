@@ -1,0 +1,13 @@
+// flat() over arrays of integer unions: (int | int[])[] spreads its int[] elements as
+// (number | number[])[] does (C05, H05). int[][] already flattened.
+const a: (int | int[])[] = [1, [2, 3]];
+console.log(a.flat());
+const b: (u8 | u8[])[] = [4, [5, 6]];
+console.log(b.flat());
+const c: int[][] = [[7], [8, 9]];
+console.log(c.flat());
+
+// expect:
+// [ 1, 2, 3 ]
+// [ 4, 5, 6 ]
+// [ 7, 8, 9 ]

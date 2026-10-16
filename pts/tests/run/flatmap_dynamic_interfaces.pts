@@ -1,0 +1,36 @@
+// Dynamic data that flatMap stores where an interface goes is copied into an object of
+// the interface's type, as every conversion of dynamic data to an object type is (D-071;
+// H05 review round 2, F2: `TypeError: Expected {x: number}, got Object`, unless another
+// line converted `any` to the interface). Each case has an interface of its own layout,
+// since such a conversion anywhere in the program readied every interface of that layout.
+interface J {
+  x: number;
+}
+interface Leaf {
+  y: number;
+}
+interface Tagged {
+  w: number;
+  tags: string[];
+}
+interface Nested {
+  z: number;
+}
+const parsed: any = JSON.parse('[{"x":1},{"x":2}]');
+const js = [0, 1].flatMap<J>((i) => [parsed[i]]);
+console.log(js.length, js[0].x + js[1].x);
+const loose: any = JSON.parse('[{"y":1},{"y":2}]');
+const leaves = [0, 1].flatMap<Leaf>((i) => loose[i]);
+console.log(leaves.map((l) => l.y));
+const tagged: any = JSON.parse('[{"w":1,"tags":["a"]},{"w":2,"tags":[]}]');
+const ts = [0, 1].flatMap<Tagged>((i) => [tagged[i]]);
+console.log(ts.map((t) => t.tags.length + t.w));
+const nested: any = JSON.parse('[[{"z":3}],[{"z":4}]]');
+const fromNested: Nested[] = nested.flat();
+console.log(fromNested.map((n) => n.z));
+
+// expect:
+// 2 3
+// [ 1, 2 ]
+// [ 2, 2 ]
+// [ 3, 4 ]

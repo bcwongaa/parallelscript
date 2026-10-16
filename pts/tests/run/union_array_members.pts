@@ -1,0 +1,19 @@
+// An array literal where a union with several array members goes is an array of the
+// member whose elements hold its elements as they are, its own element union being part
+// of that member's; a literal no member holds as it is (an array of arrays of other
+// element types) keeps tsc's type for the conditional (H05 review round 1, finding 5:
+// PTS1001 for these, where the base compiled map's and Node prints them).
+console.log([1, 2].map<number | number[] | (number | string | number[])[]>((x) => (x > 1 ? [String(x), x] : x)));
+const xs = ["a", "b"];
+console.log(xs.map<string | string[] | (string | number | string[])[]>((s, i) => (i > 0 ? [s, i] : s)));
+const values: number[] = [1, 2];
+console.log(values.flatMap<number | string | number[]>((x) => (x > 1 ? [String(x), x] : x)));
+console.log(values.flatMap<number | boolean | (number | boolean | string)[]>((x) => (x > 1 ? [[x, true]] : x)));
+console.log(values.map<number | (number | boolean | string)[][]>((x) => (x > 1 ? [[x, true]] : x)));
+
+// expect:
+// [ 1, [ '2', 2 ] ]
+// [ 'a', [ 'b', 1 ] ]
+// [ 1, '2', 2 ]
+// [ 1, [ 2, true ] ]
+// [ 1, [ [ 2, true ] ] ]

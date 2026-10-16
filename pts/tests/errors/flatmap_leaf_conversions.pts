@@ -1,0 +1,80 @@
+// A flatMap callback whose arrays hold objects that its result's element type can't hold
+// as they are is reported where the callback is, as `const js: J[] = [c]` is: a copy would
+// lose the object's identity, which JS keeps (H05 review round 2, F5: a TypeError at run
+// time; the base copied the C silently). Each member of a union leaf, a tuple of another
+// layout, an object into a union of interfaces it provides none of, the elements of a
+// nested array literal, an instance of another class and an object a subclass of which holds
+// an optional property as another type are reported as their conversions are elsewhere
+// (review round 4: they were copied silently, or failed at run time), and so is a tuple where
+// an array goes, which the runtime can't convert even from a const used once, a const's
+// arrays, which are the same at each call, and a nested tuple literal's elements (round 5).
+interface J {
+  x: number | string;
+}
+class C {
+  constructor(public x: number) {}
+}
+const c = new C(1);
+const cs: C[] = [c];
+console.log([1].flatMap<J>(() => [c]));
+console.log([1].flatMap<J>(() => cs));
+console.log([1].flatMap<J>((i) => (i > 0 ? cs : c)));
+class D {
+  constructor(public x: string) {}
+}
+const cds: (C | D)[] = [c, new D("a")];
+console.log([1].flatMap<J>(() => cds));
+const p: [number, string] = [1, "a"];
+console.log([1].flatMap<[number, string | number]>(() => [p]));
+p[1] = "b";
+interface J1 {
+  x: number | string;
+  tag: string;
+}
+interface J2 {
+  y: number | string;
+}
+class T {
+  constructor(public x: number, public tag: string) {}
+}
+const t = new T(1, "t");
+console.log([1].flatMap<J1 | J2>(() => [t]));
+console.log([1].flatMap<J[]>(() => [[c]]));
+class E {
+  x = 1;
+}
+class F {
+  x = 2;
+}
+const e = new E();
+console.log([1].flatMap<F>(() => [e]));
+interface Opt {
+  name: string;
+  note?: string;
+}
+class A {
+  constructor(public name: string) {}
+}
+class B extends A {
+  note = 5;
+}
+const as: A[] = [new A("a"), new B("b")];
+console.log([1].flatMap<Opt>(() => as));
+const pairs: [number, string][] = [[1, "a"], [2, "b"]];
+console.log([1].flatMap<(number | string)[]>(() => pairs));
+const out = [[1], [2]];
+console.log([1, 2].flatMap<(number | string)[]>(() => out));
+const pairJ: [J, number][] = [1].flatMap<[J, number]>(() => [[c, 1]]);
+
+// error: flatmap_leaf_conversions.pts:19:35 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:20:28 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:21:28 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:26:28 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:28:59 - error PTS1001: using a `[number, string]` as a `[number, number | string]` is not supported yet
+// error: flatmap_leaf_conversions.pts:41:41 - error PTS1001: converting T to {tag: string; x: number | string} | {y: number | string} is not supported yet
+// error: flatmap_leaf_conversions.pts:42:38 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:50:35 - error PTS1001: using a `E` as a `F` is not supported yet
+// error: flatmap_leaf_conversions.pts:64:46 - error PTS1001: using a [number, string] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_leaf_conversions.pts:66:49 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_leaf_conversions.pts:67:63 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_leaf_conversions.pts:62:30 - error PTS1001: using a `A` as a `{name: string; note?: string | undefined}`, when it may refer to a `B` that holds `note` as another type, is not supported yet

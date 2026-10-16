@@ -1,0 +1,34 @@
+// Through `any`, flat and flatMap skip holes as JS does: in the array, in the arrays it
+// spreads and in the arrays a flatMap callback returns, and the callback isn't called for
+// a hole. The dynamic path read holes as undefined (H05).
+const h = new Array<number[]>(3);
+h[0] = [1];
+h[2] = [2];
+const a: any = h;
+console.log(a.flat());
+const inner = new Array<string>(3);
+inner[0] = "x";
+inner[2] = "z";
+const b: any = [inner, ["w"]];
+console.log(b.flat());
+const s = new Array<string>(3);
+s[0] = "a";
+s[2] = "c";
+const c: any = s;
+let calls = 0;
+console.log(c.flatMap((x: any) => {
+  calls++;
+  return [x];
+}), calls);
+const d: any = ["a", "b"];
+console.log(d.flatMap((x: any) => {
+  const out = new Array<string>(2);
+  out[1] = x;
+  return out;
+}));
+
+// expect:
+// [ 1, 2 ]
+// [ 'x', 'z', 'w' ]
+// [ 'a', 'c' ] 2
+// [ 'a', 'b' ]

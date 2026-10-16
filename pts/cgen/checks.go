@@ -39,6 +39,10 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				if isResultReceiver(x.X.Type()) { // a write through any's path (resultStore)
 					e.declaredTypes = true
 				}
+			case *ir.ArrayCall:
+				if result := flattenedInto(x); result != nil && describesElements(result) {
+					e.declaredTypes = true // flat checks the leaves it stores against the result's element type (D-180)
+				}
 			case *ir.Call:
 				if x.Func.Settles { // the loop settles its promise (D-118)
 					e.usesLoop = true
@@ -46,6 +50,9 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				}
 				if x.Func.Listens { // the loop serves its connections (D-136)
 					e.usesLoop = true
+				}
+				if x.Func.Extern == "pts_parallel_push_flat" { // pts:parallel's flatMap stores leaves as flat does: checked by declared types (D-180)
+					e.declaredTypes = true
 				}
 			case *ir.CallBuiltin:
 				switch x.Builtin {
@@ -134,8 +141,8 @@ func (e *emitter) collectDeclaredTypes(program *ir.Program) {
 			case *ir.NewArray:
 				e.describeArray(x.Array)
 			case *ir.ArrayCall:
-				if x.Op == ir.ArrayFlat {
-					e.describeArray(x.To)
+				if result := flattenedInto(x); result != nil {
+					e.describeArray(result)
 				}
 			case *ir.FieldRef:
 				e.checkSite(x.X.Type(), x.Field)
@@ -165,13 +172,31 @@ func (e *emitter) checkSite(t ir.Type, field *ir.Field) {
 // element type, if descriptors carry declared types and the element kind doesn't tell it:
 // arrays of objects and of unions.
 func (e *emitter) describeArray(t *ir.Array) {
-	kind := fieldKind(t.Elem)
-	if _, ok := e.arrayDescriptors[t]; ok || !e.declaredTypes || t.Elem == ir.Value || (kind != "PTS_FIELD_OBJECT" && kind != "PTS_FIELD_VALUE") {
+	if _, ok := e.arrayDescriptors[t]; ok || !e.declaredTypes || !describesElements(t) {
 		return
 	}
 	e.arrayDescriptors[t] = fmt.Sprintf("pts_type_array_%d", len(e.arrayOrder)+1)
 	e.arrayOrder = append(e.arrayOrder, t)
 	e.check(t.Elem)
+}
+
+// describesElements reports whether arrays of type t need a descriptor of the program's to
+// tell their element type: arrays of objects and of unions, whose element kind doesn't.
+func describesElements(t *ir.Array) bool {
+	kind := fieldKind(t.Elem)
+	return t.Elem != ir.Value && (kind == "PTS_FIELD_OBJECT" || kind == "PTS_FIELD_VALUE")
+}
+
+// flattenedInto is the array an operation flattens arrays into, flat's result or the array
+// flatMap's step pushes onto, or nil for another operation.
+func flattenedInto(call *ir.ArrayCall) *ir.Array {
+	switch call.Op {
+	case ir.ArrayFlat:
+		return call.To
+	case ir.ArrayPushFlat:
+		return call.Args[0].Type().(*ir.Array)
+	}
+	return nil
 }
 
 // arrayDescriptor is the C expression of the descriptor of arrays of type t: the

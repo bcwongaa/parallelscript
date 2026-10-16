@@ -1,0 +1,19 @@
+// A flatMap callback that returns an array or a tuple whose elements aren't of the type
+// argument U: JS's flatMap spreads it into the result, which tsc types as a U[] all the
+// same, so typed code would read its elements as what they aren't (H05 review round 1,
+// finding 7: a `TypeError: Expected object, got number` at run time, and a segfault for
+// the Point[] below). `[[x]]` keeps an array whole (run/flatmap_union_results.pts).
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+const points: Point[] = [new Point(1, 2)];
+const xs = [1, 2];
+console.log(xs.flatMap<[number, string]>((x) => [x, "a"]));
+console.log(xs.flatMap<number[]>((x) => [x]));
+console.log(xs.flatMap<Point[]>(() => points));
+console.log(xs.flatMap<string[]>((x) => (x > 1 ? [String(x)] : [["s"]])));
+
+// error: flatmap_spread_results.pts:11:42 - error PTS1001: `flatMap` with a callback that returns a [number, string] is not supported yet: JS's flatMap spreads it into the result, which TypeScript types as a [number, string][] as if it didn't; return it in an array to keep it whole
+// error: flatmap_spread_results.pts:12:34 - error PTS1001: `flatMap` with a callback that returns a number[] is not supported yet: JS's flatMap spreads it into the result, which TypeScript types as a number[][] as if it didn't
+// error: flatmap_spread_results.pts:13:33 - error PTS1001: `flatMap` with a callback that returns a Point[] is not supported yet
+// error: flatmap_spread_results.pts:14:34 - error PTS1001: `flatMap` with a callback that returns a string[] is not supported yet

@@ -1,0 +1,28 @@
+// An array or tuple literal where a union with array members goes is an array of the member
+// that holds its elements, made where it is written: also as a branch of a conditional, as
+// a function's or a callback's result, and as an element of an array of such unions. These
+// were PTS1001 (`converting number | number[][] to …`), which `.par.flatMap<number |
+// number[]>` met (C20, H05, D-180).
+const c = Math.random() < 2;
+const v: number | (number | number[])[] = c ? [[2]] : 1;
+console.log(v);
+function f(c: boolean): number | number[] | (number | number[])[] {
+  return c ? [[2]] : 1;
+}
+console.log(f(true), f(false));
+const g: (c: boolean) => number | number[] | (number | number[])[] = (c) => (c ? [[3]] : 1);
+console.log(g(true), g(false));
+const rows: (number[] | [string, number])[] = [[1, 2], ["a", 3]];
+console.log(rows, rows.flat());
+const pick = (c: boolean): string | (string | number)[] => (c ? (["a", 1] as [string, number]) : "none");
+console.log(pick(true), pick(false));
+const apply = (h: (x: number) => number | (number | string)[]) => [h(1), h(2)];
+console.log(apply((x) => (x > 1 ? [x, String(x)] : x)));
+
+// expect:
+// [ [ 2 ] ]
+// [ [ 2 ] ] 1
+// [ [ 3 ] ] 1
+// [ [ 1, 2 ], [ 'a', 3 ] ] [ 1, 2, 'a', 3 ]
+// [ 'a', 1 ] none
+// [ 1, [ 2, '2' ] ]

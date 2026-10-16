@@ -1,0 +1,20 @@
+// flat() over any[], unknown[], any[][], object[] and Iterable<number>[]: the elements are
+// dynamic values, which JS spreads when they are arrays (and not when they are Sets). The
+// runtime spread only elements of an object-kind array (C05, H05).
+const a: any[] = [1, [2, [3]]];
+console.log(a.flat(), a.flat(Infinity));
+const u: unknown[] = [1, [2, [3]]];
+console.log(u.flat());
+const rows: any[][] = [[1, [2]], [[3]]];
+console.log(rows.flat(), rows.flat(2));
+const objects: object[] = [[1, 2], { a: 1 }];
+console.log(objects.flat());
+const iterables: Iterable<number>[] = [[1, 2], new Set([3])];
+console.log(iterables.flat());
+
+// expect:
+// [ 1, 2, [ 3 ] ] [ 1, 2, 3 ]
+// [ 1, 2, [ 3 ] ]
+// [ 1, [ 2 ], [ 3 ] ] [ 1, 2, 3 ]
+// [ 1, 2, { a: 1 } ]
+// [ 1, 2, Set(1) { 3 } ]

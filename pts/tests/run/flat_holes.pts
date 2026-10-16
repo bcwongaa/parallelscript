@@ -1,0 +1,26 @@
+// flat() skips holes at every level it spreads, and spreads union-typed arrays beside
+// them (C05, H05). Arrays of numbers have no holes (their slots start as 0, D-085), so the
+// holes here are in arrays of strings, arrays and unions.
+const top = new Array<number | number[]>(4);
+top[0] = 1;
+top[2] = [2, 3];
+console.log(top, top.flat());
+const inner = new Array<string>(3);
+inner[0] = "a";
+inner[2] = "c";
+const withInner: (string | string[])[] = ["x", inner];
+console.log(withInner.flat());
+const level = new Array<string | string[]>(2);
+level[1] = inner;
+const two: (string | (string | string[])[])[] = ["y", level];
+console.log(two.flat(), two.flat(2));
+const rows = new Array<string[]>(3);
+rows[0] = ["a"];
+rows[2] = inner;
+console.log(rows.flat());
+
+// expect:
+// [ 1, <1 empty item>, [ 2, 3 ], <1 empty item> ] [ 1, 2, 3 ]
+// [ 'x', 'a', 'c' ]
+// [ 'y', [ 'a', <1 empty item>, 'c' ] ] [ 'y', 'a', 'c' ]
+// [ 'a', 'a', 'c' ]

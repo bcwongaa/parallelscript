@@ -1,0 +1,32 @@
+// flatMap flattens each callback result that is an array at run time exactly one level,
+// whatever its static type: a union of a value and an array, a tuple, `any`, or under an
+// explicit union type argument. The helper appended only results of an array type and
+// pushed the others whole (C05, H05).
+const nested: (number | number[])[] = [1, [2, 3], 4];
+console.log(nested.flatMap((x) => x));
+console.log([1, 2, 3].flatMap((x) => (x % 2 ? x : [x, x])));
+console.log(["a b", "c"].flatMap((w) => (w.includes(" ") ? w.split(" ") : w)));
+console.log([1, 2].flatMap((x) => (x > 1 ? [x] : undefined)));
+type P = { x: number };
+console.log([1, 2].flatMap((x): P | P[] => (x === 1 ? { x } : [{ x }, { x: x * 10 }])));
+console.log([1, 2].flatMap((x): [number, string] => [x, String(x)]));
+console.log([1, 2].flatMap((x) => (x > 1 ? ([x, "s"] as [number, string]) : x)));
+const pairs: [string, number][] = [["a", 1], ["b", 2]];
+console.log(pairs.flatMap((p) => p));
+console.log([1, 2].flatMap<number | number[]>((x) => (x === 1 ? x : [[x]])));
+console.log([1, 2].flatMap((x): any => (x === 1 ? [x, x] : x)));
+const loose: any[] = [[1], 2, [[3]]];
+console.log(loose.flatMap((x) => x));
+
+// expect:
+// [ 1, 2, 3, 4 ]
+// [ 1, 2, 2, 3 ]
+// [ 'a', 'b', 'c' ]
+// [ undefined, 2 ]
+// [ { x: 1 }, { x: 2 }, { x: 20 } ]
+// [ 1, '1', 2, '2' ]
+// [ 1, 2, 's' ]
+// [ 'a', 1, 'b', 2 ]
+// [ 1, [ 2 ] ]
+// [ 1, 1, 2 ]
+// [ 1, 2, [ 3 ] ]

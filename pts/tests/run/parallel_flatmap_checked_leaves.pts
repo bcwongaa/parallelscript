@@ -1,0 +1,28 @@
+// `.par.flatMap` with a callback that returns an array whose elements aren't of the type
+// argument U: JS spreads it into the result, which tsc types as a U[]. The runtime checks
+// each element it stores against U and throws a TypeError rather than store a Point where
+// a Point[] goes (H05 review round 1, finding 7: Array's flatMap is a compile error,
+// errors/flatmap_spread_results.pts, and segfaulted; `.par.flatMap` is library code).
+// threads: 1 2
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+const points: Point[] = [new Point(1, 2)];
+function attempt(what: string, f: () => number): void {
+  try {
+    console.log(what, f());
+  } catch (e: any) {
+    console.log(what, "->", e.name + ": " + e.message);
+  }
+}
+attempt("Point[]", () => [1, 2].par.flatMap<Point[]>(() => points).length);
+attempt("number[]", () => [1, 2].par.flatMap<number[]>((x) => [x]).length);
+attempt("string | number[]", () => [1, 2].par.flatMap<string | number[]>((x) => [x]).length);
+attempt("Point[][]", () => [1, 2].par.flatMap<Point[]>(() => [points]).length);
+
+// no-diff: Node's flatMap stores whatever the callback's arrays hold; ParallelScript's result holds only its element type
+// expect:
+// Point[] -> TypeError: Expected Point[], got Point
+// number[] -> TypeError: Expected number[], got number
+// string | number[] -> TypeError: Expected number[] | string, got number
+// Point[][] 2

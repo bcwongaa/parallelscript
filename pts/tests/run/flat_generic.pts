@@ -1,0 +1,37 @@
+// flat() and flatMap() in generic code, monomorphized per type argument (D-049) or erased
+// (D-078): the result is flattened as JS does and has the instance's element type. The
+// monomorphized instances threw `TypeError: Expected number[], got Array` (C05, H05).
+function spread<T>(xs: (T | T[])[]) {
+  return xs.flat();
+}
+console.log(spread([1, [2, 3]]), spread(["a", ["b"]]));
+function pairsOf<T>(xs: [T, T][]) {
+  return xs.flat();
+}
+console.log(pairsOf([[1, 2], [3, 4]]));
+function expand<T, U>(xs: T[], f: (x: T) => U | U[]): U[] {
+  return xs.flatMap(f);
+}
+console.log(expand([1, 2], (x) => (x > 1 ? [x, x] : x)));
+class Box<T> {
+  constructor(public items: (T | T[])[]) {}
+  all() {
+    return this.items.flat();
+  }
+}
+console.log(new Box([1, [2]]).all(), new Box<string>(["a", ["b", "c"]]).all());
+const flatten = <T,>(xs: T[][]): T[] => xs.flat();
+const g = flatten;
+console.log(g([[1], [2]]), g([["a"], []]));
+function rows<T>(xs: T[][]) {
+  return xs.flat();
+}
+console.log(rows([[[1]], [[2]]]));
+
+// expect:
+// [ 1, 2, 3 ] [ 'a', 'b' ]
+// [ 1, 2, 3, 4 ]
+// [ 1, 2, 2 ]
+// [ 1, 2 ] [ 'a', 'b', 'c' ]
+// [ 1, 2 ] [ 'a' ]
+// [ [ 1 ], [ 2 ] ]

@@ -209,7 +209,7 @@ func (l *lowerer) tupleAsArray(x ir.Expr, array *ir.Array, node *ast.Node) ir.Ex
 // ones that don't change the array.
 var tupleCopyMethods = map[string]bool{
 	"map": true, "forEach": true, "filter": true, "reduce": true, "reduceRight": true, "some": true, "every": true,
-	"find": true, "findIndex": true, "findLast": true, "findLastIndex": true, "flatMap": true, "join": true,
+	"find": true, "findIndex": true, "findLast": true, "findLastIndex": true, "flat": true, "flatMap": true, "join": true,
 	"slice": true, "includes": true, "indexOf": true, "lastIndexOf": true, "concat": true, "toString": true, "at": true,
 	"toSorted": true, "toReversed": true,
 }

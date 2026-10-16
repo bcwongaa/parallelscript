@@ -2,12 +2,15 @@ package lower
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/jsnum"
 	"github.com/microsoft/typescript-go/internal/scanner"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -202,6 +205,17 @@ func (l *lowerer) spreadParts(element *ast.Node, array *ir.Array) []ir.Expr {
 	return l.argumentValues(element)
 }
 
+// isArrayLiteral reports whether x makes a new array or tuple of the elements it lists.
+func isArrayLiteral(x ir.Expr) bool {
+	switch literal := x.(type) {
+	case *ir.NewArray:
+		return literal.Length == nil
+	case *ir.NewObject:
+		return literal.Shape.Tuple
+	}
+	return false
+}
+
 // isEmptyArrayLiteral reports whether x is the array of a literal without elements.
 func isEmptyArrayLiteral(x ir.Expr) bool {
 	literal, ok := x.(*ir.NewArray)
@@ -388,7 +402,7 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 		}
 		return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{array}, values...)}
 	}
-	return l.flat(array, args)
+	return l.flat(call, array, args)
 }
 
 // sortWith lowers a.sort(compare): compare becomes a function value that takes two
@@ -505,27 +519,368 @@ func (l *lowerer) splice(array ir.Expr, args []*ast.Node) ir.Expr {
 	return &ir.ArrayCall{Op: ir.ArraySplice, Args: append(append([]ir.Expr{array}, bounds...), items...)}
 }
 
-// flat lowers a.flat(depth) for a constant depth (1 if left out): a new array with the
-// nested arrays depth levels down spread into it.
-func (l *lowerer) flat(array ir.Expr, args []*ast.Node) ir.Expr {
-	depth := 1.0
+// flat lowers a.flat(depth) (depth 1 if left out): a new array of tsc's type for the call,
+// with the arrays and tuples depth levels down spread into it. The runtime tells them by
+// their descriptors, so elements of union, tuple and dynamic types flatten as JS's do (D-180).
+func (l *lowerer) flat(call *ast.CallExpression, array ir.Expr, args []*ast.Node) ir.Expr {
+	result := l.flattenedResult(call, "flat")
+	if result == nil {
+		return nil
+	}
+	depth := ir.Expr(&ir.NumberConst{Value: 1})
 	if len(args) > 0 {
-		constant, ok := l.expression(args[0]).(*ir.NumberConst)
-		if !ok {
-			l.notSupportedYet(args[0], "`flat` with a depth that isn't a constant is")
+		if depth = l.flatDepth(args[0]); depth == nil {
 			return nil
 		}
-		depth = constant.Value
 	}
-	result := array.Type().(*ir.Array)
-	for d := depth; d >= 1; d-- {
-		inner, ok := result.Elem.(*ir.Array)
-		if !ok {
-			break
+	return &ir.ArrayCall{Op: ir.ArrayFlat, Args: []ir.Expr{array, depth}, To: result}
+}
+
+// flattenedResult is tsc's type for a flat or flatMap call, the array it makes, without the
+// undefined of an optional chain (`xs?.flat()`), whose lowering adds that.
+func (l *lowerer) flattenedResult(call *ast.CallExpression, method string) *ir.Array {
+	node := call.AsNode()
+	t := l.irType(l.checker.GetNonNullableType(l.typeAt(node)), node)
+	if t == nil {
+		return nil // reported
+	}
+	result, ok := t.(*ir.Array)
+	if !ok {
+		l.notSupportedYet(node, fmt.Sprintf("`%s` whose result has the type %s is", method, t))
+		return nil
+	}
+	l.prepareDynamicTarget(result.Elem, node, map[ir.Type]bool{}) // dynamic data stored in it is copied into its interfaces' shapes (D-071); what can't take any is a TypeError there
+	return result
+}
+
+// spreadsOtherElements reports, and reports whether, the callback of the flatMap call may
+// return an array or a tuple with elements that aren't of the call's U: JS's flatMap spreads
+// it into the result, which tsc types as a U[] all the same (`xs.flatMap<number[]>((x) =>
+// [x])` holds numbers), so typed code would read its elements as what they aren't.
+func (l *lowerer) spreadsOtherElements(call *ast.CallExpression) bool {
+	result := l.checker.GetNonNullableType(l.typeAt(call.AsNode()))
+	callback := call.Arguments.Nodes[0]
+	signatures := l.checker.GetSignaturesOfType(l.typeAt(callback), checker.SignatureKindCall)
+	if !l.checker.IsArrayType(result) || len(signatures) != 1 || len(signatures[0].TypeParameters()) > 0 {
+		return false // a generic function's result type is its type parameters' until the call instantiates it; the runtime checks its leaves
+	}
+	elem := l.checker.GetElementTypeOfArrayType(result)
+	returns := l.returnTypeOf(signatures[0])
+	members := []*checker.Type{returns}
+	if returns.Flags()&checker.TypeFlagsUnion != 0 {
+		members = returns.Types()
+	}
+	for _, member := range members {
+		if slices.ContainsFunc(l.elementTypesOf(member), func(e *checker.Type) bool { return !l.checker.IsTypeAssignableTo(e, elem) }) {
+			l.report(diagnostic.At(callback, diagnostic.NotSupportedYet, "`flatMap` with a callback that returns a %s is not supported yet: JS's flatMap spreads it into the result, which TypeScript types as a %s as if it didn't; return it in an array to keep it whole", l.checker.TypeToString(member), l.checker.TypeToString(result)))
+			return true
 		}
-		result = inner
 	}
-	return &ir.ArrayCall{Op: ir.ArrayFlat, Args: []ir.Expr{array, &ir.NumberConst{Value: depth}}, To: result}
+	return false
+}
+
+// keepsLeaves reports, and reports whether, every typed leaf that flatMap may store from the
+// values of callback, of type t, stays the value it is where the result's element type elem
+// goes (keepsLeaf). An annotated callback's values, and a named function's, are of its result
+// type, converted where it returns them; otherwise the leaves of a returned array literal are
+// its elements, a new array among them copied as it is made (D-094), and those of another
+// value the elements of its type's arrays and tuples and its other members.
+func (l *lowerer) keepsLeaves(callback *ast.Node, t, elem ir.Type) bool {
+	if !ast.IsFunctionExpressionOrArrowFunction(callback) || callback.Type() != nil {
+		return l.keepsLeafTypes(t, elem, false, callback)
+	}
+	body := callback.Body()
+	if body.Kind != ast.KindBlock {
+		return l.keepsLeavesOf(body, elem, callback)
+	}
+	keeps := true
+	ast.ForEachReturnStatement(body, func(stmt *ast.Node) bool {
+		if value := stmt.Expression(); value != nil && !l.keepsLeavesOf(value, elem, callback) {
+			keeps = false
+		}
+		return !keeps
+	})
+	return keeps
+}
+
+// keepsLeavesOf is keepsLeaves for one value the callback returns, value.
+func (l *lowerer) keepsLeavesOf(value *ast.Node, elem ir.Type, callback *ast.Node) bool {
+	value = ast.SkipParentheses(value)
+	switch value.Kind {
+	case ast.KindConditionalExpression:
+		branches := value.AsConditionalExpression()
+		return l.keepsLeavesOf(branches.WhenTrue, elem, callback) && l.keepsLeavesOf(branches.WhenFalse, elem, callback)
+	case ast.KindArrayLiteralExpression:
+		return l.keepsLiteralLeaves(value, func(int) ir.Type { return elem })
+	case ast.KindObjectLiteralExpression:
+		return true // made as the type its context gives it, its properties converted there
+	}
+	t := l.irType(l.typeAt(value), value)
+	return t == nil || l.keepsLeafTypes(t, elem, l.makesNewArrays(value), callback)
+}
+
+// keepsLiteralLeaves is keepsLeaves for the elements of an array literal, the ith stored
+// where target(i) goes (nil: nowhere it is checked).
+func (l *lowerer) keepsLiteralLeaves(literal *ast.Node, target func(i int) ir.Type) bool {
+	for i, element := range literal.AsArrayLiteralExpression().Elements.Nodes {
+		if t := target(i); t != nil && !l.keepsElement(element, t) {
+			return false
+		}
+	}
+	return true
+}
+
+// keepsElement is keepsLeaves for one element of an array literal, stored where elem goes:
+// each branch of a conditional is such an element, and a nested array literal's elements are
+// stored in the array or tuple its context gives it.
+func (l *lowerer) keepsElement(element *ast.Node, elem ir.Type) bool {
+	element = ast.SkipParentheses(element)
+	switch element.Kind {
+	case ast.KindSpreadElement, ast.KindOmittedExpression, ast.KindObjectLiteralExpression:
+		return true // a spread's elements are an array's or iterable's values, which the runtime checks; an omitted one is a hole; an object literal is made as its context's type
+	case ast.KindConditionalExpression:
+		branches := element.AsConditionalExpression()
+		return l.keepsElement(branches.WhenTrue, elem) && l.keepsElement(branches.WhenFalse, elem)
+	case ast.KindArrayLiteralExpression:
+		switch target := l.nestedLiteralTarget(elem, element).(type) {
+		case *ir.Array:
+			return l.keepsLiteralLeaves(element, func(int) ir.Type { return target.Elem })
+		case *ir.Class: // a tuple's elements are its fields, in order
+			return l.keepsLiteralLeaves(element, func(i int) ir.Type {
+				if i < len(target.Fields) {
+					return target.Fields[i].Type
+				}
+				return nil
+			})
+		}
+		return true
+	}
+	t := l.irType(l.typeAt(element), element)
+	return t == nil || l.keepsLeaf(t, elem, l.isNewArray(element), element)
+}
+
+// nestedLiteralTarget is the array or tuple type that elem gives an array literal stored
+// where it goes: elem, or the union member memberFor finds for the literal's type; nil if neither.
+func (l *lowerer) nestedLiteralTarget(elem ir.Type, literal *ast.Node) ir.Type {
+	if u, ok := elem.(*ir.Union); ok {
+		t := l.irType(l.typeAt(literal), literal)
+		if t == nil {
+			return nil
+		}
+		elem = l.memberFor(t, u)
+	}
+	if isArray(elem) || isTuple(elem) {
+		return elem
+	}
+	return nil
+}
+
+// makesNewArrays reports whether value, which a flatMap callback returns, is an array whose
+// arrays are new at each call: a map whose callback returns array literals (`ns.map((m) =>
+// [m])`). A const, even one used once, holds the same arrays at each call.
+func (l *lowerer) makesNewArrays(value *ast.Node) bool {
+	if value.Kind != ast.KindCallExpression || !l.isArrayMethodCall(value) {
+		return false
+	}
+	call := value.AsCallExpression()
+	callee := ast.SkipParentheses(call.Expression)
+	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Text() != "map" || len(call.Arguments.Nodes) == 0 {
+		return false
+	}
+	mapper := call.Arguments.Nodes[0]
+	if !ast.IsFunctionExpressionOrArrowFunction(mapper) {
+		return false
+	}
+	if body := mapper.Body(); body.Kind != ast.KindBlock {
+		return ast.SkipParentheses(body).Kind == ast.KindArrayLiteralExpression
+	}
+	literals, returns := true, 0
+	ast.ForEachReturnStatement(mapper.Body(), func(stmt *ast.Node) bool {
+		returns++
+		literals = stmt.Expression() != nil && ast.SkipParentheses(stmt.Expression()).Kind == ast.KindArrayLiteralExpression
+		return !literals
+	})
+	return literals && returns > 0
+}
+
+// keepsLeafTypes is keepsLeaves for values of type t that aren't array literals; made says
+// whether the arrays among them are new (makesNewArrays).
+func (l *lowerer) keepsLeafTypes(t, elem ir.Type, made bool, node *ast.Node) bool {
+	for _, leaf := range leafTypes(t) {
+		if !l.keepsLeaf(leaf, elem, made, node) {
+			return false
+		}
+	}
+	return true
+}
+
+// keepsLeaf reports, and reports at node whether, a leaf of type leaf stored where elem goes
+// stays the value it is. The runtime converts numbers, adapts functions (D-075) and copies
+// dynamic data (D-071), but would copy a typed object into an interface whose members it
+// doesn't provide as they are or into a union of interfaces none of which it provides, an
+// instance into a class it isn't one of, or an array (not made, a new one) into an array or
+// tuple of other elements, which JS doesn't: reported as the same conversions elsewhere
+// report them (`const js: J[] = [c]`, D-094). Each member of a union leaf is such a leaf.
+func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool {
+	if u, ok := leaf.(*ir.Union); ok {
+		return !slices.ContainsFunc(u.Members, func(member ir.Type) bool { return !l.keepsLeaf(member, elem, made, node) })
+	}
+	if u, ok := elem.(*ir.Union); ok && !u.Has(leaf) {
+		if isResultUnion(u) && isObjectOfProgram(leaf) {
+			return true // an iterator result, as iterators hand them back: any of the program's objects as it is (D-178)
+		}
+		member := l.memberFor(leaf, u)
+		if member == nil && isObject(leaf) {
+			l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", leaf, u))
+			return false
+		}
+		if member == nil {
+			return true // left to the runtime's check
+		}
+		elem = member
+	}
+	switch {
+	case leaf == elem || leaf == ir.Value || elem == ir.Value || isUnion(elem):
+		return true
+	case isArray(leaf) || isTuple(leaf):
+		switch {
+		case isDynamicArray(leaf) || !isArray(elem) && !isTuple(elem):
+			return true
+		case isTuple(leaf) && isArray(elem):
+			if made {
+				l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, elem)) // the runtime converts arrays to arrays only
+			} else {
+				l.reportKeptCopy(leaf, elem, node)
+			}
+			return false
+		case made:
+			return true
+		case isTuple(elem):
+			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, elem))
+		default:
+			l.reportKeptCopy(leaf, elem, node)
+		}
+		return false
+	case isObject(leaf):
+		switch target := elem.(type) {
+		case *ir.Interface:
+			missing := unprovided(leaf, target)
+			if missing != "" && !holdsOptionally(leaf, target) {
+				l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", leaf, target, missing))
+				return false
+			}
+			if missing != "" {
+				l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: leaf, to: target, node: node}) // checked against the subclasses that hold it otherwise, as objectCast's (D-066)
+			}
+		case *ir.Class:
+			if class, ok := leaf.(*ir.Class); ok && !target.Result && !class.IsSubclassOf(target) {
+				l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, target))
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// reportKeptCopy reports a conversion of an array of type from to an array type to that
+// would copy it where it may be changed or kept, which D-094 allows only where no one else
+// holds the array.
+func (l *lowerer) reportKeptCopy(from, to ir.Type, node *ast.Node) {
+	l.notSupportedYet(node, fmt.Sprintf("using a %s as a %s where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is", from, to))
+}
+
+// leafTypes is the types of the values flatMap stores from a callback value of type t: the
+// elements of an array or a tuple, or the value itself, for each member of a union.
+func leafTypes(t ir.Type) []ir.Type {
+	switch t := t.(type) {
+	case *ir.Array:
+		return []ir.Type{t.Elem}
+	case *ir.Union:
+		var leaves []ir.Type
+		for _, member := range t.Members {
+			leaves = append(leaves, leafTypes(member)...)
+		}
+		return leaves
+	case *ir.Class:
+		if t.Tuple {
+			leaves := make([]ir.Type, len(t.Fields))
+			for i, field := range t.Fields {
+				leaves[i] = field.Type
+			}
+			return leaves
+		}
+	}
+	return []ir.Type{t}
+}
+
+// elementTypesOf is the element type of t if it is an array type, its elements' types if it
+// is a tuple type, and nothing otherwise.
+func (l *lowerer) elementTypesOf(t *checker.Type) []*checker.Type {
+	switch {
+	case l.checker.IsArrayType(t):
+		return []*checker.Type{l.checker.GetElementTypeOfArrayType(t)}
+	case checker.IsTupleType(t):
+		return l.checker.GetTypeArguments(t)
+	}
+	return nil
+}
+
+// flatDepth lowers flat's depth argument to a number: undefined is the default depth, 1,
+// and another value converts to a number at run time, as in JS (`depth?: number`). A depth
+// tsc types as a negative or fractional number is reported: tsc's FlatArray types the
+// result by it as JS's flat doesn't (`xs.flat(-1)` as an array of xs's type, where JS
+// copies xs), so typed code would read the elements as what they aren't (D-180).
+func (l *lowerer) flatDepth(arg *ast.Node) ir.Expr {
+	if t := l.typeAt(arg); l.isOddDepth(arg, t) {
+		return nil
+	}
+	depth := l.expression(arg)
+	if depth == nil {
+		return nil
+	}
+	switch t := depth.Type(); {
+	case t == ir.Number:
+		return depth
+	case ir.IsNumeric(t):
+		return &ir.Convert{X: depth, To: ir.Number}
+	case t == ir.Undefined:
+		return &ir.Sequence{X: depth, Y: &ir.NumberConst{Value: 1}}
+	}
+	return box(depth) // converted by the runtime after it reads the length, as JS converts it
+}
+
+// isOddDepth reports, and reports whether, t, the type of flat's depth arg, is or has a
+// number literal that tsc's FlatArray doesn't take as JS's flat does.
+func (l *lowerer) isOddDepth(arg *ast.Node, t *checker.Type) bool {
+	odd, ok := oddDepth(t)
+	if !ok {
+		return false
+	}
+	taken := jsnum.Number(max(0, math.Trunc(odd))) // ToIntegerOrInfinity, where a depth below 1 flattens nothing
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		l.report(diagnostic.At(arg, diagnostic.NotSupportedYet, "`flat` with a depth of type %s is not supported yet: TypeScript's type for its result isn't what JS's flat returns for %s, which JS takes as %s", l.checker.TypeToString(t), jsnum.Number(odd), taken))
+	} else {
+		l.report(diagnostic.At(arg, diagnostic.NotSupportedYet, "`flat` with a depth of %s is not supported yet: TypeScript's type for its result isn't what JS's flat returns; JS flattens as `flat(%s)` does, so write that", jsnum.Number(odd), taken))
+	}
+	return true
+}
+
+// oddDepth is a number literal of t (or of its union's members) that is negative or not
+// whole, as tsc's FlatArray doesn't take a depth.
+func oddDepth(t *checker.Type) (float64, bool) {
+	types := []*checker.Type{t}
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		types = t.Types()
+	}
+	for _, member := range types {
+		if member.Flags()&checker.TypeFlagsNumberLiteral == 0 {
+			continue
+		}
+		if n := float64(member.AsLiteralType().Value().(jsnum.Number)); n < 0 || n != math.Trunc(n) {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 // isArrayMethodCall reports whether node calls a method of an array.

@@ -867,31 +867,249 @@ pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*
   return array;
 }
 
-/* flatten_into appends the elements of array to result, those that are arrays flattened depth levels more. */
-static void flatten_into(pts_array *result, const pts_array *array, double depth) {
+/*
+ * flat and flatMap (D-180) follow JS's FlattenIntoArray over ParallelScript's
+ * representations: an element in a slot of any kind that is an array or a tuple (JS's
+ * IsArray) is flattened while depth lasts, holes are skipped at every level (a match's
+ * groups that took no part are undefined elements, not holes, D-133), and each other
+ * element is a leaf, stored as the result's element type holds it: as it is from slots of
+ * that type, else converted and checked, a TypeError if it isn't one, since tsc's type for
+ * the result can be wrong (`flatMap<number[]>((x) => [x])` holds numbers in JS).
+ */
+
+static void flatten_into(pts_array *result, const pts_object *source, double depth);
+
+/* The array or tuple a slot's element is, which flat spreads, or NULL. */
+static const pts_object *flattened_object(pts_field_kind kind, const void *element) {
+  if (kind != PTS_FIELD_OBJECT && kind != PTS_FIELD_VALUE) {
+    return NULL;
+  }
+  pts_value value = *(const pts_value *)element; /* a pointer is its own value (D-002) */
+  if (!pts_value_is_object(value)) {
+    return NULL;
+  }
+  const pts_object *object = pts_value_as_object(value);
+  return object->type->kind == PTS_KIND_ARRAY || object->type->kind == PTS_KIND_TUPLE ? object : NULL;
+}
+
+/* How flatten takes the elements of slots of one kind and declared type in an array or tuple. */
+typedef struct flattened_slots {
+  pts_field_kind kind;
+  bool of_type;         /* their leaves are of the result's element type, if perhaps held in another kind */
+  bool as_is;           /* their leaves are elements of the result as they are: of its type and kind */
+  bool undefined_holes; /* a zero word is undefined: a match's group that took no part */
+} flattened_slots;
+
+/* How flatten takes slots of kind declared `declared` (NULL: the type the kind holds) of source into result. */
+static flattened_slots slots_of(const pts_array *result, const pts_object *source, pts_field_kind kind, const pts_check *declared) {
+  const pts_check *into = result->type->check; /* NULL: the type result's element kind holds */
+  bool of_type = into == NULL ? kind == result->type->element : pts_check_implies(pts_check_declared(kind, declared), into);
+  bool undefined_holes = kind == PTS_FIELD_STRING && source->type->kind == PTS_KIND_ARRAY && pts_has_undefined_holes((const pts_array *)source);
+  return (flattened_slots){.kind = kind, .of_type = of_type, .as_is = of_type && kind == result->type->element, .undefined_holes = undefined_holes};
+}
+
+/* Whether a slot of kind can hold value as it is, for a result without a declared element type: a leaf is converted, never reinterpreted. */
+static bool kind_holds(pts_field_kind kind, pts_value value) {
+  switch (kind) {
+  case PTS_FIELD_VALUE:
+    return true;
+  case PTS_FIELD_NUMBER:
+  case PTS_FIELD_F32:
+    return pts_value_is_number(value);
+  case PTS_FIELD_BOOL:
+    return value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE;
+  case PTS_FIELD_STRING:
+    return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_STRING;
+  case PTS_FIELD_OBJECT:
+    return pts_value_is_object(value) && pts_value_as_object(value)->type->kind != PTS_KIND_STRING;
+  default:
+    return pts_value_is_integer_of(value, kind);
+  }
+}
+
+/* Whether value is a boxed 64-bit integer, which a number slot holds as the number nearest it (D-012). */
+static bool is_boxed_integer(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return false;
+  }
+  pts_kind kind = pts_value_as_object(value)->type->kind;
+  return kind == PTS_KIND_INT64 || kind == PTS_KIND_UINT64;
+}
+
+/* Whether a place declared check holds a boxed 64-bit integer as it is: any, a 64-bit integer type or a union with one; elsewhere, where a number goes, it is the number nearest it (D-012). */
+static bool holds_boxed_integers(const pts_check *check) {
+  switch (check->kind) {
+  case PTS_CHECK_ANY:
+    return true;
+  case PTS_CHECK_INTEGER:
+    return check->slot == PTS_FIELD_I64 || check->slot == PTS_FIELD_U64;
+  case PTS_CHECK_UNION:
+    for (uint32_t i = 0; i < check->count; i++) {
+      if (holds_boxed_integers(check->members[i])) {
+        return true;
+      }
+    }
+    return false;
+  default:
+    return false;
+  }
+}
+
+/* The last check and object type a leaf was found to be of as it is, on this thread: the leaves of one array are mostly of one class, and whether an object is of an object type depends on its descriptor alone. */
+static _Thread_local struct {
+  const pts_check *check;
+  const pts_type *type;
+} last_fit;
+
+/* value as a leaf of a result declared check: itself if it is one (as last_fit says or the conversion finds), a copy of dynamic data, TypeError if neither. */
+static pts_value leaf_of(const pts_check *check, pts_value value) {
+  const pts_object *object = pts_value_is_object(value) ? pts_value_as_object(value) : NULL;
+  if (object != NULL && last_fit.check == check && last_fit.type == object->type) {
+    return value;
+  }
+  pts_value converted = pts_value_convert(value, check);
+  if (converted == value && object != NULL && object->type->kind == PTS_KIND_OBJECT) {
+    last_fit.check = check;
+    last_fit.type = object->type;
+  }
+  return converted;
+}
+
+/* Pushes a leaf from a slot of another kind or type onto result: converted to its element type (checked unless of_type, which says it is one), TypeError if it isn't one. */
+static void push_leaf(pts_array *result, pts_value value, bool of_type) {
+  const pts_type *type = result->type;
+  pts_field_kind into = type->element;
+  uint64_t element = 0;
+  if (value == PTS_VALUE_UNDEFINED && into == PTS_FIELD_STRING) {
+    result->type = &pts_type_match_copy; /* a match's group that took no part: a string[] holds it as copies of matches do (D-133) */
+    pts_array_push(result, &element, 1);
+    return;
+  }
+  if (type->check != NULL) {
+    if (is_boxed_integer(value) && !holds_boxed_integers(type->check)) {
+      value = pts_value_from_number(pts_value_to_number(value));
+    }
+    value = of_type ? value : leaf_of(type->check, value);
+  } else if (!kind_holds(into, value)) {
+    if ((into != PTS_FIELD_NUMBER && into != PTS_FIELD_F32) || !is_boxed_integer(value)) {
+      pts_throw_type_mismatch(value, pts_check_declared(into, NULL)->name);
+    }
+    value = pts_value_from_number(pts_value_to_number(value));
+  }
+  pts_store_value_in_slot(into, &element, value);
+  pts_array_push(result, &element, 1);
+}
+
+/* Pushes the element in slot onto result: an array's or tuple's elements depth levels down, nothing for a hole. */
+static void flatten_element(pts_array *result, flattened_slots slots, const void *slot, double depth) {
+  uint64_t element = 0;
+  element_load(&element, slot, pts_field_kind_size(slots.kind));
+  if (is_hole(slots.kind, &element)) {
+    if (slots.undefined_holes) {
+      push_leaf(result, PTS_VALUE_UNDEFINED, false);
+    }
+    return;
+  }
+  const pts_object *nested = depth >= 1 ? flattened_object(slots.kind, &element) : NULL;
+  if (nested != NULL) {
+    flatten_into(result, nested, depth - 1);
+  } else if (slots.as_is) {
+    pts_array_push(result, &element, 1);
+  } else {
+    push_leaf(result, pts_value_of_slot(slots.kind, &element), slots.of_type);
+  }
+}
+
+/* Appends count elements of result's kind, loaded one at a time from a buffer others may write, to result, which only this thread sees. */
+static void append_loaded(pts_array *result, const unsigned char *from, size_t count, size_t size) {
+  size_t length = pts_array_length_of(result);
+  pts_array_buffer *buffer = with_room(result, length, length + count);
+  copy_elements(buffer->elements + length * size, from, count, size);
+  publish_length(result, length + count);
+}
+
+/* append_loaded for pointers and dynamic values: the elements that aren't holes. */
+static void append_present(pts_array *result, const unsigned char *from, size_t count) {
+  size_t length = pts_array_length_of(result);
+  pts_array_buffer *buffer = with_room(result, length, length + count);
+  size_t stored = length;
+  for (size_t i = 0; i < count; i++) {
+    uint64_t element;
+    element_load(&element, from + i * sizeof element, sizeof element);
+    if (element != 0) {
+      element_store(buffer->elements + stored++ * sizeof element, &element, sizeof element);
+    }
+  }
+  publish_length(result, stored);
+}
+
+/* Pushes array's elements below limit onto result, each flattened depth levels more. */
+static void flatten_array(pts_array *result, const pts_array *array, size_t limit, double depth) {
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
   pts_array_buffer *buffer = load_buffer(array);
   size_t length = readable_length(array, buffer);
+  if (length > limit) {
+    length = limit;
+  }
+  if (kind == result->type->element && !holds_pointers(kind)) {
+    append_loaded(result, buffer->elements, length, size); /* numbers or booleans of the result's kind: no holes, no arrays, no checks */
+    return;
+  }
+  flattened_slots slots = slots_of(result, (const pts_object *)array, kind, array->type->check);
+  if (slots.as_is && !slots.undefined_holes && (depth < 1 || slots.kind == PTS_FIELD_STRING)) {
+    append_present(result, buffer->elements, length); /* leaves only, holes left out */
+    return;
+  }
   for (size_t i = 0; i < length; i++) {
-    uint64_t element = 0;
-    element_load(&element, buffer->elements + i * size, size);
-    if (is_hole(kind, &element)) {
-      continue; /* JS's flat skips holes too */
-    }
-    if (depth >= 1 && kind == PTS_FIELD_OBJECT && (*(const pts_object **)&element)->type->kind == PTS_KIND_ARRAY) {
-      flatten_into(result, *(const pts_array **)&element, depth - 1);
-    } else {
-      pts_array_push(result, &element, 1);
-    }
+    flatten_element(result, slots, buffer->elements + i * size, depth);
   }
 }
 
+/* Pushes the elements of source, an array or a tuple, onto result, each flattened depth levels more. */
+static void flatten_into(pts_array *result, const pts_object *source, double depth) {
+  pts_stack_check(); /* deep or cyclic nesting throws RangeError, as in JS, rather than overflow the C stack */
+  if (source->type->kind != PTS_KIND_TUPLE) {
+    flatten_array(result, (const pts_array *)source, SIZE_MAX, depth);
+    return;
+  }
+  for (size_t i = 0, length = pts_tuple_length(source); i < length; i++) {
+    const pts_field *field = &source->type->fields[i]; /* a tuple's fields are its elements, in order */
+    flatten_element(result, slots_of(result, source, field->kind, field->check), (const char *)source + field->offset, depth);
+  }
+}
+
+/* ToIntegerOrInfinity of a depth that is a number. */
+static double integer_or_infinity(double depth) { return depth != depth ? 0 : __builtin_trunc(depth); }
+
 pts_array *pts_array_flat(const pts_array *array, double depth, const pts_type *result_type) {
   pts_array *result = pts_array_of(result_type, NULL, 0);
-  flatten_into(result, array, depth != depth ? 0 : __builtin_trunc(depth));
+  flatten_into(result, (const pts_object *)array, integer_or_infinity(depth));
   return result;
 }
+
+pts_array *pts_array_flat_value(const pts_array *array, pts_value depth, const pts_type *result_type) {
+  size_t length = pts_array_length_of(array); /* read before the depth's valueOf, which may change the array, runs, as in JS */
+  double levels = depth == PTS_VALUE_UNDEFINED ? 1 : pts_value_to_number(depth);
+  pts_array *result = pts_array_of(result_type, NULL, 0);
+  flatten_array(result, array, length, integer_or_infinity(levels));
+  return result;
+}
+
+void pts_array_push_flat(pts_array *result, pts_value value) {
+  bool any = result->type->element == PTS_FIELD_VALUE && result->type->check == NULL;
+  flattened_slots slots = {.kind = PTS_FIELD_VALUE, .of_type = any, .as_is = any};
+  flatten_element(result, slots, &value, 1);
+}
+
+bool pts_array_has(const pts_array *array, double index) {
+  uint64_t element;
+  return pts_array_load(array, index, &element) || (pts_has_undefined_holes(array) && pts_array_slot_or_null(array, index, pts_field_kind_size(array->type->element)) != NULL);
+}
+
+bool pts_parallel_has(pts_value array, double index) { return pts_array_has((const pts_array *)pts_value_as_object(array), index); }
+
+void pts_parallel_push_flat(pts_value result, pts_value value) { pts_array_push_flat((pts_array *)pts_value_as_object(result), value); }
 
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end) {
   size_t size = pts_field_kind_size(array->type->element);

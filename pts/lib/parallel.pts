@@ -8,6 +8,8 @@ declare function pts_parallel_for(leaf: (from: number, to: number) => void, coun
 declare function pts_parallel_reduce(leaf: (from: number, to: number) => any, combine: (left: any, right: any) => any, count: number): any;
 declare function pts_parallel_join(a: () => void, b: () => void): void;
 declare function pts_parallel_threads(): number;
+declare function pts_parallel_has(array: any, index: number): boolean;
+declare function pts_parallel_push_flat(result: any, value: any): void;
 
 // What marks a callback that runs on several threads at once: the function type F,
 // branded, so that the compiler knows its body is a parallel body (D-L17).
@@ -152,23 +154,22 @@ export class ParallelArray<T> {
         return greatest as number;
     }
 
-    // A new array of callback's values for each element, in order, each array of them flattened one level.
-    flatMap<U>(callback: ParallelCallback<(value: T, index: number, array: T[]) => U | U[]>): U[] {
+    // A new array of callback's values for each element, in order, each array or tuple of
+    // them flattened one level, as Array's flatMap makes it: holes, in the array and in the
+    // callback's arrays, are skipped (D-180).
+    flatMap<U>(callback: ParallelCallback<(value: T, index: number, array: T[]) => U | ReadonlyArray<U>>): U[] {
         const items = this.items;
         const flattened = pts_parallel_reduce((from, to) => {
             const piece: U[] = [];
             for (let i = from; i < to; i++) {
-                const value = callback(items[i], i, items);
-                if (Array.isArray(value)) {
-                    piece.push(...value);
-                } else {
-                    piece.push(value);
+                if (pts_parallel_has(items, i)) {
+                    pts_parallel_push_flat(piece, callback(items[i], i, items));
                 }
             }
             return piece;
         }, (left, right) => {
             const joined = left as U[];
-            joined.push(...(right as U[]));
+            pts_parallel_push_flat(joined, right); // right's elements as the pieces hold them: a match's undefined groups stay undefined
             return joined;
         }, items.length);
         return flattened as U[];
@@ -359,7 +360,7 @@ export class ParallelTypedArray<A extends TypedArrayLike> {
         return greatest as number;
     }
 
-    flatMap<U>(callback: ParallelCallback<(value: number, index: number, array: A) => U | U[]>): U[] {
+    flatMap<U>(callback: ParallelCallback<(value: number, index: number, array: A) => U | ReadonlyArray<U>>): U[] {
         const items = this.items;
         return new ParallelArray(Array.from(items)).flatMap((value, index) => callback(value, index, items));
     }
@@ -548,7 +549,7 @@ export class ParallelRange {
         return this.length > 0 ? this.start + this.length - 1 : -Infinity;
     }
 
-    flatMap<U>(callback: ParallelCallback<(value: number) => U | U[]>): U[] {
+    flatMap<U>(callback: ParallelCallback<(value: number) => U | ReadonlyArray<U>>): U[] {
         return new ParallelArray(this.toArray()).flatMap((value) => callback(value));
     }
 

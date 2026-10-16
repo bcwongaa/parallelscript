@@ -1,0 +1,20 @@
+// A flatMap callback's array and object literals are made as the types their context gives
+// them, whatever tsc's narrower type for them is: `[k, v]` with v narrowed is a tuple of
+// the result's element type, not a conversion of one (H05: the leaf check of review round
+// 2's F5 took `[string, number | number[]]` for a tuple of another layout and reported
+// PTS1001 for corpus/data/deep_merge_config.pts).
+type Entry = [string, number | string | number[]];
+function numeric(entries: Entry[]): Entry[] {
+  return entries.flatMap(([k, v]): Entry[] => (typeof v === "string" ? [] : [[k, v]]));
+}
+console.log(numeric([["a", 1], ["b", "x"], ["c", [2, 3]]]));
+interface Named {
+  name: string;
+  size: number | string;
+}
+const named = [1, 2].flatMap((n): Named[] => (n > 1 ? [{ name: "n" + n, size: n }] : []));
+console.log(named);
+
+// expect:
+// [ [ 'a', 1 ], [ 'c', [ 2, 3 ] ] ]
+// [ { name: 'n2', size: 2 } ]

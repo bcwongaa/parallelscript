@@ -71,7 +71,11 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 	case ir.ArrayReverse, ir.ArraySort:
 		c = fmt.Sprintf("pts_array_%s(%s)", call.Op, args[0])
 	case ir.ArrayFlat:
-		c = fmt.Sprintf("pts_array_flat(%s, %s, %s)", args[0], args[1], e.arrayDescriptor(call.To))
+		flat := "pts_array_flat"
+		if call.Args[1].Type() == ir.Value {
+			flat = "pts_array_flat_value" // a depth converted after the length is read, as JS converts it
+		}
+		c = fmt.Sprintf("%s(%s, %s, %s)", flat, args[0], args[1], e.arrayDescriptor(call.To))
 	case ir.ArrayFill:
 		c = fmt.Sprintf("pts_array_fill(%s, (%s[]){%s}, %s, %s)", args[0], elem, args[1], args[2], args[3])
 	case ir.ArrayAt:
@@ -82,6 +86,8 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s})", args[0], args[1], elem, args[2])
 	case ir.ArrayKeys:
 		c = fmt.Sprintf("pts_array_keys(%s)", args[0])
+	case ir.ArrayPushFlat:
+		c = fmt.Sprintf("pts_array_push_flat(%s, %s)", args[0], args[1])
 	case ir.ArraySortWith:
 		c = fmt.Sprintf("pts_array_sort_with(%s, %s, %s)", args[0], args[1], e.comparators[call.Args[0].Type().(*ir.Array).Elem])
 	default:
@@ -161,10 +167,10 @@ func (e *emitter) comparatorFunctions() {
 // arrayEffects are the effects of an array operation beyond its operands'.
 func arrayEffects(op ir.ArrayOp) effects {
 	switch op {
-	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes, ir.ArrayFlat,
+	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes,
 		ir.ArrayAt, ir.ArrayCopy, ir.ArrayKeys:
 		return readsLocals
-	case ir.ArrayElementChecked, ir.ArrayWith:
+	case ir.ArrayElementChecked, ir.ArrayWith, ir.ArrayFlat: // flat checks the leaves it converts (D-180)
 		return readsLocals | mayThrow
 	}
 	return readsLocals | writes | mayThrow // the array may be frozen (D-157); join and sort may call toString methods

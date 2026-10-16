@@ -1,0 +1,22 @@
+// A `.par.flatMap` callback declared to return a tuple, or returning a tuple or an array
+// it didn't make whose type isn't the result's, is reported: `.par.flatMap<U>` takes a
+// `U | ReadonlyArray<U>` callback, and the value would be copied into a U[] that a caller
+// keeping it could tell apart (D-094). So is a named function whose result type has such
+// an array (H05 review round 1, finding 6). Array's flatMap takes all of these
+// (run/flatmap_union_results.pts); so does `.par.flatMap` with a new array or tuple, such
+// as `[...p]` (run/parallel_flatmap_unions.pts, D-180). C73, H29.
+const values: number[] = [1, 2];
+console.log(values.par.flatMap((x): [number, string] => [x, String(x)]));
+const pairs: [string, number][] = [["a", 1], ["b", 2]];
+console.log(pairs.par.flatMap((p) => p));
+function nested(x: number): number | number[][] {
+  return x > 1 ? [[x]] : x;
+}
+console.log(values.par.flatMap<number | number[]>(nested));
+const shared: number[] = [7, 8];
+console.log(values.par.flatMap<number | string>((x) => (x > 1 ? shared : x)));
+
+// error: parallel_flatmap_tuple_results.pts:9:32 - error PTS1001: using a [number, string] as a (number | string)[] where it may be changed or kept
+// error: parallel_flatmap_tuple_results.pts:11:38 - error PTS1001: using a [string, number] as a (number | string)[] where it may be changed or kept
+// error: parallel_flatmap_tuple_results.pts:15:51 - error PTS1001: converting number | number[][] to (number | number[])[] | number | number[] is not supported yet
+// error: parallel_flatmap_tuple_results.pts:17:56 - error PTS1001: converting number | number[] to (number | string)[] | number | string is not supported yet

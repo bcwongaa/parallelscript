@@ -1,0 +1,20 @@
+// flat's depth may be undefined (a left-out optional parameter: depth 1) or any value JS
+// converts to a number (H05 review round 1, finding 8: PTS1001 for `number | undefined`
+// and `any` depths).
+const nested: (number | (number | number[])[])[] = [1, [2, [3]]];
+function flatten(xs: (number | (number | number[])[])[], depth?: number) {
+  return xs.flat(depth);
+}
+console.log(flatten(nested), flatten(nested, 2), flatten(nested, 0));
+const loose: any = "2";
+console.log(nested.flat(loose), nested.flat(undefined));
+const unset: number | undefined = Math.random() < 2 ? undefined : 2;
+console.log(nested.flat(unset));
+const dynamic: any = nested;
+console.log(dynamic.flat("1"), dynamic.flat(null), dynamic.flat(undefined));
+
+// expect:
+// [ 1, 2, [ 3 ] ] [ 1, 2, 3 ] [ 1, [ 2, [ 3 ] ] ]
+// [ 1, 2, 3 ] [ 1, 2, [ 3 ] ]
+// [ 1, 2, [ 3 ] ]
+// [ 1, 2, [ 3 ] ] [ 1, [ 2, [ 3 ] ] ] [ 1, 2, [ 3 ] ]

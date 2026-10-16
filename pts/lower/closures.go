@@ -213,6 +213,8 @@ func (l *lowerer) closureSignature(fn *ir.Func, node *ast.Node) bool {
 		fn.Result = context.Result // `(b) => (b ? new Square() : new Circle())` for a `(b: boolean) => Shape`
 	case isUnion(context.Result) && node.Type() == nil && isNullableOf(context.Result.(*ir.Union), fn.Result):
 		fn.Result = context.Result // `(b, x) => (b === null || x > b ? x : b)` for reduce's `number | null` accumulator
+	case isUnion(context.Result) && node.Type() == nil && lacksArrayOf(context.Result.(*ir.Union), fn.Result) && !l.isArrayMethodCallback(node):
+		fn.Result = context.Result // `(x) => (x === 1 ? x : [[x]])` for `.par.flatMap<number | number[]>`'s `U | U[]`: its new arrays take the context's types where they are made (D-180)
 	}
 	return true
 }
@@ -838,6 +840,28 @@ func (p *cellPass) expr(x ir.Expr) {
 			}
 		}
 	})
+}
+
+// isArrayMethodCallback reports whether node is the callback of an array method that a
+// generated helper calls at the callback's own type (D-042), which no context converts.
+func (l *lowerer) isArrayMethodCallback(node *ast.Node) bool {
+	call := node.Parent
+	if call == nil || call.Kind != ast.KindCallExpression || len(call.Arguments()) == 0 || call.Arguments()[0] != node {
+		return false
+	}
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
+	return callee.Kind == ast.KindPropertyAccessExpression && callbackMethods[callee.AsPropertyAccessExpression().Name().Text()] && l.isArrayMethodCall(call)
+}
+
+// lacksArrayOf reports whether t, or a member of it if it is a union, is an array or a
+// tuple that isn't a member of u: a value of t converts to u only where the array is made
+// (a new array, copied where no one else holds it, D-094).
+func lacksArrayOf(u *ir.Union, t ir.Type) bool {
+	members := []ir.Type{t}
+	if union, ok := t.(*ir.Union); ok {
+		members = union.Members
+	}
+	return slices.ContainsFunc(members, func(m ir.Type) bool { return (isArray(m) || isTuple(m)) && !u.Has(m) })
 }
 
 // isNullableOf reports whether u is t with null or undefined (or both) added.

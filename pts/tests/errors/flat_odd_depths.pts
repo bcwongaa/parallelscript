@@ -1,0 +1,15 @@
+// A flat depth that tsc types as a negative or fractional number is reported: tsc's
+// FlatArray types `cube.flat(-1)` as a number[][][][] (an array of cube's type) where JS
+// copies cube, and `cube.flat(1.5)` as a number[] where JS flattens one level, so typed code
+// would read the elements as what they aren't. Whole depths of 0 or more, -0, `number`
+// depths, NaN and Infinity work (run/flat_depths.pts, D-180).
+const cube: number[][][] = [[[1], [2]], [[3]]];
+console.log(cube.flat(-1));
+const mixed: (number | number[])[] = [1, [2, 3]];
+console.log(mixed.flat(1.5));
+const depths: 1 | -2 = Math.random() < 2 ? 1 : -2;
+console.log(mixed.flat(depths));
+
+// error: flat_odd_depths.pts:7:23 - error PTS1001: `flat` with a depth of -1 is not supported yet: TypeScript's type for its result isn't what JS's flat returns; JS flattens as `flat(0)` does, so write that
+// error: flat_odd_depths.pts:9:24 - error PTS1001: `flat` with a depth of 1.5 is not supported yet: TypeScript's type for its result isn't what JS's flat returns; JS flattens as `flat(1)` does
+// error: flat_odd_depths.pts:11:24 - error PTS1001: `flat` with a depth of type -2 | 1 is not supported yet: TypeScript's type for its result isn't what JS's flat returns for -2, which JS takes as 0

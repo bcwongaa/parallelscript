@@ -1,0 +1,726 @@
+{
+ "task": "H01b",
+ "date": "2026-10-17",
+ "source_sha": "b9ac7c97070d5ab33cadf631a67807bb6673a3e6",
+ "cli": "/tmp/h05/s2/pts-final4",
+ "cli_sha256": "72dca1cc58002291cf3688128365a01bb93a44a9e0c07942c78e6bade03c8a88",
+ "tools": {
+  "go": "go version go1.26.9 linux/amd64",
+  "node": "v24.21.0",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+ },
+ "comparison_contract": "stdout and exit code; stderr retained, not compared",
+ "results": [
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-any.pts",
+   "probe_sha256": "a5f0fbf4f168cbcb998ef1663f759eed09cde9569643b90e00c559a2b98b8f70",
+   "row": "C05",
+   "kind": "control",
+   "description": "the red probes' heterogeneous, tuple and union shapes held as `any` (runtime dynamic flat/flatMap)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 2, [ 3 ] ]`, `[ 1, 2, 3 ]` x2, `[ 'b', 2, 'a', 1 ]`, `[ 1, 2, 3, 4 ]`, `[ 1, [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-any.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-control-flat-any-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-control-flat-any.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-control-flat-any-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n[ 1, [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-homogeneous.pts",
+   "probe_sha256": "7e6848f5e612afb1b922e2ee61e37ccc8f3e4c9267acae9b9bf31ac8f1d2d875",
+   "row": "C05",
+   "kind": "control",
+   "description": "`flat` / `flatMap` over homogeneous nested arrays (no unions, no tuples), with a hole",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`[ 1, 2, 3 ]`, `[ [ 1 ], [ 2 ], [ 3 ] ]`, `[ 1, 2, 3 ]` x3, `[ 1, 1, 2, 2, 3, 3 ]`, `[ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-flat-homogeneous.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-control-flat-homogeneous-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-control-flat-homogeneous.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3 ]\n[ [ 1 ], [ 2 ], [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 1, 2, 2, 3, 3 ]\n[ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-control-flat-homogeneous-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3 ]\n[ [ 1 ], [ 2 ], [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 1, 2, 2, 3, 3 ]\n[ 1, 2, 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.pts",
+   "probe_sha256": "6797fc2ae2441517c3622712fff47692329e8b8afe09c91e19206ace43752fcf",
+   "row": "C05",
+   "kind": "control",
+   "description": "`.par.flatMap` over a union-element array with an identity mapper, and a mapper result flattened once",
+   "oracle": "node:c05-control-par-flatmap-union.oracle.mts",
+   "threads": [
+    1,
+    2,
+    4
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4 ]` and `[ [ 1 ], [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to the oracle at 1, 2 and 4 threads, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-control-par-flatmap-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/c05-control-par-flatmap-union.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 2,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    },
+    {
+     "threads": 4,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-control-par-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ [ 1 ], [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-heterogeneous-depths.pts",
+   "probe_sha256": "2c75b563e9ba5fe5dbfe324f0f8be56d53d732d707cb1b8d6a6789a496c4a9cb",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat(depth)` at depths 0, 1 (default and explicit), 2 and Infinity over heterogeneous nesting",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "8 lines, `[ 1, [ 2 ], [ [ 3 ] ] ]`, `[ 1, 2, [ 3 ] ]` x2, `[ 1, 2, 3 ]` x2, `[ 1, 2, [ 3, [ 4 ] ] ]`, `[ 1, 2, 3, [ 4 ] ]`, `[ 1, 2, 3, 4 ]`, exit 0",
+   "baseline_pts": "builds and runs but no depth flattens anything: `[ 1, [ 2 ], [ [ 3 ] ] ]` x5, `[ 1, [ 2, [ 3, [Array] ] ] ]` x3, exit 0",
+   "failure": "^\\[ 1, \\[ 2, \\[ 3, \\[Array\\] \\] \\] \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-heterogeneous-depths.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flat-heterogeneous-depths-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flat-heterogeneous-depths.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, [ 3, [ 4 ] ] ]\n[ 1, 2, 3, [ 4 ] ]\n[ 1, 2, 3, 4 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flat-heterogeneous-depths-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2 ], [ [ 3 ] ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, [ 3 ] ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, [ 3, [ 4 ] ] ]\n[ 1, 2, 3, [ 4 ] ]\n[ 1, 2, 3, 4 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-nested-union-depth.pts",
+   "probe_sha256": "c7d05ed72f610464225c3d9243dc87d152ec90a42963fdfb32513297512eef13",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat(depth)` over `(number | number[])[][]`: level 1 is all arrays, level 2 is a union",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, [ 2 ], 3 ]`, `[ 1, 2, 3 ]`, `[ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs; depth 1 is right, depth 2 and Infinity stop at the union: `[ 1, [ 2 ], 3 ]` x3, exit 0",
+   "failure": "^\\[ 1, \\[ 2 \\], 3 \\]\\n\\[ 1, \\[ 2 \\], 3 \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-nested-union-depth.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flat-nested-union-depth-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flat-nested-union-depth.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ], 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flat-nested-union-depth-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2 ], 3 ]\n[ 1, 2, 3 ]\n[ 1, 2, 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-tuple-array.pts",
+   "probe_sha256": "a035177e007782cbcb1ceaa82a811d7b5ff6c5ef5c9d3ec179735186e6335473",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over arrays of tuples",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 'b', 2, 'a', 1 ]` and `[ 1, 2, 3, 4 ]`, exit 0",
+   "baseline_pts": "builds and runs but returns the tuples unflattened: `[ [ 'b', 2 ], [ 'a', 1 ] ]`, `[ [ 1, 2 ], [ 3, 4 ] ]`, exit 0",
+   "failure": "^\\[ \\[ 'b', 2 \\], \\[ 'a', 1 \\] \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-tuple-array.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flat-tuple-array-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flat-tuple-array.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flat-tuple-array-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 'b', 2, 'a', 1 ]\n[ 1, 2, 3, 4 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-array.pts",
+   "probe_sha256": "d066aecf356c6904adcbe933aa060223f102fa360fb76f49a3c57bb032734cee",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over arrays whose element type is a union of a value and an array",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4, 5 ]` and `[ 'a', 'b', 'c' ]`, exit 0",
+   "baseline_pts": "builds and runs but returns the elements unflattened: `[ 1, [ 2, 3 ], 4, [ 5 ] ]`, `[ [ 'a' ], 'b', [ 'c' ] ]`, exit 0",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4, \\[ 5 \\] \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-array.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flat-union-array-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flat-union-array.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4, 5 ]\n[ 'a', 'b', 'c' ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flat-union-array-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4, 5 ]\n[ 'a', 'b', 'c' ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-holes.pts",
+   "probe_sha256": "5820323a10dc9c2c6df00e6e4f443924a94f1c100ea5b2e082a71ddef2ea2d4b",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flat()` over a union-element array with a hole: the hole is skipped and the array element is spread",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]`, exit 0",
+   "baseline_pts": "builds and runs; the hole is skipped but the array is not spread: `... [ 1, [ 2, 3 ] ]`, exit 0",
+   "failure": "^\\[ 1, <1 empty item>, \\[ 2, 3 \\] \\] \\[ 1, \\[ 2, 3 \\] \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flat-union-holes.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flat-union-holes-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flat-union-holes.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flat-union-holes-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, <1 empty item>, [ 2, 3 ] ] [ 1, 2, 3 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c05-red-flatmap-union.pts",
+   "probe_sha256": "ad4d889617cc2da1f190596c546748c37ebcf8424b568e675cadec7dae697f34",
+   "row": "C05",
+   "kind": "red",
+   "description": "`flatMap` whose mapper returns a union of a value and an array; the result flattens exactly one level",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `[ 1, 2, 3, 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ 2 ] ]`, exit 0",
+   "baseline_pts": "builds and runs; a union-typed mapper result is not flattened: `[ 1, [ 2, 3 ], 4 ]`, `[ 1, 1, 2, 3, 4, 4 ]`, `[ 1, [ [ 2 ] ] ]`, exit 0",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4 \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c05-red-flatmap-union.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-flatmap-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-flatmap-union.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ 1, 1, 2, 3, 4, 4 ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-flatmap-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ 1, 1, 2, 3, 4, 4 ]\n[ 1, [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+   "probe_sha256": "2432c0ba0f86a33b4fed1328100f083575ead3a564953b0b932e82d6ae3fa280",
+   "row": "C05",
+   "kind": "red",
+   "description": "flat() over a union-element array and over a tuple array",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, 2, 3, 4 ] then [ 'a', 1, 'b', 2 ]",
+   "baseline_pts": "the nested arrays are left unflattened",
+   "failure": "^\\[ 1, \\[ 2, 3 \\], 4 \\]$",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c05-red-parent-flat-union.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c05-red-parent-flat-union-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/h05/s2/probes8/c05-red-parent-flat-union.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, 2, 3, 4 ]\n[ 'a', 1, 'b', 2 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c05-red-parent-flat-union-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, 2, 3, 4 ]\n[ 'a', 1, 'b', 2 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.pts",
+   "probe_sha256": "74c0027376fde73c6331ce1ad65817a2d67ee17a8978243a969196578e99692d",
+   "row": "C20",
+   "kind": "red",
+   "description": ".par.flatMap with an explicit union type argument that Array's flatMap accepts",
+   "oracle": "node:c20-red-parent-par-flatmap-type-argument.oracle.mts",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "[ 1, [ 2 ] ] twice",
+   "baseline_pts": "PTS1001 for the .par.flatMap call only (Array's flatMap line compiles, but prints the C05-wrong [ 1, [ [ 2 ] ] ], so GREEN needs H05's C05 fix too)",
+   "failure": "PTS1001: converting number \\| number\\[\\]\\[\\] to number \\| number \\| number\\[\\]\\[\\] \\| number\\[\\] is not supported yet",
+   "build": {
+    "command": [
+     "/tmp/h05/s2/pts-final4",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.pts",
+     "-o",
+     "/tmp/h05/s2/probes8/c20-red-parent-par-flatmap-type-argument-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c20-red-parent-par-flatmap-type-argument.oracle.mts"
+    ],
+    "exit": 0,
+    "stdout": "[ 1, [ 2 ] ]\n[ 1, [ 2 ] ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/h05/s2/probes8/c20-red-parent-par-flatmap-type-argument-native"
+        ],
+        "exit": 0,
+        "stdout": "[ 1, [ 2 ] ]\n[ 1, [ 2 ] ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  }
+ ]
+}

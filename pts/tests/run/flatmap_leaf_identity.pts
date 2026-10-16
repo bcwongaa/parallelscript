@@ -1,0 +1,60 @@
+// flatMap stores the leaves of its callback's arrays as they are: a class instance that
+// provides an interface is the same object (a later write shows through it), a generic
+// function is a callback like another (review round 4, R4-2: PTS1001 for its `T[]` result),
+// and the arrays a map makes of literals are new too (R4-8: PTS1001); an iterator result is
+// held as it is where an IteratorResult goes, and a conditional element's new array is new
+// (review round 5, F1 and F2: PTS1001).
+function dup<T>(x: T): T[] {
+  return [x, x];
+}
+console.log([1, 2].flatMap(dup));
+const ys: string[] = ["a"].flatMap(dup);
+console.log(ys);
+const wrap = <T,>(x: T): T[] => [x];
+console.log([1, 2].flatMap(wrap));
+function orNone<T>(x: T | null): T[] {
+  return x === null ? [] : [x];
+}
+const maybe: (number | null)[] = [1, null, 3];
+console.log(maybe.flatMap(orNone));
+const ns = [1, 2];
+console.log([1].flatMap<(number | string)[]>(() => ns.map((m) => [m])));
+interface Named {
+  name: string;
+}
+class Person {
+  constructor(public name: string) {}
+}
+const ann = new Person("ann");
+const people: Person[] = [ann];
+const named = [1].flatMap<Named>(() => people);
+ann.name = "anne";
+console.log(named[0] === ann, named[0].name);
+const listed = [1].flatMap((): Named[] => [ann]);
+console.log(listed[0] === ann);
+function* counter() {
+  yield 1;
+  yield 2;
+}
+const it = counter();
+const results = [1].flatMap<IteratorResult<number>>(() => [it.next()]);
+console.log(results.length, results[0].done, results[0].value);
+const pending = { done: false as const, value: 7 };
+const kept = [1].flatMap<IteratorResult<number>>(() => [pending]);
+console.log(kept[0] === pending);
+console.log(JSON.stringify([1, 2].flatMap<(number | string)[] | null>((i) => [i === 1 ? [i] : null])));
+console.log(JSON.stringify([1, 2].flatMap<(number | string)[]>((i) => [i === 1 ? [i] : [i, i]])));
+
+
+// expect:
+// [ 1, 1, 2, 2 ]
+// [ 'a', 'a' ]
+// [ 1, 2 ]
+// [ 1, 3 ]
+// [ [ 1 ], [ 2 ] ]
+// true anne
+// true
+// 1 false 1
+// true
+// [[1],null]
+// [[1],[2,2]]

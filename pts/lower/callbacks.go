@@ -29,7 +29,8 @@ type helperKey struct {
 	callback    *ir.FuncType
 	collection  *ir.MapType
 	narrowed    *ir.Array
-	arrayUnused bool // the callback's array parameter, of another type, is one its literal doesn't declare
+	flattened   *ir.Array // flatMap's result, tsc's type for the call (D-180)
+	arrayUnused bool      // the callback's array parameter, of another type, is one its literal doesn't declare
 }
 
 // source is the type of the array a helper's method is called on.
@@ -100,6 +101,11 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 	}
 	if name == "filter" && key.array != nil {
 		key.narrowed = l.guardedFilterResult(call, key.array)
+	}
+	if name == "flatMap" {
+		if key.flattened = l.flattenedResult(call, name); key.flattened == nil || l.spreadsOtherElements(call) || !l.keepsLeaves(args[0], ft.Result, key.flattened.Elem) {
+			return nil
+		}
 	}
 	helper := l.callbackHelper(key, call.Expression)
 	if helper == nil {
@@ -214,10 +220,7 @@ func (h *helperBuilder) resultType() ir.Type {
 	case base == "map":
 		return l.arrayOf(returns)
 	case base == "flatMap":
-		if isArray(returns) {
-			return returns
-		}
-		return l.arrayOf(returns)
+		return key.flattened
 	case base == "filter" && key.narrowed != nil:
 		return key.narrowed
 	case base == "filter":
@@ -251,18 +254,16 @@ func (h *helperBuilder) body() []ir.Stmt {
 		return h.loop(false, nil, func(element, index ir.Expr) []ir.Stmt {
 			return []ir.Stmt{h.stmt(h.call(element, index))}
 		}, nil)
-	case "map", "flatMap":
+	case "map":
 		if h.key.typed != nil {
 			return h.typedMap()
 		}
 		result := h.l.newLocal("result", h.fn.Result)
 		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.fn.Result.(*ir.Array)})}, func(element, index ir.Expr) []ir.Stmt {
-			mapped := h.call(element, index)
-			if base == "flatMap" && isArray(mapped.Type()) {
-				return h.appendAll(result, mapped)
-			}
-			return []ir.Stmt{h.stmt(h.push(result, mapped))}
+			return []ir.Stmt{h.stmt(h.push(result, h.call(element, index)))}
 		}, h.ret(&ir.LocalRef{Local: result}))
+	case "flatMap":
+		return h.flatMap()
 	case "filter":
 		if h.key.typed != nil {
 			return h.typedFilter()
@@ -399,7 +400,10 @@ func (h *helperBuilder) loopFrom(backwards bool, from ir.Expr, start []ir.Stmt, 
 		step, cond = ir.Sub, &ir.Binary{Op: ir.Ge, X: i, Y: &ir.NumberConst{Value: 0}}
 	}
 	// JS visits only the indices the array still has: a callback may shorten it.
-	present := &ir.Binary{Op: ir.Lt, X: i, Y: h.length()}
+	present := ir.Expr(&ir.Binary{Op: ir.Lt, X: i, Y: h.length()})
+	if elem := h.key.elem(); baseMethod(h.key.method) == "flatMap" && !ir.IsNumeric(elem) && elem != ir.Bool {
+		present = l.callExtern("pts_array_has", ir.Bool, &ir.LocalRef{Local: h.array}, i) // and skips its holes, which only arrays of pointers and dynamic values have (D-085)
+	}
 	element := l.newLocal("element", h.key.elem())
 	body := append([]ir.Stmt{h.declare(element, h.element(i))}, each(&ir.LocalRef{Local: element}, i)...)
 	stmts = append(stmts, h.declare(index, from), &ir.Loop{
@@ -508,23 +512,34 @@ func declaresFewer(node *ast.Node, n int) bool {
 	return len(params) < n && (len(params) == 0 || params[len(params)-1].AsParameterDeclaration().DotDotDotToken == nil)
 }
 
-// appendAll pushes each element of an array value onto result (flatMap's flattening).
-func (h *helperBuilder) appendAll(result *ir.Local, values ir.Expr) []ir.Stmt {
-	l, at := h.l, h.fn.Pos
-	inner, j := l.newLocal("mapped", values.Type()), l.newLocal("j", ir.Number)
-	ref := &ir.LocalRef{Local: j}
-	value := &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: inner}, ref}}
-	return []ir.Stmt{
-		h.declare(inner, values),
-		h.declare(j, &ir.NumberConst{Value: 0}),
-		&ir.Loop{
-			At:     at,
-			Label:  &ir.Label{},
-			Cond:   &ir.Binary{Op: ir.Lt, X: ref, Y: &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: inner}}}},
-			Update: &ir.Assign{Local: j, Value: &ir.Binary{Op: ir.Add, X: ref, Y: &ir.NumberConst{Value: 1}}},
-			Body:   &ir.Block{At: at, Stmts: []ir.Stmt{h.stmt(h.push(result, value))}},
-		},
+// flatMap builds flatMap: the callback's values for the elements the array has when it
+// starts (holes skipped, as in JS), each array or tuple among them spread one level into
+// the result by the runtime, which tells them by their descriptors (D-180).
+func (h *helperBuilder) flatMap() []ir.Stmt {
+	l := h.l
+	result := l.newLocal("result", h.fn.Result)
+	ref := &ir.LocalRef{Local: result}
+	return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.fn.Result.(*ir.Array)})}, func(element, index ir.Expr) []ir.Stmt {
+		mapped := h.call(element, index)
+		if !mayBeFlattened(mapped.Type()) {
+			return []ir.Stmt{h.stmt(h.push(result, mapped))}
+		}
+		return []ir.Stmt{h.stmt(&ir.ArrayCall{Op: ir.ArrayPushFlat, Args: []ir.Expr{ref, box(mapped)}})}
+	}, h.ret(ref))
+}
+
+// mayBeFlattened reports whether a value of type t may be an array or a tuple, which flat
+// and flatMap spread: arrays can't be held as interfaces or classes (D-180).
+func mayBeFlattened(t ir.Type) bool {
+	switch t := t.(type) {
+	case *ir.Array:
+		return true
+	case *ir.Class:
+		return t.Tuple
+	case *ir.Union:
+		return slices.ContainsFunc(t.Members, mayBeFlattened)
 	}
+	return t == ir.Value
 }
 
 // truthy is JS's ToBoolean of a callback's result, which is still evaluated for its effects.

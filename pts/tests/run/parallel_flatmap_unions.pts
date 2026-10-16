@@ -1,0 +1,29 @@
+// `.par.flatMap` takes the type arguments Array's flatMap takes and flattens each callback
+// result that is an array or a tuple exactly once, in order: an explicit union type argument
+// (C20) and callbacks returning new tuples were PTS1001 (`converting number | number[][] to
+// number | number | number[][] | number[] is not supported yet`). A callback declared to
+// return a tuple, returning a tuple or an array it didn't make whose type isn't the
+// result's, or a named function returning one, is errors/parallel_flatmap_tuple_results.pts
+// (C73). The expected output is Array's flatMap under Node. Its callback may return a
+// readonly array, as Array's may (`U | ReadonlyArray<U>`; it was TS2322) (H05, D-180).
+// threads: 1 2 4
+const values: number[] = [1, 2];
+console.log(values.par.flatMap<number | number[]>((x) => (x === 1 ? x : [[x]])));
+console.log(values.par.flatMap((x) => [x, String(x)] as [number, string]));
+console.log(values.par.flatMap((x) => (x > 1 ? ([x, "s"] as [number, string]) : x)));
+const pairs: [string, number][] = [["a", 1], ["b", 2]];
+console.log(pairs.par.flatMap((p) => [...p]));
+console.log([1, 2, 3].par.flatMap((x) => (x % 2 ? x : [x, x])));
+console.log([1, 2].par.flatMap((x): readonly number[] => [x, x * 10]));
+const many = Array.from({ length: 10_000 }, (_, i) => i);
+const once = many.par.flatMap<number | number[]>((x) => (x % 3 === 0 ? [[x]] : x));
+console.log(once.length, JSON.stringify(once.slice(0, 4)), JSON.stringify(once.slice(-2)));
+
+// expect:
+// [ 1, [ 2 ] ]
+// [ 1, '1', 2, '2' ]
+// [ 1, 2, 's' ]
+// [ 'a', 1, 'b', 2 ]
+// [ 1, 2, 2, 3 ]
+// [ 1, 10, 2, 20 ]
+// 10000 [[0],1,2,[3]] [9998,[9999]]
