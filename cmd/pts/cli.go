@@ -27,8 +27,9 @@ const version = "0.7.0"
 const commitDigits = 9
 
 const (
-	exitFailure = 1 // compile errors, or the toolchain failed
-	exitUsage   = 2
+	exitFailure  = 1 // compile errors, or the toolchain failed
+	exitUsage    = 2
+	exitInternal = 3 // an internal compiler error: a bug in pts (D-179)
 	// exitSignalBase plus the signal number is the exit code of a program killed by a signal, as in shells.
 	exitSignalBase = 128
 )
@@ -52,9 +53,12 @@ Environment:
                     (default: the nearest one above pts or the working directory)
   PTS_CACHE_DIR     Where the built runtime is cached (default: ~/.cache/pts)
   PTS_CC, PTS_AR    The C compiler and archiver (default: clang and ar)
+  PTS_DEBUG=1       Internal compiler errors show what a bug report needs: the compiler's
+                    stack, or the C compiler's output
 
-Exit codes: 0 on success, 1 for compile errors, 2 for a malformed command line;
-` + "`pts run`" + ` exits with the program's code. The guide is docs/GUIDE.md in the repository.
+Exit codes: 0 on success, 1 for compile errors, 2 for a malformed command line, 3 for an
+internal compiler error (a bug in pts); ` + "`pts run`" + ` exits with the program's code.
+The guide is docs/GUIDE.md in the repository.
 `
 
 // commandUsage is each command's own help, for ` + "`pts help <command>`" + ` and ` + "`pts <command> --help`" + `.
@@ -113,6 +117,7 @@ type cli struct {
 	stdin          io.Reader
 	stdout, stderr io.Writer
 	cwd            string // relative paths in arguments are relative to this
+	debug          bool   // PTS_DEBUG=1: internal compiler errors show what a bug report needs
 }
 
 // usageError is a malformed command line; it prints with the usage text of its command
@@ -211,7 +216,11 @@ func (c *cli) result(err error) int {
 func (c *cli) fail(err error) int {
 	var usageErr *usageError
 	var compileErr *diagnostic.Error
+	var internal *diagnostic.InternalError
 	switch {
+	case errors.As(err, &internal):
+		c.reportInternalError(internal)
+		return exitInternal
 	case errors.As(err, &usageErr):
 		text := usage
 		if commandUsage[usageErr.command] != "" {
@@ -227,6 +236,19 @@ func (c *cli) fail(err error) int {
 	default:
 		fmt.Fprintf(c.stderr, "pts: %s\n", err)
 		return exitFailure
+	}
+}
+
+// reportInternalError prints an internal compiler error after the errors found before it,
+// as a bug to report; with PTS_DEBUG=1, with the details a report needs.
+func (c *cli) reportInternalError(internal *diagnostic.InternalError) {
+	for _, d := range internal.Earlier {
+		fmt.Fprintln(c.stderr, d.Format(c.cwd))
+	}
+	fmt.Fprintln(c.stderr, internal.Format(c.cwd))
+	fmt.Fprintln(c.stderr, "  This is a bug in pts, not in the program. Please report it with the program; PTS_DEBUG=1 adds the details a report needs.")
+	if c.debug {
+		fmt.Fprintf(c.stderr, "\n%s\n", strings.TrimSuffix(internal.Detail, "\n"))
 	}
 }
 

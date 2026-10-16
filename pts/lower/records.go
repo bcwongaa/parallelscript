@@ -153,7 +153,7 @@ func isRecord(t ir.Type) bool {
 
 // isRecordExpression reports whether tsc types node as a hash-map object.
 func (l *lowerer) isRecordExpression(node *ast.Node) bool {
-	return l.isHashMapType(l.typeAt(node))
+	return l.isHashMapType(l.typeAt(node)) && !l.isNarrowedDynamic(node)
 }
 
 // isRecordElement reports whether node reads or writes an entry of a hash-map object:
@@ -320,7 +320,7 @@ func (l *lowerer) recordElementOrSet(node *ast.Node, target place, valueNode *as
 			}
 			return target.store(value, false)
 		})
-		return l.logicalAssignmentValue(target, x, node)
+		return l.assignedValue(target, x, node)
 	})
 }
 
@@ -371,6 +371,10 @@ func (l *lowerer) inRecord(expr *ast.BinaryExpression) ir.Expr {
 // value is true as in JS. Other objects have fixed layouts (D-L10).
 func (l *lowerer) deleteExpression(node *ast.Node) ir.Expr {
 	operand := ast.SkipParentheses(node.Expression())
+	if ast.IsAccessExpression(operand) && (l.isAny(operand.Expression()) || l.isNarrowedDynamic(operand.Expression())) {
+		l.notSupportedYet(node, "`delete` of a dynamic value's property (an `any`'s, or a value narrowed from one) is")
+		return nil
+	}
 	if !l.isRecordElement(operand) {
 		l.unsupported(node, "`delete` works only on hash-map objects (`Record<string, T>` and index signatures): other objects have fixed layouts and arrays have no holes")
 		return nil
@@ -445,8 +449,8 @@ func (l *lowerer) spreadIntoRecord(record ir.Expr, sourceNode *ast.Node) ir.Expr
 		l.notSupportedYet(sourceNode, fmt.Sprintf("spreading a %s into a %s is", source.Type(), mt))
 		return nil
 	}
-	names := l.spreadNames(source, l.typeAt(sourceNode), sourceNode)
-	if names == nil {
+	names, ok := l.spreadNames(source, l.typeAt(sourceNode), sourceNode)
+	if !ok {
 		return nil
 	}
 	built, object := l.newLocal("record", mt), l.newLocal("spread", source.Type()) // evaluated in this order
@@ -485,7 +489,7 @@ var objectStatics = map[string]mapItems{"keys": mapKeys, "values": mapValues, "e
 func (l *lowerer) objectStaticCall(call *ast.CallExpression) ir.Expr {
 	name := ast.SkipParentheses(call.Expression).AsPropertyAccessExpression().Name().Text()
 	args := call.Arguments.Nodes
-	if len(args) > 0 && l.isAny(args[0]) && !l.hasSpreadArgument(call) {
+	if len(args) > 0 && (l.isAny(args[0]) || l.isNarrowedDynamic(args[0])) && !l.hasSpreadArgument(call) {
 		return l.dynamicObjectStatic(call, name)
 	}
 	if len(args) > 0 && !l.isRecordExpression(args[0]) {

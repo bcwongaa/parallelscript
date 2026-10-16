@@ -1,0 +1,18 @@
+// A method of an interface or object type whose rest parameter is a tuple
+// (`log(...args: [string, number])`) takes the tuple's elements as its parameters, as a
+// class's method and a function type already do (D-057, D-100).
+interface Logger { log(...args: [string, number]): void }
+const logger: Logger = { log(...args: [string, number]) { console.log("log", args[0], args[1]); } };
+logger.log("a", 1);
+
+const formatter: { format(...parts: [number, string]): string } = { format: (n, s) => s + n };
+console.log(formatter.format(2, "b"));
+
+interface Pairs { pair<T>(...items: [T, T]): T[] }
+const pairs: Pairs = { pair: (x, y) => [x, y] };
+console.log(pairs.pair(3, 4));
+
+// expect:
+// log a 1
+// b2
+// [ 3, 4 ]

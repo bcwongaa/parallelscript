@@ -10,6 +10,7 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/stringutil"
 	"github.com/microsoft/typescript-go/pts/cgen"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/toolchain"
 	"gotest.tools/v3/assert"
@@ -426,4 +427,24 @@ func TestRegexLiteralsKeepTheirCompiledCodeInAStatic(t *testing.T) {
 	assert.Assert(t, strings.Contains(source, "static pts_regex *pts_regex_1;") && strings.Contains(source, "static pts_regex *pts_regex_2;"), source)
 	assert.Assert(t, strings.Contains(source, "pts_regexp_literal(&pts_regex_1, "), source)
 	assert.Equal(t, run(t, program), "/a+\\/b/gi /(?:)/\n")
+}
+
+// emitFailure is the internal error that Emit panics with on program.
+func emitFailure(t *testing.T, program *ir.Program) (internal *diagnostic.InternalError) {
+	t.Helper()
+	defer func() { internal, _ = recover().(*diagnostic.InternalError) }()
+	cgen.Emit(program)
+	return nil
+}
+
+func TestAPanicWhileEmittingIsAnInternalErrorAtItsStatement(t *testing.T) {
+	t.Parallel()
+	lengthOfANumber := &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{num(1)}}
+	program := programOf(logAt(2, num(0)), logAt(4, lengthOfANumber))
+
+	internal := emitFailure(t, program)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:4 - error PTS9001: internal compiler error while emitting C: interface conversion: ir.Type is *ir.Primitive, not *ir.Array")
+	assert.Assert(t, strings.Contains(internal.Detail, "pts/cgen.(*emitter).elementType"), internal.Detail)
 }

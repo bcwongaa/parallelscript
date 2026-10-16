@@ -156,10 +156,14 @@ func (c *cli) runTestFile(file string, build testBuild, resultsPath string) test
 	name := c.relative(file)
 	if build.err != nil {
 		var compileErr *diagnostic.Error
-		if errors.As(build.err, &compileErr) {
+		var internal *diagnostic.InternalError
+		switch {
+		case errors.As(build.err, &compileErr):
 			for _, d := range compileErr.Diagnostics {
 				fmt.Fprintln(c.stderr, d.Format(c.cwd))
 			}
+		case errors.As(build.err, &internal):
+			c.reportInternalError(internal)
 		}
 		fmt.Fprintf(c.stdout, "✖ %s (it didn't compile)\n", name)
 		return fileFailure(name, "it didn't compile: "+firstLine(build.err.Error()))

@@ -1,0 +1,13 @@
+// `delete` of a dynamic value's property, an `any`'s or one a type guard narrowed to a
+// hash-map object type, isn't supported yet (D-179); it is not the PTS1002 of fixed
+// layouts, since the value may be a hash-map object.
+function isCounts(x: unknown): x is Record<string, number> {
+  return typeof x === "object" && x !== null;
+}
+const parsed: unknown = JSON.parse('{"a": 1}');
+if (isCounts(parsed)) delete parsed.a;
+const loose: any = JSON.parse('{"b": 2}');
+delete loose["b"];
+
+// error: dynamic_delete.pts:8:23 - error PTS1001: `delete` of a dynamic value's property (an `any`'s, or a value narrowed from one) is not supported yet
+// error: dynamic_delete.pts:10:1 - error PTS1001: `delete` of a dynamic value's property (an `any`'s, or a value narrowed from one) is not supported yet

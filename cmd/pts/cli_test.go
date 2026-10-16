@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/toolchain"
 	"gotest.tools/v3/assert"
 )
@@ -273,4 +275,51 @@ func TestLSPServesOverStdio(t *testing.T) {
 	r := runIn(t, t.TempDir(), "lsp", "--socket")
 	assert.Equal(t, r.code, exitUsage)
 	assert.Assert(t, strings.Contains(r.stderr, `unknown option "--socket" for lsp`), r.stderr)
+}
+
+// runWithABug runs the CLI as runIn does, with lowering failing at the binary expressions
+// of files named name, as a bug in the compiler would; debug is PTS_DEBUG=1.
+func runWithABug(t *testing.T, debug bool, name string, dir string, args ...string) result {
+	t.Helper()
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "lowering" && node.Kind == ast.KindBinaryExpression && filepath.Base(ast.GetSourceFileOfNode(node).FileName()) == name
+	})
+	var stdout, stderr bytes.Buffer
+	c := &cli{stdin: strings.NewReader(""), stdout: &stdout, stderr: &stderr, cwd: dir, debug: debug}
+	code := c.run(ctx, args)
+	return result{code: code, stdout: stdout.String(), stderr: stderr.String()}
+}
+
+func TestAnInternalCompilerErrorIsReportedAsABugWithItsOwnExitCode(t *testing.T) {
+	t.Parallel()
+	dir := projectWith(t, map[string]string{"bug.pts": "console.log(1);\nconsole.log(2 * 3);\n"})
+
+	got := runWithABug(t, false, "bug.pts", dir, "build", "bug.pts")
+
+	assert.Equal(t, got, result{code: exitInternal, stderr: "bug.pts:2:13 - error PTS9001: internal compiler error while lowering: injected failure\n" +
+		"  This is a bug in pts, not in the program. Please report it with the program; PTS_DEBUG=1 adds the details a report needs.\n"})
+	_, err := os.Stat(filepath.Join(dir, "bug"))
+	assert.Assert(t, os.IsNotExist(err), "no executable on failure")
+}
+
+func TestPTSDebugAddsTheCompilersStackToAnInternalError(t *testing.T) {
+	t.Parallel()
+	dir := projectWith(t, map[string]string{"bug.pts": "console.log(2 * 3);\n"})
+
+	got := runWithABug(t, true, "bug.pts", dir, "run", "bug.pts")
+
+	assert.Equal(t, got.code, exitInternal)
+	assert.Assert(t, strings.Contains(got.stderr, "PTS_DEBUG=1 adds the details a report needs.\n\npanic: injected failure\n\ngoroutine "), got.stderr)
+	assert.Assert(t, strings.Contains(got.stderr, "pts/lower.(*lowerer).lowering"), got.stderr)
+}
+
+func TestAnInternalCompilerErrorFollowsTheErrorsFoundBeforeIt(t *testing.T) {
+	t.Parallel()
+	dir := projectWith(t, map[string]string{"bug.pts": "debugger;\nconsole.log(2 * 3);\n"})
+
+	got := runWithABug(t, false, "bug.pts", dir, "emit-c", "bug.pts")
+
+	assert.Equal(t, got.code, exitInternal)
+	assert.Assert(t, strings.HasPrefix(got.stderr, "bug.pts:1:1 - error PTS1001: debugger statement is not supported yet\n"+
+		"bug.pts:2:13 - error PTS9001: internal compiler error while lowering: injected failure\n"), got.stderr)
 }

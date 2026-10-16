@@ -1,0 +1,21 @@
+// A rest element in an object destructuring assignment (`({ a, ...rest } = o)`) assigns
+// a new object of the other properties, as in a declaration's pattern (D-054, D-058),
+// for an object literal's, a class instance's and an interface's value.
+let a = 0;
+let rest: { b: number } = { b: 0 };
+({ a, ...rest } = { a: 1, b: 2 });
+console.log(a, rest);
+
+class Pair { a = 3; b = 4; }
+({ a, ...rest } = new Pair());
+console.log(a, rest);
+
+interface Both { a: number; b: number }
+const both: Both = { a: 5, b: 6 };
+const result = ({ a, ...rest } = both);
+console.log(a, rest, result === both);
+
+// expect:
+// 1 { b: 2 }
+// 3 { b: 4 }
+// 5 { b: 6 } true

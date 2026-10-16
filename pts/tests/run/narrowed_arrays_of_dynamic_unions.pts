@@ -1,0 +1,35 @@
+// A union whose values are dynamic (a member such as Promise or Generator, or `unknown`,
+// D-089) narrowed to an array of a declared element type, by Array.isArray or a type
+// guard, reads it as that array: its length, its elements and its methods (C39's sibling).
+async function settled(p: Promise<number> | number[]): Promise<number> {
+  return Array.isArray(p) ? p[0] : await p;
+}
+
+function size(x: number[] | Generator<number>): number {
+  return Array.isArray(x) ? x.length : -1;
+}
+function firstOf(x: number[] | Generator<number>): number {
+  return Array.isArray(x) ? x[0] : x.next().value;
+}
+
+function isNumbers(x: unknown): x is number[] {
+  return Array.isArray(x);
+}
+function isPairs(x: unknown): x is [string, number][] {
+  return Array.isArray(x);
+}
+
+console.log("generator|array", size([3, 4]), firstOf([5, 6]));
+const numbers: unknown = [4, 5];
+if (isNumbers(numbers)) console.log("unknown", numbers[0] + 1, numbers.length, numbers.join("-"));
+const pairs: unknown = [["a", 1]];
+if (isPairs(pairs)) console.log("pairs", pairs[0][0], pairs.length);
+settled([7]).then(v => console.log("array", v));
+settled(Promise.resolve(8)).then(v => console.log("promise", v));
+
+// expect:
+// generator|array 2 5
+// unknown 5 2 4-5
+// pairs a 1
+// array 7
+// promise 8

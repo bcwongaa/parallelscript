@@ -1,0 +1,18 @@
+// no-diff: pins a documented difference (D-058, SPEC §8): an object rest copies its source's static type's properties
+// Pins a documented difference, so that a change to it is seen: the rest of an object
+// pattern, like a spread, copies the properties of its source's static type (D-058), so a
+// class instance held as an interface with fewer properties gives a rest without the others
+// (H03b review's C50 program). JS copies the object's own properties: `1 { b: 2 }`.
+interface I {
+  a: number;
+}
+class C {
+  a = 1;
+  b = 2;
+}
+const i: I = new C();
+const { a, ...rest } = i;
+console.log(a, rest);
+
+// expect:
+// 1 {}

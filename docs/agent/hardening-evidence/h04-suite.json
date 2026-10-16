@@ -1,0 +1,43 @@
+{
+ "command": "GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/ (with ~/.local/node/bin first on PATH)",
+ "baseline": {
+  "source": "243f89415 (worktree /tmp/h04-base)",
+  "exit": 0,
+  "stderr_bytes": 0,
+  "test_events": {
+   "pass": 1381,
+   "skip": 256
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "raw": "h04-baseline.jsonl.gz",
+  "sha256": "2ea280cfbd63c633d556155748f31172a5ac737c43922dea70cb11058cbab23d"
+ },
+ "final": {
+  "source": "the H04 working tree (uncommitted; the fix commit records it)",
+  "exit": 0,
+  "stderr_bytes": 0,
+  "cli_sha256": "dffe9ce84fa678bf2ff0d4ac7b836b006ed0b22ac16efc729e6737f73aa95607",
+  "test_events": {
+   "pass": 1440,
+   "skip": 256
+  },
+  "packages": {
+   "skip": 19,
+   "pass": 10
+  },
+  "corpus": {
+   "pass": 262,
+   "skip": 38
+  },
+  "raw": "h04-suite.jsonl.gz",
+  "sha256": "f2f739fb2993b7b71e15ddae92291c0f95694ab474a93ab5ae36ade123faccfe",
+  "note": "The run on the tree after review rounds 2 and 3; its counts equal the run after round 1, since the round-2 fixes added cases to an existing test file."
+ }
+}

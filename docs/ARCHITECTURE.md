@@ -26,7 +26,7 @@ Three ideas shape the whole design:
 
 ## 2. The compiler, stage by stage
 
-`driver.EmitC` runs the front end, the checks, the lowering and the C emitter. `driver.Build` then writes the C to a temporary directory and compiles it. Each stage returns diagnostics, and any error stops the pipeline. tsc's errors and ParallelScript's print in one format, `file:line:col - error CODE: message` (D-006).
+`driver.EmitC` runs the front end, the checks, the lowering and the C emitter. `driver.Build` then writes the C to a temporary directory and compiles it. Each stage returns diagnostics, and any error stops the pipeline. tsc's errors and ParallelScript's print in one format, `file:line:col - error CODE: message` (D-006). A bug the compiler runs into is an internal compiler error, `PTS9001` (D-179): the checks, the lowering and the C emitter each record the node or source line they work on and turn a panic into a `diagnostic.InternalError` there (`diagnostic.Locate`), which `driver.EmitC` returns (`diagnostic.Contain`); C that clang rejects becomes one at the line its `#line` gives. The CLI prints it as a bug to report and exits with 3.
 
 ### 2.1 Front end: the forked tsc (`pts/frontend`, `pts/lib`)
 

@@ -183,7 +183,23 @@ static pts_value call_method(pts_value object, const pts_string *name, const pts
 
 PTS_STATIC_STRING(iterator_key, 1, 10, 10, "@@iterator");
 
-bool pts_value_has_iterator_method(pts_value value) { return has_method(value, iterator_key); }
+pts_value pts_iterator_method(pts_value value) {
+  if (!pts_value_is_object(value) || pts_value_as_object(value)->type->kind != PTS_KIND_OBJECT) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  return pts_dynamic_get(value, pts_value_from_string(iterator_key));
+}
+
+/*
+ * What an object's [Symbol.iterator] method, as pts_iterator_method read it, returns; a
+ * TypeError `text is not iterable` if it is no function (null too, as GetIterator has it).
+ */
+static pts_value call_iterator_method(pts_value method, const pts_string *text) {
+  if (!pts_value_is_object(method) || pts_value_as_object(method)->type->kind != PTS_KIND_FUNCTION) {
+    pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not iterable", (int)text->byte_len, text->bytes);
+  }
+  return pts_dynamic_call(method, iterator_key, 0, NULL);
+}
 
 pts_value pts_iterator_of(pts_value iterator) {
   if (is_iterator(iterator)) {
@@ -281,8 +297,9 @@ pts_value pts_iterator_get(pts_value iterable, const pts_string *text) {
   if (is_iterator(iterable)) {
     return iterable; /* a generator's or runtime iterator's [Symbol.iterator]() is itself */
   }
-  if (has_method(iterable, iterator_key)) {
-    return call_method(iterable, iterator_key, iterator_key, 0, NULL);
+  pts_value method = pts_iterator_method(iterable);
+  if (method != PTS_VALUE_UNDEFINED) {
+    return call_iterator_method(method, text);
   }
   if (pts_value_is_object(iterable)) {
     switch (pts_value_as_object(iterable)->type->kind) {
@@ -302,8 +319,9 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
   if (is_iterator(iterable)) {
     return iterable;
   }
-  if (has_method(iterable, iterator_key)) {
-    return pts_iterator_of(call_method(iterable, iterator_key, iterator_key, 0, NULL));
+  pts_value method = pts_iterator_method(iterable);
+  if (method != PTS_VALUE_UNDEFINED) {
+    return pts_iterator_of(call_iterator_method(method, text));
   }
   if (is_collection(iterable)) {
     return collection_iterator(iterable);
@@ -312,8 +330,12 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
 }
 
 pts_value pts_iteration_open(pts_value iterable, const pts_string *text) {
-  if (is_iterator(iterable) || has_method(iterable, iterator_key) || is_collection(iterable)) {
+  if (is_iterator(iterable) || is_collection(iterable)) {
     return pts_iterator_open(iterable, text); /* stepped by next(), lazily, and a map's or set's live */
+  }
+  pts_value method = pts_iterator_method(iterable);
+  if (method != PTS_VALUE_UNDEFINED) {
+    return pts_iterator_of(call_iterator_method(method, text)); /* stepped by next(), lazily */
   }
   if (pts_value_is_object(iterable) && pts_value_as_object(iterable)->type->kind == PTS_KIND_TYPED_ARRAY) {
     return iterable; /* read live, as an array is */

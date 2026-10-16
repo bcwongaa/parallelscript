@@ -38,7 +38,7 @@ pts-bin/pts run docs/examples/hello.pts
 
 That prints `Hello, ParallelScript`. The first build also compiles the runtime and its C libraries (the garbage collector, libuv, PCRE2 and a few more) and caches them under `~/.cache/pts/`, so later builds are faster. The executable needs nothing but the C library.
 
-`pts` exits with 0 on success, 1 on compile errors and 2 on a malformed command line. `pts run` exits with the program's own exit code.
+`pts` exits with 0 on success, 1 on compile errors and 2 on a malformed command line. `pts run` exits with the program's own exit code. If the compiler runs into a bug of its own, it says so, `error PTS9001: internal compiler error …` at the line it was compiling, and exits with 3; `PTS_DEBUG=1 pts run file.pts` shows what a bug report needs. (A `pts` built from one version with `PTS_HOME` at another version's runtime sources can make C that doesn't compile, which is reported the same way.)
 
 For VS Code, `pts/editors/vscode` is an extension that highlights `parallel` as a keyword and runs `pts lsp`, the language server: completions, hovers, go to definition (into the `pts:` modules too) and errors, ParallelScript's own among tsc's. `make vscode` builds `pts/editors/vscode/dist/parallelscript.vsix`; install it with `code --install-extension`, then put `pts` on your PATH or point the setting `parallelscript.server.path` at it ([its README](../pts/editors/vscode/README.md) has the details). Other editors that speak the Language Server Protocol can run `pts lsp --stdio` for `.pts` files.
 

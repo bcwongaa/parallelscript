@@ -1,0 +1,51 @@
+// A union whose values are dynamic (a member such as Promise, Generator or Iterator, or
+// `unknown`, D-089) narrowed to a tuple, by Array.isArray, a type guard or `in`, reads
+// and writes the tuple's elements as a tuple's (C39).
+async function settled(p: Promise<number> | [number]): Promise<number> {
+  return Array.isArray(p) ? p[0] : await p;
+}
+
+type Entry = [string, number] | Generator<number>;
+function isEntry(x: Entry): x is [string, number] {
+  return Array.isArray(x);
+}
+function label(x: Entry): string {
+  return Array.isArray(x) ? x[0] : String(x.next().value);
+}
+function labelIn(x: Entry): string {
+  return "next" in x ? String(x.next().value) : x[0];
+}
+
+function head(x: Iterator<number> | [number]): number {
+  return Array.isArray(x) ? x[0] : x.next().value;
+}
+
+function isPair(x: unknown): x is [string, number] {
+  return Array.isArray(x) && x.length === 2;
+}
+
+function bump(x: [number] | Promise<number>): void {
+  if (Array.isArray(x)) {
+    x[0] = x[0] + 1;
+    console.log("bumped", x[0], x);
+  }
+}
+
+const entry: Entry = ["b", 2];
+if (isEntry(entry)) console.log("guarded", entry[0], entry[1]);
+console.log("isArray", label(["c", 3]), "in", labelIn(["d", 4]));
+console.log("iterator", head([5]));
+const pair: unknown = ["e", 6];
+if (isPair(pair)) console.log("unknown", pair[0], pair[1]);
+bump([7]);
+settled([8]).then(v => console.log("tuple", v));
+settled(Promise.resolve(9)).then(v => console.log("promise", v));
+
+// expect:
+// guarded b 2
+// isArray c in d
+// iterator 5
+// unknown e 6
+// bumped 8 [ 8 ]
+// tuple 8
+// promise 9

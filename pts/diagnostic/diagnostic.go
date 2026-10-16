@@ -39,7 +39,7 @@ const (
 type Diagnostic struct {
 	File    string // absolute path; empty for errors not tied to a file
 	Line    int    // 1-based
-	Column  int    // 1-based, in UTF-16 code units as tsc counts them
+	Column  int    // 1-based, in UTF-16 code units as tsc counts them; 0 if unknown
 	Code    string // "TS2322", "PTS1001", …
 	Message string
 	// Start and End are the offsets in the file's text of what the diagnostic is about,
@@ -68,11 +68,14 @@ func FromTS(d *ast.Diagnostic) Diagnostic {
 	return result
 }
 
-// Format renders the diagnostic as "file:line:col - error CODE: message", with the
-// file relative to dir when it lies below it.
+// Format renders the diagnostic as "file:line:col - error CODE: message" ("file:line"
+// if the column is unknown), with the file relative to dir when it lies below it.
 func (d Diagnostic) Format(dir string) string {
-	if d.File == "" {
+	switch {
+	case d.File == "":
 		return fmt.Sprintf("error %s: %s", d.Code, d.Message)
+	case d.Column == 0:
+		return fmt.Sprintf("%s:%d - error %s: %s", displayPath(d.File, dir), d.Line, d.Code, d.Message)
 	}
 	return fmt.Sprintf("%s:%d:%d - error %s: %s", displayPath(d.File, dir), d.Line, d.Column, d.Code, d.Message)
 }

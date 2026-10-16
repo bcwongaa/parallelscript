@@ -622,18 +622,9 @@ func (l *lowerer) erasedMethodSignature(generic *genericFunc) *ir.InterfaceMetho
 	l.subst = l.erasing(generic.parameters, generic.node)
 	defer func() { l.subst = outer }()
 	method := &ir.InterfaceMethod{Name: generic.node.Name().Text()}
-	for _, param := range generic.node.Parameters() {
-		paramType := l.parameterType(param)
-		if paramType == nil {
-			return nil
-		}
-		if param.AsParameterDeclaration().DotDotDotToken != nil {
-			paramType = l.restOf(paramType.(*ir.Array))
-		}
-		method.Params = append(method.Params, paramType)
-		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
-			method.Params = append(method.Params, ir.Given) // D-055
-		}
+	var ok bool
+	if method.Params, ok = l.methodParamTypes(generic.node.Parameters()); !ok {
+		return nil
 	}
 	if method.Result = l.resultType(generic.node); method.Result == nil {
 		return nil

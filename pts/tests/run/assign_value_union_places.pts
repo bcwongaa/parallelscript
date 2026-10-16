@@ -1,0 +1,44 @@
+// The value of `=` on a place of a union type (a local, a field, an element) or on a
+// dynamic one is the value stored, of tsc's type of the assignment, the right side's
+// (C26, D-179): code using it as an array, a tuple or a map got the union or the dynamic
+// value and panicked the compiler or made C that clang rejected. `[]` (a `never[]` to tsc)
+// is the array the place holds, as for `??=` (D-176). The last lines are controls that
+// already worked: class and interface places, numbers, and `??=`.
+let maybe: string[] | undefined;
+console.log((maybe = ["q", "r"]).length, maybe);
+let empty: number[] | undefined;
+console.log((empty = []).length, empty);
+class Holder {
+  xs: string[] | undefined = undefined;
+  pair: [number, string] | number[] = [0, "a"];
+}
+const holder = new Holder();
+console.log((holder.xs = ["z"]).length, (holder.pair = [2, "x"])[1].length);
+const cells: (string[] | null)[] = [null];
+console.log((cells[0] = ["w", "v"]).join("+"), cells);
+let text: string | string[] = "x";
+console.log((text = ["p"]).length, (text = "abc").length);
+const loose: any = JSON.parse("{}");
+console.log((loose.list = [1, 2, 3]).length, (loose.name = "abc").toUpperCase(), (loose.map = new Map([["k", 1]])).size);
+console.log((loose.fresh = new Map()).size, Object.keys(loose));
+
+class Animal { name = "a"; }
+class Dog extends Animal { bark() { return "woof"; } }
+let animal: Animal = new Animal();
+console.log((animal = new Dog()).bark());
+let total = 0;
+console.log((total = 2 ** 40) + 1, total);
+let cache: Map<string, number> | undefined;
+console.log((cache ??= new Map()).size);
+
+// expect:
+// 2 [ 'q', 'r' ]
+// 0 []
+// 1 1
+// w+v [ [ 'w', 'v' ] ]
+// 1 3
+// 3 ABC 1
+// 0 [ 'list', 'name', 'map', 'fresh' ]
+// woof
+// 1099511627777 1099511627776
+// 0

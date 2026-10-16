@@ -1,0 +1,23 @@
+// An object's `[Symbol.iterator]` getter that gives no function makes iterating the object
+// a TypeError, after one read of the getter, as JS's GetIterator reads it (D-179; review
+// finding 9: the getter ran twice).
+let reads = 0;
+const broken: any = {
+  get [Symbol.iterator]() {
+    reads++;
+    return 5;
+  },
+};
+for (const consume of [(x: any) => { for (const item of x) console.log(item); }, (x: any) => [...x], (x: any) => { const [first] = x; return first; }]) {
+  try {
+    consume(broken);
+    console.log("no error");
+  } catch (e) {
+    console.log((e as Error).constructor.name, reads);
+  }
+}
+
+// expect:
+// TypeError 1
+// TypeError 2
+// TypeError 3

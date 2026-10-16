@@ -1,0 +1,34 @@
+// An object literal with a getter alone and one with a getter and a setter of the same
+// property have shapes of their own: the second took the first's, which has no setter, and
+// the compiler panicked on its setter (found by H04, D-179). An interface they share has no
+// literal's shape for its copies of dynamic data.
+const fixed = { get x() { return 1; } };
+let stored = 2;
+const settable = { get x() { return stored; }, set x(n: number) { stored = n; } };
+settable.x = 5;
+console.log(fixed.x, settable.x, stored);
+const writeOnlyAfter = { set y(n: number) { stored = n; }, get y() { return stored * 10; } };
+writeOnlyAfter.y = 3;
+console.log(writeOnlyAfter.y);
+
+// One interface holding both, written through `any` (review finding 4: C that the C
+// emitter panicked on, a shape order without the getter-only literal's field).
+const both = [fixed, settable];
+console.log(both.map((o) => o.x));
+const anySettable: any = settable;
+anySettable.x = 9;
+console.log(settable.x);
+const anyFixed: any = fixed;
+try {
+  anyFixed.x = 4;
+  console.log("no throw", fixed.x);
+} catch (e) {
+  console.log("threw", (e as Error).constructor.name);
+}
+
+// expect:
+// 1 5 5
+// 30
+// [ 1, 3 ]
+// 9
+// threw TypeError

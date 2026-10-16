@@ -29,6 +29,8 @@ func (c *pass) parallelOperator(node *ast.Node) {
 // body, and a function passed for a parameter of a ParallelCallback type (the `.par`
 // methods, join).
 func (c *pass) parallelBodies(node *ast.Node) {
+	outer := c.at
+	c.at = node // which an internal error reports (D-179); a panic leaves it
 	switch {
 	case node.Kind == ast.KindCallExpression && (node.Flags&ast.NodeFlagsPtsParallel != 0 || c.isParallelCall(node)):
 		operand := node.Arguments()[0]
@@ -48,6 +50,7 @@ func (c *pass) parallelBodies(node *ast.Node) {
 		c.parallelBodies(child)
 		return false
 	})
+	c.at = outer
 }
 
 // isParallelCall reports whether node calls the prelude's `parallel`: `parallel(e)`, which

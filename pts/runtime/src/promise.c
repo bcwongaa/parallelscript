@@ -1051,7 +1051,7 @@ pts_value pts_async_iterator_open(pts_value iterable, const pts_string *text) {
   if (pts_value_is_object(iterable) && pts_value_as_object(iterable)->type->kind == PTS_KIND_OBJECT) {
     pts_value method = pts_dynamic_get(iterable, pts_value_from_string(async_iterator_key));
     if (is_callable(method)) {
-      return pts_dynamic_call_method(iterable, pts_value_from_string(async_iterator_key), text, 0, NULL);
+      return pts_dynamic_call(method, text, 0, NULL); /* the function read, which a getter gave once (D-179) */
     }
   }
   from_sync *it = allocate(sizeof *it);

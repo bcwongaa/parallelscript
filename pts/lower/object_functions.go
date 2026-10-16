@@ -150,7 +150,8 @@ func (l *lowerer) assignToNewObject(call *ast.CallExpression) ir.Expr {
 		if part.source == nil {
 			return nil
 		}
-		if part.names = l.spreadNames(part.source, l.typeAt(argument), argument); part.names == nil {
+		var ok bool
+		if part.names, ok = l.spreadNames(part.source, l.typeAt(argument), argument); !ok {
 			return nil
 		}
 		parts = append(parts, part)

@@ -1,0 +1,30 @@
+// no-diff: pins a documented difference (D-071, D-179): dynamic data converted to a typed array or record is a copy
+// Pins a documented difference, so that a change to it is seen: dynamic data (an `unknown`
+// from JSON.parse) that a type guard narrowed stays the data itself
+// (run/narrowed_dynamic_values.pts), but converting it to a typed place, a typed local or
+// parameter, makes a copy as converting any dynamic data does (D-071): writes through the
+// typed name don't reach the data. JS has one array and one object (`[ 'a', 'b', 'c', 'd' ]
+// 3 4`, `{ a: 1, b: 2 } 2`).
+function isStrings(x: unknown): x is string[] {
+  return Array.isArray(x) && x.every((item) => typeof item === "string");
+}
+const parsed: unknown = JSON.parse('["a", "b"]');
+if (isStrings(parsed)) {
+  const strings: string[] = parsed;
+  strings.push("c");
+  const count = (xs: string[]): number => xs.push("d");
+  console.log(parsed, parsed.length, count(parsed));
+}
+function isCounts(x: unknown): x is Record<string, number> {
+  return typeof x === "object" && x !== null;
+}
+const counts: unknown = JSON.parse('{"a": 1}');
+if (isCounts(counts)) {
+  const typed: Record<string, number> = counts;
+  typed["b"] = 2;
+  console.log(counts, Object.keys(typed).length);
+}
+
+// expect:
+// [ 'a', 'b' ] 2 3
+// { a: 1 } 2

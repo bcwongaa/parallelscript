@@ -27,6 +27,7 @@ import (
 	"github.com/microsoft/typescript-go/internal/tspath"
 	"github.com/microsoft/typescript-go/internal/vfs"
 	"github.com/microsoft/typescript-go/pts/check"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/frontend"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
@@ -156,12 +157,23 @@ func hints(ctx context.Context, program *compiler.Program, file *ast.SourceFile,
 	return result
 }
 
-// internalError is a diagnostic at the start of file saying that ParallelScript's checks failed.
+// internalError is a warning saying that ParallelScript's checks failed (a bug in pts): at
+// the node they failed on if that is in file (an *diagnostic.InternalError, D-179), else at
+// the start of file.
 func internalError(file *ast.SourceFile, converters *lsconv.Converters, failure any) *lsproto.Diagnostic {
+	where, message := core.NewTextRange(0, 0), fmt.Sprintf("ParallelScript's checks failed on this file (a compiler bug): %v", failure)
+	if internal, ok := failure.(*diagnostic.InternalError); ok { // D-179
+		message = internal.Message + " (a bug in pts)"
+		if internal.File == file.FileName() {
+			where = core.NewTextRange(internal.Start, internal.End)
+		} else if internal.File != "" {
+			message = fmt.Sprintf("%s (a bug in pts, at %s:%d:%d)", internal.Message, internal.File, internal.Line, internal.Column)
+		}
+	}
 	return &lsproto.Diagnostic{
-		Range:    converters.ToLSPRange(file, core.NewTextRange(0, 0)),
+		Range:    converters.ToLSPRange(file, where),
 		Severity: new(lsproto.DiagnosticSeverityWarning),
 		Source:   new("pts"),
-		Message:  lsproto.StringOrMarkupContent{String: new(fmt.Sprintf("ParallelScript's checks failed on this file (a compiler bug): %v", failure))},
+		Message:  lsproto.StringOrMarkupContent{String: &message},
 	}
 }

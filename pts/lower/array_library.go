@@ -216,9 +216,10 @@ func (l *lowerer) isArrayIteration(node *ast.Node) bool {
 	if node.Kind != ast.KindCallExpression || len(node.Arguments()) > 0 {
 		return false
 	}
-	switch l.libMemberName(ast.SkipParentheses(node.AsCallExpression().Expression)) {
+	callee := ast.SkipParentheses(node.AsCallExpression().Expression)
+	switch l.libMemberName(callee) {
 	case "Array.keys", "Array.values", "Array.entries", "ReadonlyArray.keys", "ReadonlyArray.values", "ReadonlyArray.entries":
-		return true
+		return !l.isNarrowedDynamic(callee.Expression()) // a dynamic value's are its runtime iterator's (D-179)
 	}
 	return false
 }

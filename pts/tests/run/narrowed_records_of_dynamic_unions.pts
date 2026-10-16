@@ -1,0 +1,39 @@
+// A dynamic value (`unknown`, a catch variable, or a union with a Promise or Iterator
+// member, D-089) narrowed to a hash-map object (D-059) by a type guard, `in` or
+// `instanceof` reads its entries as that object's (C39's sibling).
+function isCounts(x: unknown): x is Record<string, number> {
+  return typeof x === "object" && x !== null;
+}
+function isGroups(x: unknown): x is Record<string, number[]> {
+  return typeof x === "object" && x !== null;
+}
+
+const counts: unknown = { a: 1, b: 2 };
+if (isCounts(counts)) console.log("counts", counts["a"], counts.b, Object.keys(counts));
+const groups: unknown = { a: [1, 2] };
+if (isGroups(groups)) console.log("groups", groups["a"].length);
+
+try {
+  throw { code: 7 };
+} catch (error) {
+  if (isCounts(error)) console.log("caught", error["code"]);
+}
+
+function total(x: Record<string, number> | Iterator<number>): number {
+  return "next" in x ? -1 : x["a"] + x["b"];
+}
+console.log("iterator|record", total({ a: 3, b: 4 }));
+
+async function settled(p: Promise<number> | Record<string, number>): Promise<number> {
+  return p instanceof Promise ? await p : p["a"];
+}
+settled({ a: 5 }).then(v => console.log("record", v));
+settled(Promise.resolve(6)).then(v => console.log("promise", v));
+
+// expect:
+// counts 1 2 [ 'a', 'b' ]
+// groups 2
+// caught 7
+// iterator|record 7
+// record 5
+// promise 6

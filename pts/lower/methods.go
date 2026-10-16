@@ -327,7 +327,20 @@ func (l *lowerer) callArguments(rest []*ast.Node, tuple *ast.Node, params []ir.T
 	if value == nil {
 		return nil, nil
 	}
-	shape := value.Type().(*ir.Class)
+	if value.Type() == ir.Value { // a dynamic value tsc narrowed to the tuple, whose elements apply only reads (D-179)
+		t := l.irType(l.typeAt(tuple), tuple)
+		if t == nil {
+			return nil, nil
+		}
+		if value = l.dynamicConversion(value, t, tuple); value == nil {
+			return nil, nil
+		}
+	}
+	shape, ok := value.Type().(*ir.Class)
+	if !ok {
+		l.notSupportedYet(tuple, fmt.Sprintf("`apply` with arguments of type %s is", value.Type()))
+		return nil, nil
+	}
 	local := l.newLocal("applied", shape)
 	elements, at := make([]ir.Expr, len(shape.Fields)), make([]*ast.Node, len(shape.Fields))
 	for i, field := range shape.Fields {

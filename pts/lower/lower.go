@@ -136,7 +136,8 @@ var numericTypes = map[check.Numeric]ir.Type{
 
 // Program lowers a program that loaded and passed the semantic checks (info is what
 // they learned). It reports every construct it cannot lower; the IR is complete only
-// if there are none.
+// if there are none. A panic is a bug in the compiler: it becomes a panic with a
+// *diagnostic.InternalError at the innermost statement or expression being lowered.
 func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
@@ -153,6 +154,13 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
 		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}}
+	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
+	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
+		if l.current == nil {
+			return diagnostic.Diagnostic{}, l.errors
+		}
+		return diagnostic.At(l.current, "", ""), l.errors
+	})
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	l.collectOutsideAssignments(program.Modules)
@@ -302,6 +310,9 @@ type lowerer struct {
 	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
+	current             *ast.Node                        // the statement or expression being lowered, the innermost after a panic (D-179)
+	injectedFailure     func(node *ast.Node) bool        // diagnostic.WithInjectedFailure's, for tests: on entering a node
+	injectedFailureLeft func(node *ast.Node) bool        // and on leaving it, after its children
 	arrays              map[ir.Type]*ir.Array            // the array type of each element type met
 	arraysInProgress    map[*checker.Type]bool           // the array types whose element type is being mapped
 	funcTypes           []*ir.FuncType                   // the function types met
@@ -384,6 +395,32 @@ func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 
 // statement lowers one statement to zero or more IR statements.
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
+	outer := l.lowering(node)
+	stmts := l.statementOf(node)
+	l.leaving(node, outer)
+	return stmts
+}
+
+// lowering makes node the one being lowered, which an internal error reports, and returns
+// the one before it, for leaving to restore once node is lowered: after a panic, the
+// innermost node is left (D-179).
+func (l *lowerer) lowering(node *ast.Node) (outer *ast.Node) {
+	outer, l.current = l.current, node
+	if l.injectedFailure != nil && l.injectedFailure(node) {
+		panic("injected failure")
+	}
+	return outer
+}
+
+// leaving restores outer, the node lowering returned, once node is lowered.
+func (l *lowerer) leaving(node *ast.Node, outer *ast.Node) {
+	if l.injectedFailureLeft != nil && l.injectedFailureLeft(node) {
+		panic("injected failure")
+	}
+	l.current = outer
+}
+
+func (l *lowerer) statementOf(node *ast.Node) []ir.Stmt {
 	if l.function.Generator && !l.hoisting[node] {
 		if yield := statementYield(node); yield != nil && l.yielded[yield] == nil && !l.hasYield(yield.Expression()) {
 			return l.yieldingStatement(node, yield)
@@ -766,7 +803,9 @@ func (l *lowerer) bindingType(symbol *ast.Symbol, node *ast.Node) ir.Type {
 // declareModuleBindings makes the locals of a module's top-level `let` and `const`
 // declarations and of its `export default` value, owned by the module's top-level code.
 func (l *lowerer) declareModuleBindings(file *ast.SourceFile) {
+	outer := l.current
 	for _, statement := range file.Statements.Nodes {
+		l.current = statement // which an internal error reports (D-179); a panic leaves it
 		switch {
 		case statement.Kind == ast.KindVariableStatement && !ast.HasSyntacticModifier(statement, ast.ModifierFlagsAmbient):
 			list := statement.AsVariableStatement().DeclarationList
@@ -780,6 +819,7 @@ func (l *lowerer) declareModuleBindings(file *ast.SourceFile) {
 			l.declareModuleBinding("default", l.declaredSymbol(statement), statement.Expression())
 		}
 	}
+	l.current = outer
 }
 
 // declarePatternBindings declares the module-scope binding a declaration's name makes,
@@ -990,7 +1030,11 @@ func isDynamicArray(t ir.Type) bool {
 // function declaration under node, before any body is lowered: a call may come before
 // the declaration it calls. outer is the qualified name of the enclosing function, or "".
 func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
+	previous := l.current
 	node.ForEachChild(func(child *ast.Node) bool {
+		if node.Kind == ast.KindSourceFile {
+			l.current = child // the statement declared, which an internal error reports (D-179); a panic leaves it
+		}
 		qualified := outer
 		if child.Kind == ast.KindClassDeclaration && child.TypeParameterList() != nil && l.subst == nil {
 			return false // each instance declares what its methods declare
@@ -1027,6 +1071,7 @@ func (l *lowerer) declareFunctions(node *ast.Node, outer string) {
 		l.declareFunctions(child, qualified)
 		return false
 	})
+	l.current = previous
 }
 
 // declareFunction makes the IR function for a function, method or constructor
@@ -1284,11 +1329,13 @@ func (l *lowerer) returnStatement(node *ast.Node) []ir.Stmt {
 
 // expression lowers an expression, or reports it and returns nil.
 func (l *lowerer) expression(node *ast.Node) ir.Expr {
+	outer := l.lowering(node)
 	reports := l.reports
 	x := l.withArgumentTemps(func() ir.Expr { return l.expressionOf(node) })
 	if x == nil && l.reports == reports && l.unexplained == nil {
 		l.unexplained = node // reported at the end if nothing else is (unexplainedFailure)
 	}
+	l.leaving(node, outer)
 	return x
 }
 
@@ -1360,6 +1407,9 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 	case ast.KindElementAccessExpression:
 		if l.isAny(node.Expression()) {
 			return l.dynamicRead(node)
+		}
+		if l.isNarrowedDynamic(node.Expression()) {
+			return l.narrowedMember(node)
 		}
 		if x, ok := l.enumMember(node); ok {
 			return x
@@ -1445,6 +1495,8 @@ func (l *lowerer) valueExpression(node *ast.Node) ir.Expr {
 		return l.typedArrayElement(inner, true)
 	case l.isRecordElement(inner):
 		return l.recordElement(inner, ir.MapGet)
+	case ast.IsAccessExpression(inner) && l.isNarrowedDynamic(inner.Expression()):
+		return l.dynamicRead(inner) // what it holds, undefined past the end or for a missing key (D-179)
 	}
 	return unnarrowed(l.expression(node))
 }
@@ -1551,8 +1603,16 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	case ast.KindSuperKeyword:
 		return l.superCall(node)
 	}
-	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamicCollection(callee.Expression())) {
+	if callee := ast.SkipParentheses(call.Expression); l.isAny(callee) || ast.IsAccessExpression(callee) && l.isAny(callee.Expression()) {
 		return l.dynamicCall(call, callee)
+	}
+	if callee := ast.SkipParentheses(call.Expression); ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression()) {
+		// A method of a dynamic value tsc narrowed: a dynamic value, of tsc's type as a
+		// member read is (`u.slice(1).length`, `u.join("").length`; D-179)
+		if x := l.dynamicCall(call, callee); x != nil {
+			return l.narrowedValue(call.AsNode(), x)
+		}
+		return nil
 	}
 	if object, key, ok := l.hasOwnPropertyCall(call); ok {
 		return l.hasOwnProperty(object, key)
@@ -2408,8 +2468,11 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		}
 		return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{box(object)}}
 	}
-	if l.isAny(node.Expression()) || l.isNarrowedDynamicCollection(node.Expression()) {
+	if l.isAny(node.Expression()) {
 		return l.dynamicRead(node)
+	}
+	if l.isNarrowedDynamic(node.Expression()) {
+		return l.narrowedMember(node)
 	}
 	if l.isMixedUnionReceiver(node) {
 		return l.mixedUnionRead(node)
@@ -2785,9 +2848,38 @@ func (l *lowerer) assignment(node *ast.Node) ir.Expr {
 		return nil
 	}
 	if target.local != nil || target.field != nil || target.index != nil || target.arrayLength || target.key != nil {
-		return target.store(value, false) // the store evaluates the instance (or array and index) first
+		return l.assignmentValue(target, target.store(value, false), node) // the store evaluates the instance (or array and index) first
 	}
-	return l.withObject(target, func(target place) ir.Expr { return target.store(value, false) })
+	return l.withObject(target, func(target place) ir.Expr { return l.assignmentValue(target, target.store(value, false), node) })
+}
+
+// assignmentValue is stored, the value of `x = value` or `x op= value` (node) as the store
+// gives it, narrowed to tsc's type of node, value's, where the program uses it, as a read
+// of the place is: a union's or a dynamic place's value is narrower to tsc than the place
+// (`(lists[k] = ["z"]).length` for `Record<Status, string[]>`, C26). An array or map that
+// the store converted to the place's type is the place's if tsc's type isn't one of its
+// own, as `??=`'s value is (assignedValue, D-176): `[]` is a `never[]` and `new Map()` a
+// `Map<any, any>` to tsc, and code using an array or a map goes by its IR type. A place of
+// an erased type (D-078) keeps it dynamic, as it holds what the caller passed (a
+// `number[]` where `[]` is an `any[]`).
+func (l *lowerer) assignmentValue(target place, stored ir.Expr, node *ast.Node) ir.Expr {
+	if stored == nil || isDiscarded(node) {
+		return stored
+	}
+	left := node.AsBinaryExpression().Left
+	if stored.Type() == ir.Value {
+		switch {
+		case l.mentionsErased(l.checker.GetTypeAtLocation(left)):
+			return stored
+		case l.hasTypeFlags(left, checker.TypeFlagsAny|checker.TypeFlagsUnknown):
+			return l.narrowed(node, stored)
+		}
+	}
+	switch l.irType(l.typeAt(node), node).(type) {
+	case *ir.Array, *ir.MapType:
+		return l.assignedValue(target, stored, node)
+	}
+	return l.narrowed(node, stored)
 }
 
 // staticSetterCall lowers `C.p = value` for a static property p with a setter: the
@@ -2819,7 +2911,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 	}
 	if operator == ast.KindQuestionQuestionToken {
 		x := l.readAndStore(target, func(target place) ir.Expr { return l.nullishAssignment(target, expr.Right) })
-		return l.logicalAssignmentValue(target, x, node)
+		return l.assignedValue(target, x, node)
 	}
 	return l.readKeptAndStore(target, l.keptCurrent[node], func(target place) ir.Expr {
 		current, t := l.narrowed(expr.Left, target.read()), target.valueType()
@@ -2842,7 +2934,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 					return nil
 				}
 			}
-			return l.logicalAssignmentValue(target, &ir.Logical{Op: op, X: current, Y: stored}, node)
+			return l.assignedValue(target, &ir.Logical{Op: op, X: current, Y: stored}, node)
 		}
 		var value ir.Expr
 		switch op, ok := binaryOps[operator]; {
@@ -2867,7 +2959,7 @@ func (l *lowerer) compoundAssignment(node *ast.Node) ir.Expr {
 		if value = l.convert(value, t, node); value == nil {
 			return nil
 		}
-		return target.store(value, false)
+		return l.assignmentValue(target, target.store(value, false), node) // `(names[k] += "gh").length` (C26)
 	})
 }
 
@@ -3039,7 +3131,7 @@ func (l *lowerer) withObject(target place, build func(place) ir.Expr) ir.Expr {
 // and returns false.
 func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 	node = ast.SkipParentheses(node)
-	if (node.Kind == ast.KindPropertyAccessExpression || node.Kind == ast.KindElementAccessExpression) && l.isAny(node.Expression()) {
+	if (node.Kind == ast.KindPropertyAccessExpression || node.Kind == ast.KindElementAccessExpression) && (l.isAny(node.Expression()) || l.isNarrowedDynamic(node.Expression())) {
 		return l.dynamicPlace(node)
 	}
 	switch node.Kind {

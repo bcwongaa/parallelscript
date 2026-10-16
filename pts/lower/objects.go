@@ -84,14 +84,15 @@ func (l *lowerer) shape(t *checker.Type, node *ast.Node) *ir.Class {
 // type t declares with the fields that hold its getter's and setter's closures (D-045).
 func (l *lowerer) accessorFields(t *checker.Type, shape *ir.Class, fields []*ir.Field) []*ir.Field {
 	for _, property := range l.literalAccessors(t) {
-		i := slices.IndexFunc(fields, func(field *ir.Field) bool { return field.Name == property.Name })
+		name := propertyName(property) // `@@iterator` for `get [Symbol.iterator]()`, as the field is named
+		i := slices.IndexFunc(fields, func(field *ir.Field) bool { return field.Name == name })
 		valueType := fields[i].Type
 		fields = slices.Delete(fields, i, i+1)
 		if ast.GetDeclarationOfKind(property, ast.KindGetAccessor) != nil {
-			fields = append(fields, &ir.Field{Name: "get " + property.Name, Type: l.funcType([]ir.Type{shape}, valueType), Method: true, Kind: ir.Getter, Property: property.Name})
+			fields = append(fields, &ir.Field{Name: "get " + name, Type: l.funcType([]ir.Type{shape}, valueType), Method: true, Kind: ir.Getter, Property: name})
 		}
 		if ast.GetDeclarationOfKind(property, ast.KindSetAccessor) != nil {
-			fields = append(fields, &ir.Field{Name: "set " + property.Name, Type: l.funcType([]ir.Type{shape, valueType}, ir.Void), Method: true, Kind: ir.Setter, Property: property.Name})
+			fields = append(fields, &ir.Field{Name: "set " + name, Type: l.funcType([]ir.Type{shape, valueType}, ir.Void), Method: true, Kind: ir.Setter, Property: name})
 		}
 	}
 	return fields
@@ -109,12 +110,25 @@ func (l *lowerer) literalAccessors(t *checker.Type) []*ast.Symbol {
 	return accessors
 }
 
+// literalMemberName is the name of the field of an object literal's member that isn't
+// named by a computed constant: `@@iterator` for `[Symbol.iterator]`, as memberName gives.
+func (l *lowerer) literalMemberName(member *ast.Node) string {
+	if isIteratorName(member.Name()) {
+		return memberName(member)
+	}
+	return l.checker.GetSymbolAtLocation(member.Name()).Name
+}
+
 // accessorsKey tells a shape whose objects have accessor properties from one whose
-// objects hold the same properties as values.
+// objects hold the same properties as values, and a getter alone from a getter and a
+// setter (a literal with both took the shape of one with the getter, without the setter's
+// field).
 func (l *lowerer) accessorsKey(t *checker.Type) string {
 	var key strings.Builder
 	for _, property := range l.literalAccessors(t) {
-		fmt.Fprintf(&key, "get/set %q;", property.Name)
+		getter := ast.GetDeclarationOfKind(property, ast.KindGetAccessor) != nil
+		setter := ast.GetDeclarationOfKind(property, ast.KindSetAccessor) != nil
+		fmt.Fprintf(&key, "get %t set %t %q;", getter, setter, propertyName(property))
 	}
 	return key.String()
 }
@@ -246,23 +260,47 @@ func (l *lowerer) interfaceMethod(property *ast.Symbol, t *checker.Type, node *a
 		return &ir.InterfaceMethod{Name: propertyName(property), Params: ft.Params, Result: ft.Result}
 	}
 	method := &ir.InterfaceMethod{Name: propertyName(property)}
-	for _, param := range declarations[0].Parameters() {
-		paramType := l.parameterType(param)
-		if paramType == nil {
-			return nil
-		}
-		if param.AsParameterDeclaration().DotDotDotToken != nil {
-			paramType = l.restOf(paramType.(*ir.Array))
-		}
-		method.Params = append(method.Params, paramType)
-		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
-			method.Params = append(method.Params, ir.Given) // D-055
-		}
+	var ok bool
+	if method.Params, ok = l.methodParamTypes(declarations[0].Parameters()); !ok {
+		return nil
 	}
 	if method.Result = l.resultType(declarations[0]); method.Result == nil {
 		return nil
 	}
 	return method
+}
+
+// methodParamTypes are the types of a method's parameters, params, as an interface method
+// takes them: a rest parameter's array as a Rest (D-057), a rest parameter of a tuple type
+// as its elements, one each, as `parameter` makes them (`...args: [string, number]`), and
+// a given flag after a parameter that is optional or has a default (D-055); ok is false if
+// one fails (reported).
+func (l *lowerer) methodParamTypes(params []*ast.Node) (types []ir.Type, ok bool) {
+	for _, param := range params {
+		paramType := l.parameterType(param)
+		if paramType == nil {
+			return nil, false
+		}
+		if param.AsParameterDeclaration().DotDotDotToken != nil {
+			switch t := paramType.(type) {
+			case *ir.Array:
+				paramType = l.restOf(t)
+			case *ir.Class:
+				for _, field := range t.Fields {
+					types = append(types, field.Type)
+				}
+				continue
+			default:
+				l.notSupportedYet(param, fmt.Sprintf("rest parameters of type %s are", paramType))
+				return nil, false
+			}
+		}
+		types = append(types, paramType)
+		if param.Initializer() != nil || param.AsParameterDeclaration().QuestionToken != nil {
+			types = append(types, ir.Given) // D-055
+		}
+	}
+	return types, true
 }
 
 // membersKey identifies a shape or interface by its members' names and types.
@@ -339,18 +377,16 @@ func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
 		case ast.KindShorthandPropertyAssignment:
 			value = l.shorthandValue(property)
 		case ast.KindMethodDeclaration:
-			if isIteratorName(property.Name()) {
-				value = l.objectMethod(property, shape.Field(memberName(property)))
-			} else if property.Name().Kind != ast.KindComputedPropertyName {
-				value = l.objectMethod(property, shape.Field(l.checker.GetSymbolAtLocation(property.Name()).Name))
+			if isIteratorName(property.Name()) || property.Name().Kind != ast.KindComputedPropertyName {
+				value = l.objectMethod(property, shape.Field(l.literalMemberName(property)))
 			}
 		case ast.KindGetAccessor, ast.KindSetAccessor:
-			if property.Name().Kind != ast.KindComputedPropertyName {
+			if isIteratorName(property.Name()) || property.Name().Kind != ast.KindComputedPropertyName {
 				kind := ir.Getter
 				if property.Kind == ast.KindSetAccessor {
 					kind = ir.Setter
 				}
-				fields[i] = shape.AccessorField(l.checker.GetSymbolAtLocation(property.Name()).Name, kind)
+				fields[i] = shape.AccessorField(l.literalMemberName(property), kind)
 				value = l.objectMethod(property, fields[i])
 			}
 		}
@@ -443,7 +479,8 @@ func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, n
 			if part.source = l.expression(property.Expression()); part.source == nil {
 				return nil
 			}
-			if part.names = l.spreadNames(part.source, l.typeAt(property.Expression()), property); part.names == nil {
+			var ok bool
+			if part.names, ok = l.spreadNames(part.source, l.typeAt(property.Expression()), property); !ok {
 				return nil
 			}
 		case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:

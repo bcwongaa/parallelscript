@@ -1,0 +1,13 @@
+// Writing a property named by a well-known symbol (`o[Symbol.iterator] = f`), even one an
+// object literal's setter takes, isn't supported yet; reading one through `[]` isn't either
+// (D-111). An object literal's getter and setter of `[Symbol.iterator]` compile (C34,
+// run/object_literal_iterator_accessors.pts).
+let steps = function* (): Generator<number> { yield 6; };
+const settable = {
+  get [Symbol.iterator]() { return steps; },
+  set [Symbol.iterator](next: () => Generator<number>) { steps = next; },
+};
+settable[Symbol.iterator] = function* () { yield 7; };
+console.log([...settable]);
+
+// error: symbol_iterator_element_writes.pts:10:10 - error PTS1001: `Symbol.iterator` is not supported yet

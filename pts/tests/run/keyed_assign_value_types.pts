@@ -1,0 +1,66 @@
+// The value of `=` (and of `+=`) on a keyed element (D-089) is the value stored, of the
+// element's type, wherever the program uses it: as a string, a tuple, a map or an array
+// written through, in functions, generic functions and methods, for Record keys of a
+// literal union or an enum, `keyof` keys of an interface and keys of a class's fields (C26).
+type Status = "open" | "closed";
+const k: Status = ["open", "closed"][1] as Status;
+
+const names: Record<Status, string> = { open: "", closed: "" };
+console.log((names[k] = "ab").toUpperCase(), (names[k] = "cd").length, (names[k] = "ef")[1]);
+console.log((names[k] += "gh").length, names);
+
+const pairs: Record<Status, [string, number]> = { open: ["o", 0], closed: ["c", 0] };
+console.log((pairs[k] = ["x", 1])[0], pairs);
+
+const maps: Record<Status, Map<string, number>> = { open: new Map(), closed: new Map() };
+console.log((maps[k] = new Map([["a", 1]])).get("a"), (maps[k] = new Map()).size);
+
+const lists: Record<Status, string[]> = { open: [], closed: [] };
+(lists[k] = ["z"])[0] = "w";
+console.log(lists);
+
+function reset(key: Status): number {
+  return (lists[key] = ["p", "q", "r"]).length;
+}
+console.log(reset("open"), lists);
+
+function resetIn<K extends string>(record: Record<K, string[]>, key: K): number {
+  return (record[key] = ["z"]).length;
+}
+console.log(resetIn(lists, "closed"));
+
+class Board {
+  lists: Record<Status, string[]> = { open: [], closed: [] };
+  reset(key: Status): number {
+    return (this.lists[key] = ["z", "w"]).length;
+  }
+}
+console.log(new Board().reset("closed"));
+
+enum Color { Red = "red", Blue = "blue" }
+const byColor: Record<Color, number[]> = { [Color.Red]: [], [Color.Blue]: [] };
+const c: Color = [Color.Red, Color.Blue][1];
+console.log((byColor[c] = [1, 2, 3]).length, byColor);
+
+interface Point { xs: number[]; ys: number[] }
+const point: Point = { xs: [], ys: [] };
+const axis: keyof Point = ["xs", "ys"][1] as keyof Point;
+console.log((point[axis] = [4, 5]).length, point);
+
+class Bag { a: number[] = []; b: number[] = []; }
+const bag = new Bag();
+const field: "a" | "b" = ["a", "b"][0] as "a" | "b";
+console.log((bag[field] = [6]).length, bag);
+
+// expect:
+// AB 2 f
+// 4 { open: '', closed: 'efgh' }
+// x { open: [ 'o', 0 ], closed: [ 'x', 1 ] }
+// 1 0
+// { open: [], closed: [ 'w' ] }
+// 3 { open: [ 'p', 'q', 'r' ], closed: [ 'w' ] }
+// 1
+// 2
+// 3 { red: [], blue: [ 1, 2, 3 ] }
+// 2 { xs: [], ys: [ 4, 5 ] }
+// 1 Bag { a: [ 6 ], b: [] }

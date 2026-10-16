@@ -227,18 +227,77 @@ func (l *lowerer) narrowedValue(node *ast.Node, x ir.Expr) ir.Expr {
 		return x
 	}
 	if !l.isCheckedValueType(t) {
-		if !l.checker.IsArrayType(t) && !l.hasIndexSignatures(t) {
+		if !l.isContainerType(t) {
 			return x
 		}
-		if narrow := l.irType(t, node); isDynamicData(narrow) {
+		narrow := l.irType(t, node)
+		switch {
+		case narrow == nil || narrow == ir.Value:
+			return x
+		case isDynamicData(narrow):
 			return &ir.FromUnion{X: x, To: narrow} // `Array.isArray(json)`: the array itself, checked (D-089)
+		case l.storedDynamic(node) || isDynamicCollection(narrow):
+			return x // a dynamic value tsc narrowed, whose members are found at run time (isNarrowedDynamic)
 		}
-		return x
+		// A typed value held as a dynamic value, of a union with a type only dynamic values
+		// hold (a generator, a promise), narrowed to an array, tuple, record, map or set: the
+		// program's own object, checked (C39, D-179).
+		return l.dynamicConversion(x, narrow, node)
 	}
 	if narrow := l.irType(t, node); narrow != nil && narrow != ir.Value {
 		return &ir.FromUnion{X: x, To: narrow}
 	}
 	return x
+}
+
+// isContainerType reports whether t is an array, tuple, record, map or set type.
+func (l *lowerer) isContainerType(t *checker.Type) bool {
+	_, collection := l.libCollection(t)
+	return collection || l.checker.IsArrayType(t) || checker.IsTupleType(t) || l.hasIndexSignatures(t)
+}
+
+// isNarrowedDynamic reports whether node is a dynamic value (storedDynamic) that tsc
+// narrowed to an object type a conversion doesn't just check (`x is string[]`, `x is
+// Config` or `x instanceof Map` for an `x` declared `unknown`, `(o.list = [1])` for an `o:
+// any`): an array, tuple, record, map, set or interface, not a class or a function type. It
+// stays the dynamic value, whose members are read, written and called as a dynamic value's
+// are, so writes reach it as in JS (D-179). `Array.isArray(json)`'s `any[]` is the array
+// itself (D-089).
+func (l *lowerer) isNarrowedDynamic(node *ast.Node) bool {
+	if !l.storedDynamic(node) {
+		return false
+	}
+	t := l.typeAt(node)
+	if t.Flags()&checker.TypeFlagsObject == 0 || l.isCheckedValueType(t) || len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 {
+		return false
+	}
+	narrow := l.irType(t, node)
+	return narrow != nil && narrow != ir.Value && !isDynamicData(narrow)
+}
+
+// narrowedMember reads `o.p` or `o[k]` (node) of a dynamic value o that tsc narrowed
+// (isNarrowedDynamic) as a dynamic value's, of tsc's type as a narrowed read is: `t[0]` of
+// a `[string, number]` is a string (D-179).
+func (l *lowerer) narrowedMember(node *ast.Node) ir.Expr {
+	x := l.dynamicRead(node)
+	if x == nil {
+		return nil
+	}
+	if l.contextTakesUndefined(node) {
+		return l.convert(x, l.irType(l.contextualType(node), node), node) // undefined past the end or for a missing key, as typed elements are (D-015)
+	}
+	if mayHoldUndefined(l.typeAt(node)) {
+		return l.convert(x, l.irType(l.typeAt(node), node), node)
+	}
+	return l.narrowedValue(node, x)
+}
+
+// isDynamicCollection reports whether t is a map or set of dynamic values (`Map<any, any>`,
+// what `x instanceof Map` narrows an `any` to), which a dynamic value holding any map or set
+// stays: converting one of `Map<string, number>` to it would fail.
+func isDynamicCollection(t ir.Type) bool {
+	mt, ok := t.(*ir.MapType)
+	return ok && !mt.Record && mt.Key == ir.Value && (mt.Set || mt.Value == ir.Value)
 }
 
 // isDynamicData reports whether t is an array or hash-map object of dynamic values, which

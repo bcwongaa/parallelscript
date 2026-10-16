@@ -12,6 +12,6 @@ func main() {
 		os.Stderr.WriteString("pts: " + err.Error() + "\n")
 		os.Exit(exitFailure)
 	}
-	c := &cli{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, cwd: cwd}
+	c := &cli{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, cwd: cwd, debug: os.Getenv("PTS_DEBUG") == "1"}
 	os.Exit(c.run(context.Background(), os.Args[1:]))
 }

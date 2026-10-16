@@ -1,0 +1,27 @@
+// A rest element of an object pattern whose pattern names every property of the source's
+// type (D-058) binds a new empty object, at module scope and in functions, for an
+// interface's value and an object literal's (C50).
+interface Named { a: number }
+const named: Named = { a: 1 };
+const { a, ...rest } = named;
+console.log(a, rest);
+
+const literal = { b: 2 };
+const { b, ...others } = literal;
+console.log(b, others, Object.keys(others).length);
+
+function split(value: Named): void {
+  const { a, ...left } = value;
+  console.log("split", a, left);
+}
+split({ a: 3 });
+
+const nested: { inner: Named } = { inner: { a: 4 } };
+const { inner: { a: deep, ...deepRest } } = nested;
+console.log(deep, deepRest);
+
+// expect:
+// 1 {}
+// 2 {} 0
+// split 3 {}
+// 4 {}

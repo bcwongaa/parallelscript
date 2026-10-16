@@ -77,14 +77,6 @@ func (l *lowerer) isMapExpression(node *ast.Node) bool {
 	return ok && !l.storedDynamic(node)
 }
 
-// isNarrowedDynamicCollection reports whether node is a dynamic value that tsc has narrowed
-// to a Map or Set (`x instanceof Map` for `x: unknown`): it stays dynamic (storedDynamic),
-// so its members are read and called as a dynamic value's are.
-func (l *lowerer) isNarrowedDynamicCollection(node *ast.Node) bool {
-	_, ok := l.libCollection(l.typeAt(node))
-	return ok && l.storedDynamic(node)
-}
-
 // isMapConstructor reports whether a `new` expression's class is the global Map or Set.
 func (l *lowerer) isMapConstructor(node *ast.Node) bool {
 	callee := node.Expression()

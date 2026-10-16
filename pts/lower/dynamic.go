@@ -28,7 +28,9 @@ func (l *lowerer) isDynamicSource(node *ast.Node) bool {
 
 // storedDynamic reports whether node reads a value kept as a dynamic value whatever tsc
 // has narrowed it to: a variable or parameter declared `any` or `unknown` (`if (x
-// instanceof Map)`), or a member of a dynamic value.
+// instanceof Map)`), a member of a dynamic value or of one that stays dynamic though tsc
+// narrowed it (isNarrowedDynamic) or what a method of the latter returns (`u.slice(1)`),
+// or the value of `=` on one of these (`(o.m = new Map()).size`, D-179).
 func (l *lowerer) storedDynamic(node *ast.Node) bool {
 	node = ast.SkipParentheses(node)
 	switch node.Kind {
@@ -36,7 +38,15 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 		symbol := l.checker.GetSymbolAtLocation(node)
 		return symbol != nil && l.checker.GetTypeOfSymbol(symbol).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
-		return l.isDynamicSource(node.Expression())
+		return l.isDynamicSource(node.Expression()) || l.isNarrowedDynamic(node.Expression()) // `u[1]` of a narrowed `u: unknown`
+	case ast.KindBinaryExpression:
+		expr := node.AsBinaryExpression()
+		return expr.OperatorToken.Kind == ast.KindEqualsToken && l.storedDynamic(expr.Left)
+	case ast.KindNonNullExpression:
+		return l.storedDynamic(node.Expression()) // `m.get(k)!`
+	case ast.KindCallExpression: // the result of a method of a narrowed dynamic value
+		callee := ast.SkipParentheses(node.AsCallExpression().Expression)
+		return ast.IsAccessExpression(callee) && l.isNarrowedDynamic(callee.Expression())
 	}
 	return false
 }
@@ -123,7 +133,7 @@ func (l *lowerer) dynamicCall(call *ast.CallExpression, callee *ast.Node) ir.Exp
 	}
 	// A method of an array that erased code makes (`[x].slice(1)`, `new Array<T>(n).fill(x)`),
 	// whose signature mentions an erased type parameter, is found at run time too.
-	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamicCollection(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
+	if ast.IsAccessExpression(callee) && (l.isAny(callee.Expression()) || l.isNarrowedDynamic(callee.Expression()) || l.isMixedUnionReceiver(callee) || callee.Kind == ast.KindPropertyAccessExpression && l.isArrayExpression(callee.Expression())) {
 		object := l.expression(callee.Expression())
 		if object == nil {
 			return nil
@@ -286,13 +296,20 @@ func (l *lowerer) prepareDynamicTarget(t ir.Type, node *ast.Node, seen map[ir.Ty
 }
 
 // copyShape gives an interface the shape its copies of dynamic data take: the shape of
-// the object type it is, with its properties in the type's declaration order.
+// the object type it is, with its properties in the type's declaration order. An object
+// literal's type with accessors doesn't do: its shape holds the getters' and setters'
+// closures, not values (D-179).
 func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 	if iface.Copy != nil {
 		return ""
 	}
+	accessors := false
 	for checkerType, candidate := range l.interfacesByType {
 		if candidate != iface {
+			continue
+		}
+		if len(l.literalAccessors(checkerType)) > 0 {
+			accessors = true
 			continue
 		}
 		shape := l.shape(checkerType, node)
@@ -305,6 +322,9 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 		}
 		iface.Copy, iface.CopyOrder = shape, shape.Order(order)
 		return ""
+	}
+	if accessors {
+		return "an object type known only from object literals with getters or setters"
 	}
 	return "an object type of no declaration"
 }

@@ -19,11 +19,14 @@ var supportedSymbolMembers = map[string]bool{"iterator": true, "asyncIterator": 
 // unsupportedFeatures reports the features ParallelScript leaves out (docs/SPEC.md
 // §3.10), each with the reason, wherever they appear under node.
 func (c *pass) unsupportedFeatures(node *ast.Node) {
+	outer := c.at
+	c.at = node // which an internal error reports (D-179); a panic leaves it
 	c.unsupportedFeature(node)
 	node.ForEachChild(func(child *ast.Node) bool {
 		c.unsupportedFeatures(child)
 		return false
 	})
+	c.at = outer
 }
 
 func (c *pass) unsupportedFeature(node *ast.Node) {

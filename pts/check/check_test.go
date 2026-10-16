@@ -1,8 +1,10 @@
 package check_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
 	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
@@ -289,4 +291,43 @@ const plain: number = 1.5;
 const lossy: u8 = plain;
 `)
 	assert.DeepEqual(t, formatted(errors), []string{"main.pts:7:19 - error PTS2001: a number doesn't convert to u8 implicitly because the value could change; write `as u8` to convert it"})
+}
+
+func TestAPanicInTheChecksIsAnInternalErrorAtTheInnermostNodeVisited(t *testing.T) {
+	t.Parallel()
+	source := "const n = 1;\nconsole.log(n * 2);\n"
+	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "running ParallelScript's checks" && node.Kind == ast.KindCallExpression
+	})
+	program, errors := frontend.Load(ctx, fs, "/p/main.pts")
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+
+	internal := checkFailure(ctx, program)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:2:1 - error PTS9001: internal compiler error while running ParallelScript's checks: injected failure")
+}
+
+// checkFailure is the internal error that the pass panics with on program under ctx.
+func checkFailure(ctx context.Context, program *frontend.Program) (internal *diagnostic.InternalError) {
+	defer func() { internal, _ = recover().(*diagnostic.InternalError) }()
+	check.Program(ctx, program)
+	return nil
+}
+
+func TestAPanicAfterTheChecksVisitANodesChildrenIsAnInternalErrorAtThatNode(t *testing.T) {
+	t.Parallel()
+	source := "const n = 1;\nconsole.log(n * 2, [n]);\n"
+	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "after running ParallelScript's checks" && node.Kind == ast.KindCallExpression
+	})
+	program, errors := frontend.Load(ctx, fs, "/p/main.pts")
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+
+	internal := checkFailure(ctx, program)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:2:1 - error PTS9001: internal compiler error while running ParallelScript's checks: injected failure")
 }

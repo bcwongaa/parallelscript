@@ -1,4 +1,3 @@
-// skip: known issue (H04, C26): the value of plain `=` on a keyed element (D-089) has no type, so using it as an array panics the C emitter (cgen/arrays.go)
 // The value of `=` on a keyed element is the value stored, of the element's type, as a
 // read of the element is. `??=`, `||=` and `&&=` give theirs that type since H02 (D-176).
 type Status = "open" | "closed";

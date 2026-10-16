@@ -21,3 +21,10 @@ func TestFormatOmitsTheLocationOfFilelessErrors(t *testing.T) {
 
 	assert.Equal(t, d.Format("/p"), "error TS5023: Unknown compiler option.")
 }
+
+func TestFormatOmitsAnUnknownColumn(t *testing.T) {
+	t.Parallel()
+	d := diagnostic.Diagnostic{File: "/p/main.pts", Line: 7, Code: "PTS9001", Message: "internal compiler error while emitting C: boom"}
+
+	assert.Equal(t, d.Format("/p"), "main.pts:7 - error PTS9001: internal compiler error while emitting C: boom")
+}

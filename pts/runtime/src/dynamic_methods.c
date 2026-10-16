@@ -1380,11 +1380,13 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
     }
     case PTS_KIND_GENERATOR:
       return pts_value_from_object(pts_iterator_to_array(value)); /* what it yields until it is done */
-    case PTS_KIND_OBJECT:
-      if (pts_value_has_iterator_method(value)) {
-        return pts_value_from_object(pts_iterator_to_array(pts_iterator_open(value, text)));
+    case PTS_KIND_OBJECT: {
+      pts_value method = pts_iterator_method(value);
+      if (pts_value_is_object(method) && pts_value_as_object(method)->type->kind == PTS_KIND_FUNCTION) {
+        return pts_value_from_object(pts_iterator_to_array(pts_iterator_of(pts_dynamic_call(method, text, 0, NULL))));
       }
-      break;
+      break; /* none, or no function: not iterable */
+    }
     default:
       break;
     }

@@ -384,8 +384,8 @@ func looseEquality(op ir.BinaryOp, x ir.Expr, y ir.Expr) ir.Expr {
 func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	expr := node.AsBinaryExpression()
 	var x ir.Expr
-	if left := ast.SkipParentheses(expr.Left); l.isArrayElement(left) || l.isTypedArrayElement(left) || l.isStringElement(left) {
-		x = l.valueExpression(left) // `digits[i] ?? 0`: undefined past the end, as in JS (D-089)
+	if left := ast.SkipParentheses(expr.Left); l.isArrayElement(left) || l.isTypedArrayElement(left) || l.isStringElement(left) || ast.IsAccessExpression(left) && l.isNarrowedDynamic(left.Expression()) {
+		x = l.valueExpression(left) // `digits[i] ?? 0`: undefined past the end, as in JS (D-089, D-179)
 	} else {
 		x = l.expression(expr.Left)
 	}
@@ -607,12 +607,12 @@ func (l *lowerer) nullishAssignment(target place, valueNode *ast.Node) ir.Expr {
 	return &ir.Conditional{Cond: &ir.IsNullish{X: current}, Then: target.store(value, false), Else: current}
 }
 
-// logicalAssignmentValue is x, the value of `target ??= value`, `||=` or `&&=` (node), as
-// the type logicalAssignmentType gives it, with a check, as a narrowed property and a
-// dynamic place's read are (D-089, D-140): `&&=` gives whatever falsy value the place
-// holds, and a variable or field without a value holds undefined outside its type
-// (D-141). A value nothing uses (`x &&= v;`) is left as it is.
-func (l *lowerer) logicalAssignmentValue(target place, x ir.Expr, node *ast.Node) ir.Expr {
+// assignedValue is x, the value of `target ??= value`, `||=`, `&&=` or `=` (node), as the
+// type assignedValueType gives it, with a check, as a narrowed property and a dynamic
+// place's read are (D-089, D-140): `&&=` gives whatever falsy value the place holds, and
+// a variable or field without a value holds undefined outside its type (D-141). A value
+// nothing uses (`x &&= v;`) is left as it is.
+func (l *lowerer) assignedValue(target place, x ir.Expr, node *ast.Node) ir.Expr {
 	if x == nil || isDiscarded(node) || l.hasTypeFlags(node, checker.TypeFlagsNever) {
 		return x
 	}
@@ -631,7 +631,7 @@ func (l *lowerer) logicalAssignmentValue(target place, x ir.Expr, node *ast.Node
 	if p == nil {
 		return nil
 	}
-	switch t := l.logicalAssignmentType(p, node); t {
+	switch t := l.assignedValueType(p, node); t {
 	case nil:
 		return nil
 	case x.Type():
@@ -641,11 +641,12 @@ func (l *lowerer) logicalAssignmentValue(target place, x ir.Expr, node *ast.Node
 	}
 }
 
-// logicalAssignmentType is the type of the value of node, `x ??= value`, `||=` or `&&=`,
+// assignedValueType is the type of the value of node, `x ??= value`, `||=`, `&&=` or `=`,
 // for a place of type p: tsc's type of node where that is p or narrows it; otherwise p
 // without null and undefined where node can't give them (`(cache ??= new Map())` is a
-// `Map<any, any>` to tsc, but its value is the place's or was stored there); otherwise p.
-func (l *lowerer) logicalAssignmentType(p ir.Type, node *ast.Node) ir.Type {
+// `Map<any, any>` to tsc, but its value is the place's or was stored there, and `[]` a
+// `never[]`); otherwise p.
+func (l *lowerer) assignedValueType(p ir.Type, node *ast.Node) ir.Type {
 	t := l.irType(l.typeAt(node), node)
 	u, ok := p.(*ir.Union)
 	switch {
@@ -682,12 +683,16 @@ func isDiscarded(node *ast.Node) bool {
 	return false
 }
 
-// storesNonNullish reports whether node, `x ??= value` or `x ||= value`, gives x or value,
-// and value can't be null or undefined, so its value is never null or undefined either.
+// storesNonNullish reports whether node, `x ??= value`, `x ||= value` or `x = value`,
+// gives x or value, and value can't be null or undefined, so its value is never null or
+// undefined either.
 func (l *lowerer) storesNonNullish(node *ast.Node) bool {
 	expr := node.AsBinaryExpression()
-	operator := expr.OperatorToken.Kind
-	return (operator == ast.KindQuestionQuestionEqualsToken || operator == ast.KindBarBarEqualsToken) && !mayBeNullish(l.typeAt(expr.Right))
+	switch expr.OperatorToken.Kind {
+	case ast.KindQuestionQuestionEqualsToken, ast.KindBarBarEqualsToken, ast.KindEqualsToken:
+		return !mayBeNullish(l.typeAt(expr.Right))
+	}
+	return false
 }
 
 // mayBeNullish reports whether a value of type t may be null or undefined.

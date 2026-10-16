@@ -201,3 +201,16 @@ func TestGuidesTestingSamplePasses(t *testing.T) {
 ℹ duration_ms N
 `)
 }
+
+func TestTestReportsATestFileTheCompilerFailsOn(t *testing.T) {
+	t.Parallel()
+	dir := testProject(t, map[string]string{"bug.test.pts": "import { test } from \"pts:test\";\ntest(\"adds\", () => { console.log(1 + 2); });\n"})
+
+	got := runWithABug(t, false, "bug.test.pts", dir, "test")
+
+	assert.Equal(t, got.code, exitFailure)
+	assert.Assert(t, strings.Contains(got.stderr, "bug.test.pts:2:34 - error PTS9001: internal compiler error while lowering: injected failure\n"+
+		"  This is a bug in pts, not in the program."), got.stderr)
+	report := normalized(got.stdout, dir)
+	assert.Assert(t, strings.Contains(report, "✖ bug.test.pts\n  it didn't compile: <dir>/bug.test.pts:2:34 - error PTS9001: internal compiler error while lowering: injected failure\n"), report)
+}

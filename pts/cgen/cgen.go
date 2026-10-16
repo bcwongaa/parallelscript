@@ -12,15 +12,21 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
 // Emit returns the C translation unit for program. It includes pts.h and defines main.
+// A panic is a bug in the compiler: it becomes a panic with a *diagnostic.InternalError
+// at the source line of the IR being written.
 func Emit(program *ir.Program) string {
 	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
+	defer diagnostic.Locate("emitting C", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
+		return diagnostic.Diagnostic{File: e.source.File, Line: e.source.Line}, nil
+	})
 	e.nameClasses(program)
 	e.externFunctions(program)
 	e.collectClosures(program)
@@ -366,6 +372,7 @@ func (e *emitter) function(f *ir.Func) {
 		this, paramNames[0] = paramNames[0], "pts_this" // `this` as the slot's class, which its struct starts with
 	}
 	e.line(0, "")
+	e.source = f.Pos // a function without a position has none, not the previous one's (D-179)
 	e.at(f.Pos)
 	e.line(0, "static %s {", e.signature(f, paramNames))
 	if this != "" {
@@ -1777,6 +1784,7 @@ type out struct {
 	strings.Builder
 	nextFile string // file and line the next output line has, per the last #line; 0 = none yet
 	nextLine int
+	source   ir.Pos // the position of the IR being written, for an internal error (D-179)
 }
 
 func (o *out) line(depth int, format string, args ...any) {
@@ -1790,7 +1798,11 @@ func (o *out) line(depth int, format string, args ...any) {
 
 // at makes the next output line count as pos, emitting #line only when needed.
 func (o *out) at(pos ir.Pos) {
-	if pos.Line == 0 || (pos.File == o.nextFile && pos.Line == o.nextLine) {
+	if pos.Line == 0 {
+		return
+	}
+	o.source = pos
+	if pos.File == o.nextFile && pos.Line == o.nextLine {
 		return
 	}
 	fmt.Fprintf(&o.Builder, "#line %d %s\n", pos.Line, cString(pos.File))

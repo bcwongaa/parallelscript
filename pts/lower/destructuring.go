@@ -31,6 +31,15 @@ type parameterBinding struct {
 // destructure binds the names of a binding pattern to the parts of value, declaring their
 // locals. It reports what it can't lower and returns false.
 func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir.Stmt, bool) {
+	reports := l.reports
+	stmts, ok := l.destructureParts(pattern, value, at)
+	if !ok && l.reports == reports && l.unexplained == nil {
+		l.unexplained = pattern // reported at the end if nothing else is (unexplainedFailure), never dropped silently
+	}
+	return stmts, ok
+}
+
+func (l *lowerer) destructureParts(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir.Stmt, bool) {
 	if names := namesOfTuple(pattern, value); names != nil {
 		return l.bindTupleValues(names, value.(*ir.NewObject).Values)
 	}
@@ -380,10 +389,9 @@ func propertyOf(source ir.Expr, name string) ir.Expr {
 // spreadNames are the names of the properties that spreading source (`...o`, written at
 // node) copies, in the order JS copies them (D-058): a class instance's fields in the
 // order its constructors make them, or the properties of an object type in the order
-// objectType (source's type, or one tsc made from it) lists them. nil if it is no object,
-// or a tuple (reported).
-func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *ast.Node) []string {
-	var names []string
+// objectType (source's type, or one tsc made from it) lists them; none for an object
+// without properties. ok is false if it is no object, or a tuple (reported).
+func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *ast.Node) (names []string, ok bool) {
 	class, isClass := source.Type().(*ir.Class)
 	_, isInterface := source.Type().(*ir.Interface)
 	switch {
@@ -399,22 +407,22 @@ func (l *lowerer) spreadNames(source ir.Expr, objectType *checker.Type, node *as
 		}
 	default:
 		l.notSupportedYet(node, fmt.Sprintf("spreading a %s into an object is", source.Type()))
-		return nil
+		return nil, false
 	}
-	return names
+	return names, true
 }
 
 // restProperties is the object a rest element of an object pattern (`...others`, element)
 // takes from source: a new object of its type's shape holding source's properties that
 // the pattern doesn't name, in the order a spread copies them (D-058).
 func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
-	restType := l.typeAt(element.Name())
+	restType := l.typeAt(restTarget(element))
 	shape := l.shape(restType, element)
 	if shape == nil {
 		return nil
 	}
-	names := l.spreadNames(source, restType, element) // tsc keeps source's order in restType
-	if names == nil {
+	names, ok := l.spreadNames(source, restType, element) // tsc keeps source's order in restType
+	if !ok {
 		return nil
 	}
 	var fields []*ir.Field
@@ -574,7 +582,7 @@ func isDestructuringSource(node *ast.Node) bool {
 
 // restTarget is what a rest element binds or assigns: `rest` in `...rest`.
 func restTarget(element *ast.Node) *ast.Node {
-	if element.Kind == ast.KindSpreadElement {
+	if element.Kind == ast.KindSpreadElement || element.Kind == ast.KindSpreadAssignment {
 		return element.Expression()
 	}
 	return element.Name()
@@ -666,7 +674,8 @@ func (l *lowerer) assignParts(pattern *ast.Node, source ir.Expr) ([]ir.Expr, boo
 			if part = l.propertyPart(source, element, property, false); part != nil {
 				part = l.withDefault(part, fallback, target)
 			}
-		case ast.KindSpreadAssignment:
+		case ast.KindSpreadAssignment: // `({ a, ...rest } = o)`
+			target = element.Expression()
 			part = l.propertyPart(source, element, nil, true)
 		default: // an array literal's element: a target, or `target = default`
 			target = element

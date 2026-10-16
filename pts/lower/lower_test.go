@@ -1,8 +1,10 @@
 package lower_test
 
 import (
+	"context"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
 	"github.com/microsoft/typescript-go/pts/check"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
@@ -1131,4 +1133,81 @@ func wrap_dynamic(x: value) value {
   2: return box(value[][x])
 }
 `)
+}
+
+// lowerFailure lowers source as lowerSource does, under ctx, and returns the internal
+// error that lowering panics with.
+func lowerFailure(t *testing.T, ctx context.Context, source string) (internal *diagnostic.InternalError) {
+	t.Helper()
+	fs := vfstest.FromMap(map[string]string{"/p/main.pts": source}, true /*useCaseSensitiveFileNames*/)
+	program, errors := frontend.Load(ctx, fs, "/p/main.pts")
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	info, errors := check.Program(ctx, program)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	defer func() { internal, _ = recover().(*diagnostic.InternalError) }()
+	lower.Program(ctx, program, info)
+	return nil
+}
+
+// failingAt makes lowering fail at the nodes of kind.
+func failingAt(t *testing.T, kind ast.Kind) context.Context {
+	return diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool { return phase == "lowering" && node.Kind == kind })
+}
+
+func TestAPanicWhileLoweringIsAnInternalErrorAtTheInnermostExpression(t *testing.T) {
+	t.Parallel()
+	source := "const words = [\"a\"];\nconsole.log(words.length, 1 + 2);\n"
+
+	internal := lowerFailure(t, failingAt(t, ast.KindBinaryExpression), source)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:2:27 - error PTS9001: internal compiler error while lowering: injected failure")
+	assert.Equal(t, source[internal.Start:internal.End], "1 + 2")
+}
+
+func TestAPanicWhileLoweringAStatementIsAnInternalErrorAtTheStatement(t *testing.T) {
+	t.Parallel()
+	source := "let n = 1;\nfunction f() {\n  if (n > 0) n++;\n}\nf();\n"
+
+	internal := lowerFailure(t, failingAt(t, ast.KindIfStatement), source)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:3:3 - error PTS9001: internal compiler error while lowering: injected failure")
+}
+
+func TestAnInternalErrorWhileLoweringKeepsTheErrorsReportedBeforeIt(t *testing.T) {
+	t.Parallel()
+	source := "debugger;\nconsole.log(1 + 2);\n"
+
+	internal := lowerFailure(t, failingAt(t, ast.KindBinaryExpression), source)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, len(internal.Earlier), 1)
+	assert.Equal(t, internal.Earlier[0].Format("/p"), "main.pts:1:1 - error PTS1001: debugger statement is not supported yet")
+}
+
+func TestAPanicAfterANodesChildrenAreLoweredIsAnInternalErrorAtThatNode(t *testing.T) {
+	t.Parallel()
+	source := "const n = 1;\nconsole.log(n + 2, [n, 3]);\n"
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "after lowering" && node.Kind == ast.KindCallExpression
+	})
+
+	internal := lowerFailure(t, ctx, source)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:2:1 - error PTS9001: internal compiler error while lowering: injected failure")
+}
+
+func TestAPanicAfterAStatementsChildrenAreLoweredIsAnInternalErrorAtThatStatement(t *testing.T) {
+	t.Parallel()
+	source := "let n = 1;\nif (n > 0) {\n  n = n * 2;\n}\n"
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "after lowering" && node.Kind == ast.KindIfStatement
+	})
+
+	internal := lowerFailure(t, ctx, source)
+
+	assert.Assert(t, internal != nil)
+	assert.Equal(t, internal.Format("/p"), "main.pts:2:1 - error PTS9001: internal compiler error while lowering: injected failure")
 }

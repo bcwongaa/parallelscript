@@ -277,14 +277,27 @@ func (t *Toolchain) compileArgs(lib library, flags []string, source string, obje
 	return append(args, "-c", source, "-o", object)
 }
 
-// run executes a command; on failure the error carries the command line and its output.
+// CommandError is a command of the toolchain that failed, with what it printed.
+type CommandError struct {
+	Command []string // the program and its arguments
+	Err     error    // how it failed: its exit status, or why it didn't start
+	Output  string   // its stdout and stderr, interleaved
+}
+
+func (e *CommandError) Error() string {
+	return fmt.Sprintf("%s: %v\n%s", strings.Join(e.Command, " "), e.Err, e.Output)
+}
+
+func (e *CommandError) Unwrap() error { return e.Err }
+
+// run executes a command; on failure the error is a *CommandError.
 func (t *Toolchain) run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, output.String())
+		return &CommandError{Command: append([]string{name}, args...), Err: err, Output: output.String()}
 	}
 	return nil
 }

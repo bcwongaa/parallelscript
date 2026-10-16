@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
 	"gotest.tools/v3/assert"
@@ -92,4 +93,25 @@ func TestUnsupportedSyntaxStopsTheBuild(t *testing.T) {
 	diagnostics := compileErrors(t, err)
 	assert.Equal(t, len(diagnostics), 1)
 	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:1:1 - error PTS1001: debugger statement is not supported yet")
+}
+
+// internalError returns err as an internal compiler error, which it must be.
+func internalError(t *testing.T, err error) *diagnostic.InternalError {
+	t.Helper()
+	var internal *diagnostic.InternalError
+	assert.Assert(t, errors.As(err, &internal), "expected an internal compiler error, got %v", err)
+	return internal
+}
+
+func TestAPanicWhileCompilingIsReturnedAsAnInternalError(t *testing.T) {
+	t.Parallel()
+	entry := writeSource(t, "const words = [\"a\"];\nconsole.log(words.length + 1);\n")
+	ctx := diagnostic.WithInjectedFailure(t.Context(), func(phase string, node *ast.Node) bool {
+		return phase == "lowering" && node.Kind == ast.KindBinaryExpression
+	})
+
+	_, err := driver.EmitC(ctx, entry)
+
+	internal := internalError(t, err)
+	assert.Equal(t, internal.Format(filepath.Dir(entry)), "main.pts:2:13 - error PTS9001: internal compiler error while lowering: injected failure")
 }

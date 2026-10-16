@@ -135,6 +135,7 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 		paramNames[0] = "pts_this"
 	}
 	e.line(0, "")
+	e.source = f.Pos // a function without a position has none, not the previous one's (D-179)
 	e.at(f.Pos)
 	e.line(0, "static %s {", e.signature(f, paramNames))
 	e.line(1, "%s *pts_frame = (%s *)pts_generator_new(sizeof(%s), %s);", frame.name, frame.name, frame.name, frame.step)
@@ -171,6 +172,7 @@ func (e *emitter) generatorFunction(f *ir.Func) {
 		e.usedNames[member] = true
 	}
 	e.line(0, "")
+	e.source = f.Pos // a function without a position has none, not the previous one's (D-179)
 	e.at(f.Pos)
 	e.line(0, "static bool %s(pts_iterator *pts_generator) {", frame.step)
 	e.line(1, "%s *pts_frame = (%s *)pts_generator;", frame.name, frame.name)

@@ -2349,8 +2349,13 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text);
 pts_value pts_iterator_get(pts_value iterable, const pts_string *text);
 /* An iterator itself, or one that calls an object's next(), return() and throw() (D-111). */
 pts_value pts_iterator_of(pts_value iterator);
-/* Whether value is an object of the program's with a method `@@iterator` ([Symbol.iterator]). */
-bool pts_value_has_iterator_method(pts_value value);
+/*
+ * What an object of the program's holds as its [Symbol.iterator] (`@@iterator`), read
+ * once, as GetMethod reads it, so that a getter runs once (D-179): a method bound to the
+ * object, or the getter's or field's value, which may be no function; PTS_VALUE_UNDEFINED
+ * if it has none (and for anything but the program's objects).
+ */
+pts_value pts_iterator_method(pts_value value);
 /*
  * A `for…of` or an array pattern (D-109, H03) steps through the source
  * pts_iteration_open gives: the iterator of an iterable that has one to step (a generator

@@ -12,7 +12,9 @@ import (
 // declareClasses makes the IR class of every class a module declares at its top level,
 // still without superclass or members, so that any type can name any class.
 func (l *lowerer) declareClasses(file *ast.SourceFile) {
+	outer := l.current
 	for _, statement := range file.Statements.Nodes {
+		l.current = statement // which an internal error reports (D-179)
 		if statement.Kind == ast.KindClassDeclaration && statement.TypeParameterList() != nil && statement.Name() != nil {
 			l.declareGenericClass(statement)
 			continue
@@ -25,6 +27,7 @@ func (l *lowerer) declareClasses(file *ast.SourceFile) {
 			}
 		}
 	}
+	l.current = outer
 }
 
 // declareClass makes the IR class for a declaration, or reports why it can't and returns nil.
@@ -43,11 +46,14 @@ func (l *lowerer) declareClass(node *ast.Node) *ir.Class {
 // declareSuperclasses links each class a module declares to its superclass. A class
 // extending anything but a class of the program, or a class that failed, fails too.
 func (l *lowerer) declareSuperclasses(file *ast.SourceFile) {
+	outer := l.current
 	for _, statement := range file.Statements.Nodes {
 		if statement.Kind == ast.KindClassDeclaration {
+			l.current = statement // which an internal error reports (D-179)
 			l.declareSuperclass(statement)
 		}
 	}
+	l.current = outer
 }
 
 func (l *lowerer) declareSuperclass(node *ast.Node) {
@@ -114,18 +120,24 @@ func (l *lowerer) orderedClasses(files []*ast.SourceFile) []*ir.Class {
 // constructor and methods, whose bodies are lowered later; superclasses go first. Then
 // it links overrides to the methods they override.
 func (l *lowerer) declareClassMembers() {
+	outer := l.current
 	for _, class := range l.classList {
+		l.current = l.classNodes[class] // which an internal error reports (D-179)
 		l.ensureMembers(class)
 	}
 	for _, generic := range l.genericClassList {
+		l.current = generic.node
 		l.declareGenericStatics(generic)
 	}
 	for i := 0; i < len(l.instanceClasses); i++ { // instances made so far; declaring members may make more
+		l.current = l.classNodes[l.instanceClasses[i]]
 		l.ensureMembers(l.instanceClasses[i])
 	}
 	for _, class := range append(l.classList, l.instanceClasses...) {
+		l.current = l.classNodes[class]
 		l.linkOverrides(class)
 	}
+	l.current = outer
 	l.membersDeclared = true
 }
 

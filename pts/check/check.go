@@ -46,19 +46,28 @@ func (i *Info) OperandType(node *ast.Node) (Numeric, bool) {
 	return n, ok
 }
 
-// Program checks a program that loaded without errors.
+// Program checks a program that loaded without errors. A panic is a bug in the compiler:
+// it becomes a panic with a *diagnostic.InternalError at the innermost node being visited.
 func Program(ctx context.Context, program *frontend.Program) (*Info, []diagnostic.Diagnostic) {
 	tc, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
 	c := &pass{
-		program:   program.TS,
-		tc:        tc,
-		info:      &Info{results: map[*ast.Node]Numeric{}, types: map[*ast.Node]Numeric{}, operands: map[*ast.Node]Numeric{}},
-		symbols:   map[*ast.Symbol]Numeric{},
-		declared:  map[*ast.Node]bool{},
-		functions: map[*ast.Node]*function{},
-		guarded:   map[*ast.Node]bool{},
+		program:     program.TS,
+		tc:          tc,
+		info:        &Info{results: map[*ast.Node]Numeric{}, types: map[*ast.Node]Numeric{}, operands: map[*ast.Node]Numeric{}},
+		symbols:     map[*ast.Symbol]Numeric{},
+		declared:    map[*ast.Node]bool{},
+		functions:   map[*ast.Node]*function{},
+		guarded:     map[*ast.Node]bool{},
+		failure:     diagnostic.InjectedFailure(ctx, phase),
+		failureLeft: diagnostic.InjectedFailure(ctx, "after "+phase),
 	}
+	defer diagnostic.Locate(phase, func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
+		if c.at == nil {
+			return diagnostic.Diagnostic{}, c.errors
+		}
+		return diagnostic.At(c.at, "", ""), c.errors
+	})
 	for _, module := range program.Modules {
 		c.unsupportedFeatures(module.AsNode())
 		c.parallelBodies(module.AsNode())
@@ -68,16 +77,22 @@ func Program(ctx context.Context, program *frontend.Program) (*Info, []diagnosti
 }
 
 type pass struct {
-	program   *compiler.Program
-	tc        *checker.Checker
-	info      *Info
-	symbols   map[*ast.Symbol]Numeric // numeric type of each number-typed variable, parameter and `export default` value
-	declared  map[*ast.Node]bool      // the variable declarations and `export default`s checked so far
-	functions map[*ast.Node]*function // by declaration
-	current   *functionBody           // the function whose body is being checked, or nil at the top level
-	guarded   map[*ast.Node]bool      // the parallel bodies checked by the guardrail
-	errors    []diagnostic.Diagnostic
+	program     *compiler.Program
+	tc          *checker.Checker
+	info        *Info
+	symbols     map[*ast.Symbol]Numeric // numeric type of each number-typed variable, parameter and `export default` value
+	declared    map[*ast.Node]bool      // the variable declarations and `export default`s checked so far
+	functions   map[*ast.Node]*function // by declaration
+	current     *functionBody           // the function whose body is being checked, or nil at the top level
+	guarded     map[*ast.Node]bool      // the parallel bodies checked by the guardrail
+	errors      []diagnostic.Diagnostic
+	at          *ast.Node                 // the innermost node being visited, which an internal error reports (D-179)
+	failure     func(node *ast.Node) bool // diagnostic.WithInjectedFailure's, for tests: on entering a node
+	failureLeft func(node *ast.Node) bool // and on leaving it, after its children
 }
+
+// phase is the pass as an internal error names it.
+const phase = "running ParallelScript's checks"
 
 func (c *pass) report(node *ast.Node, code string, format string, args ...any) {
 	c.errors = append(c.errors, diagnostic.At(node, code, format, args...))
@@ -85,6 +100,19 @@ func (c *pass) report(node *ast.Node, code string, format string, args ...any) {
 
 // visit checks node and everything below it.
 func (c *pass) visit(node *ast.Node) {
+	outer := c.at
+	c.at = node
+	if c.failure != nil && c.failure(node) {
+		panic("injected failure")
+	}
+	c.visitNode(node)
+	if c.failureLeft != nil && c.failureLeft(node) {
+		panic("injected failure")
+	}
+	c.at = outer // a panic leaves the innermost node
+}
+
+func (c *pass) visitNode(node *ast.Node) {
 	switch {
 	case node.Kind == ast.KindVariableDeclaration || node.Kind == ast.KindPropertyDeclaration || node.Kind == ast.KindPropertySignature:
 		c.variableDeclaration(node)

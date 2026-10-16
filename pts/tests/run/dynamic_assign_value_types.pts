@@ -1,0 +1,19 @@
+// The value of `=` on a property of a dynamic value (an `any`'s, D-070, or a recursive
+// union's entry, D-089) is the value stored, of the type tsc gives the assignment: the
+// right side's (C26's sibling).
+const o: any = { xs: [0], ys: [0], s: "", t: "", m: new Map<string, number>() };
+const key = "s";
+console.log((o.xs = [1, 2]).length, (o.ys = [3, 4])[1], (o[key] = "abc").length, (o.t = "de").toUpperCase());
+console.log((o.m = new Map([["k", 1]])).size, o.xs, o.s);
+
+type Json = number | string | Json[] | { [k: string]: Json };
+const doc: { [k: string]: Json } = { a: 1 };
+const json: Json = doc;
+if (typeof json === "object" && !Array.isArray(json)) {
+  console.log((json.b = "xyz").length, json);
+}
+
+// expect:
+// 2 4 3 DE
+// 1 [ 1, 2 ] abc
+// 3 { a: 1, b: 'xyz' }

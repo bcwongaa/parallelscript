@@ -1,0 +1,159 @@
+// A value declared `any` or `unknown` that a type guard, `asserts` or `instanceof` narrows
+// to an array, tuple, record, map or set type stays the dynamic value it is: its members
+// are read, written and called as a dynamic value's are, so writes reach it, identity holds
+// and each read costs a lookup, not a copy (D-179; review finding 1: a conversion at each
+// read lost writes and was quadratic). A member read has tsc's type (`t[0].length`).
+function isNums(x: unknown): x is number[] { return Array.isArray(x); }
+const u: unknown = JSON.parse("[3, 1, 2]");
+if (isNums(u)) {
+  console.log(u.length, u[0], u.at(-1), u.indexOf(1), u.includes(2), u.join("-"), u.slice(1), u.concat([9]));
+  u.push(4); u.unshift(0); console.log(u.pop(), u.shift(), u);
+  u.sort((a, b) => a - b); u.reverse(); console.log(u, u.map((n) => n * 2), u.filter((n) => n > 1), u.reduce((a, b) => a + b, 0));
+  u.forEach((n) => console.log("each", n));
+  console.log(u.find((n) => n > 1), u.findIndex((n) => n > 5), u.some((n) => n > 2), u.every((n) => n > 0));
+  for (const n of u) console.log("of", n);
+  console.log([...u], Array.from(u), [...u.keys()], [...u.entries()], [...u.values()]);
+  const [a, b, ...rest] = u;
+  console.log(a, b, rest);
+  u[0] = 10; u.length = 2;
+  console.log(u, JSON.stringify(u), `${u}`, typeof u, u === u);
+  u.splice(0, 1, 7, 8); u.fill(5, 1);
+  console.log(u, Object.keys(u));
+  let total = 0;
+  for (let i = 0; i < u.length; i++) total += u[i];
+  console.log(total);
+}
+const anyList: any = JSON.parse("[1, 2]");
+if (isNums(anyList)) anyList.push(3);
+console.log(anyList);
+function assertNums(x: unknown): asserts x is number[] {
+  if (!Array.isArray(x)) throw new TypeError("not an array");
+}
+const asserted: unknown = JSON.parse("[2, 1]");
+assertNums(asserted);
+asserted.push(0); asserted.sort();
+console.log(asserted);
+
+function isPairs(x: unknown): x is [string, number][] { return Array.isArray(x); }
+const pairs: unknown = JSON.parse('[["k", 1], ["j", 2]]');
+if (isPairs(pairs)) {
+  for (const [k, v] of pairs) console.log(k, v);
+  console.log(pairs[1][0], pairs.map(([k]) => k), new Map(pairs).get("j"));
+}
+function isPair(x: unknown): x is [string, number] { return Array.isArray(x); }
+const pair: unknown = ["s", 5];
+if (isPair(pair)) {
+  const [s, n] = pair;
+  console.log(s, n, pair[0].length, pair[1] + 1, pair.length);
+  pair[1] = 6;
+  console.log(pair);
+}
+try {
+  throw ["a", 1];
+} catch (e) {
+  if (isPair(e)) console.log(e[0], e[1] + 1);
+}
+function add(x: number, y: number): number { return x + y; }
+function isNumberPair(x: unknown): x is [number, number] { return Array.isArray(x); }
+const operands: unknown = JSON.parse("[1, 2]");
+if (isNumberPair(operands)) console.log(add.apply(null, operands));
+
+function isCounts(x: unknown): x is Record<string, number> { return typeof x === "object" && x !== null; }
+const counts: unknown = JSON.parse('{"a": 1, "b": 2}');
+if (isCounts(counts)) {
+  counts.c = 3; counts["d"] = 4;
+  console.log(counts.b, counts["c"], "c" in counts, "z" in counts, Object.keys(counts), Object.values(counts), Object.entries(counts), JSON.stringify(counts));
+  for (const k in counts) console.log("key", k, counts[k]);
+}
+
+function isMap(x: unknown): x is Map<string, number> { return x instanceof Map; }
+const map: unknown = new Map<string, number>([["x", 1]]);
+if (isMap(map)) {
+  map.set("y", 2);
+  console.log(map.get("x"), map.has("y"), map.size, [...map.keys()], [...map.values()], [...map.entries()], [...map]);
+  map.forEach((v, k) => console.log("map", k, v));
+  for (const [k, v] of map) console.log("of", k, v);
+  map.delete("x");
+  console.log(map.size, map);
+}
+function isSet(x: unknown): x is Set<string> { return x instanceof Set; }
+const anySet: any = new Set<string>();
+anySet.add("p");
+if (isSet(anySet)) {
+  anySet.add("q");
+  console.log(anySet.has("p"), anySet.size, [...anySet], Array.from(anySet));
+  for (const v of anySet) console.log("set", v);
+  anySet.delete("p");
+  console.log(anySet);
+}
+
+// What a narrowed value's methods return is dynamic too, of tsc's type (review round 2, R1:
+// the C emitter panicked on `.length` of it); reads past the end and of missing keys give
+// undefined where it can go, as typed code's do (R2); `!` keeps the value dynamic.
+const nums: unknown = JSON.parse("[3, 1, 2]");
+if (isNums(nums)) {
+  console.log(nums.slice(1).length, nums.filter((n) => n > 1)[0], nums.map((n) => n * 2)[2], nums.concat([9]).length, nums.join("").length, nums.slice(1)[0] + 1);
+  console.log(nums[5], nums[5] === undefined, nums[5] ?? "none");
+}
+if (isCounts(counts)) console.log(counts.zz, counts["zz"] === undefined, counts.zz ?? 0);
+function isGroups(x: unknown): x is Map<string, number[]> { return x instanceof Map; }
+const groups: unknown = new Map<string, number[]>([["a", [1, 2]]]);
+if (isGroups(groups)) {
+  groups.get("a")!.push(3);
+  console.log(groups.get("a")!.length, groups.get("a"));
+}
+interface Config { hosts: string[]; limits: Record<string, number>; name: string }
+function isConfig(x: unknown): x is Config { return typeof x === "object" && x !== null && "hosts" in x; }
+const config: unknown = JSON.parse('{"hosts": ["a"], "limits": {"a": 1}, "name": "c"}');
+if (isConfig(config)) {
+  config.hosts.push("b");
+  config.limits.b = 2;
+  config.name = config.name.toUpperCase();
+  console.log(config, config.hosts.length);
+}
+
+// expect:
+// 3 3 2 1 true 3-1-2 [ 1, 2 ] [ 3, 1, 2, 9 ]
+// 4 0 [ 3, 1, 2 ]
+// [ 3, 2, 1 ] [ 6, 4, 2 ] [ 3, 2 ] 6
+// each 3
+// each 2
+// each 1
+// 3 -1 true true
+// of 3
+// of 2
+// of 1
+// [ 3, 2, 1 ] [ 3, 2, 1 ] [ 0, 1, 2 ] [ [ 0, 3 ], [ 1, 2 ], [ 2, 1 ] ] [ 3, 2, 1 ]
+// 3 2 [ 1 ]
+// [ 10, 2 ] [10,2] 10,2 object true
+// [ 7, 5, 5 ] [ '0', '1', '2' ]
+// 17
+// [ 1, 2, 3 ]
+// [ 0, 1, 2 ]
+// k 1
+// j 2
+// j [ 'k', 'j' ] 2
+// s 5 1 6 2
+// [ 's', 6 ]
+// a 2
+// 3
+// 2 3 true false [ 'a', 'b', 'c', 'd' ] [ 1, 2, 3, 4 ] [ [ 'a', 1 ], [ 'b', 2 ], [ 'c', 3 ], [ 'd', 4 ] ] {"a":1,"b":2,"c":3,"d":4}
+// key a 1
+// key b 2
+// key c 3
+// key d 4
+// 1 true 2 [ 'x', 'y' ] [ 1, 2 ] [ [ 'x', 1 ], [ 'y', 2 ] ] [ [ 'x', 1 ], [ 'y', 2 ] ]
+// map x 1
+// map y 2
+// of x 1
+// of y 2
+// 1 Map(1) { 'y' => 2 }
+// true 2 [ 'p', 'q' ] [ 'p', 'q' ]
+// set p
+// set q
+// Set(1) { 'q' }
+// 2 3 4 4 3 2
+// undefined true none
+// undefined true 0
+// 3 [ 1, 2, 3 ]
+// { hosts: [ 'a', 'b' ], limits: { a: 1, b: 2 }, name: 'C' } 2
