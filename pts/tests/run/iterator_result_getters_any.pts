@@ -1,7 +1,7 @@
 // A `next()` typed `any` can return an object literal with getters as its result (D-146,
 // H03): a `for…of` reads `done` first and `value` only while the iterator isn't done,
-// through a typed iterable and through `any` alike. `errors/iterator_result_getters.pts`
-// is the typed `IteratorResult` that can't (C03).
+// through a typed iterable and through `any` alike. `run/iterator_result_getters_typed.pts`
+// is the same through a typed `IteratorResult` (C03, H03b).
 function results(tag: string, limit: number): any {
   let step = 0;
   return {

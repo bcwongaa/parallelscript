@@ -1,0 +1,101 @@
+// Closing an iterator (IteratorClose: at an array pattern's end, a break, a throw out of
+// a for…of) calls return() and checks that its result is an object, reading nothing of
+// it (D-178); a result that isn't an object is a TypeError on a break, and dropped when a
+// throw closes the loop. Elisions read only done.
+function iter(tag: string, ret: () => unknown): Iterable<number> {
+  return {
+    [Symbol.iterator](): Iterator<number> {
+      let k = 0;
+      return {
+        next(): IteratorResult<number> {
+          k++;
+          const s = k;
+          return {
+            get done() {
+              console.log(tag, "done", s);
+              return false;
+            },
+            get value() {
+              console.log(tag, "value", s);
+              return s;
+            },
+          } as IteratorResult<number>;
+        },
+        return(): any {
+          console.log(tag, "return");
+          return ret();
+        },
+      };
+    },
+  };
+}
+const getterResult = () => ({
+  get done() {
+    console.log("close done read");
+    return true;
+  },
+  get value() {
+    console.log("close value read");
+    return 0;
+  },
+});
+const [, , c] = iter("P", getterResult);
+console.log("c", c);
+for (const x of iter("B", getterResult)) {
+  console.log("B item", x);
+  break;
+}
+try {
+  for (const x of iter("N", () => 5)) {
+    console.log("N item", x);
+    break;
+  }
+} catch (e) {
+  console.log("N", (e as Error).constructor.name, (e as Error).message);
+}
+try {
+  for (const x of iter("T", () => 5)) {
+    console.log("T item", x);
+    throw new Error("body");
+  }
+} catch (e) {
+  console.log("T", (e as Error).message);
+}
+const loose: any = iter("A", getterResult);
+const [, a2] = loose;
+console.log("a2", a2);
+for (const x of loose) {
+  console.log("A item", x);
+  break;
+}
+
+// expect:
+// P done 1
+// P done 2
+// P done 3
+// P value 3
+// P return
+// c 3
+// B done 1
+// B value 1
+// B item 1
+// B return
+// N done 1
+// N value 1
+// N item 1
+// N return
+// N TypeError Iterator result 5 is not an object
+// T done 1
+// T value 1
+// T item 1
+// T return
+// T body
+// A done 1
+// A done 2
+// A value 2
+// A return
+// a2 2
+// A done 1
+// A value 1
+// A item 1
+// A return

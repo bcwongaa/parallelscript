@@ -1,0 +1,102 @@
+// Iterators held as `any` (D-178): a generator's next(v), return(v) and throw(e), the
+// next() of arrays', maps', sets' and strings' iterators (which have no return()), and
+// arrays', maps' and sets' keys(), values() and entries() made through `any`, consumed by
+// Array.from, new Set and new Map, spread, for…of, array patterns and Promise.all.
+// (`typeof h.next` is "undefined": builtin methods through `any` are found by calls.)
+function* g(): Generator<number, string, number> {
+  const a = yield 1;
+  console.log("sent", a);
+  try {
+    yield 2;
+  } finally {
+    console.log("finally");
+  }
+  return "end";
+}
+const h: any = g();
+console.log(h.next(), h.next(10), h.return("early"), h.next());
+const t: any = g();
+t.next();
+try {
+  t.throw(new Error("boom"));
+} catch (e) {
+  console.log("caught", (e as Error).message);
+}
+console.log(t.next());
+
+const arr: any = [1, 2];
+const ai = arr.values();
+console.log(ai.next(), ai.next(), ai.next(), ai.next());
+console.log(arr.keys().next(), arr.entries().next());
+const ae: any = arr.entries();
+console.log([...ae]);
+try {
+  ai.return(1);
+} catch (e) {
+  console.log((e as Error).constructor.name, (e as Error).message);
+}
+const m: any = new Map([["a", 1], ["b", 2]]);
+const mk = m.keys();
+console.log(mk.next(), mk.next(), mk.next());
+console.log([...m.values()], [...m.entries()]);
+const s: any = new Set(["x", "y"]);
+console.log(s.values().next(), [...s.entries()], [...s.keys()]);
+const text = "hé";
+const si: any = text[Symbol.iterator]();
+console.log(si.next(), si.next(), si.next());
+const live: any = new Map([[1, "one"]]);
+const lv = live.values();
+live.set(2, "two");
+console.log(lv.next().value, lv.next().value, lv.next().done);
+
+console.log(Array.from(m.keys()), new Set(m.values()), new Map(m.entries()));
+const three: any = [3, 4, 5];
+const [first, , third] = three.values();
+console.log(first, third);
+for (const [i, v] of three.entries()) console.log(i, v);
+const all = await Promise.all(three.values());
+console.log(all);
+function* pair() {
+  yield 1;
+  yield 2;
+}
+const handle: any = pair();
+console.log(handle.next(), [...handle]);
+
+async function* ag(): AsyncGenerator<number, string> {
+  yield 1;
+  yield 2;
+  return "end";
+}
+const loose: any = ag();
+console.log(await loose.next(), await loose.return("r"), await loose.next());
+const typed = ag();
+const r1 = await typed.next();
+console.log(r1.done, r1.value);
+console.log(await typed.return("early"));
+
+// expect:
+// sent 10
+// finally
+// { value: 1, done: false } { value: 2, done: false } { value: 'early', done: true } { value: undefined, done: true }
+// caught boom
+// { value: undefined, done: true }
+// { value: 1, done: false } { value: 2, done: false } { value: undefined, done: true } { value: undefined, done: true }
+// { value: 0, done: false } { value: [ 0, 1 ], done: false }
+// [ [ 0, 1 ], [ 1, 2 ] ]
+// TypeError ai.return is not a function
+// { value: 'a', done: false } { value: 'b', done: false } { value: undefined, done: true }
+// [ 1, 2 ] [ [ 'a', 1 ], [ 'b', 2 ] ]
+// { value: 'x', done: false } [ [ 'x', 'x' ], [ 'y', 'y' ] ] [ 'x', 'y' ]
+// { value: 'h', done: false } { value: 'é', done: false } { value: undefined, done: true }
+// one two true
+// [ 'a', 'b' ] Set(2) { 1, 2 } Map(2) { 'a' => 1, 'b' => 2 }
+// 3 5
+// 0 3
+// 1 4
+// 2 5
+// [ 3, 4, 5 ]
+// { value: 1, done: false } [ 2 ]
+// { value: 1, done: false } { value: 'r', done: true } { value: undefined, done: true }
+// false 1
+// { value: 'early', done: true }

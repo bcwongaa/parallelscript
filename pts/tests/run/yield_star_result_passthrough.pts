@@ -1,0 +1,223 @@
+// A sync generator's `yield*` reads `done` of each inner result and hands the result
+// object itself to whoever resumed the generator; return(v) and throw(e) reach the inner
+// iterator's methods, and their results are handed through the same way unless done.
+
+class Inner implements Iterable<number>, Iterator<number> {
+    label: string;
+    limit: number;
+    closeDone: boolean;
+    step = 0;
+    last: any = null;
+    constructor(label: string, limit: number, closeDone: boolean) {
+        this.label = label;
+        this.limit = limit;
+        this.closeDone = closeDone;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        return this;
+    }
+    next(): any {
+        const current = this.step++;
+        return this.remember("next " + current, current >= this.limit, current * 10);
+    }
+    return(sent?: any): any {
+        console.log(this.label, "return called with", sent);
+        return this.remember("return", this.closeDone, 70);
+    }
+    throw(error?: any): any {
+        console.log(this.label, "throw called with", error);
+        return this.remember("throw", this.closeDone, 80);
+    }
+    remember(what: string, done: boolean, value: number): any {
+        const label = this.label + " " + what;
+        this.last = {
+            get done(): boolean {
+                console.log(label, "read done");
+                return done;
+            },
+            get value(): number {
+                console.log(label, "read value");
+                return value;
+            },
+        };
+        return this.last;
+    }
+}
+
+function* outer(inner: Iterable<number>): Generator<number, number, undefined> {
+    try {
+        const delegated = yield* inner;
+        console.log("yield* gave", delegated);
+        yield 50;
+        return 99;
+    } finally {
+        console.log("outer finally");
+    }
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("for-of", () => {
+    for (const n of outer(new Inner("for-of", 2, true))) {
+        console.log("for-of item", n);
+    }
+});
+
+attempt("spread", () => {
+    console.log("spread", [...outer(new Inner("spread", 1, true))]);
+});
+
+attempt("next done first", () => {
+    const inner = new Inner("done first", 1, true);
+    const o = outer(inner);
+    const result = o.next();
+    console.log("done first got result, same object:", result === inner.last);
+    console.log("done first:", result.done, result.value);
+});
+
+attempt("next value first", () => {
+    const o = outer(new Inner("value first", 1, true));
+    const result = o.next();
+    console.log("value first got result");
+    console.log("value first:", result.value, result.done);
+});
+
+attempt("next unread", () => {
+    const o = outer(new Inner("unread", 1, true));
+    o.next();
+    console.log("unread dropped");
+});
+
+attempt("next through any", () => {
+    const inner = new Inner("any", 1, true);
+    const h: any = outer(inner);
+    const result = h.next();
+    console.log("any got result, same object:", result === inner.last);
+    console.log("any:", result.value);
+});
+
+attempt("nested", () => {
+    const inner = new Inner("nested", 1, true);
+    const o = outer(outer(inner));
+    const result = o.next();
+    console.log("nested got result, same object:", result === inner.last);
+    console.log("nested:", result.value, result.done);
+});
+
+attempt("return not done", () => {
+    const inner = new Inner("return not done", 5, false);
+    const o = outer(inner);
+    o.next();
+    const result = o.return(7);
+    console.log("return not done got result, same object:", result === inner.last);
+    console.log("return not done:", result.done, result.value);
+});
+
+attempt("return done", () => {
+    const inner = new Inner("return done", 5, true);
+    const o = outer(inner);
+    o.next();
+    const result = o.return(7);
+    console.log("return done got result, same object:", result === inner.last);
+    console.log("return done:", result);
+});
+
+attempt("throw not done", () => {
+    const inner = new Inner("throw not done", 5, false);
+    const o = outer(inner);
+    o.next();
+    const result = o.throw("boom");
+    console.log("throw not done got result, same object:", result === inner.last);
+    console.log("throw not done:", result.value, result.done);
+});
+
+attempt("throw done", () => {
+    const inner = new Inner("throw done", 5, true);
+    const o = outer(inner);
+    o.next();
+    const result = o.throw("bang");
+    console.log("throw done got result, same object:", result === inner.last);
+    console.log("throw done:", result);
+    console.log("throw done next:", o.next());
+});
+
+// expect:
+// for-of next 0 read done
+// for-of next 0 read done
+// for-of next 0 read value
+// for-of item 0
+// for-of next 1 read done
+// for-of next 1 read done
+// for-of next 1 read value
+// for-of item 10
+// for-of next 2 read done
+// for-of next 2 read value
+// yield* gave 20
+// for-of item 50
+// outer finally
+// spread next 0 read done
+// spread next 0 read done
+// spread next 0 read value
+// spread next 1 read done
+// spread next 1 read value
+// yield* gave 10
+// outer finally
+// spread [ 0, 50 ]
+// done first next 0 read done
+// done first got result, same object: true
+// done first next 0 read done
+// done first next 0 read value
+// done first: false 0
+// value first next 0 read done
+// value first got result
+// value first next 0 read value
+// value first next 0 read done
+// value first: 0 false
+// unread next 0 read done
+// unread dropped
+// any next 0 read done
+// any got result, same object: true
+// any next 0 read value
+// any: 0
+// nested next 0 read done
+// nested next 0 read done
+// nested got result, same object: true
+// nested next 0 read value
+// nested next 0 read done
+// nested: 0 false
+// return not done next 0 read done
+// return not done return called with 7
+// return not done return read done
+// return not done got result, same object: true
+// return not done return read done
+// return not done return read value
+// return not done: false 70
+// return done next 0 read done
+// return done return called with 7
+// return done return read done
+// return done return read value
+// outer finally
+// return done got result, same object: false
+// return done: { value: 70, done: true }
+// throw not done next 0 read done
+// throw not done throw called with boom
+// throw not done throw read done
+// throw not done got result, same object: true
+// throw not done throw read value
+// throw not done throw read done
+// throw not done: 80 false
+// throw done next 0 read done
+// throw done throw called with bang
+// throw done throw read done
+// throw done throw read value
+// yield* gave 80
+// throw done got result, same object: false
+// throw done: { value: 50, done: false }
+// outer finally
+// throw done next: { value: 99, done: true }

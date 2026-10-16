@@ -313,7 +313,8 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 // without a conversion in the program: in a program that writes through `any`, the
 // declared types of every class's and shape's fields and of the arrays and hash-map
 // objects it makes, which a write converts to (D-072), and in one that calls through
-// `any`, every function's parameter types, which a call converts to (D-074). Each
+// `any`, every function's parameter types, which a call converts to (D-074), and the
+// types of iterator results' properties, which reads by name convert to (D-178). Each
 // interface among them gets the shape its copies take. Types that dynamic values can't be
 // converted to yet are left as they are, and converting to them throws.
 func (l *lowerer) prepareDynamicTypes(funcs []*ir.Func) {
@@ -326,6 +327,18 @@ func (l *lowerer) prepareDynamicTypes(funcs []*ir.Func) {
 				} else if param.Type != ir.Given {
 					l.prepareDynamicTarget(param.Type, l.firstDynamicCall, seen)
 				}
+			}
+		}
+	}
+	if l.firstResult != nil { // a result's done and value found by name on an object of another layout are converted to their types (D-178)
+		for _, shape := range l.shapeList {
+			if shape.Result {
+				l.prepareDynamicTarget(shape, l.firstResult, seen)
+			}
+		}
+		for _, iface := range l.interfaceList {
+			if iface.Result {
+				l.prepareDynamicTarget(iface.Fields[0].Type, l.firstResult, seen)
 			}
 		}
 	}

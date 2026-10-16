@@ -1,0 +1,53 @@
+// The same assertions as run/iterator_result_as_layouts.pts to a single result shape:
+// IteratorYieldResult<number>, and IteratorResult<number, number>, which D-109 makes one
+// shape. The literal keeps its getter and its extra properties.
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("yield result getter", () => {
+    const result = {
+        done: false,
+        get value(): number {
+            console.log("yield result getter read value");
+            return 42;
+        },
+    } as IteratorYieldResult<number>;
+    console.log("yield result getter:", result.value, result.done);
+});
+
+attempt("yield result extras", () => {
+    const result = { done: false, value: 43, note: "a" } as IteratorYieldResult<number>;
+    const loose: any = result;
+    console.log("yield result extras:", result.value, loose.note);
+});
+
+attempt("one shape getter", () => {
+    const result = {
+        done: true,
+        get value(): number {
+            console.log("one shape getter read value");
+            return 44;
+        },
+    } as IteratorResult<number, number>;
+    console.log("one shape getter:", result.done, result.value);
+});
+
+attempt("one shape extras", () => {
+    const result = { done: false, value: 45, note: "b" } as IteratorResult<number, number>;
+    const loose: any = result;
+    console.log("one shape extras:", result.value, loose.note, result);
+});
+
+// expect:
+// yield result getter read value
+// yield result getter: 42 false
+// yield result extras: 43 a
+// one shape getter read value
+// one shape getter: true 44
+// one shape extras: 45 b { done: false, value: 45, note: 'b' }

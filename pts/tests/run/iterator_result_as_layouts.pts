@@ -1,0 +1,126 @@
+// An object literal asserted to be an IteratorResult, or an `any` object converted to
+// one, keeps its own properties, and narrowed reads and writes of `value` reach them by
+// name, as JS does: through a parameter, an array element and a field, with a getter
+// `done`, extra properties and a done result's value of another type.
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+function plusOne(result: IteratorYieldResult<number>): number {
+    return result.value + 1;
+}
+
+attempt("parameter", () => {
+    const result = { done: false, get value(): number { return 41; } } as IteratorResult<number>;
+    if (!result.done) {
+        console.log("parameter:", plusOne(result));
+    }
+});
+
+attempt("write", () => {
+    const result = { done: false, extra: 1, value: 1 } as IteratorResult<number>;
+    if (!result.done) {
+        result.value = 5;
+        console.log("write:", result.value, result);
+    }
+});
+
+attempt("getter done", () => {
+    const result = {
+        get done(): false {
+            console.log("getter done read");
+            return false;
+        },
+        value: 48,
+    } as IteratorResult<number>;
+    if (!result.done) {
+        console.log("getter done:", result.value);
+    }
+});
+
+attempt("array element", () => {
+    const results: IteratorResult<number>[] = [{ done: false, tag: "t", value: 49 } as IteratorResult<number>];
+    const first = results[0];
+    if (!first.done) {
+        console.log("array element:", first.value);
+    }
+});
+
+class Holder {
+    last: IteratorResult<number>;
+    constructor(last: IteratorResult<number>) {
+        this.last = last;
+    }
+}
+attempt("field", () => {
+    const holder = new Holder({ done: false, source: "holder", value: 50 } as IteratorResult<number>);
+    const last = holder.last;
+    if (!last.done) {
+        console.log("field:", last.value);
+    }
+});
+
+attempt("done value", () => {
+    const result = { done: true, reason: "end", value: "finished" } as IteratorResult<number, string>;
+    if (result.done) {
+        console.log("done value:", result.value.length, result.value);
+    }
+});
+
+// Converted from `any`, no assertion: the object's declared types fit the result's.
+attempt("from any next", () => {
+    let calls = 0;
+    const source: any = {
+        next(): any {
+            calls++;
+            const amount: any = calls * 100;
+            return { done: false, step: "step " + calls, value: amount };
+        },
+    };
+    const result: IteratorResult<number> = source.next();
+    if (!result.done) {
+        console.log("from any next:", result.value);
+    }
+});
+
+attempt("from any getter", () => {
+    const loose: any = {
+        done: false,
+        get value(): any {
+            return 51;
+        },
+    };
+    const result: IteratorResult<number> = loose;
+    if (!result.done) {
+        const v = result.value;
+        console.log("from any getter:", typeof v, v);
+    }
+});
+
+// Last: on the base this read stops the program (`console.log got a malformed value`).
+attempt("extra properties", () => {
+    const result = { done: false, value: 44, note: "n", count: 3 } as IteratorResult<number>;
+    if (!result.done) {
+        console.log("extra properties:", result.value);
+    }
+    const loose: any = result;
+    console.log("extra properties through any:", loose.note, loose.count);
+});
+
+// expect:
+// parameter: 42
+// write: 5 { done: false, extra: 1, value: 5 }
+// getter done read
+// getter done: 48
+// array element: 49
+// field: 50
+// done value: 8 finished
+// from any next: 100
+// from any getter: number 51
+// extra properties: 44
+// extra properties through any: n 3

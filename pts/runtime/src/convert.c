@@ -20,6 +20,12 @@ typedef struct converting {
     const pts_check *check;
   } stack[MAX_DEPTH];
   size_t depth;
+  /*
+   * Set for a union's member tried before the union's iterator results: a result's check
+   * then takes only objects of its own layout, so that another object member gets the
+   * object first, as it is or as a copy (D-178). convert clears it for the levels below.
+   */
+  bool results_last;
 } converting;
 
 static bool convert(converting *c, pts_value value, const pts_check *check, bool copy, pts_value *out);
@@ -222,6 +228,9 @@ static bool implies(implying *s, const pts_check *sub, const pts_check *super) {
     }
     return true;
   }
+  if (sub->result && super->kind == PTS_CHECK_OBJECT && !super->result) {
+    return false; /* an iterator result's object may be of any layout (D-178): the declared types say nothing of it */
+  }
   switch (super->kind) {
   case PTS_CHECK_UNION:
     for (uint32_t i = 0; i < super->count; i++) {
@@ -420,6 +429,8 @@ static bool convert_record(converting *c, pts_object *object, const pts_check *c
 
 static bool convert(converting *c, pts_value value, const pts_check *check, bool copy, pts_value *out) {
   *out = value;
+  bool results_last = c->results_last;
+  c->results_last = false;
   switch (check->kind) {
   case PTS_CHECK_ANY:
     return true;
@@ -453,12 +464,26 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
   }
   case PTS_CHECK_UNION:
     for (uint32_t i = 0; i < check->count; i++) {
+      c->results_last = true;
       if (convert(c, value, check->members[i], false, out)) {
         return true;
       }
     }
     for (uint32_t i = 0; copy && i < check->count; i++) {
+      if (check->members[i]->result) {
+        continue;
+      }
+      c->results_last = true;
       if (convert(c, value, check->members[i], true, out)) {
+        return true;
+      }
+    }
+    for (uint32_t i = 0; i < check->count; i++) { /* then an iterator result takes any of the program's objects */
+      if (!check->members[i]->result) {
+        continue;
+      }
+      c->results_last = false;
+      if (convert(c, value, check->members[i], copy, out)) {
         return true;
       }
     }
@@ -472,6 +497,9 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
   pts_object *object = pts_value_as_object(value);
   if (check->kind == PTS_CHECK_OBJECT && check->type != NULL && pts_unfrozen(object->type) == check->type) {
     return true; /* an object of the check's own descriptor, as a checked narrowed read finds (D-140) */
+  }
+  if (check->result && !results_last && object->type->kind == PTS_KIND_OBJECT) {
+    return true; /* an iterator result, as an iterator handed it back: nothing of it is read (D-178) */
   }
   if (!enter(c, object, check)) {
     return false; /* a cycle of dynamic data, which a copy can't hold (JSON has none) */
@@ -508,6 +536,7 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out) {
   converting c; /* not zero-filled: only the entries below depth are read, and a 4 KB memset per conversion showed in hot loops */
   c.depth = 0;
+  c.results_last = false;
   return convert(&c, value, check, true, out);
 }
 

@@ -1,0 +1,1358 @@
+{
+ "task": "H01b",
+ "date": "2026-10-16",
+ "source_sha": "a65a75d62724c7cc78d14748aedb9ac0e51a6fca",
+ "cli": "/home/bryan/projects/parallelscript/pts-bin/pts",
+ "cli_sha256": "450ed0166c7987a48036fdca961870272161840c2bbc2135a2bda6052bec1774",
+ "tools": {
+  "go": "go version go1.26.9 linux/amd64",
+  "node": "v24.21.0",
+  "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+ },
+ "comparison_contract": "stdout and exit code; stderr retained, not compared",
+ "results": [
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-any-iterator-data-properties.pts",
+   "probe_sha256": "facee9881e6da67288434e8d3387911937e6dcaf530fa7efe4d351f11bd7b36c",
+   "row": "C02",
+   "kind": "control",
+   "description": "the same `any` iterable shape whose next() returns plain data properties `{ done, value }` (no getters)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `item 0`, `item 10`, `end`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-any-iterator-data-properties.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-any-iterator-data-properties-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-any-iterator-data-properties.mts"
+    ],
+    "exit": 0,
+    "stdout": "item 0\nitem 10\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-control-any-iterator-data-properties-native"
+        ],
+        "exit": 0,
+        "stdout": "item 0\nitem 10\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-number-getter-throws.pts",
+   "probe_sha256": "2f87b22e80e6d0958fad1cd04bd08f10816811870b28de9c04e2dd5a69953cc9",
+   "row": "C02",
+   "kind": "control",
+   "description": "the same throwing object-literal getter annotated `: number` (so not `void`), read through `any`",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-number-getter-throws.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-number-getter-throws-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-number-getter-throws.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-control-number-getter-throws-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by getter\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-object-void-method.pts",
+   "probe_sha256": "32613a7c79b0319d6742047320bed7249a991c31163098196a3692f0ea5416e6",
+   "row": "C02",
+   "kind": "control",
+   "description": "an object-literal METHOD declared `: void` (not a getter) whose body only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by method`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-object-void-method.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-object-void-method-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-object-void-method.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by method\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-control-object-void-method-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by method\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-control-void-data-property.pts",
+   "probe_sha256": "ddd9395dc62bacdc37de9269713cf813c27c7b62750d11f47d5ad5c06b876b15",
+   "row": "C02",
+   "kind": "control",
+   "description": "a `void`-typed DATA property (not a getter) is fine, so the panic needs a void/never getter",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `undefined`, exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-control-void-data-property.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-void-data-property-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-void-data-property.mts"
+    ],
+    "exit": 0,
+    "stdout": "undefined\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-control-void-data-property-native"
+        ],
+        "exit": 0,
+        "stdout": "undefined\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-data-done-throwing-value.pts",
+   "probe_sha256": "7c1bbc2028ad5406c642c8ca62d5cd275001ae975b8c5e3fd1fc1bfcbfaf67bf",
+   "row": "C02",
+   "kind": "red",
+   "description": "for...of over an `any` iterable whose result has a data property `done: true` and a `get value()` that only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-data-done-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-data-done-throwing-value-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-data-done-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "end\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-data-done-throwing-value-native"
+        ],
+        "exit": 0,
+        "stdout": "end\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-done-getter-throwing-value.pts",
+   "probe_sha256": "318c2b1f0fd20f8cde8de58379e5ea729e88eb91b5a5a3d216b426e551de1aec",
+   "row": "C02",
+   "kind": "red",
+   "description": "for...of over an `any` iterable whose result has `get done()` (true) and a `get value()` that only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `read done` then `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-any-iterator-done-getter-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-done-getter-throwing-value-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-done-getter-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-any-iterator-done-getter-throwing-value-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-class-void-getter.pts",
+   "probe_sha256": "df9f564b11f43fd263587686d87cde20da8e929dec493d02fb21ac2457c6d0ec",
+   "row": "C02",
+   "kind": "red",
+   "description": "a class getter whose body only throws (tsc infers `void`), read through the instance",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-class-void-getter.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-class-void-getter-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-class-void-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-class-void-getter-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by getter\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-never-getter.pts",
+   "probe_sha256": "98492e0f8c7f7296f2644a62ece54a5647585a854bc6943d0598dd8c1f80a3df",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object-literal getter explicitly declared `: never` whose body only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-never-getter.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-never-getter-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-never-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-object-never-getter-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by getter\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter-unread.pts",
+   "probe_sha256": "aaccd2295e9fea99bb660f7c8a6d9fa24aca7b36391592ba43422e87e22be063",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object literal with a getter that only throws (type `void`) that the program never reads",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `1`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter-unread.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter-unread-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter-unread.mts"
+    ],
+    "exit": 0,
+    "stdout": "1\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter-unread-native"
+        ],
+        "exit": 0,
+        "stdout": "1\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter.pts",
+   "probe_sha256": "07c85788268020e17a2518083a9cabaeb8e6e19ea7ffca0496ff952fcb50e8a4",
+   "row": "C02",
+   "kind": "red",
+   "description": "an object-literal getter whose body only throws (tsc infers `void`), read directly: no `any`, no iteration",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `caught thrown by getter`, exit 0",
+   "baseline_pts": "`pts build` panics (cgen: no check for void, pts/cgen/checks.go:305), exit 2",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c02-red-object-void-getter.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter.mts"
+    ],
+    "exit": 0,
+    "stdout": "caught thrown by getter\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-object-void-getter-native"
+        ],
+        "exit": 0,
+        "stdout": "caught thrown by getter\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c03-red-typed-iteratorresult-getters.pts",
+   "probe_sha256": "29842c622e9ccf2427ae084bb282898bbb522cc2e6368febef5cf3bcc2b7a9fc",
+   "row": "C03",
+   "kind": "red",
+   "description": "a typed `next(): IteratorResult<number>` returning `get done(): true` / `get value(): number` getters (D-146)",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "prints `read done` then `end` (value is never read), exit 0",
+   "baseline_pts": "`pts build` rejects it, no panic: PTS1001 converting object4 to object1 | object2 is not supported yet, exit 1",
+   "failure": "PTS1001: converting object4 to object1 \\| object2 is not supported yet",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c03-red-typed-iteratorresult-getters.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c03-red-typed-iteratorresult-getters-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c03-red-typed-iteratorresult-getters.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c03-red-typed-iteratorresult-getters-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-iterable-param-generator-break.pts",
+   "probe_sha256": "276884adb46fb3ed40884ac0e089e42c1fd99b735da59c0f8a5430df278fc6a9",
+   "row": "C18",
+   "kind": "control",
+   "description": "the c18-red-any-generator-break generator through a typed `Iterable<number>` parameter, with break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`yield 0, item 0, yield 1, item 1, closed, [ 0, 1 ]` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-iterable-param-generator-break.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-iterable-param-generator-break-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-iterable-param-generator-break.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\n[ 0, 1 ]\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-control-iterable-param-generator-break-native"
+        ],
+        "exit": 0,
+        "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\n[ 0, 1 ]\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-break-return.pts",
+   "probe_sha256": "a117eac7ebbf038821b9d618cc215c563746e6c646977dde3d000cf7dd20d235",
+   "row": "C18",
+   "kind": "control",
+   "description": "the break/return() iterator of c18-red-any-iterator-break-return through a typed `Iterable<number>` class",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`next 0, item 0, next 1, item 1, return, end` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-break-return.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-break-return-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-break-return.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-break-return-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-getter-results.pts",
+   "probe_sha256": "c10b1986c60ef54f7e89f38a0d55f9f5458156ddad53a59d8e8db20a3277587f",
+   "row": "C18",
+   "kind": "control",
+   "description": "getter results done=false,false,true through a typed `Iterable<number>` class (`next(): any`), logging getter calls",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`read done 0, read value 0, item 0, read done 1, read value 1, item 10, read done 2, end` (one per line), exit 0",
+   "baseline_pts": "builds and runs, stdout identical to Node, exit 0",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-control-typed-iterator-getter-results.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-getter-results-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-getter-results.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-control-typed-iterator-getter-results-native"
+        ],
+        "exit": 0,
+        "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts",
+   "probe_sha256": "1c5859dd201a6bfb73e0631be7492642964a4fa59c409610a21f88ff524360dd",
+   "row": "C18",
+   "kind": "red",
+   "description": "new defect beyond the ledger: a generator held as `any` must be resumed lazily by for...of and closed on break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`yield 0, item 0, yield 1, item 1, closed, end` (one per line), exit 0",
+   "baseline_pts": "drains the generator before the body: `yield 0..yield 3, closed`, then Uncaught Error: resumed after the loop broke, exit 1",
+   "failure": "^yield 0\\nyield 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-generator-break.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-generator-break-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-generator-break.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-any-generator-break-native"
+        ],
+        "exit": 0,
+        "stdout": "yield 0\nitem 0\nyield 1\nitem 1\nclosed\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-break-return.pts",
+   "probe_sha256": "d754b753dab81d4eadf293221a9e5608149289e70eb9063ab59d60381be94a67",
+   "row": "C18",
+   "kind": "red",
+   "description": "new defect beyond the ledger: for...of over an `any` iterable runs next() lazily and calls return() on break",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`next 0, item 0, next 1, item 1, return, end` (one per line), exit 0",
+   "baseline_pts": "drains the iterator first and never calls return(): `next 0..next 4, item 0, item 1, end`, exit 0",
+   "failure": "^next 0\\nnext 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-break-return.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-break-return-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-break-return.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-break-return-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nitem 0\nnext 1\nitem 1\nreturn\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-getter-sequence.pts",
+   "probe_sha256": "92e6346f5a8481a03562d92287c53b31e8bc8971a3d050faeb6809a473408688",
+   "row": "C18",
+   "kind": "red",
+   "description": "`any` iterable, getter results done=false,false,true; logs getter calls; each step must run before the body",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "`read done 0, read value 0, item 0, read done 1, read value 1, item 10, read done 2, end` (one per line), exit 0",
+   "baseline_pts": "builds, no panic; done is read before value and the done result's value is unread, but all steps run before the body, exit 0",
+   "failure": "^read done 0\\nread value 0\\nread done 1\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/c18-red-any-iterator-getter-sequence.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-getter-sequence-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-getter-sequence.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-any-iterator-getter-sequence-native"
+        ],
+        "exit": 0,
+        "stdout": "read done 0\nread value 0\nitem 0\nread done 1\nread value 1\nitem 10\nread done 2\nend\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c02-control-parent-done-getter-returns-value.pts",
+   "probe_sha256": "effe044e8917d75014646dbfc681905afe2363c537439d990b83f94b5bfd4161",
+   "row": "C02",
+   "kind": "control",
+   "description": "for…of over an any iterator whose result has done/value getters; done is true, value returns a number",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "\"read done\" then \"after loop\"; value is never read and the body never runs",
+   "baseline_pts": "matches Node. The parent first wrote this as a red probe expecting the reported",
+   "failure": null,
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c02-control-parent-done-getter-returns-value.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-parent-done-getter-returns-value-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-control-parent-done-getter-returns-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-control-parent-done-getter-returns-value-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": true
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter-throwing-value.pts",
+   "probe_sha256": "3d4f287eabecb502405115f787459073c25ac6147a956a76295dd16adede7451",
+   "row": "C02",
+   "kind": "red",
+   "description": "for…of over an any iterator whose result has getters; done is true and value only throws",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "\"read done\" then \"after loop\"; value is never read and the body never runs",
+   "baseline_pts": "the compiler panics (Go stack trace) instead of building",
+   "failure": "^panic: cgen: no check for void(?s:.*)pts/cgen/checks\\.go:305",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c02-red-parent-done-getter-throwing-value.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-parent-done-getter-throwing-value-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c02-red-parent-done-getter-throwing-value.mts"
+    ],
+    "exit": 0,
+    "stdout": "read done\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c02-red-parent-done-getter-throwing-value-native"
+        ],
+        "exit": 0,
+        "stdout": "read done\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-array-pattern.pts",
+   "probe_sha256": "5accf0e49930b66a33671fe8c7524fde330ca6a047c9777f83428f8926e39866",
+   "row": "C18",
+   "kind": "red",
+   "description": "an array pattern takes two items from a generator held as any and then closes it",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "yield 0, yield 1, closed, then 0 1",
+   "baseline_pts": "the generator is drained first: yield 0 … yield 3, closed, then 0 1",
+   "failure": "^yield 0\\nyield 1\\nyield 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-array-pattern.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-array-pattern-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-array-pattern.mts"
+    ],
+    "exit": 0,
+    "stdout": "yield 0\nyield 1\nclosed\n0 1\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-array-pattern-native"
+        ],
+        "exit": 0,
+        "stdout": "yield 0\nyield 1\nclosed\n0 1\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-iterator-drain.pts",
+   "probe_sha256": "8cf2e31a19f876f650b02fdd02e026bee570be08f9297bf5066cd719d90fc599",
+   "row": "C18",
+   "kind": "red",
+   "description": "for…of over an any iterator with break; next() calls interleave with the body and break calls return()",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "next 1, body 1, next 2, body 2, next 3, return, after loop",
+   "baseline_pts": "every next() runs before the body (the iterator is drained eagerly) and return() is never called",
+   "failure": "^next 1\\nnext 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-any-iterator-drain.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-iterator-drain-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-iterator-drain.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 1\nbody 1\nnext 2\nbody 2\nnext 3\nreturn\nafter loop\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-parent-any-iterator-drain-native"
+        ],
+        "exit": 0,
+        "stdout": "next 1\nbody 1\nnext 2\nbody 2\nnext 3\nreturn\nafter loop\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  },
+  {
+   "probe": "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-typed-array-pattern.pts",
+   "probe_sha256": "d3d1ccbc393cdea1371a2393d1a393c01320edabc532b3d109f652a4dffab075",
+   "row": "C18",
+   "kind": "red",
+   "description": "array patterns over a typed iterable class and an Iterable<number> parameter take two items and close the iterator",
+   "oracle": "node-self",
+   "threads": [
+    1
+   ],
+   "runs": 1,
+   "expected_node": "next 0, next 1, return, 0 1, then yield 0, yield 1, closed, 0 1",
+   "baseline_pts": "both iterators are drained first (next 0 … next 5 and no return; yield 0 … yield 3, closed)",
+   "failure": "^next 0\\nnext 1\\nnext 2\\n",
+   "build": {
+    "command": [
+     "/home/bryan/projects/parallelscript/pts-bin/pts",
+     "build",
+     "docs/agent/hardening-evidence/probes/h01b/parent/c18-red-parent-typed-array-pattern.pts",
+     "-o",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-typed-array-pattern-native"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+   },
+   "node": {
+    "command": [
+     "/home/bryan/.local/node/bin/node",
+     "--no-warnings",
+     "--experimental-transform-types",
+     "/tmp/pts-h03b-s4/probes-final/c18-red-parent-typed-array-pattern.mts"
+    ],
+    "exit": 0,
+    "stdout": "next 0\nnext 1\nreturn\n0 1\nyield 0\nyield 1\nclosed\n0 1\n",
+    "stderr": ""
+   },
+   "pts_runs": [
+    {
+     "threads": 1,
+     "runs": 1,
+     "runs_not_matching_node": 0,
+     "outcomes": [
+      {
+       "count": 1,
+       "sample": {
+        "command": [
+         "/tmp/pts-h03b-s4/probes-final/c18-red-parent-typed-array-pattern-native"
+        ],
+        "exit": 0,
+        "stdout": "next 0\nnext 1\nreturn\n0 1\nyield 0\nyield 1\nclosed\n0 1\n",
+        "stderr": ""
+       },
+       "matches_node": true
+      }
+     ]
+    }
+   ],
+   "outcome": "run-match",
+   "as_expected": false
+  }
+ ],
+ "tree": "uncommitted H03b working tree after review round 5's fix (the fix commit); source_sha is its base; tree fingerprint 783ba98c9aa8d47852ea81651109460ac71a960204aca8ccd870420f986a8df0"
+}

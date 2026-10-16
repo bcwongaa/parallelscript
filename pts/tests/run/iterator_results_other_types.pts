@@ -1,0 +1,223 @@
+// An iterator result may be an object of another layout than the runtime's results
+// (D-178), and leaves the result types as JS would have it: passed to an interface
+// parameter, chosen by a conditional, held in a union with another object type, or read
+// from a class's `any` field holding parsed JSON (converted to the value's type when it
+// is read). Literals written done first are results as those written value first are.
+// A compound assignment to a result's or an interface's property whose right side yields
+// reads the property once, before the yield (D-145). A property that is a class's method
+// is found by name too.
+interface HasValue {
+  value: number | undefined;
+}
+function show(r: HasValue): void {
+  console.log("show", r.value);
+}
+const lit = { done: false as const, value: 1e-310, extra: 7 };
+const asserted = lit as IteratorYieldResult<number>;
+console.log(asserted.value);
+show(asserted);
+
+let n = 0;
+const it: Iterator<number, number> = {
+  next(): IteratorResult<number, number> {
+    n++;
+    const own = { done: false, value: n * 1.5, extra: "x" };
+    return own;
+  },
+};
+show(it.next());
+const r = it.next();
+if (!r.done) show(r);
+const plain: HasValue = { value: 9 };
+show(n > 5 ? plain : it.next());
+show(n > 1 ? it.next() : plain);
+
+type Tagged = { done: boolean; value: number | undefined; tag: string };
+function pick(flag: boolean, from: Iterator<number, number>): IteratorResult<number, number> | Tagged {
+  return flag ? from.next() : { done: false, value: 3, tag: "p" };
+}
+const x = pick(true, it);
+console.log(x.value, x.done);
+const y = pick(false, it);
+console.log(y.value, y.done);
+if ("tag" in y) console.log("tagged", y.tag);
+
+interface Row {
+  name: string;
+}
+const data: any = JSON.parse('{"list":[1,2],"row":{"name":"a"}}');
+class Entry {
+  done = false as const;
+  constructor(public value: any) {}
+}
+const list: IteratorResult<number[]> = new Entry(data.list);
+if (!list.done) console.log("array", list.value.length);
+const row: IteratorResult<Row> = new Entry(data.row);
+if (!row.done) console.log("row", row.value.name);
+const one: IteratorResult<Row, Row> = new Entry(data.row);
+console.log("one", one.value.name);
+
+class Range implements Iterator<number, number> {
+  i = 0;
+  constructor(public end: number) {}
+  next(): IteratorResult<number, number> {
+    return this.i < this.end ? { done: false, value: this.i++ } : { done: true, value: -1 };
+  }
+}
+const results: IteratorResult<number, number>[] = [];
+const range = new Range(4);
+for (let step = range.next(); !step.done; step = range.next()) results.push(step);
+let sum = 0;
+for (const result of results) {
+  if (!result.done) sum += result.value;
+  result.value *= 10;
+}
+console.log(sum, results);
+const last = range.next();
+console.log(last, last.done, last.value);
+
+interface WithNote {
+  value: number | undefined;
+  note?: string;
+}
+function showNote(r: WithNote): void {
+  console.log("note", r.value, r.note);
+}
+showNote(lit as IteratorYieldResult<number>);
+showNote(it.next());
+class Other {
+  constructor(public value: number | undefined) {}
+}
+const chosen: HasValue = n > 0 ? asserted : new Other(2);
+console.log("contextual", chosen.value);
+
+const log: string[] = [];
+let backing = 1;
+const accessors = {
+  get value() {
+    log.push("get");
+    return backing;
+  },
+  set value(v: number) {
+    log.push("set " + v);
+    backing = v;
+  },
+};
+const handed = accessors as unknown as IteratorResult<number, number>;
+handed.value++;
+console.log("postfix", backing, log.join(","));
+log.length = 0;
+++handed.value;
+console.log("prefix", backing, log.join(","));
+log.length = 0;
+handed.value += 2;
+console.log("compound", backing, log.join(","));
+log.length = 0;
+const narrowed: IteratorResult<number> = accessors as unknown as IteratorResult<number>;
+if (!narrowed.done) narrowed.value--;
+console.log("narrowed postfix", backing, log.join(","));
+
+interface Counted {
+  value: number;
+}
+function* adding(result: IteratorResult<number, number>, counted: Counted): Generator<number, void, number> {
+  result.value += yield 1;
+  log.push("resumed");
+  counted.value *= yield 2;
+}
+log.length = 0;
+const steps = adding(handed, accessors);
+steps.next();
+log.push("yielded");
+steps.next(10);
+log.push("yielded");
+steps.next(3);
+console.log("yield on the right", backing, log.join(","));
+
+// The same when the value's type is a union, and through element access, on a result
+// and on an interface.
+let mixed: number | string = 5;
+const mixedResult = {
+  done: false,
+  get value(): number | string {
+    log.push("get");
+    return mixed;
+  },
+  set value(v: number | string) {
+    log.push("set " + v);
+    mixed = v;
+  },
+} as IteratorYieldResult<number | string>;
+function* appending(result: IteratorYieldResult<number | string>): Generator<number, void, string> {
+  result.value += yield 1;
+}
+log.length = 0;
+const appended = appending(mixedResult);
+appended.next();
+log.push("yielded");
+appended.next("x");
+console.log("union value", mixed, log.join(","));
+
+function* keyed(result: IteratorYieldResult<number>, counted: Counted): Generator<number, void, number> {
+  result["value"] += yield 1;
+  log.push("resumed");
+  counted["value"] -= yield 2;
+}
+log.length = 0;
+backing = 4;
+const keySteps = keyed(accessors as unknown as IteratorYieldResult<number>, accessors);
+keySteps.next();
+log.push("yielded");
+keySteps.next(10);
+log.push("yielded");
+keySteps.next(3);
+console.log("element access", backing, log.join(","));
+
+// A value that is a class's method is found by name, as through `any`.
+class Callable {
+  done = false as const;
+  value(): number {
+    return 42;
+  }
+}
+const methodResult: IteratorYieldResult<() => number> = new Callable();
+const method = methodResult.value;
+console.log("method", typeof method, method());
+const methodUnion: IteratorResult<() => number, undefined> = new Callable();
+if (!methodUnion.done) {
+  const unionMethod = methodUnion.value;
+  console.log("method union", typeof unionMethod, unionMethod());
+}
+
+// expect:
+// 1e-310
+// show 1e-310
+// show 1.5
+// show 3
+// show 4.5
+// show 6
+// 7.5 false
+// 3 false
+// tagged p
+// array 2
+// row a
+// one a
+// 6 [
+//   { done: false, value: 0 },
+//   { done: false, value: 10 },
+//   { done: false, value: 20 },
+//   { done: false, value: 30 }
+// ]
+// { done: true, value: -1 } true -1
+// note 1e-310 undefined
+// note 9 undefined
+// contextual 1e-310
+// postfix 2 get,set 2
+// prefix 3 get,set 3
+// compound 5 get,set 5
+// narrowed postfix 4 get,set 4
+// yield on the right 42 get,yielded,set 14,resumed,get,yielded,set 42
+// union value 5x get,yielded,set 5x
+// element access 11 get,yielded,set 14,resumed,get,yielded,set 11
+// method function 42
+// method union function 42

@@ -1,0 +1,200 @@
+// A result with getters that reaches an iterator result type through `any` (a typed
+// next() returning an `any`, an assertion, an annotated local, an awaited next()) is the
+// object as it is (D-178): nothing of it is read until the program reads it, and a done
+// result's value is never read by for…of (D-146). Where a union of a result type and
+// another object type goes, the other member takes an object first, as it is or as a
+// copy; a holder whose result-typed field holds an object of another layout is copied
+// where an interface goes, with that field converted to the interface's property type.
+function make(tag: string): any {
+  return {
+    get done() {
+      console.log(tag, "done read");
+      return false;
+    },
+    get value() {
+      console.log(tag, "value read");
+      return 1;
+    },
+  };
+}
+const it: Iterator<number> = {
+  next(): IteratorResult<number> {
+    return make("next");
+  },
+};
+const r = it.next();
+console.log("got r");
+console.log(r.done);
+const asserted = make("as") as IteratorResult<number>;
+console.log("got asserted", asserted === asserted);
+const annotated: IteratorYieldResult<number> = make("annotated");
+console.log("got annotated");
+console.log(annotated.value);
+for (const x of { [Symbol.iterator]: () => it }) {
+  console.log("item", x);
+  break;
+}
+
+function finished(): any {
+  return {
+    get done() {
+      console.log("finished done read");
+      return true;
+    },
+    get value(): number {
+      throw new Error("value of a done result was read");
+    },
+  };
+}
+class Empty implements Iterable<number> {
+  [Symbol.iterator](): Iterator<number> {
+    return {
+      next(): IteratorResult<number> {
+        return finished();
+      },
+    };
+  }
+}
+for (const x of new Empty()) console.log("never", x);
+console.log("loop done");
+
+function userIterator(): AsyncIterator<number> {
+  let k = 0;
+  return {
+    async next(): Promise<IteratorResult<number>> {
+      k++;
+      const s = k;
+      return {
+        get done() {
+          console.log("async done read", s);
+          return s > 2;
+        },
+        get value() {
+          console.log("async value read", s);
+          return s;
+        },
+      } as IteratorResult<number>;
+    },
+  };
+}
+for await (const x of { [Symbol.asyncIterator]: userIterator }) console.log("async item", x);
+const ui = userIterator();
+const u1 = await ui.next();
+console.log("got u1");
+console.log(u1.done);
+
+function loose(tag: string, done: boolean): any {
+  return {
+    get done() {
+      console.log(tag, "done read");
+      return done;
+    },
+    get value(): number {
+      console.log(tag, "value read");
+      return 7;
+    },
+  };
+}
+const maybe: IteratorResult<number> | undefined = loose("maybe", false);
+console.log("got maybe");
+console.log(maybe?.done);
+const listed: IteratorResult<number>[] = [loose("list0", false), loose("list1", true)];
+console.log("got list");
+console.log(listed[1].done);
+const anyList: any = [loose("anyList", false)];
+const fromAnyList: IteratorResult<number>[] = anyList;
+console.log("got fromAnyList");
+console.log(fromAnyList[0].done);
+const results = new Map<string, IteratorResult<number>>();
+const anyResults: any = results;
+anyResults.set("k", loose("map", false));
+console.log("got map");
+console.log(results.get("k")!.done);
+const both = await Promise.all([ui.next(), ui.next()]);
+console.log("got both");
+console.log(both[0].done, both[1].done);
+
+interface Point {
+  x: number;
+  y: number;
+}
+const loosePoint: { x: number | string; y: number } = { x: 3, y: 4 };
+const pointAny: any = loosePoint;
+const pointFirst: Point | IteratorResult<number> = pointAny;
+if ("x" in pointFirst) console.log("point", pointFirst.x, pointFirst.y);
+const resultFirst: IteratorResult<number> | Point = pointAny;
+if ("x" in resultFirst) console.log("point", resultFirst.x, resultFirst.y);
+const parsed: any = JSON.parse('{"x":5,"y":6}');
+const built: any = { x: parsed.x, y: parsed.y };
+const fromJson: IteratorResult<number> | Point = built;
+if ("x" in fromJson) console.log("point", fromJson.x, fromJson.y);
+
+interface Wrapper {
+  r?: { value: unknown };
+}
+const ownNext: Iterator<number, number> = {
+  next(): IteratorResult<number, number> {
+    const own = { done: false, value: 3.5, extra: "x" };
+    return own;
+  },
+};
+class Holder {
+  r: IteratorResult<number, number> = ownNext.next();
+}
+const wrapped: Wrapper = new Holder() as any;
+console.log("wrapped", wrapped.r?.value);
+interface MaybeWrapper {
+  r: { value: unknown } | undefined;
+}
+class Lazy {
+  get r(): IteratorResult<number> {
+    return { done: false, value: 2.5, extra: 2 } as IteratorYieldResult<number>;
+  }
+}
+const lazy: MaybeWrapper = new Lazy() as any;
+console.log("lazy", lazy.r?.value);
+
+// expect:
+// got r
+// next done read
+// false
+// got asserted true
+// got annotated
+// annotated value read
+// 1
+// next done read
+// next value read
+// item 1
+// finished done read
+// loop done
+// async done read 1
+// async value read 1
+// async item 1
+// async done read 2
+// async value read 2
+// async item 2
+// async done read 3
+// got u1
+// async done read 1
+// false
+// got maybe
+// maybe done read
+// false
+// got list
+// list1 done read
+// true
+// got fromAnyList
+// anyList done read
+// false
+// got map
+// map done read
+// false
+// got both
+// async done read 2
+// async done read 3
+// false true
+// point 3 4
+// point 3 4
+// point 5 6
+// wrapped 3.5
+// lazy 2.5

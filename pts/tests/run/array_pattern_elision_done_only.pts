@@ -1,0 +1,136 @@
+// An elision steps the iterator and reads only `done` of its result; `value` is read
+// for an element that takes it. After the iterator is done, elisions don't step it.
+
+class Logged implements Iterable<number> {
+    label: string;
+    limit: number;
+    constructor(label: string, limit: number) {
+        this.label = label;
+        this.limit = limit;
+    }
+    [Symbol.iterator](): Iterator<number> {
+        const label = this.label;
+        const limit = this.limit;
+        let step = 0;
+        return {
+            next(): any {
+                const current = step++;
+                return {
+                    get done(): boolean {
+                        console.log(label, "read done", current);
+                        return current >= limit;
+                    },
+                    get value(): number {
+                        console.log(label, "read value", current);
+                        return current * 10;
+                    },
+                };
+            },
+            return(): any {
+                console.log(label, "return()");
+                return { done: true, value: undefined };
+            },
+        };
+    }
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("class", () => {
+    const [, b] = new Logged("class", 5);
+    console.log("class:", b);
+});
+
+attempt("any", () => {
+    const source: any = new Logged("any", 5);
+    const [, , c] = source;
+    console.log("any:", c);
+});
+
+attempt("iterable trailing", () => {
+    const source: Iterable<number> = new Logged("iterable trailing", 5);
+    const [a, , ] = source;
+    console.log("iterable trailing:", a);
+});
+
+attempt("between", () => {
+    const source: Iterable<number> = new Logged("between", 5);
+    const [a, , c] = source;
+    console.log("between:", a, c);
+});
+
+function secondOf([, second]: Iterable<number>): number | undefined {
+    return second;
+}
+attempt("parameter", () => {
+    console.log("parameter:", secondOf(new Logged("parameter", 5)));
+});
+
+attempt("for-of binding", () => {
+    const rows: Iterable<number>[] = [new Logged("row", 5)];
+    for (const [, second] of rows) {
+        console.log("for-of binding:", second);
+    }
+});
+
+attempt("nested", () => {
+    const [[, inner]] = [new Logged("nested", 5)];
+    console.log("nested:", inner);
+});
+
+// Control (works today): elisions after the iterator is done don't step it.
+attempt("after done", () => {
+    const source: Iterable<number> = new Logged("after done", 1);
+    const [a, , , d] = source;
+    console.log("after done:", a, d);
+});
+
+// expect:
+// class read done 0
+// class read done 1
+// class read value 1
+// class return()
+// class: 10
+// any read done 0
+// any read done 1
+// any read done 2
+// any read value 2
+// any return()
+// any: 20
+// iterable trailing read done 0
+// iterable trailing read value 0
+// iterable trailing read done 1
+// iterable trailing return()
+// iterable trailing: 0
+// between read done 0
+// between read value 0
+// between read done 1
+// between read done 2
+// between read value 2
+// between return()
+// between: 0 20
+// parameter read done 0
+// parameter read done 1
+// parameter read value 1
+// parameter return()
+// parameter: 10
+// row read done 0
+// row read done 1
+// row read value 1
+// row return()
+// for-of binding: 10
+// nested read done 0
+// nested read done 1
+// nested read value 1
+// nested return()
+// nested: 10
+// after done read done 0
+// after done read value 0
+// after done read done 1
+// after done: 0 undefined

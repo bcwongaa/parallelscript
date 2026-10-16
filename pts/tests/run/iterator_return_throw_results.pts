@@ -1,0 +1,119 @@
+// it.return!(v) and it.throw!(e) on a typed `Iterator<number>` (whose return and throw
+// are optional, hence the `!`) call the iterator's own methods and give back the objects
+// they return, so getters on them run when the caller reads them; a done result's value
+// getter runs only if the caller reads value.
+
+function loggedResult(label: string, done: boolean, value: number): any {
+    return {
+        get done(): boolean {
+            console.log(label, "read done");
+            return done;
+        },
+        get value(): number {
+            console.log(label, "read value");
+            if (done) throw new Error("the value of a done result was read");
+            return value;
+        },
+    };
+}
+
+class Closing implements Iterator<number> {
+    label: string;
+    constructor(label: string) {
+        this.label = label;
+    }
+    next(): any {
+        return loggedResult(this.label + " next", false, 1);
+    }
+    return(sent?: any): any {
+        console.log(this.label, "return called with", sent);
+        return loggedResult(this.label + " return", true, 0);
+    }
+    throw(error?: any): any {
+        console.log(this.label, "throw called with", error);
+        return loggedResult(this.label + " throw", false, 3);
+    }
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("return done", () => {
+    const it: Iterator<number> = new Closing("return done");
+    const result = it.return!(9);
+    console.log("return done got result");
+    console.log("return done:", result.done);
+});
+
+attempt("return unread", () => {
+    const it: Iterator<number> = new Closing("return unread");
+    it.return!();
+    console.log("return unread dropped");
+});
+
+attempt("throw value first", () => {
+    const it: Iterator<number> = new Closing("throw value first");
+    const result = it.throw!("boom");
+    console.log("throw value first got result");
+    console.log("throw value first:", result.value, result.done);
+});
+
+attempt("throw done first", () => {
+    const it: Iterator<number> = new Closing("throw done first");
+    const result = it.throw!("bang");
+    console.log("throw done first got result");
+    console.log("throw done first:", result.done);
+    console.log("throw done first value:", result.value);
+});
+
+attempt("literal", () => {
+    const it: Iterator<number> = {
+        next(): any {
+            return loggedResult("literal next", false, 1);
+        },
+        return(sent?: any): any {
+            console.log("literal return called with", sent);
+            return loggedResult("literal return", true, 0);
+        },
+        throw(error?: any): any {
+            console.log("literal throw called with", error);
+            return loggedResult("literal throw", false, 4);
+        },
+    };
+    const returned = it.return!("stop");
+    console.log("literal returned got result");
+    const thrown = it.throw!("oops");
+    console.log("literal thrown got result");
+    console.log("literal:", thrown.value, returned.done);
+});
+
+// expect:
+// return done return called with 9
+// return done got result
+// return done return read done
+// return done: true
+// return unread return called with undefined
+// return unread dropped
+// throw value first throw called with boom
+// throw value first got result
+// throw value first throw read value
+// throw value first throw read done
+// throw value first: 3 false
+// throw done first throw called with bang
+// throw done first got result
+// throw done first throw read done
+// throw done first: false
+// throw done first throw read value
+// throw done first value: 3
+// literal return called with stop
+// literal returned got result
+// literal throw called with oops
+// literal thrown got result
+// literal throw read value
+// literal return read done
+// literal: 4 true

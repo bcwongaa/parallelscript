@@ -68,7 +68,7 @@ The order of work (`Program` in `lower.go`):
 2. Declare every class, function and module-scope binding of every module, the runtime's classes (Error, Date, the typed arrays, RegExp) first. Code can then use any of them above its declaration and across import cycles.
 3. Lower each module's top-level code into that module's `main` function.
 4. Lower the function bodies, then the generic instances they need (including those that typed calls of erased copies look up, D-148), until none are left.
-5. Run whole-program passes over the IR: `markCells` decides which captured variables live in heap cells (D-041), `checkRelaxedCasts` checks casts of objects that lack an optional property (D-066), and `prepareDynamicTypes` readies the types that writes and calls through `any` convert to (D-072, D-074).
+5. Run whole-program passes over the IR: `markCells` decides which captured variables live in heap cells (D-041), `checkRelaxedCasts` checks casts of objects that lack an optional property (D-066), and `prepareDynamicTypes` readies the types that writes and calls through `any` convert to, and those of iterator results' properties, which reads by name convert to (D-072, D-074, D-178).
 
 The lowering asks tsc's checker for types everywhere and maps them to IR types (`irType`). Its main choices:
 
@@ -338,7 +338,7 @@ A `pts_string` is the header, flags (pure ASCII; in an append buffer; known to h
 - **Reads, writes and operators** (`dynamic.c`): properties by name, and operators with JS's conversions.
 - **Conversions to static types** (`convert.c`, D-071). An object that already has the target type is kept as it is. Dynamic data, such as an `any[]` or parsed JSON, is checked and copied into the target's representation. A mismatch throws, for example, `TypeError: Expected number, got string`.
 - **Calls through `any`** (D-074). In a program that makes them, each function value and method gets a *dynamic entry*. The entry takes boxed arguments, checks them against the parameter types and boxes the result (`pts/cgen/dynamic_calls.go`).
-- **Builtin methods through `any`** (`dynamic_methods.c`, D-076): the methods of strings, numbers, arrays and functions, found by name.
+- **Builtin methods through `any`** (`dynamic_methods.c`, D-076): the methods of strings, numbers, arrays and functions, found by name, and those of generators and the runtime's iterators (`pts_iterator_method_call`, D-178).
 - **The runtime calls program code through dynamic entries too** (D-142). A method's C signature can be anything TypeScript allows, so the runtime never calls one blind: `toString` and `valueOf` (in OrdinaryToPrimitive's order), `toJSON`, timers' callbacks and promise handlers go through dynamic entries, and getters and setters are called by their declared kind.
 - **Type checks** (`pts_check`) are emitted only for programs that need them (`pts/cgen/checks.go`, D-071, D-072).
 
@@ -357,7 +357,7 @@ These live in `error.c` (D-068, D-069).
 
 ### 4.9 Generators, async functions and promises
 
-- **Generators** (`generator.c`, `pts/cgen/generators.go`, D-109). The C emitter keeps the body structured. Every statement-level local lives in a frame struct on the GC heap, which starts with a `pts_iterator`. A `yield` stores its value and its resume point, then returns. The step function starts with a `switch` that jumps to the resume point. There is no native stack per generator.
+- **Generators** (`generator.c`, `pts/cgen/generators.go`, D-109). The C emitter keeps the body structured. Every statement-level local lives in a frame struct on the GC heap, which starts with a `pts_iterator`. A `yield` stores its value and its resume point, then returns. The step function starts with a `switch` that jumps to the resume point. There is no native stack per generator. A `yield*` hands the result objects its inner iterator gave through to its caller (`pts_generator_delegate`), and a typed `it.next()` gives the object an iterator's `next()` returned: typed code reads `done` and `value` as fields of the runtime's result shapes and by name on any other object (D-178).
 - **Async functions** (D-112) are generator functions whose yields are awaits. `pts_async_start` makes the function's promise and runs the body until its first await. Later steps run as microtasks.
 - **Promises** (`promise.c`) follow ECMAScript's algorithms in V8's order of jobs, so programs print in Node's order. Each thread has a microtask queue, which `pts_run_microtasks` drains. An unhandled rejection ends the program with code 1.
 - **Async generators and `for await`** (D-115) use the same frames, plus the spec's queue of requests. An async generator belongs to the loop that made it: requests from other loops reach its queue by message (D-143).
@@ -414,7 +414,7 @@ All threads share one heap, so a program can race on it. The guarantee (SPEC §4
    - timers, immediates, HTTP listeners and connections, and `fetch` clients belong to their loop, which other threads reach by CALL messages (D-137, D-139, D-162). The only `fetch` state that threads share is the table of request ids, under a mutex;
    - a sync generator's frame belongs to the thread that claimed it (`executing`, exchanged atomically once the program has threads, `pts_threaded`). A resume while it runs, from its own body or from another thread, throws `TypeError: Generator is already running`, so its body never runs on two threads (D-143);
    - microtask queues, timer heaps and inboxes' internals are per loop, behind the inbox's mutex where other threads post.
-8. **Results handed back per thread.** Where another thread's call can overwrite a result in a shared object, the runtime returns it per thread: a resume's value goes through the thread's slot in `generator.c` (once the program has threads), and a map iterator's step works on a private copy of its place.
+8. **Results handed back per thread.** Where another thread's call can overwrite a result in a shared object, the runtime returns it per thread: a resume's value, and the result object it handed back, go through the thread's slot in `generator.c` (once the program has threads), and a map iterator's step works on a private copy of its place.
 
 What racing programs can see: lost updates (pushes, map entries, unsynchronized counters), stale values, a key twice in a map, an entry whose key and value come from two racing appends, a `RangeError` from an operation that another thread made impossible, and a shared generator's `TypeError` when two threads resume it at once (SPEC §4.1).
 

@@ -1,0 +1,111 @@
+// threads: 1 2 4
+// Generators whose yield* hands an object iterator's results through (D-178), stepped on
+// several threads: each parallel iteration's own generators give it its own values, and
+// threads racing on one shared generator (a losing resume throws "Generator is already
+// running") or one shared object iterator see only values it made, never a result of
+// another step or a missing value (D-143).
+import { range } from "pts:parallel";
+function counted(base: number, n: number): Iterable<number, number> {
+  return {
+    [Symbol.iterator](): Iterator<number, number> {
+      let k = 0;
+      return {
+        next(): IteratorResult<number, number> {
+          k++;
+          return k > n ? { done: true, value: -1 } : ({ done: false, value: base + k, tag: "x" } as IteratorResult<number, number>);
+        },
+      };
+    },
+  };
+}
+function* outer(base: number, n: number): Generator<number, number> {
+  const r = yield* counted(base, n);
+  return r;
+}
+function* nested(base: number, n: number): Generator<number, number> {
+  return yield* outer(base, n);
+}
+const N = 200;
+const sums = new Float64Array(N);
+const stepped = new Float64Array(N);
+const loose = new Float64Array(N);
+parallel for (const i of range(0, N)) {
+  let s = 0;
+  for (const v of nested(i * 1000, 50)) s += v;
+  sums[i] = s;
+  const g = nested(i * 1000, 50);
+  let t = 0;
+  for (let r = g.next(); !r.done; r = g.next()) t += r.value;
+  stepped[i] = t;
+  const h: any = outer(i * 1000, 50);
+  let u = 0;
+  for (let r = h.next(); !r.done; r = h.next()) u += r.value;
+  loose[i] = u;
+}
+let wrong = 0;
+for (let i = 0; i < N; i++) {
+  const want = i * 1000 * 50 + (50 * 51) / 2;
+  if (sums[i] !== want || stepped[i] !== want || loose[i] !== want) wrong++;
+}
+console.log("private, wrong sums:", wrong);
+
+function padded(n: number): Iterator<number, number> {
+  let k = 0;
+  return {
+    next(): IteratorResult<number, number> {
+      k++;
+      return k > n ? { done: true, value: -1 } : ({ done: false, value: k, pad: 1 } as IteratorResult<number, number>);
+    },
+  };
+}
+function* delegating(n: number): Generator<number, number> {
+  return yield* { [Symbol.iterator]: () => padded(n) };
+}
+const total = 50000;
+const shared = delegating(total);
+const sharedIterator = padded(total);
+const W = 32;
+const got = new Float64Array(W);
+const bad = new Float64Array(W);
+parallel for (const w of range(0, W)) {
+  for (let i = 0; i < 2000; i++) {
+    try {
+      const r = w % 2 === 0 ? shared.next() : sharedIterator.next();
+      if (r.done) break;
+      const v = r.value;
+      if (!(v >= 1 && v <= total && Number.isInteger(v))) bad[w]++;
+      got[w]++;
+    } catch (e) {
+      if ((e as Error).message !== "Generator is already running") throw e;
+    }
+  }
+}
+let seen = 0;
+let badValues = 0;
+for (let w = 0; w < W; w++) {
+  seen += got[w];
+  badValues += bad[w];
+}
+console.log("shared next(), bad values:", badValues, "some seen:", seen > 0);
+
+let badLoops = 0;
+for (let round = 0; round < 5; round++) {
+  const one = delegating(20000);
+  const badInLoop = new Float64Array(W);
+  parallel for (const w of range(0, W)) {
+    try {
+      for (const v of one) {
+        if (!(v >= 1 && v <= 20000 && Number.isInteger(v))) badInLoop[w]++;
+      }
+    } catch (e) {
+      if ((e as Error).message !== "Generator is already running") throw e;
+    }
+  }
+  for (let w = 0; w < W; w++) badLoops += badInLoop[w];
+}
+console.log("shared for…of, bad values:", badLoops);
+
+// expect:
+// private, wrong sums: 0
+// shared next(), bad values: 0 some seen: true
+// shared for…of, bad values: 0

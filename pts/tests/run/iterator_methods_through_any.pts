@@ -1,0 +1,287 @@
+// next(v), return(v) and throw(e) through `any` step a generator, and next() steps the
+// runtime's iterators (map, set and array iterators), as JS's methods do; the runtime's
+// iterators have no return() or throw(). An async generator's methods give promises.
+
+function* counter(): Generator<number, string, number | undefined> {
+    try {
+        const sent = yield 1;
+        console.log("counter got", sent);
+        yield 2;
+        return "end";
+    } finally {
+        console.log("counter finally");
+    }
+}
+
+function* catcher(): Generator<string, string, undefined> {
+    try {
+        yield "first";
+    } catch (error: any) {
+        console.log("catcher caught", error.message);
+        yield "recovered";
+    }
+    return "catcher end";
+}
+
+function* cleanup(): Generator<string, string, undefined> {
+    try {
+        yield "working";
+    } finally {
+        yield "cleaning";
+    }
+    return "cleanup end";
+}
+
+function* single(): Generator<number, number | void, undefined> {
+    console.log("single ran");
+    yield 0;
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("next", () => {
+    const h: any = counter();
+    console.log("next 1", h.next());
+    console.log("next 2", h.next(41));
+    const third = h.next();
+    console.log("next 3", third.value, third.done);
+    console.log("next 4", h.next());
+});
+
+attempt("return", () => {
+    const h: any = counter();
+    console.log("return started", h.next().value);
+    console.log("return result", h.return("stopped"));
+    console.log("return after", h.next());
+});
+
+attempt("return yields in finally", () => {
+    const h: any = cleanup();
+    console.log("cleanup started", h.next());
+    console.log("cleanup return", h.return("closed"));
+    console.log("cleanup after", h.next());
+});
+
+attempt("throw caught", () => {
+    const h: any = catcher();
+    console.log("catcher started", h.next().value);
+    console.log("catcher throw", h.throw(new Error("bad input")));
+    console.log("catcher after", h.next());
+});
+
+attempt("throw uncaught", () => {
+    const h: any = counter();
+    h.next();
+    try {
+        h.throw(new Error("boom"));
+        console.log("throw uncaught did not throw");
+    } catch (error: any) {
+        console.log("throw uncaught rethrown", error.message);
+    }
+    console.log("throw uncaught after", h.next());
+});
+
+attempt("not started", () => {
+    const returned: any = single();
+    console.log("not started return", returned.return(5));
+    const thrown: any = single();
+    try {
+        thrown.throw(new Error("early"));
+    } catch (error: any) {
+        console.log("not started throw", error.message);
+    }
+    console.log("not started after throw", thrown.next());
+});
+
+attempt("after done", () => {
+    const h: any = single();
+    h.next();
+    h.next();
+    console.log("after done next", h.next());
+    console.log("after done return", h.return(9));
+    try {
+        h.throw(new Error("late"));
+    } catch (error: any) {
+        console.log("after done throw", error.message);
+    }
+});
+
+const prices = new Map<string, number>([["tea", 3], ["cake", 5]]);
+const tags = new Set<string>(["new", "sale"]);
+const scores = [7, 8];
+
+attempt("map keys", () => {
+    const h: any = prices.keys();
+    console.log("map keys 1", h.next());
+    console.log("map keys 2", h.next().value);
+    console.log("map keys 3", h.next().done);
+    console.log("map keys 4", h.next());
+});
+
+attempt("map values", () => {
+    const h: any = prices.values();
+    console.log("map values", h.next().value, h.next().value, h.next().done);
+});
+
+attempt("map entries", () => {
+    const h: any = prices.entries();
+    console.log("map entries", h.next());
+    console.log("map entries pair", h.next().value);
+});
+
+attempt("set values", () => {
+    const h: any = tags.values();
+    console.log("set values", h.next(), h.next().value, h.next().done);
+});
+
+attempt("array values", () => {
+    const h: any = scores.values();
+    console.log("array values", h.next(), h.next().value, h.next());
+});
+
+attempt("array keys", () => {
+    const h: any = scores.keys();
+    console.log("array keys", h.next().value, h.next().value, h.next().done);
+});
+
+attempt("array entries", () => {
+    const h: any = scores.entries();
+    console.log("array entries", h.next(), h.next().value);
+});
+
+// Guards (pass today, since nothing is a method yet): the runtime's iterators have no
+// return() or throw(), through `any` too.
+attempt("map iterator return", () => {
+    const loose: any = prices.keys();
+    loose.return(1);
+});
+attempt("set iterator throw", () => {
+    const loose: any = tags.values();
+    loose.throw(new Error("x"));
+});
+attempt("array iterator return", () => {
+    const loose: any = scores.values();
+    loose.return(1);
+});
+
+attempt("next then for-of", () => {
+    const h: any = counter();
+    console.log("next then for-of first", h.next().value);
+    for (const n of h) {
+        console.log("next then for-of item", n);
+    }
+    console.log("next then for-of after", h.next());
+});
+
+attempt("map next then for-of", () => {
+    const h: any = prices.keys();
+    h.next();
+    for (const key of h) {
+        console.log("map next then for-of item", key);
+    }
+});
+
+attempt("typed then any", () => {
+    const typed = counter();
+    typed.next();
+    const h: any = typed;
+    console.log("typed then any", h.next(10));
+});
+
+// Control (works today): an object of the program's with its own next(), through `any`.
+attempt("object next", () => {
+    let calls = 0;
+    const loose: any = {
+        next(sent: any): any {
+            calls++;
+            return { value: sent, done: calls > 1 };
+        },
+    };
+    console.log("object next", loose.next("a"), loose.next("b"));
+});
+
+async function* ticks(): AsyncGenerator<number, string, undefined> {
+    yield 1;
+    return "ticks end";
+}
+
+async function asyncThroughAny(): Promise<void> {
+    const ag: any = ticks();
+    try {
+        const pending = ag.next();
+        console.log("async pending is a promise", pending instanceof Promise);
+        console.log("async next 1", await pending);
+        const second = await ag.next();
+        console.log("async next 2", second.value, second.done);
+        console.log("async next 3", await ag.next());
+        console.log("async return", await ag.return("stopped"));
+    } catch (error: any) {
+        console.log("async escaped:", error.message);
+    }
+}
+
+asyncThroughAny().then(() => console.log("end"));
+
+// expect:
+// next 1 { value: 1, done: false }
+// counter got 41
+// next 2 { value: 2, done: false }
+// counter finally
+// next 3 end true
+// next 4 { value: undefined, done: true }
+// return started 1
+// counter finally
+// return result { value: 'stopped', done: true }
+// return after { value: undefined, done: true }
+// cleanup started { value: 'working', done: false }
+// cleanup return { value: 'cleaning', done: false }
+// cleanup after { value: 'closed', done: true }
+// catcher started first
+// catcher caught bad input
+// catcher throw { value: 'recovered', done: false }
+// catcher after { value: 'catcher end', done: true }
+// counter finally
+// throw uncaught rethrown boom
+// throw uncaught after { value: undefined, done: true }
+// not started return { value: 5, done: true }
+// not started throw early
+// not started after throw { value: undefined, done: true }
+// single ran
+// after done next { value: undefined, done: true }
+// after done return { value: 9, done: true }
+// after done throw late
+// map keys 1 { value: 'tea', done: false }
+// map keys 2 cake
+// map keys 3 true
+// map keys 4 { value: undefined, done: true }
+// map values 3 5 true
+// map entries { value: [ 'tea', 3 ], done: false }
+// map entries pair [ 'cake', 5 ]
+// set values { value: 'new', done: false } sale true
+// array values { value: 7, done: false } 8 { value: undefined, done: true }
+// array keys 0 1 true
+// array entries { value: [ 0, 7 ], done: false } [ 1, 8 ]
+// map iterator return escaped: loose.return is not a function
+// set iterator throw escaped: loose.throw is not a function
+// array iterator return escaped: loose.return is not a function
+// next then for-of first 1
+// counter got undefined
+// next then for-of item 2
+// counter finally
+// next then for-of after { value: undefined, done: true }
+// map next then for-of item cake
+// counter got 10
+// typed then any { value: 2, done: false }
+// object next { value: 'a', done: false } { value: 'b', done: true }
+// async pending is a promise true
+// async next 1 { value: 1, done: false }
+// async next 2 ticks end true
+// async next 3 { value: undefined, done: true }
+// async return { value: 'stopped', done: true }
+// end

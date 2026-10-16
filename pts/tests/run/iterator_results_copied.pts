@@ -1,0 +1,40 @@
+// Pins two documented differences (D-178, ledger C51 and its interface counterpart), so
+// that a change to them is seen: a handed result's `value` holding dynamic data that its
+// type converts by copying (parsed JSON where an interface goes) is converted, so copied,
+// at each read; and a result of another layout passed where an interface goes is copied
+// into the interface's representation when its declared types don't fit it, so identity
+// and writes through the interface are lost. JS gives the same object each time.
+interface Row {
+  name: string;
+  n: number;
+}
+const rows: any[] = JSON.parse('[{"name":"a","n":1}]');
+class Entry {
+  done = false as const;
+  constructor(public value: any) {}
+}
+const row: IteratorResult<Row> = new Entry(rows[0]);
+if (!row.done) {
+  row.value.n *= 10;
+  console.log("row", row.value.n, row.value === row.value, JSON.stringify(rows));
+}
+interface HasValue {
+  value: number | undefined;
+}
+const kept: HasValue[] = [];
+function keep(r: HasValue): void {
+  kept.push(r);
+  r.value = 99;
+}
+const literal = { done: false as const, value: 7, extra: 2 } as IteratorYieldResult<number>;
+keep(literal);
+console.log("literal", kept[0] === (literal as HasValue), literal.value);
+const own: IteratorYieldResult<number> = { done: false, value: 3 };
+keep(own);
+console.log("own shape", kept[1] === (own as HasValue), own.value);
+
+// no-diff: D-071 copies dynamic data into a typed representation; JS prints `row 10 true [{"name":"a","n":10}]` and `literal true 99`
+// expect:
+// row 1 false [{"name":"a","n":1}]
+// literal false 7
+// own shape true 99

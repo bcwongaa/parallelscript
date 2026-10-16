@@ -323,6 +323,47 @@ void pts_optional_set_slow(pts_object *object, pts_site *site, const char *name,
   pts_store_value_in_slot(field->kind, slot, value);
 }
 
+/* The key of an iterator result's property found by name: done or value, the names typed code reads by name, without allocating. */
+static pts_value result_key(const char *name) {
+  PTS_STATIC_STRING(done, 1, 4, 4, "done");
+  PTS_STATIC_STRING(value, 1, 5, 5, "value");
+  if (strcmp(name, "done") == 0) {
+    return pts_value_from_string(done);
+  }
+  if (strcmp(name, "value") == 0) {
+    return pts_value_from_string(value);
+  }
+  return pts_value_from_string(pts_string_from_cstr(name));
+}
+
+pts_value pts_result_get_slow(const pts_object *object, pts_site *site, const char *name) {
+  const pts_type *type = object->type;
+  const pts_field *field = type->kind == PTS_KIND_OBJECT ? find_field(type, name) : NULL;
+  if (field != NULL) {
+    const void *slot = (const char *)object + field->offset;
+    if (field->kind == PTS_FIELD_VALUE) {
+      cache_offset(site, type, field->offset);
+      return pts_value_present(__atomic_load_n((const pts_value *)slot, __ATOMIC_RELAXED));
+    }
+    return pts_value_of_slot(field->kind, slot);
+  }
+  if (type->kind == PTS_KIND_OBJECT) {
+    int64_t getter = method_index(type, name, PTS_GETTER);
+    if (getter >= 0) {
+      return pts_call_getter(type->methods[getter].function, type->methods[getter].result, (pts_object *)object);
+    }
+    if (method_index(type, name, PTS_METHOD) < 0) {
+      return PTS_VALUE_UNDEFINED; /* an object without it: a result without done, say */
+    }
+  }
+  /* a class's method, bound as D-144 binds it, or another kind of object's property: found as through `any` */
+  return pts_dynamic_get(pts_value_from_object((pts_object *)object), result_key(name));
+}
+
+void pts_result_set(pts_object *object, const char *name, pts_value value) {
+  pts_dynamic_set(pts_value_from_object(object), pts_value_from_string(pts_string_from_cstr(name)), value);
+}
+
 bool pts_object_has(const void *object, const char *name) {
   if (name[0] == '#') {
     return false; /* a `#private` field's name is no string key */

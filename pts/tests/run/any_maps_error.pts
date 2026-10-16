@@ -1,5 +1,5 @@
 // What maps and sets check through `any` (D-077), where JS carries on: keys and values
-// stored must be of the declared types; and their iterators come with M4.1.
+// stored must be of the declared types. Their iterators work through `any` (D-178).
 class Dog {
   constructor(public name: string) {}
 }
@@ -22,12 +22,12 @@ attempt("a string in a Set<number>", () => { ids.add("1"); });
 attempt("keys", () => { scores.keys(); });
 console.log(scores, kennel, ids, scores.get(1));
 
-// no-diff: JS stores whatever it is given, and has map iterators
+// no-diff: JS stores whatever it is given
 // expect:
 // a number key -> TypeError: Cannot set property key of Map: expected string, got number
 // a string value -> TypeError: Cannot set property value of Map: expected number, got string
 // a Dog ok
 // data for a Dog -> TypeError: Cannot set property value of Map: expected Dog, got Object
 // a string in a Set<number> -> TypeError: Cannot set property element of Set: expected number, got string
-// keys -> TypeError: Iterators of maps and sets through `any` are not supported yet
+// keys ok
 // Map(0) {} Map(1) { 'rex' => Dog { name: 'rex' } } Set(0) {} undefined

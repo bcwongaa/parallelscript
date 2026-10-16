@@ -1103,6 +1103,10 @@ func (e *emitter) fromValue(value string, t ir.Type) string {
 	}
 	if !hasValueTest(t) { // an object type: checked, and dynamic data copied into it (D-071)
 		converted := "pts_value_convert(" + value + ", &" + e.checks[t] + ")"
+		if isResultType(t) { // one of the program's objects is an iterator result as it is, its done and value read by name (D-178)
+			tmp := e.temporary()
+			converted = fmt.Sprintf("({ pts_value %s = %s; pts_value_is_object(%s) && pts_value_as_object(%s)->type->kind == PTS_KIND_OBJECT ? %s : pts_value_convert(%s, &%s); })", tmp, value, tmp, tmp, tmp, tmp, e.checks[t])
+		}
 		if isUnion(t) {
 			return converted
 		}
@@ -1503,6 +1507,9 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.IterationClose:              "pts_iteration_close",
 	ir.IteratorGet:                 "pts_iterator_get",
 	ir.IteratorOf:                  "pts_iterator_of",
+	ir.IteratorCall:                "pts_iterator_call",
+	ir.IteratorHanded:              "pts_iterator_handed",
+	ir.IteratorCallDone:            "pts_iterator_call_done",
 	ir.PromiseNew:                  "pts_promise_construct",
 	ir.PromiseThen:                 "pts_promise_then",
 	ir.PromiseFinally:              "pts_promise_finally",

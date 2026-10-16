@@ -1,0 +1,253 @@
+{
+ "task": "H03b",
+ "date": "2026-10-16",
+ "base": "a65a75d62724c7cc78d14748aedb9ac0e51a6fca",
+ "tree": "uncommitted H03b working tree after review round 5's fix (the fix commit)",
+ "commands": [
+  "GOMAXPROCS=2 go build -p 2 ./...",
+  "GOMAXPROCS=2 make build",
+  "PATH=$HOME/.local/node/bin:$PATH GOMAXPROCS=2 PTS_REQUIRE_NODE=1 go test -count=1 -json -p 2 -parallel 2 -timeout 40m ./pts/... ./cmd/pts/"
+ ],
+ "exits": {
+  "build": 0,
+  "make build": 0,
+  "go test": 0
+ },
+ "cli_sha256": "450ed0166c7987a48036fdca961870272161840c2bbc2135a2bda6052bec1774",
+ "counts": {
+  "pass": 1381,
+  "skip": 256,
+  "fail": 0,
+  "packages_tested": 10,
+  "packages_no_test": 19,
+  "corpus": {
+   "pass": 262,
+   "skip": 38,
+   "fail": 0
+  }
+ },
+ "baseline": {
+  "pass": 1345,
+  "skip": 260,
+  "fail": 0,
+  "record": "h03b-baseline.jsonl.gz"
+ },
+ "delta": {
+  "added": [
+   [
+    "TestRun/array_pattern_elision_done_only",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_close_result_unread",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_methods_through_any",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_next_result_identity",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_result_as_layouts",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_result_as_one_shape",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_result_getter_literals",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_copied",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_from_any",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_other_types",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_threads",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_threads/threads=1",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_threads/threads=2",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_results_threads/threads=4",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_return_throw_results",
+    "pass"
+   ],
+   [
+    "TestRun/iterators_through_any_consumers",
+    "pass"
+   ],
+   [
+    "TestRun/yield_star_result_edges",
+    "pass"
+   ],
+   [
+    "TestRun/yield_star_result_passthrough",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/array_pattern_elision_done_only",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_close_result_unread",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_methods_through_any",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_next_result_identity",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_result_as_layouts",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_result_as_one_shape",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_result_getter_literals",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_results_copied",
+    "skip"
+   ],
+   [
+    "TestRunMatchesNode/iterator_results_from_any",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_results_other_types",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_results_threads",
+    "skip"
+   ],
+   [
+    "TestRunMatchesNode/iterator_return_throw_results",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterators_through_any_consumers",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/yield_star_result_edges",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/yield_star_result_passthrough",
+    "pass"
+   ]
+  ],
+  "changed": [
+   [
+    "TestRun/iterator_next_result_getters",
+    "skip",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_result_as_cast",
+    "skip",
+    "pass"
+   ],
+   [
+    "TestRun/iterator_result_getters_typed",
+    "skip",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_next_result_getters",
+    "skip",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_result_as_cast",
+    "skip",
+    "pass"
+   ],
+   [
+    "TestRunMatchesNode/iterator_result_getters_typed",
+    "skip",
+    "pass"
+   ]
+  ],
+  "removed": [
+   [
+    "TestErrors/iterator_result_getters",
+    "pass"
+   ]
+  ]
+ },
+ "raw_events": {
+  "file": "h03b-suite.jsonl.gz",
+  "sha256_uncompressed": "8893607360291aff65a2d4eeab129e91c045612aea6a95a45438bd8d0d419a6e"
+ },
+ "stderr_bytes": 0,
+ "tree_fingerprint": {
+  "sha256": "783ba98c9aa8d47852ea81651109460ac71a960204aca8ccd870420f986a8df0",
+  "of": "git diff a65a75d62 -- pts/ followed by the untracked files under pts/ in sorted order (the CLI's sha256 doesn't cover the runtime, which pts and go test compile from the tree)"
+ },
+ "earlier_runs": [
+  {
+   "tree": "after review round 4's fixes, before round 5's (the same CLI sha256; object.c differed)",
+   "exit": 0,
+   "pass": 1381,
+   "skip": 256,
+   "fail": 0,
+   "note": "the same command; same per-test outcomes as this run"
+  },
+  {
+   "tree": "session 4's starting tree (round 3's fixes and pins)",
+   "cli_sha256": "130512106738a072c1de912c2e0060cd4f352028e424ad5cfa550d9ff57dc36c",
+   "exit": 0,
+   "pass": 1381,
+   "skip": 256,
+   "fail": 0,
+   "note": "the same per-test outcomes"
+  },
+  {
+   "tree": "the tree after review round 2 (session 2)",
+   "cli_sha256": "7415de3bee4c60dcd6192423d4b3520d6d6c4c6d2beed1fe2d772f46df5ec788",
+   "exit": 0,
+   "pass": 1381,
+   "skip": 256,
+   "fail": 0,
+   "note": "this file's first receipt; its raw events were replaced"
+  },
+  {
+   "tree": "the tree before review round 2",
+   "exit": 0,
+   "pass": 1380,
+   "skip": 255,
+   "fail": 0
+  }
+ ]
+}

@@ -1,0 +1,73 @@
+// An object literal with getters or setters can be an iterator result (C03, H03b): it is
+// kept as it is, and done and value are read by name when the program reads them (D-146),
+// so a done result's value getter never runs unless asked for. Before H03b this was a
+// PTS1001, since D-109's result shapes hold done and value in fields.
+class Completed implements Iterable<number> {
+  [Symbol.iterator](): Iterator<number> {
+    return {
+      next(): IteratorResult<number> {
+        return {
+          get done(): true {
+            console.log("completed read done");
+            return true;
+          },
+          get value(): number {
+            throw new Error("value of a done result was read");
+          },
+        };
+      },
+    };
+  }
+}
+function step(): IteratorYieldResult<number> {
+  return {
+    get done(): false {
+      console.log("step read done");
+      return false;
+    },
+    value: 1,
+  };
+}
+function last(): IteratorResult<string, string> {
+  let seen = "start";
+  return {
+    done: true,
+    get value() {
+      console.log("last read value");
+      return seen;
+    },
+    set value(v: string) {
+      console.log("last wrote value", v);
+      seen = v;
+    },
+  };
+}
+for (const item of new Completed()) {
+  console.log("never", item);
+}
+console.log([...new Completed()].length);
+const stepped = step();
+console.log(stepped);
+console.log(stepped.done, stepped.value);
+const finished = last();
+console.log(finished);
+finished.value = "changed";
+console.log(finished.done, finished.value);
+if (finished.done) {
+  const final: string = finished.value;
+  console.log("final", final);
+}
+
+// expect:
+// completed read done
+// completed read done
+// 0
+// { done: [Getter], value: 1 }
+// step read done
+// false 1
+// { done: true, value: [Getter/Setter] }
+// last wrote value changed
+// last read value
+// true changed
+// last read value
+// final changed

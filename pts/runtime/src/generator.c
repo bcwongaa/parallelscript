@@ -27,6 +27,7 @@ pts_iterator *pts_generator_new(size_t size, bool (*step)(pts_iterator *)) {
   generator->mode = PTS_RESUME_NEXT;
   generator->sent = PTS_VALUE_UNDEFINED;
   generator->value = PTS_VALUE_UNDEFINED;
+  generator->result = PTS_VALUE_ABSENT;
   return generator;
 }
 
@@ -38,19 +39,20 @@ static pts_iterator *as_iterator(pts_value value) {
 }
 
 /*
- * The value this thread's last resume of an iterator gave, once threads run the program's
- * code. Threads may share an iterator, and another thread's resume may replace its value
- * before this thread reads it, so pts_iterator_value reads it from here (D-143).
- * Uncollectable, so the collector sees it.
+ * The value and result object this thread's last resume of an iterator gave, once threads
+ * run the program's code. Threads may share an iterator, and another thread's resume may
+ * replace them before this thread reads them, so pts_iterator_value reads them from here
+ * (D-143). Uncollectable, so the collector sees it.
  */
 typedef struct resumed {
   const pts_iterator *iterator;
   pts_value value;
+  pts_value result;
 } resumed;
 
 static _Thread_local resumed *last_resumed;
 
-static void remember_value(const pts_iterator *it, pts_value value) {
+static void remember_step(const pts_iterator *it, pts_value value, pts_value result) {
   if (last_resumed == NULL) {
     last_resumed = GC_MALLOC_UNCOLLECTABLE(sizeof *last_resumed);
     if (last_resumed == NULL) {
@@ -59,13 +61,27 @@ static void remember_value(const pts_iterator *it, pts_value value) {
   }
   last_resumed->iterator = it;
   last_resumed->value = value;
+  last_resumed->result = result;
 }
 
-/* Sets an iterator's value, as this thread's resume of it gave it. */
-static void set_value(pts_iterator *it, pts_value value) {
+/* Sets what an iterator's step gave, as this thread's resume of it gave it: its value, or a result object whose value is read if asked for. */
+static void set_step(pts_iterator *it, pts_value value, pts_value result) {
   it->value = value;
+  it->result = result;
   if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED)) {
-    remember_value(it, value);
+    remember_step(it, value, result);
+  }
+}
+
+static void set_value(pts_iterator *it, pts_value value) { set_step(it, value, PTS_VALUE_ABSENT); }
+
+/* What this thread's last resume of an iterator gave: its value, and the result object it handed back or PTS_VALUE_ABSENT. */
+static void last_step(const pts_iterator *it, pts_value *value, pts_value *result) {
+  *value = it->value;
+  *result = it->result;
+  if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED) && last_resumed != NULL && last_resumed->iterator == it) {
+    *value = last_resumed->value;
+    *result = last_resumed->result;
   }
 }
 
@@ -119,9 +135,12 @@ static pts_value items_iterator_new(const pts_type *type, pts_value items) {
   it->header.type = type;
   it->header.step = items_step;
   it->header.value = PTS_VALUE_UNDEFINED;
+  it->header.result = PTS_VALUE_ABSENT;
   it->items = items;
   return pts_value_from_object(it);
 }
+
+pts_value pts_array_iterator_new(pts_value items) { return items_iterator_new(&array_iterator_type, items); }
 
 static bool is_iterator(pts_value value) {
   return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_GENERATOR;
@@ -131,13 +150,14 @@ static bool is_iterator(pts_value value) {
  * The iteration protocol over the program's objects (D-111): an object with a method
  * `@@iterator` ([Symbol.iterator]) is iterable, and an object with a next() is an
  * iterator, which a runtime iterator wraps (object_iterator): its steps call next(),
- * return() and throw() through their dynamic entries (D-074) and read done and value off
- * the results.
+ * return() and throw() through their dynamic entries (D-074) and read done off the
+ * results, which they keep (pts_iterator's result): a result's value is read only if it
+ * is asked for, as JS's IteratorStep leaves it for IteratorValue (an elision or a done
+ * for…of never reads it, D-146, H03b).
  */
 typedef struct object_iterator {
   pts_iterator header;
   pts_value object;
-  pts_value finished; /* the result that said done: its value is read only if asked for (D-146) */
 } object_iterator;
 
 static const pts_type object_iterator_type = {
@@ -156,9 +176,9 @@ static bool has_method(pts_value object, const pts_string *name) {
   return pts_value_is_object(function) && pts_value_as_object(function)->type->kind == PTS_KIND_FUNCTION;
 }
 
-/* object.name(argv…), a method of the program's object, through its dynamic entry. */
-static pts_value call_method(pts_value object, const pts_string *name, uint32_t argc, const pts_value *argv) {
-  return pts_dynamic_call_method(object, pts_value_from_string(name), name, argc, argv);
+/* object.name(argv…), a method of the program's object, through its dynamic entry; text names it in the TypeError if it has none. */
+static pts_value call_method(pts_value object, const pts_string *name, const pts_string *text, uint32_t argc, const pts_value *argv) {
+  return pts_dynamic_call_method(object, pts_value_from_string(name), text, argc, argv);
 }
 
 PTS_STATIC_STRING(iterator_key, 1, 10, 10, "@@iterator");
@@ -178,38 +198,67 @@ pts_value pts_iterator_of(pts_value iterator) {
   }
   it->header.type = &object_iterator_type;
   it->header.value = PTS_VALUE_UNDEFINED;
+  it->header.result = PTS_VALUE_ABSENT;
   it->object = iterator;
-  it->finished = PTS_VALUE_UNDEFINED;
   return pts_value_from_object(it);
 }
 
-/* resume_object_iterator resumes an object's iterator by calling its next(), throw() or return() as yield* does. */
-static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pts_value sent) {
+/* The iterator method that resumes in mode: next, throw or return. */
+static const pts_string *method_name(pts_resume_mode mode) {
   PTS_STATIC_STRING(next, 1, 4, 4, "next");
   PTS_STATIC_STRING(throw_, 1, 5, 5, "throw");
   PTS_STATIC_STRING(return_, 1, 6, 6, "return");
-  PTS_STATIC_STRING(done, 1, 4, 4, "done");
-  PTS_STATIC_STRING(value, 1, 5, 5, "value");
-  const pts_string *name = mode == PTS_RESUME_NEXT ? next : mode == PTS_RESUME_THROW ? throw_ : return_;
-  if (mode != PTS_RESUME_NEXT && !has_method(it->object, name)) {
-    if (mode == PTS_RESUME_RETURN) {
-      return finish(&it->header, sent);
-    }
-    pts_iterator_close(pts_value_from_object(it));
-    pts_throw_new(&pts_type_builtin_TypeError, "The iterator does not provide a 'throw' method.");
-  }
-  pts_value result = call_method(it->object, name, 1, &sent);
+  return mode == PTS_RESUME_NEXT ? next : mode == PTS_RESUME_THROW ? throw_ : return_;
+}
+
+/*
+ * Calls an object's next(sent), throw(sent) or return(sent): the result object, kept as
+ * the iterator's step with its value unread. text names the method in the TypeError of an
+ * object without it.
+ */
+static inline __attribute__((always_inline)) pts_value call_object_method(object_iterator *it, pts_resume_mode mode, pts_value sent, const pts_string *text) {
+  pts_value result = call_method(it->object, method_name(mode), text, 1, &sent);
   if (!pts_value_is_object(result)) {
     pts_string *shown = pts_value_to_string(result);
     pts_throw_new(&pts_type_builtin_TypeError, "Iterator result %.*s is not an object", (int)shown->byte_len, shown->bytes);
   }
-  /* IteratorComplete, then IteratorValue only if it isn't: a for…of doesn't read a done result's value, yield* does (D-146). */
-  if (!pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done)))) {
-    set_value(&it->header, pts_dynamic_get(result, pts_value_from_string(value)));
+  set_step(&it->header, PTS_VALUE_ABSENT, result);
+  return result;
+}
+
+/*
+ * call_object_method as yield* and IteratorClose call it: for a missing return(),
+ * PTS_VALUE_TRUE, the iterator finished with sent, as yield* does; for a missing throw(),
+ * the iterator closed and a TypeError.
+ */
+static pts_value call_object_iterator(object_iterator *it, pts_resume_mode mode, pts_value sent) {
+  const pts_string *name = method_name(mode);
+  if (mode != PTS_RESUME_NEXT && !has_method(it->object, name)) {
+    if (mode == PTS_RESUME_RETURN) {
+      finish(&it->header, sent);
+      return PTS_VALUE_TRUE;
+    }
+    pts_iterator_close(pts_value_from_object(it));
+    pts_throw_new(&pts_type_builtin_TypeError, "The iterator does not provide a 'throw' method.");
+  }
+  return call_object_method(it, mode, sent, name);
+}
+
+/* Whether a result object says it is done: JS's IteratorComplete. */
+static bool result_done(pts_value result) {
+  PTS_STATIC_STRING(done, 1, 4, 4, "done");
+  return pts_value_truthy(pts_dynamic_get(result, pts_value_from_string(done)));
+}
+
+/* resume_object_iterator resumes an object's iterator by calling its next(), throw() or return() as yield* does, reading its result's done (IteratorComplete). */
+static bool resume_object_iterator(object_iterator *it, pts_resume_mode mode, pts_value sent) {
+  pts_value result = call_object_iterator(it, mode, sent);
+  if (!pts_value_is_object(result)) {
+    return true; /* finished without a return() */
+  }
+  if (!result_done(result)) {
     return false;
   }
-  it->finished = result;
-  set_value(&it->header, PTS_VALUE_ABSENT);
   it->header.state = PTS_GENERATOR_DONE;
   return true;
 }
@@ -233,7 +282,7 @@ pts_value pts_iterator_get(pts_value iterable, const pts_string *text) {
     return iterable; /* a generator's or runtime iterator's [Symbol.iterator]() is itself */
   }
   if (has_method(iterable, iterator_key)) {
-    return call_method(iterable, iterator_key, 0, NULL);
+    return call_method(iterable, iterator_key, iterator_key, 0, NULL);
   }
   if (pts_value_is_object(iterable)) {
     switch (pts_value_as_object(iterable)->type->kind) {
@@ -254,7 +303,7 @@ pts_value pts_iterator_open(pts_value iterable, const pts_string *text) {
     return iterable;
   }
   if (has_method(iterable, iterator_key)) {
-    return pts_iterator_of(call_method(iterable, iterator_key, 0, NULL));
+    return pts_iterator_of(call_method(iterable, iterator_key, iterator_key, 0, NULL));
   }
   if (is_collection(iterable)) {
     return collection_iterator(iterable);
@@ -374,6 +423,7 @@ pts_value pts_map_iterator_new(pts_value map, int32_t items) {
   it->header.type = source->type->kind == PTS_KIND_SET ? &set_iterator_type : &map_iterator_type;
   it->header.step = map_step;
   it->header.value = PTS_VALUE_UNDEFINED;
+  it->header.result = PTS_VALUE_ABSENT;
   it->entries = pts_map_iterate(source);
   it->items = items;
   return pts_value_from_object(it);
@@ -406,8 +456,13 @@ static bool resume_runtime_iterator(pts_iterator *it, pts_resume_mode mode, pts_
   return true;
 }
 
-/* Resumes a generator that this thread has claimed (pts_iterator_resume) and releases it, also when it throws. */
-static bool resume_claimed_generator(pts_iterator *generator, pts_resume_mode mode, pts_value sent) {
+/*
+ * Resumes a generator that this thread has claimed (pts_iterator_resume) and releases it,
+ * also when it throws; *handed is the result object its yield* handed back, read while it
+ * is still this thread's, or PTS_VALUE_ABSENT.
+ */
+static inline __attribute__((always_inline)) bool resume_claimed_generator(pts_iterator *generator, pts_resume_mode mode, pts_value sent, pts_value *handed) {
+  *handed = PTS_VALUE_ABSENT;
   switch (generator->state) {
   case PTS_GENERATOR_START:
     if (mode == PTS_RESUME_NEXT) {
@@ -424,6 +479,7 @@ static bool resume_claimed_generator(pts_iterator *generator, pts_resume_mode mo
   }
   generator->mode = mode;
   generator->sent = sent;
+  generator->result = PTS_VALUE_ABSENT; /* until a yield* hands one back */
   /* A marker on the chain of handlers: a throw out of the body finishes the generator and releases it. */
   pts_handler marker;
   marker.prev = pts_handlers;
@@ -431,8 +487,9 @@ static bool resume_claimed_generator(pts_iterator *generator, pts_resume_mode mo
   pts_handlers = &marker;
   bool done = generator->step(generator);
   pts_handlers = marker.prev;
+  *handed = generator->result;
   if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED)) {
-    remember_value(generator, generator->value);
+    remember_step(generator, generator->value, *handed);
   }
   __atomic_store_n(&generator->executing, false, __ATOMIC_RELEASE);
   return done;
@@ -452,6 +509,14 @@ static bool claim(pts_iterator *generator) {
   return !__atomic_exchange_n(&generator->executing, true, __ATOMIC_ACQUIRE);
 }
 
+/* Resumes a generator object of the program's, as pts_iterator_resume does; *handed as resume_claimed_generator's. */
+static inline __attribute__((always_inline)) bool resume_generator(pts_iterator *generator, pts_resume_mode mode, pts_value sent, pts_value *handed) {
+  if (!claim(generator)) { /* resumed from its own body or while another thread runs it */
+    pts_throw_new(&pts_type_builtin_TypeError, "Generator is already running");
+  }
+  return resume_claimed_generator(generator, mode, sent, handed);
+}
+
 bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sent) {
   pts_iterator *generator = as_iterator(iterator);
   if (generator->type == &object_iterator_type) {
@@ -460,10 +525,61 @@ bool pts_iterator_resume(pts_value iterator, pts_resume_mode mode, pts_value sen
   if (generator->type != &pts_type_builtin_Generator) {
     return resume_runtime_iterator(generator, mode, sent);
   }
-  if (!claim(generator)) { /* resumed from its own body or while another thread runs it */
-    pts_throw_new(&pts_type_builtin_TypeError, "Generator is already running");
+  pts_value handed;
+  if (resume_generator(generator, mode, sent, &handed)) {
+    return true;
   }
-  return resume_claimed_generator(generator, mode, sent);
+  /* A result its yield* handed back is the one its caller steps by: IteratorComplete reads its done again. */
+  return __builtin_expect(handed != PTS_VALUE_ABSENT, 0) && result_done(handed);
+}
+
+pts_value pts_iterator_call(pts_value iterator, pts_resume_mode mode, pts_value sent, const pts_string *text) {
+  pts_iterator *it = as_iterator(iterator);
+  if (it->type == &object_iterator_type) {
+    return call_object_method((object_iterator *)it, mode, sent, text); /* `it.return is not a function` for one without it */
+  }
+  pts_value handed = PTS_VALUE_ABSENT;
+  bool done;
+  if (it->type == &pts_type_builtin_Generator) {
+    done = resume_generator(it, mode, sent, &handed);
+  } else if (mode == PTS_RESUME_NEXT) {
+    done = resume_runtime_iterator(it, mode, sent);
+  } else { /* the iterators of arrays, strings, maps and sets have only next(), as JS's */
+    pts_throw_new(&pts_type_builtin_TypeError, "%.*s is not a function", (int)text->byte_len, text->bytes);
+  }
+  if (!done && handed != PTS_VALUE_ABSENT) {
+    return handed;
+  }
+  return pts_value_from_bool(done);
+}
+
+void pts_generator_delegate(pts_iterator *generator, pts_value inner) {
+  const pts_iterator *it = as_iterator(inner);
+  pts_value value = it->value; /* last_step's value, read alone on the common path, where the step made its own result */
+  if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED) && last_resumed != NULL && last_resumed->iterator == it) {
+    value = last_resumed->value;
+  }
+  generator->value = value; /* its result stays absent from the resume that runs this step */
+  if (__builtin_expect(value == PTS_VALUE_ABSENT, 0)) {
+    pts_value result;
+    last_step(it, &value, &result);
+    generator->result = result;
+  }
+}
+
+/*
+ * An iterator's value when its step left it absent: the value of the result object the
+ * step handed back, read now that it is asked for (D-146). Threads that share the iterator
+ * may pair one step's absent value with another's absent result (D-143), read as undefined.
+ */
+static __attribute__((noinline)) pts_value handed_value(const pts_iterator *it) {
+  pts_value value, result;
+  last_step(it, &value, &result);
+  if (!pts_value_is_object(result)) {
+    return value == PTS_VALUE_ABSENT ? PTS_VALUE_UNDEFINED : value;
+  }
+  PTS_STATIC_STRING(value_key, 1, 5, 5, "value");
+  return pts_dynamic_get(result, pts_value_from_string(value_key));
 }
 
 pts_value pts_iterator_value(pts_value iterator) {
@@ -472,17 +588,60 @@ pts_value pts_iterator_value(pts_value iterator) {
   if (__atomic_load_n(&pts_threaded, __ATOMIC_RELAXED) && last_resumed != NULL && last_resumed->iterator == it) {
     value = last_resumed->value;
   }
-  if (value == PTS_VALUE_ABSENT && it->type == &object_iterator_type) { /* a done result's value, read now that it is asked for */
-    PTS_STATIC_STRING(value_key, 1, 5, 5, "value");
-    return pts_dynamic_get(((const object_iterator *)it)->finished, pts_value_from_string(value_key));
+  return __builtin_expect(value != PTS_VALUE_ABSENT, 1) ? value : handed_value(it);
+}
+
+/*
+ * The method name's mode, or -1 if the iterator has no such method: a generator, an async
+ * generator and an object's iterator have next(), return() and throw(); the runtime's
+ * iterators over arrays, strings, maps and sets have only next(); a for await's wrapper of
+ * a sync iterator, which the program never sees, has none here.
+ */
+static int method_mode(const pts_iterator *it, const char *name) {
+  bool all = it->type == &pts_type_builtin_Generator || it->type == &object_iterator_type || pts_value_is_async_generator(pts_value_from_object((pts_iterator *)it));
+  if (!all && it->step == NULL) {
+    return -1;
   }
-  return value;
+  if (strcmp(name, "next") == 0) {
+    return PTS_RESUME_NEXT;
+  }
+  if (all && strcmp(name, "return") == 0) {
+    return PTS_RESUME_RETURN;
+  }
+  if (all && strcmp(name, "throw") == 0) {
+    return PTS_RESUME_THROW;
+  }
+  return -1;
+}
+
+bool pts_iterator_method_call(pts_value iterator, const char *name, uint32_t argc, const pts_value *argv, pts_value *result) {
+  pts_iterator *it = as_iterator(iterator);
+  int mode = method_mode(it, name);
+  if (mode < 0) {
+    return false;
+  }
+  pts_value sent = argc > 0 ? argv[0] : PTS_VALUE_UNDEFINED;
+  if (pts_value_is_async_generator(iterator)) {
+    *result = pts_async_iterator_resume(iterator, (pts_resume_mode)mode, sent);
+    return true;
+  }
+  pts_value step = pts_iterator_call(iterator, (pts_resume_mode)mode, sent, method_name(mode));
+  *result = pts_value_is_object(step) ? step : pts_iterator_result_new(pts_iterator_value(iterator), step == PTS_VALUE_TRUE);
+  return true;
 }
 
 void pts_iterator_close(pts_value iterator) {
   pts_iterator *generator = as_iterator(iterator);
-  if ((generator->type == &pts_type_builtin_Generator || generator->type == &object_iterator_type) && generator->state != PTS_GENERATOR_DONE) {
-    pts_iterator_resume(iterator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED);
+  if (generator->state == PTS_GENERATOR_DONE) {
+    return;
+  }
+  if (generator->type == &object_iterator_type) {
+    /* IteratorClose: return() and a check that its result is an object, nothing of which is read. */
+    call_object_iterator((object_iterator *)generator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED);
+    generator->state = PTS_GENERATOR_DONE;
+  } else if (generator->type == &pts_type_builtin_Generator) {
+    pts_value handed;
+    resume_generator(generator, PTS_RESUME_RETURN, PTS_VALUE_UNDEFINED, &handed);
   }
 }
 

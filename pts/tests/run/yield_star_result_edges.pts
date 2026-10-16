@@ -1,0 +1,223 @@
+// yield* hands its inner iterator's results through (D-178), so a consumer reads their
+// done again: a done getter that answers false to yield* and true to the consumer stops
+// the consumer while the generator stays suspended in yield*, and a later next() resumes
+// it. Forwarding throw() to an inner iterator without throw() closes it, reading nothing
+// of what its return() gave, then throws a TypeError; forwarding return() to one without
+// return() returns the value.
+function liar(): Iterator<number, string> {
+  let k = 0;
+  return {
+    next(): IteratorResult<number, string> {
+      k++;
+      const step = k;
+      let reads = 0;
+      return {
+        get done() {
+          reads++;
+          console.log("done read", step, reads);
+          return step === 1 ? reads > 1 : step > 3;
+        },
+        get value() {
+          console.log("value read", step);
+          return step;
+        },
+      } as IteratorResult<number, string>;
+    },
+    return(v?: unknown): IteratorResult<number, string> {
+      console.log("return called");
+      return { done: true, value: "closed" };
+    },
+  };
+}
+function* delegating(): Generator<number, string> {
+  const r = yield* { [Symbol.iterator]: liar };
+  console.log("yield* gave", r);
+  return "end";
+}
+const gen = delegating();
+for (const x of gen) console.log("item", x);
+console.log("after loop");
+console.log(gen.next());
+console.log("== Array.from");
+console.log(Array.from(delegating()));
+console.log("== pattern");
+const [p, q] = delegating();
+console.log(p, q);
+console.log("== typed next");
+const t = delegating();
+const s = t.next();
+console.log("got s");
+console.log(s.done);
+console.log(s.done, s.value);
+console.log(t.next().done);
+
+console.log("== forwarding");
+function withReturn(tag: string): Iterator<number> {
+  let k = 0;
+  return {
+    next(): IteratorResult<number> {
+      k++;
+      return { done: false, value: k };
+    },
+    return(v?: any): IteratorResult<number> {
+      console.log(tag, "return", v);
+      return {
+        get done() {
+          console.log(tag, "return result done read");
+          return true;
+        },
+        get value() {
+          console.log(tag, "return result value read");
+          return v;
+        },
+      } as IteratorResult<number>;
+    },
+  };
+}
+function withoutReturn(): Iterator<number> {
+  let k = 0;
+  return {
+    next(): IteratorResult<number> {
+      k++;
+      return { done: false, value: k };
+    },
+  };
+}
+function* forwarding(tag: string, make: () => Iterator<number>): Generator<number, unknown> {
+  try {
+    return yield* { [Symbol.iterator]: make };
+  } finally {
+    console.log(tag, "finally");
+  }
+}
+const a = forwarding("A", () => withReturn("A"));
+a.next();
+try {
+  a.throw(new Error("boom"));
+} catch (e) {
+  console.log("A caught", (e as Error).constructor.name, (e as Error).message);
+}
+const b = forwarding("B", withoutReturn);
+b.next();
+console.log("B", b.return("val"));
+const c = forwarding("C", () => withReturn("C"));
+c.next();
+console.log("C", c.return("val"));
+
+console.log("== typed calls of missing methods");
+const bare: Iterator<number> = withoutReturn();
+console.log(bare.next());
+try {
+  bare.return!(1);
+} catch (e) {
+  console.log((e as Error).constructor.name, (e as Error).message);
+}
+try {
+  bare.throw!(new Error("x"));
+} catch (e) {
+  console.log((e as Error).constructor.name, (e as Error).message);
+}
+const arrayIterator = [1, 2, 3][Symbol.iterator]();
+console.log(arrayIterator.next());
+try {
+  console.log(arrayIterator.return!());
+} catch (e) {
+  console.log("array", (e as Error).constructor.name, (e as Error).message);
+}
+console.log(arrayIterator.next());
+const keys = new Map([["a", 1]]).keys();
+try {
+  console.log(keys.return!());
+} catch (e) {
+  console.log("keys", (e as Error).constructor.name, (e as Error).message);
+}
+console.log(keys.next());
+const chars = "ab"[Symbol.iterator]();
+try {
+  console.log(chars.throw!(new Error("t")));
+} catch (e) {
+  console.log("chars", (e as Error).constructor.name, (e as Error).message);
+}
+console.log(chars.next());
+
+console.log("== a yield* statement reads the done result's value");
+function counted(): any {
+  let k = 0;
+  return {
+    next(): any {
+      k++;
+      const s = k;
+      return {
+        get done() {
+          console.log("done read", s);
+          return s > 1;
+        },
+        get value() {
+          console.log("value read", s);
+          return s * 10;
+        },
+      };
+    },
+  };
+}
+function* statement(): Generator<number, void> {
+  yield* { [Symbol.iterator]: counted };
+  console.log("after");
+}
+for (const x of statement()) console.log("item", x);
+
+// expect:
+// done read 1 1
+// done read 1 2
+// after loop
+// done read 2 1
+// { done: [Getter], value: [Getter] }
+// == Array.from
+// done read 1 1
+// done read 1 2
+// []
+// == pattern
+// done read 1 1
+// done read 1 2
+// undefined undefined
+// == typed next
+// done read 1 1
+// got s
+// done read 1 2
+// true
+// done read 1 3
+// value read 1
+// true 1
+// done read 2 1
+// done read 2 2
+// false
+// == forwarding
+// A return undefined
+// A finally
+// A caught TypeError The iterator does not provide a 'throw' method.
+// B finally
+// B { value: 'val', done: true }
+// C return val
+// C return result done read
+// C return result value read
+// C finally
+// C { value: 'val', done: true }
+// == typed calls of missing methods
+// { done: false, value: 1 }
+// TypeError bare.return is not a function
+// TypeError bare.throw is not a function
+// { value: 1, done: false }
+// array TypeError arrayIterator.return is not a function
+// { value: 2, done: false }
+// keys TypeError keys.return is not a function
+// { value: 'a', done: false }
+// chars TypeError chars.throw is not a function
+// { value: 'a', done: false }
+// == a yield* statement reads the done result's value
+// done read 1
+// done read 1
+// value read 1
+// item 10
+// done read 2
+// value read 2
+// after

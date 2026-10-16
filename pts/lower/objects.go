@@ -9,7 +9,6 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/internal/jsnum"
-	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 	"github.com/microsoft/typescript-go/pts/lib"
 )
@@ -885,6 +884,9 @@ func (l *lowerer) valueProperty(node *ast.Node, object ir.Expr) ir.Expr {
 // (provides), so that every access through the interface finds a member it can use as is.
 func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr {
 	if class, ok := target.(*ir.Class); ok {
+		if class.Result {
+			return asResult(value, class)
+		}
 		if _, fromInterface := value.Type().(*ir.Interface); !fromInterface {
 			return l.classCast(value, class, node)
 		}
@@ -892,47 +894,43 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 			return downcast(value, class)
 		}
 	} else if missing := unprovided(value.Type(), target.(*ir.Interface)); missing == "" {
-		return &ir.ClassCast{X: value, To: target}
+		return l.interfaceCast(value, target.(*ir.Interface), node)
 	} else if holdsOptionally(value.Type(), target.(*ir.Interface)) {
 		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node})
-		return &ir.ClassCast{X: value, To: target}
+		return l.interfaceCast(value, target.(*ir.Interface), node)
 	} else {
-		if !l.reportedGetterResult(node) {
-			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
-		}
+		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
 		return nil
 	}
-	if !l.reportedGetterResult(node) {
-		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", value.Type(), target))
-	}
+	l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", value.Type(), target))
 	return nil
 }
 
-// reportedGetterResult reports, for an object literal with a getter or setter `done` or
-// `value` that fails to convert to an iterator result (its contextual type), why: D-109's
-// result shapes hold done and value in fields, which can't wait to call a getter (D-146,
-// D-177). It reports nothing and returns false for any other node.
-func (l *lowerer) reportedGetterResult(node *ast.Node) bool {
-	node = ast.SkipParentheses(node)
-	if node.Kind != ast.KindObjectLiteralExpression {
-		return false
+// interfaceCast converts value, a reference to an object whose type provides iface's
+// members, to iface: as it is, unless value is an iterator result, whose object may be of
+// another layout than its shape's (D-178), and is then converted unless it is one of the
+// shape's (ir.ClassCast.FromResult), so that reads through iface find its members as iface
+// holds them; nil, reported, if iface can't take such a conversion.
+func (l *lowerer) interfaceCast(value ir.Expr, iface *ir.Interface, node *ast.Node) ir.Expr {
+	if class, ok := value.Type().(*ir.Class); !ok || !class.Result || iface.Result {
+		return &ir.ClassCast{X: value, To: iface}
 	}
-	context := l.literalContext(node)
-	if context == nil || !l.isIteratorResultType(context) || !slices.ContainsFunc(node.AsObjectLiteralExpression().Properties.Nodes, isResultAccessor) {
-		return false
+	if what := l.prepareDynamicTarget(iface, node, map[ir.Type]bool{}); what != "" {
+		l.notSupportedYet(node, fmt.Sprintf("using an iterator result, which may be an object of another layout, as a `%s` (%s) is", iface, what))
+		return nil
 	}
-	l.report(diagnostic.At(node, diagnostic.NotSupportedYet, "an object literal with getters or setters as an iterator result (`%s`) is not supported yet; a `next(): any` can return one", l.checker.TypeToString(context)))
-	return true
+	return &ir.ClassCast{X: value, To: iface, FromResult: true}
 }
 
-// isResultAccessor reports whether an object literal's property is a getter or setter of
-// an iterator result's `done` or `value`.
-func isResultAccessor(property *ast.Node) bool {
-	if !ast.IsAccessor(property) || property.Name().Kind != ast.KindIdentifier {
-		return false
+// convertedResult is x, unless it is an iterator result cast to an interface (a branch of a
+// conditional, by commonClass or asContextualInterface), which is then interfaceCast's.
+func (l *lowerer) convertedResult(x ir.Expr, node *ast.Node) ir.Expr {
+	if cast, ok := x.(*ir.ClassCast); ok && !cast.FromResult {
+		if iface, ok := cast.To.(*ir.Interface); ok {
+			return l.interfaceCast(cast.X, iface, node)
+		}
 	}
-	name := property.Name().Text()
-	return name == "done" || name == "value"
+	return x
 }
 
 // unprovided returns the name of a member of an interface that values of type t (a class,

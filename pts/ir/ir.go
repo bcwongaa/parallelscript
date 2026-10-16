@@ -105,6 +105,12 @@ type Class struct {
 	// runtime functions (Func.Extern), and a native subclass's instances are laid out as
 	// its parent's, adding nothing.
 	Builtin bool
+
+	// Result marks a shape of iterator results (D-109): a value of it may be any object an
+	// iterator handed back (an object's own next()'s result, an asserted literal, one with
+	// getters), so its fields are read and written only on objects of the shape, and found
+	// by name on others (H03b).
+	Result bool
 }
 
 func (c *Class) String() string {
@@ -204,6 +210,10 @@ type Interface struct {
 	// conversion from a dynamic value reaches the interface.
 	Copy      *Class
 	CopyOrder int
+	// Result marks the interface of a property of a union of iterator results (D-109),
+	// whose objects may be of any layout: the property is found by name and converted to
+	// its type with a check (H03b).
+	Result bool
 	// writing is set while String writes the interface, so that a recursive object type
 	// (`{ value: number; next?: List }`) writes its references to itself as "{...}".
 	writing bool
@@ -653,6 +663,10 @@ type Yield struct {
 	At    Pos
 	Value Expr
 	Await bool // in an async generator, an await (D-115)
+	// Delegate, in a yield* (D-109), is the inner iterator whose step this yield passes
+	// on: its value, or the result object it handed back, which the generator hands back
+	// in turn (GeneratorYield(innerResult), H03b). Value is nil then.
+	Delegate Expr
 }
 
 // ResumeMode is how a suspended generator was resumed: by next(), throw() or return().
@@ -1003,6 +1017,10 @@ type InterfaceCall struct {
 type ClassCast struct {
 	X  Expr
 	To Type
+	// FromResult marks X as an iterator result's object (Class.Result), which may be of any
+	// layout (D-178): it is To as it is if it is one of X's shape's objects, and otherwise
+	// converted to To with a check, as dynamic data is (D-071).
+	FromResult bool
 }
 
 // InstanceOf is X instanceof Class, for an instance X.
@@ -1229,6 +1247,16 @@ var (
 	// text); IteratorOf is an iterator itself, or one that calls an object's next() (D-111).
 	IteratorGet = &Builtin{Name: "Symbol.iterator", Params: []Type{Value, String}, Result: Value}
 	IteratorOf  = &Builtin{Name: "iterator of", Params: []Type{Value}, Result: Value}
+	// IteratorCall is next(v), return(v) or throw(v) called on an iterator (H03b), its I32
+	// argument a ResumeMode and its String the callee's source text, for the TypeError of
+	// an object without the method: the result object the iterator's method returned,
+	// which the call gives as it is (an object's own next()'s, or what a generator's yield*
+	// handed back), or, if the iterator made its result itself, whether it is done, its
+	// value then IteratorValue. IteratorHanded is whether such a step is a result object,
+	// and IteratorCallDone whether one the iterator made says done.
+	IteratorCall     = &Builtin{Name: "Iterator.call", Params: []Type{Value, I32, Value, String}, Result: Value}
+	IteratorHanded   = &Builtin{Name: "Iterator.handed", Params: []Type{Value}, Result: Bool}
+	IteratorCallDone = &Builtin{Name: "Iterator.callDone", Params: []Type{Value}, Result: Bool}
 	// Promises (D-112): PromiseNew is `new Promise(executor)` (its second argument the
 	// executor's source text); PromiseThen is p.then(onFulfilled, onRejected), either
 	// undefined; PromiseFinally is p.finally(f); PromiseResolve and PromiseReject are

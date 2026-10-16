@@ -27,6 +27,18 @@ func (e *emitter) collectChecks(program *ir.Program) {
 				if x.X.Type() == ir.Value && !hasValueTest(x.To) {
 					targets = append(targets, x.To)
 				}
+			case *ir.ClassCast:
+				if x.FromResult { // an object of another layout converted (classCast)
+					targets = append(targets, x.To)
+				}
+			case *ir.FieldRef:
+				if isResultReceiver(x.X.Type()) && !hasValueTest(x.Field.Type) { // a property found by name (resultRead)
+					targets = append(targets, x.Field.Type)
+				}
+			case *ir.SetField:
+				if isResultReceiver(x.X.Type()) { // a write through any's path (resultStore)
+					e.declaredTypes = true
+				}
 			case *ir.Call:
 				if x.Func.Settles { // the loop settles its promise (D-118)
 					e.usesLoop = true
@@ -351,6 +363,9 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 		}
 		members = append(members, e.checkProperties(name, t.Fields, t, true)...)
 		members = append(members, ".type = &pts_type_"+shapeDescriptorName(e.classNames[t], 0))
+		if t.Result {
+			members = append(members, ".result = true") // any of the program's objects as it is (D-178)
+		}
 	default:
 		panic("cgen: no check for " + t.String())
 	}

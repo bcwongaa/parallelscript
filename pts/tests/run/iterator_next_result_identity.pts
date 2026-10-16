@@ -1,0 +1,92 @@
+// it.next() on a typed `Iterator<number>` gives the very object the iterator's next()
+// returned: the same object each time if next() reuses one, with its own properties and
+// their order, and later writes to it show. The results come from `next(): any`.
+
+const reused = { done: false, value: 5, note: "kept" };
+
+class Reusing implements Iterator<number> {
+    next(): any {
+        return reused;
+    }
+}
+
+class Counting implements Iterator<number> {
+    count = 0;
+    next(): any {
+        this.count++;
+        return { value: this.count, done: false, step: "step " + this.count };
+    }
+}
+
+function attempt(label: string, body: () => void): void {
+    try {
+        body();
+    } catch (error: any) {
+        console.log(label, "escaped:", error.message);
+    }
+}
+
+attempt("same object", () => {
+    const it: Iterator<number> = new Reusing();
+    console.log("same object", it.next() === it.next());
+    console.log("same object is reused", it.next() === reused);
+});
+
+attempt("later write", () => {
+    const it: Iterator<number> = new Reusing();
+    const result = it.next();
+    reused.value = 6;
+    console.log("later write", result.value);
+    reused.value = 5;
+});
+
+attempt("printed", () => {
+    const it: Iterator<number> = new Reusing();
+    console.log("printed", it.next());
+});
+
+attempt("extra properties", () => {
+    const it: Iterator<number> = new Counting();
+    it.next();
+    const result = it.next();
+    const loose: any = result;
+    console.log("extra properties", loose.step, result.value, result.done);
+    console.log("extra properties printed", result);
+});
+
+attempt("literal iterator", () => {
+    let calls = 0;
+    const it: Iterator<number> = {
+        next(): any {
+            calls++;
+            return { done: calls > 1, value: calls * 100, source: "literal" };
+        },
+    };
+    const first = it.next();
+    const second = it.next();
+    const loose: any = second;
+    console.log("literal iterator", first, loose.source, second.done, second.value);
+});
+
+// Control (works today): a done result's value of another type.
+attempt("done value", () => {
+    const it: Iterator<number, string> = {
+        next(): any {
+            return { done: true, value: "finished" };
+        },
+    };
+    const result = it.next();
+    if (result.done) {
+        console.log("done value", result.value.length, result.value);
+    }
+});
+
+// expect:
+// same object true
+// same object is reused true
+// later write 6
+// printed { done: false, value: 5, note: 'kept' }
+// extra properties step 2 2 false
+// extra properties printed { value: 2, done: false, step: 'step 2' }
+// literal iterator { done: false, value: 100, source: 'literal' } literal true 200
+// done value 8 finished

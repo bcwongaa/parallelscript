@@ -1,0 +1,486 @@
+{
+ "description": "H03b RED runs: each regression built and run with the base CLI and runtime (PTS_HOME=/tmp/pts-h03b/base at a65a75d62); red means stdout differs from the test expect block (Node stdout, or the fixed expectation of the threads test)",
+ "records": [
+  {
+   "test": "array_pattern_elision_done_only",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 2,
+    "expected": "class read done 1",
+    "got": "class read value 0"
+   },
+   "stderr_head": "",
+   "stdout_lines": 50,
+   "expected_lines": 42
+  },
+  {
+   "test": "iterator_methods_through_any",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "next 1 { value: 1, done: false }",
+    "got": "next escaped: h.next is not a function"
+   },
+   "stderr_head": "",
+   "stdout_lines": 23,
+   "expected_lines": 56
+  },
+  {
+   "test": "iterator_next_result_identity",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "same object true",
+    "got": "same object false"
+   },
+   "stderr_head": "",
+   "stdout_lines": 8,
+   "expected_lines": 8
+  },
+  {
+   "test": "iterator_result_as_layouts",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "parameter: 42",
+    "got": "parameter escaped: Expected number, got function"
+   },
+   "stderr_head": "Uncaught Error: console.log got a malformed value 0x0\n",
+   "stdout_lines": 9,
+   "expected_lines": 11
+  },
+  {
+   "test": "iterator_result_as_one_shape",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "yield result getter read value",
+    "got": ""
+   },
+   "stderr_head": "iterator_result_as_one_shape.pts:14:20 - error PTS1001: using a `object2` as a `object1` is not supported yet\niterator_result_as_one_shape.pts:25:20 - error PTS1001: using a `object3` as a `object1` is not supported yet\niterator_result_as_one_shape.pts:31:20 - error PTS1001: using a `object2` as a `",
+   "stdout_lines": 0,
+   "expected_lines": 6
+  },
+  {
+   "test": "iterator_return_throw_results",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "return done return called with 9",
+    "got": ""
+   },
+   "stderr_head": "iterator_return_throw_results.pts:48:20 - error PTS1001: `it.return` is not supported yet\niterator_return_throw_results.pts:55:5 - error PTS1001: `it.return` is not supported yet\niterator_return_throw_results.pts:61:20 - error PTS1001: `it.throw` is not supported yet\niterator_return_throw_results.pt",
+   "stdout_lines": 0,
+   "expected_lines": 24
+  },
+  {
+   "test": "yield_star_result_passthrough",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~01:18",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 2,
+    "expected": "for-of next 0 read done",
+    "got": "for-of next 0 read value"
+   },
+   "stderr_head": "",
+   "stdout_lines": 66,
+   "expected_lines": 73
+  },
+  {
+   "test": "iterator_next_result_getters",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~00:57",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 3,
+    "expected": "first done: false",
+    "got": "manual read value 0"
+   },
+   "stderr_head": "",
+   "stdout_lines": 24,
+   "expected_lines": 21
+  },
+  {
+   "test": "iterator_result_as_cast",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~00:57",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 2,
+    "expected": "number 43",
+    "got": ""
+   },
+   "stderr_head": "Uncaught TypeError: Expected number, got function\n    at /tmp/pts-h03b/red/iterator_result_as_cast.pts:10\n",
+   "stdout_lines": 1,
+   "expected_lines": 3
+  },
+  {
+   "test": "iterator_result_getter_literals",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~00:57",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "completed read done",
+    "got": ""
+   },
+   "stderr_head": "iterator_result_getter_literals.pts:9:16 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one\niterator_result_getter_literals.pts:23:10 - error PTS1001: an object literal with getters or ",
+   "stdout_lines": 0,
+   "expected_lines": 12
+  },
+  {
+   "test": "iterator_result_getters_typed",
+   "runner": "parent (session 1)",
+   "session": "2026-10-16 ~00:57",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "for-of read done 0",
+    "got": ""
+   },
+   "stderr_head": "iterator_result_getters_typed.pts:20:24 - error PTS1001: an object literal with getters or setters as an iterator result (`IteratorResult<number, any>`) is not supported yet; a `next(): any` can return one\niterator_result_getters_typed.pts:54:24 - error PTS1001: an object literal with getters or set",
+   "stdout_lines": 0,
+   "expected_lines": 29
+  },
+  {
+   "test": "iterator_close_result_unread",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 2,
+    "expected": "P done 2",
+    "got": "P value 1"
+   },
+   "stderr_head": "",
+   "stdout_lines": 36,
+   "expected_lines": 29
+  },
+  {
+   "test": "iterator_results_from_any",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "got r",
+    "got": "next done read"
+   },
+   "stderr_head": "Uncaught Error: value of a done result was read\n    at get value (/tmp/pts-h03b-s2/red/iterator_results_from_any.pts:42)\n    at /tmp/pts-h03b-s2/red/iterator_results_from_any.pts:55\n    at /tmp/pts-h03b-s2/red/iterator_results_from_any.pts:3\n",
+   "stdout_lines": 15,
+   "expected_lines": 22
+  },
+  {
+   "test": "iterator_results_other_types",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "1e-310",
+    "got": ""
+   },
+   "stderr_head": "iterator_results_other_types.pts:22:12 - error PTS1001: using a `{done: boolean; extra: string; value: number}` as a `object1` is not supported yet\niterator_results_other_types.pts:50:40 - error PTS1001: converting Entry to object2 | object3 is not supported yet\niterator_results_other_types.pts:52:3",
+   "stdout_lines": 0,
+   "expected_lines": 19
+  },
+  {
+   "test": "iterator_results_threads",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "private, wrong sums: 0",
+    "got": ""
+   },
+   "stderr_head": "iterator_results_threads.pts:15:55 - error PTS1001: using a `object6` as a `object1` is not supported yet\niterator_results_threads.pts:57:51 - error PTS1001: using a `object7` as a `object1` is not supported yet\n",
+   "stdout_lines": 0,
+   "expected_lines": 3
+  },
+  {
+   "test": "iterators_through_any_consumers",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "sent 10",
+    "got": ""
+   },
+   "stderr_head": "Uncaught TypeError: h.next is not a function\n    at /tmp/pts-h03b-s2/red/iterators_through_any_consumers.pts:17\n    at /tmp/pts-h03b-s2/red/iterators_through_any_consumers.pts:3\n",
+   "stdout_lines": 0,
+   "expected_lines": 24
+  },
+  {
+   "test": "yield_star_result_edges",
+   "runner": "parent (session 2, PTS_THREADS=4)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 2,
+    "expected": "done read 1 2",
+    "got": "value read 1"
+   },
+   "stderr_head": "Uncaught TypeError: Expected string, got number\n    at /tmp/pts-h03b-s2/red/yield_star_result_edges.pts:33\n    at /tmp/pts-h03b-s2/red/yield_star_result_edges.pts:38\n",
+   "stdout_lines": 11,
+   "expected_lines": 35,
+   "note": "this record is of the version before its last section (typed calls of missing methods) was added; that version failed at run time on the base"
+  },
+  {
+   "test": "yield_star_result_edges",
+   "runner": "parent (session 2, final version)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "done read 1 1",
+    "got": null
+   },
+   "stderr_head": "yield_star_result_edges.pts:111:3 - error PTS1001: `bare.return` is not supported yet\nyield_star_result_edges.pts:116:3 - error PTS1001: `bare.throw` is not supported yet\n",
+   "stdout_lines": 0,
+   "expected_lines": 39
+  },
+  {
+   "test": "yield_star_result_edges",
+   "runner": "parent (session 2, final version after review round 2)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "done read 1 1",
+    "got": ""
+   },
+   "stderr_head": "yield_star_result_edges.final.pts:111:3 - error PTS1001: `bare.return` is not supported yet\nyield_star_result_edges.final.pts:116:3 - error PTS1001: `bare.throw` is not supported yet\nyield_star_result_edges.final.pts:123:15 - error PTS1001: `arrayIterator.return` is not supported yet\nyield_star_resu",
+   "stdout_lines": 0,
+   "expected_lines": 54
+  },
+  {
+   "test": "iterator_results_other_types",
+   "runner": "parent (session 2, final version after review round 2)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "1e-310",
+    "got": ""
+   },
+   "stderr_head": "iterator_results_other_types.final.pts:22:12 - error PTS1001: using a `{done: boolean; extra: string; value: number}` as a `object1` is not supported yet\niterator_results_other_types.final.pts:50:40 - error PTS1001: converting Entry to object2 | object3 is not supported yet\niterator_results_other_ty",
+   "stdout_lines": 0,
+   "expected_lines": 26
+  },
+  {
+   "test": "iterator_results_from_any",
+   "runner": "parent (session 2, final version after review round 2)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "got r",
+    "got": "next done read"
+   },
+   "stderr_head": "Uncaught Error: value of a done result was read\n    at get value (/tmp/pts-h03b-s2/red/iterator_results_from_any.final.pts:42)\n    at /tmp/pts-h03b-s2/red/iterator_results_from_any.final.pts:55\n    at /tmp/pts-h03b-s2/red/iterator_results_from_any.final.pts:3\n",
+   "stdout_lines": 15,
+   "expected_lines": 38
+  },
+  {
+   "test": "iterator_results_copied",
+   "runner": "parent (session 2, final version after review round 2)",
+   "session": "2026-10-16",
+   "base": "a65a75d62",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 1,
+    "expected": "row 1 false [{\"name\":\"a\",\"n\":1}]",
+    "got": ""
+   },
+   "stderr_head": "iterator_results_copied.final.pts:16:34 - error PTS1001: converting Entry to object1 | object2 is not supported yet\niterator_results_copied.final.pts:29:17 - error PTS1001: using a `object4` as a `object3` is not supported yet\n",
+   "stdout_lines": 0,
+   "expected_lines": 3,
+   "note": "pins documented differences (no-diff); on the base the program is PTS1001"
+  }
+ ],
+ "round3_description": "Review round 3's findings R1-R3, pinned in session 3 by the extended run/iterator_results_from_any.pts and run/iterator_results_other_types.pts: each run with the round-3 tree (the reviewer's CLI /tmp/pts-h03b-review3/pts, built 03:04 before the R2 change, and a copy of the runtime with convert.c as it was at 03:04, PTS_HOME=/tmp/pts-h03b-s3/pre) and with the final tree; red means stdout differs from the expect block (Node's stdout) or a non-zero exit. The twin drops the R1 section so that R3's failure shows on its own.",
+ "round3_records": [
+  {
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 39,
+    "expected": "point 3 4",
+    "got": null
+   },
+   "stderr_head": "Uncaught TypeError: Cannot read property x of Object as number: it is declared number | string\n    at /tmp/pts-h03b-s3/drafts/iterator_results_from_any.final.pts:124\n",
+   "stdout_lines": 38,
+   "expected_lines": 43,
+   "test": "iterator_results_from_any",
+   "review_round_3_finding": "R1 (and R3, masked by R1)",
+   "tree": "round-3 tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  },
+  {
+   "exit": "0",
+   "red": false,
+   "first_difference": null,
+   "stderr_head": "",
+   "stdout_lines": 43,
+   "expected_lines": 43,
+   "test": "iterator_results_from_any",
+   "review_round_3_finding": "R1 (and R3, masked by R1)",
+   "tree": "final tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  },
+  {
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 39,
+    "expected": "wrapped 3.5",
+    "got": null
+   },
+   "stderr_head": "Uncaught TypeError: Cannot read property value of Object as value: it is declared number\n    at /tmp/pts-h03b-s3/drafts/twin_r3_from_any.pts:130\n",
+   "stdout_lines": 38,
+   "expected_lines": 40,
+   "test": "iterator_results_from_any (twin without the Point section)",
+   "review_round_3_finding": "R3",
+   "tree": "round-3 tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  },
+  {
+   "exit": "0",
+   "red": false,
+   "first_difference": null,
+   "stderr_head": "",
+   "stdout_lines": 40,
+   "expected_lines": 40,
+   "test": "iterator_results_from_any (twin without the Point section)",
+   "review_round_3_finding": "R3",
+   "tree": "final tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  },
+  {
+   "exit": "0",
+   "red": true,
+   "first_difference": {
+    "line": 27,
+    "expected": "yield on the right 42 get,yielded,set 14,resumed,get,yielded,set 42",
+    "got": "yield on the right 42 get,yielded,get,set 14,resumed,get,yielded,get,set 42"
+   },
+   "stderr_head": "",
+   "stdout_lines": 27,
+   "expected_lines": 27,
+   "test": "iterator_results_other_types",
+   "review_round_3_finding": "R2",
+   "tree": "round-3 tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  },
+  {
+   "exit": "0",
+   "red": false,
+   "first_difference": null,
+   "stderr_head": "",
+   "stdout_lines": 27,
+   "expected_lines": 27,
+   "test": "iterator_results_other_types",
+   "review_round_3_finding": "R2",
+   "tree": "final tree",
+   "runner": "parent (session 3)",
+   "session": "2026-10-16 03:51"
+  }
+ ],
+ "round4_description": "Review round 4's findings 1 and 2, pinned in session 4 by a new tail of run/iterator_results_other_types.pts (a union-typed value and element access on a result and on an interface, with a yield on the right; a class's method as a result's value): the tail's code run as /tmp/pts-h03b-s4/r4/tail_probe.pts (identical code, comments aside) with the session's starting tree (the round-3 fixes; CLI sha256 130512106738a072c1de912c2e0060cd4f352028e424ad5cfa550d9ff57dc36c, PTS_HOME the repo), and the test itself under go test before the fix; red means stdout differs from Node's or a non-zero exit. Output of the run is merged stdout and stderr (2>&1).",
+ "round4_records": [
+  {
+   "test": "iterator_results_other_types",
+   "review_round_4_finding": "1 (R2 residual) and 2 (methods by name)",
+   "tree": "session-4 starting tree (round-3 fixes)",
+   "runner": "parent (session 4)",
+   "session": "2026-10-16 20:56",
+   "command": "PTS_HOME=/home/bryan/projects/parallelscript pts-bin/pts run /tmp/pts-h03b-s4/r4/tail_probe.pts > red.out 2>&1",
+   "exit": "1",
+   "red": true,
+   "first_difference": {
+    "line": 28,
+    "expected": "union value 5x get,yielded,set 5x",
+    "got": "union value 5x get,yielded,get,set 5x"
+   },
+   "stdout_lines": 29,
+   "expected_lines": 31,
+   "stdout_tail": [
+    "union value 5x get,yielded,get,set 5x",
+    "element access 11 get,yielded,get,set 14,resumed,get,yielded,get,set 11"
+   ],
+   "stderr_head": "Uncaught TypeError: Expected () => number, got undefined\n    at /tmp/pts-h03b-s4/r4/tail_probe.pts:183\n"
+  },
+  {
+   "test": "iterator_results_other_types",
+   "tree": "session-4 starting tree, test file with the tail",
+   "runner": "parent (session 4)",
+   "command": "PTS_REQUIRE_NODE=1 go test -count=1 ./pts/tests/ -run '^(TestRun|TestRunMatchesNode)$/^iterator_results_other_types$'",
+   "exit": "1",
+   "red": true,
+   "output": "--- FAIL: TestRun (0.02s)\n    --- FAIL: TestRun/iterator_results_other_types (0.71s)\n        run_test.go:69: assertion failed: \n            --- got.stdout\n            +++ spec.stdout\n            @@ -26,5 +26,7 @@\n             narrowed postfix 4 get,set 4\n             yield on the right 42 get,yielded,set 14,resumed,get,yielded,set 42\n            -union value 5x get,yielded,get,set 5x\n            -element access 11 get,yielded,get,set 14,resumed,get,yielded,get,set 11\n            +union value 5x get,yielded,set 5x\n            +element access 11 get,yielded,set 14,resumed,get,yielded,set 11\n            +method function 42\n            +method union function 42\n             \n            \n--- FAIL: TestRunMatchesNode (0.02s)\n    --- FAIL: TestRunMatchesNode/iterator_results_other_types (0.71s)\n        run_test.go:98: assertion failed: \n            --- got.stdout\n            +++ want.stdout\n            @@ -26,5 +26,7 @@\n             narrowed postfix 4 get,set 4\n             yield on the right 42 get,yielded,set 14,resumed,get,yielded,set 42\n            -union value 5x get,yielded,get,set 5x\n            -element access 11 get,yielded,get,set 14,resumed,get,yielded,get,set 11\n            +union value 5x get,yielded,set 5x\n            +element access 11 get,yielded,set 14,resumed,get,yielded,set 11\n            +method function 42\n            +method union function 42\n             \n            : pts and Node print different output\nFAIL\nFAIL\tgithub.com/microsoft/typescript-go/pts/tests\t0.739s\nFAIL\n"
+  }
+ ]
+}
