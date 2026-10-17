@@ -1,0 +1,26 @@
+// An object spread a literal can't copy is reported naming the spread object's type,
+// whether or not a later property suspends: H08b first named the copy it reads the
+// object's properties into before the suspension, an internal `objectN` shape (review
+// round 1, finding 1).
+class Derived {
+  private hidden = 3;
+  shown = 2;
+}
+const derived = new Derived();
+const both = {
+  get a(): number {
+    return 1;
+  },
+  set a(v: number) {},
+  b: 2,
+};
+function* copies(): Generator<number, string, number> {
+  const one = JSON.stringify({ ...derived, z: yield 1 });
+  const two = JSON.stringify({ ...both, z: yield 2 });
+  return one + two;
+}
+console.log(JSON.stringify({ ...derived, z: 0 }), copies().next().value);
+
+// error: object_spread_suspension.pts:18:32 - error PTS1001: spreading the property `hidden` of a Derived is not supported yet
+// error: object_spread_suspension.pts:19:32 - error PTS1001: spreading the property `a` of a {a: number; b: number} is not supported yet
+// error: object_spread_suspension.pts:22:30 - error PTS1001: spreading the property `hidden` of a Derived is not supported yet

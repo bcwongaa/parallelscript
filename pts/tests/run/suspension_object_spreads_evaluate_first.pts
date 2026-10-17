@@ -1,0 +1,180 @@
+// An object spread JS evaluates before a yield or an await in a later property of the same
+// literal copies the properties its source has then, calling getters then: an object
+// literal's, a class instance's fields, an interface's, a hash-map object's entries (added
+// and deleted ones too), in every place a spread copies them (H08b,
+// C139). pts kept only the source, or nothing, and read its properties after the resume:
+// what was written meanwhile showed and getters ran after the suspension. A literal with
+// a spread as a whole operand before a later suspension was built after it too.
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+function drive(label: string, steps: Generator<number, string, number>, change: () => void): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("yielded " + step.value);
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+
+const plain = { a: 1, b: 2 };
+drive("{ ...plain, z: yield }", (function* (): Generator<number, string, number> {
+  return JSON.stringify({ ...plain, z: yield 0 });
+})(), () => {
+  plain.a = 5;
+});
+plain.a = 1;
+
+let shown = 1;
+const getter = {
+  get a(): number {
+    log("get a");
+    return shown;
+  },
+  b: 2,
+};
+drive("{ w, ...getter, z: yield }", (function* (): Generator<number, string, number> {
+  return JSON.stringify({ w: 0, ...getter, z: yield 0 });
+})(), () => {
+  shown = 5;
+});
+shown = 1;
+
+class Point {
+  x = 1;
+  y = 2;
+}
+const point = new Point();
+const other = { q: 1 };
+drive("{ ...point, ...other, z: yield }", (function* (): Generator<number, string, number> {
+  return JSON.stringify({ ...point, ...other, z: yield 0 });
+})(), () => {
+  point.x = 5;
+  other.q = 9;
+});
+point.x = 1;
+
+interface Pair {
+  a: number;
+  b: number;
+}
+const viaInterface: Pair = { a: 1, b: 2 };
+interface Zed {
+  a: number;
+  b: number;
+  z: number;
+}
+const showZed = (o: Zed): string => `${o.a}/${o.b}/${o.z}`;
+drive("showZed({ ...pair, z: yield })", (function* (): Generator<number, string, number> {
+  return showZed({ ...viaInterface, z: yield 0 });
+})(), () => {
+  viaInterface.a = 5;
+});
+
+const counts: Record<string, number> = { a: 1, b: 2 };
+drive("Record { ...counts, z: yield }", (function* (): Generator<number, string, number> {
+  const copy: Record<string, number> = { ...counts, z: yield 0 };
+  return JSON.stringify(copy);
+})(), () => {
+  counts.c = 3;
+  delete counts.a;
+});
+
+const index: { [k: string]: number } = { a: 1, b: 2 };
+drive("index signature { ...index, z: yield }", (function* (): Generator<number, string, number> {
+  const copy: { [k: string]: number } = { ...index, z: yield 0 };
+  return JSON.stringify(copy);
+})(), () => {
+  index.a = 5;
+  index.c = 3;
+});
+
+const kept = { a: 1, b: 2 };
+const getKept = (): Pair => {
+  log("getKept");
+  return kept;
+};
+drive("{ ...{ ...getKept() }, z: yield }", (function* (): Generator<number, string, number> {
+  return JSON.stringify({ ...{ ...getKept() }, z: yield 0 });
+})(), () => {
+  kept.a = 5;
+});
+
+const key = (): "z" => {
+  log("key");
+  return "z";
+};
+const keyed = { a: 1, b: 2 };
+drive("{ ...keyed, [key()]: yield }", (function* (): Generator<number, string, number> {
+  return JSON.stringify({ ...keyed, [key()]: yield 0 });
+})(), () => {
+  keyed.a = 5;
+});
+
+const whole = { a: 1, b: 2 };
+const both = (o: object, n: number): string => `${JSON.stringify(o)}/${n}`;
+drive("both({ ...whole }, yield)", (function* (): Generator<number, string, number> {
+  return both({ ...whole }, yield 0);
+})(), () => {
+  whole.a = 5;
+});
+const elements = [1, 2];
+const joined = (xs: number[], n: number): string => `${xs.join("/")}|${n}`;
+drive("joined([...elements], yield)", (function* (): Generator<number, string, number> {
+  return joined([...elements], yield 0);
+})(), () => {
+  elements.push(100);
+});
+
+// The same with await: a microtask queued before the await changes the sources.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const o = { a: 1, b: 2 };
+  show("await { ...o, … }", JSON.stringify({ ...o, z: await later(() => { o.a = 5; }) }));
+  let g = 1;
+  const withGetter = {
+    get a(): number {
+      log("get a");
+      return g;
+    },
+  };
+  show("await { ...getter, … }", JSON.stringify({ ...withGetter, z: await later(() => { g = 5; }) }));
+  const p = new Point();
+  show("await { ...point, … }", JSON.stringify({ ...p, z: await later(() => { p.x = 5; }) }));
+  const r: Record<string, number> = { a: 1 };
+  const copy: Record<string, number> = { ...r, z: await later(() => { r.c = 3; }) };
+  show("await Record { ...r, … }", JSON.stringify(copy));
+  const w = { a: 1 };
+  show("await both({ ...w }, …)", both({ ...w }, await later(() => { w.a = 5; })));
+}
+await awaited();
+
+// expect:
+// { ...plain, z: yield }: yielded 0 => {"a":1,"b":2,"z":10}
+// { w, ...getter, z: yield }: get a,yielded 0 => {"w":0,"a":1,"b":2,"z":10}
+// { ...point, ...other, z: yield }: yielded 0 => {"x":1,"y":2,"q":1,"z":10}
+// showZed({ ...pair, z: yield }): yielded 0 => 1/2/10
+// Record { ...counts, z: yield }: yielded 0 => {"a":1,"b":2,"z":10}
+// index signature { ...index, z: yield }: yielded 0 => {"a":1,"b":2,"z":10}
+// { ...{ ...getKept() }, z: yield }: getKept,yielded 0 => {"a":1,"b":2,"z":10}
+// { ...keyed, [key()]: yield }: key,yielded 0 => {"a":1,"b":2,"z":10}
+// both({ ...whole }, yield): yielded 0 => {"a":1,"b":2}/10
+// joined([...elements], yield): yielded 0 => 1/2|10
+// await { ...o, … }: await,changed => {"a":1,"b":2,"z":10}
+// await { ...getter, … }: get a,await,changed => {"a":1,"z":10}
+// await { ...point, … }: await,changed => {"x":1,"y":2,"z":10}
+// await Record { ...r, … }: await,changed => {"a":1,"z":10}
+// await both({ ...w }, …): await,changed => {"a":1}/10

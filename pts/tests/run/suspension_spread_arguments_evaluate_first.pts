@@ -1,0 +1,227 @@
+// A spread JS evaluates before a yield or an await in a later argument of the same call or
+// `new` passes the elements it has then: an array's, a tuple's element by element, to rest
+// and fixed parameters alike, of the program's functions, methods and constructors, of
+// calls through `any` and of the built-ins that take spreads (H08b, C139). pts kept only the
+// spread's array and read its elements after the resume, so an element pushed or written
+// meanwhile showed.
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+const xs = [1, 2];
+const pair: [number, number] = [1, 2];
+const mixed: [number, string] = [1, "b"];
+const headed: [number, ...number[]] = [1, 2];
+const words = ["a", "b"];
+const codes = [72, 105];
+const reset = (): void => {
+  xs.length = 0;
+  xs.push(1, 2);
+  pair[0] = 1;
+  mixed[1] = "b";
+  headed.length = 1;
+  headed.push(2);
+  words.length = 0;
+  words.push("a", "b");
+  codes.length = 0;
+  codes.push(72, 105);
+};
+const change = (): void => {
+  xs.push(100);
+  pair[0] = -5;
+  mixed[1] = "w";
+  headed.push(100);
+  words.push("z");
+  codes.push(63);
+};
+
+function drive(label: string, steps: Generator<number, string, number>): void {
+  reset();
+  let step = steps.next();
+  while (!step.done) {
+    log("yielded " + step.value);
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+
+const list = (...ns: number[]): string => ns.join("/");
+function declared(...ns: number[]): string {
+  return ns.join("/");
+}
+function generic<T>(...items: T[]): string {
+  return items.join("/");
+}
+class Lists {
+  list(...ns: number[]): string {
+    return ns.join("/");
+  }
+  static list(...ns: number[]): string {
+    return ns.join("/");
+  }
+}
+interface Listing {
+  list(...ns: number[]): string;
+}
+const lists = new Lists();
+const listing: Listing = lists;
+const dynamicList: any = list;
+const dynamicLists: any = lists;
+class Made {
+  items: string;
+  constructor(...ns: number[]) {
+    this.items = ns.join("/");
+  }
+}
+const three = (a: number, b: number, c: number): string => `${a}/${b}/${c}`;
+const typed = (a: number, b: string, c: number): string => `${a}/${b}/${c}`;
+const headAndRest = (a: number, ...rest: number[]): string => `${a}|${rest.join("/")}`;
+
+drive("list(...xs, yield)", (function* (): Generator<number, string, number> {
+  return list(...xs, yield 0);
+})());
+drive("list(0, ...xs, yield)", (function* (): Generator<number, string, number> {
+  return list(0, ...xs, yield 0);
+})());
+drive("declared(...xs, yield)", (function* (): Generator<number, string, number> {
+  return declared(...xs, yield 0);
+})());
+drive("generic(...xs, yield)", (function* (): Generator<number, string, number> {
+  return generic(...xs, yield 0);
+})());
+drive("declared.call(undefined, ...xs, yield)", (function* (): Generator<number, string, number> {
+  return declared.call(undefined, ...xs, yield 0);
+})());
+drive("lists.list(...xs, yield)", (function* (): Generator<number, string, number> {
+  return lists.list(...xs, yield 0);
+})());
+drive("Lists.list(...xs, yield)", (function* (): Generator<number, string, number> {
+  return Lists.list(...xs, yield 0);
+})());
+drive("listing.list(...xs, yield)", (function* (): Generator<number, string, number> {
+  return listing.list(...xs, yield 0);
+})());
+drive("any(...xs, yield)", (function* (): Generator<number, string, number> {
+  return String(dynamicList(...xs, yield 0));
+})());
+drive("any.list(...xs, yield)", (function* (): Generator<number, string, number> {
+  return String(dynamicLists.list(...xs, yield 0));
+})());
+drive("new Made(...xs, yield)", (function* (): Generator<number, string, number> {
+  return new Made(...xs, yield 0).items;
+})());
+drive("three(...pair, yield)", (function* (): Generator<number, string, number> {
+  return three(...pair, yield 0);
+})());
+drive("typed(...mixed, yield)", (function* (): Generator<number, string, number> {
+  return typed(...mixed, yield 0);
+})());
+drive("headAndRest(...headed, yield)", (function* (): Generator<number, string, number> {
+  return headAndRest(...headed, yield 0);
+})());
+drive("Math.max(...xs, yield)", (function* (): Generator<number, string, number> {
+  return String(Math.max(...xs, yield 0));
+})());
+drive("String.fromCharCode(...codes, yield)", (function* (): Generator<number, string, number> {
+  return String.fromCharCode(...codes, (yield 0) + 23);
+})());
+drive("Array.of(...xs, yield)", (function* (): Generator<number, string, number> {
+  return Array.of(...xs, yield 0).join("/");
+})());
+drive("new Array(...xs, yield)", (function* (): Generator<number, string, number> {
+  return new Array<number>(...xs, yield 0).join("/");
+})());
+drive("out.push(...xs, yield)", (function* (): Generator<number, string, number> {
+  const out = [0];
+  out.push(...xs, yield 0);
+  return out.join("/");
+})());
+drive("out.unshift(...xs, yield)", (function* (): Generator<number, string, number> {
+  const out = [0];
+  out.unshift(...xs, yield 0);
+  return out.join("/");
+})());
+drive("\"s\".concat(...words, yield)", (function* (): Generator<number, string, number> {
+  return "s".concat(...words, String(yield 0));
+})());
+drive("console.log(...xs, yield)", (function* (): Generator<number, string, number> {
+  console.log("console.log:", ...xs, yield 0);
+  return "printed";
+})());
+
+// The same with await: a microtask queued before the await changes the arrays.
+const later = (): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  reset();
+  show("await list(...xs, …)", list(...xs, await later()));
+  reset();
+  show("await lists.list(...xs, …)", lists.list(...xs, await later()));
+  reset();
+  show("await any(...xs, …)", String(dynamicList(...xs, await later())));
+  reset();
+  show("await new Made(...xs, …)", new Made(...xs, await later()).items);
+  reset();
+  show("await three(...pair, …)", three(...pair, await later()));
+  reset();
+  show("await typed(...mixed, …)", typed(...mixed, await later()));
+  reset();
+  show("await Math.max(...xs, …)", String(Math.max(...xs, await later())));
+  reset();
+  const out = [0];
+  out.push(...xs, await later());
+  show("await out.push(...xs, …)", out.join("/"));
+  reset();
+  show("await \"s\".concat(...words, …)", "s".concat(...words, String(await later())));
+  reset();
+  console.log("await console.log:", ...xs, await later());
+  show("await console.log(...xs, …)", "printed");
+}
+await awaited();
+
+// expect:
+// list(...xs, yield): yielded 0 => 1/2/10
+// list(0, ...xs, yield): yielded 0 => 0/1/2/10
+// declared(...xs, yield): yielded 0 => 1/2/10
+// generic(...xs, yield): yielded 0 => 1/2/10
+// declared.call(undefined, ...xs, yield): yielded 0 => 1/2/10
+// lists.list(...xs, yield): yielded 0 => 1/2/10
+// Lists.list(...xs, yield): yielded 0 => 1/2/10
+// listing.list(...xs, yield): yielded 0 => 1/2/10
+// any(...xs, yield): yielded 0 => 1/2/10
+// any.list(...xs, yield): yielded 0 => 1/2/10
+// new Made(...xs, yield): yielded 0 => 1/2/10
+// three(...pair, yield): yielded 0 => 1/2/10
+// typed(...mixed, yield): yielded 0 => 1/b/10
+// headAndRest(...headed, yield): yielded 0 => 1|2/10
+// Math.max(...xs, yield): yielded 0 => 10
+// String.fromCharCode(...codes, yield): yielded 0 => Hi!
+// Array.of(...xs, yield): yielded 0 => 1/2/10
+// new Array(...xs, yield): yielded 0 => 1/2/10
+// out.push(...xs, yield): yielded 0 => 0/1/2/10
+// out.unshift(...xs, yield): yielded 0 => 1/2/10/0
+// "s".concat(...words, yield): yielded 0 => sab10
+// console.log: 1 2 10
+// console.log(...xs, yield): yielded 0 => printed
+// await list(...xs, …): await,changed => 1/2/10
+// await lists.list(...xs, …): await,changed => 1/2/10
+// await any(...xs, …): await,changed => 1/2/10
+// await new Made(...xs, …): await,changed => 1/2/10
+// await three(...pair, …): await,changed => 1/2/10
+// await typed(...mixed, …): await,changed => 1/b/10
+// await Math.max(...xs, …): await,changed => 10
+// await out.push(...xs, …): await,changed => 0/1/2/10
+// await "s".concat(...words, …): await,changed => sab10
+// await console.log: 1 2 10
+// await console.log(...xs, …): await,changed => printed

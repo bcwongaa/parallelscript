@@ -146,7 +146,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
 		statics: map[*ast.Node]*ir.Local{}, staticMethods: map[*ast.Node]*ir.Func{}, staticClasses: map[*ir.Func]*ir.Class{}, staticAccessors: map[*ast.Symbol]staticProperty{}, unionsInProgress: map[*checker.Type]int{}, recursiveUnions: map[*checker.Type]bool{}, genericConsts: map[*ast.Symbol]*genericFunc{},
-		yielded: map[*ast.Node]ir.Expr{}, kept: map[*ast.Node]ir.Expr{}, keptCurrent: map[*ast.Node]ir.Expr{}, hoisting: map[*ast.Node]bool{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
+		yielded: map[*ast.Node]ir.Expr{}, kept: map[*ast.Node]ir.Expr{}, keptCurrent: map[*ast.Node]ir.Expr{}, keptSpreads: map[*ast.Node]keptSpread{}, hoisting: map[*ast.Node]bool{}, shapesByType: map[*checker.Type]*ir.Class{}, shapesByKey: map[string]*ir.Class{}, typesInProgress: map[ir.Type]bool{}, recursiveTypes: map[ir.Type]bool{},
 		interfacesByType: map[*checker.Type]*ir.Interface{}, interfacesByKey: map[string]*ir.Interface{}, arrays: map[ir.Type]*ir.Array{ir.String: ir.StringArray, ir.Value: ir.ValueArray, ir.Number: ir.NumberArray}, arraysInProgress: map[*checker.Type]bool{},
 		funcTypesInProgress: map[*checker.Type]bool{}, arrows: map[*ir.Func]bool{}, funcNodes: map[*ir.Func]*ast.Node{}, helpers: map[helperKey]*ir.Func{},
 		mapsInProgress: map[*checker.Type]bool{}, chainObjects: map[*ast.Node]chainObject{}, chainRests: map[*ast.Node]bool{}, generics: map[*ast.Symbol]*genericFunc{}, tableMethodNames: map[string]bool{},
@@ -335,6 +335,7 @@ type lowerer struct {
 	yielded             map[*ast.Node]ir.Expr            // the value of each yield expression whose statement yielded already (D-109)
 	kept                map[*ast.Node]ir.Expr            // the value of each operand evaluated before a yield in its statement (D-111)
 	keptCurrent         map[*ast.Node]ir.Expr            // a compound assignment's target's value, read before a yield in its right side (D-145)
+	keptSpreads         map[*ast.Node]keptSpread         // what an object literal's spread (`...o`) read before a yield after it (keepObjectSpread)
 	hoisting            map[*ast.Node]bool               // the statements being lowered after their yields were hoisted
 	hoistedNodes        []*ast.Node                      // the nodes in yielded and kept by hoisting, to forget after their statements
 	builtinClasses      []*ir.Class                      // Error and its native subclasses (D-068), Date (D-087), typed arrays and ArrayBuffer (D-125), the runtime's

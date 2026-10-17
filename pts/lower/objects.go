@@ -452,6 +452,7 @@ func (l *lowerer) constantName(name *ast.Node) (string, bool) {
 type spreadProperty struct {
 	source ir.Expr
 	names  []string
+	of     ir.Type // the type a spread's diagnostics name, if not its source's (copiedNames)
 	field  *ir.Field
 	value  ir.Expr
 	node   *ast.Node
@@ -476,7 +477,7 @@ func (l *lowerer) spreadObjectLiteral(properties []*ast.Node, shape *ir.Class, n
 				return nil
 			}
 			var ok bool
-			if part.names, ok = l.spreadNames(part.source, l.typeAt(property.Expression()), property); !ok {
+			if part.names, part.of, ok = l.copiedNames(part.source, property.Expression(), property); !ok {
 				return nil
 			}
 		case ast.KindPropertyAssignment, ast.KindShorthandPropertyAssignment:
@@ -609,7 +610,11 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			field := shape.Field(name)
 			read := propertyOf(source, name)
 			if field == nil || read == nil {
-				l.notSupportedYet(part.node, fmt.Sprintf("spreading the property `%s` of a %s is", name, source.Type()))
+				of := part.of
+				if of == nil {
+					of = source.Type()
+				}
+				l.notSupportedYet(part.node, fmt.Sprintf("spreading the property `%s` of a %s is", name, of))
 				return nil
 			}
 			if last, ok := lastWritten[field]; ok && last > i {

@@ -1,8 +1,7 @@
-// skip: known issue (H08b, C139): a spread before a yield or an await in a later operand is iterated after the resume
 // A spread JS evaluates before a yield or an await in a later operand of the same call,
 // `new` or literal reads its elements (an iterable's by its iterator, an object's
-// properties through their getters) before the suspension. pts keeps only the spread's
-// value and reads its elements after the resume, so what changed meanwhile shows (H08b).
+// properties through their getters) before the suspension, so what changes meanwhile
+// doesn't show (C139, H08b).
 const trace: string[] = [];
 const log = (s: string): void => {
   trace.push(s);

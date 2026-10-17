@@ -1,0 +1,283 @@
+// A spread JS evaluates before a yield or an await in a later operand iterates its value
+// then: a set's and a map's items, their and an array's keys(), values() and entries(), a
+// typed array's elements, a class's or an object literal's [Symbol.iterator], a generator's
+// body, and an Iterable's, a union's or an `any` value's items (H08b, C139). pts kept only
+// the spread's value, or nothing, and iterated it after the resume: items added, removed
+// or written meanwhile showed, and the iterator, or the generator's body, ran after the
+// suspension. A spread of `a.values()`, `m.keys()` or a typed array's `values()` whose
+// receiver is a call called that call again after the resume.
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+function drive(label: string, steps: Generator<number, string, number>, change: () => void): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("yielded " + step.value);
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+const list = (...ns: number[]): string => ns.join("/");
+const pairs = (items: [number, number][]): string => items.map((p) => `${p[0]}:${p[1]}`).join("/");
+
+const set = new Set([1, 2]);
+drive("[...set, yield]", (function* (): Generator<number, string, number> {
+  return [...set, yield 0].join("/");
+})(), () => {
+  set.add(100);
+  set.delete(1);
+});
+
+const values = new Set([1, 2]);
+drive("[0, ...set.values(), yield]", (function* (): Generator<number, string, number> {
+  return [0, ...values.values(), yield 0].join("/");
+})(), () => {
+  values.add(100);
+});
+
+const map = new Map<number, number>([[1, 10], [2, 20]]);
+const getMap = (): Map<number, number> => {
+  log("getMap");
+  return map;
+};
+drive("Math.max(...getMap().keys(), yield)", (function* (): Generator<number, string, number> {
+  return String(Math.max(...getMap().keys(), yield 0));
+})(), () => {
+  map.set(100, 1000);
+});
+map.delete(100);
+drive("[...getMap().keys(), yield]", (function* (): Generator<number, string, number> {
+  return [...getMap().keys(), yield 0].join("/");
+})(), () => {
+  map.set(100, 1000);
+});
+map.delete(100);
+drive("[...map.values(), yield]", (function* (): Generator<number, string, number> {
+  return [...map.values(), yield 0].join("/");
+})(), () => {
+  map.set(1, -5);
+});
+map.set(1, 10);
+drive("[...map, [yield, 0]]", (function* (): Generator<number, string, number> {
+  return pairs([...map, [yield 0, 0]]);
+})(), () => {
+  map.set(100, 1000);
+});
+map.delete(100);
+drive("new Map([...map.entries(), [yield, 0]])", (function* (): Generator<number, string, number> {
+  return pairs([...new Map([...map.entries(), [yield 0, 0]])]);
+})(), () => {
+  map.set(1, -5);
+});
+
+const array = [1, 2];
+const getArray = (): number[] => {
+  log("getArray");
+  return array;
+};
+drive("list(...getArray().values(), yield)", (function* (): Generator<number, string, number> {
+  return list(...getArray().values(), yield 0);
+})(), () => {
+  array[0] = -5;
+});
+array[0] = 1;
+drive("[...array.keys(), yield]", (function* (): Generator<number, string, number> {
+  return [...array.keys(), yield 0].join("/");
+})(), () => {
+  array.push(100);
+});
+array.pop();
+drive("[...array.entries(), [yield, 0]]", (function* (): Generator<number, string, number> {
+  return pairs([...array.entries(), [yield 0, 0]]);
+})(), () => {
+  array[0] = -5;
+});
+array[0] = 1;
+
+const floats = new Float64Array([1, 2]);
+drive("list(...floats, yield)", (function* (): Generator<number, string, number> {
+  return list(...floats, yield 0);
+})(), () => {
+  floats[0] = -5;
+});
+const ints = new Int32Array([1, 2]);
+drive("[...ints, yield]", (function* (): Generator<number, string, number> {
+  return [...ints, yield 0].join("/");
+})(), () => {
+  ints[1] = -5;
+});
+const getFloats = (): Float64Array => {
+  log("getFloats");
+  return floats;
+};
+floats[0] = 1;
+drive("list(...getFloats().values(), yield)", (function* (): Generator<number, string, number> {
+  return list(...getFloats().values(), yield 0);
+})(), () => {
+  floats[1] = -5;
+});
+const bytes = new Uint8Array([1, 2]);
+drive("Math.max(...bytes.values(), yield)", (function* (): Generator<number, string, number> {
+  return String(Math.max(...bytes.values(), yield 0));
+})(), () => {
+  bytes[0] = 250;
+});
+
+class Countdown implements Iterable<number> {
+  from = 2;
+  *[Symbol.iterator](): Iterator<number> {
+    log("iterate");
+    for (let i = this.from; i > 0; i--) yield i;
+  }
+}
+const countdown = new Countdown();
+drive("list(...countdown, yield)", (function* (): Generator<number, string, number> {
+  return list(...countdown, yield 0);
+})(), () => {
+  countdown.from = 4;
+});
+const literal = {
+  items: [1, 2],
+  *[Symbol.iterator](): Iterator<number> {
+    log("iterate literal");
+    for (const x of this.items) yield x;
+  },
+};
+drive("[...literal, yield]", (function* (): Generator<number, string, number> {
+  return [...literal, yield 0].join("/");
+})(), () => {
+  literal.items.push(100);
+});
+const source = [1, 2];
+function* generate(): Generator<number> {
+  log("generate");
+  for (const x of source) yield x;
+}
+drive("list(...generate(), yield)", (function* (): Generator<number, string, number> {
+  return list(...generate(), yield 0);
+})(), () => {
+  source.push(100);
+});
+const startedSource = [1, 2];
+function* generateStarted(): Generator<number> {
+  log("generate started");
+  for (const x of startedSource) yield x;
+}
+const started = generateStarted();
+drive("[...started, yield]", (function* (): Generator<number, string, number> {
+  return [...started, yield 0].join("/");
+})(), () => {
+  startedSource.push(100);
+});
+
+const backing = [1, 2];
+const iterable: Iterable<number> = backing;
+drive("list(...iterable, yield)", (function* (): Generator<number, string, number> {
+  return list(...iterable, yield 0);
+})(), () => {
+  backing.push(100);
+});
+const dynamic: any = [1, 2];
+drive("list(...any, yield)", (function* (): Generator<number, string, number> {
+  return list(...dynamic, yield 0);
+})(), () => {
+  dynamic.push(100);
+});
+const dynamicSet: any = new Set([1, 2]);
+drive("[...anySet, yield]", (function* (): Generator<number, string, number> {
+  return [...dynamicSet, yield 0].join("/");
+})(), () => {
+  dynamicSet.add(100);
+});
+const eitherBacking = [1, 2];
+const either = ((): number[] | Set<number> => eitherBacking)();
+drive("[...(number[] | Set), yield]", (function* (): Generator<number, string, number> {
+  return [...either, yield 0].join("/");
+})(), () => {
+  eitherBacking.push(100);
+});
+const maybeBacking = [1, 2];
+const maybe = ((): number[] | undefined => maybeBacking)();
+drive("list(...(maybe ?? []), yield)", (function* (): Generator<number, string, number> {
+  return list(...(maybe ?? []), yield 0);
+})(), () => {
+  maybeBacking.push(100);
+});
+const holes = new Array<number | undefined>(3);
+holes[0] = 1;
+holes[2] = 3;
+drive("[...holes, yield]", (function* (): Generator<number, string, number> {
+  return [...holes, yield 0].map((x) => String(x)).join("/");
+})(), () => {
+  holes[1] = 7;
+});
+
+// The same with await: a microtask queued before the await changes the items.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const s = new Set([1, 2]);
+  show("await [...set, …]", [...s, await later(() => s.add(100))].join("/"));
+  const m = new Map<number, number>([[1, 10]]);
+  show("await [...map.keys(), …]", [...m.keys(), await later(() => m.set(100, 1000))].join("/"));
+  const a = [1, 2];
+  show("await list(...a.values(), …)", list(...a.values(), await later(() => { a[0] = -5; })));
+  const f = new Float64Array([1, 2]);
+  show("await list(...floats, …)", list(...f, await later(() => { f[0] = -5; })));
+  const c = new Countdown();
+  show("await list(...countdown, …)", list(...c, await later(() => { c.from = 4; })));
+  const items = [1, 2];
+  const gen = function* (): Generator<number> {
+    log("generate");
+    yield* items;
+  };
+  show("await [...gen(), …]", [...gen(), await later(() => items.push(100))].join("/"));
+  const d: any = [1, 2];
+  show("await list(...any, …)", list(...d, await later(() => d.push(100))));
+}
+await awaited();
+
+// expect:
+// [...set, yield]: yielded 0 => 1/2/10
+// [0, ...set.values(), yield]: yielded 0 => 0/1/2/10
+// Math.max(...getMap().keys(), yield): getMap,yielded 0 => 10
+// [...getMap().keys(), yield]: getMap,yielded 0 => 1/2/10
+// [...map.values(), yield]: yielded 0 => 10/20/10
+// [...map, [yield, 0]]: yielded 0 => 1:10/2:20/10:0
+// new Map([...map.entries(), [yield, 0]]): yielded 0 => 1:10/2:20/10:0
+// list(...getArray().values(), yield): getArray,yielded 0 => 1/2/10
+// [...array.keys(), yield]: yielded 0 => 0/1/10
+// [...array.entries(), [yield, 0]]: yielded 0 => 0:1/1:2/10:0
+// list(...floats, yield): yielded 0 => 1/2/10
+// [...ints, yield]: yielded 0 => 1/2/10
+// list(...getFloats().values(), yield): getFloats,yielded 0 => 1/2/10
+// Math.max(...bytes.values(), yield): yielded 0 => 10
+// list(...countdown, yield): iterate,yielded 0 => 2/1/10
+// [...literal, yield]: iterate literal,yielded 0 => 1/2/10
+// list(...generate(), yield): generate,yielded 0 => 1/2/10
+// [...started, yield]: generate started,yielded 0 => 1/2/10
+// list(...iterable, yield): yielded 0 => 1/2/10
+// list(...any, yield): yielded 0 => 1/2/10
+// [...anySet, yield]: yielded 0 => 1/2/10
+// [...(number[] | Set), yield]: yielded 0 => 1/2/10
+// list(...(maybe ?? []), yield): yielded 0 => 1/2/10
+// [...holes, yield]: yielded 0 => 1/undefined/3/10
+// await [...set, …]: await,changed => 1/2/10
+// await [...map.keys(), …]: await,changed => 1/10
+// await list(...a.values(), …): await,changed => 1/2/10
+// await list(...floats, …): await,changed => 1/2/10
+// await list(...countdown, …): iterate,await,changed => 2/1/10
+// await [...gen(), …]: generate,await,changed => 1/2/10
+// await list(...any, …): await,changed => 1/2/10

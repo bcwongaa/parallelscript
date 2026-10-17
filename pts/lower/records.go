@@ -449,7 +449,7 @@ func (l *lowerer) spreadIntoRecord(record ir.Expr, sourceNode *ast.Node) ir.Expr
 		l.notSupportedYet(sourceNode, fmt.Sprintf("spreading a %s into a %s is", source.Type(), mt))
 		return nil
 	}
-	names, ok := l.spreadNames(source, l.typeAt(sourceNode), sourceNode)
+	names, _, ok := l.copiedNames(source, sourceNode, sourceNode)
 	if !ok {
 		return nil
 	}

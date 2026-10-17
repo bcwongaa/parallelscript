@@ -1,0 +1,114 @@
+// What a spread before a yield or an await keeps is a copy that spreads as its source did
+// then: an object's copy that gives every property takes the object's property order
+// (D-108); an optional property the object left out stays out, though it is set meanwhile;
+// a tuple's or a union of arrays' `values()` spread its elements; a match's undefined
+// groups and a typed array's view keep their elements; a getter or an iterator that throws
+// throws before the suspension (H08b review round 1, the cases no other test pinned). On
+// the base the receivers didn't compile (PTS1001 for the tuple's, PTS9001 for the union's);
+// the order and elements lines held there too, and guard that the copies keep them.
+interface P {
+  a: number;
+  b: number;
+}
+const p: P = { b: 2, a: 1 };
+const r: Record<"x" | "y", number> = { y: 2, x: 1 };
+const shape = { b: 2, a: 1 };
+const same = (o: P, n: number): string => `${JSON.stringify(o)}/${n}`;
+function* ordered(): Generator<number, string, number> {
+  return [
+    JSON.stringify({ ...p, a: yield 1 }),
+    JSON.stringify({ ...r, x: yield 2 }),
+    JSON.stringify({ ...shape, a: yield 3 }),
+    same({ ...p }, yield 4),
+  ].join(" ");
+}
+const run = (steps: Generator<number, string, number>, change: () => void): string => {
+  let step = steps.next();
+  while (!step.done) {
+    change();
+    step = steps.next(10);
+  }
+  return step.value;
+};
+console.log("order:", run(ordered(), () => {}));
+
+interface Opt {
+  c: number;
+  a?: number;
+}
+const opt: Opt = { c: 1 };
+function* leftOut(): Generator<number, string, number> {
+  const copy = { ...opt, z: yield 0 };
+  return `${JSON.stringify(copy)} ${Object.keys(copy).join(",")} ${"a" in copy}`;
+}
+console.log("left out:", run(leftOut(), () => { opt.a = 5; }));
+
+const pair: [number, number] = [1, 2];
+const nums = [1, 2];
+const strs = ["a", "b"];
+const pick = (n: number): number[] | string[] => (n > 0 ? nums : strs);
+const list = (...xs: number[]): string => xs.join("/");
+function* receivers(): Generator<number, string, number> {
+  const a = list(...pair.values(), yield 1);
+  const b = [...pick(1).values(), yield 2].join("/");
+  const c = [...pick(0).keys(), yield 3].join("/");
+  return `${a} ${b} ${c}`;
+}
+console.log("receivers:", run(receivers(), () => { pair[0] = -1; nums.push(100); strs.push("c"); }));
+
+const m = "a".match(/(a)|(b)/)!;
+const words = (...xs: string[]): string => `${xs.length}:${xs.join("/")}:${xs[2] === undefined}`;
+const buf = new Float64Array([1, 2, 3, 4]);
+const view = buf.subarray(1, 3);
+function* elements(): Generator<number, string, number> {
+  return `${words(...m, String(yield 1))} ${list(...view, yield 2)}`;
+}
+console.log("elements:", run(elements(), () => { buf[1] = 99; }));
+
+const trace: string[] = [];
+const bad = {
+  get a(): number {
+    throw new Error("getter threw");
+  },
+};
+class Bad {
+  *[Symbol.iterator](): Generator<number> {
+    trace.push("iterate");
+    throw new Error("iterator threw");
+  }
+}
+function* badGetter(): Generator<number, string, number> {
+  return JSON.stringify({ ...bad, z: yield 1 });
+}
+function* badIterator(): Generator<number, string, number> {
+  return [...new Bad(), yield 2].join("/");
+}
+for (const g of [badGetter, badIterator]) {
+  try {
+    trace.push("=> " + run(g(), () => { trace.push("yielded"); }));
+  } catch (e) {
+    trace.push("threw " + String(e));
+  }
+  console.log("throws:", trace.join(","));
+  trace.length = 0;
+}
+
+async function awaited(): Promise<void> {
+  const later = <T,>(v: T, change: () => void): Promise<T> => {
+    queueMicrotask(change);
+    return Promise.resolve(v);
+  };
+  console.log("await order:", JSON.stringify({ ...p, a: await later(10, () => { p.b = 3; }) }));
+  console.log("await left out:", JSON.stringify({ ...opt, z: await later(10, () => { opt.a = 6; }) }));
+}
+await awaited();
+
+// expect:
+// order: {"b":2,"a":10} {"y":2,"x":10} {"b":2,"a":10} {"b":2,"a":1}/10
+// left out: {"c":1,"z":10} c,z false
+// receivers: 1/2/10 1/2/100/10 0/1/2/3/10
+// elements: 4:a/a//10:true 99/3/10
+// throws: threw Error: getter threw
+// throws: iterate,threw Error: iterator threw
+// await order: {"b":2,"a":10}
+// await left out: {"c":1,"a":5,"z":10}

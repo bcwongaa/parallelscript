@@ -1,8 +1,14 @@
 package lower
 
 import (
+	"math"
+	"slices"
+	"strconv"
+	"strings"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/internal/scanner"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -15,7 +21,9 @@ import (
 // suspended (a literal, a function expression, `this`, a name nothing else assigns meanwhile,
 // operators of those) isn't kept but evaluated where it is, after the yields (D-145); a
 // property or element read is always kept, since a getter or other code could change it.
-// A compound assignment whose right side yields keeps its target's value first. A yield in a
+// A spread is kept as what it spreads then: a copy of the array, tuple, map or set it
+// iterates, a dynamic value's items, or an object's property values (C139). A compound
+// assignment whose right side yields keeps its target's value first. A yield in a
 // branch of `?:` or in the right operand of `&&`, `||` or `??` makes the expression an if
 // statement that assigns a local. A yield anywhere else (a loop's condition or update, a
 // case label, a later declaration of a variable statement, a default value, an optional
@@ -86,6 +94,7 @@ func (l *lowerer) forgetHoisted(mark int) {
 		delete(l.yielded, hoisted)
 		delete(l.kept, hoisted)
 		delete(l.keptCurrent, hoisted)
+		delete(l.keptSpreads, hoisted)
 	}
 	l.hoistedNodes = l.hoistedNodes[:mark]
 }
@@ -373,12 +382,15 @@ func (l *lowerer) hoistedBranch(node *ast.Node, chosen *ir.Local) (*ir.Block, bo
 	return &ir.Block{At: at, Stmts: append(stmts, &ir.ExprStmt{At: at, X: &ir.Assign{Local: chosen, Value: x}})}, true
 }
 
-// keep evaluates an operand into a local that its lowering then reads: a spread's
-// iterated value, or the operand itself (a call that returns nothing is run, and is
-// undefined).
+// keep evaluates an operand into a local that its lowering then reads: what a spread
+// spreads (keepSpread, keepObjectSpread), or the operand itself (a call that returns
+// nothing is run, and is undefined).
 func (l *lowerer) keep(node *ast.Node) (ir.Stmt, bool) {
-	if node.Kind == ast.KindSpreadElement {
-		node = node.Expression()
+	switch node.Kind {
+	case ast.KindSpreadElement:
+		return l.keepSpread(node.Expression())
+	case ast.KindSpreadAssignment:
+		return l.keepObjectSpread(node.Expression())
 	}
 	if isMemberCallee(node) && l.isFoundAtRunTime(node) {
 		return l.keepCallee(node)
@@ -401,6 +413,162 @@ func (l *lowerer) keep(node *ast.Node) (ir.Stmt, bool) {
 	local := l.newLocal("kept", x.Type())
 	l.keepAs(node, local)
 	return &ir.LocalDecl{At: at, Local: local, Init: x}, true
+}
+
+// keepSpread keeps what a spread of a call's or `new`'s arguments or of an array literal
+// (`...x`, node is x) spreads, before a yield after it: JS iterates x then, so what changes
+// meanwhile doesn't show (C139). The array, tuple, typed array, map or set it iterates (the
+// one that `a.keys()`, `a.values()` or `a.entries()` iterates, which their lowering reads
+// again) is copied, and a dynamic value or an object iterated into an array of its items,
+// which the spread's lowering then spreads as it would have spread x (spreadSnapshot).
+func (l *lowerer) keepSpread(node *ast.Node) (ir.Stmt, bool) {
+	if receiver := l.iterationReceiver(node); receiver != nil {
+		node = receiver
+	}
+	x := l.expression(node)
+	if x == nil {
+		return nil, false
+	}
+	snapshot := l.spreadSnapshot(x, node)
+	local := l.newLocal("kept", snapshot.Type())
+	l.keepAs(node, local)
+	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: snapshot}, true
+}
+
+// iterationReceiver is the array, typed array, map or set whose items `a.keys()`,
+// `a.values()` or `a.entries()` (node) spreads, which their lowering reads (arrayIteration,
+// typedArrayIteration, mapIterableOf); nil for any other node.
+func (l *lowerer) iterationReceiver(node *ast.Node) *ast.Node {
+	inner := ast.SkipParentheses(node)
+	if inner.Kind != ast.KindCallExpression {
+		return nil
+	}
+	callee := ast.SkipParentheses(inner.AsCallExpression().Expression)
+	switch {
+	case l.isArrayIteration(inner), l.isTypedArrayIteration(inner):
+		return callee.Expression()
+	case l.isMapMethodCall(inner):
+		if _, ok := mapMethodItems[callee.AsPropertyAccessExpression().Name().Text()]; ok {
+			return callee.Expression()
+		}
+	}
+	return nil
+}
+
+// spreadSnapshot is what a spread spreads after a yield in place of x, its value before
+// the yield, so that it spreads what spreading x then would: a copy of an array, tuple,
+// typed array, map or set, an array of a dynamic value's or an object's items (as
+// argumentValues makes, D-078, D-111), or x itself (a string, a new array or tuple of a
+// literal's elements, or what no spread takes, which the spread's lowering reports).
+func (l *lowerer) spreadSnapshot(x ir.Expr, node *ast.Node) ir.Expr {
+	switch t := x.Type(); {
+	case isArrayLiteral(x):
+		return x
+	case isArray(t):
+		return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, &ir.NumberConst{Value: 0}, &ir.NumberConst{Value: math.Inf(1)}}}
+	case isTuple(t):
+		tuple, local := t.(*ir.Class), l.newLocal("tuple", t)
+		values := make([]ir.Expr, len(tuple.Fields))
+		for i, field := range tuple.Fields {
+			values[i] = &ir.FieldRef{X: &ir.LocalRef{Local: local}, Field: field, Raw: field.Optional} // an element left out stays out (D-100)
+		}
+		return &ir.Bind{Local: local, Value: x, In: &ir.NewObject{Shape: tuple, Order: tuple.Order(tuple.Fields), Values: values}}
+	case l.isTypedArray(t):
+		return l.callExtern("pts_typed_array_slice", t, x, &ir.NumberConst{Value: 0}, &ir.NumberConst{Value: math.Inf(1)})
+	case isMap(t) && !t.(*ir.MapType).Record:
+		return &ir.NewMap{Map: t.(*ir.MapType), From: x}
+	case isUnion(t) || t == ir.Value || isPlainObject(t):
+		return &ir.CallBuiltin{Builtin: ir.ValueToArray, Args: []ir.Expr{box(x), &ir.StringConst{Value: scanner.GetTextOfNode(node)}}}
+	}
+	return x
+}
+
+// keepObjectSpread keeps what a spread in an object literal (`...o`, node is o) copies,
+// before a yield after it: JS reads o's properties then, through their getters too, so
+// what changes meanwhile doesn't show (C139). A hash-map object is copied; an object's
+// properties are read into an object of their own (propertiesCopy), whose properties
+// the literal copies by the names kept (copiedNames).
+func (l *lowerer) keepObjectSpread(node *ast.Node) (ir.Stmt, bool) {
+	x := l.expression(node)
+	if x == nil {
+		return nil, false
+	}
+	snapshot := x
+	switch t := x.Type(); {
+	case isRecord(t):
+		snapshot = &ir.NewMap{Map: t.(*ir.MapType), From: x}
+	case isPlainObject(t) && !isTuple(t):
+		if copied, names := l.propertiesCopy(x, node); copied != nil {
+			snapshot = copied
+			l.keptSpreads[node] = keptSpread{names: names, of: t}
+		}
+	}
+	local := l.newLocal("kept", snapshot.Type())
+	l.keepAs(node, local)
+	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: snapshot}, true
+}
+
+// propertiesCopy is a new object holding the values of the properties that spreading x
+// (an object, node) copies, read in the order the spread reads them, and their names; nil
+// if a property is a method, which the spread's lowering reports. Its shape holds them
+// as values, of the types read, optional where x's are (so a property x leaves out stays
+// out), and its properties take x's order where x is of its shape (D-108).
+func (l *lowerer) propertiesCopy(x ir.Expr, node *ast.Node) (ir.Expr, []string) {
+	names, ok := l.spreadNames(x, l.typeAt(node), node)
+	if !ok {
+		return nil, nil
+	}
+	source := l.newLocal("spread", x.Type())
+	reads := make([]ir.Expr, len(names))
+	fields := make([]*ir.Field, len(names))
+	for i, name := range names {
+		if reads[i] = propertyOf(&ir.LocalRef{Local: source}, name); reads[i] == nil {
+			return nil, nil
+		}
+		fields[i] = &ir.Field{Name: name, Type: reads[i].Type(), Optional: isOptionalRead(reads[i])}
+	}
+	shape := l.valuesShape(fields)
+	order := make([]*ir.Field, len(names))
+	for i, name := range names {
+		order[i] = shape.Field(name)
+		reads[i] = copiedRead(reads[i], order[i])
+	}
+	return &ir.Bind{Local: source, Value: x, In: &ir.NewObject{Shape: shape, Order: shape.Order(order), Values: reads, OrderOf: &ir.LocalRef{Local: source}}}, names
+}
+
+// valuesShape is the shape of the objects holding fields (of no class yet) as values: the
+// one the program's objects of the same properties have, if any, so that a copy of one
+// takes its order (D-108).
+func (l *lowerer) valuesShape(fields []*ir.Field) *ir.Class {
+	fields = slices.SortedFunc(slices.Values(fields), func(a, b *ir.Field) int { return strings.Compare(a.Name, b.Name) })
+	key := membersKey(fields, nil)
+	if existing, ok := l.shapesByKey[key]; ok {
+		return existing
+	}
+	shape := &ir.Class{Shape: true, Name: "object" + strconv.Itoa(len(l.shapeList)+1), Fields: fields}
+	for _, field := range fields {
+		field.Class = shape
+	}
+	l.shapesByKey[key] = shape
+	l.shapeList = append(l.shapeList, shape)
+	return shape
+}
+
+// keptSpread is what keepObjectSpread read of the object an object literal's spread copies.
+type keptSpread struct {
+	names []string // the properties read, in the order the spread copies them
+	of    ir.Type  // the object's type, which diagnostics name rather than the copy's shape
+}
+
+// copiedNames is spreadNames for the object (source) that a spread in an object literal
+// copies (`...o`, node is o), and the type diagnostics name: the names of the properties
+// keepObjectSpread read before a yield after it and the object's type, if it read them.
+func (l *lowerer) copiedNames(source ir.Expr, node *ast.Node, at *ast.Node) ([]string, ir.Type, bool) {
+	if kept, ok := l.keptSpreads[node]; ok {
+		return kept.names, kept.of, true
+	}
+	names, ok := l.spreadNames(source, l.typeAt(node), at)
+	return names, source.Type(), ok
 }
 
 // keepCallee keeps what a call through `any` (callee, `o.m` or `o[k]`) calls, found before
@@ -449,8 +617,12 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 		ast.KindRegularExpressionLiteral, ast.KindArrowFunction, ast.KindFunctionExpression:
 		return true
 	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression,
-		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression, ast.KindSpreadElement:
+		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression:
 		return l.isSettled(node.Expression())
+	case ast.KindSpreadElement: // it reads the items it spreads then: a string's, or a new array's of a literal
+		return l.isSettled(node.Expression()) && (l.isPrimitive(node.Expression()) || ast.SkipParentheses(node.Expression()).Kind == ast.KindArrayLiteralExpression)
+	case ast.KindSpreadAssignment:
+		return false // it reads the object's properties then, which could change meanwhile, or run getters
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
 		return false // a getter could run, or other code change the property meanwhile
 	case ast.KindPrefixUnaryExpression:
@@ -646,7 +818,7 @@ func evaluationOrder(node *ast.Node) []*ast.Node {
 	switch node.Kind {
 	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression,
 		ast.KindTypeAssertionExpression, ast.KindTypeOfExpression, ast.KindVoidExpression,
-		ast.KindDeleteExpression, ast.KindSpreadElement:
+		ast.KindDeleteExpression, ast.KindSpreadElement, ast.KindSpreadAssignment:
 		return []*ast.Node{node.Expression()}
 	case ast.KindPrefixUnaryExpression:
 		return []*ast.Node{node.AsPrefixUnaryExpression().Operand}
@@ -696,7 +868,7 @@ func evaluationOrder(node *ast.Node) []*ast.Node {
 			case ast.KindShorthandPropertyAssignment:
 				values = append(values, property.Name()) // `{ x }` reads x
 			case ast.KindSpreadAssignment:
-				values = append(values, property.Expression())
+				values = append(values, property) // the properties it copies, read then (keepObjectSpread)
 			}
 		}
 		return values

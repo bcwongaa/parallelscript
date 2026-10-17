@@ -1,0 +1,84 @@
+// skip: known issue (H08c, C152): a spread array's elements are appended after the later operands run, so an operand after the spread that changes the array changes what it spreads
+// Without any suspension: a spread JS evaluates before a later argument or element passes
+// the elements its array has then, before the later operand runs. pts evaluated each
+// operand in order but copied a spread array's elements into the new array (the rest
+// parameter's, the literal's, push's) only after the later operands had run, so a later
+// operand that pushed to or wrote the array changed what the spread passed
+// (`ArraySpread`'s C).
+const xs = [1, 2];
+const reset = (): void => {
+  xs.length = 0;
+  xs.push(1, 2);
+};
+const grow = (): number => {
+  xs.push(100);
+  xs[0] = -5;
+  return 10;
+};
+const list = (...ns: number[]): string => ns.join("/");
+class Made {
+  items: string;
+  constructor(...ns: number[]) {
+    this.items = ns.join("/");
+  }
+}
+const pair: [number, number] = [1, 2];
+const three = (a: number, b: number, c: number): string => `${a}/${b}/${c}`;
+const writePair = (): number => {
+  pair[0] = -5;
+  return 10;
+};
+
+reset();
+console.log("list(...xs, grow())", list(...xs, grow()));
+reset();
+console.log("[...xs, grow()]", [...xs, grow()].join("/"));
+reset();
+console.log("[0, ...xs, grow(), ...xs]", [0, ...xs, grow(), ...xs].join("/"));
+reset();
+console.log("new Made(...xs, grow())", new Made(...xs, grow()).items);
+reset();
+console.log("Math.max(...xs, grow())", Math.max(...xs, grow()));
+reset();
+console.log("Math.min(...xs, grow())", Math.min(...xs, grow()));
+reset();
+console.log("Array.of(...xs, grow())", Array.of(...xs, grow()).join("/"));
+reset();
+const out = [0];
+out.push(...xs, grow());
+console.log("out.push(...xs, grow())", out.join("/"));
+reset();
+console.log("console.log(...xs, grow()):", ...xs, grow());
+reset();
+console.log("three(...pair, writePair())", three(...pair, writePair()));
+reset();
+const dynamicList: any = list;
+console.log("any(...xs, grow())", String(dynamicList(...xs, grow())));
+reset();
+const set = new Set([1, 2]);
+const add = (): number => {
+  set.add(100);
+  return 10;
+};
+console.log("[...set, add()]", [...set, add()].join("/"));
+const o = { a: 1, b: 2 };
+const bump = (): number => {
+  o.a = 5;
+  return 10;
+};
+console.log("{ ...o, z: bump() }", JSON.stringify({ ...o, z: bump() }));
+
+// expect:
+// list(...xs, grow()) 1/2/10
+// [...xs, grow()] 1/2/10
+// [0, ...xs, grow(), ...xs] 0/1/2/10/-5/2/100
+// new Made(...xs, grow()) 1/2/10
+// Math.max(...xs, grow()) 10
+// Math.min(...xs, grow()) 1
+// Array.of(...xs, grow()) 1/2/10
+// out.push(...xs, grow()) 0/1/2/10
+// console.log(...xs, grow()): 1 2 10
+// three(...pair, writePair()) 1/2/10
+// any(...xs, grow()) 1/2/10
+// [...set, add()] 1/2/10
+// { ...o, z: bump() } {"a":1,"b":2,"z":10}

@@ -1,0 +1,106 @@
+// A spread before a later suspension reads its elements before it in every form a
+// suspension's statement takes: top-level await, an async generator's awaits and yields,
+// a class's generator method spreading a field, a conditional's branch, an async arrow's
+// expression body, a for...of's iterated value, a spread between two suspensions, and a
+// spread of what a yield resumed with before a later yield (H08b, C139). pts read the
+// elements after the resume in all of them.
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+const list = (...ns: number[]): string => ns.join("/");
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+
+const top = [1, 2];
+show("top-level list(...top, await)", list(...top, await later(() => top.push(100))));
+
+const shared = [1, 2];
+async function* produce(): AsyncGenerator<string, void, number> {
+  yield list(...shared, await later(() => shared.push(100)));
+  yield [...shared, yield "first"].join("/");
+}
+const produced = produce();
+show("async generator, await", String((await produced.next()).value));
+show("async generator, first yield", String((await produced.next()).value));
+shared.push(200);
+show("async generator, second yield", String((await produced.next(10)).value));
+
+class Holder {
+  items = [1, 2];
+  *spread(): Generator<number, string, number> {
+    return list(...this.items, yield 0);
+  }
+}
+const holder = new Holder();
+const fromField = holder.spread();
+fromField.next();
+holder.items.push(100);
+show("list(...this.items, yield)", String(fromField.next(10).value));
+
+const branch = [1, 2];
+function* conditional(c: boolean): Generator<number, string, number> {
+  return c ? [...branch, yield 0].join("/") : "none";
+}
+const inBranch = conditional(true);
+inBranch.next();
+branch.push(100);
+show("c ? [...branch, yield] : …", String(inBranch.next(10).value));
+
+const arrowed = [1, 2];
+const arrow = async (xs: number[]): Promise<string> => list(...xs, await later(() => xs.push(100)));
+show("async (xs) => list(...xs, await)", await arrow(arrowed));
+
+const looped = [1, 2];
+function* forOf(): Generator<number, string, number> {
+  const seen: number[] = [];
+  for (const x of [...looped, yield 0]) seen.push(x);
+  return seen.join("/");
+}
+const loop = forOf();
+loop.next();
+looped.push(100);
+show("for (x of [...looped, yield])", String(loop.next(10).value));
+
+const twice = [1, 2];
+function* twoSuspensions(): Generator<number, string, number> {
+  return [...twice, yield 0, ...twice, yield 1].join("/");
+}
+const steps = twoSuspensions();
+steps.next();
+twice.push(100);
+steps.next(10);
+twice.push(200);
+show("[...twice, yield, ...twice, yield]", String(steps.next(20).value));
+
+const sent = [7];
+function* resumedSpreads(): Generator<number, string, number[]> {
+  return [...(yield 0), ...(yield 1)].join("/");
+}
+const resumed = resumedSpreads();
+resumed.next();
+resumed.next(sent);
+sent.push(100);
+show("[...(yield), ...(yield)]", String(resumed.next([9]).value));
+
+// expect:
+// top-level list(...top, await): await,changed => 1/2/10
+// async generator, await: await,changed => 1/2/10
+// async generator, first yield:  => first
+// async generator, second yield:  => 1/2/100/10
+// list(...this.items, yield):  => 1/2/10
+// c ? [...branch, yield] : …:  => 1/2/10
+// async (xs) => list(...xs, await): await,changed => 1/2/10
+// for (x of [...looped, yield]):  => 1/2/10
+// [...twice, yield, ...twice, yield]:  => 1/2/10/1/2/100/20
+// [...(yield), ...(yield)]:  => 7/9
