@@ -1,0 +1,33 @@
+// new Set(array) adds each element the array's iterator gives, undefined for a hole, where
+// the element type holds undefined ((T | undefined)[], any[]). pts's set of an array
+// skipped holes (`Set(1) { 'b' }` for Node's `Set(2) { undefined, 'b' }`; H06b's
+// reproducer). Through `any` it already behaved (a control). A Set<string> of a string[]
+// with holes, or of a match array with a group that took no part, can't hold undefined;
+// those aren't here.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybeHoles(): (string | undefined)[] {
+  const a = new Array<string | undefined>(3);
+  a[1] = "b";
+  return a;
+}
+function anyHoles(): any[] {
+  const a: any[] = new Array(2);
+  a[0] = 1;
+  return a;
+}
+show("maybe", () => new Set(maybeHoles()));
+show("any[]", () => new Set(anyHoles()));
+show("size has", () => [new Set(maybeHoles()).size, new Set(anyHoles()).has(undefined)]);
+show("via any", () => new Set(maybeHoles() as any));
+
+// expect:
+// maybe Set(2) { undefined, 'b' }
+// any[] Set(2) { 1, undefined }
+// size has [ 2, true ]
+// via any Set(2) { undefined, 'b' }

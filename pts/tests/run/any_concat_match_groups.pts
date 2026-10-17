@@ -1,0 +1,17 @@
+// Through `any`, concat keeps the receiver's and the arguments' holes as holes and a
+// match's group that took no part as an undefined element, in one result. pts turned the
+// holes into undefined (C92); the match lines that already behave are controls for C92's
+// fix, since a match's undefined group is a zero slot, like a hole (H06b's reproducer).
+// Typed, a string[] result can't hold both holes and undefined; that case isn't here.
+const m = /(a)|(b)/.exec("xb")!;
+const holes = new Array<string>(3);
+holes[1] = "b";
+const viaAny: any = holes;
+console.log(viaAny.concat(m));
+console.log((["q"] as any).concat(m), (m as any).concat(["z"]));
+console.log((m as any).concat(holes));
+
+// expect:
+// [ <1 empty item>, 'b', <1 empty item>, 'b', undefined, 'b' ]
+// [ 'q', 'b', undefined, 'b' ] [ 'b', undefined, 'b', 'z' ]
+// [ 'b', undefined, 'b', <1 empty item>, 'b', <1 empty item> ]

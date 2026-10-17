@@ -1,0 +1,72 @@
+// skip: known issue (H11, C102): array patterns read a hole under a default as a required element, and a rest element keeps holes
+// Array patterns read their source through its iterator, which gives undefined for a
+// hole: a default applies at a hole (and at a match group that took no part, which is
+// undefined, D-133), and a rest element holds undefined for each hole, where the element
+// type holds undefined. pts read an element under a default as a required one (RangeError
+// at a hole, D-133's TypeError at a match's group; a match copy's RangeError), and a rest
+// element was a slice that kept the holes (H06b's reproducer). Through `any` they already
+// behaved (controls). A rest element of a string[] keeps its holes by design (D-182), so
+// it isn't here.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(4);
+  a[0] = "a";
+  a[2] = undefined;
+  return a;
+}
+function strings(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+const m = /(a)|(b)/.exec("xb")!;
+show("default at hole", () => {
+  const [p = "P", q = "Q"] = strings();
+  return [p, q];
+});
+show("assignment default at hole", () => {
+  let p: string | undefined, q: string | undefined;
+  [p, q = "D"] = maybe();
+  return [p, q];
+});
+show("match default", () => {
+  const [all, g1 = "D", g2] = m;
+  return [all, g1, g2];
+});
+show("match copy default", () => {
+  const [all, g1 = "D", g2] = m.slice();
+  return [all, g1, g2];
+});
+show("rest", () => {
+  const [, ...rest] = maybe();
+  return rest;
+});
+show("nested rest", () => {
+  const [[x, ...ys]] = [maybe()];
+  return [x, ys];
+});
+const viaAny: any = maybe();
+show("via any", () => {
+  const [p, q = "D", ...rest] = viaAny;
+  return [p, q, rest];
+});
+show("match rest", () => {
+  const [, ...groups] = m;
+  return groups;
+});
+
+// expect:
+// default at hole [ 'P', 'b' ]
+// assignment default at hole [ 'a', 'D' ]
+// match default [ 'b', 'D', 'b' ]
+// match copy default [ 'b', 'D', 'b' ]
+// rest [ undefined, undefined, undefined ]
+// nested rest [ 'a', [ undefined, undefined, undefined ] ]
+// via any [ 'a', 'D', [ undefined, undefined ] ]
+// match rest [ undefined, 'b' ]

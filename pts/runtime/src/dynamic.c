@@ -693,7 +693,7 @@ bool pts_dynamic_has(pts_value object, pts_value key) {
     if (pts_is_match_array(target) && (key_is(key, "index") || key_is(key, "input") || key_is(key, "groups"))) {
       return true;
     }
-    return key_is(key, "length") || (array_index(key, &index) && index < pts_array_length((const pts_array *)target));
+    return key_is(key, "length") || (array_index(key, &index) && pts_array_has((const pts_array *)target, index)); /* a hole isn't a property */
   case PTS_KIND_TUPLE:
     return key_is(key, "length") || (array_index(key, &index) && index < pts_tuple_length(target));
   case PTS_KIND_REGEXP:

@@ -463,8 +463,10 @@ static pts_value array_concat(pts_value self, uint32_t argc, const pts_value *ar
       push_any(result, part);
       continue;
     }
+    bool holes = pts_value_as_object(part)->type->kind == PTS_KIND_ARRAY && pts_array_has_holes(array_of(part));
     for (size_t j = 0, length = pts_spread_length(part); j < length; j++) {
-      push_any(result, pts_spread_element(part, j));
+      bool hole = holes && !pts_array_has(array_of(part), (double)j); /* concat keeps holes: it defines only the indices that are there */
+      push_any(result, hole ? PTS_VALUE_ABSENT : pts_spread_element(part, j));
     }
   }
   return pts_value_from_object(result);
@@ -488,10 +490,14 @@ static bool same_value_zero(pts_value a, pts_value b) {
          pts_value_as_number(b) != pts_value_as_number(b);
 }
 
-/* The first index from `from` (relative) whose element equals value, by === or SameValueZero; -1 if none. */
+/* The first index from `from` (relative) whose element equals value, by === (holes skipped, as indexOf only looks at the indices there are) or SameValueZero (holes read as undefined, as includes reads them); -1 if none. */
 static double search_forward(pts_array *array, pts_value value, double from, bool zero) {
   double length = pts_array_length(array);
+  bool skip_holes = !zero && value == PTS_VALUE_UNDEFINED; /* a hole reads as undefined, which no other value equals */
   for (double i = relative(from, length); i < pts_array_length(array); i++) {
+    if (skip_holes && !pts_array_has(array, i)) {
+      continue;
+    }
     pts_value element = pts_array_element(array, i);
     if (zero ? same_value_zero(element, value) : pts_value_strict_equals(element, value)) {
       return i;
@@ -513,8 +519,9 @@ static pts_value array_last_index_of(pts_value self, uint32_t argc, const pts_va
   double length = pts_array_length(array);
   double from = argc > 1 ? integer_or_infinity(pts_value_to_number(argv[1])) : length - 1;
   from = from < 0 ? from + length : from > length - 1 ? length - 1 : from;
+  pts_value value = argument(argc, argv, 0);
   for (double i = from; i >= 0; i--) {
-    if (pts_value_strict_equals(pts_array_element(array, i), argument(argc, argv, 0))) {
+    if (pts_value_strict_equals(pts_array_element(array, i), value) && (value != PTS_VALUE_UNDEFINED || pts_array_has(array, i))) {
       return pts_value_from_number(i);
     }
   }
@@ -584,19 +591,39 @@ static pts_value call_back(pts_closure *callback, pts_value self, double index) 
   return pts_dynamic_call_closure(callback, 3, args);
 }
 
+/*
+ * The callback methods but the find ones visit the indices below the length they start
+ * with that the array still has (JS's HasProperty), skipping holes; a match's undefined
+ * groups are elements (D-133). Those that visit every element look for holes once
+ * (pts_array_has_holes), and test each index only if there are some: a hole that a
+ * callback's spread puts into the array later is read as undefined.
+ */
+static bool has(const pts_array *array, bool holes, double index) {
+  return holes ? pts_array_has(array, index) : index < pts_array_length(array);
+}
+
 static pts_value array_for_each(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_closure *callback = function_argument(argc, argv, 0);
-  for (double i = 0; i < pts_array_length(array_of(self)); i++) {
-    call_back(callback, self, i);
+  bool holes = pts_array_has_holes(array_of(self));
+  for (double i = 0, length = pts_array_length(array_of(self)); i < length; i++) {
+    if (has(array_of(self), holes, i)) {
+      call_back(callback, self, i);
+    }
   }
   return PTS_VALUE_UNDEFINED;
 }
 
+/* map's result has the array's length, with holes where the array has them. */
 static pts_value array_map(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_closure *callback = function_argument(argc, argv, 0);
-  pts_array *result = any_array();
-  for (double i = 0, length = pts_array_length(array_of(self)); i < length && i < pts_array_length(array_of(self)); i++) {
-    push_any(result, call_back(callback, self, i));
+  double length = pts_array_length(array_of(self));
+  bool holes = pts_array_has_holes(array_of(self));
+  pts_array *result = pts_array_of_length(&pts_array_types[PTS_FIELD_VALUE], length);
+  for (double i = 0; i < length; i++) {
+    if (has(array_of(self), holes, i)) {
+      pts_value mapped = call_back(callback, self, i);
+      pts_array_set(result, i, &mapped);
+    }
   }
   return pts_value_from_object(result);
 }
@@ -605,11 +632,13 @@ static pts_value array_filter(pts_value self, uint32_t argc, const pts_value *ar
   pts_closure *callback = function_argument(argc, argv, 0);
   pts_array *array = array_of(self);
   pts_array *result = pts_array_of(pts_array_copy_type(array->type), NULL, 0); /* the same elements, so the same type */
-  for (double i = 0; i < pts_array_length(array); i++) {
-    uint64_t element = 0;
-    if (!pts_array_load(array, i, &element)) {
-      continue; /* a hole, or an element another thread removed: JS's filter skips holes */
+  bool holes = pts_array_has_holes(array);
+  for (double i = 0, length = pts_array_length(array); i < length; i++) {
+    if (!has(array, holes, i)) {
+      continue;
     }
+    uint64_t element = 0;
+    pts_array_load(array, i, &element); /* a match's undefined group stays a zero slot, undefined in a copy of a match too */
     if (pts_value_truthy(call_back(callback, self, i))) {
       pts_array_push(result, &element, 1);
     }
@@ -659,38 +688,48 @@ static pts_value array_find_last_index(pts_value self, uint32_t argc, const pts_
   return pts_value_from_number(find_index(self, argc, argv, true));
 }
 
-static pts_value array_some(pts_value self, uint32_t argc, const pts_value *argv) {
-  return pts_value_from_bool(find_index(self, argc, argv, false) >= 0);
-}
-
-static pts_value array_every(pts_value self, uint32_t argc, const pts_value *argv) {
+/* Whether callback(element, index, array) is truthy (some) or falsy (every) for an element the array has. */
+static bool any_element(pts_value self, uint32_t argc, const pts_value *argv, bool truthy) {
   pts_closure *callback = function_argument(argc, argv, 0);
-  for (double i = 0; i < pts_array_length(array_of(self)); i++) {
-    if (!pts_value_truthy(call_back(callback, self, i))) {
-      return PTS_VALUE_FALSE;
+  for (double i = 0, length = pts_array_length(array_of(self)); i < length; i++) {
+    if (pts_array_has(array_of(self), i) && pts_value_truthy(call_back(callback, self, i)) == truthy) {
+      return true;
     }
   }
-  return PTS_VALUE_TRUE;
+  return false;
 }
 
-/* reduce and reduceRight: callback(accumulator, element, index, array) over the elements in order or backwards. */
+static pts_value array_some(pts_value self, uint32_t argc, const pts_value *argv) { return pts_value_from_bool(any_element(self, argc, argv, true)); }
+
+static pts_value array_every(pts_value self, uint32_t argc, const pts_value *argv) { return pts_value_from_bool(!any_element(self, argc, argv, false)); }
+
+/*
+ * reduce and reduceRight: callback(accumulator, element, index, array) over the elements in
+ * order or backwards, holes skipped; without an initial value the accumulator starts as
+ * the first element there is, and TypeError if there is none.
+ */
 static pts_value reduce(pts_value self, uint32_t argc, const pts_value *argv, bool backwards) {
   pts_closure *callback = function_argument(argc, argv, 0);
   pts_array *array = array_of(self);
   double length = pts_array_length(array), n = 0;
-  pts_value accumulator;
-  if (argc >= 2) {
-    accumulator = argv[1];
-  } else if (length == 0) {
-    pts_throw_new(&pts_type_builtin_TypeError, "Reduce of empty array with no initial value");
-  } else {
-    accumulator = pts_array_element(array, backwards ? length - 1 : 0);
-    n = 1;
+  bool holes = pts_array_has_holes(array);
+  pts_value accumulator = argc >= 2 ? argv[1] : PTS_VALUE_ABSENT;
+  if (argc < 2) {
+    while (n < length && !has(array, holes, backwards ? length - 1 - n : n)) {
+      n++;
+    }
+    if (n == length) {
+      pts_throw_new(&pts_type_builtin_TypeError, "Reduce of empty array with no initial value");
+    }
+    accumulator = pts_array_element(array, backwards ? length - 1 - n : n);
+    n++;
   }
   for (; n < length; n++) {
     double i = backwards ? length - 1 - n : n;
-    pts_value args[] = {accumulator, pts_array_element(array, i), pts_value_from_number(i), self};
-    accumulator = pts_dynamic_call_closure(callback, 4, args);
+    if (has(array, holes, i)) {
+      pts_value args[] = {accumulator, pts_array_element(array, i), pts_value_from_number(i), self};
+      accumulator = pts_dynamic_call_closure(callback, 4, args);
+    }
   }
   return accumulator;
 }
@@ -699,8 +738,22 @@ static pts_value array_reduce(pts_value self, uint32_t argc, const pts_value *ar
 
 static pts_value array_reduce_right(pts_value self, uint32_t argc, const pts_value *argv) { return reduce(self, argc, argv, true); }
 
+/*
+ * Whether array's element type holds undefined (D-183): any[] and unknown[] (an array of
+ * dynamic values a program doesn't describe), or a union with undefined. Copies read the
+ * holes of those as undefined; a (string | null)[]'s keep them, since it can't hold one.
+ */
+static bool holds_undefined(const pts_array *array) {
+  const pts_type *type = pts_unfrozen(array->type);
+  pts_value converted;
+  return type->element == PTS_FIELD_VALUE && (type->check == NULL || pts_value_try_convert(PTS_VALUE_UNDEFINED, type->check, &converted));
+}
+
 /* toSorted, toReversed, toSpliced and with (D-085): sort, reverse, splice and a write on a copy. */
-static pts_value copy_of(pts_value self) { return pts_value_from_object(pts_array_copy_as_read(array_of(self))); }
+static pts_value copy_of(pts_value self) {
+  pts_array *array = array_of(self);
+  return pts_value_from_object(holds_undefined(array) ? pts_array_copy_as_read(array) : pts_array_copy(array));
+}
 
 static pts_value array_to_sorted(pts_value self, uint32_t argc, const pts_value *argv) { return array_sort(copy_of(self), argc, argv); }
 
@@ -741,7 +794,7 @@ static pts_value array_entries(pts_value self, uint32_t argc, const pts_value *a
 static pts_value array_with(pts_value self, uint32_t argc, const pts_value *argv) {
   pts_array *array = array_of(self);
   pts_value value = argument(argc, argv, 1);
-  return pts_value_from_object(pts_array_with(array, number_argument(argc, argv, 0, 0), elements_for(array, 1, &value)));
+  return pts_value_from_object(pts_array_with(array, number_argument(argc, argv, 0, 0), elements_for(array, 1, &value), holds_undefined(array)));
 }
 
 static const named_method array_methods[] = {
@@ -1177,6 +1230,9 @@ static pts_array *own_keys(pts_value value) {
   case PTS_KIND_TYPED_ARRAY: {
     double length = object->type->kind == PTS_KIND_STRING ? ((pts_string *)object)->utf16_len : (double)pts_spread_length(value);
     for (double i = 0; i < length; i++) {
+      if (object->type->kind == PTS_KIND_ARRAY && !pts_array_has((const pts_array *)object, i)) {
+        continue; /* a hole isn't a property */
+      }
       pts_string *index = pts_number_to_string(i);
       pts_array_push(keys, &index, 1);
     }

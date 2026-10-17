@@ -2035,7 +2035,7 @@ func (l *lowerer) restArray(values []ir.Expr, at []*ast.Node, array *ir.Array) i
 	if !spread {
 		return &ir.NewArray{Array: array, Elems: parts}
 	}
-	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
+	return &ir.ArrayCall{Op: ir.ArraySpread, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
 }
 
 // convertArguments converts values, the arguments a call passes (each written at the node

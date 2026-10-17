@@ -113,6 +113,12 @@ static void publish_buffer(pts_array *array, pts_array_buffer *buffer) { __atomi
 
 static void publish_length(pts_array *array, size_t length) { __atomic_store_n(&array->length, length, __ATOMIC_RELEASE); }
 
+/* readable_length is the length clamped to the capacity of buffer, which a racing push may not have reached. */
+static size_t readable_length(const pts_array *array, const pts_array_buffer *buffer) {
+  size_t length = pts_array_length_of(array);
+  return length < buffer->capacity ? length : buffer->capacity;
+}
+
 /*
  * with_room returns a buffer of array that holds its first length elements and has room
  * for needed elements in all: the current one, or a bigger copy, published first.
@@ -390,12 +396,39 @@ double pts_array_push(pts_array *array, const void *values, size_t count) {
   return (double)(length + count);
 }
 
+/*
+ * A match's groups that took no part stay undefined where its elements go into a string[]
+ * (D-133): a plain one takes match copies' descriptor, whose zero slots are undefined, if
+ * source has such a group and array no holes of its own, which would read as undefined too
+ * (those groups become holes there). takes_undefined_groups tells before the elements go
+ * in; keep_undefined_groups switches after, by a compare-and-swap, so that a freeze racing
+ * with it keeps its frozen twin (the groups are then holes).
+ */
+static bool takes_undefined_groups(const pts_array *array, const pts_array *source) {
+  return array->type == &pts_array_types[PTS_FIELD_STRING] && pts_has_undefined_holes(source) && pts_array_has_holes(source) && !pts_array_has_holes(array);
+}
+
+static void keep_undefined_groups(pts_array *array) {
+  const pts_type *plain = &pts_array_types[PTS_FIELD_STRING];
+  __atomic_compare_exchange_n(&array->type, &plain, &pts_type_match_copy, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+}
+
 double pts_array_push_all(pts_array *array, const pts_array *values) {
-  return pts_array_push(array, load_buffer(values)->elements, pts_array_length_of(values));
+  bool keep = takes_undefined_groups(array, values);
+  double length = pts_array_push(array, load_buffer(values)->elements, pts_array_length_of(values));
+  if (keep) {
+    keep_undefined_groups(array);
+  }
+  return length;
 }
 
 double pts_array_unshift_all(pts_array *array, const pts_array *values) {
-  return pts_array_unshift(array, load_buffer(values)->elements, pts_array_length_of(values));
+  bool keep = takes_undefined_groups(array, values);
+  double length = pts_array_unshift(array, load_buffer(values)->elements, pts_array_length_of(values));
+  if (keep) {
+    keep_undefined_groups(array);
+  }
+  return length;
 }
 
 double pts_array_unshift(pts_array *array, const void *values, size_t count) {
@@ -417,7 +450,8 @@ double pts_array_unshift(pts_array *array, const void *values, size_t count) {
   return (double)(kept + count);
 }
 
-void pts_array_pop(pts_array *array, void *out) {
+/* pop and shift: the element removed goes to out; a hole throws (where an element is required) unless holes_undefined, which removes it and leaves out zero. */
+static void pop_into(pts_array *array, void *out, bool holes_undefined) {
   size_t length = pts_array_length_of(array);
   if (is_frozen(array)) {
     frozen_pop(array, length);
@@ -428,13 +462,13 @@ void pts_array_pop(pts_array *array, void *out) {
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
   element_load(out, pts_array_slot(array, (double)(length - 1), size), size);
-  if (is_hole(kind, out)) {
+  if (is_hole(kind, out) && !holes_undefined) {
     pts_array_index_error(array, (double)(length - 1));
   }
   publish_length(array, length - 1); /* the slot keeps its element, which racing readers may still read */
 }
 
-void pts_array_shift(pts_array *array, void *out) {
+static void shift_into(pts_array *array, void *out, bool holes_undefined) {
   size_t length = pts_array_length_of(array);
   if (is_frozen(array)) {
     frozen_shift(array, length);
@@ -452,7 +486,7 @@ void pts_array_shift(pts_array *array, void *out) {
     pts_throw_new(&pts_type_builtin_RangeError, "shift() of an empty array");
   }
   element_load(out, buffer->elements, size);
-  if (is_hole(kind, out)) {
+  if (is_hole(kind, out) && !holes_undefined) {
     pts_array_index_error(array, 0);
   }
   for (size_t i = 1; i < length; i++) {
@@ -463,12 +497,17 @@ void pts_array_shift(pts_array *array, void *out) {
   publish_length(array, length - 1);
 }
 
+void pts_array_pop(pts_array *array, void *out) { pop_into(array, out, false); }
+
+void pts_array_shift(pts_array *array, void *out) { shift_into(array, out, false); }
+
+/* JS's pop and shift remove a hole too and give undefined for it (D-183), as they do for an empty array. */
 pts_value pts_array_pop_value(pts_array *array) {
   if (pts_array_length_of(array) == 0 && !is_frozen(array)) {
     return PTS_VALUE_UNDEFINED;
   }
-  uint64_t element;
-  pts_array_pop(array, &element);
+  uint64_t element = 0;
+  pop_into(array, &element, true);
   return pts_value_of_slot(array->type->element, &element);
 }
 
@@ -476,8 +515,8 @@ pts_value pts_array_shift_value(pts_array *array) {
   if (pts_array_length_of(array) == 0 && !is_frozen(array)) {
     return PTS_VALUE_UNDEFINED;
   }
-  uint64_t element;
-  pts_array_shift(array, &element);
+  uint64_t element = 0;
+  shift_into(array, &element, true);
   return pts_value_of_slot(array->type->element, &element);
 }
 
@@ -511,12 +550,6 @@ static size_t relative_index(double position, size_t length) {
     return integer < 0 ? 0 : (size_t)integer;
   }
   return integer > (double)length ? length : (size_t)integer;
-}
-
-/* readable_length is the length clamped to the capacity of buffer, which a racing push may not have reached. */
-static size_t readable_length(const pts_array *array, const pts_array_buffer *buffer) {
-  size_t length = pts_array_length_of(array);
-  return length < buffer->capacity ? length : buffer->capacity;
 }
 
 /* new_array makes an array of descriptor type holding count elements read from from. */
@@ -577,7 +610,9 @@ pts_array *pts_array_splice(pts_array *array, double start, double delete_count,
   return removed;
 }
 
-void pts_array_append(pts_array *array, const pts_array *other) {
+/* Appends other's elements to array, each hole undefined if undefined_holes (dynamic values) or else kept. */
+static void append(pts_array *array, const pts_array *other, bool undefined_holes) {
+  bool keep = takes_undefined_groups(array, other);
   size_t size = pts_field_kind_size(array->type->element);
   pts_array_buffer *source = load_buffer(other);
   size_t count = readable_length(other, source);
@@ -586,10 +621,20 @@ void pts_array_append(pts_array *array, const pts_array *other) {
   for (size_t i = 0; i < count; i++) {
     uint64_t element = 0;
     element_load(&element, source->elements + i * size, size);
+    if (undefined_holes && element == 0) {
+      element = PTS_VALUE_UNDEFINED;
+    }
     element_store(buffer->elements + (length + i) * size, &element, size);
   }
   publish_length(array, length + count);
+  if (keep) {
+    keep_undefined_groups(array);
+  }
 }
+
+void pts_array_append(pts_array *array, const pts_array *other) { append(array, other, false); }
+
+void pts_array_append_as_read(pts_array *array, const pts_array *other) { append(array, other, array->type->element == PTS_FIELD_VALUE); }
 
 /* same_value reports whether two elements of a kind are equal: by === or, if zero is true, by SameValueZero (NaN is NaN). */
 static bool same_value(pts_field_kind kind, const void *a, const void *b, bool zero) {
@@ -630,7 +675,13 @@ static double find(const pts_array *array, const void *value, size_t from, bool 
   for (size_t i = from; i < length; backwards ? i-- : i++) {
     uint64_t element = 0;
     element_load(&element, buffer->elements + i * size, size);
-    if (!is_hole(kind, &element) && same_value(kind, &element, value, zero)) {
+    if (is_hole(kind, &element)) {
+      if (zero && kind == PTS_FIELD_VALUE && *(const pts_value *)value == PTS_VALUE_UNDEFINED) {
+        return (double)i; /* includes reads a hole as undefined; indexOf and lastIndexOf skip it */
+      }
+      continue;
+    }
+    if (same_value(kind, &element, value, zero)) {
       return (double)i;
     }
   }
@@ -1209,14 +1260,37 @@ void pts_array_push_flat(pts_array *result, pts_value value) {
   flatten_element(result, slots, &value, 1);
 }
 
-bool pts_array_has(const pts_array *array, double index) {
-  uint64_t element;
-  return pts_array_load(array, index, &element) || (pts_has_undefined_holes(array) && pts_array_slot_or_null(array, index, pts_field_kind_size(array->type->element)) != NULL);
-}
+bool pts_parallel_has_holes_in(pts_value array, double from, double to) { return pts_array_has_holes_in((const pts_array *)pts_value_as_object(array), from, to); }
 
-bool pts_parallel_has(pts_value array, double index) { return pts_array_has((const pts_array *)pts_value_as_object(array), index); }
+bool pts_parallel_holds_pointers(pts_value array) { return holds_pointers(((const pts_array *)pts_value_as_object(array))->type->element); }
 
 void pts_parallel_push_flat(pts_value result, pts_value value) { pts_array_push_flat((pts_array *)pts_value_as_object(result), value); }
+
+bool pts_array_has_holes_in(const pts_array *array, double from, double to) {
+  if (!holds_pointers(array->type->element)) {
+    return false;
+  }
+  pts_array_buffer *buffer = load_buffer(array);
+  const uint64_t *slots = (const uint64_t *)(const void *)buffer->elements;
+  size_t length = readable_length(array, buffer);
+  size_t end = to < (double)length ? (size_t)to : length;
+  size_t i = from > 0 ? (size_t)from : 0;
+  for (; i + 4 <= end; i += 4) { /* four slots a test: the methods that skip holes pay this per element */
+    uint64_t a = __atomic_load_n(slots + i, __ATOMIC_RELAXED), b = __atomic_load_n(slots + i + 1, __ATOMIC_RELAXED);
+    uint64_t c = __atomic_load_n(slots + i + 2, __ATOMIC_RELAXED), d = __atomic_load_n(slots + i + 3, __ATOMIC_RELAXED);
+    if ((a == 0) | (b == 0) | (c == 0) | (d == 0)) {
+      return true;
+    }
+  }
+  for (; i < end; i++) {
+    if (__atomic_load_n(slots + i, __ATOMIC_RELAXED) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool pts_array_has_holes(const pts_array *array) { return pts_array_has_holes_in(array, 0, (double)SIZE_MAX); }
 
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end) {
   size_t size = pts_field_kind_size(array->type->element);
@@ -1251,7 +1325,7 @@ pts_value pts_array_at(const pts_array *array, double index) {
   return pts_array_element(array, position < 0 ? position + pts_array_length(array) : position);
 }
 
-pts_array *pts_array_with(const pts_array *array, double index, const void *value) {
+pts_array *pts_array_with(const pts_array *array, double index, const void *value, bool undefined_holes) {
   double position = index != index ? 0 : __builtin_trunc(index);
   double length = pts_array_length(array);
   double at = position < 0 ? position + length : position;
@@ -1260,7 +1334,7 @@ pts_array *pts_array_with(const pts_array *array, double index, const void *valu
     pts_number_format(position + 0.0, buf);
     pts_throw_new(&pts_type_builtin_RangeError, "Invalid index : %s", buf);
   }
-  pts_array *copy = pts_array_copy_as_read(array);
+  pts_array *copy = undefined_holes ? pts_array_copy_as_read(array) : pts_array_copy(array);
   if ((size_t)at >= copy->length) {
     pts_array_index_error(copy, at); /* another thread shrank the array since its length was read */
   }

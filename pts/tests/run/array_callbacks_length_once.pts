@@ -1,0 +1,155 @@
+// The callback methods read the array's length once, before the first call: elements a
+// callback pushes aren't visited, indices it cuts off aren't visited by forEach, map,
+// filter, some, every, reduce and reduceRight (HasProperty is false there), while find,
+// findIndex, findLast and findLastIndex still visit them and read undefined; map's result
+// keeps the original length, the cut-off indices being holes. pts's typed map built a
+// shorter result and typed find* skipped the cut-off indices; through `any`, map built a
+// shorter result, reduce, reduceRight and some visited the cut-off indices as undefined,
+// and forEach, filter and every read the length at every step, so a callback that pushes
+// kept them going (without a guard, until memory ran out) (H06b's reproducer).
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function four(): string[] {
+  return ["a", "b", "c", "d"];
+}
+function maybeFour(): (string | undefined)[] {
+  return ["a", "b", "c", "d"];
+}
+show("map shorten", () => {
+  const a = four();
+  return a.map((x, i) => {
+    if (i === 0) a.length = 2;
+    return x + "!";
+  });
+});
+show("find shorten", () => {
+  const a = maybeFour();
+  const seen: string[] = [];
+  a.find((x) => {
+    if (a.length === 4) a.length = 2;
+    seen.push(String(x));
+    return false;
+  });
+  return seen;
+});
+show("findLastIndex shorten", () => {
+  const a = maybeFour();
+  const seen: string[] = [];
+  a.findLastIndex((x, i) => {
+    if (i === 3) a.length = 1;
+    seen.push(String(x));
+    return false;
+  });
+  return seen;
+});
+show("forEach filter reduce shorten", () => {
+  const a = four();
+  const seen: number[] = [];
+  a.forEach((x, i) => {
+    if (i === 0) a.length = 3;
+    seen.push(i);
+  });
+  const b = four();
+  const kept = b.filter((x, i) => {
+    if (i === 0) b.length = 2;
+    return true;
+  });
+  return [seen, kept];
+});
+show("lengthen", () => {
+  const a = four();
+  let n = 0;
+  const mapped = a.map((x) => {
+    if (a.length < 6) a.push("z");
+    n++;
+    return x + "!";
+  });
+  return [mapped, n];
+});
+show("any map shorten", () => {
+  const a: any = four();
+  return a.map((x: any, i: number) => {
+    if (i === 0) a.length = 2;
+    return x + "!";
+  });
+});
+show("any reduce shorten", () => {
+  const a: any = four();
+  return a.reduce((acc: any, x: any, i: number) => {
+    if (i === 0) a.length = 2;
+    return acc + x;
+  }, "");
+});
+show("any reduceRight shorten", () => {
+  const a: any = four();
+  return a.reduceRight((acc: any, x: any, i: number) => {
+    if (i === 3) a.length = 1;
+    return acc + x;
+  }, "");
+});
+show("any some shorten", () => {
+  const a: any = four();
+  const seen: number[] = [];
+  a.some((x: any, i: number) => {
+    if (i === 0) a.length = 2;
+    seen.push(i);
+    return false;
+  });
+  return seen;
+});
+show("any find shorten", () => {
+  const a: any = four();
+  const seen: string[] = [];
+  a.find((x: any, i: number) => {
+    if (i === 0) a.length = 2;
+    seen.push(String(x));
+    return false;
+  });
+  return seen;
+});
+show("any forEach lengthen", () => {
+  const a: any = ["x", "y"];
+  let n = 0;
+  a.forEach((x: any) => {
+    n++;
+    if (a.length < 1000) a.push(x);
+  });
+  return [n, a.length];
+});
+show("any filter lengthen", () => {
+  const a: any = four();
+  return a.filter(() => {
+    if (a.length < 6) a.push("z");
+    return true;
+  });
+});
+show("any every lengthen", () => {
+  const a: any = four();
+  let n = 0;
+  a.every(() => {
+    if (a.length < 6) a.push("z");
+    n++;
+    return true;
+  });
+  return n;
+});
+
+// expect:
+// map shorten [ 'a!', 'b!', <2 empty items> ]
+// find shorten [ 'a', 'b', 'undefined', 'undefined' ]
+// findLastIndex shorten [ 'd', 'undefined', 'undefined', 'a' ]
+// forEach filter reduce shorten [ [ 0, 1, 2 ], [ 'a', 'b' ] ]
+// lengthen [ [ 'a!', 'b!', 'c!', 'd!' ], 4 ]
+// any map shorten [ 'a!', 'b!', <2 empty items> ]
+// any reduce shorten ab
+// any reduceRight shorten da
+// any some shorten [ 0, 1 ]
+// any find shorten [ 'a', 'b', 'undefined', 'undefined' ]
+// any forEach lengthen [ 2, 4 ]
+// any filter lengthen [ 'a', 'b', 'c', 'd' ]
+// any every lengthen 4

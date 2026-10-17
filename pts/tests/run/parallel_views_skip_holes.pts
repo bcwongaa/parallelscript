@@ -1,0 +1,158 @@
+// `.par` views skip an array's holes as Array's methods do: map keeps them as holes in its
+// result, forEach, filter, some, every, reduce and count never call the callback for them,
+// and sum, min and max fold only the elements there are (as `reduce` folds them, D-151),
+// at every thread count. pts:parallel read every index: arrays of strings and of one class
+// threw RangeError at the first hole, and arrays of unions and `any` passed the holes to
+// the callback as undefined (`maybe count` 3 for 1); sum, min and max were NaN (H06b's
+// reproducer). The expected output is the sequential methods' under Node: the twin in
+// h06b-reproducer-probes.tar.gz (`red-tests/parallel_views_skip_holes.oracle.mts`)
+// differs only by `.par.m(…)` → `.m(…)`, `count(p)` → `filter(p).length` and
+// `sum`/`min`/`max` → a reduce. Arrays of numbers have no holes (D-085).
+// threads: 1 2 4
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function strings(): string[] {
+  const a = new Array<string>(4);
+  a[1] = "2";
+  a[3] = "5";
+  return a;
+}
+function points(): P[] {
+  const a = new Array<P>(3);
+  a[1] = new P(1);
+  return a;
+}
+function maybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(4);
+  a[0] = "a";
+  a[2] = undefined;
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(3);
+  a[0] = 1;
+  a[2] = "z";
+  return a;
+}
+function marks(n: number): number[] {
+  return new Array<number>(n).fill(0);
+}
+show("strings map", () => strings().par.map((x) => x + "!"));
+show("strings forEach", () => {
+  const m = marks(4);
+  strings().par.forEach((x, i) => {
+    m[i] = 1;
+  });
+  return m;
+});
+show("strings filter", () => strings().par.filter((x) => x !== "zz"));
+show("strings some every", () => [strings().par.some((x) => x === undefined), strings().par.every((x) => typeof x === "string")]);
+show("strings find", () => strings().par.find((x) => x === "5"));
+show("strings reduce", () => strings().par.reduce((a, b) => a + b, ""));
+show("strings count", () => strings().par.count(() => true));
+show("strings sum min max", () => [strings().par.sum(), strings().par.min(), strings().par.max()]);
+show("points map", () => points().par.map((p) => "p" + p.x));
+show("points filter every count", () => [points().par.filter((p) => p.x > 0), points().par.every((p) => p.x === 1), points().par.count((p) => p.x === 1)]);
+show("maybe map", () => maybe().par.map((x) => String(x)));
+show("maybe forEach", () => {
+  const m = marks(4);
+  maybe().par.forEach((x, i) => {
+    m[i] = 1;
+  });
+  return m;
+});
+show("maybe filter", () => maybe().par.filter(() => true));
+show("maybe count", () => maybe().par.count((x) => x === undefined));
+show("maybe reduce", () => maybe().par.reduce((a, b) => String(a) + String(b), ""));
+show("any map", () => mixed().par.map((x) => typeof x));
+show("any filter count", () => [mixed().par.filter(() => true), mixed().par.count(() => true)]);
+show("holes only every some", () => [new Array<string>(3).par.every(() => false), new Array<string>(3).par.some(() => true)]);
+show("holes only map", () => new Array<string>(2).par.map((x) => x + "!"));
+
+// Arrays of several pieces: every third slot of 6000 is a hole.
+const N = 6000;
+function bigStrings(): string[] {
+  const a = new Array<string>(N);
+  for (let i = 0; i < N; i++) {
+    if (i % 3 !== 1) {
+      a[i] = String(i % 10);
+    }
+  }
+  return a;
+}
+function bigMaybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(N);
+  for (let i = 0; i < N; i++) {
+    if (i % 3 !== 1) {
+      a[i] = i % 7 === 0 ? undefined : String(i % 10);
+    }
+  }
+  return a;
+}
+function bigPoints(): P[] {
+  const a = new Array<P>(N);
+  for (let i = 0; i < N; i++) {
+    if (i % 3 !== 1) {
+      a[i] = new P(i);
+    }
+  }
+  return a;
+}
+function present(a: any): number {
+  return a.filter(() => true).length;
+}
+function summary(a: any): unknown[] {
+  return [a.length, present(a), a.slice(0, 4)];
+}
+function visited(f: (m: number[]) => void): number {
+  const m = marks(N);
+  f(m);
+  let s = 0;
+  for (let i = 0; i < N; i++) {
+    s += m[i];
+  }
+  return s;
+}
+show("big strings map", () => summary(bigStrings().par.map((x) => x + "!")));
+show("big strings forEach", () => visited((m) => bigStrings().par.forEach((x, i) => { m[i] = 1; })));
+show("big strings filter", () => summary(bigStrings().par.filter((x) => x !== "3")));
+show("big strings count sum", () => [bigStrings().par.count((x) => x === "0"), bigStrings().par.sum()]);
+show("big maybe map", () => summary(bigMaybe().par.map((x) => String(x))));
+show("big maybe filter count", () => [summary(bigMaybe().par.filter((x) => x !== "3")), bigMaybe().par.count((x) => x === undefined)]);
+show("big points filter count", () => [summary(bigPoints().par.filter((p) => p.x % 2 === 0)), bigPoints().par.count((p) => p.x >= 0)]);
+
+// expect:
+// strings map [ <1 empty item>, '2!', <1 empty item>, '5!' ]
+// strings forEach [ 0, 1, 0, 1 ]
+// strings filter [ '2', '5' ]
+// strings some every [ false, true ]
+// strings find 5
+// strings reduce 25
+// strings count 2
+// strings sum min max [ 7, 2, 5 ]
+// points map [ <1 empty item>, 'p1', <1 empty item> ]
+// points filter every count [ [ P { x: 1 } ], true, 1 ]
+// maybe map [ 'a', <1 empty item>, 'undefined', <1 empty item> ]
+// maybe forEach [ 1, 0, 1, 0 ]
+// maybe filter [ 'a', undefined ]
+// maybe count 1
+// maybe reduce aundefined
+// any map [ 'number', <1 empty item>, 'string' ]
+// any filter count [ [ 1, 'z' ], 2 ]
+// holes only every some [ true, false ]
+// holes only map [ <2 empty items> ]
+// big strings map [ 6000, 4000, [ '0!', <1 empty item>, '2!', '3!' ] ]
+// big strings forEach 4000
+// big strings filter [ 3600, 3600, [ '0', '2', '5', '6' ] ]
+// big strings count sum [ 400, 18000 ]
+// big maybe map [ 6000, 4000, [ 'undefined', <1 empty item>, '2', '3' ] ]
+// big maybe filter count [ [ 3657, 3657, [ undefined, '2', '5', '6' ] ], 572 ]
+// big points filter count [ [ 2000, 2000, [ [P], [P], [P], [P] ] ], 4000 ]

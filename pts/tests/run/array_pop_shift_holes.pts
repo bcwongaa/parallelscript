@@ -1,0 +1,49 @@
+// pop() and shift() remove a hole as they remove an element and give undefined for it, as
+// JS's do, where their value may be undefined: the plain calls on an array of strings,
+// objects or a union with undefined, a match array's group that took no part, and through
+// `any`. pts threw RangeError at the hole, as `pop()!` and `shift()!` do where an element
+// is required (D-085), which they still do (H06b's parent).
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function strings(): string[] {
+  const a = new Array<string>(3);
+  a[1] = "b";
+  return a;
+}
+function maybe(): (number | undefined)[] {
+  const a = new Array<number | undefined>(3);
+  a[1] = 2;
+  return a;
+}
+show("pop", () => {
+  const a = strings();
+  return [a.pop(), a.length, a];
+});
+show("shift", () => {
+  const a = strings();
+  return [a.shift(), a.length, a];
+});
+show("maybe pop shift", () => {
+  const a = maybe();
+  return [a.pop(), a.shift(), a];
+});
+show("match pop", () => {
+  const m = /(b)|(c)/.exec("b")!;
+  return [m.pop(), m.length];
+});
+show("via any", () => {
+  const a: any = strings();
+  return [a.pop(), a.shift(), a];
+});
+
+// expect:
+// pop [ undefined, 2, [ <1 empty item>, 'b' ] ]
+// shift [ undefined, 2, [ 'b', <1 empty item> ] ]
+// maybe pop shift [ undefined, undefined, [ 2 ] ]
+// match pop [ undefined, 2 ]
+// via any [ undefined, undefined, [ 'b' ] ]

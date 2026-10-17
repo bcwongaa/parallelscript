@@ -1,0 +1,89 @@
+// pts:parallel's methods named as Array's treat holes as Array's do (D-183), at every
+// thread count: map keeps them in its result, forEach, filter, some, every and reduce skip
+// them, and so does find, which gives what Array's find gives (undefined for a hole and
+// for none); count, sum, min and max skip them too. Before, each read a hole as a required element and threw
+// RangeError (H06b's audit of C74). The expect block is a sequential Node twin's output
+// (the parallel methods as Array's, count/sum/min/max as filter/reduce, AtomicInt a counter).
+import { range } from "pts:parallel";
+import { AtomicInt } from "pts:sync";
+class P {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function strings(n: number): string[] {
+  const a = new Array<string>(n);
+  for (let i = 0; i < n; i += 3) {
+    a[i] = "s" + i;
+  }
+  return a;
+}
+function points(n: number): P[] {
+  const a = new Array<P>(n);
+  for (let i = 1; i < n; i += 4) {
+    a[i] = new P(i);
+  }
+  return a;
+}
+function digits(n: number): string[] {
+  const a = new Array<string>(n);
+  for (let i = 0; i < n; i += 3) {
+    a[i] = String(i);
+  }
+  return a;
+}
+function maybe(n: number): (number | undefined)[] {
+  const a = new Array<number | undefined>(n);
+  for (let i = 0; i < n; i += 2) {
+    a[i] = i % 4 === 0 ? i : undefined;
+  }
+  return a;
+}
+for (const n of [5, 3000]) {
+  const s = strings(n), p = points(n), m = maybe(n), d = digits(n);
+  show(n + " map", () => s.par.map((x) => x + "!").filter(() => true).length);
+  show(n + " map keeps holes", () => { const r = s.par.map((x) => x + "!"); return [r.length, Object.keys(r).length]; });
+  show(n + " forEach", () => { const c = new AtomicInt(); p.par.forEach(() => { c.add(1); }); return c.load(); });
+  show(n + " filter", () => [s.par.filter(() => true).length, p.par.filter((q) => q.x > 0).length, m.par.filter(() => true).length]);
+  show(n + " some", () => [s.par.some((x) => x === undefined), p.par.some((q) => q === undefined), m.par.some((x) => x === undefined)]);
+  show(n + " every", () => [s.par.every((x) => typeof x === "string"), p.par.every((q) => q instanceof P)]);
+  show(n + " find", () => [m.par.find((x) => x === undefined), m.par.find((x) => x === 4)]);
+  show(n + " reduce", () => [p.par.reduce((a, b) => (a.x > b.x ? a : b), new P(-1)).x, s.par.reduce((a, b) => (a.length > b.length ? a : b), "").length]);
+  show(n + " count", () => [s.par.count(() => true), p.par.count(() => true), m.par.count(() => true)]);
+  show(n + " sum", () => [d.par.sum(), d.par.min(), d.par.max(), m.par.sum()]);
+}
+show("only holes reduce", () => new Array<string>(4).par.reduce((a, b) => a + b, "init"));
+show("numbers", () => [range(0, 4).par.map((i) => i * 2), range(0, 5).toArray().par.reduce((a, b) => a + b, 10)]);
+
+// threads: 1 2 4
+// expect:
+// 5 map 2
+// 5 map keeps holes [ 5, 2 ]
+// 5 forEach 1
+// 5 filter [ 2, 1, 3 ]
+// 5 some [ false, false, true ]
+// 5 every [ true, true ]
+// 5 find [ undefined, 4 ]
+// 5 reduce [ 1, 2 ]
+// 5 count [ 2, 1, 3 ]
+// 5 sum [ 3, 0, 3, NaN ]
+// 3000 map 1000
+// 3000 map keeps holes [ 3000, 1000 ]
+// 3000 forEach 750
+// 3000 filter [ 1000, 750, 1500 ]
+// 3000 some [ false, false, true ]
+// 3000 every [ true, true ]
+// 3000 find [ undefined, 4 ]
+// 3000 reduce [ 2997, 5 ]
+// 3000 count [ 1000, 750, 1500 ]
+// 3000 sum [ 1498500, 0, 2997, NaN ]
+// only holes reduce init
+// numbers [ [ 0, 2, 4, 6 ], 20 ]

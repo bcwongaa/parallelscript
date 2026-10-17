@@ -1,8 +1,8 @@
 // toReversed, toSpliced and with read holes as undefined, so their results have no holes,
-// for arrays of dynamic values (any union, any[]), typed and through `any`. pts kept the
-// holes on both paths (H06's audit; fixed with toSorted's copy, H06a). A copy of a
-// string[] or an array of one object type keeps them, since its type can't hold undefined
-// (D-182); those aren't here.
+// for arrays whose element type holds undefined (a union with it, any[]), typed and through
+// `any`. pts kept the holes on both paths (H06's audit; fixed with toSorted's copy, H06a). A
+// copy of a string[], an array of one object type or a (string | null)[] keeps them, since
+// its type can't hold undefined (D-182, D-183; nullable_copies_keep_holes.pts).
 // Each result is printed on its own: inside a wider array literal it would be converted
 // (D-094), which has its own hole gap (array_conversion_keeps_holes.pts).
 function show(label: string, f: () => unknown): void {
@@ -36,7 +36,6 @@ show("toSpliced", () => maybe().toSpliced(0, 1));
 show("toSpliced any[]", () => mixed().toSpliced(2, 1));
 show("with", () => maybe().with(0, 9));
 show("with any[]", () => mixed().with(1, "w"));
-show("toReversed nullable", () => nullable().toReversed());
 show("with nullable", () => nullable().with(0, "w"));
 const viaAny: any = maybe();
 show("via any toReversed", () => viaAny.toReversed());
@@ -51,7 +50,6 @@ show("source", () => maybe());
 // toSpliced any[] [ undefined, 'b' ]
 // with [ 9, undefined, undefined, 3 ]
 // with any[] [ undefined, 'w', undefined ]
-// toReversed nullable [ 'c', null, undefined ]
 // with nullable [ 'w', null, 'c' ]
 // via any toReversed [ 3, undefined, undefined, 1 ]
 // via any toSpliced [ undefined, undefined, 3 ]

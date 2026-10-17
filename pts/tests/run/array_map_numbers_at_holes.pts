@@ -1,0 +1,45 @@
+// no-diff: D-085: arrays of numbers and booleans have no holes, so map's result keeps a hole as 0 or false where Node prints `<1 empty item>`
+// map skips an array's holes (the callback isn't called for them) and keeps them in its
+// result; a number[] or boolean[] result has no hole to keep, so its slot is 0 or false,
+// as `new Array<number>(n)`'s are (D-085, the first line). Through `any` the result is an
+// any[], which keeps the hole as Node does. pts threw RangeError at the first hole (C74).
+// This expected output follows D-085, not Node (H06b's reproducer); the `points map` line of
+// array_callbacks_skip_holes.pts maps to strings, which keep the holes as Node does.
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function strings(): string[] {
+  const a = new Array<string>(4);
+  a[1] = "b";
+  a[2] = "cc";
+  return a;
+}
+function points(): P[] {
+  const a = new Array<P>(3);
+  a[1] = new P(1);
+  return a;
+}
+show("new arrays", () => [new Array<number>(2), new Array<boolean>(2)]);
+show("lengths", () => {
+  let calls = 0;
+  const lengths = strings().map((x) => (calls++, x.length));
+  return [lengths, calls];
+});
+show("tests", () => strings().map((x) => x === "b"));
+show("points", () => points().map((p) => p.x));
+const viaAny: any = strings();
+show("via any", () => viaAny.map((x: any) => x.length));
+
+// expect:
+// new arrays [ [ 0, 0 ], [ false, false ] ]
+// lengths [ [ 0, 1, 2, 0 ], 2 ]
+// tests [ false, true, false, false ]
+// points [ 0, 1, 0 ]
+// via any [ <1 empty item>, 1, 2, <1 empty item> ]

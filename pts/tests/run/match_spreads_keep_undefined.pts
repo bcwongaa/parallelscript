@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C78): spreads, concat and unshift of a match array turn its undefined groups into holes, and filter through `any` drops them
 // A match's group that took no part is undefined (D-133). Spreading a match array or a
 // match copy (`m.slice()`) into another array, concat, unshift, values() and, through
 // `any`, filter keep it as an undefined element, as JS does. pts turned it into a hole

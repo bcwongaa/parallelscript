@@ -24,7 +24,7 @@ attempt("add a property", () => {
   return user;
 });
 
-// Arrays have no holes: a missing element is undefined only where any value can go.
+// Reading past an array's end gives undefined only where any value can go.
 const scores = [10, 20, 30];
 console.log("printed", scores[5]);
 attempt("element past the end", () => {

@@ -1,0 +1,82 @@
+// Callbacks whose element parameter takes undefined (`(p: P | undefined) => …`, a type
+// guard `isDefined<T>(x: T | undefined): x is T`, `(x: unknown) => …`) work with every
+// callback method over arrays of objects, strings, unions and literal types, as in JS:
+// filter keeps the elements, find(…)! and findLast(…)! give the element, reduce and
+// reduceRight without an initial value start from one, and find and its kin give such a
+// callback a hole as undefined. H06b's first version read their elements widened and
+// couldn't convert them back (PTS1001 `converting P | undefined to P`; review round 1).
+class P {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+type Dir = "n" | "s";
+function isDefined<T>(x: T | undefined): x is T {
+  return x !== undefined;
+}
+function keep<T>(xs: T[], test: (x: T | undefined) => boolean): T[] {
+  return xs.filter(test);
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const ps: P[] = [new P(1), new P(2)];
+const words: string[] = ["a", "bb", "c"];
+const dirs: Dir[] = ["n", "s"];
+const sn: (string | number)[] = ["a", 1];
+const nul: (string | null)[] = ["a", null];
+function holeyPoints(): P[] {
+  const a = new Array<P>(3);
+  a[1] = new P(5);
+  return a;
+}
+show("objects filter", () => [ps.filter(isDefined).length, ps.filter((p: P | undefined) => p !== undefined && p.x > 1)]);
+show("objects find!", () => [ps.find((p: P | undefined) => (p?.x ?? 0) > 1)!.x, ps.findLast((p: P | undefined) => p !== undefined)!.x]);
+show("objects reduce", () => [
+  ps.reduce((acc: P, p: P | undefined) => (p !== undefined && p.x > acc.x ? p : acc)).x,
+  ps.reduceRight((acc: P, p: P | undefined) => (p !== undefined && p.x < acc.x ? p : acc)).x,
+  ps.reduce((acc: number, p: P | undefined) => acc + (p?.x ?? 0), 0),
+]);
+show("objects others", () => [
+  ps.flatMap((p: P | undefined) => (p ? [p.x] : [])),
+  ps.some((p: P | undefined) => p?.x === 2),
+  ps.every((p: P | undefined) => p !== undefined),
+  ps.map((p: P | undefined) => p?.x ?? -1),
+  ps.findLastIndex((p: P | undefined) => p !== undefined),
+]);
+show("strings", () => [
+  words.filter(isDefined),
+  words.find(isDefined)!.length,
+  words.findLast((w: string | undefined) => w !== undefined && w.length > 1)!,
+  words.reduce((acc: string, w: string | undefined) => acc + (w ?? "-")),
+  words.reduceRight((acc: string, w: string | undefined) => acc + (w ?? "-")),
+]);
+show("literals", () => [dirs.find((d: Dir | undefined) => d === "s")!, dirs.filter(isDefined)]);
+show("unions filter", () => [sn.filter((x: string | number | undefined) => x !== 1), sn.filter(isDefined), nul.filter(isDefined)]);
+show("unions find", () => nul.find((x: string | null | undefined) => x === null));
+show("unions find!", () => sn.find((x: string | number | undefined) => String(x) === "1")!);
+show("generic", () => keep(ps, (p) => p !== undefined).length);
+show("unknown", () => [ps.filter((p: unknown) => p instanceof P).length, words.find((w: unknown) => w === "c")!]);
+show("holes", () => {
+  const a = holeyPoints();
+  return [a.find((p: P | undefined) => p === undefined), a.findIndex((p: P | undefined) => p === undefined), a.filter(isDefined).length, a.findLast((p: P | undefined) => p !== undefined)!.x];
+});
+
+// expect:
+// objects filter [ 2, [ P { x: 2 } ] ]
+// objects find! [ 2, 2 ]
+// objects reduce [ 2, 1, 3 ]
+// objects others [ [ 1, 2 ], true, true, [ 1, 2 ], 1 ]
+// strings [ [ 'a', 'bb', 'c' ], 1, 'bb', 'abbc', 'cbba' ]
+// literals [ 's', [ 'n', 's' ] ]
+// unions filter [ [ 'a' ], [ 'a', 1 ], [ 'a', null ] ]
+// unions find null
+// unions find! 1
+// generic 2
+// unknown [ 2, 'c' ]
+// holes [ undefined, 0, 1, 5 ]

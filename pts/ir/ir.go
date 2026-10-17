@@ -338,6 +338,14 @@ func (u *Union) String() string {
 // Has reports whether t is one of u's members.
 func (u *Union) Has(t Type) bool { return slices.Contains(u.Members, t) }
 
+// HoldsUndefined reports whether undefined is a value of t: any (or unknown), undefined, or a union with it.
+func HoldsUndefined(t Type) bool {
+	if u, ok := t.(*Union); ok {
+		return u.Has(Undefined)
+	}
+	return t == Value || t == Undefined
+}
+
 // Rest is the type of a rest parameter in a parameter list (D-057): the array of the
 // arguments from its position on, which the caller makes. A pts_array * in C, like Array.
 // A function reads it as an array through RestArgs. The lowering makes one per array type.
@@ -840,36 +848,39 @@ type NewArray struct {
 type ArrayOp int
 
 const (
-	ArrayLength         ArrayOp = iota // a.length
-	ArraySetLength                     // a.length = n, for n at most the length; its value is n
-	ArrayElement                       // a[i] as a dynamic value: undefined for an index out of range (D-015)
-	ArrayElementChecked                // a[i], which throws RangeError for an index out of range
-	ArraySetElement                    // a[i] = v, for i at most the length (which appends); its value is v
-	ArrayPush                          // a.push(v, …), whose value is the new length
-	ArrayPushAll                       // a.push(...b): the elements of b, a new array of a's type, at the end of a
-	ArrayUnshiftAll                    // a.unshift(...b): the elements of b, a new array of a's type, at the start of a
-	ArrayUnshift                       // a.unshift(v, …), whose value is the new length
-	ArrayPop                           // a.pop() as a dynamic value: undefined if a is empty
-	ArrayPopChecked                    // a.pop()!, which throws RangeError if a is empty
-	ArrayShift                         // a.shift() as a dynamic value: undefined if a is empty
-	ArrayShiftChecked                  // a.shift()!, which throws RangeError if a is empty
-	ArraySlice                         // a.slice(start, end): a new array; a left-out start is 0, a left-out end Infinity
-	ArraySplice                        // a.splice(start, deleteCount, v…): the removed elements, as a new array
-	ArrayConcat                        // a.concat(x…): a new array; each x is an array of a's type, whose elements it takes, or an element
-	ArrayIndexOf                       // a.indexOf(v, from): the first index of an element === v, or -1
-	ArrayLastIndexOf                   // a.lastIndexOf(v, from): the last index of an element === v, or -1; a left-out from is Infinity
-	ArrayIncludes                      // a.includes(v, from): whether an element is v by SameValueZero
-	ArrayJoin                          // a.join(separator): the elements' strings, joined
-	ArrayReverse                       // a.reverse(): a, reversed in place
-	ArraySort                          // a.sort(): a, sorted in place by the elements' strings, stably
-	ArrayFlat                          // a.flat(depth): a new array of To's type, arrays and tuples in it flattened depth levels; depth is a number or a dynamic value (D-180)
-	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
-	ArraySortWith                      // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
-	ArrayAt                            // a.at(i) as a dynamic value: from the end for a negative i, undefined out of range (D-085)
-	ArrayCopy                          // a new array of a's elements as the copying methods read them: holes undefined where the elements may be (D-182)
-	ArrayWith                          // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
-	ArrayKeys                          // a.keys() as a number[] of a's indices
-	ArrayPushFlat                      // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)
+	ArrayLength             ArrayOp = iota // a.length
+	ArraySetLength                         // a.length = n, for n at most the length; its value is n
+	ArrayElement                           // a[i] as a dynamic value: undefined for an index out of range (D-015)
+	ArrayElementChecked                    // a[i], which throws RangeError for an index out of range
+	ArraySetElement                        // a[i] = v, for i at most the length (which appends); its value is v
+	ArrayPush                              // a.push(v, …), whose value is the new length
+	ArrayPushAll                           // a.push(...b): the elements of b, a new array of a's type, at the end of a
+	ArrayUnshiftAll                        // a.unshift(...b): the elements of b, a new array of a's type, at the start of a
+	ArrayUnshift                           // a.unshift(v, …), whose value is the new length
+	ArrayPop                               // a.pop() as a dynamic value: undefined if a is empty
+	ArrayPopChecked                        // a.pop()!, which throws RangeError if a is empty
+	ArrayShift                             // a.shift() as a dynamic value: undefined if a is empty
+	ArrayShiftChecked                      // a.shift()!, which throws RangeError if a is empty
+	ArraySlice                             // a.slice(start, end): a new array; a left-out start is 0, a left-out end Infinity
+	ArraySplice                            // a.splice(start, deleteCount, v…): the removed elements, as a new array
+	ArrayConcat                            // a.concat(x…): a new array; each x is an array of a's type, whose elements it takes, or an element
+	ArrayIndexOf                           // a.indexOf(v, from): the first index of an element === v, or -1
+	ArrayLastIndexOf                       // a.lastIndexOf(v, from): the last index of an element === v, or -1; a left-out from is Infinity
+	ArrayIncludes                          // a.includes(v, from): whether an element is v by SameValueZero
+	ArrayJoin                              // a.join(separator): the elements' strings, joined
+	ArrayReverse                           // a.reverse(): a, reversed in place
+	ArraySort                              // a.sort(): a, sorted in place by the elements' strings, stably
+	ArrayFlat                              // a.flat(depth): a new array of To's type, arrays and tuples in it flattened depth levels; depth is a number or a dynamic value (D-180)
+	ArrayFill                              // a.fill(v, start, end): a, with v in [start, end)
+	ArraySortWith                          // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
+	ArrayAt                                // a.at(i) as a dynamic value: from the end for a negative i, undefined out of range (D-085)
+	ArrayCopy                              // a new array of a's elements as the copying methods read them: holes undefined where the element type holds undefined (D-182, D-183)
+	ArrayWith                              // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
+	ArrayKeys                              // a.keys() as a number[] of a's indices
+	ArrayPushFlat                          // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)
+	ArrayElementOrUndefined                // a[i] for an a whose element type holds undefined, as JS reads it: undefined for a hole or an index out of range
+	ArrayHas                               // whether a has an element at i, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133)
+	ArraySpread                            // [...x, …]: a new array; each x is an array of a's type whose elements it takes as iterating reads them (holes undefined where the elements may be), or an element
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
@@ -877,7 +888,7 @@ var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength"
 	ArrayShift: "shift", ArrayShiftChecked: "shiftChecked", ArraySlice: "slice", ArraySplice: "splice", ArrayConcat: "concat",
 	ArrayIndexOf: "indexOf", ArrayLastIndexOf: "lastIndexOf", ArrayIncludes: "includes", ArrayJoin: "join", ArrayReverse: "reverse",
 	ArraySort: "sort", ArrayFlat: "flat", ArrayFill: "fill", ArraySortWith: "sortWith", ArrayAt: "at", ArrayCopy: "copy", ArrayWith: "with",
-	ArrayKeys: "keys", ArrayPushFlat: "pushFlat"}
+	ArrayKeys: "keys", ArrayPushFlat: "pushFlat", ArrayElementOrUndefined: "elementOrUndefined", ArrayHas: "has", ArraySpread: "spread"}
 
 func (op ArrayOp) String() string { return arrayOpText[op] }
 
@@ -887,6 +898,7 @@ type ArrayCall struct {
 	Op   ArrayOp
 	Args []Expr
 	To   *Array // the result of ArrayFlat
+	As   Type   // what ArrayElementOrUndefined reads an element of pointers as, if not the element type: a union with undefined, or a dynamic value
 }
 
 // MapOp is an operation on a map or set.
@@ -1543,16 +1555,20 @@ func (e *ArrayCall) Type() Type {
 		return Value
 	case ArrayKeys:
 		return NumberArray
-	case ArrayIncludes:
+	case ArrayIncludes, ArrayHas:
 		return Bool
 	case ArrayJoin:
 		return String
-	case ArraySlice, ArraySplice, ArrayConcat, ArrayReverse, ArraySort, ArrayFill, ArraySortWith, ArrayCopy, ArrayWith:
+	case ArraySlice, ArraySplice, ArrayConcat, ArraySpread, ArrayReverse, ArraySort, ArrayFill, ArraySortWith, ArrayCopy, ArrayWith:
 		return e.Args[0].Type()
 	case ArrayFlat:
 		return e.To
 	case ArrayPushFlat:
 		return Void
+	case ArrayElementOrUndefined:
+		if e.As != nil {
+			return e.As
+		}
 	}
 	return e.Args[0].Type().(*Array).Elem
 }

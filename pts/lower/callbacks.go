@@ -258,9 +258,15 @@ func (h *helperBuilder) body() []ir.Stmt {
 		if h.key.typed != nil {
 			return h.typedMap()
 		}
+		if h.key.method == "map from" {
+			return h.mapFrom()
+		}
+		// map's result has the array's length, holes (or zeros of a primitive element type,
+		// D-085) where the array has holes, which the callback isn't called for.
 		result := h.l.newLocal("result", h.fn.Result)
-		return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.fn.Result.(*ir.Array)})}, func(element, index ir.Expr) []ir.Stmt {
-			return []ir.Stmt{h.stmt(h.push(result, h.call(element, index)))}
+		made := &ir.NewArray{Array: h.fn.Result.(*ir.Array), Length: h.length()}
+		return h.loop(false, []ir.Stmt{h.declare(result, made)}, func(element, index ir.Expr) []ir.Stmt {
+			return []ir.Stmt{h.stmt(h.store(result, index, h.call(element, index)))}
 		}, h.ret(&ir.LocalRef{Local: result}))
 	case "flatMap":
 		return h.flatMap()
@@ -276,6 +282,9 @@ func (h *helperBuilder) body() []ir.Stmt {
 				kept = downcast(element, resultType.Elem.(*ir.Class)) // the guard held for it, unless it lies (checked)
 			} else if h.key.narrowed != nil {
 				kept = &ir.FromUnion{X: element, To: resultType.Elem} // the guard held for it
+			} else if h.widened() { // a string[]'s
+				keep := &ir.ArrayCall{Op: ir.ArrayPushFlat, Args: []ir.Expr{&ir.LocalRef{Local: result}, box(element)}} // a match's undefined group stays one (D-133)
+				return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(keep))}
 			}
 			return []ir.Stmt{h.when(h.truthy(h.call(element, index)), h.stmt(h.push(result, kept)))}
 		}, h.ret(&ir.LocalRef{Local: result}))
@@ -292,6 +301,15 @@ func (h *helperBuilder) body() []ir.Stmt {
 		return h.find(base)
 	}
 	return h.reduce(baseMethod(h.key.method) == "reduceRight")
+}
+
+// mapFrom builds Array.from's mapping: a new array of the mapper's results for every
+// index of the source, a hole read as undefined, as Array.from iterates it.
+func (h *helperBuilder) mapFrom() []ir.Stmt {
+	result := h.l.newLocal("result", h.fn.Result)
+	return h.loop(false, []ir.Stmt{h.declare(result, &ir.NewArray{Array: h.fn.Result.(*ir.Array)})}, func(element, index ir.Expr) []ir.Stmt {
+		return []ir.Stmt{h.stmt(h.push(result, h.call(element, index)))}
+	}, h.ret(&ir.LocalRef{Local: result}))
 }
 
 // typedMap builds a typed array's map: a new typed array of its kind, of the callback's
@@ -343,13 +361,16 @@ func (h *helperBuilder) find(base string) []ir.Stmt {
 			found = i
 		case !checked:
 			found = box(element)
+		case h.widened():
+			found = h.narrowedElement(element, h.fn.Result) // the element as its type, which a hole or an undefined group isn't
 		}
 		return []ir.Stmt{h.when(h.truthy(h.call(element, i)), h.ret(found))}
 	}, notFound)
 }
 
 // reduce builds reduce and reduceRight: the callback folds the elements into an
-// accumulator, which starts as the initial value or, without one, the first element.
+// accumulator, which starts as the initial value or, without one, the first element
+// there is (holes skipped).
 func (h *helperBuilder) reduce(right bool) []ir.Stmt {
 	accumulator := h.l.newLocal("accumulator", h.fn.Result)
 	var start []ir.Stmt
@@ -358,6 +379,8 @@ func (h *helperBuilder) reduce(right bool) []ir.Stmt {
 		initial := h.l.newLocal("initial", h.fn.Result)
 		h.fn.Params = append(h.fn.Params, initial)
 		start = []ir.Stmt{h.declare(accumulator, &ir.LocalRef{Local: initial})}
+	} else if h.hasHoles() {
+		start, from = h.firstElement(right, accumulator)
 	} else {
 		empty := &ir.Binary{Op: ir.Eq, X: h.length(), Y: &ir.NumberConst{Value: 0}}
 		first := ir.Expr(&ir.NumberConst{Value: 0})
@@ -367,8 +390,8 @@ func (h *helperBuilder) reduce(right bool) []ir.Stmt {
 			from = &ir.Binary{Op: ir.Sub, X: h.length(), Y: &ir.NumberConst{Value: 2}}
 		}
 		start = []ir.Stmt{
-			h.when(empty, h.stmt(&ir.CallBuiltin{Builtin: ir.ThrowError, Args: []ir.Expr{&ir.StringConst{Value: "TypeError"}, &ir.StringConst{Value: "Reduce of empty array with no initial value"}}})),
-			h.declare(accumulator, h.l.convert(h.element(first), h.fn.Result, h.node)),
+			h.when(empty, h.throwEmptyReduce()),
+			h.declare(accumulator, h.narrowedElement(h.element(first), h.fn.Result)),
 		}
 	}
 	return h.loopFrom(right, from, start, func(element, index ir.Expr) []ir.Stmt {
@@ -377,8 +400,36 @@ func (h *helperBuilder) reduce(right bool) []ir.Stmt {
 	}, h.ret(&ir.LocalRef{Local: accumulator}))
 }
 
+// firstElement starts reduce or reduceRight without an initial value over an array that
+// may have holes: the accumulator is the first (or last) element there is, or it throws
+// TypeError for none, and the fold goes on from the index after it, which it returns.
+func (h *helperBuilder) firstElement(right bool, accumulator *ir.Local) (start []ir.Stmt, from ir.Expr) {
+	l, at := h.l, h.fn.Pos
+	first := l.newLocal("first", ir.Number)
+	i := &ir.LocalRef{Local: first}
+	begin, step := ir.Expr(&ir.NumberConst{Value: 0}), ir.Add
+	inside := ir.Expr(&ir.Binary{Op: ir.Lt, X: i, Y: h.length()})
+	if right {
+		begin, step = &ir.Binary{Op: ir.Sub, X: h.length(), Y: &ir.NumberConst{Value: 1}}, ir.Sub
+		inside = &ir.Binary{Op: ir.Ge, X: i, Y: &ir.NumberConst{Value: 0}}
+	}
+	next := &ir.Binary{Op: step, X: i, Y: &ir.NumberConst{Value: 1}}
+	start = []ir.Stmt{
+		h.declare(first, begin),
+		&ir.Loop{At: at, Label: &ir.Label{}, Cond: &ir.Logical{Op: ir.And, X: inside, Y: &ir.Unary{Op: ir.Not, X: h.has(i)}}, Update: &ir.Assign{Local: first, Value: next}, Body: &ir.Block{At: at}},
+		h.when(&ir.Unary{Op: ir.Not, X: inside}, h.throwEmptyReduce()),
+		h.declare(accumulator, h.narrowedElement(h.element(i), h.fn.Result)),
+	}
+	return start, next
+}
+
+func (h *helperBuilder) throwEmptyReduce() ir.Stmt {
+	return h.stmt(&ir.CallBuiltin{Builtin: ir.ThrowError, Args: []ir.Expr{&ir.StringConst{Value: "TypeError"}, &ir.StringConst{Value: "Reduce of empty array with no initial value"}}})
+}
+
 // loop builds `start; length = array.length; for each index i below length (from the
-// end if backwards) that the array still has: each(array[i], i); end`.
+// end if backwards) that the array still has: each(array[i], i); end`. The methods that
+// skip holes visit only the elements there are (JS's HasProperty).
 func (h *helperBuilder) loop(backwards bool, start []ir.Stmt, each func(element, index ir.Expr) []ir.Stmt, end ir.Stmt) []ir.Stmt {
 	return h.loopFrom(backwards, nil, start, each, end)
 }
@@ -399,19 +450,27 @@ func (h *helperBuilder) loopFrom(backwards bool, from ir.Expr, start []ir.Stmt, 
 	if backwards {
 		step, cond = ir.Sub, &ir.Binary{Op: ir.Ge, X: i, Y: &ir.NumberConst{Value: 0}}
 	}
-	// JS visits only the indices the array still has: a callback may shorten it.
+	// JS visits only the indices the array still has: a callback may shorten it. find and
+	// its kin visit every index below the length they start with, reading what isn't
+	// there as undefined, where the element type holds undefined (D-183).
 	present := ir.Expr(&ir.Binary{Op: ir.Lt, X: i, Y: h.length()})
-	if elem := h.key.elem(); baseMethod(h.key.method) == "flatMap" && !ir.IsNumeric(elem) && elem != ir.Bool {
-		present = l.callExtern("pts_array_has", ir.Bool, &ir.LocalRef{Local: h.array}, i) // and skips its holes, which only arrays of pointers and dynamic values have (D-085)
+	switch {
+	case h.hasHoles():
+		present = h.has(i)
+	case h.readsEveryIndex():
+		present = nil
 	}
-	element := l.newLocal("element", h.key.elem())
+	element := l.newLocal("element", h.elementType())
 	body := append([]ir.Stmt{h.declare(element, h.element(i))}, each(&ir.LocalRef{Local: element}, i)...)
+	if present != nil {
+		body = []ir.Stmt{&ir.If{At: at, Cond: present, Then: &ir.Block{At: at, Stmts: body}}}
+	}
 	stmts = append(stmts, h.declare(index, from), &ir.Loop{
 		At:     at,
 		Label:  &ir.Label{},
 		Cond:   cond,
 		Update: &ir.Assign{Local: index, Value: &ir.Binary{Op: step, X: i, Y: &ir.NumberConst{Value: 1}}},
-		Body:   &ir.Block{At: at, Stmts: []ir.Stmt{&ir.If{At: at, Cond: present, Then: &ir.Block{At: at, Stmts: body}}}},
+		Body:   &ir.Block{At: at, Stmts: body},
 	})
 	if end != nil {
 		stmts = append(stmts, end)
@@ -562,21 +621,122 @@ func (h *helperBuilder) length() ir.Expr {
 	return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{&ir.LocalRef{Local: h.array}}}
 }
 
+// element reads the element at index: for the methods that read every index, a hole
+// (or for find, an index past the end) is undefined where the element type holds
+// undefined, as JS reads it, and elsewhere it throws RangeError (D-085).
 func (h *helperBuilder) element(index ir.Expr) ir.Expr {
 	if h.key.typed != nil {
 		return h.l.typedArrayRead(&ir.LocalRef{Local: h.array}, index)
 	}
-	return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}}
+	if h.widened() { // a slot of pointers holds its element as the wider type holds it (D-002)
+		return &ir.ArrayCall{Op: ir.ArrayElementOrUndefined, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}, As: h.elementParam()}
+	}
+	op := ir.ArrayElementChecked
+	if !h.skipsHoles() && ir.HoldsUndefined(h.key.array.Elem) {
+		op = ir.ArrayElementOrUndefined
+	}
+	return &ir.ArrayCall{Op: op, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}}
+}
+
+// skipsHoles reports whether the helper's method visits only the elements an array has,
+// as JS's callback methods do, but find and its kin, Array.from's mapping and entries,
+// which read every index.
+func (h *helperBuilder) skipsHoles() bool {
+	switch baseMethod(h.key.method) {
+	case "find", "findLast", "findIndex", "findLastIndex", "Array.entries":
+		return false
+	}
+	return h.key.method != "map from"
+}
+
+// readsEveryIndex reports whether the helper is find or one of its kin over an array whose
+// elements it reads as values that may be undefined, which reads every index below the
+// length it starts with.
+func (h *helperBuilder) readsEveryIndex() bool {
+	switch baseMethod(h.key.method) {
+	case "find", "findLast", "findIndex", "findLastIndex":
+		return h.key.typed == nil && (ir.HoldsUndefined(h.key.array.Elem) || h.widened())
+	}
+	return false
+}
+
+// elementType is the type the helper reads each element as: the array's element type,
+// or the callback's element parameter's where it takes undefined and the array's elements
+// can't be (widened).
+func (h *helperBuilder) elementType() ir.Type {
+	if h.widened() {
+		return h.elementParam()
+	}
+	return h.key.elem()
+}
+
+// widened reports whether the helper reads the elements as the callback's element
+// parameter takes them, where that reaches it as JS has it: a hole that find, its kin and
+// Array.from's mapping visit, in an array of strings or objects, or a match's group that
+// took no part (D-133), in a string[]. Only where the parameter holds an element as it is:
+// a dynamic value, or a union with undefined that has the element type among its members
+// (holdsAsItIs); others convert each element (review round 2: a tuple read as an array).
+func (h *helperBuilder) widened() bool {
+	if h.key.typed != nil || h.key.callback == nil || h.key.narrowed != nil {
+		return false
+	}
+	elem, param := h.key.array.Elem, h.elementParam()
+	if param == nil || ir.HoldsUndefined(elem) || ir.IsNumeric(elem) || elem == ir.Bool {
+		return false
+	}
+	if param != ir.Value && !(isUnion(param) && ir.HoldsUndefined(param) && holdsAsItIs(param, elem)) {
+		return false
+	}
+	return !h.skipsHoles() || elem == ir.String
+}
+
+// narrowedElement is x, an element as the helper reads it, converted to t: through a
+// dynamic value where it was widened and t can't be undefined, which a hole or a match's
+// undefined group then throws for.
+func (h *helperBuilder) narrowedElement(x ir.Expr, t ir.Type) ir.Expr {
+	if h.widened() && !ir.HoldsUndefined(t) {
+		x = box(x)
+	}
+	return h.l.convert(x, t, h.node)
+}
+
+// elementParam is the type of the callback's element parameter, nil if it has none.
+func (h *helperBuilder) elementParam() ir.Type {
+	if base := baseMethod(h.key.method); base == "reduce" || base == "reduceRight" {
+		return nthParam(h.key.callback, 1) // after the accumulator
+	}
+	return nthParam(h.key.callback, 0)
+}
+
+// hasHoles reports whether the helper skips the holes of its arrays, which only arrays of
+// pointers and dynamic values have (D-085).
+func (h *helperBuilder) hasHoles() bool {
+	elem := h.key.elem()
+	return h.skipsHoles() && h.key.typed == nil && !ir.IsNumeric(elem) && elem != ir.Bool
+}
+
+// has is whether the array has an element at index, not a hole (JS's HasProperty).
+func (h *helperBuilder) has(index ir.Expr) ir.Expr {
+	return &ir.ArrayCall{Op: ir.ArrayHas, Args: []ir.Expr{&ir.LocalRef{Local: h.array}, index}}
 }
 
 func (h *helperBuilder) push(result *ir.Local, value ir.Expr) ir.Expr {
-	elem := result.Type.(*ir.Array).Elem
-	if converted := h.l.convert(value, elem, h.node); converted != nil {
-		value = converted
-	} else {
+	return &ir.ArrayCall{Op: ir.ArrayPush, Args: []ir.Expr{&ir.LocalRef{Local: result}, h.convertedElement(result, value)}}
+}
+
+// store writes value to result[index], within its length.
+func (h *helperBuilder) store(result *ir.Local, index, value ir.Expr) ir.Expr {
+	return &ir.ArrayCall{Op: ir.ArraySetElement, Args: []ir.Expr{&ir.LocalRef{Local: result}, index, h.convertedElement(result, value)}}
+}
+
+// convertedElement is value converted to the element type of result, an array.
+func (h *helperBuilder) convertedElement(result *ir.Local, value ir.Expr) ir.Expr {
+	converted := h.l.convert(value, result.Type.(*ir.Array).Elem, h.node)
+	if converted == nil {
 		h.failed = true
+		return value
 	}
-	return &ir.ArrayCall{Op: ir.ArrayPush, Args: []ir.Expr{&ir.LocalRef{Local: result}, value}}
+	return converted
 }
 
 func (h *helperBuilder) declare(local *ir.Local, init ir.Expr) ir.Stmt {

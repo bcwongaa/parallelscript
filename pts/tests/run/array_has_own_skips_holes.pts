@@ -1,0 +1,54 @@
+// Object.hasOwn(a, i) is false for a hole, typed and through `any`. pts's own keys of an
+// array were every index below the length, so hasOwn was true for holes (H06b's
+// reproducer). The match lines that already behave are controls for the fix of C90: a
+// match's undefined group is a zero slot, like a hole, but it is there. (Object.values and
+// entries of a match copy are C105: match_copy_values_keep_undefined.pts.)
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes(): string[] {
+  const a = new Array<string>(4);
+  a[1] = "b";
+  a[3] = "d";
+  return a;
+}
+const m = /(a)|(b)/.exec("xb")!;
+const copy = m.slice();
+show("hasOwn", () => {
+  const a = holes();
+  return [Object.hasOwn(a, 0), Object.hasOwn(a, 1), Object.hasOwn(a, "2"), Object.hasOwn(a, 3)];
+});
+show("hasOwn via any", () => {
+  const a: any = holes();
+  return [Object.hasOwn(a, 0), Object.hasOwn(a, 1)];
+});
+show("match keys in hasOwn", () => [Object.keys(m), 1 in m, Object.hasOwn(m, 1)]);
+show("match copy keys in hasOwn", () => [Object.keys(copy), 1 in copy, Object.hasOwn(copy, 1)]);
+show("match for in", () => {
+  const keys: string[] = [];
+  for (const k in copy) {
+    keys.push(k);
+  }
+  return keys;
+});
+const viaAny: any = m;
+show("match via any", () => [Object.keys(viaAny), Object.values(copy as any), 1 in viaAny, Object.hasOwn(viaAny, 1)]);
+show("match indexOf via any", () => [viaAny.indexOf(undefined), viaAny.lastIndexOf(undefined), viaAny.includes(undefined)]);
+
+// expect:
+// hasOwn [ false, true, false, true ]
+// hasOwn via any [ false, true ]
+// match keys in hasOwn [ [ '0', '1', '2', 'index', 'input', 'groups' ], true, true ]
+// match copy keys in hasOwn [ [ '0', '1', '2' ], true, true ]
+// match for in [ '0', '1', '2' ]
+// match via any [
+//   [ '0', '1', '2', 'index', 'input', 'groups' ],
+//   [ 'b', undefined, 'b' ],
+//   true,
+//   true
+// ]
+// match indexOf via any [ 1, 1, true ]

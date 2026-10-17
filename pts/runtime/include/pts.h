@@ -1303,17 +1303,19 @@ double pts_array_set_length(pts_array *array, double length);
 pts_array *pts_array_slice(const pts_array *array, double start, double end);
 pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count);
 pts_array *pts_array_copy(const pts_array *array);
-/* A copy of array as toSorted, toReversed, toSpliced and with read it (D-085): each hole undefined where its element kind holds undefined (dynamic values); arrays of strings and objects keep their holes. */
+/* A copy of array as toSorted, toReversed, toSpliced and with read it (D-085): each hole undefined, for an array of dynamic values whose element type holds undefined (D-183); arrays of strings and objects keep their holes. */
 pts_array *pts_array_copy_as_read(const pts_array *array);
 /* a.at(index): the element at index (from the end if negative) as a dynamic value, or undefined. */
 pts_value pts_array_at(const pts_array *array, double index);
-/* a.with(index, value): a copy with the element at index (from the end if negative) replaced; RangeError out of range. */
-pts_array *pts_array_with(const pts_array *array, double index, const void *value);
+/* a.with(index, value): a copy with the element at index (from the end if negative) replaced, its holes undefined if undefined_holes (pts_array_copy_as_read); RangeError out of range. */
+pts_array *pts_array_with(const pts_array *array, double index, const void *value, bool undefined_holes);
 /* new Array(length): length holes (zeros of a primitive element kind); RangeError for an invalid length. */
 pts_array *pts_array_of_length(const pts_type *type, double length);
 /* a.keys() as a number array of the indices. */
 pts_array *pts_array_keys(const pts_array *array);
+/* Appends other's elements, an array of array's type: concat's step, holes kept (a match's undefined groups stay undefined, D-133); or a spread's, reading holes as undefined (an array of dynamic values whose element type holds undefined, D-183). */
 void pts_array_append(pts_array *array, const pts_array *other);
+void pts_array_append_as_read(pts_array *array, const pts_array *other);
 double pts_array_index_of(const pts_array *array, const void *value, double from);
 double pts_array_last_index_of(const pts_array *array, const void *value, double from);
 bool pts_array_includes(const pts_array *array, const void *value, double from);
@@ -1331,8 +1333,17 @@ pts_array *pts_array_flat_value(const pts_array *array, pts_value depth, const p
 /* flatMap's step for one callback result: an array's elements (holes skipped) or a tuple's
    pushed onto result, else value itself, each converted as pts_array_flat converts them. */
 void pts_array_push_flat(pts_array *result, pts_value value);
-/* Whether index is one of array's elements, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133). */
-bool pts_array_has(const pts_array *array, double index);
+/*
+ * Whether array has a zero slot below its length: a hole, or a match's undefined group
+ * (which pts_array_has tells apart). Only arrays of pointers and dynamic values have them
+ * (D-085). A write past the end throws (D-038), so an array gains holes only where a spread
+ * of another's goes into it (push(...a), unshift(...a)) or from racing pushes: the methods
+ * that visit every element look for them once (D-183), and an element a callback's spread
+ * makes a hole then reads as undefined through `any`.
+ */
+bool pts_array_has_holes(const pts_array *array);
+/* As pts_array_has_holes, over the slots from from to to (below the length): a piece of pts:parallel's. */
+bool pts_array_has_holes_in(const pts_array *array, double from, double to);
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
 /*
  * array.sort(compare): sorts array in place, stably, by the numbers compare returns for
@@ -1361,6 +1372,13 @@ static inline uint64_t pts_array_get_word(const pts_array *array, double index) 
     pts_array_index_error(array, index);
   }
   return element;
+}
+
+/* An element of an array whose element type holds undefined, as JS's Get reads it (D-183): undefined for a hole or an index out of range. */
+static inline pts_value pts_array_get_or_undefined(const pts_array *array, double index) {
+  const pts_value *slot = (const pts_value *)pts_array_slot_or_null(array, index, sizeof(pts_value));
+  pts_value element = slot == NULL ? 0 : __atomic_load_n(slot, __ATOMIC_RELAXED);
+  return element == 0 ? PTS_VALUE_UNDEFINED : element;
 }
 
 /* Typed access for generated code: T is the C type of the array's elements; PTS_ARRAY_GET_WORD for pointers and dynamic values. */
@@ -1440,8 +1458,8 @@ bool pts_value_is_map(pts_value value);
 bool pts_value_is_set(pts_value value);
 /* new Map(map), new Set(set): a copy, in the same order. */
 pts_map *pts_map_copy(const pts_type *type, const pts_map *source);
-/* new Set(array): the array's elements, each once, in order. */
-pts_map *pts_set_of_array(const pts_type *type, const pts_array *array);
+/* new Set(array): the array's elements, each once, in order; a hole is undefined if undefined_holes (the set's element type holds it, D-183), else left out (D-130). */
+pts_map *pts_set_of_array(const pts_type *type, const pts_array *array, bool undefined_holes);
 static inline double pts_map_size(const pts_map *map) {
   int64_t size = __atomic_load_n(&map->size, __ATOMIC_ACQUIRE);
   return size > 0 ? (double)size : 0;
@@ -1948,6 +1966,19 @@ static inline bool pts_is_match_array(const pts_object *object) { return pts_unf
 static inline bool pts_has_undefined_holes(const pts_array *array) {
   const pts_type *type = pts_unfrozen(array->type);
   return type == &pts_type_match_array || type == &pts_type_match_copy;
+}
+/* pts_array_has for an array of pointers or dynamic values, which the loops of the methods that skip holes test at each index. */
+static inline bool pts_array_has_word(const pts_array *array, double index) {
+  const uint64_t *slot = (const uint64_t *)pts_array_slot_or_null(array, index, sizeof(uint64_t));
+  return slot != NULL && (__atomic_load_n(slot, __ATOMIC_RELAXED) != 0 || pts_has_undefined_holes(array));
+}
+/* Whether index is one of array's elements, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133). Only arrays of pointers and dynamic values have holes (D-085). */
+static inline bool pts_array_has(const pts_array *array, double index) {
+  pts_field_kind kind = array->type->element;
+  if (kind == PTS_FIELD_STRING || kind == PTS_FIELD_VALUE || kind == PTS_FIELD_OBJECT) {
+    return pts_array_has_word(array, index);
+  }
+  return pts_array_slot_or_null(array, index, 1) != NULL; /* in range: the size only places the slot */
 }
 /* The descriptor of a copy of an array of descriptor type: a match array's copies are string arrays without its properties, and a frozen array's aren't frozen. */
 static inline const pts_type *pts_array_copy_type(const pts_type *type) {
@@ -2565,8 +2596,11 @@ pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *comb
 void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
 /* pts_pool_threads() as a number. */
 double pts_parallel_threads(void);
-/* pts_array_has and pts_array_push_flat for pts:parallel's flatMap, whose arrays it passes as dynamic values (D-180). */
-bool pts_parallel_has(pts_value array, double index);
+/* pts_array_has and pts_array_push_flat for pts:parallel's flatMap, whose arrays it passes as dynamic values (D-180), and pts_array_has_holes, for its methods that skip holes (D-183). */
+static inline bool pts_parallel_has(pts_value array, double index) { return pts_array_has((const pts_array *)pts_value_as_object(array), index); }
+bool pts_parallel_has_holes_in(pts_value array, double from, double to);
+/* Whether an array's elements are pointers or dynamic values, which may be holes (D-085), for its methods that test each index. */
+bool pts_parallel_holds_pointers(pts_value array);
 void pts_parallel_push_flat(pts_value result, pts_value value);
 /* pts_array_gather_sortable and pts_array_write_sorted for pts:parallel's sort. */
 double pts_parallel_gather_sortable(pts_value array);

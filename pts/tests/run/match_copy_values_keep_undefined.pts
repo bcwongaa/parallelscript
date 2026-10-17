@@ -1,0 +1,21 @@
+// skip: known issue (H22, C105): Object.values and Object.entries of a match copy throw TypeError in the checked copy into tsc's type
+// Object.values and Object.entries of a match copy give its group that took no part as
+// undefined (it is an element, D-133). pts gives an any[] whose undefined the checked copy
+// into tsc's string[] (or [string, string][]) rejects: `TypeError: Expected string[], got
+// Array` (H06b's reproducer). Exec's own array is D-086's case (its index, input and
+// groups are properties too), so it isn't here.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const copy = /(a)|(b)/.exec("xb")!.slice();
+show("match copy values entries", () => [Object.values(copy), Object.entries(copy)]);
+
+// expect:
+// match copy values entries [
+//   [ 'b', undefined, 'b' ],
+//   [ [ '0', 'b' ], [ '1', undefined ], [ '2', 'b' ] ]
+// ]

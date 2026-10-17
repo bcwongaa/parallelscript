@@ -127,7 +127,8 @@ func isSpreadElement(node *ast.Node) bool { return node.Kind == ast.KindSpreadEl
 
 // spreadArray lowers elements with spreads (`...x`, of an array literal or of push's
 // arguments) to a new array of type array (D-057): each element converted to the element
-// type, and in place of each spread, the elements of an array of that type, of a tuple
+// type, and in place of each spread, the items of an array of that type (holes undefined
+// where the element type holds undefined, as iterating reads them, D-183), of a tuple
 // (a literal, or a variable read once per element), of a string (its code points) or of
 // a map or set (its entries or elements). It reports what it can't lower and returns nil.
 func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
@@ -162,7 +163,7 @@ func (l *lowerer) spreadArray(elements []*ast.Node, array *ir.Array) ir.Expr {
 			parts = append(parts, converted)
 		}
 	}
-	return &ir.ArrayCall{Op: ir.ArrayConcat, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
+	return &ir.ArrayCall{Op: ir.ArraySpread, Args: append([]ir.Expr{&ir.NewArray{Array: array}}, parts...)}
 }
 
 // spreadPart is the array of type array whose elements a spread (s, at node) adds: an
@@ -1336,7 +1337,7 @@ func (l *lowerer) arrayFrom(call *ast.CallExpression) ir.Expr {
 	case len(args) == 2 && (isArray(x.Type()) || x.Type() == ir.String):
 		return l.arrayFromWithMapper(call, x)
 	case isArray(x.Type()):
-		return &ir.ArrayCall{Op: ir.ArraySlice, Args: []ir.Expr{x, fromStart, toEnd}}
+		return &ir.ArrayCall{Op: ir.ArrayCopy, Args: []ir.Expr{x}} // its iterator's items: holes undefined where they fit (D-183)
 	case x.Type() == ir.String:
 		return &ir.CallBuiltin{Builtin: ir.ArrayFromString, Args: []ir.Expr{x}}
 	}
@@ -1448,8 +1449,12 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 	case isArray(t):
 		elemType = t.(*ir.Array).Elem
 		length = func(source ir.Expr) ir.Expr { return &ir.ArrayCall{Op: ir.ArrayLength, Args: []ir.Expr{source}} }
+		read := ir.ArrayElementChecked // a hole throws RangeError where an element is required (D-085)
+		if ir.HoldsUndefined(elemType) {
+			read = ir.ArrayElementOrUndefined // and is undefined where one fits, as JS's iterator reads it
+		}
 		elementAt = func(source, index ir.Expr) ir.Expr {
-			return &ir.ArrayCall{Op: ir.ArrayElementChecked, Args: []ir.Expr{source, index}}
+			return &ir.ArrayCall{Op: read, Args: []ir.Expr{source, index}}
 		}
 	case l.isTypedArray(t):
 		elemType = ir.Number

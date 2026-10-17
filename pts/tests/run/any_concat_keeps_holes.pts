@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C92): concat through `any` turns holes into undefined, where JS keeps them
 // concat copies its receiver's and its array arguments' holes as holes (it only defines
 // the indices that are there). Typed concat did; through `any` pts turned holes into
 // undefined (H06's audit).

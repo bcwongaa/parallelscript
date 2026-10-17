@@ -62,7 +62,7 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("pts_array_slice(%s, %s, %s)", args[0], args[1], args[2])
 	case ir.ArraySplice:
 		c = fmt.Sprintf("pts_array_splice(%s, %s, %s, %s)", args[0], args[1], args[2], elements(elem, args[3:]))
-	case ir.ArrayConcat:
+	case ir.ArrayConcat, ir.ArraySpread:
 		c = e.concat(call, args)
 	case ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes:
 		c = fmt.Sprintf("pts_array_%s(%s, (%s[]){%s}, %s)", cIdentifierOf(call.Op), args[0], elem, args[1], args[2])
@@ -81,9 +81,20 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 	case ir.ArrayAt:
 		c = fmt.Sprintf("pts_array_at(%s, %s)", args[0], args[1])
 	case ir.ArrayCopy:
-		c = fmt.Sprintf("pts_array_copy_as_read(%s)", args[0]) // the copying methods read holes as undefined (D-085)
+		c = fmt.Sprintf("pts_array_copy(%s)", args[0])
+		if readsHoles(call.Args[0]) {
+			c = fmt.Sprintf("pts_array_copy_as_read(%s)", args[0]) // the copying methods read holes as undefined (D-182)
+		}
 	case ir.ArrayWith:
-		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s})", args[0], args[1], elem, args[2])
+		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s}, %t)", args[0], args[1], elem, args[2], readsHoles(call.Args[0]))
+	case ir.ArrayElementOrUndefined:
+		c = fmt.Sprintf("pts_array_get_or_undefined(%s, %s)", args[0], args[1])
+	case ir.ArrayHas:
+		has := "pts_array_has"
+		if holdsPointer(call.Args[0].Type().(*ir.Array).Elem) {
+			has = "pts_array_has_word"
+		}
+		c = fmt.Sprintf("%s(%s, %s)", has, args[0], args[1])
 	case ir.ArrayKeys:
 		c = fmt.Sprintf("pts_array_keys(%s)", args[0])
 	case ir.ArrayPushFlat:
@@ -117,15 +128,24 @@ func cIdentifierOf(op ir.ArrayOp) string {
 	return name.String()
 }
 
-// concat writes a.concat(x…), whose operands args are already evaluated: a copy of a,
-// then each x's elements if it is an array of a's type, or else x itself, appended.
+// readsHoles reports whether the holes of array, read as JS reads them, are undefined
+// values: whether its element type holds undefined (D-183). Others keep them (D-182).
+func readsHoles(array ir.Expr) bool { return ir.HoldsUndefined(array.Type().(*ir.Array).Elem) }
+
+// concat writes a.concat(x…) or a spread [...x, …], whose operands args are already
+// evaluated: a copy of a, then each x's elements if it is an array of a's type, or else x
+// itself, appended. A spread reads each x's holes as undefined where its elements may be.
 func (e *emitter) concat(call *ir.ArrayCall, args []string) string {
 	result := e.temporary()
+	appendArray := "pts_array_append"
+	if call.Op == ir.ArraySpread && readsHoles(call.Args[0]) {
+		appendArray = "pts_array_append_as_read"
+	}
 	var c strings.Builder
 	fmt.Fprintf(&c, "({ pts_array *%s = pts_array_copy(%s); ", result, args[0])
 	for i, x := range call.Args[1:] {
 		if x.Type() == call.Args[0].Type() {
-			fmt.Fprintf(&c, "pts_array_append(%s, %s); ", result, args[i+1])
+			fmt.Fprintf(&c, "%s(%s, %s); ", appendArray, result, args[i+1])
 		} else {
 			fmt.Fprintf(&c, "pts_array_push(%s, %s); ", result, elements(e.elementType(call.Args[0]), args[i+1:i+2]))
 		}
@@ -167,8 +187,8 @@ func (e *emitter) comparatorFunctions() {
 // arrayEffects are the effects of an array operation beyond its operands'.
 func arrayEffects(op ir.ArrayOp) effects {
 	switch op {
-	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes,
-		ir.ArrayAt, ir.ArrayCopy, ir.ArrayKeys:
+	case ir.ArrayLength, ir.ArrayElement, ir.ArraySlice, ir.ArrayConcat, ir.ArraySpread, ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes,
+		ir.ArrayAt, ir.ArrayCopy, ir.ArrayKeys, ir.ArrayHas, ir.ArrayElementOrUndefined:
 		return readsLocals
 	case ir.ArrayElementChecked, ir.ArrayWith, ir.ArrayFlat: // flat checks the leaves it converts (D-180)
 		return readsLocals | mayThrow

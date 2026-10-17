@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C89): typed includes(undefined) misses holes, and through `any` indexOf and lastIndexOf(undefined) find them
 // includes(undefined) finds a hole (SameValueZero over every index, holes read as
 // undefined); indexOf(undefined) and lastIndexOf(undefined) skip holes (they only look at
 // indices that are there). pts's typed includes missed holes, and through `any` indexOf

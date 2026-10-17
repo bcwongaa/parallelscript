@@ -1,0 +1,22 @@
+// A callback parameter that holds the elements only after a conversion (a function type
+// that takes them through an adapter) gets each element converted, as before H06b, with
+// find and its kin as with the other methods. H06b's second version read find's elements
+// as the parameter's type as they were, so a function was called without its adapter
+// (SIGSEGV, where the base printed `number 42`; review round 2, R2-1).
+const fs: ((x: number) => number)[] = [(x) => x * 2, (x) => x + 1];
+fs.find((f: ((x: number) => unknown) | undefined) => {
+  if (f !== undefined) {
+    const r = f(21);
+    console.log(typeof r, r);
+  }
+  return false;
+});
+console.log(fs.findIndex((f: ((x: number) => unknown) | undefined) => f !== undefined && f(1) === 2));
+const hs: ((x: string) => number)[] = [(s) => s.length];
+console.log(hs.findLastIndex((h: ((x: string) => unknown) | undefined) => h !== undefined && h("abc") === 3));
+
+// expect:
+// number 42
+// number 22
+// 0
+// 0

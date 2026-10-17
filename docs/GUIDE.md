@@ -241,7 +241,7 @@ At run time every value has a fixed type. Where TypeScript's types are only a pr
 
 - `any` is checked where it flows into a typed place: `const n: number = parsed.count` throws `TypeError` if `count` isn't a number.
 - Objects keep the properties their type gives them. You can't add or delete properties after construction. For keys that come and go, use a `Map` or a `Record<string, T>`, which is a hash map underneath.
-- Arrays have no holes. Reading past the end gives `undefined` where any value can go (printing, building a string, comparing with `undefined`), but throws `RangeError` where an element is required.
+- Writes make no holes in arrays: writing past the end throws `RangeError`. Reading past the end gives `undefined` where any value can go (printing, building a string, comparing with `undefined`), but throws `RangeError` where an element is required. `new Array(n)` leaves holes in arrays of strings and objects: the callback methods skip them as JS's do, copies keep them, and a typed read of one throws `RangeError` (an element type with `| undefined` reads it as undefined). Arrays of numbers get zeros.
 - `x!` throws on `null` and `undefined`, and `m.get(k)!` throws `RangeError` when the map has no entry for `k`. A downcast with `as` is checked, and so is a type guard (`x is Dog`) that is wrong about a value's class.
 - A value that tsc keeps narrowed across a call that changed it (a property, or a variable another function assigns) is checked where it is read as the narrowed type: if it now holds another member of its union, the read throws `TypeError`.
 - A method read as a value is bound to its object, so `const f = obj.method; f()` works.
@@ -274,7 +274,7 @@ attempt("add a property", () => {
   return user;
 });
 
-// Arrays have no holes: a missing element is undefined only where any value can go.
+// Reading past an array's end gives undefined only where any value can go.
 const scores = [10, 20, 30];
 console.log("printed", scores[5]);
 attempt("element past the end", () => {

@@ -257,13 +257,16 @@ pts_map *pts_map_copy(const pts_type *type, const pts_map *source) {
   return map;
 }
 
-pts_map *pts_set_of_array(const pts_type *type, const pts_array *array) {
+pts_map *pts_set_of_array(const pts_type *type, const pts_array *array, bool undefined_holes) {
   pts_map *set = pts_map_new(type);
   for (size_t i = 0; i < pts_array_length_of(array); i++) {
     uint64_t element = 0;
     if (pts_array_load(array, (double)i, &element)) {
       pts_map_set(set, &element, NULL);
-    }
+    } else if (undefined_holes) {
+      pts_value undefined = PTS_VALUE_UNDEFINED; /* the array's iterator reads a hole as undefined (D-183) */
+      pts_map_set(set, &undefined, NULL);
+    } /* a set of strings or objects can't hold the undefined JS adds: holes are left out (D-130) */
   }
   return set;
 }

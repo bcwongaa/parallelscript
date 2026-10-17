@@ -1,0 +1,35 @@
+// A freeze racing with a push of a match's elements, whose group that took no part makes
+// a plain string[] take match copies' descriptor (D-183), always leaves the array frozen:
+// the switch is a compare-and-swap from the plain descriptor, which a frozen twin isn't.
+// H06b's first version stored the descriptor after checking it, so a freeze between the
+// two was lost (thousands of unfrozen arrays in 300,000 rounds at 2 threads; review
+// round 1, R1-3). Whether the push or the freeze comes first may differ; only the
+// invariant is printed.
+// threads: 2 4
+import { join } from "pts:parallel";
+
+const ROUNDS = 50_000;
+const m = /(a)|(b)/.exec("xb")!;
+let unfrozen = 0;
+for (let round = 0; round < ROUNDS; round++) {
+  const a: string[] = ["q"];
+  join(
+    () => {
+      try {
+        a.push(...m);
+      } catch (e) {
+        // pushing after the freeze throws TypeError
+      }
+    },
+    () => {
+      Object.freeze(a);
+    },
+  );
+  if (!Object.isFrozen(a)) {
+    unfrozen++;
+  }
+}
+console.log("unfrozen after freeze:", unfrozen);
+
+// expect:
+// unfrozen after freeze: 0

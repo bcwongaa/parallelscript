@@ -1,0 +1,39 @@
+// A callback whose parameter takes undefined gets a match's group that took no part as
+// undefined, as D-133 gives it to a parameter that takes undefined: map, forEach, some,
+// every, filter, findIndex and reduce over exec's match array and over a match copy.
+// pts read the element as tsc's `string` before the call, so it threw D-133's TypeError
+// (`group 1 of the match took no part in it`), or RangeError for a copy (H06b's
+// reproducer). Through `any` it already behaved (controls). A callback that keeps tsc's
+// `string` parameter gets D-133's TypeError by design; it isn't here.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const m = /(a)|(b)/.exec("xb")!;
+const copy = m.slice();
+show("map", () => [m.map((x: string | undefined) => x ?? "u"), copy.map((x: string | undefined) => x ?? "u")]);
+show("forEach", () => {
+  const seen: string[] = [];
+  m.forEach((x: string | undefined, i) => {
+    seen.push(i + ":" + String(x));
+  });
+  return seen;
+});
+show("some every", () => [m.some((x: string | undefined) => x === undefined), copy.every((x: string | undefined) => x !== undefined)]);
+show("filter", () => m.filter((x: string | undefined) => x !== "b").length);
+show("findIndex", () => [m.findIndex((x: string | undefined) => x === undefined), copy.findLastIndex((x: string | undefined) => x === undefined)]);
+show("reduce", () => m.reduce((acc: string, x: string | undefined) => acc + String(x), ""));
+const viaAny: any = m;
+show("via any", () => [viaAny.map((x: any) => x ?? "u"), viaAny.some((x: any) => x === undefined), viaAny.findIndex((x: any) => x === undefined)]);
+
+// expect:
+// map [ [ 'b', 'u', 'b' ], [ 'b', 'u', 'b' ] ]
+// forEach [ '0:b', '1:undefined', '2:b' ]
+// some every [ true, false ]
+// filter 1
+// findIndex [ 1, 1 ]
+// reduce bundefinedb
+// via any [ [ 'b', 'u', 'b' ], true, 1 ]

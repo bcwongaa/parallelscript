@@ -1,10 +1,10 @@
-// skip: known issue (H06b, C74): typed map, forEach, filter, some, every, reduce and reduceRight throw RangeError at holes, where JS skips them
 // map, forEach, filter, some, every, reduce and reduceRight skip an array's holes (the
 // callback isn't called for them; map keeps them as holes in its result), as JS does,
 // for arrays of strings, class instances, unions with undefined and any; reduce with no
 // initial value starts at the first element that is there, and throws TypeError when
 // there is none. pts read each element as a required one and threw RangeError at the
-// first hole (C74, H06). Arrays of numbers and booleans have no holes (D-085).
+// first hole (C74, H06). Arrays of numbers and booleans have no holes (D-085): map's
+// result of one has zeros there (array_map_numbers_at_holes.pts).
 class P {
   constructor(public x: number) {}
 }
@@ -58,7 +58,7 @@ show("strings reduce", () => strings().reduce((acc, x, i) => acc + i + x, ""));
 show("strings reduce no initial", () => strings().reduce((acc, x) => acc + x));
 show("strings reduceRight", () => strings().reduceRight((acc, x, i) => acc + i + x, ""));
 show("strings reduceRight no initial", () => strings().reduceRight((acc, x) => acc + x));
-show("points map", () => points().map((p) => p.x));
+show("points map", () => points().map((p) => "x" + p.x));
 show("points filter", () => points().filter((p) => p.x > 0));
 show("points every", () => points().every((p) => p.x === 1));
 show("points reduce", () => points().reduce((acc, p) => acc + p.x, 0));
@@ -87,7 +87,7 @@ show("only holes reduce no initial", () => new Array<string>(2).reduce((acc, x) 
 // strings reduce no initial bd
 // strings reduceRight 3d1b
 // strings reduceRight no initial db
-// points map [ <1 empty item>, 1, <1 empty item> ]
+// points map [ <1 empty item>, 'x1', <1 empty item> ]
 // points filter [ P { x: 1 } ]
 // points every true
 // points reduce 1

@@ -1,0 +1,54 @@
+// A (string | null)[] can't hold undefined, so its copies keep holes where JS reads
+// undefined, as copies of a string[] do (D-182, D-183): toSorted, toReversed, toSpliced,
+// with, spreads and Array.from, typed and through `any`; a hole read where an element is
+// required throws RangeError. After H06a their holes became undefined, which a narrowed
+// read then took for a string: `x !== null ? x.length : …` crashed with SIGSEGV (C99).
+function nullable(): (string | null)[] {
+  const a = new Array<string | null>(4);
+  a[0] = "a";
+  a[2] = null;
+  a[3] = "dd";
+  return a;
+}
+function lengths(xs: (string | null)[]): string {
+  const out: string[] = [];
+  for (const x of xs) {
+    out.push(x !== null ? String(x.length) : "null");
+  }
+  return out.join(",");
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+show("toSorted", () => nullable().toSorted());
+show("toReversed", () => nullable().toReversed());
+show("toSpliced", () => nullable().toSpliced(0, 1));
+show("with", () => nullable().with(0, "z"));
+show("spread", () => [...nullable()]);
+show("from", () => Array.from(nullable()));
+show("read toSorted", () => lengths(nullable().toSorted()));
+show("read with", () => lengths(nullable().with(1, "b")));
+show("read spread", () => lengths([...nullable()]));
+const viaAny: any = nullable();
+show("any toSorted", () => viaAny.toSorted());
+show("any with", () => viaAny.with(0, "z"));
+show("any read", () => lengths(viaAny.toReversed()));
+
+// no-diff: JS reads the holes as undefined, which a (string | null)[] can't hold
+// expect:
+// toSorted [ 'a', 'dd', null, <1 empty item> ]
+// toReversed [ 'dd', null, <1 empty item>, 'a' ]
+// toSpliced [ <1 empty item>, null, 'dd' ]
+// with [ 'z', <1 empty item>, null, 'dd' ]
+// spread [ 'a', <1 empty item>, null, 'dd' ]
+// from [ 'a', <1 empty item>, null, 'dd' ]
+// read toSorted threw RangeError
+// read with 1,1,null,2
+// read spread threw RangeError
+// any toSorted [ 'a', 'dd', null, <1 empty item> ]
+// any with [ 'z', <1 empty item>, null, 'dd' ]
+// any read threw RangeError

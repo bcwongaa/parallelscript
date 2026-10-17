@@ -297,7 +297,22 @@ static void a_set_of_an_array_leaves_out_holes(void) {
       .size = sizeof(pts_map),
       .key = PTS_FIELD_STRING,
   };
-  CHECK(pts_map_size(pts_set_of_array(&string_set_type, strings_with_a_hole())) == 2);
+  CHECK(pts_map_size(pts_set_of_array(&string_set_type, strings_with_a_hole(), false)) == 2);
+}
+
+/* A set whose element type holds undefined gets it for a hole, as the array's iterator reads one (D-183). */
+static void a_set_that_holds_undefined_gets_it_for_a_hole(void) {
+  static const pts_type value_set_type = {
+      .kind = PTS_KIND_SET,
+      .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+      .name = "Set",
+      .size = sizeof(pts_map),
+      .key = PTS_FIELD_VALUE,
+  };
+  pts_value items[] = {HOLE, pts_value_from_number(1), HOLE};
+  pts_map *set = pts_set_of_array(&value_set_type, pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 3), true);
+  pts_value undefined = PTS_VALUE_UNDEFINED;
+  CHECK(pts_map_size(set) == 2 && pts_map_has(set, &undefined));
 }
 
 /* A splice racing the first push can publish an empty buffer under a length of 1 (D-130); shift then finds nothing to take. */
@@ -521,6 +536,113 @@ static void leaves_are_checked_against_the_results_element_type(void) {
   CHECK(pts_array_length_of(result) == 2);
 }
 
+/* Where the element type holds undefined, a read gives a hole or an index out of range as undefined (JS's Get); HasProperty is false for both (D-183). */
+static void reads_where_undefined_fits_give_holes_as_undefined(void) {
+  pts_value items[] = {pts_value_from_number(1), HOLE};
+  pts_array *array = values_of(items, 2);
+  CHECK(pts_array_get_or_undefined(array, 0) == items[0] && pts_array_get_or_undefined(array, 1) == PTS_VALUE_UNDEFINED);
+  CHECK(pts_array_get_or_undefined(array, 2) == PTS_VALUE_UNDEFINED && pts_array_get_or_undefined(array, -1) == PTS_VALUE_UNDEFINED);
+  CHECK(pts_array_has_word(array, 0) && !pts_array_has_word(array, 1) && !pts_array_has_word(array, 2) && !pts_array_has_word(array, -1));
+  CHECK(pts_array_has(array, 0) && !pts_array_has(array, 1) && pts_array_has(numbers(2), 1) && !pts_array_has(numbers(2), 2));
+  pts_string *groups[] = {pts_string_from_cstr("b"), NULL};
+  CHECK(pts_array_has_word(pts_array_of(&pts_type_match_copy, groups, 2), 1)); /* a match's undefined group is there (D-133) */
+}
+
+/* The methods that visit every element look for holes once (D-183): zero slots of arrays of pointers and dynamic values, over a range clamped to the length. */
+static void has_holes_finds_zero_slots(void) {
+  pts_value items[] = {pts_value_from_number(1), HOLE};
+  CHECK(pts_array_has_holes(values_of(items, 2)) && !pts_array_has_holes(values_of(items, 1)));
+  CHECK(!pts_array_has_holes(numbers(3)) && pts_array_has_holes(strings_with_a_hole()));
+  pts_value nine[9];
+  for (size_t hole = 0; hole < 9; hole++) { /* each slot, in the four-slot steps and in the tail */
+    for (size_t i = 0; i < 9; i++) {
+      nine[i] = i == hole ? HOLE : pts_value_from_number((double)i);
+    }
+    pts_array *array = values_of(nine, 9);
+    CHECK(pts_array_has_holes(array));
+    CHECK(pts_array_has_holes_in(array, (double)hole, (double)hole + 1) && !pts_array_has_holes_in(array, (double)hole + 1, 9));
+    CHECK(!pts_array_has_holes_in(array, 0, (double)hole) && pts_array_has_holes_in(array, 0, 1e9));
+  }
+}
+
+/* includes reads each index, a hole as undefined (SameValueZero over Get); indexOf and lastIndexOf skip holes (HasProperty). */
+static void includes_finds_undefined_at_a_hole(void) {
+  pts_value items[] = {pts_value_from_number(1), HOLE};
+  pts_array *array = values_of(items, 2);
+  pts_value undefined = PTS_VALUE_UNDEFINED;
+  CHECK(pts_array_includes(array, &undefined, 0) && !pts_array_includes(array, &undefined, 2));
+  CHECK(pts_array_index_of(array, &undefined, 0) == -1 && pts_array_last_index_of(array, &undefined, 1) == -1);
+}
+
+/* with's copy reads holes as undefined only where the element type holds undefined (D-183); a (string | null)[] keeps them. */
+static void with_reads_holes_only_where_undefined_fits(void) {
+  pts_value items[] = {HOLE, pts_value_from_number(1), HOLE};
+  pts_array *array = values_of(items, 3);
+  pts_value two = pts_value_from_number(2);
+  pts_value read[] = {PTS_VALUE_UNDEFINED, two, PTS_VALUE_UNDEFINED};
+  CHECK(holds_slots(pts_array_with(array, 1, &two, true), read, 3));
+  pts_value kept[] = {HOLE, two, HOLE};
+  CHECK(holds_slots(pts_array_with(array, 1, &two, false), kept, 3));
+}
+
+/* A spread reads each index (D-183): a hole is undefined in an array of dynamic values; concat's append keeps holes. */
+static void a_spread_reads_holes_as_undefined(void) {
+  pts_value items[] = {HOLE, pts_value_from_number(1), HOLE};
+  pts_array *source = values_of(items, 3);
+  pts_array *spread = values_of(NULL, 0);
+  pts_array_append_as_read(spread, source);
+  pts_value read[] = {PTS_VALUE_UNDEFINED, pts_value_from_number(1), PTS_VALUE_UNDEFINED};
+  CHECK(holds_slots(spread, read, 3));
+  pts_array *concatenated = values_of(NULL, 0);
+  pts_array_append(concatenated, source);
+  CHECK(holds_slots(concatenated, items, 3));
+}
+
+/* pop and shift as values remove a hole and give undefined for it, as JS's do (D-183); pop()! and shift()! still throw there. */
+static void pop_and_shift_values_give_undefined_for_a_hole(void) {
+  pts_array *array = strings_with_a_hole(); /* "a", hole, "c" */
+  CHECK(pts_string_equals(pts_value_as_string(pts_array_pop_value(array)), pts_string_from_cstr("c")));
+  CHECK(pts_array_pop_value(array) == PTS_VALUE_UNDEFINED && pts_array_length_of(array) == 1);
+  pts_value items[] = {HOLE, pts_value_from_number(1)};
+  pts_array *values = values_of(items, 2);
+  CHECK(pts_array_shift_value(values) == PTS_VALUE_UNDEFINED && pts_array_length_of(values) == 1);
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_string *popped = NULL;
+    pts_array *checked = strings_with_a_hole();
+    pts_array_pop(checked, &popped); /* "c" */
+    pts_array_pop(checked, &popped); /* the hole */
+    pts_try_leave(&handler);
+    CHECK(false);
+  } else {
+    CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_RangeError));
+  }
+}
+
+/* A match's undefined groups added to a string[] stay undefined (D-133, D-183): it becomes one whose holes are undefined, as flat's result does. */
+static void adding_a_match_keeps_its_undefined_groups(void) {
+  pts_string *items[] = {pts_string_from_cstr("b"), NULL, pts_string_from_cstr("b")};
+  pts_array *groups = pts_array_of(&pts_type_match_copy, items, 3);
+  pts_string *x = pts_string_from_cstr("x");
+  pts_array *appended = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &x, 1);
+  pts_array_append(appended, groups);
+  CHECK(pts_array_length_of(appended) == 4 && pts_has_undefined_holes(appended) && pts_array_has(appended, 2));
+  pts_array *pushed = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &x, 1);
+  pts_array_push_all(pushed, groups);
+  CHECK(pts_array_length_of(pushed) == 4 && pts_has_undefined_holes(pushed) && pts_array_has(pushed, 2));
+  pts_array *unshifted = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &x, 1);
+  pts_array_unshift_all(unshifted, groups);
+  CHECK(pts_array_length_of(unshifted) == 4 && pts_has_undefined_holes(unshifted) && pts_array_has(unshifted, 1));
+  pts_array *plain = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &x, 1);
+  pts_array_append(plain, strings_with_a_hole()); /* a hole of another string[] stays a hole */
+  CHECK(!pts_has_undefined_holes(plain) && !pts_array_has(plain, 2));
+  pts_string *whole[] = {pts_string_from_cstr("b"), pts_string_from_cstr("b")};
+  pts_array *kept = pts_array_of(&pts_array_types[PTS_FIELD_STRING], &x, 1);
+  pts_array_append(kept, pts_array_of(&pts_type_match_copy, whole, 2)); /* every group took part */
+  CHECK(!pts_has_undefined_holes(kept));
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   pushing_grows_the_buffer_and_keeps_the_elements();
@@ -540,6 +662,7 @@ int main(int argc, char **argv) {
   racing_pushes_lose_elements_but_stay_in_bounds();
   loads_report_holes_and_missing_elements();
   a_set_of_an_array_leaves_out_holes();
+  a_set_that_holds_undefined_gets_it_for_a_hole();
   shift_of_a_length_its_buffer_lacks_throws();
   flat_spreads_arrays_and_tuples_and_skips_holes();
   flat_of_depth_zero_or_less_copies_without_holes();
@@ -551,5 +674,12 @@ int main(int argc, char **argv) {
   flat_keeps_the_undefined_groups_of_a_match();
   integer_leaves_convert_to_numbers();
   leaves_are_checked_against_the_results_element_type();
+  reads_where_undefined_fits_give_holes_as_undefined();
+  has_holes_finds_zero_slots();
+  includes_finds_undefined_at_a_hole();
+  with_reads_holes_only_where_undefined_fits();
+  a_spread_reads_holes_as_undefined();
+  adding_a_match_keeps_its_undefined_groups();
+  pop_and_shift_values_give_undefined_for_a_hole();
   return CHECK_DONE();
 }

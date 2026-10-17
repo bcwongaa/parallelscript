@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C74): through `any`, map, forEach, some, every, reduce and reduceRight call the callback for holes, where JS skips them
 // Through `any` (dynamic method dispatch), map, forEach, some, every, reduce and
 // reduceRight skip an array's holes, as JS does: the callback isn't called for them, map
 // keeps them as holes, and reduce with no initial value over only holes throws

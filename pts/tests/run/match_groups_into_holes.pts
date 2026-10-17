@@ -1,0 +1,33 @@
+// A string[] that has holes of its own keeps them as holes when a match's elements go into
+// it (push, concat, unshift, a spread): it can't also hold the match's group that took no
+// part as undefined, so that group becomes a hole there too, where JS has it undefined
+// (D-183). H06b's first version made the receiver a match copy, so its own holes read as
+// undefined: Object.keys listed them, `0 in a` was true, printing showed undefined
+// (review round 1, R1-2). A receiver without holes keeps the group undefined
+// (match_spreads_keep_undefined.pts).
+const m = "x".match(/(y)?x/)!;
+const a: string[] = new Array<string>(2);
+a.push(...m);
+console.log("push", Object.keys(a), 0 in a, a);
+const b: string[] = new Array<string>(1);
+const c = b.concat(m);
+console.log("concat", Object.keys(c), 0 in c, c);
+const d: string[] = new Array<string>(1);
+d.unshift(...m);
+console.log("unshift", Object.keys(d), d);
+const e: string[] = new Array<string>(1);
+e.push("q");
+console.log("spread", Object.keys([...e, ...m]));
+let visits = 0;
+c.forEach(() => {
+  visits++;
+});
+console.log("visits", visits);
+
+// no-diff: a string[] can't hold holes and undefined elements at once: the match's group becomes a hole, where Node prints undefined
+// expect:
+// push [ '2' ] false [ <2 empty items>, 'x', <1 empty item> ]
+// concat [ '1' ] false [ <1 empty item>, 'x', <1 empty item> ]
+// unshift [ '0' ] [ 'x', <2 empty items> ]
+// spread [ '1', '2' ]
+// visits 1

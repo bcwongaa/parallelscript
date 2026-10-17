@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C90): Object.keys, Object.values, Object.entries and for…in list holes
 // An array's own keys are the indices that hold an element: Object.keys, Object.values,
 // Object.entries and for…in skip holes, typed and through `any`. (The keys() iterator
 // is every index; it's a control here.) pts listed every index, and Object.values a hole

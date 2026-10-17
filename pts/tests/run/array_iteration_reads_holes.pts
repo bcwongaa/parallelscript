@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C91): typed spread, Array.from and values() keep holes, and typed entries() and for…of throw RangeError, where JS reads holes as undefined
 // Spread, Array.from, values() and entries() read holes as undefined, so their results
 // have no holes, and for…of gives undefined for each hole, for element types that can
 // hold undefined ((T | undefined)[], any[]), typed and through `any`. pts kept the holes

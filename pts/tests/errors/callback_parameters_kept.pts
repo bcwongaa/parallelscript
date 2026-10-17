@@ -1,0 +1,29 @@
+// A callback parameter of a wider array, tuple or Map type over an array of arrays, tuples
+// or Maps would let the callback store values the elements' type can't hold, so it is
+// PTS1001 (D-094), with find and its kin as with the other methods. H06b's second version
+// read such elements as the parameter's type as they were, for find's holes, which stored
+// a string pointer in a number[] and read a tuple as an array (SIGSEGV; review round 2,
+// R2-1); only a dynamic value or a union that holds the element type as it is takes them
+// so now (D-183).
+const xs: number[][] = [[1.5], [2.5]];
+xs.findIndex((a: (number | string)[] | undefined) => {
+  a?.push("str");
+  return false;
+});
+const ts: [number, string][] = [[1, "a"]];
+ts.find((t: (number | string)[] | undefined) => t !== undefined && t.length > 1);
+const ms: Map<string, number>[] = [new Map([["a", 1.5]])];
+ms.findIndex((m: Map<string, unknown> | undefined) => {
+  m?.set("b", "a string");
+  return false;
+});
+const nested: string[][] = [["a"]];
+nested.findLast((s: (string | undefined)[] | undefined) => {
+  s?.push(undefined);
+  return false;
+});
+
+// error: callback_parameters_kept.pts:9:1 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept
+// error: callback_parameters_kept.pts:14:1 - error PTS1001: using a [number, string] as a (number | string)[] where it may be changed or kept
+// error: callback_parameters_kept.pts:16:1 - error PTS1001: converting Map<string, number> to Map<string, value> | undefined is not supported yet
+// error: callback_parameters_kept.pts:21:1 - error PTS1001: using a string[] as a (string | undefined)[] where it may be changed or kept

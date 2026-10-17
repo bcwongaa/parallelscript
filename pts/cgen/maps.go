@@ -91,7 +91,7 @@ func (e *emitter) newMap(n *ir.NewMap) string {
 	case n.From == nil:
 		return "pts_map_new(" + descriptor + ")"
 	case isArrayType(n.From.Type()):
-		return "pts_set_of_array(" + descriptor + ", " + e.expr(n.From) + ")"
+		return fmt.Sprintf("pts_set_of_array(%s, %s, %t)", descriptor, e.expr(n.From), ir.HoldsUndefined(n.Map.Key)) // a hole is undefined where the set holds undefined (D-183)
 	}
 	return "pts_map_copy(" + descriptor + ", " + e.expr(n.From) + ")"
 }

@@ -1,0 +1,46 @@
+// Array.from(source, mapper) reads the source through its iterator, so the mapper is
+// called for every index, with undefined at a hole, and the result has no holes. pts read
+// each element as a required one and threw RangeError at the first hole, where the element
+// type holds undefined ((T | undefined)[], any[], unknown[]); a mapper that never reads its
+// element fails the same way (H06b's reproducer). Array.from shares map's helper in the
+// lowering, so it must not take over map's skipping of holes. Through `any` it already
+// behaved (a control). For an element type without undefined, a hole reaching the
+// mapper's parameter is D-085's RangeError where an element is required.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(4);
+  a[0] = "a";
+  a[2] = undefined;
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(3);
+  a[1] = 7;
+  return a;
+}
+function unknowns(): unknown[] {
+  const a = new Array<unknown>(2);
+  a[1] = "u";
+  return a;
+}
+show("maybe", () => Array.from(maybe(), (x, i) => `${i}:${x}`));
+show("maybe index only", () => Array.from(maybe(), (_x, i) => i * 10));
+show("any[]", () => Array.from(mixed(), (x) => (x === undefined ? "hole" : x)));
+show("unknown[]", () => Array.from(unknowns(), (x) => typeof x));
+const viaAny: any = maybe();
+show("via any", () => Array.from(viaAny, (x: any, i: number) => `${i}:${x}`));
+show("map keeps holes", () => maybe().map((x) => String(x)));
+
+// expect:
+// maybe [ '0:a', '1:undefined', '2:undefined', '3:undefined' ]
+// maybe index only [ 0, 10, 20, 30 ]
+// any[] [ 'hole', 7, 'hole' ]
+// unknown[] [ 'undefined', 'string' ]
+// via any [ '0:a', '1:undefined', '2:undefined', '3:undefined' ]
+// map keeps holes [ 'a', <1 empty item>, 'undefined', <1 empty item> ]

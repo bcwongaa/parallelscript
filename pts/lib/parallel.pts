@@ -9,6 +9,8 @@ declare function pts_parallel_reduce(leaf: (from: number, to: number) => any, co
 declare function pts_parallel_join(a: () => void, b: () => void): void;
 declare function pts_parallel_threads(): number;
 declare function pts_parallel_has(array: any, index: number): boolean;
+declare function pts_parallel_has_holes_in(array: any, from: number, to: number): boolean;
+declare function pts_parallel_holds_pointers(array: any): boolean;
 declare function pts_parallel_push_flat(result: any, value: any): void;
 declare function pts_parallel_gather_sortable(array: any): number;
 declare function pts_parallel_write_sorted(array: any, sorted: any): void;
@@ -26,15 +28,24 @@ interface Found<T> {
     value: T | undefined;
 }
 
+// The methods named as Array's treat holes as Array's do (D-183): they skip them, as holes
+// aren't elements, and so do count, sum, min and max; find too, which gives the value
+// Array's gives (undefined for a hole and for none). Each piece of the methods that visit
+// every element looks for holes in its own slots once (`holes`); some, every and find,
+// which may stop early, test each index.
 export class ParallelArray<T> {
     constructor(private readonly items: T[]) {}
 
-    // A new array of callback's value for each element, in order.
+    // A new array of callback's value for each element, in order; holes where the array has them.
     map<U>(callback: ParallelCallback<(value: T, index: number, array: T[]) => U>): U[] {
         const items = this.items;
         const results = new Array<U>(items.length);
         pts_parallel_for((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 results[i] = callback(items[i], i, items);
             }
         }, items.length);
@@ -44,7 +55,11 @@ export class ParallelArray<T> {
     forEach(callback: ParallelCallback<(value: T, index: number, array: T[]) => void>): void {
         const items = this.items;
         pts_parallel_for((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 callback(items[i], i, items);
             }
         }, items.length);
@@ -54,8 +69,12 @@ export class ParallelArray<T> {
     filter(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): T[] {
         const items = this.items;
         const kept = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             const piece: T[] = [];
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 if (predicate(items[i], i, items)) {
                     piece.push(items[i]);
                 }
@@ -76,6 +95,9 @@ export class ParallelArray<T> {
         const items = this.items;
         if (items.length === 0) {
             return initial;
+        }
+        if (pts_parallel_holds_pointers(items)) {
+            return this.reduceElements(callback, initial);
         }
         const total = pts_parallel_reduce((from, to) => {
             let accumulator = items[from];
@@ -106,8 +128,12 @@ export class ParallelArray<T> {
     count(predicate: ParallelCallback<(value: T, index: number, array: T[]) => unknown>): number {
         const items = this.items;
         const total = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             let n = 0;
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 if (predicate(items[i], i, items)) {
                     n++;
                 }
@@ -121,8 +147,12 @@ export class ParallelArray<T> {
     sum(): number {
         const items = this.items;
         const total = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             let sum = 0;
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 sum += Number(items[i]);
             }
             return sum;
@@ -134,8 +164,12 @@ export class ParallelArray<T> {
     min(): number {
         const items = this.items;
         const least = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             let min = Infinity;
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 min = Math.min(min, Number(items[i]));
             }
             return min;
@@ -147,8 +181,12 @@ export class ParallelArray<T> {
     max(): number {
         const items = this.items;
         const greatest = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
             let max = -Infinity;
             for (let i = from; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 max = Math.max(max, Number(items[i]));
             }
             return max;
@@ -214,12 +252,57 @@ export class ParallelArray<T> {
         return this.items.slice();
     }
 
+    // reduce over an array of pointers, which may have holes: each piece folds the elements
+    // it has, if any, from its first one.
+    private reduceElements(callback: (left: T, right: T) => T, initial: T): T {
+        const items = this.items;
+        const total = pts_parallel_reduce((from, to) => {
+            const holes = pts_parallel_has_holes_in(items, from, to);
+            const piece: Found<T> = { found: false, value: undefined };
+            let first = from;
+            while (holes && first < to && !pts_parallel_has(items, first)) {
+                first++;
+            }
+            if (first === to) {
+                return piece;
+            }
+            let accumulator = items[first];
+            for (let i = first + 1; i < to; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
+                accumulator = callback(accumulator, items[i]);
+            }
+            piece.found = true;
+            piece.value = accumulator;
+            return piece;
+        }, (left, right) => {
+            const folded = left as Found<T>;
+            const next = right as Found<T>;
+            if (!folded.found) {
+                return next;
+            }
+            if (next.found) {
+                folded.value = callback(folded.value as T, next.value as T); // the pieces' results are their own
+            }
+            return folded;
+        }, items.length);
+        const folded = total as Found<T>;
+        return folded.found ? callback(initial, folded.value as T) : initial;
+    }
+
+    // An element predicate holds for: some and every skip holes, and so does find, whose
+    // value they can't change (a hole and "none" are both undefined).
     private findFound(predicate: (value: T, index: number, array: T[]) => unknown): Found<T> {
         const items = this.items;
+        const holes = pts_parallel_holds_pointers(items);
         const done = { found: false };
         const result = pts_parallel_reduce((from, to) => {
             const piece: Found<T> = { found: false, value: undefined };
             for (let i = from; i < to && !done.found; i++) {
+                if (holes && !pts_parallel_has(items, i)) {
+                    continue;
+                }
                 if (predicate(items[i], i, items)) {
                     piece.found = true;
                     piece.value = items[i];

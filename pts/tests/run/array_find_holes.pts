@@ -1,4 +1,3 @@
-// skip: known issue (H06b, C88): typed find, findIndex, findLast and findLastIndex throw RangeError at holes where the element type holds undefined
 // find, findIndex, findLast and findLastIndex visit every index, holes too, which they
 // read as undefined; where the element type can hold undefined ((T | undefined)[], any[],
 // unknown[]) the callback gets undefined for each hole, as in JS. pts read each element
