@@ -1,0 +1,21 @@
+// skip: known issue (H06b, C92): concat through `any` turns holes into undefined, where JS keeps them
+// concat copies its receiver's and its array arguments' holes as holes (it only defines
+// the indices that are there). Typed concat did; through `any` pts turned holes into
+// undefined (H06's audit).
+function holes(): (number | undefined)[] {
+  const a = new Array<number | undefined>(3);
+  a[1] = 2;
+  return a;
+}
+const viaAny: any = holes();
+console.log(viaAny.concat([4]), viaAny.concat(holes()));
+const strings = new Array<string>(2);
+strings[0] = "a";
+const stringsViaAny: any = strings;
+console.log(stringsViaAny.concat(["b"]));
+console.log(holes().concat([4]));
+
+// expect:
+// [ <1 empty item>, 2, <1 empty item>, 4 ] [ <1 empty item>, 2, <2 empty items>, 2, <1 empty item> ]
+// [ 'a', <1 empty item>, 'b' ]
+// [ <1 empty item>, 2, <1 empty item>, 4 ]

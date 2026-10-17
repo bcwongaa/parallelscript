@@ -1,0 +1,34 @@
+// A typed array's sort(undefined), toSorted(undefined) and a comparator that may be
+// undefined sort in its own default order, numerically (-0 before 0, NaN last), as with
+// no argument. H06a's first version sorted them in Array's string order (review round 1,
+// F1); before it they were PTS1001.
+function sorted(values: Float64Array, compare?: (a: number, b: number) => number): Float64Array {
+    return values.slice().sort(compare);
+}
+function copied(values: Int32Array, compare?: (a: number, b: number) => number): Int32Array {
+    return values.toSorted(compare);
+}
+const doubles = new Float64Array([10, 9, NaN, 0, -0, 100, 1]);
+console.log(sorted(doubles), doubles);
+console.log(sorted(new Float64Array([10, 9, 100]), (a, b) => b - a));
+const ints = new Int32Array([100, 9, 10, 1]);
+console.log(copied(ints), copied(ints, (a, b) => b - a), ints);
+console.log(new Uint8Array([100, 9, 10, 1]).sort(undefined), new Uint8Array([100, 9, 10, 1]).toSorted(undefined));
+let descending: ((a: number, b: number) => number) | undefined;
+console.log(new Float64Array([10, 9, 100]).sort(descending));
+descending = (a, b) => b - a;
+console.log(new Float64Array([10, 9, 100]).sort(descending));
+
+// expect:
+// Float64Array(7) [
+//   -0,   0,   1, 9,
+//   10, 100, NaN
+// ] Float64Array(7) [
+//   10,   9, NaN, 0,
+//   -0, 100,   1
+// ]
+// Float64Array(3) [ 100, 10, 9 ]
+// Int32Array(4) [ 1, 9, 10, 100 ] Int32Array(4) [ 100, 10, 9, 1 ] Int32Array(4) [ 100, 9, 10, 1 ]
+// Uint8Array(4) [ 1, 9, 10, 100 ] Uint8Array(4) [ 1, 9, 10, 100 ]
+// Float64Array(3) [ 9, 10, 100 ]
+// Float64Array(3) [ 100, 10, 9 ]

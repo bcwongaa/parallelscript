@@ -1,0 +1,68 @@
+// sort(compare) and toSorted(compare) never call the comparator with undefined (or a
+// hole): SortCompare puts undefined after every defined element itself. The comparators
+// here would sort undefined first if they saw it. pts passed undefined to comparators
+// (C06, H06). The calls' order and number differ between sort algorithms, so only the
+// distinct arguments are printed.
+let calls: string[] = [];
+function distinct(): string {
+  const seen: string[] = [];
+  for (const c of calls) {
+    if (!seen.includes(c)) {
+      seen.push(c);
+    }
+  }
+  calls = [];
+  return "args=" + seen.sort().join(",");
+}
+function byNumber(a: number | undefined, b: number | undefined): number {
+  calls.push(String(a), String(b));
+  return (a ?? -1) - (b ?? -1);
+}
+function byString(a: string | undefined, b: string | undefined): number {
+  calls.push(String(a), String(b));
+  const p = a ?? "";
+  const q = b ?? "";
+  return p < q ? -1 : q < p ? 1 : 0;
+}
+class Item {
+  constructor(public key: number) {}
+}
+const numbers: (number | undefined)[] = [3, undefined, 1, undefined, 2];
+console.log(numbers.sort(byNumber), distinct());
+console.log([undefined, 5, undefined].toSorted(byNumber), distinct());
+const strings: (string | undefined)[] = ["b", undefined, "a"];
+console.log(strings.toSorted(byString), distinct());
+const items: (Item | undefined)[] = [new Item(2), undefined, new Item(1)];
+console.log(
+  items.sort((a, b) => {
+    calls.push(a === undefined ? "undefined" : "item", b === undefined ? "undefined" : "item");
+    return (a?.key ?? -1) - (b?.key ?? -1);
+  }),
+  distinct(),
+);
+const mixed: any[] = [2, undefined, null, 1];
+console.log(
+  mixed.sort((a: any, b: any) => {
+    calls.push(String(a), String(b));
+    return (a ?? -1) - (b ?? -1);
+  }),
+  distinct(),
+);
+const withHoles = new Array<number | undefined>(5);
+withHoles[0] = 4;
+withHoles[1] = undefined;
+withHoles[3] = 2;
+console.log(withHoles.sort(byNumber), distinct());
+const viaAny: any = [3, undefined, 1];
+console.log(viaAny.sort((a: any, b: any) => byNumber(a, b)), distinct());
+console.log(viaAny.toSorted((a: any, b: any) => byNumber(b, a)), distinct());
+
+// expect:
+// [ 1, 2, 3, undefined, undefined ] args=1,2,3
+// [ 5, undefined, undefined ] args=
+// [ 'a', 'b', undefined ] args=a,b
+// [ Item { key: 1 }, Item { key: 2 }, undefined ] args=item
+// [ null, 1, 2, undefined ] args=1,2,null
+// [ 2, 4, undefined, <2 empty items> ] args=2,4
+// [ 1, 3, undefined ] args=1,3
+// [ 3, 1, undefined ] args=1,3

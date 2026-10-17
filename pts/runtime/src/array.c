@@ -539,6 +539,19 @@ pts_array *pts_array_slice(const pts_array *array, double start, double end) {
 
 pts_array *pts_array_copy(const pts_array *array) { return pts_array_slice(array, 0, (double)SIZE_MAX); }
 
+pts_array *pts_array_copy_as_read(const pts_array *array) {
+  pts_array *copy = pts_array_copy(array);
+  if (copy->type->element == PTS_FIELD_VALUE) {
+    pts_value *slots = (pts_value *)(void *)copy->buffer->elements; /* a new array only we see */
+    for (size_t i = 0; i < copy->length; i++) {
+      if (slots[i] == 0) {
+        slots[i] = PTS_VALUE_UNDEFINED;
+      }
+    }
+  }
+  return copy;
+}
+
 pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count) {
   pts_field_kind kind = array->type->element;
   size_t size = pts_field_kind_size(kind);
@@ -684,7 +697,7 @@ pts_string *pts_object_to_string(const pts_object *object) {
   return pts_string_from_cstr("[object Object]");
 }
 
-/* element_string is the string join and sort use for the element at slot: "" for undefined, null and holes. */
+/* element_string is the string join uses for the element at slot, "" for undefined, null and holes; sort's (sort_string) for the others. */
 static pts_string *element_string(pts_field_kind kind, const void *slot) {
   uint64_t element = 0;
   element_load(&element, slot, pts_field_kind_size(kind));
@@ -762,11 +775,36 @@ pts_array *pts_array_reverse(pts_array *array) {
   return array;
 }
 
+/*
+ * Where sort puts an element (SortCompare, SortIndexedProperties): among those it compares,
+ * or after them, undefined first and holes last. A match's group that took no part is a
+ * zero string slot, undefined to JS (D-133), so it goes last as a hole does and stays one.
+ */
+typedef enum sort_place { SORT_COMPARED, SORT_UNDEFINED, SORT_HOLE } sort_place;
+
+static sort_place sort_place_of(pts_field_kind kind, const uint64_t *element) {
+  if (is_hole(kind, element)) {
+    return SORT_HOLE;
+  }
+  return kind == PTS_FIELD_VALUE && *(const pts_value *)element == PTS_VALUE_UNDEFINED ? SORT_UNDEFINED : SORT_COMPARED;
+}
+
+/* The slot sort leaves n places after the elements it compared: undefined while there are undefineds, then a hole. */
+static uint64_t sorted_tail(size_t n, size_t undefineds) { return n < undefineds ? (uint64_t)PTS_VALUE_UNDEFINED : 0; }
+
 /* A sort entry: an element and the string it sorts by. */
 typedef struct sort_entry {
   pts_string *key;
   uint64_t element;
 } sort_entry;
+
+/* sort_string is ToString of an element sort compares, which is never undefined or a hole: null is "null". */
+static pts_string *sort_string(pts_field_kind kind, const uint64_t *element) {
+  if (kind == PTS_FIELD_VALUE && *(const pts_value *)element == PTS_VALUE_NULL) {
+    return pts_string_from_cstr("null");
+  }
+  return element_string(kind, element);
+}
 
 /* merge_sort sorts entries[0, count) stably by key in UTF-16 order, using scratch. */
 static void merge_sort(sort_entry *entries, sort_entry *scratch, size_t count) {
@@ -799,16 +837,28 @@ pts_array *pts_array_sort(pts_array *array) {
   if (entries == NULL) {
     pts_panic("RangeError", "Out of memory sorting an array of %zu elements", length);
   }
+  size_t count = 0, undefineds = 0;
   for (size_t i = 0; i < length; i++) {
-    element_load(&entries[i].element, buffer->elements + i * size, size);
-    entries[i].key = element_string(kind, buffer->elements + i * size);
+    uint64_t element = 0;
+    element_load(&element, buffer->elements + i * size, size);
+    sort_place place = sort_place_of(kind, &element);
+    if (place == SORT_COMPARED) {
+      entries[count].element = element;
+      entries[count++].key = sort_string(kind, &element);
+    } else if (place == SORT_UNDEFINED) {
+      undefineds++;
+    }
   }
-  merge_sort(entries, entries + length, length);
-  if (is_frozen(array) && length >= 2) {
-    pts_throw_frozen_element(array, 0); /* after the elements' strings, as JS writes them back */
+  merge_sort(entries, entries + length, count);
+  if (is_frozen(array) && length >= 2 && count + undefineds > 0) {
+    pts_throw_frozen_element(array, 0); /* after the elements' strings, as JS writes them back; holes alone it only deletes */
   }
-  for (size_t i = 0; i < length; i++) {
-    element_store(buffer->elements + i * size, &entries[i].element, size);
+  /* The elements' toString methods may have changed the array: write to its current buffer, as far as it reaches. */
+  buffer = load_buffer(array);
+  size_t now = readable_length(array, buffer);
+  for (size_t i = 0; i < length && i < now; i++) {
+    uint64_t element = i < count ? entries[i].element : sorted_tail(i - count, undefineds);
+    element_store(buffer->elements + i * size, &element, size);
   }
   return array;
 }
@@ -840,31 +890,88 @@ pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*
   size_t size = pts_field_kind_size(kind);
   pts_array_buffer *buffer = load_buffer(array);
   size_t length = readable_length(array, buffer);
-  /* Scanned memory: the elements may be pointers the collector must keep. Holes (D-038) go last, as JS sorts undefined. */
+  /* Scanned memory: the elements may be pointers the collector must keep. */
   uint64_t *elements = GC_MALLOC(2 * length * sizeof *elements + 1);
   if (elements == NULL) {
     pts_panic("RangeError", "Out of memory sorting an array of %zu elements", length);
   }
-  size_t count = 0;
+  size_t count = 0, undefineds = 0;
   for (size_t i = 0; i < length; i++) {
     uint64_t element = 0;
     element_load(&element, buffer->elements + i * size, size);
-    if (!is_hole(kind, &element)) {
-      elements[count++] = element;
+    sort_place place = sort_place_of(kind, &element);
+    if (place == SORT_COMPARED) {
+      elements[count++] = element; /* compare never sees undefined or a hole */
+    } else if (place == SORT_UNDEFINED) {
+      undefineds++;
     }
   }
   compare_sort(elements, elements + length, count, compare, call);
-  if (is_frozen(array) && length >= 2) {
-    pts_throw_frozen_element(array, 0); /* after the comparator's calls, as JS writes them back */
+  if (is_frozen(array) && length >= 2 && count + undefineds > 0) {
+    pts_throw_frozen_element(array, 0); /* after the comparator's calls, as JS writes them back; holes alone it only deletes */
   }
   /* The comparator may have changed the array: write to its current buffer, as far as it reaches. */
   buffer = load_buffer(array);
   size_t now = readable_length(array, buffer);
   for (size_t i = 0; i < length && i < now; i++) {
-    uint64_t hole = 0;
-    element_store(buffer->elements + i * size, i < count ? &elements[i] : &hole, size);
+    uint64_t element = i < count ? elements[i] : sorted_tail(i - count, undefineds);
+    element_store(buffer->elements + i * size, &element, size);
   }
   return array;
+}
+
+size_t pts_array_gather_sortable(pts_array *array) {
+  pts_field_kind kind = array->type->element;
+  size_t size = pts_field_kind_size(kind);
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t length = readable_length(array, buffer);
+  if (!holds_pointers(kind)) {
+    return length; /* numbers and booleans: neither holes nor undefined (D-085) */
+  }
+  size_t count = 0, undefineds = 0;
+  for (size_t i = 0; i < length; i++) {
+    uint64_t element = 0;
+    element_load(&element, buffer->elements + i * size, size);
+    sort_place place = sort_place_of(kind, &element);
+    if (place == SORT_COMPARED) {
+      element_store(buffer->elements + count++ * size, &element, size); /* to a slot read already */
+    } else if (place == SORT_UNDEFINED) {
+      undefineds++;
+    }
+  }
+  for (size_t i = count; i < length; i++) {
+    uint64_t element = sorted_tail(i - count, undefineds);
+    element_store(buffer->elements + i * size, &element, size);
+  }
+  return count;
+}
+
+void pts_array_write_sorted(pts_array *array, const pts_array *sorted) {
+  size_t size = pts_field_kind_size(array->type->element);
+  pts_array_buffer *from = load_buffer(sorted);
+  size_t length = readable_length(sorted, from);
+  if (is_frozen(array) && length >= 2) {
+    for (size_t i = 0; i < length; i++) {
+      uint64_t element = 0;
+      element_load(&element, from->elements + i * size, size);
+      if (!is_hole(array->type->element, &element)) {
+        pts_throw_frozen_element(array, 0); /* as sort's first write; holes alone it only deletes */
+      }
+    }
+  }
+  pts_array_buffer *buffer = load_buffer(array);
+  size_t now = readable_length(array, buffer);
+  for (size_t i = 0; i < length && i < now; i++) {
+    uint64_t element = 0;
+    element_load(&element, from->elements + i * size, size);
+    element_store(buffer->elements + i * size, &element, size);
+  }
+}
+
+double pts_parallel_gather_sortable(pts_value array) { return (double)pts_array_gather_sortable((pts_array *)pts_value_as_object(array)); }
+
+void pts_parallel_write_sorted(pts_value array, pts_value sorted) {
+  pts_array_write_sorted((pts_array *)pts_value_as_object(array), (const pts_array *)pts_value_as_object(sorted));
 }
 
 /*
@@ -1153,7 +1260,7 @@ pts_array *pts_array_with(const pts_array *array, double index, const void *valu
     pts_number_format(position + 0.0, buf);
     pts_throw_new(&pts_type_builtin_RangeError, "Invalid index : %s", buf);
   }
-  pts_array *copy = pts_array_copy(array);
+  pts_array *copy = pts_array_copy_as_read(array);
   if ((size_t)at >= copy->length) {
     pts_array_index_error(copy, at); /* another thread shrank the array since its length was read */
   }

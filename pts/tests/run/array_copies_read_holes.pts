@@ -1,0 +1,59 @@
+// toReversed, toSpliced and with read holes as undefined, so their results have no holes,
+// for arrays of dynamic values (any union, any[]), typed and through `any`. pts kept the
+// holes on both paths (H06's audit; fixed with toSorted's copy, H06a). A copy of a
+// string[] or an array of one object type keeps them, since its type can't hold undefined
+// (D-182); those aren't here.
+// Each result is printed on its own: inside a wider array literal it would be converted
+// (D-094), which has its own hole gap (array_conversion_keeps_holes.pts).
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (number | undefined)[] {
+  const a = new Array<number | undefined>(4);
+  a[0] = 1;
+  a[2] = undefined;
+  a[3] = 3;
+  return a;
+}
+function nullable(): (string | null)[] {
+  const a = new Array<string | null>(3);
+  a[1] = null;
+  a[2] = "c";
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(3);
+  a[1] = "b";
+  return a;
+}
+show("toReversed", () => maybe().toReversed());
+show("toReversed any[]", () => mixed().toReversed());
+show("toSpliced", () => maybe().toSpliced(0, 1));
+show("toSpliced any[]", () => mixed().toSpliced(2, 1));
+show("with", () => maybe().with(0, 9));
+show("with any[]", () => mixed().with(1, "w"));
+show("toReversed nullable", () => nullable().toReversed());
+show("with nullable", () => nullable().with(0, "w"));
+const viaAny: any = maybe();
+show("via any toReversed", () => viaAny.toReversed());
+show("via any toSpliced", () => viaAny.toSpliced(0, 1));
+show("via any with", () => viaAny.with(0, 9));
+show("source", () => maybe());
+
+// expect:
+// toReversed [ 3, undefined, undefined, 1 ]
+// toReversed any[] [ undefined, 'b', undefined ]
+// toSpliced [ undefined, undefined, 3 ]
+// toSpliced any[] [ undefined, 'b' ]
+// with [ 9, undefined, undefined, 3 ]
+// with any[] [ undefined, 'w', undefined ]
+// toReversed nullable [ 'c', null, undefined ]
+// with nullable [ 'w', null, 'c' ]
+// via any toReversed [ 3, undefined, undefined, 1 ]
+// via any toSpliced [ undefined, undefined, 3 ]
+// via any with [ 9, undefined, undefined, 3 ]
+// source [ 1, <1 empty item>, undefined, 3 ]

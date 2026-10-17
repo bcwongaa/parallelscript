@@ -1,0 +1,66 @@
+// skip: known issue (H06b, C90): Object.keys, Object.values, Object.entries and for…in list holes
+// An array's own keys are the indices that hold an element: Object.keys, Object.values,
+// Object.entries and for…in skip holes, typed and through `any`. (The keys() iterator
+// is every index; it's a control here.) pts listed every index, and Object.values a hole
+// as undefined, or, for an element type without undefined, threw TypeError (`Expected
+// P[], got Array`) (H06's audit).
+class P {
+  constructor(public x: number) {}
+}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function strings(): string[] {
+  const a = new Array<string>(4);
+  a[1] = "b";
+  a[3] = "d";
+  return a;
+}
+function points(): P[] {
+  const a = new Array<P>(2);
+  a[1] = new P(1);
+  return a;
+}
+function maybe(): (number | undefined)[] {
+  const a = new Array<number | undefined>(3);
+  a[0] = 1;
+  a[1] = undefined;
+  return a;
+}
+show("keys", () => [Object.keys(strings()), Object.keys(points()), Object.keys(maybe())]);
+show("values strings", () => Object.values(strings()));
+show("values points", () => Object.values(points()));
+show("values maybe", () => Object.values(maybe()));
+show("entries", () => Object.entries(maybe()));
+show("for in", () => {
+  const keys: string[] = [];
+  for (const k in strings()) {
+    keys.push(k);
+  }
+  return keys;
+});
+const viaAny: any = strings();
+show("via any", () => [Object.keys(viaAny), Object.values(viaAny)]);
+show("via any for in", () => {
+  const keys: string[] = [];
+  for (const k in viaAny) {
+    keys.push(k);
+  }
+  return keys;
+});
+show("keys iterator", () => [...strings().keys()]);
+
+// expect:
+// keys [ [ '1', '3' ], [ '1' ], [ '0', '1' ] ]
+// values strings [ 'b', 'd' ]
+// values points [ P { x: 1 } ]
+// values maybe [ 1, undefined ]
+// entries [ [ '0', 1 ], [ '1', undefined ] ]
+// for in [ '1', '3' ]
+// via any [ [ '1', '3' ], [ 'b', 'd' ] ]
+// via any for in [ '1', '3' ]
+// keys iterator [ 0, 1, 2, 3 ]

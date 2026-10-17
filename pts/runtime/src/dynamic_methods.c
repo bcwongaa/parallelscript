@@ -700,7 +700,7 @@ static pts_value array_reduce(pts_value self, uint32_t argc, const pts_value *ar
 static pts_value array_reduce_right(pts_value self, uint32_t argc, const pts_value *argv) { return reduce(self, argc, argv, true); }
 
 /* toSorted, toReversed, toSpliced and with (D-085): sort, reverse, splice and a write on a copy. */
-static pts_value copy_of(pts_value self) { return pts_value_from_object(pts_array_copy(array_of(self))); }
+static pts_value copy_of(pts_value self) { return pts_value_from_object(pts_array_copy_as_read(array_of(self))); }
 
 static pts_value array_to_sorted(pts_value self, uint32_t argc, const pts_value *argv) { return array_sort(copy_of(self), argc, argv); }
 

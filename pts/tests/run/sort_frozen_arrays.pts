@@ -1,0 +1,31 @@
+// sort and sort(compare) of a frozen array throw at index 0 after the comparisons, as JS
+// writes the result back, unless nothing would be written: an array of holes only, or of
+// one element (V8 returns at once). pts threw for arrays of holes only (review round 1, F3).
+function show(label: string, f: () => unknown): void {
+    try {
+        console.log(label, f());
+    } catch (e) {
+        console.log(label, "threw", (e as Error).name + ": " + (e as Error).message);
+    }
+}
+let calls = 0;
+const frozen = Object.freeze([1, undefined, 2]) as (number | undefined)[];
+show("sort", () => frozen.sort());
+show("compare", () => frozen.sort((a, b) => {
+    calls++;
+    return (a ?? 0) - (b ?? 0);
+}));
+console.log("comparator calls", calls, frozen);
+show("one", () => (Object.freeze([1]) as number[]).sort());
+show("holes only", () => (Object.freeze(new Array<string>(2)) as string[]).sort());
+show("holes only compare", () => (Object.freeze(new Array<string>(2)) as string[]).sort((a, b) => a.length - b.length));
+show("holes only toSorted", () => Object.freeze(new Array<string | undefined>(2)).toSorted()); // a copy: not frozen, holes read as undefined
+
+// expect:
+// sort threw TypeError: Cannot assign to read only property '0' of object '[object Array]'
+// compare threw TypeError: Cannot assign to read only property '0' of object '[object Array]'
+// comparator calls 1 [ 1, undefined, 2 ]
+// one [ 1 ]
+// holes only [ <2 empty items> ]
+// holes only compare [ <2 empty items> ]
+// holes only toSorted [ undefined, undefined ]

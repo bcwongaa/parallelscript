@@ -1,0 +1,40 @@
+// skip: known issue (H06b, C89): typed includes(undefined) misses holes, and through `any` indexOf and lastIndexOf(undefined) find them
+// includes(undefined) finds a hole (SameValueZero over every index, holes read as
+// undefined); indexOf(undefined) and lastIndexOf(undefined) skip holes (they only look at
+// indices that are there). pts's typed includes missed holes, and through `any` indexOf
+// and lastIndexOf matched them (H06's audit). Real undefined elements are found by all
+// three, typed and through `any`.
+function holes(): (string | undefined)[] {
+  const a = new Array<string | undefined>(4);
+  a[0] = "a";
+  a[2] = "c";
+  return a;
+}
+function withUndefined(): (string | undefined)[] {
+  const a = holes();
+  a[3] = undefined;
+  return a;
+}
+const typed = holes();
+console.log("typed", typed.includes(undefined), typed.indexOf(undefined), typed.lastIndexOf(undefined));
+const both = withUndefined();
+console.log("typed with undefined", both.includes(undefined), both.indexOf(undefined), both.lastIndexOf(undefined));
+const mixed: any[] = new Array(2);
+mixed[0] = 1;
+console.log("any[]", mixed.includes(undefined), mixed.indexOf(undefined), mixed.lastIndexOf(undefined));
+const viaAny: any = holes();
+console.log("via any", viaAny.includes(undefined), viaAny.indexOf(undefined), viaAny.lastIndexOf(undefined));
+const bothViaAny: any = withUndefined();
+console.log("via any with undefined", bothViaAny.includes(undefined), bothViaAny.indexOf(undefined), bothViaAny.lastIndexOf(undefined));
+const strings = new Array<string>(2);
+strings[1] = "b";
+const stringsViaAny: any = strings;
+console.log("strings via any", stringsViaAny.includes(undefined), stringsViaAny.indexOf(undefined), stringsViaAny.lastIndexOf(undefined));
+
+// expect:
+// typed true -1 -1
+// typed with undefined true 3 3
+// any[] true -1 -1
+// via any true -1 -1
+// via any with undefined true 3 3
+// strings via any true -1 -1

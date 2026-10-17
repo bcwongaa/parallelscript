@@ -1,0 +1,58 @@
+// skip: known issue (H22, C93): D-094's copies into a wider element type turn holes into undefined, and a Q[] with a hole copied to P[] throws TypeError
+// A new array (or one passed to a parameter that is only read) used as an array of a
+// wider element type is copied (D-094); JS has no conversion, so the copy must keep the
+// holes as holes. pts's copies turned holes into undefined, and copying a `Q[]` with a
+// hole into a `P[]` threw TypeError (H06's audit).
+class P {
+  constructor(public x: number) {}
+}
+class Q extends P {}
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (number | undefined)[] {
+  const a = new Array<number | undefined>(3);
+  a[1] = 2;
+  return a;
+}
+function strings(): string[] {
+  const s = new Array<string>(2);
+  s[1] = "x";
+  return s;
+}
+function qs(): Q[] {
+  const q = new Array<Q>(2);
+  q[0] = new Q(1);
+  return q;
+}
+function firstUndefined(xs: readonly (number | string | undefined)[]): number {
+  return xs.indexOf(undefined);
+}
+show("to a wider union", () => {
+  const b: (number | string | undefined)[] = maybe().slice();
+  return b;
+});
+show("string[] to (string | undefined)[]", () => {
+  const t: (string | undefined)[] = strings().slice();
+  return t;
+});
+show("string[] to any[]", () => {
+  const v: any[] = strings().slice();
+  return v;
+});
+show("Q[] to P[]", () => {
+  const p: P[] = qs().slice();
+  return p;
+});
+show("read-only parameter", () => firstUndefined(maybe()));
+
+// expect:
+// to a wider union [ <1 empty item>, 2, <1 empty item> ]
+// string[] to (string | undefined)[] [ <1 empty item>, 'x' ]
+// string[] to any[] [ <1 empty item>, 'x' ]
+// Q[] to P[] [ Q { x: 1 }, <1 empty item> ]
+// read-only parameter -1

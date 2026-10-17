@@ -1303,6 +1303,8 @@ double pts_array_set_length(pts_array *array, double length);
 pts_array *pts_array_slice(const pts_array *array, double start, double end);
 pts_array *pts_array_splice(pts_array *array, double start, double delete_count, const void *items, size_t count);
 pts_array *pts_array_copy(const pts_array *array);
+/* A copy of array as toSorted, toReversed, toSpliced and with read it (D-085): each hole undefined where its element kind holds undefined (dynamic values); arrays of strings and objects keep their holes. */
+pts_array *pts_array_copy_as_read(const pts_array *array);
 /* a.at(index): the element at index (from the end if negative) as a dynamic value, or undefined. */
 pts_value pts_array_at(const pts_array *array, double index);
 /* a.with(index, value): a copy with the element at index (from the end if negative) replaced; RangeError out of range. */
@@ -1317,6 +1319,7 @@ double pts_array_last_index_of(const pts_array *array, const void *value, double
 bool pts_array_includes(const pts_array *array, const void *value, double from);
 pts_string *pts_array_join(const pts_array *array, pts_string *separator);
 pts_array *pts_array_reverse(pts_array *array);
+/* array.sort(): stably, by the elements' strings (null is "null"), undefined after the others and holes last (SortCompare). */
 pts_array *pts_array_sort(pts_array *array);
 /* array.flat(depth) as a new array of result_type: arrays and tuples in slots of any kind
    spread depth levels down, holes skipped (a match's undefined groups kept), other elements
@@ -1333,10 +1336,20 @@ bool pts_array_has(const pts_array *array, double index);
 pts_array *pts_array_fill(pts_array *array, const void *value, double start, double end);
 /*
  * array.sort(compare): sorts array in place, stably, by the numbers compare returns for
- * pairs of elements (NaN counts as 0). call calls compare with two elements, which it is
- * given the addresses of.
+ * pairs of elements (NaN counts as 0), undefined after them and holes last, which compare
+ * never sees. call calls compare with two elements, which it is given the addresses of.
  */
 pts_array *pts_array_sort_with(pts_array *array, pts_closure *compare, double (*call)(pts_closure *compare, const void *a, const void *b));
+/*
+ * pts:parallel's sort (D-182) sorts a copy of an array and writes it back. gather_sortable
+ * moves the elements sort compares (neither undefined nor holes) to the front of array, a
+ * copy only the caller sees, in order, then its undefineds, then its holes, and returns how
+ * many it compares; write_sorted stores each slot of sorted (array's kind) into array, as
+ * far as array reaches, holes included: as sort writes its result back, a frozen array of
+ * two or more elements throws at index 0 unless sorted holds holes only.
+ */
+size_t pts_array_gather_sortable(pts_array *array);
+void pts_array_write_sorted(pts_array *array, const pts_array *sorted);
 
 /* Array.from(string): its code points, each a string. */
 pts_array *pts_array_from_string(pts_string *string);
@@ -2555,6 +2568,9 @@ double pts_parallel_threads(void);
 /* pts_array_has and pts_array_push_flat for pts:parallel's flatMap, whose arrays it passes as dynamic values (D-180). */
 bool pts_parallel_has(pts_value array, double index);
 void pts_parallel_push_flat(pts_value result, pts_value value);
+/* pts_array_gather_sortable and pts_array_write_sorted for pts:parallel's sort. */
+double pts_parallel_gather_sortable(pts_value array);
+void pts_parallel_write_sorted(pts_value array, pts_value sorted);
 
 /* Reports an uncaught exception on stderr and exits with code 1 (D-O07). */
 _Noreturn void pts_report_uncaught(pts_value exception);

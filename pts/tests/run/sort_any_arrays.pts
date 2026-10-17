@@ -1,0 +1,42 @@
+// Arrays held as `any` sort through dynamic method dispatch (dynamic_methods.c), with
+// the same SortCompare rules as typed code: without a comparator null compares as
+// "null" and undefined goes last, holes after it; a comparator never sees undefined;
+// toSorted reads holes as undefined. pts sorted undefined, null and holes first and
+// passed undefined to comparators on this path too (C06, H06).
+let sawUndefined = false;
+function key(v: any): number {
+  return typeof v === "string" ? v.length : (v ?? -1);
+}
+function compare(a: any, b: any): number {
+  if (a === undefined || b === undefined) {
+    sawUndefined = true;
+  }
+  return key(a) - key(b);
+}
+function saw(): boolean {
+  const s = sawUndefined;
+  sawUndefined = false;
+  return s;
+}
+function withHoles(): any {
+  const a: any[] = new Array(6);
+  a[0] = 20;
+  a[1] = undefined;
+  a[2] = null;
+  a[4] = 3;
+  return a;
+}
+const numbers: any = [20, undefined, 3, null, 100];
+console.log(numbers.toSorted(), numbers.toSorted(compare), saw());
+console.log(numbers.sort(compare), saw(), numbers.sort());
+const strings: any = ["nz", undefined, "a", null, "nuk"];
+console.log(strings.sort(), strings.toSorted(compare), saw());
+console.log(withHoles().sort(), withHoles().sort(compare), saw());
+console.log(withHoles().toSorted(), withHoles().toSorted(compare), saw());
+
+// expect:
+// [ 100, 20, 3, null, undefined ] [ null, 3, 20, 100, undefined ] false
+// [ 100, 20, 3, null, undefined ] false [ 100, 20, 3, null, undefined ]
+// [ 'a', 'nuk', null, 'nz', undefined ] [ null, 'a', 'nz', 'nuk', undefined ] false
+// [ 20, 3, null, undefined, <2 empty items> ] [ null, 3, 20, undefined, <2 empty items> ] false
+// [ 20, 3, null, undefined, undefined, undefined ] [ null, 3, 20, undefined, undefined, undefined ] false

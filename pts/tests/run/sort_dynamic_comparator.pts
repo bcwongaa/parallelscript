@@ -1,0 +1,30 @@
+// A comparator held as `any`, or a `Map`'s `get` (a dynamic value to the compiler), that is
+// undefined at run time sorts in the default order, as SortCompare does; one that is a
+// function sorts by it, and one that is neither throws TypeError. pts threw `TypeError:
+// Expected (number, number) => number, got undefined` (review round 1, F4).
+function show(label: string, f: () => unknown): void {
+    try {
+        console.log(label, f());
+    } catch (e) {
+        console.log(label, "threw", (e as Error).name);
+    }
+}
+const none: any = undefined;
+const byValue: any = (a: number, b: number) => a - b;
+const notAFunction: any = null;
+show("any undefined", () => [3, 20, 100].sort(none));
+show("any undefined toSorted", () => [3, 20, 100].toSorted(none));
+show("any function", () => [3, 20, 100].sort(byValue));
+show("any null", () => [3, 20, 100].sort(notAFunction));
+const comparators = new Map<string, (a: number, b: number) => number>();
+comparators.set("down", (a, b) => b - a);
+show("map get missing", () => [10, 9, 1, 100].sort(comparators.get("up")));
+show("map get", () => [10, 9, 1, 100].sort(comparators.get("down")));
+
+// expect:
+// any undefined [ 100, 20, 3 ]
+// any undefined toSorted [ 100, 20, 3 ]
+// any function [ 3, 20, 100 ]
+// any null threw TypeError
+// map get missing [ 1, 10, 100, 9 ]
+// map get [ 100, 10, 9, 1 ]

@@ -1,0 +1,41 @@
+// toSorted reads holes as undefined (SortIndexedProperties with read-through-holes), so
+// its result has no holes: they become undefineds after the defined elements, with and
+// without a comparator, typed and through `any`; the source keeps its holes. pts kept
+// them as holes (and, without a comparator, sorted them first; C06, H06). Only arrays
+// whose element type can hold undefined are here: a `string[]` or `P[]` result can't.
+function maybeStrings(): (string | undefined)[] {
+  const a = new Array<string | undefined>(5);
+  a[0] = "nz";
+  a[2] = undefined;
+  a[3] = "a";
+  return a;
+}
+function maybeNumbers(): (number | undefined)[] {
+  const a = new Array<number | undefined>(4);
+  a[1] = 20;
+  a[3] = 3;
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(4);
+  a[0] = "b";
+  a[2] = 1;
+  return a;
+}
+const source = maybeStrings();
+console.log(source.toSorted(), source);
+console.log(maybeStrings().toSorted((p, q) => (p ?? "").length - (q ?? "").length));
+console.log(maybeNumbers().toSorted(), maybeNumbers().toSorted((p, q) => (p ?? 0) - (q ?? 0)));
+console.log(mixed().toSorted());
+const allHoles = new Array<number | undefined>(2);
+console.log(allHoles.toSorted(), allHoles);
+const viaAny: any = maybeNumbers();
+console.log(viaAny.toSorted(), viaAny.toSorted((p: any, q: any) => p - q), viaAny);
+
+// expect:
+// [ 'a', 'nz', undefined, undefined, undefined ] [ 'nz', <1 empty item>, undefined, 'a', <1 empty item> ]
+// [ 'a', 'nz', undefined, undefined, undefined ]
+// [ 20, 3, undefined, undefined ] [ 3, 20, undefined, undefined ]
+// [ 1, 'b', undefined, undefined ]
+// [ undefined, undefined ] [ <2 empty items> ]
+// [ 20, 3, undefined, undefined ] [ 3, 20, undefined, undefined ] [ <1 empty item>, 20, <1 empty item>, 3 ]

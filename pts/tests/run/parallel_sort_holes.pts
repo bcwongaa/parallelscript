@@ -1,0 +1,108 @@
+// `.par.sort()` and `.par.sort(compare)` over arrays with holes are Array's sort (D-124):
+// holes stay holes, after the undefineds; without a comparator null sorts as "null". pts
+// threw RangeError: without a comparator at every thread count (computing the keys read
+// each hole as a required element, C74), and with one at 2+ threads for arrays of
+// strings and objects (each sorted piece is written back element by element), even for
+// arrays shorter than one piece (C06, H06). The expected output is a sequential Node
+// program's (`.par.sort` as `sort`: oracles/parallel_sort_holes.oracle.mts in
+// docs/agent/hardening-evidence/h06-parent-probes.tar.gz).
+// threads: 1 2 4
+function show(label: string, f: () => unknown): void {
+    try {
+        console.log(label, f());
+    } catch (e) {
+        console.log(label, "threw", (e as Error).name);
+    }
+}
+function bigStrings(): string[] {
+    const a = new Array<string>(6000);
+    for (let i = 0; i < 6000; i++) {
+        if (i % 10 !== 5) {
+            a[i] = "s" + ((i * 7919) % 6000);
+        }
+    }
+    return a;
+}
+show("default union", () => {
+    const a = new Array<string | null | undefined>(6);
+    a[0] = "nz";
+    a[1] = null;
+    a[3] = undefined;
+    a[4] = "a";
+    return a.par.sort();
+});
+show("default strings", () => {
+    const a = new Array<string>(4);
+    a[1] = "b";
+    a[3] = "a";
+    return a.par.sort();
+});
+show("default any", () => {
+    const a: any[] = new Array(5);
+    a[0] = 3;
+    a[1] = undefined;
+    a[2] = null;
+    a[4] = "b";
+    return a.par.sort();
+});
+show("default big union", () => {
+    const a = new Array<string | null | undefined>(6000);
+    for (let i = 0; i < 6000; i++) {
+        const r = i % 10;
+        if (r === 0) {
+            a[i] = undefined;
+        } else if (r === 1) {
+            a[i] = null;
+        } else if (r !== 5) {
+            a[i] = "n" + ((i * 7919) % 6000);
+        }
+    }
+    a.par.sort();
+    return [a.slice(0, 2), a.slice(4198, 4202), a.slice(4798, 4802), a.slice(5398, 5402), a.slice(5998)];
+});
+show("default big strings", () => {
+    const a = bigStrings();
+    a.par.sort();
+    return [a.slice(0, 2), a.slice(5398, 5402), a.slice(5998)];
+});
+show("compare strings", () => {
+    const a = new Array<string>(4);
+    a[0] = "b";
+    a[2] = "a";
+    return a.par.sort((p, q) => (p < q ? -1 : q < p ? 1 : 0));
+});
+show("compare objects", () => {
+    const a = new Array<{ n: number }>(3);
+    a[1] = { n: 2 };
+    a[2] = { n: 1 };
+    return a.par.sort((p, q) => p.n - q.n);
+});
+show("compare big strings", () => {
+    const a = bigStrings();
+    a.par.sort((p, q) => (p < q ? -1 : q < p ? 1 : 0));
+    return [a.slice(0, 2), a.slice(5398, 5402), a.slice(5998)];
+});
+
+// expect:
+// default union [ 'a', null, 'nz', undefined, <2 empty items> ]
+// default strings [ 'a', 'b', <2 empty items> ]
+// default any [ 3, 'b', null, undefined, <1 empty item> ]
+// default big union [
+//   [ 'n1', 'n1001' ],
+//   [ 'n997', 'n998', null, null ],
+//   [ null, null, undefined, undefined ],
+//   [ undefined, undefined, <2 empty items> ],
+//   [ <2 empty items> ]
+// ]
+// default big strings [
+//   [ 's0', 's1' ],
+//   [ 's998', 's999', <2 empty items> ],
+//   [ <2 empty items> ]
+// ]
+// compare strings [ 'a', 'b', <2 empty items> ]
+// compare objects [ { n: 1 }, { n: 2 }, <1 empty item> ]
+// compare big strings [
+//   [ 's0', 's1' ],
+//   [ 's998', 's999', <2 empty items> ],
+//   [ <2 empty items> ]
+// ]

@@ -866,7 +866,7 @@ const (
 	ArrayFill                          // a.fill(v, start, end): a, with v in [start, end)
 	ArraySortWith                      // a.sort(compare): a, sorted in place stably by compare, a function value taking two elements and returning a number
 	ArrayAt                            // a.at(i) as a dynamic value: from the end for a negative i, undefined out of range (D-085)
-	ArrayCopy                          // a new array of a's elements
+	ArrayCopy                          // a new array of a's elements as the copying methods read them: holes undefined where the elements may be (D-182)
 	ArrayWith                          // a.with(i, v): a copy with v at i (from the end if negative); RangeError out of range
 	ArrayKeys                          // a.keys() as a number[] of a's indices
 	ArrayPushFlat                      // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)

@@ -1,0 +1,65 @@
+// skip: known issue (H06b, C78): spreads, concat and unshift of a match array turn its undefined groups into holes, and filter through `any` drops them
+// A match's group that took no part is undefined (D-133). Spreading a match array or a
+// match copy (`m.slice()`) into another array, concat, unshift, values() and, through
+// `any`, filter keep it as an undefined element, as JS does. pts turned it into a hole
+// (`[ 'x', 'b', <1 empty item>, 'b' ]` for `a.push(...m)`), and filter through `any`
+// dropped it (C78, H06). The match array itself and its copies already printed it as
+// undefined (controls).
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+const m = /(a)|(b)/.exec("xb")!;
+show("match", () => [m.length, m.slice()]);
+show("push", () => {
+  const a: string[] = ["x"];
+  a.push(...m);
+  return a;
+});
+show("push copy", () => {
+  const a: string[] = ["y"];
+  a.push(...m.slice());
+  return a;
+});
+show("literal", () => {
+  const a: string[] = ["x", ...m];
+  return a;
+});
+show("spread", () => [...m]);
+show("values", () => [...m.values()]);
+show("concat", () => ["q"].concat(m));
+show("unshift", () => {
+  const a = ["k"];
+  a.unshift(...m);
+  return a;
+});
+show("String.match push", () => {
+  const a: string[] = [];
+  a.push(..."xb".match(/(a)|(b)/)!);
+  return a;
+});
+const viaAny: any = m;
+show("via any filter", () => viaAny.filter(() => true));
+show("via any slice filter", () => viaAny.slice().filter(() => true));
+show("via any push", () => {
+  const a: any = [];
+  a.push(...m);
+  return a;
+});
+
+// expect:
+// match [ 3, [ 'b', undefined, 'b' ] ]
+// push [ 'x', 'b', undefined, 'b' ]
+// push copy [ 'y', 'b', undefined, 'b' ]
+// literal [ 'x', 'b', undefined, 'b' ]
+// spread [ 'b', undefined, 'b' ]
+// values [ 'b', undefined, 'b' ]
+// concat [ 'q', 'b', undefined, 'b' ]
+// unshift [ 'b', undefined, 'b', 'k' ]
+// String.match push [ 'b', undefined, 'b' ]
+// via any filter [ 'b', undefined, 'b' ]
+// via any slice filter [ 'b', undefined, 'b' ]
+// via any push [ 'b', undefined, 'b' ]

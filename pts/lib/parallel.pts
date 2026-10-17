@@ -10,6 +10,8 @@ declare function pts_parallel_join(a: () => void, b: () => void): void;
 declare function pts_parallel_threads(): number;
 declare function pts_parallel_has(array: any, index: number): boolean;
 declare function pts_parallel_push_flat(result: any, value: any): void;
+declare function pts_parallel_gather_sortable(array: any): number;
+declare function pts_parallel_write_sorted(array: any, sorted: any): void;
 
 // What marks a callback that runs on several threads at once: the function type F,
 // branded, so that the compiler knows its body is a parallel body (D-L17).
@@ -176,17 +178,26 @@ export class ParallelArray<T> {
     }
 
     // Sorts the array in place, stably, and returns it, as Array's sort does: by compare, or
-    // without one by the elements' strings, undefined last.
+    // without one by the elements' strings; undefined after the others and holes last, which
+    // compare never sees. A copy is sorted and written back, so a compare or toString that
+    // throws leaves the array as it was (D-182).
     sort(compare?: ParallelCallback<(a: T, b: T) => number>): T[] {
         const items = this.items;
-        if (compare !== undefined) {
-            sortInPlace(items, compare);
-            return items;
+        if (pts_parallel_threads() === 1) {
+            return compare === undefined ? items.sort() : items.sort(compare);
         }
-        const keys = items.map((value) => (value === undefined ? undefined : String(value)));
-        const order = range(items.length).toArray();
-        sortInPlace(order, (a, b) => compareDefault(keys[a], keys[b]));
-        return permute(items, order);
+        const sorted = items.slice();
+        const count = pts_parallel_gather_sortable(sorted);
+        if (compare !== undefined) {
+            sortInPlace(sorted, compare, count);
+        } else {
+            const keys = sorted.slice(0, count).map((value) => String(value));
+            const order = range(count).toArray();
+            sortInPlace(order, (a, b) => compareStrings(keys[a], keys[b]), count);
+            permute(sorted, order);
+        }
+        pts_parallel_write_sorted(items, sorted);
+        return items;
     }
 
     // Sorts the array in place, stably, by key's value for each element, and returns it.
@@ -194,7 +205,7 @@ export class ParallelArray<T> {
         const items = this.items;
         const keys = new ParallelArray(items).map((value) => key(value));
         const order = range(items.length).toArray();
-        sortInPlace(order, (a, b) => (keys[a] < keys[b] ? -1 : keys[b] < keys[a] ? 1 : 0));
+        sortInPlace(order, (a, b) => (keys[a] < keys[b] ? -1 : keys[b] < keys[a] ? 1 : 0), order.length);
         return permute(items, order);
     }
 
@@ -371,7 +382,7 @@ export class ParallelTypedArray<A extends TypedArrayLike> {
         const items = this.items;
         if (compare !== undefined) {
             const numbers = Array.from(items);
-            sortInPlace(numbers, compare);
+            sortInPlace(numbers, compare, numbers.length);
             items.set(numbers);
             return items;
         }
@@ -592,14 +603,8 @@ const SEQUENTIAL_SORT = 2048;
 // The pieces per thread that sort sequentially (with Array's sort) before the merges: more merge levels cost more than the balance they buy.
 const PIECES_PER_THREAD = 1;
 
-// Array's default order: by the elements' strings (UTF-16 code units), undefined last.
-function compareDefault(a: string | undefined, b: string | undefined): number {
-    if (a === undefined) {
-        return b === undefined ? 0 : 1;
-    }
-    if (b === undefined) {
-        return -1;
-    }
+// Array's default order for the elements it compares: by their strings (UTF-16 code units).
+function compareStrings(a: string, b: string): number {
     return a < b ? -1 : b < a ? 1 : 0;
 }
 
@@ -614,27 +619,28 @@ function compareNumbers(a: number, b: number): number {
     return a < b ? -1 : b < a ? 1 : 0;
 }
 
-// Puts items in the order order lists their indices in, in place, and returns items.
+// Puts the first order.length items in the order order lists their indices in, in place, and returns items.
 function permute<T>(items: T[], order: number[]): T[] {
     const sorted = new ParallelArray(order).map((index) => items[index]);
     pts_parallel_for((from, to) => {
         for (let i = from; i < to; i++) {
             items[i] = sorted[i];
         }
-    }, items.length);
+    }, order.length);
     return items;
 }
 
-// Sorts items in place, stably, by compare: Rayon's parallel merge sort, whose pieces
-// Array's sort sorts, PIECES_PER_THREAD per thread; with one thread, Array's sort alone (D-O06).
-function sortInPlace<T>(items: T[], compare: (a: T, b: T) => number): void {
+// Sorts the first count items in place, stably, by compare: Rayon's parallel merge sort, whose
+// pieces Array's sort sorts, PIECES_PER_THREAD per thread; with one thread, Array's sort alone
+// (D-O06), which leaves undefineds and holes after them where they are.
+function sortInPlace<T>(items: T[], compare: (a: T, b: T) => number, count: number): void {
     const threads = pts_parallel_threads();
     if (threads === 1) {
         items.sort(compare);
         return;
     }
-    const piece = Math.max(SEQUENTIAL_SORT, Math.ceil(items.length / (threads * PIECES_PER_THREAD)));
-    sortRun(items, items.slice(), 0, items.length, piece, compare, (from, to) => {
+    const piece = Math.max(SEQUENTIAL_SORT, Math.ceil(count / (threads * PIECES_PER_THREAD)));
+    sortRun(items, items.slice(0, count), 0, count, piece, compare, (from, to) => {
         const sorted = items.slice(from, to).sort(compare);
         for (let i = 0; i < sorted.length; i++) {
             items[from + i] = sorted[i];

@@ -1,0 +1,59 @@
+// skip: known issue (H06b, C91): typed spread, Array.from and values() keep holes, and typed entries() and for…of throw RangeError, where JS reads holes as undefined
+// Spread, Array.from, values() and entries() read holes as undefined, so their results
+// have no holes, and for…of gives undefined for each hole, for element types that can
+// hold undefined ((T | undefined)[], any[]), typed and through `any`. pts kept the holes
+// (typed spread, from and values), and typed entries() and for…of threw RangeError (H06's
+// audit). An element type without undefined can't hold these results; they aren't here.
+// Each result is printed on its own: inside a wider array literal it would be converted
+// (D-094), which has its own hole gap (array_conversion_keeps_holes.pts).
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (number | undefined)[] {
+  const a = new Array<number | undefined>(4);
+  a[0] = 1;
+  a[2] = undefined;
+  a[3] = 3;
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(3);
+  a[1] = "b";
+  return a;
+}
+show("spread", () => [...maybe()]);
+show("spread any[]", () => [...mixed()]);
+show("from", () => Array.from(maybe()));
+show("from any[]", () => Array.from(mixed()));
+show("values", () => [...maybe().values()]);
+show("values any[]", () => [...mixed().values()]);
+show("entries", () => [...maybe().entries()]);
+show("for of", () => {
+  const seen: string[] = [];
+  for (const x of maybe()) {
+    seen.push(String(x));
+  }
+  for (const x of mixed()) {
+    seen.push(String(x));
+  }
+  return seen;
+});
+const viaAny: any = maybe();
+show("via any spread", () => [...viaAny]);
+show("source", () => maybe());
+
+// expect:
+// spread [ 1, undefined, undefined, 3 ]
+// spread any[] [ undefined, 'b', undefined ]
+// from [ 1, undefined, undefined, 3 ]
+// from any[] [ undefined, 'b', undefined ]
+// values [ 1, undefined, undefined, 3 ]
+// values any[] [ undefined, 'b', undefined ]
+// entries [ [ 0, 1 ], [ 1, undefined ], [ 2, undefined ], [ 3, 3 ] ]
+// for of [ '1', 'undefined', 'undefined', '3', 'undefined', 'b', 'undefined' ]
+// via any spread [ 1, undefined, undefined, 3 ]
+// source [ 1, <1 empty item>, undefined, 3 ]

@@ -24,25 +24,51 @@ func (l *lowerer) copyingMethodCall(call *ast.CallExpression, name string, array
 	copied := &ir.ArrayCall{Op: ir.ArrayCopy, Args: []ir.Expr{array}}
 	switch name {
 	case "toSorted":
-		if len(args) > 0 && !isUndefined(args[0]) {
-			return l.sortWith(copied, args[0])
+		if len(args) > 0 {
+			return l.sortWith(array, args[0], l.arraySortSteps(arrayType, true))
 		}
 		return &ir.ArrayCall{Op: ir.ArraySort, Args: []ir.Expr{copied}}
 	case "toReversed":
 		return &ir.ArrayCall{Op: ir.ArrayReverse, Args: []ir.Expr{copied}}
 	case "toSpliced":
-		local := l.newLocal("copy", arrayType)
-		splice := l.splice(&ir.LocalRef{Local: local}, args)
-		if splice == nil {
-			return nil
-		}
-		return &ir.Bind{Local: local, Value: copied, In: &ir.Sequence{X: splice, Y: &ir.LocalRef{Local: local}}}
+		return l.toSpliced(array, args)
 	}
 	operands := l.arrayOperands(args, []arrayParam{{ir.Number, nil}, elementParam}, arrayType) // with(index, value)
 	if operands == nil {
 		return nil
 	}
 	return &ir.ArrayCall{Op: ir.ArrayWith, Args: append([]ir.Expr{array}, operands...)}
+}
+
+// toSpliced lowers a.toSpliced(…): splice on a copy of a, made after the arguments are
+// evaluated, as JS's method copies (each argument held in a local meanwhile).
+func (l *lowerer) toSpliced(array ir.Expr, args []*ast.Node) ir.Expr {
+	arrayType := array.Type().(*ir.Array)
+	receiver, copy := l.newLocal("array", arrayType), l.newLocal("copy", arrayType)
+	splice, ok := l.splice(&ir.LocalRef{Local: copy}, args).(*ir.ArrayCall)
+	if !ok || splice == nil {
+		return nil
+	}
+	var held []*ir.Bind // the operands that aren't constants, in order
+	for i, operand := range splice.Args[1:] {
+		switch operand.(type) {
+		case *ir.NumberConst, *ir.IntConst, *ir.StringConst, *ir.BoolConst, *ir.NullConst, *ir.UndefinedConst:
+			continue
+		}
+		local := l.newLocal("operand", operand.Type())
+		held = append(held, &ir.Bind{Local: local, Value: operand})
+		splice.Args[i+1] = &ir.LocalRef{Local: local}
+	}
+	result := ir.Expr(&ir.Bind{
+		Local: copy,
+		Value: &ir.ArrayCall{Op: ir.ArrayCopy, Args: []ir.Expr{&ir.LocalRef{Local: receiver}}},
+		In:    &ir.Sequence{X: splice, Y: &ir.LocalRef{Local: copy}},
+	})
+	for i := len(held) - 1; i >= 0; i-- {
+		held[i].In = result
+		result = held[i]
+	}
+	return &ir.Bind{Local: receiver, Value: array, In: result}
 }
 
 // isArrayConstructor reports whether a callee is the global Array.

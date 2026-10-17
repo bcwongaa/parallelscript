@@ -360,7 +360,7 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	case copyingMethods[name]:
 		return l.copyingMethodCall(call, name, array)
 	case sortWith:
-		return l.sortWith(array, args[0])
+		return l.sortWith(array, args[0], l.arraySortSteps(arrayType, false))
 	case removes:
 		op := removers[0]
 		if checked {
@@ -405,18 +405,77 @@ func (l *lowerer) arrayMethodCall(call *ast.CallExpression, checked bool) ir.Exp
 	return l.flat(call, array, args)
 }
 
-// sortWith lowers a.sort(compare): compare becomes a function value that takes two
-// elements and returns a number.
-func (l *lowerer) sortWith(array ir.Expr, arg *ast.Node) ir.Expr {
+// sortSteps are how a receiver of one kind is sorted: by a comparator of type comparator,
+// in the default order, and, for toSorted, on a copy of it.
+type sortSteps struct {
+	comparator   *ir.FuncType
+	copy         func(receiver ir.Expr) ir.Expr // nil to sort the receiver itself
+	byDefault    func(receiver ir.Expr) ir.Expr
+	byComparator func(receiver, compare ir.Expr) ir.Expr
+}
+
+// arraySortSteps are an array's: Array's sort, with or without a comparator.
+func (l *lowerer) arraySortSteps(array *ir.Array, copied bool) sortSteps {
+	steps := sortSteps{
+		comparator: l.funcType([]ir.Type{array.Elem, array.Elem}, ir.Number),
+		byDefault:  func(receiver ir.Expr) ir.Expr { return &ir.ArrayCall{Op: ir.ArraySort, Args: []ir.Expr{receiver}} },
+		byComparator: func(receiver, compare ir.Expr) ir.Expr {
+			return &ir.ArrayCall{Op: ir.ArraySortWith, Args: []ir.Expr{receiver, compare}}
+		},
+	}
+	if copied {
+		steps.copy = func(receiver ir.Expr) ir.Expr { return &ir.ArrayCall{Op: ir.ArrayCopy, Args: []ir.Expr{receiver}} }
+	}
+	return steps
+}
+
+// sortWith lowers receiver.sort(compare), or toSorted's, by steps (SortCompare): the
+// receiver is evaluated, then compare, and only then copied. An undefined compare is the
+// default order, told at run time where compare may be undefined (`compare?: …`, a
+// dynamic value); any other is converted to steps.comparator.
+func (l *lowerer) sortWith(receiver ir.Expr, arg *ast.Node, steps sortSteps) ir.Expr {
 	compare := l.expression(arg)
 	if compare == nil {
 		return nil
 	}
-	elem := array.Type().(*ir.Array).Elem
-	if compare = l.convert(compare, l.funcType([]ir.Type{elem, elem}, ir.Number), arg); compare == nil {
+	if _, ok := compare.(*ir.UndefinedConst); ok {
+		return steps.byDefault(withCopy(receiver, steps))
+	}
+	t := compare.Type()
+	u, _ := t.(*ir.Union)
+	mayBeUndefined := t == ir.Value || u != nil && u.Has(ir.Undefined)
+	if t != ir.Undefined && !mayBeUndefined && steps.copy == nil {
+		if compare = l.convert(compare, steps.comparator, arg); compare == nil {
+			return nil
+		}
+		return steps.byComparator(receiver, compare)
+	}
+	array := l.newLocal("array", receiver.Type())
+	target := func() ir.Expr { return withCopy(&ir.LocalRef{Local: array}, steps) }
+	if t == ir.Undefined {
+		return &ir.Bind{Local: array, Value: receiver, In: discard(compare, steps.byDefault(target()))}
+	}
+	value := l.newLocal("compare", t)
+	given := ir.Expr(&ir.LocalRef{Local: value})
+	if u != nil && u.Has(ir.Undefined) {
+		given = fromUnion(given, l.withoutUndefined(u))
+	}
+	if given = l.convert(given, steps.comparator, arg); given == nil {
 		return nil
 	}
-	return &ir.ArrayCall{Op: ir.ArraySortWith, Args: []ir.Expr{array, compare}}
+	sorted := steps.byComparator(target(), given)
+	if mayBeUndefined {
+		sorted = &ir.Conditional{Cond: &ir.IsNullish{X: &ir.LocalRef{Local: value}, Only: ir.Undefined}, Then: steps.byDefault(target()), Else: sorted}
+	}
+	return &ir.Bind{Local: array, Value: receiver, In: &ir.Bind{Local: value, Value: compare, In: sorted}}
+}
+
+// withCopy is receiver, or for toSorted's steps a copy of it.
+func withCopy(receiver ir.Expr, steps sortSteps) ir.Expr {
+	if steps.copy == nil {
+		return receiver
+	}
+	return steps.copy(receiver)
 }
 
 // arrayOperands lowers the arguments of an array method with fixed parameters, giving

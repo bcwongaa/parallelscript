@@ -1,0 +1,112 @@
+// `.par.sort` changes the array only once it is sorted, as Array's sort writes back the
+// sorted elements: a comparator or toString that throws leaves the array as it was, a
+// comparator that reads the array sees it as it was, and a frozen array throws at index 0
+// after the comparisons (not for one element or holes only). H06a's first version moved
+// undefined and holes to the end first (review round 1, F2, F3); before H06a, arrays
+// longer than a piece were written back piece by piece. The expected output is a
+// sequential Node program's (this one with `.par.sort` as `.sort`, the AtomicInt a counter:
+// oracles/ in docs/agent/hardening-evidence/h06-parent-probes.tar.gz).
+// threads: 1 2 4
+import { AtomicInt } from "pts:sync";
+
+function show(label: string, f: () => unknown): void {
+    try {
+        console.log(label, f());
+    } catch (e) {
+        console.log(label, "threw", (e as Error).name + ": " + (e as Error).message);
+    }
+}
+
+function isHole(values: unknown[], i: number): boolean {
+    return values.slice(i, i + 1).flat().length === 0;
+}
+
+// Whether values holds what before held, slot by slot, holes included.
+function unchanged(values: (number | undefined)[], before: (number | undefined)[]): boolean {
+    if (values.length !== before.length) {
+        return false;
+    }
+    for (let i = 0; i < values.length; i++) {
+        if (isHole(values, i) !== isHole(before, i) || values[i] !== before[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function big(): (number | undefined)[] {
+    const values = new Array<number | undefined>(5000);
+    for (let i = 0; i < 5000; i++) {
+        if (i % 10 === 0) {
+            values[i] = undefined;
+        } else if (i % 10 !== 5) {
+            values[i] = (i * 7919) % 5000;
+        }
+    }
+    return values;
+}
+
+const small: (number | undefined)[] = [undefined, 3, undefined, 1, 2];
+show("small throwing comparator", () => small.par.sort(() => {
+    throw new Error("no");
+}));
+console.log("small after", small);
+
+const large = big();
+const largeBefore = large.slice();
+show("large throwing comparator", () => large.par.sort((a, b) => {
+    if (a === 4999 || b === 4999) {
+        throw new Error("no");
+    }
+    return a! - b!;
+}));
+console.log("large unchanged", unchanged(large, largeBefore));
+
+class Bad {
+    constructor(readonly n: number) {}
+
+    toString(): string {
+        if (this.n === 2) {
+            throw new Error("bad");
+        }
+        return "b" + this.n;
+    }
+}
+const bad: (Bad | undefined)[] = [undefined, new Bad(1), undefined, new Bad(2)];
+show("throwing toString", () => bad.par.sort());
+console.log("bad after", bad);
+
+const watched: (number | undefined)[] = [undefined, 2, 1];
+const firsts: string[] = [];
+watched.par.sort((x, y) => {
+    firsts.push(String(watched[0]));
+    return x! - y!;
+});
+console.log("comparator saw", firsts, watched);
+
+const calls = new AtomicInt();
+const frozen = Object.freeze([1, undefined, 2]) as (number | undefined)[];
+show("frozen", () => frozen.par.sort());
+show("frozen compare", () => frozen.par.sort((a, b) => {
+    calls.add(1);
+    return a! - b!;
+}));
+console.log("frozen comparator called", calls.load() > 0, frozen);
+show("frozen one", () => (Object.freeze([1]) as number[]).par.sort());
+show("frozen holes", () => (Object.freeze(new Array<string>(2)) as string[]).par.sort());
+show("frozen holes compare", () => (Object.freeze(new Array<string>(2)) as string[]).par.sort((a, b) => a.length - b.length));
+
+// expect:
+// small throwing comparator threw Error: no
+// small after [ undefined, 3, undefined, 1, 2 ]
+// large throwing comparator threw Error: no
+// large unchanged true
+// throwing toString threw Error: bad
+// bad after [ undefined, Bad { n: 1 }, undefined, Bad { n: 2 } ]
+// comparator saw [ 'undefined' ] [ 1, 2, undefined ]
+// frozen threw TypeError: Cannot assign to read only property '0' of object '[object Array]'
+// frozen compare threw TypeError: Cannot assign to read only property '0' of object '[object Array]'
+// frozen comparator called true [ 1, undefined, 2 ]
+// frozen one [ 1 ]
+// frozen holes [ <2 empty items> ]
+// frozen holes compare [ <2 empty items> ]

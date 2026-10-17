@@ -1,0 +1,67 @@
+// sort() keeps holes as holes and puts them after the undefineds, which go after every
+// defined element (SortIndexedProperties skips holes; SortCompare puts undefined last),
+// with and without a comparator, for arrays of strings, class instances, unions with
+// undefined and any, typed and through `any`. pts sorted holes, like undefined, as the
+// empty string, so they came first without a comparator (C06, H06). Arrays of numbers
+// and booleans have no holes (D-085), so they aren't here.
+class P {
+  constructor(public x: number) {}
+  toString(): string {
+    return "P" + this.x;
+  }
+}
+function strings(): string[] {
+  const a = new Array<string>(5);
+  a[0] = "nz";
+  a[2] = "a";
+  a[4] = "nuk";
+  return a;
+}
+function maybeNumbers(): (number | undefined)[] {
+  const a = new Array<number | undefined>(6);
+  a[0] = 20;
+  a[1] = undefined;
+  a[3] = 3;
+  a[4] = undefined;
+  return a;
+}
+function points(): P[] {
+  const a = new Array<P>(4);
+  a[1] = new P(10);
+  a[3] = new P(2);
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(6);
+  a[1] = "b";
+  a[2] = undefined;
+  a[3] = null;
+  a[5] = 3;
+  return a;
+}
+console.log(strings().sort());
+console.log(strings().sort((p, q) => (p < q ? 1 : q < p ? -1 : 0)));
+console.log(maybeNumbers().sort());
+console.log(maybeNumbers().sort((p, q) => (p ?? 0) - (q ?? 0)));
+console.log(points().sort());
+console.log(points().sort((p, q) => p.x - q.x));
+console.log(mixed().sort());
+const holesOnly = new Array<string | undefined>(3);
+holesOnly[1] = undefined;
+console.log(holesOnly.sort());
+const viaAny: any = maybeNumbers();
+console.log(viaAny.sort());
+const stringsViaAny: any = strings();
+console.log(stringsViaAny.sort());
+
+// expect:
+// [ 'a', 'nuk', 'nz', <2 empty items> ]
+// [ 'nz', 'nuk', 'a', <2 empty items> ]
+// [ 20, 3, undefined, undefined, <2 empty items> ]
+// [ 3, 20, undefined, undefined, <2 empty items> ]
+// [ P { x: 10 }, P { x: 2 }, <2 empty items> ]
+// [ P { x: 2 }, P { x: 10 }, <2 empty items> ]
+// [ 3, 'b', null, undefined, <2 empty items> ]
+// [ undefined, <2 empty items> ]
+// [ 20, 3, undefined, undefined, <2 empty items> ]
+// [ 'a', 'nuk', 'nz', <2 empty items> ]

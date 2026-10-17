@@ -157,6 +157,125 @@ static void sort_with_a_comparator_is_stable(void) {
   }
 }
 
+/* A hole in an array of dynamic values or pointers: a zero word (D-038, D-085). */
+#define HOLE ((pts_value)0)
+
+/* Whether array's slots of dynamic values are exactly expected's words, holes included. */
+static bool holds_slots(const pts_array *array, const pts_value *expected, size_t count) {
+  if (pts_array_length_of(array) != count) {
+    return false;
+  }
+  const pts_value *slots = (const pts_value *)(const void *)array->buffer->elements;
+  for (size_t i = 0; i < count; i++) {
+    if (slots[i] != expected[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void sort_puts_undefined_after_the_others_and_holes_last(void) {
+  pts_value b = pts_value_from_string(pts_string_from_cstr("b")), o = pts_value_from_string(pts_string_from_cstr("o"));
+  pts_value items[] = {pts_value_from_number(3), PTS_VALUE_UNDEFINED, HOLE, pts_value_from_number(1), PTS_VALUE_NULL, b, o};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 7);
+  pts_array_sort(array);
+  pts_value sorted[] = {pts_value_from_number(1), pts_value_from_number(3), b, PTS_VALUE_NULL, o, PTS_VALUE_UNDEFINED, HOLE}; /* null as "null" */
+  CHECK(holds_slots(array, sorted, 7));
+}
+
+static void sort_keeps_holes_of_strings_last(void) {
+  pts_string *a = pts_string_from_cstr("a"), *b = pts_string_from_cstr("b");
+  pts_string *words[] = {b, NULL, a};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_STRING], words, 3);
+  pts_array_sort(array);
+  pts_string *sorted[] = {a, b, NULL};
+  CHECK(memcmp(array->buffer->elements, sorted, sizeof sorted) == 0);
+  array = pts_array_of(&pts_type_match_copy, words, 3); /* a match's group that took no part is undefined, which sorts last too */
+  pts_array_sort(array);
+  CHECK(memcmp(array->buffer->elements, sorted, sizeof sorted) == 0);
+}
+
+/* The calls a comparator of dynamic values got with undefined or a hole. */
+static int nullish_comparisons;
+
+static double ascending_values(pts_closure *compare, pts_value a, pts_value b) {
+  (void)compare;
+  if (a == PTS_VALUE_UNDEFINED || b == PTS_VALUE_UNDEFINED || a == HOLE || b == HOLE) {
+    nullish_comparisons++;
+    return 0;
+  }
+  return pts_value_as_number(a) - pts_value_as_number(b);
+}
+
+static double call_value_comparator(pts_closure *compare, const void *a, const void *b) {
+  return ((double (*)(pts_closure *, pts_value, pts_value))compare->code)(compare, *(const pts_value *)a, *(const pts_value *)b);
+}
+
+static void sort_with_never_passes_undefined_or_holes(void) {
+  static const pts_type closure_type = {.kind = PTS_KIND_FUNCTION, .name = "ascending", .size = sizeof(pts_closure)};
+  pts_closure compare = {&closure_type, (pts_function)ascending_values};
+  pts_value items[] = {pts_value_from_number(3), PTS_VALUE_UNDEFINED, HOLE, pts_value_from_number(1), PTS_VALUE_UNDEFINED, pts_value_from_number(2)};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 6);
+  nullish_comparisons = 0;
+  pts_array_sort_with(array, &compare, call_value_comparator);
+  pts_value sorted[] = {pts_value_from_number(1), pts_value_from_number(2), pts_value_from_number(3), PTS_VALUE_UNDEFINED, PTS_VALUE_UNDEFINED, HOLE};
+  CHECK(holds_slots(array, sorted, 6));
+  CHECK(nullish_comparisons == 0);
+}
+
+/* toSorted, toReversed, toSpliced and with read each index (D-085): a hole is undefined in the copy, where its kind holds undefined. */
+static void a_copy_as_read_makes_holes_undefined(void) {
+  pts_value items[] = {HOLE, pts_value_from_number(1), HOLE};
+  pts_array *copy = pts_array_copy_as_read(pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 3));
+  pts_value read[] = {PTS_VALUE_UNDEFINED, pts_value_from_number(1), PTS_VALUE_UNDEFINED};
+  CHECK(holds_slots(copy, read, 3));
+  pts_string *words[] = {pts_string_from_cstr("a"), NULL, pts_string_from_cstr("c")};
+  pts_array *strings = pts_array_of(&pts_array_types[PTS_FIELD_STRING], words, 3);
+  copy = pts_array_copy_as_read(strings); /* a string[] can't hold undefined: the hole stays one */
+  CHECK(copy != strings && pts_array_length_of(copy) == 3 && memcmp(copy->buffer->elements, strings->buffer->elements, 3 * sizeof(pts_string *)) == 0);
+}
+
+/* pts:parallel's sort (D-182): the elements sort compares gathered at the front of a copy, in order, then the undefineds, then the holes. */
+static void gather_moves_the_compared_elements_to_the_front(void) {
+  pts_value items[] = {PTS_VALUE_UNDEFINED, pts_value_from_number(3), HOLE, pts_value_from_number(1), PTS_VALUE_UNDEFINED, HOLE, pts_value_from_number(2)};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 7);
+  CHECK(pts_array_gather_sortable(array) == 3);
+  pts_value gathered[] = {pts_value_from_number(3), pts_value_from_number(1), pts_value_from_number(2), PTS_VALUE_UNDEFINED, PTS_VALUE_UNDEFINED, HOLE, HOLE};
+  CHECK(holds_slots(array, gathered, 7));
+}
+
+/* Whether writing sorted back into array throws a TypeError. */
+static bool write_sorted_throws_type_error(pts_array *array, const pts_array *sorted) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_array_write_sorted(array, sorted);
+    pts_try_leave(&handler);
+    return false;
+  }
+  return pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError);
+}
+
+/* The sorted copy goes back slot by slot, holes included; a frozen array throws unless nothing would be written (V8: fewer than two slots; JS: holes only). */
+static void write_sorted_stores_every_slot_unless_frozen(void) {
+  pts_value items[] = {pts_value_from_number(2), PTS_VALUE_UNDEFINED, pts_value_from_number(1)};
+  pts_value sorted_items[] = {pts_value_from_number(1), pts_value_from_number(2), HOLE};
+  pts_array *array = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 3);
+  pts_array_write_sorted(array, pts_array_of(&pts_array_types[PTS_FIELD_VALUE], sorted_items, 3));
+  CHECK(holds_slots(array, sorted_items, 3));
+  pts_array *frozen = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 3);
+  pts_value_freeze(pts_value_from_object(frozen));
+  CHECK(write_sorted_throws_type_error(frozen, pts_array_copy(frozen)));
+  CHECK(holds_slots(frozen, items, 3));
+  pts_value holes[] = {HOLE, HOLE};
+  pts_array *frozen_holes = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], holes, 2);
+  pts_value_freeze(pts_value_from_object(frozen_holes));
+  CHECK(!write_sorted_throws_type_error(frozen_holes, pts_array_copy(frozen_holes)));
+  pts_array *frozen_one = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], items, 1);
+  pts_value_freeze(pts_value_from_object(frozen_one));
+  CHECK(!write_sorted_throws_type_error(frozen_one, pts_array_copy(frozen_one)));
+}
+
 /* strings_with_a_hole is ["a", <hole>, "c"]: a racing push published the length before its element (D-038). */
 static pts_array *strings_with_a_hole(void) {
   pts_string *items[] = {pts_string_from_cstr("a"), NULL, pts_string_from_cstr("c")};
@@ -412,6 +531,12 @@ int main(int argc, char **argv) {
   splice_clamps_and_inserts();
   sort_keeps_equal_keys_in_order();
   sort_with_a_comparator_is_stable();
+  sort_puts_undefined_after_the_others_and_holes_last();
+  sort_keeps_holes_of_strings_last();
+  sort_with_never_passes_undefined_or_holes();
+  a_copy_as_read_makes_holes_undefined();
+  gather_moves_the_compared_elements_to_the_front();
+  write_sorted_stores_every_slot_unless_frozen();
   racing_pushes_lose_elements_but_stay_in_bounds();
   loads_report_holes_and_missing_elements();
   a_set_of_an_array_leaves_out_holes();

@@ -1,0 +1,60 @@
+// skip: known issue (H06b, C74): through `any`, map, forEach, some, every, reduce and reduceRight call the callback for holes, where JS skips them
+// Through `any` (dynamic method dispatch), map, forEach, some, every, reduce and
+// reduceRight skip an array's holes, as JS does: the callback isn't called for them, map
+// keeps them as holes, and reduce with no initial value over only holes throws
+// TypeError. pts called the callbacks for holes, as undefined (C74, H06). filter and
+// find already behaved, and are here as controls.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function holes(): any {
+  const a = new Array<string>(4);
+  a[1] = "b";
+  a[3] = "d";
+  return a;
+}
+function mixed(): any {
+  const a: any[] = new Array(3);
+  a[0] = 1;
+  a[2] = "z";
+  return a;
+}
+let visited: number[] = [];
+function visits(): number[] {
+  const v = visited;
+  visited = [];
+  return v;
+}
+show("map", () => holes().map((x: any) => x + "!"));
+show("forEach", () => {
+  holes().forEach((x: any, i: number) => {
+    visited.push(i);
+  });
+  return visits();
+});
+show("some", () => [holes().some((x: any) => x === undefined), mixed().some((x: any, i: number) => (visited.push(i), false)), visits()]);
+show("every", () => [holes().every((x: any) => typeof x === "string"), mixed().every((x: any, i: number) => (visited.push(i), true)), visits()]);
+show("reduce", () => holes().reduce((acc: any, x: any) => acc + x, ""));
+show("reduceRight", () => mixed().reduceRight((acc: any, x: any) => acc + String(x), ""));
+show("map any[]", () => mixed().map((x: any) => String(x)));
+show("only holes reduce no initial", () => (new Array<string>(2) as any).reduce((acc: any, x: any) => acc + x));
+show("only holes reduceRight no initial", () => (new Array<string>(2) as any).reduceRight((acc: any, x: any) => acc + x));
+show("filter", () => holes().filter(() => true));
+show("find", () => [holes().find((x: any) => x === undefined), holes().findIndex((x: any) => x === undefined)]);
+
+// expect:
+// map [ <1 empty item>, 'b!', <1 empty item>, 'd!' ]
+// forEach [ 1, 3 ]
+// some [ false, false, [ 0, 2 ] ]
+// every [ true, true, [ 0, 2 ] ]
+// reduce bd
+// reduceRight z1
+// map any[] [ '1', <1 empty item>, 'z' ]
+// only holes reduce no initial threw TypeError
+// only holes reduceRight no initial threw TypeError
+// filter [ 'b', 'd' ]
+// find [ undefined, 0 ]

@@ -1,0 +1,17 @@
+// skip: known issue (H06b, C90): `i in a` is true for a hole of an array, where JS's HasProperty is false
+// `i in a` is HasProperty: false for a hole, true for an element that is undefined, typed
+// and through `any`. pts said true for every index below the length (found by H06's parent).
+const maybe = new Array<string | undefined>(3);
+maybe[0] = "x";
+maybe[2] = undefined;
+const words = new Array<string>(3);
+words[1] = "y";
+const viaAny: any = words;
+console.log(0 in maybe, 1 in maybe, 2 in maybe, 3 in maybe);
+console.log(0 in words, 1 in words, 2 in words);
+console.log(0 in viaAny, 1 in viaAny, "1" in viaAny);
+
+// expect:
+// true false true false
+// false true false
+// false true true

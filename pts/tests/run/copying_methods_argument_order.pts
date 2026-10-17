@@ -1,0 +1,39 @@
+// toSorted and toSpliced evaluate their arguments before they copy the array, as JS's
+// methods do, so an argument that changes the array is seen in the copy; with already did.
+// pts copied first (review round 1, F6). A typed array's sort(compare), which sorts its
+// elements as a number[] and writes them back, takes the copy after the comparator too
+// (review round 2, R2-1).
+const log: string[] = [];
+const values = [3, 1, 2];
+function optional(): ((a: number, b: number) => number) | undefined {
+    values.push(0);
+    log.push("comparator");
+    return undefined;
+}
+function required(): (a: number, b: number) => number {
+    values.push(-1);
+    return (a, b) => a - b;
+}
+function item(): number {
+    values.push(9);
+    return 7;
+}
+console.log("toSorted optional", String(values.toSorted(optional())));
+console.log("toSorted required", String(values.toSorted(required())));
+console.log("toSpliced", String(values.toSpliced(0, 1, item())));
+console.log("with", String(values.with(0, item())));
+console.log("values", String(values), log);
+const typed = new Int32Array([3, 1, 2]);
+function changesTyped(): (a: number, b: number) => number {
+    typed[0] = 0;
+    return (a, b) => a - b;
+}
+console.log("typed sort", typed.sort(changesTyped()));
+
+// expect:
+// toSorted optional 0,1,2,3
+// toSorted required -1,0,1,2,3
+// toSpliced 7,1,2,0,-1,9
+// with 7,1,2,0,-1,9,9
+// values 3,1,2,0,-1,9,9 [ 'comparator' ]
+// typed sort Int32Array(3) [ 0, 1, 2 ]

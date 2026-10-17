@@ -572,23 +572,30 @@ func (l *lowerer) typedArraySet(array ir.Expr, args []*ast.Node) ir.Expr {
 }
 
 // typedSortWith lowers a.sort(compare) (or a.toSorted(compare), on a copy) for a typed
-// array a: Array's sort of its elements as numbers, written back.
+// array a: Array's sort of its elements as numbers, written back; for an undefined
+// compare, the typed array's own sort (numeric).
 func (l *lowerer) typedSortWith(array ir.Expr, compare *ast.Node, copy bool) ir.Expr {
 	class := array.Type().(*ir.Class)
+	steps := sortSteps{
+		comparator: l.funcType([]ir.Type{ir.Number, ir.Number}, ir.Number),
+		byDefault:  func(receiver ir.Expr) ir.Expr { return l.callExtern("pts_typed_array_sort", class, receiver) },
+		byComparator: func(receiver, compare ir.Expr) ir.Expr { // the elements copied after compare is evaluated
+			sorted, comparator, numbers := l.newLocal("sorted", class), l.newLocal("compare", compare.Type()), l.newLocal("numbers", ir.NumberArray)
+			sort := &ir.ArrayCall{Op: ir.ArraySortWith, Args: []ir.Expr{&ir.LocalRef{Local: numbers}, &ir.LocalRef{Local: comparator}}}
+			write := l.callExtern("pts_typed_array_set_array", ir.Void, &ir.LocalRef{Local: sorted}, &ir.LocalRef{Local: numbers}, &ir.NumberConst{Value: 0})
+			return &ir.Bind{Local: sorted, Value: receiver, In: &ir.Bind{Local: comparator, Value: compare, In: &ir.Bind{
+				Local: numbers,
+				Value: l.callExtern("pts_typed_array_to_array", ir.NumberArray, &ir.LocalRef{Local: sorted}),
+				In:    &ir.Sequence{X: sort, Y: &ir.Sequence{X: write, Y: &ir.LocalRef{Local: sorted}}},
+			}}}
+		},
+	}
 	if copy {
-		array = l.callExtern("pts_typed_array_slice", class, array, fromStart, toEnd)
+		steps.copy = func(receiver ir.Expr) ir.Expr {
+			return l.callExtern("pts_typed_array_slice", class, receiver, fromStart, toEnd)
+		}
 	}
-	sorted, numbers := l.newLocal("sorted", class), l.newLocal("numbers", ir.NumberArray)
-	sort := l.sortWith(&ir.LocalRef{Local: numbers}, compare)
-	if sort == nil {
-		return nil
-	}
-	write := l.callExtern("pts_typed_array_set_array", ir.Void, &ir.LocalRef{Local: sorted}, &ir.LocalRef{Local: numbers}, &ir.NumberConst{Value: 0})
-	return &ir.Bind{Local: sorted, Value: array, In: &ir.Bind{
-		Local: numbers,
-		Value: l.callExtern("pts_typed_array_to_array", ir.NumberArray, &ir.LocalRef{Local: sorted}),
-		In:    &ir.Sequence{X: sort, Y: &ir.Sequence{X: write, Y: &ir.LocalRef{Local: sorted}}},
-	}}
+	return l.sortWith(array, compare, steps)
 }
 
 // isTypedArrayIteration reports whether node is `a.keys()`, `a.values()` or `a.entries()` of a typed array.

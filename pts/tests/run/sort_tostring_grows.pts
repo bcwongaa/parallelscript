@@ -1,0 +1,25 @@
+// sort() without a comparator writes its result into the array as it is after the
+// elements' toString calls, so a toString that grows the array (here once, by 100 pushes,
+// which move its elements to a bigger buffer) doesn't lose the sort. pts wrote into the
+// buffer it had read first (review round 1, F7).
+const items: (T | undefined)[] = [];
+let grown = false;
+class T {
+    constructor(readonly n: number) {}
+
+    toString(): string {
+        if (!grown) {
+            grown = true;
+            for (let i = 0; i < 100; i++) {
+                items.push(undefined);
+            }
+        }
+        return String(this.n);
+    }
+}
+items.push(new T(3), undefined, new T(1), new T(2), undefined);
+items.sort();
+console.log(items.slice(0, 6), items.length);
+
+// expect:
+// [ T { n: 1 }, T { n: 2 }, T { n: 3 }, undefined, undefined, undefined ] 105

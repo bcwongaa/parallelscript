@@ -1,0 +1,17 @@
+// An undefined comparator is the default order however it is written: `(undefined)`,
+// `void 0` or a const that holds undefined, after the argument is evaluated. A parameter
+// named `undefined` is a comparator like any other. pts read the name `undefined` as the
+// value (review round 1, F5); the other spellings were PTS1001.
+function sortBy(undefined: (a: number, b: number) => number): number[][] {
+    return [[3, 20, 100].sort(undefined), [3, 20, 100].toSorted(undefined)];
+}
+console.log(sortBy((a, b) => a - b));
+const nothing = undefined;
+let evaluated = 0;
+console.log([3, 20, 100].sort((undefined)), [3, 20, 100].sort(void 0), [3, 20, 100].toSorted(nothing));
+console.log([3, 20, 100].sort(void evaluated++), [3, 20, 100].toSorted(void evaluated++), evaluated);
+
+// expect:
+// [ [ 3, 20, 100 ], [ 3, 20, 100 ] ]
+// [ 100, 20, 3 ] [ 100, 20, 3 ] [ 100, 20, 3 ]
+// [ 100, 20, 3 ] [ 100, 20, 3 ] 2

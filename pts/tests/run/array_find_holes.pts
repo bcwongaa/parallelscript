@@ -1,0 +1,55 @@
+// skip: known issue (H06b, C88): typed find, findIndex, findLast and findLastIndex throw RangeError at holes where the element type holds undefined
+// find, findIndex, findLast and findLastIndex visit every index, holes too, which they
+// read as undefined; where the element type can hold undefined ((T | undefined)[], any[],
+// unknown[]) the callback gets undefined for each hole, as in JS. pts read each element
+// as a required one and threw RangeError at the first hole (H06's audit). Through `any`
+// they already behaved (a control here). For element types without undefined, a hole
+// reaching the callback is D-085's RangeError where an element is required.
+function show(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (e) {
+    console.log(label, "threw", (e as Error).name);
+  }
+}
+function maybe(): (string | undefined)[] {
+  const a = new Array<string | undefined>(4);
+  a[1] = "b";
+  a[2] = undefined;
+  return a;
+}
+function mixed(): any[] {
+  const a: any[] = new Array(3);
+  a[0] = 1;
+  return a;
+}
+function unknowns(): unknown[] {
+  const a = new Array<unknown>(3);
+  a[2] = "u";
+  return a;
+}
+let visited: number[] = [];
+function visits(): number[] {
+  const v = visited;
+  visited = [];
+  return v;
+}
+show("maybe find", () => [maybe().find((x, i) => (visited.push(i), x === undefined && i > 1)), visits()]);
+show("maybe findIndex", () => [maybe().findIndex((x) => x === undefined), maybe().findIndex((x) => x === "b")]);
+show("maybe findLast", () => [maybe().findLast((x, i) => (visited.push(i), false)), visits()]);
+show("maybe findLastIndex", () => maybe().findLastIndex((x) => x === undefined));
+show("any find", () => [mixed().find((x) => x === undefined), mixed().findIndex((x) => x === undefined)]);
+show("any findLast", () => [mixed().findLast((x) => x !== 1), mixed().findLastIndex((x) => x !== 1)]);
+show("unknown find", () => [unknowns().find((x) => x !== undefined), unknowns().findIndex((x) => x === undefined)]);
+const viaAny: any = maybe();
+show("via any", () => [viaAny.find((x: any) => x === undefined), viaAny.findLastIndex((x: any) => x === undefined)]);
+
+// expect:
+// maybe find [ undefined, [ 0, 1, 2 ] ]
+// maybe findIndex [ 0, 1 ]
+// maybe findLast [ undefined, [ 3, 2, 1, 0 ] ]
+// maybe findLastIndex 3
+// any find [ undefined, 1 ]
+// any findLast [ undefined, 2 ]
+// unknown find [ 'u', 0 ]
+// via any [ undefined, 3 ]

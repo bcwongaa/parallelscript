@@ -81,7 +81,7 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 	case ir.ArrayAt:
 		c = fmt.Sprintf("pts_array_at(%s, %s)", args[0], args[1])
 	case ir.ArrayCopy:
-		c = fmt.Sprintf("pts_array_copy(%s)", args[0])
+		c = fmt.Sprintf("pts_array_copy_as_read(%s)", args[0]) // the copying methods read holes as undefined (D-085)
 	case ir.ArrayWith:
 		c = fmt.Sprintf("pts_array_with(%s, %s, (%s[]){%s})", args[0], args[1], elem, args[2])
 	case ir.ArrayKeys:

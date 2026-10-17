@@ -1,0 +1,36 @@
+// Without a comparator, sort() and toSorted() compare null by its string "null"
+// (SortCompare's ToString), not as the empty string: `[20, null, 3].sort()` is
+// [ 20, 3, null ] and "nuk" < "null" < "nz". pts gave null the string "" and sorted it
+// first (C06, H06). Typed and through `any`, with undefined still last.
+class P {
+  constructor(public x: number) {}
+  toString(): string {
+    return "P" + this.x;
+  }
+}
+const numbers: (number | null)[] = [20, null, 3, 100];
+console.log(numbers.sort());
+const strings: (string | null)[] = ["nz", null, "a", "nuk"];
+console.log(strings.toSorted(), strings.sort());
+const points: (P | null)[] = [new P(1), null, new P(2)];
+console.log(points.sort());
+const mixed: any[] = ["o", null, 3, "nuk"];
+console.log(mixed.sort());
+const both: (string | null | undefined)[] = [undefined, "nz", null, "a"];
+console.log(both.sort());
+const unknowns: unknown[] = [null, "nv", undefined, "nul"];
+console.log(unknowns.toSorted());
+const viaAny: any = [20, null, 3];
+console.log(viaAny.sort(), viaAny.toSorted());
+const stringsViaAny: any = ["nz", null, "a", "nuk"];
+console.log(stringsViaAny.sort());
+
+// expect:
+// [ 100, 20, 3, null ]
+// [ 'a', 'nuk', null, 'nz' ] [ 'a', 'nuk', null, 'nz' ]
+// [ P { x: 1 }, P { x: 2 }, null ]
+// [ 3, 'nuk', null, 'o' ]
+// [ 'a', null, 'nz', undefined ]
+// [ 'nul', null, 'nv', undefined ]
+// [ 20, 3, null ] [ 20, 3, null ]
+// [ 'a', 'nuk', null, 'nz' ]

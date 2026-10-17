@@ -1,0 +1,95 @@
+// `.par.sort(compare)` is Array's sort (D-124): the comparator never sees undefined, the
+// undefineds go after every defined element and the holes after them, and equal keys
+// keep their order, at every thread count. With 2+ threads pts:parallel sorts pieces
+// as copies and merges more than 2048 elements itself, calling the comparator. pts
+// passed undefined to the comparator on every path, and with 2+ threads turned holes
+// into undefineds (C06, H06). The expected output is a sequential Node program's
+// (`.par.sort` as `sort`, the AtomicInt as a counter: oracles/parallel_sort_undefined.oracle.mts
+// in docs/agent/hardening-evidence/h06-parent-probes.tar.gz).
+// threads: 1 2 4
+import { AtomicInt } from "pts:sync";
+
+const undefinedArguments = new AtomicInt();
+function byNumber(a: number | undefined, b: number | undefined): number {
+    if (a === undefined || b === undefined) {
+        undefinedArguments.add(1);
+        return 0;
+    }
+    return a - b;
+}
+function sawUndefined(): boolean {
+    const saw = undefinedArguments.load() > 0;
+    undefinedArguments.store(0);
+    return saw;
+}
+
+// 6000 slots: 4800 numbers, 600 undefined, 600 holes.
+const big = new Array<number | undefined>(6000);
+for (let i = 0; i < 6000; i++) {
+    if (i % 10 === 0) {
+        big[i] = undefined;
+    } else if (i % 10 !== 5) {
+        big[i] = (i * 7919) % 6000;
+    }
+}
+let sumBefore = 0;
+for (let i = 0; i < 6000; i++) {
+    sumBefore += big[i] ?? 0;
+}
+big.par.sort(byNumber);
+let sumAfter = 0;
+for (let i = 0; i < 4800; i++) {
+    sumAfter += big[i] ?? 0;
+}
+console.log("big kept", sumAfter === sumBefore, big.slice(4800, 5400).every((x) => x === undefined), big.slice(5400).flat().length === 0);
+let ascending = true;
+for (let i = 1; i < 4800; i++) {
+    const before: number | undefined = big[i - 1];
+    const here: number | undefined = big[i];
+    if (before === undefined || here === undefined || before > here) {
+        ascending = false;
+    }
+}
+console.log("big", big.slice(0, 3), ascending, big.slice(4798, 4802), big.slice(5398, 5402), big.slice(5998));
+console.log("big comparator saw undefined:", sawUndefined());
+
+// Stability with undefined: 6000 slots, one in eight undefined.
+class Item {
+    constructor(public key: number, public index: number) {}
+}
+const items: (Item | undefined)[] = [];
+for (let i = 0; i < 6000; i++) {
+    items.push(i % 8 === 3 ? undefined : new Item((i * 7919) % 50, i));
+}
+items.par.sort((a, b) => {
+    if (a === undefined || b === undefined) {
+        undefinedArguments.add(1);
+        return a === undefined ? (b === undefined ? 0 : -1) : 1;
+    }
+    return a.key - b.key;
+});
+let stable = true;
+for (let i = 1; i < 5250; i++) {
+    const p = items[i - 1];
+    const q = items[i];
+    if (p === undefined || q === undefined || p.key > q.key || (p.key === q.key && p.index > q.index)) {
+        stable = false;
+    }
+}
+console.log("items", stable, items[0], items.slice(5249, 5251));
+console.log("items comparator saw undefined:", sawUndefined());
+
+// One small piece.
+const small = new Array<number | undefined>(5);
+small[0] = 3;
+small[1] = undefined;
+small[3] = 1;
+console.log("small", small.par.sort(byNumber), sawUndefined());
+
+// expect:
+// big kept true true true
+// big [ 1, 2, 3 ] true [ 5998, 5999, undefined, undefined ] [ undefined, undefined, <2 empty items> ] [ <2 empty items> ]
+// big comparator saw undefined: false
+// items true Item { key: 0, index: 0 } [ Item { key: 49, index: 5921 }, undefined ]
+// items comparator saw undefined: false
+// small [ 1, 3, undefined, <2 empty items> ] false
