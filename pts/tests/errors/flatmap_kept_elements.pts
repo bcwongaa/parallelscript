@@ -1,0 +1,215 @@
+// flatMap's leaves that a copy into the result's element type would make other values than
+// JS's are PTS1001 (D-181). An array the callback returns in an array literal is a kept
+// array unless it is new at each call: a const declared outside the callback holds the same
+// array at each call, even if the callback is its only use (H05 review round 6, finding 1:
+// copied silently, also in a conditional, a sorted const and a nested literal, and as a
+// tuple's array field). A spread of a tuple moves a nested tuple literal's later elements to
+// later fields (finding 2), and a nested tuple literal under `as const` or `satisfies` is
+// checked as the literal is (finding 4); the elements of a map's new tuples, of a spread in a
+// nested literal and a spread's kept arrays are checked too. An object a map, a const or a
+// cast makes isn't made as the result's element type, so it is checked by the type it is made
+// as (rounds 7-10: copies into the interface's shape lost kept properties' identity and
+// extra, misordered and left-out properties); a tuple a cast, an annotation or an annotated
+// map callback makes is reported where an array goes (round 7: a TypeError at run time); an
+// iterable's spread values are of the literal's element type (round 8). A shorthand property
+// and its default are uses of their consts, and an exported const may be used in other files,
+// here and in D-094's regular conversions (rounds 8 and 9: copied silently). A hash map, a
+// map or a set where one of other types goes, also as a union's member, and an object where a
+// hash map goes are reported (rounds 10 and 11: copied silently, or a TypeError at run time).
+// A new literal going where a hash map goes is checked value by value, and by its type if it
+// has an accessor or its type has optional properties (round 12: the commit copied the
+// getter's literal as `{}` and gave the shorter literal the longer one's keys, silently).
+interface J {
+  x: number | string;
+}
+class C {
+  constructor(public x: number) {}
+}
+const c = new C(1);
+const out1 = [1];
+console.log([1, 2].flatMap<(number | string)[]>(() => [out1]));
+const out2 = [1];
+console.log([1, 2].flatMap<(number | string)[]>((i) => [i > 0 ? out2 : [i]]));
+const out3 = [3, 1];
+console.log([1, 2].flatMap<(number | string)[]>(() => [out3.sort()]));
+const out4 = [1];
+console.log([1, 2].flatMap<(number | string)[][]>(() => [[out4]]));
+const ws = ["w"];
+console.log([1, 2].flatMap<[number, (string | number)[]]>((i) => [[i, ws]]));
+const p: [number, number] = [1, 2];
+console.log([1].flatMap<[number, number, J]>(() => [[...p, c]]));
+console.log([1].flatMap<readonly [J, number]>(() => [[c, 1] as const]));
+console.log([1].flatMap<[J, number]>(() => [[c, 1] satisfies [C, number]]));
+const hs = [{ arr: [1] }];
+console.log([1].flatMap<(number | string)[]>(() => hs.map((h) => h.arr)));
+const ns = [1];
+console.log([1].flatMap<[J, number]>(() => ns.map((m): [C, number] => [c, m])));
+const cs: C[] = [c];
+console.log([1].flatMap<J[]>(() => [[...cs]]));
+const nested = [[1], [2]];
+console.log([1].flatMap<(number | string)[]>(() => [...nested]));
+console.log(
+  [1].flatMap<(number | string)[]>((i) => {
+    const a = [i];
+    return [0, 1].map(() => a);
+  }),
+);
+interface H {
+  arr: (number | string)[];
+}
+const kept = [1];
+console.log([1].flatMap<H>(() => ns.map(() => ({ arr: kept }))));
+console.log([1].flatMap<{ c: J }>(() => ns.map(() => ({ c }))));
+const kept2 = [1];
+console.log(
+  [1, 2].flatMap<H>(() => {
+    const a = [{ arr: kept2 }];
+    return a;
+  }),
+);
+const kept3 = [1];
+console.log([1, 2].flatMap<H>(() => [{ arr: kept3 }] as { arr: number[] }[]));
+console.log([1, 2].flatMap<(number | string)[]>((i) => [[i, "a"] as [number, string]]));
+console.log([1].flatMap<(number | string)[]>(() => ns.map((m): [number, string] => [m, "a"])));
+console.log(
+  [1, 2].flatMap<(number | string)[]>((i) => {
+    const a: [number, string][] = [[i, "a"]];
+    return a;
+  }),
+);
+interface K {
+  x: number | string;
+  y: number;
+}
+console.log([1].flatMap<K>(() => ns.map((m) => ({ y: m, x: m }))));
+interface Item {
+  name: string;
+  qty: number | string;
+}
+const orders = [{ id: 1, lines: ["a", "b"] }];
+console.log(orders.flatMap<Item>((o) => o.lines.map((line) => ({ name: line, qty: 1, order: o.id }))));
+const kept4 = [1];
+console.log([1, 2].flatMap<(number | string)[]>(() => [...new Set([kept4])]));
+const kept5 = [1];
+function* gen() {
+  yield kept5;
+}
+console.log([1].flatMap<(number | string)[]>(() => [...gen()]));
+const kept6 = [1];
+console.log(
+  [1, 2].flatMap<(number | string)[]>(() => {
+    const a = [...new Set([kept6])];
+    return a;
+  }),
+);
+const seen: { a: number[] }[] = [];
+console.log(
+  [1].flatMap<(number | string)[]>(() =>
+    ns.map((m) => {
+      const a = [m];
+      seen.push({ a });
+      return a;
+    }),
+  ),
+);
+const shared = [1];
+const holder = { shared };
+const widened: (number | string)[] = shared;
+console.log(holder, widened);
+interface Q {
+  z: number | string;
+  a: number;
+}
+console.log([1].flatMap<Q>(() => ns.map((m) => ({ a: m, z: m }))));
+interface Base {
+  a: number | string;
+}
+interface Derived extends Base {
+  b: number;
+}
+console.log([1].flatMap<Derived>(() => ns.map((m) => ({ a: m, b: m * 10 }))));
+let taken: number[] = [];
+console.log(
+  [1].flatMap<(number | string)[]>(() => {
+    const arr = [1, 2];
+    ({ taken = arr } = {} as { taken?: number[] });
+    return [arr];
+  }),
+  taken,
+);
+export const exported = [1];
+const exportedWide: (number | string)[] = exported;
+console.log(exportedWide);
+interface Outer {
+  r: Record<string, number | string>;
+  id: number;
+}
+const sharedRecord: Record<string, number> = { a: 1 };
+console.log([1].flatMap<Outer>(() => ns.map((k) => ({ r: sharedRecord, id: k }))));
+const sharedRecord2: Record<string, number> = { a: 1 };
+console.log([1].flatMap<Record<string, number | string>>(() => [sharedRecord2]));
+interface Dependent {
+  id: string;
+  deps: Set<string | number>;
+}
+console.log([["a", "b"]].flatMap<Dependent>((g) => g.map((name) => ({ id: name, deps: new Set([name.length]) }))));
+console.log([1].flatMap<Map<string, number | string>>(() => ns.map((k) => new Map([["k", k]]))));
+const sharedRecord3: Record<string, number> = { a: 1 };
+console.log([1].flatMap<Record<string, number | string> | null>(() => [sharedRecord3]));
+console.log([1].flatMap<Record<string, number | string> | Record<string, boolean>>(() => [sharedRecord3]));
+interface A {
+  a: number;
+}
+console.log([1].flatMap<A | Record<string, number | string>>(() => [sharedRecord3]));
+const plain = { a: 1 };
+console.log([1].flatMap<Record<string, number>>(() => [plain]));
+const map = new Map<string, number>([["k", 1]]);
+console.log([1].flatMap<Map<string, number | string> | undefined>(() => [map]));
+const keptValues = [5];
+console.log([1].flatMap<Record<string, (number | string)[]>>(() => ns.map(() => ({ keptValues }))));
+console.log([1].flatMap<Record<string, number>>(() => ns.map((m) => ({ get a() { return m; } }))));
+console.log([1].flatMap<Record<string, number | undefined>>(() => ns.map((m) => (m > 1 ? { a: m, b: 1 } : { a: m }))));
+
+// error: flatmap_kept_elements.pts:30:56 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:32:65 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:34:56 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:36:59 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:38:71 - error PTS1001: using a string[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:40:60 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:41:55 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:42:46 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:44:66 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:46:72 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:48:41 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:50:56 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:54:29 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:61:48 - error PTS1001: using a `{arr: number[]}` as a `{arr: (number | string)[]}`, whose `arr` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:62:55 - error PTS1001: using a `{c: C}` as a `{c: {x: number | string}}`, whose `c` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:66:16 - error PTS1001: using a `{arr: number[]}` as a `{arr: (number | string)[]}`, whose `arr` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:71:38 - error PTS1001: using a `{arr: number[]}` as a `{arr: (number | string)[]}`, whose `arr` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:72:57 - error PTS1001: using a `[number, string]` as a `(number | string)[]` is not supported yet
+// error: flatmap_kept_elements.pts:73:84 - error PTS1001: using a `[number, string]` as a `(number | string)[]` is not supported yet
+// error: flatmap_kept_elements.pts:75:39 - error PTS1001: using a `[number, string]` as a `(number | string)[]` is not supported yet
+// error: flatmap_kept_elements.pts:84:49 - error PTS1001: using a `{x: number; y: number}` as a `{x: number | string; y: number}`, whose `x` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:90:64 - error PTS1001: using a `{name: string; order: number; qty: number}` as a `{name: string; qty: number | string}`, whose `qty` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:92:56 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:97:53 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:101:16 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:111:14 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:117:38 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:123:49 - error PTS1001: using a `{a: number; z: number}` as a `{a: number; z: number | string}`, whose `z` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:130:55 - error PTS1001: using a `{a: number; b: number}` as a `{a: number | string; b: number}`, whose `a` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:136:13 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:141:43 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:148:53 - error PTS1001: using a `{id: number; r: Record<string, number>}` as a `{id: number; r: Record<string, number | string>}`, whose `r` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:150:65 - error PTS1001: converting Record<string, number> to Record<string, number | string> is not supported yet
+// error: flatmap_kept_elements.pts:155:69 - error PTS1001: using a `{deps: Set<number>; id: string}` as a `{deps: Set<number | string>; id: string}`, whose `deps` it doesn't provide with the same types, is not supported yet
+// error: flatmap_kept_elements.pts:156:75 - error PTS1001: converting Map<string, number> to Map<string, number | string> is not supported yet
+// error: flatmap_kept_elements.pts:158:72 - error PTS1001: converting Record<string, number> to Record<string, number | string> | null is not supported yet
+// error: flatmap_kept_elements.pts:159:91 - error PTS1001: converting Record<string, number> to Record<string, boolean> | Record<string, number | string> is not supported yet
+// error: flatmap_kept_elements.pts:163:69 - error PTS1001: converting Record<string, number> to Record<string, number | string> | {a: number} is not supported yet
+// error: flatmap_kept_elements.pts:165:56 - error PTS1001: using a `{a: number}` as a hash-map object (`Record<string, number>`) is not supported yet
+// error: flatmap_kept_elements.pts:167:74 - error PTS1001: converting Map<string, number> to Map<string, number | string> | undefined is not supported yet
+// error: flatmap_kept_elements.pts:169:84 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_kept_elements.pts:170:70 - error PTS1001: using a `{a: number}` as a hash-map object (`Record<string, number>`) is not supported yet
+// error: flatmap_kept_elements.pts:171:107 - error PTS1001: using a `{a: number; b?: number | undefined}` as a hash-map object (`Record<string, number | undefined>`) is not supported yet

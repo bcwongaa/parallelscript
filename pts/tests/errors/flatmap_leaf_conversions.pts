@@ -74,7 +74,7 @@ const pairJ: [J, number][] = [1].flatMap<[J, number]>(() => [[c, 1]]);
 // error: flatmap_leaf_conversions.pts:41:41 - error PTS1001: converting T to {tag: string; x: number | string} | {y: number | string} is not supported yet
 // error: flatmap_leaf_conversions.pts:42:38 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
 // error: flatmap_leaf_conversions.pts:50:35 - error PTS1001: using a `E` as a `F` is not supported yet
-// error: flatmap_leaf_conversions.pts:64:46 - error PTS1001: using a [number, string] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
+// error: flatmap_leaf_conversions.pts:64:46 - error PTS1001: using a `[number, string]` as a `(number | string)[]` is not supported yet
 // error: flatmap_leaf_conversions.pts:66:49 - error PTS1001: using a number[] as a (number | string)[] where it may be changed or kept (a copy wouldn't show the changes; a new array, or one passed to a parameter that is only read, is copied) is not supported yet
 // error: flatmap_leaf_conversions.pts:67:63 - error PTS1001: using a `C` as a `{x: number | string}`, whose `x` it doesn't provide with the same types, is not supported yet
 // error: flatmap_leaf_conversions.pts:62:30 - error PTS1001: using a `A` as a `{name: string; note?: string | undefined}`, when it may refer to a `B` that holds `note` as another type, is not supported yet

@@ -1,0 +1,25 @@
+// An array or a tuple shorter than a tuple type by its optional elements converts to it,
+// leaving them out (D-100): flatMap's leaves and dynamic data (H05 review round 6, finding
+// 5: each threw `TypeError: Expected [number, string | undefined]…, got Array`, where JS has
+// no conversion). Elements left out read as undefined and aren't `in` the tuple.
+const r = [1, 2].flatMap<[number, string?]>((i) => [[i], [i, "s"]]);
+console.log(JSON.stringify(r), r[0].length, r[1].length);
+type Three = [number, string?, boolean?];
+const three = [1].flatMap<Three>(() => [[1], [2, "s"], [3, "t", true]]);
+console.log(JSON.stringify(three), three.map((t) => t.length).join(","));
+console.log(three[0][1], three[0][2], 1 in three[0], 2 in three[1], 2 in three[2]);
+const anyPairs: any = [[1], [2, "b"]];
+const typed: [number, string?][] = anyPairs;
+console.log(JSON.stringify(typed), typed[0].length, typed[1][1]);
+type Inner = [number, string?];
+type Outer = [Inner, Inner?];
+const data: any = JSON.parse('[[[1]], [[2, "b"], [3]]]');
+const outers: Outer[] = data;
+console.log(JSON.stringify(outers), outers[0].length, outers[1].length, outers[1][1]?.length);
+
+// expect:
+// [[1],[1,"s"],[2],[2,"s"]] 1 2
+// [[1],[2,"s"],[3,"t",true]] 1,2,3
+// undefined undefined false false true
+// [[1],[2,"b"]] 1 b
+// [[[1]],[[2,"b"],[3]]] 1 2 1

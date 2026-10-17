@@ -1,0 +1,84 @@
+// Hash-map objects among a flatMap callback's leaves (H05 review round 11). A literal made as
+// the result's hash-map type (by an annotated mapper or const, Array.of's type argument or a
+// cast) is that object (finding 1); a new literal reached through a mapper, where a hash-map
+// object or an interface of numeric keys goes, is copied into one, its values stored where
+// the hash map's go (finding 2); and an annotated const's elements are converted where it is
+// declared, so its initializer's mapper isn't checked again (finding 3). Each was PTS1001 in
+// the version round 11 reviewed, where the commit, the base and Node agreed. A new literal
+// where a union goes whose one hash-map member holds it is copied into that member (round
+// 12: PTS1001 on the commit).
+const groups = [["a", "b"], ["c"]];
+type Rec = Record<string, number | string>;
+console.log(JSON.stringify(groups.flatMap<Rec>((g) => g.map((k): Rec => ({ [k]: k.length })))));
+console.log(
+  JSON.stringify(
+    groups.flatMap<Rec>((g) => {
+      const rec: Rec = { [g[0]]: g.length };
+      return [rec];
+    }),
+  ),
+);
+console.log(
+  JSON.stringify(
+    groups.flatMap<Rec>((g) => {
+      const recs: Rec[] = [{ [g[0]]: g.length }];
+      return recs;
+    }),
+  ),
+);
+console.log(JSON.stringify(groups.flatMap<Rec>((g) => Array.of<Rec>({ [g[0]]: g.length }))));
+console.log(JSON.stringify(groups.flatMap<Rec>((g) => [{ [g[0]]: g.length }] as Rec[])));
+console.log(JSON.stringify(groups.flatMap<Rec>((g) => g.map((k) => ({ [k]: k.length })))));
+const ns = [1, 2];
+console.log(JSON.stringify([1].flatMap<Record<number, number | string>>(() => ns.map((m) => ({ 0: m, 1: m * 2 })))));
+console.log(JSON.stringify([1].flatMap<Record<string, number>>(() => ns.map((k) => ({ a: k, b: k * 2 })))));
+interface N {
+  0: number | string;
+}
+console.log(JSON.stringify([1].flatMap<N>(() => ns.map((m) => ({ 0: m })))));
+console.log(JSON.stringify([1].flatMap<N | null>(() => ns.map((m) => ({ 0: m })))));
+interface P {
+  a: number;
+  z: number | string;
+}
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<P>((i) => {
+      const a: P[] = ns.map((m) => ({ a: m, z: m + i }));
+      return a;
+    }),
+  ),
+);
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<P>((i) => {
+      const a: P[] = ns.map((m) => ({ a: m, z: m + i })).filter((p) => p.a > 1);
+      return a;
+    }),
+  ),
+);
+const toRecordOrNull = [1].flatMap<Rec | null>(() => ns.map((m) => ({ a: m, b: m * 2 })));
+const first = toRecordOrNull[0];
+if (first) {
+  first["c"] = "s";
+  console.log(JSON.stringify(toRecordOrNull), Object.keys(first).join(","));
+}
+console.log(JSON.stringify([1].flatMap<Rec | string>(() => ns.map((m) => ({ a: m, b: m * 2 })))));
+console.log(JSON.stringify([1].flatMap<Rec | { a: number }>(() => ns.map((m) => ({ a: m, b: m * 2 })))));
+
+// expect:
+// [{"a":1},{"b":1},{"c":1}]
+// [{"a":2},{"c":1}]
+// [{"a":2},{"c":1}]
+// [{"a":2},{"c":1}]
+// [{"a":2},{"c":1}]
+// [{"a":1},{"b":1},{"c":1}]
+// [{"0":1,"1":2},{"0":2,"1":4}]
+// [{"a":1,"b":2},{"a":2,"b":4}]
+// [{"0":1},{"0":2}]
+// [{"0":1},{"0":2}]
+// [{"a":1,"z":2},{"a":2,"z":3},{"a":1,"z":3},{"a":2,"z":4}]
+// [{"a":2,"z":3},{"a":2,"z":4}]
+// [{"a":1,"b":2,"c":"s"},{"a":2,"b":4}] a,b,c
+// [{"a":1,"b":2},{"a":2,"b":4}]
+// [{"a":1,"b":2},{"a":2,"b":4}]

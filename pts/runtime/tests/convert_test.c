@@ -59,11 +59,65 @@ static void a_self_containing_array_converts_without_looping(void) {
   CHECK(pts_array_element(copy, 0) == self);                        /* an any[] fits as it is */
 }
 
+/* [number, any?]: a tuple whose second element is optional (D-100). */
+typedef struct {
+  pts_object header;
+  double first;
+  pts_value second;
+} optional_pair;
+static const pts_field optional_pair_fields[] = {
+    {"0", offsetof(optional_pair, first), PTS_FIELD_NUMBER, NULL},
+    {"1", offsetof(optional_pair, second), PTS_FIELD_VALUE, NULL},
+};
+static const pts_type optional_pair_type = {
+    .kind = PTS_KIND_TUPLE,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(optional_pair, second)),
+    .name = "Array",
+    .size = sizeof(optional_pair),
+    .field_count = 2,
+    .fields = optional_pair_fields,
+};
+static const pts_check_property optional_pair_elements[] = {
+    {"0", &number_check, false, offsetof(optional_pair, first)},
+    {"1", &any_check, true, offsetof(optional_pair, second)},
+};
+static const pts_check optional_pair_check = {
+    .kind = PTS_CHECK_TUPLE, .slot = PTS_FIELD_OBJECT, .name = "[number, any?]", .type = &optional_pair_type, .count = 2, .properties = optional_pair_elements};
+
+static bool converts_to_optional_pair(size_t count, const pts_value *values, pts_value *out) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    *out = pts_value_convert(pts_value_from_object(values_of(count, values)), &optional_pair_check);
+    pts_try_leave(&handler);
+    return true;
+  }
+  CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError));
+  return false;
+}
+
+/* An array shorter than a tuple type by its optional elements converts, leaving them out, as `const t: [number, string?] = [1]` (H05 review round 6). */
+static void an_array_without_optional_elements_is_copied_into_a_tuple(void) {
+  pts_value elements[] = {pts_value_from_number(1), pts_value_from_number(2), pts_value_from_number(3)};
+  pts_value out;
+  bool converted = converts_to_optional_pair(1, elements, &out);
+  CHECK(converted);
+  if (!converted) {
+    return;
+  }
+  CHECK(pts_value_as_object(out)->type == &optional_pair_type && pts_tuple_length(pts_value_as_object(out)) == 1);
+  CHECK(((optional_pair *)pts_value_as_object(out))->first == 1);
+  CHECK(converts_to_optional_pair(2, elements, &out) && pts_tuple_length(pts_value_as_object(out)) == 2);
+  CHECK(!converts_to_optional_pair(0, elements, &out)); /* the required element is missing */
+  CHECK(!converts_to_optional_pair(3, elements, &out)); /* one too many */
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   an_array_of_the_right_kind_is_the_same_array();
   an_array_of_any_is_copied_into_numbers();
   an_element_that_doesnt_fit_throws();
   a_self_containing_array_converts_without_looping();
+  an_array_without_optional_elements_is_copied_into_a_tuple();
   return pts_runtime_exit(CHECK_DONE());
 }

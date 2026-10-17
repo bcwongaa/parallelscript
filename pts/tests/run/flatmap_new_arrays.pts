@@ -1,0 +1,148 @@
+// A flatMap callback's arrays that are new at each call are copied as they are made where
+// the result's element type goes (D-094): those a map or Array.from makes with a callback
+// that makes them, conditionals of literals, cast literals, copies, sorted, reversed or
+// filtered new arrays, and a const the callback declares (H05 review round 6, finding 3:
+// PTS1001 after round 5's fix; the base and round 5 matched Node). A spread of a tuple in
+// a nested tuple literal moves the elements after it to later fields (finding 2: the C
+// below was checked against a J field, a PTS1001). Round 7: a new array of new arrays
+// (a map's, a concat's) as an element, a type guard's filter, objects a map or a const
+// makes as the result's interface, split's strings, and a const used once that the
+// callback returns (copied where its union's array goes, as D-094 allows) work too. Round
+// 8: a const returned from a loop, a nested flatMap's, Array.of's and a literal's flat()'s
+// new arrays, and a string's spread characters. Round 9: an object a map makes as an interface its callback's
+// annotation names is that object, whatever order the interface lists its properties in.
+const ns = [1, 2];
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => ns.map((m) => (m > 1 ? [m] : [])))));
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => ns.map((m) => [m] as number[]))));
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => ns.map((m) => [m]).reverse())));
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => ns.map((m) => [m, 0]).sort((a, b) => b[0] - a[0]))));
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => Array.from({ length: 2 }, (_, i) => [i]))));
+const nested = [[1], [2]];
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => nested.map((m) => m.slice()))));
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => nested.map((m) => [...m]).filter((m) => m[0] > 1))));
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<(number | string)[]>((i) => {
+      const a = [[i], [i + 1]];
+      return a;
+    }),
+  ),
+);
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<(number | string)[]>((i) => {
+      const a = [i];
+      return [a];
+    }),
+  ),
+);
+console.log(
+  JSON.stringify(
+    [1].flatMap<(number | string)[]>(() =>
+      ns.map((m) => {
+        if (m > 1) return [m, m];
+        return [m];
+      }),
+    ),
+  ),
+);
+interface J {
+  x: number | string;
+}
+class C {
+  constructor(public x: number) {}
+}
+const c = new C(1);
+const q: [J, J] = [{ x: 1 }, { x: "a" }];
+const r = [1].flatMap<[J, J, C]>(() => [[...q, c]]);
+c.x = 5;
+console.log(r.length, r[0][2].x, r[0][2] === c, r[0][0] === q[0]);
+console.log(JSON.stringify([1].flatMap<(number | string)[][]>(() => [ns.map((m) => [m])])));
+console.log(JSON.stringify([1, 2].flatMap<(number | string)[][]>((i) => [[[i]].concat([[i + 1]])])));
+class D {
+  constructor(public x: number | string) {}
+}
+const all: (C | D)[] = [new C(1), new D("d")];
+const ds = [1].flatMap<J>(() => all.filter((s): s is D => s instanceof D));
+console.log(ds.length, ds[0].x);
+interface Named {
+  name: string;
+  size: number | string;
+}
+console.log([[1, 2], [3]].flatMap<Named>((xs) => xs.map((n): Named => ({ name: "n" + n, size: n }))));
+interface H {
+  arr: (number | string)[];
+}
+console.log(JSON.stringify([1].flatMap<H>(() => ns.map((m): H => ({ arr: [m] })))));
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<H>((i) => {
+      const a: H[] = [{ arr: [i] }];
+      return a;
+    }),
+  ),
+);
+const lines = ["a b", "c"];
+console.log(JSON.stringify([1].flatMap<(number | string)[]>(() => lines.map((line) => line.split(" ")))));
+const shared: string[] = ["s", "t"];
+console.log([1, 2].flatMap<number | string>((x) => (x > 1 ? shared : [x])));
+const limits = [1, 2, 3];
+console.log(
+  JSON.stringify(
+    [1, 2].flatMap<(number | string)[]>((i) => {
+      const a = [i];
+      for (const m of limits) {
+        if (m > i) return [a];
+      }
+      return [];
+    }),
+  ),
+);
+console.log(JSON.stringify([1].flatMap<(number | string)[][]>((i) => [ns.flatMap((m) => [[m + i]])])));
+console.log(JSON.stringify([1, 2].flatMap<(number | string)[][]>((i) => [Array.of([i], [i + 1])])));
+console.log(JSON.stringify([1, 2].flatMap<(number | string)[][]>((i) => [[[[i]], [[i + 1]]].flat()])));
+console.log(JSON.stringify([1].flatMap<string>(() => [..."ab"])));
+interface User {
+  name: string;
+  age: number | string;
+}
+const groups = [[1, 2], [3]];
+console.log(JSON.stringify(groups.flatMap((g) => g.map((n): User => ({ name: "u" + n, age: n })))));
+interface P {
+  z: number | string;
+  a: number;
+  note?: string;
+}
+console.log(JSON.stringify([1].flatMap<P>(() => ns.map((m): P => ({ a: m, z: m })))));
+
+// expect:
+// [[],[2]]
+// [[1],[2]]
+// [[2],[1]]
+// [[2,0],[1,0]]
+// [[0],[1]]
+// [[1],[2]]
+// [[2]]
+// [[1],[2],[2],[3]]
+// [[1],[2]]
+// [[1],[2,2]]
+// 1 5 true true
+// [[[1],[2]]]
+// [[[1],[2]],[[2],[3]]]
+// 1 d
+// [
+//   { name: 'n1', size: 1 },
+//   { name: 'n2', size: 2 },
+//   { name: 'n3', size: 3 }
+// ]
+// [{"arr":[1]},{"arr":[2]}]
+// [{"arr":[1]},{"arr":[2]}]
+// [["a","b"],["c"]]
+// [ 1, 's', 't' ]
+// [[1],[2]]
+// [[[2],[3]]]
+// [[[1],[2]],[[2],[3]]]
+// [[[1],[2]],[[2],[3]]]
+// ["a","b"]
+// [{"name":"u1","age":1},{"name":"u2","age":2},{"name":"u3","age":3}]
+// [{"a":1,"z":1},{"a":2,"z":2}]

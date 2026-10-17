@@ -582,81 +582,419 @@ func (l *lowerer) spreadsOtherElements(call *ast.CallExpression) bool {
 // keepsLeaves reports, and reports whether, every typed leaf that flatMap may store from the
 // values of callback, of type t, stays the value it is where the result's element type elem
 // goes (keepsLeaf). An annotated callback's values, and a named function's, are of its result
-// type, converted where it returns them; otherwise the leaves of a returned array literal are
-// its elements, a new array among them copied as it is made (D-094), and those of another
-// value the elements of its type's arrays and tuples and its other members.
+// type, converted where it returns them; otherwise the leaves are found in the values it
+// returns (keepsLeavesOf).
 func (l *lowerer) keepsLeaves(callback *ast.Node, t, elem ir.Type) bool {
 	if !ast.IsFunctionExpressionOrArrowFunction(callback) || callback.Type() != nil {
-		return l.keepsLeafTypes(t, elem, false, callback)
+		return l.keepsLeafTypes(t, elem, callback)
 	}
-	body := callback.Body()
-	if body.Kind != ast.KindBlock {
-		return l.keepsLeavesOf(body, elem, callback)
-	}
-	keeps := true
-	ast.ForEachReturnStatement(body, func(stmt *ast.Node) bool {
-		if value := stmt.Expression(); value != nil && !l.keepsLeavesOf(value, elem, callback) {
-			keeps = false
-		}
-		return !keeps
-	})
-	return keeps
+	return l.keepsReturnedValues(callback, func(value *ast.Node) bool { return l.keepsLeavesOf(value, elem, true, callback) })
 }
 
-// keepsLeavesOf is keepsLeaves for one value the callback returns, value.
-func (l *lowerer) keepsLeavesOf(value *ast.Node, elem ir.Type, callback *ast.Node) bool {
+// keepsReturnedValues reports whether keeps holds for each value fn, a function expression or
+// an arrow function, returns.
+func (l *lowerer) keepsReturnedValues(fn *ast.Node, keeps func(value *ast.Node) bool) bool {
+	body := fn.Body()
+	if body.Kind != ast.KindBlock {
+		return keeps(body)
+	}
+	kept := true
+	ast.ForEachReturnStatement(body, func(stmt *ast.Node) bool {
+		if value := stmt.Expression(); value != nil && !keeps(value) {
+			kept = false
+		}
+		return !kept
+	})
+	return kept
+}
+
+// keepsLeavesOf is keepsLeaves for the leaves flatMap takes from value, a value fn returns or
+// one whose elements are such a value's: an array's or a tuple's elements, or value itself,
+// each stored where elem goes. made says whether value's literals are made as the context of
+// fn's values gives them. The elements of an array literal are its elements, of a map's or
+// Array.from's with a function the values the function returns, of a sorted, reversed,
+// filtered or sliced array its receiver's, of a concat its receiver's and its arguments', of
+// Array.of its arguments, of a flatMap with a function the leaves of the values the function
+// returns, of a literal's flat() its elements' leaves, and of a const fn makes at each call
+// (constMadeIn) its initializer's, unless the const is annotated: its elements are converted
+// to its type where it is declared, so they are checked by that type (an `any[]`'s are held
+// as they are, and copied where flatMap converts dynamic data, D-071; H05 review round 12).
+func (l *lowerer) keepsLeavesOf(value *ast.Node, elem ir.Type, made bool, fn *ast.Node) bool {
 	value = ast.SkipParentheses(value)
 	switch value.Kind {
+	case ast.KindArrayLiteralExpression:
+		return l.keepsElements(value, elem, made, fn)
+	case ast.KindAsExpression, ast.KindSatisfiesExpression:
+		if literal := castLiteral(value); literal != nil {
+			return l.keepsElements(literal, elem, false, fn) // made as the cast's type
+		}
 	case ast.KindConditionalExpression:
 		branches := value.AsConditionalExpression()
-		return l.keepsLeavesOf(branches.WhenTrue, elem, callback) && l.keepsLeavesOf(branches.WhenFalse, elem, callback)
-	case ast.KindArrayLiteralExpression:
-		return l.keepsLiteralLeaves(value, func(int) ir.Type { return elem })
+		return l.keepsLeavesOf(branches.WhenTrue, elem, made, fn) && l.keepsLeavesOf(branches.WhenFalse, elem, made, fn)
 	case ast.KindObjectLiteralExpression:
-		return true // made as the type its context gives it, its properties converted there
+		return l.keepsValue(value, elem, made, fn) // a leaf itself
+	case ast.KindIdentifier:
+		if initializer := l.constMadeIn(value, fn); initializer != nil && initializer.Parent.Type() == nil {
+			return l.keepsLeavesOf(initializer, elem, false, fn) // an annotated one's elements are converted to its type where it is declared
+		}
+	case ast.KindCallExpression:
+		if mapper := l.arrayMapper(value); mapper != nil {
+			return l.keepsReturnedValues(mapper, func(mapped *ast.Node) bool { return l.keepsValue(mapped, elem, false, mapper) })
+		}
+		if receiver := l.sameElementsReceiver(value); receiver != nil {
+			return l.keepsLeavesOf(receiver, elem, false, fn)
+		}
+		if parts := l.concatParts(value); parts != nil {
+			return !slices.ContainsFunc(parts, func(part *ast.Node) bool { return !l.keepsLeavesOf(part, elem, false, fn) })
+		}
+		if callee := ast.SkipParentheses(value.AsCallExpression().Expression); callee.Kind == ast.KindPropertyAccessExpression && l.libMemberName(callee) == "ArrayConstructor.of" {
+			return !slices.ContainsFunc(value.Arguments(), func(item *ast.Node) bool { return !l.keepsValue(item, elem, false, fn) })
+		}
+		if inner := l.flatMapper(value); inner != nil {
+			return l.keepsReturnedValues(inner, func(mapped *ast.Node) bool { return l.keepsLeavesOf(mapped, elem, false, inner) })
+		}
+		if literal := l.flattenedLiteral(value); literal != nil {
+			return !slices.ContainsFunc(literal.AsArrayLiteralExpression().Elements.Nodes, func(item *ast.Node) bool { return !l.keepsLeavesOf(item, elem, false, fn) })
+		}
 	}
 	t := l.irType(l.typeAt(value), value)
-	return t == nil || l.keepsLeafTypes(t, elem, l.makesNewArrays(value), callback)
+	at := value
+	if returns(fn, value) {
+		at = fn // a callback's own values are reported where the callback is
+	}
+	return t == nil || l.keepsLeafTypes(t, elem, at)
 }
 
-// keepsLiteralLeaves is keepsLeaves for the elements of an array literal, the ith stored
-// where target(i) goes (nil: nowhere it is checked).
-func (l *lowerer) keepsLiteralLeaves(literal *ast.Node, target func(i int) ir.Type) bool {
-	for i, element := range literal.AsArrayLiteralExpression().Elements.Nodes {
-		if t := target(i); t != nil && !l.keepsElement(element, t) {
+// returns reports whether value is a value fn returns: its expression body, a return
+// statement's expression, or a branch of a conditional that is one.
+func returns(fn, value *ast.Node) bool {
+	for value.Parent.Kind == ast.KindParenthesizedExpression || value.Parent.Kind == ast.KindConditionalExpression && value != value.Parent.AsConditionalExpression().Condition {
+		value = value.Parent
+	}
+	return value.Parent == fn || value.Parent.Kind == ast.KindReturnStatement && ast.GetContainingFunction(value.Parent) == fn
+}
+
+// concatParts is the receiver and the arguments of call if it is an array's concat, whose
+// result holds the receiver's elements and each argument's, or the argument itself if it
+// isn't an array; nil otherwise.
+func (l *lowerer) concatParts(call *ast.Node) []*ast.Node {
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
+	if !l.isArrayMethodCall(call) || callee.AsPropertyAccessExpression().Name().Text() != "concat" {
+		return nil
+	}
+	return append([]*ast.Node{callee.Expression()}, call.Arguments()...)
+}
+
+// keepsElements is keepsLeavesOf for the elements of an array literal, each stored where
+// elem goes, made as elem's values if made: a spread's are an array's or a tuple's leaves.
+func (l *lowerer) keepsElements(literal *ast.Node, elem ir.Type, made bool, fn *ast.Node) bool {
+	for _, element := range literal.AsArrayLiteralExpression().Elements.Nodes {
+		switch element.Kind {
+		case ast.KindOmittedExpression:
+			continue // a hole
+		case ast.KindSpreadElement:
+			if !l.keepsSpread(element, literal, elem, fn) {
+				return false
+			}
+			continue
+		}
+		if !l.keepsValue(element, elem, made, fn) {
 			return false
 		}
 	}
 	return true
 }
 
-// keepsElement is keepsLeaves for one element of an array literal, stored where elem goes:
-// each branch of a conditional is such an element, and a nested array literal's elements are
-// stored in the array or tuple its context gives it.
-func (l *lowerer) keepsElement(element *ast.Node, elem ir.Type) bool {
-	element = ast.SkipParentheses(element)
-	switch element.Kind {
-	case ast.KindSpreadElement, ast.KindOmittedExpression, ast.KindObjectLiteralExpression:
-		return true // a spread's elements are an array's or iterable's values, which the runtime checks; an omitted one is a hole; an object literal is made as its context's type
-	case ast.KindConditionalExpression:
-		branches := element.AsConditionalExpression()
-		return l.keepsElement(branches.WhenTrue, elem) && l.keepsElement(branches.WhenFalse, elem)
-	case ast.KindArrayLiteralExpression:
-		switch target := l.nestedLiteralTarget(elem, element).(type) {
-		case *ir.Array:
-			return l.keepsLiteralLeaves(element, func(int) ir.Type { return target.Elem })
-		case *ir.Class: // a tuple's elements are its fields, in order
-			return l.keepsLiteralLeaves(element, func(i int) ir.Type {
-				if i < len(target.Fields) {
-					return target.Fields[i].Type
-				}
-				return nil
-			})
+// keepsSpread is keepsElements for spread, an element of literal: an array's or a tuple's
+// leaves, or an iterable's values, which are of the literal's element type.
+func (l *lowerer) keepsSpread(spread, literal *ast.Node, elem ir.Type, fn *ast.Node) bool {
+	if t := l.irType(l.typeAt(spread.Expression()), spread); isArray(t) || isTuple(t) {
+		return l.keepsLeavesOf(spread.Expression(), elem, false, fn)
+	}
+	if array, ok := l.irType(l.typeAt(literal), literal).(*ir.Array); ok {
+		return l.keepsLeaf(array.Elem, elem, false, spread)
+	}
+	return true
+}
+
+// keepsTupleElements is keepsElements for an array literal made as the tuple type tuple, each
+// element stored in the field at its position. A spread of a tuple stores its elements in the
+// fields from its position on; after a spread of an array, or of a tuple with optional
+// elements, an element may be stored in any later field.
+func (l *lowerer) keepsTupleElements(literal *ast.Node, tuple *ir.Class, made bool, fn *ast.Node) bool {
+	position, exact := 0, true
+	keeps := func(check func(field ir.Type) bool) bool {
+		last := len(tuple.Fields)
+		if exact {
+			last = min(position+1, last)
+		}
+		for _, field := range tuple.Fields[min(position, last):last] {
+			if !check(field.Type) {
+				return false
+			}
 		}
 		return true
 	}
-	t := l.irType(l.typeAt(element), element)
-	return t == nil || l.keepsLeaf(t, elem, l.isNewArray(element), element)
+	for _, element := range literal.AsArrayLiteralExpression().Elements.Nodes {
+		if element.Kind != ast.KindSpreadElement {
+			if !keeps(func(field ir.Type) bool { return l.keepsValue(element, field, made, fn) }) {
+				return false
+			}
+			position++
+			continue
+		}
+		spread := l.irType(l.typeAt(element.Expression()), element)
+		if array, ok := spread.(*ir.Array); ok {
+			exact = false
+			if !keeps(func(field ir.Type) bool { return l.keepsLeaf(array.Elem, field, false, element) }) {
+				return false
+			}
+			continue
+		}
+		spreadTuple, ok := spread.(*ir.Class)
+		if !ok || !spreadTuple.Tuple {
+			exact = false
+			if !keeps(func(field ir.Type) bool { return l.keepsSpread(element, literal, field, fn) }) {
+				return false
+			}
+			continue
+		}
+		for _, f := range spreadTuple.Fields {
+			if !keeps(func(field ir.Type) bool { return l.keepsLeaf(f.Type, field, false, element) }) {
+				return false
+			}
+			if f.Optional {
+				exact = false
+			} else {
+				position++
+			}
+		}
+	}
+	return true
+}
+
+// keepsValue is keepsLeaf for the value of node, stored where target goes; made says whether
+// a literal there is made as target's value. A literal made so is target's value, an array
+// literal's elements stored where target's go; a new array or tuple of another type is copied
+// into target's, its elements stored where target's go (keepsLeavesOf), and another object
+// literal is checked by the type it is made as (keepsObjectLiteral).
+func (l *lowerer) keepsValue(node *ast.Node, target ir.Type, made bool, fn *ast.Node) bool {
+	node = ast.SkipParentheses(node)
+	switch node.Kind {
+	case ast.KindConditionalExpression:
+		branches := node.AsConditionalExpression()
+		return l.keepsValue(branches.WhenTrue, target, made, fn) && l.keepsValue(branches.WhenFalse, target, made, fn)
+	case ast.KindObjectLiteralExpression:
+		if made {
+			return true // its properties converted where it is made
+		}
+		return l.keepsObjectLiteral(node, target, fn)
+	case ast.KindArrayLiteralExpression:
+		if made {
+			switch to := l.nestedLiteralTarget(target, node).(type) {
+			case *ir.Array:
+				return l.keepsElements(node, to.Elem, true, fn)
+			case *ir.Class:
+				return l.keepsTupleElements(node, to, true, fn)
+			}
+			return true
+		}
+	}
+	t := l.irType(l.typeAt(node), node)
+	if t == nil {
+		return true
+	}
+	isNew := l.isNewArrayIn(node, fn)
+	if to := l.arrayTarget(t, target); isNew && to != nil && t != to && !isDynamicArray(t) {
+		switch {
+		case isTuple(t) && isArray(to):
+			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", t, to)) // the runtime converts arrays to arrays only
+			return false
+		case isArray(t) && isArray(to):
+			return l.keepsLeavesOf(node, to.(*ir.Array).Elem, false, fn) // the copy holds its elements
+		case isTuple(t) && isTuple(to):
+			if literal := castLiteral(node); literal != nil {
+				return l.keepsTupleElements(literal, to.(*ir.Class), false, fn)
+			}
+		}
+	}
+	return l.keepsLeaf(t, target, isNew, node)
+}
+
+// arrayTarget is the array or tuple type that a value of the array or tuple type t stored
+// where target goes is converted to: target, or the union member memberFor finds; nil if t
+// isn't an array or a tuple type or there is none.
+func (l *lowerer) arrayTarget(t, target ir.Type) ir.Type {
+	if !isArray(t) && !isTuple(t) {
+		return nil
+	}
+	if u, ok := target.(*ir.Union); ok {
+		if u.Has(t) {
+			return t
+		}
+		target = l.memberFor(t, u)
+	}
+	if isArray(target) || isTuple(target) {
+		return target
+	}
+	return nil
+}
+
+// keepsObjectLiteral is keepsValue for an object literal not made as target's value. It is
+// made as the type its own context gives it (recordContext, literalType): one that is
+// target's, or a member of it, stays the object it is, its properties converted where it
+// is made. A new object going where a hash-map object goes is copied into one, its values
+// stored where that one's go, unless the type it is made as has optional properties or it
+// has a spread, a method or an accessor. Another is checked by the type it is made as, as
+// any leaf is: a copy into an interface has the interface's shape, which a new object's
+// extra, misordered or left-out properties, or its hash maps, maps and sets, wouldn't
+// survive as they are (H05 review rounds 8-10).
+func (l *lowerer) keepsObjectLiteral(literal *ast.Node, target ir.Type, fn *ast.Node) bool {
+	made := l.recordContext(literal)
+	if made == nil {
+		made = l.literalType(literal)
+	}
+	t := l.irType(made, literal)
+	if t == nil || t == target {
+		return true
+	}
+	to := target
+	if u, ok := target.(*ir.Union); ok {
+		if u.Has(t) {
+			return true
+		}
+		if to = l.memberFor(t, u); to == nil {
+			to = onlyRecordMember(u)
+		}
+	}
+	record, ok := to.(*ir.MapType)
+	if !ok || !record.Record {
+		return l.keepsLeaf(t, target, false, literal)
+	}
+	if from, ok := t.(*ir.MapType); ok && from.Record {
+		return l.keepsLeaf(from.Value, record.Value, false, literal)
+	}
+	if hasOptionalFields(t) {
+		return l.keepsLeaf(t, target, false, literal) // made as a type with properties it may leave out
+	}
+	for _, property := range literal.AsObjectLiteralExpression().Properties.Nodes {
+		var value *ast.Node
+		switch property.Kind {
+		case ast.KindPropertyAssignment:
+			value = property.Initializer()
+		case ast.KindShorthandPropertyAssignment:
+			value = property.Name()
+		default:
+			return l.keepsLeaf(t, target, false, literal) // a spread, a method or an accessor
+		}
+		if !l.keepsValue(value, record.Value, false, fn) {
+			return false
+		}
+	}
+	return true
+}
+
+// onlyRecordMember is u's one hash-map object member, or nil if it has none or several.
+func onlyRecordMember(u *ir.Union) ir.Type {
+	var record ir.Type
+	for _, member := range u.Members {
+		if isRecord(member) {
+			if record != nil {
+				return nil
+			}
+			record = member
+		}
+	}
+	return record
+}
+
+// hasOptionalFields reports whether t is an object type with optional properties.
+func hasOptionalFields(t ir.Type) bool {
+	var fields []*ir.Field
+	switch t := t.(type) {
+	case *ir.Class:
+		fields = t.Fields
+	case *ir.Interface:
+		fields = t.Fields
+	}
+	return slices.ContainsFunc(fields, func(field *ir.Field) bool { return field.Optional })
+}
+
+// castLiteral is the array literal node is, under parentheses and `as` and `satisfies` casts
+// (`[c, 1] as const`), or nil if it isn't one.
+func castLiteral(node *ast.Node) *ast.Node {
+	for {
+		switch node = ast.SkipParentheses(node); node.Kind {
+		case ast.KindArrayLiteralExpression:
+			return node
+		case ast.KindAsExpression, ast.KindSatisfiesExpression:
+			node = node.Expression()
+		default:
+			return nil
+		}
+	}
+}
+
+// arrayMapper is the function expression or arrow function that call, `xs.map(f)` or
+// `Array.from(xs, f)`, makes its array's elements with, or nil if it isn't such a call.
+func (l *lowerer) arrayMapper(call *ast.Node) *ast.Node {
+	args := call.Arguments()
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
+	var mapper *ast.Node
+	switch {
+	case l.isArrayMethodCall(call) && callee.AsPropertyAccessExpression().Name().Text() == "map" && len(args) > 0:
+		mapper = args[0]
+	case l.isArrayStatic(callee, "from") && len(args) > 1:
+		mapper = args[1]
+	}
+	if mapper == nil || !ast.IsFunctionExpressionOrArrowFunction(mapper) {
+		return nil
+	}
+	return mapper
+}
+
+// flatMapper is the function expression or arrow function of call, `xs.flatMap(f)`, whose
+// values' leaves its array holds, or nil if it isn't such a call.
+func (l *lowerer) flatMapper(call *ast.Node) *ast.Node {
+	args := call.Arguments()
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
+	if !l.isArrayMethodCall(call) || callee.AsPropertyAccessExpression().Name().Text() != "flatMap" || len(args) == 0 || !ast.IsFunctionExpressionOrArrowFunction(args[0]) {
+		return nil
+	}
+	return args[0]
+}
+
+// flattenedLiteral is the array literal that call, `[…].flat()`, flattens one level, whose
+// elements' leaves its array holds, or nil if it isn't such a call (a depth, a spread).
+func (l *lowerer) flattenedLiteral(call *ast.Node) *ast.Node {
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression)
+	if !l.isArrayMethodCall(call) || callee.AsPropertyAccessExpression().Name().Text() != "flat" || len(call.Arguments()) > 0 {
+		return nil
+	}
+	literal := castLiteral(callee.Expression())
+	if literal == nil || slices.ContainsFunc(literal.AsArrayLiteralExpression().Elements.Nodes, func(item *ast.Node) bool { return item.Kind == ast.KindSpreadElement }) {
+		return nil
+	}
+	return literal
+}
+
+// sameElementsMethods are the methods of arrays whose result holds elements of the array
+// they are called on only.
+var sameElementsMethods = map[string]bool{
+	"sort": true, "reverse": true, "filter": true, "slice": true, "toSorted": true, "toReversed": true,
+}
+
+// sameElementsReceiver is the array that call, a sameElementsMethods call whose result is of
+// its type (not a type guard's narrower one), is made on, or nil if it isn't such a call.
+func (l *lowerer) sameElementsReceiver(call *ast.Node) *ast.Node {
+	if !l.isArrayMethodCall(call) {
+		return nil
+	}
+	callee := ast.SkipParentheses(call.AsCallExpression().Expression).AsPropertyAccessExpression()
+	if !sameElementsMethods[callee.Name().Text()] || l.typeAt(call) != l.typeAt(callee.Expression) {
+		return nil
+	}
+	return callee.Expression
 }
 
 // nestedLiteralTarget is the array or tuple type that elem gives an array literal stored
@@ -675,39 +1013,11 @@ func (l *lowerer) nestedLiteralTarget(elem ir.Type, literal *ast.Node) ir.Type {
 	return nil
 }
 
-// makesNewArrays reports whether value, which a flatMap callback returns, is an array whose
-// arrays are new at each call: a map whose callback returns array literals (`ns.map((m) =>
-// [m])`). A const, even one used once, holds the same arrays at each call.
-func (l *lowerer) makesNewArrays(value *ast.Node) bool {
-	if value.Kind != ast.KindCallExpression || !l.isArrayMethodCall(value) {
-		return false
-	}
-	call := value.AsCallExpression()
-	callee := ast.SkipParentheses(call.Expression)
-	if callee.Kind != ast.KindPropertyAccessExpression || callee.AsPropertyAccessExpression().Name().Text() != "map" || len(call.Arguments.Nodes) == 0 {
-		return false
-	}
-	mapper := call.Arguments.Nodes[0]
-	if !ast.IsFunctionExpressionOrArrowFunction(mapper) {
-		return false
-	}
-	if body := mapper.Body(); body.Kind != ast.KindBlock {
-		return ast.SkipParentheses(body).Kind == ast.KindArrayLiteralExpression
-	}
-	literals, returns := true, 0
-	ast.ForEachReturnStatement(mapper.Body(), func(stmt *ast.Node) bool {
-		returns++
-		literals = stmt.Expression() != nil && ast.SkipParentheses(stmt.Expression()).Kind == ast.KindArrayLiteralExpression
-		return !literals
-	})
-	return literals && returns > 0
-}
-
-// keepsLeafTypes is keepsLeaves for values of type t that aren't array literals; made says
-// whether the arrays among them are new (makesNewArrays).
-func (l *lowerer) keepsLeafTypes(t, elem ir.Type, made bool, node *ast.Node) bool {
+// keepsLeafTypes is keepsLeaves for values of type t that aren't array literals, none of
+// whose arrays is known to be new.
+func (l *lowerer) keepsLeafTypes(t, elem ir.Type, node *ast.Node) bool {
 	for _, leaf := range leafTypes(t) {
-		if !l.keepsLeaf(leaf, elem, made, node) {
+		if !l.keepsLeaf(leaf, elem, false, node) {
 			return false
 		}
 	}
@@ -718,9 +1028,12 @@ func (l *lowerer) keepsLeafTypes(t, elem ir.Type, made bool, node *ast.Node) boo
 // stays the value it is. The runtime converts numbers, adapts functions (D-075) and copies
 // dynamic data (D-071), but would copy a typed object into an interface whose members it
 // doesn't provide as they are or into a union of interfaces none of which it provides, an
-// instance into a class it isn't one of, or an array (not made, a new one) into an array or
-// tuple of other elements, which JS doesn't: reported as the same conversions elsewhere
-// report them (`const js: J[] = [c]`, D-094). Each member of a union leaf is such a leaf.
+// instance into a class it isn't one of, an array into an array or tuple of other
+// elements, or a hash-map object into one of other values or an object into one, which JS
+// doesn't: reported as the same conversions elsewhere report them (`const js: J[] = [c]`,
+// D-094); a map or a set of other types isn't converted at all. A new array (made) is
+// copied as it is made, but its elements are stored where elem's go. Each member of a union
+// leaf is such a leaf.
 func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool {
 	if u, ok := leaf.(*ir.Union); ok {
 		return !slices.ContainsFunc(u.Members, func(member ir.Type) bool { return !l.keepsLeaf(member, elem, made, node) })
@@ -730,7 +1043,7 @@ func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool 
 			return true // an iterator result, as iterators hand them back: any of the program's objects as it is (D-178)
 		}
 		member := l.memberFor(leaf, u)
-		if member == nil && isObject(leaf) {
+		if member == nil && (isObject(leaf) || isMap(leaf)) {
 			l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", leaf, u))
 			return false
 		}
@@ -742,25 +1055,21 @@ func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool 
 	switch {
 	case leaf == elem || leaf == ir.Value || elem == ir.Value || isUnion(elem):
 		return true
+	case isMap(leaf) && isMap(elem):
+		l.notSupportedYet(node, fmt.Sprintf("converting %s to %s is", leaf, elem)) // a map or a set converts to its own type only, a hash-map object by copying it
+		return false
 	case isArray(leaf) || isTuple(leaf):
 		switch {
 		case isDynamicArray(leaf) || !isArray(elem) && !isTuple(elem):
 			return true
-		case isTuple(leaf) && isArray(elem):
-			if made {
-				l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, elem)) // the runtime converts arrays to arrays only
-			} else {
-				l.reportKeptCopy(leaf, elem, node)
-			}
+		case isTuple(leaf) && isArray(elem), !made && isTuple(elem):
+			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, elem)) // the runtime converts arrays to arrays only, and tuples to tuples by copying them
 			return false
-		case made:
-			return true
-		case isTuple(elem):
-			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, elem))
-		default:
+		case !made:
 			l.reportKeptCopy(leaf, elem, node)
+			return false
 		}
-		return false
+		return l.keepsElementsOf(leaf, elem, node)
 	case isObject(leaf):
 		switch target := elem.(type) {
 		case *ir.Interface:
@@ -776,6 +1085,30 @@ func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool 
 			if class, ok := leaf.(*ir.Class); ok && !target.Result && !class.IsSubclassOf(target) {
 				l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s` is", leaf, target))
 				return false
+			}
+		case *ir.MapType:
+			l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a hash-map object (`%s`) is", leaf, target)) // copied into one
+			return false
+		}
+	}
+	return true
+}
+
+// keepsElementsOf is keepsLeaf for the elements of a new array or tuple of type from, copied
+// into one of type to, an array into an array or a tuple into a tuple: its elements are the
+// values they are, stored where to's go.
+func (l *lowerer) keepsElementsOf(from, to ir.Type, node *ast.Node) bool {
+	switch from := from.(type) {
+	case *ir.Array:
+		if to, ok := to.(*ir.Array); ok {
+			return l.keepsLeaf(from.Elem, to.Elem, false, node)
+		}
+	case *ir.Class:
+		if to, ok := to.(*ir.Class); ok {
+			for i := range min(len(from.Fields), len(to.Fields)) {
+				if !l.keepsLeaf(from.Fields[i].Type, to.Fields[i].Type, false, node) {
+					return false
+				}
 			}
 		}
 	}
@@ -1112,7 +1445,12 @@ var sameArrayMethods = map[string]bool{"sort": true, "reverse": true, "fill": tr
 // isNewArray reports whether node makes an array that nothing else holds, which a copy
 // can't be told apart from (D-094): an array literal, a call of a function or method that
 // makes a new array, or a const whose only use is node and whose initializer is one.
-func (l *lowerer) isNewArray(node *ast.Node) bool {
+func (l *lowerer) isNewArray(node *ast.Node) bool { return l.isNewArrayIn(node, nil) }
+
+// isNewArrayIn is isNewArray for node in fn, a function flatMap calls for each element (nil:
+// none): node makes an array each time fn runs it, so a const counts only if fn makes it
+// there (constMadeIn).
+func (l *lowerer) isNewArrayIn(node *ast.Node, fn *ast.Node) bool {
 	if node == nil {
 		return false
 	}
@@ -1121,7 +1459,7 @@ func (l *lowerer) isNewArray(node *ast.Node) bool {
 	case ast.KindArrayLiteralExpression:
 		return true
 	case ast.KindAsExpression, ast.KindSatisfiesExpression, ast.KindNonNullExpression:
-		return l.isNewArray(node.Expression())
+		return l.isNewArrayIn(node.Expression(), fn)
 	case ast.KindNewExpression:
 		return l.typeAt(node).Symbol() != nil && l.typeAt(node).Symbol().Name == "Array"
 	case ast.KindCallExpression:
@@ -1137,8 +1475,12 @@ func (l *lowerer) isNewArray(node *ast.Node) bool {
 		if owner != "Array" && owner != "ReadonlyArray" {
 			return false
 		}
-		return newArrayMethods[method] || sameArrayMethods[method] && l.isNewArray(callee.Expression())
+		return newArrayMethods[method] || sameArrayMethods[method] && l.isNewArrayIn(callee.Expression(), fn)
 	case ast.KindIdentifier:
+		if fn != nil {
+			initializer := l.constMadeIn(node, fn)
+			return initializer != nil && l.isNewArrayIn(initializer, fn)
+		}
 		return l.isSingleUseConst(node)
 	}
 	return false
@@ -1147,24 +1489,90 @@ func (l *lowerer) isNewArray(node *ast.Node) bool {
 // isSingleUseConst reports whether node names a local const whose initializer makes a
 // new array (isNewArray) and which node is the only use of.
 func (l *lowerer) isSingleUseConst(node *ast.Node) bool {
-	symbol := l.checker.GetSymbolAtLocation(node)
+	initializer := l.singleUseConstInitializer(node)
+	return initializer != nil && l.isNewArray(initializer)
+}
+
+// singleUseConstInitializer is the initializer of the local const node names if node is its
+// only use, nil otherwise: an exported const's other uses may be in other files.
+func (l *lowerer) singleUseConstInitializer(node *ast.Node) *ast.Node {
+	symbol := l.valueSymbolAt(node)
 	if symbol == nil || symbol.ValueDeclaration == nil || symbol.ValueDeclaration.Kind != ast.KindVariableDeclaration {
-		return false
+		return nil
 	}
 	declaration := symbol.ValueDeclaration
-	if declaration.Parent.Flags&ast.NodeFlagsConst == 0 || declaration.Initializer() == nil || !l.isNewArray(declaration.Initializer()) {
-		return false
+	if declaration.Parent.Flags&ast.NodeFlagsConst == 0 || declaration.Initializer() == nil || ast.HasSyntacticModifier(declaration.Parent.Parent, ast.ModifierFlagsExport) {
+		return nil
 	}
 	uses := 0
 	var visit func(n *ast.Node) bool
 	visit = func(n *ast.Node) bool {
-		if n.Kind == ast.KindIdentifier && n != declaration.Name() && n.Text() == node.Text() && l.checker.GetSymbolAtLocation(n) == symbol {
+		if n.Kind == ast.KindIdentifier && n != declaration.Name() && n.Text() == node.Text() && l.valueSymbolAt(n) == symbol {
 			uses++
 		}
 		return uses > 1 || n.ForEachChild(visit)
 	}
 	ast.GetSourceFileOfNode(node).AsNode().ForEachChild(visit)
-	return uses == 1
+	if uses != 1 {
+		return nil
+	}
+	return declaration.Initializer()
+}
+
+// valueSymbolAt is the symbol of the value an identifier names: in a shorthand property
+// (`{ a }`) or an export specifier (`export { a }`), the local's, not the property's or the
+// export's.
+func (l *lowerer) valueSymbolAt(name *ast.Node) *ast.Symbol {
+	switch name.Parent.Kind {
+	case ast.KindShorthandPropertyAssignment:
+		if name == name.Parent.Name() { // not a default's (`{ a = ns } = o`)
+			return l.checker.GetShorthandAssignmentValueSymbol(name.Parent)
+		}
+	case ast.KindExportSpecifier:
+		return l.checker.GetExportSpecifierLocalTargetSymbol(name.Parent)
+	}
+	return l.checker.GetSymbolAtLocation(name)
+}
+
+// constMadeIn is the initializer of the local const node names if node is its only use and
+// fn makes it each time it runs node: fn declares it, and no loop or function between the
+// declaration and node runs node again with the same const (a loop doesn't run a returned
+// value again). A const of the enclosing code is the same at each of flatMap's calls of fn
+// (H05 review round 6).
+func (l *lowerer) constMadeIn(node *ast.Node, fn *ast.Node) *ast.Node {
+	initializer := l.singleUseConstInitializer(node)
+	if initializer == nil {
+		return nil
+	}
+	declaration := initializer.Parent
+	if declaration.Pos() < fn.Pos() || declaration.End() > fn.End() {
+		return nil
+	}
+	returned := false
+	for scope, child := node.Parent, node; ; scope, child = scope.Parent, scope {
+		returned = returned || scope.Kind == ast.KindReturnStatement
+		if !returned && repeats(scope, child) {
+			return nil
+		}
+		if scope.Pos() <= declaration.Pos() && declaration.End() <= scope.End() {
+			return initializer
+		}
+		if ast.IsFunctionLike(scope) || ast.IsClassLike(scope) {
+			return nil
+		}
+	}
+}
+
+// repeats reports whether statement, a loop, runs its child child more than once: all of a
+// loop's parts but a for statement's initializer and a for-in or for-of statement's expression.
+func repeats(statement *ast.Node, child *ast.Node) bool {
+	switch statement.Kind {
+	case ast.KindForStatement:
+		return child != statement.AsForStatement().Initializer
+	case ast.KindForInStatement, ast.KindForOfStatement:
+		return child != statement.AsForInOrOfStatement().Expression
+	}
+	return ast.IsIterationStatement(statement, false)
 }
 
 // readOnlyArrayMethods are the methods of arrays that don't change the array.

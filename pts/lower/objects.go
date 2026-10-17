@@ -348,16 +348,12 @@ func isArrayIndex(name string) bool {
 // its properties in the order the literal writes them, or a hash-map object if its
 // contextual type or its own is one (D-059).
 func (l *lowerer) objectLiteral(node *ast.Node) ir.Expr {
-	for _, t := range []*checker.Type{l.literalContext(node), l.recordMemberOfContext(node), l.typeAt(node)} {
-		if t == nil {
-			continue
+	if t := l.recordContext(node); t != nil {
+		mt, _ := l.recordType(t, node)
+		if mt == nil {
+			return nil // reported
 		}
-		if mt, ok := l.recordType(t, node); ok {
-			if mt == nil {
-				return nil // reported
-			}
-			return l.recordLiteral(node, mt)
-		}
+		return l.recordLiteral(node, mt)
 	}
 	shape := l.literalShape(l.literalType(node), node)
 	if shape == nil {
@@ -648,6 +644,18 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		object = &ir.Bind{Local: locals[i], Value: bound[i], In: object}
 	}
 	return object
+}
+
+// recordContext is the hash-map object type an object literal makes a hash-map object of:
+// its contextual type, its context's one hash-map member (recordMemberOfContext) or its own
+// type, the first that is one; nil if none is.
+func (l *lowerer) recordContext(node *ast.Node) *checker.Type {
+	for _, t := range []*checker.Type{l.literalContext(node), l.recordMemberOfContext(node), l.typeAt(node)} {
+		if t != nil && (l.hasOnlyNumericKeys(t) || l.hasIndexSignatures(t)) {
+			return t
+		}
+	}
+	return nil
 }
 
 // literalType is the object type an object literal makes an object of: its contextual
