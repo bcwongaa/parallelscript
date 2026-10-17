@@ -1,0 +1,30 @@
+// H07 C07 red: 20,000 `.par.map` callbacks each follow ONE shared controller's signal with `AbortSignal.any([shared.signal])` (as fetch's Request does with a signal given to many fetches); aborting it must abort every follower
+// oracle: node:c07-shared-signal-any-par.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `followers 20000, aborted 20000, listeners lost 0, construction failures 0`, exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads some AbortSignal.any calls throw `TypeError: Illegal constructor` (the flag race), and concurrent addEventListener calls on the one shared signal may lose listeners, so followers never abort (SPEC §4.1 lets racing pushes on a shared array lose elements), and a lost push can leave a hole in the listener list, which makes addEventListener (counted as a construction failure) or the final abort() throw `RangeError: Array index … is out of range` (uncaught: exit 1)
+// failure: construction failures [1-9]|listeners lost [1-9]|RangeError: Array index
+// Classification: the program shares only the signal, never writes it; the library's own listener list is what races.
+import { range } from "pts:parallel";
+
+const shared = new AbortController();
+const followers = range(0, 20000).par.map((i) => {
+    try {
+        return AbortSignal.any([shared.signal]);
+    } catch (error) {
+        return null;
+    }
+});
+shared.abort("stop");
+let made = 0;
+let aborted = 0;
+for (const follower of followers) {
+    if (follower !== null) {
+        made++;
+        if (follower.aborted && follower.reason === "stop") {
+            aborted++;
+        }
+    }
+}
+console.log(`followers ${made}, aborted ${aborted}, listeners lost ${made - aborted}, construction failures ${followers.length - made}`);

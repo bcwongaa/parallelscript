@@ -1,0 +1,145 @@
+// AbortController, AbortSignal and their statics on many threads at once (C07, H07): each
+// `.par` callback, `parallel for` iteration and `parallel` task makes, follows and aborts
+// signals of its own, which no other thread touches, so every one must work as it does on
+// one thread; `new AbortSignal()` stays an illegal constructor while other threads make
+// signals; and timeouts that tasks make fire on the tasks' own loops. The counts are what
+// Node prints for the same program run sequentially (`.par.map(f)` as `map(f)`,
+// `parallel e` as `Promise.resolve(e)`).
+// threads: 1 2 4
+import { range } from "pts:parallel";
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
+}
+
+function failure(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown";
+}
+
+// A local controller, aborted with i, with onabort and a listener.
+function controlled(i: number): string {
+  try {
+    const controller = new AbortController();
+    let events = 0;
+    controller.signal.onabort = () => events++;
+    controller.signal.addEventListener("abort", (event: Event) => {
+      if (event.isTrusted) {
+        events++;
+      }
+    });
+    controller.abort(i);
+    return controller.signal.aborted && controller.signal.reason === i && events === 2 ? "ok" : "wrong";
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+// AbortSignal.abort and AbortSignal.any over two local controllers.
+function statics(i: number): string {
+  try {
+    const early = AbortSignal.abort(i);
+    const a = new AbortController();
+    const b = new AbortController();
+    const either = AbortSignal.any([a.signal, b.signal]);
+    b.abort(i);
+    return early.reason === i && either.aborted && either.reason === i && !a.signal.aborted ? "ok" : "wrong";
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+// AbortSignal.timeout, on a loop (a pool worker can't start timers yet).
+function timeouts(count: number): string[] {
+  const outcomes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      const signal = AbortSignal.timeout(3_600_000);
+      outcomes.push(!signal.aborted && signal.reason === undefined ? "ok" : "wrong");
+    } catch (error) {
+      outcomes.push(failure(error));
+    }
+  }
+  return outcomes;
+}
+
+// new AbortSignal() throws, whatever other threads are doing.
+function illegal(): string {
+  try {
+    new AbortSignal();
+    return "constructed";
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+const COUNT = 20_000;
+console.log("par.map controllers:", tally(range(0, COUNT).par.map(controlled)));
+console.log("par.map statics:", tally(range(0, COUNT).par.map(statics)));
+
+const slots = new Array<string>(COUNT).fill("");
+range(0, COUNT).par.forEach((i) => {
+  slots[i] = controlled(i);
+});
+console.log("par.forEach controllers:", tally(slots));
+
+parallel for (const i of range(0, COUNT)) {
+  slots[i] = statics(i);
+}
+console.log("parallel for statics:", tally(slots));
+
+// A task's timeouts and controllers, on its own loop.
+function loopWork(count: number): string[] {
+  const outcomes = timeouts(count);
+  for (let i = 0; i < count; i++) {
+    outcomes.push(controlled(i));
+  }
+  return outcomes;
+}
+const tasks = await Promise.all([0, 1, 2, 3].map(() => parallel loopWork(COUNT / 4)));
+console.log("parallel tasks:", tally(tasks.flat()));
+
+const mixed = range(0, COUNT).par.map((i) => (i % 2 === 0 ? illegal() : controlled(i)));
+console.log("new AbortSignal() among controllers:", tally(mixed));
+
+// Whether signal aborts with a TimeoutError, its trusted event at its own target.
+function timedOut(signal: AbortSignal): Promise<string> {
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", (event: Event) => {
+      const reason: unknown = signal.reason;
+      const fine = event.isTrusted && event.target === signal && reason instanceof DOMException && reason.name === "TimeoutError";
+      resolve(fine ? "ok" : "wrong");
+    });
+  });
+}
+
+// A task's timeouts that fire on its own loop, each followed by AbortSignal.any and with onabort.
+async function firedTimeouts(count: number): Promise<string[]> {
+  const waits: Promise<string>[] = [];
+  let handlers = 0;
+  for (let i = 0; i < count; i++) {
+    const signal = AbortSignal.timeout(1 + (i % 15));
+    signal.onabort = () => handlers++;
+    waits.push(timedOut(signal), timedOut(AbortSignal.any([new AbortController().signal, signal])));
+  }
+  const keepAlive = setTimeout(() => {}, 10_000); // timeouts' timers don't keep the loop running
+  const outcomes = await Promise.all(waits);
+  clearTimeout(keepAlive);
+  outcomes.push(handlers === count ? "ok" : "wrong onabort count");
+  return outcomes;
+}
+const fired = await Promise.all([0, 1, 2, 3].map(() => parallel firedTimeouts(100)));
+console.log("fired timeouts in tasks:", tally(fired.flat()));
+
+// expect:
+// par.map controllers: ok 20000
+// par.map statics: ok 20000
+// par.forEach controllers: ok 20000
+// parallel for statics: ok 20000
+// parallel tasks: ok 40000
+// new AbortSignal() among controllers: TypeError: Illegal constructor 10000, ok 10000
+// fired timeouts in tasks: ok 804

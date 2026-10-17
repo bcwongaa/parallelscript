@@ -256,6 +256,57 @@ func TestHTTPServerEveryLoop(t *testing.T) {
 	}
 }
 
+// TestHTTPServerSignalsEveryLoop runs a reusePort server (D-137) whose handlers, on every
+// loop at once, read their requests' signals and make, follow and abort signals of their own
+// (C07, H07): every one of many concurrent requests over fresh connections, which the kernel
+// spreads over the loops, must answer "ok", with nothing on stderr, on one loop and on several.
+// Handlers' own timeouts fire on their loops, and clients that leave abort their held
+// requests' signals (D-163) on whichever loops took them.
+func TestHTTPServerSignalsEveryLoop(t *testing.T) {
+	t.Parallel()
+	exe := buildServer(t, "signals_every_loop")
+	for _, threads := range []int{1, 2, 4} {
+		t.Run(fmt.Sprintf("PTS_THREADS=%d", threads), func(t *testing.T) {
+			t.Parallel()
+			server, ports := startServer(t, exe, fmt.Sprintf("PTS_THREADS=%d", threads))
+			base := "http://127.0.0.1:" + ports[0]
+			fresh := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 10 * time.Second}
+			bodies := getAll(t, fresh, base+"/", 16, 50)
+			assert.DeepEqual(t, tallyBodies(bodies), map[string]int{"ok": 16 * 50})
+			timeouts := getAll(t, fresh, base+"/timeout", 8, 8)
+			assert.DeepEqual(t, tallyBodies(timeouts), map[string]int{"TimeoutError": 8 * 8})
+			const holders = 16
+			count := func() string {
+				_, body := request(t, "GET", base+"/count", "")
+				return body
+			}
+			leaving := make([]*rawConn, holders)
+			for i := range leaving {
+				leaving[i] = dialRaw(t, strings.TrimPrefix(base, "http://"))
+				leaving[i].send(t, "GET /hold HTTP/1.1\r\nHost: a\r\n\r\n")
+			}
+			eventually(t, 5*time.Second, func() bool { return count() == fmt.Sprintf("%d 0", holders) }, "every held request arrives")
+			for _, conn := range leaving {
+				_ = conn.Close()
+			}
+			eventually(t, 5*time.Second, func() bool { return count() == fmt.Sprintf("%d %d", holders, holders) }, "every held request's signal aborts")
+			_, body := request(t, "GET", base+"/stop", "")
+			assert.Equal(t, body, "bye")
+			awaitExit(t, server)
+			assert.Equal(t, server.stderr.String(), "")
+		})
+	}
+}
+
+// tallyBodies counts each distinct body, so that a failure shows how many requests got which answer.
+func tallyBodies(bodies []string) map[string]int {
+	counts := map[string]int{}
+	for _, body := range bodies {
+		counts[body]++
+	}
+	return counts
+}
+
 // TestFetchFromGoServer runs http/fetch_client.pts against a Go server (D-160, D-162), for
 // the responses pts:http doesn't send: chunked and read-until-close bodies, a 1xx before
 // the response, a malformed response, connections closed or reset before the body's end,

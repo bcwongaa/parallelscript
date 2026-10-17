@@ -1,0 +1,54 @@
+// H07 C07 red: a `serve({ reusePort: true })` server whose handler, on every loop, reads `request.signal` (its own controller), makes nine more local AbortControllers and a `new Request(url, { signal })` (AbortSignal.any) per request, loaded by 2,000 signal-less fetches from four `parallel` tasks; every request must answer `ok`
+// oracle: node:c07-red-serve-reuseport-signals.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `ok: 2000`, exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads handlers on different loops throw `TypeError: Illegal constructor` (answered 500 with the error's text), so other lines are tallied
+// failure: TypeError: Illegal constructor
+import { serve } from "pts:http";
+
+const server = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    reusePort: true,
+    fetch(request) {
+        try {
+            const own = request.signal; // made when first read: an AbortController of the request's own
+            const controller = new AbortController();
+            const forwarded = new Request(request.url, { signal: controller.signal }); // AbortSignal.any([signal])
+            for (let step = 0; step < 8; step++) { // a controller per step of the handler's work, each aborted
+                const local = new AbortController();
+                local.abort(step);
+                if (local.signal.reason !== step) {
+                    throw new Error("wrong local signal");
+                }
+            }
+            controller.abort("done");
+            if (own.aborted || !forwarded.signal.aborted || forwarded.signal.reason !== "done") {
+                return new Response("wrong signal state", { status: 500 });
+            }
+            return new Response("ok");
+        } catch (error) {
+            return new Response(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown", { status: 500 });
+        }
+    },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// 500 requests, 10 at a time, without signals (fetch then makes none); the bodies.
+async function client(task: number): Promise<string[]> {
+    const bodies: string[] = [];
+    for (let batch = 0; batch < 50; batch++) {
+        const texts = await Promise.all(Array.from({ length: 10 }, (_, i) => fetch(`${base}/${task}/${batch}/${i}`).then((r) => r.text())));
+        bodies.push(...texts);
+    }
+    return bodies;
+}
+
+const bodies = (await Promise.all([0, 1, 2, 3].map((task) => parallel client(task)))).flat();
+server.stop();
+const counts = new Map<string, number>();
+for (const body of bodies) {
+    counts.set(body, (counts.get(body) ?? 0) + 1);
+}
+console.log([...counts.keys()].sort().map((body) => `${body}: ${counts.get(body)}`).join("\n"));

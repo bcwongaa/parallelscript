@@ -1,0 +1,55 @@
+// H07 C07 red: 400 fetches started from `.par.map` callbacks share ONE controller's signal and wait at a server that holds them; aborting it must reject every one with AbortError
+// oracle: node:c07-shared-signal-fetch-par.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `held 400`, then `AbortError 400`, exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads some fetches throw `TypeError: Illegal constructor` (the flag race) and, with that fixed, some fetches still never see the abort: each fetch's Request follows the shared signal with AbortSignal.any, whose addEventListener calls race on the one signal's listener list (pending after the abort, then answered `late`); a hole a lost push leaves can make the abort throw `RangeError: Array index … is out of range`
+// failure: Illegal constructor|late [1-9]|pending|RangeError: Array index
+// Classification: the program shares the signal and only reads it; the library's own listener list is what races.
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+
+const COUNT = 400;
+let held = 0;
+let allHeld: () => void = () => {};
+const waiting: ((response: Response) => void)[] = [];
+const server = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch() {
+        held++;
+        if (held === COUNT) {
+            allHeld();
+        }
+        return new Promise<Response>((resolve) => waiting.push(resolve));
+    },
+});
+const base = `http://127.0.0.1:${server.port}`;
+const arrived = new Promise<void>((resolve) => {
+    allHeld = () => resolve();
+});
+
+const shared = new AbortController();
+const outcomes = range(0, COUNT).par.map((i) => {
+    try {
+        return fetch(`${base}/hold/${i}`, { signal: shared.signal }).then((r) => r.text(), (error) => (error instanceof Error ? (error.name === "AbortError" ? error.name : `${error.name}: ${error.message}`) : "non-Error"));
+    } catch (error) {
+        return Promise.resolve(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown");
+    }
+});
+// Wait until every request that started is held (or a second passes), then abort.
+await Promise.race([arrived, new Promise((resolve) => setTimeout(resolve, 1000))]);
+console.log(`held ${held}`);
+shared.abort();
+// Give the aborts a moment, then answer whatever the server still holds.
+await new Promise((resolve) => setTimeout(resolve, 200));
+for (const answer of waiting) {
+    answer(new Response("late"));
+}
+const settled = await Promise.race([Promise.all(outcomes), new Promise<string[]>((resolve) => setTimeout(() => resolve(["pending"]), 3000))]);
+server.stop();
+const counts = new Map<string, number>();
+for (const outcome of settled) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+}
+console.log([...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", "));

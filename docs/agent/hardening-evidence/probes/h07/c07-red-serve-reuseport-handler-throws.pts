@@ -1,0 +1,62 @@
+// H07 C07 red: two `serve({ reusePort: true })` servers whose handlers read `request.signal` and make AbortControllers without catching, one with an `error` handler (counted) and one without (console.error and 500); 1,000 fetches each from four `parallel` tasks must all answer `ok`, with no error handler call
+// oracle: node:c07-red-serve-reuseport-handler-throws.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `handled: ok: 1000`, `plain: ok: 1000`, `error handler calls: 0`, exit 0
+// baseline PTS: 1 thread passes; at 4 threads in every run and at 2 threads in most (9/10 on 0ddc0a60f) handlers throw `TypeError: Illegal constructor`: the error handler answers 503 with its text and the plain server logs it on stderr and answers 500
+// failure: TypeError: Illegal constructor|Internal Server Error
+import { serve } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const errorCalls = new AtomicInt();
+
+// A handler that may throw: its request's own signal, then five aborted controllers.
+function handle(request: Request): Response {
+    if (request.signal.aborted) {
+        return new Response("aborted already", { status: 500 });
+    }
+    for (let i = 0; i < 5; i++) {
+        const controller = new AbortController();
+        controller.abort(i);
+    }
+    return new Response("ok");
+}
+
+const handled = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    reusePort: true,
+    fetch: handle,
+    error(error) {
+        errorCalls.add(1);
+        return new Response(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown", { status: 503 });
+    },
+});
+const plain = serve({ port: 0, hostname: "127.0.0.1", reusePort: true, fetch: handle });
+
+// 250 requests to base, 10 at a time; the bodies.
+async function client(base: string): Promise<string[]> {
+    const bodies: string[] = [];
+    for (let batch = 0; batch < 25; batch++) {
+        bodies.push(...(await Promise.all(Array.from({ length: 10 }, (_, i) => fetch(`${base}/${batch}/${i}`).then((r) => r.text())))));
+    }
+    return bodies;
+}
+
+// Each distinct body and how many times it came, sorted.
+function tally(bodies: string[]): string {
+    const counts = new Map<string, number>();
+    for (const body of bodies) {
+        counts.set(body, (counts.get(body) ?? 0) + 1);
+    }
+    return [...counts.keys()].sort().map((body) => `${body}: ${counts.get(body)}`).join(", ");
+}
+
+for (const [name, server] of [["handled", handled], ["plain", plain]] as const) {
+    const base = `http://127.0.0.1:${server.port}`;
+    const bodies = (await Promise.all([0, 1, 2, 3].map(() => parallel client(base)))).flat();
+    console.log(`${name}: ${tally(bodies)}`);
+}
+handled.stop();
+plain.stop();
+console.log(`error handler calls: ${errorCalls.load()}`);

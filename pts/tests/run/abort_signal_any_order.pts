@@ -1,0 +1,15 @@
+// AbortSignal.any's followers abort as the DOM standard's "signal abort" orders it (C121,
+// H07b): a source's followers have their reasons before the source's "abort" event fires, and
+// their own events fire after the source's, whichever was made first.
+// skip: bug: a follower aborts as a listener of its source, so its event comes before the source's later listeners and a source's earlier listener sees it not yet aborted (C121, H07b)
+const first = new AbortController();
+const follower = AbortSignal.any([first.signal]);
+follower.addEventListener("abort", () => console.log("follower's listener; source aborted:", first.signal.aborted));
+first.signal.addEventListener("abort", () => console.log("source's listener; follower aborted:", follower.aborted));
+first.abort();
+
+const second = new AbortController();
+second.signal.addEventListener("abort", () => console.log("earlier source listener; follower aborted:", late.aborted));
+const late = AbortSignal.any([second.signal]);
+late.addEventListener("abort", () => console.log("later follower's listener"));
+second.abort();

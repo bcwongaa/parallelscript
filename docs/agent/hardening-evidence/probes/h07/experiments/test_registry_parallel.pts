@@ -1,0 +1,15 @@
+// Experiment (audit of pts:test's module state): four `parallel` tasks each register a suite
+// of 200 tests with describe/test at once. pts:test keeps one registry and a "current suite"
+// global (`current`), and a `started` flag; Node registers them one task after another.
+import { describe, test } from "pts:test";
+
+function register(task: number): number {
+    describe(`suite ${task}`, () => {
+        for (let i = 0; i < 200; i++) {
+            test(`suite ${task} test ${i}`, () => {});
+        }
+    });
+    return task;
+}
+
+await Promise.all([0, 1, 2, 3].map((task) => parallel register(task)));

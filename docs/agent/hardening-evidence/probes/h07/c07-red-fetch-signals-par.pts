@@ -1,0 +1,62 @@
+// H07 C07 red: 1,600 fetches with new signals (a local AbortController's, AbortSignal.any's or AbortSignal.timeout's, a Request's own) started from `.par.map` pool tasks and from four `parallel` tasks against a local server; every fetch must answer `ok`
+// oracle: node:c07-red-fetch-signals-par.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `ok: 1600`, exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads fetches reject with `TypeError: Illegal constructor` (fetch's Request follows the signal through AbortSignal.any), so other lines are tallied
+// failure: TypeError: Illegal constructor
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+
+const server = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch() {
+        return new Response("ok");
+    },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// The body of a fetch of path, or how it failed.
+function outcome(response: Promise<Response>): Promise<string> {
+    return response.then((r) => r.text(), (error) => (error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown"));
+}
+
+// Fetch i of a task, with one of three kinds of signal, each new: a controller's, a Request's
+// own (following a controller's), or AbortSignal.timeout's on a loop (a pool worker can't start
+// timers yet, SPEC §4) and AbortSignal.any's on the pool. A synchronous throw counts as a failure.
+function fetchWithSignal(path: string, i: number, onLoop: boolean): Promise<string> {
+    try {
+        if (i % 3 === 0) {
+            return outcome(fetch(`${base}${path}`, { signal: new AbortController().signal }));
+        }
+        if (i % 3 === 1) {
+            const signal = onLoop ? AbortSignal.timeout(60_000) : AbortSignal.any([new AbortController().signal]);
+            return outcome(fetch(`${base}${path}`, { signal }));
+        }
+        return outcome(fetch(new Request(`${base}${path}`, { signal: new AbortController().signal })));
+    } catch (error) {
+        return Promise.resolve(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown");
+    }
+}
+
+// 200 fetches from a task on a loop, 20 at a time.
+async function loopTask(task: number): Promise<string[]> {
+    const texts: string[] = [];
+    for (let batch = 0; batch < 10; batch++) {
+        texts.push(...(await Promise.all(Array.from({ length: 20 }, (_, i) => fetchWithSignal(`/loop/${task}/${batch}`, i, true)))));
+    }
+    return texts;
+}
+
+const texts: string[] = [];
+for (let round = 0; round < 4; round++) {
+    texts.push(...(await Promise.all(range(0, 200).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
+}
+texts.push(...(await Promise.all([0, 1, 2, 3].map((task) => parallel loopTask(task)))).flat());
+server.stop();
+const counts = new Map<string, number>();
+for (const text of texts) {
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+}
+console.log([...counts.keys()].sort().map((text) => `${text}: ${counts.get(text)}`).join("\n"));

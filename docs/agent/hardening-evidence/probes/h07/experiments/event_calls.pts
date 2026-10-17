@@ -1,0 +1,41 @@
+// Experiment: which listener calls differ from Node in one round of c07-control-events-par.
+let calls = 0;
+const log: string[] = [];
+const target = new EventTarget();
+const counted = (): void => {
+    calls++;
+    log.push("counted");
+};
+target.addEventListener("ping", counted);
+target.addEventListener("ping", counted); // added once
+target.addEventListener("ping", () => { calls++; log.push("once"); }, { once: true });
+target.addEventListener("ping", (event) => event.preventDefault());
+const ping = new Event("ping", { cancelable: true });
+console.log("dispatch 1:", target.dispatchEvent(ping), ping.defaultPrevented, calls, log.join(","));
+target.dispatchEvent(new Event("ping"));
+console.log("dispatch 2:", calls, log.join(","));
+target.removeEventListener("ping", counted);
+target.dispatchEvent(new Event("ping"));
+console.log("dispatch 3:", calls, log.join(","));
+target.addEventListener("stop", (event) => {
+    calls++;
+    log.push("stop");
+    event.stopImmediatePropagation();
+});
+target.addEventListener("stop", () => {
+    throw new Error("not reached");
+});
+target.dispatchEvent(new Event("stop"));
+console.log("dispatch 4:", calls, log.join(","));
+// The arrow with an expression body that increments: is it called once?
+let n = 0;
+const t2 = new EventTarget();
+t2.addEventListener("x", () => n++);
+t2.dispatchEvent(new Event("x"));
+console.log("expression-bodied listener calls:", n);
+let m = 0;
+const t3 = new EventTarget();
+t3.addEventListener("x", () => m++, { once: true });
+t3.dispatchEvent(new Event("x"));
+t3.dispatchEvent(new Event("x"));
+console.log("once expression-bodied listener calls:", m);

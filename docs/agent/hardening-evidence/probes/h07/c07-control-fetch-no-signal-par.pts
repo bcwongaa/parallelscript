@@ -1,0 +1,52 @@
+// H07 C07 control: 1,600 fetches without signals (as URLs and as Requests given none) from `.par.map` pool tasks and four `parallel` tasks against a local server; every fetch must answer `ok`
+// oracle: node:c07-control-fetch-no-signal-par.oracle.mts
+// threads: 1,2,4
+// runs: 10
+// expected (Node): prints `ok: 1600`, exit 0
+// baseline PTS: builds and runs, stdout identical to Node at 1, 2 and 4 threads in every run, exit 0 (a fetch given no signal never constructs one)
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+
+const server = serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch() {
+        return new Response("ok");
+    },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// The body of a fetch, or how it failed.
+function outcome(response: Promise<Response>): Promise<string> {
+    return response.then((r) => r.text(), (error) => (error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown"));
+}
+
+// Fetch i of a task without a signal, as a URL or a Request given none. A synchronous throw counts as a failure.
+function fetchWithoutSignal(path: string, i: number): Promise<string> {
+    try {
+        return outcome(i % 2 === 0 ? fetch(`${base}${path}`) : fetch(new Request(`${base}${path}`)));
+    } catch (error) {
+        return Promise.resolve(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown");
+    }
+}
+
+// 200 fetches from a task on a loop, 20 at a time.
+async function loopTask(task: number): Promise<string[]> {
+    const texts: string[] = [];
+    for (let batch = 0; batch < 10; batch++) {
+        texts.push(...(await Promise.all(Array.from({ length: 20 }, (_, i) => fetchWithoutSignal(`/loop/${task}/${batch}`, i)))));
+    }
+    return texts;
+}
+
+const texts: string[] = [];
+for (let round = 0; round < 4; round++) {
+    texts.push(...(await Promise.all(range(0, 200).par.map((i) => fetchWithoutSignal(`/pool/${round}`, i)))));
+}
+texts.push(...(await Promise.all([0, 1, 2, 3].map((task) => parallel loopTask(task)))).flat());
+server.stop();
+const counts = new Map<string, number>();
+for (const text of texts) {
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+}
+console.log([...counts.keys()].sort().map((text) => `${text}: ${counts.get(text)}`).join("\n"));

@@ -625,7 +625,7 @@ Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 - Overrides must keep the overridden method's parameter types.
 - RegExp: no `indices` for the `d` flag, no `v` flag, and without `u`, `.` and character classes match an astral character whole.
 - Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).
-- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131), and code that does little but allocate can be several times slower on eight threads than on one (D-172).
+- Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131), and code that does little but allocate can be several times slower on eight threads than on one (D-172). One `AbortSignal` that several threads follow at once (as parallel `fetch`es given the same signal do) can lose followers, so some don't abort with it, and a `parallel` task's unreferenced timers (`unref()`, `AbortSignal.timeout`) don't fire while its loop sleeps (H07b).
 - The language server doesn't show the errors that only the lowering finds (most PTS1001 "not supported yet"); `pts build` reports them (D-168).
 
 ## Repository layout

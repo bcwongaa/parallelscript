@@ -29,6 +29,30 @@ try {
 } catch (e) {
   console.log((e as Error).name, (e as Error).message);
 }
+// No argument makes the constructor legal (D-184): not undefined, an object, a signal, a
+// value through `any`, or a subclass's argument to super.
+class Forged extends AbortSignal {
+  constructor(key: unknown) {
+    super(key);
+  }
+}
+const loose: any = {};
+const forgeries: (() => unknown)[] = [
+  () => new AbortSignal(undefined),
+  () => new AbortSignal({}),
+  () => new AbortSignal(signal),
+  () => new AbortSignal(loose),
+  () => new Forged({}),
+  () => new Forged(undefined),
+];
+for (const forge of forgeries) {
+  try {
+    forge();
+    console.log("constructed");
+  } catch (e) {
+    console.log((e as Error).name, (e as Error).message);
+  }
+}
 
 console.log(AbortSignal.abort().reason.name, AbortSignal.abort("why").reason, AbortSignal.abort(null).reason);
 const a = new AbortController();

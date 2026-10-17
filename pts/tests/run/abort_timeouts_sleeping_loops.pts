@@ -1,0 +1,36 @@
+// Unreferenced timers don't keep the program running, as in Node, but they must fire while
+// something else does: here the main loop's timer (C120, H07b). A `parallel` task's own
+// unreferenced timer, its own AbortSignal.timeout (whose timer is unreferenced, D-162), and
+// timeouts that tasks make and hand back fire at the time asked for. The output is Node's
+// for the program run sequentially (`parallel e` as `Promise.resolve(e)`).
+// threads: 1 2 4
+// skip: bug: a loop that sleeps doesn't run its unreferenced timers (D-121), so at 2 or more threads a task's own unref'd timer or AbortSignal.timeout never fires and the program ends with its top-level await unsettled, and timeouts tasks hand back may never fire (C120, H07b)
+
+function waitUnref(ms: number): Promise<string> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve("fired"), ms).unref();
+  });
+}
+const plainKeepAlive = setTimeout(() => console.log("a task's unref'd timer never fired"), 3_000);
+const fired = await Promise.all([0, 1, 2, 3].map((i) => parallel waitUnref(20 + i)));
+clearTimeout(plainKeepAlive);
+console.log(fired.join(","));
+
+async function waitOwnTimeout(ms: number): Promise<string> {
+  const signal = AbortSignal.timeout(ms);
+  await new Promise((resolve) => signal.addEventListener("abort", resolve));
+  return (signal.reason as DOMException).name;
+}
+const keepAlive = setTimeout(() => console.log("a task's timeout never fired"), 3_000);
+const names = await Promise.all([0, 1, 2, 3].map((i) => parallel waitOwnTimeout(20 + i)));
+clearTimeout(keepAlive);
+console.log(names.join(","));
+
+const handed = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7].map((i) => parallel AbortSignal.timeout(20 + i)));
+await new Promise((resolve) => setTimeout(resolve, 500));
+console.log("handed-back timeouts aborted:", handed.map((signal) => (signal.aborted ? "y" : "n")).join(""));
+
+// expect:
+// fired,fired,fired,fired
+// TimeoutError,TimeoutError,TimeoutError,TimeoutError
+// handed-back timeouts aborted: yyyyyyyy

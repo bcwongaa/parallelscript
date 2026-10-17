@@ -1,0 +1,88 @@
+// Signals in a server's handlers on every loop and in fetches from many threads at once
+// (C07, H07): a reusePort server (D-137) whose handlers, running on several loops, read
+// `request.signal` and make, follow and abort signals of their own; and fetches given new
+// signals (a controller's, AbortSignal.any's or AbortSignal.timeout's, a Request's own)
+// from `.par.map` callbacks and `parallel` tasks. No thread touches another's signals, so
+// every request must succeed as it does on one thread. A server's failure answers 500 with
+// "server" and the error, a client's is "client" and the error. Node prints the same for
+// the program run sequentially (node:http's server for serve).
+// threads: 1 2 4
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+
+function failure(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown";
+}
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true,
+  fetch(request) {
+    try {
+      const own = request.signal; // made when first read
+      const controller = new AbortController();
+      const forwarded = new Request(request.url, { signal: controller.signal });
+      const either = AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]);
+      for (let step = 0; step < 8; step++) {
+        const local = new AbortController();
+        local.abort(step);
+      }
+      controller.abort("done");
+      const fine = !own.aborted && forwarded.signal.reason === "done" && either.reason === "done";
+      return new Response(fine ? "ok" : "server: wrong signal state", { status: fine ? 200 : 500 });
+    } catch (error) {
+      return new Response(`server: ${failure(error)}`, { status: 500 });
+    }
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+// Fetch i with a new signal of one of three kinds; on a pool thread AbortSignal.any's rather
+// than AbortSignal.timeout's (a pool worker can't start timers yet).
+function fetchWithSignal(path: string, i: number, onLoop: boolean): Promise<string> {
+  try {
+    let response: Promise<Response>;
+    if (i % 3 === 0) {
+      response = fetch(`${base}${path}`, { signal: new AbortController().signal });
+    } else if (i % 3 === 1) {
+      response = fetch(`${base}${path}`, { signal: onLoop ? AbortSignal.timeout(3_600_000) : AbortSignal.any([new AbortController().signal]) });
+    } else {
+      response = fetch(new Request(`${base}${path}`, { signal: new AbortController().signal }));
+    }
+    return response.then((r) => r.text(), (error) => `client: ${failure(error)}`);
+  } catch (error) {
+    return Promise.resolve(`client: ${failure(error)}`);
+  }
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
+}
+
+// 250 fetches from a task on a loop, 25 at a time.
+async function loopTask(task: number): Promise<string[]> {
+  const outcomes: string[] = [];
+  for (let batch = 0; batch < 10; batch++) {
+    outcomes.push(...(await Promise.all(Array.from({ length: 25 }, (_, i) => fetchWithSignal(`/loop/${task}/${batch}`, i, true)))));
+  }
+  return outcomes;
+}
+
+const pooled: string[] = [];
+for (let round = 0; round < 5; round++) {
+  pooled.push(...(await Promise.all(range(0, 200).par.map((i) => fetchWithSignal(`/pool/${round}`, i, false)))));
+}
+console.log("from .par.map:", tally(pooled));
+const looped = await Promise.all([0, 1, 2, 3].map((task) => parallel loopTask(task)));
+console.log("from parallel tasks:", tally(looped.flat()));
+server.stop();
+
+// expect:
+// from .par.map: ok 1000
+// from parallel tasks: ok 1000

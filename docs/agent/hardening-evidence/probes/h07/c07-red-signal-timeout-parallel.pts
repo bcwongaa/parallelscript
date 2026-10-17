@@ -1,0 +1,34 @@
+// H07 C07 red: `AbortSignal.timeout` from four `parallel` tasks (one per loop), 5,000 local unref'd signals each; none may fail
+// oracle: node:c07-red-signal-timeout-parallel.oracle.mts
+// threads: 1,2,4
+// runs: 20
+// expected (Node): prints `loop 0: failed 0` ... `loop 3: failed 0` (4 lines), exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads `AbortSignal.timeout` throws `TypeError: Illegal constructor`
+// failure: TypeError: Illegal constructor
+// Not from `.par` callbacks: a pool worker can't start timers yet (SPEC §4, "Timers and asynchronous I/O can't be
+// started from a parallel operation's callback yet"), which AbortSignal.timeout does, so that would fail for another reason.
+
+// label's 5,000 signals that would time out in an hour; their timers don't keep the program running.
+function timeouts(label: string): string {
+    let failed = 0;
+    let first = "";
+    for (let i = 0; i < 5000; i++) {
+        try {
+            const signal = AbortSignal.timeout(3_600_000);
+            if (signal.aborted || signal.reason !== undefined) {
+                throw new Error("a timeout signal aborted early");
+            }
+        } catch (error) {
+            failed++;
+            if (first === "") {
+                first = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            }
+        }
+    }
+    return `${label}: failed ${failed}${first === "" ? "" : ` (first ${first})`}`;
+}
+
+const loops = await Promise.all([0, 1, 2, 3].map((task) => parallel timeouts(`loop ${task}`)));
+for (const line of loops) {
+    console.log(line);
+}

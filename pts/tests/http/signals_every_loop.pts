@@ -1,0 +1,79 @@
+// The server TestHTTPServerSignalsEveryLoop talks to (C07, H07): with reusePort every loop
+// accepts connections (D-137), so handlers run on several loops at once, and each one reads
+// its request's signal and makes, follows and aborts signals of its own: AbortControllers, a
+// Request following one (AbortSignal.any), AbortSignal.any and AbortSignal.timeout. No
+// handler touches another's signals, so each answers "ok"; one that throws goes to the error
+// handler, which answers 500 with the error. GET /timeout answers when a timeout of its own
+// fires, on the loop that took the request. GET /hold holds its request until the client
+// leaves, which aborts the request's signal (D-163); GET /count says how many held requests
+// arrived and how many of their signals aborted with an AbortError. GET /stop stops the
+// server on every loop, so the program ends.
+import { serve, Request, Response } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+function signals(request: Request): string {
+  const own = request.signal; // made when first read
+  const controller = new AbortController();
+  const forwarded = new Request(request.url, { signal: controller.signal });
+  const either = AbortSignal.any([controller.signal, AbortSignal.timeout(3_600_000)]);
+  for (let step = 0; step < 8; step++) {
+    const local = new AbortController();
+    local.abort(step);
+    if (local.signal.reason !== step) {
+      return "wrong local signal";
+    }
+  }
+  controller.abort("done");
+  return !own.aborted && forwarded.signal.reason === "done" && either.reason === "done" ? "ok" : "wrong signal state";
+}
+
+// Answers with the name of the reason of whichever aborts first: a timeout of its own or the request's signal.
+function afterTimeout(request: Request): Promise<Response> {
+  const either = AbortSignal.any([AbortSignal.timeout(20), request.signal]);
+  return new Promise((resolve) => {
+    either.addEventListener("abort", () => resolve(new Response((either.reason as DOMException).name)));
+  });
+}
+
+const held = new AtomicInt(0);
+const abortedHeld = new AtomicInt(0);
+
+// Never answers; counts the request's signal when it aborts with an AbortError.
+function hold(request: Request): Promise<Response> {
+  held.add(1);
+  const either = AbortSignal.any([request.signal, new AbortController().signal]);
+  either.addEventListener("abort", () => {
+    const reason: unknown = request.signal.reason;
+    if (reason instanceof DOMException && reason.name === "AbortError") {
+      abortedHeld.add(1);
+    }
+  });
+  return new Promise(() => {});
+}
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  reusePort: true,
+  fetch(request, server) {
+    const path = request.url.slice(request.url.indexOf("/", "http://".length));
+    if (path === "/stop") {
+      server.stop();
+      return new Response("bye");
+    }
+    if (path === "/timeout") {
+      return afterTimeout(request);
+    }
+    if (path === "/hold") {
+      return hold(request);
+    }
+    if (path === "/count") {
+      return new Response(`${held.load()} ${abortedHeld.load()}`);
+    }
+    return new Response(signals(request));
+  },
+  error(error) {
+    return new Response(error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown", { status: 500 });
+  },
+});
+console.log("listening", server.port);

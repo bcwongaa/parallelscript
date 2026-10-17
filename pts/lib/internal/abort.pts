@@ -201,18 +201,11 @@ export class EventTarget {
     }
 }
 
-// Programs get signals from AbortController and AbortSignal's statics, never from AbortSignal's constructor.
-let constructing = false;
+// Programs get signals from AbortController and AbortSignal's statics, never from AbortSignal's
+// constructor, which wants a key only this module has. A key rather than a flag the statics set
+// around the call: threads making signals at once would clear each other's flag (C07).
+const SIGNAL_KEY = {};
 let signalAbort: (signal: AbortSignal, reason: any) => void;
-
-function newSignal(): AbortSignal {
-    constructing = true;
-    try {
-        return new AbortSignal();
-    } finally {
-        constructing = false;
-    }
-}
 
 // Whether an operation should stop, and why: aborted once, with a reason, firing an
 // "abort" event at its listeners (onabort among them).
@@ -223,9 +216,11 @@ export class AbortSignal extends EventTarget {
     #onabort: EventListener | null = null;
     #handlerAdded = false;
 
-    constructor() {
+    // The key is unknown rather than its own class, so that any other argument, also through
+    // `any`, gets Node's TypeError rather than a failed conversion naming the class.
+    constructor(key?: unknown) {
         super();
-        if (!constructing) {
+        if (key !== SIGNAL_KEY) {
             throw new TypeError("Illegal constructor");
         }
     }
@@ -255,21 +250,21 @@ export class AbortSignal extends EventTarget {
 
     // A signal aborted already, with reason (an AbortError DOMException if none is given).
     static abort(reason?: any): AbortSignal {
-        const signal = newSignal();
+        const signal = new AbortSignal(SIGNAL_KEY);
         signalAbort(signal, reason);
         return signal;
     }
 
     // A signal that aborts with a TimeoutError after ms milliseconds; its timer doesn't keep the program running.
     static timeout(ms: number): AbortSignal {
-        const signal = newSignal();
+        const signal = new AbortSignal(SIGNAL_KEY);
         setTimeout(() => signalAbort(signal, new DOMException("The operation was aborted due to timeout", "TimeoutError")), ms).unref();
         return signal;
     }
 
     // A signal that aborts when the first of signals does, with its reason.
     static any(signals: AbortSignal[]): AbortSignal {
-        const signal = newSignal();
+        const signal = new AbortSignal(SIGNAL_KEY);
         for (const source of signals) {
             if (source.aborted) {
                 signalAbort(signal, source.reason);
@@ -296,7 +291,7 @@ export class AbortSignal extends EventTarget {
 
 // Aborts its signal: abort(reason) aborts it with reason, or an AbortError DOMException.
 export class AbortController {
-    readonly signal: AbortSignal = newSignal();
+    readonly signal: AbortSignal = new AbortSignal(SIGNAL_KEY);
 
     abort(reason?: any): void {
         signalAbort(this.signal, reason);

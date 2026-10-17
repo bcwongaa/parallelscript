@@ -1,0 +1,42 @@
+// H07 C07 red: four `parallel` tasks (one per loop) each construct and abort 20,000 local AbortControllers, with an onabort handler and a listener each; none may fail
+// oracle: node:c07-red-abortcontroller-parallel-tasks.oracle.mts
+// threads: 1,2,4
+// runs: 20
+// expected (Node): prints `task 0: failed 0, events 40000` ... `task 3: failed 0, events 40000` (4 lines), exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads constructions on the loops throw `TypeError: Illegal constructor`
+// failure: TypeError: Illegal constructor
+
+// The work of one task: controllers made, listened to and aborted on the task's own loop.
+function work(task: number): string {
+    let failed = 0;
+    let events = 0;
+    let first = "";
+    for (let i = 0; i < 20000; i++) {
+        try {
+            const controller = new AbortController();
+            controller.signal.onabort = () => {
+                events++;
+            };
+            controller.signal.addEventListener("abort", (event) => {
+                if (event.type === "abort" && event.isTrusted) {
+                    events++;
+                }
+            });
+            controller.abort(task);
+            if (!controller.signal.aborted || controller.signal.reason !== task) {
+                throw new Error("wrong local signal");
+            }
+        } catch (error) {
+            failed++;
+            if (first === "") {
+                first = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            }
+        }
+    }
+    return `task ${task}: failed ${failed}, events ${events}${first === "" ? "" : ` (first ${first})`}`;
+}
+
+const lines = await Promise.all([0, 1, 2, 3].map((task) => parallel work(task)));
+for (const line of lines) {
+    console.log(line);
+}

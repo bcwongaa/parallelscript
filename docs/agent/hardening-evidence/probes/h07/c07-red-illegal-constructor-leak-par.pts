@@ -1,0 +1,46 @@
+// H07 C07 red: while three `.par.map` tasks make AbortControllers, a fourth calls `new AbortSignal()` 20,000 times, which must always throw `TypeError: Illegal constructor`
+// oracle: node:c07-red-illegal-constructor-leak-par.oracle.mts
+// threads: 1,2,4
+// runs: 20
+// expected (Node): prints `task 0: illegal 20000, constructed 0`, then `task 1: failed 0` ... `task 3: failed 0` (4 lines), exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads some of task 0's `new AbortSignal()` calls succeed (the shared flag another thread set lets them through) and the controllers of tasks 1-3 throw `TypeError: Illegal constructor`
+// failure: constructed [1-9]|TypeError: Illegal constructor\)
+import { range } from "pts:parallel";
+
+const lines = range(0, 4).par.map((task) => {
+    if (task === 0) {
+        let illegal = 0;
+        let constructed = 0;
+        for (let i = 0; i < 20000; i++) {
+            try {
+                new AbortSignal();
+                constructed++;
+            } catch (error) {
+                if (error instanceof TypeError && error.message === "Illegal constructor") {
+                    illegal++;
+                }
+            }
+        }
+        return `task 0: illegal ${illegal}, constructed ${constructed}`;
+    }
+    let failed = 0;
+    let first = "";
+    for (let i = 0; i < 20000; i++) {
+        try {
+            const controller = new AbortController();
+            controller.abort("local");
+            if (!controller.signal.aborted || controller.signal.reason !== "local") {
+                throw new Error("wrong local signal");
+            }
+        } catch (error) {
+            failed++;
+            if (first === "") {
+                first = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            }
+        }
+    }
+    return `task ${task}: failed ${failed}${first === "" ? "" : ` (first ${first})`}`;
+});
+for (const line of lines) {
+    console.log(line);
+}

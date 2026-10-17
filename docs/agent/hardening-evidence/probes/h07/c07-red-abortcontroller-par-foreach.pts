@@ -1,0 +1,27 @@
+// H07 C07 red: `.par.forEach` over 40,000 indices constructs and aborts one local AbortController per index, its outcome in the index's own slot
+// oracle: node:c07-red-abortcontroller-par-foreach.oracle.mts
+// threads: 1,2,4
+// runs: 20
+// expected (Node): prints `ok: 40000`, exit 0
+// baseline PTS: 1 thread passes; at 2 and 4 threads some constructions throw `TypeError: Illegal constructor`, so other lines are tallied
+// failure: TypeError: Illegal constructor
+import { range } from "pts:parallel";
+
+const COUNT = 40_000;
+const outcomes = new Array<string>(COUNT).fill("");
+
+range(0, COUNT).par.forEach((i) => {
+    try {
+        const controller = new AbortController();
+        controller.abort(i);
+        outcomes[i] = controller.signal.aborted && controller.signal.reason === i ? "ok" : "wrong state";
+    } catch (error) {
+        outcomes[i] = error instanceof Error ? `${error.name}: ${error.message}` : "non-Error thrown";
+    }
+});
+
+const counts = new Map<string, number>();
+for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+}
+console.log([...counts.keys()].sort().map((outcome) => `${outcome}: ${counts.get(outcome)}`).join("\n"));

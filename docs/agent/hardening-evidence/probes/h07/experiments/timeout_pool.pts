@@ -1,0 +1,11 @@
+// Experiment: AbortSignal.timeout from a .par.map callback (a pool thread).
+import { range } from "pts:parallel";
+const out = range(0, 4).par.map((t) => {
+  try {
+    const s = AbortSignal.timeout(1000);
+    return `task ${t}: timeout ok ${s.aborted}`;
+  } catch (e) {
+    return `task ${t}: ${(e as Error).name}: ${(e as Error).message}`;
+  }
+});
+console.log(out.join("\n"));

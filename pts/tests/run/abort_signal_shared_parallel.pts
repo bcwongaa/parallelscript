@@ -1,0 +1,33 @@
+// One controller's signal followed from many threads at once (C116, H07b; found by H07's
+// reproducer, not C07's flag race): `.par.map` callbacks each make
+// `AbortSignal.any([shared.signal])`, as fetch's Request does for every fetch given the
+// signal. The program never writes the shared signal; the library's own listener list on it
+// is what the threads add to. Aborting it must abort every follower, as in Node (the program
+// run sequentially, `.par.map` as `map`).
+// threads: 1 2 4
+// skip: bug: AbortSignal.any's listeners race on the shared signal's listener list, so followers are lost and a hole can make abort() throw RangeError (C116, H07b)
+import { range } from "pts:parallel";
+
+const shared = new AbortController();
+const followers = range(0, 10_000).par.map(() => {
+  try {
+    return AbortSignal.any([shared.signal]);
+  } catch (error) {
+    return null;
+  }
+});
+shared.abort("stop");
+let made = 0;
+let aborted = 0;
+for (const follower of followers) {
+  if (follower !== null) {
+    made++;
+    if (follower.aborted && follower.reason === "stop") {
+      aborted++;
+    }
+  }
+}
+console.log(`followers ${made}, aborted ${aborted}`);
+
+// expect:
+// followers 10000, aborted 10000
