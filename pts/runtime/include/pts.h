@@ -2596,6 +2596,12 @@ pts_value pts_parallel_reduce(struct pts_closure *leaf, struct pts_closure *comb
 void pts_parallel_join(struct pts_closure *a, struct pts_closure *b);
 /* pts_pool_threads() as a number. */
 double pts_parallel_threads(void);
+/*
+ * Whether the caller runs on the main thread, outside a `parallel` task's closure and a
+ * parallel operation (whose callbacks may run on it): pts:test registers tests only there
+ * (D-186).
+ */
+bool pts_parallel_on_main_thread(void);
 /* pts_array_has and pts_array_push_flat for pts:parallel's flatMap, whose arrays it passes as dynamic values (D-180), and pts_array_has_holes, for its methods that skip holes (D-183). */
 static inline bool pts_parallel_has(pts_value array, double index) { return pts_array_has((const pts_array *)pts_value_as_object(array), index); }
 bool pts_parallel_has_holes_in(pts_value array, double from, double to);

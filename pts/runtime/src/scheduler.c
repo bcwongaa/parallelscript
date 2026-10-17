@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/resource.h>
+#include <time.h>
 #include <unistd.h>
 #include <uv.h>
 
@@ -52,8 +53,10 @@ static atomic_bool finished;    /* every loop slept at once: the program is done
 static atomic_uint next_choice; /* where the search for the least-loaded loop starts, round-robin among equals */
 
 _Thread_local uint16_t pts_current_loop;
+_Thread_local uint32_t pts_parallel_nesting;
 bool pts_threaded;
 static _Thread_local loop_slot *own;
+static _Thread_local uint16_t own_index; /* own's index in slots */
 
 static void *checked(void *memory) {
   if (memory == NULL) {
@@ -84,7 +87,11 @@ static loop_slot *new_slot(void) {
   uv_prepare_start(slot->flush, on_prepare);
   uv_unref((uv_handle_t *)slot->flush);
   pthread_mutex_init(&slot->lock, NULL);
-  pthread_cond_init(&slot->woken, NULL);
+  pthread_condattr_t attributes;
+  pthread_condattr_init(&attributes);
+  pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC); /* libuv's clock: a sleeping loop waits for its timers (wait_for_work) */
+  pthread_cond_init(&slot->woken, &attributes);
+  pthread_condattr_destroy(&attributes);
   return slot;
 }
 
@@ -103,6 +110,8 @@ static loop_slot *own_slot(void) {
 }
 
 uv_loop_t *pts_uv_loop(void) { return own_slot()->uv; }
+
+uint16_t pts_own_loop(void) { return own_index; }
 
 /* ---------------------------------------------------------------- inboxes */
 
@@ -231,10 +240,32 @@ static void wake_main(void) {
   pthread_mutex_unlock(&main_slot->lock);
 }
 
+/* Waits for slot's condition for at most ms milliseconds; the caller holds slot's lock. */
+static void wait_at_most(loop_slot *slot, int64_t ms) {
+  struct timespec until;
+  clock_gettime(CLOCK_MONOTONIC, &until);
+  until.tv_sec += ms / 1000;
+  until.tv_nsec += (ms % 1000) * 1000000;
+  if (until.tv_nsec >= 1000000000) {
+    until.tv_sec++;
+    until.tv_nsec -= 1000000000;
+  }
+  pthread_cond_timedwait(&slot->woken, &slot->lock, &until);
+}
+
+/* Counts a sleeping loop awake again for its timer, unless no loop is awake: then the program is ending, which an unreferenced timer doesn't hold up. */
+static bool rejoin(void) {
+  size_t count = atomic_load(&awake);
+  while (count > 0 && !atomic_compare_exchange_weak(&awake, &count, count + 1)) {
+  }
+  return count > 0;
+}
+
 /*
- * Sleeps until a message comes, unless one has: true when there is work, false when
- * every loop sleeps instead. The last loop to fall asleep ends the program by waking the
- * main thread's, whose pts_run_loop then returns.
+ * Sleeps until a message comes, unless one has, or until the first of the loop's timers
+ * (all unreferenced) is due while the program still runs: true when there is work, false
+ * when every loop sleeps instead. The last loop to fall asleep ends the program by waking
+ * the main thread's, whose pts_run_loop then returns.
  */
 static bool wait_for_work(loop_slot *slot) {
   pthread_mutex_lock(&slot->lock);
@@ -246,8 +277,18 @@ static bool wait_for_work(loop_slot *slot) {
       wake_main();
       return false;
     }
+    bool ending = false; /* a timer came due when no loop was awake */
     while (slot->sleeping && !atomic_load(&finished)) {
-      pthread_cond_wait(&slot->woken, &slot->lock);
+      int64_t wait = ending ? -1 : pts_loop_timer_wait();
+      if (wait < 0) {
+        pthread_cond_wait(&slot->woken, &slot->lock);
+      } else if (wait > 0) {
+        wait_at_most(slot, wait);
+      } else if (rejoin()) {
+        slot->sleeping = false;
+      } else {
+        ending = true;
+      }
     }
   }
   bool working = !slot->sleeping;
@@ -255,19 +296,34 @@ static bool wait_for_work(loop_slot *slot) {
   return working;
 }
 
-/* Runs slot's loop until the program is done: its libuv loop until nothing referenced is left, then a task taken from another loop or the messages it sleeps until. */
+/*
+ * Runs slot's loop until the program is done: its libuv loop until nothing referenced is
+ * left, then a task taken from another loop, or else the timers and messages it sleeps
+ * until. libuv runs no timers while nothing referenced is left, so the loop runs those
+ * that are due itself. After that work, as after I/O, libuv's phases go on from poll, so
+ * the immediates it queued run before the next timers. What the program printed goes out
+ * before the loop sleeps, as before it polls.
+ */
 static void run(loop_slot *slot) {
+  uv_run(slot->uv, UV_RUN_DEFAULT);
   for (;;) {
-    uv_run(slot->uv, UV_RUN_DEFAULT);
     pts_message *task = steal(slot);
     if (task != NULL) {
       pts_message_run(task);
-      continue;
+    } else {
+      fflush(stdout);
+      if (!wait_for_work(slot)) {
+        return;
+      }
+      pts_loop_run_due_timers();
+      run_inbox(slot);
     }
-    if (!wait_for_work(slot)) {
-      return;
+    if (uv_run(slot->uv, UV_RUN_NOWAIT) == 0) {
+      pts_loop_run_due_timers(); /* nothing referenced, so no immediate waits to go first */
     }
-    run_inbox(slot);
+    while (uv_run(slot->uv, UV_RUN_ONCE) != 0) {
+      /* UV_RUN_DEFAULT without its first timers phase */
+    }
   }
 }
 
@@ -276,7 +332,7 @@ void pts_run_loop(void) { run(own_slot()); }
 /* ---------------------------------------------------------------- the other loops and tasks */
 
 static void *run_worker(void *index) {
-  pts_current_loop = (uint16_t)(uintptr_t)index;
+  pts_current_loop = own_index = (uint16_t)(uintptr_t)index;
   own = slots[pts_current_loop];
   pts_stack_limit_init();
   run(own);
@@ -372,3 +428,5 @@ uint16_t pts_place_task(void) {
 }
 
 void pts_task_finished(void) { atomic_fetch_sub(&own_slot()->load, 1); }
+
+bool pts_parallel_on_main_thread(void) { return pts_current_loop == 0 && pts_parallel_nesting == 0; }

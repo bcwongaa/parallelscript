@@ -679,13 +679,16 @@ static void run_task(pts_value task, pts_promise *promise) {
   pts_closure *closure = (pts_closure *)pts_value_as_object(task);
   pts_handler handler;
   pts_try_enter(&handler);
+  pts_parallel_nesting++;
   if (_setjmp(handler.jump) != 0) {
+    pts_parallel_nesting--;
     pts_task_finished();
     settle(promise, REJECTED, pts_caught(&handler));
     return;
   }
   pts_value value = ((pts_value(*)(pts_closure *))closure->code)(closure);
   pts_try_leave(&handler);
+  pts_parallel_nesting--;
   reaction *done = allocate(sizeof *done);
   done->task = promise;
   perform_then(promise_resolve(value), done);

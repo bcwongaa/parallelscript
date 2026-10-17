@@ -1,0 +1,98 @@
+// pts:test's registry belongs to the main thread (C117, H07b2): test and it, describe and
+// suite, and the hooks before, after, beforeEach and afterEach throw an Error when they are
+// called in a `parallel` task's synchronous code or in a parallel operation's callback
+// (`.par`, `parallel for`, join), whichever thread runs it, the main thread too. They
+// register nothing (a suite's body doesn't run) and start no run of the tests, so the
+// program prints only the outcomes, at every thread count. (They throw on any other thread
+// too, but a task's code after an await runs on the main thread with one thread, so the test
+// leaves that out.) ParallelScript only: Node has no tasks or parallel operations, and the
+// harness doesn't compare programs with `parallel` with Node.
+// threads: 1 2 4
+import { after, afterEach, before, beforeEach, describe, it, suite, test } from "pts:test";
+import { join, range } from "pts:parallel";
+
+const state = { bodies: 0 };
+
+// What a registration did: "registered", or the name of the Error it threw.
+function outcome(register: () => void): string {
+  try {
+    register();
+    return "registered";
+  } catch (error) {
+    return error instanceof Error ? error.name : "a non-Error";
+  }
+}
+
+// Each registration function once, from wherever this runs.
+function attempts(): string[] {
+  const ran = () => console.log("a test or hook registered off the main thread ran");
+  return [
+    outcome(() => test("test", ran)),
+    outcome(() => it("it", ran)),
+    outcome(() => describe("describe", () => {
+      state.bodies++;
+    })),
+    outcome(() => suite("suite", () => {
+      state.bodies++;
+    })),
+    outcome(() => before(ran)),
+    outcome(() => after(ran)),
+    outcome(() => beforeEach(ran)),
+    outcome(() => afterEach(ran)),
+  ];
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const one of outcomes) {
+    counts.set(one, (counts.get(one) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((one) => `${one} ${counts.get(one)}`).join(", ");
+}
+
+const tasks = await Promise.all([0, 1, 2, 3].map(() => parallel attempts()));
+console.log("parallel tasks:", tally(tasks.flat()));
+
+console.log(".par.map callbacks:", tally(range(0, 8).par.map(() => attempts()).flat()));
+
+const slots: string[][] = new Array<string[]>(8).fill([]);
+range(0, 8).par.forEach((i) => {
+  slots[i] = attempts();
+});
+console.log(".par.forEach callbacks:", tally(slots.flat()));
+
+parallel for (const i of range(0, 8)) {
+  slots[i] = attempts();
+}
+console.log("parallel for bodies:", tally(slots.flat()));
+
+const [left, right] = join(() => attempts(), () => attempts());
+console.log("join's closures:", tally([...left, ...right]));
+
+console.log("suite bodies run:", state.bodies);
+
+// The error names the function called, also for an alias, and says where to call it.
+const messages = range(0, 2).par.map((i) => {
+  try {
+    if (i === 0) {
+      it("it", () => {});
+    } else {
+      suite("suite", () => {});
+    }
+    return "registered";
+  } catch (error) {
+    return error instanceof Error ? error.message : "a non-Error";
+  }
+});
+console.log(messages.join("\n"));
+
+// expect:
+// parallel tasks: Error 32
+// .par.map callbacks: Error 64
+// .par.forEach callbacks: Error 64
+// parallel for bodies: Error 64
+// join's closures: Error 16
+// suite bodies run: 0
+// pts:test's it() must be called on the main thread, outside parallel tasks and the callbacks of parallel operations
+// pts:test's suite() must be called on the main thread, outside parallel tasks and the callbacks of parallel operations

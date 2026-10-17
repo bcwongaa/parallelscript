@@ -1,0 +1,50 @@
+// A timer is due its delay after it is set, as Node's are: Node's timers read libuv's time
+// afresh when they are set, where ours counted from the loop's cached time (D-114), which is
+// stale after synchronous work (H07b2, found with C120). A timer set after 120 ms of work,
+// at the top level or in a callback, doesn't fire early, and of two timers set with work
+// between them the one due first fires first. The checks are lower bounds and an order,
+// which load can't break.
+
+function spin(ms: number): void {
+  const end = performance.now() + ms;
+  while (performance.now() < end) {
+    // synchronous work
+  }
+}
+
+// How long a timer of ms took to fire, measured from just before it was set.
+function waitFrom(ms: number): Promise<number> {
+  const start = performance.now();
+  return new Promise((resolve) => setTimeout(() => resolve(performance.now() - start), ms));
+}
+
+function onTime(ms: number, waited: number): string {
+  return waited >= ms - 5 ? "on time" : `${Math.round(ms - waited)} ms early`;
+}
+
+const order: string[] = [];
+setTimeout(() => order.push("due at 3 ms"), 3);
+spin(20);
+setTimeout(() => order.push("due at 21 ms"), 1);
+spin(100);
+console.log("a 100 ms timer set after 120 ms of work at the top level:", onTime(100, await waitFrom(100)));
+console.log("timers set with work between them:", order.join(", "));
+
+order.length = 0;
+const inCallback = await new Promise<number>((resolve) =>
+  setTimeout(() => {
+    setTimeout(() => order.push("due at 3 ms"), 3);
+    spin(20);
+    setTimeout(() => order.push("due at 21 ms"), 1);
+    spin(100);
+    void waitFrom(100).then(resolve);
+  }, 1),
+);
+console.log("a 100 ms timer set after 120 ms of work in a callback:", onTime(100, inCallback));
+console.log("timers set in a callback with work between them:", order.join(", "));
+
+// expect:
+// a 100 ms timer set after 120 ms of work at the top level: on time
+// timers set with work between them: due at 3 ms, due at 21 ms
+// a 100 ms timer set after 120 ms of work in a callback: on time
+// timers set in a callback with work between them: due at 3 ms, due at 21 ms

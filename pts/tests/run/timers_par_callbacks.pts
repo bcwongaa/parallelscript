@@ -1,0 +1,50 @@
+// Timers that `.par` callbacks set (H07b2, found with C120): four tasks' operations run at
+// once, so loops' threads help each other's operations. A callback on a pool thread is
+// refused (D-139: timers can't start there yet); one on a loop's thread sets a timer of that
+// loop, which the main thread then unrefs, refs, refreshes and clears. Each of those reaches
+// the timer's loop: the base recorded a helping loop's timer under the operation's loop
+// marked foreign and crashed on the first of them. The timers are referenced and due in a
+// minute, so one the clear didn't reach would keep the program running.
+// threads: 1 2 4
+import { range } from "pts:parallel";
+
+type Timer = ReturnType<typeof setTimeout>;
+
+const REFUSED = "Timers and asynchronous I/O can't be started from a parallel operation's callback yet";
+
+function work(): number {
+  let x = 0;
+  for (let k = 0; k < 2000; k++) {
+    x += k % 7;
+  }
+  return x;
+}
+
+function setFromCallbacks(): (Timer | string)[] {
+  return range(0, 4000).par.map((): Timer | string => {
+    try {
+      return setTimeout(() => console.log("a callback's timer fired"), 60_000 + (work() % 2));
+    } catch (error) {
+      return error instanceof Error ? error.message : "a non-Error";
+    }
+  });
+}
+
+const hold = setTimeout(() => {}, 10_000); // referenced: the main loop doesn't take the tasks itself
+const results = (await Promise.all([0, 1, 2, 3].map(() => parallel setFromCallbacks()))).flat();
+let otherErrors = 0;
+for (const result of results) {
+  if (typeof result === "string") {
+    otherErrors += result === REFUSED ? 0 : 1;
+  } else {
+    result.unref();
+    result.ref();
+    result.refresh();
+    clearTimeout(result);
+  }
+}
+clearTimeout(hold);
+console.log("callbacks:", results.length, "other errors:", otherErrors);
+
+// expect:
+// callbacks: 16000 other errors: 0

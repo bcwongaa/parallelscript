@@ -168,7 +168,7 @@ func (e *emitter) header(program *ir.Program) {
 	e.line(0, "int main(int argc, char **argv) {")
 	e.line(1, "pts_runtime_init(argc, argv);")
 	if e.usesLoop {
-		e.line(1, "pts_loop_init(); /* timers count from the program's start, as in Node (D-114) */")
+		e.line(1, "pts_loop_init(); /* the main thread's loop, before the program's code (D-114) */")
 	}
 	if e.hasFunctionNames {
 		e.line(1, "pts_register_function_names(pts_function_names, sizeof pts_function_names / sizeof pts_function_names[0]);")

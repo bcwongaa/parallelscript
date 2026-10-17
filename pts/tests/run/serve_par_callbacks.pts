@@ -1,0 +1,55 @@
+// Servers that `.par` callbacks start (H07b2 review round 1, the class of the timers in
+// `timers_par_callbacks.pts`): four tasks' operations run at once, so loops' threads help
+// each other's operations. A callback on a pool thread is refused (D-139); one on a loop's
+// thread starts a server on that loop, which the main thread fetches from and stops. The
+// base recorded a helping loop's listener under the operation's loop, so stop() reached the
+// wrong loop, the listener stayed open, and the program never ended (about half the runs
+// at 4 threads). Eight rounds make that likely (at most 768 servers, under the 1,024 a
+// program may start).
+// threads: 1 2 4
+import { serve, type Server } from "pts:http";
+import { range } from "pts:parallel";
+
+const REFUSED = "Timers and asynchronous I/O can't be started from a parallel operation's callback yet";
+
+function work(): number {
+  let x = 0;
+  for (let k = 0; k < 200_000; k++) {
+    x += k % 7;
+  }
+  return x;
+}
+
+function startFromCallbacks(): (Server | string)[] {
+  return range(0, 24).par.map((): Server | string => {
+    try {
+      work();
+      return serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("ok") });
+    } catch (error) {
+      return error instanceof Error ? error.message : "a non-Error";
+    }
+  });
+}
+
+const hold = setTimeout(() => {}, 20_000); // referenced: the main loop doesn't take the tasks itself
+let callbacks = 0;
+let otherErrors = 0;
+let silent = 0;
+for (let round = 0; round < 8; round++) {
+  const results = (await Promise.all([0, 1, 2, 3].map(() => parallel startFromCallbacks()))).flat();
+  callbacks += results.length;
+  for (const result of results) {
+    if (typeof result === "string") {
+      otherErrors += result === REFUSED ? 0 : 1;
+    } else {
+      const response = await fetch(result.url);
+      silent += (await response.text()) === "ok" ? 0 : 1;
+      result.stop();
+    }
+  }
+}
+clearTimeout(hold);
+console.log("callbacks:", callbacks, "other errors:", otherErrors, "servers that didn't answer:", silent);
+
+// expect:
+// callbacks: 768 other errors: 0 servers that didn't answer: 0

@@ -86,8 +86,9 @@ void pts_loop_init(void) {
   if (state != NULL) {
     return;
   }
+  uv_loop_t *loop = pts_uv_loop(); /* first: it throws on a thread without a loop, which would leak the state */
   loop_state *s = checked(GC_MALLOC_UNCOLLECTABLE(sizeof *s));
-  s->loop = pts_uv_loop();
+  s->loop = loop;
   s->timer = checked(malloc(sizeof *s->timer));
   s->check = checked(malloc(sizeof *s->check));
   s->idle = checked(malloc(sizeof *s->idle));
@@ -135,13 +136,18 @@ static void sift_down(loop_state *s, size_t slot) {
   place(s, slot, timer);
 }
 
-/* Arms the uv timer for the first timer due, and keeps the loop alive while a referenced timer waits. */
-static void arm(loop_state *s) {
+/* The loop's time read afresh, as Node's getLibuvNow reads it: the time cached at the loop's last turn is stale after synchronous work or a sleep. */
+static uint64_t now_of(loop_state *s) {
+  uv_update_time(s->loop);
+  return uv_now(s->loop);
+}
+
+/* Arms the uv timer for the first timer due, and keeps the loop alive while a referenced timer waits; now is now_of's, not the time before callbacks that ran meanwhile, which libuv would wait from. */
+static void arm(loop_state *s, uint64_t now) {
   if (s->count == 0) {
     uv_timer_stop(s->timer);
     return;
   }
-  uint64_t now = uv_now(s->loop);
   uint64_t due = s->heap[0]->due;
   uv_timer_start(s->timer, on_timer, due > now ? due - now : 0, 0);
   if (s->referenced > 0) {
@@ -151,7 +157,7 @@ static void arm(loop_state *s) {
   }
 }
 
-/* Puts a timer in the heap, due its delay after start (the loop's time when it was scheduled, as Node's getLibuvNow). */
+/* Puts a timer in the heap, due its delay after start (the loop's time when it was scheduled, now_of). */
 static void schedule(loop_state *s, pts_timer *timer, uint64_t start) {
   if (s->count == s->capacity) {
     size_t capacity = s->capacity ? 2 * s->capacity : 16;
@@ -198,7 +204,7 @@ static void run_callback(pts_value callback, pts_array *args) {
   pts_run_microtasks();
 }
 
-/* Node's processTimers: every timer due by now, in order, each followed by its microtasks; an interval is due again its delay after it started. */
+/* Node's processTimers: every timer due by now, in order, each followed by its microtasks; an interval is due again its delay after its callback started (Node's getLibuvNow before it). */
 static void on_timer(uv_timer_t *handle) {
   loop_state *s = handle->data;
   uint64_t now = uv_now(s->loop);
@@ -208,14 +214,15 @@ static void on_timer(uv_timer_t *handle) {
     if (!atomic_load(&timer->active)) {
       continue; /* cleared by another thread, whose message hasn't come yet */
     }
+    uint64_t started = timer->repeat ? now_of(s) : now;
     run_callback(timer->callback, timer->args);
     if (atomic_load(&timer->active) && timer->repeat) {
-      schedule(s, timer, now);
+      schedule(s, timer, started);
     } else {
       atomic_store(&timer->active, false);
     }
   }
-  arm(s);
+  arm(s, now_of(s));
 }
 
 /* The delay setTimeout takes: at least 1 ms, and 1 for anything that isn't a number of ms up to 2^31 - 1, as Node's. */
@@ -239,11 +246,12 @@ pts_value pts_timer_set(pts_value callback, pts_value ms, pts_array *args, bool 
   timer->args = args != NULL && pts_array_length_of(args) > 0 ? args : NULL;
   timer->delay = delay_of(ms);
   timer->repeat = repeat;
-  timer->loop = pts_current_loop;
+  timer->loop = pts_own_loop(); /* whose heap it is in, also when this thread helps another loop's operation */
   atomic_init(&timer->active, true);
   atomic_init(&timer->referenced, true);
-  schedule(state, timer, uv_now(state->loop));
-  arm(state);
+  uint64_t now = now_of(state);
+  schedule(state, timer, now);
+  arm(state, now);
   return pts_value_from_object(timer);
 }
 
@@ -268,7 +276,7 @@ static void remove_cleared(void *data) {
   pts_timer *timer = data;
   if (waiting(state, timer)) {
     unschedule(state, timer);
-    arm(state);
+    arm(state, now_of(state));
   }
 }
 
@@ -287,7 +295,7 @@ static void apply_ref(void *data) {
   if (waiting(state, timer) && timer->counted != referenced) {
     timer->counted = referenced;
     state->referenced += referenced ? 1 : (size_t)-1;
-    arm(state);
+    arm(state, now_of(state));
   }
 }
 
@@ -309,8 +317,9 @@ static void reschedule(void *data) {
   pts_timer *timer = data;
   if (atomic_load(&timer->active) && waiting(state, timer)) {
     unschedule(state, timer);
-    schedule(state, timer, uv_now(state->loop));
-    arm(state);
+    uint64_t now = now_of(state);
+    schedule(state, timer, now);
+    arm(state, now);
   }
 }
 
@@ -320,6 +329,24 @@ pts_value pts_timer_refresh(pts_value value) {
     on_owner(timer, reschedule);
   }
   return value;
+}
+
+/* ---------------------------------------------------------------- a loop that sleeps (scheduler.c) */
+
+int64_t pts_loop_timer_wait(void) {
+  if (state == NULL || state->count == 0) {
+    return -1;
+  }
+  uint64_t now = now_of(state);
+  uint64_t due = state->heap[0]->due;
+  return due > now ? (int64_t)(due - now) : 0;
+}
+
+void pts_loop_run_due_timers(void) {
+  if (state != NULL && state->count > 0) {
+    uv_update_time(state->loop);
+    on_timer(state->timer);
+  }
 }
 
 /* ---------------------------------------------------------------- immediates */

@@ -1,0 +1,45 @@
+// A loop that has slept counts the timers it is then given from when they are set, not from
+// the time it read before it fell asleep (H07b2, found with C120): tasks run on loops that
+// slept 300 ms set 100 ms timers, and the main loop, woken after 200 ms asleep by a task's
+// result, sets one too; none fires early (the checks are lower bounds, which load can't
+// break). The output is Node's for the program run sequentially (`parallel e` as
+// `Promise.resolve(e)`).
+// threads: 1 2 4
+
+function spin(ms: number): number {
+  const end = performance.now() + ms;
+  let rounds = 0;
+  while (performance.now() < end) {
+    rounds++;
+  }
+  return rounds > 0 ? ms : 0;
+}
+
+// How long a timer of ms took to fire, measured from just before it was set.
+function waitFrom(ms: number): Promise<number> {
+  const start = performance.now();
+  return new Promise((resolve) => setTimeout(() => resolve(performance.now() - start), ms));
+}
+
+function onTime(ms: number, waited: number[]): string {
+  const early = waited.filter((one) => one < ms - 5).length;
+  return early === 0 ? "on time" : `${early} of ${waited.length} early`;
+}
+
+function nothing(): number {
+  return 0;
+}
+
+await Promise.all([0, 1, 2, 3, 4, 5].map(() => parallel nothing())); // the loops start, then sleep
+await new Promise((resolve) => setTimeout(resolve, 300));
+const hold = setTimeout(() => {}, 10_000); // referenced: the main loop doesn't take the tasks itself
+const waited = await Promise.all([0, 1, 2, 3, 4, 5].map(() => parallel waitFrom(100)));
+clearTimeout(hold);
+console.log("tasks' 100 ms timers on loops that slept:", onTime(100, waited));
+
+await parallel spin(200);
+console.log("the main loop's 100 ms timer after a task's result woke it:", onTime(100, [await waitFrom(100)]));
+
+// expect:
+// tasks' 100 ms timers on loops that slept: on time
+// the main loop's 100 ms timer after a task's result woke it: on time

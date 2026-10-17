@@ -1,0 +1,41 @@
+// Timers refused in `.par` callbacks on pool threads (D-139: they can't start there yet)
+// leave nothing behind (H07b2 review round 1): the base made a loop's timer state before
+// refusing, so 160 rounds of 20,000 callbacks grew the process by 60 to 100 MB. The bound
+// is generous; the fix grows it by about 1 MB.
+// threads: 2 4
+import { readFileSync } from "pts:fs";
+import { range } from "pts:parallel";
+
+const GROWTH_LIMIT_MB = 25;
+const ROUNDS = 160;
+
+function residentKb(): number {
+  const line = readFileSync("/proc/self/status", "utf8").split("\n").find((one) => one.startsWith("VmRSS:")) ?? "";
+  return Number(line.replace(/[^0-9]/g, ""));
+}
+
+// How many of 20,000 callbacks had their timer refused.
+function refusals(): number {
+  return range(0, 20_000).par.map((): number => {
+    try {
+      clearTimeout(setTimeout(() => {}, 1));
+      return 0;
+    } catch {
+      return 1;
+    }
+  }).reduce((sum, refused) => sum + refused, 0);
+}
+
+refusals();
+const before = residentKb();
+let refused = 0;
+for (let round = 0; round < ROUNDS; round++) {
+  refused += refusals();
+}
+const grownMb = (residentKb() - before) / 1024;
+console.log("timers refused:", refused > 0 ? "some" : "none");
+console.log(`grew under ${GROWTH_LIMIT_MB} MB:`, grownMb < GROWTH_LIMIT_MB ? "yes" : `no, ${Math.round(grownMb)} MB`);
+
+// expect:
+// timers refused: some
+// grew under 25 MB: yes

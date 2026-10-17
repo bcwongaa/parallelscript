@@ -24,6 +24,12 @@ typedef struct pts_message {
 extern _Thread_local uint16_t pts_current_loop;
 enum { PTS_LOOP_FOREIGN = 0x8000 };
 
+/* The loop whose thread this is, whichever loop's work it does (0 on the main thread); only for a thread that has a loop (pts_uv_loop). */
+uint16_t pts_own_loop(void);
+
+/* How many `parallel` tasks' closures (promise.c) and parallel operations (pool.c) this thread is running, for pts_parallel_on_main_thread. */
+extern _Thread_local uint32_t pts_parallel_nesting;
+
 /*
  * Set before a second thread may run the program's code (the loops, D-121; the pool,
  * D-122). Until then, state that threads could share needs no locked instructions; a
@@ -44,6 +50,16 @@ unsigned pts_start_loops(void);
 uint16_t pts_place_task(void);
 /* A task that ran on this loop is done: it no longer counts towards the loop's load. */
 void pts_task_finished(void);
+
+/*
+ * For a loop that sleeps (C120): only unreferenced timers can be left in its heap, and its
+ * libuv loop runs no timers while nothing referenced is left (loop.c).
+ * pts_loop_timer_wait: how many ms until this thread's first timer is due (0 if it is),
+ * reading the clock; -1 with no timers.
+ * pts_loop_run_due_timers: runs the timers that are due, each followed by its microtasks.
+ */
+int64_t pts_loop_timer_wait(void);
+void pts_loop_run_due_timers(void);
 
 /* Runs a message on this loop (promise.c), followed by the microtasks it queued. */
 void pts_message_run(pts_message *message);

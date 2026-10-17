@@ -882,9 +882,9 @@ double pts_http_listen(double port, pts_string *hostname, bool every_loop, pts_c
   s->on_request = on_request;
   s->on_disconnect = on_disconnect;
   s->listener_count = count;
-  for (uint32_t i = 0; i < count; i++) { /* this loop's first, then the loops after it */
+  for (uint32_t i = 0; i < count; i++) { /* this thread's loop first (where start_listening opens it below), then the loops after it */
     s->listeners[i].server = s;
-    s->listeners[i].loop = (uint16_t)((pts_current_loop + i) % (every_loop ? count : 1u << LOOP_BITS));
+    s->listeners[i].loop = (uint16_t)((pts_own_loop() + i) % (every_loop ? count : 1u << LOOP_BITS));
   }
   int error = bind_listeners(s, &address, every_loop);
   if (error != 0) {

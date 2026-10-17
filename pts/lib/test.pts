@@ -10,6 +10,7 @@ import { relative } from "pts:path";
 import process from "pts:process";
 
 declare function pts_util_inspect(value: any): string;
+declare function pts_parallel_on_main_thread(): boolean;
 
 export interface TestOptions {
     // Skip the test (or every test of the suite); a string is the reason shown.
@@ -81,8 +82,28 @@ const failures: string[] = [];
 let current: Suite = root;
 let started = false;
 
+// The registry, the suite being described and the runner are module state that only the
+// main thread touches (D-186): registering from a parallel task or a parallel operation's
+// callback throws, also when it runs on the main thread.
+function requireMainThread(name: string): void {
+    if (!pts_parallel_on_main_thread()) {
+        throw new Error(`pts:test's ${name}() must be called on the main thread, outside parallel tasks and the callbacks of parallel operations`);
+    }
+}
+
 // Registers a test: test(name, fn) or test(name, options, fn).
 export function test(name: string, optionsOrFn: TestOptions | TestFn, fn?: TestFn): void {
+    requireMainThread("test");
+    addTest(name, optionsOrFn, fn);
+}
+
+// it is test, and suite is describe, as in Node; each names itself when it throws.
+export function it(name: string, optionsOrFn: TestOptions | TestFn, fn?: TestFn): void {
+    requireMainThread("it");
+    addTest(name, optionsOrFn, fn);
+}
+
+function addTest(name: string, optionsOrFn: TestOptions | TestFn, fn?: TestFn): void {
     const options: TestOptions = typeof optionsOrFn === "function" ? {} : optionsOrFn;
     const body: TestFn = typeof optionsOrFn === "function" ? optionsOrFn : (fn ?? (() => {}));
     current.children.push(new Test(name, body, options, callerLocation()));
@@ -92,6 +113,16 @@ export function test(name: string, optionsOrFn: TestOptions | TestFn, fn?: TestF
 // Registers a suite: describe(name, fn) or describe(name, options, fn). fn runs at once, and
 // the tests and hooks it registers belong to the suite.
 export function describe(name: string, optionsOrFn: TestOptions | (() => void), fn?: () => void): void {
+    requireMainThread("describe");
+    addSuite(name, optionsOrFn, fn);
+}
+
+export function suite(name: string, optionsOrFn: TestOptions | (() => void), fn?: () => void): void {
+    requireMainThread("suite");
+    addSuite(name, optionsOrFn, fn);
+}
+
+function addSuite(name: string, optionsOrFn: TestOptions | (() => void), fn?: () => void): void {
     const options: TestOptions = typeof optionsOrFn === "function" ? {} : optionsOrFn;
     const body = typeof optionsOrFn === "function" ? optionsOrFn : (fn ?? (() => {}));
     const suite = new Suite(name, current, options, callerLocation());
@@ -108,21 +139,23 @@ export function describe(name: string, optionsOrFn: TestOptions | (() => void), 
     start();
 }
 
-export { test as it, describe as suite };
-
 export function before(fn: HookFn): void {
+    requireMainThread("before");
     current.before.push(fn);
 }
 
 export function after(fn: HookFn): void {
+    requireMainThread("after");
     current.after.push(fn);
 }
 
 export function beforeEach(fn: HookFn): void {
+    requireMainThread("beforeEach");
     current.beforeEach.push(fn);
 }
 
 export function afterEach(fn: HookFn): void {
+    requireMainThread("afterEach");
     current.afterEach.push(fn);
 }
 

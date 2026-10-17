@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -213,4 +215,92 @@ func TestTestReportsATestFileTheCompilerFailsOn(t *testing.T) {
 		"  This is a bug in pts, not in the program."), got.stderr)
 	report := normalized(got.stdout, dir)
 	assert.Assert(t, strings.Contains(report, "✖ bug.test.pts\n  it didn't compile: <dir>/bug.test.pts:2:34 - error PTS9001: internal compiler error while lowering: injected failure\n"), report)
+}
+
+// threadsTests registers its tests on the main thread, and tries to register from four
+// `parallel` tasks and from a `.par` callback's pieces while it is in a suite's body (the
+// tasks run on other loops then, with two or more threads).
+const threadsTests = `import { beforeEach, describe, test } from "pts:test";
+import { range } from "pts:parallel";
+
+function spin(ms: number): void {
+  const end = performance.now() + ms;
+  while (performance.now() < end) {
+    // the tasks on other loops run meanwhile
+  }
+}
+
+// Registrations off the main thread, while it is in a suite's body: each throws an Error.
+function attempts(): string[] {
+  const outcomes: string[] = [];
+  for (const register of [
+    () => test("a test registered off the main thread", () => {}),
+    () => describe("a suite registered off the main thread", () => {}),
+    () => beforeEach(() => console.log("a hook registered off the main thread ran")),
+  ]) {
+    try {
+      register();
+      outcomes.push("registered");
+    } catch (error) {
+      outcomes.push(error instanceof Error ? error.name : "a non-Error");
+    }
+  }
+  return outcomes;
+}
+
+let tasks: Promise<string[][]> = Promise.resolve([]);
+let pieces: string[][] = [];
+describe("main suite", () => {
+  test("before the tasks", () => {});
+  tasks = Promise.all([0, 1, 2, 3].map(() => parallel attempts()));
+  pieces = range(0, 4).par.map(() => attempts());
+  spin(100);
+  test("after the tasks", () => {});
+});
+test("at the top level", () => {});
+test("registrations off the main thread throw", async () => {
+  const outcomes = [...(await tasks).flat(), ...pieces.flat()];
+  if (outcomes.some((one) => one !== "Error")) {
+    throw new Error("outcomes: " + outcomes.join(" "));
+  }
+});
+`
+
+const threadsResults = `▶ main suite
+  ✔ before the tasks (Nms)
+  ✔ after the tasks (Nms)
+✔ main suite (Nms)
+✔ at the top level (Nms)
+✔ registrations off the main thread throw (Nms)
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms N
+`
+
+// pts:test's registry is the main thread's (C117, H07b2): test, describe and the hooks throw
+// an Error in a `parallel` task and in a parallel operation's callback, also while the main
+// thread is in a suite's body, and leave the registry as it was, so the file's own tests run
+// once, in their suites, in one run, at every thread count.
+func TestTestRegistrationOffTheMainThreadThrows(t *testing.T) {
+	t.Parallel()
+	dir := testProject(t, map[string]string{"threads.test.pts": threadsTests})
+	built := runIn(t, dir, "build", "threads.test.pts", "-o", "threads")
+	assert.Equal(t, built.code, 0, built.stderr)
+	for _, threads := range []string{"1", "2", "4"} {
+		t.Run("threads="+threads, func(t *testing.T) {
+			cmd := exec.CommandContext(t.Context(), filepath.Join(dir, "threads"))
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "PTS_THREADS="+threads)
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			err := cmd.Run()
+			assert.Equal(t, normalized(stdout.String(), dir), threadsResults, stderr.String())
+			assert.NilError(t, err, stderr.String())
+		})
+	}
 }

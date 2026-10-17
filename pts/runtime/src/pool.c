@@ -466,7 +466,9 @@ static void operate(const pts_par_op *op, size_t count, void *result, bool join)
   }
   pts_handler handler;
   pts_try_enter(&handler);
+  pts_parallel_nesting++;
   if (_setjmp(handler.jump) != 0) {
+    pts_parallel_nesting--;
     if (on_loop) {
       pts_absorb_messages();
     }
@@ -479,6 +481,7 @@ static void operate(const pts_par_op *op, size_t count, void *result, bool join)
     pts_par_run(op, count, result);
   }
   pts_try_leave(&handler);
+  pts_parallel_nesting--;
   if (on_loop) {
     pts_absorb_messages();
   }
