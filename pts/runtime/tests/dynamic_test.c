@@ -70,6 +70,41 @@ static void integers_fit_exactly_or_not_at_all(void) {
   CHECK(!pts_value_is_integer_of(str("1"), PTS_FIELD_I32));
 }
 
+/* A call through `any` whose arguments suspend finds its function first (H08): a builtin's method by name at the call, anything else then. */
+static void a_found_callee_is_called_later(void) {
+  double elements[] = {10, 20};
+  pts_value array = pts_value_from_object(pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], elements, 2));
+  pts_value push = str("push");
+  pts_value found = pts_dynamic_method_of(array, push);
+  CHECK(found == PTS_VALUE_UNDEFINED);
+  pts_value thirty = num(30);
+  CHECK(pts_dynamic_call_found(array, push, found, pts_string_from_cstr("a.push"), 1, &thirty) == num(3));
+  CHECK(pts_dynamic_get(array, num(2)) == num(30));
+  CHECK(pts_dynamic_method_of(array, str("length")) == num(3)); /* not a method: the property's value, which the call then finds isn't a function */
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_dynamic_call_found(array, str("length"), num(3), pts_string_from_cstr("a.length"), 0, NULL);
+    CHECK(false);
+  } else {
+    pts_value error = pts_caught(&handler);
+    CHECK(pts_value_instance_of(error, &pts_type_builtin_TypeError));
+  }
+}
+
+static void a_callee_of_null_throws_when_it_is_found(void) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_dynamic_method_of(PTS_VALUE_NULL, str("m"));
+    CHECK(false);
+  } else {
+    pts_value error = pts_caught(&handler);
+    CHECK(pts_value_instance_of(error, &pts_type_builtin_TypeError));
+    CHECK(pts_string_equals(((pts_error *)pts_value_as_object(error))->message, pts_string_from_cstr("Cannot read properties of null (reading 'm')")));
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   to_number_follows_javascript();
@@ -78,5 +113,7 @@ int main(int argc, char **argv) {
   arrays_and_strings_answer_indices_and_length();
   a_number_element_refuses_a_string();
   integers_fit_exactly_or_not_at_all();
+  a_found_callee_is_called_later();
+  a_callee_of_null_throws_when_it_is_found();
   return pts_runtime_exit(CHECK_DONE());
 }

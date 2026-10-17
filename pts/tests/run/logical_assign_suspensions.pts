@@ -1,8 +1,7 @@
-// skip: known issue (H08, C25): an await or yield on the right side of ??=, ||= or &&= is hoisted before the place is tested, so it runs even when nothing is stored
 // `??=`, `||=` and `&&=` evaluate their right side only when they store, so an `await` or
 // `yield` there suspends only then (D-111 hoists suspensions out of `??`, `||` and `&&`
-// with this in mind, but not out of the logical assignments). PTS awaits each `later`
-// below and yields 1, where Node does neither; the same for places of any type.
+// with this in mind; H08 out of the logical assignments). PTS awaited each `later` below
+// and yielded 1, where Node does neither (C25); the same for places of any type.
 const trace: string[] = [];
 const later = async <T,>(v: T): Promise<T> => {
   await null;

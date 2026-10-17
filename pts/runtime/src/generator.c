@@ -636,6 +636,8 @@ static int method_mode(const pts_iterator *it, const char *name) {
   return -1;
 }
 
+bool pts_iterator_has_method(pts_value iterator, const char *name) { return method_mode(as_iterator(iterator), name) >= 0; }
+
 bool pts_iterator_method_call(pts_value iterator, const char *name, uint32_t argc, const pts_value *argv, pts_value *result) {
   pts_iterator *it = as_iterator(iterator);
   int mode = method_mode(it, name);

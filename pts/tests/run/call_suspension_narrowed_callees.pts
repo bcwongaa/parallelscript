@@ -1,0 +1,44 @@
+// A call's function is found before an argument's await also when the receiver is a
+// dynamic value tsc narrowed (a type guard, `Array.isArray`) or a union of objects and
+// other values, which find their members at run time (DynamicMethodOf): the base found
+// them after the resume, so a function replaced meanwhile was the one called (review
+// round 1's probes q22 and q23; the mixed unions are guards).
+const later = (change: () => void): Promise<number> => {
+  queueMicrotask(change);
+  return Promise.resolve(10);
+};
+interface Config {
+  handler: (n: number) => string;
+  name: string;
+}
+const isConfig = (v: unknown): v is Config => typeof v === "object" && v !== null && "handler" in v;
+type Fn = (n: number) => string;
+class Seq {
+  items = ["x", "y", "z"];
+  slice(n: number): string {
+    return `Seq.slice ${this.items.slice(n).join("")}`;
+  }
+}
+async function main(): Promise<void> {
+  const raw: any = { handler: (n: number): string => `old ${n}`, name: "c" };
+  const v: unknown = raw;
+  if (isConfig(v)) {
+    console.log("type guard:", v.handler(await later(() => (raw.handler = (n: number): string => `new ${n}`))));
+  }
+  const list: unknown = [(n: number): string => `first ${n}`];
+  if (Array.isArray(list)) {
+    console.log("isArray:", list[0](await later(() => ((list as Fn[])[0] = (n: number): string => `second ${n}`))));
+  }
+  const mixed: string | string[] = Math.random() < 2 ? ["a", "b", "c"] : "abc";
+  console.log("mixed:", mixed.slice(await later(() => {})), mixed.indexOf((await later(() => {})) > 5 ? "c" : "b"));
+  const seq: string | Seq = Math.random() < 2 ? new Seq() : "abc";
+  const text: string | Seq = Math.random() < 2 ? "abc" : new Seq();
+  console.log("program's method:", seq.slice((await later(() => {})) - 9), text.slice((await later(() => {})) - 8));
+}
+await main();
+
+// expect:
+// type guard: old 10
+// isArray: first 10
+// mixed: [] 2
+// program's method: Seq.slice yz c

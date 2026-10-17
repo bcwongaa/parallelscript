@@ -627,6 +627,7 @@ Known issues ([PROGRESS.md](PROGRESS.md#known-issues) has them all):
 - Indexing a long non-ASCII string at a large index is O(n); ASCII strings are O(1).
 - Parallel: a loop busy with a long timer or a server doesn't take tasks queued on other loops; timers, `pts:fs/promises` and `serve` started from a `.par` callback on a pool thread throw `Error` (`fetch` works there). Allocation-heavy parallel code stops gaining past four threads, because bdwgc refills every thread's free lists under one lock (D-131), and code that does little but allocate can be several times slower on eight threads than on one (D-172). `pts:test`'s `test` and `describe` throw in a `parallel` task or a `.par` callback, before its first `await` (D-186).
 - The language server doesn't show the errors that only the lowering finds (most PTS1001 "not supported yet"); `pts build` reports them (D-168).
+- A spread before an `await` or a `yield` in the same call, `new` or literal (`f(...xs, await p)`, `{ ...o, k: await p }`) reads its elements after the suspension, so a change made meanwhile shows (H08b, D-187).
 
 ## Repository layout
 

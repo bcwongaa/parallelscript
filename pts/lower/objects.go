@@ -823,6 +823,9 @@ func (l *lowerer) literalTarget(node *ast.Node) *checker.Type {
 // shorthandValue lowers the value of a shorthand property `{ x }`: the binding x.
 func (l *lowerer) shorthandValue(property *ast.Node) ir.Expr {
 	name := property.Name()
+	if x, ok := l.kept[name]; ok {
+		return x // read before a yield (D-111)
+	}
 	symbol := l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(property))
 	if x, ok := l.binding(name, symbol); ok {
 		if x != nil && isUnion(x.Type()) && l.isLoose(symbol) {

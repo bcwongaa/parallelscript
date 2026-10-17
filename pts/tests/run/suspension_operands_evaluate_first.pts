@@ -1,0 +1,100 @@
+// Operands JS evaluates before a yield or an await in a later operand of the same expression
+// run before the suspension, with what they read then (D-145). pts counted these among the
+// operands nothing can change while the function is suspended and evaluated them after the
+// resume (H08): a postfix `i++` (alone, in a comma or under `void`), `in`, and binary
+// operators on an `any` operand, which call its valueOf. Spreads are
+// `suspension_spreads_evaluate_first.pts` (H08b).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+const pair = (a: unknown, b: number): string => `${String(a)}/${b}`;
+
+function drive(label: string, steps: Generator<number, string, number>, change: () => void): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("yielded " + step.value);
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+
+let peek = (): number => -1;
+function* postfix(): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  return pair(i++, yield i);
+}
+drive("pair(i++, yield i)", postfix(), () => log("i " + peek()));
+
+function* postfixInComma(): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  return pair((i--, 7), yield 0);
+}
+drive("pair((i--, 7), yield)", postfixInComma(), () => log("i " + peek()));
+
+function* postfixUnderVoid(): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  return pair(void i++, yield 0);
+}
+drive("pair(void i++, yield)", postfixUnderVoid(), () => log("i " + peek()));
+
+const record: Record<string, number> = { a: 1 };
+function* inOperator(): Generator<number, string, number> {
+  return pair("b" in record, yield 0);
+}
+drive("pair(\"b\" in record, yield)", inOperator(), () => { record.b = 2; });
+
+let state = 1;
+const valued: any = {
+  valueOf(): number {
+    log("valueOf");
+    return state;
+  },
+};
+function* anyPlus(): Generator<number, string, number> {
+  return pair(valued + 1, yield 0);
+}
+drive("pair(any + 1, yield)", anyPlus(), () => { state = 5; });
+
+function* anyLess(): Generator<number, string, number> {
+  return pair(valued < 3, yield 0);
+}
+drive("pair(any < 3, yield)", anyLess(), () => { state = 1; });
+
+// The same with await.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  let i = 0;
+  show("await pair(i++, …)", pair(i++, await later(() => log("i " + i))));
+  const r: Record<string, number> = { a: 1 };
+  show("await pair(\"b\" in r, …)", pair("b" in r, await later(() => { r.b = 2; })));
+  state = 1;
+  show("await pair(any * 2, …)", pair(valued * 2, await later(() => { state = 5; })));
+}
+await awaited();
+
+// expect:
+// pair(i++, yield i): yielded 1,i 1 => 0/10
+// pair((i--, 7), yield): yielded 0,i -1 => 7/10
+// pair(void i++, yield): yielded 0,i 1 => undefined/10
+// pair("b" in record, yield): yielded 0 => false/10
+// pair(any + 1, yield): valueOf,yielded 0 => 2/10
+// pair(any < 3, yield): valueOf,yielded 0 => false/10
+// await pair(i++, …): await,changed,i 1 => 0/10
+// await pair("b" in r, …): await,changed => false/10
+// await pair(any * 2, …): valueOf,await,changed => 2/10

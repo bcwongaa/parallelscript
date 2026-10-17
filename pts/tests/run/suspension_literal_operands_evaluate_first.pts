@@ -1,0 +1,54 @@
+// An object literal's shorthand values (`{ x }`) and computed keys (`{ [key()]: v }`) are
+// operands JS evaluates in order, before a yield or an await in a later property or a later
+// operand of the same expression: pts left them out of the operands it keeps, so it read
+// the shorthand's variable and called the key after the resume (review round 1, F5).
+enum Color {
+  Red = "red",
+}
+const trace: string[] = [];
+const later = <T,>(v: T, change: () => void): Promise<T> => {
+  trace.push("await");
+  queueMicrotask(change);
+  return Promise.resolve(v);
+};
+const show = (label: string, o: unknown): void => {
+  console.log(`${label}: ${JSON.stringify(o)} ${trace.join(",")}`);
+  trace.length = 0;
+};
+const pair = (a: unknown, b: number): [unknown, number] => [a, b];
+const key = (s: string): string => {
+  trace.push(`key ${s}`);
+  return s;
+};
+let x = 1;
+
+async function main(): Promise<void> {
+  show("shorthand before a later argument", pair({ x, y: 1 }, await later(2, () => (x = 9))));
+  x = 1;
+  show("computed key before a later argument", pair({ [key("k")]: 1 }, await later(3, () => {})));
+  show("shorthand in the literal", { x, y: await later(4, () => (x = 8)), z: x });
+  x = 1;
+  const record: Record<string, number> = { [key("p")]: x, [key("q")]: await later(5, () => (x = 7)), x };
+  show("record's keys", record);
+  x = 1;
+  show("an enum key and a nested literal", { [Color.Red]: x, inner: { x, y: await later(6, () => (x = 6)) } });
+}
+
+function* steps(): Generator<number, string, number> {
+  const o = { x, y: yield 0, z: x };
+  return JSON.stringify(o);
+}
+const it = steps();
+it.next();
+x = 3;
+console.log("yield:", it.next(5).value);
+x = 1;
+await main();
+
+// expect:
+// yield: {"x":1,"y":5,"z":3}
+// shorthand before a later argument: [{"x":1,"y":1},2] await
+// computed key before a later argument: [{"k":1},3] key k,await
+// shorthand in the literal: {"x":1,"y":4,"z":8} await
+// record's keys: {"p":1,"q":5,"x":7} key p,key q,await
+// an enum key and a nested literal: {"red":1,"inner":{"x":1,"y":6}} await

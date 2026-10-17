@@ -103,11 +103,13 @@ func (l *lowerer) hoistYields(node *ast.Node) (stmts []ir.Stmt, ok bool) {
 		return l.hoistConditional(node)
 	case ast.IsLogicalOrCoalescingBinaryExpression(node) && l.hasYield(node.AsBinaryExpression().Right):
 		return l.hoistShortCircuit(node)
+	case ast.IsLogicalOrCoalescingAssignmentExpression(node) && l.hasYield(node.AsBinaryExpression().Right):
+		return l.hoistLogicalAssignment(node)
 	}
 	operands := evaluationOrder(node)
 	last := -1
 	for i, operand := range operands {
-		if l.hasYield(operand) {
+		if l.hasYield(operand) && !isMemberCallee(operand) { // its yields are in its object and key, operands before it
 			last = i
 		}
 	}
@@ -231,6 +233,129 @@ func (l *lowerer) hoistShortCircuit(node *ast.Node) ([]ir.Stmt, bool) {
 	return append(stmts, keptLeft, &ir.LocalDecl{At: at, Local: chosen}, &ir.If{At: at, Cond: test, Then: then, Else: otherwise}), true
 }
 
+// hoistLogicalAssignment lowers `x ??= v`, `x ||= v` or `x &&= v` whose right side holds
+// yields: x's operands and its value, read once, kept in locals, then an if statement
+// whose branch that stores evaluates v, its yields included, and assigns it as `x = v`
+// does, without reading x again, so that nothing suspends when nothing is stored (C25).
+// The expression's value is a local both branches assign.
+func (l *lowerer) hoistLogicalAssignment(node *ast.Node) ([]ir.Stmt, bool) {
+	expr := node.AsBinaryExpression()
+	var stmts []ir.Stmt
+	for _, operand := range referenceOperands(expr.Left) {
+		inner, ok := l.hoistYields(operand)
+		if !ok {
+			return nil, false
+		}
+		stmts = append(stmts, inner...)
+		if !l.isSettled(operand) {
+			kept, ok := l.keep(operand)
+			if !ok {
+				return nil, false
+			}
+			stmts = append(stmts, kept)
+		}
+	}
+	// `??=` and `||=` store over a class's field the constructor hasn't set (D-141); `&&=`
+	// would hand it on as its value, so its read keeps the check.
+	read := l.placeValue(expr.Left, expr.OperatorToken.Kind != ast.KindAmpersandAmpersandEqualsToken)
+	if read == nil {
+		return nil, false
+	}
+	at := l.pos(node)
+	current := l.newLocal("current", read.Type())
+	stmts = append(stmts, &ir.LocalDecl{At: at, Local: current, Init: read})
+	value := &ir.LocalRef{Local: current}
+	var stores ir.Expr
+	switch expr.OperatorToken.Kind {
+	case ast.KindAmpersandAmpersandEqualsToken:
+		stores = truthOf(value)
+	case ast.KindBarBarEqualsToken:
+		stores = &ir.Unary{Op: ir.Not, X: truthOf(value)}
+	default:
+		stores = storesNullish(value)
+	}
+	then, ok := l.hoistYields(expr.Right)
+	if !ok {
+		return nil, false
+	}
+	stored := l.assignment(node)
+	if stored == nil {
+		return nil, false
+	}
+	if isDiscarded(node) {
+		l.hoisted(node)
+		l.kept[node] = &ir.UndefinedConst{}
+		then = append(then, &ir.ExprStmt{At: at, X: stored})
+		return append(stmts, &ir.If{At: at, Cond: stores, Then: &ir.Block{At: at, Stmts: then}}), true
+	}
+	t := l.irType(l.typeAt(node), node)
+	if t == nil {
+		return nil, false
+	}
+	chosen := l.newLocal("chosen", t)
+	assign := func(x ir.Expr) ir.Stmt {
+		switch {
+		case x.Type() == ir.Value && !isDynamic(t):
+			x = l.checkedConversion(x, t, node) // a keyed element's property, read unconverted for the test
+		case isDynamic(x.Type()) && !isDynamic(t):
+			x = fromUnion(x, t) // the test found the value kept to be of the result's type
+		default:
+			x = l.convert(x, t, node)
+		}
+		if x == nil {
+			return nil
+		}
+		return &ir.ExprStmt{At: at, X: &ir.Assign{Local: chosen, Value: x}}
+	}
+	assignStored, assignKept := assign(stored), assign(value)
+	if assignStored == nil || assignKept == nil {
+		return nil, false
+	}
+	then = append(then, assignStored)
+	otherwise := &ir.Block{At: at, Stmts: []ir.Stmt{assignKept}}
+	l.keepAs(node, chosen)
+	return append(stmts, &ir.LocalDecl{At: at, Local: chosen}, &ir.If{At: at, Cond: stores, Then: &ir.Block{At: at, Stmts: then}, Else: otherwise}), true
+}
+
+// placeValue reads the value an assignment's target (node) holds, as JS reads it: a
+// variable's as it is, whatever tsc narrowed it to; anything else's as an expression,
+// undefined for an element or entry that isn't there. With unsetAsUndefined, a class's
+// field the constructor hasn't set (D-141) reads as undefined where a read of it would
+// throw: as NULL (FieldRef.Raw), or as a keyed element's dynamic value, unconverted.
+func (l *lowerer) placeValue(node *ast.Node, unsetAsUndefined bool) ir.Expr {
+	inner := ast.SkipParentheses(node)
+	if inner.Kind == ast.KindIdentifier {
+		if local, ok := l.locals[l.target(inner)]; ok {
+			if local = l.ownLocal(inner, local); local == nil {
+				return nil // its declaration failed, which was reported
+			}
+			return &ir.LocalRef{Local: local}
+		}
+	}
+	if unsetAsUndefined && l.isKeyedElement(inner) {
+		return l.keyedElementValue(inner)
+	}
+	read := l.valueExpression(node)
+	if ref, ok := read.(*ir.FieldRef); ok && unsetAsUndefined && !ref.Field.Optional {
+		ref.Raw = true
+	}
+	return read
+}
+
+// storesNullish is whether `??=` stores over a place's value, x: when it is null or
+// undefined, as a class's field the constructor hasn't set yet is (D-141).
+func storesNullish(x ir.Expr) ir.Expr {
+	switch t := x.Type(); {
+	case isDynamic(t):
+		return &ir.IsNullish{X: x}
+	case t == ir.Null || t == ir.Undefined:
+		return &ir.BoolConst{Value: true}
+	case isObject(t) || isFunction(t) || isMap(t):
+		return &ir.Unary{Op: ir.Not, X: &ir.Truthy{X: x}}
+	}
+	return &ir.BoolConst{Value: false}
+}
+
 // hoistedBranch is a block that evaluates node, its yields included, into the local chosen.
 func (l *lowerer) hoistedBranch(node *ast.Node, chosen *ir.Local) (*ir.Block, bool) {
 	stmts, ok := l.hoistYields(node)
@@ -255,7 +380,15 @@ func (l *lowerer) keep(node *ast.Node) (ir.Stmt, bool) {
 	if node.Kind == ast.KindSpreadElement {
 		node = node.Expression()
 	}
-	x := l.expression(node)
+	if isMemberCallee(node) && l.isFoundAtRunTime(node) {
+		return l.keepCallee(node)
+	}
+	var x ir.Expr
+	if parent := node.Parent; parent.Kind == ast.KindShorthandPropertyAssignment && parent.Name() == node {
+		x = l.shorthandValue(parent) // `{ x }`'s x
+	} else {
+		x = l.expression(node)
+	}
 	if x == nil {
 		return nil, false
 	}
@@ -268,6 +401,21 @@ func (l *lowerer) keep(node *ast.Node) (ir.Stmt, bool) {
 	local := l.newLocal("kept", x.Type())
 	l.keepAs(node, local)
 	return &ir.LocalDecl{At: at, Local: local, Init: x}, true
+}
+
+// keepCallee keeps what a call through `any` (callee, `o.m` or `o[k]`) calls, found before
+// its arguments are evaluated (DynamicMethodOf), for dynamicMethodCall.
+func (l *lowerer) keepCallee(callee *ast.Node) (ir.Stmt, bool) {
+	object := l.expression(callee.Expression())
+	key := l.dynamicKey(callee)
+	if object == nil || key == nil {
+		return nil, false
+	}
+	l.wantDynamicMember(callee)
+	local := l.newLocal("callee", ir.Value)
+	l.keepAs(callee, local)
+	found := &ir.CallBuiltin{Builtin: ir.DynamicMethodOf, Args: []ir.Expr{box(object), key}}
+	return &ir.LocalDecl{At: l.pos(callee), Local: local, Init: found}, true
 }
 
 // keepAs makes node's lowering read local.
@@ -287,6 +435,9 @@ func (l *lowerer) hoisted(node *ast.Node) {
 func (l *lowerer) isSettled(node *ast.Node) bool {
 	if l.kept[node] != nil {
 		return true
+	}
+	if isMemberCallee(node) {
+		return l.isSettledCallee(node)
 	}
 	switch node.Kind {
 	case ast.KindYieldExpression, ast.KindAwaitExpression:
@@ -311,9 +462,19 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 			return l.isSettled(expr.Operand)
 		}
 		return l.isSettled(expr.Operand) && l.isPrimitive(expr.Operand) // ToNumber of an object would call its valueOf now
+	case ast.KindPostfixUnaryExpression:
+		return false // `i++` changes i, so evaluating it again changes it again (C08)
 	case ast.KindBinaryExpression:
 		expr := node.AsBinaryExpression()
-		return !ast.IsAssignmentOperator(expr.OperatorToken.Kind) && l.isSettled(expr.Left) && l.isSettled(expr.Right)
+		switch op := expr.OperatorToken.Kind; {
+		case ast.IsAssignmentOperator(op), op == ast.KindInKeyword: // `in` reads what keys the object has now
+			return false
+		case op == ast.KindEqualsEqualsEqualsToken, op == ast.KindExclamationEqualsEqualsToken, op == ast.KindInstanceOfKeyword,
+			op == ast.KindCommaToken, ast.IsLogicalOrCoalescingBinaryOperator(op):
+			return l.isSettled(expr.Left) && l.isSettled(expr.Right)
+		}
+		// Converting an object operand would call its valueOf or toString now.
+		return l.isSettled(expr.Left) && l.isSettled(expr.Right) && l.isPrimitive(expr.Left) && l.isPrimitive(expr.Right)
 	case ast.KindTemplateExpression:
 		for _, span := range node.AsTemplateExpression().TemplateSpans.Nodes {
 			if !l.isSettled(span.Expression()) || !l.isPrimitive(span.Expression()) { // ToString of an object would call its toString now
@@ -339,7 +500,7 @@ func (l *lowerer) isSettled(node *ast.Node) bool {
 // the function itself that no other function assigns (only the function's own code, which
 // isn't running, could), or a variable of an enclosing scope that nothing assigns.
 func (l *lowerer) isUnchangedWhileSuspended(name *ast.Node) bool {
-	symbol := l.target(name)
+	symbol := l.followAliases(l.valueSymbolAt(name)) // `{ x }`'s x, not the property
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return name.Text() == "undefined"
 	}
@@ -357,9 +518,70 @@ func (l *lowerer) isUnchangedWhileSuspended(name *ast.Node) bool {
 	return true
 }
 
-// isPrimitive reports whether node's type is primitive, so converting its value runs no code.
+// isPrimitive reports whether node's type is primitive, or a union of primitives, so
+// converting its value runs no code.
 func (l *lowerer) isPrimitive(node *ast.Node) bool {
-	return l.typeAt(node).Flags()&checker.TypeFlagsPrimitive != 0
+	t := l.typeAt(node)
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		return allOf(t.Types(), checker.TypeFlagsPrimitive)
+	}
+	return t.Flags()&checker.TypeFlagsPrimitive != 0
+}
+
+// isMemberCallee reports whether node is the callee of a call, in parentheses or not, that
+// is a property or element access (`o.m` in `o.m(x)`).
+func isMemberCallee(node *ast.Node) bool {
+	if !ast.IsAccessExpression(node) {
+		return false
+	}
+	parent := node.Parent
+	for parent != nil && parent.Kind == ast.KindParenthesizedExpression {
+		parent = parent.Parent
+	}
+	return parent != nil && parent.Kind == ast.KindCallExpression && ast.SkipParentheses(parent.AsCallExpression().Expression) == node
+}
+
+// isSettledCallee reports whether what a call's callee, a property or element access,
+// names can't change while the function is suspended once its object is evaluated: a
+// method (none can be assigned), a function, class or namespace, or a library's member. A
+// property's or element's value, what a getter gives and what is found through `any` can;
+// the call reads them before a yield in its arguments, as JS does (keep, H08).
+func (l *lowerer) isSettledCallee(callee *ast.Node) bool {
+	switch {
+	case l.isFoundAtRunTime(callee):
+		return false
+	case l.isUnionReceiver(callee):
+		return true // unionMethodCall calls only methods, and reports any other member
+	}
+	var symbol *ast.Symbol
+	if callee.Kind == ast.KindPropertyAccessExpression {
+		symbol = l.memberSymbol(callee)
+	} else if key := callee.AsElementAccessExpression().ArgumentExpression; ast.IsStringOrNumericLiteralLike(key) {
+		symbol = l.checker.GetSymbolAtLocation(key) // the member `o["m"]` names
+	}
+	switch symbol = l.followAliases(symbol); { // `ns.f` re-exported from another module
+	case symbol == nil:
+		return false
+	case l.isDeclaredInDefaultLib(symbol) || l.isDeclaredInPtsLib(symbol) || isMethodSymbol(symbol):
+		return true
+	}
+	return symbol.Flags&(ast.SymbolFlagsFunction|ast.SymbolFlagsClass|ast.SymbolFlagsEnum|ast.SymbolFlagsValueModule) != 0
+}
+
+// isFoundAtRunTime reports whether a callee, a property or element access, is a member of
+// a dynamic value (or one that stays dynamic though tsc narrowed it, or of a union of
+// objects and other values) that is not a library's: the call finds it at run time
+// (dynamicCall), and so does keepCallee, before the arguments.
+func (l *lowerer) isFoundAtRunTime(callee *ast.Node) bool {
+	receiver := callee.Expression()
+	if !l.isAny(receiver) && !l.isNarrowedDynamic(receiver) && !l.isMixedUnionReceiver(callee) {
+		return false
+	}
+	if callee.Kind == ast.KindPropertyAccessExpression {
+		symbol := l.memberSymbol(callee)
+		return !l.isDeclaredInDefaultLib(symbol) && !l.isDeclaredInPtsLib(symbol)
+	}
+	return true
 }
 
 // readsTargetFirst reports whether node is a compound assignment that reads its target
@@ -379,9 +601,8 @@ func (l *lowerer) readsTargetFirst(node *ast.Node) bool {
 }
 
 // keepCurrent keeps the value of a compound assignment's target before its right side's
-// yields, for the assignment's lowering (l.keptCurrent): a name's, a field's or an
-// element's. A target read through a getter or `any` is read where it is assigned, after
-// them (D-145's known gap: reading it twice would run the getter twice).
+// yields, for the assignment's lowering (l.keptCurrent), which then stores without reading
+// it again: a name's, a field's, an element's, a getter's or a property's through `any`.
 func (l *lowerer) keepCurrent(node *ast.Node) ([]ir.Stmt, bool) {
 	target := ast.SkipParentheses(node.AsBinaryExpression().Left)
 	switch target.Kind {
@@ -390,9 +611,6 @@ func (l *lowerer) keepCurrent(node *ast.Node) ([]ir.Stmt, bool) {
 			return nil, true
 		}
 	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
-		if isDynamic(l.irType(l.typeAt(target.Expression()), target)) || l.isAccessor(target) {
-			return nil, true
-		}
 	default:
 		return nil, true
 	}
@@ -422,15 +640,6 @@ func (l *lowerer) keepString(node *ast.Node) (ir.Stmt, bool) {
 	return &ir.LocalDecl{At: l.pos(node), Local: local, Init: x}, true
 }
 
-// isAccessor reports whether a property access names an accessor property, whose getter a read runs.
-func (l *lowerer) isAccessor(access *ast.Node) bool {
-	if access.Kind != ast.KindPropertyAccessExpression {
-		return false
-	}
-	symbol := l.checker.GetSymbolAtLocation(access.Name())
-	return symbol != nil && symbol.Flags&ast.SymbolFlagsAccessor != 0
-}
-
 // evaluationOrder is the operands of an expression in the order JS evaluates them, where
 // the yields in them can be hoisted; nil for an expression whose yields can't be.
 func evaluationOrder(node *ast.Node) []*ast.Node {
@@ -454,8 +663,11 @@ func evaluationOrder(node *ast.Node) []*ast.Node {
 			return nil
 		}
 		call := node.AsCallExpression()
-		if callee := ast.SkipParentheses(call.Expression); callee.Kind == ast.KindIdentifier {
+		switch callee := ast.SkipParentheses(call.Expression); {
+		case callee.Kind == ast.KindIdentifier:
 			return append([]*ast.Node{callee}, call.Arguments.Nodes...) // the function a name holds is read before the arguments
+		case ast.IsAccessExpression(callee):
+			return append(append(referenceOperands(callee), callee), call.Arguments.Nodes...) // its object (and key), then the function found there
 		}
 		return append(referenceOperands(call.Expression), call.Arguments.Nodes...)
 	case ast.KindNewExpression:
@@ -477,7 +689,12 @@ func evaluationOrder(node *ast.Node) []*ast.Node {
 		for _, property := range node.AsObjectLiteralExpression().Properties.Nodes {
 			switch property.Kind {
 			case ast.KindPropertyAssignment:
+				if name := property.Name(); name.Kind == ast.KindComputedPropertyName && !isIteratorName(name) {
+					values = append(values, name.Expression()) // a computed key, before its value
+				}
 				values = append(values, property.Initializer())
+			case ast.KindShorthandPropertyAssignment:
+				values = append(values, property.Name()) // `{ x }` reads x
 			case ast.KindSpreadAssignment:
 				values = append(values, property.Expression())
 			}

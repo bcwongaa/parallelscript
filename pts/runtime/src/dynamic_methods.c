@@ -1454,52 +1454,61 @@ static builtin_method find(const named_method *methods, const char *name) {
   return NULL;
 }
 
-bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, const pts_value *argv, pts_value *result) {
-  const named_method *methods = value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE ? boolean_methods : number_methods;
-  if (pts_value_is_object(value)) {
-    switch (pts_value_as_object(value)->type->kind) {
-    case PTS_KIND_STRING:
-      methods = string_methods;
-      break;
-    case PTS_KIND_ARRAY:
-      methods = array_methods;
-      break;
-    case PTS_KIND_FUNCTION:
-      methods = function_methods;
-      break;
-    case PTS_KIND_MAP:
-      methods = map_methods;
-      break;
-    case PTS_KIND_SET:
-      methods = set_methods;
-      break;
-    case PTS_KIND_RECORD:
-      methods = record_methods;
-      break;
-    case PTS_KIND_DATE:
-      methods = date_methods;
-      break;
-    case PTS_KIND_TYPED_ARRAY:
-      methods = typed_array_methods;
-      break;
-    case PTS_KIND_REGEXP:
-      methods = regexp_methods;
-      break;
-    case PTS_KIND_GENERATOR:
-      return pts_iterator_method_call(value, name, argc, argv, result);
-    case PTS_KIND_INT64:
-    case PTS_KIND_UINT64:
-      break;
-    default:
-      return false;
-    }
+/* The builtin methods of value's kind; NULL for a generator's (found apart) and for the kinds that have none. */
+static const named_method *builtin_methods(pts_value value) {
+  if (!pts_value_is_object(value)) {
+    return value == PTS_VALUE_TRUE || value == PTS_VALUE_FALSE ? boolean_methods : number_methods;
   }
-  builtin_method method = find(methods, name);
+  switch (pts_value_as_object(value)->type->kind) {
+  case PTS_KIND_STRING:
+    return string_methods;
+  case PTS_KIND_ARRAY:
+    return array_methods;
+  case PTS_KIND_FUNCTION:
+    return function_methods;
+  case PTS_KIND_MAP:
+    return map_methods;
+  case PTS_KIND_SET:
+    return set_methods;
+  case PTS_KIND_RECORD:
+    return record_methods;
+  case PTS_KIND_DATE:
+    return date_methods;
+  case PTS_KIND_TYPED_ARRAY:
+    return typed_array_methods;
+  case PTS_KIND_REGEXP:
+    return regexp_methods;
+  case PTS_KIND_INT64:
+  case PTS_KIND_UINT64:
+    return number_methods;
+  default:
+    return NULL;
+  }
+}
+
+static bool is_generator(pts_value value) {
+  return pts_value_is_object(value) && pts_value_as_object(value)->type->kind == PTS_KIND_GENERATOR;
+}
+
+bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, const pts_value *argv, pts_value *result) {
+  if (is_generator(value)) {
+    return pts_iterator_method_call(value, name, argc, argv, result);
+  }
+  const named_method *methods = builtin_methods(value);
+  builtin_method method = methods == NULL ? NULL : find(methods, name);
   if (method == NULL) {
     return false;
   }
   *result = method(value, argc, argv);
   return true;
+}
+
+bool pts_builtin_method_has(pts_value value, const char *name) {
+  if (is_generator(value)) {
+    return pts_iterator_has_method(value, name);
+  }
+  const named_method *methods = builtin_methods(value);
+  return methods != NULL && find(methods, name) != NULL;
 }
 
 bool pts_value_is_array(pts_value value) { return is_array_like(value); }

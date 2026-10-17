@@ -1,0 +1,119 @@
+// `??=` on a class's field of an object type that the constructor hasn't set (D-141) sees
+// undefined and stores, also when its right side suspends: H08a's hoisting first read the
+// field into a local with the unset field's check, which threw `The field 'a' is
+// undefined` before the test (review round 1, F1). Fields of class, function, array and
+// map types, with yield and await, the value discarded and used; through an interface; and
+// `||=`, which stores over undefined too. The same for a keyed element (`t["a"]`, `t[k]`
+// for a union of keys, through an interface), whose read was converted with a check that
+// threw `Expected Leaf, got undefined` before the test (review round 2, G1).
+class Leaf {
+  tag = "leaf";
+}
+const later = async <T,>(v: T): Promise<T> => {
+  await null;
+  return v;
+};
+
+class Tree {
+  a!: Leaf;
+  b!: Leaf;
+  async run(): Promise<void> {
+    this.a ??= await later(new Leaf());
+    const kept = (this.b ??= await later(new Leaf()));
+    console.log("await", this.a.tag, kept.tag, kept === this.b);
+  }
+  *steps(): Generator<number, string, Leaf> {
+    this.a ??= yield 1;
+    const used = (this.b ??= yield 2);
+    return `${this.a.tag} ${used.tag}`;
+  }
+}
+
+class Lazy {
+  cb!: () => string;
+  list!: number[];
+  map!: Map<string, number>;
+  async init(): Promise<void> {
+    this.cb ??= await later((): string => "cb");
+    this.list ??= await later([1, 2]);
+    const map = (this.map ??= await later(new Map<string, number>([["a", 1]])));
+    console.log("kinds", this.cb(), this.list.length, map.size, map === this.map);
+  }
+}
+
+interface HasA {
+  a: Leaf;
+}
+class Either implements HasA {
+  a!: Leaf;
+  c!: Leaf;
+  d!: Leaf;
+  async run(): Promise<void> {
+    const viaInterface: HasA = this;
+    viaInterface.a ??= await later(new Leaf());
+    this.c ||= await later(Object.assign(new Leaf(), { tag: "or" }));
+    const used = (this.d ||= await later(new Leaf()));
+    console.log("interface", this.a.tag, "or", this.c.tag, used === this.d);
+  }
+  *steps(): Generator<number, string, Leaf> {
+    const used = (this.c ||= yield 1);
+    return `${used.tag} ${used === this.c}`;
+  }
+}
+
+class Keyed {
+  a!: Leaf;
+  b!: Leaf;
+  c!: Leaf;
+  d!: Leaf;
+  async run(): Promise<void> {
+    this["a"] ??= await later(new Leaf());
+    const k: "b" | "c" = Math.random() < 2 ? "b" : "c";
+    const used = (this[k] ??= await later(new Leaf()));
+    this["d"] ||= await later(Object.assign(new Leaf(), { tag: "or" }));
+    const viaInterface: HasA = new Keyed();
+    viaInterface["a"] ??= await later(new Leaf());
+    console.log("keyed", this.a.tag, used === this.b, this.d.tag, viaInterface.a.tag);
+  }
+  *steps(): Generator<number, string, Leaf> {
+    this["a"] ??= yield 1;
+    return this.a.tag;
+  }
+}
+
+// A set field keeps its value and nothing suspends.
+class Kept {
+  a: Leaf = new Leaf();
+  *steps(): Generator<number, string, Leaf> {
+    this.a ??= yield 1;
+    return this.a.tag;
+  }
+}
+
+await new Tree().run();
+const tree = new Tree();
+const steps = tree.steps();
+console.log(JSON.stringify(steps.next()), JSON.stringify(steps.next(new Leaf())));
+const last = steps.next(Object.assign(new Leaf(), { tag: "second" }));
+console.log(last.value, last.done);
+await new Lazy().init();
+console.log(JSON.stringify(new Kept().steps().next()));
+await new Either().run();
+const either = new Either().steps();
+either.next();
+console.log(either.next(Object.assign(new Leaf(), { tag: "yielded" })).value);
+await new Keyed().run();
+const keyed = new Keyed().steps();
+keyed.next();
+console.log("keyed yield", keyed.next(Object.assign(new Leaf(), { tag: "yielded" })).value);
+
+// expect:
+// await leaf leaf true
+// {"value":1,"done":false} {"value":2,"done":false}
+// leaf second true
+// kinds cb 2 1 true
+// {"value":"leaf","done":true}
+// interface leaf or or true
+// yielded true
+// keyed leaf true or leaf
+// keyed yield yielded

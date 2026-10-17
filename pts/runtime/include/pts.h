@@ -1020,6 +1020,15 @@ struct pts_array *pts_value_to_array(pts_value value, const pts_string *text);
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */
 pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv);
+/*
+ * object[key](argv…) through `any` in two steps, for a call whose arguments suspend (H08):
+ * pts_dynamic_method_of finds what the call calls before the arguments are evaluated, as
+ * JS does (a property's function, what a getter returns; TypeError for null and
+ * undefined), and pts_dynamic_call_found calls it with them. A method of a class, an
+ * object literal or a builtin, which nothing can change, is found by name in both.
+ */
+pts_value pts_dynamic_method_of(pts_value object, pts_value key);
+pts_value pts_dynamic_call_found(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* Calls the method name of object through its dynamic entry, as a method adapter does (D-078). */
 pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t argc, const pts_value *argv);
 /*
@@ -1038,6 +1047,8 @@ pts_function pts_instance_find(const void *value, const char *name, const struct
 /* The same with arguments to spread: each argv[i] whose spread[i] is set is an array whose elements are arguments. */
 pts_value pts_dynamic_call_spread(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
 pts_value pts_dynamic_call_method_spread(pts_value object, pts_value key, const pts_string *text, uint32_t argc, const pts_value *argv, const bool *spread);
+pts_value pts_dynamic_call_found_spread(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv,
+                                        const bool *spread);
 pts_value pts_value_add(pts_value left, pts_value right);
 double pts_value_to_number(pts_value value);
 /* ToPrimitive with the number hint, or the default one: an object's valueOf() if its class has one, else its string (D-088). */
@@ -2389,6 +2400,8 @@ static inline bool pts_iterator_call_done(pts_value step) { return step == PTS_V
  * makes is a plain object { value, done }.
  */
 bool pts_iterator_method_call(pts_value iterator, const char *name, uint32_t argc, const pts_value *argv, pts_value *result);
+/* Whether pts_iterator_method_call finds the method name of iterator. */
+bool pts_iterator_has_method(pts_value iterator, const char *name);
 /*
  * An iterator over an iterable value: a generator object itself, what an object's
  * [Symbol.iterator]() (its method `@@iterator`) returns, as pts_iterator_of, a map's or

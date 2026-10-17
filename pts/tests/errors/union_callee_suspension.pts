@@ -1,0 +1,32 @@
+// A call of a function-valued property of a union of objects is reported as the call,
+// whether or not an argument awaits: H08a first read the property before the argument's
+// `await` and reported the read instead (review round 1, F3).
+const later = async <T,>(v: T): Promise<T> => {
+  await null;
+  return v;
+};
+class A {
+  f = (n: number): string => `A.f ${n}`;
+  m(n: number): string {
+    return `A.m ${n}`;
+  }
+}
+class B {
+  f(n: number): string {
+    return `B.f ${n}`;
+  }
+}
+class C {
+  m = (n: number): string => `C.m ${n}`;
+}
+const pick = <X, Y>(first: boolean, x: X, y: Y): X | Y => (first ? x : y);
+async function main(): Promise<void> {
+  const ab = pick(false, new A(), new B());
+  console.log(ab.f(await later(1)));
+  const ac = pick(true, new A(), new C());
+  console.log(ac.m(await later(2)));
+}
+await main();
+
+// error: union_callee_suspension.pts:25:15 - error PTS1001: calling the function-valued property `f` of a A | B (a union) is not supported yet
+// error: union_callee_suspension.pts:27:15 - error PTS1001: calling the function-valued property `m` of a A | C (a union) is not supported yet

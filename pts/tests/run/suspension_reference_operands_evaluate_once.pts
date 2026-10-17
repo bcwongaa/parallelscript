@@ -1,0 +1,119 @@
+// An assignment evaluates its target's object and index once, before its right side, even
+// when the right side suspends: `arr[i++] -= yield 1` reads and writes arr[0] and leaves i
+// at 1. pts counted a postfix `i++` among the operands nothing can change while the
+// function is suspended (D-145), so it didn't keep its value: it ran it once to read the
+// target before the suspension and again to find the place to store after it, writing the
+// next element; a plain `=` ran it after the suspension (H08, C08: H03b review round 5's
+// probe n1_index_update_twice).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+let peek = (): number => -1;
+
+function drive(label: string, steps: Generator<number, string, number>): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("suspended, index " + peek());
+    step = steps.next(5);
+  }
+  show(label, step.value);
+}
+
+function* decrement(arr: number[]): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  arr[i++] -= yield 1;
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("arr[i++] -= yield", decrement([100, 200, 300]));
+
+function* nested(arr: number[]): Generator<number, string, number> {
+  let i = 2;
+  peek = (): number => i;
+  arr[i--] *= 1 + (yield 1);
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("arr[i--] *= 1 + (yield)", nested([100, 200, 300]));
+
+function* plain(arr: number[]): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  arr[i++] = yield 1;
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("arr[i++] = yield", plain([100, 200, 300]));
+
+function* typed(arr: Float64Array): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  arr[i++] += yield 1;
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("typed[i++] += yield", typed(new Float64Array([100, 200, 300])));
+
+function* loose(arr: any): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  arr[i++] += yield 1;
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("any[i++] += yield", loose([100, 200, 300]));
+
+function* slots(arr: (number | undefined)[]): Generator<number, string, number> {
+  let i = 0;
+  peek = (): number => i;
+  arr[i++] ??= yield 1;
+  return `i ${i}, ${arr.join(",")}`;
+}
+drive("arr[i++] ??= yield", slots([undefined, 200, 300]));
+
+// Side effects in the object and the index run once, in order (a guard: calls are kept).
+const data = [100, 200, 300];
+const getData = (): number[] => {
+  log("object");
+  return data;
+};
+const index = (): number => {
+  log("index");
+  return 1;
+};
+function* calls(): Generator<number, string, number> {
+  getData()[index()] += yield 1;
+  return data.join(",");
+}
+drive("getData()[index()] += yield", calls());
+
+// The same with await.
+async function awaited(arr: number[]): Promise<void> {
+  let j = 0;
+  peek = (): number => j;
+  arr[j++] += await Promise.resolve(1).then((v) => {
+    log("resolved, index " + peek());
+    return v;
+  });
+  show("await arr[j++] +=", `j ${j}, ${arr.join(",")}`);
+  let k = 0;
+  peek = (): number => k;
+  arr[k++] = await Promise.resolve(7).then((v) => {
+    log("resolved, index " + peek());
+    return v;
+  });
+  show("await arr[k++] =", `k ${k}, ${arr.join(",")}`);
+}
+await awaited([100, 200, 300]);
+
+// expect:
+// arr[i++] -= yield: suspended, index 1 => i 1, 95,200,300
+// arr[i--] *= 1 + (yield): suspended, index 1 => i 1, 100,200,1800
+// arr[i++] = yield: suspended, index 1 => i 1, 5,200,300
+// typed[i++] += yield: suspended, index 1 => i 1, 105,200,300
+// any[i++] += yield: suspended, index 1 => i 1, 105,200,300
+// arr[i++] ??= yield: suspended, index 1 => i 1, 5,200,300
+// getData()[index()] += yield: object,index,suspended, index 1 => 100,205,300
+// await arr[j++] +=: resolved, index 1 => j 1, 101,200,300
+// await arr[k++] =: resolved, index 1 => k 1, 7,200,300

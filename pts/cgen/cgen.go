@@ -1489,6 +1489,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.ValueStrictEquals:           "pts_value_strict_equals",
 	ir.ValueLooseEquals:            "pts_value_loose_equals",
 	ir.DynamicGet:                  "pts_dynamic_get",
+	ir.DynamicMethodOf:             "pts_dynamic_method_of",
 	ir.DynamicSet:                  "pts_dynamic_set",
 	ir.DynamicHas:                  "pts_dynamic_has",
 	ir.ValueIsArray:                "pts_value_is_array",
@@ -1568,6 +1569,8 @@ func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
 			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_spread(%s, %s, %s)", args[0], args[1], spreading))
 		case ir.DynamicCallMethod:
 			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_method_spread(%s, %s, %s, %s)", args[0], args[1], args[2], spreading))
+		case ir.DynamicCallFound:
+			return ordered(prelude, fmt.Sprintf("pts_dynamic_call_found_spread(%s, %s, %s, %s, %s)", args[0], args[1], args[2], args[3], spreading))
 		}
 		if call.Builtin == ir.ConsoleLog {
 			return ordered(prelude, "pts_console_log_spread("+spreading+")")
@@ -1588,7 +1591,7 @@ var consoleMethods = map[*ir.Builtin]string{
 // spreadArgs says, for a console method or a dynamic call with a spread argument (`...xs`),
 // which of its arguments are spread ("true") and which aren't; nil for any other call.
 func spreadArgs(call *ir.CallBuiltin) []string {
-	fixed := map[*ir.Builtin]int{ir.DynamicCall: 2, ir.DynamicCallMethod: 3}
+	fixed := map[*ir.Builtin]int{ir.DynamicCall: 2, ir.DynamicCallMethod: 3, ir.DynamicCallFound: 4}
 	n, ok := fixed[call.Builtin]
 	ok = ok || ir.ConsoleMethods[call.Builtin]
 	if !ok || !slices.ContainsFunc(call.Args, isSpreadArg) {
@@ -1631,6 +1634,8 @@ func builtinCall(builtin *ir.Builtin, args []string) string {
 		return fmt.Sprintf("pts_dynamic_call(%s, %s, %s)", args[0], args[1], dynamicCallArguments(args[2:]))
 	case ir.DynamicCallMethod:
 		return fmt.Sprintf("pts_dynamic_call_method(%s, %s, %s, %s)", args[0], args[1], args[2], dynamicCallArguments(args[3:]))
+	case ir.DynamicCallFound:
+		return fmt.Sprintf("pts_dynamic_call_found(%s, %s, %s, %s, %s)", args[0], args[1], args[2], args[3], dynamicCallArguments(args[4:]))
 	}
 	function, ok := builtinFunctions[builtin]
 	if !ok {

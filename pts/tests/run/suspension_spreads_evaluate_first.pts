@@ -1,0 +1,107 @@
+// skip: known issue (H08b, C139): a spread before a yield or an await in a later operand is iterated after the resume
+// A spread JS evaluates before a yield or an await in a later operand of the same call,
+// `new` or literal reads its elements (an iterable's by its iterator, an object's
+// properties through their getters) before the suspension. pts keeps only the spread's
+// value and reads its elements after the resume, so what changed meanwhile shows (H08b).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+const sum = (...xs: number[]): number => {
+  let total = 0;
+  for (const x of xs) total += x;
+  return total;
+};
+
+function drive(label: string, steps: Generator<number, string, number>, change: () => void): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("yielded " + step.value);
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+
+const numbers = [1, 2];
+function* spreadArgument(): Generator<number, string, number> {
+  return String(sum(...numbers, yield 0));
+}
+drive("sum(...numbers, yield)", spreadArgument(), () => { numbers.push(100); });
+
+const kept = [1, 2];
+const getKept = (): number[] => {
+  log("getKept");
+  return kept;
+};
+function* spreadOfCall(): Generator<number, string, number> {
+  return String(sum(...getKept(), yield 0));
+}
+drive("sum(...getKept(), yield)", spreadOfCall(), () => { kept.push(100); });
+
+class Countdown implements Iterable<number> {
+  from = 2;
+  *[Symbol.iterator](): Iterator<number> {
+    log("iterate");
+    for (let i = this.from; i > 0; i--) yield i;
+  }
+}
+const countdown = new Countdown();
+function* spreadIterable(): Generator<number, string, number> {
+  return [...countdown, yield 0].join(",");
+}
+drive("[...iterable, yield]", spreadIterable(), () => { countdown.from = 4; });
+
+class Pair {
+  items: number[];
+  constructor(...items: number[]) {
+    this.items = items;
+  }
+}
+const parts = [1];
+function* spreadNew(): Generator<number, string, number> {
+  return new Pair(...parts, yield 0).items.join(",");
+}
+drive("new Pair(...parts, yield)", spreadNew(), () => { parts.push(100); });
+
+let shown = 1;
+const source = {
+  get a(): number {
+    log("get a");
+    return shown;
+  },
+};
+function* spreadObject(): Generator<number, string, number> {
+  return JSON.stringify({ ...source, z: yield 0 });
+}
+drive("{ ...object, z: yield }", spreadObject(), () => { shown = 2; });
+
+// The same with await.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const xs = [1, 2];
+  show("await sum(...xs, …)", String(sum(...xs, await later(() => { xs.push(100); }))));
+  const o = { a: 1 };
+  show("await { ...o, …}", JSON.stringify({ ...o, z: await later(() => { o.a = 2; }) }));
+}
+await awaited();
+
+// expect:
+// sum(...numbers, yield): yielded 0 => 13
+// sum(...getKept(), yield): getKept,yielded 0 => 13
+// [...iterable, yield]: iterate,yielded 0 => 2,1,10
+// new Pair(...parts, yield): yielded 0 => 1,10
+// { ...object, z: yield }: get a,yielded 0 => {"a":1,"z":10}
+// await sum(...xs, …): await,changed => 13
+// await { ...o, …}: await,changed => {"a":1,"z":10}

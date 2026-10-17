@@ -1,0 +1,166 @@
+// `??=`, `||=` and `&&=` test their place first, once, and evaluate their right side only if
+// they store, so a yield or an await there suspends only then; what the test saw decides,
+// even if the place changes while the function is suspended (D-111 hoists suspensions out
+// of `??`, `||` and `&&` this way). pts hoisted the suspension before the test: it
+// suspended even when nothing was stored, and tested the place after the resume, so a
+// change made meanwhile decided whether to store (H08, C25).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, value: unknown): void => {
+  console.log(`${label}: ${trace.join(",")} => ${String(value)}`);
+  trace.length = 0;
+};
+
+class Slot {
+  held: number | undefined;
+  constructor(held: number | undefined) {
+    this.held = held;
+  }
+  get value(): number | undefined {
+    log("get");
+    return this.held;
+  }
+  set value(next: number | undefined) {
+    log("set " + next);
+    this.held = next;
+  }
+}
+class Box {
+  n: number | undefined;
+  constructor(n: number | undefined) {
+    this.n = n;
+  }
+}
+
+// drive runs a generator to its end, changing the place each time it is suspended.
+function drive(label: string, steps: Generator<number, void, number>, change: () => void, final: () => unknown): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("suspended");
+    change();
+    step = steps.next(10);
+  }
+  show(label, final());
+}
+
+const setBox = new Box(1);
+function* fieldKeeps(): Generator<number, void, number> {
+  setBox.n ??= yield 0;
+}
+drive("field ??= keeps", fieldKeeps(), () => { setBox.n = 2; }, () => setBox.n);
+
+const emptyBox = new Box(undefined);
+function* fieldStores(): Generator<number, void, number> {
+  emptyBox.n ??= yield 0;
+}
+drive("field ??= stores", fieldStores(), () => { emptyBox.n = 2; }, () => emptyBox.n);
+
+const truthy = new Slot(5);
+function* accessorKeeps(): Generator<number, void, number> {
+  truthy.value ||= 1 + (yield 0);
+}
+drive("accessor ||= keeps", accessorKeeps(), () => { truthy.held = 0; }, () => truthy.held);
+
+const nonzero = new Slot(5);
+function* accessorStores(): Generator<number, void, number> {
+  nonzero.value &&= yield 0;
+}
+drive("accessor &&= stores", accessorStores(), () => { nonzero.held = 0; }, () => nonzero.held);
+
+const loose: any = { a: 1, z: 0 };
+function* anyKeeps(): Generator<number, void, number> {
+  loose.a ??= yield 0;
+}
+drive("any ??= keeps", anyKeeps(), () => { loose.a = 2; }, () => loose.a);
+
+function* anyStores(): Generator<number, void, number> {
+  loose.z ||= yield 0;
+}
+drive("any ||= stores", anyStores(), () => { loose.z = 2; }, () => loose.z);
+
+const counts: Record<string, number> = { a: 1 };
+const keys = ["a", "b"];
+let keyReads = 0;
+const key = (): string => {
+  const k = keys[keyReads++];
+  log("key " + k);
+  return k;
+};
+function* recordKeeps(): Generator<number, void, number> {
+  counts[key()] ??= yield 0;
+}
+drive("record ??= keeps", recordKeeps(), () => { counts.a = 7; }, () => JSON.stringify(counts));
+
+function* recordStores(): Generator<number, void, number> {
+  counts[key()] ??= yield 0;
+}
+drive("record ??= stores", recordStores(), () => { counts.b = 7; }, () => JSON.stringify(counts));
+
+const slots: (number | undefined)[] = [1, undefined, 3];
+function* elementsByIndex(): Generator<number, void, number> {
+  let i = 0;
+  slots[i++] ??= yield 0;
+  slots[i++] ??= yield 0;
+  log("i " + i);
+}
+drive("array ??= by i++", elementsByIndex(), () => { slots[1] = 2; }, () => slots.join("/"));
+
+let kept = 0;
+function* localKeeps(): Generator<number, void, number> {
+  let n = 3;
+  n ||= yield 0;
+  kept = n;
+}
+drive("local ||= keeps", localKeeps(), () => {}, () => "n " + kept);
+
+// The same with await: a microtask queued before an await would change the place meanwhile.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const b = new Box(1);
+  b.n ??= await later(() => { b.n = 2; });
+  show("await field ??= keeps", b.n);
+  const e = new Box(undefined);
+  e.n ??= await later(() => { e.n = 2; });
+  show("await field ??= stores", e.n);
+  const s = new Slot(0);
+  s.value &&= await later(() => { s.held = 4; });
+  show("await accessor &&= keeps", s.held);
+  const t = new Slot(0);
+  t.value ||= await later(() => { t.held = 4; });
+  show("await accessor ||= stores", t.held);
+  const d: any = JSON.parse('{"a":1}'); // a hash-map object, which can gain properties
+  d.a ??= await later(() => { d.a = 2; });
+  d.b ??= await later(() => { d.b = 2; });
+  show("await any ??=", JSON.stringify(d));
+  const r: Record<string, number> = { a: 1 };
+  r.a ||= await later(() => { r.a = 0; });
+  show("await record ||= keeps", r.a);
+}
+await awaited();
+
+// expect:
+// field ??= keeps:  => 1
+// field ??= stores: suspended => 10
+// accessor ||= keeps: get => 5
+// accessor &&= stores: get,suspended,set 10 => 10
+// any ??= keeps:  => 1
+// any ||= stores: suspended => 10
+// record ??= keeps: key a => {"a":1}
+// record ??= stores: key b,suspended => {"a":1,"b":10}
+// array ??= by i++: suspended,i 2 => 1/10/3
+// local ||= keeps:  => n 3
+// await field ??= keeps:  => 1
+// await field ??= stores: await,changed => 10
+// await accessor &&= keeps: get => 0
+// await accessor ||= stores: get,await,changed,set 10 => 10
+// await any ??=: await,changed => {"a":1,"b":10}
+// await record ||= keeps:  => 1

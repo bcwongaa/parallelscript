@@ -1,0 +1,152 @@
+// A call reads its function (a property's value, through a getter too) and its receiver
+// before it evaluates its arguments, so a yield or an await in an argument calls the
+// function the property held before the suspension, with the receiver it had then.
+// pts looked a function-valued property up after the resume, so a function stored there
+// meanwhile was the one called (H08: the GPT review's #2 printed `method new 10`, Node
+// `method old 10`; D-145's known gap).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, result: string): void => {
+  console.log(`${label}: ${trace.join(",")} => ${result}`);
+  trace.length = 0;
+};
+type Fn = (n: number) => string;
+const old: Fn = (n: number): string => `old ${n}`;
+const fresh: Fn = (n: number): string => `new ${n}`;
+
+// drive runs a generator that yields once, replacing the function while it is suspended.
+function drive(label: string, steps: Generator<number, string, number>, change: () => void): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("suspended");
+    change();
+    step = steps.next(10);
+  }
+  show(label, step.value);
+}
+
+const literal = { m: old };
+function* literalProperty(): Generator<number, string, number> {
+  return literal.m(yield 0);
+}
+drive("object literal property", literalProperty(), () => { literal.m = fresh; });
+
+class Holder {
+  m: Fn = old;
+  tag = "holder";
+  *viaThis(): Generator<number, string, number> {
+    return this.m(yield 0);
+  }
+}
+const holder = new Holder();
+function* classField(): Generator<number, string, number> {
+  return holder.m(1 + (yield 0));
+}
+drive("class field", classField(), () => { holder.m = fresh; });
+
+const thisHolder = new Holder();
+drive("this.m", thisHolder.viaThis(), () => { thisHolder.m = fresh; });
+
+interface HasM {
+  m: Fn;
+}
+const viaInterface: HasM = { m: old };
+function* interfaceProperty(): Generator<number, string, number> {
+  return viaInterface.m(yield 0);
+}
+drive("interface property", interfaceProperty(), () => { viaInterface.m = fresh; });
+
+const loose: any = { m: old };
+function* anyMethod(): Generator<number, string, number> {
+  return loose.m(yield 0);
+}
+drive("any method", anyMethod(), () => { loose.m = fresh; });
+
+const nested = { a: { b: { m: old } } };
+function* nestedChain(): Generator<number, string, number> {
+  return nested.a.b.m(yield 0);
+}
+drive("nested receiver replaced", nestedChain(), () => { nested.a.b = { m: fresh }; });
+
+const table: Record<string, Fn> = { m: old };
+const name = "m";
+function* recordElement(): Generator<number, string, number> {
+  return table[name](yield 0);
+}
+drive("record element", recordElement(), () => { table.m = fresh; });
+
+const list: Fn[] = [old];
+function* arrayElement(): Generator<number, string, number> {
+  return list[0](yield 0);
+}
+drive("array element", arrayElement(), () => { list[0] = fresh; });
+
+const viaGetter = {
+  impl: old,
+  get m(): Fn {
+    log("getter");
+    return this.impl;
+  },
+};
+function* getterCallee(): Generator<number, string, number> {
+  return viaGetter.m(yield 0);
+}
+drive("getter that returns the function", getterCallee(), () => { viaGetter.impl = fresh; });
+
+// The receiver the call passes as `this` is the one read before the suspension.
+const tagged = {
+  tag: "first",
+  m(n: number): string {
+    return `${this.tag} ${n}`;
+  },
+};
+let current = tagged;
+function* receiver(): Generator<number, string, number> {
+  return current.m(yield 0);
+}
+drive("receiver replaced", receiver(), () => { current = { tag: "second", m: tagged.m }; });
+
+// The same with await: a microtask queued before the await replaces the function.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const o = { m: old };
+  show("await object literal property", o.m(await later(() => { o.m = fresh; })));
+  const h = new Holder();
+  show("await class field", h.m(await later(() => { h.m = fresh; })));
+  const d: any = { m: old };
+  show("await any method", d.m(await later(() => { d.m = fresh; })));
+  const g = {
+    impl: old,
+    get m(): Fn {
+      log("getter");
+      return this.impl;
+    },
+  };
+  show("await getter", g.m(await later(() => { g.impl = fresh; })));
+}
+await awaited();
+
+// expect:
+// object literal property: suspended => old 10
+// class field: suspended => old 11
+// this.m: suspended => old 10
+// interface property: suspended => old 10
+// any method: suspended => old 10
+// nested receiver replaced: suspended => old 10
+// record element: suspended => old 10
+// array element: suspended => old 10
+// getter that returns the function: getter,suspended => old 10
+// receiver replaced: suspended => first 10
+// await object literal property: await,changed => old 10
+// await class field: await,changed => old 10
+// await any method: await,changed => old 10
+// await getter: getter,await,changed => old 10

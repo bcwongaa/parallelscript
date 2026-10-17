@@ -826,6 +826,43 @@ pts_value pts_dynamic_call_method(pts_value object, pts_value key, const pts_str
   return pts_dynamic_call(object_get(target, key), text, argc, argv);
 }
 
+/* Whether a call object.name(…) through `any` finds name by name: a method of the program's object with a dynamic entry, or a builtin's. */
+static bool found_by_name(pts_value object, const char *name) {
+  if (pts_value_is_object(object) && pts_value_as_object(object)->type->kind == PTS_KIND_OBJECT) {
+    const pts_type *type = pts_value_as_object(object)->type;
+    int64_t method = method_named(type, name, PTS_METHOD);
+    return method >= 0 && type->methods[method].dynamic != NULL;
+  }
+  return pts_builtin_method_has(object, name);
+}
+
+pts_value pts_dynamic_method_of(pts_value object, pts_value key) {
+  char buffer[MAX_KEY];
+  if (pts_value_is_nullish(object)) {
+    pts_throw_new(&pts_type_builtin_TypeError, "Cannot read properties of %s (reading '%s')", object == PTS_VALUE_NULL ? "null" : "undefined",
+                  key_text(key, buffer));
+  }
+  if (found_by_name(object, key_text(key, buffer))) {
+    return PTS_VALUE_UNDEFINED;
+  }
+  return pts_dynamic_get(object, key);
+}
+
+pts_value pts_dynamic_call_found(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv) {
+  char buffer[MAX_KEY];
+  if (found_by_name(object, key_text(key, buffer))) {
+    return pts_dynamic_call_method(object, key, text, argc, argv);
+  }
+  return pts_dynamic_call(found, text, argc, argv);
+}
+
+pts_value pts_dynamic_call_found_spread(pts_value object, pts_value key, pts_value found, const pts_string *text, uint32_t argc, const pts_value *argv,
+                                        const bool *spread) {
+  uint32_t count;
+  pts_value *values = spread_arguments(argc, argv, spread, &count);
+  return pts_dynamic_call_found(object, key, found, text, count, values);
+}
+
 /* ---------------------------------------------------------------- boundaries */
 
 void pts_throw_type_mismatch(pts_value value, const char *expected) {

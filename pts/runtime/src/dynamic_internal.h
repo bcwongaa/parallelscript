@@ -13,5 +13,7 @@ pts_value pts_spread_element(pts_value value, size_t i);
 
 /* Calls the builtin method name of value, a string, number, boolean, array, tuple or function, if it has one: whether it did. */
 bool pts_builtin_method_call(pts_value value, const char *name, uint32_t argc, const pts_value *argv, pts_value *result);
+/* Whether value has the builtin method name that pts_builtin_method_call would call. */
+bool pts_builtin_method_has(pts_value value, const char *name);
 
 #endif

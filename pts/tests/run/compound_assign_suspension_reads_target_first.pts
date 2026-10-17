@@ -1,0 +1,178 @@
+// A compound assignment whose right side suspends (`p += yield v`, `p -= await x`) reads
+// its target once, before the suspension, and stores that value combined with what the
+// right side gives (D-145). Each place below holds 1 and is changed to 2 while the function
+// is suspended, which resumes with 10; Node stores 1 + 10 = 11 and runs the getter before
+// the suspension. pts read a getter's target, and any target through `any`, after the
+// resume (H08, C08: the GPT review's #2 printed 12 for Node's 11; the Grok review's #2 ran
+// the getter 0 times before the first next() returned, Node once).
+const trace: string[] = [];
+const log = (s: string): void => {
+  trace.push(s);
+};
+const show = (label: string, value: number): void => {
+  console.log(`${label}: ${trace.join(",")} => ${value}`);
+  trace.length = 0;
+};
+
+class Meter {
+  reading = 1;
+  get value(): number {
+    log("get");
+    return this.reading;
+  }
+  set value(next: number) {
+    log("set " + next);
+    this.reading = next;
+  }
+  *bump(): Generator<number, void, number> {
+    this.value *= yield 0;
+  }
+  async bumpLater(change: Promise<number>): Promise<void> {
+    this.value *= await change;
+  }
+}
+class SubMeter extends Meter {}
+// An object typed as an interface reads its property once already (D-178): a guard.
+const gauge = (): { reading: number; value: number } => ({
+  reading: 1,
+  get value(): number {
+    log("get");
+    return this.reading;
+  },
+  set value(next: number) {
+    log("set " + next);
+    this.reading = next;
+  },
+});
+
+// drive runs a generator to its end, changing the place each time it is suspended.
+function drive(label: string, steps: Generator<number, void, number>, change: () => void, final: () => number): void {
+  let step = steps.next();
+  while (!step.done) {
+    log("suspended");
+    change();
+    step = steps.next(10);
+  }
+  show(label, final());
+}
+
+const meter = new Meter();
+function* classAccessor(): Generator<number, void, number> {
+  meter.value += yield 0;
+}
+drive("class accessor", classAccessor(), () => { meter.reading = 2; }, () => meter.reading);
+
+const subMeter = new SubMeter();
+function* inheritedAccessor(): Generator<number, void, number> {
+  subMeter.value += yield 0;
+}
+drive("inherited accessor", inheritedAccessor(), () => { subMeter.reading = 2; }, () => subMeter.reading);
+
+const thisMeter = new Meter();
+drive("this accessor", thisMeter.bump(), () => { thisMeter.reading = 2; }, () => thisMeter.reading);
+
+const literal = {
+  reading: 1,
+  get value(): number {
+    log("get");
+    return this.reading;
+  },
+  set value(next: number) {
+    log("set " + next);
+    this.reading = next;
+  },
+};
+function* literalAccessor(): Generator<number, void, number> {
+  literal.value -= yield 0;
+}
+drive("object literal accessor", literalAccessor(), () => { literal.reading = 2; }, () => literal.reading);
+
+const typed = gauge();
+function* typedAccessor(): Generator<number, void, number> {
+  typed.value -= yield 0;
+}
+drive("accessor through an object type (guard)", typedAccessor(), () => { typed.reading = 2; }, () => typed.reading);
+
+const loose: any = { total: 1, list: [1, 1] };
+function* anyProperty(): Generator<number, void, number> {
+  loose.total += yield 0;
+}
+drive("any property", anyProperty(), () => { loose.total = 2; }, () => loose.total);
+
+function* anyElement(): Generator<number, void, number> {
+  loose.list[0] += yield 0;
+}
+drive("any element", anyElement(), () => { loose.list[0] = 2; }, () => loose.list[0]);
+
+const looseMeter = new Meter();
+const viaAny: any = looseMeter;
+function* anyGetter(): Generator<number, void, number> {
+  viaAny.value += 5 + (yield 0);
+}
+drive("any whose object has a getter", anyGetter(), () => { looseMeter.reading = 2; }, () => looseMeter.reading);
+
+// The getter runs before the generator first stops (the Grok review's #2).
+const counted = new Meter();
+function* countedReads(): Generator<number, void, number> {
+  counted.value += yield 0;
+}
+const reads = countedReads();
+reads.next();
+console.log("getter calls before the first next() returned:", trace.filter((s) => s === "get").length);
+reads.next(10);
+show("after the second next()", counted.reading);
+
+// The same with await: a microtask queued before the await changes the place meanwhile.
+const later = (change: () => void): Promise<number> => {
+  log("await");
+  queueMicrotask(() => {
+    log("changed");
+    change();
+  });
+  return Promise.resolve(10);
+};
+async function awaited(): Promise<void> {
+  const m = new Meter();
+  m.value += await later(() => { m.reading = 2; });
+  show("await class accessor", m.reading);
+  const g = {
+    reading: 1,
+    get value(): number {
+      log("get");
+      return this.reading;
+    },
+    set value(next: number) {
+      log("set " + next);
+      this.reading = next;
+    },
+  };
+  g.value -= await later(() => { g.reading = 2; });
+  show("await object literal accessor", g.reading);
+  const d: any = { total: 1 };
+  d.total += 1 + (await later(() => { d.total = 2; }));
+  show("await any property", d.total);
+  const e: any = [1];
+  e[0] *= await later(() => { e[0] = 2; });
+  show("await any element", e[0]);
+  const t = new Meter();
+  await t.bumpLater(later(() => { t.reading = 2; }));
+  show("await this accessor", t.reading);
+}
+await awaited();
+
+// expect:
+// class accessor: get,suspended,set 11 => 11
+// inherited accessor: get,suspended,set 11 => 11
+// this accessor: get,suspended,set 10 => 10
+// object literal accessor: get,suspended,set -9 => -9
+// accessor through an object type (guard): get,suspended,set -9 => -9
+// any property: suspended => 11
+// any element: suspended => 11
+// any whose object has a getter: get,suspended,set 16 => 16
+// getter calls before the first next() returned: 1
+// after the second next(): get,set 11 => 11
+// await class accessor: get,await,changed,set 11 => 11
+// await object literal accessor: get,await,changed,set -9 => -9
+// await any property: await,changed => 12
+// await any element: await,changed => 10
+// await this accessor: await,get,changed,set 10 => 10

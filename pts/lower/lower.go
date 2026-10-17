@@ -2334,13 +2334,22 @@ func (l *lowerer) isKeyedElement(node *ast.Node) bool {
 // converted to the type tsc gives it with a check.
 func (l *lowerer) keyedElementRead(node *ast.Node) ir.Expr {
 	t := l.irType(l.typeAt(node), node)
+	value := l.keyedElementValue(node)
+	if t == nil || value == nil {
+		return nil
+	}
+	return l.checkedConversion(value, t, node)
+}
+
+// keyedElementValue is the property a keyed element reads, found at run time: a dynamic value.
+func (l *lowerer) keyedElementValue(node *ast.Node) ir.Expr {
 	l.wantKeyedMembers(node)
 	object := l.expression(node.Expression())
 	key := l.dynamicKey(node)
-	if t == nil || object == nil || key == nil {
+	if object == nil || key == nil {
 		return nil
 	}
-	return l.checkedConversion(&ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), key}}, t, node)
+	return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), key}}
 }
 
 // wantKeyedMembers makes the generic methods a keyed element may find have erased copies
@@ -3089,6 +3098,8 @@ func (l *lowerer) readKeptAndStore(target place, kept ir.Expr, build func(place)
 		case target.accessors.getter == nil:
 			l.notSupportedYet(target.at, "reading a property that has no getter is")
 			return nil
+		case kept != nil:
+			read = l.convert(kept, target.valueType(), target.at) // the getter ran before the yield
 		default:
 			read = l.callMethod(target.object, nil, target.accessors.getter, nil)
 		}

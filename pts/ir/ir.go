@@ -947,7 +947,9 @@ type FieldRef struct {
 	X     Expr
 	Field *Field
 	// Raw reads an optional field as it is, the absent value included, to store it in
-	// another optional field (a spread copies only the properties an object has).
+	// another optional field (a spread copies only the properties an object has), and
+	// another field without the check that it is set (D-141): NULL if it isn't, which a
+	// logical assignment tests before a suspension (H08).
 	Raw bool
 }
 
@@ -1214,6 +1216,12 @@ var (
 	// dynamic value: the object, the key, the source text, then the arguments.
 	DynamicCall       = &Builtin{Name: "call", Result: Value}
 	DynamicCallMethod = &Builtin{Name: "call method", Result: Value}
+	// DynamicMethodOf and DynamicCallFound are DynamicCallMethod in two steps, for a call
+	// whose arguments suspend (H08): DynamicMethodOf (the object, the key) finds what the
+	// call calls before the arguments are evaluated, as JS does, and DynamicCallFound calls
+	// it: the object, the key, what DynamicMethodOf found, the source text, then the arguments.
+	DynamicMethodOf  = &Builtin{Name: "method of", Params: []Type{Value, Value}, Result: Value}
+	DynamicCallFound = &Builtin{Name: "call found", Result: Value}
 	// ValueIsArray is Array.isArray of a dynamic value or a union (D-076).
 	ValueIsArray = &Builtin{Name: "Array.isArray", Params: []Type{Value}, Result: Bool}
 	// ValueKeys, ValueValues and ValueEntries are Object.keys, values and entries of a

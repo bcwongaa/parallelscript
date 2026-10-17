@@ -158,6 +158,9 @@ func (l *lowerer) dynamicMethodCall(call *ast.CallExpression, callee *ast.Node, 
 	if key == nil {
 		return nil
 	}
+	if found, ok := l.kept[callee]; ok { // found before a yield in the arguments (keepCallee)
+		return l.dynamicCallWith(call, callee, ir.DynamicCallFound, []ir.Expr{box(object), key, found})
+	}
 	return l.dynamicCallWith(call, callee, ir.DynamicCallMethod, []ir.Expr{box(object), key})
 }
 
