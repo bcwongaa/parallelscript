@@ -1,0 +1,25 @@
+// Many listeners given one signal with the `signal` option (H07b1): 100,000 targets each add a
+// listener with `{ signal }`, then the signal aborts and removes them all. Adding one costs
+// O(1) on the signal's side (its remover is a new function, so the signal's list isn't scanned
+// for it) and the abort O(n) in all, so this takes well under a second; with the remover taken
+// out of the signal's list one by one at the abort it took 23 s for 50,000.
+// no-diff: Node scans the signal's listeners for each listener added with { signal }, so its adds take minutes here
+const TARGETS = 100_000;
+const owner = new AbortController();
+let calls = 0;
+const targets: EventTarget[] = [];
+for (let i = 0; i < TARGETS; i++) {
+  const target = new EventTarget();
+  target.addEventListener("ping", () => {
+    calls++;
+  }, { signal: owner.signal });
+  targets.push(target);
+}
+owner.abort();
+for (const target of targets) {
+  target.dispatchEvent(new Event("ping"));
+}
+console.log(`targets ${targets.length}, listeners called after the abort ${calls}`);
+
+// expect:
+// targets 100000, listeners called after the abort 0

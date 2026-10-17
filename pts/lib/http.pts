@@ -5,7 +5,7 @@
 // (D-160) is this module's: it makes requests over HTTP/1.1 (fetch.c), and fetch,
 // Request, Response and Headers are globals. An AbortSignal (D-162) aborts a fetch.
 
-import { AbortController, AbortSignal } from "pts:internal/abort";
+import { AbortController, AbortSignal, type EventListener } from "pts:internal/abort";
 
 declare function pts_http_listen(port: number, hostname: string, everyLoop: boolean,
     onRequest: (connection: number, method: string, target: string, headers: string[], body: string) => unknown,
@@ -16,6 +16,8 @@ declare function pts_http_stop(server: number, closeActive: boolean): void;
 declare function pts_http_fetch(method: string, host: string, port: number, target: string, headers: string[], body: string, hasBody: boolean,
     done: (ok: boolean, parts: string[], failure: unknown) => void): number;
 declare function pts_http_fetch_abort(request: number): void;
+declare function pts_sync_lock(lock: ArrayBuffer): void;
+declare function pts_sync_unlock(lock: ArrayBuffer): void;
 
 export type HeadersInit = Headers | Record<string, string> | [string, string][];
 
@@ -206,6 +208,10 @@ let bodyOf: (request: Request) => string | null;
 let signalOf: (request: Request) => AbortSignal | null;
 // Aborts the signal of a request the server received, whose client has gone (D-163).
 let disconnect: (request: Request) => void;
+// Guards a request's own signal, made when first read, against the server's disconnect, which
+// may run on another thread than the read (C116). One lock for every request, rather than one
+// each, keeps the server's requests from allocating; it is held for a few stores.
+const OWN_SIGNAL_LOCK = new ArrayBuffer(4);
 
 // A request: its method, its absolute URL, its headers, its body as text and its signal.
 // Made from a URL, or from another request, whose parts init replaces.
@@ -234,14 +240,27 @@ export class Request {
     // The request's signal. A request given none has one of its own, which aborts when the
     // request is one a server received and its client leaves before the answer.
     get signal(): AbortSignal {
-        if (this.#signal === null) {
-            this.#controller = new AbortController();
-            this.#signal = this.#controller.signal;
-            if (this.#gone) {
-                this.#controller.abort();
-            }
+        return this.#signal ?? this.#ownSignal();
+    }
+
+    // The request's own signal, made at its first read. Threads reading at once all get the one
+    // made first, which is aborted if the client has gone.
+    #ownSignal(): AbortSignal {
+        const made = new AbortController();
+        pts_sync_lock(OWN_SIGNAL_LOCK);
+        let signal = this.#signal;
+        const first = signal === null;
+        if (signal === null) {
+            signal = made.signal;
+            this.#signal = signal;
+            this.#controller = made;
         }
-        return this.#signal;
+        const gone = this.#gone;
+        pts_sync_unlock(OWN_SIGNAL_LOCK);
+        if (first && gone) {
+            made.abort();
+        }
+        return signal;
     }
 
     text(): Promise<string> {
@@ -256,8 +275,11 @@ export class Request {
         bodyOf = (request) => request.#body;
         signalOf = (request) => request.#signal;
         disconnect = (request) => {
+            pts_sync_lock(OWN_SIGNAL_LOCK);
             request.#gone = true;
-            request.#controller?.abort();
+            const controller = request.#controller;
+            pts_sync_unlock(OWN_SIGNAL_LOCK);
+            controller?.abort();
         };
     }
 }
@@ -511,7 +533,7 @@ function exchange(method: string, target: Target, fields: string[], body: string
     return new Promise((resolve, reject) => {
         let ended = false;
         let request = -1;
-        const onAbort = (): void => pts_http_fetch_abort(request);
+        const onAbort: EventListener = () => pts_http_fetch_abort(request);
         request = pts_http_fetch(method, target.host, target.port, target.path, fields, body, sendsBody, (ok, parts, failure) => {
             ended = true;
             signal?.removeEventListener("abort", onAbort);
@@ -521,8 +543,11 @@ function exchange(method: string, target: Target, fields: string[], body: string
                 reject(failure);
             }
         });
-        if (!ended) {
-            signal?.addEventListener("abort", onAbort);
+        if (!ended && signal !== null) {
+            signal.addEventListener("abort", onAbort);
+            if (signal.aborted) {
+                pts_http_fetch_abort(request); // it aborted on another thread before onAbort was added (C116)
+            }
         }
     });
 }

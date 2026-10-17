@@ -1,0 +1,402 @@
+// One AbortSignal, and one EventTarget, shared by threads (C116, H07b1). Threads follow one
+// signal with AbortSignal.any (from `parallel for` and `parallel` tasks; the `.par.map` case
+// is abort_signal_shared_parallel.pts), follow it while another thread aborts it, add and
+// remove their own listeners on it, abort it at once, set its onabort at once, abort a
+// follower's two sources at once, add listeners to their own targets with `{ signal }` while it
+// aborts, and dispatch to a target with a `once` listener at once.
+// Each section must end as the program run sequentially does in Node (`.par.map` as `map`,
+// `parallel e` as `Promise.resolve(e)`, AtomicInt as a plain counter): every follower aborted
+// with the reason, every listener called once, nothing thrown.
+// threads: 1 2 4
+function range(start: number, end?: number): number[] & { toArray(): number[] } {
+  if (end === undefined) {
+    end = start;
+    start = 0;
+  }
+  const items = Array.from({ length: end - start }, (_, i) => start + i) as number[] & { toArray(): number[] };
+  items.toArray = () => [...items];
+  return items;
+}
+class AtomicInt {
+  #value: number;
+  constructor(value = 0) {
+    this.#value = value;
+  }
+  add(delta: number): number {
+    const old = this.#value;
+    this.#value += delta;
+    return old;
+  }
+  load(): number {
+    return this.#value;
+  }
+  store(value: number): void {
+    this.#value = value;
+  }
+}
+
+const FOLLOWERS = 10_000;
+const LISTENERS = 3_000; // addEventListener looks for the listener among the others, as Node's does
+const ROUNDS = 1_000;
+
+// What was thrown, its numbers left out so that alike failures tally together.
+function failure(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message.split(";")[0].replace(/[0-9]+/g, "#")}` : "non-Error thrown";
+}
+
+// How many times each outcome occurs, outcomes sorted.
+function tally(outcomes: string[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+  return [...counts.keys()].sort().map((outcome) => `${outcome} ${counts.get(outcome)}`).join(", ");
+}
+
+function calls(counts: number[]): string {
+  return tally(counts.map((n) => `called ${n}`));
+}
+
+// A follower of source, or what making it threw.
+function follow(source: AbortSignal): AbortSignal | string {
+  try {
+    return AbortSignal.any([source]);
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+// Whether a follower aborted with reason, or what making it threw.
+function state(follower: AbortSignal | string, reason: string): string {
+  return typeof follower === "string" ? follower : follower.aborted && follower.reason === reason ? "aborted" : "not aborted";
+}
+
+function judge(followers: (AbortSignal | string)[], reason: string): string {
+  return tally(followers.map((f) => state(f, reason)));
+}
+
+// Waits until count threads have arrived, so that they act at once; boundedly, since on one
+// thread the callbacks run in turn.
+function rendezvous(arrived: AtomicInt, count: int): void {
+  arrived.add(1);
+  for (let spin = 0; spin < 20_000 && arrived.load() < count; spin++) {}
+}
+
+function pause(cell: AtomicInt, spins: number): void {
+  for (let spin = 0; spin < spins; spin++) {
+    cell.load();
+  }
+}
+
+{
+  const shared = new AbortController();
+  const followers = new Array<AbortSignal | string>(FOLLOWERS).fill("unset");
+  for (const i of range(0, FOLLOWERS)) {
+    followers[i] = follow(shared.signal);
+  }
+  try {
+    shared.abort("stop");
+    console.log("followers from parallel for:", judge(followers, "stop"));
+  } catch (error) {
+    console.log("followers from parallel for: abort threw", failure(error));
+  }
+}
+
+{
+  const shared = new AbortController();
+  const many = (count: number): (AbortSignal | string)[] => {
+    const made: (AbortSignal | string)[] = [];
+    for (let i = 0; i < count; i++) {
+      made.push(follow(shared.signal));
+    }
+    return made;
+  };
+  const parts = await Promise.all([0, 1, 2, 3].map(() => Promise.resolve(many(FOLLOWERS / 4))));
+  try {
+    shared.abort("stop");
+    console.log("followers from parallel tasks:", judge(parts.flat(), "stop"));
+  } catch (error) {
+    console.log("followers from parallel tasks: abort threw", failure(error));
+  }
+}
+
+// Followers made on many threads while one of them aborts the source, half-way through.
+{
+  const shared = new AbortController();
+  const made = new AtomicInt(0);
+  const followers = range(0, FOLLOWERS).map((i): AbortSignal | string => {
+    if (made.add(1) === FOLLOWERS / 2) {
+      try {
+        shared.abort("stop");
+      } catch (error) {
+        return `abort threw ${failure(error)}`;
+      }
+    }
+    return follow(shared.signal);
+  });
+  console.log("followers while another thread aborts:", judge(followers, "stop"));
+}
+
+// One thread follows a signal while another aborts it a moment later: AbortSignal.any's
+// check of its sources and its adding to them against the abort.
+{
+  const outcomes: string[] = [];
+  for (let round = 0; round < 2 * ROUNDS; round++) {
+    const controller = new AbortController();
+    const arrived = new AtomicInt(0);
+    const followers: (AbortSignal | string)[] = [];
+    range(0, 2).forEach((t) => {
+      rendezvous(arrived, 2);
+      if (t === 0) {
+        followers.push(follow(controller.signal));
+      } else {
+        pause(arrived, (round * 7919) % 300);
+        controller.abort("stop");
+      }
+    });
+    outcomes.push(...followers.map((f) => state(f, "stop")));
+  }
+  console.log("a follower against an abort a moment later:", tally(outcomes));
+}
+
+// The program's own listeners on one shared signal, added from many threads.
+{
+  const shared = new AbortController();
+  const counts = new Array<number>(LISTENERS).fill(0);
+  const added = range(0, LISTENERS).map((i) => {
+    try {
+      shared.signal.addEventListener("abort", () => {
+        counts[i]++;
+      });
+      return "added";
+    } catch (error) {
+      return failure(error);
+    }
+  });
+  let threw = "";
+  try {
+    shared.abort();
+  } catch (error) {
+    threw = ` | abort threw ${failure(error)}`;
+  }
+  console.log(`listeners added from threads: ${tally(added)} | ${calls(counts)}${threw}`);
+}
+
+// One controller aborted from two threads at once: one event, each listener once, one of the reasons.
+{
+  let wrong = 0;
+  const thrown: string[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    const controller = new AbortController();
+    const events = new AtomicInt(0);
+    const first = new AtomicInt(0);
+    const once = new AtomicInt(0);
+    controller.signal.onabort = () => events.add(1);
+    controller.signal.addEventListener("abort", () => first.add(1));
+    controller.signal.addEventListener("abort", () => once.add(1), { once: true });
+    const arrived = new AtomicInt(0);
+    const outcomes = range(0, 2).map((t) => {
+      rendezvous(arrived, 2);
+      try {
+        controller.abort(`r${t}`);
+        return "ok";
+      } catch (error) {
+        return failure(error);
+      }
+    });
+    const reason: unknown = controller.signal.reason;
+    if (events.load() !== 1 || first.load() !== 1 || once.load() !== 1 || (reason !== "r0" && reason !== "r1")) {
+      wrong++;
+    }
+    thrown.push(...outcomes.filter((o) => o !== "ok"));
+  }
+  console.log(`abort from two threads at once: rounds ${ROUNDS}, wrong ${wrong}${thrown.length === 0 ? "" : `, threw ${tally(thrown)}`}`);
+}
+
+// onabort set from two threads at once: one listener calls it, so one call.
+{
+  let wrong = 0;
+  for (let round = 0; round < ROUNDS; round++) {
+    const controller = new AbortController();
+    const calls = new AtomicInt(0);
+    const handler: EventListener = () => {
+      calls.add(1);
+    };
+    const arrived = new AtomicInt(0);
+    range(0, 2).forEach(() => {
+      rendezvous(arrived, 2);
+      controller.signal.onabort = handler;
+    });
+    controller.abort();
+    if (calls.load() !== 1) {
+      wrong++;
+    }
+  }
+  console.log(`onabort set from two threads at once: rounds ${ROUNDS}, wrong ${wrong}`);
+}
+
+// A follower's two sources aborted on two threads at once, as a fetch given
+// AbortSignal.any([signal, AbortSignal.timeout(ms)]) has: it aborts once, with one of the reasons.
+{
+  let wrong = 0;
+  for (let round = 0; round < ROUNDS; round++) {
+    const a = new AbortController();
+    const b = new AbortController();
+    const follower = AbortSignal.any([a.signal, b.signal]);
+    const events = new AtomicInt(0);
+    follower.addEventListener("abort", () => {
+      events.add(1);
+    });
+    const arrived = new AtomicInt(0);
+    range(0, 2).forEach((t) => {
+      rendezvous(arrived, 2);
+      if (t === 0) {
+        a.abort("a");
+      } else {
+        b.abort("b");
+      }
+    });
+    const reason: unknown = follower.reason;
+    if (events.load() !== 1 || !follower.aborted || (reason !== "a" && reason !== "b")) {
+      wrong++;
+    }
+  }
+  console.log(`a follower's two sources aborted at once: rounds ${ROUNDS}, wrong ${wrong}`);
+}
+
+// removeEventListener of some listeners while other threads add others.
+{
+  const shared = new AbortController();
+  const half = LISTENERS / 2;
+  const removedCalls = new Array<number>(half).fill(0);
+  const addedCalls = new Array<number>(half).fill(0);
+  const removable: ((event: Event) => void)[] = [];
+  for (let k = 0; k < half; k++) {
+    const listener = (event: Event): void => {
+      removedCalls[k]++;
+    };
+    removable.push(listener);
+    shared.signal.addEventListener("abort", listener);
+  }
+  const outcomes = range(0, LISTENERS).map((i) => {
+    try {
+      const k = Math.floor(i / 2);
+      if (i % 2 === 0) {
+        shared.signal.removeEventListener("abort", removable[k]);
+      } else {
+        shared.signal.addEventListener("abort", () => {
+          addedCalls[k]++;
+        });
+      }
+      return "ok";
+    } catch (error) {
+      return failure(error);
+    }
+  });
+  let threw = "";
+  try {
+    shared.abort();
+  } catch (error) {
+    threw = ` | abort threw ${failure(error)}`;
+  }
+  console.log(`removes against adds: ${tally(outcomes)} | removed ${calls(removedCalls)} | added ${calls(addedCalls)}${threw}`);
+}
+
+// addEventListener(type, listener, { signal }) on targets of their own while another thread
+// aborts the signal, half-way through: afterwards no listener is left. A few times over, since
+// a listener added in the abort's moment is rare.
+for (let repeat = 0; repeat < 5; repeat++) {
+  const shared = new AbortController();
+  const targets = range(0, LISTENERS).toArray().map(() => new EventTarget());
+  const counts = new Array<number>(LISTENERS).fill(0);
+  const started = new AtomicInt(0);
+  const outcomes = range(0, LISTENERS).map((i) => {
+    try {
+      if (started.add(1) === LISTENERS / 2) {
+        shared.abort();
+      }
+      targets[i].addEventListener("ping", () => {
+        counts[i]++;
+      }, { signal: shared.signal });
+      return "ok";
+    } catch (error) {
+      return failure(error);
+    }
+  });
+  for (const target of targets) {
+    target.dispatchEvent(new Event("ping"));
+  }
+  console.log(`{ signal } while another thread aborts: ${tally(outcomes)} | ${calls(counts)}`);
+}
+
+// One thread adds a listener with { signal } while another aborts the signal a moment later,
+// the pause swept from round to round: afterwards the listener is gone (review round 4).
+{
+  let left = 0;
+  for (let round = 0; round < 2 * ROUNDS; round++) {
+    const owner = new AbortController();
+    const target = new EventTarget();
+    const calls = new AtomicInt(0);
+    const arrived = new AtomicInt(0);
+    range(0, 2).forEach((t) => {
+      rendezvous(arrived, 2);
+      if (t === 0) {
+        target.addEventListener("ping", () => {
+          calls.add(1);
+        }, { signal: owner.signal });
+      } else {
+        pause(arrived, (round * 7919) % 300);
+        owner.abort();
+      }
+    });
+    target.dispatchEvent(new Event("ping"));
+    left += calls.load();
+  }
+  console.log(`{ signal } against an abort a moment later: rounds ${2 * ROUNDS}, listeners left ${left}`);
+}
+
+// One EventTarget with a once listener, dispatched to from two threads at once.
+{
+  let wrong = 0;
+  const thrown: string[] = [];
+  for (let round = 0; round < ROUNDS; round++) {
+    const target = new EventTarget();
+    const once = new AtomicInt(0);
+    const always = new AtomicInt(0);
+    target.addEventListener("ping", () => once.add(1), { once: true });
+    target.addEventListener("ping", () => always.add(1));
+    const arrived = new AtomicInt(0);
+    const outcomes = range(0, 2).map(() => {
+      rendezvous(arrived, 2);
+      try {
+        target.dispatchEvent(new Event("ping"));
+        return "ok";
+      } catch (error) {
+        return failure(error);
+      }
+    });
+    if (once.load() !== 1 || always.load() !== 2) {
+      wrong++;
+    }
+    thrown.push(...outcomes.filter((o) => o !== "ok"));
+  }
+  console.log(`once listener, two threads dispatching: rounds ${ROUNDS}, wrong ${wrong}${thrown.length === 0 ? "" : `, threw ${tally(thrown)}`}`);
+}
+
+// expect:
+// followers from parallel for: aborted 10000
+// followers from parallel tasks: aborted 10000
+// followers while another thread aborts: aborted 10000
+// a follower against an abort a moment later: aborted 2000
+// listeners added from threads: added 3000 | called 1 3000
+// abort from two threads at once: rounds 1000, wrong 0
+// onabort set from two threads at once: rounds 1000, wrong 0
+// a follower's two sources aborted at once: rounds 1000, wrong 0
+// removes against adds: ok 3000 | removed called 0 1500 | added called 1 1500
+// { signal } while another thread aborts: ok 3000 | called 0 3000
+// { signal } while another thread aborts: ok 3000 | called 0 3000
+// { signal } while another thread aborts: ok 3000 | called 0 3000
+// { signal } while another thread aborts: ok 3000 | called 0 3000
+// { signal } while another thread aborts: ok 3000 | called 0 3000
+// { signal } against an abort a moment later: rounds 2000, listeners left 0
+// once listener, two threads dispatching: rounds 1000, wrong 0

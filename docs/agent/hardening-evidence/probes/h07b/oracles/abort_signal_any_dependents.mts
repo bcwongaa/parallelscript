@@ -1,0 +1,196 @@
+// AbortSignal.any as the DOM standard's "create a dependent abort signal" and "signal abort"
+// have it (C121, H07b), compared with Node: a source's followers have their reasons before the
+// source's "abort" event and fire theirs after it, in the order they were made; a follower of a
+// follower follows the first one's sources (so it aborts with them, not after its source's
+// event); duplicates and a follower given with its own source follow once; a later source's
+// abort doesn't change a follower's reason; aborted signals given abort the follower at once
+// with the first one's reason; onabort keeps its place among the listeners; a timeout signal
+// is a source like any other; and a listener that aborts other signals during the dispatch
+// can't change a follower's reason that the first abort already set.
+function log(...parts: unknown[]): void {
+  console.log(parts.map(String).join(" "));
+}
+
+// 1. Followers' reasons before the source's event; their events after it, in the order they were made.
+{
+  log("-- order");
+  const a = new AbortController();
+  a.signal.addEventListener("abort", () => log("a listener 1; d1", d1.aborted, "d2", d2.aborted));
+  const d1 = AbortSignal.any([a.signal]);
+  d1.addEventListener("abort", () => log("d1 listener; a", a.signal.aborted, "d2", d2.aborted));
+  const d2 = AbortSignal.any([a.signal]);
+  d2.addEventListener("abort", () => log("d2 listener"));
+  a.signal.addEventListener("abort", () => log("a listener 2"));
+  a.abort("r");
+}
+
+// 2. Flattening: a follower of a follower follows the first one's sources.
+{
+  log("-- flatten");
+  const a = new AbortController();
+  const inner = AbortSignal.any([a.signal]);
+  const outer = AbortSignal.any([inner]);
+  a.signal.addEventListener("abort", () => log("a listener; inner", inner.aborted, "outer", outer.aborted));
+  inner.addEventListener("abort", () => log("inner listener; outer", outer.aborted));
+  outer.addEventListener("abort", () => log("outer listener; reason", outer.reason));
+  a.abort("flat");
+}
+
+// 3. A follower given with its own source, and duplicates: one event each.
+{
+  log("-- duplicates");
+  const a = new AbortController();
+  const inner = AbortSignal.any([a.signal]);
+  const both = AbortSignal.any([inner, a.signal, inner]);
+  const twice = AbortSignal.any([a.signal, a.signal]);
+  let bothEvents = 0;
+  let twiceEvents = 0;
+  both.addEventListener("abort", () => bothEvents++);
+  twice.addEventListener("abort", () => twiceEvents++);
+  a.signal.addEventListener("abort", () => log("a listener; both", both.aborted, "twice", twice.aborted));
+  a.abort("dup");
+  log("both", both.reason, bothEvents, "twice", twice.reason, twiceEvents);
+}
+
+// 4. Two sources aborting one after the other: the first reason, one event.
+{
+  log("-- two sources");
+  const a = new AbortController();
+  const b = new AbortController();
+  const d = AbortSignal.any([a.signal, b.signal]);
+  let events = 0;
+  d.addEventListener("abort", () => events++);
+  b.abort("b first");
+  a.abort("a second");
+  log("d", d.reason, events, "a", a.signal.reason);
+}
+
+// 5. Already aborted signals given: the first aborted one's reason, at once; no event.
+{
+  log("-- already aborted");
+  const a = new AbortController();
+  const d = AbortSignal.any([a.signal]);
+  a.abort("gone");
+  const b = new AbortController();
+  const again = AbortSignal.any([b.signal, d]);
+  let events = 0;
+  again.addEventListener("abort", () => events++);
+  const first = AbortSignal.any([AbortSignal.abort("one"), AbortSignal.abort("two")]);
+  log("again", again.aborted, again.reason, events, "first", first.reason);
+  b.abort("later");
+  log("after b", again.reason, events);
+}
+
+// 6. Reason identity, given and default.
+{
+  log("-- identity");
+  const a = new AbortController();
+  const reason = { why: "object" };
+  const d = AbortSignal.any([a.signal]);
+  const dd = AbortSignal.any([d]);
+  a.abort(reason);
+  log("given", d.reason === reason, dd.reason === reason);
+  const b = new AbortController();
+  const e = AbortSignal.any([b.signal]);
+  b.abort();
+  log("default", e.reason === b.signal.reason, e.reason instanceof DOMException, e.reason.name);
+}
+
+// 7. onabort among a follower's listeners: where it was first set.
+{
+  log("-- onabort");
+  const a = new AbortController();
+  const d = AbortSignal.any([a.signal]);
+  d.addEventListener("abort", () => log("listener 1"));
+  d.onabort = () => log("onabort first");
+  d.addEventListener("abort", () => log("listener 2"));
+  d.onabort = () => log("onabort replaced");
+  a.signal.onabort = () => log("source onabort; d", d.aborted);
+  a.abort();
+}
+
+// 9. Listeners that abort other signals during the dispatch.
+{
+  log("-- abort in dispatch");
+  const a = new AbortController();
+  const c = new AbortController();
+  a.signal.addEventListener("abort", () => {
+    log("a listener aborts c; e", e.aborted);
+    c.abort("from a's listener");
+  });
+  const e = AbortSignal.any([c.signal, a.signal]);
+  e.addEventListener("abort", () => log("e listener; reason", e.reason));
+  c.signal.addEventListener("abort", () => log("c listener"));
+  const f = AbortSignal.any([c.signal]);
+  f.addEventListener("abort", () => log("f listener; reason", f.reason));
+  a.abort("a's reason");
+  log("e", e.reason, "f", f.reason);
+}
+
+// 9b. A follower's listener aborts the follower's other source.
+{
+  log("-- follower aborts");
+  const a = new AbortController();
+  const b = new AbortController();
+  const d = AbortSignal.any([a.signal]);
+  const g = AbortSignal.any([b.signal, a.signal]);
+  d.addEventListener("abort", () => {
+    log("d listener; g", g.aborted, g.reason);
+    b.abort("b from d");
+  });
+  g.addEventListener("abort", () => log("g listener; reason", g.reason));
+  b.signal.addEventListener("abort", () => log("b listener"));
+  a.abort("a");
+}
+
+// 8. A timeout signal as a source.
+{
+  log("-- timeout");
+  const t = AbortSignal.timeout(5);
+  const d = AbortSignal.any([t]);
+  t.addEventListener("abort", () => log("timeout listener; d", d.aborted));
+  d.addEventListener("abort", () => log("d listener;", d.reason === t.reason, d.reason.name));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  log("done", d.aborted);
+}
+
+// expect:
+// -- order
+// a listener 1; d1 true d2 true
+// a listener 2
+// d1 listener; a true d2 true
+// d2 listener
+// -- flatten
+// a listener; inner true outer true
+// inner listener; outer true
+// outer listener; reason flat
+// -- duplicates
+// a listener; both true twice true
+// both dup 1 twice dup 1
+// -- two sources
+// d b first 1 a a second
+// -- already aborted
+// again true gone 0 first one
+// after b gone 0
+// -- identity
+// given true true
+// default true true AbortError
+// -- onabort
+// source onabort; d true
+// listener 1
+// onabort replaced
+// listener 2
+// -- abort in dispatch
+// a listener aborts c; e true
+// c listener
+// f listener; reason from a's listener
+// e listener; reason a's reason
+// e a's reason f from a's listener
+// -- follower aborts
+// d listener; g true a
+// b listener
+// g listener; reason a
+// -- timeout
+// timeout listener; d true
+// d listener; true TimeoutError
+// done true

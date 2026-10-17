@@ -2,6 +2,9 @@
 // DOMException, Event, EventTarget, AbortSignal and AbortController. Only the library's
 // modules may import it; programs see its classes as globals.
 
+declare function pts_sync_lock(lock: ArrayBuffer): void;
+declare function pts_sync_unlock(lock: ArrayBuffer): void;
+
 // The legacy codes of DOMException's names (WebIDL); other names have code 0.
 const DOM_EXCEPTION_CODES = new Map<string, number>([
     ["IndexSizeError", 1], ["HierarchyRequestError", 3], ["WrongDocumentError", 4], ["InvalidCharacterError", 5],
@@ -37,6 +40,8 @@ let beginDispatch: (event: Event, target: EventTarget) => void;
 let endDispatch: (event: Event) => boolean;
 let stopped: (event: Event) => boolean;
 let markTrusted: (event: Event) => Event;
+// The lock of a target's listeners, which AbortSignal's state shares; EventTarget's static block sets it.
+let lockOf: (target: EventTarget) => ArrayBuffer;
 
 // An event an EventTarget dispatches to its listeners. Events have no propagation path
 // (there is no document tree), so an event is always at its target while dispatched.
@@ -146,6 +151,9 @@ interface Registration {
     callback: EventListener;
     once: boolean;
     removed: boolean;
+    // Called even after a listener before it stopped the event's propagation: the `signal`
+    // option's listener, which removes another, as Node's is.
+    resists: boolean;
 }
 
 // Something events are dispatched to: listeners by event type, each added once, called in
@@ -153,34 +161,62 @@ interface Registration {
 // as uncaught, as Node reports it.
 export class EventTarget {
     readonly #registrations: Registration[] = [];
+    // Threads may share a target (one signal that many threads follow, C116): this lock guards
+    // the listener list, and an AbortSignal's state too. It is held only while the library reads
+    // or writes them, never while a listener runs; a section that calls code unlocks in a finally.
+    readonly #lock = new ArrayBuffer(4);
 
     addEventListener(type: string, callback: EventListener | null, options?: AddEventListenerOptions | boolean): void {
         const once = typeof options === "object" && options.once === true;
         const signal = typeof options === "object" ? options.signal : undefined;
-        if (callback === null || signal?.aborted === true || this.#find(type, callback) >= 0) {
+        if (callback === null || signal?.aborted === true) {
             return;
         }
-        this.#registrations.push({ type, callback, once, removed: false });
-        signal?.addEventListener("abort", () => this.removeEventListener(type, callback));
+        // As Node does: the signal's listener first, and for a listener that is there already too,
+        // so that the signal's abort removes it even when it is the signal's own listener. It is
+        // used up once, as Node's once listener is, by a flag rather than by leaving the list: an
+        // abort taking n of them out of it one by one would cost O(n²).
+        if (signal !== undefined) {
+            let used = false;
+            const remove: EventListener = () => {
+                if (!used) {
+                    used = true;
+                    this.removeEventListener(type, callback);
+                }
+            };
+            signal.#append({ type: "abort", callback: remove, once: false, removed: false, resists: true });
+        }
+        this.#add({ type, callback, once, removed: false, resists: false });
+        if (signal !== undefined && abortedNow(signal)) {
+            this.removeEventListener(type, callback); // it aborted on another thread meanwhile
+        }
     }
 
     removeEventListener(type: string, callback: EventListener | null, options?: EventListenerOptions | boolean): void {
-        const found = callback === null ? -1 : this.#find(type, callback);
-        if (found >= 0) {
-            this.#registrations[found].removed = true; // a dispatch already under way skips it
-            this.#registrations.splice(found, 1);
+        if (callback === null) {
+            return;
+        }
+        pts_sync_lock(this.#lock);
+        try {
+            const found = this.#find(type, callback);
+            if (found >= 0) {
+                this.#registrations[found].removed = true; // a dispatch already under way skips it
+                this.#registrations.splice(found, 1);
+            }
+        } finally {
+            pts_sync_unlock(this.#lock);
         }
     }
 
     // Calls the listeners of the event's type; false if one of them canceled the event.
     dispatchEvent(event: Event): boolean {
         beginDispatch(event, this);
-        for (const registration of this.#registrations.slice()) {
-            if (registration.removed || registration.type !== event.type) {
+        for (const registration of this.#listeners()) {
+            if (registration.removed || registration.type !== event.type || (stopped(event) && !registration.resists)) {
                 continue;
             }
-            if (registration.once) {
-                this.removeEventListener(registration.type, registration.callback);
+            if (registration.once && !this.#take(registration)) {
+                continue; // a dispatch on another thread took it first
             }
             try {
                 registration.callback(event);
@@ -189,16 +225,62 @@ export class EventTarget {
                     throw error;
                 });
             }
-            if (stopped(event)) {
-                break;
-            }
         }
         return endDispatch(event);
+    }
+
+    // Adds registration unless its listener is there for its type already.
+    #add(registration: Registration): void {
+        pts_sync_lock(this.#lock);
+        try {
+            if (this.#find(registration.type, registration.callback) < 0) {
+                this.#registrations.push(registration);
+            }
+        } finally {
+            pts_sync_unlock(this.#lock);
+        }
+    }
+
+    // Adds a registration whose callback is new, so that it can't be there already.
+    #append(registration: Registration): void {
+        pts_sync_lock(this.#lock);
+        this.#registrations.push(registration);
+        pts_sync_unlock(this.#lock);
+    }
+
+    // The listeners as a dispatch begins: those added later wait for the next one.
+    #listeners(): Registration[] {
+        pts_sync_lock(this.#lock);
+        const listeners = this.#registrations.slice();
+        pts_sync_unlock(this.#lock);
+        return listeners;
+    }
+
+    // Removes a once listener for the dispatch that calls it; false if it was removed already.
+    #take(registration: Registration): boolean {
+        pts_sync_lock(this.#lock);
+        const taken = !registration.removed;
+        if (taken) {
+            registration.removed = true;
+            this.#registrations.splice(this.#registrations.indexOf(registration), 1);
+        }
+        pts_sync_unlock(this.#lock);
+        return taken;
     }
 
     #find(type: string, callback: EventListener): number {
         return this.#registrations.findIndex((registration) => registration.type === type && registration.callback === callback);
     }
+
+    static {
+        lockOf = (target) => target.#lock;
+    }
+}
+
+// Whether signal has aborted by now: another thread may have aborted it since a check that
+// tsc's narrowing would otherwise carry over.
+function abortedNow(signal: AbortSignal): boolean {
+    return signal.aborted;
 }
 
 // Programs get signals from AbortController and AbortSignal's statics, never from AbortSignal's
@@ -215,6 +297,11 @@ export class AbortSignal extends EventTarget {
     #reason: any = undefined;
     #onabort: EventListener | null = null;
     #handlerAdded = false;
+    // The DOM standard's dependent signals: those AbortSignal.any made that follow this one, which
+    // abort with it (C119, C121). Made by the first; given up when the signal aborts.
+    #dependents: AbortSignal[] | null = null;
+    // A signal AbortSignal.any made follows these, none of them made by any; null for other signals.
+    #sources: AbortSignal[] | null = null;
 
     // The key is unknown rather than its own class, so that any other argument, also through
     // `any`, gets Node's TypeError rather than a failed conversion naming the class.
@@ -236,8 +323,7 @@ export class AbortSignal extends EventTarget {
     // The handler is called from a listener added the first time one is set, as event handler attributes are.
     set onabort(handler: EventListener | null) {
         this.#onabort = handler;
-        if (handler !== null && !this.#handlerAdded) {
-            this.#handlerAdded = true;
+        if (handler !== null && this.#claimHandler()) {
             this.addEventListener("abort", (event) => this.#onabort?.(event));
         }
     }
@@ -262,7 +348,8 @@ export class AbortSignal extends EventTarget {
         return signal;
     }
 
-    // A signal that aborts when the first of signals does, with its reason.
+    // A signal that aborts when the first of signals does, with its reason: the DOM standard's
+    // dependent signal, which follows the signals that signals made by any follow, not those.
     static any(signals: AbortSignal[]): AbortSignal {
         const signal = new AbortSignal(SIGNAL_KEY);
         for (const source of signals) {
@@ -271,20 +358,106 @@ export class AbortSignal extends EventTarget {
                 return signal;
             }
         }
-        for (const source of signals) {
-            source.addEventListener("abort", () => signalAbort(signal, source.reason));
+        const sources: AbortSignal[] = [];
+        for (const given of signals) {
+            for (const source of given.#sources ?? [given]) {
+                if (!sources.includes(source)) {
+                    sources.push(source);
+                }
+            }
+        }
+        signal.#sources = sources;
+        for (const source of sources) {
+            const reason = AbortSignal.#follow(source, signal);
+            if (reason !== undefined) {
+                signalAbort(signal, reason); // the source aborted on another thread after the check above
+                break;
+            }
         }
         return signal;
     }
 
+    // Whether this caller set the first handler, whose listener calls onabort.
+    #claimHandler(): boolean {
+        const lock = lockOf(this);
+        pts_sync_lock(lock);
+        const first = !this.#handlerAdded;
+        this.#handlerAdded = true;
+        pts_sync_unlock(lock);
+        return first;
+    }
+
+    // Makes signal a dependent of source unless source has aborted, and returns source's reason:
+    // undefined until it aborts, never after.
+    static #follow(source: AbortSignal, signal: AbortSignal): any {
+        const lock = lockOf(source);
+        pts_sync_lock(lock);
+        const reason = source.#reason;
+        if (!source.aborted) {
+            const dependents = source.#dependents ?? [];
+            dependents.push(signal);
+            source.#dependents = dependents;
+        }
+        pts_sync_unlock(lock);
+        return reason;
+    }
+
+    // Marks signal aborted with reason and hands over its dependents, or null if it had aborted.
+    static #settle(signal: AbortSignal, reason: any): AbortSignal[] | null {
+        if (Object.isFrozen(signal) && !signal.aborted) {
+            (signal as { aborted: boolean }).aborted = true; // throws, as Node's abort of a frozen signal does
+        }
+        const lock = lockOf(signal);
+        pts_sync_lock(lock);
+        if (signal.aborted) {
+            pts_sync_unlock(lock);
+            return null;
+        }
+        signal.#reason = reason; // before aborted, which threads read without the lock
+        try {
+            (signal as { aborted: boolean }).aborted = true;
+        } catch (error) {
+            signal.#reason = undefined; // frozen by another thread since the check above: it stays as it was
+            pts_sync_unlock(lock);
+            throw error;
+        }
+        const dependents = signal.#dependents;
+        signal.#dependents = null;
+        pts_sync_unlock(lock);
+        return dependents ?? [];
+    }
+
     static {
+        // The DOM standard's "signal abort": the dependents that haven't aborted take the reason
+        // before the signal's abort event fires, and fire theirs after it (C121). A frozen
+        // dependent can't abort; its TypeError is thrown once the others have.
         signalAbort = (signal, reason) => {
             if (signal.aborted) {
                 return;
             }
-            (signal as { aborted: boolean }).aborted = true;
-            signal.#reason = reason === undefined ? new DOMException("This operation was aborted", "AbortError") : reason;
+            const given = reason === undefined ? new DOMException("This operation was aborted", "AbortError") : reason;
+            const dependents = AbortSignal.#settle(signal, given);
+            if (dependents === null) {
+                return; // another thread aborted it first
+            }
+            const aborting: AbortSignal[] = [];
+            const failures: unknown[] = [];
+            for (const dependent of dependents) {
+                try {
+                    if (AbortSignal.#settle(dependent, given) !== null) {
+                        aborting.push(dependent);
+                    }
+                } catch (error) {
+                    failures.push(error);
+                }
+            }
             signal.dispatchEvent(markTrusted(new Event("abort")));
+            for (const dependent of aborting) {
+                dependent.dispatchEvent(markTrusted(new Event("abort")));
+            }
+            if (failures.length > 0) {
+                throw failures[0];
+            }
         };
     }
 }

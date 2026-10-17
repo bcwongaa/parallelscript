@@ -1,0 +1,67 @@
+// H07b C116 probe (h): an abort on another thread landing right after fetch() starts, against a
+// server that never answers. One `.par` thread starts the fetch while the other aborts its
+// controller after a delay that sweeps across the iterations, so some aborts land between
+// Request's AbortSignal.any check and its add, and between fetch's throwIfAborted and
+// exchange's addEventListener. Each fetch must reject with the reason; one that is still
+// pending a while after the abort hung.
+// threads: 1 2 4
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+import { AtomicInt } from "pts:sync";
+
+const ITERATIONS = Number(process.env.ITERATIONS ?? "2000");
+const MAX_DELAY = Number(process.env.MAX_DELAY ?? "6000");
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch() {
+    return new Promise<Response>(() => {}); // never answers
+  },
+});
+const url = `http://127.0.0.1:${server.port}/hold`;
+
+function rendezvous(arrived: AtomicInt, count: int): void {
+  arrived.add(1);
+  for (let spin = 0; spin < 20_000 && arrived.load() < count; spin++) {}
+}
+
+function pause(cell: AtomicInt, iterations: number): void {
+  for (let spin = 0; spin < iterations; spin++) {
+    cell.load();
+  }
+}
+
+function outcome(error: unknown): string {
+  return error === "stop" ? "stop" : error instanceof Error ? `${error.name}: ${error.message}` : `other: ${String(error)}`;
+}
+
+const outcomes = new Map<string, number>();
+const hungAt: number[] = [];
+for (let i = 0; i < ITERATIONS; i++) {
+  const controller = new AbortController();
+  const arrived = new AtomicInt(0);
+  const fetches: Promise<string>[] = [];
+  const delay = Math.floor((i * 7919) % MAX_DELAY);
+  range(0, 2).par.forEach((t) => {
+    rendezvous(arrived, 2);
+    if (t === 0) {
+      fetches.push(fetch(url, { signal: controller.signal }).then(() => "answered", outcome));
+    } else {
+      pause(arrived, delay);
+      controller.abort("stop");
+    }
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settled = await Promise.race([fetches[0], new Promise<string>((resolve) => { timer = setTimeout(() => resolve("hung"), 500); })]);
+  clearTimeout(timer);
+  if (settled === "hung") {
+    hungAt.push(delay);
+  }
+  outcomes.set(settled, (outcomes.get(settled) ?? 0) + 1);
+}
+server.stop(true);
+console.log([...outcomes.keys()].sort().map((key) => `${key} ${outcomes.get(key)}`).join(", "));
+if (hungAt.length > 0) {
+  console.error("hung at delays:", hungAt.slice(0, 20).join(" "));
+}

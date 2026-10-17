@@ -1,0 +1,79 @@
+// H07b C116 probe (i): a server-received Request's lazy `signal` read for the first time on
+// another thread (a `parallel` task given the request) while the client disconnects. The
+// handler aborts the client's own fetch (closing its connection), so the server's disconnect
+// runs on the server's loop at about the moment the task, after a pause that sweeps across
+// requests, first reads request.signal. Afterwards every request's signal must be aborted
+// (it is the one the task got: no second controller).
+// threads: 1 2 4
+import { serve } from "pts:http";
+import { AtomicInt } from "pts:sync";
+
+const REQUESTS = Number(process.env.REQUESTS ?? "1000");
+const MIN_SPINS = Number(process.env.MIN_SPINS ?? "0");
+const MAX_SPINS = Number(process.env.MAX_SPINS ?? "200000");
+const spinsOf = (i: number): number => MIN_SPINS + ((i * 7919) % (MAX_SPINS - MIN_SPINS));
+
+function pause(cell: AtomicInt, spins: number): void {
+  for (let spin = 0; spin < spins; spin++) {
+    cell.load();
+  }
+}
+
+const seen = new Array<AbortSignal | null>(REQUESTS).fill(null);
+const tasks: Promise<string>[] = [];
+const controllers = new Array<AbortController>(REQUESTS).fill(new AbortController());
+const cell = new AtomicInt(0);
+
+// On the task's loop: read the signal for the first time after a pause.
+function watch(request: Request, spins: number): AbortSignal {
+  pause(cell, spins);
+  return request.signal;
+}
+
+let handled = 0;
+let allHandled: () => void = () => {};
+const everyone = new Promise<void>((resolve) => {
+  allHandled = () => resolve();
+});
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch(request) {
+    const i = Number(request.url.slice(request.url.lastIndexOf("/") + 1));
+    tasks.push((parallel watch(request, spinsOf(i))).then((signal) => {
+      seen[i] = signal;
+      return "read";
+    }));
+    controllers[i].abort(); // the client leaves: its connection closes
+    handled++;
+    if (handled === REQUESTS) {
+      allHandled();
+    }
+    return new Promise<Response>(() => {});
+  },
+});
+const base = `http://127.0.0.1:${server.port}`;
+
+const BATCH = 50;
+for (let start = 0; start < REQUESTS; start += BATCH) {
+  const batch: Promise<unknown>[] = [];
+  for (let i = start; i < Math.min(REQUESTS, start + BATCH); i++) {
+    controllers[i] = new AbortController();
+    batch.push(fetch(`${base}/${i}`, { signal: controllers[i].signal }).catch((error: unknown) => error));
+  }
+  await Promise.all(batch);
+}
+await everyone;
+await Promise.all(tasks);
+// Give the disconnects a moment to reach every connection.
+await new Promise((resolve) => setTimeout(resolve, 300));
+let aborted = 0;
+for (let i = 0; i < REQUESTS; i++) {
+  if (seen[i]?.aborted === true) {
+    aborted++;
+  } else {
+    console.error(`not aborted: request ${i}, pause ${spinsOf(i)} spins, signal read ${seen[i] !== null}`);
+  }
+}
+server.stop(true);
+console.log(`requests ${REQUESTS}, signals aborted ${aborted}`);

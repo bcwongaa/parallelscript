@@ -1,0 +1,44 @@
+// A frozen signal can't abort (H07b1, D-157): its abort() throws TypeError, as Node's does, and
+// leaves the signal as it was, with no lock of the signal's left held, so it can still be
+// listened to and followed. A frozen follower can't abort either: its source's other
+// followers and listeners still abort, and the source's abort() throws the TypeError after.
+// no-diff: Node also throws when a frozen signal gets a listener, which ParallelScript's frozen objects allow (D-157)
+function log(...parts: unknown[]): void {
+  console.log(parts.map(String).join(" "));
+}
+
+{
+  const controller = new AbortController();
+  Object.freeze(controller.signal);
+  try {
+    controller.abort("frozen");
+  } catch (error) {
+    log("abort threw", (error as Error).name, "| aborted", controller.signal.aborted, "| reason", controller.signal.reason);
+  }
+  controller.signal.addEventListener("abort", () => log("SHOULD NOT RUN"));
+  log("a listener added after the failed abort; a follower aborted:", AbortSignal.any([controller.signal]).aborted);
+}
+
+{
+  const source = new AbortController();
+  const frozen = AbortSignal.any([source.signal]);
+  const other = AbortSignal.any([source.signal]);
+  frozen.addEventListener("abort", () => log("SHOULD NOT RUN: frozen follower"));
+  source.signal.addEventListener("abort", () => log("source's listener; other follower aborted:", other.aborted));
+  other.addEventListener("abort", () => log("other follower's listener:", other.reason));
+  Object.freeze(frozen);
+  try {
+    source.abort("stop");
+  } catch (error) {
+    log("abort threw", (error as Error).name, "| source", source.signal.aborted, "| frozen", frozen.aborted, "| other", other.aborted);
+  }
+  log("a later follower:", AbortSignal.any([source.signal]).reason);
+}
+
+// expect:
+// abort threw TypeError | aborted false | reason undefined
+// a listener added after the failed abort; a follower aborted: false
+// source's listener; other follower aborted: true
+// other follower's listener: stop
+// abort threw TypeError | source true | frozen false | other true
+// a later follower: stop

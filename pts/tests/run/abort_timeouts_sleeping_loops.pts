@@ -1,10 +1,10 @@
 // Unreferenced timers don't keep the program running, as in Node, but they must fire while
-// something else does: here the main loop's timer (C120, H07b). A `parallel` task's own
+// something else does: here the main loop's timer (C120, H07b2). A `parallel` task's own
 // unreferenced timer, its own AbortSignal.timeout (whose timer is unreferenced, D-162), and
 // timeouts that tasks make and hand back fire at the time asked for. The output is Node's
 // for the program run sequentially (`parallel e` as `Promise.resolve(e)`).
 // threads: 1 2 4
-// skip: bug: a loop that sleeps doesn't run its unreferenced timers (D-121), so at 2 or more threads a task's own unref'd timer or AbortSignal.timeout never fires and the program ends with its top-level await unsettled, and timeouts tasks hand back may never fire (C120, H07b)
+// skip: bug: a loop that sleeps doesn't run its unreferenced timers (D-121), so at 2 or more threads a task's own unref'd timer or AbortSignal.timeout never fires and the program ends with its top-level await unsettled, and timeouts tasks hand back may never fire (C120, H07b2)
 
 function waitUnref(ms: number): Promise<string> {
   return new Promise((resolve) => {

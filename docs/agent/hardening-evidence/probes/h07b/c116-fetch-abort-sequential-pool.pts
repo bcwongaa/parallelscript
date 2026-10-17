@@ -1,0 +1,57 @@
+// H07b control for the fetch abort-window probe: the SAME pool callback starts the fetch and
+// then aborts it at once (no other thread touches the signal). MODE=pool: fetch then abort
+// in a `.par` callback; MODE=pooldelay: fetch, pause, abort in a `.par` callback; MODE=main:
+// fetch then abort on the main loop. Every fetch must reject with "stop".
+// threads: 1 2 4
+import { serve } from "pts:http";
+import { range } from "pts:parallel";
+import { AtomicInt } from "pts:sync";
+
+const ITERATIONS = Number(process.env.ITERATIONS ?? "300");
+const MODE = process.env.MODE ?? "pool";
+
+const server = serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  fetch() {
+    return new Promise<Response>(() => {}); // never answers
+  },
+});
+const url = `http://127.0.0.1:${server.port}/hold`;
+
+function outcome(error: unknown): string {
+  return error === "stop" ? "stop" : error instanceof Error ? `${error.name}: ${error.message}` : `other: ${String(error)}`;
+}
+
+function pause(cell: AtomicInt, iterations: number): void {
+  for (let spin = 0; spin < iterations; spin++) {
+    cell.load();
+  }
+}
+
+const outcomes = new Map<string, number>();
+for (let i = 0; i < ITERATIONS; i++) {
+  const controller = new AbortController();
+  const fetches: Promise<string>[] = [];
+  const cell = new AtomicInt(0);
+  if (MODE === "main") {
+    fetches.push(fetch(url, { signal: controller.signal }).then(() => "answered", outcome));
+    controller.abort("stop");
+  } else {
+    range(0, 2).par.forEach((t) => {
+      if (t === 0) {
+        fetches.push(fetch(url, { signal: controller.signal }).then(() => "answered", outcome));
+        if (MODE === "pooldelay") {
+          pause(cell, (i * 7919) % 6000);
+        }
+        controller.abort("stop");
+      }
+    });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const settled = await Promise.race([fetches[0], new Promise<string>((resolve) => { timer = setTimeout(() => resolve("hung"), 500); })]);
+  clearTimeout(timer);
+  outcomes.set(settled, (outcomes.get(settled) ?? 0) + 1);
+}
+server.stop(true);
+console.log(MODE, [...outcomes.keys()].sort().map((key) => `${key} ${outcomes.get(key)}`).join(", "));

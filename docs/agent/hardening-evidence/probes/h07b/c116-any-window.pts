@@ -1,0 +1,47 @@
+// H07b diagnostic: the same delay sweep as fetch_abort_other_thread.pts, but thread 0 only
+// makes AbortSignal.any([controller.signal]) (W1: any's check then add) or only reads a
+// Request's signal made from it, while thread 1 aborts after the pause. Afterwards every
+// follower must be aborted with the reason.
+// threads: 1 2 4
+import { range } from "pts:parallel";
+import { AtomicInt } from "pts:sync";
+
+const ITERATIONS = 4_000;
+const MODE = process.env.MODE ?? "any";
+
+function rendezvous(arrived: AtomicInt, count: int): void {
+  arrived.add(1);
+  for (let spin = 0; spin < 20_000 && arrived.load() < count; spin++) {}
+}
+
+function pause(cell: AtomicInt, spins: number): void {
+  for (let spin = 0; spin < spins; spin++) {
+    cell.load();
+  }
+}
+
+let missed = 0;
+const missedAt: number[] = [];
+for (let i = 0; i < ITERATIONS; i++) {
+  const controller = new AbortController();
+  const arrived = new AtomicInt(0);
+  const spins = (i * 7919) % Number(process.env.MAX ?? "8000");
+  const followers: AbortSignal[] = [];
+  range(0, 2).par.forEach((t) => {
+    rendezvous(arrived, 2);
+    if (t === 0) {
+      followers.push(MODE === "any" ? AbortSignal.any([controller.signal]) : new Request("http://127.0.0.1:1/", { signal: controller.signal }).signal);
+    } else {
+      pause(arrived, spins);
+      controller.abort("stop");
+    }
+  });
+  if (!(followers[0].aborted && followers[0].reason === "stop")) {
+    missed++;
+    missedAt.push(spins);
+  }
+}
+console.log(`${MODE}: iterations ${ITERATIONS}, followers not aborted ${missed}`);
+if (missedAt.length > 0) {
+  console.log("at spins:", missedAt.slice(0, 15).join(" "));
+}
