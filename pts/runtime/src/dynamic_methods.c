@@ -1436,11 +1436,23 @@ pts_value pts_value_iterable(pts_value value, const pts_string *text) {
 
 pts_array *pts_value_to_array(pts_value value, const pts_string *text) {
   pts_value items = pts_value_iterable(value, text);
-  pts_array *array = any_array();
-  for (size_t i = 0, n = pts_spread_length(items); i < n; i++) {
-    push_any(array, pts_spread_element(items, i));
+  size_t n = pts_spread_length(items);
+  pts_array *array = pts_array_of_length(&pts_array_types[PTS_FIELD_VALUE], (double)n);
+  pts_value *slots = (pts_value *)(void *)array->buffer->elements; /* a new array only we see */
+  for (size_t i = 0; i < n; i++) {
+    slots[i] = pts_spread_element(items, i);
   }
   return array;
+}
+
+pts_value pts_value_spread_items(pts_value value, const pts_string *text) {
+  if (pts_value_is_object(value)) {
+    pts_kind kind = pts_value_as_object(value)->type->kind;
+    if (kind == PTS_KIND_ARRAY || kind == PTS_KIND_TUPLE || kind == PTS_KIND_TYPED_ARRAY) {
+      return value; /* spread_arguments spreads these at the call */
+    }
+  }
+  return pts_value_iterable(value, text); /* anything else's items in a new array, of any element kind */
 }
 
 /* ---------------------------------------------------------------- dispatch */

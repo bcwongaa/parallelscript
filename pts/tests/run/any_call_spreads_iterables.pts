@@ -1,0 +1,233 @@
+// A call through `any` (a function, a method, and a method found before an await in a
+// later argument) spreads what a spread spreads anywhere else: a string's code points, a
+// set's or map's items and their iterators', an array iterator's, what a generator yields
+// and what an object's [Symbol.iterator]() gives, typed or held in `any`, as JS and SPEC
+// §3.4 (D-078) say; anything else throws a TypeError that it is not iterable (H08c, C153).
+// pts spread arrays, tuples and typed arrays only and threw `TypeError: Cannot spread …
+// into the arguments of a call through any` for the rest. A spread is read at its
+// position, before the later arguments run: one that changes the spread array, set, tuple
+// or typed array doesn't show (C152).
+// An entry prints by JSON.stringify: an entry pair may be a tuple, which has no array methods
+// through `any` (a separate gap).
+const show = (...items: any[]): string => items.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join("/");
+class Shower {
+  show(...items: any[]): string {
+    return "m:" + show(...items);
+  }
+}
+const callee: any = show;
+const receiver: any = new Shower();
+
+class Bag implements Iterable<number> {
+  items = [1, 2];
+  *[Symbol.iterator](): Iterator<number> {
+    for (const x of this.items) yield x;
+  }
+}
+const literalBag = {
+  items: [1, 2],
+  *[Symbol.iterator](): Iterator<number> {
+    for (const x of this.items) yield x;
+  },
+};
+function* count(): Generator<number> {
+  yield 1;
+  yield 2;
+}
+const set = new Set([1, 2]);
+const map = new Map([[1, 10], [2, 20]]);
+const astral = "a😀b";
+const iterable: Iterable<number> = new Set([1, 2]);
+const either = (): number[] | Set<number> => new Set([1, 2]);
+const attempt = (label: string, call: () => string): void => {
+  try {
+    console.log(label, call());
+  } catch (e) {
+    console.log(label, "threw", String(e));
+  }
+};
+
+attempt("set", () => callee(...set, 3));
+attempt("set.values()", () => callee(...set.values(), 3));
+attempt("set.entries()", () => callee(...set.entries(), 3));
+attempt("map", () => callee(...map, 3));
+attempt("map.keys()", () => callee(...map.keys(), 3));
+attempt("map.values()", () => callee(...map.values(), 3));
+attempt("map.entries()", () => callee(...map.entries(), 3));
+attempt("string", () => callee(...astral, 3));
+attempt("generator", () => callee(...count(), 3));
+attempt("class iterable", () => callee(...new Bag(), 3));
+attempt("object-literal iterable", () => callee(...literalBag, 3));
+attempt("Iterable<number>", () => callee(...iterable, 3));
+attempt("number[] | Set<number>", () => callee(...either(), 3));
+attempt("array.values()", () => callee(...[7, 8].values(), 3));
+attempt("array.keys()", () => callee(...[7, 8].keys(), 3));
+attempt("array.entries()", () => callee(...[7, 8].entries(), 3));
+attempt("method: set", () => receiver.show(...set, 3));
+attempt("method: map", () => receiver.show(...map, 3));
+attempt("method: string", () => receiver.show(...astral, 3));
+attempt("method: generator", () => receiver.show(...count(), 3));
+attempt("method: class iterable", () => receiver.show(...new Bag(), 3));
+
+const held = (i: number): any => {
+  const values: any[] = [
+    new Set([1, 2]),
+    new Map([[1, 10], [2, 20]]),
+    "a😀b",
+    count(),
+    new Bag(),
+    literalBag,
+    new Set([1, 2]).values(),
+    new Map([[1, 10]]).entries(),
+    [7, 8].values(),
+  ];
+  return values[i];
+};
+const heldNames = ["set", "map", "string", "generator", "class iterable", "object-literal iterable", "set.values()", "map.entries()", "array.values()"];
+heldNames.forEach((name, i) => {
+  attempt("any " + name, () => callee(...held(i), 3));
+  attempt("method: any " + name, () => receiver.show(...held(i), 3));
+});
+
+const xs = [1, 2];
+const grow = (): number => {
+  xs.push(100);
+  xs[0] = -5;
+  return 10;
+};
+attempt("array, a later argument pushes", () => callee(...xs, grow()));
+const growing = new Set([1, 2]);
+const add = (): number => {
+  growing.add(100);
+  return 10;
+};
+attempt("set, a later argument adds", () => callee(...growing, add()));
+const pair: [number, number] = [1, 2];
+const writePair = (): number => {
+  pair[0] = -5;
+  return 10;
+};
+attempt("tuple, a later argument writes", () => callee(...pair, writePair()));
+const floats = new Float64Array([1, 2]);
+const writeFloats = (): number => {
+  floats[0] = -5;
+  return 10;
+};
+attempt("typed array, a later argument writes", () => callee(...floats, writeFloats()));
+const heldArray: any = [1, 2];
+const growHeld = (): number => {
+  heldArray.push(100);
+  return 10;
+};
+attempt("method: any array, a later argument pushes", () => receiver.show(...heldArray, growHeld()));
+
+// A spread of what isn't iterable throws a TypeError (V8's message changes with the call
+// site, so only the name is printed) before the later arguments run.
+const notIterable = (label: string, value: any): void => {
+  let later = "later argument not run";
+  const run = (): number => {
+    later = "later argument run";
+    return 3;
+  };
+  for (const [form, call] of [
+    ["function", () => callee(...value, run())],
+    ["method", () => receiver.show(...value, run())],
+  ] as [string, () => string][]) {
+    try {
+      console.log(label, form, call());
+    } catch (e) {
+      console.log(label, form, (e as Error).name, later);
+    }
+  }
+};
+notIterable("number", 5);
+notIterable("undefined", undefined);
+notIterable("null", null);
+notIterable("object", { a: 1 });
+
+async function foundBeforeAwait(): Promise<void> {
+  const three = Promise.resolve(3);
+  const heldSet: any = new Set([1, 2]);
+  const cases: [string, () => Promise<string>][] = [
+    ["found: set", async () => receiver.show(...set, await three)],
+    ["found: map", async () => receiver.show(...map, await three)],
+    ["found: string", async () => receiver.show(...astral, await three)],
+    ["found: generator", async () => receiver.show(...count(), await three)],
+    ["found: class iterable", async () => receiver.show(...new Bag(), await three)],
+    ["found: any set", async () => receiver.show(...heldSet, await three)],
+    ["function before await: set", async () => callee(...set, await three)],
+    ["function before await: string", async () => callee(...astral, await three)],
+    ["function before await: generator", async () => callee(...count(), await three)],
+  ];
+  for (const [label, call] of cases) {
+    try {
+      console.log(label, await call());
+    } catch (e) {
+      console.log(label, "threw", String(e));
+    }
+  }
+}
+await foundBeforeAwait();
+
+// expect:
+// set 1/2/3
+// set.values() 1/2/3
+// set.entries() [1,1]/[2,2]/3
+// map [1,10]/[2,20]/3
+// map.keys() 1/2/3
+// map.values() 10/20/3
+// map.entries() [1,10]/[2,20]/3
+// string a/😀/b/3
+// generator 1/2/3
+// class iterable 1/2/3
+// object-literal iterable 1/2/3
+// Iterable<number> 1/2/3
+// number[] | Set<number> 1/2/3
+// array.values() 7/8/3
+// array.keys() 0/1/3
+// array.entries() [0,7]/[1,8]/3
+// method: set m:1/2/3
+// method: map m:[1,10]/[2,20]/3
+// method: string m:a/😀/b/3
+// method: generator m:1/2/3
+// method: class iterable m:1/2/3
+// any set 1/2/3
+// method: any set m:1/2/3
+// any map [1,10]/[2,20]/3
+// method: any map m:[1,10]/[2,20]/3
+// any string a/😀/b/3
+// method: any string m:a/😀/b/3
+// any generator 1/2/3
+// method: any generator m:1/2/3
+// any class iterable 1/2/3
+// method: any class iterable m:1/2/3
+// any object-literal iterable 1/2/3
+// method: any object-literal iterable m:1/2/3
+// any set.values() 1/2/3
+// method: any set.values() m:1/2/3
+// any map.entries() [1,10]/3
+// method: any map.entries() m:[1,10]/3
+// any array.values() 7/8/3
+// method: any array.values() m:7/8/3
+// array, a later argument pushes 1/2/10
+// set, a later argument adds 1/2/10
+// tuple, a later argument writes 1/2/10
+// typed array, a later argument writes 1/2/10
+// method: any array, a later argument pushes m:1/2/10
+// number function TypeError later argument not run
+// number method TypeError later argument not run
+// undefined function TypeError later argument not run
+// undefined method TypeError later argument not run
+// null function TypeError later argument not run
+// null method TypeError later argument not run
+// object function TypeError later argument not run
+// object method TypeError later argument not run
+// found: set m:1/2/3
+// found: map m:[1,10]/[2,20]/3
+// found: string m:a/😀/b/3
+// found: generator m:1/2/3
+// found: class iterable m:1/2/3
+// found: any set m:1/2/3
+// function before await: set 1/2/3
+// function before await: string a/😀/b/3
+// function before await: generator 1/2/3

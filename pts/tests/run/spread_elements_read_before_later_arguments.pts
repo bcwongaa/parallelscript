@@ -1,10 +1,9 @@
-// skip: known issue (H08c, C152): a spread array's elements are appended after the later operands run, so an operand after the spread that changes the array changes what it spreads
 // Without any suspension: a spread JS evaluates before a later argument or element passes
 // the elements its array has then, before the later operand runs. pts evaluated each
 // operand in order but copied a spread array's elements into the new array (the rest
 // parameter's, the literal's, push's) only after the later operands had run, so a later
 // operand that pushed to or wrote the array changed what the spread passed
-// (`ArraySpread`'s C).
+// (`ArraySpread`'s C; H08c, C152, D-189).
 const xs = [1, 2];
 const reset = (): void => {
   xs.length = 0;
@@ -68,6 +67,54 @@ const bump = (): number => {
 };
 console.log("{ ...o, z: bump() }", JSON.stringify({ ...o, z: bump() }));
 
+// Element kinds whose spread reads the array itself: `a.values()`, a `?? []` fallback, a
+// readonly view, a string[], an array of objects, a (number | undefined)[] whose hole a
+// later operand fills (the hole is still undefined), an array a later operand empties. An
+// array that a later operand replaces was read before it (as it already was).
+reset();
+console.log("list(...xs.values(), grow())", list(...xs.values(), grow()));
+reset();
+const maybe = (): number[] | undefined => xs;
+console.log("list(...(maybe() ?? []), grow())", list(...(maybe() ?? []), grow()));
+reset();
+const view: readonly number[] = xs;
+console.log("list(...view, grow())", list(...view, grow()));
+const words = ["a", "b"];
+const addWord = (): string => {
+  words.push("z");
+  words[0] = "w";
+  return "!";
+};
+console.log("[...words, addWord()]", [...words, addWord()].join("/"));
+const boxes = [{ v: 1 }, { v: 2 }];
+const replaceBox = (): { v: number } => {
+  boxes[0] = { v: -5 };
+  return { v: 10 };
+};
+console.log("[...boxes, replaceBox()]", [...boxes, replaceBox()].map((b) => b.v).join("/"));
+const holes = new Array<number | undefined>(3);
+holes[0] = 1;
+holes[2] = 3;
+const fillHole = (): number => {
+  holes[1] = 7;
+  return 10;
+};
+console.log("[...holes, fillHole()]", [...holes, fillHole()].map((h) => String(h)).join("/"));
+reset();
+const clear = (): number => {
+  xs.length = 0;
+  return 10;
+};
+console.log("list(...xs, clear())", list(...xs, clear()));
+reset();
+console.log("console.log(...xs.values(), grow()):", ...xs.values(), grow());
+let replaced = [1, 2];
+const replace = (): number => {
+  replaced = [9];
+  return 10;
+};
+console.log("list(...replaced, replace())", list(...replaced, replace()));
+
 // expect:
 // list(...xs, grow()) 1/2/10
 // [...xs, grow()] 1/2/10
@@ -82,3 +129,12 @@ console.log("{ ...o, z: bump() }", JSON.stringify({ ...o, z: bump() }));
 // any(...xs, grow()) 1/2/10
 // [...set, add()] 1/2/10
 // { ...o, z: bump() } {"a":1,"b":2,"z":10}
+// list(...xs.values(), grow()) 1/2/10
+// list(...(maybe() ?? []), grow()) 1/2/10
+// list(...view, grow()) 1/2/10
+// [...words, addWord()] a/b/!
+// [...boxes, replaceBox()] 1/2/10
+// [...holes, fillHole()] 1/undefined/3/10
+// list(...xs, clear()) 1/2/10
+// console.log(...xs.values(), grow()): 1 2 10
+// list(...replaced, replace()) 1/2/10

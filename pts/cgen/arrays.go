@@ -28,6 +28,9 @@ func (e *emitter) newArray(n *ir.NewArray) string {
 
 // arrayCall writes an operation on an array, its operands evaluated left to right.
 func (e *emitter) arrayCall(call *ir.ArrayCall) string {
+	if call.Op == ir.ArraySpread {
+		return e.spread(call)
+	}
 	args, prelude := e.operands(call.Args)
 	elem := e.elementType(call.Args[0])
 	var c string
@@ -62,7 +65,7 @@ func (e *emitter) arrayCall(call *ir.ArrayCall) string {
 		c = fmt.Sprintf("pts_array_slice(%s, %s, %s)", args[0], args[1], args[2])
 	case ir.ArraySplice:
 		c = fmt.Sprintf("pts_array_splice(%s, %s, %s, %s)", args[0], args[1], args[2], elements(elem, args[3:]))
-	case ir.ArrayConcat, ir.ArraySpread:
+	case ir.ArrayConcat:
 		c = e.concat(call, args)
 	case ir.ArrayIndexOf, ir.ArrayLastIndexOf, ir.ArrayIncludes:
 		c = fmt.Sprintf("pts_array_%s(%s, (%s[]){%s}, %s)", cIdentifierOf(call.Op), args[0], elem, args[1], args[2])
@@ -132,15 +135,32 @@ func cIdentifierOf(op ir.ArrayOp) string {
 // values: whether its element type holds undefined (D-183). Others keep them (D-182).
 func readsHoles(array ir.Expr) bool { return ir.HoldsUndefined(array.Type().(*ir.Array).Elem) }
 
-// concat writes a.concat(x…) or a spread [...x, …], whose operands args are already
-// evaluated: a copy of a, then each x's elements if it is an array of a's type, or else x
-// itself, appended. A spread reads each x's holes as undefined where its elements may be.
+// concat writes a.concat(x…), whose operands args are already evaluated: a copy of a,
+// then each x's elements if it is an array of a's type, or else x itself, appended.
 func (e *emitter) concat(call *ir.ArrayCall, args []string) string {
-	result := e.temporary()
+	return e.appended(call, args, "pts_array_append")
+}
+
+// spread writes a spread [...x, …]: each operand evaluated in turn and its elements (an
+// array of the result's type) or itself appended before the next is evaluated, since JS
+// reads a spread array's elements at its place, before a later operand can change them.
+// It reads each x's holes as undefined where its elements may be (D-183).
+func (e *emitter) spread(call *ir.ArrayCall) string {
+	args := make([]string, len(call.Args))
+	for i, x := range call.Args {
+		args[i] = e.expr(x)
+	}
 	appendArray := "pts_array_append"
-	if call.Op == ir.ArraySpread && readsHoles(call.Args[0]) {
+	if readsHoles(call.Args[0]) {
 		appendArray = "pts_array_append_as_read"
 	}
+	return e.appended(call, args, appendArray)
+}
+
+// appended writes a copy of args[0] with each later operand's elements (appendArray) or
+// the operand itself appended, as statements in order.
+func (e *emitter) appended(call *ir.ArrayCall, args []string, appendArray string) string {
+	result := e.temporary()
 	var c strings.Builder
 	fmt.Fprintf(&c, "({ pts_array *%s = pts_array_copy(%s); ", result, args[0])
 	for i, x := range call.Args[1:] {

@@ -880,7 +880,7 @@ const (
 	ArrayPushFlat                          // flatMap's step: pushes the elements of v, a dynamic value, if it is an array or a tuple, else v, each as a's element type holds it (D-180)
 	ArrayElementOrUndefined                // a[i] for an a whose element type holds undefined, as JS reads it: undefined for a hole or an index out of range
 	ArrayHas                               // whether a has an element at i, not past its end or a hole (JS's HasProperty); a match's undefined group is one (D-133)
-	ArraySpread                            // [...x, …]: a new array; each x is an array of a's type whose elements it takes as iterating reads them (holes undefined where the elements may be), or an element
+	ArraySpread                            // [...x, …]: a new array; each x is an array of a's type whose elements it takes as iterating reads them (holes undefined where the elements may be), or an element; each x is read before the next is evaluated, as JS iterates a spread at its place
 )
 
 var arrayOpText = [...]string{ArrayLength: "length", ArraySetLength: "setLength", ArrayElement: "element", ArrayElementChecked: "elementChecked",
@@ -1077,8 +1077,9 @@ type IsNullish struct {
 // RestArgs is the array X, a rest parameter (of type Rest), holds.
 type RestArgs struct{ X Expr }
 
-// SpreadArg is an argument `...X` of console.log: X, an array, passes its elements as
-// arguments (D-057). It only appears among console.log's arguments.
+// SpreadArg is an argument `...X` of a console method or of a call through `any`: X, an
+// array (or for a call through `any`, ValueSpreadItems' value), passes its elements as
+// arguments (D-057, D-075). It only appears among those calls' arguments.
 type SpreadArg struct{ X Expr }
 
 // Builtin is a runtime function with a fixed signature.
@@ -1339,6 +1340,10 @@ var (
 	// or all an iterator yields; its second argument is the value's source text, for V8's
 	// `TypeError: x is not iterable`.
 	ValueToArray = &Builtin{Name: "Array.from", Params: []Type{Value, String}, Result: ValueArray}
+	// ValueSpreadItems is what a spread argument of a call through `any` hands the runtime,
+	// which spreads arrays, tuples and typed arrays at the call: such a value as it is, or a
+	// new array of anything else's items (D-078's, as ValueToArray takes them).
+	ValueSpreadItems = &Builtin{Name: "spread", Params: []Type{Value, String}, Result: Value}
 	// JSONParse is JSON.parse of a string: a dynamic value (D-080). JSONStringify is
 	// JSON.stringify(value, replacer, space): a string, or undefined.
 	JSONParse = &Builtin{Name: "JSON.parse", Params: []Type{String}, Result: Value}

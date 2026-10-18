@@ -1,0 +1,102 @@
+// A spread into a call through `any` or a console method is read at its place, before the
+// later arguments run (H08c, C152, C153): a generator is drained there (its body runs
+// before a later argument, and doesn't see what a later argument does); a function union's
+// call spreads a set; a (number | undefined)[] passes the hole it has then, as undefined,
+// though a later argument fills it; a method found before an await in a later argument
+// spreads what an array after the await holds then; console's stderr methods do the same.
+let log: string[] = [];
+let seen = 0;
+function* counting(): Generator<number> {
+  log.push("gen");
+  seen = 1;
+  yield 1;
+  yield seen;
+}
+const note = (what: string, value: number): number => {
+  log.push(what);
+  seen = value;
+  return value;
+};
+const fn: any = (...a: any[]): string => a.map(String).join("/");
+const recv: any = { m: (...a: any[]): string => a.map(String).join("|") };
+
+log = [];
+console.log("fn(...gen, note)", fn(...counting(), note("note", 7)), log.join(","));
+log = [];
+console.log("recv.m(...gen, note)", recv.m(...counting(), note("note", 8)), log.join(","));
+log = [];
+const anyGen: any = counting();
+console.log("fn(...anyGen, note)", fn(...anyGen, note("note", 9)), log.join(","));
+log = [];
+console.log("console.log(...gen, note):", ...counting(), note("note", 5), log.join(","));
+
+const pick = (n: number): ((...xs: number[]) => string) | ((...xs: number[]) => number) =>
+  n > 0 ? (...xs: number[]): string => xs.join("+") : (...xs: number[]): number => xs.length;
+const set = new Set([1, 2]);
+const add = (): number => {
+  set.add(100);
+  return 10;
+};
+console.log("union(...set, add())", pick(1)(...set, add()), pick(0)(...set, add()));
+
+const holes = new Array<number | undefined>(3);
+holes[0] = 1;
+holes[2] = 3;
+const fill = (): number => {
+  holes[1] = 7;
+  return 10;
+};
+console.log("fn(...holes, fill())", fn(...holes, fill()));
+const gaps = new Array<number | undefined>(3);
+gaps[0] = 1;
+gaps[2] = 3;
+const fillGap = (): number => {
+  gaps[1] = 7;
+  return 10;
+};
+console.log("console.log(...gaps, fillGap()):", ...gaps, fillGap());
+
+let xs = [1, 2];
+const grow = (): number => {
+  xs.push(100);
+  xs[0] = 50;
+  return 10;
+};
+async function afterAwait(): Promise<void> {
+  const p = Promise.resolve(5);
+  console.log("recv.m(0, await p, ...xs, grow())", recv.m(0, await p, ...xs, grow()));
+  xs = [1, 2];
+  console.log("fn(0, await p, ...xs, grow())", fn(0, await p, ...xs, grow()));
+  xs = [1, 2];
+  const s = new Set([1]);
+  const addS = (): number => {
+    s.add(2);
+    return 3;
+  };
+  console.log("recv.m(...s, addS(), await p)", recv.m(...s, addS(), await p));
+}
+await afterAwait();
+
+xs = [1, 2];
+console.error("error:", ...xs, grow());
+xs = [1, 2];
+console.warn("warn:", ...xs, grow());
+xs = [1, 2];
+console.assert(false, "assert:", ...xs, grow());
+console.log("done", xs.join("/"));
+
+// expect:
+// fn(...gen, note) 1/1/7 gen,note
+// recv.m(...gen, note) 1|1|8 gen,note
+// fn(...anyGen, note) 1/1/9 gen,note
+// console.log(...gen, note): 1 1 5 gen,note
+// union(...set, add()) 1+2+10 4
+// fn(...holes, fill()) 1/undefined/3/10
+// console.log(...gaps, fillGap()): 1 undefined 3 10
+// recv.m(0, await p, ...xs, grow()) 0|5|1|2|10
+// fn(0, await p, ...xs, grow()) 0/5/1/2/10
+// recv.m(...s, addS(), await p) 1|3|5
+// done 50/2/100
+// stderr: error: 1 2 10
+// stderr: warn: 1 2 10
+// stderr: Assertion failed: assert: 1 2 10

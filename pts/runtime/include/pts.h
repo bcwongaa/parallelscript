@@ -1016,6 +1016,8 @@ bool pts_value_is_frozen(pts_value value);
  */
 pts_value pts_value_iterable(pts_value value, const pts_string *text);
 struct pts_array *pts_value_to_array(pts_value value, const pts_string *text);
+/* What a spread argument of a call through `any` passes (H08c): an array, tuple or typed array as it is, else a new array of its items. */
+pts_value pts_value_spread_items(pts_value value, const pts_string *text);
 /* callee(argv…) through `any` (D-074): TypeError `text is not a function` if callee isn't one. */
 pts_value pts_dynamic_call(pts_value callee, const pts_string *text, uint32_t argc, const pts_value *argv);
 /* object[key](argv…) through `any`: a method (a builtin one of a string, number, boolean, array or function, D-076), or a property that holds a function. */

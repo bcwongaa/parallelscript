@@ -20,7 +20,7 @@ import (
 // A panic is a bug in the compiler: it becomes a panic with a *diagnostic.InternalError
 // at the source line of the IR being written.
 func Emit(program *ir.Program) string {
-	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
+	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, copiedSpreads: map[*ir.SpreadArg]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
 		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
@@ -80,6 +80,7 @@ type emitter struct {
 	// a use that sees an unset field as undefined, which needs no check.
 	receiverMembers map[ir.Expr]string
 	unsetAllowed    map[ir.Expr]bool
+	copiedSpreads   map[*ir.SpreadArg]bool // spread arrays copied at their place (copyChangedSpreads)
 	locals          map[*ir.Local]string
 	usedNames       map[string]bool
 	nextSuffix      map[string]int // per base name, the suffix to try first, so many same-named locals stay linear
@@ -892,6 +893,9 @@ func (e *emitter) expr(expr ir.Expr) string {
 	case *ir.RestArgs:
 		return e.expr(x.X)
 	case *ir.SpreadArg:
+		if e.copiedSpreads[x] {
+			return e.spreadCopy(x.X)
+		}
 		return e.box(x.X)
 	case *ir.CallBuiltin:
 		return e.callBuiltin(x)
@@ -1549,6 +1553,7 @@ var builtinFunctions = map[*ir.Builtin]string{
 	ir.MapIteratorOf:               "pts_map_iterator_new",
 	ir.ValueIsFrozen:               "pts_value_is_frozen",
 	ir.ValueToArray:                "pts_value_to_array",
+	ir.ValueSpreadItems:            "pts_value_spread_items",
 	ir.JSONParse:                   "pts_json_parse",
 	ir.JSONParseRevived:            "pts_json_parse_revived",
 	ir.JSONStringify:               "pts_json_stringify",
@@ -1560,8 +1565,12 @@ var builtinFunctions = map[*ir.Builtin]string{
 }
 
 func (e *emitter) callBuiltin(call *ir.CallBuiltin) string {
+	spread := spreadArgs(call)
+	if spread != nil {
+		e.copyChangedSpreads(call.Args)
+	}
 	args, prelude := e.operands(call.Args)
-	if spread := spreadArgs(call); spread != nil {
+	if spread != nil {
 		fixed := len(args) - len(spread) // a dynamic call's callee, key and text
 		spreading := fmt.Sprintf("%d, (pts_value[]){%s}, (bool[]){%s}", len(spread), strings.Join(args[fixed:], ", "), strings.Join(spread, ", "))
 		switch call.Builtin {
@@ -1600,8 +1609,53 @@ func spreadArgs(call *ir.CallBuiltin) []string {
 	spread := make([]string, len(call.Args)-n)
 	for i, arg := range call.Args[n:] {
 		spread[i] = strconv.FormatBool(isSpreadArg(arg))
+		if s, ok := arg.(*ir.SpreadArg); ok && ir.ConsoleMethods[call.Builtin] {
+			if _, array := s.X.Type().(*ir.Array); !array {
+				panic(fmt.Sprintf("cgen: console spreads arrays only, not a %s", s.X.Type())) // console.c reads them as arrays
+			}
+		}
 	}
 	return spread
+}
+
+// copyChangedSpreads marks each spread array in args, a console method's or a dynamic
+// call's, that a later argument may change, to be copied where it is evaluated: the
+// runtime spreads the arrays at the call, after the later arguments, where JS reads a
+// spread's elements at its place. An array the argument makes itself needs no copy.
+func (e *emitter) copyChangedSpreads(args []ir.Expr) {
+	var later effects
+	for i := len(args) - 1; i >= 0; i-- {
+		if spread, ok := args[i].(*ir.SpreadArg); ok && later&writes != 0 && !isNewArray(spread.X) {
+			e.copiedSpreads[spread] = true
+		}
+		later |= effectsOf(args[i])
+	}
+}
+
+// spreadCopy writes, as a dynamic value, a new array of the elements of a spread
+// argument's array, or of the items ValueSpreadItems would hand over, taken where it is
+// evaluated (copyChangedSpreads).
+func (e *emitter) spreadCopy(spread ir.Expr) string {
+	if items, ok := spread.(*ir.CallBuiltin); ok && items.Builtin == ir.ValueSpreadItems {
+		return fmt.Sprintf("pts_value_from_object(pts_value_to_array(%s, %s))", e.expr(items.Args[0]), e.expr(items.Args[1]))
+	}
+	return boxAs("pts_array_copy("+e.expr(spread)+")", spread.Type())
+}
+
+// isNewArray reports whether x makes a new array that nothing else holds: a literal, a
+// slice or a copy, a spread's, or a dynamic value's items (ValueToArray).
+func isNewArray(x ir.Expr) bool {
+	switch x := x.(type) {
+	case *ir.NewArray:
+		return true
+	case *ir.ArrayCall:
+		return x.Op == ir.ArraySlice || x.Op == ir.ArrayCopy || x.Op == ir.ArraySpread || x.Op == ir.ArrayConcat
+	case *ir.CallBuiltin:
+		return x.Builtin == ir.ValueToArray
+	case *ir.Bind:
+		return isNewArray(x.In)
+	}
+	return false
 }
 
 func isSpreadArg(x ir.Expr) bool {

@@ -1,0 +1,199 @@
+// Without any suspension, every call, `new`, `super(...)`, built-in and literal that takes a
+// spread passes the elements the array has when JS iterates it, before the later operands
+// run (H08c, C152): the program's functions, function values and closures, `.call`,
+// methods (generic, static, of an interface, of a union), constructors and `super`,
+// Math.max's kin, String.fromCharCode and fromCodePoint, new Array, unshift, a call through
+// `any`'s method, the console methods that print to stdout, Object.assign's sources, and
+// array literals wherever they go (a template, a destructuring, a for…of, new Set, new Map,
+// a typed array, Array.from). pts copied the spread array's elements only after the later
+// operands had run (`ArraySpread`'s C, and the runtime's spread of a `SpreadArg`), so an
+// element pushed or written by a later operand showed. Spreads read where they are already
+// (a nested literal, a rest tuple's elements, a tuple into a tuple, str.concat) stay so.
+let xs = [1, 2];
+const reset = (): void => {
+  xs = [1, 2];
+};
+const grow = (): number => {
+  xs.push(100);
+  xs[0] = 50;
+  return 10;
+};
+const list = (...ns: number[]): string => ns.join("/");
+function declared(...ns: number[]): string {
+  return ns.join("/");
+}
+function generic<T>(...items: T[]): string {
+  return items.map((item) => String(item)).join("/");
+}
+const pick = (): ((...ns: number[]) => string) => list;
+const value: (...ns: number[]) => string = pick();
+const prefixed = (prefix: string) => (...ns: number[]): string => prefix + ns.join("/");
+const closure = prefixed("k:");
+class Lists {
+  list(...ns: number[]): string {
+    return ns.join("/");
+  }
+  generic<T>(...items: T[]): string {
+    return items.map((item) => String(item)).join("/");
+  }
+  static list(...ns: number[]): string {
+    return ns.join("/");
+  }
+}
+class OtherLists {
+  list(...ns: number[]): string {
+    return "other:" + ns.join("/");
+  }
+}
+interface Listing {
+  list(...ns: number[]): string;
+}
+const lists = new Lists();
+const listing: Listing = lists;
+const either = (): Lists | OtherLists => lists;
+const union = either();
+class Made {
+  items: string;
+  constructor(...ns: number[]) {
+    this.items = ns.join("/");
+  }
+}
+class Derived extends Made {
+  constructor() {
+    super(...xs, grow());
+  }
+}
+const dynamicLists: any = lists;
+const codes = (s: string): string => [...s].map((c) => c.codePointAt(0)).join("/");
+
+reset();
+console.log("declared", declared(...xs, grow()));
+reset();
+console.log("generic", generic(...xs, grow()));
+reset();
+console.log("function value", value(...xs, grow()));
+reset();
+console.log("closure", closure(...xs, grow()));
+reset();
+console.log(".call", declared.call(undefined, ...xs, grow()));
+reset();
+console.log("method", lists.list(...xs, grow()));
+reset();
+console.log("generic method", lists.generic(...xs, grow()));
+reset();
+console.log("static method", Lists.list(...xs, grow()));
+reset();
+console.log("interface method", listing.list(...xs, grow()));
+reset();
+console.log("union method", union.list(...xs, grow()));
+reset();
+console.log("super", new Derived().items);
+reset();
+console.log("Math.hypot", Math.hypot(...xs, grow()));
+reset();
+console.log("String.fromCharCode", codes(String.fromCharCode(...xs, grow())));
+reset();
+console.log("String.fromCodePoint", codes(String.fromCodePoint(...xs, grow())));
+reset();
+console.log("new Array", new Array<number>(...xs, grow()).join("/"));
+reset();
+const front = [0];
+front.unshift(...xs, grow());
+console.log("unshift", front.join("/"));
+reset();
+console.log("any method", String(dynamicLists.list(...xs, grow())));
+reset();
+console.info("console.info", ...xs, grow());
+reset();
+console.debug("console.debug", ...xs, grow());
+reset();
+console.group("console.group", ...xs, grow());
+console.groupEnd();
+const sources: any[] = [{ a: 1 }];
+const addSource = (): any => {
+  sources.push({ b: 2 });
+  return {};
+};
+console.log("Object.assign", JSON.stringify(Object.assign({ a: 0, b: 0 }, ...sources, addSource())));
+reset();
+console.log("spread twice", [...xs, ...xs, grow()].join("/"));
+reset();
+console.log("nested literal", [...[...xs, grow()]].join("/"));
+reset();
+console.log("template", `${[...xs, grow()]}`);
+reset();
+const [first, ...others] = [...xs, grow()];
+console.log("destructuring", first + "|" + others.join("/"));
+reset();
+const seen: number[] = [];
+for (const x of [...xs, grow()]) seen.push(x);
+console.log("for...of", seen.join("/"));
+reset();
+console.log("new Set", [...new Set([...xs, grow()])].join("/"));
+const entries: [number, number][] = [[1, 10]];
+const addEntry = (): [number, number] => {
+  entries.push([2, 20]);
+  return [3, 30];
+};
+console.log("new Map", [...new Map([...entries, addEntry()])].join(" "));
+reset();
+console.log("new Float64Array", new Float64Array([...xs, grow()]).join("/"));
+reset();
+console.log("Array.from", Array.from([...xs, grow()]).join("/"));
+
+// Read where they are already.
+reset();
+console.log("inner literal first", list(...[...xs], grow()));
+reset();
+const headed = xs as [number, ...number[]];
+const withHead = (head: number, ...rest: number[]): string => head + "|" + rest.join("/");
+console.log("rest tuple's elements", withHead(...headed, grow()));
+const pair: [number, number] = [1, 2];
+const writePair = (): number => {
+  pair[0] = 50;
+  return 10;
+};
+const triple: [number, number, number] = [...pair, writePair()];
+console.log("tuple into a tuple", triple.join("/"));
+const words = ["a", "b"];
+const more = (): string => {
+  words.push("z");
+  return "!";
+};
+console.log("str.concat", "s".concat(...words, more()));
+
+// expect:
+// declared 1/2/10
+// generic 1/2/10
+// function value 1/2/10
+// closure k:1/2/10
+// .call 1/2/10
+// method 1/2/10
+// generic method 1/2/10
+// static method 1/2/10
+// interface method 1/2/10
+// union method 1/2/10
+// super 1/2/10
+// Math.hypot 10.2469507659596
+// String.fromCharCode 1/2/10
+// String.fromCodePoint 1/2/10
+// new Array 1/2/10
+// unshift 1/2/10/0
+// any method 1/2/10
+// console.info 1 2 10
+// console.debug 1 2 10
+// console.group 1 2 10
+// Object.assign {"a":1,"b":0}
+// spread twice 1/2/1/2/10
+// nested literal 1/2/10
+// template 1,2,10
+// destructuring 1|2/10
+// for...of 1/2/10
+// new Set 1/2/10
+// new Map 1,10 3,30
+// new Float64Array 1/2/10
+// Array.from 1/2/10
+// inner literal first 1/2/10
+// rest tuple's elements 1|2/10
+// tuple into a tuple 1/2/10
+// str.concat sab!

@@ -169,12 +169,12 @@ func (l *lowerer) dynamicMethodCall(call *ast.CallExpression, callee *ast.Node, 
 func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, builtin *ir.Builtin, args []ir.Expr) ir.Expr {
 	args = append(args, &ir.StringConst{Value: scanner.GetTextOfNode(callee)})
 	for _, argument := range call.Arguments.Nodes {
-		if argument.Kind == ast.KindSpreadElement { // an array, whose elements the runtime spreads
-			value := l.valueExpression(argument.Expression())
-			if value == nil {
+		if argument.Kind == ast.KindSpreadElement {
+			items := l.dynamicSpread(argument)
+			if items == nil {
 				return nil
 			}
-			args = append(args, &ir.SpreadArg{X: value})
+			args = append(args, &ir.SpreadArg{X: items})
 			continue
 		}
 		value := l.valueExpression(argument)
@@ -184,6 +184,18 @@ func (l *lowerer) dynamicCallWith(call *ast.CallExpression, callee *ast.Node, bu
 		args = append(args, box(value))
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: args}
+}
+
+// dynamicSpread is what a spread argument of a call through `any` passes, whose elements
+// the runtime spreads at the call: an array as it is, or anything else as ValueSpreadItems
+// hands it over (an array, tuple or typed array as it is; a string's, set's, map's,
+// iterator's or other iterable's items taken into a new array where the spread is, D-078).
+func (l *lowerer) dynamicSpread(argument *ast.Node) ir.Expr {
+	value := l.valueExpression(argument.Expression())
+	if value == nil || isArray(value.Type()) {
+		return value
+	}
+	return &ir.CallBuiltin{Builtin: ir.ValueSpreadItems, Args: []ir.Expr{box(value), &ir.StringConst{Value: scanner.GetTextOfNode(argument.Expression())}}}
 }
 
 // dynamicOperation lowers a binary operator with an operand of type any, as JS applies
