@@ -1,0 +1,99 @@
+// Calls of a generic function value whose result is a promise of generic class instances
+// find the instance their whole signature needs (H09, D-190; review round 4's F1 and F2):
+// type arguments that reach it from a type alias's instantiation (`Loader<U>`) or an
+// enclosing generic function's or class's instance rather than the call's own, through
+// the result or only through a parameter of a dynamic type (`Promise<U>`), and `f<any>`
+// (which the base ran with the erased copy) beside a typed call. Each call's entry is its
+// own, and a call whose type argument is a dynamic value (`Promise<number>`, `any`) gets
+// an instance made for it, not for another such type argument.
+class Pair<K, V> {
+  constructor(
+    public key: K,
+    public items: V[],
+  ) {}
+}
+
+type Loader<U> = <T>(k: T) => Promise<Pair<T, U>>;
+const pairConst = async <K, V>(k: K): Promise<Pair<K, V>> => new Pair<K, V>(k, []);
+async function viaAlias(): Promise<string> {
+  const nums: Loader<number> = pairConst;
+  const strs: Loader<string> = pairConst;
+  const a = await nums(1);
+  const b = await strs(2);
+  return `${a.key + 1} ${b.key + 1}`;
+}
+
+const looseConst = async <K, V>(k: K): Promise<Pair<K, V>> => new Pair<K, V>(k, []);
+async function typedLoader(nums: Loader<number>): Promise<string> {
+  const p = await nums<any>(3);
+  return `${p.key} ${p.items.length}`;
+}
+async function anyLoader(anys: Loader<any>): Promise<string> {
+  const p = await anys<any>(4);
+  return `${p.key} ${p.items.length}`;
+}
+
+async function pairDecl<K, V>(k: K): Promise<Pair<K, V>> {
+  return new Pair<K, V>(k, []);
+}
+async function outer<U>(f: <T>(k: T) => Promise<Pair<T, U>>): Promise<string> {
+  const p = await f(5);
+  const q = await f<any>(6);
+  return `${p.key + 1} ${q.key} ${q.items.length}`;
+}
+
+async function pairMethod<K, V>(k: K): Promise<Pair<K, V>> {
+  return new Pair<K, V>(k, []);
+}
+class Store<U> {
+  async load(f: <T>(k: T) => Promise<Pair<T, U>>): Promise<string> {
+    const p = await f(7);
+    return `${p.key + 1}`;
+  }
+}
+
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Feeder<U> = <T>(p: Promise<U>, k: T) => Promise<Box<T>>;
+const feed = async <A, B>(p: Promise<A>, k: B): Promise<Box<B>> => {
+  const a: A = await p;
+  return new Box<B>(k);
+};
+async function viaParameter(): Promise<string> {
+  const nums: Feeder<number> = feed;
+  const strs: Feeder<string> = feed;
+  const a = await nums<any>(Promise.resolve(1), 8);
+  const b = await strs<any>(Promise.resolve("s"), 9);
+  return `${a.value} ${b.value}`;
+}
+
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function viaPromise(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<string> {
+  const a = await f(Promise.resolve(10));
+  return `${a.value + 1}`;
+}
+async function viaAny(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<string> {
+  const b = await f<any>(11);
+  return `${b.value}`;
+}
+
+async function main(): Promise<void> {
+  console.log("alias", await viaAlias());
+  console.log("alias any", await anyLoader(looseConst), await typedLoader(looseConst));
+  console.log("enclosing", await outer<number>(pairDecl), await outer<string>(pairDecl), await outer<any>(pairDecl));
+  console.log("enclosing class", await new Store<number>().load(pairMethod), await new Store<string>().load(pairMethod));
+  console.log("parameter", await viaParameter());
+  console.log("awaited", await viaAny(unwrap), await viaPromise(unwrap));
+}
+main().catch((e: any) => console.log("rejected", e.message));
+
+// expect:
+// alias 2 3
+// alias any 4 0 3 0
+// enclosing 6 6 0 6 6 0 6 6 0
+// enclosing class 8 8
+// parameter 8 9
+// awaited 11 11

@@ -127,6 +127,7 @@ type relaxedCast struct {
 	from ir.Type
 	to   *ir.Interface
 	node *ast.Node
+	in   *ir.Func // the function it is in, which a failed trial may drop (D-190)
 }
 
 // holdsOptionally reports whether values of type t may be used as an interface whose
@@ -196,6 +197,9 @@ func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
 	}
 	sources := interfaceCasts(funcs)
 	for _, cast := range l.relaxedCasts {
+		if l.droppedFuncs[cast.in] {
+			continue // in code a failed trial dropped (D-190)
+		}
 		for _, object := range l.concreteTypes(cast.from, sources, map[ir.Type]bool{}) {
 			if property := unheld(object, cast.to); property != nil {
 				l.notSupportedYet(cast.node, fmt.Sprintf("using a `%s` as a `%s`, when it may refer to a `%s` that holds `%s` as another type, is", cast.from, cast.to, objectTypeString(object), property.Name))

@@ -1,0 +1,142 @@
+// Generic arrow functions and function expressions that aren't module-scope consts make
+// generic class instances specialized for the type arguments of each typed call (H09,
+// C09): an inline arrow passed to a parameter of a generic function type (the review's
+// probe `previous/08_residual.pts`), a function-local const or let called by name, and
+// arrows that a factory returns or that fields, properties, array elements and map values
+// hold. Each call finds the instance its closure lists (D-148), so the result is a
+// `Box<number>`, not the erased copy's `Box<any>` (which threw `TypeError: Expected
+// Box<number>, got Box<any>`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public a: A,
+    public b: B,
+  ) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function exercise(label: string, factory: <T>(x: T) => Box<T>): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    const xs: Box<number[]> = factory([1, 2]);
+    return `${n.value + 1} ${s.value.length} ${xs.value.length} ${n instanceof Box}`;
+  });
+}
+
+// The review's probe, and an inline function expression.
+function use(factory: <T>(value: T) => Box<T>): void {
+  try {
+    console.log("box", factory(9).value);
+  } catch (error: any) {
+    console.log(error.name, error.message);
+  }
+}
+use(<T>(value: T) => new Box(value));
+exercise("inline arrow", <T>(x: T): Box<T> => new Box(x));
+exercise("inline function", function <T>(x: T): Box<T> {
+  return new Box(x);
+});
+
+// Function-local consts and lets, called by name and passed on.
+function locals(): void {
+  const boxed = <T>(x: T): Box<T> => new Box(x);
+  attempt("local const", () => {
+    const b: Box<number> = boxed(5);
+    return String(b.value + 1);
+  });
+  exercise("local const passed", boxed);
+  let reboxed = <T>(x: T): Box<T> => new Box(x);
+  attempt("local let", () => {
+    const b: Box<string> = reboxed("ab");
+    return String(b.value.length);
+  });
+  const viaDeclaration = <T>(x: T): Box<T> => make(x);
+  attempt("local calling a declaration", () => {
+    const b: Box<number> = viaDeclaration(7);
+    return String(b.value + 1);
+  });
+  const typed: <T>(x: T) => Box<T> = (x) => new Box(x);
+  attempt("contextually generic local", () => {
+    const b: Box<number> = typed(3);
+    return String(b.value + 1);
+  });
+  const empty = <T>(): Box<T[]> => new Box<T[]>([]);
+  attempt("type argument from the result", () => {
+    const b: Box<string[]> = empty();
+    b.value.push("x");
+    return String(b.value[0].length);
+  });
+  const two = <A, B>(a: A, b: B): Pair<A, B> => new Pair(a, b);
+  attempt("two type parameters", () => {
+    const p: Pair<number, string> = two(1, "bc");
+    return `${p.a + 1} ${p.b.length}`;
+  });
+}
+locals();
+
+// Arrows that a factory returns, or that fields, properties, elements and map values hold.
+function boxer() {
+  return <T>(x: T): Box<T> => new Box(x);
+}
+exercise("returned by a factory", boxer());
+class Holder {
+  make = <T>(x: T): Box<T> => new Box(x);
+  static make = <T>(x: T): Box<T> => new Box(x);
+}
+exercise("class field", new Holder().make);
+exercise("static field", Holder.make);
+const factories = {
+  make: <T>(x: T): Box<T> => new Box(x),
+};
+exercise("object property", factories.make);
+const list = [<T>(x: T): Box<T> => new Box(x)];
+exercise("array element", list[0]);
+const byName = new Map<string, <T>(x: T) => Box<T>>([["box", <T>(x: T): Box<T> => new Box(x)]]);
+exercise("map value", byName.get("box")!);
+
+// Arrows made in instances of generic functions and of generic classes' methods.
+function inGeneric<U>(u: U): void {
+  const boxed = <T>(x: T): Box<T> => new Box(x);
+  attempt("in a generic function", () => {
+    const b: Box<number> = boxed(5);
+    return `${b.value + 1} ${u}`;
+  });
+}
+inGeneric("u");
+class Shelf<U> {
+  run(u: U): void {
+    exercise("in a generic class's method", <T>(x: T): Box<T> => new Box(x));
+  }
+}
+new Shelf<number>().run(1);
+
+// expect:
+// box 9
+// inline arrow 10 4 2 true
+// inline function 10 4 2 true
+// local const 6
+// local const passed 10 4 2 true
+// local let 2
+// local calling a declaration 8
+// contextually generic local 4
+// type argument from the result 1
+// two type parameters 2 2
+// returned by a factory 10 4 2 true
+// class field 10 4 2 true
+// static field 10 4 2 true
+// object property 10 4 2 true
+// array element 10 4 2 true
+// map value 10 4 2 true
+// in a generic function 6 u
+// in a generic class's method 10 4 2 true

@@ -963,7 +963,7 @@ func (e *emitter) instanceCall(call *ir.InstanceCall) string {
 	}
 	found := e.temporary()
 	return fmt.Sprintf("({ pts_function %s = pts_instance_find(%s, %s, %s); %s != NULL ? ((%s(*)(%s))%s)(%s) : %s; })", found, x, name,
-		e.signatureCheck(call.Signature.Params, call.Signature.Result), found, e.declarator(call.Signature.Result), strings.Join(params, ", "), found,
+		e.instanceSignatureCheck(call.Signature, call.Key), found, e.declarator(call.Signature.Result), strings.Join(params, ", "), found,
 		strings.Join(args, ", "), e.expr(call.Otherwise))
 }
 
@@ -983,6 +983,9 @@ func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string
 		}
 		entries[i] = fmt.Sprintf("pts_instance_%s_%d", owner, i+1)
 		params, args, takes := []string{"pts_closure *pts_env"}, []string(nil), inst.Func.Params
+		if inst.Func.Closure {
+			args = []string{"pts_env"} // an instance of a generic arrow function runs with the erased copy's closure (D-190)
+		}
 		if inst.Name != "" {
 			params = []string{"pts_object *self"}
 			args = []string{"(" + strings.TrimSuffix(e.declarator(takes[0].Type), " ") + ")self"}
@@ -1012,7 +1015,7 @@ func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string
 		if inst.Name != "" {
 			name = cString(inst.Name)
 		}
-		e.line(1, "{%s, %s, (pts_function)%s},", name, e.signatureCheck(inst.Signature.Params, inst.Signature.Result), entries[i])
+		e.line(1, "{%s, %s, (pts_function)%s},", name, e.instanceSignatureCheck(inst.Signature, inst.Key), entries[i])
 	}
 	e.line(0, "};")
 	return []string{fmt.Sprintf(".instance_count = %d", len(instances)), ".instances = " + table}

@@ -1,0 +1,63 @@
+// no-diff: a function from `any` whose results don't fit the generic function type it is asserted to throws TypeError at the typed call (D-071, D-155), where Node goes on with the wrong-typed value
+// Generic function values that went through `any` and come back as a generic function type
+// find their instances where they are the program's generic functions (H09), while the
+// checked boundary of `any` stays (D-155): a function from `any` whose result isn't the
+// instance the call's type names, or whose parameter isn't the argument's type, throws
+// TypeError rather than handing typed code a wrong-typed value. A guard for H09: making
+// more calls find instances must not let these through.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+const boxed = <T>(x: T): Box<T> => new Box(x);
+function attempt(label: string, f: <T>(x: T) => Box<T>): void {
+  try {
+    const b: Box<number> = f(5);
+    console.log(label, b.value + 1, b instanceof Box);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const anyMake: any = make;
+attempt("declaration through any", anyMake);
+const anyBoxed: any = boxed;
+attempt("generic const through any", anyBoxed);
+const anyList: any[] = [make];
+attempt("declaration in an any[]", anyList[0]);
+
+const alwaysString: any = (x: any) => new Box("s");
+attempt("returns Box<string>", alwaysString);
+function stringBox<T>(x: T): Box<string> {
+  return new Box("s" + x);
+}
+const anyStringBox: any = stringBox;
+attempt("a generic function returning Box<string>", anyStringBox);
+const plainObject: any = (x: any) => ({ value: x });
+attempt("returns a plain object", plainObject);
+const numbersOnly: any = (x: number): Box<number> => new Box(x);
+try {
+  const f = numbersOnly as <T>(x: T) => Box<T>;
+  const s: Box<string> = f("text");
+  console.log("a Box<number> maker asked for a Box<string>", s.value.length);
+} catch (error: any) {
+  console.log("a Box<number> maker asked for a Box<string>", error.name, error.message);
+}
+const viaAny: any = make;
+try {
+  const typed: Box<number> = viaAny(6);
+  console.log("called through any", typed.value + 1);
+} catch (error: any) {
+  console.log("called through any", error.name, error.message);
+}
+
+// expect:
+// declaration through any 6 true
+// generic const through any 6 true
+// declaration in an any[] 6 true
+// returns Box<string> TypeError Expected Box<number>, got Box<string>
+// a generic function returning Box<string> TypeError Expected Box<number>, got Box<string>
+// returns a plain object TypeError Expected Box<number>, got Object
+// a Box<number> maker asked for a Box<string> TypeError Expected number, got string
+// called through any TypeError Expected Box<number>, got Box<any>

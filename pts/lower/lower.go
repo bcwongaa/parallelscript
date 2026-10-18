@@ -134,14 +134,32 @@ var numericTypes = map[check.Numeric]ir.Type{
 	check.U8: ir.U8, check.U16: ir.U16, check.U32: ir.U32, check.U64: ir.U64,
 }
 
+// Specialization says which generic function values list the instances that typed calls
+// of them look up (D-148, D-190).
+type Specialization int
+
+const (
+	// AllInstances: generic arrow functions and function expressions wherever they are,
+	// and calls whose results are dynamic, besides DeclaredInstances' (D-190).
+	AllInstances Specialization = iota
+	// DeclaredInstances: generic function declarations, static methods and module-scope
+	// consts, as before H09 (D-148). A build falls back to it where AllInstances fails.
+	DeclaredInstances
+)
+
 // Program lowers a program that loaded and passed the semantic checks (info is what
-// they learned). It reports every construct it cannot lower; the IR is complete only
-// if there are none. A panic is a bug in the compiler: it becomes a panic with a
-// *diagnostic.InternalError at the innermost statement or expression being lowered.
+// they learned), with AllInstances. It reports every construct it cannot lower; the IR is
+// complete only if there are none. A panic is a bug in the compiler: it becomes a panic
+// with a *diagnostic.InternalError at the innermost statement or expression being lowered.
 func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
+	return ProgramWith(ctx, program, info, AllInstances)
+}
+
+// ProgramWith is Program with the given specialization.
+func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization) (*ir.Program, []diagnostic.Diagnostic) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, info: info,
+	l := &lowerer{program: program.TS, checker: c, info: info, specialization: specialization,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
@@ -153,7 +171,7 @@ func Program(ctx context.Context, program *frontend.Program, info *check.Info) (
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
-		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}}
+		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		if l.current == nil {
@@ -230,6 +248,7 @@ lowering:
 	result.InKeys = slices.Sorted(maps.Keys(l.inKeys))
 	l.markAccessorProperties()
 	l.checkRelaxedCasts(result.Funcs)
+	shareCaptures(result.Funcs)
 	markCells(result.Funcs)
 	l.unexplainedFailure()
 	return result, l.errors
@@ -309,6 +328,10 @@ type lowerer struct {
 	demands             []*demand                        // the typed calls of erased copies that look up instances (D-148)
 	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
+	specialization      Specialization                   // which generic function values list instances (D-190)
+	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
+	droppedFuncs        map[*ir.Func]bool                // the functions failed trials dropped
+	instanceKeys        map[string]string                // the keys of dynamic results' entries, by what tells them apart (instanceKey)
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	current             *ast.Node                        // the statement or expression being lowered, the innermost after a panic (D-179)
 	injectedFailure     func(node *ast.Node) bool        // diagnostic.WithInjectedFailure's, for tests: on entering a node
@@ -381,6 +404,9 @@ func (l *lowerer) report(d diagnostic.Diagnostic) {
 	l.reports++
 	if !slices.Contains(l.errors, d) {
 		l.errors = append(l.errors, d)
+	}
+	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
+		t.foreign = true
 	}
 }
 
@@ -1334,10 +1360,19 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 	reports := l.reports
 	x := l.withArgumentTemps(func() ir.Expr { return l.expressionOf(node) })
 	if x == nil && l.reports == reports && l.unexplained == nil {
-		l.unexplained = node // reported at the end if nothing else is (unexplainedFailure)
+		l.noteUnexplained(node) // reported at the end if nothing else is (unexplainedFailure)
 	}
 	l.leaving(node, outer)
 	return x
+}
+
+// noteUnexplained records node, which failed to lower without a report, for
+// unexplainedFailure; in a trial, as report does, whether it is another function's.
+func (l *lowerer) noteUnexplained(node *ast.Node) {
+	l.unexplained = node
+	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
+		t.foreign = true
+	}
 }
 
 // unexplainedFailure reports the first expression whose lowering failed without saying

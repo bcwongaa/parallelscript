@@ -390,6 +390,25 @@ static bool convert_array(converting *c, pts_array *array, const pts_check *chec
   return true;
 }
 
+/* A tuple, which is an array in JS: a copy with each element converted, as an array of other elements is copied (C70, D-190). */
+static bool copy_tuple_into_array(converting *c, pts_object *tuple, const pts_check *check, pts_value *out) {
+  const pts_check *element = check->element;
+  size_t length = pts_tuple_length(tuple);
+  pts_array *result = pts_array_of(check->type, NULL, 0);
+  for (size_t i = 0; i < length; i++) {
+    const pts_field *field = &tuple->type->fields[i]; /* a tuple's fields are its elements, in order */
+    pts_value converted;
+    if (!convert(c, pts_value_of_slot(field->kind, (const char *)tuple + field->offset), element, true, &converted)) {
+      return false;
+    }
+    slot_value stored = {0};
+    store(&stored, element->slot, converted);
+    pts_array_push(result, &stored, 1);
+  }
+  *out = pts_value_from_object(result);
+  return true;
+}
+
 /* A hash-map object: itself if it is of the check's descriptor, else a copy of a hash-map object's entries or an object's fields. */
 static bool convert_record(converting *c, pts_object *object, const pts_check *check, bool copy, pts_value *out) {
   const pts_check *element = check->element;
@@ -525,7 +544,11 @@ static bool convert(converting *c, pts_value value, const pts_check *check, bool
     converted = convert_tuple(c, object, check, copy, out);
     break;
   case PTS_CHECK_ARRAY:
-    converted = object->type->kind == PTS_KIND_ARRAY && convert_array(c, (pts_array *)object, check, copy, out);
+    if (object->type->kind == PTS_KIND_ARRAY) {
+      converted = convert_array(c, (pts_array *)object, check, copy, out);
+    } else if (object->type->kind == PTS_KIND_TUPLE && copy) {
+      converted = copy_tuple_into_array(c, object, check, out);
+    }
     break;
   case PTS_CHECK_RECORD:
     converted = convert_record(c, object, check, copy, out);

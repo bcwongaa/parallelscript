@@ -34,7 +34,7 @@ func (l *lowerer) destructure(pattern *ast.Node, value ir.Expr, at ir.Pos) ([]ir
 	reports := l.reports
 	stmts, ok := l.destructureParts(pattern, value, at)
 	if !ok && l.reports == reports && l.unexplained == nil {
-		l.unexplained = pattern // reported at the end if nothing else is (unexplainedFailure), never dropped silently
+		l.noteUnexplained(pattern) // reported at the end if nothing else is (unexplainedFailure), never dropped silently
 	}
 	return stmts, ok
 }

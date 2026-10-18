@@ -93,20 +93,20 @@ func (e *emitter) collectChecks(program *ir.Program) {
 // collectInstanceSignatures names the checks of the signatures that instance calls look
 // instances up by and instance tables list them by (D-148).
 func (e *emitter) collectInstanceSignatures(program *ir.Program) {
-	signature := func(ft *ir.FuncType) { e.check(e.canonicalFuncType(ft.Params, ft.Result)) }
+	signature := func(ft *ir.FuncType, key string) { e.check(e.keyedFuncType(ft.Params, ft.Result, key)) }
 	for _, f := range program.Funcs {
 		for _, inst := range f.Instances {
-			signature(inst.Signature)
+			signature(inst.Signature, inst.Key)
 		}
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
 			if call, ok := x.(*ir.InstanceCall); ok {
-				signature(call.Signature)
+				signature(call.Signature, call.Key)
 			}
 		})
 	}
 	for _, class := range program.Classes {
 		for _, inst := range class.Instances {
-			signature(inst.Signature)
+			signature(inst.Signature, inst.Key)
 		}
 	}
 }
@@ -256,7 +256,7 @@ func (e *emitter) check(t ir.Type) string {
 		return name
 	}
 	if ft, ok := t.(*ir.FuncType); ok { // one check per signature, which closures' descriptors point to
-		if canonical := e.canonicalFuncType(ft.Params, ft.Result); canonical != ft {
+		if canonical := e.canonicalFuncType(ft.Params, ft.Result); canonical != ft && !e.keyedFuncTypes[ft] {
 			e.checks[t] = e.check(canonical)
 			return e.checks[t]
 		}
@@ -402,16 +402,29 @@ func (e *emitter) checkDefinition(t ir.Type) string {
 // types, by their identities: closures' and methods' signatures are compared by identity
 // at run time (D-075), and the lowering's function types don't cover methods'.
 func (e *emitter) canonicalFuncType(params []ir.Type, result ir.Type) *ir.FuncType {
+	return e.keyedFuncType(params, result, "")
+}
+
+// keyedFuncType is canonicalFuncType's function type for an instance table's key
+// (ir.Instance.Key): with a key, another function type of the same types, whose check is
+// another object, which the runtime tells apart by its address (D-190).
+func (e *emitter) keyedFuncType(params []ir.Type, result ir.Type, instanceKey string) *ir.FuncType {
 	var key strings.Builder
 	fmt.Fprintf(&key, "%p", result)
 	for _, param := range params {
 		fmt.Fprintf(&key, ",%p", param)
+	}
+	if instanceKey != "" {
+		key.WriteString("\x00" + instanceKey)
 	}
 	if ft, ok := e.funcTypes[key.String()]; ok {
 		return ft
 	}
 	ft := &ir.FuncType{Params: params, Result: result}
 	e.funcTypes[key.String()] = ft
+	if instanceKey != "" {
+		e.keyedFuncTypes[ft] = true
+	}
 	return ft
 }
 
@@ -419,6 +432,12 @@ func (e *emitter) canonicalFuncType(params []ir.Type, result ir.Type) *ir.FuncTy
 // parameter and result types, which a closure's descriptor or a method table entry points to.
 func (e *emitter) signatureCheck(params []ir.Type, result ir.Type) string {
 	return "&" + e.checks[e.canonicalFuncType(params, result)]
+}
+
+// instanceSignatureCheck is the C expression of the check that instance tables and the
+// calls that search them use for a signature and key (ir.Instance).
+func (e *emitter) instanceSignatureCheck(signature *ir.FuncType, key string) string {
+	return "&" + e.checks[e.keyedFuncType(signature.Params, signature.Result, key)]
 }
 
 // checkProperties writes the properties of an object type's check, with their offsets in

@@ -1,0 +1,101 @@
+// A typed call finds the instance for its type arguments when some of them are any or
+// unknown, inferred or written (H09, D-190; review rounds 2 and 3, R1 and R1'):
+// `Result<T, E>` with E inferred as unknown, `Pair<K, V>` with one of two type arguments
+// unknown or any, through a declaration and a local arrow; an unknown that the demand's
+// function type fixes, that an enclosing generic function's instance gives, or that a type
+// parameter the signature doesn't mention takes. The erased copy makes `Pair<any, any>`,
+// which isn't a `Pair<string, unknown>`; the base made these instances.
+class Result<T, E> {
+  constructor(
+    public value: T | undefined,
+    public error: E | undefined,
+  ) {}
+}
+function ok<T, E>(value: T): Result<T, E> {
+  return new Result<T, E>(value, undefined);
+}
+function wrap(f: <T, E>(value: T) => Result<T, E>): number {
+  const r = f(41);
+  return (r.value ?? 0) + 1;
+}
+console.log("result", wrap(ok), wrap(<T, E>(value: T) => new Result<T, E>(value, undefined)));
+
+class Pair<K, V> {
+  constructor(
+    public key: K,
+    public value: V,
+  ) {}
+}
+function pair<K, V>(k: K, v: V): Pair<K, V> {
+  return new Pair(k, v);
+}
+function use(label: string, f: <K, V>(k: K, v: V) => Pair<K, V>, raw: unknown, loose: any): void {
+  const a: Pair<string, unknown> = f("a", raw);
+  const b: Pair<string, unknown> = f<string, unknown>("bb", 2);
+  const c: Pair<number, any> = f(3, loose);
+  console.log(label, a.key.length, String(a.value), b.key.length, String(b.value), c.key + 1, c.value);
+}
+use("declaration", pair, "r", 9);
+use("local arrow", <K, V>(k: K, v: V): Pair<K, V> => new Pair(k, v), "s", 8);
+
+// The call's own type arguments are [number]; the value's, inferred from the demand's
+// function type, [number, unknown]. (Another class than Result's, whose instance for
+// [number, unknown] the calls above make.)
+class Outcome<T, E> {
+  constructor(
+    public value: T | undefined,
+    public error: E | undefined,
+  ) {}
+}
+function succeed<T, E>(value: T): Outcome<T, E> {
+  return new Outcome<T, E>(value, undefined);
+}
+const succeedConst = <T, E>(value: T): Outcome<T, E> => new Outcome<T, E>(value, undefined);
+function wrapUnknown(f: <T>(value: T) => Outcome<T, unknown>): number {
+  const r = f(41);
+  return (r.value ?? 0) + 1;
+}
+function wrapAny(f: <T>(value: T) => Outcome<T, any>): number {
+  const r = f(1);
+  return (r.value ?? 0) + 1;
+}
+console.log("fixed by the demand", wrapUnknown(succeed), wrapUnknown(succeedConst), wrapAny(succeed));
+
+// U is unknown in outer's instance for unknown.
+class Slot<K, V> {
+  constructor(
+    public key: K,
+    public value: V | undefined,
+  ) {}
+}
+function slot<K, V>(k: K): Slot<K, V> {
+  return new Slot<K, V>(k, undefined);
+}
+function outer<U>(f: <T>(k: T) => Slot<T, U>): number {
+  const s = f(5);
+  return s.key + 1;
+}
+console.log("from an enclosing instance", outer<unknown>(slot), outer<string>(slot));
+
+// U appears nowhere in the signature, so relating the value to the call infers unknown.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T, U>(x: T): Box<T> {
+  return new Box(x);
+}
+const makeConst = <T, U>(x: T): Box<T> => new Box(x);
+function phantom(f: <T, U>(x: T) => Box<T>): number {
+  const a = f<number, string>(1);
+  const b: Box<number> = f<number, boolean>(2);
+  return a.value + b.value;
+}
+console.log("a phantom type parameter", phantom(make), phantom(makeConst));
+
+// expect:
+// result 42 42
+// declaration 1 r 2 2 4 9
+// local arrow 1 s 2 2 4 8
+// fixed by the demand 42 42 2
+// from an enclosing instance 6 6
+// a phantom type parameter 3 3

@@ -143,7 +143,14 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
 	}
+	generic := l.genericConstNodes[node] // a module-scope const's, whose calls by name are its instances' (D-102)
+	ownGeneric := false
 	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
+		if generic == nil && l.specialization == AllInstances && (l.subst == nil || len(l.subst.erased) == 0) {
+			// Any other's instances run with the closures of its erased copy (D-190); in
+			// erased code, its type arguments would mention the erased ones.
+			generic, ownGeneric = &genericFunc{node: node, module: l.function, parameters: typeParameters, outer: l.subst}, true
+		}
 		outer := l.subst
 		l.subst = l.erasing(typeParameters, nil) // its own, or its context's (D-078)
 		defer func() { l.subst = outer }()
@@ -161,8 +168,11 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 		l.locals[l.declaredSymbol(node)] = fn.Self
 	}
 	l.inFunction(fn, func() { fn.Body = l.functionExpressionBody(node) })
-	if generic := l.genericConstNodes[node]; generic != nil {
-		l.addErasedValue(fn, generic) // a generic const's value, whose calls by name are its instances' (D-102, D-148)
+	if ownGeneric {
+		generic.name, generic.jsName, generic.closure = fn.Name, fn.JSName, fn
+	}
+	if generic != nil && l.addErasedValue(fn, generic) && ownGeneric {
+		generic.scope, generic.calledOnly = l.scopeOf(node), l.calledOnlyName(node)
 	}
 	ft := l.typeOfFunc(fn)
 	return &ir.MakeClosure{Func: fn, FuncType: ft}
@@ -524,6 +534,9 @@ func (l *lowerer) capture(local *ir.Local) bool {
 			return false
 		case !slices.Contains(fn.Captures, local):
 			fn.Captures = append(fn.Captures, local)
+			if t := l.trial; t != nil && !t.owns(fn) {
+				t.captures = append(t.captures, capturedBy{fn, local}) // taken back if the trial fails (D-190)
+			}
 		}
 	}
 	return true

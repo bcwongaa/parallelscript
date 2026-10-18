@@ -1,0 +1,129 @@
+// Generic arrow functions that capture variables make specialized generic class
+// instances too (H09, C09): an instance of a closure's function reads the variables from
+// the closure the call has, as the erased copy does, so a factory's parameter, a counter
+// the arrow changes (a cell), `this`, a loop's variable, an outer arrow's parameter
+// (curried) and the arrow's own const (recursion) are the same values in either copy.
+// Each threw `TypeError: Expected Box<number>, got Box<any>` (or `Pair<string, any>`).
+// The closure stays one value: `===`, `name` and `length` are the erased copy's.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public a: A,
+    public b: B,
+  ) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function exercise(label: string, factory: <T>(x: T) => Box<T>): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    return `${n.value + 1} ${s.value.length}`;
+  });
+}
+
+function tagged(tag: string) {
+  return <T>(x: T): Box<T> => {
+    if (tag.length > 9) console.log(tag);
+    return new Box(x);
+  };
+}
+exercise("captures a parameter", tagged("t"));
+
+function counting(): void {
+  let count = 0;
+  const counted = <T>(x: T): Box<T> => {
+    count++;
+    return new Box(x);
+  };
+  exercise("captures a cell", counted);
+  attempt("called by name", () => {
+    const b: Box<number> = counted(1);
+    return `${b.value + 1} ${count}`;
+  });
+}
+counting();
+
+class Maker {
+  made = 0;
+  maker() {
+    return <T>(x: T): Box<T> => {
+      this.made++;
+      return new Box(x);
+    };
+  }
+}
+const maker = new Maker();
+exercise("captures this", maker.maker());
+console.log("made", maker.made);
+
+const perStep: (<T>(x: T) => Pair<T, number>)[] = [];
+for (let i = 0; i < 3; i++) {
+  perStep.push(<T>(x: T): Pair<T, number> => new Pair(x, i));
+}
+for (const step of perStep) {
+  attempt("captures a loop variable", () => {
+    const p: Pair<string, number> = step("ab");
+    return `${p.a.length} ${p.b}`;
+  });
+}
+
+const curried = <A>(a: A) => <B>(b: B): Pair<A, B> => new Pair(a, b);
+attempt("curried const", () => {
+  const p: Pair<string, number> = curried("s")(1);
+  return `${p.a.length} ${p.b + 1}`;
+});
+function localCurry(): void {
+  const pairWith = <A>(a: A) => <B>(b: B): Pair<A, B> => new Pair(a, b);
+  attempt("local curried", () => {
+    const p: Pair<string, number> = pairWith("u")(2);
+    return `${p.a.length} ${p.b + 1}`;
+  });
+}
+localCurry();
+const outer = <A>(a: A): Pair<A, number> => {
+  const inner = <B>(b: B): Pair<A, B> => new Pair(a, b);
+  return inner(1);
+};
+attempt("nested in a generic const", () => {
+  const q: Pair<string, number> = outer("t");
+  return `${q.a.length} ${q.b + 1}`;
+});
+
+function recursive(): void {
+  const nest = <T>(x: T, depth: number): Box<T> => (depth > 0 ? nest(x, depth - 1) : new Box(x));
+  attempt("recursive local", () => {
+    const b: Box<number> = nest(4, 2);
+    return String(b.value + 1);
+  });
+}
+recursive();
+
+function identity(): void {
+  const boxed = <T>(x: T): Box<T> => new Box(x);
+  const keep = (f: <T>(x: T) => Box<T>) => f;
+  console.log(keep(boxed) === boxed, boxed.name, boxed.length, boxed);
+}
+identity();
+
+// expect:
+// captures a parameter 10 4
+// captures a cell 10 4
+// called by name 2 3
+// captures this 10 4
+// made 2
+// captures a loop variable 2 0
+// captures a loop variable 2 1
+// captures a loop variable 2 2
+// curried const 1 2
+// local curried 1 3
+// nested in a generic const 1 2
+// recursive local 5
+// true boxed 1 [Function: boxed]

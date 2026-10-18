@@ -1,0 +1,87 @@
+// Calls of a generic function value whose result is a promise of generic class instances
+// are told apart where their type arguments' IR types differ, and share an instance where
+// only fresh types of one IR type differ (H09, D-190; review round 6's R6-1 and R6-2): a
+// method against a function-valued property, the prelude's Timeout (a dynamic value)
+// against a structural twin interface (a shape), generic arrow functions' own type
+// parameters at each call site, and deeply nested fresh object literals at each site.
+// The Timeout line ran on the base with the erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+
+type Maker = <T>(i: number) => Promise<Box<T>>;
+type WithMethod = { m(): number };
+type WithFunction = { m: () => number };
+const members: any[] = [{ m() { return 1; } }, { m: () => 2 }];
+async function make<T>(i: number): Promise<Box<T>> {
+  return new Box<T>(members[i] as T);
+}
+async function viaFunction(f: Maker): Promise<string> {
+  return `${(await f<WithFunction>(1)).value.m()}`;
+}
+async function viaMethod(f: Maker): Promise<string> {
+  return `${(await f<WithMethod>(0)).value.m()}`;
+}
+
+interface MyTimer {
+  ref(): MyTimer;
+  unref(): MyTimer;
+  hasRef(): boolean;
+  refresh(): MyTimer;
+}
+const timers: any[] = [];
+async function makeTimer<T>(i: number): Promise<Box<T>> {
+  return new Box<T>(timers[i] as T);
+}
+async function viaMine(f: Maker): Promise<string> {
+  return `${(await f<MyTimer>(1)).value.hasRef()}`;
+}
+async function viaTimeout(f: Maker): Promise<string> {
+  return typeof (await f<Timeout>(0)).value.hasRef();
+}
+
+type Wrap = <T>(x: T) => Promise<Box<T>>;
+async function boxed<T>(x: T): Promise<Box<T>> {
+  return new Box(x);
+}
+async function arrows(wrap: Wrap): Promise<string> {
+  const results: number[] = [];
+  results.push((await wrap(<X>(x: X) => x)).value(1));
+  results.push((await wrap(<X>(x: X) => x)).value(2));
+  results.push((await wrap(<X>(x: X) => x)).value(3));
+  results.push((await wrap(<X>(x: X) => x)).value(4));
+  results.push((await wrap(<X>(x: X) => x)).value(5));
+  results.push((await wrap(<X>(x: X) => x)).value(6));
+  return results.join(" ");
+}
+async function boxedDeep<T>(x: T): Promise<Box<T>> {
+  return new Box(x);
+}
+async function literals(wrap: Wrap): Promise<string> {
+  const results: number[] = [];
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 1 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 2 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 3 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 4 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 5 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  results.push((await wrap({ a: { b: { c: { d: { e: { f: { g: { h: 6 } } } } } } } })).value.a.b.c.d.e.f.g.h);
+  return results.join(" ");
+}
+
+async function main(): Promise<void> {
+  console.log("method and function", await viaFunction(make), await viaMethod(make));
+  const timer = setTimeout(() => {}, 0);
+  const mine: MyTimer = { ref() { return mine; }, unref() { return mine; }, hasRef() { return true; }, refresh() { return mine; } };
+  timers.push(timer, mine);
+  console.log("timers", await viaMine(makeTimer), await viaTimeout(makeTimer));
+  clearTimeout(timer);
+  console.log("generic arrows", await arrows(boxed));
+  console.log("deep literals", await literals(boxedDeep));
+}
+main().catch((e: any) => console.log("rejected", e.message));
+
+// expect:
+// method and function 2 1
+// timers true boolean
+// generic arrows 1 2 3 4 5 6
+// deep literals 1 2 3 4 5 6

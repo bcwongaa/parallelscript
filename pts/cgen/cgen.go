@@ -23,7 +23,7 @@ func Emit(program *ir.Program) string {
 	e := &emitter{receiverMembers: map[ir.Expr]string{}, unsetAllowed: map[ir.Expr]bool{}, copiedSpreads: map[*ir.SpreadArg]bool{}, checks: map[ir.Type]string{}, methodAdapters: map[string]*methodAdapter{}, strings: map[string]string{}, regexCaches: map[*ir.RegExpLiteral]string{}, funcNames: functionNames(program), globals: map[*ir.Local]string{},
 		globalOwners: map[*ir.Local]*ir.Func{}, initOrder: map[*ir.Func]int{}, classNames: map[*ir.Class]string{}, methods: map[*ir.Func]*ir.Method{},
 		interfaceMembers: map[*ir.Class][]*ir.Method{}, entryNames: map[*ir.Func]string{}, closureNames: map[*ir.Func]string{}, captureFields: map[*ir.Local][]captureField{}, comparators: map[ir.Type]string{}, mapDescriptors: map[*ir.MapType]string{},
-		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}}
+		arrayDescriptors: map[*ir.Array]string{}, funcTypes: map[string]*ir.FuncType{}, keyedFuncTypes: map[*ir.FuncType]bool{}}
 	defer diagnostic.Locate("emitting C", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		return diagnostic.Diagnostic{File: e.source.File, Line: e.source.Line}, nil
 	})
@@ -118,6 +118,7 @@ type emitter struct {
 	arrayDescriptors map[*ir.Array]string
 	arrayOrder       []*ir.Array
 	funcTypes        map[string]*ir.FuncType
+	keyedFuncTypes   map[*ir.FuncType]bool // those of instance tables' keys (keyedFuncType), each its own check
 	// methodAdapters are the adapters of the interface methods the program calls, by name
 	// and check of their function type, in a program whose objects may come through `any`
 	// with methods of other function types (D-078).

@@ -505,6 +505,10 @@ type Func struct {
 	// Instances, for a function whose closures are a generic function's erased copy, are
 	// the instances of the generic function that typed calls of the closures find (D-148).
 	Instances []*Instance
+	// Shares, for an instance of a generic arrow function or function expression, is the
+	// function of its erased copy, whose closures the instance runs with (D-190): the two
+	// have the same Captures, read from the erased copy's closure struct.
+	Shares *Func
 	// Extern is the runtime function that implements a method of a Builtin class; such a
 	// function has no Body and isn't among the program's functions.
 	Extern string
@@ -1005,7 +1009,12 @@ type VirtualCall struct {
 type Instance struct {
 	Name      string    // the method's; "" for a function value's
 	Signature *FuncType // the calls' function type, after `this` for a method
-	Func      *Func     // nil for a method that has no instance of Signature, which ends the search
+	// Key, for calls whose result is a dynamic value (a promise or generator object), tells
+	// apart the calls' type arguments (D-190): calls with the same Signature and another
+	// Key make their values for other type arguments, so they are other entries. It names
+	// the first such call's result type.
+	Key  string
+	Func *Func // nil for a method that has no instance of Signature, which ends the search
 }
 
 // InstanceCall calls the instance of Signature (D-148) that X lists, with X and Args: X is a
@@ -1016,6 +1025,7 @@ type InstanceCall struct {
 	X         Expr
 	Name      string
 	Signature *FuncType
+	Key       string // the Key of the instances it finds (Instance.Key)
 	Args      []Expr
 	Otherwise Expr
 }

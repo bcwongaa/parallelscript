@@ -1,0 +1,94 @@
+// Speculative instances never stop a program that compiled without them (H09, D-190):
+// every demand meets every generic arrow function or declaration of its erased type, and
+// an instance's code may not lower where its erased copy does. Here each arrow or
+// declaration reaches the demand only through `any`, or not at all, and its instance for
+// the demand's type arguments doesn't lower or doesn't fit: a static field arrow that
+// reads `this`, a local declared in a narrowed branch (`x.length` for a number), an
+// assertion to an interface whose subclass holds its optional property as another type,
+// a declaration whose branch narrows to an intersection, and an arrow whose conditional
+// reads a string's length. The trials drop those instances, so each program compiles and
+// runs as it did before H09 (review round 1's F2b, F2a, F3, F5 and F4).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function use(f: <T>(x: T) => Box<T>): number {
+  return f(1).value + 1;
+}
+
+class Statics {
+  static tag = "S";
+  static make = <T>(x: T): Box<T> => {
+    console.log("static this", this.tag);
+    return new Box(x);
+  };
+}
+const dynamicStatic: any = Statics.make;
+console.log("static", dynamicStatic(2).value);
+if (dynamicStatic.length > 5) {
+  console.log(use(Statics.make));
+}
+
+function cascade(): void {
+  const describe = <T>(x: T): Box<T> => {
+    if (Array.isArray(x)) {
+      const n = x.length;
+      console.log("an array of", n);
+    }
+    return new Box(x);
+  };
+  const d: any = describe;
+  console.log("cascade", d([1, 2]).value.length, use(make));
+}
+cascade();
+
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+class Other<T> {
+  constructor(public value: T) {}
+}
+function useBase(f: <T>(x: T) => Box<T>): number {
+  return f(new Base()).value.id;
+}
+function relaxed(): void {
+  const other = <T extends Base>(x: T): Other<T> => {
+    const tagged: Tagged = x;
+    return new Other(x);
+  };
+  const d: any = other;
+  console.log("relaxed cast", d(new Base()).value.id, useBase(make), new Derived().tag);
+}
+relaxed();
+
+function arrays<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("an array of", x.length);
+  }
+  return new Box(x);
+}
+const kept: any = arrays;
+console.log("unrelated declaration", use(make), kept([1]).value.length);
+
+function useArrays(f: <T>(x: T) => Box<T>): number {
+  const b: Box<number[]> = f([1, 2]);
+  return b.value.length;
+}
+function intersection(): void {
+  const named = <T>(x: T): Box<T> => {
+    console.log("length", typeof x === "string" ? x.length : 0);
+    return new Box(x);
+  };
+  const b: Box<string> = named("abc");
+  console.log("intersection", b.value, useArrays(make));
+}
+intersection();

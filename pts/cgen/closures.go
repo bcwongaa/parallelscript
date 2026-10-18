@@ -19,13 +19,23 @@ import (
 // collectClosures finds the functions the program makes values of and names their C
 // structs, descriptors and capture fields.
 func (e *emitter) collectClosures(program *ir.Program) {
+	named := func(f *ir.Func) {
+		if e.closureNames[f] == "" {
+			e.closureNames[f] = strings.TrimPrefix(e.funcNames[f], "pts_fn_")
+			e.closureOrder = append(e.closureOrder, f)
+		}
+	}
 	for _, f := range program.Funcs {
 		ir.Walk(f.Body.Stmts, func(ir.Stmt) {}, func(x ir.Expr) {
-			if closure, ok := x.(*ir.MakeClosure); ok && e.closureNames[closure.Func] == "" {
-				e.closureNames[closure.Func] = strings.TrimPrefix(e.funcNames[closure.Func], "pts_fn_")
-				e.closureOrder = append(e.closureOrder, closure.Func)
+			if closure, ok := x.(*ir.MakeClosure); ok {
+				named(closure.Func)
 			}
 		})
+	}
+	for _, f := range program.Funcs {
+		if f.Shares != nil {
+			named(f.Shares) // its struct, which the instance reads, though nothing made a closure of it
+		}
 	}
 	for _, f := range e.closureOrder {
 		used := map[string]bool{"closure": true}
@@ -202,10 +212,16 @@ func (e *emitter) closurePrologue(f *ir.Func, paramNames []string) {
 	}
 }
 
-// capturePrologue reads the locals a closure captures out of its closure, pts_env.
+// capturePrologue reads the locals a closure captures out of its closure, pts_env: one
+// of its own function's, or for an instance of a generic arrow function, its erased
+// copy's (D-190).
 func (e *emitter) capturePrologue(f *ir.Func) {
+	owner := f
+	if f.Shares != nil {
+		owner = f.Shares
+	}
 	for _, local := range f.Captures {
-		e.line(1, "%s%s = ((pts_closure_%s *)pts_env)->%s;", e.capturedDeclarator(local), e.declareLocal(local), e.closureNames[f], e.captureField(f, local))
+		e.line(1, "%s%s = ((pts_closure_%s *)pts_env)->%s;", e.capturedDeclarator(local), e.declareLocal(local), e.closureNames[owner], e.captureField(owner, local))
 	}
 	if f.Self != nil && !slices.Contains(f.Captures, f.Self) && usesLocal(f, f.Self) {
 		e.line(1, "pts_closure *%s = pts_env;", e.declareLocal(f.Self))

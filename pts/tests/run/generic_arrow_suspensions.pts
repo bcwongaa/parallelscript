@@ -1,0 +1,63 @@
+// Instances of async and generator generic arrow functions and function expressions run
+// with their erased copy's closure across `await` and `yield` (H09, D-190): the counter
+// they capture changes in the closure each of them shares, and what an `await`, a
+// `for…of` or a `for await` takes out is the call's instance (`Box<number>`), not the
+// erased copy's `Box<any>`. Review round 1's probe a2.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function pass(f: <T>(x: T) => Promise<Box<T>>): Promise<number> {
+  const n: Box<number> = await f(1);
+  const s: Box<string> = await f("abc");
+  return n.value + s.value.length;
+}
+function iterate(f: <T>(x: T) => Generator<Box<T>>): number {
+  let total = 0;
+  for (const b of f(5)) {
+    const n: Box<number> = b;
+    total += n.value;
+  }
+  return total;
+}
+async function main(): Promise<void> {
+  let count = 0;
+  const tag = "t";
+  const later = async <T>(x: T): Promise<Box<T>> => {
+    count++;
+    await null;
+    count++;
+    return new Box(x);
+  };
+  const b: Box<number> = await later(2);
+  console.log(b.value + 1, count, tag);
+  console.log(await pass(later), count);
+  const gen = function* <T>(x: T): Generator<Box<T>> {
+    count += 10;
+    yield new Box(x);
+    count += 10;
+    yield new Box(x);
+  };
+  for (const g of gen("ab")) {
+    const s: Box<string> = g;
+    console.log(s.value.length, count);
+  }
+  console.log(iterate(gen), count);
+  const agen = async function* <T>(x: T): AsyncGenerator<Box<T>> {
+    count += 100;
+    await null;
+    yield new Box(x);
+  };
+  for await (const a of agen(7)) {
+    const n: Box<number> = a;
+    console.log(n.value + 1, count);
+  }
+}
+main();
+
+// expect:
+// 3 2 t
+// 4 6
+// 2 16
+// 2 26
+// 10 46
+// 8 146

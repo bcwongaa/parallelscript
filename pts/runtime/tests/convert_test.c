@@ -112,6 +112,28 @@ static void an_array_without_optional_elements_is_copied_into_a_tuple(void) {
   CHECK(!converts_to_optional_pair(3, elements, &out)); /* one too many */
 }
 
+/* A tuple is an array in JS, so one converts to an array type as an array of other elements does: a copy with each element converted (C70, D-190). */
+static void a_tuple_is_copied_into_an_array(void) {
+  optional_pair *pair = pts_object_new(&optional_pair_type);
+  pair->first = 1;
+  pair->second = pts_value_from_number(2.5);
+  pts_array *copy = (pts_array *)pts_value_as_object(pts_value_convert(pts_value_from_object(pair), &numbers_check));
+  CHECK(copy->type->element == PTS_FIELD_NUMBER && pts_array_length_of(copy) == 2);
+  CHECK(pts_array_element(copy, 0) == pts_value_from_number(1) && pts_array_element(copy, 1) == pts_value_from_number(2.5));
+  pair->second = PTS_VALUE_ABSENT; /* the optional element left out: no element for it */
+  copy = (pts_array *)pts_value_as_object(pts_value_convert(pts_value_from_object(pair), &numbers_check));
+  CHECK(pts_array_length_of(copy) == 1);
+  pair->second = pts_value_from_string(pts_string_from_cstr("2"));
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_value_convert(pts_value_from_object(pair), &numbers_check);
+    CHECK(false);
+  } else {
+    CHECK(pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError));
+  }
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   an_array_of_the_right_kind_is_the_same_array();
@@ -119,5 +141,6 @@ int main(int argc, char **argv) {
   an_element_that_doesnt_fit_throws();
   a_self_containing_array_converts_without_looping();
   an_array_without_optional_elements_is_copied_into_a_tuple();
+  a_tuple_is_copied_into_an_array();
   return pts_runtime_exit(CHECK_DONE());
 }

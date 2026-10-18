@@ -1,0 +1,68 @@
+// Erased generic methods and generic function values that return their tuple rest
+// parameter (`...items: [T, T]`) where an array type goes (`T[]`, `readonly T[]`,
+// `Array<T>`) give the call an array of the elements (H09, C70): erased code holds the rest
+// parameter as a tuple, which threw `TypeError: Expected number[], got Array` when the
+// typed call converted it, where JS's rest parameter is an array. Through an interface,
+// an object literal's method, an abstract method and generic function values; rest tuples
+// of one, two and three elements. (A monomorphized call of the same method is PTS1001,
+// "using a [number, number] as a number[] where it may be changed or kept", as in
+// non-generic code.)
+function attempt(label: string, f: () => readonly number[]): void {
+  try {
+    const xs = f();
+    console.log(label, xs, xs.length);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+interface Pairs {
+  pair<T>(...items: [T, T]): T[];
+}
+class ClassPairs implements Pairs {
+  pair<T>(...items: [T, T]): T[] {
+    return items;
+  }
+}
+const viaInterface: Pairs = new ClassPairs();
+attempt("interface", () => viaInterface.pair(1, 2));
+
+const literal: Pairs = {
+  pair<T>(...items: [T, T]): T[] {
+    return items;
+  },
+};
+attempt("object literal through an interface", () => literal.pair(3, 4));
+const own = {
+  triple<T>(...items: [T, T, T]): readonly T[] {
+    return items;
+  },
+};
+attempt("object literal's own type, readonly", () => own.triple(5, 6, 7));
+
+abstract class Base {
+  abstract single<T>(...items: [T]): Array<T>;
+}
+class Single extends Base {
+  single<T>(...items: [T]): Array<T> {
+    return items;
+  }
+}
+const base: Base = new Single();
+attempt("abstract method, Array<T>", () => base.single(8));
+
+function pairOf<T>(...items: [T, T]): T[] {
+  return items;
+}
+const pairValue: <T>(...items: [T, T]) => T[] = pairOf;
+attempt("generic function value", () => pairValue(9, 10));
+const pairArrow = <T>(...items: [T, T]): T[] => items;
+attempt("generic const called by name", () => pairArrow(11, 12));
+
+// expect:
+// interface [ 1, 2 ] 2
+// object literal through an interface [ 3, 4 ] 2
+// object literal's own type, readonly [ 5, 6, 7 ] 3
+// abstract method, Array<T> [ 8 ] 1
+// generic function value [ 9, 10 ] 2
+// generic const called by name [ 11, 12 ] 2

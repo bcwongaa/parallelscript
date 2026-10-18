@@ -1,0 +1,152 @@
+// Generic arrow functions and function expressions in every context a body can be in
+// find their instances, which run with the erased copy's closure (H09, D-190): a named
+// function expression calling itself by name (its name in the instance is the closure),
+// an instance field, a getter, static fields with and without `this`, a static block, a
+// constructor that captures its parameter and a counter, an arrow that calls `super`'s
+// method, and a generic class's field arrow, whose instance class is each `Shelf<U>`'s.
+// Review round 1's probes a1, a4, a7 and a8.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public a: A,
+    public b: B,
+  ) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+function namedExpressions(): void {
+  const f = function rec<T>(x: T, n: number): Box<T> {
+    return n > 0 ? rec(x, n - 1) : new Box(x);
+  };
+  const b: Box<number> = f(3, 2);
+  const g: <T>(x: T, n: number) => Box<T> = f;
+  const s: Box<string> = g("ab", 3);
+  const h = function self<T>(x: T): Box<T> {
+    const again = (y: T): Box<T> => (y === x ? new Box(y) : self(y));
+    return again(x);
+  };
+  const hb: Box<string> = h("q");
+  console.log("named", b.value + 1, f.name, f.length, s.value.length, g === f, hb.value.length);
+}
+namedExpressions();
+
+class Holder {
+  base = 5;
+  mk = <T>(x: T): Box<[T, number]> => new Box<[T, number]>([x, this.base]);
+  constructor(public extra: number) {}
+  get getterMk() {
+    return <T>(x: T): Box<[T, number]> => new Box<[T, number]>([x, this.extra]);
+  }
+  static tag = "S";
+  static smk = <T>(x: T): Box<[T, string]> => new Box<[T, string]>([x, Holder.tag]);
+  static thisMk = <T>(x: T): Box<[T, string]> => new Box<[T, string]>([x, this.tag]);
+  static made: <T>(x: T) => Box<T> = <T>(x: T): Box<T> => new Box(x);
+  static {
+    const n = 3;
+    Holder.made = <T>(x: T): Box<T> => {
+      console.log("static block", n);
+      return new Box(x);
+    };
+  }
+}
+const holder = new Holder(7);
+attempt("field", () => {
+  const b: Box<[string, number]> = holder.mk("ab");
+  return `${b.value[0].length} ${b.value[1]}`;
+});
+attempt("getter", () => {
+  const b: Box<[string, number]> = holder.getterMk("ab");
+  return `${b.value[0].length} ${b.value[1]}`;
+});
+attempt("static", () => {
+  const b: Box<[number, string]> = Holder.smk(1);
+  return `${b.value[0] + 1} ${b.value[1]}`;
+});
+attempt("static this", () => {
+  const b: Box<[number, string]> = Holder.thisMk(1);
+  return `${b.value[0] + 1} ${b.value[1]}`;
+});
+attempt("static block", () => {
+  const b: Box<number> = Holder.made(1);
+  return `${b.value + 1}`;
+});
+
+function tagged(label: string, f: <T>(x: T) => Box<[T, string]>): void {
+  attempt(label, () => {
+    const b: Box<[number, string]> = f(1);
+    return `${b.value[0] + 1} ${b.value[1]}`;
+  });
+}
+class Base {
+  describe(): string {
+    return "base";
+  }
+}
+class Derived extends Base {
+  made: <T>(x: T) => Box<[T, string]>;
+  constructor(prefix: string) {
+    super();
+    let count = 0;
+    this.made = <T>(x: T): Box<[T, string]> => {
+      count++;
+      return new Box<[T, string]>([x, prefix + count]);
+    };
+  }
+  describe(): string {
+    return "derived";
+  }
+  viaSuper(): <T>(x: T) => Box<[T, string]> {
+    return <T>(x: T): Box<[T, string]> => new Box<[T, string]>([x, super.describe() + this.describe()]);
+  }
+}
+const derived = new Derived("p");
+tagged("constructor", derived.made);
+tagged("constructor again", derived.made);
+tagged("super", derived.viaSuper());
+
+function paired(label: string, f: <T>(x: T) => Pair<T, string>): void {
+  attempt(label, () => {
+    const p: Pair<number, string> = f(1);
+    return `${p.a + 1} ${p.b.length}`;
+  });
+}
+class Shelf<U> {
+  mk = <T>(x: T): Pair<T, U> => new Pair(x, this.u);
+  constructor(public u: U) {}
+  static count = 0;
+  static smk = <T>(x: T): Pair<T, string> => {
+    Shelf.count++;
+    return new Pair(x, "static" + Shelf.count);
+  };
+}
+paired("generic class field", new Shelf("abc").mk);
+paired("generic class field again", new Shelf("de").mk);
+paired("generic class static", Shelf.smk);
+attempt("generic class field direct", () => {
+  const p: Pair<string, number> = new Shelf(5).mk("x");
+  return `${p.a.length} ${p.b + 1}`;
+});
+
+// expect:
+// named 4 rec 2 2 true 1
+// field 2 5
+// getter 2 7
+// static 2 S
+// static this 2 S
+// static block 3
+// static block 2
+// constructor 2 p1
+// constructor again 2 p2
+// super 2 basederived
+// generic class field 2 3
+// generic class field again 2 2
+// generic class static 2 7
+// generic class field direct 1 6

@@ -24,31 +24,92 @@ import (
 // Compile errors come back as a *diagnostic.Error, and a bug the compiler ran into
 // as a *diagnostic.InternalError (D-179).
 func EmitC(ctx context.Context, entry string) (code string, err error) {
-	defer diagnostic.Contain(&err)
-	entry, err = filepath.Abs(entry)
+	checked, err := load(ctx, entry)
 	if err != nil {
 		return "", err
 	}
-	program, diagnostics := frontend.Load(ctx, osvfs.FS(), entry)
-	if len(diagnostics) > 0 {
-		return "", &diagnostic.Error{Diagnostics: diagnostics}
+	code, err = checked.emitC(ctx, lower.AllInstances)
+	if fallsBack(ctx, err) {
+		code, err = checked.emitC(ctx, lower.DeclaredInstances)
 	}
-	info, diagnostics := check.Program(ctx, program)
-	if len(diagnostics) > 0 {
-		return "", &diagnostic.Error{Diagnostics: diagnostics}
+	return code, err
+}
+
+// EmitCWith is EmitC with the given specialization alone, for tests: a failure doesn't
+// fall back to lower.DeclaredInstances, so a bug that only AllInstances' instances hit
+// isn't hidden.
+func EmitCWith(ctx context.Context, entry string, specialization lower.Specialization) (code string, err error) {
+	checked, err := load(ctx, entry)
+	if err != nil {
+		return "", err
 	}
-	lowered, diagnostics := lower.Program(ctx, program, info)
-	if len(diagnostics) > 0 {
-		return "", &diagnostic.Error{Diagnostics: diagnostics}
-	}
-	return cgen.Emit(lowered), nil
+	return checked.emitC(ctx, specialization)
 }
 
 // Build compiles the program whose entry module is the file at entry into a native
 // executable at output. Compile errors come back as a *diagnostic.Error, and a bug the
 // compiler ran into, C that the C compiler rejects included, as a *diagnostic.InternalError.
 func Build(ctx context.Context, entry string, output string) error {
-	c, err := EmitC(ctx, entry)
+	checked, err := load(ctx, entry)
+	if err != nil {
+		return err
+	}
+	err = checked.build(ctx, lower.AllInstances, output)
+	if fallsBack(ctx, err) {
+		err = checked.build(ctx, lower.DeclaredInstances, output)
+	}
+	return err
+}
+
+// checkedProgram is a program that loaded and passed the semantic checks.
+type checkedProgram struct {
+	program *frontend.Program
+	info    *check.Info
+}
+
+// load loads the program whose entry module is the file at entry and checks it.
+func load(ctx context.Context, entry string) (checked *checkedProgram, err error) {
+	defer diagnostic.Contain(&err)
+	entry, err = filepath.Abs(entry)
+	if err != nil {
+		return nil, err
+	}
+	program, diagnostics := frontend.Load(ctx, osvfs.FS(), entry)
+	if len(diagnostics) > 0 {
+		return nil, &diagnostic.Error{Diagnostics: diagnostics}
+	}
+	info, diagnostics := check.Program(ctx, program)
+	if len(diagnostics) > 0 {
+		return nil, &diagnostic.Error{Diagnostics: diagnostics}
+	}
+	return &checkedProgram{program, info}, nil
+}
+
+// fallsBack reports whether a build that failed with err, with lower.AllInstances, is
+// tried again with lower.DeclaredInstances, which programs compiled with before H09
+// (D-190): the instances that D-190 adds are made for calls that may never meet them, and
+// a failure in their code, which the lowering's trials don't take back, mustn't stop a
+// program that compiles without them. Compile errors and internal errors fall back.
+func fallsBack(ctx context.Context, err error) bool {
+	var compileErrors *diagnostic.Error
+	var internal *diagnostic.InternalError
+	return ctx.Err() == nil && (errors.As(err, &compileErrors) || errors.As(err, &internal))
+}
+
+// emitC lowers the program with the given specialization and emits its C.
+func (p *checkedProgram) emitC(ctx context.Context, specialization lower.Specialization) (code string, err error) {
+	defer diagnostic.Contain(&err)
+	lowered, diagnostics := lower.ProgramWith(ctx, p.program, p.info, specialization)
+	if len(diagnostics) > 0 {
+		return "", &diagnostic.Error{Diagnostics: diagnostics}
+	}
+	return cgen.Emit(lowered), nil
+}
+
+// build compiles the program, with the given specialization, into a native executable
+// at output.
+func (p *checkedProgram) build(ctx context.Context, specialization lower.Specialization, output string) error {
+	c, err := p.emitC(ctx, specialization)
 	if err != nil {
 		return err
 	}

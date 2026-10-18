@@ -1,11 +1,13 @@
 package tests
 
 // TestCompilerFailsCleanly checks that the compiler never runs into a bug or hangs on a
-// program, valid or not (H04, D-179): it compiles to C in process (driver.EmitC, no clang)
+// program, valid or not (H04, D-179): it compiles to C in process (driver.EmitCWith, no clang)
 // every test program and mutants made from them by fixed-seed edits, and fails listing
 // each distinct internal compiler error (or panic outside the compiler's boundary, or
 // hang) with the smallest program that hits it. With PTS_SMOKE_CLANG=1 it also asks clang
-// to check the C of each program that compiled.
+// to check the C of each program that compiled. It compiles with lower.AllInstances alone,
+// and fails for a seed that compiles only with the driver's fallback to
+// lower.DeclaredInstances (D-190), but those in needsFallback.
 
 import (
 	"cmp"
@@ -30,6 +32,7 @@ import (
 
 	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
+	"github.com/microsoft/typescript-go/pts/lower"
 	"github.com/microsoft/typescript-go/pts/toolchain"
 	"gotest.tools/v3/assert"
 )
@@ -44,6 +47,11 @@ const (
 	defaultSmokeMutants = 1
 	smokeCompileTimeout = time.Minute // a compile running longer is reported as a hang
 )
+
+// needsFallback are the seeds that compile only with the driver's fallback (D-190), by
+// the end of their path: their speculative instances fail in a way the lowering's trials
+// don't take back.
+var needsFallback = []string{"/run/generic_instances_fall_back.pts"}
 
 // smokeProgram is one program the smoke test compiles: a seed, or a mutant of one.
 type smokeProgram struct {
@@ -61,7 +69,7 @@ func (p smokeProgram) name() string {
 
 // smokeFailure is how compiling a program went wrong.
 type smokeFailure struct {
-	kind    string // "internal error", "panic", "hang" or "clang"
+	kind    string // "internal error", "panic", "hang", "clang" or "fallback"
 	key     string // what tells distinct failures apart: the error and the compiler's frame that raised it
 	detail  string // the panic's frames, or clang's first errors
 	program smokeProgram
@@ -185,7 +193,7 @@ func compileProgram(dir string, program smokeProgram) (string, *smokeFailure) {
 				done <- outcome{failure: panicFailure(r, debug.Stack(), program)}
 			}
 		}()
-		c, err := driver.EmitC(context.Background(), path)
+		c, err := driver.EmitCWith(context.Background(), path, lower.AllInstances) // without EmitC's fallback, which would hide what only its instances hit (D-190)
 		var internal *diagnostic.InternalError
 		var compileErr *diagnostic.Error
 		switch {
@@ -194,7 +202,7 @@ func compileProgram(dir string, program smokeProgram) (string, *smokeFailure) {
 		case err != nil && !errors.As(err, &compileErr):
 			panic(fmt.Sprintf("EmitC failed without diagnostics: %v", err))
 		default:
-			done <- outcome{c: c}
+			done <- outcome{c: c, failure: fallbackFailure(path, program, err)}
 		}
 	}()
 	select {
@@ -203,6 +211,26 @@ func compileProgram(dir string, program smokeProgram) (string, *smokeFailure) {
 	case <-time.After(smokeCompileTimeout):
 		return "", &smokeFailure{kind: "hang", key: "hang", detail: "compiling took longer than " + smokeCompileTimeout.String(), program: program}
 	}
+}
+
+// fallbackFailure is a seed's failure if it compiles only with the driver's fallback and
+// isn't in needsFallback, or is and no longer needs it; err is its compile errors with
+// lower.AllInstances, if any.
+func fallbackFailure(path string, program smokeProgram, err error) *smokeFailure {
+	if program.mutation != "" {
+		return nil
+	}
+	listed := slices.ContainsFunc(needsFallback, func(end string) bool { return strings.HasSuffix(program.seed, end) })
+	switch {
+	case err == nil && listed:
+		return &smokeFailure{kind: "fallback", key: "compiles without the fallback: remove it from needsFallback", program: program}
+	case err == nil || listed:
+		return nil
+	}
+	if _, declared := driver.EmitCWith(context.Background(), path, lower.DeclaredInstances); declared != nil {
+		return nil // an error either way
+	}
+	return &smokeFailure{kind: "fallback", key: "compiles only with the driver's fallback (D-190)", detail: strings.SplitN(err.Error(), "\n", 2)[0], program: program}
 }
 
 // compilerFrame matches a stack frame's location in the compiler: pts/<package>/<file>.go:<line>

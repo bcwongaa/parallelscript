@@ -1,0 +1,101 @@
+// Calls of a generic function value whose result is a promise of generic class instances
+// tell apart type arguments that differ only in a dynamic value inside them (H09, D-190;
+// review round 5's R5-1 and R5-2): `Promise<number>` against `any` in an array's elements,
+// an object literal's or an interface's property, an index signature or a `Record`, and a
+// type alias's argument in an intersection-typed parameter. Their IR types are the same,
+// with a dynamic value inside, but `Awaited<…>` of them isn't, so each call needs its own
+// instance; the `any` calls ran on the base with the erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+
+async function first<T extends unknown[]>(xs: T): Promise<Box<Awaited<T[number]>>> {
+  const v: Awaited<T[number]> = await (xs[0] as Promise<Awaited<T[number]>>);
+  return new Box(v);
+}
+async function arrays(f: <T extends unknown[]>(xs: T) => Promise<Box<Awaited<T[number]>>>): Promise<string> {
+  const a = await f([Promise.resolve(1)]);
+  const b = await f<any[]>([2]);
+  return `${a.value + 1} ${b.value}`;
+}
+
+async function unwrap<T extends { p: unknown }>(x: T): Promise<Box<Awaited<T["p"]>>> {
+  const v: Awaited<T["p"]> = await (x.p as Promise<Awaited<T["p"]>>);
+  return new Box(v);
+}
+async function shapes(f: <T extends { p: unknown }>(x: T) => Promise<Box<Awaited<T["p"]>>>): Promise<string> {
+  const a = await f({ p: Promise.resolve(3) });
+  const b = await f<{ p: any }>({ p: 4 });
+  return `${a.value + 1} ${b.value}`;
+}
+interface WithPromise {
+  p: Promise<number>;
+}
+interface WithAny {
+  p: any;
+}
+async function unwrapDecl<T extends { p: unknown }>(x: T): Promise<Box<Awaited<T["p"]>>> {
+  const v: Awaited<T["p"]> = await (x.p as Promise<Awaited<T["p"]>>);
+  return new Box(v);
+}
+async function interfaces(f: <T extends { p: unknown }>(x: T) => Promise<Box<Awaited<T["p"]>>>): Promise<string> {
+  const withPromise: WithPromise = { p: Promise.resolve(5) };
+  const withAny: WithAny = { p: 6 };
+  const a = await f(withPromise);
+  const b = await f(withAny);
+  return `${a.value + 1} ${b.value}`;
+}
+
+async function pick<T extends { [k: string]: unknown }>(m: T): Promise<Box<Awaited<T[string]>>> {
+  const v: Awaited<T[string]> = await (m["a"] as Promise<Awaited<T[string]>>);
+  return new Box(v);
+}
+async function indexSignatures(f: <T extends { [k: string]: unknown }>(m: T) => Promise<Box<Awaited<T[string]>>>): Promise<string> {
+  const promises: { [k: string]: Promise<number> } = { a: Promise.resolve(7) };
+  const anys: { [k: string]: any } = { a: 8 };
+  const a = await f(promises);
+  const b = await f(anys);
+  return `${a.value + 1} ${b.value}`;
+}
+async function unwrapRecord<T extends Record<"p", unknown>>(x: T): Promise<Box<Awaited<T["p"]>>> {
+  const v: Awaited<T["p"]> = await (x.p as Promise<Awaited<T["p"]>>);
+  return new Box(v);
+}
+async function records(f: <T extends Record<"p", unknown>>(x: T) => Promise<Box<Awaited<T["p"]>>>): Promise<string> {
+  const promises: Record<"p", Promise<number>> = { p: Promise.resolve(9) };
+  const anys: Record<"p", any> = { p: 10 };
+  const a = await f(promises);
+  const b = await f(anys);
+  return `${a.value + 1} ${b.value}`;
+}
+
+type Tagged<V> = Promise<V> & { label?: string };
+type Feeder<U> = <T>(p: Tagged<U>, k: T) => Promise<Box<T>>;
+const feed = async <A, B>(p: Tagged<A>, k: B): Promise<Box<B>> => {
+  const a: A = await p;
+  return new Box<B>(k);
+};
+async function numbers(nums: Feeder<number>): Promise<string> {
+  return `${(await nums<any>(Promise.resolve(11), 11)).value}`;
+}
+async function strings(strs: Feeder<string>): Promise<string> {
+  return `${(await strs<any>(Promise.resolve("s"), 12)).value}`;
+}
+
+async function main(): Promise<void> {
+  console.log("arrays", await arrays(first));
+  console.log("shapes", await shapes(unwrap));
+  console.log("interfaces", await interfaces(unwrapDecl));
+  console.log("index signatures", await indexSignatures(pick));
+  console.log("records", await records(unwrapRecord));
+  console.log("intersections", await numbers(feed), await strings(feed));
+}
+main().catch((e: any) => console.log("rejected", e.message));
+
+// expect:
+// arrays 2 2
+// shapes 4 4
+// interfaces 6 6
+// index signatures 8 8
+// records 10 10
+// intersections 11 12

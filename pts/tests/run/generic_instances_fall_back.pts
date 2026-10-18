@@ -1,0 +1,57 @@
+// A build whose instances fail in a way the trials can't take back is built again as
+// before H09, with only the generic functions D-148 gives instances (H09, D-190): here a
+// class instance an arrow's instance makes (`Weird<string>`, whose `inc` narrows
+// `typeof v === "number"` for a string) and a relaxed cast in an instance that is kept.
+// Each arrow reaches a demand only through `any` or not at all, and the program runs as
+// it did before H09 (review round 1's F1 and F3b).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  inc(): number {
+    const v = this.value;
+    if (typeof v === "number") {
+      return v + 1;
+    }
+    return 0;
+  }
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function use(f: <T>(x: T) => Box<T>): string {
+  return String(f("s").value);
+}
+function classBody(): void {
+  const w = <T>(x: T) => new Weird(x);
+  const d: any = w;
+  console.log("class body", d(1).inc(), use(make));
+}
+classBody();
+
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+function useBase(f: <T extends Base>(x: T) => Box<T>): number {
+  return f(new Base()).value.id;
+}
+function keptCast(): void {
+  const boxed = <T extends Base>(x: T): Box<T> => {
+    const tagged: Tagged = x;
+    return new Box(x);
+  };
+  const d: any = boxed;
+  console.log("kept cast", d(new Base()).value.id, new Derived().tag);
+  if (d.length > 5) {
+    console.log(useBase(boxed));
+  }
+}
+keptCast();

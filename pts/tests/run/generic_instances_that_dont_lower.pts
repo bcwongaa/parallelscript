@@ -1,0 +1,105 @@
+// no-diff: an instance whose code narrows its value to a type it can't hold (here `T & any[]` for a number) doesn't lower, so the call keeps the erased copy, whose `Box<any>` throws TypeError where Node prints the box (C171)
+// A generic arrow function's instances are tried (H09, D-190): one whose body doesn't lower
+// for its type arguments, directly or in a generic function it calls, is dropped with
+// what it made, and its call keeps the erased copy, as before H09, so the program still
+// compiles. The instances that lower are used: here the number instance of `cond`, the
+// string instance of `cases` and both of `plain`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function inspect<T>(x: T): void {
+  if (Array.isArray(x)) {
+    console.log("an array of", x.length);
+  }
+}
+function use(label: string, f: <T>(x: T) => Box<T>): void {
+  try {
+    const n: Box<number> = f(2);
+    console.log(label, "number", n.value);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+  try {
+    const s: Box<string> = f("s");
+    console.log(label, "string", s.value);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  use("isArray", <T>(x: T) => {
+    if (Array.isArray(x)) {
+      console.log(x.length);
+    }
+    return new Box(x);
+  });
+  use("calls inspect", <T>(x: T) => {
+    inspect(x);
+    return new Box(x);
+  });
+  use("cond", <T>(x: T) => (typeof x === "number" ? new Box(x) : new Box(x)));
+  use("cases", <T>(x: T) => {
+    switch (typeof x) {
+      case "string":
+        console.log("a string of", x.length);
+    }
+    return new Box(x);
+  });
+  use("plain", <T>(x: T) => new Box(x));
+}
+main();
+
+// A declaration through a value and a dispatched generic method whose instances don't lower
+// keep the erased copy too, where the base reported the instance's PTS1001 (D-190's
+// trade-off: the compiler can't tell a pairing the program makes from one it doesn't;
+// review rounds 1 and 2, `f04` and `t01`).
+function arrays<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("an array of", x.length);
+  }
+  return new Box(x);
+}
+use("declaration", arrays);
+abstract class Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+class ArrayAware extends Maker {
+  make<T>(x: T): Box<T> {
+    if (Array.isArray(x)) {
+      console.log("an array of", x.length);
+    }
+    return new Box(x);
+  }
+}
+class Plain extends Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function dispatch(label: string, m: Maker): void {
+  try {
+    const b: Box<number> = m.make(2);
+    console.log(label, b.value + 1);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+dispatch("plain method", new Plain());
+dispatch("method", new ArrayAware());
+
+// expect:
+// isArray TypeError Expected Box<number>, got Box<any>
+// isArray TypeError Expected Box<string>, got Box<any>
+// calls inspect TypeError Expected Box<number>, got Box<any>
+// calls inspect TypeError Expected Box<string>, got Box<any>
+// cond number 2
+// cond TypeError Expected Box<string>, got Box<any>
+// cases TypeError Expected Box<number>, got Box<any>
+// a string of 1
+// cases string s
+// plain number 2
+// plain string s
+// declaration TypeError Expected Box<number>, got Box<any>
+// declaration TypeError Expected Box<string>, got Box<any>
+// plain method 3
+// method TypeError Expected Box<number>, got Box<any>

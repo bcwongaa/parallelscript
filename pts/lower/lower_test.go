@@ -2,6 +2,7 @@ package lower_test
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -1133,6 +1134,121 @@ func wrap_dynamic(x: value) value {
   2: return box(value[][x])
 }
 `)
+}
+
+func TestGenericArrowInstancesRunWithTheirErasedCopysClosure(t *testing.T) {
+	t.Parallel()
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+function use(f: <T>(x: T) => Box<T>): number {
+  return f(1).value;
+}
+function run(k: string): number {
+  return use(<T>(x: T) => {
+    console.log(k);
+    return new Box(x);
+  });
+}
+console.log(run("k"));
+`)
+	assert.Equal(t, got, `class Box { value: number }
+class Box { value: value }
+func main() void {
+  13: console.log(box(run("k")))
+}
+func use(f: (value) => value) number {
+  5: return (let callee = f in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+}
+func run.arrow(x: value) value closure [k] {
+  9: console.log(box(k))
+  10: return box(new Box(x))
+}
+func run(k: string) number {
+  8: return use(closure run.arrow)
+}
+func Box.constructor(this: Box, value: number) void {
+  2: (this.value = value)
+}
+func Box.constructor(this: Box, value: value) void {
+  2: (this.value = value)
+}
+func run.arrow_number(x: number) Box closure [k] of run.arrow {
+  9: console.log(box(k))
+  10: return new Box(x)
+}
+`)
+}
+
+func TestAGenericArrowsInstanceThatDoesntLowerIsDroppedWithWhatItMade(t *testing.T) {
+	t.Parallel()
+	// For a number, `x` in the branch is `number & any[]`, whose `length` doesn't lower,
+	// and the local declared there cascades; the trial takes back what it reported, and
+	// the call keeps the erased copy (D-190).
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+function use(f: <T>(x: T) => Box<T>): number {
+  return f(1).value;
+}
+function run(): number {
+  return use(<T>(x: T) => {
+    if (Array.isArray(x)) {
+      const n = x.length;
+      console.log(n);
+    }
+    return new Box(x);
+  });
+}
+console.log(run());
+`)
+	assert.Equal(t, got, `class Box { value: number }
+class Box { value: value }
+func main() void {
+  16: console.log(box(run()))
+}
+func use(f: (value) => value) number {
+  5: return (let callee = f in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+}
+func run.arrow(x: value) value closure [] {
+  9: if Array.isArray(x) {
+    10: let n: number = number(get(x, box("length")))
+    11: console.log(box(n))
+  }
+  13: return box(new Box(x))
+}
+func run() number {
+  8: return use(closure run.arrow)
+}
+func Box.constructor(this: Box, value: number) void {
+  2: (this.value = value)
+}
+func Box.constructor(this: Box, value: value) void {
+  2: (this.value = value)
+}
+`)
+}
+
+func TestDynamicResultCallsOfTheSameIRTypeArgumentsShareAKey(t *testing.T) {
+	t.Parallel()
+	// Each object literal is its own checker type, but both are the IR type of
+	// `{ n: number }`, so their calls find one entry; a string's is another (D-190).
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+async function use(f: <T>(x: T) => Promise<Box<T>>): Promise<number> {
+  const a = await f({ n: 1 });
+  const b = await f({ n: 2 });
+  const c = await f("c");
+  return a.value.n + b.value.n + c.value.length;
+}
+use(async <T>(x: T): Promise<Box<T>> => new Box(x)).then((n) => console.log(n));
+`)
+	var keys []string
+	for _, match := range regexp.MustCompile(`instance \[(.+?)\] `).FindAllStringSubmatch(got, -1) {
+		keys = append(keys, match[1])
+	}
+	assert.DeepEqual(t, keys, []string{"Promise<Box<{ n: number; }>>#1", "Promise<Box<{ n: number; }>>#1", "Promise<Box<string>>#2"})
 }
 
 // lowerFailure lowers source as lowerSource does, under ctx, and returns the internal

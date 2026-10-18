@@ -1,0 +1,101 @@
+// Calls of a generic function value whose result is a promise or a generator of generic
+// class instances find the instance of their own type arguments (H09, D-190, C173): calls
+// with the same IR signature (`(number) => value` here) have their own entries for their
+// type arguments. Two calls for `T[]` of number and of string (review round 1's F7), a
+// raw value read as each call's T, and `f<any>`, `f<unknown>` and a `T` inferred as
+// unknown beside a typed call (review round 2's R2: the base ran those with the erased
+// copy, and they must still run), through a local async arrow, an async declaration and
+// generator declarations. Two calls for type arguments that differ only in one the result
+// doesn't show (round 3), and calls for fresh object literals of one IR type, which share
+// their entry. Type arguments from outside the call's own are in
+// `generic_dynamic_results_outer_type_arguments.pts`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function arrays(f: <T>(n: number) => Promise<Box<T[]>>): Promise<void> {
+  const a: Box<number[]> = await f<number>(1);
+  a.value.push(1);
+  const b: Box<string[]> = await f<string>(2);
+  b.value.push("s");
+  console.log("arrays", a.value.length, b.value.length, b.value[0].length);
+}
+const raw: any[] = [1, "two"];
+async function load<T>(i: number): Promise<Box<T>> {
+  return new Box<T>(raw[i] as T);
+}
+async function typedReads(f: <T>(i: number) => Promise<Box<T>>): Promise<void> {
+  const a: Box<number> = await f<number>(0);
+  const b: Box<string> = await f<string>(1);
+  console.log("typed reads", a.value + 1, b.value.length, JSON.stringify(a), JSON.stringify(b));
+}
+async function loose(label: string, f: <T>(n: number) => Promise<Box<T>>): Promise<void> {
+  const inferred = await f(5);
+  const anyBox: Box<any> = await f<any>(2);
+  const unknownBox: Box<unknown> = await f<unknown>(3);
+  const typed: Box<number> = await f<number>(6);
+  console.log(label, String(inferred.value), anyBox.value, String(unknownBox.value), typed.value + 1);
+}
+async function boxed<T>(n: number): Promise<Box<T>> {
+  return new Box<T>(n as any);
+}
+function iterate(g: <T>(n: number) => Generator<Box<T[]>>): void {
+  for (const b of g<string>(1)) {
+    b.value.push("x");
+    console.log("generator string", b.value[0].length);
+  }
+  for (const b of g<number>(1)) {
+    b.value.push(1);
+    console.log("generator number", b.value[0] + 1);
+  }
+}
+function* gens<T>(n: number): Generator<Box<T[]>> {
+  yield new Box<T[]>([]);
+}
+function iterateLoose(g: <T>(n: number) => Generator<Box<T>>): void {
+  for (const b of g<any>(1)) {
+    const kept: Box<any> = b;
+    console.log("generator any", kept.value);
+  }
+  for (const b of g<number>(2)) {
+    console.log("generator number", b.value + 1);
+  }
+}
+function* counted<T>(n: number): Generator<Box<T>> {
+  yield new Box<T>(n as any);
+}
+const stock: any[] = [10, 20, "s"];
+async function phantom(f: <T, U>(n: number) => Promise<Box<T>>): Promise<void> {
+  const a: Box<number> = await f<number, string>(0);
+  const b: Box<number> = await f<number, boolean>(1);
+  const c: Box<string> = await f<string, string>(2);
+  console.log("phantom", a.value + 1, b.value + 1, c.value.length);
+}
+async function literals(f: <T>(x: T) => Promise<Box<T>>): Promise<void> {
+  const a = await f({ n: 1 });
+  const b = await f({ n: 2 });
+  const c = await f("three");
+  console.log("literals", a.value.n + b.value.n, c.value.length);
+}
+async function main(): Promise<void> {
+  await arrays(async <T>(n: number): Promise<Box<T[]>> => new Box<T[]>([]));
+  await typedReads(load);
+  await loose("local arrow", async <T>(n: number): Promise<Box<T>> => new Box<T>(n as any));
+  await loose("declaration", boxed);
+  iterate(gens);
+  iterateLoose(counted);
+  await phantom(async <T, U>(n: number): Promise<Box<T>> => new Box<T>(stock[n] as T));
+  await literals(async <T>(x: T): Promise<Box<T>> => new Box(x));
+}
+main();
+
+// expect:
+// arrays 1 1 1
+// typed reads 2 3 {"value":1} {"value":"two"}
+// local arrow 5 2 3 7
+// declaration 5 2 3 7
+// generator string 1
+// generator number 2
+// generator any 1
+// generator number 3
+// phantom 11 21 1
+// literals 3 5

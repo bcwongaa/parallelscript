@@ -21,6 +21,11 @@ import (
 // itself with ever larger type arguments (f<T> calling f<T[]>) would make without end.
 const maxInstances = 64
 
+// maxDynamicVariants bounds the instances of one generic function for the same IR types
+// that calls with dynamic results tell apart by checker types (genericInstanceFor), which
+// pairing every such call with every value of its function type would multiply.
+const maxDynamicVariants = 4
+
 // genericFunc is a generic function or method declaration and its instances so far.
 type genericFunc struct {
 	node       *ast.Node
@@ -35,6 +40,119 @@ type genericFunc struct {
 	inTable    bool          // for an instance method, its erased copy is in its class's method table
 	dispatched bool          // abstract, or overridden: its calls find the receiver's class's method by name (D-101)
 	jsName     string        // its instances' name in JS, if its node has none (a const's arrow function, D-102)
+	// For a generic arrow function or function expression other than a module-scope
+	// const's (D-190): the function of its erased copy, whose closures its instances run
+	// with; what its names stood for when it was lowered, which its instances' bodies,
+	// lowered later, see; and the const it initialises if every use of it calls it by
+	// name, whose calls are the only demands its value meets.
+	closure    *ir.Func
+	scope      *scope
+	calledOnly *ast.Symbol
+}
+
+// scope is what the names in a generic arrow function stand for where it is lowered: the
+// locals of variables and parameters and the functions of nested function declarations
+// (which another instance of an enclosing generic function declares again), and the class
+// whose static initialisers it is in, if any.
+type scope struct {
+	locals map[*ast.Symbol]*ir.Local
+	funcs  map[*ast.Symbol]*ir.Func
+	static *ir.Class
+}
+
+// scopeOf is what the names node uses stand for now (D-190).
+func (l *lowerer) scopeOf(node *ast.Node) *scope {
+	s := &scope{locals: map[*ast.Symbol]*ir.Local{}, funcs: map[*ast.Symbol]*ir.Func{}, static: l.staticContext}
+	note := func(symbol *ast.Symbol) {
+		if local, ok := l.locals[symbol]; ok {
+			s.locals[symbol] = local
+		}
+		if fn, ok := l.funcs[symbol]; ok {
+			s.funcs[symbol] = fn
+		}
+	}
+	note(l.declaredSymbol(node)) // a named function expression's own name
+	var visit func(child *ast.Node) bool
+	visit = func(child *ast.Node) bool {
+		if child.Kind == ast.KindIdentifier {
+			note(l.checker.GetSymbolAtLocation(child))
+			note(l.readSymbol(child))
+		}
+		return child.ForEachChild(visit)
+	}
+	node.ForEachChild(visit)
+	return s
+}
+
+// enterScope makes the names of s stand for what they did, and returns what undoes it.
+func (l *lowerer) enterScope(s *scope) (leave func()) {
+	locals, funcs := map[*ast.Symbol]*ir.Local{}, map[*ast.Symbol]*ir.Func{}
+	for symbol, local := range s.locals {
+		if outer, ok := l.locals[symbol]; ok {
+			locals[symbol] = outer
+		}
+		l.locals[symbol] = local
+	}
+	for symbol, fn := range s.funcs {
+		if outer, ok := l.funcs[symbol]; ok {
+			funcs[symbol] = outer
+		}
+		l.funcs[symbol] = fn
+	}
+	static := l.staticContext
+	l.staticContext = s.static
+	return func() {
+		for symbol := range s.locals {
+			if outer, ok := locals[symbol]; ok {
+				l.locals[symbol] = outer
+			} else {
+				delete(l.locals, symbol)
+			}
+		}
+		for symbol := range s.funcs {
+			if outer, ok := funcs[symbol]; ok {
+				l.funcs[symbol] = outer
+			} else {
+				delete(l.funcs, symbol)
+			}
+		}
+		l.staticContext = static
+	}
+}
+
+// calledOnlyName is the const that node, a function-local const's generic arrow function
+// or function expression, initialises if every use of it calls it by name (`make(1)`, not
+// `use(make)` or `{ make }`), else nil (D-190).
+func (l *lowerer) calledOnlyName(node *ast.Node) *ast.Symbol {
+	declaration := node.Parent
+	for declaration.Kind == ast.KindParenthesizedExpression {
+		declaration = declaration.Parent
+	}
+	if declaration.Kind != ast.KindVariableDeclaration || declaration.Name().Kind != ast.KindIdentifier || declaration.Parent.Flags&ast.NodeFlagsConst == 0 {
+		return nil
+	}
+	symbol := l.target(declaration.Name())
+	container := ast.GetContainingFunction(declaration)
+	if symbol == nil || container == nil || container.Body() == nil {
+		return nil
+	}
+	calledOnly := true
+	var visit func(child *ast.Node) bool
+	visit = func(child *ast.Node) bool {
+		if child.Kind == ast.KindIdentifier && child != declaration.Name() && l.readSymbol(child) == symbol {
+			call := child.Parent
+			for call.Kind == ast.KindParenthesizedExpression {
+				call = call.Parent
+			}
+			calledOnly = call.Kind == ast.KindCallExpression && ast.SkipParentheses(call.Expression()) == child
+		}
+		return !calledOnly || child.ForEachChild(visit)
+	}
+	container.Body().ForEachChild(visit)
+	if !calledOnly {
+		return nil
+	}
+	return symbol
 }
 
 // instance is a generic function's instance for a list of type arguments.
@@ -677,6 +795,22 @@ func (l *lowerer) inheritedGenericMethod(class *ir.Class, name string) *genericF
 // arguments (in terms of the instance being lowered, if any), making it if it is new; nil
 // if it failed (reported at node).
 func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) *ir.Func {
+	return l.genericInstanceFor(generic, typeArguments, node, false)
+}
+
+// genericInstanceFor is genericInstance, and for a call with a dynamic result (dynamic)
+// an instance made for the same checker types where the type arguments are or hold
+// dynamic values (madeFor). Instances are told apart by IR types, but those for
+// `Promise<number>` and for `any`, or `Promise<number>[]` and `any[]`, make other objects
+// (`Box<Awaited<T>>`): a call with a typed result tells them apart by the instance's
+// result, and one with a dynamic result can't (D-190). Past maxDynamicVariants such
+// instances of the same IR types, or the instance limit, it is nil, unreported: the call
+// keeps the erased copy.
+func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node, dynamic bool) *ir.Func {
+	if t := l.trial; t != nil {
+		t.making++ // what it reports is the trial's (D-190)
+		defer func() { t.making-- }()
+	}
 	arguments := make([]ir.Type, len(typeArguments))
 	concrete := make([]*checker.Type, len(typeArguments))
 	literals := make([]*checker.Type, len(typeArguments))
@@ -689,12 +823,22 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 			literals[i] = concrete[i] // `pick(o, "a")` and `pick(o, "b")` return different types
 		}
 	}
+	variants := 0
 	for _, existing := range generic.instances {
 		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
-			return existing.fn
+			if !dynamic || l.madeFor(existing, concrete, node) {
+				return existing.fn
+			}
+			variants++
 		}
 	}
+	if variants > 0 && (variants == maxDynamicVariants || len(generic.instances) == maxInstances) {
+		return nil
+	}
 	if len(generic.instances) == maxInstances {
+		if t := l.trial; t != nil {
+			t.foreign = true // the program's own limit, which a trial doesn't take back (D-190)
+		}
 		l.notSupportedYet(node, fmt.Sprintf("a generic function with more than %d instances (`%s`) is", maxInstances, generic.name))
 		return nil
 	}
@@ -706,7 +850,31 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
+	if t := l.trial; t != nil {
+		t.instances = append(t.instances, inst)
+		if inst.fn != nil {
+			t.funcs[inst.fn] = true
+		}
+	}
 	return inst.fn
+}
+
+// madeFor reports whether inst was made for concrete type arguments, of its IR types, of
+// the same dynamic values too: their keyParts are the same.
+func (l *lowerer) madeFor(inst *instance, concrete []*checker.Type, node *ast.Node) bool {
+	made := inst.subst.arguments[len(inst.subst.arguments)-len(concrete):] // after an enclosing instance's
+	for i, t := range concrete {
+		if made[i] == t {
+			continue
+		}
+		madeKey, key := &keyIdentity{budget: maxKeyParts}, &keyIdentity{budget: maxKeyParts}
+		l.keyPart(madeKey, made[i], node)
+		l.keyPart(key, t, node)
+		if madeKey.String() != key.String() {
+			return false
+		}
+	}
+	return true
 }
 
 // isLiteralType reports whether t is a literal type or a union of them.
@@ -736,6 +904,13 @@ func (l *lowerer) declareInstance(inst *instance, name string) {
 		if generic.static != nil {
 			l.staticClasses[inst.fn] = generic.static
 		}
+		if closure := generic.closure; closure != nil {
+			// It runs with the erased copy's closure, the value its calls find it through:
+			// its own name in its body is that closure (D-190).
+			inst.fn.Closure, inst.fn.Outer, inst.fn.Shares, inst.fn.Self = true, closure.Outer, closure, closure.Self
+			inst.fn.JSName = closure.JSName
+			l.arrows[inst.fn] = l.arrows[closure]
+		}
 		l.instances = append(l.instances, inst)
 	}
 }
@@ -746,6 +921,9 @@ func (l *lowerer) instanceBody(inst *instance) {
 	node, fn := inst.generic.node, inst.fn
 	l.subst = inst.subst
 	defer func() { l.subst = nil }()
+	if scope := inst.generic.scope; scope != nil {
+		defer l.enterScope(scope)() // the code around a generic arrow function, as it was (D-190)
+	}
 	l.forgetLocals(node) // another instance's
 	l.bindParameters(node, fn)
 	outerBodies, outerFunction := l.bodies, l.function

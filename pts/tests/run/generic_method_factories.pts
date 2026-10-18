@@ -1,0 +1,83 @@
+// skip: known issue (H09b, C169): generic methods through interfaces, object literals and method values, `bind`, and generic values where a non-generic function type goes take the erased copy
+// Generic methods and generic function values reached through interfaces, object literals,
+// method values, `bind` and a non-generic context make specialized generic class instances
+// for each typed call (H09b; D-148's and D-190's known gaps): an interface call of a
+// class's generic method, an object literal's generic method (through its own type or an
+// interface), a generic method read as a value and passed on, a bound generic function,
+// and an inline generic arrow or an erased value given where a non-generic function type
+// goes (`[1, 2].map(…)`). Each throws `TypeError: Expected Box<number>, got Box<any>` (or
+// `Box[]`), where the erased copy's instance comes back.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function exercise(label: string, factory: <T>(x: T) => Box<T>): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    return `${n.value + 1} ${s.value.length}`;
+  });
+}
+
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const viaInterface: Maker = new ClassMaker();
+attempt("interface call of a class's method", () => {
+  const b: Box<number> = viaInterface.make(5);
+  return `${b.value + 1} ${b instanceof Box}`;
+});
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+attempt("object literal's method", () => {
+  const b: Box<number> = literal.make(5);
+  return String(b.value + 1);
+});
+const literalMaker: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+attempt("object literal's method through an interface", () => {
+  const b: Box<string> = literalMaker.make("ab");
+  return String(b.value.length);
+});
+const classMaker = new ClassMaker();
+exercise("method value", classMaker.make);
+exercise("bound function", make.bind(undefined));
+
+attempt("inline arrow in a non-generic context", () => {
+  const boxes: Box<number>[] = [1, 2].map(<T>(x: T): Box<T> => new Box(x));
+  return String(boxes[0].value + boxes[1].value);
+});
+const aliased = make;
+attempt("erased value in a non-generic context", () => {
+  const boxes: Box<number>[] = [3].map(aliased);
+  return String(boxes[0].value + 1);
+});
+
+// expect:
+// interface call of a class's method 6 true
+// object literal's method 6
+// object literal's method through an interface 2
+// method value 10 4
+// bound function 10 4
+// inline arrow in a non-generic context 3
+// erased value in a non-generic context 4

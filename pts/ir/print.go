@@ -40,7 +40,11 @@ func closureHeader(f *Func) string {
 	for i, local := range f.Captures {
 		captures[i] = localName(local)
 	}
-	return " closure [" + strings.Join(captures, ", ") + "]"
+	header := " closure [" + strings.Join(captures, ", ") + "]"
+	if f.Shares != nil {
+		header += " of " + f.Shares.Name
+	}
+	return header
 }
 
 // localName is a local's name, marked if it lives in a cell.
@@ -330,7 +334,11 @@ func FormatExpr(expr Expr) string {
 	case *InterfaceCall:
 		return "interface " + e.Method.Name + formatArgs(e.Args)
 	case *InstanceCall:
-		return "instance " + e.Name + formatArgs(append([]Expr{e.X}, e.Args...)) + " else " + FormatExpr(e.Otherwise)
+		key := ""
+		if e.Key != "" {
+			key = "[" + e.Key + "] "
+		}
+		return "instance " + key + e.Name + formatArgs(append([]Expr{e.X}, e.Args...)) + " else " + FormatExpr(e.Otherwise)
 	case *NewArray:
 		if e.Length != nil {
 			return "new " + e.Array.String() + "(" + FormatExpr(e.Length) + ")"

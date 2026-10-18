@@ -1,0 +1,75 @@
+// A generic function value whose result is a promise or a generator of generic class
+// instances finds its instance too (H09, D-190): its call's result is a dynamic value, a
+// promise or generator object, whose values the instance makes for the call's type
+// arguments, so what an `await` or a `for…of` takes out is a `Box<number>` or a
+// `Box<string>`, not the erased copy's `Box<any>`. Async arrows in a function, a
+// module-scope async const and an async declaration passed as values, a generic generator
+// function expression and a generator declaration passed as a value.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function laterDeclared<T>(x: T): Promise<Box<T>> {
+  return new Box(x);
+}
+const laterConst = async <T>(x: T): Promise<Box<T>> => new Box(x);
+function* boxesDeclared<T>(x: T): Generator<Box<T>> {
+  yield new Box(x);
+}
+
+async function awaitBoth(label: string, factory: <T>(x: T) => Promise<Box<T>>): Promise<void> {
+  try {
+    const n: Box<number> = await factory(9);
+    const s: Box<string> = await factory("nine");
+    console.log(label, n.value + 1, s.value.length);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+function iterateBoth(label: string, factory: <T>(x: T) => Generator<Box<T>>): void {
+  try {
+    for (const box of factory(2)) {
+      const n: Box<number> = box;
+      console.log(label, n.value + 1);
+    }
+    const step = factory("ab").next();
+    if (!step.done) {
+      console.log(label, step.value.value.length);
+    }
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+async function main(): Promise<void> {
+  const later = async <T>(x: T): Promise<Box<T>> => new Box(x);
+  const b: Box<number> = await later(2);
+  console.log("local async arrow", b.value + 1);
+  await awaitBoth("local async arrow passed", later);
+  await awaitBoth("async const", laterConst);
+  await awaitBoth("async declaration", laterDeclared);
+  const boxes = function* <T>(x: T): Generator<Box<T>> {
+    yield new Box(x);
+    yield new Box(x);
+  };
+  for (const box of boxes("abc")) {
+    const s: Box<string> = box;
+    console.log("generator expression", s.value.length);
+  }
+  iterateBoth("generator declaration", boxesDeclared);
+  iterateBoth("generator expression passed", boxes);
+}
+main();
+
+// expect:
+// local async arrow 3
+// local async arrow passed 10 4
+// async const 10 4
+// async declaration 10 4
+// generator expression 3
+// generator expression 3
+// generator declaration 3
+// generator declaration 2
+// generator expression passed 3
+// generator expression passed 3
+// generator expression passed 2
