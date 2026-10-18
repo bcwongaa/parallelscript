@@ -1,0 +1,92 @@
+// Calls through an interface and dispatched calls (D-101) of an overridden generic method
+// find the override's instance (H09b1, D-191): the class's entry for the method's name and
+// signature, which either kind of call makes first, has the instance of the override's
+// own type parameters, inferred relating it to the call's signature, so an override with
+// an extra defaulted type parameter has one whichever call comes first (review round 1,
+// F6), and a subclass's instance is found before its base class's.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+abstract class AbstractMaker implements Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+class Extra extends AbstractMaker {
+  make<T, U = string>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Other extends AbstractMaker {
+  make<V, W = number>(x: V): Box<V> {
+    return new Box(x);
+  }
+}
+const log: string[] = [];
+class Base implements Maker {
+  make<T>(x: T): Box<T> {
+    log.push("base");
+    return new Box(x);
+  }
+}
+class Sub extends Base {
+  make<T>(x: T): Box<T> {
+    log.push("sub");
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    const result = f();
+    console.log(log.length > 0 ? `${label} ${result} ${log.join(",")}` : `${label} ${result}`);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+  log.length = 0;
+}
+attempt("dispatched first", () => {
+  const a: AbstractMaker = new Extra();
+  const b: Box<number> = a.make(6);
+  return String(b.value + 1);
+});
+attempt("then through the interface", () => {
+  const m: Maker = new Extra();
+  const b: Box<number> = m.make(5);
+  const s: Box<string> = m.make("ab");
+  return `${b.value + 1} ${s.value.length}`;
+});
+attempt("through the interface first", () => {
+  const m: Maker = new Other();
+  const b: Box<boolean> = m.make(true);
+  return String(!b.value);
+});
+attempt("then dispatched", () => {
+  const a: AbstractMaker = new Other();
+  const b: Box<boolean> = a.make(false);
+  return String(!b.value);
+});
+attempt("a base through the interface", () => {
+  const m: Maker = new Base();
+  const b: Box<number> = m.make(1);
+  return String(b.value + 1);
+});
+attempt("a subclass through the interface", () => {
+  const m: Maker = new Sub();
+  const b: Box<number> = m.make(2);
+  return String(b.value + 1);
+});
+attempt("a subclass through its base", () => {
+  const m: Base = new Sub();
+  const b: Box<number> = m.make(3);
+  return String(b.value + 1);
+});
+
+// expect:
+// dispatched first 7
+// then through the interface 6 2
+// through the interface first false
+// then dispatched true
+// a base through the interface 2 base
+// a subclass through the interface 3 sub
+// a subclass through its base 4 sub

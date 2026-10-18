@@ -1040,6 +1040,15 @@ pts_value pts_method_call_dynamic(pts_object *object, const char *name, uint32_t
  */
 pts_function pts_instance_find(const void *value, const char *name, const struct pts_check *signature);
 /*
+ * The instance of signature (D-148) that a call of object's method name finds: the one the
+ * nearest class of object with an entry for the method lists, or if none has one and
+ * object's field name holds a closure (an object literal's method, D-044), the one that
+ * closure lists under that name (D-191). *closure is that closure, or NULL; the instance
+ * takes it, then object. site caches, for a descriptor none of whose classes has an entry,
+ * where its field is.
+ */
+pts_function pts_method_instance_find(const pts_object *object, pts_site *site, const char *name, const struct pts_check *signature, pts_closure **closure);
+/*
  * What the RangeError of a read past the end (D-038) or of a missing key (D-059) suggests
  * after the message: where a missing value is expected, these read it as JS does
  * (D-152, ruling 4 of docs/agent/OWNER_ANSWERS.md).

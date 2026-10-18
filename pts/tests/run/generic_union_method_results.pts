@@ -1,0 +1,84 @@
+// A typed call of a generic method through a union of object types finds its instance
+// (H09b1, D-191), and its value stays a dynamic value, as it was: the instance's box, or
+// the erased copy's where no instance runs (an `any` argument with an explicit type
+// argument, an instance that doesn't lower, a class that implements the method with a
+// plain one), which `console.log`, an `any` variable, a property read or a template take
+// as they are, as Node does, rather than checking it as the call's type (review round 2,
+// R2-1). A typed place converts it with its check, as before.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface MakerA {
+  make<T>(x: T): Box<T>;
+  a(): number;
+}
+interface MakerB {
+  make<T>(x: T): Box<T>;
+  b(): number;
+}
+class CA implements MakerA {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  a(): number {
+    return 1;
+  }
+}
+class CB implements MakerB {
+  make<T>(x: T): Box<T> {
+    if (Array.isArray(x)) {
+      console.log("an array of", x.length);
+    }
+    return new Box(x);
+  }
+  b(): number {
+    return 2;
+  }
+}
+class Plain implements MakerB {
+  make(x: any): any {
+    return new Box(x);
+  }
+  b(): number {
+    return 3;
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function pick(n: number): MakerA | MakerB {
+  return n === 0 ? new CA() : n === 1 ? new CB() : new Plain();
+}
+const a: any = 5;
+attempt("a typed place, an instance", () => {
+  const b: Box<number> = pick(0).make(4);
+  return String(b.value + 1);
+});
+attempt("console.log, an any argument", () => {
+  console.log(pick(0).make<number>(a));
+  return "logged";
+});
+attempt("a property read, an any argument", () => String(pick(0).make<number>(a).value + 1));
+attempt("console.log, an instance that doesn't lower", () => {
+  console.log(pick(1).make(5));
+  return "logged";
+});
+attempt("an any variable, an instance that doesn't lower", () => {
+  const v: any = pick(1).make(6);
+  return String(v.value);
+});
+attempt("a template, a plain implementation", () => `${pick(2).make(7).value}`);
+
+// expect:
+// a typed place, an instance 5
+// Box { value: 5 }
+// console.log, an any argument logged
+// a property read, an any argument 6
+// Box { value: 5 }
+// console.log, an instance that doesn't lower logged
+// an any variable, an instance that doesn't lower 6
+// a template, a plain implementation 7

@@ -1,0 +1,247 @@
+// Typed calls of a class's generic method through an interface find the instance of the
+// call's signature (H09b1, C169), as calls through the class do (D-049) and dispatched calls
+// do (D-101, D-148): the method declared in the class, inherited from a base class,
+// overridden in a subclass, implementing an abstract base's, of a class implementing two
+// interfaces, of a generic interface implemented by a plain and a generic class, of an
+// interface extending another, through a union of interfaces, and on receivers from a
+// parameter, an array element, a field, a Map value and a cast from `any`; for results that
+// are a box, an array or a tuple of boxes, a box or undefined, a Map of boxes and a promise
+// of a box. Each took the erased copy from the class's method table, whose `new Box(x)` made
+// a `Box<any>`, and threw `TypeError: Expected Box<number>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public first: A,
+    public second: B,
+  ) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+const log: string[] = [];
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Derived extends ClassMaker {}
+class BaseMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    log.push("base");
+    return new Box(x);
+  }
+}
+class SubMaker extends BaseMaker {
+  make<T>(x: T): Box<T> {
+    log.push("sub");
+    return new Box(x);
+  }
+}
+abstract class AbstractMaker implements Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+class ConcreteMaker extends AbstractMaker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+interface Wrapper {
+  wrap<T>(x: T): Box<Box<T>>;
+}
+class Both implements Maker, Wrapper {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  wrap<T>(x: T): Box<Box<T>> {
+    return new Box(new Box(x));
+  }
+}
+interface PairMaker<U> {
+  make<T>(x: T): Pair<T, U>;
+}
+class StringPairMaker implements PairMaker<string> {
+  constructor(public u: string) {}
+  make<T>(x: T): Pair<T, string> {
+    return new Pair(x, this.u);
+  }
+}
+class GenericPairMaker<U> implements PairMaker<U> {
+  constructor(public u: U) {}
+  make<T>(x: T): Pair<T, U> {
+    return new Pair(x, this.u);
+  }
+}
+interface NamedMaker extends Maker {
+  name(): string;
+}
+class Named implements NamedMaker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  name(): string {
+    return "named";
+  }
+}
+interface MakerA {
+  make<T>(x: T): Box<T>;
+  a(): number;
+}
+interface MakerB {
+  make<T>(x: T): Box<T>;
+  b(): number;
+}
+class CA implements MakerA {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  a(): number {
+    return 1;
+  }
+}
+class CB implements MakerB {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  b(): number {
+    return 2;
+  }
+}
+function pick(flag: boolean): MakerA | MakerB {
+  return flag ? new CA() : new CB();
+}
+class Holder {
+  constructor(public m: Maker) {}
+}
+function fromParameter(m: Maker): string {
+  const n: Box<number> = m.make(5);
+  return String(n.value + 1);
+}
+
+attempt("declared in the class", () => {
+  const m: Maker = new ClassMaker();
+  const n: Box<number> = m.make(5);
+  const s: Box<string> = m.make("ab");
+  return `${n.value + 1} ${s.value.length} ${n instanceof Box}`;
+});
+attempt("inherited from a base", () => {
+  const m: Maker = new Derived();
+  const n: Box<number> = m.make(5);
+  return String(n.value + 1);
+});
+attempt("overridden in a subclass", () => {
+  const m: Maker = new SubMaker();
+  const n: Box<number> = m.make(5);
+  const viaBase: BaseMaker = new SubMaker();
+  const n2: Box<number> = viaBase.make(6);
+  const base: Maker = new BaseMaker();
+  const n3: Box<number> = base.make(7);
+  return `${n.value + 1} ${n2.value + 1} ${n3.value + 1} ${log.join(",")}`;
+});
+attempt("abstract base", () => {
+  const m: Maker = new ConcreteMaker();
+  const viaBase: AbstractMaker = new ConcreteMaker();
+  const n: Box<number> = m.make(5);
+  const n2: Box<number> = viaBase.make(6);
+  return `${n.value + 1} ${n2.value + 1}`;
+});
+attempt("two interfaces", () => {
+  const both = new Both();
+  const m: Maker = both;
+  const w: Wrapper = both;
+  const n: Box<number> = m.make(5);
+  const ww: Box<Box<string>> = w.wrap("ab");
+  return `${n.value + 1} ${ww.value.value.length}`;
+});
+attempt("generic interface", () => {
+  const m: PairMaker<string> = new StringPairMaker("u");
+  const g: PairMaker<boolean> = new GenericPairMaker(true);
+  const p: Pair<number, string> = m.make(5);
+  const q: Pair<string, boolean> = g.make("ab");
+  return `${p.first + 1} ${p.second} ${q.first.length} ${q.second}`;
+});
+attempt("interface extending another", () => {
+  const m: NamedMaker = new Named();
+  const n: Box<number> = m.make(5);
+  return `${n.value + 1} ${m.name()}`;
+});
+attempt("union of interfaces", () => {
+  const n: Box<number> = pick(true).make(5);
+  const s: Box<string> = pick(false).make("ab");
+  return `${n.value + 1} ${s.value.length}`;
+});
+attempt("receivers", () => {
+  const ms: Maker[] = [new ClassMaker(), new Derived()];
+  const h = new Holder(new SubMaker());
+  const map = new Map<string, Maker>([["a", new ConcreteMaker()]]);
+  const a: any = new ClassMaker();
+  const fromElement: Box<number> = ms[1].make(1);
+  const fromField: Box<number> = h.m.make(2);
+  const fromMap: Box<number> = map.get("a")!.make(3);
+  const fromAny: Box<number> = (a as Maker).make(4);
+  return `${fromParameter(new Derived())} ${fromElement.value} ${fromField.value} ${fromMap.value} ${fromAny.value}`;
+});
+
+interface Shapes {
+  many<T>(x: T): Box<T>[];
+  tuple<T>(x: T): [Box<T>, T];
+  maybe<T>(x: T): Box<T> | undefined;
+  map<T>(x: T): Map<string, Box<T>>;
+  later<T>(x: T): Promise<Box<T>>;
+}
+class ClassShapes implements Shapes {
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x), new Box(x)];
+  }
+  tuple<T>(x: T): [Box<T>, T] {
+    return [new Box(x), x];
+  }
+  maybe<T>(x: T): Box<T> | undefined {
+    return x === undefined ? undefined : new Box(x);
+  }
+  map<T>(x: T): Map<string, Box<T>> {
+    return new Map([["k", new Box(x)]]);
+  }
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  }
+}
+const shapes: Shapes = new ClassShapes();
+attempt("result shapes", () => {
+  const bs: Box<number>[] = shapes.many(5);
+  const t: [Box<string>, string] = shapes.tuple("ab");
+  const m: Box<number> | undefined = shapes.maybe(5);
+  const map: Map<string, Box<boolean>> = shapes.map(true);
+  return `${bs[0].value + bs[1].value} ${t[0].value.length + t[1].length} ${m === undefined ? "none" : m.value + 1} ${map.get("k")!.value}`;
+});
+async function main(): Promise<void> {
+  try {
+    const b: Box<number> = await shapes.later(5);
+    console.log("promise of a box", b.value + 1, b instanceof Box);
+  } catch (error: any) {
+    console.log("promise of a box", error.name, error.message);
+  }
+}
+main();
+
+// expect:
+// declared in the class 6 2 true
+// inherited from a base 6
+// overridden in a subclass 6 7 8 sub,sub,base
+// abstract base 6 7
+// two interfaces 6 2
+// generic interface 6 u 2 true
+// interface extending another 6 named
+// union of interfaces 6 2
+// receivers 6 1 2 3 4
+// result shapes 10 4 6 true
+// promise of a box 6 true

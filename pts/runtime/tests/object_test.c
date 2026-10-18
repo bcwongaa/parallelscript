@@ -159,6 +159,59 @@ static void instances_are_found_by_name_and_signature(void) {
   CHECK(pts_instance_find(make, "map", &signature_number) == NULL);
 }
 
+/* An object literal whose method `map` is a closure in a field (D-044), and a field `label` holding another object. */
+typedef struct method_literal {
+  const pts_type *type;
+  pts_closure *map;
+  pts_object *label;
+} method_literal;
+
+static const pts_field method_literal_fields[] = {{"map", offsetof(method_literal, map), PTS_FIELD_OBJECT},
+                                                 {"label", offsetof(method_literal, label), PTS_FIELD_OBJECT}};
+static const pts_type method_literal_type = {.kind = PTS_KIND_OBJECT,
+                                             .gc_descr = PTS_GC_POINTER_WORDS(0x6),
+                                             .name = "Object",
+                                             .size = sizeof(method_literal),
+                                             .field_count = 2,
+                                             .fields = method_literal_fields};
+static const pts_instance literal_method_instances[] = {{"map", &signature_number, (pts_function)override_instance}};
+static const pts_type literal_method_type = {.kind = PTS_KIND_FUNCTION,
+                                             .gc_descr = PTS_GC_NO_POINTERS,
+                                             .name = "map",
+                                             .size = sizeof(pts_closure),
+                                             .instance_count = 1,
+                                             .instances = literal_method_instances};
+
+static void method_instances_are_found_in_classes_then_in_a_literals_method_closure(void) {
+  pts_closure *found = (pts_closure *)&method_literal_type; /* overwritten by every lookup */
+  pts_site site = {0}, other_site = {0};
+  pts_object *base = pts_object_new(&instances_base_type);
+  pts_object *leaf = pts_object_new(&instances_leaf_type);
+  CHECK(pts_method_instance_find(base, &site, "map", &signature_number, &found) == (pts_function)base_instance && found == NULL);
+  CHECK(pts_method_instance_find(leaf, &site, "map", &signature_number, &found) == (pts_function)override_instance && found == NULL);
+  CHECK(pts_method_instance_find(leaf, &site, "map", &signature_string, &found) == NULL && found == NULL); /* ends the search */
+  CHECK(site.cache == 0);                                                                                    /* classes' entries aren't cached */
+  method_literal *object = pts_object_new(&method_literal_type);
+  CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_number, &found) == NULL && found == NULL); /* no closure yet */
+  object->map = pts_object_new(&literal_method_type);
+  object->label = pts_object_new(&instances_base_type);
+  for (int pass = 0; pass < 2; pass++) { /* the second through the site's cache */
+    CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_number, &found) == (pts_function)override_instance && found == object->map);
+    CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_string, &found) == NULL && found == NULL);
+  }
+  CHECK((site.cache & PTS_SITE_TYPE_MASK) == (uintptr_t)&method_literal_type);
+  CHECK(pts_method_instance_find(base, &site, "map", &signature_number, &found) == (pts_function)base_instance && found == NULL); /* another descriptor */
+  CHECK(pts_method_instance_find((pts_object *)object, &other_site, "flatMap", &signature_number, &found) == NULL && found == NULL);
+  CHECK(pts_method_instance_find((pts_object *)object, &other_site, "flatMap", &signature_number, &found) == NULL && found == NULL); /* cached: none */
+  CHECK(pts_method_instance_find((pts_object *)object, &other_site, "label", &signature_number, &found) == NULL && found == NULL); /* not a closure */
+  object->map = pts_object_new(&instances_closure_type); /* a generic arrow's: a function value's instances take no `this` */
+  CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_number, &found) == NULL && found == NULL);
+  object->map = pts_object_new(&literal_method_type);
+  pts_value_freeze(pts_value_from_object(object)); /* its frozen twin, another descriptor, has the same fields (D-157) */
+  CHECK(object->type != &method_literal_type);
+  CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_number, &found) == (pts_function)override_instance && found == object->map);
+}
+
 /* An object with a property x at another offset than point's. */
 typedef struct tagged {
   const pts_type *type;
@@ -534,6 +587,7 @@ int main(int argc, char **argv) {
   methods_are_found_through_the_descriptor();
   instance_of_follows_the_parent_chain();
   instances_are_found_by_name_and_signature();
+  method_instances_are_found_in_classes_then_in_a_literals_method_closure();
   field_addresses_are_cached_per_layout();
   method_sites_cache_the_index_per_layout();
   property_sites_use_fields_or_accessors();

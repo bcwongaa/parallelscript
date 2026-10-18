@@ -139,13 +139,21 @@ var numericTypes = map[check.Numeric]ir.Type{
 type Specialization int
 
 const (
-	// AllInstances: generic arrow functions and function expressions wherever they are,
-	// and calls whose results are dynamic, besides DeclaredInstances' (D-190).
+	// AllInstances: calls through interfaces and of object literals' generic methods by
+	// the method's name (D-191), besides ValueInstances'.
 	AllInstances Specialization = iota
+	// ValueInstances: generic arrow functions and function expressions wherever they are,
+	// and calls whose results are dynamic, besides DeclaredInstances' (D-190). A build
+	// falls back to it where AllInstances fails.
+	ValueInstances
 	// DeclaredInstances: generic function declarations, static methods and module-scope
-	// consts, as before H09 (D-148). A build falls back to it where AllInstances fails.
+	// consts, as before H09 (D-148). A build falls back to it where ValueInstances fails.
 	DeclaredInstances
 )
+
+// Fallbacks are the specializations a build tries in turn, while it fails with compile or
+// internal errors: what each adds is made for calls that may never meet it (D-190, D-191).
+var Fallbacks = []Specialization{AllInstances, ValueInstances, DeclaredInstances}
 
 // Program lowers a program that loaded and passed the semantic checks (info is what
 // they learned), with AllInstances. It reports every construct it cannot lower; the IR is
@@ -171,7 +179,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
-		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}}
+		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		if l.current == nil {
@@ -332,6 +340,7 @@ type lowerer struct {
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
 	droppedFuncs        map[*ir.Func]bool                // the functions failed trials dropped
 	instanceKeys        map[string]string                // the keys of dynamic results' entries, by what tells them apart (instanceKey)
+	receives            map[receiving]bool               // whether a class may be a receiver of a type (mayReceive)
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
 	current             *ast.Node                        // the statement or expression being lowered, the innermost after a panic (D-179)
 	injectedFailure     func(node *ast.Node) bool        // diagnostic.WithInjectedFailure's, for tests: on entering a node

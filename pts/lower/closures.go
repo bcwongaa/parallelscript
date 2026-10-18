@@ -146,7 +146,7 @@ func (l *lowerer) functionExpression(node *ast.Node) ir.Expr {
 	generic := l.genericConstNodes[node] // a module-scope const's, whose calls by name are its instances' (D-102)
 	ownGeneric := false
 	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
-		if generic == nil && l.specialization == AllInstances && (l.subst == nil || len(l.subst.erased) == 0) {
+		if generic == nil && l.specialization != DeclaredInstances && (l.subst == nil || len(l.subst.erased) == 0) {
 			// Any other's instances run with the closures of its erased copy (D-190); in
 			// erased code, its type arguments would mention the erased ones.
 			generic, ownGeneric = &genericFunc{node: node, module: l.function, parameters: typeParameters, outer: l.subst}, true

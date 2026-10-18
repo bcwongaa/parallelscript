@@ -947,30 +947,46 @@ func (e *emitter) interfaceCall(call *ir.InterfaceCall) string {
 	return ordered(prelude, function+"("+strings.Join(args, ", ")+")")
 }
 
-// instanceCall writes a call of the instance (D-148) that the closure or object X lists
-// for the call's signature, or if it lists none, of the erased copy (Otherwise). X and the
-// arguments are locals, which both calls read.
+// instanceCall writes a call of the instance (D-148) that the closure X lists for the
+// call's signature, or for a method named Name, that the object X's class lists or else
+// its object literal's method closure (D-191), or if there is none, or an array argument
+// holds other elements than the instance's parameter, of the erased copy (Otherwise). X
+// and the arguments are locals, which both calls read.
 func (e *emitter) instanceCall(call *ir.InstanceCall) string {
 	x := e.expr(call.X)
-	name, params := "NULL", []string{"pts_closure *"}
+	found, signature := e.temporary(), e.instanceSignatureCheck(call.Signature, call.Key)
+	find := fmt.Sprintf("pts_function %s = pts_instance_find(%s, NULL, %s)", found, x, signature)
+	params, args := []string{"pts_closure *"}, []string{"(pts_closure *)" + x}
 	if call.Name != "" {
-		name, params = cString(call.Name), []string{"pts_object *"}
+		closure, site := e.temporary(), e.site()
+		find = fmt.Sprintf("static pts_site %s; pts_closure *%s; pts_function %s = pts_method_instance_find((pts_object *)%s, &%s, %s, %s, &%s)", site, closure, found, x, site,
+			cString(call.Name), signature, closure)
+		params, args = []string{"pts_closure *", "pts_object *"}, []string{closure, "(pts_object *)" + x}
 	}
-	args := []string{"(" + params[0] + ")" + x}
+	takes := []string{found + " != NULL"}
 	for i, arg := range call.Args {
 		params = append(params, strings.TrimSuffix(e.declarator(call.Signature.Params[i]), " "))
 		args = append(args, e.expr(arg))
+		if array, ok := call.Signature.Params[i].(*ir.Array); ok {
+			// An array an erased copy made holds dynamic values (C187), which the instance
+			// would read as its elements: such a call takes the erased copy (D-191). NULL is
+			// an optional array left out.
+			arg := args[len(args)-1]
+			takes = append(takes, fmt.Sprintf("(%s == NULL || ((const pts_object *)%s)->type->element == %s)", arg, arg, fieldKind(array.Elem)))
+		}
 	}
-	found := e.temporary()
-	return fmt.Sprintf("({ pts_function %s = pts_instance_find(%s, %s, %s); %s != NULL ? ((%s(*)(%s))%s)(%s) : %s; })", found, x, name,
-		e.instanceSignatureCheck(call.Signature, call.Key), found, e.declarator(call.Signature.Result), strings.Join(params, ", "), found,
-		strings.Join(args, ", "), e.expr(call.Otherwise))
+	instance := fmt.Sprintf("((%s(*)(%s))%s)(%s)", e.declarator(call.Signature.Result), strings.Join(params, ", "), found, strings.Join(args, ", "))
+	if call.Dynamic {
+		instance = boxAs(instance, call.Signature.Result)
+	}
+	return fmt.Sprintf("({ %s; %s ? %s : %s; })", find, strings.Join(takes, " && "), instance, e.expr(call.Otherwise))
 }
 
 // instanceTable writes the table of the instances (D-148) that a closure's or class's
-// descriptor (owner) lists, with an entry of each one's signature: it takes the closure
-// or the object, then the call's arguments, and calls the instance with those it takes.
-// It returns the descriptor's members for the table, or nil if there is none.
+// descriptor (owner) lists, with an entry of each one's signature: it takes the closure,
+// or for a method the closure (an object literal's method's, D-191, else unused) and the
+// object, then the call's arguments, and calls the instance with those it takes. It
+// returns the descriptor's members for the table, or nil if there is none.
 func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string {
 	if len(instances) == 0 {
 		return nil
@@ -987,8 +1003,8 @@ func (e *emitter) instanceTable(owner string, instances []*ir.Instance) []string
 			args = []string{"pts_env"} // an instance of a generic arrow function runs with the erased copy's closure (D-190)
 		}
 		if inst.Name != "" {
-			params = []string{"pts_object *self"}
-			args = []string{"(" + strings.TrimSuffix(e.declarator(takes[0].Type), " ") + ")self"}
+			params = append(params, "pts_object *self")
+			args = append(args, "("+strings.TrimSuffix(e.declarator(takes[0].Type), " ")+")self")
 			takes = takes[1:]
 		}
 		for j, param := range inst.Signature.Params {

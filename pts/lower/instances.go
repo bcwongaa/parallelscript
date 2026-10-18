@@ -22,13 +22,17 @@ import (
 // class method a call may reach, once the program's bodies are lowered (specialize).
 
 // demand is a typed call that looks up an instance: of a value of a generic function type
-// (whose erased signature is erased), or of a dispatched generic method (method).
+// (whose erased signature is erased), of a dispatched generic method (method), or of a
+// generic method named name through an interface or of an object literal's type (D-191).
 type demand struct {
 	in        *ir.Func    // the function the call is in
 	callee    *ast.Symbol // what the call's callee names, if it is a name
 	dropped   bool        // in code a failed trial dropped (D-190)
 	erased    *ir.FuncType
 	method    *genericFunc
+	name      string             // a method's: a dispatched one's, or one that a class's or an object literal's generic method of that name implements
+	shape     *ir.Class          // for a call of an object literal's method through the literal's type, its shape: only its literals' methods
+	receiver  *checker.Type      // for a call by name (D-191), its object's type, which only classes and literals of types assignable to it may be
 	signature *checker.Signature // the call's resolved signature
 	subst     *substitution      // the instance being lowered where the call is, if any
 	want      *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
@@ -342,11 +346,240 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 	if d == nil {
 		return nil, false
 	}
-	d.method = generic
+	d.method, d.name = generic, method.Name
 	return l.instanceCall(d, call, receiver, method.Name, func(object ir.Expr, args []ir.Expr) ir.Expr {
 		object = &ir.ClassCast{X: object, To: &ir.Interface{}} // any object, whose method is found by name
 		return l.fromErased(&ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, l.erasedArguments(args, method.Params, call.AsNode())...)}, call.AsNode())
 	}), true
+}
+
+// namedInstanceCall lowers a call of the method name on receiver, through an interface, a
+// union of object types or an object literal's type (its shape, else nil), of a generic
+// method whose result may hold generic class instances and whose erased copies take
+// params: as a demand by name (D-148, D-191), a call of the instance that the object's
+// class, or its object literal's method closure, lists, if every argument passes to the
+// instance's parameter as it is (passedAsIs); else, or if there is none, the erased copy's
+// call, erasedCall, given the object and the arguments of params, with its result
+// converted to the call's type, as before; a union's call's (dynamicResult) stays dynamic,
+// as before, and its instance's is boxed. ok is false if the method isn't such a one.
+func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, name string, shape *ir.Class, params []ir.Type, result ir.Type, dynamicResult bool,
+	erasedCall func(object ir.Expr, args []ir.Expr) ir.Expr) (x ir.Expr, ok bool) {
+	if l.specialization != AllInstances || result != ir.Value {
+		return nil, false
+	}
+	signatures := l.checker.GetSignaturesOfType(l.typeAt(call.Expression), checker.SignatureKindCall)
+	if len(signatures) != 1 || len(signatures[0].TypeParameters()) == 0 ||
+		!l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(signatures[0]), signatures[0].TypeParameters()) {
+		return nil, false
+	}
+	d := l.demandAt(call, params)
+	if d == nil {
+		return nil, false
+	}
+	args := l.typedArguments(call.Arguments.Nodes, params) // as the erased copy takes them, which the base passed
+	if args == nil {
+		return nil, true
+	}
+	erased := func(object ir.Expr, args []ir.Expr) ir.Expr {
+		return l.fromErased(erasedCall(object, args), call.AsNode())
+	}
+	nodes := argumentNodes(call.Arguments.Nodes, params)
+	passed := l.passedAsIs(d, args, nodes, params)
+	if passed == nil {
+		if dynamicResult {
+			return erasedCall(receiver, args), true
+		}
+		return l.withReceiver(receiver, func(object ir.Expr) ir.Expr { return erased(object, args) }), true
+	}
+	d.name, d.shape = name, shape
+	d.receiver = l.instantiate(l.checker.GetNonNullableType(l.typeAt(ast.SkipParentheses(call.Expression).Expression())))
+	object := l.newLocal("callee", receiver.Type())
+	locals := make([]*ir.Local, len(passed))
+	erasedArgs, typedArgs := make([]ir.Expr, len(passed)), make([]ir.Expr, len(passed))
+	for i, value := range passed {
+		node := nodes[i]
+		if node == nil {
+			node = call.AsNode()
+		}
+		if _, leftOut := value.(*ir.LeftOut); leftOut {
+			erasedArgs[i], typedArgs[i] = &ir.LeftOut{T: params[i]}, value // an optional argument not given, whose flag says so
+			continue
+		}
+		locals[i] = l.newLocal(fmt.Sprintf("argument%d", i+1), value.Type())
+		erasedArgs[i] = l.convert(&ir.LocalRef{Local: locals[i]}, params[i], node)
+		typedArgs[i] = l.convert(&ir.LocalRef{Local: locals[i]}, d.want.Params[i], node)
+	}
+	otherwise := erasedCall(&ir.LocalRef{Local: object}, erasedArgs)
+	if !dynamicResult {
+		otherwise = erased(&ir.LocalRef{Local: object}, erasedArgs)
+	}
+	if otherwise == nil {
+		return nil, true
+	}
+	l.demands = append(l.demands, d)
+	x = &ir.InstanceCall{X: &ir.LocalRef{Local: object}, Name: name, Signature: d.want, Key: d.key, Args: typedArgs, Otherwise: otherwise, Dynamic: dynamicResult}
+	for i := len(passed) - 1; i >= 0; i-- {
+		if locals[i] != nil {
+			x = &ir.Bind{Local: locals[i], Value: passed[i], In: x}
+		}
+	}
+	return &ir.Bind{Local: object, Value: receiver, In: x}, true
+}
+
+// argumentNodes are the argument nodes that typedArguments matches to params, one each, nil
+// for a given flag (D-055) or an argument left out; nil if one is a spread.
+func argumentNodes(arguments []*ast.Node, params []ir.Type) []*ast.Node {
+	nodes := make([]*ast.Node, len(params))
+	next := 0
+	for i, param := range params {
+		if param == ir.Given {
+			continue
+		}
+		if next < len(arguments) {
+			if arguments[next].Kind == ast.KindSpreadElement {
+				return nil
+			}
+			nodes[i] = arguments[next]
+		}
+		next++
+	}
+	return nodes
+}
+
+// passedAsIs are args, each of params' type as an erased copy takes it, as the instance of
+// a demand d takes them: each of its parameter's type as it is, and each other one as it
+// was before it was boxed (D-191). It is nil if one of those isn't a value of its
+// parameter's type as it is (passesAsIs) or is a dynamic value: then the call takes the
+// erased copy, which the base passed it to boxed, rather than an instance that a copy, a
+// check or an adapter would pass it to (`Dog[]` where `Animal[]` goes, `any` where an
+// `Animal` goes), or that a dynamic value an erased copy made (`Box<any>` where tsc says
+// `Box<number>`) would reach unchecked or fail a check. It is nil too if a parameter typed
+// with the method's type parameters is of a type that conversions don't verify (`o:
+// Option<T>`, a union of object types): an object an erased copy made, which converts to
+// it unchanged, has dynamic fields where the instance reads typed ones, and typed reads
+// don't verify them (review round 3, R3-1; C187).
+func (l *lowerer) passedAsIs(d *demand, args []ir.Expr, nodes []*ast.Node, params []ir.Type) []ir.Expr {
+	want := d.want.Params
+	if nodes == nil || len(args) != len(params) || len(args) != len(want) || l.takesUnverifiedObjects(d, params) {
+		return nil
+	}
+	passed := make([]ir.Expr, len(args))
+	for i, arg := range args {
+		boxed, isBoxed := arg.(*ir.Box)
+		_, leftOut := arg.(*ir.LeftOut)
+		switch {
+		case want[i] == params[i]:
+			passed[i] = arg
+		case params[i] != ir.Value:
+			return nil
+		case leftOut:
+			passed[i] = &ir.LeftOut{T: want[i]}
+		case isBoxed && passesAsIs(boxed.X.Type(), want[i]):
+			passed[i] = boxed.X
+		default:
+			return nil
+		}
+	}
+	return passed
+}
+
+// takesUnverifiedObjects reports whether the instance of a demand d takes a parameter (of
+// params' places, which a Given flag follows for an optional parameter) whose declared
+// type mentions the method's type parameters, is in d's call neither any nor unknown, and
+// is of an IR type that conversions don't verify (verifiesObjects).
+func (l *lowerer) takesUnverifiedObjects(d *demand, params []ir.Type) bool {
+	declaration := d.signature.Declaration()
+	if declaration == nil {
+		return true
+	}
+	generic := l.checker.GetSignatureFromDeclaration(declaration)
+	typeParameters := generic.TypeParameters()
+	anys := make([]*checker.Type, len(typeParameters))
+	for i := range anys {
+		anys[i] = l.checker.GetAnyType()
+	}
+	declared, resolved := generic.Parameters(), d.signature.Parameters()
+	next := 0
+	for i, param := range params {
+		if param == ir.Given {
+			continue
+		}
+		k := next
+		next++
+		if verifiesObjects(d.want.Params[i], map[ir.Type]bool{}) || k >= len(declared) || k >= len(resolved) {
+			continue
+		}
+		t := l.checker.GetTypeOfSymbol(declared[k])
+		if l.checker.PtsInstantiateType(t, typeParameters, anys) != t &&
+			l.instantiate(l.checker.GetTypeOfSymbol(resolved[k])).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// verifiesObjects reports whether a value converted to type t is one of t all through: a
+// primitive, a class's instance (each instance of a generic class is a class of its own),
+// or an array, tuple, map or function of those. An object converts to an object type, an
+// interface or a union of object types if its fields have the kinds of the type's (D-072),
+// so one an erased copy made, with dynamic values for the type parameters, may convert
+// unchanged (to `{ tag: string }`, the member a `{ tag: "some", value: T[] }` fits) and be
+// read as another member's later (C187).
+func verifiesObjects(t ir.Type, seen map[ir.Type]bool) bool {
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	switch t := t.(type) {
+	case *ir.Primitive:
+		return t != ir.Value
+	case *ir.Class:
+		if !t.Shape {
+			return true
+		}
+		return t.Tuple && !slices.ContainsFunc(t.Fields, func(f *ir.Field) bool { return !verifiesObjects(f.Type, seen) })
+	case *ir.Array:
+		return verifiesObjects(t.Elem, seen)
+	case *ir.MapType:
+		return verifiesObjects(t.Key, seen) && (t.Value == nil || verifiesObjects(t.Value, seen))
+	case *ir.FuncType:
+		return true // a closure of another type is adapted, and its results checked
+	case *ir.Union:
+		return !slices.ContainsFunc(t.Members, func(m ir.Type) bool { return !verifiesObjects(m, seen) })
+	}
+	return false
+}
+
+// passesAsIs reports whether a value of type from is one of type to as it is, which
+// convert gives without a copy, a check or an adapter: the same type, a dynamic value, a
+// wider number, a union's member, or a reference to an object where its class's ancestor or
+// an interface it provides goes.
+func passesAsIs(from, to ir.Type) bool {
+	switch {
+	case from == to || to == ir.Value:
+		return true
+	case from == ir.Value:
+		return false
+	case ir.IsNumeric(from) && to == ir.Number:
+		return true
+	}
+	if u, ok := to.(*ir.Union); ok {
+		if members, ok := from.(*ir.Union); ok {
+			return !slices.ContainsFunc(members.Members, func(m ir.Type) bool { return !u.Has(m) })
+		}
+		return u.Has(from)
+	}
+	if class, ok := from.(*ir.Class); ok && class.Result {
+		return false // an iterator result's object, which may be of another layout (D-178)
+	}
+	switch to := to.(type) {
+	case *ir.Class:
+		class, ok := from.(*ir.Class)
+		return ok && !to.Result && class.IsSubclassOf(to)
+	case *ir.Interface:
+		return isObject(from) && !isArray(from) && unprovided(from, to) == ""
+	}
+	return false
 }
 
 // specialize makes the instances that the demands so far look up, of the erased values
@@ -356,10 +589,10 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 func (l *lowerer) specialize() bool {
 	met := false
 	for i, d := range l.demands {
-		switch {
-		case d.dropped:
+		if d.dropped {
 			continue
-		case d.method == nil:
+		}
+		if d.method == nil {
 			for j, v := range l.erasedValues {
 				if key := [3]int{i, j, 0}; !l.specialized[key] {
 					l.specialized[key], met = true, true
@@ -368,7 +601,9 @@ func (l *lowerer) specialize() bool {
 					}
 				}
 			}
-			continue
+		}
+		if d.method == nil && (d.name == "" || d.shape != nil) {
+			continue // no class's method
 		}
 		for j, g := range l.genericMethodList {
 			if key := [3]int{i, j, 1}; !l.specialized[key] {
@@ -385,7 +620,9 @@ func (l *lowerer) specialize() bool {
 // function to the call's resolved signature, if that instance can be called as one of the
 // call's signature.
 func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
-	if l.typeOfFunc(v.fn) != d.erased || slices.ContainsFunc(v.fn.Instances, func(inst *ir.Instance) bool { return inst.Signature == d.want && inst.Key == d.key }) {
+	if !l.reaches(d, v) || slices.ContainsFunc(v.fn.Instances, func(inst *ir.Instance) bool {
+		return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
+	}) {
 		return
 	}
 	outer := l.subst
@@ -397,12 +634,73 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 		l.narrowsAway(v.generic, l.instantiateAll(arguments), map[*genericFunc]bool{}) {
 		return
 	}
+	params := 0
+	if d.name != "" {
+		params = 1 // after `this`
+	}
 	fits := func(fn *ir.Func) bool {
-		return (!fn.Closure || fn.Shares == v.fn) && fitsInstance(fn.Params, fn.Result, d.want)
+		return (!fn.Closure || fn.Shares == v.fn) && fitsInstance(fn.Params[params:], fn.Result, d.want)
 	}
 	if fn := l.tryInstance(d, v.generic, arguments, fits); fn != nil {
-		v.fn.Instances = append(v.fn.Instances, &ir.Instance{Signature: d.want, Key: d.key, Func: fn})
+		v.fn.Instances = append(v.fn.Instances, &ir.Instance{Name: d.name, Signature: d.want, Key: d.key, Func: fn})
 	}
+}
+
+// reaches reports whether a demand's call may call an erased value: a call of a value of
+// its erased function type, or for an object literal's method, a call of a method of its
+// name through an interface, a union or its literal's shape, whose object may be the
+// literal (D-191).
+func (l *lowerer) reaches(d *demand, v *erasedValue) bool {
+	field := v.generic.field
+	if field == nil {
+		return d.name == "" && l.typeOfFunc(v.fn) == d.erased
+	}
+	if d.name != field.Name || d.shape != nil && d.shape != field.Class {
+		return false
+	}
+	literal := l.checker.GetWidenedType(l.checker.GetTypeAtLocation(v.generic.node.Parent))
+	if outer := v.generic.outer; outer != nil {
+		literal = l.checker.PtsInstantiateType(literal, outer.parameters, outer.arguments)
+	}
+	return l.checker.IsTypeAssignableTo(literal, d.receiver)
+}
+
+// mayReceive reports whether an instance of class, or of a subclass, may be the object of a
+// demand by name (D-191): its type is assignable to the demand's receiver's. Pairing the
+// demand with any class's method of its name would make instances no call uses, whose
+// failures a trial can't always take back (C176).
+func (l *lowerer) mayReceive(d *demand, class *ir.Class) bool {
+	key := receiving{d.receiver, class}
+	if receives, ok := l.receives[key]; ok {
+		return receives
+	}
+	receives := slices.ContainsFunc(slices.Concat(l.classList, l.instanceClasses), func(other *ir.Class) bool {
+		if !other.IsSubclassOf(class) {
+			return false
+		}
+		t := l.classType(other)
+		return t != nil && l.checker.IsTypeAssignableTo(t, d.receiver)
+	})
+	l.receives[key] = receives
+	return receives
+}
+
+// receiving is a receiver's type and a class, which mayReceive remembers.
+type receiving struct {
+	receiver *checker.Type
+	class    *ir.Class
+}
+
+// classType is the checker type of class's instances, or nil.
+func (l *lowerer) classType(class *ir.Class) *checker.Type {
+	if inst := l.classInstances[class]; inst != nil {
+		declared := l.checker.GetDeclaredTypeOfSymbol(l.declaredSymbol(inst.generic.node))
+		return l.checker.PtsInstantiateType(declared, inst.subst.parameters, inst.subst.arguments)
+	}
+	if node := l.classNodes[class]; node != nil {
+		return l.checker.GetDeclaredTypeOfSymbol(l.declaredSymbol(node))
+	}
+	return nil
 }
 
 // tryInstance returns the instance of generic for a demand's type arguments if it fits
@@ -413,7 +711,7 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 // no call can use, and an instance's code may not lower where its erased copy did (a
 // branch tsc narrows to an intersection for its type arguments), where the program
 // compiled with the erased copy. A failure the trial can't take back (another function's)
-// stands; the build then falls back to DeclaredInstances.
+// stands; the build then falls back (Fallbacks).
 func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, fits func(fn *ir.Func) bool) *ir.Func {
 	t := &trial{funcs: map[*ir.Func]bool{}}
 	errors, reports, unexplained := l.errors, l.reports, l.unexplained // report only appends to errors
@@ -524,28 +822,31 @@ func shareCaptures(funcs []*ir.Func) {
 
 // specializeMethod lists, in the class of g, a generic method that implements the one a
 // demand's call dispatches (its class's own of that name, in the method's class or a
-// subclass), g's instance for the call's type arguments, if it can be called as one of
-// the call's signature. Otherwise, or where g's erased copy makes no generic class
-// instances, the entry has no instance, so that the call takes g's erased copy rather
-// than finding an ancestor's instance.
+// subclass) or calls through an interface (any class's of that name, D-191), g's instance
+// for the call's type arguments, if it can be called as one of the call's signature.
+// Otherwise, or where g's erased copy makes no generic class instances, the entry has no
+// instance, so that the call takes g's erased copy rather than finding an ancestor's
+// instance.
 func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
-	name := d.method.node.Name().Text()
-	if g.static != nil || g.node.Name().Text() != name || !descendsFrom(g.class, d.method.class) ||
+	if g.static != nil || g.node.Name().Text() != d.name || d.method != nil && !descendsFrom(g.class, d.method.class) || d.method == nil && !l.mayReceive(d, g.class) ||
 		slices.ContainsFunc(g.class.Instances, func(inst *ir.Instance) bool {
-			return inst.Name == name && inst.Signature == d.want && inst.Key == d.key
+			return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
 		}) {
 		return
 	}
-	entry := &ir.Instance{Name: name, Signature: d.want, Key: d.key}
+	entry := &ir.Instance{Name: d.name, Signature: d.want, Key: d.key}
 	g.class.Instances = append(g.class.Instances, entry)
-	arguments := l.checker.PtsTypeArgumentsOfSignature(d.signature)
-	if len(arguments) != len(g.parameters) || !l.makesGenericInstances(g, map[*genericFunc]bool{}) {
+	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) {
 		return
 	}
 	outer := l.subst
 	l.subst = d.subst
 	defer func() { l.subst = outer }()
-	if l.narrowsAway(g, l.instantiateAll(arguments), map[*genericFunc]bool{}) {
+	// g's type arguments as tsc infers them relating g to the call's resolved signature: an
+	// interface's method or an overridden one may have other type parameters than g.
+	arguments := l.checker.PtsTypeArgumentsOfSignature(l.checker.PtsInstantiateSignatureInContextOf(l.checker.GetSignatureFromDeclaration(g.node), d.signature))
+	if len(arguments) != len(g.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) ||
+		l.narrowsAway(g, l.instantiateAll(arguments), map[*genericFunc]bool{}) {
 		return
 	}
 	entry.Func = l.tryInstance(d, g, arguments, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })

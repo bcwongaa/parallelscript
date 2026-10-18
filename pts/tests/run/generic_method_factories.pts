@@ -1,4 +1,4 @@
-// skip: known issue (H09b, C169): generic methods through interfaces, object literals and method values, `bind`, and generic values where a non-generic function type goes take the erased copy
+// skip: known issue (H09b3, C169): generic method values, `bind`, and generic values where a non-generic function type goes take the erased copy; its first three lines, through interfaces and object literals, pass since H09b1
 // Generic methods and generic function values reached through interfaces, object literals,
 // method values, `bind` and a non-generic context make specialized generic class instances
 // for each typed call (H09b; D-148's and D-190's known gaps): an interface call of a

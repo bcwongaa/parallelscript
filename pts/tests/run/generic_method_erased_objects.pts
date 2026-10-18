@@ -1,0 +1,106 @@
+// A call through an object literal's type makes no demand by name where a parameter typed
+// with the method's type parameters is of a union of object types (`Opt<T>`), so it keeps
+// the erased copy (H09b1, D-191): an object an erased copy made, with dynamic values for
+// the type parameters (its array an `any[]`, its Map's values and its nested object's
+// field dynamic), converts to such a union unchanged (to `{ tag: string }`, the member it
+// fits), and an instance reading it as the other member got other numbers or crashed,
+// where the erased copy reads it dynamically and prints what Node prints (review round 3,
+// R3-1; C187). The objects come from calls that keep the erased copy: an element access
+// (C185), `?.` (C179), a method value (H09b3), an `any` argument (D-191), a JSON value,
+// and a lie through `any`.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+  head<T>(o: Opt<T>): Opt<T> {
+    return o.tag === "some" ? { tag: "some", value: [o.value[0]] } : { tag: "none" };
+  },
+};
+const maybeOps: typeof Ops | undefined = Math.random() > 2 ? undefined : Ops;
+console.log("an element access, then a dotted call", Ops.head(Ops["wrap"](7)));
+console.log("an optional call, then a dotted call", Ops.head(maybeOps?.wrap(8)!));
+const wrap = Ops.wrap;
+console.log("a method value, then a dotted call", Ops.head(wrap(9)));
+console.log("two dotted calls", Ops.head(Ops.wrap(10)));
+const raw: any = 7;
+console.log("an any argument", Ops.head(Ops.wrap<number>(raw)));
+console.log("a JSON value", Ops.head(Ops.wrap<number>(JSON.parse("[1, 2]")[1])));
+console.log("a lie through any", Ops.head(Ops.wrap<string>(raw)));
+
+type Holder<T> = { readonly tag: "some"; readonly m: Map<string, T>; readonly o: { n: T } } | { readonly tag: "none" };
+const Holders = {
+  wrap<T>(x: T): Holder<T> {
+    return { tag: "some", m: new Map([["k", x]]), o: { n: x } };
+  },
+  fromMap<T>(v: Holder<T>): Holder<T> {
+    if (v.tag !== "some") {
+      return { tag: "none" };
+    }
+    const x: T = v.m.get("k")!;
+    return { tag: "some", m: new Map([["k", x]]), o: { n: x } };
+  },
+  fromObject<T>(v: Holder<T>): Holder<T> {
+    if (v.tag !== "some") {
+      return { tag: "none" };
+    }
+    const x: T = v.o.n;
+    return { tag: "some", m: new Map([["k", x]]), o: { n: x } };
+  },
+};
+console.log("a Map field", Holders.fromMap(Holders.wrap<number>(raw)));
+console.log("a nested object field", Holders.fromObject(Holders.wrap<number>(raw)));
+
+// A number[] that typed code takes from such an object (holding the erased copy's any[])
+// and passes to a call through a union of object types: the instance found by name takes
+// it only if its elements are numbers, so the call takes the erased copy, which reads it
+// dynamically, as before (review round 4's `s01`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface FirstA {
+  first<T>(xs: T[]): Box<T>;
+  a(): number;
+}
+interface FirstB {
+  first<T>(xs: T[]): Box<T>;
+  b(): number;
+}
+class CA implements FirstA {
+  first<T>(xs: T[]): Box<T> {
+    return new Box(xs[0]);
+  }
+  a(): number {
+    return 1;
+  }
+}
+class CB implements FirstB {
+  first<T>(xs: T[]): Box<T> {
+    return new Box(xs[0]);
+  }
+  b(): number {
+    return 2;
+  }
+}
+function pick(n: number): FirstA | FirstB {
+  return n === 0 ? new CA() : new CB();
+}
+const held = Ops["wrap"](11);
+if (held.tag === "some") {
+  const xs: number[] = held.value;
+  console.log("an array an erased copy made, through a union", pick(0).first(xs));
+  console.log("an array of numbers, through a union", pick(1).first([12]));
+}
+
+// expect:
+// an element access, then a dotted call { tag: 'some', value: [ 7 ] }
+// an optional call, then a dotted call { tag: 'some', value: [ 8 ] }
+// a method value, then a dotted call { tag: 'some', value: [ 9 ] }
+// two dotted calls { tag: 'some', value: [ 10 ] }
+// an any argument { tag: 'some', value: [ 7 ] }
+// a JSON value { tag: 'some', value: [ 2 ] }
+// a lie through any { tag: 'some', value: [ 7 ] }
+// a Map field { tag: 'some', m: Map(1) { 'k' => 7 }, o: { n: 7 } }
+// a nested object field { tag: 'some', m: Map(1) { 'k' => 7 }, o: { n: 7 } }
+// an array an erased copy made, through a union Box { value: 11 }
+// an array of numbers, through a union Box { value: 12 }

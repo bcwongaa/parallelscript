@@ -48,6 +48,10 @@ type genericFunc struct {
 	closure    *ir.Func
 	scope      *scope
 	calledOnly *ast.Symbol
+	// For an object literal's generic method (D-191), as for such an arrow function: the
+	// field whose closures are its erased copy; its instances take the literal first, as
+	// `this` (class is the field's shape), and calls of methods of that name find them.
+	field *ir.Field
 }
 
 // scope is what the names in a generic arrow function stand for where it is lowered: the

@@ -1327,3 +1327,74 @@ func TestAPanicAfterAStatementsChildrenAreLoweredIsAnInternalErrorAtThatStatemen
 	assert.Assert(t, internal != nil)
 	assert.Equal(t, internal.Format("/p"), "main.pts:2:1 - error PTS9001: internal compiler error while lowering: injected failure")
 }
+
+func TestInterfaceCallsFindTheInstancesOfClassesAndObjectLiteralsMethodsByName(t *testing.T) {
+	t.Parallel()
+	// The interface call's instance is the class's, or the literal's method closure's, of the
+	// method's name (D-191); each runs with what the erased copy has: the literal as `this`
+	// and the method's closure.
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function run(tag: string): Maker[] {
+  return [new ClassMaker(), {
+    make<T>(x: T): Box<T> {
+      console.log(tag);
+      return new Box(x);
+    },
+  }];
+}
+for (const m of run("t")) {
+  console.log(m.make(1).value);
+}
+`)
+	assert.Equal(t, got, `class ClassMaker {  }
+class Box { value: number }
+class Box { value: value }
+shape object1{make: (object1, value) => value}
+func main() void {
+  7: global ClassMaker.class: boolean = true
+  20: {
+    20: let array: {make(value): value}[] = run("t")
+    20: let index: number = 0
+    20: #1: for (index < array.length(array)); (index = (index + 1)) {
+      20: let m: {make(value): value} = array.elementChecked(array, index)
+      21: console.log(box((let callee = m in (let argument1 = 1 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))).value))
+    }
+  }
+}
+func ClassMaker.constructor(this: ClassMaker) void {
+}
+func run.make(this: object1, x: value) value closure [tag] {
+  15: console.log(box(tag))
+  16: return box(new Box(x))
+}
+func run(tag: string) {make(value): value}[] {
+  13: return {make(value): value}[][(new ClassMaker() as {make(value): value}), (object1{make: closure run.make} as {make(value): value})]
+}
+func ClassMaker.make_dynamic(this: ClassMaker, x: value) value {
+  9: return box(new Box(x))
+}
+func Box.constructor(this: Box, value: number) void {
+  2: (this.value = value)
+}
+func Box.constructor(this: Box, value: value) void {
+  2: (this.value = value)
+}
+func run.make_number(this: object1, x: number) Box closure [tag] of run.make {
+  15: console.log(box(tag))
+  16: return new Box(x)
+}
+func ClassMaker.make_number(this: ClassMaker, x: number) Box {
+  9: return new Box(x)
+}
+`)
+}

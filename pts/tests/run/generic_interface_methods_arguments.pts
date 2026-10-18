@@ -1,0 +1,120 @@
+// A typed call through an interface or of an object literal's generic method finds its
+// instance only where each argument is a value of the instance's parameter type as it is
+// (H09b1, D-191); otherwise it passes the arguments to the erased copy as they are, as it
+// did before: a `Dog[]` where T is `Animal[]`, which a copy would pass, an `any` (a JSON
+// value) where T is an object type, which a check or a copy would pass, a function whose
+// parameters differ from the parameter's type, which an adapter would pass. Each kept its
+// identity and skipped the check before, as in Node, and still does (the methods hand
+// back the box they are given, so the erased copy's result converts). The generic arrow
+// and the call that finds its instance show that the program isn't compiled without them:
+// making those calls demands put each argument through the instance's conversion, a
+// PTS1001 for the `Dog[]`, and the build fell back (review round 1, F1 and F3). An optional
+// argument left out still finds the instance (review round 2, N2).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  bark(): string {
+    return "woof";
+  }
+}
+interface Config {
+  name: string;
+  size: number;
+}
+interface Keeper {
+  keep<T>(x: T, b: Box<T>): Box<T>;
+}
+interface Mapper {
+  map<U>(f: (x: number) => U, b: Box<U>): Box<U>;
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  maybe<T>(x?: T): Box<T | undefined>;
+}
+const kept: unknown[] = [];
+class K implements Keeper, Mapper, Maker {
+  keep<T>(x: T, b: Box<T>): Box<T> {
+    kept.push(x);
+    return b;
+  }
+  map<U>(f: (x: number) => U, b: Box<U>): Box<U> {
+    kept.push(f);
+    return b;
+  }
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  maybe<T>(x?: T): Box<T | undefined> {
+    return new Box(x);
+  }
+}
+const literal = {
+  keep<T>(x: T, b: Box<T>): Box<T> {
+    kept.push(x);
+    return b;
+  },
+  map<U>(f: (x: number) => U, b: Box<U>): Box<U> {
+    kept.push(f);
+    return b;
+  },
+};
+function twice(x: number, label?: string): number {
+  return x * 2 + (label === undefined ? 0 : 100);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  attempt("a generic arrow", () => String(named(5).value + 1));
+  const k: Keeper & Mapper & Maker = new K();
+  attempt("an interface call that finds its instance", () => String(k.make(6).value + 1));
+  attempt("an optional argument given and left out", () => `${k.maybe(7).value} ${k.maybe<number>().value}`);
+  const dogs: Dog[] = [new Dog("rex")];
+  attempt("a Dog[] where T is Animal[], through an interface", () => {
+    const r: Box<Animal[]> = k.keep(dogs, new Box<Animal[]>([new Animal("cat")]));
+    return `${r.value[0].name} ${kept[kept.length - 1] === dogs}`;
+  });
+  attempt("a Dog[] where T is Animal[], through a literal's type", () => {
+    const r: Box<Animal[]> = literal.keep(dogs, new Box<Animal[]>([new Animal("cow")]));
+    return `${r.value[0].name} ${kept[kept.length - 1] === dogs}`;
+  });
+  const raw: any = JSON.parse('{"name":"a","size":2,"extra":true}');
+  attempt("a JSON value where T is an object type", () => {
+    const r: Box<Config> = k.keep<Config>(raw, new Box<Config>({ name: "b", size: 3 }));
+    return `${r.value.name} ${kept[kept.length - 1] === raw} ${JSON.stringify(kept[kept.length - 1])}`;
+  });
+  const partial: any = JSON.parse('{"name":"c"}');
+  attempt("a JSON value that lacks a property", () => {
+    const r: Box<Config> = literal.keep<Config>(partial, new Box<Config>({ name: "d", size: 4 }));
+    return `${r.value.name} ${JSON.stringify(kept[kept.length - 1])}`;
+  });
+  attempt("a function with another parameter list, through an interface", () => {
+    const r: Box<number> = k.map(twice, new Box(1));
+    return `${r.value} ${kept[kept.length - 1] === twice}`;
+  });
+  attempt("a function with another parameter list, through a literal's type", () => {
+    const r: Box<number> = literal.map(twice, new Box(2));
+    return `${r.value} ${kept[kept.length - 1] === twice}`;
+  });
+}
+main();
+
+// expect:
+// a generic arrow 6
+// an interface call that finds its instance 7
+// an optional argument given and left out 7 undefined
+// a Dog[] where T is Animal[], through an interface cat true
+// a Dog[] where T is Animal[], through a literal's type cow true
+// a JSON value where T is an object type b true {"name":"a","size":2,"extra":true}
+// a JSON value that lacks a property d {"name":"c"}
+// a function with another parameter list, through an interface 1 true
+// a function with another parameter list, through a literal's type 2 true

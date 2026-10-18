@@ -1,0 +1,66 @@
+// skip: known issue (H09b2, C187): until typed reads verify the objects erased copies make, a call through an interface makes no demand where a parameter typed with the method's type parameters is of an object type, an interface or a union of them, so these keep the erased copy, whose Box<any> throws
+// Typed calls through an interface or an object literal's type whose type argument is an
+// interface or an object literal type (directly, or in an array, a Map or a union), or that
+// take a union of object types, find their instances once H09b2 makes typed reads verify
+// erased copies' objects (C187; D-191 keeps them on the erased copy meanwhile, as before
+// H09b1, review round 4's `s02`). Each line prints what Node prints with the instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface User {
+  id: number;
+  name: string;
+}
+interface Repo {
+  save<T>(x: T): Box<T>;
+  saveAll<T>(xs: T[]): Box<T[]>;
+  index<T>(m: Map<string, T>): Box<T | undefined>;
+  maybe<T>(x: T | undefined): Box<T | undefined>;
+}
+class MemRepo implements Repo {
+  save<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  saveAll<T>(xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+  index<T>(m: Map<string, T>): Box<T | undefined> {
+    return new Box(m.get("a"));
+  }
+  maybe<T>(x: T | undefined): Box<T | undefined> {
+    return new Box(x);
+  }
+}
+type Opt<T> = { tag: "some"; value: T } | { tag: "none" };
+const Ops = {
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const repo: Repo = new MemRepo();
+const user: User = { id: 1, name: "ana" };
+attempt("interface type argument", () => repo.save(user).value.name);
+attempt("object literal type argument", () => String(repo.save({ id: 2 }).value.id));
+attempt("array of interfaces", () => String(repo.saveAll([user]).value.length));
+attempt("Map of interfaces", () => repo.index(new Map([["a", user]])).value!.name);
+attempt("interface or undefined", () => repo.maybe<User>(user).value!.name);
+attempt("union of object types", () => String(Ops.orElse<number>({ tag: "some", value: 3 }, 0).value + 1));
+attempt("number still found", () => String(repo.save(5).value + 1));
+attempt("number[] still found", () => String(repo.saveAll([5, 6]).value.length));
+
+// expect:
+// interface type argument ana
+// object literal type argument 2
+// array of interfaces 1
+// Map of interfaces ana
+// interface or undefined ana
+// union of object types 4
+// number still found 6
+// number[] still found 2

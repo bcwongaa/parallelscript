@@ -1,0 +1,73 @@
+// An instance call takes an array argument only if its elements are of the instance's
+// parameter's kind (D-191), and an optional array left out, NULL in the C, is one it takes:
+// the guard tested its descriptor and dropped the instance of a D-148 value call and a
+// D-101 dispatched call that worked before (review round 5, T1). Each kind of call with an
+// optional array left out, given as undefined and given; the arrow by name is a direct call,
+// so it reaches the guard only through a value (review round 6, N1).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Opts {
+  withArray<T>(x: T, xs?: T[]): Box<T>;
+}
+class C implements Opts {
+  withArray<T>(x: T, xs?: T[]): Box<T> {
+    return new Box(xs === undefined ? x : xs[0]);
+  }
+}
+function first<T>(x: T, xs?: T[]): Box<T> {
+  return new Box(xs === undefined ? x : xs[0]);
+}
+const firstValue: <T>(x: T, xs?: T[]) => Box<T> = first;
+const arrowFirst = <T>(x: T, xs?: T[]): Box<T> => new Box(xs === undefined ? x : xs[0]);
+const arrowValue: <T>(x: T, xs?: T[]) => Box<T> = arrowFirst;
+const literal = {
+  withArray<T>(x: T, xs?: T[]): Box<T> {
+    return new Box(xs === undefined ? x : xs[0]);
+  },
+};
+abstract class Base {
+  abstract withArray<T>(x: T, xs?: T[]): Box<T>;
+}
+class Impl extends Base {
+  withArray<T>(x: T, xs?: T[]): Box<T> {
+    return new Box(xs === undefined ? x : xs[0]);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const o: Opts = new C();
+const d: Base = new Impl();
+attempt("D-148 value call, array left out", () => String(firstValue(6).value + 1));
+attempt("H09a arrow, array left out", () => String(arrowFirst(7).value + 1));
+attempt("D-101 dispatched, array left out", () => String(d.withArray(8).value + 1));
+attempt("interface call, array left out", () => String(o.withArray(5).value + 1));
+attempt("D-148 value call, array given", () => String(firstValue(6, [9]).value + 1));
+attempt("H09a arrow value, array left out", () => String(arrowValue(3).value + 1));
+attempt("object literal, array left out", () => String(literal.withArray(4).value + 1));
+attempt("D-148 value call, undefined given", () => String(firstValue(10, undefined).value + 1));
+attempt("H09a arrow value, undefined given", () => String(arrowValue(11, undefined).value + 1));
+attempt("D-101 dispatched, undefined given", () => String(d.withArray(12, undefined).value + 1));
+attempt("interface call, undefined given", () => String(o.withArray(13, undefined).value + 1));
+attempt("object literal, undefined given", () => String(literal.withArray(14, undefined).value + 1));
+attempt("object literal, array given", () => String(literal.withArray(15, [20]).value + 1));
+
+// expect:
+// D-148 value call, array left out 7
+// H09a arrow, array left out 8
+// D-101 dispatched, array left out 9
+// interface call, array left out 6
+// D-148 value call, array given 10
+// H09a arrow value, array left out 4
+// object literal, array left out 5
+// D-148 value call, undefined given 11
+// H09a arrow value, undefined given 12
+// D-101 dispatched, undefined given 13
+// interface call, undefined given 14
+// object literal, undefined given 15
+// object literal, array given 21

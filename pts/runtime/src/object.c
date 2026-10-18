@@ -159,6 +159,38 @@ pts_function pts_instance_find(const void *value, const char *name, const pts_ch
   return NULL;
 }
 
+pts_function pts_method_instance_find(const pts_object *object, pts_site *site, const char *name, const pts_check *signature, pts_closure **closure) {
+  *closure = NULL;
+  const pts_type *type = object->type;
+  uint64_t cache = __atomic_load_n(&site->cache, __ATOMIC_RELAXED);
+  uint64_t offset = cache >> 48; /* of the field holding the closure, or 0 for none */
+  if ((uintptr_t)type != (cache & PTS_SITE_TYPE_MASK)) {
+    for (const pts_type *class = type; class != NULL; class = class->parent) {
+      for (uint32_t i = 0; i < class->instance_count; i++) {
+        const pts_instance *instance = &class->instances[i];
+        if (instance->signature == signature && instance->name != NULL && strcmp(instance->name, name) == 0) {
+          return instance->function; /* NULL ends the search: the nearer class's method has no instance of signature */
+        }
+      }
+    }
+    const pts_field *field = type->kind == PTS_KIND_OBJECT ? find_field(type, name) : NULL;
+    offset = field != NULL && field->kind == PTS_FIELD_OBJECT ? field->offset : 0;
+    cache_member(site, type, offset); /* what a descriptor's classes list doesn't change */
+  }
+  if (offset == 0) {
+    return NULL;
+  }
+  pts_closure *method = __atomic_load_n((pts_closure *const *)((const char *)object + offset), __ATOMIC_RELAXED);
+  if (method == NULL || method->type->kind != PTS_KIND_FUNCTION) {
+    return NULL;
+  }
+  pts_function function = pts_instance_find(method, name, signature);
+  if (function != NULL) {
+    *closure = method;
+  }
+  return function;
+}
+
 /* Whether a field or accessor declared `declared` is exactly what a site of check's type writes: then the site may cache it (D-072). */
 static bool exact(pts_field_kind kind, const pts_check *declared, const pts_check *check) {
   return check == NULL || pts_check_same(pts_check_declared(kind, declared), check);

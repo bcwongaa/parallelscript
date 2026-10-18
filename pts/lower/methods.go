@@ -16,7 +16,17 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	flags := ast.GetFunctionFlags(node)
 	switch {
 	}
+	var generic *genericFunc
 	if typeParameters := l.checker.GetSignatureFromDeclaration(node).TypeParameters(); len(typeParameters) > 0 {
+		if l.specialization == AllInstances && (l.subst == nil || len(l.subst.erased) == 0) {
+			// Its instances run with the closures of its erased copy, as a generic arrow
+			// function's do (D-190, D-191); in erased code, its type arguments would mention
+			// the erased ones. As a method, they take the literal first.
+			generic = &genericFunc{node: node, module: l.function, parameters: typeParameters, outer: l.subst}
+			if field.Method {
+				generic.class = field.Class
+			}
+		}
 		outer := l.subst
 		l.subst = l.erasing(typeParameters, nil) // its own, or its context's (D-078)
 		defer func() { l.subst = outer }()
@@ -59,6 +69,15 @@ func (l *lowerer) objectMethod(node *ast.Node, field *ir.Field) ir.Expr {
 	}
 	l.function = outer
 	l.inFunction(fn, func() { fn.Body = l.block(node.Body(), node.Body().Statements()) })
+	if generic != nil {
+		generic.name, generic.jsName, generic.closure = fn.Name, fn.JSName, fn
+		if field.Method {
+			generic.field = field // its calls are a method's, by name
+		}
+		if l.addErasedValue(fn, generic) {
+			generic.scope = l.scopeOf(node)
+		}
+	}
 	var closure ir.Expr = &ir.MakeClosure{Func: fn, FuncType: ft}
 	if differs { // `deposit(amount, memo)` for `deposit(amount: number, memo?: string)`: adapted to the field's type
 		closure = l.adapt(&ir.MakeClosure{Func: fn, FuncType: l.typeOfFunc(fn)}, ft, node)

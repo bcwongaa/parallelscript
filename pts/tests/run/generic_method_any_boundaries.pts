@@ -1,0 +1,101 @@
+// no-diff: a generic method that lies through `any` about the instance it returns throws TypeError at the typed call (D-071, D-155), and a call through `any` has no type arguments to find an instance by (D-078), where Node goes on with the wrong-typed value
+// Typed calls of generic methods through interfaces and object literals find their
+// instances (H09b1), while the checked boundaries of `any` stay (D-155): a class's or an
+// object literal's generic method whose body returns a `Box<string>` or a plain object
+// through `any` where its signature says `Box<T>` throws TypeError rather than handing typed
+// code a wrong-typed value, through the interface and through the class; and a call through
+// `any`, which has no type arguments, keeps the erased copy, whose `Box<any>` a typed place
+// rejects, while its result used dynamically works. A guard for H09b: making more calls
+// find instances must not let these through.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class Liar implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  }
+}
+class PlainLiar implements Maker {
+  make<T>(x: T): Box<T> {
+    return { value: x } as any;
+  }
+}
+const literalLiar: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  },
+};
+const ownLiar = {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  },
+};
+class Honest implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const honestLiteral = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+
+attempt("a class lies, through the interface", () => {
+  const m: Maker = new Liar();
+  const b: Box<number> = m.make(5);
+  return String(b.value);
+});
+attempt("a class lies, through the class", () => {
+  const b: Box<number> = new Liar().make(5);
+  return String(b.value);
+});
+attempt("a plain object for a box", () => {
+  const m: Maker = new PlainLiar();
+  const b: Box<number> = m.make(5);
+  return String(b.value);
+});
+attempt("a literal lies, through the interface", () => {
+  const b: Box<number> = literalLiar.make(5);
+  return String(b.value);
+});
+attempt("a literal lies, through its type", () => {
+  const b: Box<number> = ownLiar.make(5);
+  return String(b.value);
+});
+attempt("a class through any", () => {
+  const a: any = new Honest();
+  const b: Box<number> = a.make(5);
+  return String(b.value);
+});
+attempt("a literal through any", () => {
+  const a: any = honestLiteral;
+  const b: Box<number> = a.make(5);
+  return String(b.value);
+});
+attempt("a dynamic result", () => {
+  const a: any = new Honest();
+  const b = a.make(5);
+  const c = (honestLiteral as any).make("ab");
+  return `${b.value + 1} ${b instanceof Box} ${c.value.length}`;
+});
+
+// expect:
+// a class lies, through the interface TypeError Expected Box<number>, got Box<string>
+// a class lies, through the class TypeError Expected Box<number>, got Box<string>
+// a plain object for a box TypeError Expected Box<number>, got Object
+// a literal lies, through the interface TypeError Expected Box<number>, got Box<string>
+// a literal lies, through its type TypeError Expected Box<number>, got Box<string>
+// a class through any TypeError Expected Box<number>, got Box<any>
+// a literal through any TypeError Expected Box<number>, got Box<any>
+// a dynamic result 6 true 2

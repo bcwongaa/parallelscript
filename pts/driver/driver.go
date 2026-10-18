@@ -28,16 +28,16 @@ func EmitC(ctx context.Context, entry string) (code string, err error) {
 	if err != nil {
 		return "", err
 	}
-	code, err = checked.emitC(ctx, lower.AllInstances)
-	if fallsBack(ctx, err) {
-		code, err = checked.emitC(ctx, lower.DeclaredInstances)
+	for _, specialization := range lower.Fallbacks {
+		if code, err = checked.emitC(ctx, specialization); !fallsBack(ctx, err) {
+			break
+		}
 	}
 	return code, err
 }
 
 // EmitCWith is EmitC with the given specialization alone, for tests: a failure doesn't
-// fall back to lower.DeclaredInstances, so a bug that only AllInstances' instances hit
-// isn't hidden.
+// fall back (lower.Fallbacks), so a bug that only AllInstances' instances hit isn't hidden.
 func EmitCWith(ctx context.Context, entry string, specialization lower.Specialization) (code string, err error) {
 	checked, err := load(ctx, entry)
 	if err != nil {
@@ -54,9 +54,10 @@ func Build(ctx context.Context, entry string, output string) error {
 	if err != nil {
 		return err
 	}
-	err = checked.build(ctx, lower.AllInstances, output)
-	if fallsBack(ctx, err) {
-		err = checked.build(ctx, lower.DeclaredInstances, output)
+	for _, specialization := range lower.Fallbacks {
+		if err = checked.build(ctx, specialization, output); !fallsBack(ctx, err) {
+			break
+		}
 	}
 	return err
 }
@@ -85,10 +86,10 @@ func load(ctx context.Context, entry string) (checked *checkedProgram, err error
 	return &checkedProgram{program, info}, nil
 }
 
-// fallsBack reports whether a build that failed with err, with lower.AllInstances, is
-// tried again with lower.DeclaredInstances, which programs compiled with before H09
-// (D-190): the instances that D-190 adds are made for calls that may never meet them, and
-// a failure in their code, which the lowering's trials don't take back, mustn't stop a
+// fallsBack reports whether a build that failed with err is tried again with the next of
+// lower.Fallbacks, the last of which programs compiled with before H09 (D-190, D-191): the
+// instances that each earlier one adds are made for calls that may never meet them, and a
+// failure in their code, which the lowering's trials don't take back, mustn't stop a
 // program that compiles without them. Compile errors and internal errors fall back.
 func fallsBack(ctx context.Context, err error) bool {
 	var compileErrors *diagnostic.Error

@@ -87,6 +87,37 @@ function dispatch(label: string, m: Maker): void {
 dispatch("plain method", new Plain());
 dispatch("method", new ArrayAware());
 
+// Through an interface (D-191): the subclass's entry without an instance ends the search,
+// so the call takes the override's erased copy, never its base class's instance.
+interface Making {
+  make<T>(x: T): Box<T>;
+}
+class Base implements Making {
+  make<T>(x: T): Box<T> {
+    console.log("base's make");
+    return new Box(x);
+  }
+}
+class Sub extends Base {
+  make<T>(x: T): Box<T> {
+    console.log("sub's make");
+    if (Array.isArray(x)) {
+      console.log("an array of", x.length);
+    }
+    return new Box(x);
+  }
+}
+function viaInterface(label: string, m: Making): void {
+  try {
+    const b: Box<number> = m.make(2);
+    console.log(label, b.value + 1);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+viaInterface("base through an interface", new Base());
+viaInterface("override through an interface", new Sub());
+
 // expect:
 // isArray TypeError Expected Box<number>, got Box<any>
 // isArray TypeError Expected Box<string>, got Box<any>
@@ -103,3 +134,7 @@ dispatch("method", new ArrayAware());
 // declaration TypeError Expected Box<string>, got Box<any>
 // plain method 3
 // method TypeError Expected Box<number>, got Box<any>
+// base's make
+// base through an interface 3
+// sub's make
+// override through an interface TypeError Expected Box<number>, got Box<any>

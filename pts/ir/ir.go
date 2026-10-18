@@ -1028,6 +1028,10 @@ type InstanceCall struct {
 	Key       string // the Key of the instances it finds (Instance.Key)
 	Args      []Expr
 	Otherwise Expr
+	// Dynamic makes its value a dynamic value: the instance's result boxed, or Otherwise's,
+	// a dynamic value (a call through a union of object types, whose erased copy's result
+	// stays dynamic, D-191).
+	Dynamic bool
 }
 
 // InterfaceCall calls a method of an interface on Args[0], a reference of that interface
@@ -1543,7 +1547,12 @@ func (*SpreadArg) Type() Type       { return Value }
 func (e *CallBuiltin) Type() Type   { return e.Builtin.Result }
 func (e *Call) Type() Type          { return e.Func.Result }
 func (e *VirtualCall) Type() Type   { return e.Method.Func.Result }
-func (e *InstanceCall) Type() Type  { return e.Signature.Result }
+func (e *InstanceCall) Type() Type {
+	if e.Dynamic {
+		return Value
+	}
+	return e.Signature.Result
+}
 func (e *InterfaceCall) Type() Type { return e.Method.Result }
 func (e *NewArray) Type() Type      { return e.Array }
 func (e *MakeClosure) Type() Type   { return e.FuncType }

@@ -1,0 +1,47 @@
+// Typed calls of generic methods through an interface and of object literals' generic
+// methods find their instances on many threads at once (H09b1): the lookup reads the
+// receiver's class's table, or the closure in its literal's field, and nothing it changes,
+// so `.par` callbacks on 1, 2 and 4 threads make the boxes they do on one. The lines are
+// what Node prints for the program run sequentially (`.par.map(f)` as `map(f)`).
+// threads: 1 2 4
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Store<U> implements Maker {
+  constructor(public seed: U) {}
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const makers: Maker[] = [new ClassMaker(), new Store(1), new Store("s"), literal];
+const indexes: number[] = [];
+for (let i = 0; i < 2000; i++) {
+  indexes.push(i);
+}
+const sums = indexes.par.map((i) => {
+  const n: Box<number> = makers[i % makers.length].make(i);
+  const s: Box<string> = makers[(i + 1) % makers.length].make(`#${i}`);
+  const own: Box<boolean> = literal.make(i % 2 === 0);
+  return n.value + s.value.length + (own.value ? 1 : 0);
+});
+let total = 0;
+for (const sum of sums) {
+  total += sum;
+}
+console.log(sums.length, total, sums[0], sums[1999]);
+
+// expect:
+// 2000 2008890 3 2004

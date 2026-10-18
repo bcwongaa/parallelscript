@@ -170,11 +170,17 @@ func (l *lowerer) unionMethodCall(call *ast.CallExpression) ir.Expr {
 	if receiver == nil {
 		return nil
 	}
+	receiver = l.asUnionInterface(receiver, iface, callee)
+	if x, ok := l.namedInstanceCall(call, receiver, name, nil, method.Params, method.Result, true, func(object ir.Expr, args []ir.Expr) ir.Expr {
+		return &ir.InterfaceCall{Method: iface.Methods[0], Args: append([]ir.Expr{object}, args...)}
+	}); ok {
+		return x // the instance its object's class or method closure lists, if it lists one (D-191)
+	}
 	args := l.typedArguments(call.Arguments.Nodes, method.Params)
 	if args == nil {
 		return nil
 	}
-	return &ir.InterfaceCall{Method: iface.Methods[0], Args: append([]ir.Expr{l.asUnionInterface(receiver, iface, callee)}, args...)}
+	return &ir.InterfaceCall{Method: iface.Methods[0], Args: append([]ir.Expr{receiver}, args...)}
 }
 
 // isMethodSymbol reports whether every declaration of a property symbol (a union's,

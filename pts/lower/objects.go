@@ -1071,7 +1071,13 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 	}
 	name := callee.AsPropertyAccessExpression().Name().Text()
 	if shape, ok := receiver.Type().(*ir.Class); ok && shape.Shape && shape.Field(name) != nil && shape.Field(name).Method {
-		ft := shape.Field(name).Type.(*ir.FuncType)
+		field := shape.Field(name)
+		ft := field.Type.(*ir.FuncType)
+		if x, ok := l.namedInstanceCall(call, receiver, name, shape, ft.Params[1:], ft.Result, false, func(object ir.Expr, args []ir.Expr) ir.Expr {
+			return &ir.CallValue{Callee: &ir.FieldRef{X: object, Field: field}, Args: append([]ir.Expr{object}, args...)}
+		}); ok {
+			return x // the instance its method's closure lists, if it lists one (D-191)
+		}
 		args := l.typedArguments(call.Arguments.Nodes, ft.Params[1:])
 		if args == nil {
 			return nil
@@ -1090,6 +1096,11 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 		return nil
 	}
 	method := iface.Method(callee.AsPropertyAccessExpression().Name().Text())
+	if x, ok := l.namedInstanceCall(call, receiver, name, nil, method.Params, method.Result, false, func(object ir.Expr, args []ir.Expr) ir.Expr {
+		return &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, args...)}
+	}); ok {
+		return x // the instance its object's class or method closure lists, if it lists one (D-191)
+	}
 	args := l.typedArguments(call.Arguments.Nodes, method.Params)
 	if args == nil {
 		return nil

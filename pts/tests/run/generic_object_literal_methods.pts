@@ -1,0 +1,226 @@
+// Typed calls of an object literal's generic method find the instance of the call's
+// signature (H09b1, C169), through the literal's own type and through an interface: a
+// method declared generic or made generic by its context, one that writes a module
+// variable, uses `this` or calls another generic method through `this`, a literal a
+// factory makes each call, capturing its parameter, one in a generic function's instance,
+// a method given for a property of a generic function type, results that are a box, an
+// array or a tuple of boxes, a box or undefined, a Map of boxes and a promise of a box,
+// and one interface over class instances and literals in one array. Each called the
+// erased closure in the literal's field, whose `new Box(x)` made a `Box<any>`, and threw
+// `TypeError: Expected Box<number>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(
+    public first: A,
+    public second: B,
+  ) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+interface PropertyMaker {
+  make: <T>(x: T) => Box<T>;
+}
+
+const own = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const behind: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const contextual: Maker = {
+  make(x) {
+    return new Box(x);
+  },
+};
+let counter = 0;
+const capturing = {
+  make<T>(x: T): Box<T> {
+    counter++;
+    return new Box(x);
+  },
+};
+const withThis = {
+  calls: 0,
+  make<T>(x: T): Box<T> {
+    this.calls++;
+    return new Box(x);
+  },
+};
+const viaThis = {
+  inner<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+  make<T>(x: T): Box<T> {
+    return this.inner(x);
+  },
+};
+function makeMaker(tag: string): Maker {
+  return {
+    make<T>(x: T): Box<T> {
+      counter += tag.length;
+      return new Box(x);
+    },
+  };
+}
+function makerFor<U>(u: U) {
+  return {
+    make<T>(x: T): Pair<T, U> {
+      return new Pair(x, u);
+    },
+  };
+}
+const forProperty: PropertyMaker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+
+attempt("own type", () => {
+  const n: Box<number> = own.make(5);
+  const s: Box<string> = own.make("ab");
+  return `${n.value + 1} ${s.value.length} ${n instanceof Box}`;
+});
+attempt("through an interface", () => {
+  const n: Box<number> = behind.make(5);
+  const s: Box<string> = contextual.make("ab");
+  return `${n.value + 1} ${s.value.length}`;
+});
+attempt("writes a module variable", () => {
+  const m: Maker = capturing;
+  const n: Box<number> = capturing.make(5);
+  const s: Box<string> = m.make("ab");
+  return `${n.value + 1} ${s.value.length} ${counter}`;
+});
+attempt("uses this", () => {
+  const m: Maker = withThis;
+  const n: Box<number> = withThis.make(5);
+  const s: Box<string> = m.make("ab");
+  return `${n.value + 1} ${s.value.length} ${withThis.calls}`;
+});
+attempt("calls a generic method through this", () => {
+  const n: Box<number> = viaThis.make(5);
+  return String(n.value + 1);
+});
+attempt("a factory's literal", () => {
+  const n: Box<number> = makeMaker("ab").make(5);
+  const s: Box<string> = makeMaker("c").make("xyz");
+  return `${n.value + 1} ${s.value.length} ${counter}`;
+});
+attempt("in a generic function's instance", () => {
+  const p: Pair<number, string> = makerFor("u").make(5);
+  const q: Pair<string, boolean> = makerFor(true).make("ab");
+  return `${p.first + 1} ${p.second} ${q.first.length} ${q.second}`;
+});
+attempt("for a property of a generic function type", () => {
+  const n: Box<number> = forProperty.make(5);
+  return String(n.value + 1);
+});
+
+interface Shapes {
+  many<T>(x: T): Box<T>[];
+  tuple<T>(x: T): [Box<T>, T];
+  maybe<T>(x: T): Box<T> | undefined;
+  map<T>(x: T): Map<string, Box<T>>;
+  later<T>(x: T): Promise<Box<T>>;
+}
+const literalShapes = {
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x), new Box(x)];
+  },
+  tuple<T>(x: T): [Box<T>, T] {
+    return [new Box(x), x];
+  },
+  maybe<T>(x: T): Box<T> | undefined {
+    return x === undefined ? undefined : new Box(x);
+  },
+  map<T>(x: T): Map<string, Box<T>> {
+    return new Map([["k", new Box(x)]]);
+  },
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  },
+};
+const shapes: Shapes = literalShapes;
+attempt("result shapes, own type", () => {
+  const bs: Box<number>[] = literalShapes.many(5);
+  const t: [Box<string>, string] = literalShapes.tuple("ab");
+  const m: Box<number> | undefined = literalShapes.maybe(5);
+  const map: Map<string, Box<boolean>> = literalShapes.map(true);
+  return `${bs[0].value + bs[1].value} ${t[0].value.length + t[1].length} ${m === undefined ? "none" : m.value + 1} ${map.get("k")!.value}`;
+});
+attempt("result shapes, through an interface", () => {
+  const bs: Box<number>[] = shapes.many(5);
+  const t: [Box<string>, string] = shapes.tuple("ab");
+  const m: Box<number> | undefined = shapes.maybe(5);
+  const map: Map<string, Box<boolean>> = shapes.map(true);
+  return `${bs[0].value + bs[1].value} ${t[0].value.length + t[1].length} ${m === undefined ? "none" : m.value + 1} ${map.get("k")!.value}`;
+});
+
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Derived extends ClassMaker {}
+const makers: Maker[] = [
+  new ClassMaker(),
+  {
+    make<T>(x: T): Box<T> {
+      return new Box(x);
+    },
+  },
+  new Derived(),
+  {
+    make(x) {
+      return new Box(x);
+    },
+  },
+];
+attempt("classes and literals in one array", () => {
+  const values: string[] = [];
+  makers.forEach((m, i) => {
+    const n: Box<number> = m.make(i);
+    const s: Box<string> = m.make(`s${i}`);
+    values.push(`${n.value + 1}:${s.value.length}`);
+  });
+  return values.join(" ");
+});
+
+async function main(): Promise<void> {
+  try {
+    const b: Box<number> = await literalShapes.later(5);
+    const c: Box<string> = await shapes.later("ab");
+    console.log("promise of a box", b.value + 1, c.value.length);
+  } catch (error: any) {
+    console.log("promise of a box", error.name, error.message);
+  }
+}
+main();
+
+// expect:
+// own type 6 2 true
+// through an interface 6 2
+// writes a module variable 6 2 2
+// uses this 6 2 2
+// calls a generic method through this 6
+// a factory's literal 6 3 5
+// in a generic function's instance 6 u 2 true
+// for a property of a generic function type 6
+// result shapes, own type 10 4 6 true
+// result shapes, through an interface 10 4 6 true
+// classes and literals in one array 1:2 2:2 3:2 4:2
+// promise of a box 6 2

@@ -155,6 +155,95 @@ console.log(d(1).inc(), use(make));
 	assert.Assert(t, strings.Contains(c, "pts_fn_make_string"), "the declaration's instance is made as before H09")
 }
 
+func TestInterfaceCallsMakeNoDemandsInTheFallbackBuilds(t *testing.T) {
+	t.Parallel()
+	// Polymorphic recursion through an interface: the call's demands by name make an
+	// instance of rec for Box<T[]>, then Box<T[][]>, … to the instance limit, so the
+	// build falls back, where interface calls make none (D-191) and the program compiles
+	// as it did before H09b1.
+	entry := writeSource(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+interface Rec {
+  rec<T>(x: T, n: number): Box<T>;
+}
+class Recurser implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const self: Rec = this;
+      const inner: Box<T[]> = self.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+}
+const r: Rec = new Recurser();
+const b: Box<number> = r.rec(5, 3);
+console.log(b.value + 1);
+`)
+
+	_, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+	c, fallback := driver.EmitC(t.Context(), entry)
+
+	assert.Assert(t, err != nil, "the first build reaches the instance limit") // and C172's internal error after it
+	assert.NilError(t, fallback)
+	assert.Assert(t, !strings.Contains(c, "pts_method_instance_find"), "the fallback build's interface call takes the erased copy")
+}
+
+func TestABuildThatOnlyItsDemandsByNameStopKeepsTheGenericArrowsInstances(t *testing.T) {
+	t.Parallel()
+	// Unrelated is a Maker to tsc (structurally), so the interface call's demand by name
+	// pairs with its make for string, which makes a Weird<string>, whose `inc` doesn't
+	// lower, after its trial. The build falls back to ValueInstances first, which keeps
+	// the generic arrow's instance (D-190), not to DeclaredInstances (D-191).
+	entry := writeSource(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  inc(): number {
+    const v = this.value;
+    if (typeof v === "number") {
+      return v + 1;
+    }
+    return 0;
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class Good implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Unrelated {
+  make<T>(x: T): Box<T> {
+    const w = new Weird(x);
+    console.log(w.inc());
+    return new Box(x);
+  }
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  const b: Box<number> = named(5);
+  const m: Maker = new Good();
+  const s: Box<string> = m.make("s");
+  console.log(b.value, s.value, new Unrelated().make(1).value);
+}
+main();
+`)
+
+	_, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+	_, values := driver.EmitCWith(t.Context(), entry, lower.ValueInstances)
+	c, fallback := driver.EmitC(t.Context(), entry)
+
+	assert.Equal(t, compileErrors(t, err)[0].Format(filepath.Dir(entry)), "main.pts:9:14 - error PTS1001: converting string to number is not supported yet")
+	assert.NilError(t, values)
+	assert.NilError(t, fallback)
+	assert.Assert(t, strings.Contains(c, "pts_fn_main_named_number"), "the generic arrow's instance is made, as with H09a")
+}
+
 func TestAProgramThatFailsEitherWayReportsItsErrorsOnce(t *testing.T) {
 	t.Parallel()
 	entry := writeSource(t, `class Box<T> {
