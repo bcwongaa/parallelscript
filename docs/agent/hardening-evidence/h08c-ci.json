@@ -1,0 +1,36 @@
+{
+ "task": "H08c (D-189)",
+ "fix_commit": "a5ded7e1fed51673ee86fdf2434c2019168a472f",
+ "run_id": 39089875150,
+ "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39089875150",
+ "workflow": "PTS",
+ "event": "push",
+ "status": "completed",
+ "conclusion": "success",
+ "created": "2026-10-18T02:22:51Z",
+ "updated": "2026-10-18T02:34:48Z",
+ "jobs": [
+  {
+   "name": "PTS tests",
+   "status": "completed",
+   "conclusion": "success",
+   "started": "2026-10-18T02:22:53Z",
+   "completed": "2026-10-18T02:34:47Z"
+  },
+  {
+   "name": "Upstream CLI and LSP suites",
+   "status": "completed",
+   "conclusion": "success",
+   "started": "2026-10-18T02:22:54Z",
+   "completed": "2026-10-18T02:25:42Z"
+  },
+  {
+   "name": "VS Code extension",
+   "status": "completed",
+   "conclusion": "success",
+   "started": "2026-10-18T02:22:53Z",
+   "completed": "2026-10-18T02:25:11Z"
+  }
+ ],
+ "note": "This run certifies the named immutable SHA only, not later documentation commits."
+}
