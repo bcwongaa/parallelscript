@@ -1,0 +1,177 @@
+{
+ "task": "H09b4a (D-195)",
+ "workflow": "PTS",
+ "runs": [
+  {
+   "commit": "0377fb2ebed5d290e72d9c91d3770caabe6c390a",
+   "role": "fix commit",
+   "run_id": 39448390553,
+   "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39448390553",
+   "event": "push",
+   "status": "completed",
+   "conclusion": "success",
+   "created": "2026-10-20T15:26:18Z",
+   "updated": "2026-10-20T15:38:38Z",
+   "jobs": [
+    {
+     "name": "PTS tests",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T15:26:21Z",
+     "completed": "2026-10-20T15:38:37Z"
+    },
+    {
+     "name": "Upstream CLI and LSP suites",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T15:26:21Z",
+     "completed": "2026-10-20T15:31:03Z"
+    },
+    {
+     "name": "VS Code extension",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T15:26:21Z",
+     "completed": "2026-10-20T15:29:56Z"
+    }
+   ]
+  },
+  {
+   "commit": "fe2a0dcf646bfeb7e63ef26ef106a45fb73eaeec",
+   "role": "review round 1",
+   "run_id": 39459862916,
+   "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39459862916",
+   "event": "push",
+   "status": "completed",
+   "conclusion": "success",
+   "created": "2026-10-20T16:42:54Z",
+   "updated": "2026-10-20T16:54:33Z",
+   "jobs": [
+    {
+     "name": "PTS tests",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T16:42:57Z",
+     "completed": "2026-10-20T16:54:32Z"
+    },
+    {
+     "name": "Upstream CLI and LSP suites",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T16:42:57Z",
+     "completed": "2026-10-20T16:45:55Z"
+    },
+    {
+     "name": "VS Code extension",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T16:42:57Z",
+     "completed": "2026-10-20T16:46:47Z"
+    }
+   ]
+  },
+  {
+   "commit": "87f407d6af97e110319b619ee9c77f7e3835d789",
+   "role": "review round 2",
+   "run_id": 39466989114,
+   "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39466989114",
+   "event": "push",
+   "status": "completed",
+   "conclusion": "success",
+   "created": "2026-10-20T17:32:33Z",
+   "updated": "2026-10-20T17:45:58Z",
+   "jobs": [
+    {
+     "name": "PTS tests",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T17:32:36Z",
+     "completed": "2026-10-20T17:45:57Z"
+    },
+    {
+     "name": "Upstream CLI and LSP suites",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T17:32:36Z",
+     "completed": "2026-10-20T17:35:46Z"
+    },
+    {
+     "name": "VS Code extension",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T17:32:35Z",
+     "completed": "2026-10-20T17:36:00Z"
+    }
+   ]
+  },
+  {
+   "commit": "51119cce9d4d3fe8a5716009e6d0d97c583a6834",
+   "role": "review round 3",
+   "run_id": 39471306974,
+   "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39471306974",
+   "event": "push",
+   "status": "completed",
+   "conclusion": "success",
+   "created": "2026-10-20T18:02:40Z",
+   "updated": "2026-10-20T18:11:27Z",
+   "jobs": [
+    {
+     "name": "PTS tests",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:02:42Z",
+     "completed": "2026-10-20T18:11:27Z"
+    },
+    {
+     "name": "Upstream CLI and LSP suites",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:02:42Z",
+     "completed": "2026-10-20T18:06:46Z"
+    },
+    {
+     "name": "VS Code extension",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:02:43Z",
+     "completed": "2026-10-20T18:05:56Z"
+    }
+   ]
+  },
+  {
+   "commit": "61b72f3c6c759bd112c90ca467a87860e2300899",
+   "role": "review round 4",
+   "run_id": 39475432388,
+   "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39475432388",
+   "event": "push",
+   "status": "completed",
+   "conclusion": "success",
+   "created": "2026-10-20T18:31:04Z",
+   "updated": "2026-10-20T18:39:42Z",
+   "jobs": [
+    {
+     "name": "PTS tests",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:31:07Z",
+     "completed": "2026-10-20T18:39:41Z"
+    },
+    {
+     "name": "Upstream CLI and LSP suites",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:31:07Z",
+     "completed": "2026-10-20T18:34:29Z"
+    },
+    {
+     "name": "VS Code extension",
+     "status": "completed",
+     "conclusion": "success",
+     "started": "2026-10-20T18:31:07Z",
+     "completed": "2026-10-20T18:33:23Z"
+    }
+   ]
+  }
+ ],
+ "note": "Each run certifies its named immutable SHA only, not later documentation commits. Checked at the next session's start (owner 2026-10-20), not waited for in-session."
+}
