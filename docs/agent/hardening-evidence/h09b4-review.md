@@ -156,3 +156,22 @@ The 98 earlier probes on snap8: 73 match Node; `o02` (an intended lie) is the on
 ### Parent's response to round 4
 
 R4-F1 fixed as suggested: `literalFreeIn` walks index signatures' key and value types. h04–h07 match Node; `generic_dead_branches_shared_instances.pts` gains the shape (RED on snap8). All probes of the four rounds re-run: 77 match Node; no earlier probe's output changed; `c06` and `h01`–`h03` print the base's PTS1001s (recursive or index-signature type arguments get no traps, which D-195 now states). The `transducers` nondeterminism is the known C85 (map order).
+
+## Round 5 (snapshot `/tmp/h09b4/snap9`, commit `61b72f3c6`, the final code)
+
+Archive: [h09b4-review5-probes.tar.gz](h09b4-review5-probes.tar.gz) (sha256 `03e811338a4d8b682378d809580b0f9fc8f597c05f2ba19203286ef410870f80`; `round5/INDEX.txt` inside).
+
+---
+
+**Round 5 verdict: ready.** The R4-F1 fix works, and walking index signatures can only make `literalFree` say "not literal-free" more often. That means fewer traps (where a trap is dropped, the code lowers as on the base), so it can't open a new path to a trap. I found nothing it loosens or breaks.
+
+- **R4-F1 fixed:** `r4/h04`–`h07` match Node and the base, and so does the new `r5/k02` (recursion through an index signature inside an array), which still trapped on snap8.
+- **Same output as the base:** `r4/h01`–`h03`; `r5/k01` (number keys, an interface with both properties and an index signature, `Record<"a" | "b", number>`, `Record<string, 1>`: record-typed arguments get no trap on any version, since an object type intersected with a primitive still has values); `r5/k03`, `r5/k04` (recursion through an index signature inside a `Map` or a function result: PTS1001 on both); template-literal keys are PTS1001 on every version.
+- `r5/k05` (`interface Dict { [k: string]: string | Dict }` nested as `{ v: Dict }`) matches Node: snap9 places a trap there (Dict recurs through itself, not through a union), never reached, since every type sharing that instance's IR type `{ v: Record<string, value> }` has a record in v.
+- Unchanged from snap8: `r4/c06` and the 12 spot-checked earlier probes.
+- **Corpus and run tests (937 programs), snap8 vs snap9:** emit-c 935 identical; the two that differ are `generic_dead_branches_shared_instances` (its new shape loses its trap, as intended) and `corpus/functional/transducers` (the pre-existing nondeterminism; the base does the same). AllInstances-only: identical outcomes for all 937.
+- Tests agree with their expect blocks; D-195 and SPEC §9.134 match the code. Docs nit: D-195's "a union reached again (a recursive type)" should say a union that recurs through itself (k05's Dict recurs through an interface and can get sound traps). Outside this slice: one ledger entry for the transducers nondeterminism.
+
+### Parent's response to round 5
+
+The docs nit applied to D-195; the `transducers` nondeterminism added to C85 (map order of structurally identical shapes), whose cause it is.
