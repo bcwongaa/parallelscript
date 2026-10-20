@@ -74,6 +74,9 @@ class HardeningDriverTests(unittest.TestCase):
 
     def test_one_task_per_session_and_explicit_subagents(self):
         self.assertIn("ONLY the first unchecked, unblocked", driver.PROMPT)
+        self.assertIn("-p 4 -parallel 4", driver.PROMPT)
+        self.assertIn("NEVER wait or poll for GitHub CI", driver.PROMPT)
+        self.assertNotIn("Verify exact\nSHA CI", driver.PROMPT)
         self.assertEqual(set(driver.AGENTS), {"reproducer", "reviewer"})
         self.assertIn("reproducer and reviewer subagents", driver.PROMPT)
         self.assertFalse(driver.VIA_PROXY)

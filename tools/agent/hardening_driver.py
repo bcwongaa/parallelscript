@@ -45,8 +45,11 @@ substantive task. Writing children must have isolated worktrees; no shared dirty
 verifies child claims by running tests itself. Follow TDD RED-GREEN-REFACTOR and preserve failing
 evidence. You have up to 500 turns: commit and push each green slice as soon as it is green rather
 than holding it to the end, so a session that runs out of turns never loses work.
-Commit and push green work to origin main according to the local project workflow. Verify exact
-SHA CI. Update plan, progress, docs and consolidated review findings; do not alter tools/agent/.
+Commit and push green work to origin main according to the local project workflow. Run the full
+suite with 4 parallel jobs (-p 4 -parallel 4, GOMAXPROCS=4). NEVER wait or poll for GitHub CI:
+check recent runs once at session start (non-blocking), fix any failed run first, backfill run
+IDs, and otherwise tick a slice on a green local suite with "CI: pending".
+Update plan, progress, docs and consolidated review findings; do not alter tools/agent/.
 Every result must be backed by real execution. Never tick blocked/deferred scope as finished.
 After completing one task/slice, checkpoint and end SESSION_RESULT: done=<id> next=<id> green=<yes|no>.
 If the model's usage limit is hit, checkpoint and exit; the driver switches models.
