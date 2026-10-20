@@ -1,0 +1,64 @@
+// no-diff: a lie through `any` (a number where T is string or a class, a string where T is number) throws TypeError where JS carries on (D-155)
+// Lies through `any` into a generic method's erased copy, whose object then reaches typed
+// code through a union of object types: the typed read took a number as a string's or a
+// class's pointer (SIGSEGV) or a string's pointer as a double (a pointer's bits printed as a
+// number). A lie must throw or pass through, never misread (H09b2, C187). An instance found
+// for a later call (D-191) reads such an object typed too, where the erased copy passed the
+// lie on (`generic_method_erased_objects.pts` before H09b2): it throws as typed code does.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+type One<T> = { readonly tag: "some"; readonly value: T } | { readonly tag: "none" };
+class Pt {
+  constructor(public x: number) {}
+}
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+  head<T>(o: Opt<T>): Opt<T> {
+    return o.tag === "some" ? { tag: "some", value: [o.value[0]] } : { tag: "none" };
+  },
+  one<T>(x: T): One<T> {
+    return { tag: "some", value: x };
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name);
+  }
+}
+const n: any = 7;
+const s: any = "s";
+attempt("a string from an array holding a number", () => {
+  const o = Ops.wrap<string>(n);
+  return o.tag === "some" ? String(o.value[0].length) : "none";
+});
+attempt("a class from an array holding a number", () => {
+  const o = Ops.wrap<Pt>(n);
+  return o.tag === "some" ? String(o.value[0].x) : "none";
+});
+attempt("a number from an array holding a string", () => {
+  const o = Ops.wrap<number>(s);
+  return o.tag === "some" ? String(o.value[0] * 2) : "none";
+});
+attempt("a string from a field holding a number", () => {
+  const o = Ops.one<string>(n);
+  return o.tag === "some" ? String(o.value.length) : "none";
+});
+attempt("an instance reading a string from an array holding a number", () => {
+  const o = Ops.head(Ops.wrap<string>(n));
+  return o.tag === "some" ? o.value[0] : "none";
+});
+attempt("the truth still passes", () => {
+  const o = Ops.wrap<number>(n);
+  return o.tag === "some" ? String(o.value[0] * 2) : "none";
+});
+
+// expect:
+// a string from an array holding a number TypeError
+// a class from an array holding a number TypeError
+// a number from an array holding a string TypeError
+// a string from a field holding a number TypeError
+// an instance reading a string from an array holding a number TypeError
+// the truth still passes 14

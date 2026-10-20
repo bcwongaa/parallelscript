@@ -63,10 +63,62 @@ static _Noreturn void missing_member(const pts_type *type, const char *action, c
                 pts_unfrozen(type)->name);
 }
 
-/* A site that reads a property as check's kind met an object that holds it as another (D-072): only a compiler bug makes one. */
+/*
+ * A site that reads a property as check's type met an object that holds it as another
+ * type, of which the value isn't one as it is (D-072, D-192): an erased copy's object that
+ * a union took as a member it fits only by leaving properties out (C187), or a lie through `any`.
+ */
 static _Noreturn void wrong_kind(const pts_type *type, const char *name, const pts_check *check, pts_field_kind kind, const pts_check *declared) {
   pts_throw_new(&pts_type_builtin_TypeError, "Cannot read property %s of %s as %s: it is declared %s", name, type->name, check->name,
                 pts_check_declared(kind, declared)->name);
+}
+
+/*
+ * Whether a field or getter of kind `kind` declared `declared` holds only values of the
+ * type check that a site reads it as, in check's representation, so that the site may read
+ * it as it is and cache it. Kinds alone don't say so: an object an erased copy made holds
+ * an `any[]` where its type's other member holds a `number[]` (C187, D-192). A field of
+ * the runtime's own descriptors, which declare no types, is one of the type its kind holds.
+ * An object read as an object type is read as it is, whatever its declared type: its
+ * properties are only read through sites, which verify each one as it is read.
+ */
+static bool reads_as_is(pts_field_kind kind, const pts_check *declared, const pts_check *check) {
+  if (check == NULL) {
+    return true;
+  }
+  if (kind != check->slot) {
+    return false;
+  }
+  if (declared == NULL || declared == check) {
+    return true;
+  }
+  if (check->kind == PTS_CHECK_OBJECT && !check->result && (declared->kind == PTS_CHECK_OBJECT || declared->kind == PTS_CHECK_INSTANCE)) {
+    return true;
+  }
+  return pts_check_implies(declared, check);
+}
+
+/*
+ * A read, through a site of check's type, of a field's or getter's value whose declared
+ * type doesn't say it is one: in a new cell the site reads, the value as check's
+ * representation holds it, if it is one as it is (a dynamic value of the type, an object
+ * of an object type by its declared types, C186; a closure of another type adapted); else
+ * TypeError, never a misread (C187). Nothing is copied: a write into a copy would be lost.
+ * An unset field (D-141) reads as unset, which the site reports.
+ */
+static void *read_converted(const pts_type *type, const char *name, const pts_check *check, pts_field_kind kind, const pts_check *declared,
+                            pts_value value) {
+  bool pointers = check->slot == PTS_FIELD_VALUE || check->slot == PTS_FIELD_STRING || check->slot == PTS_FIELD_OBJECT;
+  void *cell = pts_cell_new(sizeof(pts_value), pointers);
+  if (value == PTS_VALUE_UNDEFINED && kind == check->slot && (kind == PTS_FIELD_OBJECT || kind == PTS_FIELD_STRING)) {
+    return cell; /* NULL */
+  }
+  pts_value converted;
+  if (!pts_value_try_convert_as_is(value, check, &converted)) {
+    wrong_kind(type, name, check, kind, declared);
+  }
+  pts_store_value_in_slot(check->slot, cell, converted);
+  return cell;
 }
 
 void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
@@ -75,23 +127,32 @@ void *pts_field_address_slow(const pts_object *object, pts_site *site, const cha
   if (field == NULL) {
     missing_member(type, "read property", name);
   }
-  if (check != NULL && field->kind != check->slot) {
+  void *slot = (char *)object + field->offset;
+  if (!reads_as_is(field->kind, field->check, check)) {
+    return read_converted(type, name, check, field->kind, field->check, pts_value_of_slot(field->kind, slot));
+  }
+  if ((uintptr_t)type <= PTS_SITE_TYPE_MASK && field->offset < UINT32_C(1) << 16) {
+    __atomic_store_n(&site->cache, (uint64_t)(uintptr_t)type | (uint64_t)field->offset << 48, __ATOMIC_RELAXED);
+  }
+  return slot;
+}
+
+void *pts_field_store_address_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
+  const pts_type *type = object->type;
+  const pts_field *field = find_field(type, name);
+  if (field == NULL) {
+    pts_throw_not_extensible(name); /* an asserted object without it (D-158): JS would add it */
+  }
+  if (type->frozen) {
+    pts_throw_frozen_field(object, name);
+  }
+  if (check != NULL && field->kind != check->slot) { /* only PTS_FIELD_SET's sites pass a check for a store (D-073) */
     wrong_kind(type, name, check, field->kind, field->check);
   }
   if ((uintptr_t)type <= PTS_SITE_TYPE_MASK && field->offset < UINT32_C(1) << 16) {
     __atomic_store_n(&site->cache, (uint64_t)(uintptr_t)type | (uint64_t)field->offset << 48, __ATOMIC_RELAXED);
   }
   return (char *)object + field->offset;
-}
-
-void *pts_field_store_address_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
-  if (find_field(object->type, name) == NULL) {
-    pts_throw_not_extensible(name); /* an asserted object without it (D-158): JS would add it */
-  }
-  if (object->type->frozen) {
-    pts_throw_frozen_field(object, name);
-  }
-  return pts_field_address_slow(object, site, name, check);
 }
 
 /* method_index returns the index in type's method table of the method name of the given kind, or -1. */
@@ -211,10 +272,7 @@ void pts_field_set_slow(pts_object *object, pts_site *site, const char *name, co
   if (type->frozen) {
     pts_throw_frozen_field(object, name);
   }
-  if (field->kind != check->slot) {
-    wrong_kind(type, name, check, field->kind, field->check);
-  }
-  if (!exact(field->kind, field->check, check)) {
+  if (!exact(field->kind, field->check, check)) { /* a narrower declared type, or another kind (an erased copy's dynamic field, C186) */
     store_converted(object, field, check, value);
     return;
   }
@@ -235,8 +293,8 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
     if (kind == PTS_SETTER && type->frozen) {
       pts_throw_frozen_field(object, name); /* a frozen object's setters still run */
     }
-    if (check != NULL && field->kind != check->slot) {
-      wrong_kind(type, name, check, field->kind, field->check);
+    if (kind == PTS_GETTER && !reads_as_is(field->kind, field->check, check)) {
+      return (pts_property){NULL, read_converted(type, name, check, field->kind, field->check, pts_value_of_slot(field->kind, (const char *)object + field->offset))};
     }
     if (kind == PTS_SETTER && !exact(field->kind, field->check, check)) {
       store_converted((pts_object *)object, field, check, value);
@@ -250,8 +308,9 @@ pts_property pts_property_find_slow(const pts_object *object, pts_site *site, co
   int64_t index = method_index(type, name, kind);
   if (index >= 0) {
     const pts_method *accessor = &type->methods[index];
-    if (check != NULL && accessor->result != check->slot) {
-      wrong_kind(type, name, check, accessor->result, accessor->check);
+    if (kind == PTS_GETTER && !reads_as_is(accessor->result, accessor->check, check)) {
+      pts_value result = pts_call_getter(accessor->function, accessor->result, (pts_object *)object);
+      return (pts_property){NULL, read_converted(type, name, check, accessor->result, accessor->check, result)};
     }
     if (kind == PTS_SETTER && !exact(accessor->result, accessor->check, check)) {
       pts_value converted = pts_storable(accessor->result, accessor->check, pts_value_of_slot(check->slot, value), name, type);
@@ -286,6 +345,23 @@ static void cache_accessor(pts_site *site, const pts_type *type, int64_t index) 
   }
 }
 
+/*
+ * An optional property's value read through a site of check's type from a field or getter
+ * whose declared type doesn't say it is one (read_converted): itself if it is absent or one
+ * as it is, uncached; else TypeError.
+ */
+static pts_value optional_converted(const pts_type *type, const char *name, const pts_check *check, pts_field_kind kind, const pts_check *declared,
+                                    pts_value value) {
+  pts_value converted;
+  if (value == PTS_VALUE_ABSENT) {
+    return value;
+  }
+  if (!pts_value_try_convert_as_is(value, check, &converted)) {
+    wrong_kind(type, name, check, kind, declared);
+  }
+  return converted;
+}
+
 pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const char *name, const pts_check *check) {
   const pts_type *type = object->type;
   const pts_field *field = find_field(type, name);
@@ -296,16 +372,17 @@ pts_value pts_optional_get_slow(const pts_object *object, pts_site *site, const 
     }
     const pts_method *accessor = &type->methods[getter];
     if (check != NULL && !pts_check_implies(pts_check_declared(accessor->result, accessor->check), check)) {
-      wrong_kind(type, name, check, accessor->result, accessor->check);
+      return optional_converted(type, name, check, accessor->result, accessor->check, pts_call_getter(accessor->function, accessor->result, (pts_object *)object));
     }
     cache_accessor(site, type, getter);
     return pts_call_getter(accessor->function, accessor->result, (pts_object *)object);
   }
   /* An object type that leaves the property out implies it (D-072), so a field here may be of any declared type. */
-  if (check != NULL && !pts_check_implies(pts_check_declared(field->kind, field->check), check)) {
-    wrong_kind(type, name, check, field->kind, field->check);
-  }
   const void *slot = (const char *)object + field->offset;
+  if (check != NULL && !pts_check_implies(pts_check_declared(field->kind, field->check), check)) {
+    pts_value value = field->kind == PTS_FIELD_VALUE ? __atomic_load_n((const pts_value *)slot, __ATOMIC_RELAXED) : pts_value_of_slot(field->kind, slot);
+    return optional_converted(type, name, check, field->kind, field->check, value); /* absent stays absent */
+  }
   if (field->kind == PTS_FIELD_VALUE) {
     cache_offset(site, type, field->offset);
     return __atomic_load_n((const pts_value *)slot, __ATOMIC_RELAXED);

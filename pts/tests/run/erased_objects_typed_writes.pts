@@ -1,0 +1,42 @@
+// Writes through the typed view of an erased copy's object (H09b2, C187's write side): a
+// typed push of a number into its `any[]` stored a double's bits where a dynamic value goes
+// (console.log then printed 7.5 for 8), and a typed write of a number to its dynamic field
+// threw "Cannot read property value ... it is declared value" (C186). A read that converts
+// a copy must not lose these writes. Each line prints what Node prints.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+type Cell<T> = { readonly tag: "some"; value: T } | { readonly tag: "none" };
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+  cell<T>(x: T): Cell<T> {
+    return { tag: "some", value: x };
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+const o = Ops["wrap"](7);
+attempt("push, typed read", () => {
+  if (o.tag !== "some") return "none";
+  o.value.push(8);
+  return String(o.value.length) + " " + String(o.value[1] * 2);
+});
+console.log("logged", o);
+const c = Ops["cell"](7);
+attempt("field write, typed read", () => {
+  if (c.tag !== "some") return "none";
+  c.value = 9;
+  return String(c.value * 2);
+});
+console.log("logged", c);
+
+// expect:
+// push, typed read 2 16
+// logged { tag: 'some', value: [ 7, 8 ] }
+// field write, typed read 18
+// logged { tag: 'some', value: 9 }

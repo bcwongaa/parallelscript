@@ -1,0 +1,44 @@
+// A Map or Set of other key or value types converts to a typed Map or Set by a checked copy
+// of its entries, keys as they are, in their order (D-192), as an array of other elements
+// converts by a copy (D-071): an erased copy's `Map<string, any>` where tsc says
+// `Map<string, number>` (C187), and maps and sets held in `any`. One of the target's own
+// types stays the same object.
+const Ops = {
+  index<T>(x: T): Map<string, T> {
+    return new Map([
+      ["a", x],
+      ["b", x],
+    ]);
+  },
+  unique<T>(x: T): Set<T> {
+    return new Set([x, x]);
+  },
+};
+const counts = Ops["index"](7);
+console.log("an erased copy's map", counts.get("a")! + counts.get("b")!, [...counts.keys()].join(","));
+const ids = Ops["unique"](8);
+console.log("an erased copy's set", ids.size, ids.has(8));
+const loose: any = new Map<string, any>([["x", 1.5], ["y", 2]]);
+const typed: Map<string, number> = loose;
+let sum = 0;
+for (const [k, v] of typed) {
+  sum += v;
+}
+console.log("a map held in any", typed.size, sum);
+const own = new Map<string, number>([["z", 3]]);
+const ownAny: any = own;
+const ownBack: Map<string, number> = ownAny;
+console.log("a typed map kept", ownBack === own);
+const keyed = new Map<number[], any>();
+const key = [1];
+keyed.set(key, 9);
+const keyedAny: any = keyed;
+const keyedBack: Map<number[], number> = keyedAny;
+console.log("a key kept", keyedBack.get(key)! + 1);
+
+// expect:
+// an erased copy's map 14 a,b
+// an erased copy's set 1 true
+// a map held in any 2 3.5
+// a typed map kept true
+// a key kept 10

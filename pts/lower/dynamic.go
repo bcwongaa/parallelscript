@@ -51,6 +51,42 @@ func (l *lowerer) storedDynamic(node *ast.Node) bool {
 	return false
 }
 
+// trustsDynamic reports whether x, a dynamic value that tsc types as a union of other
+// types, holds only values of that union as it is, so that it goes into a place of the
+// union unchecked: an element that the own method of an array or map of typed elements
+// reads (`pop`, `get`, `find`). Any other dynamic value goes there with a check, as into other typed
+// places (D-192): a call through a union of object types' erased result (D-191), a value
+// declared `any` or `unknown` that a type guard narrowed, wherever it is held, and either
+// inside `||`, a comma or a conditional; an erased copy's object may hold dynamic values
+// where tsc says typed ones (C187).
+func (l *lowerer) trustsDynamic(x ir.Expr) bool {
+	switch x := x.(type) {
+	case *ir.Bind:
+		return l.trustsDynamic(x.In)
+	case *ir.ArrayCall:
+		array, ok := x.Args[0].Type().(*ir.Array)
+		return ok && !holdsDynamicValues(array.Elem, map[ir.Type]bool{}) // not an `unknown[]`'s element
+	case *ir.MapCall:
+		return x.Map != nil && !holdsDynamicValues(x.Map.Key, map[ir.Type]bool{}) && (x.Map.Value == nil || !holdsDynamicValues(x.Map.Value, map[ir.Type]bool{}))
+	case *ir.UndefinedConst, *ir.NullConst:
+		return true
+	case *ir.Conditional:
+		return l.trustsDynamic(x.Then) && l.trustsDynamic(x.Else)
+	case *ir.Call:
+		array, ok := x.Args[0].Type().(*ir.Array)
+		if !ok || holdsDynamicValues(array.Elem, map[ir.Type]bool{}) {
+			return false // an `unknown[]`'s element, which a type-guard callback narrowed
+		}
+		for key, helper := range l.helpers {
+			if helper == x.Func {
+				method := baseMethod(key.method)
+				return method == "find" || method == "findLast"
+			}
+		}
+	}
+	return false
+}
+
 // isCheckable reports whether a dynamic value converts to t with a check the runtime
 // makes (cgen's valueTest): a primitive, an integer type, a class, or a union of them.
 // Interfaces, arrays and the rest wait for M3.3b's runtime type checks.
@@ -318,6 +354,14 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 	if iface.Copy != nil {
 		return ""
 	}
+	if what := l.makeCopyShape(iface, node); what != "" && !l.copyShapesOptional {
+		return what
+	}
+	return ""
+}
+
+// makeCopyShape gives iface the shape of an object type it is (copyShape), or says why it can't.
+func (l *lowerer) makeCopyShape(iface *ir.Interface, node *ast.Node) string {
 	accessors := false
 	for checkerType, candidate := range l.interfacesByType {
 		if candidate != iface {
@@ -342,6 +386,16 @@ func (l *lowerer) copyShape(iface *ir.Interface, node *ast.Node) string {
 		return "an object type known only from object literals with getters or setters"
 	}
 	return "an object type of no declaration"
+}
+
+// prepareCheckedUnion readies u, as prepareDynamicTarget does, for a dynamic value that goes
+// into a place of it with a check, and reports whether it could: an object type of no copy
+// shape (one known only from object literals with getters) is left without one, so that
+// objects convert to it as they are and dynamic data doesn't (D-192).
+func (l *lowerer) prepareCheckedUnion(u *ir.Union, node *ast.Node) bool {
+	l.copyShapesOptional = true
+	defer func() { l.copyShapesOptional = false }()
+	return l.prepareDynamicTarget(u, node, map[ir.Type]bool{}) == ""
 }
 
 // prepareDynamicTypes readies the types that dynamic data may be converted to at run time

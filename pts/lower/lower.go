@@ -352,6 +352,7 @@ type lowerer struct {
 	arrows              map[*ir.Func]bool                // the closures' functions that are arrow functions, whose `this` is their outer function's
 	funcNodes           map[*ir.Func]*ast.Node           // the declaration, function expression or source file of each function
 	helpers             map[helperKey]*ir.Func           // the helpers of the array methods that take callbacks; nil if one failed
+	copyShapesOptional  bool                             // prepareDynamicTarget leaves an object type it can't make a copy shape for without one (prepareCheckedUnion)
 	mapTypes            []*ir.MapType                    // the map and set types met
 	unions              []*ir.Union                      // the union types met
 	chainObjects        map[*ast.Node]chainObject        // the objects of the `?.` links whose chains are being lowered
@@ -1012,8 +1013,12 @@ func (l *lowerer) convert(value ir.Expr, target ir.Type, node *ast.Node) ir.Expr
 		return l.dynamicConversion(value, target, node)
 	case isUnion(target) && value.Type() == ir.Value && !isCheckable(target) && l.holdsDynamicData(target.(*ir.Union)):
 		return l.dynamicConversion(value, target, node) // an element of a recursive type's array, which may be any object (D-089)
+	case isUnion(target) && value.Type() == ir.Value && !l.trustsDynamic(value) && l.prepareCheckedUnion(target.(*ir.Union), node):
+		return &ir.FromUnion{X: value, To: target} // checked, as into other typed places (D-192)
 	case isUnion(target) && value.Type() == ir.Value:
-		return &ir.ToUnion{X: value, To: target.(*ir.Union)} // a dynamic value tsc types as the union, such as `a.find(…)`'s
+		// A dynamic value tsc types as the union that its typed source holds (`a.find(…)`'s), or
+		// one of a union with a member that no check describes yet, as before.
+		return &ir.ToUnion{X: value, To: target.(*ir.Union)}
 	case value.Type() == ir.Value:
 		return l.dynamicConversion(value, target, node)
 	case isUnion(target):

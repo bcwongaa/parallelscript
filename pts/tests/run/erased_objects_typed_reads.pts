@@ -1,0 +1,138 @@
+// An object that an erased copy makes for a generic type of object literals holds dynamic
+// values where the type parameters go (an `any[]` array, a dynamic field, a nested object's
+// dynamic field, a tuple of dynamic values, a getter or a closure of dynamic results).
+// Converted to a union of object types, it must not pass as the member it partly fits
+// (`{ tag: "none" }`, since tags are strings at run time) and then be read as another one;
+// typed code reading it gets its values, converted, as Node does (H09b2: C187, which read
+// 7 as 7.5 or 15 for 14, and C186, which threw "it is declared value"). The erased copies
+// come from calls that keep them: an element access (C185), `?.` (C179), a method value,
+// an `any` argument holding the right value (D-191) and a JSON value. No line lies.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+type One<T> = { readonly tag: "some"; readonly value: T } | { readonly tag: "none" };
+type Shapes<T> =
+  | { readonly tag: "pair"; readonly value: [T, T] }
+  | { readonly tag: "nested"; readonly value: { n: T } }
+  | { readonly tag: "keyed"; readonly value: Record<string, T> }
+  | { readonly tag: "lazy"; readonly value: () => T }
+  | { readonly tag: "maybe"; readonly value?: T }
+  | { readonly tag: "none" };
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+  one<T>(x: T): One<T> {
+    return { tag: "some", value: x };
+  },
+  computed<T>(x: T): One<T> {
+    return {
+      tag: "some",
+      get value() {
+        return x;
+      },
+    };
+  },
+  pair<T>(x: T): Shapes<T> {
+    return { tag: "pair", value: [x, x] };
+  },
+  nested<T>(x: T): Shapes<T> {
+    return { tag: "nested", value: { n: x } };
+  },
+  keyed<T>(x: T): Shapes<T> {
+    return { tag: "keyed", value: { k: x } };
+  },
+  lazy<T>(x: T): Shapes<T> {
+    return { tag: "lazy", value: () => x };
+  },
+  maybe<T>(x: T): Shapes<T> {
+    return { tag: "maybe", value: x };
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+function firstOf(o: Opt<number>): number {
+  return o.tag === "some" ? o.value[0] : -1;
+}
+function oneOf<T>(o: One<T>, d: T): T {
+  return o.tag === "some" ? o.value : d;
+}
+function shapeOf(s: Shapes<number>): number {
+  switch (s.tag) {
+    case "pair":
+      return s.value[0] + s.value[1];
+    case "nested":
+      return s.value.n;
+    case "keyed":
+      return s.value["k"];
+    case "lazy":
+      return s.value();
+    case "maybe":
+      return s.value ?? -1;
+    default:
+      return -1;
+  }
+}
+const maybeOps: typeof Ops | undefined = Math.random() > 2 ? undefined : Ops;
+const wrapValue = Ops.wrap;
+const seven: any = 7;
+attempt("an element access, a typed read", () => String(firstOf(Ops["wrap"](7)) * 2));
+attempt("an optional call, a typed read", () => String(firstOf(maybeOps?.wrap(8)!) * 2));
+attempt("a method value, a typed read", () => String(firstOf(wrapValue(9)) * 2));
+attempt("an any argument, a typed read", () => String(firstOf(Ops.wrap<number>(seven)) * 2));
+attempt("a JSON value, a typed read", () => String(firstOf(Ops.wrap<number>(JSON.parse("10"))) * 2));
+attempt("a boolean pair", () => {
+  const o: Opt<boolean> = Ops["wrap"](true);
+  return o.tag === "some" ? String(o.value[0] === true) + " " + String(!o.value[0]) : "none";
+});
+attempt("held, then iterated", () => {
+  const o = Ops["wrap"](3);
+  let sum = 0;
+  if (o.tag === "some") {
+    const xs: number[] = o.value;
+    for (const x of xs) {
+      sum += x * 2;
+    }
+  }
+  return String(sum);
+});
+attempt("destructured", () => {
+  const o = Ops["wrap"](4);
+  if (o.tag !== "some") {
+    return "none";
+  }
+  const { value } = o;
+  return String(value[0] * 2);
+});
+attempt("a dynamic field read as a number (C186)", () => String(oneOf(Ops["one"](5), 0) * 2));
+attempt("a dynamic field read as an interface (C186)", () => {
+  const o: One<{ id: number; zip?: string }> = Ops.one<{ id: number; zip?: string }>(JSON.parse('{"id": 1, "zip": "1100"}'));
+  return o.tag === "some" ? `${o.value.id} ${o.value.zip}` : "none";
+});
+attempt("a getter of a dynamic value", () => String(oneOf(Ops["computed"](6), 0) * 2));
+attempt("a tuple", () => String(shapeOf(Ops["pair"](7))));
+attempt("a nested object", () => String(shapeOf(Ops["nested"](7)) * 2));
+attempt("a hash-map object", () => String(shapeOf(Ops["keyed"](7)) * 2));
+attempt("a closure", () => String(shapeOf(Ops["lazy"](7)) * 2));
+attempt("an optional property", () => String(shapeOf(Ops["maybe"](7)) * 2));
+
+// expect:
+// an element access, a typed read 14
+// an optional call, a typed read 16
+// a method value, a typed read 18
+// an any argument, a typed read 14
+// a JSON value, a typed read 20
+// a boolean pair true false
+// held, then iterated 6
+// destructured 8
+// a dynamic field read as a number (C186) 10
+// a dynamic field read as an interface (C186) 1 1100
+// a getter of a dynamic value 12
+// a tuple 14
+// a nested object 14
+// a hash-map object 14
+// a closure 14
+// an optional property 14

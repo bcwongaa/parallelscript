@@ -1,0 +1,19 @@
+// An array that an erased copy made (an `any[]`), held through a union member as a
+// `number[]`: `.par` callbacks on other threads read its elements typed (H09b2, C187: 15 for
+// 14, 22.5 for 21). The expected lines are Node's for the sequential twin (`.par.` → `.`).
+// threads: 1 4
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+const Ops = {
+  mk<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x, x, x] };
+  },
+};
+const o: Opt<number> = Ops["mk"](7);
+if (o.tag === "some") {
+  console.log("par map", o.value.par.map((v) => v * 2).join(","));
+  console.log("par reduce", o.value.par.reduce((a, b) => a + b, 0));
+}
+
+// expect:
+// par map 14,14,14
+// par reduce 21

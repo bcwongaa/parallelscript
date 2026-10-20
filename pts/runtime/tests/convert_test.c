@@ -134,6 +134,145 @@ static void a_tuple_is_copied_into_an_array(void) {
   }
 }
 
+/*
+ * Opt<number> = { tag: "some"; value: number[] } | { tag: "none" }: a union of object types
+ * whose members' copy shapes are some_layout and none_layout (D-071), and an erased copy's
+ * object of it, whose value is an any[] (C187).
+ */
+typedef struct some_layout {
+  pts_object header;
+  pts_string *tag;
+  pts_array *value;
+} some_layout;
+typedef struct none_layout {
+  pts_object header;
+  pts_string *tag;
+} none_layout;
+static const pts_check string_check = {.kind = PTS_CHECK_STRING, .slot = PTS_FIELD_STRING, .name = "string"};
+static const pts_field some_fields[] = {
+    {"tag", offsetof(some_layout, tag), PTS_FIELD_STRING, &string_check},
+    {"value", offsetof(some_layout, value), PTS_FIELD_OBJECT, &numbers_check},
+};
+static const pts_type some_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(some_layout, tag) | PTS_GC_WORD(some_layout, value)),
+    .name = "Object",
+    .size = sizeof(some_layout),
+    .field_count = 2,
+    .fields = some_fields,
+};
+static const pts_field none_fields[] = {{"tag", offsetof(none_layout, tag), PTS_FIELD_STRING, &string_check}};
+static const pts_type none_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(none_layout, tag)),
+    .name = "Object",
+    .size = sizeof(none_layout),
+    .field_count = 1,
+    .fields = none_fields,
+};
+static const pts_check_property some_properties[] = {
+    {"tag", &string_check, false, offsetof(some_layout, tag)},
+    {"value", &numbers_check, false, offsetof(some_layout, value)},
+};
+static const pts_check some_check = {
+    .kind = PTS_CHECK_OBJECT, .slot = PTS_FIELD_OBJECT, .name = "{tag: string; value: number[]}", .count = 2, .properties = some_properties, .type = &some_type};
+static const pts_check_property none_properties[] = {{"tag", &string_check, false, offsetof(none_layout, tag)}};
+static const pts_check none_check = {
+    .kind = PTS_CHECK_OBJECT, .slot = PTS_FIELD_OBJECT, .name = "{tag: string}", .count = 1, .properties = none_properties, .type = &none_type};
+static const pts_check *const opt_members[] = {&none_check, &some_check}; /* the member the object fits as it is first */
+static const pts_check opt_check = {.kind = PTS_CHECK_UNION, .slot = PTS_FIELD_VALUE, .name = "Opt<number>", .count = 2, .members = opt_members};
+
+/* The erased copy's layout of the "some" member: its value declared any[]. */
+static const pts_field erased_some_fields[] = {
+    {"tag", offsetof(some_layout, tag), PTS_FIELD_STRING, &string_check},
+    {"value", offsetof(some_layout, value), PTS_FIELD_OBJECT, &anys_check},
+};
+static const pts_type erased_some_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(some_layout, tag) | PTS_GC_WORD(some_layout, value)),
+    .name = "Object",
+    .size = sizeof(some_layout),
+    .field_count = 2,
+    .fields = erased_some_fields,
+};
+
+static some_layout *some_of(const pts_type *type, pts_array *value) {
+  some_layout *some = pts_object_new(type);
+  some->tag = pts_string_from_cstr("some");
+  some->value = value;
+  return some;
+}
+
+/* An erased copy's object fits `{ tag: "none" }` as it is, but has a property only the other member declares: it is copied into that one (C187, D-192). */
+static void an_object_is_copied_into_the_member_that_declares_its_properties(void) {
+  pts_value seven = pts_value_from_number(7);
+  some_layout *erased = some_of(&erased_some_type, values_of(1, &seven));
+  pts_value converted = pts_value_convert(pts_value_from_object(erased), &opt_check);
+  some_layout *copy = (some_layout *)pts_value_as_object(converted);
+  CHECK(copy != erased && copy->header.type == &some_type);
+  CHECK(copy->value->type->element == PTS_FIELD_NUMBER && pts_array_element(copy->value, 0) == seven);
+}
+
+/* Objects that a member takes as it is and that declare no property it leaves out stay the same objects. */
+static void objects_of_a_members_types_stay_the_same(void) {
+  double seven = 7;
+  some_layout *some = some_of(&some_type, pts_array_of(&pts_array_types[PTS_FIELD_NUMBER], &seven, 1));
+  CHECK(pts_value_convert(pts_value_from_object(some), &opt_check) == pts_value_from_object(some));
+  none_layout *none = pts_object_new(&none_type);
+  none->tag = pts_string_from_cstr("none");
+  CHECK(pts_value_convert(pts_value_from_object(none), &opt_check) == pts_value_from_object(none));
+}
+
+/* One that converts to no member that declares its properties is taken as it is by one that leaves them out (a lie, which typed reads then find). */
+static void an_object_that_converts_to_no_declaring_member_is_taken_as_it_is(void) {
+  pts_value text = pts_value_from_string(pts_string_from_cstr("x"));
+  some_layout *erased = some_of(&erased_some_type, values_of(1, &text));
+  CHECK(pts_value_convert(pts_value_from_object(erased), &opt_check) == pts_value_from_object(erased));
+}
+
+static const pts_type any_map_type = {
+    .kind = PTS_KIND_MAP,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+    .name = "Map",
+    .size = sizeof(pts_map),
+    .key = PTS_FIELD_STRING,
+    .element = PTS_FIELD_VALUE,
+};
+static const pts_type number_map_type = {
+    .kind = PTS_KIND_MAP,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(pts_map, table)),
+    .name = "Map",
+    .size = sizeof(pts_map),
+    .key = PTS_FIELD_STRING,
+    .element = PTS_FIELD_NUMBER,
+    .key_check = &string_check,
+    .check = &number_check,
+};
+static const pts_check number_map_check = {
+    .kind = PTS_CHECK_MAP, .slot = PTS_FIELD_OBJECT, .name = "Map<string, number>", .type = &number_map_type, .element = &number_check};
+
+static pts_map *map_of(const pts_type *type, const char *key, pts_value value) {
+  pts_map *map = pts_map_new(type);
+  pts_string *k = pts_string_from_cstr(key);
+  uint64_t slot = 0;
+  pts_store_value_in_slot(type->element, &slot, value);
+  pts_map_set(map, &k, &slot);
+  return map;
+}
+
+/* A map of other value types is copied with each value converted, as an array is (D-192); one of the target's types stays the same map. */
+static void a_map_of_other_value_types_is_copied(void) {
+  pts_map *loose = map_of(&any_map_type, "k", pts_value_from_number(7.5));
+  pts_map *copy = (pts_map *)pts_value_as_object(pts_value_convert(pts_value_from_object(loose), &number_map_check));
+  pts_string *key = pts_string_from_cstr("k");
+  double value = 0;
+  CHECK(copy != loose && copy->type == &number_map_type && pts_map_get(copy, &key, &value) && value == 7.5);
+  CHECK(pts_value_convert(pts_value_from_object(copy), &number_map_check) == pts_value_from_object(copy));
+  pts_map *wrong = map_of(&any_map_type, "k", pts_value_from_string(pts_string_from_cstr("x")));
+  pts_value out;
+  CHECK(!pts_value_try_convert(pts_value_from_object(wrong), &number_map_check, &out));
+}
+
 int main(int argc, char **argv) {
   pts_runtime_init(argc, argv);
   an_array_of_the_right_kind_is_the_same_array();
@@ -142,5 +281,9 @@ int main(int argc, char **argv) {
   a_self_containing_array_converts_without_looping();
   an_array_without_optional_elements_is_copied_into_a_tuple();
   a_tuple_is_copied_into_an_array();
+  an_object_is_copied_into_the_member_that_declares_its_properties();
+  objects_of_a_members_types_stay_the_same();
+  an_object_that_converts_to_no_declaring_member_is_taken_as_it_is();
+  a_map_of_other_value_types_is_copied();
   return pts_runtime_exit(CHECK_DONE());
 }

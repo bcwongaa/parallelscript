@@ -1,0 +1,48 @@
+// Converting a value to a union of object types takes it as a member that declares every
+// property of it that another member declares, as it is or by a copy, before a member that
+// leaves one out (D-192): tags are strings at run time, so `{ kind: "some", items: [...] }`
+// also fits `{ kind: "none" }`, and code narrowed by its tag then read `items` from it
+// (C187). Typed objects that fit stay the same objects. An erased copy's object that is
+// copied into the member that declares its properties leaves an absent optional property
+// out and stays frozen if it was.
+type Ev = { kind: "none" } | { kind: "some"; items: number[] };
+const events: Ev[] = JSON.parse('[{"kind":"some","items":[1,2]},{"kind":"none"}]');
+for (const e of events) {
+  console.log("parsed", e.kind === "some" ? e.items.reduce((a, b) => a + b, 0) : "none");
+}
+const typed: Ev = { kind: "some", items: [3] };
+const viaAny: any = typed;
+const back: Ev = viaAny;
+console.log("typed object kept", back === typed, back.kind === "some" ? back.items[0] : -1);
+class Some {
+  readonly kind = "some";
+  constructor(public items: number[]) {}
+}
+const instance: any = new Some([4, 5]);
+const fromClass: Ev = instance;
+console.log("instance kept", fromClass === instance, fromClass.kind === "some" ? fromClass.items.length : 0);
+const loose: any = { kind: "some", items: JSON.parse("[1, 2.5]") };
+const fromLoose: Ev = loose;
+console.log("an object with a dynamic array", fromLoose.kind === "some" ? fromLoose.items[1] * 2 : "none");
+type M<T> = { readonly tag: "maybe"; readonly value?: T; readonly xs: T[] } | { readonly tag: "none" };
+const Ops = {
+  absent<T>(): M<T> {
+    return { tag: "maybe", xs: [] };
+  },
+  frozen<T>(x: T): M<T> {
+    return Object.freeze({ tag: "maybe", xs: [x] });
+  },
+};
+const absent = Ops["absent"]<number>();
+console.log("an absent property stays absent", "value" in absent, Object.keys(absent).join(","));
+const frozen = Ops["frozen"](7);
+console.log("a frozen object stays frozen", Object.isFrozen(frozen), frozen.tag === "maybe" ? frozen.xs[0] * 2 : "none");
+
+// expect:
+// parsed 3
+// parsed none
+// typed object kept true 3
+// instance kept true 2
+// an object with a dynamic array 5
+// an absent property stays absent false tag,xs
+// a frozen object stays frozen true 14

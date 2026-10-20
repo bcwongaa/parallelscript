@@ -1,0 +1,31 @@
+// An erased copy's object whose array holds dynamic values, read through a union member as
+// an array of an integer type (H09b2, C187): typed code read a dynamic value's bits as a
+// `u8` (1 for 8) or an `i64`, where the element's value is what Node prints. The integer
+// types make this ParallelScript-only; the other element types are in
+// `erased_objects_typed_reads.pts`.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+attempt("a u8 array", () => {
+  const o: Opt<u8> = Ops["wrap"](200 as u8);
+  return o.tag === "some" ? String(o.value[0] + 1) : "none";
+});
+attempt("an i64 array", () => {
+  const big: i64 = 9007199254740993;
+  const o: Opt<i64> = Ops["wrap"](big);
+  return o.tag === "some" ? String(o.value[0] - 1) : "none";
+});
+
+// expect:
+// a u8 array 201
+// an i64 array 9007199254740992

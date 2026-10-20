@@ -455,9 +455,9 @@ func argumentNodes(arguments []*ast.Node, params []ir.Type) []*ast.Node {
 // `Animal` goes), or that a dynamic value an erased copy made (`Box<any>` where tsc says
 // `Box<number>`) would reach unchecked or fail a check. It is nil too if a parameter typed
 // with the method's type parameters is of a type that conversions don't verify (`o:
-// Option<T>`, a union of object types): an object an erased copy made, which converts to
-// it unchanged, has dynamic fields where the instance reads typed ones, and typed reads
-// don't verify them (review round 3, R3-1; C187).
+// Option<Box<T>>`, a union of object types holding a generic class's instance): an object
+// an erased copy made may be one of it only as a member that leaves its `Box<any>` out,
+// which the instance would read as another member's (verifiesObjects; C187, D-192).
 func (l *lowerer) passedAsIs(d *demand, args []ir.Expr, nodes []*ast.Node, params []ir.Type) []ir.Expr {
 	want := d.want.Params
 	if nodes == nil || len(args) != len(params) || len(args) != len(want) || l.takesUnverifiedObjects(d, params) {
@@ -518,36 +518,56 @@ func (l *lowerer) takesUnverifiedObjects(d *demand, params []ir.Type) bool {
 	return false
 }
 
-// verifiesObjects reports whether a value converted to type t is one of t all through: a
-// primitive, a class's instance (each instance of a generic class is a class of its own),
-// or an array, tuple, map or function of those. An object converts to an object type, an
-// interface or a union of object types if its fields have the kinds of the type's (D-072),
-// so one an erased copy made, with dynamic values for the type parameters, may convert
-// unchanged (to `{ tag: string }`, the member a `{ tag: "some", value: T[] }` fits) and be
-// read as another member's later (C187).
+// verifiesObjects reports whether a value converted to type t is one of t all through, so
+// that an instance may read it as typed code does. Conversions verify an object's fields
+// by their declared types or copy it into t's representation, also an object an erased
+// copy made with dynamic values for the type parameters (an `any[]`, a Map of dynamic
+// values), and typed reads verify what a union took as it is (C187, D-192). Not verified
+// are a dynamic value, which the erased copy takes as it is (D-191: `never[]`'s elements,
+// which the instance reads typed), and an erased copy's instance of a generic class
+// (`Box<any>` where t says `Box<number>`), which never converts: inside a union of object
+// types, its object is taken as a member that leaves it out, which the instance would read
+// as another member's and throw at, where the erased copy reads it.
 func verifiesObjects(t ir.Type, seen map[ir.Type]bool) bool {
+	return !holdsUnverified(t, false, seen)
+}
+
+// holdsUnverified reports whether t holds a dynamic value, or inside a union of object
+// types (or inUnion, inside one already) an instance of a generic class (verifiesObjects).
+func holdsUnverified(t ir.Type, inUnion bool, seen map[ir.Type]bool) bool {
 	if seen[t] {
-		return true
+		return false
 	}
 	seen[t] = true
+	defer delete(seen, t) // t may be met again inside a union
+	holds := func(t ir.Type) bool { return holdsUnverified(t, inUnion, seen) }
 	switch t := t.(type) {
 	case *ir.Primitive:
-		return t != ir.Value
+		return t == ir.Value
+	case *ir.FuncType: // a closure of another type is adapted, and its results checked
+		return false
 	case *ir.Class:
 		if !t.Shape {
-			return true
+			return inUnion && t.Display != ""
 		}
-		return t.Tuple && !slices.ContainsFunc(t.Fields, func(f *ir.Field) bool { return !verifiesObjects(f.Type, seen) })
+		return slices.ContainsFunc(t.Fields, func(f *ir.Field) bool { return holds(f.Type) })
+	case *ir.Interface:
+		return slices.ContainsFunc(t.Fields, func(f *ir.Field) bool { return holds(f.Type) })
 	case *ir.Array:
-		return verifiesObjects(t.Elem, seen)
+		return holds(t.Elem)
 	case *ir.MapType:
-		return verifiesObjects(t.Key, seen) && (t.Value == nil || verifiesObjects(t.Value, seen))
-	case *ir.FuncType:
-		return true // a closure of another type is adapted, and its results checked
+		return holds(t.Key) || (t.Value != nil && holds(t.Value))
 	case *ir.Union:
-		return !slices.ContainsFunc(t.Members, func(m ir.Type) bool { return !verifiesObjects(m, seen) })
+		objects := 0
+		for _, member := range t.Members {
+			if isObject(member) && !isArray(member) && !isFunction(member) {
+				objects++
+			}
+		}
+		inUnion = inUnion || objects > 1
+		return slices.ContainsFunc(t.Members, func(m ir.Type) bool { return holdsUnverified(m, inUnion, seen) })
 	}
-	return false
+	return true
 }
 
 // passesAsIs reports whether a value of type from is one of type to as it is, which

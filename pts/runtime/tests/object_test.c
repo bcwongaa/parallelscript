@@ -370,6 +370,67 @@ static void optional_sites_use_whatever_holds_the_property(void) {
   CHECK(o->x == pts_value_from_number(2) && p->x == 4);
 }
 
+/*
+ * Objects that an erased copy makes hold dynamic values where their type's other member
+ * holds typed ones (C186, C187): a field x declared any, and a field xs declared any[].
+ */
+typedef struct erased {
+  const pts_type *type;
+  pts_value x;
+  pts_array *xs;
+} erased;
+
+static const pts_check number_check = {.kind = PTS_CHECK_NUMBER, .slot = PTS_FIELD_NUMBER, .name = "number"};
+static const pts_check any_check = {.kind = PTS_CHECK_ANY, .slot = PTS_FIELD_VALUE, .name = "any"};
+static const pts_check numbers_check = {
+    .kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "number[]", .element = &number_check, .type = &pts_array_types[PTS_FIELD_NUMBER]};
+static const pts_check anys_check = {
+    .kind = PTS_CHECK_ARRAY, .slot = PTS_FIELD_OBJECT, .name = "any[]", .element = &any_check, .type = &pts_array_types[PTS_FIELD_VALUE]};
+static const pts_field erased_fields[] = {
+    {"x", offsetof(erased, x), PTS_FIELD_VALUE, &any_check},
+    {"xs", offsetof(erased, xs), PTS_FIELD_OBJECT, &anys_check},
+};
+static const pts_type erased_type = {
+    .kind = PTS_KIND_OBJECT,
+    .gc_descr = PTS_GC_POINTER_WORDS(PTS_GC_WORD(erased, x) | PTS_GC_WORD(erased, xs)),
+    .name = "Object",
+    .size = sizeof(erased),
+    .field_count = 2,
+    .fields = erased_fields,
+};
+
+static bool read_throws_type_error(void *object, pts_site *site, const char *name, const pts_check *check) {
+  pts_handler handler;
+  pts_try_enter(&handler);
+  if (_setjmp(handler.jump) == 0) {
+    pts_field_address(object, site, name, check);
+    pts_try_leave(&handler);
+    return false;
+  }
+  return pts_value_instance_of(pts_caught(&handler), &pts_type_builtin_TypeError);
+}
+
+/*
+ * A typed read verifies the field's declared type, not its kind alone (D-192): a dynamic
+ * value that is one of the site's type reads converted, uncached (C186); an any[] read as a
+ * number[] throws rather than handing out its dynamic values as doubles (C187); a field of
+ * the site's own type is read in place and cached.
+ */
+static void typed_reads_verify_declared_types(void) {
+  static pts_site x_site, xs_site, own_site, write_site;
+  erased *e = pts_object_new(&erased_type);
+  pts_value seven = pts_value_from_number(7);
+  e->x = seven;
+  e->xs = pts_array_of(&pts_array_types[PTS_FIELD_VALUE], &seven, 1);
+  double *x = pts_field_address(e, &x_site, "x", &number_check);
+  CHECK(x != (void *)&e->x && *x == 7 && x_site.cache == 0);
+  CHECK(read_throws_type_error(e, &xs_site, "xs", &numbers_check) && xs_site.cache == 0);
+  CHECK(pts_field_address(e, &own_site, "xs", &anys_check) == &e->xs);
+  CHECK(own_site.cache == ((uint64_t)(uintptr_t)&erased_type | (uint64_t)offsetof(erased, xs) << 48));
+  PTS_FIELD_SET(double, e, &write_site, "x", &number_check, 9.0); /* a write converts to the field's declared type */
+  CHECK(e->x == pts_value_from_number(9) && write_site.cache == 0);
+}
+
 static pts_site shared_site;
 
 /* reads_through_a_shared_site sums x over objects of both layouts through one cache. */
@@ -592,6 +653,7 @@ int main(int argc, char **argv) {
   method_sites_cache_the_index_per_layout();
   property_sites_use_fields_or_accessors();
   optional_sites_use_whatever_holds_the_property();
+  typed_reads_verify_declared_types();
   property_sites_skip_the_field_entries_of_accessor_properties();
   threads_racing_on_a_site_read_the_right_fields();
   collection_keeps_everything_objects_point_to();

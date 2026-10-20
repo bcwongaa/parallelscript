@@ -1,13 +1,14 @@
-// A call through an object literal's type makes no demand by name where a parameter typed
-// with the method's type parameters is of a union of object types (`Opt<T>`), so it keeps
-// the erased copy (H09b1, D-191): an object an erased copy made, with dynamic values for
-// the type parameters (its array an `any[]`, its Map's values and its nested object's
-// field dynamic), converts to such a union unchanged (to `{ tag: string }`, the member it
-// fits), and an instance reading it as the other member got other numbers or crashed,
-// where the erased copy reads it dynamically and prints what Node prints (review round 3,
-// R3-1; C187). The objects come from calls that keep the erased copy: an element access
-// (C185), `?.` (C179), a method value (H09b3), an `any` argument (D-191), a JSON value,
-// and a lie through `any`.
+// Objects that erased copies make, with dynamic values for the type parameters (an
+// `any[]`, a Map's values, a nested object's field), passed to a call through an object
+// literal's type whose parameter is a union of object types (`Opt<T>`). Such a union took
+// one unchanged as the member it fits (`{ tag: "none" }`, since tags are strings at run
+// time), and an instance found by name read it as the other member: other numbers or a crash
+// (review round 3 of H09b1, R3-1; C187), so H09b1 kept these calls on the erased copy. Since
+// H09b2 the union takes such an object as the member that declares its properties, copied
+// into it (D-192), and typed reads verify what they read, so the calls find their instances
+// and print what Node prints. The objects come from calls that keep the erased copy: an
+// element access (C185), `?.` (C179), a method value (H09b3), an `any` argument (D-191) and
+// a JSON value. A lie through `any` is `erased_objects_lies.pts`'s.
 type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
 const Ops = {
   wrap<T>(x: T): Opt<T> {
@@ -26,7 +27,6 @@ console.log("two dotted calls", Ops.head(Ops.wrap(10)));
 const raw: any = 7;
 console.log("an any argument", Ops.head(Ops.wrap<number>(raw)));
 console.log("a JSON value", Ops.head(Ops.wrap<number>(JSON.parse("[1, 2]")[1])));
-console.log("a lie through any", Ops.head(Ops.wrap<string>(raw)));
 
 type Holder<T> = { readonly tag: "some"; readonly m: Map<string, T>; readonly o: { n: T } } | { readonly tag: "none" };
 const Holders = {
@@ -51,10 +51,8 @@ const Holders = {
 console.log("a Map field", Holders.fromMap(Holders.wrap<number>(raw)));
 console.log("a nested object field", Holders.fromObject(Holders.wrap<number>(raw)));
 
-// A number[] that typed code takes from such an object (holding the erased copy's any[])
-// and passes to a call through a union of object types: the instance found by name takes
-// it only if its elements are numbers, so the call takes the erased copy, which reads it
-// dynamically, as before (review round 4's `s01`).
+// A number[] that typed code takes from such an object and passes to a call through a union
+// of object types (review round 4's `s01`): the instance found by name reads it as numbers.
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -99,7 +97,6 @@ if (held.tag === "some") {
 // two dotted calls { tag: 'some', value: [ 10 ] }
 // an any argument { tag: 'some', value: [ 7 ] }
 // a JSON value { tag: 'some', value: [ 2 ] }
-// a lie through any { tag: 'some', value: [ 7 ] }
 // a Map field { tag: 'some', m: Map(1) { 'k' => 7 }, o: { n: 7 } }
 // a nested object field { tag: 'some', m: Map(1) { 'k' => 7 }, o: { n: 7 } }
 // an array an erased copy made, through a union Box { value: 11 }

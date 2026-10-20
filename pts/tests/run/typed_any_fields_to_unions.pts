@@ -1,0 +1,44 @@
+// Typed code's own object whose field is declared with `any` inside (an `any[]`, a nested
+// `{ n: any }`) goes where a union of object types goes: tsc accepts it (any is assignable
+// to number), and the lowering kept it as it is, as the member it partly fits
+// (`{ tag: "none" }`); narrowed to the other member, typed reads took the `any[]` as a
+// `number[]` (15 for 14) or threw "it is declared value" (H09b2, C187, C186). A shape or an
+// interface target is PTS1001 instead ("doesn't provide value with the same types"). Each
+// line prints what Node prints.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+type Nested = { readonly tag: "some"; readonly value: { n: number } } | { readonly tag: "none" };
+const raw: any[] = [7];
+const p = { tag: "some" as const, value: raw };
+const nested = { tag: "some" as const, value: { n: raw[0] as any } };
+const read = (o: Opt<number>): string => (o.tag === "some" ? String(o.value[0] * 2) : "none");
+function back(): Opt<number> {
+  return p;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+attempt("a declaration", () => {
+  const o: Opt<number> = p;
+  return read(o);
+});
+attempt("an argument", () => read(p));
+attempt("a result", () => read(back()));
+attempt("an array's element", () => {
+  const list: Opt<number>[] = [p];
+  return read(list[0]);
+});
+attempt("a nested object's any field", () => {
+  const o: Nested = nested;
+  return o.tag === "some" ? String(o.value.n * 2) : "none";
+});
+
+// expect:
+// a declaration 14
+// an argument 14
+// a result 14
+// an array's element 14
+// a nested object's any field 14

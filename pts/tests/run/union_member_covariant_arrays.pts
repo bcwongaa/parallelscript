@@ -1,0 +1,42 @@
+// no-diff: an array of a subtype's elements read as a union member's array of its supertype throws TypeError where JS reads it (D-192)
+// A class whose `Dog[]` field a union of object types takes as the member that leaves the
+// field out, read after narrowing as the other member's `Animal[]`: the base read the
+// `Dog[]` as it is, so a `Cat` pushed through that view went into it and was read as a Dog
+// ("tom has 0.0 bones", a string's pointer read as a number), where Node throws at the
+// call. A typed read verifies the field's declared type (D-192): an array is one of another
+// element type only as a copy (D-094), so the read throws, and the instance keeps its class.
+interface Animal {
+  name: string;
+}
+class Dog implements Animal {
+  constructor(public name: string, public bones: number) {}
+  bark(): string {
+    return this.name + " has " + this.bones.toFixed(1) + " bones";
+  }
+}
+class Cat implements Animal {
+  constructor(public name: string, public lives: string) {}
+}
+class Pack {
+  readonly kind = "pack";
+  constructor(public members: Dog[]) {}
+}
+type Group = { kind: "pack"; members: Animal[] } | { kind: "empty" };
+const pack = new Pack([new Dog("rex", 2)]);
+const g: Group = pack;
+console.log("kept", g instanceof Pack);
+try {
+  if (g.kind === "pack") {
+    g.members.push(new Cat("tom", "nine"));
+  }
+} catch (e: any) {
+  console.log(e.name, e.message);
+}
+for (const d of pack.members) {
+  console.log(d.bark());
+}
+
+// expect:
+// kept true
+// TypeError Cannot read property members of Pack as {name: string}[]: it is declared Dog[]
+// rex has 2.0 bones

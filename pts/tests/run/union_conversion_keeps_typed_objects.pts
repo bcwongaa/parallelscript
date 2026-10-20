@@ -1,0 +1,125 @@
+// Typed code's own objects given to a union of object types stay the same objects, though
+// the member they are one of as they are leaves out a property another member declares as
+// another type: a typed read of it as that member takes it as it is, converted (a number
+// where `number | string` goes, a function of fewer parameters adapted) where the base threw
+// (D-192; H09b2 review round 1's `c05`), also when they come back through `await`, a
+// generator or `then`, which the runtime converts (review round 2's G2). Only an object
+// literal holding dynamic values there is copied (`typed_any_fields_to_unions.pts`). A read of
+// an object as an object type takes it as it is, and each of its properties is verified as
+// it is read (review round 4's H1).
+function same(x: any, y: any): boolean {
+  return x === y;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+class Pt {
+  constructor(public x: number, public y: number) {}
+}
+type Shape = { kind: "pt"; at: { x: number; y: number } } | { kind: "none" };
+attempt("a class instance where an object type goes", () => {
+  const o = { kind: "pt" as const, at: new Pt(1, 2) };
+  const s: Shape = o;
+  o.at = new Pt(3, 4);
+  return String(same(s, o)) + " " + (s.kind === "pt" ? String(s.at.x) : "none");
+});
+type Val = { kind: "v"; v: number | string } | { kind: "none" };
+attempt("a narrower property type", () => {
+  const o = { kind: "v" as const, v: 5 };
+  const s: Val = o;
+  o.v = 6;
+  return String(same(s, o)) + " " + (s.kind === "v" ? String(s.v) : "none");
+});
+type Cb = { kind: "cb"; f: (a: number, b: number) => number } | { kind: "none" };
+attempt("a callback taking fewer parameters", () => {
+  const o = { kind: "cb" as const, f: (a: number) => a * 2 };
+  const s: Cb = o;
+  return String(same(s, o)) + " " + (s.kind === "cb" ? String(s.f(3, 4)) : "none");
+});
+type Ro = { kind: "ro"; xs: readonly number[] } | { kind: "none" };
+attempt("a mutable array where a readonly one goes", () => {
+  const o = { kind: "ro" as const, xs: [1] };
+  const s: Ro = o;
+  o.xs.push(2);
+  return String(same(s, o)) + " " + (s.kind === "ro" ? String(s.xs.length) : "none");
+});
+class Holder {
+  readonly kind = "h";
+  constructor(public v: number) {}
+}
+type H = { kind: "h"; v: number | string } | { kind: "none" };
+type Item = { kind: "item"; price: number | undefined } | { kind: "none" };
+class Product {
+  readonly kind = "item";
+  constructor(public price: number) {}
+  label(): string {
+    return "product at " + this.price;
+  }
+}
+async function later<T>(x: T): Promise<T> {
+  return x;
+}
+function* yielding<T>(x: T): Generator<T> {
+  yield x;
+}
+async function main(): Promise<void> {
+  const product = new Product(5);
+  const awaited: Item = await later<Item>(product);
+  console.log("an awaited class instance", same(awaited, product), awaited instanceof Product, awaited.kind === "item" ? awaited.price : -1);
+  for (const y of yielding<Item>(product)) {
+    console.log("a yielded class instance", same(y, product));
+  }
+  const literal = { kind: "v" as const, v: 5 };
+  const s: Val = await later<Val>(literal);
+  literal.v = 6;
+  console.log("an awaited literal", same(s, literal), s.kind === "v" ? s.v : "none");
+  const then: Item = await later<Item>(product).then((x) => x);
+  console.log("then's result", same(then, product));
+  const optionalCallback = { kind: "b" as const, f: (x: number) => x * 3 };
+  const b: OptionalCb = await later<OptionalCb>(optionalCallback);
+  console.log("an awaited optional callback", same(b, optionalCallback), b.kind === "b" ? b.f?.(2, 3) : "none");
+  const nestedWider = { kind: "c" as const, inner: { n: 5 } };
+  const c: NestedWider = await later<NestedWider>(nestedWider);
+  nestedWider.inner.n = 6;
+  console.log("an awaited nested object", same(c, nestedWider), c.kind === "c" ? c.inner.n : "none");
+}
+type OptionalCb = { kind: "b"; f?: (x: number, y: number) => number } | { kind: "none" };
+type NestedWider = { kind: "c"; inner: { n: number | string } } | { kind: "none" };
+attempt("a nested object, statically", () => {
+  const nested = { kind: "c" as const, inner: { n: 5 } };
+  const s: NestedWider = nested;
+  return s.kind === "c" ? String(s.inner.n) : "none";
+});
+type Sibling = { kind: "t"; inner: { n: number; xs: (number | string)[] } } | { kind: "none" };
+attempt("a nested property beside an array of a narrower element", () => {
+  const nested = { kind: "t" as const, inner: { n: 5, xs: [1, 2] } };
+  const s: Sibling = nested;
+  return s.kind === "t" ? String(s.inner.n) : "none";
+});
+attempt("a class instance where a union goes", () => {
+  const holder = new Holder(1);
+  const h: H = holder;
+  holder.v = 2;
+  return String(h instanceof Holder) + " " + String(same(h, holder)) + " " + (h.kind === "h" ? String(h.v) : "none");
+});
+
+main();
+
+// expect:
+// a class instance where an object type goes true 3
+// a narrower property type true 6
+// a callback taking fewer parameters true 6
+// a mutable array where a readonly one goes true 2
+// a nested object, statically 5
+// a nested property beside an array of a narrower element 5
+// a class instance where a union goes true true 2
+// an awaited class instance true true 5
+// a yielded class instance true
+// an awaited literal true 6
+// then's result true
+// an awaited optional callback true 6
+// an awaited nested object true 6

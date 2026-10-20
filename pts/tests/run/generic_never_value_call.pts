@@ -1,0 +1,14 @@
+// skip: known issue (H09b4, C194): a value call whose type argument is inferred never calls the instance, which reads `[]`'s missing element and throws RangeError where Node and the erased copy give undefined
+// A generic function value called with an empty array literal, so tsc infers T = never: the
+// D-148 instance for never reads the array's first element, which `[]` lacks.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function first<T>(xs: readonly T[]): Box<T> {
+  return new Box(xs[0]);
+}
+const firstValue: <T>(xs: readonly T[]) => Box<T> = first;
+console.log("never[] value", String(firstValue([]).value));
+
+// expect:
+// never[] value undefined

@@ -1,0 +1,54 @@
+// Array arguments of element types an instance found by name reads differently from the
+// erased copy (H09b1 review round 5's `t04`): an empty literal where T is inferred never,
+// void, undefined, null, a string literal union and an enum, through a D-148 value call and
+// an interface call. An instance must not read `[]`'s missing element where the erased copy
+// reads undefined (H09b2 keeps dynamic values on the erased copy, D-192). The value call's
+// `firstValue([])` throws RangeError there, as on the base (C194).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function first<T>(xs: readonly T[]): Box<T> {
+  return new Box(xs[0]);
+}
+const firstValue: <T>(xs: readonly T[]) => Box<T> = first;
+interface IFirst {
+  first<T>(xs: readonly T[]): Box<T>;
+}
+class Impl implements IFirst {
+  first<T>(xs: readonly T[]): Box<T> {
+    return new Box(xs[0]);
+  }
+}
+enum Color {
+  Red,
+  Green,
+}
+const viaInterface: IFirst = new Impl();
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const voids: void[] = [undefined];
+const undefs: undefined[] = [undefined];
+const nulls: null[] = [null];
+const lits: ("a" | "b")[] = ["b"];
+const colors: Color[] = [Color.Green];
+attempt("never[] interface", () => String(viaInterface.first([]).value));
+attempt("void[] value", () => String(firstValue(voids).value));
+attempt("void[] interface", () => String(viaInterface.first(voids).value));
+attempt("undefined[] value", () => String(firstValue(undefs).value));
+attempt("null[] interface", () => String(viaInterface.first(nulls).value));
+attempt("literal union interface", () => String(viaInterface.first(lits).value));
+attempt("enum interface", () => String(viaInterface.first(colors).value));
+
+// expect:
+// never[] interface undefined
+// void[] value undefined
+// void[] interface undefined
+// undefined[] value undefined
+// null[] interface null
+// literal union interface b
+// enum interface 1

@@ -235,10 +235,10 @@ typedef struct pts_site {
 /*
  * In a program that converts or writes dynamic values (D-072), each site also passes the
  * check of its property's type, so that the runtime can guard what conversions accept
- * when the site meets a new descriptor: a read site checks the field's kind, a write site
- * caches only fields whose declared type is the property's and converts a value written
- * to a field of a narrower declared type, and an optional property's read site checks
- * that the field's declared type implies the property's. Other programs pass NULL.
+ * when the site meets a new descriptor: a read site caches only fields whose declared type
+ * implies the property's, and reads another's value converted as it is or throws (D-192),
+ * and a write site caches only fields whose declared type is the property's and converts a
+ * value written to a field of another declared type. Other programs pass NULL.
  */
 void *pts_field_address_slow(const pts_object *object, pts_site *site, const char *name, const struct pts_check *check);
 
@@ -1135,6 +1135,8 @@ pts_value pts_dynamic_call_closure(struct pts_closure *function, uint32_t argc, 
 pts_value pts_value_convert(pts_value value, const pts_check *check);
 /* pts_value_convert, which reports whether value converts instead of throwing. */
 bool pts_value_try_convert(pts_value value, const pts_check *check, pts_value *out);
+/* For a read (D-192): pts_value_try_convert without a copy, whether value is one of check's type as it is (a closure of another type adapted; any object as an object type, whose sites verify each property they read), given in check's representation. */
+bool pts_value_try_convert_as_is(pts_value value, const pts_check *check, pts_value *out);
 /* The declared type of a place of the given kind whose check is check: check, or for NULL, the type the kind holds. */
 const pts_check *pts_check_declared(pts_field_kind kind, const pts_check *check);
 /* Whether two checks describe the same type, and whether every value of type sub is one of type super (D-072). */

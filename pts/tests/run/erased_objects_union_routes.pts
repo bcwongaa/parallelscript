@@ -1,0 +1,107 @@
+// Other routes by which an object with dynamic values where a union member declares typed
+// ones reaches typed code (H09b2, C187): a union nested in an object type and an array of
+// unions (conversions of an erased copy's result), a class's field, a callback that the
+// erased copy calls, a generator's values and an awaited result, a call through a union of
+// interfaces (whose dynamic result a union-typed place took unchecked: r02b), and typed
+// code's own object with an `any[]` field given to a union (no erased copy at all). Each
+// line prints what Node prints.
+type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
+type Outer<T> = { readonly inner: Opt<T> };
+class Holder {
+  constructor(public o: Opt<number>) {}
+}
+const Ops = {
+  wrap<T>(x: T): Opt<T> {
+    return { tag: "some", value: [x] };
+  },
+  outer<T>(x: T): Outer<T> {
+    return { inner: { tag: "some", value: [x] } };
+  },
+  all<T>(x: T): Opt<T>[] {
+    return [{ tag: "some", value: [x] }];
+  },
+  each<T>(x: T, f: (o: Opt<T>) => string): string {
+    return f({ tag: "some", value: [x] });
+  },
+  *gen<T>(x: T): Generator<Opt<T>> {
+    yield { tag: "some", value: [x] };
+  },
+  async later<T>(x: T): Promise<Opt<T>> {
+    return { tag: "some", value: [x] };
+  },
+};
+interface ListerA {
+  list<T>(x: T): T[] | undefined;
+  a(): number;
+}
+interface ListerB {
+  list<T>(x: T): T[] | undefined;
+  b(): number;
+}
+class LA implements ListerA {
+  list<T>(x: T): T[] | undefined {
+    return [x];
+  }
+  a(): number {
+    return 1;
+  }
+}
+class LB implements ListerB {
+  list<T>(x: T): T[] | undefined {
+    return [x];
+  }
+  b(): number {
+    return 2;
+  }
+}
+function pick(n: number): ListerA | ListerB {
+  return n === 0 ? new LA() : new LB();
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (e: any) {
+    console.log(label, e.name, e.message);
+  }
+}
+const read = (o: Opt<number>): string => (o.tag === "some" ? String(o.value[0] * 2) : "none");
+const seven: any = 7;
+attempt("a union in an object type", () => read(Ops["outer"](7).inner));
+attempt("an array of unions", () => read(Ops["all"](7)[0]));
+attempt("a class's field", () => read(new Holder(Ops["wrap"](7)).o));
+attempt("a callback of the erased copy", () => Ops["each"](7, read));
+attempt("a generator's value", () => {
+  let r = "empty";
+  for (const o of Ops["gen"](7)) {
+    r = read(o);
+  }
+  return r;
+});
+attempt("a union call's array", () => {
+  const xs: number[] | undefined = pick(0).list<number>(seven);
+  return String(xs![0] * 2);
+});
+const raw: any[] = [7];
+const typed = { tag: "some" as const, value: raw };
+attempt("typed code's object with an any[] field", () => {
+  const o: Opt<number> = typed;
+  return read(o);
+});
+async function main(): Promise<void> {
+  try {
+    console.log("an awaited result", read(await Ops["later"](7)));
+  } catch (e: any) {
+    console.log("an awaited result", e.name, e.message);
+  }
+}
+main();
+
+// expect:
+// a union in an object type 14
+// an array of unions 14
+// a class's field 14
+// a callback of the erased copy 14
+// a generator's value 14
+// a union call's array 14
+// typed code's object with an any[] field 14
+// an awaited result 14

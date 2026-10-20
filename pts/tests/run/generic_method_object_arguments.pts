@@ -1,9 +1,10 @@
-// skip: known issue (H09b2, C187): until typed reads verify the objects erased copies make, a call through an interface makes no demand where a parameter typed with the method's type parameters is of an object type, an interface or a union of them, so these keep the erased copy, whose Box<any> throws
 // Typed calls through an interface or an object literal's type whose type argument is an
 // interface or an object literal type (directly, or in an array, a Map or a union), or that
-// take a union of object types, find their instances once H09b2 makes typed reads verify
-// erased copies' objects (C187; D-191 keeps them on the erased copy meanwhile, as before
-// H09b1, review round 4's `s02`). Each line prints what Node prints with the instance.
+// take a union of object types, find their instances: H09b1 kept them on the erased copy,
+// whose Box<any> throws, until typed reads verified the objects erased copies make (C187;
+// D-191, review round 4's `s02`), which H09b2 does (D-192). Each line prints what Node prints
+// with the instance. An object literal written as such an argument is
+// `generic_method_literal_arguments.pts`'s (C188).
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -51,7 +52,8 @@ attempt("object literal type argument", () => String(repo.save({ id: 2 }).value.
 attempt("array of interfaces", () => String(repo.saveAll([user]).value.length));
 attempt("Map of interfaces", () => repo.index(new Map([["a", user]])).value!.name);
 attempt("interface or undefined", () => repo.maybe<User>(user).value!.name);
-attempt("union of object types", () => String(Ops.orElse<number>({ tag: "some", value: 3 }, 0).value + 1));
+const some: Opt<number> = { tag: "some", value: 3 };
+attempt("union of object types", () => String(Ops.orElse<number>(some, 0).value + 1));
 attempt("number still found", () => String(repo.save(5).value + 1));
 attempt("number[] still found", () => String(repo.saveAll([5, 6]).value.length));
 

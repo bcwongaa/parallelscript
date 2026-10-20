@@ -1,0 +1,28 @@
+// skip: known issue (H09b3, C188): an object literal written as the argument of an object literal's generic method, for a parameter of a union of object types typed with the method's type parameters, is lowered to the erased copy's parameter type, so the call makes no demand and the erased copy's Box<any> throws
+// An object literal's generic method whose parameter is a union of object types typed with
+// its type parameters (`o: Opt<T>`), given an object literal: the argument is lowered once,
+// for the erased copy's `Opt<any>` (D-191), which isn't the instance's `Opt<number>` as it
+// is, so the call keeps the erased copy, whose `Box<any>` a typed place rejects. The same
+// call given a variable of `Opt<number>` finds its instance (`generic_method_object_arguments.pts`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Opt<T> = { tag: "some"; value: T } | { tag: "none" };
+const Ops = {
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+attempt("an object literal argument", () => String(Ops.orElse<number>({ tag: "some", value: 3 }, 0).value + 1));
+attempt("an object literal of the other member", () => String(Ops.orElse<number>({ tag: "none" }, 5).value + 1));
+
+// expect:
+// an object literal argument 4
+// an object literal of the other member 6

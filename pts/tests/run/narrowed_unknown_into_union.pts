@@ -1,0 +1,98 @@
+// A value declared `unknown` or `any` that a type guard narrows to a union holding an array
+// goes into a union-typed place with a check, as it goes into other typed places (D-192):
+// typed code took parsed JSON's array of dynamic values as a `number[]` unchecked, read
+// 7.125 for 6.5, and would read a string's pointer as a number (C187's route through the
+// lowering's unchecked union conversion, found by H09b2's parent), wherever the narrowed
+// value is held and inside `||` or a comma (review rounds 1 and 2: F1, G1, G4).
+function isNumbersOrText(x: unknown): x is number[] | string {
+  return typeof x === "string" || (Array.isArray(x) && x.every((e) => typeof e === "number"));
+}
+function total(v: number[] | string): number {
+  if (typeof v === "string") {
+    return v.length;
+  }
+  let sum = 0;
+  for (const n of v) {
+    sum += n;
+  }
+  return sum;
+}
+const data: unknown = JSON.parse("[1, 2, 3.5]");
+if (isNumbersOrText(data)) {
+  console.log("parsed array", total(data));
+}
+const text: unknown = JSON.parse('"abc"');
+if (isNumbersOrText(text)) {
+  console.log("parsed string", total(text));
+}
+const loose: any = [4, 5.5];
+if (isNumbersOrText(loose)) {
+  const held: number[] | string = loose;
+  console.log("an any held", total(held));
+}
+try {
+  throw [6, 7];
+} catch (e) {
+  if (isNumbersOrText(e)) {
+    console.log("a caught array", total(e));
+  }
+}
+let count = 0;
+if (isNumbersOrText(data)) {
+  const either: number[] | string = data || "x";
+  console.log("inside ||", total(either));
+  const comma: number[] | string = (count++, data);
+  console.log("inside a comma", total(comma));
+}
+class Holder {
+  data: any = JSON.parse("[1, 2, 3.5]");
+  other: unknown = JSON.parse("[1, 2, 3.5]");
+}
+const holder = new Holder();
+if (isNumbersOrText(holder.data)) {
+  console.log("a class's any field", total(holder.data));
+}
+if (isNumbersOrText(holder.other)) {
+  console.log("a class's unknown field", total(holder.other));
+}
+const items: unknown[] = [true, JSON.parse("[1, 2, 3.5]")];
+if (isNumbersOrText(items[1])) {
+  console.log("an unknown[] element", total(items[1]));
+}
+const record: Record<string, unknown> = { k: JSON.parse("[1, 2, 3.5]") };
+if (isNumbersOrText(record.k)) {
+  console.log("a record's value", total(record.k));
+}
+const found = items.find(isNumbersOrText);
+console.log("find with a type guard", found === undefined ? -1 : total(found));
+const lastFound = items.findLast(isNumbersOrText);
+console.log("findLast with a type guard", lastFound === undefined ? -1 : total(lastFound));
+const lazy = {
+  kind: "lazy" as const,
+  get value(): number {
+    return 1;
+  },
+};
+function isLazyOrNumbers(x: unknown): x is typeof lazy | number[] {
+  return Array.isArray(x) || (typeof x === "object" && x !== null && "kind" in x);
+}
+const pair: unknown = JSON.parse("[1, 2.5]");
+if (isLazyOrNumbers(pair)) {
+  const v: typeof lazy | number[] = pair;
+  console.log("a union with a getter literal's type", Array.isArray(v) ? v[1] * 2 : v.value);
+}
+
+// expect:
+// parsed array 6.5
+// parsed string 3
+// an any held 9.5
+// a caught array 13
+// inside || 6.5
+// inside a comma 6.5
+// a class's any field 6.5
+// a class's unknown field 6.5
+// an unknown[] element 6.5
+// a record's value 6.5
+// find with a type guard 6.5
+// findLast with a type guard 6.5
+// a union with a getter literal's type 5

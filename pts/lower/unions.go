@@ -203,6 +203,13 @@ func (l *lowerer) toUnion(value ir.Expr, u *ir.Union, node *ast.Node) ir.Expr {
 			return asResult(value, u)
 		}
 		if member := l.memberFor(from, u); member != nil {
+			if leavesOut(from, member, u) && l.prepareCheckedUnion(u, node) {
+				// An object holding dynamic values in a property that member leaves out and
+				// another member declares (`{ tag: "some", value: anyArray }` where `{ tag:
+				// "none" }` is all it provides as it is): tsc may narrow it to the other member,
+				// so it converts as dynamic data does, copied into that member (C187, D-192).
+				return &ir.FromUnion{X: box(value), To: u}
+			}
 			if converted := l.convert(value, member, node); converted != nil {
 				return &ir.ToUnion{X: converted, To: u}
 			}
@@ -354,6 +361,75 @@ func providedMember(t ir.Type, u *ir.Union) ir.Type {
 		return nil
 	}
 	return found
+}
+
+// leavesOut reports whether member, the member of u that an object of the object type or
+// shape t is one of, leaves out a property of t that holds dynamic values inside it (an
+// `any[]`, a `{ n: any }`) and that another object type among u's members declares. A
+// property of another typed type (a `Dog[]` where the other member says `Animal[]`, a
+// function of fewer parameters) or of `any` itself, and an instance of a class t names, is
+// left as it is, as before: a copy would lose its class and identity, and typed reads of it
+// as the other member verify it, a dynamic value converted as it is (D-192).
+func leavesOut(t, member ir.Type, u *ir.Union) bool {
+	if class, ok := t.(*ir.Class); ok && (!class.Shape || class.Tuple) {
+		return false
+	}
+	for _, m := range u.Members {
+		other, ok := m.(*ir.Interface)
+		if !ok || m == member {
+			continue
+		}
+		for _, field := range other.Fields {
+			if property := propertyType(t, field.Name); property != nil && property != ir.Value && propertyType(member, field.Name) == nil && holdsDynamicValues(property, map[ir.Type]bool{}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// propertyType is the type an object type, a class or a shape declares its property name
+// as (a getter's result), or nil.
+func propertyType(t ir.Type, name string) ir.Type {
+	switch t := t.(type) {
+	case *ir.Interface:
+		if field := t.Field(name); field != nil {
+			return field.Type
+		}
+	case *ir.Class:
+		if field := t.Field(name); field != nil {
+			return field.Type
+		}
+		if getter := t.Method(name, ir.Getter); getter != nil {
+			return getter.Func.Result
+		}
+	}
+	return nil
+}
+
+// holdsDynamicValues reports whether values of t may hold dynamic values: t is the dynamic
+// type, or an array, map, object type, shape or union holding it.
+func holdsDynamicValues(t ir.Type, seen map[ir.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	holds := func(f *ir.Field) bool { return holdsDynamicValues(f.Type, seen) }
+	switch t := t.(type) {
+	case *ir.Primitive:
+		return t == ir.Value
+	case *ir.Array:
+		return holdsDynamicValues(t.Elem, seen)
+	case *ir.MapType:
+		return holdsDynamicValues(t.Key, seen) || (t.Value != nil && holdsDynamicValues(t.Value, seen))
+	case *ir.Interface:
+		return slices.ContainsFunc(t.Fields, holds)
+	case *ir.Class:
+		return t.Shape && slices.ContainsFunc(t.Fields, holds)
+	case *ir.Union:
+		return slices.ContainsFunc(t.Members, func(m ir.Type) bool { return holdsDynamicValues(m, seen) })
+	}
+	return false
 }
 
 // sameFields reports whether two interfaces have the same fields, of the same types.
