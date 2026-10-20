@@ -208,7 +208,7 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 // types, which tsc narrows a value of the parameter's type to (`T & any[]` after
 // Array.isArray(x) for an x of type T), for the instance's type arguments: each member of
 // the parameter's type argument that the other types already include is itself (`number[]`
-// where tsc keeps `number[] & any[]`), and each that no value of is left drops out (`string &
+// or `readonly number[]` where tsc keeps `number[] & any[]`), and each that no value of is left drops out (`string &
 // any[]` for a `string | number[]`; never if none is left, D-195). It is nil if t is no such
 // intersection.
 func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
@@ -237,7 +237,7 @@ func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
 	}
 	var left []*checker.Type
 	for _, member := range members {
-		if !slices.ContainsFunc(others, func(other *checker.Type) bool { return !l.checker.IsTypeAssignableTo(member, other) }) {
+		if !slices.ContainsFunc(others, func(other *checker.Type) bool { return !l.includes(other, member) }) {
 			left = append(left, member)
 			continue
 		}
@@ -248,6 +248,12 @@ func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
 		}
 	}
 	return l.checker.GetUnionType(left)
+}
+
+// includes reports whether every value of member is one of t's, for narrowedInstance: it
+// is assignable, or both are arrays (a `readonly number[]` is an `any[]` to Array.isArray).
+func (l *lowerer) includes(t, member *checker.Type) bool {
+	return l.checker.IsTypeAssignableTo(member, t) || l.checker.IsArrayType(member) && l.checker.IsArrayType(t)
 }
 
 // instantiateMade is the type of a value that code makes (an array or object literal, a

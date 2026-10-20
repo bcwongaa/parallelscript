@@ -1,0 +1,25 @@
+// More of an instance's narrowed code (D-195): `Array.isArray(x)` for a `readonly number[]`
+// is live (its narrowed type `readonly number[] & any[]` is the array), and dead for the
+// library's own classes (a Uint8Array, a Map, a Date are never arrays); a `&&` whose right
+// operand is dead has the type of the whole where an enclosing `||` needs it (`false |
+// number`). Before, these were PTS1001 (`` `x.length` is not supported yet ``, `converting
+// boolean to number`) on the base and on the first snapshot of the fix (H09b4a review
+// round 1, F6, F7).
+function count<T>(x: T): string {
+  if (Array.isArray(x)) {
+    const a = x;
+    return "array " + a.length;
+  }
+  return "not an array";
+}
+function orSeven<T>(x: T): number {
+  const b = (typeof x === "number" && x * 2) || 7;
+  return b;
+}
+const ro: readonly number[] = [1, 2];
+console.log(count(ro), count(5), count(new Uint8Array(2)), count(new Map<string, number>()), count(new Date(0)));
+console.log(orSeven("s"), orSeven(5), orSeven(0));
+
+// expect:
+// array 2 not an array not an array not an array not an array
+// 7 10 7

@@ -1,7 +1,8 @@
 // Instances are told apart by IR types (a function's also by literal type arguments), so
 // type arguments of one IR type run the same instance: a branded string and unknown (IR
 // value), "a" and string for a class, two object types that differ only in a literal
-// property's type. Code is dead in an instance only if it is for
+// property's type, `() => 1` and `() => number`, a recursive union (IR value) and unknown.
+// Code is dead in an instance only if it is for
 // every type argument that may run it (D-195): each branch below is dead for the first
 // call's type argument and live for the second's, and runs as in Node.
 type Id = string & { __brand: "id" };
@@ -49,9 +50,47 @@ console.log(numbers<Id>("id2" as Id), numbers<unknown>(6));
 const sub: Sub = { type: "sub", value: 1 };
 const add: Add = { type: "add", value: 2 };
 console.log(kind<Sub>(sub), kind<Add>(add));
+function isTwo(v: unknown): v is 2 {
+  return v === 2;
+}
+function run<F extends () => number>(f: F): string {
+  const r: ReturnType<F> = f() as ReturnType<F>;
+  if (isTwo(r)) {
+    const k: number = r + 10;
+    return "two " + k;
+  }
+  return "not two";
+}
+class Caller<F extends () => number> {
+  constructor(public f: F) {}
+  check(): string {
+    const r = this.f() as ReturnType<F>;
+    if (isTwo(r)) {
+      const k: number = r * 10;
+      return "two " + k;
+    }
+    return "not two";
+  }
+}
+const one = (): 1 => 1;
+console.log(run(one), run((): number => 2));
+console.log(new Caller(one).check(), new Caller((): number => 2).check());
+type Json = string | number | null | Json[] | { [k: string]: Json };
+function undefinedOrNot<T>(x: T): string {
+  if (typeof x === "undefined") {
+    const u: undefined = x;
+    return "undefined " + (u === undefined);
+  }
+  return "other";
+}
+const parsed: Json = JSON.parse("1") as Json;
+console.log(undefinedOrNot<Json>(parsed), undefinedOrNot<unknown>(undefined));
 
 // expect:
 // other id1 number 6
 // not b is b
 // other id2 number 7
 // other sub adds add
+// not two two 12
+// not two two 20
+// other undefined true

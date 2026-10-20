@@ -1,0 +1,33 @@
+// A dead read where any value goes as it is (D-195) reads the value it holds, so a type
+// predicate that lies (here: it says "number" for strings) lets code run that only uses
+// the value as any value: concatenated with a string, compared with `===`, passed where
+// `unknown` or `any` goes (a parameter, `unknown[]`'s push, `JSON.stringify`, a literal
+// in a `console.log`), its `typeof`, a template's placeholder. Each runs as in Node, as on
+// the base; a use as the narrowed type (`x + 1`) throws, generic_dead_branch_lies.pts
+// (H09b4a review round 1, F4).
+function isNum(v: unknown): v is number {
+  return typeof v === "string";
+}
+const seen: unknown[] = [];
+function note(v: unknown): void {
+  seen.push(v);
+}
+function show<T>(x: T): string {
+  if (isNum(x)) {
+    console.log("n=" + x);
+    console.log([x], { value: x });
+    note(x);
+    seen.push(x);
+    const same = x === 5;
+    return `lied ${typeof x} ${JSON.stringify(x)} ${same}`;
+  }
+  return "honest";
+}
+console.log(show("s"), seen);
+console.log(show(1));
+
+// expect:
+// n=s
+// [ 's' ] { value: 's' }
+// lied string "s" false [ 's', 's' ]
+// honest

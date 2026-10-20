@@ -1,0 +1,51 @@
+// The statements after one that can't run in an instance can't run either, so they lower to
+// nothing but their hoisted function declarations' bodies and their variables, never
+// initialized: a function declared there, a closure made before them, or one in a later case
+// of the same switch, captures those variables (D-195). For a string x, everything after the
+// early return or the dead `const y = x + 1` is dead; before, the first snapshot of the fix
+// left the variables out and the C didn't compile (H09b4a review round 1, F3), and the base
+// rejected each instance (PTS1001).
+function tailHoisted<T>(x: T): string {
+  if (typeof x !== "number") {
+    return "early";
+  }
+  const y = x + 1;
+  let z = y * 2;
+  function show(): string {
+    return "z is " + z;
+  }
+  return show();
+}
+function tailClosure<T>(x: T): () => string {
+  const get = () => "z " + z;
+  if (typeof x !== "number") {
+    return () => "early";
+  }
+  const y = x + 1;
+  const z = y * 2;
+  return get;
+}
+function tailSwitch<T>(x: T, k: number): string {
+  switch (k) {
+    case 1:
+      if (typeof x !== "number") {
+        return "one early";
+      }
+      const y = x + 1;
+      let z = y;
+      return "one " + z;
+    case 2: {
+      const g = () => z;
+      return "two " + typeof g;
+    }
+  }
+  return "none";
+}
+console.log(tailHoisted("s"), tailHoisted(1));
+console.log(tailClosure("s")(), tailClosure(1)());
+console.log(tailSwitch("s", 1), tailSwitch("s", 2), tailSwitch(1, 1), tailSwitch(1, 2));
+
+// expect:
+// early z is 4
+// early z 4
+// one early two function one 2 two function

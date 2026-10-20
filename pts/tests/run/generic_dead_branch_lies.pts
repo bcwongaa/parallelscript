@@ -2,8 +2,9 @@
 // Code that tsc narrows to a type no value of the instance's type arguments has (here `x`
 // as `T & number` for a string) can't run unless something lied to tsc. It lowers as a
 // trap: TypeError naming the type arguments and the narrowing, catchable, where the base
-// rejected the program (PTS1001, C171); so does what follows an assertion that lied. A dead
-// read where any value goes (`typeof x`) reads the value it holds. An honest predicate's or
+// rejected the program (PTS1001, C171); so do a copy (`const y = x`, whose type is the
+// narrowed one) and what follows an assertion that lied. A dead read where any value goes
+// (`typeof x`) reads the value it holds (generic_dead_reads_any_value.pts). An honest predicate's or
 // assertion's branch, and the instance for number, run as in Node.
 function honestIsNum(x: unknown): x is number {
   return typeof x === "number";
@@ -26,6 +27,13 @@ function lying<T>(x: T): string {
   }
   return "no";
 }
+function copied<T>(x: T): string {
+  if (lyingIsNum(x)) {
+    const y = x;
+    return "copied " + String(y);
+  }
+  return "no";
+}
 function lyingAssertion<T>(x: T): string {
   lyingAssertNum(x);
   console.log("after the lying assertion", typeof x);
@@ -44,6 +52,11 @@ try {
   console.log(error.name, error.message);
 }
 try {
+  console.log(copied("s"));
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+try {
   console.log(lyingAssertion("s"));
 } catch (error: any) {
   console.log(error.name, error.message);
@@ -58,6 +71,7 @@ try {
 // expect:
 // number 2 not a number
 // lied 2
+// TypeError code that can't run for T = string ran: `x` narrows to `T & number` here; a type predicate, assertion or cast was wrong
 // TypeError code that can't run for T = string ran: `x` narrows to `T & number` here; a type predicate, assertion or cast was wrong
 // after the lying assertion string
 // TypeError code that can't run for T = string ran: `x` narrows to `T & number` here; a type predicate, assertion or cast was wrong

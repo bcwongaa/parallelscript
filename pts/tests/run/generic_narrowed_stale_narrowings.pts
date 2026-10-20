@@ -1,0 +1,129 @@
+// tsc keeps a narrowing across what it doesn't follow: a closure's assignment to a captured
+// `let`, a method that changes a field, an await while another task changes it, a forEach
+// callback's assignment, a getter whose value changes between reads. So a second test can
+// narrow a value to `T & number`, never for a string T, while the value really is a number,
+// which its declared type `T | number` allows. Such code isn't dead (D-195: the declared type
+// bounds what stores can put there, the tests' types alone narrow it), and runs as in Node
+// (H09b4a review round 1, F1). The base ran these too.
+function f<T>(x: T): string {
+  let y: T | number = x;
+  const reset = () => {
+    y = 5;
+  };
+  if (typeof y !== "number") {
+    reset();
+    if (typeof y === "number") {
+      const n = y + 1;
+      return "number now " + n;
+    }
+  }
+  return "kept";
+}
+try {
+  console.log(f("s"));
+} catch (e) {
+  console.log("caught", (e as Error).message);
+}
+console.log(f(1));
+class Slot<T> {
+  v: T | number;
+  constructor(v: T) {
+    this.v = v;
+  }
+  normalize(): void {
+    this.v = 0;
+  }
+  next(): number {
+    if (typeof this.v !== "number") {
+      this.normalize();
+      if (typeof this.v === "number") {
+        return this.v + 1;
+      }
+      return -1;
+    }
+    return this.v;
+  }
+}
+try {
+  console.log(new Slot("a").next());
+} catch (e) {
+  console.log("caught", (e as Error).message);
+}
+console.log(new Slot(3).next());
+function total<T>(first: T, rest: number[]): string {
+  let acc: T | number = first;
+  if (typeof acc !== "number") {
+    rest.forEach((n) => {
+      acc = n;
+    });
+    if (typeof acc === "number") {
+      const doubled = acc * 2;
+      return "last doubled " + doubled;
+    }
+    return "no numbers";
+  }
+  return "started with a number";
+}
+console.log(total("start", [1, 2, 3]));
+console.log(total("start", []));
+interface Src<T> {
+  readonly current: T | number;
+}
+function poll<T>(s: Src<T>): string {
+  if (typeof s.current !== "number") {
+    if (typeof s.current === "number") {
+      const n = s.current;
+      return "became a number " + n;
+    }
+    return "not a number";
+  }
+  return "a number at once";
+}
+class Ticker implements Src<string> {
+  n = 0;
+  get current(): string | number {
+    return this.n++ === 0 ? "s" : 5;
+  }
+}
+try {
+  console.log(poll<string>(new Ticker()));
+} catch (e) {
+  console.log("caught", (e as Error).message);
+}
+class Loader<T> {
+  state: T | number;
+  constructor(initial: T) {
+    this.state = initial;
+  }
+  async load(): Promise<string> {
+    if (typeof this.state !== "number") {
+      await Promise.resolve();
+      if (typeof this.state === "number") {
+        return "loaded " + (this.state + 1);
+      }
+      return "still initial";
+    }
+    return "number from the start";
+  }
+}
+async function main(): Promise<void> {
+  const l = new Loader("idle");
+  const p = l.load();
+  l.state = 41;
+  try {
+    console.log(await p);
+  } catch (e) {
+    console.log("caught", (e as Error).message);
+  }
+}
+main();
+
+// expect:
+// number now 6
+// kept
+// 1
+// 3
+// last doubled 6
+// no numbers
+// became a number 5
+// loaded 42

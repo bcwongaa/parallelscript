@@ -2909,9 +2909,11 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		x, y = commonClass(x, y)
 	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
-		if operator := node.AsBinaryExpression().OperatorToken.Kind; (operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken) && otherPrimitives(x.Type(), y.Type()) {
-			// Primitives of different kinds are never strictly equal: an instance's `x === 1`
-			// for an x of type T and a string T, a test that narrows x to never (D-195).
+		if operator := node.AsBinaryExpression().OperatorToken.Kind; (operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken) &&
+			neverStrictlyEqual(x.Type(), y.Type()) && !l.hasTypeFlags(left, checker.TypeFlagsVoid) && !l.hasTypeFlags(right, checker.TypeFlagsVoid) {
+			// A primitive is never strictly equal to one of another kind or an object: an
+			// instance's `x === 1` for an x of type T and a string T, a test that narrows x to
+			// never (D-195). A void value is undefined to pts but may hold anything in JS.
 			return discard(x, discard(y, &ir.BoolConst{Value: op == ir.Ne}))
 		}
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s and %s is", describe(node), x.Type(), y.Type()))
@@ -3419,7 +3421,7 @@ func (l *lowerer) branch(node *ast.Node) ir.Expr {
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
 	if trap := l.deadOperand(right); trap != nil {
-		return l.logicalWithDeadRight(op, left, trap)
+		return l.logicalWithDeadRight(node, op, left, trap)
 	}
 	loose := l.isLooseIdentifier(left) || l.isMatchElement(ast.SkipParentheses(left)) // a union of its type and undefined (D-090, D-133)
 	if op == ir.And && !loose && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
@@ -3443,14 +3445,23 @@ func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right
 	return &ir.Logical{Op: op, X: x, Y: y}
 }
 
-// logicalWithDeadRight lowers `left && right` or `left || right` whose right operand an
-// instance's type arguments make dead (D-195): left's value, with the trap where JS would
-// evaluate right, so the whole has left's type.
-func (l *lowerer) logicalWithDeadRight(op ir.LogicalOp, left *ast.Node, trap ir.Expr) ir.Expr {
+// logicalWithDeadRight lowers node, `left && right` or `left || right` whose right operand
+// an instance's type arguments make dead (D-195): left's value, with the trap where JS would
+// evaluate right, so the whole has left's type, or the whole's where that is a union that
+// holds it (`(typeof x === "number" && x * 2) || 7`'s `false | number`).
+func (l *lowerer) logicalWithDeadRight(node *ast.Node, op ir.LogicalOp, left *ast.Node, trap ir.Expr) ir.Expr {
 	x := l.expression(left)
 	if x == nil {
 		return nil
 	}
+	l.quietly(func() bool {
+		whole, ok := l.irType(l.typeAt(node), node).(*ir.Union)
+		if !ok || !whole.Has(x.Type()) {
+			return false
+		}
+		x = &ir.ToUnion{X: x, To: whole}
+		return true
+	})
 	tmp := l.newLocal("value", x.Type())
 	ref := &ir.LocalRef{Local: tmp}
 	then, otherwise := l.convert(trap, x.Type(), left), ir.Expr(ref)

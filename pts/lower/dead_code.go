@@ -46,27 +46,46 @@ func (l *lowerer) deadRead(unit *ast.Node) *ast.Node {
 }
 
 // takesAnyValueAsIs reports whether node is read where any value goes as it is, so its
-// narrowed type doesn't matter: an argument of `String` or a `console` method, the operand
-// of `typeof`, a template literal's placeholder. A dead read there (one a type predicate
-// that lied lets run: `if (isNumber(x)) console.log("number", x)`) lowers as the value x
-// holds, as before, rather than making its statement a trap (D-195).
+// narrowed type doesn't matter: where its context's type is any or unknown (an argument of
+// `String`, `JSON.stringify` or a `console` method, an element of a literal there, an
+// `unknown` parameter), the operand of `typeof`, a template literal's placeholder, and an
+// operand of `+` whose other operand is a string or of `===` and `!==`; not a copy (`const
+// y = x`), whose type is the narrowed one that later code reads. A dead read there (one a
+// type predicate that lied lets run: `if (isNumber(x)) console.log("number", x)`) lowers as
+// the value x holds, as before, rather than making its unit a trap (D-195).
 func (l *lowerer) takesAnyValueAsIs(node *ast.Node) bool {
 	for node.Parent.Kind == ast.KindParenthesizedExpression {
 		node = node.Parent
 	}
+	for value := node; ; {
+		if contextual := l.checker.GetContextualType(value, checker.ContextFlagsNone); contextual != nil && contextual.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+			return true
+		}
+		switch parent := value.Parent; { // an element or property of a literal that goes where any value does: `console.log([x])`
+		case parent.Kind == ast.KindArrayLiteralExpression || parent.Kind == ast.KindSpreadElement || parent.Kind == ast.KindParenthesizedExpression:
+			value = parent
+			continue
+		case parent.Kind == ast.KindShorthandPropertyAssignment || parent.Kind == ast.KindPropertyAssignment && parent.Initializer() == value:
+			value = parent.Parent
+			continue
+		}
+		break
+	}
 	switch parent := node.Parent; parent.Kind {
 	case ast.KindTypeOfExpression, ast.KindTemplateSpan:
 		return true
-	case ast.KindCallExpression:
-		if node == parent.Expression() {
-			return false
+	case ast.KindBinaryExpression:
+		binary := parent.AsBinaryExpression()
+		other := binary.Left
+		if other == node {
+			other = binary.Right
 		}
-		callee := ast.SkipParentheses(parent.Expression())
-		if callee.Kind == ast.KindPropertyAccessExpression {
-			callee = ast.SkipParentheses(callee.Expression())
-			return callee.Kind == ast.KindIdentifier && callee.Text() == "console" && l.isDeclaredInDefaultLib(l.target(callee))
+		switch operator := binary.OperatorToken.Kind; operator {
+		case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken:
+			return true // any two values compare (neverStrictlyEqual)
+		case ast.KindPlusToken, ast.KindPlusEqualsToken:
+			return (operator == ast.KindPlusToken || other == binary.Left) && l.checker.GetTypeAtLocation(other).Flags()&checker.TypeFlagsStringLike != 0
 		}
-		return callee.Kind == ast.KindIdentifier && callee.Text() == "String" && l.isDeclaredInDefaultLib(l.target(callee))
 	}
 	return false
 }
@@ -120,17 +139,21 @@ func allChildren(node *ast.Node) []*ast.Node {
 }
 
 // isDeadRead reports whether node reads a variable or property (`o.v`, a tuple's `t[0]`)
-// that has no value there for the instance being lowered: no value of its declared type has
-// the type tsc narrows it to (their intersection: `string & number` for `T & number`;
-// `string & null` and `Ci & Sq` where tsc narrows a `T extends string | null` to null, or
-// a `T extends Sq | Ci` to Sq, through the constraint), while in the generic code some
-// value does, and the declared type has values for the instance (an element read of a
-// `never[]`, whose type is never, gives undefined).
+// that has no value there for the instance being lowered: no value of its declared type
+// has the type of the tests that narrow it (their intersection: `string & number` for a
+// string T's `x` after `typeof x === "number"`, `string & null` and `Ci & Sq` where tsc
+// narrows a `T extends string | null` to null, or a `T extends Sq | Ci` to Sq, through the
+// constraint), while in the generic code some value has tsc's narrowed type, and the
+// declared type has values for the instance (an element of a `never[]`, of type never, is
+// undefined). The tests' type is tsc's narrowed type without the instance's type parameters
+// it intersects (testedType): tsc keeps a narrowing across what it doesn't follow (a closure's assignment, a
+// call that changes a property, an await, a getter), so the value may have changed since,
+// though never to one its declared type doesn't have, since stores are typed and checked.
 func (l *lowerer) isDeadRead(node *ast.Node) bool {
 	var symbol *ast.Symbol
 	switch node.Kind {
 	case ast.KindIdentifier:
-		if ast.IsDeclarationName(node) {
+		if ast.IsDeclarationName(node) && node.Parent.Kind != ast.KindShorthandPropertyAssignment {
 			return false
 		}
 		if symbol = l.readSymbol(node); symbol == nil || symbol.Flags&ast.SymbolFlagsVariable == 0 {
@@ -147,18 +170,43 @@ func (l *lowerer) isDeadRead(node *ast.Node) bool {
 	default:
 		return false
 	}
-	if ast.IsWriteOnlyAccess(node) {
+	if ast.IsWriteOnlyAccess(node) || ast.IsOptionalChain(node) { // a chain's own undefined isn't the property's
 		return false
 	}
-	declared := l.checker.GetTypeOfSymbol(symbol)
-	narrowed := l.checker.PtsIntersectionType([]*checker.Type{declared, l.checker.GetTypeAtLocation(node)})
-	if l.uninhabited(narrowed) {
+	declared, narrowed := l.checker.GetTypeOfSymbol(symbol), l.checker.GetTypeAtLocation(node)
+	if l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})) {
 		return false
 	}
 	instance := l.subst
 	l.subst = l.deadTest()
 	defer func() { l.subst = instance }()
-	return l.uninhabited(l.instantiate(narrowed)) && !l.uninhabited(l.instantiate(declared))
+	if declared = l.instantiate(declared); l.uninhabited(declared) {
+		return false
+	}
+	return l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, l.instantiate(l.testedType(narrowed))}))
+}
+
+// testedType is narrowed, tsc's narrowed type of a read, without the instance's type
+// parameters it intersects (`T & number` is number, `(T & undefined) | T` unknown): what the
+// tests that narrowed the read say of its value. Others stay (`keyof T`, `T[K] & number`).
+func (l *lowerer) testedType(narrowed *checker.Type) *checker.Type {
+	switch {
+	case slices.Contains(l.subst.parameters, narrowed):
+		return l.checker.GetUnknownType()
+	case narrowed.Flags()&checker.TypeFlagsUnion != 0:
+		members := make([]*checker.Type, len(narrowed.Types()))
+		for i, member := range narrowed.Types() {
+			members[i] = l.testedType(member)
+		}
+		return l.checker.GetUnionType(members)
+	case narrowed.Flags()&checker.TypeFlagsIntersection != 0:
+		members := slices.DeleteFunc(slices.Clone(narrowed.Types()), func(member *checker.Type) bool { return slices.Contains(l.subst.parameters, member) })
+		if len(members) == 0 {
+			return l.checker.GetUnknownType()
+		}
+		return l.checker.PtsIntersectionType(members)
+	}
+	return narrowed
 }
 
 // deadTest is the substitution isDeadRead tests reads with: the instance's, each type
@@ -187,6 +235,8 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 	switch {
 	case t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown|checker.TypeFlagsNever) != 0:
 		return t
+	case l.isDynamicIRType(t):
+		return l.checker.GetUnknownType() // a recursive union's (`Json`), a branded primitive's, a promise's: unknown's
 	case t.Flags()&checker.TypeFlagsPrimitive != 0:
 		return l.checker.GetBaseTypeOfLiteralType(t) // `"a"` and `string` are one IR type
 	case t.Flags()&checker.TypeFlagsUnion != 0:
@@ -203,6 +253,17 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 	return l.checker.GetUnknownType()
 }
 
+// isDynamicIRType reports whether t's IR type is that of dynamic values, unknown's, or t
+// has none.
+func (l *lowerer) isDynamicIRType(t *checker.Type) bool {
+	var irType ir.Type
+	l.quietly(func() bool {
+		irType = l.irType(t, l.subst.declaration)
+		return irType != nil
+	})
+	return irType == nil || irType == ir.Value
+}
+
 // maxLiteralFreeDepth bounds how deep literalFree looks into a type's properties.
 const maxLiteralFreeDepth = 4
 
@@ -217,7 +278,7 @@ func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, dept
 	seen[t] = true
 	flags := t.Flags()
 	switch {
-	case flags&checker.TypeFlagsBoolean != 0:
+	case flags&(checker.TypeFlagsBoolean|checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0:
 		return true
 	case flags&checker.TypeFlagsPrimitive != 0:
 		return flags&(checker.TypeFlagsLiteral|checker.TypeFlagsEnumLike|checker.TypeFlagsTemplateLiteral|checker.TypeFlagsStringMapping|checker.TypeFlagsUniqueESSymbol) == 0
@@ -236,8 +297,18 @@ func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, dept
 		}
 	}
 	symbol := t.Symbol()
-	if l.checker.IsArrayType(t) || checker.IsTupleType(t) || len(l.checker.GetSignaturesOfType(t, checker.SignatureKindCall)) > 0 || symbol != nil && symbol.Flags&ast.SymbolFlagsClass != 0 {
-		return true
+	if l.checker.IsArrayType(t) || checker.IsTupleType(t) || symbol != nil && (symbol.Flags&ast.SymbolFlagsClass != 0 || l.valueKind(t) == kindInstance) {
+		return true // a class of the program's or the library's (Uint8Array, Error, Map) is its own IR type
+	}
+	for _, signature := range l.checker.GetSignaturesOfType(t, checker.SignatureKindCall) {
+		if !l.literalFree(l.checker.GetReturnTypeOfSignature(signature), seen, depth+1) {
+			return false // `() => 1` shares `() => number`'s IR type
+		}
+		for _, parameter := range signature.Parameters() {
+			if !l.literalFree(l.checker.GetTypeOfSymbol(parameter), seen, depth+1) {
+				return false
+			}
+		}
 	}
 	for _, property := range l.checker.GetPropertiesOfType(t) {
 		if !l.literalFree(l.checker.GetTypeOfSymbol(property), seen, depth+1) {
@@ -327,10 +398,20 @@ func isPrimitive(t ir.Type) bool {
 	return ir.IsNumeric(t) || t == ir.String || t == ir.Bool || isNullish(t)
 }
 
-// otherPrimitives reports whether x and y are types of primitives of different kinds (a
-// number and a string, null and undefined), which are never strictly equal.
-func otherPrimitives(x, y ir.Type) bool {
-	return isPrimitive(x) && isPrimitive(y) && x != y && !(ir.IsNumeric(x) && ir.IsNumeric(y))
+// neverStrictlyEqual reports whether values of types x and y are never strictly equal: a
+// primitive of one kind and a primitive of another (a number and a string, null and
+// undefined) or an object, an array, a function or a map.
+func neverStrictlyEqual(x, y ir.Type) bool {
+	if !isPrimitive(x) {
+		x, y = y, x
+	}
+	switch {
+	case !isPrimitive(x) || x == y || ir.IsNumeric(x) && ir.IsNumeric(y):
+		return false
+	case isPrimitive(y):
+		return true
+	}
+	return isObject(y) || isFunction(y) || isMap(y)
 }
 
 // isNever reports whether t is never.
@@ -359,7 +440,8 @@ func (l *lowerer) statementOrTrap(node *ast.Node) (stmts []ir.Stmt, dead bool) {
 
 // statementList lowers statements in order. Once one can't run, nor can those after it,
 // which lower to nothing but their function declarations' bodies, hoisted to where the
-// statements start.
+// statements start, and their variables, never initialized, which closures made before
+// them may capture.
 func (l *lowerer) statementList(statements []*ast.Node) []ir.Stmt {
 	var stmts []ir.Stmt
 	for i, statement := range statements {
@@ -368,13 +450,54 @@ func (l *lowerer) statementList(statements []*ast.Node) []ir.Stmt {
 		l.leaving(statement, outer)
 		stmts = append(stmts, lowered...)
 		if dead {
-			for _, rest := range statements[i+1:] {
-				if rest.Kind == ast.KindFunctionDeclaration {
+			for _, rest := range statements[i:] {
+				switch rest.Kind {
+				case ast.KindFunctionDeclaration:
 					l.statement(rest)
+				case ast.KindVariableStatement:
+					stmts = append(stmts, l.uninitialized(rest)...)
 				}
 			}
 			break
 		}
+	}
+	return stmts
+}
+
+// uninitialized declares the variables a variable statement that can't run declares,
+// without their initializers: a closure or hoisted function may capture them.
+func (l *lowerer) uninitialized(statement *ast.Node) []ir.Stmt {
+	var stmts []ir.Stmt
+	var declare func(name *ast.Node)
+	declare = func(name *ast.Node) {
+		if name.Kind != ast.KindIdentifier {
+			for _, element := range name.Elements() {
+				if element.Kind == ast.KindBindingElement {
+					declare(element.Name())
+				}
+			}
+			return
+		}
+		symbol := l.checker.GetSymbolAtLocation(name)
+		local, declared := l.locals[symbol]
+		if !declared {
+			l.quietly(func() bool {
+				if t := l.bindingType(symbol, name); t != nil {
+					local = l.newLocal(name.Text(), t)
+				}
+				return local != nil
+			})
+			if local == nil {
+				return // a type that doesn't lower: a capture of it fails as before
+			}
+			l.locals[symbol] = local
+		}
+		if local != nil {
+			stmts = append(stmts, &ir.LocalDecl{At: l.pos(name), Local: local})
+		}
+	}
+	for _, declaration := range statement.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes {
+		declare(declaration.Name())
 	}
 	return stmts
 }
