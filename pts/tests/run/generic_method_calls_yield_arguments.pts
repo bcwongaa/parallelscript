@@ -1,0 +1,85 @@
+// A typed call of a generic method by name whose argument is a `yield`, in a generator, makes
+// the specialized generic class instance its call names (H09b3b, C205): through an interface
+// (dotted and with a constant key) and of an object literal's method. The value a yield
+// resumes with is a dynamic value, which a call by name never passes to an instance (D-191), so
+// each kept the erased copy and threw `TypeError: Expected Box<number>, got Box<any>`; a
+// class's own method, a dispatched one, a static one and a generic arrow const converted it to
+// the instance's parameter type, as does an `await` (whose value is converted to its type),
+// and a template of the yield's value is a string, which passes as it is.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  static make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+abstract class Base {
+  abstract make<T>(x: T): Box<T>;
+}
+class Derived extends Base {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const instance = new ClassMaker();
+const throughInterface: Maker = new ClassMaker();
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const dispatched: Base = new Derived();
+const KEY = "make";
+function drive(label: string, g: () => Generator<number, void, number>): void {
+  try {
+    const it = g();
+    it.next();
+    it.next(20);
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+drive("interface", function* () {
+  const b: Box<number> = throughInterface.make(yield 1);
+  console.log("interface", b.value + 1);
+});
+drive("interface with a constant key", function* () {
+  const b: Box<number> = throughInterface[KEY](yield 1);
+  console.log("interface with a constant key", b.value + 1);
+});
+drive("object literal", function* () {
+  const b: Box<string> = literal.make(`${yield 1}`);
+  console.log("object literal (template)", b.value.length);
+});
+drive("object literal", function* () {
+  const b: Box<number> = literal.make(yield 1);
+  console.log("object literal", b.value + 1);
+});
+drive("class", function* () {
+  const b: Box<number> = instance.make(yield 1);
+  console.log("class", b.value + 1);
+});
+drive("dispatched", function* () {
+  const b: Box<number> = dispatched.make(yield 1);
+  console.log("dispatched", b.value + 1);
+});
+drive("static", function* () {
+  const b: Box<number> = ClassMaker.make(yield 1);
+  console.log("static", b.value + 1);
+});
+
+// expect:
+// interface 21
+// interface with a constant key 21
+// object literal (template) 2
+// object literal 21
+// class 21
+// dispatched 21
+// static 21

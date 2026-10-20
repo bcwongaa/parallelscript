@@ -1018,12 +1018,14 @@ type Instance struct {
 }
 
 // InstanceCall calls the instance of Signature (D-148) that X lists, with X and Args: X is a
-// closure, or for a method named Name an object, whose class or nearest ancestor with an
-// entry for the method lists it. If there is none, it is Otherwise, a call of the erased
-// copy. X and Args are local references, which Otherwise uses too.
+// closure, or for a method named Name (or the string ByKey holds) an object, whose class or
+// nearest ancestor with an entry for the method lists it. If there is none, it is
+// Otherwise, a call of the erased copy. X, ByKey and Args are local references, which
+// Otherwise uses too.
 type InstanceCall struct {
 	X         Expr
 	Name      string
+	ByKey     Expr // for a method an element access's key names at run time, the key, a string (D-194)
 	Signature *FuncType
 	Key       string // the Key of the instances it finds (Instance.Key)
 	Args      []Expr

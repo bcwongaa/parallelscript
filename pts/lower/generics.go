@@ -140,6 +140,9 @@ func (l *lowerer) calledOnlyName(node *ast.Node) *ast.Symbol {
 	if symbol == nil || container == nil || container.Body() == nil {
 		return nil
 	}
+	if signatures := l.checker.GetSignaturesOfType(l.checker.GetTypeOfSymbol(symbol), checker.SignatureKindCall); len(signatures) != 1 || len(signatures[0].TypeParameters()) == 0 {
+		return nil // `const t: (x: number) => Box<number> = <T>(x: T) => …`: an adapter's demand calls it (D-194)
+	}
 	calledOnly := true
 	var visit func(child *ast.Node) bool
 	visit = func(child *ast.Node) bool {
@@ -577,13 +580,16 @@ func (l *lowerer) valueInstance(node *ast.Node, generic *genericFunc, t *checker
 
 // genericMethodValue lowers `o.m` or `C.m` for a generic method m used as a value: as
 // genericValue does for functions, the instance the context implies or the erased copy,
-// bound to o for an instance method as other methods are (D-044).
+// bound to o for an instance method as other methods are (D-044). An abstract or overridden
+// method's value calls the method o's class has (D-101), its erased copy found by name. A
+// value of the erased copy forwards its typed calls to the instance of o's class's method
+// for their signatures (D-194).
 func (l *lowerer) genericMethodValue(node *ast.Node, generic *genericFunc) ir.Expr {
-	fn := l.valueInstance(node, generic, l.checker.GetTypeAtLocation(node))
-	if fn == nil {
-		return nil
-	}
 	if generic.static != nil {
+		fn := l.valueInstance(node, generic, l.checker.GetTypeAtLocation(node))
+		if fn == nil {
+			return nil
+		}
 		l.addErasedValueOf(fn, generic)
 		return l.functionValue(node, fn)
 	}
@@ -591,16 +597,59 @@ func (l *lowerer) genericMethodValue(node *ast.Node, generic *genericFunc) ir.Ex
 	if receiver == nil {
 		return nil
 	}
-	receiver = upcast(l.asInstanceOf(receiver, generic.class, node.Expression()), generic.class)
-	params := make([]ir.Type, len(fn.Params)-1)
-	for i, param := range fn.Params[1:] {
-		params[i] = param.Type
+	return l.boundGenericMethod(node, generic, l.asInstanceOf(receiver, generic.class, node.Expression()))
+}
+
+// boundGenericMethod is a generic instance method's value bound to receiver, an instance of
+// its class (genericMethodValue): node reads it (`o.m`, or a pattern's `{ m }`).
+func (l *lowerer) boundGenericMethod(node *ast.Node, generic *genericFunc, receiver ir.Expr) ir.Expr {
+	m, forward, ok := l.genericMethodOf(node, generic)
+	if !ok || receiver == nil {
+		return nil
 	}
-	name := generic.node.Name().Text()
-	m := method{name, receiver.Type(), params, fn.Result, func(object ir.Expr, args []ir.Expr) ir.Expr {
-		return &ir.Call{Func: fn, Args: append([]ir.Expr{object}, args...)}
-	}}
-	return l.boundMethod(node, m, receiver, nil, name, false)
+	return l.boundMethod(node, m, upcast(receiver, generic.class), nil, m.name, false, forward)
+}
+
+// genericMethodOf is a generic instance method read at node (`o.m`, a pattern's `{ m }`) as
+// a method of its class's instances (D-044): its instance the context implies or its erased
+// copy, or for an abstract or overridden one, the erased copy that the receiver's class has,
+// found by name (D-101); with what a value of the erased copy forwards its typed calls to,
+// the instances of the receiver's class's method for their signatures (D-194), or nil. ok
+// is false if it failed (reported).
+func (l *lowerer) genericMethodOf(node *ast.Node, generic *genericFunc) (m method, forward func(*ir.Local) *forwarder, ok bool) {
+	m.name, m.receiver = generic.node.Name().Text(), generic.class
+	erased := generic.dispatched
+	if generic.dispatched {
+		// Not the method tsc names, which another class's may override, nor an abstract one's
+		// erased copy, which has no body: the receiver's class's, found by name (D-101).
+		method := l.erasedMethodSignature(generic)
+		if method == nil {
+			return m, nil, false
+		}
+		m.params, m.result = method.Params, method.Result
+		m.call = func(object ir.Expr, args []ir.Expr) ir.Expr {
+			return &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{&ir.ClassCast{X: object, To: &ir.Interface{}}}, args...)}
+		}
+	} else {
+		fn := l.valueInstance(node, generic, l.checker.GetTypeAtLocation(node))
+		if fn == nil {
+			return m, nil, false
+		}
+		m.params = make([]ir.Type, len(fn.Params)-1)
+		for i, param := range fn.Params[1:] {
+			m.params[i] = param.Type
+		}
+		m.result, erased = fn.Result, generic.erased != nil && generic.erased.fn == fn
+		m.call = func(object ir.Expr, args []ir.Expr) ir.Expr {
+			return &ir.Call{Func: fn, Args: append([]ir.Expr{object}, args...)}
+		}
+	}
+	if erased && m.result == ir.Value && l.genericSignature(node) != nil {
+		forward = func(receiver *ir.Local) *forwarder {
+			return &forwarder{call: l.methodForward(receiver, m, generic, nil, nil)}
+		}
+	}
+	return m, forward, true
 }
 
 // instantiationExpression lowers `f<T>`, a generic function given type arguments: the

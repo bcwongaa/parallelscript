@@ -1,0 +1,130 @@
+// no-diff: a generic method or function that lies through `any` about the instance it returns throws TypeError at the typed call through its value, its bound value, a non-generic context or an arrow property for an interface's method (D-071, D-155), a call through `any` has no type arguments to find an instance by (D-078), and a call by name passing a dynamic value keeps the erased copy (D-191), where Node goes on with the value
+// The value forms that find instances since H09b3b (method values, `bind`, generic values
+// where a non-generic function type goes, arrow properties for an interface's method, runtime
+// element keys) keep the checked boundaries of `any` (D-155): a generic method or function
+// whose body returns a `Box<string>` through `any` where its signature says `Box<T>` throws
+// TypeError rather than handing typed code a wrong-typed value, through each form; a method
+// value or a method called through `any`, which have no type arguments, keep the erased copy,
+// whose `Box<any>` a typed place rejects, while its result used dynamically works; and a call
+// by name that passes a dynamic value keeps the erased copy (D-191). A value call of a generic
+// function type converts an `any` argument to the instance's parameter type with a check and
+// finds the instance (D-148), as before.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Factory = <T>(x: T) => Box<T>;
+type NumberMaker = (x: number) => Box<number>;
+interface Maker {
+  make<T>(x: T): Box<T>;
+  wrap<T>(x: T): Box<T>;
+}
+class Liar implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  }
+  wrap<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  }
+}
+class Honest implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  wrap<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function lie<T>(x: T): Box<T> {
+  return new Box("lie") as any;
+}
+const liar = new Liar();
+const liarThroughInterface: Maker = new Liar();
+const lyingLiteral = {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  },
+};
+attempt("a lying method value", () => {
+  const f: Factory = liar.make;
+  return String(f<number>(5).value);
+});
+attempt("a lying interface method value", () => {
+  const f: Factory = liarThroughInterface.make;
+  return String(f<number>(5).value);
+});
+attempt("a lying object literal method value", () => {
+  const f: Factory = lyingLiteral.make;
+  return String(f<number>(5).value);
+});
+attempt("a lying function bound", () => {
+  const f: Factory = lie.bind(undefined);
+  return String(f<number>(5).value);
+});
+attempt("a lying method bound", () => {
+  const f: Factory = liar.make.bind(liar);
+  return String(f<number>(5).value);
+});
+attempt("a lying inline arrow in map", () => {
+  const boxes: Box<number>[] = [1].map(<T,>(x: T): Box<T> => new Box("lie") as any);
+  return String(boxes[0].value);
+});
+attempt("a lying value of a non-generic function type", () => {
+  const g = <T,>(x: T): Box<T> => new Box("lie") as any;
+  const t: NumberMaker = g;
+  return String(t(5).value);
+});
+attempt("a lying arrow property for an interface's method", () => {
+  const m: Maker = { make: <T,>(x: T) => new Box("lie") as any, wrap: <T,>(x: T) => new Box(x) };
+  const b: Box<number> = m.make(5);
+  return String(b.value);
+});
+attempt("a lying method by a runtime key", () => {
+  const key: "make" | "wrap" = Math.random() < 2 ? "wrap" : "make";
+  const b: Box<number> = liar[key](5);
+  return String(b.value);
+});
+attempt("a method value through any", () => {
+  const a: any = new Honest().make;
+  const b: Box<number> = a(5);
+  return String(b.value);
+});
+attempt("a method through any", () => {
+  const a: any = new Honest();
+  const b: Box<number> = a.make(5);
+  return String(b.value);
+});
+attempt("dynamic results", () => {
+  const a: any = new Honest();
+  const f = a.make;
+  return `${a.make(5).value + 1} ${f.call(a, 6).value + 1}`;
+});
+const honest: Maker = new Honest();
+const loose: any = 3;
+attempt("an any argument by name", () => String(honest.make<number>(loose).value + 1));
+attempt("an any argument through a value of a generic function type", () => {
+  const f: Factory = <T,>(x: T): Box<T> => new Box(x);
+  return String(f<number>(loose).value + 1);
+});
+
+// expect:
+// a lying method value TypeError Expected Box<number>, got Box<string>
+// a lying interface method value TypeError Expected Box<number>, got Box<string>
+// a lying object literal method value TypeError Expected Box<number>, got Box<string>
+// a lying function bound TypeError Expected Box<number>, got Box<string>
+// a lying method bound TypeError Expected Box<number>, got Box<string>
+// a lying inline arrow in map TypeError Expected Box<number>, got Box<string>
+// a lying value of a non-generic function type TypeError Expected Box<number>, got Box<string>
+// a lying arrow property for an interface's method TypeError Expected Box<number>, got Box<string>
+// a lying method by a runtime key TypeError Expected Box<number>, got Box<string>
+// a method value through any TypeError Expected Box<number>, got Box<any>
+// a method through any TypeError Expected Box<number>, got Box<any>
+// dynamic results 6 7
+// an any argument by name TypeError Expected Box<number>, got Box<any>
+// an any argument through a value of a generic function type 4

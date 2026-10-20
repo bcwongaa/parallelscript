@@ -212,6 +212,30 @@ static void method_instances_are_found_in_classes_then_in_a_literals_method_clos
   CHECK(pts_method_instance_find((pts_object *)object, &site, "map", &signature_number, &found) == (pts_function)override_instance && found == object->map);
 }
 
+/* The same lookups by a name that a key holds at run time (D-194): names compare whole, nothing is cached. */
+static void method_instances_are_found_by_a_keys_name(void) {
+  pts_closure *found = (pts_closure *)&method_literal_type; /* overwritten by every lookup */
+  pts_object *base = pts_object_new(&instances_base_type);
+  pts_object *leaf = pts_object_new(&instances_leaf_type);
+  pts_string *map = pts_string_from_cstr("map");
+  CHECK(pts_method_instance_find_keyed(base, map, &signature_number, &found) == (pts_function)base_instance && found == NULL);
+  CHECK(pts_method_instance_find_keyed(leaf, map, &signature_number, &found) == (pts_function)override_instance && found == NULL);
+  CHECK(pts_method_instance_find_keyed(leaf, map, &signature_string, &found) == NULL && found == NULL); /* ends the search */
+  CHECK(pts_method_instance_find_keyed(base, pts_string_from_cstr("ma"), &signature_number, &found) == NULL && found == NULL);
+  CHECK(pts_method_instance_find_keyed(base, pts_string_from_cstr("mapX"), &signature_number, &found) == NULL && found == NULL);
+  CHECK(pts_method_instance_find_keyed(base, pts_string_from_cstr(""), &signature_number, &found) == NULL && found == NULL);
+  method_literal *object = pts_object_new(&method_literal_type);
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, map, &signature_number, &found) == NULL && found == NULL); /* no closure yet */
+  object->map = pts_object_new(&literal_method_type);
+  object->label = pts_object_new(&instances_base_type);
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, map, &signature_number, &found) == (pts_function)override_instance && found == object->map);
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, map, &signature_string, &found) == NULL && found == NULL);
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, pts_string_from_cstr("label"), &signature_number, &found) == NULL && found == NULL); /* not a closure */
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, pts_string_from_cstr("flatMap"), &signature_number, &found) == NULL && found == NULL);
+  object->map = pts_object_new(&instances_closure_type); /* a generic arrow's: a function value's instances take no `this` */
+  CHECK(pts_method_instance_find_keyed((pts_object *)object, map, &signature_number, &found) == NULL && found == NULL);
+}
+
 /* An object with a property x at another offset than point's. */
 typedef struct tagged {
   const pts_type *type;
@@ -649,6 +673,7 @@ int main(int argc, char **argv) {
   instance_of_follows_the_parent_chain();
   instances_are_found_by_name_and_signature();
   method_instances_are_found_in_classes_then_in_a_literals_method_closure();
+  method_instances_are_found_by_a_keys_name();
   field_addresses_are_cached_per_layout();
   method_sites_cache_the_index_per_layout();
   property_sites_use_fields_or_accessors();

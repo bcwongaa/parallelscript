@@ -1720,6 +1720,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if x, handled := l.constantKeyCall(call); handled {
 		return x // `m["make"](5)` for a generic method, as `m.make(5)` (C185)
 	}
+	if x, handled := l.keyedCall(call); handled {
+		return x // `m[key](5)` for a generic method that key's value names (C196)
+	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if generic := l.genericMethodAt(ast.SkipParentheses(call.Expression)); generic != nil {
 		if generic.static != nil {

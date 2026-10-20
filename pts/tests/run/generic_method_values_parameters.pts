@@ -1,0 +1,82 @@
+// Method values, bound values and adapters of generic functions and methods with an optional
+// parameter, a default and a rest parameter make the specialized generic class instances
+// their typed calls name (H09b3b, C169's second half), called with and without those
+// arguments; the interface call first needs the build that makes demands by name (D-191),
+// which a rest parameter's forwarding instance once crashed out of (a PTS9001 that sent the
+// program to the fallback, review round 1's F4). (The values' `length` doesn't count an
+// optional parameter, where JS does: C214.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  opt<T>(x: T, label?: string): Box<T> {
+    console.log("  opt", label);
+    return new Box(x);
+  }
+  def<T>(x: T, label: string = "default"): Box<T> {
+    console.log("  def", label);
+    return new Box(x);
+  }
+  all<T>(...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+function rest<T>(...xs: T[]): Box<T[]> {
+  return new Box(xs);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Opt = <T>(x: T, label?: string) => Box<T>;
+type Rest = <T>(...xs: T[]) => Box<T[]>;
+function useOpt(f: Opt): string {
+  const a: Box<number> = f(1);
+  const b: Box<number> = f(2, "two");
+  return String(a.value + b.value);
+}
+function useRest(f: Rest): string {
+  const a: Box<number[]> = f(1, 2, 3);
+  const b: Box<string[]> = f();
+  return `${a.value.length} ${b.value.length}`;
+}
+const maker: Maker = new ClassMaker();
+attempt("interface call", () => String(maker.make(4).value + 1));
+const c = new ClassMaker();
+attempt("optional", () => useOpt(c.opt));
+attempt("default", () => useOpt(c.def));
+attempt("rest", () => useRest(c.all));
+attempt("optional bound", () => useOpt(c.opt.bind(c)));
+attempt("rest bound", () => useRest(c.all.bind(c)));
+attempt("rest function bound", () => useRest(rest.bind(undefined)));
+function adapted(): string {
+  const local = <T,>(...xs: T[]): Box<T[]> => new Box(xs);
+  const t: (...xs: number[]) => Box<number[]> = local;
+  return String(t(1, 2).value.length);
+}
+attempt("rest adapter", adapted);
+
+// expect:
+// interface call 5
+//   opt undefined
+//   opt two
+// optional 3
+//   def default
+//   def two
+// default 3
+// rest 3 0
+//   opt undefined
+//   opt two
+// optional bound 3
+// rest bound 3 0
+// rest function bound 3 0
+// rest adapter 2

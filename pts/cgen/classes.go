@@ -948,8 +948,9 @@ func (e *emitter) interfaceCall(call *ir.InterfaceCall) string {
 }
 
 // instanceCall writes a call of the instance (D-148) that the closure X lists for the
-// call's signature, or for a method named Name, that the object X's class lists or else
-// its object literal's method closure (D-191), or if there is none, or an array argument
+// call's signature, or for a method named Name (or the string ByKey holds, D-194), that the
+// object X's class lists or else its object literal's method closure (D-191), or if there
+// is none, or an array argument
 // holds other elements than the instance's parameter, of the erased copy (Otherwise). X
 // and the arguments are locals, which both calls read.
 func (e *emitter) instanceCall(call *ir.InstanceCall) string {
@@ -957,7 +958,12 @@ func (e *emitter) instanceCall(call *ir.InstanceCall) string {
 	found, signature := e.temporary(), e.instanceSignatureCheck(call.Signature, call.Key)
 	find := fmt.Sprintf("pts_function %s = pts_instance_find(%s, NULL, %s)", found, x, signature)
 	params, args := []string{"pts_closure *"}, []string{"(pts_closure *)" + x}
-	if call.Name != "" {
+	switch {
+	case call.ByKey != nil: // a name a key holds at run time, which no site's cache can hold (D-194)
+		closure := e.temporary()
+		find = fmt.Sprintf("pts_closure *%s; pts_function %s = pts_method_instance_find_keyed((pts_object *)%s, %s, %s, &%s)", closure, found, x, e.expr(call.ByKey), signature, closure)
+		params, args = []string{"pts_closure *", "pts_object *"}, []string{closure, "(pts_object *)" + x}
+	case call.Name != "":
 		closure, site := e.temporary(), e.site()
 		find = fmt.Sprintf("static pts_site %s; pts_closure *%s; pts_function %s = pts_method_instance_find((pts_object *)%s, &%s, %s, %s, &%s)", site, closure, found, x, site,
 			cString(call.Name), signature, closure)

@@ -1,0 +1,105 @@
+// no-diff: a generic value adapted to a function type whose result the instance's doesn't convert to as it is (a wider type argument, an `any` parameter, `| undefined` inside the box, also with an adapter for an argument) keeps the erased copy, whose `Box<any>` the result's check rejects, and so does a call by a key held as a dynamic value, where Node goes on (C215)
+// Where the instance a context implies can't be used (D-194), the adapter or the keyed call
+// takes the erased copy as before, at run time, rather than failing to lower: a lowering
+// failure made the build fall back to fewer instances (D-191's Fallbacks), so the interface
+// calls of the program, which need the build that makes demands by name, threw too (review
+// round 1's F2 and F3), and an adapter taken back with the adapters made inside it (round
+// 2's R2-4: they were left behind and failed to compile).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  wrap<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  wrap<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const maker: Maker = new ClassMaker();
+attempt("interface call", () => String(maker.make(4).value + 1));
+function adapters(local: <T>(x: T) => Box<T>): void {
+  attempt("wider type argument", () => {
+    const t: (x: number) => Box<number | string> = local;
+    return String(t(1).value);
+  });
+  attempt("any parameter", () => {
+    const t: (x: any) => Box<number> = local;
+    return String(t(2).value);
+  });
+  attempt("undefined inside the box", () => {
+    const t: (x: number) => Box<number | undefined> = local;
+    return String(t(3).value);
+  });
+}
+adapters(<T,>(x: T): Box<T> => new Box(x));
+function nestedAdapters(local: <T>(f: (x: T, i: number) => T, y: T) => Box<T>): void {
+  attempt("with an adapter for its argument", () => {
+    const t: (f: (x: number) => number, y: number) => Box<number | string> = local;
+    return String(t((x) => x + 1, 1).value);
+  });
+}
+nestedAdapters(<T,>(f: (x: T, i: number) => T, y: T): Box<T> => new Box(f(y, 0)));
+// A generic class that only some type arguments lower (its method narrows a field), whose
+// instance for number a context that doesn't name it must not make: a callback whose result
+// is dropped or taken as unknown keeps the value as it is (review round 3's R3-1: the
+// adapter made `Cell<number>`, which failed outside any trial).
+class Cell<T> {
+  constructor(public value: T) {}
+  describe(): string {
+    if (typeof this.value === "string") {
+      const s: string = this.value;
+      return s.toUpperCase();
+    }
+    return String(this.value);
+  }
+}
+const kept: unknown[] = [];
+function contexts(keep: <T>(x: T) => Cell<T>): void {
+  [1, 2].forEach(keep);
+  attempt("callback whose result is dropped", () => String(kept.length));
+  attempt("result taken as unknown", () => {
+    const t: (x: number) => unknown = keep;
+    return String((t(3) as Cell<any>).value);
+  });
+  attempt("string cell", () => keep("ab").describe());
+}
+contexts(<T,>(x: T): Cell<T> => {
+  const c = new Cell(x);
+  kept.push(c);
+  return c;
+});
+function* keys(): Generator<number, void, "make" | "wrap"> {
+  const b: Box<number> = maker[yield 1](5);
+  console.log("key held as a dynamic value", b.value + 1);
+}
+attempt("keyed call", () => {
+  const it = keys();
+  it.next();
+  it.next("wrap");
+  return "done";
+});
+attempt("interface call again", () => String(maker.wrap("ab").value.length));
+
+// expect:
+// interface call 5
+// wider type argument TypeError Expected Box<string | number>, got Box<any>
+// any parameter TypeError Expected Box<number>, got Box<any>
+// undefined inside the box TypeError Expected Box<number | undefined>, got Box<any>
+// with an adapter for its argument TypeError Expected Box<string | number>, got Box<any>
+// callback whose result is dropped 2
+// result taken as unknown 3
+// string cell AB
+// keyed call TypeError Expected Box<number>, got Box<any>
+// interface call again 2

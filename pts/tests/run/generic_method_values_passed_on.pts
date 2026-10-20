@@ -1,0 +1,107 @@
+// A generic method read as a value and passed on, stored or returned, then called with
+// typed results, makes the specialized generic class instances its calls name (H09b3b, C169's
+// second half): a class's method, a generic class instance's method, an interface's method of
+// a class instance and of an object literal, and an object literal's own method, given for a
+// parameter of a generic function type, held in a const, a field, an array, a map, a record,
+// read through `?.` and returned from a function. The method value was a bound wrapper of the
+// erased copy that lists no instances, so each threw `TypeError: Expected Box<number>, got
+// Box<any>`. A static method's value and a generic function declaration's, which are the
+// erased copies themselves, already found theirs.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Factory = <T>(x: T) => Box<T>;
+function exercise(label: string, factory: Factory): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    const boxes: Box<number[]>[] = [factory([1, 2])];
+    return `${n.value + 1} ${s.value.length} ${boxes[0].value.length} ${n instanceof Box}`;
+  });
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  constructor(public tag: string) {}
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  static make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Holder<U> {
+  constructor(public held: U) {}
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const instance = new ClassMaker("c");
+const throughInterface: Maker = new ClassMaker("i");
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const literalThroughInterface: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+
+exercise("function declaration", make);
+exercise("static method", ClassMaker.make);
+exercise("class's method", instance.make);
+exercise("generic class instance's method", new Holder<string>("h").make);
+exercise("interface's method of a class instance", throughInterface.make);
+exercise("interface's method of an object literal", literalThroughInterface.make);
+exercise("object literal's method", literal.make);
+
+const held: Factory = instance.make;
+attempt("held in a const", () => String(held(5).value + 1));
+const inField = { factory: throughInterface.make };
+attempt("held in a field", () => String(inField.factory(5).value + 1));
+const inArray = [literal.make];
+attempt("held in an array", () => String(inArray[0](5).value + 1));
+const inMap = new Map<string, Factory>([["k", instance.make]]);
+attempt("held in a map", () => String(inMap.get("k")!(5).value + 1));
+const inRecord: Record<string, Factory> = { k: literalThroughInterface.make };
+attempt("held in a record", () => String(inRecord.k(5).value + 1));
+function maybeInstance(): ClassMaker | undefined {
+  return instance;
+}
+attempt("read through ?.", () => {
+  const f = maybeInstance()?.make;
+  return String(f!(5).value + 1);
+});
+function returned(): Factory {
+  return literal.make;
+}
+attempt("returned from a function", () => String(returned()("ab").value.length));
+
+// expect:
+// function declaration 10 4 2 true
+// static method 10 4 2 true
+// class's method 10 4 2 true
+// generic class instance's method 10 4 2 true
+// interface's method of a class instance 10 4 2 true
+// interface's method of an object literal 10 4 2 true
+// object literal's method 10 4 2 true
+// held in a const 6
+// held in a field 6
+// held in an array 6
+// held in a map 6
+// held in a record 6
+// read through ?. 6
+// returned from a function 2

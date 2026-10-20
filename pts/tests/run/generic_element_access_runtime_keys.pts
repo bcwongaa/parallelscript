@@ -1,0 +1,108 @@
+// A typed call of a generic method through an element access whose key's value only its type
+// says (a parameter of a union of string literals or of one, a `let`, an element of an `as
+// const` array) makes the specialized generic class instance of the method the key names when
+// it runs (H09b3b, C196): through a class instance, an interface and an object literal. The
+// element access read the method as a value found at run time, a bound wrapper of its erased
+// copy that lists no instances, so each threw `TypeError: Expected Box<number>, got Box<any>`.
+// A key that `any` gave and an assertion names (`m[k as "make"]`) calls the method the string
+// names, as in JS (`wrap` here), never the one the type says. Constant keys found their
+// instances since H09b3a.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  wrap<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  constructor(public tag: string) {}
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  wrap<T>(x: T): Box<T> {
+    console.log(`  ${this.tag}.wrap`);
+    return new Box(x);
+  }
+}
+const instance = new ClassMaker("c");
+const throughInterface: Maker = new ClassMaker("i");
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+  wrap<T>(x: T): Box<T> {
+    console.log("  literal.wrap");
+    return new Box(x);
+  },
+};
+function byUnionKey(key: "make" | "wrap"): void {
+  attempt(`class instance, union key ${key}`, () => String(instance[key](5).value + 1));
+  attempt(`interface, union key ${key}`, () => String(throughInterface[key]("ab").value.length));
+  attempt(`object literal, union key ${key}`, () => String(literal[key]([1, 2]).value.length));
+}
+byUnionKey("make");
+byUnionKey("wrap");
+function byLiteralKey(key: "make"): void {
+  attempt("parameter of one literal", () => String(instance[key](5).value + 1));
+}
+byLiteralKey("make");
+attempt("let key", () => {
+  let key: "make" | "wrap" = "make";
+  return String(throughInterface[key](5).value + 1);
+});
+const keys = ["make", "wrap"] as const;
+attempt("element of an as-const array", () => String(literal[keys[1]](5).value + 1));
+attempt("key from any", () => {
+  const key: any = "wrap";
+  return String(instance[key as "make"](5).value + 1);
+});
+// With a suspension in the arguments, the object and the key are read before it and the
+// method the key names is found after it, where the method was kept as a value.
+function* afterYield(key: "make" | "wrap"): Generator<number, void, number> {
+  const b: Box<number> = throughInterface[key](yield 1);
+  console.log("after a yield", key, b.value + 1);
+}
+for (const key of keys) {
+  attempt(`yield in the arguments, ${key}`, () => {
+    const it = afterYield(key);
+    it.next();
+    it.next(20);
+    return "done";
+  });
+}
+async function afterAwait(key: "make" | "wrap"): Promise<void> {
+  const b: Box<number> = literal[key](await Promise.resolve(30));
+  console.log("after an await", key, b.value + 1);
+}
+afterAwait("wrap").catch((error: any) => console.log("after an await", error.name, error.message));
+
+// expect:
+// class instance, union key make 6
+// interface, union key make 2
+// object literal, union key make 2
+//   c.wrap
+// class instance, union key wrap 6
+//   i.wrap
+// interface, union key wrap 2
+//   literal.wrap
+// object literal, union key wrap 2
+// parameter of one literal 6
+// let key 6
+//   literal.wrap
+// element of an as-const array 6
+//   c.wrap
+// key from any 6
+// after a yield make 21
+// yield in the arguments, make done
+//   i.wrap
+// after a yield wrap 21
+// yield in the arguments, wrap done
+//   literal.wrap
+// after an await wrap 31

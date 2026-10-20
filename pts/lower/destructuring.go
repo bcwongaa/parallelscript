@@ -352,8 +352,31 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	if read := lengthOrSize(source, name); read != nil {
 		return read
 	}
+	var sourceType *checker.Type // the destructured object's, for a pattern's generic method (D-194)
+	if element.Parent.Kind == ast.KindObjectBindingPattern {
+		sourceType = l.typeAt(element.Parent)
+	}
 	if m, ok := l.objectTypeMethod(source.Type(), name); ok {
-		return l.boundMethod(property, m, source, nil, name, false) // bound to the object, as `o.m` is (D-044)
+		var forward func(*ir.Local) *forwarder
+		if sourceType != nil {
+			forward = l.objectMethodForwardFrom(element.Name(), sourceType, m)
+		}
+		return l.boundMethod(property, m, source, nil, name, false, forward) // bound to the object, as `o.m` is (D-044)
+	}
+	if class, ok := source.Type().(*ir.Class); ok && !class.Shape && sourceType != nil {
+		if generic := l.inheritedGenericMethod(class, name); generic != nil && generic.static == nil {
+			return l.boundGenericMethod(element.Name(), generic, source) // a class's generic method, as `o.m` is (D-194)
+		}
+		if classMethod := class.Method(name, ir.Plain); classMethod != nil { // and any other method of a class
+			params := make([]ir.Type, len(classMethod.Func.Params)-1)
+			for i, param := range classMethod.Func.Params[1:] {
+				params[i] = param.Type
+			}
+			m := method{name, class, params, classMethod.Func.Result, func(object ir.Expr, args []ir.Expr) ir.Expr {
+				return l.callMethod(object, element, classMethod, args)
+			}}
+			return l.boundMethod(property, m, source, nil, name, false, nil)
+		}
 	}
 	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
 	return nil

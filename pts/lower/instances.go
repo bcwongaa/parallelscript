@@ -42,10 +42,13 @@ type demand struct {
 }
 
 // erasedValue is a function whose closures are a generic function's erased copy as a
-// value, whose descriptor lists the generic function's instances that calls look up.
+// value, whose descriptor lists the generic function's instances that calls look up; or a
+// wrapper's (forward), whose closures forward their calls, listing the instances that make
+// those calls as demands (D-194).
 type erasedValue struct {
 	fn      *ir.Func
 	generic *genericFunc
+	forward *forwarder
 	dropped bool // in code a failed trial dropped (D-190)
 }
 
@@ -343,6 +346,9 @@ func (l *lowerer) erasedArguments(args []ir.Expr, params []ir.Type, node *ast.No
 	converted := make([]ir.Expr, len(args))
 	for i, arg := range args {
 		if rest, ok := params[i].(*ir.Rest); ok {
+			if _, passedOn := arg.Type().(*ir.Rest); passedOn {
+				arg = &ir.RestArgs{X: arg} // a forwarding instance's or adapter's rest parameter: its array (D-194)
+			}
 			converted[i] = arg // the call's own new array
 			if arg.Type() != rest.Array {
 				// of typed elements, which the erased copy takes as one of dynamic values: a
@@ -407,6 +413,13 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 // as before, and its instance's is boxed. ok is false if the method isn't such a one.
 func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, name string, shape *ir.Class, params []ir.Type, result ir.Type, dynamicResult bool,
 	erasedCall func(object ir.Expr, args []ir.Expr) ir.Expr) (x ir.Expr, ok bool) {
+	return l.keyedInstanceCall(call, receiver, []string{name}, nil, shape, params, result, dynamicResult, erasedCall)
+}
+
+// keyedInstanceCall is namedInstanceCall of a method named by one of names: the one byKey,
+// a local holding a string, holds at run time (D-194), or if byKey is nil, the one name.
+func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, names []string, byKey ir.Expr, shape *ir.Class, params []ir.Type, result ir.Type, dynamicResult bool,
+	erasedCall func(object ir.Expr, args []ir.Expr) ir.Expr) (x ir.Expr, ok bool) {
 	if l.specialization != AllInstances || result != ir.Value {
 		return nil, false
 	}
@@ -438,7 +451,7 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		}
 		return l.withReceiver(receiver, func(object ir.Expr) ir.Expr { return erased(object, args) }), true
 	}
-	d.name, d.shape = name, shape
+	d.name, d.shape = names[0], shape
 	d.receiver = l.instantiate(l.checker.GetNonNullableType(l.typeAt(ast.SkipParentheses(call.Expression).Expression())))
 	object := l.newLocal("callee", receiver.Type())
 	locals := make([]*ir.Local, len(passed))
@@ -469,7 +482,15 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		return nil, true
 	}
 	l.demands = append(l.demands, d)
-	x = &ir.InstanceCall{X: &ir.LocalRef{Local: object}, Name: name, Signature: d.want, Key: d.key, Args: typedArgs, Otherwise: otherwise, Dynamic: dynamicResult}
+	for _, other := range names[1:] { // each name byKey may hold
+		named := *d
+		named.name = other
+		l.demands = append(l.demands, &named)
+	}
+	x = &ir.InstanceCall{X: &ir.LocalRef{Local: object}, Name: names[0], Signature: d.want, Key: d.key, Args: typedArgs, Otherwise: otherwise, Dynamic: dynamicResult}
+	if byKey != nil {
+		x.(*ir.InstanceCall).Name, x.(*ir.InstanceCall).ByKey = "", byKey
+	}
 	for i := len(passed) - 1; i >= 0; i-- {
 		if locals[i] != nil {
 			x = &ir.Bind{Local: locals[i], Value: passed[i], In: x}
@@ -535,11 +556,33 @@ func (l *lowerer) passedAsIs(d *demand, args, values []ir.Expr, nodes []*ast.Nod
 			passed[i] = &ir.LeftOut{T: want[i]}
 		case isBoxed && passesAsIs(boxed.X.Type(), want[i]):
 			passed[i] = boxed.X
+		case !isBoxed && arg.Type() == ir.Value && nodes[i] != nil && l.typedPrimitive(nodes[i], want[i]):
+			// A dynamic value that tsc types as a primitive (a yield's, `0 + (yield 1)`):
+			// checked, as a direct call of a class's method checks it (C205, D-194).
+			if passed[i] = l.convert(arg, want[i], nodes[i]); passed[i] == nil {
+				return nil
+			}
 		default:
 			return nil
 		}
 	}
 	return passed
+}
+
+// typedPrimitive reports whether node, an argument whose value is dynamic, is typed by tsc
+// as neither any nor unknown, and t, the instance's parameter it goes to, is a primitive
+// type or a union of them, which a check gives as it is (D-070).
+func (l *lowerer) typedPrimitive(node *ast.Node, t ir.Type) bool {
+	if l.instantiate(l.typeAt(node)).Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+		return false
+	}
+	primitive := func(t ir.Type) bool {
+		return t == ir.Number || t == ir.String || t == ir.Bool || t == ir.Null || t == ir.Undefined || ir.IsNumeric(t)
+	}
+	if u, ok := t.(*ir.Union); ok {
+		return !slices.ContainsFunc(u.Members, func(m ir.Type) bool { return !primitive(m) })
+	}
+	return primitive(t)
 }
 
 // restAsIs is a new array of the instance's elements array holding values, the rest
@@ -701,7 +744,7 @@ func (l *lowerer) specialize() bool {
 			for j, v := range l.erasedValues {
 				if key := [3]int{i, j, 0}; !l.specialized[key] {
 					l.specialized[key], met = true, true
-					if !v.dropped && (v.generic.calledOnly == nil || v.generic.calledOnly == d.callee) {
+					if !v.dropped && (v.generic == nil || v.generic.calledOnly == nil || v.generic.calledOnly == d.callee) {
 						l.specializeValue(d, v)
 					}
 				}
@@ -730,6 +773,10 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	}) {
 		return
 	}
+	if v.forward != nil {
+		l.forwardingInstance(d, v) // a wrapper's (D-194)
+		return
+	}
 	outer := l.subst
 	l.subst = d.subst
 	defer func() { l.subst = outer }()
@@ -752,10 +799,16 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 }
 
 // reaches reports whether a demand's call may call an erased value: a call of a value of
-// its erased function type, or for an object literal's method, a call of a method of its
-// name through an interface, a union or its literal's shape, whose object may be the
-// literal (D-191).
+// its erased function type, or for an object literal's method (or an adapter given for one,
+// D-194), a call of a method of its name through an interface, a union or its literal's
+// shape, whose object may be the literal (D-191).
 func (l *lowerer) reaches(d *demand, v *erasedValue) bool {
+	if f := v.forward; f != nil {
+		if f.name == "" {
+			return d.name == "" && l.typeOfFunc(v.fn) == d.erased
+		}
+		return d.name == f.name && (d.shape == nil || d.shape == f.shape) && l.checker.IsTypeAssignableTo(f.literal, d.receiver)
+	}
 	field := v.generic.field
 	if field == nil {
 		return d.name == "" && l.typeOfFunc(v.fn) == d.erased

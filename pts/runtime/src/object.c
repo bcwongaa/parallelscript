@@ -252,6 +252,45 @@ pts_function pts_method_instance_find(const pts_object *object, pts_site *site, 
   return function;
 }
 
+/* Whether key, a string, is name. */
+static bool key_names(const pts_string *key, const char *name) {
+  return strlen(name) == key->byte_len && memcmp(key->bytes, name, key->byte_len) == 0;
+}
+
+pts_function pts_method_instance_find_keyed(const pts_object *object, const pts_string *key, const pts_check *signature, pts_closure **closure) {
+  *closure = NULL;
+  for (const pts_type *class = object->type; class != NULL; class = class->parent) {
+    for (uint32_t i = 0; i < class->instance_count; i++) {
+      const pts_instance *instance = &class->instances[i];
+      if (instance->signature == signature && instance->name != NULL && key_names(key, instance->name)) {
+        return instance->function; /* NULL ends the search, as in pts_method_instance_find */
+      }
+    }
+  }
+  if (object->type->kind != PTS_KIND_OBJECT) {
+    return NULL;
+  }
+  for (uint32_t i = 0; i < object->type->field_count; i++) {
+    const pts_field *field = &object->type->fields[i];
+    if (pts_field_is_accessor(field->kind) || !key_names(key, field->name)) {
+      continue;
+    }
+    if (field->kind != PTS_FIELD_OBJECT) {
+      return NULL;
+    }
+    pts_closure *method = __atomic_load_n((pts_closure *const *)((const char *)object + field->offset), __ATOMIC_RELAXED);
+    if (method == NULL || method->type->kind != PTS_KIND_FUNCTION) {
+      return NULL;
+    }
+    pts_function function = pts_instance_find(method, field->name, signature);
+    if (function != NULL) {
+      *closure = method;
+    }
+    return function;
+  }
+  return NULL;
+}
+
 /* Whether a field or accessor declared `declared` is exactly what a site of check's type writes: then the site may cache it (D-072). */
 static bool exact(pts_field_kind kind, const pts_check *declared, const pts_check *check) {
   return check == NULL || pts_check_same(pts_check_declared(kind, declared), check);

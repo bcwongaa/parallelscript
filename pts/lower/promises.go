@@ -180,6 +180,11 @@ func (l *lowerer) promiseCall(call *ast.CallExpression) (x ir.Expr, handled bool
 		if value == nil {
 			return nil, true
 		}
+		if instantiated, ok := l.instantiatingAdapter(value, nil, arg); ok {
+			if value = instantiated; value == nil { // a generic callback's instance for the value it gets (D-194)
+				return nil, true
+			}
+		}
 		values = append(values, box(value))
 	}
 	if len(method.builtin.Params) == 2 && method.builtin.Params[1] == ir.String { // a combinator: TypeError names its iterable

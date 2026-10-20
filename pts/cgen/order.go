@@ -99,6 +99,9 @@ func effectsOf(expr ir.Expr) effects {
 	case *ir.InterfaceCall:
 		return callEffects(x.Args)
 	case *ir.InstanceCall:
+		if x.ByKey != nil {
+			return callEffects(append([]ir.Expr{x.X, x.ByKey}, x.Args...)) | effectsOf(x.Otherwise)
+		}
 		return callEffects(append([]ir.Expr{x.X}, x.Args...)) | effectsOf(x.Otherwise)
 	case *ir.ArrayCall:
 		f := arrayEffects(x.Op)

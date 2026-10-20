@@ -1,4 +1,4 @@
-// no-diff: a generic method that lies through `any` about the instance it returns throws TypeError at the typed call (D-071, D-155), a call through `any` has no type arguments to find an instance by (D-078), and a call passing a dynamic value keeps the erased copy (D-191), where Node goes on with the value, and an element-access call whose key only its type says is the method's name (a parameter of a string literal type, which may hold another string through `any`) keeps the erased copy too
+// no-diff: a generic method that lies through `any` about the instance it returns throws TypeError at the typed call (D-071, D-155), a call through `any` has no type arguments to find an instance by (D-078), and a call passing a dynamic value keeps the erased copy (D-191), where Node goes on with the value; and an element-access call whose key, through `any`, names no method throws TypeError at the call's check of what it found, where Node's message is its own
 // The call forms that find instances since H09b3a (`?.` calls, element-access calls with a
 // constant key, object literals written for a union parameter, rest parameters) keep the
 // checked boundaries of `any` (D-155), as the dotted calls do (`generic_method_any_boundaries`):
@@ -7,9 +7,10 @@
 // form; a call through `any`, which has no type arguments, keeps the erased copy, whose
 // `Box<any>` a typed place rejects, while its result used dynamically works; and a call that
 // passes a dynamic value (an `any` argument, or one among rest arguments) keeps the erased
-// copy, as its dotted form does (D-191), rather than handing the instance an unchecked value;
-// and so does an element-access call whose key's value isn't known to be the method's name
-// (a parameter of type "make", which a string of another value reaches through `any`).
+// copy, as its dotted form does (D-191), rather than handing the instance an unchecked value.
+// An element-access call whose key's value only its type says (a parameter of type "make")
+// calls the method the key names at run time (D-194); one that names no method, a string
+// that reaches the parameter through `any`, throws TypeError.
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -108,7 +109,8 @@ function byParameter(key: "make"): string {
   const b: Box<number> = honest[key](4);
   return String(b.value + 1);
 }
-attempt("a parameter's key", () => byParameter("make"));
+const noSuchMethod: any = "missing";
+attempt("a parameter's key naming no method", () => byParameter(noSuchMethod));
 
 // expect:
 // a liar through ?. TypeError Expected Box<number>, got Box<string>
@@ -121,4 +123,4 @@ attempt("a parameter's key", () => byParameter("make"));
 // dynamic results 6 2
 // an any argument through ?. TypeError Expected Box<Box<number>>, got Box<any>
 // an any rest argument TypeError Expected Box<number[]>, got Box<any[]>
-// a parameter's key TypeError Expected Box<number>, got Box<any>
+// a parameter's key naming no method TypeError Expected (value) => value, got undefined

@@ -1,0 +1,78 @@
+// `bind` of a generic function or method makes a value whose typed calls make the specialized
+// generic class instances they name (H09b3b, C169's second half): a function declaration bound
+// to undefined or null, a generic arrow function, a class's method bound to its object, to
+// another instance of its class or to undefined, an interface's method and an object literal's
+// method bound to their own object, and a static method; called through a parameter of a
+// generic function type and through a const. `bind` made a wrapper of the erased copy that
+// lists no instances, so each threw `TypeError: Expected Box<number>, got Box<any>`. A method
+// of an object type bound to another object stays PTS1001 (D-044); `bind` with bound arguments
+// has the type arguments tsc gives it (`unknown`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Factory = <T>(x: T) => Box<T>;
+function exercise(label: string, factory: Factory): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    return `${n.value + 1} ${s.value.length}`;
+  });
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  static make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const instance = new ClassMaker();
+const throughInterface: Maker = new ClassMaker();
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const arrow = <T,>(x: T): Box<T> => new Box(x);
+
+exercise("declaration bound to undefined", make.bind(undefined));
+exercise("declaration bound to null", make.bind(null));
+exercise("generic arrow bound", arrow.bind(undefined));
+exercise("class's method bound to its object", instance.make.bind(instance));
+exercise("class's method bound to another instance", instance.make.bind(new ClassMaker()));
+exercise("interface's method bound to its object", throughInterface.make.bind(throughInterface));
+exercise("object literal's method bound to itself", literal.make.bind(literal));
+exercise("static method bound", ClassMaker.make.bind(undefined));
+exercise("class's method bound to undefined", instance.make.bind(undefined)); // it doesn't use `this`
+const held: Factory = make.bind(undefined);
+attempt("bound and held in a const", () => String(held(5).value + 1));
+attempt("bound with an argument, as tsc types it", () => {
+  const b = make.bind(undefined, 5)();
+  return `${(b.value as number) + 1} ${b instanceof Box}`;
+});
+
+// expect:
+// declaration bound to undefined 10 4
+// declaration bound to null 10 4
+// generic arrow bound 10 4
+// class's method bound to its object 10 4
+// class's method bound to another instance 10 4
+// interface's method bound to its object 10 4
+// object literal's method bound to itself 10 4
+// static method bound 10 4
+// class's method bound to undefined 10 4
+// bound and held in a const 6
+// bound with an argument, as tsc types it 6 true

@@ -1,12 +1,11 @@
-// skip: known issue (H09b3b, C169): generic method values, `bind`, and generic values where a non-generic function type goes take the erased copy; its first three lines, through interfaces and object literals, pass since H09b1
 // Generic methods and generic function values reached through interfaces, object literals,
 // method values, `bind` and a non-generic context make specialized generic class instances
-// for each typed call (H09b; D-148's and D-190's known gaps): an interface call of a
-// class's generic method, an object literal's generic method (through its own type or an
-// interface), a generic method read as a value and passed on, a bound generic function,
-// and an inline generic arrow or an erased value given where a non-generic function type
-// goes (`[1, 2].map(…)`). Each throws `TypeError: Expected Box<number>, got Box<any>` (or
-// `Box[]`), where the erased copy's instance comes back.
+// for each typed call (H09b; D-148's and D-190's known gaps): an interface call of a class's
+// generic method, an object literal's generic method (through its own type or an interface)
+// (H09b1, D-191), and a generic method read as a value and passed on, a bound generic
+// function, and an inline generic arrow or an erased value given where a non-generic
+// function type goes (`[1, 2].map(…)`) (H09b3b, D-194). Each threw `TypeError: Expected
+// Box<number>, got Box<any>` (or `Box[]`), where the erased copy's instance came back.
 class Box<T> {
   constructor(public value: T) {}
 }

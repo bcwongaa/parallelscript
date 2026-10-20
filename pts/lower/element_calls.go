@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -184,4 +186,107 @@ func isGenericMethodSymbol(property *ast.Symbol) bool {
 		}
 	}
 	return true
+}
+
+// keyedCall lowers `o[key](args)` where the key's value isn't known to be one name (a
+// parameter, a `let`, an element, a `"make" | "wrap"`; C196) and each string literal its
+// type is names a generic method of o's type (a class's, an interface's or an object
+// literal's) whose result may hold generic class instances: a demand by the name the key
+// holds at run time (D-194), which calls the instance of the call's signature that o's class
+// or its object literal's method closure lists under that name (for any of o's generic
+// methods of the same erased signature, since the key may hold another name than its type
+// says), or else the method the key names, found at run time and called as before. The key
+// is read after the object and before the arguments; the method, found by its name, only at
+// the call. handled is false for any other call, which lowers as before.
+func (l *lowerer) keyedCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
+	callee := call.Expression
+	if l.specialization != AllInstances || callee.Kind != ast.KindElementAccessExpression || ast.IsOptionalChain(callee) || l.kept[callee] != nil || l.genericSignature(callee) == nil {
+		return nil, false
+	}
+	if _, read := l.chainObjects[callee]; read {
+		return nil, false
+	}
+	receiverNode, keyNode := callee.Expression(), callee.AsElementAccessExpression().ArgumentExpression
+	t := l.checker.GetNonNullableType(l.typeAt(receiverNode))
+	names := stringLiterals(l.typeAt(keyNode))
+	if names == nil || t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown|checker.TypeFlagsUnion) != 0 || l.isNarrowedDynamic(receiverNode) {
+		return nil, false
+	}
+	for _, name := range names {
+		property := l.checker.GetPropertyOfType(t, name)
+		if property == nil || !isMethodSymbol(property) || !isGenericMethodSymbol(property) || property.ValueDeclaration == nil || ast.IsStatic(property.ValueDeclaration) {
+			return nil, false
+		}
+	}
+	var ft *ir.FuncType
+	if !l.quietly(func() bool {
+		ft, _ = l.irType(l.typeAt(callee), callee).(*ir.FuncType)
+		return ft != nil
+	}) || ft.Result != ir.Value {
+		return nil, false
+	}
+	// The key may hold another name than its type says (through `any` or an assertion), whose
+	// method JS calls: demands for the object's other generic methods of the same erased
+	// signature too, so that the method the key names finds its instance.
+	for _, property := range l.checker.GetPropertiesOfType(t) {
+		if slices.Contains(names, property.Name) || !isMethodSymbol(property) || !isGenericMethodSymbol(property) ||
+			property.ValueDeclaration == nil || ast.IsStatic(property.ValueDeclaration) {
+			continue
+		}
+		var other *ir.FuncType
+		if l.quietly(func() bool {
+			other, _ = l.irType(l.checker.GetTypeOfSymbol(property), callee).(*ir.FuncType)
+			return other != nil
+		}) && other == ft {
+			names = append(names, property.Name)
+		}
+	}
+	object, key := l.expression(receiverNode), l.expression(keyNode)
+	if object == nil || key == nil {
+		return nil, true
+	}
+	l.wantKeyedMembers(callee) // the erased copies a key may name, in their classes' method tables
+	objectLocal, keyLocal := l.newLocal("object", object.Type()), l.newLocal("key", key.Type())
+	erasedCall := func(o ir.Expr, args []ir.Expr) ir.Expr {
+		method := l.checkedConversion(&ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(o), box(&ir.LocalRef{Local: keyLocal})}}, ft, callee)
+		if method == nil {
+			return nil
+		}
+		return &ir.CallValue{Callee: method, Args: args}
+	}
+	var shape *ir.Class
+	if class, ok := object.Type().(*ir.Class); ok && class.Shape {
+		shape = class
+	}
+	ok := false
+	if isObject(object.Type()) && !isArray(object.Type()) && key.Type() == ir.String {
+		x, ok = l.keyedInstanceCall(call, &ir.LocalRef{Local: objectLocal}, names, &ir.LocalRef{Local: keyLocal}, shape, ft.Params, ft.Result, false, erasedCall)
+	}
+	if !ok { // a key or object held as a dynamic value (a yield's): the member the key names, as before
+		args := l.typedArguments(call.Arguments.Nodes, ft.Params)
+		if args == nil {
+			return nil, true
+		}
+		x = l.fromErased(erasedCall(&ir.LocalRef{Local: objectLocal}, args), call.AsNode())
+	}
+	if x == nil {
+		return nil, true
+	}
+	return &ir.Bind{Local: objectLocal, Value: object, In: &ir.Bind{Local: keyLocal, Value: key, In: x}}, true
+}
+
+// stringLiterals are the strings of t, a string literal type or a union of them, or nil.
+func stringLiterals(t *checker.Type) []string {
+	members := []*checker.Type{t}
+	if t.Flags()&checker.TypeFlagsUnion != 0 {
+		members = t.Types()
+	}
+	names := make([]string, len(members))
+	for i, member := range members {
+		if member.Flags()&checker.TypeFlagsStringLiteral == 0 {
+			return nil
+		}
+		names[i] = member.AsLiteralType().Value().(string)
+	}
+	return names
 }

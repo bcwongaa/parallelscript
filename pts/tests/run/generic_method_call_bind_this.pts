@@ -1,0 +1,112 @@
+// `call`, `apply` and `bind` of a class's generic method run it on the object given as `this`,
+// as for any other method (D-044): JS looks the method up on the first object and runs it with
+// the second as `this`. A generic method's value was bound to the first object, and `call`,
+// `apply` and `bind` evaluated and dropped their `this`, so the method silently read the first
+// object's fields (`a:4` where Node prints `b:4`); a method that isn't generic ran on the right
+// object. An instance of a subclass is such an object too, and a value of the class's type
+// held in a union with undefined or as `any`. A method that doesn't use its object (`this` or
+// `super`, also in a parameter's default, but not inside a literal's own methods) keeps its
+// own object for any `this` (undefined, null, another type's object), which no program can
+// tell apart; a method that isn't generic is PTS1001 there (D-044). An overridden one given
+// no object (undefined, null) runs its own object's method, as JS runs the method it read.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Tagged {
+  constructor(public tag: string) {}
+  label<T>(x: T): Box<string> {
+    return new Box(`${this.tag}:${x}`);
+  }
+  plain(x: number): Box<string> {
+    return new Box(`${this.tag}:${x}`);
+  }
+}
+const a = new Tagged("a");
+const b = new Tagged("b");
+console.log("plain call", a.plain.call(b, 1).value);
+console.log("plain bind", a.plain.bind(b)(2).value);
+console.log("plain apply", a.plain.apply(b, [3]).value);
+console.log("generic call", a.label.call(b, 4).value);
+console.log("generic bind", a.label.bind(b)(5).value);
+console.log("generic apply", a.label.apply(b, [6]).value);
+const bound = a.label.bind(b);
+console.log("generic bind, typed call", bound<number>(7).value);
+console.log("generic call on its own object", a.label.call(a, 8).value);
+class SubTagged extends Tagged {}
+console.log("generic call on a subclass's instance", a.label.call(new SubTagged("s"), 9).value);
+class Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const maker = new Maker();
+const loose: any = maker;
+console.log("this undefined", maker.make.call(undefined, 10).value);
+console.log("this null, bound", maker.make.bind(null)(11).value);
+console.log("this of another type", maker.make.call({}, 12).value);
+console.log("this a dynamic value", maker.make.apply(loose, [13]).value);
+class Twin {
+  constructor(public tag: string) {}
+  label<T>(x: T): Box<string> {
+    return new Box(`twin ${this.tag}:${x}`);
+  }
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+console.log("this a structural twin, method without this", maker.make.call(new Twin("t"), 14).value);
+const maybe: Tagged | undefined = new SubTagged("m");
+console.log("this a union with undefined", a.label.call(maybe, 15).value);
+class Defaults {
+  constructor(public tag: string) {}
+  viaDefault<T>(x: T, tag = this.tag): Box<string> {
+    return new Box(`${tag}:${x}`);
+  }
+  viaLiteral<T>(x: T): Box<string> {
+    const literal = {
+      tag: "lit",
+      read() {
+        return this.tag;
+      },
+    };
+    return new Box(`${literal.read()}:${x}`);
+  }
+}
+const d = new Defaults("d");
+const e: any = new Defaults("e");
+console.log("this in a parameter's default", d.viaDefault.call(e, 16).value);
+console.log("this only in a literal's method", d.viaLiteral.call(undefined, 17).value);
+class Base {
+  name<T>(x: T): string {
+    return `Base(${String(x)})`;
+  }
+}
+class Derived extends Base {
+  override name<T>(x: T): string {
+    return `Derived(${String(x)})`;
+  }
+}
+const base = new Base();
+console.log("overridden, this undefined", base.name.call(undefined, 18));
+console.log("overridden, this null, bound", base.name.bind(null)(19));
+
+// expect:
+// plain call b:1
+// plain bind b:2
+// plain apply b:3
+// generic call b:4
+// generic bind b:5
+// generic apply b:6
+// generic bind, typed call b:7
+// generic call on its own object a:8
+// generic call on a subclass's instance s:9
+// this undefined 10
+// this null, bound 11
+// this of another type 12
+// this a dynamic value 13
+// this a structural twin, method without this 14
+// this a union with undefined m:15
+// this in a parameter's default e:16
+// this only in a literal's method lit:17
+// overridden, this undefined Base(18)
+// overridden, this null, bound Base(19)

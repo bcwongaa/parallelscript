@@ -1,0 +1,74 @@
+// A dispatched generic method (an abstract class's, through a receiver typed as the base, D-101)
+// read as a value, passed on, held, bound or given where a non-generic function type goes runs
+// the receiver's own method and makes the specialized generic class instances its typed calls
+// name (H09b3b, C169's second half). Reading it as a value made an instance of the abstract
+// declaration, whose missing body crashed the compiler (PTS9001, nil pointer dereference in
+// instanceBody), in every context. (The methods don't use `this`: a method value is bound in
+// pts (D-044) and unbound in JS.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type Factory = <T>(x: T) => Box<T>;
+abstract class Shape {
+  constructor(public name: string) {}
+  abstract make<T>(x: T): Box<T>;
+}
+class Square extends Shape {
+  make<T>(x: T): Box<T> {
+    console.log("  square.make");
+    return new Box(x);
+  }
+}
+class Circle extends Shape {
+  make<T>(x: T): Box<T> {
+    console.log("  circle.make");
+    return new Box(x);
+  }
+}
+const shapes: Shape[] = [new Square("square"), new Circle("circle")];
+function exercise(label: string, factory: Factory): void {
+  attempt(label, () => {
+    const n: Box<number> = factory(9);
+    const s: Box<string> = factory("nine");
+    return `${n.value + 1} ${s.value.length}`;
+  });
+}
+for (const shape of shapes) {
+  exercise(`${shape.name}: value passed on`, shape.make);
+  exercise(`${shape.name}: value bound`, shape.make.bind(shape));
+  const held: Factory = shape.make;
+  attempt(`${shape.name}: value held`, () => String(held(5).value + 1));
+  attempt(`${shape.name}: value in map`, () => {
+    const boxes: Box<number>[] = [6].map(shape.make);
+    return String(boxes[0].value + 1);
+  });
+}
+
+// expect:
+//   square.make
+//   square.make
+// square: value passed on 10 4
+//   square.make
+//   square.make
+// square: value bound 10 4
+//   square.make
+// square: value held 6
+//   square.make
+// square: value in map 7
+//   circle.make
+//   circle.make
+// circle: value passed on 10 4
+//   circle.make
+//   circle.make
+// circle: value bound 10 4
+//   circle.make
+// circle: value held 6
+//   circle.make
+// circle: value in map 7

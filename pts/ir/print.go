@@ -341,7 +341,11 @@ func FormatExpr(expr Expr) string {
 		if e.Dynamic {
 			key = "dynamic " + key
 		}
-		return "instance " + key + e.Name + formatArgs(append([]Expr{e.X}, e.Args...)) + " else " + FormatExpr(e.Otherwise)
+		name := e.Name
+		if e.ByKey != nil {
+			name = "by " + FormatExpr(e.ByKey)
+		}
+		return "instance " + key + name + formatArgs(append([]Expr{e.X}, e.Args...)) + " else " + FormatExpr(e.Otherwise)
 	case *NewArray:
 		if e.Length != nil {
 			return "new " + e.Array.String() + "(" + FormatExpr(e.Length) + ")"

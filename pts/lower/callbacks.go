@@ -65,6 +65,12 @@ func (l *lowerer) callbackMethodCall(call *ast.CallExpression, name string, arra
 	if callback.Type() == ir.Value && !l.isTypedArray(array.Type()) {
 		return l.dynamicCallbackMethodCall(call, name, array, callback)
 	}
+	if instantiated, ok := l.instantiatingAdapter(callback, nil, args[0]); ok {
+		// `[1, 2].map(<T>(x: T) => new Box(x))`: the instance for the elements (D-194)
+		if callback = instantiated; callback == nil {
+			return nil
+		}
+	}
 	ft, ok := callback.Type().(*ir.FuncType)
 	if !ok {
 		l.notSupportedYet(args[0], fmt.Sprintf("a callback of type %s is", callback.Type()))
@@ -147,6 +153,11 @@ func (l *lowerer) arrayFromWithMapper(call *ast.CallExpression, source ir.Expr) 
 	mapper := l.expression(call.Arguments.Nodes[1])
 	if mapper == nil {
 		return nil
+	}
+	if instantiated, ok := l.instantiatingAdapter(mapper, nil, call.Arguments.Nodes[1]); ok {
+		if mapper = instantiated; mapper == nil { // a generic mapper's instance for the elements (D-194)
+			return nil
+		}
 	}
 	ft, ok := mapper.Type().(*ir.FuncType)
 	if !ok {

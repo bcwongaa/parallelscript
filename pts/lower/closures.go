@@ -599,23 +599,42 @@ func (l *lowerer) thisLocal() *ir.Local {
 // that the other type doesn't pass is left out, and one it always passes is passed
 // (D-055). It reports (at node) and returns nil if the types don't fit.
 func (l *lowerer) adapt(value ir.Expr, to *ir.FuncType, node *ast.Node) ir.Expr {
-	return l.adaptSkipping(value, to, 0, node)
+	if x, ok := l.instantiatingAdapter(value, to, node); ok {
+		return x // a generic function value where a function type that isn't generic goes (D-194)
+	}
+	return l.adaptSkipping(value, to, 0, node, nil)
 }
 
 // functionAsMethod is a function value given for a method field of a shape (`{ combine: (a, b)
 // => a + b }` for a `combine(a, b)` method), whose function type takes `this` first
-// (D-044): an adapter that leaves `this` out, as JS calls an arrow without it.
+// (D-044): an adapter that leaves `this` out, as JS calls an arrow without it. For a generic
+// function value whose result may hold generic class instances (`make: <T>(x: T) => new
+// Box(x)` for a `make<T>(x: T): Box<T>`, or `{ make }`), the adapter forwards the typed
+// calls of the method, by its name, to the instances the value lists, and for a method that
+// isn't generic it calls the value's instance for the method's types (D-194).
 func (l *lowerer) functionAsMethod(value ir.Expr, field *ir.Field, node *ast.Node) ir.Expr {
 	if !isFunction(value.Type()) {
 		l.notSupportedYet(node, fmt.Sprintf("a %s as the method %s is", value.Type(), field.Name))
 		return nil
 	}
-	return l.adaptSkipping(value, field.Type.(*ir.FuncType), 1, node)
+	if x, ok := l.instantiatingAdapterSkipping(value, field.Type.(*ir.FuncType), 1, node); ok {
+		return x // a generic value for a method that isn't generic: its instance (D-194)
+	}
+	var forward func(*ir.Local) *forwarder
+	isProperty := node.Kind == ast.KindPropertyAssignment || node.Kind == ast.KindShorthandPropertyAssignment
+	if isProperty && value.Type().(*ir.FuncType).Result == ir.Value && l.genericSignature(adaptedExpression(node)) != nil {
+		literal := l.checker.GetWidenedType(l.checker.GetTypeAtLocation(node.Parent))
+		forward = func(wrapped *ir.Local) *forwarder {
+			return &forwarder{name: field.Name, shape: field.Class, literal: literal, call: l.valueForward(wrapped, wrapped.Type.(*ir.FuncType))}
+		}
+	}
+	return l.adaptSkipping(value, field.Type.(*ir.FuncType), 1, node, forward)
 }
 
 // adaptSkipping is adapt for an adapter whose first skip parameters the wrapped
-// function doesn't take.
-func (l *lowerer) adaptSkipping(value ir.Expr, to *ir.FuncType, skip int, node *ast.Node) ir.Expr {
+// function doesn't take. forward, if not nil, is what the adapter forwards its calls to,
+// given the local it keeps value in (D-194).
+func (l *lowerer) adaptSkipping(value ir.Expr, to *ir.FuncType, skip int, node *ast.Node, forward func(wrapped *ir.Local) *forwarder) ir.Expr {
 	from := value.Type().(*ir.FuncType)
 	wrapped := l.newLocal("adapted", from)
 	fn := &ir.Func{Name: l.closureName("adapter", node), Module: l.function.Module, Pos: l.pos(node), Result: to.Result,
@@ -648,6 +667,9 @@ func (l *lowerer) adaptSkipping(value ir.Expr, to *ir.FuncType, skip int, node *
 	})
 	if failed {
 		return nil
+	}
+	if forward != nil {
+		l.addForwarder(fn, forward(wrapped))
 	}
 	return &ir.Bind{Local: wrapped, Value: value, In: &ir.MakeClosure{Func: fn, FuncType: to}}
 }

@@ -1049,6 +1049,11 @@ pts_function pts_instance_find(const void *value, const char *name, const struct
  */
 pts_function pts_method_instance_find(const pts_object *object, pts_site *site, const char *name, const struct pts_check *signature, pts_closure **closure);
 /*
+ * pts_method_instance_find for the method that key, an element access's key, names at run
+ * time (D-194): it compares names, and caches nothing, since the key may change.
+ */
+pts_function pts_method_instance_find_keyed(const pts_object *object, const pts_string *key, const struct pts_check *signature, pts_closure **closure);
+/*
  * What the RangeError of a read past the end (D-038) or of a missing key (D-059) suggests
  * after the message: where a missing value is expected, these read it as JS does
  * (D-152, ruling 4 of docs/agent/OWNER_ANSWERS.md).

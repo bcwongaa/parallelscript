@@ -1,0 +1,167 @@
+// A generic function value given where a function type that isn't generic goes makes the
+// specialized generic class instances its context's type arguments name (H09b3b, C169's second
+// half): an inline generic arrow given to an array method or to a function taking
+// `(x: number) => Box<number>`, and a generic value held in a const, a let, a parameter or a
+// field, given to `map`, converted to such a type by a declaration, a return, an object
+// literal's property, an array element, an assertion or a `| undefined` type, an arrow
+// property or a shorthand property where an interface declares a generic method, and a
+// generic value or arrow for a method that isn't generic. The adapter to the non-generic type
+// called the erased copy and lists no instances, so each threw `TypeError: Expected
+// Box<number>, got Box<any>` (or `Expected Box[], got Array`). A generic function declaration
+// or a module-scope generic const named in such a context, which are the context's instance,
+// and a method shorthand for the interface's method, already worked.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type NumberMaker = (x: number) => Box<number>;
+function applyTo5(f: NumberMaker): Box<number> {
+  return f(5);
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class WithField {
+  factory = <T,>(x: T): Box<T> => new Box(x);
+}
+const moduleArrow = <T,>(x: T): Box<T> => new Box(x);
+const aliased = make;
+
+attempt("declaration in map", () => {
+  const boxes: Box<number>[] = [1, 2].map(make);
+  return String(boxes[1].value + 1);
+});
+attempt("module-scope generic const to a function", () => String(applyTo5(moduleArrow).value + 1));
+attempt("inline arrow in map", () => {
+  const boxes: Box<number>[] = [1, 2].map(<T,>(x: T): Box<T> => new Box(x));
+  return String(boxes[0].value + boxes[1].value);
+});
+attempt("inline arrow in flatMap", () => {
+  const boxes: Box<number>[] = [1, 2].flatMap(<T,>(x: T): Box<T>[] => [new Box(x)]);
+  return String(boxes[0].value + boxes[1].value);
+});
+attempt("inline arrow in Array.from", () => {
+  const boxes: Box<string>[] = Array.from(["a", "bc"], <T,>(x: T): Box<T> => new Box(x));
+  return String(boxes[1].value.length);
+});
+attempt("inline arrow to a function", () => String(applyTo5(<T,>(x: T): Box<T> => new Box(x)).value + 1));
+attempt("declaration held in a const, in map", () => {
+  const boxes: Box<number>[] = [3].map(aliased);
+  return String(boxes[0].value + 1);
+});
+function locals(parameter: <T>(x: T) => Box<T>): void {
+  const local = <T,>(x: T): Box<T> => new Box(x);
+  let mutable = <T,>(x: T): Box<T> => new Box(x);
+  attempt("local const in map", () => {
+    const boxes: Box<number>[] = [4].map(local);
+    return String(boxes[0].value + 1);
+  });
+  attempt("local let to a function", () => String(applyTo5(mutable).value + 1));
+  attempt("parameter in map", () => {
+    const boxes: Box<number>[] = [6].map(parameter);
+    return String(boxes[0].value + 1);
+  });
+  attempt("declared of the type", () => {
+    const t: NumberMaker = local;
+    return String(t(5).value + 1);
+  });
+  function returned(): NumberMaker {
+    return local;
+  }
+  attempt("returned as the type", () => String(returned()(5).value + 1));
+  attempt("object literal property of the type", () => {
+    const o: { f: NumberMaker } = { f: local };
+    return String(o.f(5).value + 1);
+  });
+  attempt("array element of the type", () => {
+    const fs: NumberMaker[] = [local];
+    return String(fs[0](5).value + 1);
+  });
+  attempt("asserted to the type", () => String((local as NumberMaker)(5).value + 1));
+  attempt("declared of the type or undefined", () => {
+    const t: NumberMaker | undefined = local;
+    return String(t!(5).value + 1);
+  });
+  attempt("arrow property for an interface's method", () => {
+    const m: Maker = { make: local };
+    const s: Box<string> = m.make("ab");
+    return String(s.value.length);
+  });
+}
+locals(make);
+attempt("class's arrow field declared of the type", () => {
+  const t: NumberMaker = new WithField().factory;
+  return String(t(7).value + 1);
+});
+const inlineForMethod: Maker = { make: <T,>(x: T) => new Box(x) };
+attempt("inline arrow property for an interface's method", () => String(inlineForMethod.make(5).value + 1));
+const shorthand: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+attempt("method shorthand for an interface's method", () => String(shorthand.make(5).value + 1));
+function valuesForMethods(local: <T>(x: T) => Box<T>): void {
+  const make = local;
+  attempt("shorthand property for an interface's method", () => {
+    const m: Maker = { make };
+    return String(m.make(6).value + 1);
+  });
+  attempt("generic value for a method that isn't generic", () => {
+    const m: { make(x: number): Box<number> } = { make: local };
+    return String(m.make(7).value + 1);
+  });
+  attempt("inline generic arrow for a method that isn't generic", () => {
+    const m: { make(x: string): Box<string> } = { make: <T,>(x: T) => new Box(x) };
+    return String(m.make("abc").value.length);
+  });
+}
+valuesForMethods(<T,>(x: T): Box<T> => new Box(x));
+function inAnInstance(local: <T>(x: T) => Box<T>): string {
+  // An adapter that can't be the instance's (its result is wider) is made as before, inside
+  // an instance a typed call finds (review round 2's R2-5: the instance was dropped).
+  const g = <T,>(x: T): Box<T> => {
+    const t: (y: number) => Box<number | string> = local;
+    void t;
+    return new Box(x);
+  };
+  const f: <T>(x: T) => Box<T> = g;
+  const n: Box<number> = f(1);
+  return String(n.value + 1);
+}
+attempt("an instance holding an adapter made as before", () => inAnInstance(<T,>(x: T): Box<T> => new Box(x)));
+
+// expect:
+// declaration in map 3
+// module-scope generic const to a function 6
+// inline arrow in map 3
+// inline arrow in flatMap 3
+// inline arrow in Array.from 2
+// inline arrow to a function 6
+// declaration held in a const, in map 4
+// local const in map 5
+// local let to a function 6
+// parameter in map 7
+// declared of the type 6
+// returned as the type 6
+// object literal property of the type 6
+// array element of the type 6
+// asserted to the type 6
+// declared of the type or undefined 6
+// arrow property for an interface's method 2
+// class's arrow field declared of the type 8
+// inline arrow property for an interface's method 6
+// method shorthand for an interface's method 6
+// shorthand property for an interface's method 7
+// generic value for a method that isn't generic 8
+// inline generic arrow for a method that isn't generic 3
+// an instance holding an adapter made as before 2

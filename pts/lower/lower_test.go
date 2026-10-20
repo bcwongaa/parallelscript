@@ -1450,3 +1450,77 @@ func ClassMaker.make_number(this: ClassMaker, x: number) Box {
 }
 `)
 }
+
+func TestWrappersOfGenericValuesForwardTheirInstances(t *testing.T) {
+	t.Parallel()
+	// A method value is a bound wrapper whose instance for a demand's signature runs with the
+	// wrapper's closure and calls the method by name on the object it is bound to, a demand of
+	// its own; a generic value where a non-generic function type goes is an adapter whose call
+	// is a demand on the value (D-194).
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function use(factory: <T>(x: T) => Box<T>): number {
+  return factory(1).value;
+}
+function run(m: Maker, f: <T>(x: T) => Box<T>): void {
+  console.log(use(m.make));
+  const g: (x: number) => Box<number> = f;
+  console.log(g(2).value);
+}
+run(new ClassMaker(), <T>(x: T) => new Box(x));
+`)
+	assert.Equal(t, got, `class ClassMaker {  }
+class Box { value: value }
+class Box { value: number }
+func main() void {
+  7: global ClassMaker.class: boolean = true
+  20: run((new ClassMaker() as {make(value): value}), closure arrow)
+}
+func arrow(x: value) value closure [] {
+  20: return box(new Box(x))
+}
+func ClassMaker.constructor(this: ClassMaker) void {
+}
+func use(factory: (value) => value) number {
+  13: return (let callee = factory in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
+}
+func run.make(arg1: value) value closure [receiver] {
+  16: return interface make(receiver, arg1)
+}
+func run.adapter(arg1: number) Box closure [adapted] {
+  17: return (let argument1 = arg1 in instance (adapted, argument1) else Box(call adapted(box(argument1))))
+}
+func run(m: {make(value): value}, f: (value) => value) void {
+  16: console.log(box(use((let receiver = m in closure run.make))))
+  17: let g: (number) => Box = (let adapted = f in closure run.adapter)
+  18: console.log(box(call g(2).value))
+}
+func ClassMaker.make_dynamic(this: ClassMaker, x: value) value {
+  9: return box(new Box(x))
+}
+func Box.constructor(this: Box, value: value) void {
+  2: (this.value = value)
+}
+func Box.constructor(this: Box, value: number) void {
+  2: (this.value = value)
+}
+func arrow_number(x: number) Box closure [] of arrow {
+  20: return new Box(x)
+}
+func run.make.instance(arg1: number) Box closure [receiver] of run.make {
+  16: return instance make(receiver, arg1) else Box(interface make(receiver, box(arg1)))
+}
+func ClassMaker.make_number(this: ClassMaker, x: number) Box {
+  9: return new Box(x)
+}
+`)
+}

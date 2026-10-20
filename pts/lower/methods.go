@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/microsoft/typescript-go/internal/ast"
+	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -198,13 +199,15 @@ func (l *lowerer) methodValue(node *ast.Node) ir.Expr {
 		}
 		return nil
 	}
-	return l.boundMethod(node, m, receiver, nil, m.name, false)
+	return l.boundMethod(node, m, receiver, nil, m.name, false, l.objectMethodForward(node, m))
 }
 
 // boundMethod makes a closure that calls m on receiver with the arguments bound (values
 // for its first parameters) and then its own: a method value, or what `bind` makes. A
 // closure that binds a function value (binds) shows as "bound " and that function's name.
-func (l *lowerer) boundMethod(node *ast.Node, m method, receiver ir.Expr, bound []ir.Expr, name string, binds bool) ir.Expr {
+// forward, if not nil, is what the closure forwards its calls to, given the local it keeps
+// receiver in: its closures list instances that make those calls for typed calls (D-194).
+func (l *lowerer) boundMethod(node *ast.Node, m method, receiver ir.Expr, bound []ir.Expr, name string, binds bool, forward func(receiver *ir.Local) *forwarder) ir.Expr {
 	if len(bound) > len(m.params) {
 		bound = bound[:len(m.params)] // JS ignores the extra ones; tsc rejects them anyway
 	}
@@ -244,6 +247,11 @@ func (l *lowerer) boundMethod(node *ast.Node, m method, receiver ir.Expr, bound 
 			fn.Body = &ir.Block{At: fn.Pos, Stmts: []ir.Stmt{&ir.Return{At: fn.Pos, Value: call}}}
 		}
 	})
+	if forward != nil {
+		if f := forward(captured[0]); f != nil {
+			l.addForwarder(fn, f)
+		}
+	}
 	var closure ir.Expr = &ir.MakeClosure{Func: fn, FuncType: l.funcType(params, m.result)}
 	for i := len(captured) - 1; i >= 0; i-- {
 		closure = &ir.Bind{Local: captured[i], Value: values[i], In: closure}
@@ -295,7 +303,7 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 		name = "call"
 	}
 	target := ast.SkipParentheses(callee.Expression())
-	if target.Kind == ast.KindPropertyAccessExpression && l.isInstanceMethod(target) {
+	if target.Kind == ast.KindPropertyAccessExpression && (l.isInstanceMethod(target) || l.isGenericInstanceMethod(target) && l.runsOnThisArg(args, target)) {
 		return l.methodCallOrBind(call, args, tuple, target, name)
 	}
 	fn := l.expression(target)
@@ -330,8 +338,14 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	m := method{name: "", receiver: ft, params: ft.Params, result: ft.Result, call: func(f ir.Expr, args []ir.Expr) ir.Expr {
 		return &ir.CallValue{Callee: f, Args: args}
 	}}
+	var forward func(*ir.Local) *forwarder
+	if len(values) == 0 && l.genericSignature(target) != nil {
+		// `make.bind(undefined)`, a value of the generic function type make has: its calls
+		// are make's, for the same signatures (D-194).
+		forward = func(wrapped *ir.Local) *forwarder { return &forwarder{call: l.valueForward(wrapped, ft)} }
+	}
 	return l.withReceiver(fn, func(f ir.Expr) ir.Expr {
-		return discard(thisArg, l.boundMethod(callee, m, f, values, "bound", true))
+		return discard(thisArg, l.boundMethod(callee, m, f, values, "bound", true, forward))
 	})
 }
 
@@ -387,6 +401,70 @@ func appliedArguments(args []*ast.Node) []*ast.Node {
 		}
 	}
 	return append([]*ast.Node{args[0]}, elements...)
+}
+
+// runsOnThisArg reports whether `call`, `apply` or `bind` of the class's generic method
+// access names, given args, runs it on thisArg (methodCallOrBind), as for other class
+// methods (D-044): where the method may use its object, whose thisArg then converts to the
+// class (with a check from `any`, else PTS1001: JS would run it on another object). A
+// method that can't use its object runs on its own, as before D-194, which no program can
+// tell apart; so does an abstract or overridden one given no object.
+func (l *lowerer) runsOnThisArg(args []*ast.Node, access *ast.Node) bool {
+	generic := l.genericMethodAt(access)
+	if (generic.dispatched || generic.node.Body() == nil) && (len(args) == 0 || isNoObject(l.typeAt(args[0]))) {
+		// No object: JS runs o's method without one, which only a method that doesn't use
+		// `this` survives; that is o's own, found by name (review round 3's R3-2).
+		return false
+	}
+	return mayUseThis(generic)
+}
+
+// isNoObject reports whether t, a thisArg's type, is null, undefined or void.
+func isNoObject(t *checker.Type) bool {
+	return t.Flags()&(checker.TypeFlagsNull|checker.TypeFlagsUndefined|checker.TypeFlagsVoid) != 0
+}
+
+// mayUseThis reports whether a class's generic method may use its object: `this` or `super`
+// in its parameters or body (usesObject), or it is abstract or overridden, whose calls run the
+// method of thisArg's class (D-044).
+func mayUseThis(generic *genericFunc) bool {
+	return generic.dispatched || generic.node.Body() == nil || usesObject(generic.node)
+}
+
+// usesObject reports whether a method's declaration uses its object: `this` or `super` in its
+// parameters (their defaults) or body, arrow functions included, but not in the functions,
+// classes and object literals' methods and accessors it declares, which have their own.
+func usesObject(method *ast.Node) bool {
+	found := false
+	var visit func(node *ast.Node) bool
+	visit = func(node *ast.Node) bool {
+		switch node.Kind {
+		case ast.KindThisKeyword, ast.KindSuperKeyword:
+			found = true
+		case ast.KindFunctionDeclaration, ast.KindFunctionExpression, ast.KindClassDeclaration, ast.KindClassExpression:
+		case ast.KindMethodDeclaration, ast.KindGetAccessor, ast.KindSetAccessor:
+			if name := node.Name(); name != nil && name.Kind == ast.KindComputedPropertyName {
+				visit(name) // evaluated where the literal is
+			}
+		default:
+			node.ForEachChild(visit)
+		}
+		return found
+	}
+	for _, param := range method.Parameters() {
+		visit(param)
+	}
+	if body := method.Body(); body != nil {
+		visit(body)
+	}
+	return found
+}
+
+// isGenericInstanceMethod reports whether a property access names a class's generic
+// instance method, which `call`, `apply` and `bind` run on their thisArg too (D-194).
+func (l *lowerer) isGenericInstanceMethod(access *ast.Node) bool {
+	generic := l.genericMethodAt(access)
+	return generic != nil && generic.static == nil
 }
 
 // isInstanceMethod reports whether a property access names a method that runs on its
@@ -447,7 +525,16 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 	if object == nil {
 		return nil
 	}
-	m, ok := l.methodOf(target, object)
+	var m method
+	var ok bool
+	var forward func(*ir.Local) *forwarder
+	generic := l.isGenericInstanceMethod(target)
+	if generic {
+		m, forward, ok = l.genericMethodOf(target, l.genericMethodAt(target)) // run on thisArg too, as JS does (D-194)
+	} else {
+		m, ok = l.methodOf(target, object)
+		forward = l.objectMethodForward(target, m)
+	}
 	if !ok || m.call == nil {
 		return nil // reported
 	}
@@ -455,7 +542,7 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 		l.notSupportedYet(call.Expression, "calling a method without an object (`this` undefined) is")
 		return nil
 	}
-	if _, isClass := l.membersAt(target).methods[l.memberDeclaration(target)]; !isClass && !sameReference(target.Expression(), args[0]) {
+	if _, isClass := l.membersAt(target).methods[l.memberDeclaration(target)]; !isClass && !generic && !sameReference(target.Expression(), args[0]) {
 		// JS runs o's own method, which may be a closure of o's, on the other object.
 		l.notSupportedYet(args[0], "calling or binding a method of an object type with another object as `this` is")
 		return nil
@@ -483,7 +570,10 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 	case name == "call":
 		result = m.call(receiver, values)
 	default:
-		result = l.boundMethod(call.Expression, m, receiver, values, "bound "+m.name, false)
+		if len(values) > 0 {
+			forward = nil // `bind` with arguments: tsc's type of its value isn't generic
+		}
+		result = l.boundMethod(call.Expression, m, receiver, values, "bound "+m.name, false, forward)
 	}
 	return discard(object, result)
 }

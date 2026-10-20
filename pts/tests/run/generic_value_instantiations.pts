@@ -1,0 +1,66 @@
+// A generic value given type arguments (`f<number>`, an instantiation expression) is a
+// function of the instantiated type that calls the instance for them (H09b3b, C169's second
+// half): a class's method, an interface's method, an object literal's method and a local
+// generic arrow, as a generic function declaration's already was. Each called the erased copy
+// and threw `TypeError: Expected Box<number>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const maker: Maker = new ClassMaker();
+attempt("function declaration", () => {
+  const f = make<number>;
+  return String(f(1).value + 1);
+});
+attempt("class's method", () => {
+  const f = new ClassMaker().make<number>;
+  return String(f(2).value + 1);
+});
+attempt("interface's method", () => {
+  const f = maker.make<string>;
+  return String(f("ab").value.length);
+});
+attempt("object literal's method", () => {
+  const f = literal.make<number[]>;
+  return String(f([1, 2, 3]).value.length);
+});
+function local(): string {
+  const arrow = <T,>(x: T): Box<T> => new Box(x);
+  const f = arrow<number>;
+  return String(f(3).value + 1);
+}
+attempt("local arrow", local);
+attempt("in map", () => {
+  const boxes: Box<number>[] = [4, 5].map(maker.make<number>);
+  return String(boxes[0].value + boxes[1].value);
+});
+
+// expect:
+// function declaration 2
+// class's method 3
+// interface's method 2
+// object literal's method 3
+// local arrow 4
+// in map 9

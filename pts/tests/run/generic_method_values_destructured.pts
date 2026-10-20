@@ -1,0 +1,89 @@
+// A generic method destructured from its object is bound to it, as `o.m` is (D-044), and its
+// typed calls make the specialized generic class instances they name (H09b3b, C169's second
+// half): a class's method (PTS1001 before, as any class method's was), an overridden one
+// (the object's class's runs), an interface's method of a class instance and of an object
+// literal, and an object literal's own method, in a declaration and in a parameter's
+// pattern. The interface's and literal's methods threw `TypeError: Expected Box<number>, got
+// Box<any>`. A class's method that isn't generic destructures too. (The methods don't use
+// `this`: a destructured method is bound in pts (D-044) and unbound in JS.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  twice(x: number): number {
+    return x * 2;
+  }
+}
+class LoudMaker extends ClassMaker {
+  override make<T>(x: T): Box<T> {
+    console.log("  loud");
+    return new Box(x);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const literalMaker: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+attempt("class's method", () => {
+  const { make } = new ClassMaker();
+  const n: Box<number> = make(5);
+  const s: Box<string> = make("ab");
+  return `${n.value + 1} ${s.value.length}`;
+});
+attempt("overridden method", () => {
+  const maker: ClassMaker = new LoudMaker();
+  const { make } = maker;
+  return String(make(5).value + 1);
+});
+attempt("interface's method of a class instance", () => {
+  const maker: Maker = new ClassMaker();
+  const { make } = maker;
+  return String(make(5).value + 1);
+});
+attempt("interface's method of an object literal", () => {
+  const { make } = literalMaker;
+  return String(make(5).value + 1);
+});
+attempt("object literal's method, renamed", () => {
+  const { make: build } = literal;
+  return String(build([1, 2]).value.length);
+});
+function fromPattern({ make }: Maker): string {
+  const b: Box<number> = make(7);
+  return String(b.value + 1);
+}
+attempt("parameter's pattern", () => `${fromPattern(new LoudMaker())} ${fromPattern(literalMaker)}`);
+attempt("class's method that isn't generic", () => {
+  const { twice } = new ClassMaker();
+  return String(twice(21));
+});
+
+// expect:
+// class's method 6 2
+//   loud
+// overridden method 6
+// interface's method of a class instance 6
+// interface's method of an object literal 6
+// object literal's method, renamed 2
+//   loud
+// parameter's pattern 8 8
+// class's method that isn't generic 42

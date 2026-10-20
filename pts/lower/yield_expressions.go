@@ -730,6 +730,8 @@ func (l *lowerer) isSettledCallee(callee *ast.Node) bool {
 		symbol = l.memberSymbol(callee)
 	} else if key := callee.AsElementAccessExpression().ArgumentExpression; ast.IsStringOrNumericLiteralLike(key) {
 		symbol = l.checker.GetSymbolAtLocation(key) // the member `o["m"]` names
+	} else if l.namesMethods(callee) {
+		return true // `o[key](yield x)` for a key whose type names methods: the key is kept, and the method found after (D-194)
 	}
 	switch symbol = l.followAliases(symbol); { // `ns.f` re-exported from another module
 	case symbol == nil:
@@ -738,6 +740,22 @@ func (l *lowerer) isSettledCallee(callee *ast.Node) bool {
 		return true
 	}
 	return symbol.Flags&(ast.SymbolFlagsFunction|ast.SymbolFlagsClass|ast.SymbolFlagsEnum|ast.SymbolFlagsValueModule) != 0
+}
+
+// namesMethods reports whether callee, an element access, has a key whose type is string
+// literals each naming a method of its object's type, which no code can assign.
+func (l *lowerer) namesMethods(callee *ast.Node) bool {
+	t := l.checker.GetNonNullableType(l.typeAt(callee.Expression()))
+	names := stringLiterals(l.typeAt(callee.AsElementAccessExpression().ArgumentExpression))
+	if names == nil || t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0 {
+		return false
+	}
+	for _, name := range names {
+		if property := l.checker.GetPropertyOfType(t, name); property == nil || !isMethodSymbol(property) {
+			return false
+		}
+	}
+	return true
 }
 
 // isFoundAtRunTime reports whether a callee, a property or element access, is a member of
