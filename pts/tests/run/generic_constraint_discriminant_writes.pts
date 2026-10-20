@@ -1,0 +1,85 @@
+// A discriminant narrowed through a type parameter's union constraint (C223; `T extends Sq |
+// Ci`, `x.kind === "sq"` types x as Sq): writes (`=`, `+=`, `++`) through it, the value
+// passed on (an `Sq[]` literal, `push`, a callback, a spread copy, a map's value, a generic
+// call, a return), in instances for the union, for Sq and for Ci (dead there but compiled),
+// and for a union type argument narrower than the constraint (`Sq | Tr` for `T extends Sq |
+// Ci | Tr`), which a lie with an Sq's members reaches (H09b4b1 review round 1's c02, c06,
+// c07, c08, c10). The base and the first version of the fix: PTS9001 for the writes,
+// PTS1001 for the spreads (`spreading the property side of a {kind: string; r: number}`)
+// and the union argument (`a property of an object type on a {…} | {…}`).
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+interface Tr {
+  kind: "tr";
+  a: number;
+}
+type Shape = Sq | Ci;
+function grow<T extends Shape>(x: T): T {
+  if (x.kind === "sq") {
+    x.side += 1;
+    x.side = x.side * 2;
+  } else {
+    x.r++;
+  }
+  return x;
+}
+console.log(grow<Shape>({ kind: "sq", side: 1 }), grow<Ci>({ kind: "ci", r: 1 }), grow<Sq>({ kind: "sq", side: 2 }));
+const collected: Sq[] = [];
+const byName = new Map<string, Sq>();
+function ident<U>(u: U): U {
+  return u;
+}
+function firstSq<T extends Shape>(xs: T[]): Sq | undefined {
+  for (const x of xs) {
+    if (x.kind === "sq") {
+      const arr: Sq[] = [x];
+      collected.push(x);
+      arr.forEach((s) => console.log("  each", s.side));
+      const copy: Sq = { ...x };
+      byName.set("k" + copy.side, x);
+      console.log("  ident", ident<Sq>(x).side);
+      return x;
+    }
+  }
+  return undefined;
+}
+console.log(firstSq<Shape>([{ kind: "ci", r: 1 }, { kind: "sq", side: 2 }])?.side);
+console.log(firstSq<Sq>([{ kind: "sq", side: 3 }])?.side);
+console.log(firstSq<Ci>([{ kind: "ci", r: 4 }])?.side);
+console.log(collected.length, [...byName.keys()]);
+function copy<T extends Shape>(x: T): string {
+  if (x.kind === "sq") {
+    const c: Sq = { ...x, side: x.side + 1 };
+    return "copy " + c.side;
+  }
+  return "ci";
+}
+console.log(copy<Shape>({ kind: "sq", side: 1 }), copy<Sq>({ kind: "sq", side: 2 }), copy<Ci>({ kind: "ci", r: 3 }));
+function size<T extends Sq | Ci | Tr>(s: T): number {
+  if (s.kind === "ci") {
+    s.r += 1;
+    return s.r;
+  }
+  return 0;
+}
+const lie = { kind: "ci", side: 1, r: 7 } as unknown as Sq;
+console.log(size<Sq | Tr>({ kind: "tr", a: 3 }), size<Sq | Tr>(lie), size<Sq | Ci | Tr>({ kind: "ci", r: 2 }), (lie as any).r);
+
+// expect:
+// { kind: 'sq', side: 4 } { kind: 'ci', r: 2 } { kind: 'sq', side: 6 }
+//   each 2
+//   ident 2
+// 2
+//   each 3
+//   ident 3
+// 3
+// undefined
+// 2 [ 'k2', 'k3' ]
+// copy 2 copy 3 ci
+// 0 8 3 8

@@ -151,8 +151,27 @@ func (l *lowerer) dynamicRead(node *ast.Node) ir.Expr {
 // dynamicPlace is the place `o.name` or `o[k]` names for an o of type any.
 func (l *lowerer) dynamicPlace(node *ast.Node) (place, bool) {
 	object := l.expression(node.Expression())
+	if object == nil {
+		return place{}, false
+	}
+	return l.valuePlace(node, object)
+}
+
+// missingProperty reads the property name of object, whose type lacks it, as a pattern or
+// a spread does where a narrowing added it (`"k" in o`, a discriminant narrowed through a
+// type parameter's constraint): found at run time, as valueProperty reads `o.k`.
+func (l *lowerer) missingProperty(object ir.Expr, name string) ir.Expr {
+	l.wantInMethodTables(name)
+	return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), box(&ir.StringConst{Value: name})}}
+}
+
+// valuePlace is the place `o.name` or `o[k]` (node) names in object, written by name at run
+// time with a check (D-072): object is a dynamic value, or an object whose type has no such
+// property, which a narrowing added (`"k" in o`, a discriminant narrowed through a type
+// parameter's constraint), as valueProperty reads it.
+func (l *lowerer) valuePlace(node *ast.Node, object ir.Expr) (place, bool) {
 	key := l.dynamicKey(node)
-	if object == nil || key == nil {
+	if key == nil {
 		return place{}, false
 	}
 	if l.firstDynamicWrite == nil {

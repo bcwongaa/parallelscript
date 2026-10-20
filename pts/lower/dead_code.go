@@ -246,11 +246,12 @@ func (l *lowerer) deadTest() *substitution {
 // for a type that holds no literal types and no values of dynamic IR types, a union of
 // those, any, unknown and never as they are.
 func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
+	if primitive := l.brandedPrimitive(t); primitive != nil {
+		t = primitive // `string & { __brand: "id" }` is a string
+	}
 	switch {
 	case t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown|checker.TypeFlagsNever) != 0:
 		return t
-	case l.brandedPrimitive(t) != nil:
-		return l.checker.GetBaseTypeOfLiteralType(l.brandedPrimitive(t)) // `string & { __brand: "id" }` is a string
 	case l.isDynamicIRType(t):
 		return l.checker.GetUnknownType() // a recursive union's (`Json`), a promise's: unknown's
 	case t.Flags()&checker.TypeFlagsPrimitive != 0:
@@ -288,10 +289,10 @@ const maxLiteralFreeDepth = 4
 // literalFree reports whether t holds no literal types (`{ kind: "sq" }`'s, which shares
 // its IR type with `{ kind: "ci" }`'s) or branded primitives (string's IR type), and no
 // types of dynamic values' IR type other than any and unknown (a promise, `{}`, a union
-// that holds itself, as `Json` does), in its type arguments, properties, index signatures and call signatures:
-// then no other type of its IR type is narrower. It asks no IR types, which a phantom type argument
-// (`Tagged<Weird<string>>`'s) would make. A class of the program or the library is its
-// own IR type.
+// that holds itself, as `Json` does), in its type arguments, properties, index signatures
+// and call signatures: then no other type of its IR type is narrower. It asks no IR types,
+// which a phantom type argument (`Tagged<Weird<string>>`'s) would make. A class of the
+// program or the library is its own IR type.
 func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, depth int) bool {
 	return l.literalFreeIn(t, seen, map[*checker.Type]bool{}, depth)
 }

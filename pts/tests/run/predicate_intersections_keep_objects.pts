@@ -1,0 +1,46 @@
+// A type predicate that narrows an `A` to `A & B` (`isB(x)`): the object passes where an `A
+// & B` goes and is kept, with its identity, also with an extra field and as a class's
+// instance (H09b4b1 review round 1's n01, n03). The base: PTS1001 (`using a {a: number} as a
+// {a: number; b: number}, whose b it doesn't provide`); the narrowed reference converts with
+// a check, as a dynamic value does.
+interface A {
+  a: number;
+}
+interface B {
+  b: number;
+}
+function isB(x: object): x is B {
+  return "b" in x;
+}
+function take(ab: A & B): void {
+  ab.b += 10;
+}
+let keptRef: (A & B) | undefined;
+function f(x: A): void {
+  if (isB(x)) {
+    take(x);
+    keptRef = x;
+  }
+}
+const o = { a: 1, b: 2 };
+f(o);
+console.log(o.b, keptRef === o, keptRef?.b);
+const p: A = { a: 5 };
+f(p);
+console.log(keptRef === o);
+const extra = { a: 1, b: 2, c: 3 };
+f(extra);
+console.log(extra.b, keptRef === extra, keptRef?.b);
+class K {
+  a = 1;
+  b = 2;
+}
+const k = new K();
+f(k);
+console.log(k.b, keptRef === k);
+
+// expect:
+// 12 true 12
+// true
+// 12 true 12
+// 12 true

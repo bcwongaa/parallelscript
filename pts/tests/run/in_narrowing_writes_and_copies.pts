@@ -1,0 +1,89 @@
+// After `"k" in x` for an x whose type has no k (C222), x.k is found at run time where it is
+// written (`x.k = 10`, `+=` after a typeof test, in an instance of `T extends object`, on a
+// union neither of whose members has k), destructured and spread, and on a class's object
+// whose class lacks it (a subclass has it), also where an object of another class reaches it
+// as its base class (H09b4b1 review round 1's i01, i05, i10, i06, i02). The base, and the
+// first version of the fix for writes: PTS9001 (`incompatible pointer to integer conversion
+// passing 'pts_object *' to parameter of type 'pts_value'`); destructuring and spreading:
+// PTS1001 (`destructuring the property k of a {m: string}`); a class's: PTS1001 (`` `a.bark`
+// is not supported yet ``).
+interface NoK {
+  m: string;
+}
+function bump(x: NoK): string {
+  if ("k" in x) {
+    x.k = 10;
+    return "set " + String(x.k);
+  }
+  return "none";
+}
+const o = { m: "a", k: 1 };
+console.log(bump(o), o.k, bump({ m: "b" }));
+function compound(x: NoK): string {
+  if ("k" in x && typeof x.k === "number") {
+    x.k += 1;
+    return "compound " + x.k;
+  }
+  return "none";
+}
+function generic<T extends object>(x: T): string {
+  if ("k" in x) {
+    x.k = 5;
+    return "generic " + String(x.k);
+  }
+  return "none";
+}
+type A = { a: number };
+type B = { b: string };
+function union(x: A | B): string {
+  if ("k" in x) {
+    x.k = 2;
+    return "union " + String(x.k);
+  }
+  return "none";
+}
+const o1 = { m: "a", k: 1 };
+const o2 = { m: "b", k: 1 };
+const o3 = { a: 1, k: 0 };
+console.log(compound(o1), o1.k, generic(o2), o2.k, union(o3), o3.k);
+function copies(x: NoK): string {
+  if ("k" in x) {
+    const { k } = x;
+    const copy = { ...x };
+    return "k " + String(k) + " copy.k " + String(copy.k) + " keys " + Object.keys(x).join(",");
+  }
+  return "none";
+}
+console.log(copies({ m: "a", k: 1 } as NoK), copies({ m: "b" }));
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = "woof";
+}
+function speak(a: Animal): string {
+  if ("bark" in a) {
+    return "says " + String(a.bark);
+  }
+  return "silent";
+}
+console.log(speak(new Dog()), speak(new Animal()));
+class P {
+  a = 1;
+}
+class Q extends P {
+  k = 3;
+}
+function has(x: P): string {
+  if ("k" in x) return "has k " + String(x.k);
+  return "no k";
+}
+const asP: P = new Q();
+console.log(has(new P()), has(new Q()), has(asP));
+
+// expect:
+// set 10 10 none
+// compound 2 2 generic 5 5 union 2 2
+// k 1 copy.k 1 keys m,k none
+// says woof silent
+// no k has k 3 has k 3

@@ -2424,10 +2424,14 @@ func (l *lowerer) keyedElementRead(node *ast.Node) ir.Expr {
 	return l.checkedConversion(value, t, node)
 }
 
-// isNarrowedProperty reports whether node, an element whose key names a property (`o["v"]`),
-// has a narrower type there than the property's.
+// isNarrowedProperty reports whether node, an element whose literal key names a property
+// (`o["v"]`), has a narrower type there than the property's.
 func (l *lowerer) isNarrowedProperty(node *ast.Node) bool {
-	symbol := l.checker.GetSymbolAtLocation(node.AsElementAccessExpression().ArgumentExpression)
+	key := ast.SkipParentheses(node.AsElementAccessExpression().ArgumentExpression)
+	if !ast.IsStringLiteralLike(key) && key.Kind != ast.KindNumericLiteral {
+		return false // `p[this.k]`'s symbol is k's own
+	}
+	symbol := l.checker.GetSymbolAtLocation(key)
 	return symbol != nil && symbol.Flags&ast.SymbolFlagsProperty != 0 && l.checker.GetTypeOfSymbol(symbol) != l.checker.GetTypeAtLocation(node)
 }
 
@@ -3294,8 +3298,8 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 		if l.isUnionReceiver(node) {
 			object, field := l.unionProperty(node)
-			if field == nil && object != nil { // a recursive union's dynamic data
-				return place{object: object, key: l.dynamicKey(node), dynamic: true}, true
+			if field == nil && object != nil { // a recursive union's dynamic data, or a property no member has
+				return l.valuePlace(node, object)
 			}
 			if field != nil && field.Mixed {
 				l.notSupportedYet(node, fmt.Sprintf("writing `%s` of a %s, whose members hold it as different types, is", field.Name, l.checker.TypeToString(l.typeAt(node.Expression()))))
@@ -3313,8 +3317,8 @@ func (l *lowerer) assignmentTarget(node *ast.Node) (place, bool) {
 		}
 		if l.isShapeProperty(l.memberDeclaration(node)) || l.isMappedProperty(node) {
 			object, field := l.shapeProperty(node)
-			if field == nil && object != nil { // a dynamic value tsc narrowed to an object type
-				return place{object: object, key: l.dynamicKey(node), dynamic: true}, true
+			if field == nil && object != nil { // a dynamic value tsc narrowed to an object type, or a property its type lacks
+				return l.valuePlace(node, object)
 			}
 			return place{object: object, field: field}, field != nil
 		}
@@ -3891,6 +3895,15 @@ func isClass(t ir.Type) bool {
 func isPlainShape(t ir.Type) bool {
 	class, ok := t.(*ir.Class)
 	return ok && class.Shape && !class.Tuple
+}
+
+// isObjectOrUnionOfObjects reports whether t is a class, shape or interface, or a union of
+// such types.
+func isObjectOrUnionOfObjects(t ir.Type) bool {
+	if u, ok := t.(*ir.Union); ok {
+		return isUnionOfObjects(u)
+	}
+	return isObject(t) && !isArray(t)
 }
 
 // isUnionOfObjects reports whether every member of u is a class, shape or interface.

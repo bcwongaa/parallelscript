@@ -133,11 +133,13 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 			return nil
 		}
 		required := result
+		narrowedAway := !holds(result, rest.Type())
 		switch {
-		case !holds(result, rest.Type()):
+		case narrowedAway:
 			// tsc narrowed the chain to the undefined of its `?.` (`o?.v === undefined`, a
 			// predicate's `number | undefined` for a string v), which the read's value
-			// isn't: the chain holds either, and converts to its type with a check (C226).
+			// isn't: the chain holds either, and converts to its type with a check (C226),
+			// also where a type with undefined goes (`const n: number | undefined = o?.v`).
 			result = l.withUndefined(rest.Type())
 		case mayBeMissing:
 			result = l.withUndefined(result)
@@ -145,7 +147,7 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 		if whenNullish, whenNot = l.convert(whenNullish, result, node), l.convert(rest, result, node); whenNullish == nil || whenNot == nil {
 			return nil
 		}
-		if result != required && !l.takesAnyValue(node) {
+		if result != required && !l.takesEveryValue(node) && (narrowedAway || !l.contextTakesUndefined(node)) {
 			chain := &ir.Bind{Local: tmp, Value: object, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: whenNullish, Else: whenNot}}
 			return l.checkedConversion(chain, required, node)
 		}
@@ -156,7 +158,13 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 // takesAnyValue reports whether node's context takes any value, undefined included: the
 // left of `??`, or a place whose type is any, unknown or a union with undefined.
 func (l *lowerer) takesAnyValue(node *ast.Node) bool {
-	if isNullishLeft(node) || l.contextTakesUndefined(node) {
+	return l.contextTakesUndefined(node) || l.takesEveryValue(node)
+}
+
+// takesEveryValue reports whether node's context takes every value as it is: the left of
+// `??`, or a place whose type is any or unknown.
+func (l *lowerer) takesEveryValue(node *ast.Node) bool {
+	if isNullishLeft(node) {
 		return true
 	}
 	contextual := l.contextualType(node)
@@ -169,8 +177,12 @@ func (l *lowerer) isUnloweredOptionalChain(node *ast.Node) bool {
 	return ast.IsOptionalChain(node) && l.chainDepth == 0
 }
 
-// holds reports whether values of type from are values of t: t is from, any value, a
-// numeric type for a numeric from, or a union that holds from or its members.
+// holds reports whether optionalChainFrom converts the read's value, of type from, to t,
+// the chain's narrowed type, as it is: t is from, any value, a numeric type for a numeric
+// from, a union that holds from (or each member of a union from), or an object or function
+// type, and a union t for an object from, which convert as they did. It is false where
+// tsc narrowed the read to a primitive or nullish type that isn't from's, or to a union that
+// lacks from's primitive or nullish type or one of its members (C226).
 func holds(t, from ir.Type) bool {
 	switch {
 	case t == from || t == ir.Value || ir.IsNumeric(t) && ir.IsNumeric(from):

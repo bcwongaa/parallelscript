@@ -83,7 +83,11 @@ func (l *lowerer) recordType(t *checker.Type, node *ast.Node) (mt *ir.MapType, o
 	defer delete(l.mapsInProgress, t)
 	var value ir.Type
 	for _, info := range l.checker.GetIndexInfosOfType(t) {
-		if key := info.KeyType(); key.Flags()&(checker.TypeFlagsString|checker.TypeFlagsNumber) == 0 {
+		key := info.KeyType()
+		if primitive := l.brandedPrimitive(key); primitive != nil {
+			key = primitive // `Record<UserId, User>` of a branded string: a string key (C221)
+		}
+		if key.Flags()&(checker.TypeFlagsString|checker.TypeFlagsNumber) == 0 {
 			l.notSupportedYet(node, fmt.Sprintf("index signatures with keys of type %s are", l.checker.TypeToString(key)))
 			return nil, true
 		}

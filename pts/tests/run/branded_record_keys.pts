@@ -1,0 +1,25 @@
+// A record keyed by a branded string (`Record<UserId, User>`, `{ [k: UserId]: number }`, a
+// common idiom) is a record of string keys, as the brand is a string (C221; H09b4b1 review
+// round 1's b09). The base and the first version of the fix: PTS1001 (`index signatures
+// with keys of type string & {…}`).
+type UserId = string & { __brand: "user" };
+interface User {
+  name: string;
+}
+const users: Record<UserId, User> = {} as Record<UserId, User>;
+const id = "u1" as UserId;
+users[id] = { name: "ann" };
+console.log(users[id].name, Object.keys(users));
+const byKey: { [k: UserId]: number } = {};
+byKey[id] = 1;
+byKey["u2" as UserId] = 2;
+console.log(byKey[id], Object.entries(byKey), id in byKey);
+function lookup(r: Record<UserId, User>, k: UserId): string {
+  return r[k]?.name ?? "missing";
+}
+console.log(lookup(users, id), lookup(users, "u9" as UserId));
+
+// expect:
+// ann [ 'u1' ]
+// 1 [ [ 'u1', 1 ], [ 'u2', 2 ] ] true
+// ann missing

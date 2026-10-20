@@ -1,0 +1,76 @@
+// A read that a narrowing kept across a call that changed it (tsc doesn't follow the call),
+// as the operand of a test that takes any value: `===`, `!==`, `==`, `!=`, a switch's
+// discriminant, `typeof`, a keyed element, a module `let` another function assigns, and
+// `!`, `?:` and Array.isArray, which read it as it is too (H09b4b1 review round 1's s05,
+// s07; C230). Node tests what it holds. The first version threw `Expected string, got
+// number` for `==`, `!=` and the switch.
+function strict(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    return "strict " + (o.v === "s") + " " + (o.v !== "t") + " " + (o.v === o.v);
+  }
+  return "-";
+}
+function keyed(o: { v: string | number }, change: () => void): string {
+  if (typeof o["v"] === "string") {
+    change();
+    return "keyed " + (o["v"] === "s");
+  }
+  return "-";
+}
+let shared: string | number = "s";
+function flip(): void {
+  shared = 3;
+}
+function moduleLet(): string {
+  if (typeof shared === "string") {
+    flip();
+    return "module " + (shared === "s") + " " + typeof shared;
+  }
+  return "-";
+}
+function loose(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    return "loose " + (o.v == "s") + " " + (o.v != "t");
+  }
+  return "-";
+}
+function switched(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    switch (o.v) {
+      case "s":
+        return "switch s";
+      default:
+        return "switch default";
+    }
+  }
+  return "-";
+}
+function truthy(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    return "truthy " + !o.v + " " + (o.v ? "yes" : "no");
+  }
+  return "-";
+}
+function arrays(o: { v: string[] | number }, change: () => void): string {
+  if (Array.isArray(o.v)) {
+    change();
+    return "isArray " + Array.isArray(o.v);
+  }
+  return "-";
+}
+const a = { v: "s" as string | number };
+const b = { v: "s" as string | number };
+console.log(strict(a, () => { a.v = 0; }), keyed(b, () => { b.v = 0; }), moduleLet());
+const c = { v: "s" as string | number };
+const d = { v: "s" as string | number };
+const e = { v: "s" as string | number };
+const f = { v: ["s"] as string[] | number };
+console.log(loose(c, () => { c.v = 0; }), switched(d, () => { d.v = 0; }), truthy(e, () => { e.v = 0; }), arrays(f, () => { f.v = 0; }));
+
+// expect:
+// strict false true true keyed false module false number
+// loose false true switch default truthy true no isArray false

@@ -1,0 +1,41 @@
+// skip: known issue (H22, C231): an `any` narrowed by Array.isArray holding a typed array (a number[] passed as any) is converted to `any[]` by a copy at each use, so `push` and index writes go to copies and `length` reads the original
+// An `any` (or `unknown`) that Array.isArray narrows is `any[]`, which D-089 takes as "the
+// array itself", true of arrays of dynamic values (parsed JSON) but not of a typed array
+// passed as any: each use converts it by a copy (D-071), so writes are lost and Node's
+// output differs silently (found by H09b4b1 review round 1's x01, x02, a07; pre-existing,
+// the base too); parsed JSON, an array of dynamic values, keeps its writes. C66's fix (H04)
+// keeps other narrowed dynamic values as they are.
+function grow(a: any): number {
+  if (Array.isArray(a)) {
+    a.push(1);
+    return a.length;
+  }
+  return -1;
+}
+const nums = [5, 6];
+console.log(grow(nums), nums);
+function viaGuard(a: any): string {
+  if (Array.isArray(a)) {
+    a.push(1);
+    a[0] = 9;
+    return a.length + " " + JSON.stringify(a);
+  }
+  return "-";
+}
+function unknownGuard(u: unknown): string {
+  if (Array.isArray(u)) {
+    u.push("z");
+    return String(u.length);
+  }
+  return "-";
+}
+const n1 = [5];
+const words = ["a", "b"];
+console.log(viaGuard(n1), n1, unknownGuard(words), words);
+const parsed: any = JSON.parse("[1, 2]");
+console.log(grow(parsed), parsed);
+
+// expect:
+// 3 [ 5, 6, 1 ]
+// 2 [9,1] [ 9, 1 ] 3 [ 'a', 'b', 'z' ]
+// 3 [ 1, 2, 1 ]

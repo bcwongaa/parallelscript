@@ -378,6 +378,9 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 			return l.boundMethod(property, m, source, nil, name, false, nil)
 		}
 	}
+	if isObjectOrUnionOfObjects(source.Type()) {
+		return l.missingProperty(source, name) // one a narrowing added (C222, C223)
+	}
 	l.notSupportedYet(property, fmt.Sprintf("destructuring the property `%s` of a %s is", name, source.Type()))
 	return nil
 }

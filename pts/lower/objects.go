@@ -609,6 +609,9 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 		for _, name := range part.names {
 			field := shape.Field(name)
 			read := propertyOf(source, name)
+			if read == nil && field != nil && isObjectOrUnionOfObjects(source.Type()) {
+				read = l.missingProperty(source, name) // one a narrowing added (C222, C223)
+			}
 			if field == nil || read == nil {
 				of := part.of
 				if of == nil {
@@ -860,10 +863,12 @@ func (l *lowerer) isShapeProperty(member *ast.Node) bool {
 }
 
 // isMappedProperty reports whether a property access reads a property of a mapped object
-// type (`Partial<Point>`), which has no declaration of its own (D-065).
+// type (`Partial<Point>`), which has no declaration of its own (D-065), also one that `in`
+// added to a class's object (`Animal & Record<"bark", unknown>`, C222).
 func (l *lowerer) isMappedProperty(node *ast.Node) bool {
 	symbol := l.memberSymbol(node)
-	return symbol != nil && symbol.CheckFlags&ast.CheckFlagsMapped != 0 && l.isObjectType(l.typeAt(node.Expression()))
+	t := l.typeAt(node.Expression())
+	return symbol != nil && symbol.CheckFlags&ast.CheckFlagsMapped != 0 && (l.isObjectType(t) || t.Flags()&checker.TypeFlagsIntersection != 0)
 }
 
 // isObjectTypeMethod reports whether a member declaration declares a method of an object
@@ -916,6 +921,16 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 			}
 			return &ir.ClassCast{X: object, To: iface}, iface.Field(name)
 		}
+		if t.Field(name) == nil && t.AccessorField(name, ir.Getter) == nil && t.AccessorField(name, ir.Setter) == nil {
+			return object, nil // a property that `in` added to a class's object (C222): found at run time
+		}
+	case *ir.Union:
+		if isUnionOfObjects(t) {
+			// An instance's union type argument that a discriminant narrowed through the
+			// constraint to a member it doesn't have (`Ci` for `T = Sq | Tr` of `T extends Sq
+			// | Ci | Tr`): found at run time (valueProperty), as a lie reaches it.
+			return object, nil
+		}
 	}
 	l.notSupportedYet(node, fmt.Sprintf("a property of an object type on a %s is", object.Type()))
 	return nil, nil
@@ -954,10 +969,13 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node, in: l.function})
 		return l.interfaceCast(value, target.(*ir.Interface), node)
 	} else if l.isReferenceNarrowedTo(node, target) {
-		// tsc narrowed it through a type parameter's union constraint to a member that the
-		// instance's type isn't (`x` is an Sq after `x.kind === "sq"` for `T extends Sq |
-		// Ci`, in the instance for Ci): only a cast that lied reaches it, with the value it
-		// holds, which converts with a check as a dynamic value does (C223).
+		// tsc narrowed it to a type that its value's type doesn't provide: by a type
+		// predicate to an intersection (`x` is an `A & B` after `isB(x)` for an `x: A`), or
+		// through a type parameter's union constraint to a member that the instance's type
+		// isn't (`x` is an Sq after `x.kind === "sq"` for `T extends Sq | Ci`, in the
+		// instance for Ci, which only a cast that lied reaches): the value it holds, which
+		// converts with a check as a dynamic value does (C223), keeping the object where its
+		// layout provides the type.
 		return l.checkedConversion(value, target, node)
 	} else {
 		l.notSupportedYet(node, fmt.Sprintf("using a `%s` as a `%s`, whose `%s` it doesn't provide with the same types, is", value.Type(), target, missing))
@@ -969,7 +987,7 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 
 // isReferenceNarrowedTo reports whether node is a variable, property or element that tsc
 // types as target there, which objectCast asks where its value's type doesn't provide
-// target: a narrowing that the instance's types don't follow.
+// target: a narrowing that the value's IR type doesn't follow.
 func (l *lowerer) isReferenceNarrowedTo(node *ast.Node, target ir.Type) bool {
 	switch node = ast.SkipParentheses(node); node.Kind {
 	case ast.KindIdentifier, ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:

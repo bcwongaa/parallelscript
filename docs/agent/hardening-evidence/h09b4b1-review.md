@@ -57,3 +57,67 @@ Snapshots: `/tmp/h09b4b/s2/snap1` (the change as first reviewed) and `/tmp/h09b4
 > Everything is in `/tmp/h09b4b/s2/review1-probes.tar.gz` (`review1/INDEX.txt` maps each probe to its finding and has the per-CLI status table; probes in `probes/`, outputs in `out/<probe>/`, the runner scripts and the bench file). I deleted the built binaries and caches. Probes s03, b05, b11 and b06 test things that are unsupported or intentional and are kept only for the record.
 >
 > VERDICT: not ready
+
+## Round 2 (snap4)
+
+Snapshot: `/tmp/h09b4b/s2/snap4`, main at `03cd1cba0` plus round 1's fixes (committed as the round-1 fix commit). Archive: [h09b4b1-review2-probes.tar.gz](h09b4b1-review2-probes.tar.gz) (`review2/INDEX.txt`).
+
+> I'd hold the slice for one finding: the round-1 change to object spreads now gives silently wrong output in a case base and snap3 refused to compile. Every round-1 finding you said was fixed now matches Node on snap4, and I found no other regressions.
+>
+> ### 1. Round-1 probes re-run on snap4
+> - **Now matching Node** (all differed on snap3): a06, b07, b09, c02, c04, c05, c06, c08, c10, i01, i05, i06, i08, i10, o06, s02 (the `==` part), s05.
+> - **Still different, with changed output, as expected:**
+>   - a03 and a05: only the C228 parts are left (callbacks and `for…of` over a mixed array).
+>   - c03 and c07: the lies (objects without Sq's `side`, cast to Ci or Sq) now throw D-070's checked-cast TypeError.
+>   - i02: only C233 is left (`converting C to A | B`).
+> - **Unchanged and as recorded:** b01 and b14 (C232), a07, x01 and x02 (C231), a01 and a04 (C228). b06, b11 and s03 are out of scope or invalid, as in round 1.
+> - **New tests:** each one fails on base and matches Node on snap4. The exception is `narrowed_property_equality`, which passes on base; that is its purpose, since it guards the snap1 regression.
+>
+> ### 2. Findings
+>
+> **R2-F1 · Medium · new silent wrong output (introduced by the round-1 change).** Spreading an object narrowed by `"k" in x` copies a prototype getter's value or a method in as an own property. The `missingProperty` fallback in `spreadObject` (`/tmp/h09b4b/s2/snap4/pts/lower/objects.go:612`) reads with DynamicGet, which follows the prototype. A JS spread copies own enumerable properties only.
+> - Repro `probes/g03_in_spread_getter.pts`: an interface `NoK { m }`, a class `G` with `get k()`, a class `M` with a method `k()`, and `{ ...x }` after `"k" in x`.
+> - Node: `copy.k undefined own m … copy.k undefined own m`.
+> - snap4: `copy.k number own m,k … copy.k function own m,k`.
+> - base and snap3: PTS1001.
+> - Destructuring (`const { k } = x`) is correct, because it reads through the prototype in JS too.
+> - There is no own-property read at run time to reuse: `{ ...anyValue }` is itself PTS1001 (probe `g09`).
+> - Suggested fix: a run-time "own data property" read for spreads that gives undefined for accessors and methods. Even then `Object.keys(copy)` would still list k, because shapes have fixed fields. If that's too much, keep PTS1001 for spreads or record the gap with a skipped test.
+>
+> **R2-F2 · Low · worse than snap3 (introduced by the round-1 F5 fix).** A stale chain narrowed to undefined and passed where `string | undefined` goes now throws.
+> - Repro `probes/w11_stale_chain_typed_context.pts`: `o: { v?: string } | undefined`, then `if (o?.v === undefined) { change(); return opt(o?.v); }`, where `change` sets `o.v`.
+> - Node and snap3: `opt s opt undefined`. snap4: `caught Expected undefined, got string`. base: PTS1001.
+> - Suggested fix: where the context takes undefined, convert the chain with a check to the context's type (`string | undefined`, `number | undefined`) rather than to the narrowed type. That keeps o06 working and runs w11 as Node.
+>
+> **R2-F3 · Low · pre-existing, C227's family.** An optional call on an element of an instance's `number[] & string[]` is PTS1001 `converting undefined to string`.
+> - Repro `probes/a10_intersection_element_chain.pts`: `x[0]?.toUpperCase() ?? "none"` for T = `number[]`. Base gives a different PTS1001. The mixed-array control a11 matches Node.
+> - Suggested fix: in `optionalChainFrom`, a dynamic object should widen the result with undefined, as `mayBeMissing` does.
+>
+> **R2-F4 · Low · pre-existing.** A rest element after `in` is PTS1001 with a misleading message: `const { m, ...rest } = x` gives "rest properties holding the method `k` are not supported yet", though k isn't a method. Repro `probes/d01_in_destructure_forms.pts`; without the rest element (d03) it matches Node.
+>
+> **R2-F5 · Low · pre-existing, C222's family.** On a union where one member declares k as a string and the other member's object holds a number after `"k" in x`:
+> - `x.k` throws `Cannot read property k of Object as string: it is declared number`. tsc types `x.k` as unknown and Node reads 5. Probe `g04`, same on base.
+> - A spread of a union narrowed by `in` uses one member's shape and throws. Probe `g07`, same on base.
+>
+> **Notes (not silent, so not findings, but new run-time behaviour worth a line in D-196).** Several former PTS1001s are now TypeErrors where Node succeeds:
+> - Writing `a.bark` after `in` where the subclass has `bark` as a method or a number field (probe `g02`). That is D-072's checked writes, and class methods are fixed.
+> - Writing an absent property on a class object through `C & Partial<Extra>`: "object is not extensible" (probes `w06`, `w08`). The read in w08 now matches Node.
+>
+> **Checked and matching Node on snap4:**
+> - g01: getter, method and field subclasses read after `in`.
+> - d02 and d03: constraint and `in` destructuring with defaults and renames.
+> - w01: `switch` on a boxed discriminant with numeric enum, string enum, -0, NaN, non-constant cases, fallthrough, a default in the middle, and a hot loop.
+> - w02 and w03: `for…of` over `as any` typed arrays, strings, maps, sets, generators, and over erased generic iterables.
+> - w04: chains where every value goes (`console.log`, an unknown parameter, `??`, an `any` const).
+> - w07 and w10: mapped intersections, including `Readonly<C> & Partial<X>`.
+> - b15: `Record` keyed by a union of brands, a number brand, and `Partial<Record<Id, V>>`.
+>
+> ### 3. Code quality of the new code
+> - **Q1:** The comments on `shapeProperty`'s new class and union branches (`objects.go:924–933`) and on `isMappedProperty` name only `in` and the constraint. The branches also cover any class object reached through a mapped or shape property it lacks, so `C & Partial<Extra>` reads now compile (w08). Say so in D-196 and add a test.
+> - **Q2:** There are now four near-synonymous predicates: `takesAnyValue`, `takesEveryValue`, `takesAnyValueAsIs` and `testsAnyValue`. `takesAnyValue`'s doc says "any value" but it means "undefined or any/unknown". Renaming it to something like `takesUndefined` would make `optionalChainFrom`'s condition readable.
+> - **Q3:** The `forOfStatement` comment names only C227, but it boxes every iterable typed as any. That's a no-op for values that are already dynamic; worth one more clause in the comment.
+> - **Missing tests:** g03's spread behaviour (fixed, or skipped as a known gap), w11, and the w08 read.
+>
+> Probes, outputs and the runner are in `/tmp/h09b4b/s2/review2-probes.tar.gz`; `review2/INDEX.txt` maps each probe to its finding and has the per-CLI status table. I built no binaries and removed the caches.
+>
+> VERDICT: not ready (R2-F1 needs a fix, or a recorded gap with a skipped test; everything else is low or already recorded)

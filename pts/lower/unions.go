@@ -175,17 +175,17 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 }
 
 // testsAnyValue reports whether node is an operand of a test that takes any value:
-// `typeof`'s, `===`'s, `!==`'s, or instanceof's left.
+// `typeof`'s, an equality's (`===`, `!==`, `==`, `!=`), instanceof's left, or a switch's.
 func testsAnyValue(node *ast.Node) bool {
 	for node.Parent.Kind == ast.KindParenthesizedExpression {
 		node = node.Parent
 	}
 	switch parent := node.Parent; parent.Kind {
-	case ast.KindTypeOfExpression:
+	case ast.KindTypeOfExpression, ast.KindSwitchStatement:
 		return true
 	case ast.KindBinaryExpression:
 		switch binary := parent.AsBinaryExpression(); binary.OperatorToken.Kind {
-		case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken:
+		case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken, ast.KindEqualsEqualsToken, ast.KindExclamationEqualsToken:
 			return true
 		case ast.KindInstanceOfKeyword:
 			return binary.Left == node

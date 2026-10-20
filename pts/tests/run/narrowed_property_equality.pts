@@ -1,0 +1,58 @@
+// A narrowed property, an optional or nullable property, a class's field and a variable
+// another function assigns, compared with `===` and `!==` after their narrowing, also in a
+// loop (H09b4b1 review round 1's r01, r03, r05): such a read may have changed since its
+// narrowing (D-089, D-140), so it is tested as what it holds (C230). The first version of
+// that rule handed the equality the declared union: PTS1001 (`converting number | string to
+// number`), where the base compiled them.
+function typed(o: { n: number | string }): number {
+  if (typeof o.n === "number") {
+    if (o.n === 1) return 1;
+    if (o.n !== 2) return 3;
+  }
+  return 0;
+}
+console.log(typed({ n: 1 }), typed({ n: 2 }), typed({ n: 5 }), typed({ n: "1" }));
+interface Opts {
+  retries?: number;
+  timeout: number | null;
+}
+class Timer {
+  id: number | undefined;
+  stop(): string {
+    if (this.id !== undefined && this.id === 0) return "zero";
+    return "other";
+  }
+}
+function options(o: Opts): string {
+  let s = "";
+  if (o.retries !== undefined && o.retries === 3) s += "three ";
+  if (o.timeout !== null && o.timeout !== 0) s += "timeout ";
+  if (o.retries != null) {
+    for (let i = 0; i < 5; i++) if (o.retries === i) s += "at" + i + " ";
+  }
+  return s;
+}
+const t = new Timer();
+t.id = 0;
+console.log(options({ retries: 3, timeout: 5 }), options({ timeout: null }), t.stop());
+let shared: number | null = 3;
+function set(): void {
+  shared = 4;
+}
+function local(x: number | null): string {
+  if (x !== null && x === 3) return "three";
+  return "other";
+}
+function module(): string {
+  if (shared !== null && shared === 3) return "shared three";
+  return "shared other";
+}
+console.log(local(3), local(null), module());
+set();
+console.log(module());
+
+// expect:
+// 1 0 3 0
+// three timeout at3   zero
+// three other shared three
+// shared other

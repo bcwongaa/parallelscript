@@ -4,23 +4,27 @@
 // array of no elements has: there x is read dynamically (C227, H09b4a review round 2's
 // i01), as a plain number[] is that the predicate narrows the same way. Each was PTS1001
 // (`` `x.length` is not supported yet ``, `calling `x.join``), and taking `number[] &
-// string[]` as a number[] read `x[0].length` from a double (PTS9001).
+// string[]` as a number[] read `x[0].length` from a double (PTS9001); `for…of` over the
+// dynamic one was PTS1001 (`converting number to string`, H09b4b1 review round 1's a06).
+// (`array_type_intersections.pts` has the reads' other forms; iterating a mixed array
+// narrowed to string[] is C228's: `narrowed_array_aliases.pts`.)
 function isStrings(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((e) => typeof e === "string");
 }
 function takes(xs: string[]): number {
   return xs.length;
 }
-function f<T>(x: T): string {
+function iterate<T>(x: T): string {
   if (isStrings(x)) {
-    const first = x.length > 0 ? x[0].length : -1;
-    return "strings " + x.join("-") + " " + first;
+    let out = "n=" + x.length;
+    for (const s of x) out += " " + s.toUpperCase();
+    const copy = [...x];
+    const [first] = x;
+    return out + " copy " + copy.length + " first " + first;
   }
   return "other";
 }
-const mixed: (string | number)[] = ["ab", "c"];
-const nums: number[] = [];
-console.log(f(mixed), f<(string | number)[]>([1, "a"]), f(nums), f([3]));
+console.log(iterate<number[]>([]), iterate<number[]>([1]), iterate<string[]>(["ab", "c"]));
 function grow<T>(x: T): string {
   if (isStrings(x)) {
     const upper = x.length > 0 ? x[0].toUpperCase() : "-";
@@ -40,6 +44,6 @@ function plain(ns: number[]): string {
 console.log(plain([]), plain([1, 2]));
 
 // expect:
-// strings ab-c 2 other strings  -1 other
+// n=0 copy 0 first undefined other n=2 AB C copy 2 first ab
 // AB 2 2 abz [ 'ab', 'z' ] other
 // plain strings 0  -1 0 plain other
