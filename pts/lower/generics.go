@@ -251,9 +251,11 @@ func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
 }
 
 // includes reports whether every value of member is one of t's, for narrowedInstance: it
-// is assignable, or both are arrays (a `readonly number[]` is an `any[]` to Array.isArray).
+// is assignable, or both are arrays whose elements are (a `readonly number[]` is an `any[]`
+// to Array.isArray; a `number[]` isn't a `string[]`).
 func (l *lowerer) includes(t, member *checker.Type) bool {
-	return l.checker.IsTypeAssignableTo(member, t) || l.checker.IsArrayType(member) && l.checker.IsArrayType(t)
+	return l.checker.IsTypeAssignableTo(member, t) || l.checker.IsArrayType(member) && l.checker.IsArrayType(t) &&
+		l.checker.IsTypeAssignableTo(l.checker.GetElementTypeOfArrayType(member), l.checker.GetElementTypeOfArrayType(t))
 }
 
 // instantiateMade is the type of a value that code makes (an array or object literal, a

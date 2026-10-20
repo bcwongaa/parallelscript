@@ -62,7 +62,8 @@ func (l *lowerer) takesAnyValueAsIs(node *ast.Node) bool {
 			return true
 		}
 		switch parent := value.Parent; { // an element or property of a literal that goes where any value does: `console.log([x])`
-		case parent.Kind == ast.KindArrayLiteralExpression || parent.Kind == ast.KindSpreadElement || parent.Kind == ast.KindParenthesizedExpression:
+		case parent.Kind == ast.KindArrayLiteralExpression || parent.Kind == ast.KindParenthesizedExpression ||
+			parent.Kind == ast.KindSpreadElement && value.Kind == ast.KindArrayLiteralExpression: // a spread of the read itself iterates it
 			value = parent
 			continue
 		case parent.Kind == ast.KindShorthandPropertyAssignment || parent.Kind == ast.KindPropertyAssignment && parent.Initializer() == value:
@@ -186,9 +187,11 @@ func (l *lowerer) isDeadRead(node *ast.Node) bool {
 	return l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, l.instantiate(l.testedType(narrowed))}))
 }
 
-// testedType is narrowed, tsc's narrowed type of a read, without the instance's type
-// parameters it intersects (`T & number` is number, `(T & undefined) | T` unknown): what the
-// tests that narrowed the read say of its value. Others stay (`keyof T`, `T[K] & number`).
+// testedType is narrowed, tsc's narrowed type of a read, without the members of its
+// intersections that mention the instance's type parameters (`T & number` is number,
+// `T["a"] & number` too, `(T & undefined) | T` unknown): what the tests that narrowed the
+// read say of its value; such members are the declared type's, which the tests may have
+// narrowed before the value changed. A type that isn't an intersection stays (`keyof T`).
 func (l *lowerer) testedType(narrowed *checker.Type) *checker.Type {
 	switch {
 	case slices.Contains(l.subst.parameters, narrowed):
@@ -200,13 +203,23 @@ func (l *lowerer) testedType(narrowed *checker.Type) *checker.Type {
 		}
 		return l.checker.GetUnionType(members)
 	case narrowed.Flags()&checker.TypeFlagsIntersection != 0:
-		members := slices.DeleteFunc(slices.Clone(narrowed.Types()), func(member *checker.Type) bool { return slices.Contains(l.subst.parameters, member) })
+		members := slices.DeleteFunc(slices.Clone(narrowed.Types()), l.mentionsParameters)
 		if len(members) == 0 {
 			return l.checker.GetUnknownType()
 		}
 		return l.checker.PtsIntersectionType(members)
 	}
 	return narrowed
+}
+
+// mentionsParameters reports whether t mentions one of the instance's type parameters:
+// replacing them by unknown changes it.
+func (l *lowerer) mentionsParameters(t *checker.Type) bool {
+	unknowns := make([]*checker.Type, len(l.subst.parameters))
+	for i := range unknowns {
+		unknowns[i] = l.checker.GetUnknownType()
+	}
+	return l.checker.PtsInstantiateType(t, l.subst.parameters, unknowns) != t
 }
 
 // deadTest is the substitution isDeadRead tests reads with: the instance's, each type
@@ -257,20 +270,21 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 // has none.
 func (l *lowerer) isDynamicIRType(t *checker.Type) bool {
 	var irType ir.Type
+	reports := l.reports
 	l.quietly(func() bool {
 		irType = l.irType(t, l.subst.declaration)
-		return irType != nil
+		return irType != nil && l.reports == reports
 	})
-	return irType == nil || irType == ir.Value
+	return irType == nil || irType == ir.Value || l.reports != reports
 }
 
 // maxLiteralFreeDepth bounds how deep literalFree looks into a type's properties.
 const maxLiteralFreeDepth = 4
 
 // literalFree reports whether t holds no literal types (`{ kind: "sq" }`'s, which shares
-// its IR type with `{ kind: "ci" }`'s) and no values of dynamic IR types (a branded
-// primitive, a promise, `{}`), in its type arguments and properties: then no other type of
-// its IR type is narrower. A class of the program is its own IR type.
+// its IR type with `{ kind: "ci" }`'s) and no types of dynamic values' IR type other than
+// any and unknown (a branded primitive, a promise, `{}`, a recursive union), in its type
+// arguments, properties and call signatures: then no other type of its IR type is narrower. A class of the program is its own IR type.
 func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, depth int) bool {
 	if seen[t] {
 		return true
@@ -283,11 +297,11 @@ func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, dept
 	case flags&checker.TypeFlagsPrimitive != 0:
 		return flags&(checker.TypeFlagsLiteral|checker.TypeFlagsEnumLike|checker.TypeFlagsTemplateLiteral|checker.TypeFlagsStringMapping|checker.TypeFlagsUniqueESSymbol) == 0
 	case flags&checker.TypeFlagsUnion != 0:
-		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.literalFree(member, seen, depth) })
-	case flags&checker.TypeFlagsObject == 0 || depth > maxLiteralFreeDepth:
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.literalFree(member, seen, depth) }) && !l.isDynamicIRType(t)
+	case flags&checker.TypeFlagsObject == 0 || depth > maxLiteralFreeDepth: // a type parameter (a generic signature's), an intersection
 		return false
-	case l.isPromiseType(t) || l.isIteratorType(t) || l.isIterableType(t) || l.isAsyncIteratorType(t) || l.isTimerType(t) || l.checker.IsEmptyAnonymousObjectType(t):
-		return false
+	case l.isDynamicIRType(t):
+		return false // `Json` inside `() => Json` shares `() => unknown`'s IR type, as a promise or `{}`
 	}
 	if t.ObjectFlags()&checker.ObjectFlagsReference != 0 {
 		for _, argument := range l.checker.GetTypeArguments(t) {

@@ -4,7 +4,8 @@
 // narrow a value to `T & number`, never for a string T, while the value really is a number,
 // which its declared type `T | number` allows. Such code isn't dead (D-195: the declared type
 // bounds what stores can put there, the tests' types alone narrow it), and runs as in Node
-// (H09b4a review round 1, F1). The base ran these too.
+// (H09b4a review round 1, F1), as do `T["a"] | number` and `T[number] | number` (round 2,
+// R2-F1). The base ran these too.
 function f<T>(x: T): string {
   let y: T | number = x;
   const reset = () => {
@@ -117,6 +118,33 @@ async function main(): Promise<void> {
   }
 }
 main();
+function staleIndexed<T extends { a: unknown }>(o: T): string {
+  let v: T["a"] | number = o.a;
+  const reset = () => {
+    v = 5;
+  };
+  if (typeof v !== "number") {
+    reset();
+    if (typeof v === "number") {
+      return "indexed now " + (v + 1);
+    }
+  }
+  return "kept";
+}
+function staleElement<T extends unknown[]>(xs: T): string {
+  let v: T[number] | number = xs[0];
+  const reset = () => {
+    v = 5;
+  };
+  if (typeof v !== "number") {
+    reset();
+    if (typeof v === "number") {
+      return "element now " + (v + 1);
+    }
+  }
+  return "kept";
+}
+console.log(staleIndexed({ a: "s" }), staleIndexed({ a: 1 }), staleElement(["s"]));
 
 // expect:
 // number now 6
@@ -126,4 +154,5 @@ main();
 // last doubled 6
 // no numbers
 // became a number 5
+// indexed now 6 kept element now 6
 // loaded 42

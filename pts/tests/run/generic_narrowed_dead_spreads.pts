@@ -1,0 +1,38 @@
+// A spread of a dead read iterates it, so its unit is a trap (D-195), even where the spread
+// goes where any value does (`console.log(...x)`, an `unknown[]`); a spread of an array
+// literal that holds the read doesn't iterate the read, which goes there as any value
+// (H09b4a review round 2, R2-F4: the round-2 snapshot let a dead `...x` through, PTS1001
+// `spreading a string`).
+function lyingIsNum(v: unknown): v is number {
+  return typeof v === "string";
+}
+function show<T>(x: T): string {
+  if (Array.isArray(x)) {
+    console.log("items:", ...x);
+    return "array";
+  }
+  return "other";
+}
+function all<T>(x: T): string {
+  if (Array.isArray(x)) {
+    const values: unknown[] = [...x, 0];
+    return "array " + values.length;
+  }
+  return "other";
+}
+function literal<T>(x: T): string {
+  if (lyingIsNum(x)) {
+    const values: unknown[] = [x, ...[x]];
+    return "values " + values.length;
+  }
+  return "honest";
+}
+console.log(show("s"), show([1, 2]));
+console.log(all("s"), all([1, 2]));
+console.log(literal("s"), literal(1));
+
+// expect:
+// items: 1 2
+// other array
+// other array 3
+// values 2 honest
