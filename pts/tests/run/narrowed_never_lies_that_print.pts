@@ -1,0 +1,117 @@
+// Guard (passes on the base): a lying type predicate or assertion function lets plain code run
+// that tsc narrows to never (`string & number`) or to an intersection no value has (`number &
+// unknown[]`, `number[] & Pt`, `Pt & Other`), and the region only uses the value as any
+// value (a console argument, String, JSON.stringify, a template, typeof, `===`, `+` with a
+// string, an `unknown` parameter, `as any`), sends it where never goes (`assertNever(x)`, a
+// `never` const) or casts it back to its declared type (`x as string`, `x as unknown as
+// string`). Node runs each with the value as it is, and so must PTS (H09b4b2, C220): a trap
+// is only for a lie's value used as its narrowed type.
+class Pt {
+  constructor(public v: number) {}
+}
+class Other {
+  constructor(public w: number) {}
+}
+function lyingIsNum(v: unknown): v is number {
+  return true;
+}
+function lyingIsArr(v: unknown): v is unknown[] {
+  return true;
+}
+function lyingIsPt(v: unknown): v is Pt {
+  return true;
+}
+function lyingIsOther(v: unknown): v is Other {
+  return true;
+}
+function lyingIsNull(v: unknown): v is null {
+  return true;
+}
+function lyingAssertNum(v: unknown): asserts v is number {}
+function show(v: unknown): string {
+  return "show " + String(v);
+}
+function assertNever(x: never): never {
+  throw new Error("unexpected " + JSON.stringify(x));
+}
+
+function strings(x: string): string {
+  if (lyingIsNum(x)) {
+    console.log("  string", x, String(x), JSON.stringify(x), `${x}`, typeof x, x === null, "+" + x, show(x), x as any);
+  }
+  return "strings " + x;
+}
+function numbers(x: number): string {
+  if (lyingIsArr(x)) {
+    console.log("  number", x, String(x), JSON.stringify(x), `${x}`, typeof x, x === null, "+" + x, show(x), x as any);
+  }
+  return "numbers " + x;
+}
+function arrays(x: number[]): string {
+  if (lyingIsPt(x)) {
+    console.log("  array", x, String(x), JSON.stringify(x), `${x}`, typeof x, x === null, "+" + x, show(x), x as any);
+  }
+  return "arrays " + x.length;
+}
+function points(x: Pt): string {
+  if (lyingIsOther(x)) {
+    console.log("  point", x, String(x), JSON.stringify(x), `${x}`, typeof x, x === null, "+" + x, show(x), x as any);
+  }
+  return "points " + x.v;
+}
+function nulls(x: string): string {
+  if (lyingIsNull(x)) {
+    console.log("  null", x, String(x), JSON.stringify(x), typeof x, x === null, "+" + x, show(x));
+  }
+  return "nulls " + x;
+}
+function asserted(x: string): string {
+  lyingAssertNum(x);
+  console.log("  asserted", x, String(x), JSON.stringify(x), `${x}`, typeof x, "+" + x, show(x));
+  return "asserted";
+}
+function neverConst(x: string): string {
+  if (lyingIsNum(x)) {
+    const u: never = x;
+    return "never const " + JSON.stringify(u) + " " + String(u);
+  }
+  return "kept";
+}
+function neverArgument(x: string): string {
+  if (lyingIsNum(x)) {
+    return assertNever(x);
+  }
+  return "kept";
+}
+function castsBack(x: string): string {
+  if (lyingIsNum(x)) {
+    return "casts " + (x as string).length + " " + (x as unknown as string).toUpperCase() + " " + String(x as any);
+  }
+  return "kept";
+}
+
+for (const f of [() => strings("s"), () => numbers(2), () => arrays([1, 2]), () => points(new Pt(3)), () => nulls("n"),
+  () => asserted("a"), () => neverConst("c"), () => neverArgument("g"), () => castsBack("k")]) {
+  try {
+    console.log(f());
+  } catch (error: any) {
+    console.log("caught", error.message);
+  }
+}
+
+// expect:
+//   string s s "s" s string false +s show s s
+// strings s
+//   number 2 2 2 2 number false +2 show 2 2
+// numbers 2
+//   array [ 1, 2 ] 1,2 [1,2] 1,2 object false +1,2 show 1,2 [ 1, 2 ]
+// arrays 2
+//   point Pt { v: 3 } [object Object] {"v":3} [object Object] object false +[object Object] show [object Object] Pt { v: 3 }
+// points 3
+//   null n n "n" string false +n show n
+// nulls n
+//   asserted a a "a" a string +a show a
+// asserted
+// never const "c" c
+// caught unexpected "g"
+// casts 1 K k

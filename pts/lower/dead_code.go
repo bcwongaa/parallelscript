@@ -21,17 +21,22 @@ import (
 // statement, a branch of `?:`, the right operand of `&&` or `||`, an arrow function's
 // expression body) lowers as a trap that throws TypeError, which only a type predicate,
 // assertion, cast or declared result that lied can reach, instead of code that the
-// instance's types can't express. Code that tsc already narrows to never in the generic
-// code (an exhaustive switch's default) is the program's and lowers as before.
+// instance's types can't express.
+//
+// Code that tsc itself narrows to a type no value of the read's declared type has (plain
+// code's `typeof x === "number"` for an `x: string`, generic code's for an `x: T & string`)
+// is dead the same way where the narrowing can't be stale (C220, D-197): the read is of a
+// variable no other function assigns, read in its own function, so every test that
+// narrowed it saw the value it holds, and its declared type holds every value of its IR
+// type (an enum, holding any number, or a literal union, doesn't). Where a call or suspension tsc doesn't follow may
+// have changed it since (a property, an element, a variable another function assigns), or
+// it is a loose local that may be undefined, it may be live and reads the value it holds
+// (narrowed). Uses that take its declared type (a
+// cast back to it, an `assertNever`, a log) keep reading it as before (takesAnyValueAsIs).
 
 // deadRead is a read in unit, evaluated where unit starts with no narrowing in between,
-// that the instance being lowered narrows to a type no value has, though tsc's narrowed
-// type in the generic code and the variable's or property's declared type have values for
-// the instance: unit can't run. It is nil outside instances and if unit has no such read.
+// that has no value there (isDeadRead): unit can't run. It is nil if unit has no such read.
 func (l *lowerer) deadRead(unit *ast.Node) *ast.Node {
-	if l.subst == nil || len(l.subst.parameters) == 0 {
-		return nil
-	}
 	var dead *ast.Node
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
@@ -71,6 +76,9 @@ func (l *lowerer) takesAnyValueAsIs(node *ast.Node) bool {
 			continue
 		}
 		break
+	}
+	if l.goesAsItsDeclaredType(node) {
+		return true
 	}
 	switch parent := node.Parent; parent.Kind {
 	case ast.KindTypeOfExpression, ast.KindTemplateSpan:
@@ -140,42 +148,26 @@ func allChildren(node *ast.Node) []*ast.Node {
 }
 
 // isDeadRead reports whether node reads a variable or property (`o.v`, a tuple's `t[0]`)
-// that has no value there for the instance being lowered: no value of its declared type
-// has the type of the tests that narrow it (their intersection: `string & number` for a
-// string T's `x` after `typeof x === "number"`, `string & null` and `Ci & Sq` where tsc
-// narrows a `T extends string | null` to null, or a `T extends Sq | Ci` to Sq, through the
-// constraint), while in the generic code some value has tsc's narrowed type, and the
-// declared type has values for the instance (an element of a `never[]`, of type never, is
-// undefined). The tests' type is tsc's narrowed type without the instance's type parameters
-// it intersects (testedType): tsc keeps a narrowing across what it doesn't follow (a closure's assignment, a
-// call that changes a property, an await, a getter), so the value may have changed since,
-// though never to one its declared type doesn't have, since stores are typed and checked.
+// that has no value there: tsc narrows it to a type no value of its declared type has,
+// where it holds no value its tests didn't see (narrowsToNoValue, mayHoldUntestedValue),
+// or the instance being lowered does. For an instance, no value of its declared type has the type of the tests
+// that narrow it (their intersection: `string & number` for a string T's `x` after `typeof
+// x === "number"`, `string & null` and `Ci & Sq` where tsc narrows a `T extends string |
+// null` to null, or a `T extends Sq | Ci` to Sq, through the constraint), while in the
+// generic code some value has tsc's narrowed type, and the declared type has values for
+// the instance (an element of a `never[]`, of type never, is undefined). The tests' type is
+// tsc's narrowed type without the instance's type parameters it intersects (testedType):
+// tsc keeps a narrowing across what it doesn't follow (a closure's assignment, a call that
+// changes a property, an await, a getter), so the value may have changed since, though
+// never to one its declared type doesn't have, since stores are typed and checked.
 func (l *lowerer) isDeadRead(node *ast.Node) bool {
-	var symbol *ast.Symbol
-	switch node.Kind {
-	case ast.KindIdentifier:
-		if ast.IsDeclarationName(node) && node.Parent.Kind != ast.KindShorthandPropertyAssignment {
-			return false
-		}
-		if symbol = l.readSymbol(node); symbol == nil || symbol.Flags&ast.SymbolFlagsVariable == 0 {
-			return false
-		}
-	case ast.KindPropertyAccessExpression:
-		if symbol = l.checker.GetSymbolAtLocation(node.Name()); symbol == nil || symbol.Flags&ast.SymbolFlagsProperty == 0 {
-			return false
-		}
-	case ast.KindElementAccessExpression: // `t[0]` of a tuple, `o["v"]`: a key that names a property
-		if symbol = l.checker.GetSymbolAtLocation(node.AsElementAccessExpression().ArgumentExpression); symbol == nil || symbol.Flags&ast.SymbolFlagsProperty == 0 {
-			return false
-		}
-	default:
+	declared, narrowed := l.readTypes(node)
+	switch {
+	case declared == nil:
 		return false
-	}
-	if ast.IsWriteOnlyAccess(node) || ast.IsOptionalChain(node) { // a chain's own undefined isn't the property's
-		return false
-	}
-	declared, narrowed := l.checker.GetTypeOfSymbol(symbol), l.checker.GetTypeAtLocation(node)
-	if l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})) {
+	case l.narrowsToNoValue(declared, narrowed):
+		return !l.mayHoldUntestedValue(node) && l.noValueOfItsIRTypePasses(declared, narrowed)
+	case l.subst == nil || len(l.subst.parameters) == 0 || l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})):
 		return false
 	}
 	instance := l.subst
@@ -185,6 +177,130 @@ func (l *lowerer) isDeadRead(node *ast.Node) bool {
 		return false
 	}
 	return l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, l.instantiate(l.testedType(narrowed))}))
+}
+
+// readTypes are the declared type and tsc's narrowed type of node, a read of a variable or
+// property (`o.v`, a tuple's `t[0]`, `o["v"]`), or nils if node is none: a write, an
+// optional chain (whose own undefined isn't the property's) or another expression.
+func (l *lowerer) readTypes(node *ast.Node) (declared, narrowed *checker.Type) {
+	var symbol *ast.Symbol
+	switch node.Kind {
+	case ast.KindIdentifier:
+		if ast.IsDeclarationName(node) && node.Parent.Kind != ast.KindShorthandPropertyAssignment {
+			return nil, nil
+		}
+		if symbol = l.readSymbol(node); symbol == nil || symbol.Flags&ast.SymbolFlagsVariable == 0 {
+			return nil, nil
+		}
+	case ast.KindPropertyAccessExpression: // a field or a getter
+		if symbol = l.checker.GetSymbolAtLocation(node.Name()); symbol == nil || symbol.Flags&(ast.SymbolFlagsProperty|ast.SymbolFlagsGetAccessor) == 0 {
+			return nil, nil
+		}
+	case ast.KindElementAccessExpression: // `t[0]` of a tuple, `o["v"]`: a literal key that names a property, not `o[c.key]`'s key
+		key := node.AsElementAccessExpression().ArgumentExpression
+		if !ast.IsStringOrNumericLiteralLike(key) {
+			return nil, nil
+		}
+		if symbol = l.checker.GetSymbolAtLocation(key); symbol == nil || symbol.Flags&ast.SymbolFlagsProperty == 0 {
+			return nil, nil
+		}
+	default:
+		return nil, nil
+	}
+	if ast.IsWriteOnlyAccess(node) || ast.IsOptionalChain(node) {
+		return nil, nil
+	}
+	return l.checker.GetTypeOfSymbol(symbol), l.checker.GetTypeAtLocation(node)
+}
+
+// narrowsToNoValue reports whether narrowed, tsc's narrowed type of a read, has no value
+// of declared, the read's declared type, which has values: never (`typeof x === "number"`
+// for an `x: string`, an exhausted union), or an intersection of disjoint types (`number &
+// any[]` after Array.isArray for a number, `Pt & Other` after instanceof).
+func (l *lowerer) narrowsToNoValue(declared, narrowed *checker.Type) bool {
+	return narrowed != declared && l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})) && !l.uninhabited(declared)
+}
+
+// noValueOfItsIRTypePasses reports whether no value of declared's IR type has narrowed,
+// tsc's narrowed type of a read of that declared type, where declared holds no value. For
+// never, declared holds no literal types, enum members or branded primitives (literalFree),
+// whose IR type holds values tsc's narrowing ran out of without testing (an enum's other
+// numbers, a string cast to `"up" | "down"`, an object cast to `Sq` with another kind). An
+// intersection of disjoint kinds or classes (`Color & any[]`) has no value of its IR type
+// either. In an instance, declared is for its type arguments widened (deadTest).
+func (l *lowerer) noValueOfItsIRTypePasses(declared, narrowed *checker.Type) bool {
+	if !isNever(narrowed) && !isNever(l.checker.PtsReducedType(narrowed)) {
+		return true
+	}
+	if l.subst != nil && len(l.subst.parameters) > 0 {
+		instance := l.subst
+		l.subst = l.deadTest()
+		defer func() { l.subst = instance }()
+		declared = l.instantiate(declared)
+	}
+	return l.literalFree(declared, map[*checker.Type]bool{}, 0)
+}
+
+// mayBeStale reports whether node, a reference tsc narrowed, may hold a value the tests
+// that narrowed it didn't see: it may have changed through a call tsc doesn't follow
+// (mayHaveChanged), or it is a variable assigned after its declaration and read in another
+// function than its own, which may have run in between while this one awaited or yielded.
+func (l *lowerer) mayBeStale(node *ast.Node) bool {
+	if l.mayHaveChanged(node) {
+		return true
+	}
+	symbol := l.readSymbol(node)
+	return l.assignedAnywhere[symbol] && functionOf(symbol.ValueDeclaration) != functionOf(node)
+}
+
+// mayHoldUntestedValue reports whether node, a reference tsc narrowed, may hold a value
+// its tests didn't see (mayBeStale), or one its declared type leaves out: a loose local's
+// undefined (`const [a, b] = xs` past xs's end, D-090, D-172).
+func (l *lowerer) mayHoldUntestedValue(node *ast.Node) bool {
+	return l.mayBeStale(node) || node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node))
+}
+
+// narrowsReadToNoValue reports whether node is a read that tsc narrows to a type no value
+// of its declared type has (narrowsToNoValue).
+func (l *lowerer) narrowsReadToNoValue(node *ast.Node) bool {
+	declared, narrowed := l.readTypes(node)
+	return declared != nil && l.narrowsToNoValue(declared, narrowed)
+}
+
+// goesAsItsDeclaredType reports whether node is a read that tsc narrows to a type no value
+// of its declared type has (narrowsToNoValue), where its declared type goes too: where
+// only such reads go, declared never (`assertNever(s)`, `const u: never = s`, not an
+// argument whose never tsc inferred, as `new Box(s)`'s), or where its context's type takes
+// its declared type (`s as Shape`, `return x` from a function of x's declared type). Such
+// a read lowers as its declared type, as live code's does, which a lie that reaches it
+// gets as in Node.
+func (l *lowerer) goesAsItsDeclaredType(node *ast.Node) bool {
+	if !l.narrowsReadToNoValue(node) {
+		return false
+	}
+	declared, _ := l.readTypes(node)
+	for node.Parent.Kind == ast.KindParenthesizedExpression || node.Parent.Kind == ast.KindNonNullExpression {
+		node = node.Parent
+	}
+	contextual := l.checker.GetContextualType(node, checker.ContextFlagsNone)
+	switch {
+	case contextual == nil:
+		return false
+	case isNever(contextual):
+		return !l.isInferredParameter(node)
+	}
+	return l.checker.IsTypeAssignableTo(declared, contextual)
+}
+
+// isInferredParameter reports whether node is an argument whose parameter's type in the
+// called signature is one tsc inferred: a type parameter's (`new Box(x)`'s T).
+func (l *lowerer) isInferredParameter(node *ast.Node) bool {
+	call := node.Parent
+	if !ast.IsCallOrNewExpression(call) || node == call.Expression() {
+		return false
+	}
+	signature := l.checker.GetResolvedSignature(call)
+	return signature != nil && (signature.Target() != nil || len(signature.TypeParameters()) > 0)
 }
 
 // testedType is narrowed, tsc's narrowed type of a read, without the members of its
@@ -452,6 +568,11 @@ func isNever(t *checker.Type) bool { return t.Flags()&checker.TypeFlagsNever != 
 // trap is what code that can't run lowers to (deadRead found read in it): a TypeError that
 // names the instance's type arguments and the narrowing, should a lie reach it.
 func (l *lowerer) trap(read *ast.Node) ir.Expr {
+	if l.narrowsReadToNoValue(read) {
+		message := fmt.Sprintf("code that can't run ran: `%s` narrows to `%s` here; a type predicate, assertion or cast was wrong",
+			scanner.GetTextOfNode(read), l.checker.TypeToString(l.checker.GetTypeAtLocation(read)))
+		return &ir.CallBuiltin{Builtin: ir.ThrowError, Args: []ir.Expr{&ir.StringConst{Value: "TypeError"}, &ir.StringConst{Value: message}}}
+	}
 	var arguments []string
 	test := l.deadTest()
 	for i, parameter := range test.parameters {

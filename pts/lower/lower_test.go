@@ -1634,3 +1634,54 @@ func missing(o: undefined | {v: string}) undefined {
 }
 `)
 }
+
+func TestCodeThatTscNarrowsToNoValueIsATrapWhereTheNarrowingCantBeStale(t *testing.T) {
+	t.Parallel()
+	// tsc narrows a parameter of type string to never where `typeof x === "number"` holds:
+	// its own function alone assigns it, so the branch can't run and lowers as a trap. A
+	// property it narrows to never may have changed since (a call tsc doesn't follow) and
+	// holds its value, converted with a check; `assertNever(x)` takes x as it is (C220).
+	got := lowerValid(t, `function assertNever(x: never): never {
+  throw new Error("unexpected " + x);
+}
+function num(n: number): number {
+  return n + 1;
+}
+function plain(x: string, o: { w: string }): string {
+  if (typeof x === "number") {
+    console.log("dead", num(x));
+  }
+  if (typeof o.w === "number") {
+    console.log("stale", num(o.w));
+  }
+  if (typeof x !== "string") {
+    return assertNever(x);
+  }
+  return x;
+}
+console.log(plain("s", { w: "w" }));
+`)
+	assert.Equal(t, got, strings.ReplaceAll(`shape object1{w: string}
+func main() void {
+  19: console.log(box(plain("s", (object1{w: "w"} as {w: string}))))
+}
+func assertNever(x: value) void {
+  2: throw box(new Error(("unexpected " ++ str(x)), given(true), left-out {cause?: value}, given(false)))
+}
+func num(n: number) number {
+  5: return (n + 1)
+}
+func plain(x: string, o: {w: string}) string {
+  8: if ("string" === "number") {
+    9: throw("TypeError", "code that can't run ran: ´x´ narrows to ´never´ here; a type predicate, assertion or cast was wrong")
+  }
+  11: if ((o.w, "string") === "number") {
+    12: console.log(box("stale"), box(num(number(box(o.w)))))
+  }
+  14: if ("string" !== "string") {
+    15: return (assertNever(box(x)), left-out string)
+  }
+  17: return x
+}
+`, "´", "`"))
+}

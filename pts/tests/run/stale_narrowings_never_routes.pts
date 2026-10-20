@@ -1,0 +1,221 @@
+// Guard (passes on the base since H09b4b1): a second test types a live value never after a
+// change tsc doesn't follow, with no lie, and Node runs the branch: a property set by a
+// callback, a nested property, a tuple's and an array's element, `this.v` set by a method, a
+// static property, a `let` a closure assigns, a parameter a closure assigns, a module `let`
+// another function assigns, a property after an await and after a yield, a getter's second
+// read; `=== null` and `!x` second tests; a union of sibling classes; `number & any[]` used
+// as an argument. The read holds its value and converts with a check where it is used
+// (D-196). A trap for plain never code must not catch these: each place may be stale.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+class Base {
+  constructor(public n: number) {}
+}
+class Sub1 extends Base {
+  a = "a";
+}
+class Sub2 extends Base {
+  b = "b";
+}
+type V = string | number;
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function len(v: unknown[]): string {
+  return "len " + v.length;
+}
+function assertNever(x: never): never {
+  throw new Error("unexpected " + JSON.stringify(x));
+}
+
+function property(o: { v: V }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    if (typeof o.v === "number") {
+      const y = o.v;
+      return "property " + (o.v + 1) + " " + num(y) + " " + new Box(o.v).value + " " + (o.v > 1);
+    }
+  }
+  return "kept";
+}
+function nested(o: { p: { v: V } }, change: () => void): number {
+  if (typeof o.p.v === "string") {
+    change();
+    if (typeof o.p.v === "number") {
+      return o.p.v;
+    }
+  }
+  return -1;
+}
+function elements(t: [V], a: V[], change: () => void): string {
+  if (typeof t[0] === "string" && typeof a[0] === "string") {
+    change();
+    if (typeof t[0] === "number" && typeof a[0] === "number") {
+      return "elements " + num(t[0]) + " " + num(a[0]);
+    }
+  }
+  return "kept";
+}
+class Holder {
+  v: V = "s";
+  static s: V = "s";
+  flip(): void {
+    this.v = 5;
+    Holder.s = 6;
+  }
+  run(): string {
+    if (typeof this.v === "string" && typeof Holder.s === "string") {
+      this.flip();
+      if (typeof this.v === "number" && typeof Holder.s === "number") {
+        return "this " + num(this.v) + " static " + num(Holder.s);
+      }
+    }
+    return "kept";
+  }
+}
+function closures(p: V): string {
+  let v: V = "s";
+  const set = (): void => {
+    v = 5;
+    p = 6;
+  };
+  if (typeof v === "string" && typeof p === "string") {
+    set();
+    if (typeof v === "number" && typeof p === "number") {
+      const n: number = v;
+      return "closures " + n + " " + num(p);
+    }
+  }
+  return "kept";
+}
+let moduleV: V = "s";
+function setModuleV(): void {
+  moduleV = 5;
+}
+function moduleLet(): string {
+  if (typeof moduleV === "string") {
+    setModuleV();
+    if (typeof moduleV === "number") {
+      try {
+        return assertNever(moduleV);
+      } catch (error: any) {
+        return "module " + error.message;
+      }
+    }
+  }
+  return "kept";
+}
+async function awaited(o: { v: V }): Promise<string> {
+  if (typeof o.v === "string") {
+    await Promise.resolve();
+    if (typeof o.v === "number") {
+      return "awaited " + num(o.v);
+    }
+  }
+  return "kept";
+}
+function* generator(o: { v: V }): Generator<string, void, unknown> {
+  if (typeof o.v === "string") {
+    yield "first";
+    if (typeof o.v === "number") {
+      yield "generator " + num(o.v);
+    }
+  }
+}
+class Flips {
+  reads = 0;
+  get v(): V {
+    return this.reads++ >= 1 ? 5 : "s";
+  }
+}
+function getter(g: Flips): string {
+  if (typeof g.v === "string") {
+    if (typeof g.v === "number") {
+      return "getter " + num(g.v);
+    }
+  }
+  return "kept";
+}
+function nulls(o: { v: string | null; p: Pt | null }, change: () => void): string {
+  if (o.v !== null && o.p) {
+    change();
+    if (o.v === null && !o.p) {
+      const n: null = o.v;
+      return "nulls " + n + " " + String(o.p);
+    }
+  }
+  return "kept";
+}
+function siblingUnion(o: { v: Sub1 | Sub2 }, change: () => void): string {
+  if (o.v instanceof Sub1) {
+    change();
+    if (o.v instanceof Sub2) {
+      return "sibling union " + o.v.b;
+    }
+  }
+  return "kept";
+}
+function arrayArgument(o: { v: number | string[] }, change: () => void): string {
+  if (typeof o.v === "number") {
+    change();
+    if (Array.isArray(o.v)) {
+      const a: string[] = o.v;
+      return "array argument " + len(o.v) + " " + a.join("");
+    }
+  }
+  return "kept";
+}
+
+const o1: { v: V } = { v: "s" };
+console.log(property(o1, () => {
+  o1.v = 5;
+}), property({ v: "t" }, () => {}));
+const o2: { p: { v: V } } = { p: { v: "s" } };
+console.log("nested", nested(o2, () => {
+  o2.p.v = 7;
+}));
+const t: [V] = ["s"];
+const a: V[] = ["s"];
+console.log(elements(t, a, () => {
+  t[0] = 1;
+  a[0] = 2;
+}));
+console.log(new Holder().run(), closures("p"), moduleLet(), getter(new Flips()));
+const o3: { v: string | null; p: Pt | null } = { v: "s", p: new Pt(1) };
+console.log(nulls(o3, () => {
+  o3.v = null;
+  o3.p = null;
+}));
+const o4: { v: Sub1 | Sub2 } = { v: new Sub1(1) };
+console.log(siblingUnion(o4, () => {
+  o4.v = new Sub2(2);
+}));
+const o5: { v: number | string[] } = { v: 1 };
+console.log(arrayArgument(o5, () => {
+  o5.v = ["x", "y"];
+}));
+const o6: { v: V } = { v: "s" };
+const it = generator(o6);
+console.log(it.next().value);
+o6.v = 5;
+console.log(it.next().value);
+const o7: { v: V } = { v: "s" };
+const pending = awaited(o7);
+o7.v = 9;
+pending.then((r) => console.log(r));
+
+// expect:
+// property 6 num 6 5 true kept
+// nested 7
+// elements num 2 num 3
+// this num 6 static num 7 closures 5 num 7 module unexpected 5 getter num 6
+// nulls null null
+// sibling union b
+// array argument len 2 xy
+// first
+// generator num 6
+// awaited num 10

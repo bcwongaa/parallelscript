@@ -1,0 +1,177 @@
+// RED on the base (H09b4b2, C220): a read tsc narrows to never (`typeof r === "number"` for a
+// string) or to `number & any[]` (Array.isArray for a number), with no lie, for every kind
+// of reference: a parameter (also reassigned), a const, a `let` its function assigns (also
+// before the test and in a loop), a `let` or parameter a closure assigns, a module `let`
+// another function assigns, a module const, a property (readonly, nested), `this.v`, a
+// tuple's element, an array's element, a getter, a static property, a destructured const, a
+// parameter read in a closure. Whether or not the narrowing can be stale, the declared type
+// holds no number and no array (stores are typed), so Node never runs these regions. The
+// base rejected each typed use: PTS1001 (`converting string to number`, `` `r.length` is not
+// supported yet ``).
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+let moduleLet: string = "m";
+function setModuleLet(): void {
+  moduleLet = "n";
+}
+const moduleConst: string = "c";
+class Getter {
+  get v(): string {
+    return "g";
+  }
+}
+class Static {
+  static v: string = "st";
+}
+class Holder {
+  constructor(public v: string) {}
+  run(): string {
+    if (typeof this.v === "number") {
+      console.log("  dead", num(this.v));
+    }
+    return "this " + this.v;
+  }
+}
+
+function parameter(x: string): string {
+  if (typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  return "parameter " + x;
+}
+function reassigned(x: string): string {
+  x = x + "!";
+  if (typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  return "reassigned " + x;
+}
+function constant(x: string): string {
+  const y = x;
+  if (typeof y === "number") {
+    console.log("  dead", num(y));
+  }
+  return "const " + y;
+}
+function ownLet(x: string): string {
+  let y: string = "a";
+  y = x;
+  if (typeof y === "number") {
+    console.log("  dead", num(y));
+  }
+  return "let " + y;
+}
+function loopLet(x: string): string {
+  let y: string = "";
+  for (const s of [x, "z"]) {
+    y = s;
+    if (typeof y === "number") {
+      console.log("  dead", num(y));
+    }
+  }
+  return "loop " + y;
+}
+function closureLet(x: string): string {
+  let y: string = x;
+  const set = (): void => {
+    y = "z";
+  };
+  set();
+  if (typeof y === "number") {
+    console.log("  dead", num(y));
+  }
+  return "closure let " + y;
+}
+function closureParameter(x: string): string {
+  const set = (): void => {
+    x = "z";
+  };
+  set();
+  if (typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  return "closure parameter " + x;
+}
+function moduleVariables(): string {
+  setModuleLet();
+  if (typeof moduleLet === "number") {
+    console.log("  dead", num(moduleLet));
+  }
+  if (typeof moduleConst === "number") {
+    console.log("  dead", num(moduleConst));
+  }
+  return "module " + moduleLet + moduleConst;
+}
+function properties(o: { v: string }, r: { readonly v: string }, n: { p: { v: string } }): string {
+  if (typeof o.v === "number") {
+    console.log("  dead", num(o.v));
+  }
+  if (typeof r.v === "number") {
+    console.log("  dead", num(r.v));
+  }
+  if (typeof n.p.v === "number") {
+    console.log("  dead", num(n.p.v));
+  }
+  return "properties " + o.v + r.v + n.p.v;
+}
+function elements(t: [string, number], a: string[]): string {
+  if (typeof t[0] === "number") {
+    console.log("  dead", num(t[0]));
+  }
+  if (typeof a[0] === "number") {
+    console.log("  dead", num(a[0]));
+  }
+  return "elements " + t[0] + a[0];
+}
+function getterAndStatic(g: Getter): string {
+  if (typeof g.v === "number") {
+    console.log("  dead", num(g.v));
+  }
+  if (typeof Static.v === "number") {
+    console.log("  dead", num(Static.v));
+  }
+  return "getter " + g.v + " static " + Static.v;
+}
+function destructured(o: { v: string }): string {
+  const { v } = o;
+  if (typeof v === "number") {
+    console.log("  dead", num(v));
+  }
+  return "destructured " + v;
+}
+function closureRead(x: string): string {
+  const g = (): string => {
+    if (typeof x === "number") {
+      return "dead " + num(x);
+    }
+    return "closure read " + x;
+  };
+  return g();
+}
+function arrays(x: number, o: { v: number }, t: [number]): string {
+  const y = x;
+  if (Array.isArray(y)) {
+    console.log("  dead", y.length);
+  }
+  if (Array.isArray(o.v)) {
+    console.log("  dead", o.v.length);
+  }
+  if (Array.isArray(t[0])) {
+    console.log("  dead", t[0].length);
+  }
+  return "arrays " + y + o.v + t[0];
+}
+
+console.log(parameter("p"), reassigned("r"), constant("c"), ownLet("l"), loopLet("o"));
+console.log(closureLet("x"), closureParameter("y"), moduleVariables(), new Holder("h").run());
+console.log(properties({ v: "a" }, { v: "b" }, { p: { v: "c" } }), elements(["t", 0], ["e"]));
+console.log(getterAndStatic(new Getter()), destructured({ v: "d" }), closureRead("q"));
+console.log(arrays(1, { v: 2 }, [3]));
+
+// expect:
+// parameter p reassigned r! const c let l loop z
+// closure let z closure parameter z module nc this h
+// properties abc elements te
+// getter g static st destructured d closure read q
+// arrays 123

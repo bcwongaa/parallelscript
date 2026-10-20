@@ -1,0 +1,173 @@
+// RED on the base (H09b4b2, C220): more plain narrowing forms than
+// `narrowed_dead_branches_plain.pts` has, each narrowing a parameter only its own function
+// assigns to never or to an intersection no value has, then using it as the narrowed type:
+// `!Array.isArray(x)` for an array, `!(x instanceof Pt)` for a Pt, `x instanceof Pt` for a
+// `string | number[]`, `typeof x === "undefined"`, `typeof x === "string"` for a class,
+// `x === undefined`, `x == null`, `x === null` for a class, `!x` for an array, `if (x)` for
+// null, an honest predicate to an intersection (`number & unknown[]`, `number[] & Pt`),
+// `switch (typeof x)` falling through, `!("k" in x)`, an aliased condition, a boolean's
+// exhausted if chain, and `typeof x === "object"` cast to the tested type. tsc accepts
+// each; Node never runs the dead code. The base rejected each: PTS1001 (`converting number[]
+// to number`, `converting string to undefined`, `converting Pt to string`, `` `x.length` is
+// not supported yet ``, `as expression (which the compiler failed to lower without saying
+// why)`, ...).
+class Pt {
+  constructor(public v: number) {}
+}
+interface HasK {
+  k: number;
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function str(v: string): string {
+  return "str " + v.length;
+}
+function und(u: undefined): string {
+  return "und " + u;
+}
+function nu(v: null | undefined): string {
+  return "nu " + v;
+}
+function nul(n: null): string {
+  return "nul " + n;
+}
+function ptv(p: Pt): string {
+  return "pt " + p.v;
+}
+function show(v: unknown): string {
+  return "show " + String(v);
+}
+function isArr(v: unknown): v is unknown[] {
+  return Array.isArray(v);
+}
+function isPt(v: unknown): v is Pt {
+  return v instanceof Pt;
+}
+
+function notArrays(x: number[]): string {
+  if (!Array.isArray(x)) {
+    console.log("  dead", x + 1);
+  }
+  return "notArrays " + x.length;
+}
+function notPoints(x: Pt): string {
+  if (!(x instanceof Pt)) {
+    console.log("  dead", x > 1);
+  }
+  return "notPoints " + x.v;
+}
+function unionMember(x: string | number[]): string {
+  if (x instanceof Pt) {
+    console.log("  dead", show(x as string | number[]));
+  }
+  return "unionMember " + x.length;
+}
+function typeofUndefined(x: string): string {
+  if (typeof x === "undefined") {
+    console.log("  dead", und(x));
+  }
+  return "typeofUndefined " + x;
+}
+function typeofString(x: Pt): string {
+  if (typeof x === "string") {
+    console.log("  dead", str(x));
+  }
+  return "typeofString " + x.v;
+}
+function isUndefined(x: string): string {
+  if (x === undefined) {
+    const u: undefined = x;
+    console.log("  dead", u);
+  }
+  return "isUndefined " + x;
+}
+function looseNull(x: number): string {
+  if (x == null) {
+    console.log("  dead", nu(x));
+  }
+  return "looseNull " + x;
+}
+function classNull(x: Pt): string {
+  if (x === null) {
+    console.log("  dead", nul(x));
+  }
+  return "classNull " + x.v;
+}
+function falsyArray(x: number[]): string {
+  if (!x) {
+    const n: null = x;
+    console.log("  dead", n);
+  }
+  return "falsyArray " + x.length;
+}
+function truthyNull(x: null): string {
+  if (x) {
+    console.log("  dead", ptv(x));
+  }
+  return "truthyNull " + x;
+}
+function predicateArray(x: number): string {
+  if (isArr(x)) {
+    console.log("  dead", x.length);
+  }
+  return "predicateArray " + x;
+}
+function predicateClass(x: number[]): string {
+  if (isPt(x)) {
+    console.log("  dead", x.v + 1);
+  }
+  return "predicateClass " + x.length;
+}
+function fallthrough(x: string): string {
+  switch (typeof x) {
+    case "number":
+      console.log("  dead", x + 1);
+    case "string":
+      console.log("  live or fell through", typeof x);
+      break;
+  }
+  return "fallthrough " + x;
+}
+function hasK(x: HasK): string {
+  if (!("k" in x)) {
+    console.log("  dead", num(x));
+  }
+  return "hasK " + x.k;
+}
+function aliased(x: string): string {
+  const isNumber = typeof x === "number";
+  if (isNumber) {
+    console.log("  dead", num(x));
+  }
+  return "aliased " + x;
+}
+function booleans(x: boolean): string {
+  if (x === true) {
+    return "booleans true";
+  } else if (x === false) {
+    return "booleans false";
+  } else {
+    return "booleans dead " + (x + 1);
+  }
+}
+function objects(x: number): string {
+  if (typeof x === "object") {
+    console.log("  dead", show(x as object | null));
+  }
+  return "objects " + x;
+}
+
+console.log(notArrays([1, 2]), notPoints(new Pt(1)), unionMember([1, 2, 3]), unionMember("ab"));
+console.log(typeofUndefined("s"), typeofString(new Pt(2)), isUndefined("u"), looseNull(3));
+console.log(classNull(new Pt(4)), falsyArray([]), truthyNull(null));
+console.log(predicateArray(5), predicateClass([6]), fallthrough("f"), hasK({ k: 7 }));
+console.log(aliased("a"), booleans(true), booleans(false), objects(8));
+
+// expect:
+// notArrays 2 notPoints 1 unionMember 3 unionMember 2
+// typeofUndefined s typeofString 2 isUndefined u looseNull 3
+// classNull 4 falsyArray 0 truthyNull null
+//   live or fell through string
+// predicateArray 5 predicateClass 1 fallthrough f hasK 7
+// aliased a booleans true booleans false objects 8

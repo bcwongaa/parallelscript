@@ -1,0 +1,44 @@
+// Guard (H09b4b2, D-197): reads that tsc narrows to never where they go as their declared
+// type keep running as in Node when a lying predicate reaches them: `return x` from a
+// function of x's type, `const y: string = x`, a cast back to it, an argument of its type,
+// and an element push (a lie that uses the value as a number throws the trap's TypeError
+// instead: `narrowed_dead_branch_lies_plain.pts`). And a read whose element key is not a
+// literal (`table[c.op]`, the key a property of another object) is no narrowed read of
+// that property: the corpus's sql_query_parser compiled again only once that was fixed.
+function lie(v: unknown): v is number {
+  return true;
+}
+function takes(s: string): string {
+  return "takes " + s;
+}
+function declared(x: string): string {
+  if (lie(x)) {
+    const y: string = x;
+    const all: string[] = [];
+    all.push(x);
+    return y + (x as string).length + takes(x) + all.length;
+  }
+  return "no";
+}
+function returned(x: string): string {
+  if (lie(x)) {
+    return x;
+  }
+  return "no";
+}
+type Op = { kind: "cmp"; op: string; value: number } | { kind: "not"; inner: Op };
+const table: Record<string, (a: number) => boolean> = { pos: (a) => a > 0 };
+function test(c: Op): boolean {
+  switch (c.kind) {
+    case "not":
+      return !test(c.inner);
+    case "cmp":
+      return table[c.op](c.value);
+  }
+}
+console.log(declared("s"), returned("r"));
+console.log(test({ kind: "not", inner: { kind: "cmp", op: "pos", value: 1 } }));
+
+// expect:
+// s1takes s1 r
+// false

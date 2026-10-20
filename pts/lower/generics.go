@@ -206,6 +206,11 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	if primitive := l.unbranded(t); primitive != nil {
 		return primitive
 	}
+	if t.Flags()&checker.TypeFlagsIntersection != 0 && l.uninhabited(t) {
+		// `number & any[]`, `Sub1 & Sub2`: no value has it, so what a read of it holds is
+		// what a stale narrowing left there, found at run time as a dynamic value's (C220).
+		return l.checker.GetAnyType()
+	}
 	return l.withoutArrayIntersection(t)
 }
 

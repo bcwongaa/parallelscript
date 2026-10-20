@@ -1,0 +1,30 @@
+// skip: known issue (C237, H29): a generic class made of a stale read typed never, in a `?:` with another type argument (`Box<never> | Box<number>`), is PTS1001
+// tsc keeps a narrowing across a call that changed the property, so a second test types a
+// live value never (H09b4b2, D-197), and `new Box(o.v)` is a `Box<never>`. Alone it runs as
+// Node (the box holds the value); in a conditional with a `Box<number>` the two classes
+// don't unify: PTS1001 `conditional expression with operands of types Box and Box`, where
+// Node runs it. No lie: the reproducer's `stale_narrowings_live_intersections.pts` `boxes`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function flip(): boolean {
+  return [1].length > 0;
+}
+function boxes(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v === "string") {
+    change();
+    if (typeof o.v === "number") {
+      const b = flip() ? new Box(o.v) : new Box(0);
+      return "boxes now " + b.value;
+    }
+  }
+  return "boxes kept";
+}
+const nothing = (): void => {};
+const b: { v: string | number } = { v: "s" };
+console.log(boxes(b, () => {
+  b.v = 7;
+}), boxes({ v: "t" }, nothing));
+
+// expect:
+// boxes now 7 boxes kept

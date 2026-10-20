@@ -1,0 +1,35 @@
+// no-diff: a type predicate or assertion function that lies lets plain code run that tsc narrows to never; Node runs it with the value as it is, ParallelScript throws TypeError (D-197, as D-195's instances)
+// Plain code that tsc narrows to a type no value of the read's declared type has (here `x`
+// as never: a string tested as a number) can't run unless something lied to tsc (H09b4b2,
+// C220). It lowers as a trap where the value is used as its narrowed type (`x + 1` as a
+// number, `num(x)`), which a lying predicate or assertion reaches: TypeError, where Node
+// computes "t1". Printing it, or passing it where its declared type goes, runs as Node
+// (`narrowed_never_lies_that_print.pts`, `narrowed_never_declared_type_uses.pts`).
+function lie(v: unknown): v is number {
+  return true;
+}
+function lyingAssert(v: unknown): asserts v is number {}
+function num(n: number): string {
+  return "num " + (n + 1);
+}
+function typed(x: string): number {
+  if (lie(x)) {
+    return x + 1;
+  }
+  return 0;
+}
+function asserted(x: string): string {
+  lyingAssert(x);
+  return num(x);
+}
+for (const f of [() => typed("t"), () => asserted("a")]) {
+  try {
+    console.log(f());
+  } catch (error: any) {
+    console.log("caught", error.name, error.message);
+  }
+}
+
+// expect:
+// caught TypeError code that can't run ran: `x` narrows to `never` here; a type predicate, assertion or cast was wrong
+// caught TypeError code that can't run ran: `x` narrows to `never` here; a type predicate, assertion or cast was wrong

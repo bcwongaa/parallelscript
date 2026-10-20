@@ -1,0 +1,370 @@
+// RED on the base (H09b4b2, C220): the dead-region shapes of H09b4's matrix in plain code. A
+// string parameter only its own function assigns, tested `typeof x === "number"` (or its
+// negation), makes the region dead: an else branch, an else-if, a nested if, the code after
+// an early throw, `continue`, `break` or a labelled block's break, a branch of `?:`, the
+// right operands of `&&`, `||`, `??` and the logical assignments, a `switch (true)` case,
+// loop conditions and bodies, try/catch/finally, arrow bodies and closures, an escaping
+// closure, a dead assignment, a generator and an async function. Node never runs the dead
+// code; side effects around it run. The base rejected each: PTS1001 (`converting string to
+// number is not supported yet`).
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function maybe(): string | undefined {
+  return undefined;
+}
+function deadElse(x: string): string {
+  if (!(typeof x === "number")) {
+    console.log("  live");
+  } else {
+    console.log("  dead", num(x));
+  }
+  return x;
+}
+function deadElseifChain(x: string): string {
+  if (typeof x === "boolean") {
+    console.log("  boolean");
+  } else if (typeof x === "number") {
+    console.log("  number", num(x));
+  } else {
+    console.log("  other", String(x));
+  }
+  return x;
+}
+function deadNestedIf(x: string): string {
+  if (x !== undefined) {
+    if (typeof x === "number") {
+      console.log("  dead", num(x));
+    }
+    console.log("  outer live");
+  }
+  return x;
+}
+function deadEarlyThrow(x: string): string {
+  if (!(typeof x === "number")) {
+    throw new Error("thrown " + String(x));
+  }
+  console.log("  rest", num(x));
+  return x;
+}
+function deadContinue(x: string): string {
+  for (let i = 0; i < 2; i++) {
+    if (!(typeof x === "number")) continue;
+    console.log("  rest", num(x));
+  }
+  console.log("  loop done");
+  return x;
+}
+function deadBreak(x: string): string {
+  while (true) {
+    if (!(typeof x === "number")) break;
+    console.log("  rest", num(x));
+    break;
+  }
+  console.log("  loop done");
+  return x;
+}
+function deadDoWhileBreak(x: string): string {
+  do {
+    if (!(typeof x === "number")) break;
+    console.log("  rest", num(x));
+  } while (false);
+  console.log("  loop done");
+  return x;
+}
+function deadCondExpr(x: string): string {
+  const s = typeof x === "number" ? num(x) : "not";
+  console.log("  cond", s);
+  return x;
+}
+function deadAndRhs(x: string): string {
+  const s = typeof x === "number" && num(x);
+  console.log("  and", s);
+  return x;
+}
+function deadOrRhs(x: string): string {
+  const s = !(typeof x === "number") || num(x);
+  console.log("  or", s);
+  return x;
+}
+function deadNullishRhsInDead(x: string): string {
+  const s = !(typeof x === "number") ? "not" : maybe() ?? num(x);
+  console.log("  nullish", s);
+  return x;
+}
+function deadAndAssignRhs(x: string): string {
+  let s = "s";
+  s &&= typeof x === "number" ? num(x) : "kept";
+  console.log("  &&=", s);
+  return x;
+}
+function deadOrAssignRhs(x: string): string {
+  let s = "";
+  s ||= typeof x === "number" ? num(x) : "kept";
+  console.log("  ||=", s);
+  return x;
+}
+function deadNullishAssignRhs(x: string): string {
+  let s: string | undefined = undefined;
+  s ??= typeof x === "number" ? num(x) : "kept";
+  console.log("  ??=", s);
+  return x;
+}
+function deadSwitchTrueCase(x: string): string {
+  switch (true) {
+    case typeof x === "number":
+      console.log("  dead", num(x));
+      break;
+    default:
+      console.log("  default");
+  }
+  return x;
+}
+function deadWhileBody(x: string): string {
+  let i = 0;
+  while (typeof x === "number" && i < 1) {
+    console.log("  dead", num(x));
+    i++;
+  }
+  console.log("  after while");
+  return x;
+}
+function deadForBody(x: string): string {
+  for (let i = 0; typeof x === "number" && i < 1; i++) {
+    console.log("  dead", num(x));
+  }
+  console.log("  after for");
+  return x;
+}
+function deadForofInDead(x: string): string {
+  if (typeof x === "number") {
+    for (const k of [1, 2]) {
+      console.log("  dead", k, num(x));
+    }
+  }
+  console.log("  after");
+  return x;
+}
+function deadLabelledBlock(x: string): string {
+  block: {
+    if (!(typeof x === "number")) break block;
+    console.log("  dead", num(x));
+  }
+  console.log("  after block");
+  return x;
+}
+function deadTryAround(x: string): string {
+  try {
+    if (typeof x === "number") {
+      console.log("  dead", num(x));
+    }
+  } finally {
+    console.log("  finally");
+  }
+  return x;
+}
+function deadTryInside(x: string): string {
+  if (typeof x === "number") {
+    try {
+      console.log("  dead", num(x));
+    } catch (error) {
+      console.log("  caught inside");
+    } finally {
+      console.log("  finally inside");
+    }
+  }
+  return x;
+}
+function deadThrowInTry(x: string): string {
+  try {
+    if (typeof x === "number") {
+      throw new Error(num(x));
+    }
+    console.log("  no throw");
+  } catch (error: any) {
+    console.log("  caught", error.message);
+  }
+  return x;
+}
+function deadCatchBody(x: string): string {
+  try {
+    throw new Error("boom");
+  } catch (error: any) {
+    if (typeof x === "number") {
+      console.log("  dead", num(x));
+    }
+    console.log("  caught", error.message);
+  }
+  return x;
+}
+function deadFinallyBody(x: string): string {
+  try {
+    console.log("  try");
+  } finally {
+    if (typeof x === "number") {
+      console.log("  dead", num(x));
+    }
+  }
+  return x;
+}
+function deadArrowExprCapture(x: string): string {
+  if (typeof x === "number") {
+    const g = () => num(x);
+    console.log("  dead", g());
+  }
+  return x;
+}
+function deadArrowBodyDead(x: string): string {
+  const g = (): string => (typeof x === "number" ? num(x) : "arrow live");
+  console.log(g());
+  return x;
+}
+function deadArrowBlockCapture(x: string): string {
+  if (typeof x === "number") {
+    const g = () => {
+      const r = num(x);
+      return r;
+    };
+    console.log("  dead", g());
+  }
+  return x;
+}
+function deadClosureNarrowsInside(x: string): string {
+  const g = (): string => {
+    if (typeof x === "number") {
+      return "dead " + num(x);
+    }
+    return "closure live";
+  };
+  console.log(g());
+  return x;
+}
+function deadArrowEscapes(x: string): string {
+  let g: () => string = () => "live closure";
+  if (typeof x === "number") {
+    g = () => num(x);
+  }
+  console.log(g());
+  return x;
+}
+function deadDeadAssignment(x: string): string {
+  let y: string = x;
+  if (typeof x === "number") {
+    y = x;
+    console.log("  dead", num(x));
+  }
+  return y;
+}
+function* generator(x: string): Generator<string, void, unknown> {
+  yield "start";
+  if (typeof x === "number") {
+    yield num(x);
+  }
+  yield "end";
+}
+async function asynchronous(x: string): Promise<string> {
+  await null;
+  if (typeof x === "number") {
+    const y = await Promise.resolve(x);
+    console.log("  dead", num(y));
+  }
+  return x;
+}
+console.log("else", deadElse("s"));
+console.log("elseif_chain", deadElseifChain("s"));
+console.log("nested_if", deadNestedIf("s"));
+try {
+  console.log("early_throw", deadEarlyThrow("s"));
+} catch (error: any) {
+  console.log("early_throw caught", error.message);
+}
+console.log("continue", deadContinue("s"));
+console.log("break", deadBreak("s"));
+console.log("do_while_break", deadDoWhileBreak("s"));
+console.log("cond_expr", deadCondExpr("s"));
+console.log("and_rhs", deadAndRhs("s"));
+console.log("or_rhs", deadOrRhs("s"));
+console.log("nullish_rhs_in_dead", deadNullishRhsInDead("s"));
+console.log("and_assign_rhs", deadAndAssignRhs("s"));
+console.log("or_assign_rhs", deadOrAssignRhs("s"));
+console.log("nullish_assign_rhs", deadNullishAssignRhs("s"));
+console.log("switch_true_case", deadSwitchTrueCase("s"));
+console.log("while_body", deadWhileBody("s"));
+console.log("for_body", deadForBody("s"));
+console.log("forof_in_dead", deadForofInDead("s"));
+console.log("labelled_block", deadLabelledBlock("s"));
+console.log("try_around", deadTryAround("s"));
+console.log("try_inside", deadTryInside("s"));
+console.log("throw_in_try", deadThrowInTry("s"));
+console.log("catch_body", deadCatchBody("s"));
+console.log("finally_body", deadFinallyBody("s"));
+console.log("arrow_expr_capture", deadArrowExprCapture("s"));
+console.log("arrow_body_dead", deadArrowBodyDead("s"));
+console.log("arrow_block_capture", deadArrowBlockCapture("s"));
+console.log("closure_narrows_inside", deadClosureNarrowsInside("s"));
+console.log("arrow_escapes", deadArrowEscapes("s"));
+console.log("dead_assignment", deadDeadAssignment("s"));
+for (const s of generator("g")) {
+  console.log("generator", s);
+}
+asynchronous("a").then((r) => console.log("async", r));
+
+// expect:
+//   live
+// else s
+//   other s
+// elseif_chain s
+//   outer live
+// nested_if s
+// early_throw caught thrown s
+//   loop done
+// continue s
+//   loop done
+// break s
+//   loop done
+// do_while_break s
+//   cond not
+// cond_expr s
+//   and false
+// and_rhs s
+//   or true
+// or_rhs s
+//   nullish not
+// nullish_rhs_in_dead s
+//   &&= kept
+// and_assign_rhs s
+//   ||= kept
+// or_assign_rhs s
+//   ??= kept
+// nullish_assign_rhs s
+//   default
+// switch_true_case s
+//   after while
+// while_body s
+//   after for
+// for_body s
+//   after
+// forof_in_dead s
+//   after block
+// labelled_block s
+//   finally
+// try_around s
+// try_inside s
+//   no throw
+// throw_in_try s
+//   caught boom
+// catch_body s
+//   try
+// finally_body s
+// arrow_expr_capture s
+// arrow live
+// arrow_body_dead s
+// arrow_block_capture s
+// closure live
+// closure_narrows_inside s
+// live closure
+// arrow_escapes s
+// dead_assignment s
+// generator start
+// generator end
+// async a

@@ -132,6 +132,17 @@ func (c *Checker) PtsReducedType(t *Type) *Type {
 	return c.getReducedType(t)
 }
 
+// PtsTypePredicateParameterIndex returns the index of the parameter that signature's type
+// predicate (`x is T`, `asserts x is T`, declared or inferred) narrows, or -1 if it has
+// none or narrows `this`: a call's argument there is a test of what it holds (D-197).
+func (c *Checker) PtsTypePredicateParameterIndex(signature *Signature) int {
+	predicate := c.getTypePredicateOfSignature(signature)
+	if predicate == nil || predicate.kind != TypePredicateKindIdentifier && predicate.kind != TypePredicateKindAssertsIdentifier {
+		return -1
+	}
+	return int(predicate.parameterIndex)
+}
+
 // PtsInstantiateSignatureInContextOf returns a generic signature instantiated with the
 // type arguments tsc infers from a non-generic contextual signature, as when it relates
 // the two: the instance a generic function used as a value of that type stands for (D-078).

@@ -1,0 +1,92 @@
+// RED on the base (H09b4b2, C220): the plain twin of `generic_dead_tail_bindings.pts`. Once
+// a statement in plain code can't run (`num(x)` for a string x after `typeof x !== "number"`
+// returned), neither can those after it; a function declared after it is hoisted and runs
+// from the live path, and closures made before it, or in a later case of the same switch,
+// capture the variables declared after it (never initialized; none of these reads them).
+// Side effects before the dead statement run. The base rejected each (PTS1001 `converting
+// string to number`).
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function tailHoisted(x: string): string {
+  let count = 0;
+  if (typeof x !== "number") {
+    return helper() + helper();
+  }
+  const y = num(x);
+  let z = y + "!";
+  return z;
+  function helper(): string {
+    count++;
+    return "helper " + count + ";";
+  }
+}
+function tailClosure(x: string): () => string {
+  const get = () => "z " + z;
+  if (typeof x !== "number") {
+    return () => "early " + typeof get;
+  }
+  const z = num(x);
+  return get;
+}
+function tailSwitch(x: string, k: number): string {
+  switch (k) {
+    case 1:
+      if (typeof x !== "number") {
+        return "one early";
+      }
+      const y = num(x);
+      let z = y;
+      return "one " + z;
+    case 2: {
+      const g = () => z;
+      return "two " + typeof g;
+    }
+  }
+  return "none";
+}
+function tailSideEffects(x: string): string {
+  console.log("  before the test");
+  if (typeof x !== "number") {
+    console.log("  live early");
+    return "early";
+  }
+  console.log("  dead", num(x));
+  return "dead";
+}
+class Methods {
+  run(x: string): string {
+    if (typeof x !== "number") {
+      return helper(x);
+    }
+    return num(x);
+    function helper(v: string): string {
+      return "method helper " + v;
+    }
+  }
+}
+function closureNarrows(x: string): string {
+  const g = (): string => {
+    if (typeof x !== "number") {
+      return "closure live";
+    }
+    return num(x);
+  };
+  return g();
+}
+console.log(tailHoisted("s"));
+console.log(tailClosure("s")());
+console.log(tailSwitch("s", 1), tailSwitch("s", 2), tailSwitch("s", 3));
+console.log(tailSideEffects("s"));
+console.log(new Methods().run("m"));
+console.log(closureNarrows("c"));
+
+// expect:
+// helper 1;helper 2;
+// early function
+// one early two function none
+//   before the test
+//   live early
+// early
+// method helper m
+// closure live

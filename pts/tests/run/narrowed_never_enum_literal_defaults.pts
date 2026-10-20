@@ -1,0 +1,153 @@
+// Guard (passes on the base): code tsc types never that a value of the declared type's IR
+// type reaches (H09b4b2, C220). A numeric enum holds any number, with no cast (`const c:
+// Color = n` for a number n), so an exhaustive switch's default runs in Node; a string cast
+// to a literal union (`raw as Dir`, which PTS doesn't check: both are strings) reaches an
+// if chain's end. The base reads such a value as its declared type, so each use, typed ones
+// included (`c + 1`, `col(c)`, `const n: number = c`, `dir(d)`), runs as in Node. A trap for
+// plain code tsc narrows to never must leave these alone: no lie needed for the enum.
+enum Color {
+  Red,
+  Green,
+}
+type Dir = "up" | "down";
+function assertNever(x: never): never {
+  throw new Error("unexpected " + JSON.stringify(x));
+}
+function col(c: Color): string {
+  return "color " + c;
+}
+function dir(d: Dir): string {
+  return "dir " + d;
+}
+function viaAssertNever(c: Color): string {
+  switch (c) {
+    case Color.Red:
+      return "red";
+    case Color.Green:
+      return "green";
+    default:
+      return assertNever(c);
+  }
+}
+function viaNeverConst(c: Color): string {
+  switch (c) {
+    case Color.Red:
+      return "red";
+    case Color.Green:
+      return "green";
+    default: {
+      const unexpected: never = c;
+      return "never const " + JSON.stringify(unexpected);
+    }
+  }
+}
+function viaArithmetic(c: Color): string {
+  switch (c) {
+    case Color.Red:
+      return "red";
+    case Color.Green:
+      return "green";
+    default:
+      return "next " + (c + 1) + " " + col(c);
+  }
+}
+function viaTypedConst(c: Color): string {
+  if (c === Color.Red) {
+    return "red";
+  }
+  if (c === Color.Green) {
+    return "green";
+  }
+  const n: number = c;
+  return "number " + n.toFixed(1) + " " + String(c) + ` ${c}`;
+}
+function literal(d: Dir): string {
+  if (d === "up") {
+    return "up";
+  } else if (d === "down") {
+    return "down";
+  } else {
+    const s: string = d;
+    return "other " + s + " " + dir(d) + " " + (d as string).length + " " + JSON.stringify(d);
+  }
+}
+function literalSwitch(d: Dir): string {
+  switch (d) {
+    case "up":
+      return "up";
+    case "down":
+      return "down";
+    default:
+      return assertNever(d);
+  }
+}
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Shape = Sq | Ci;
+function shp(s: Shape): string {
+  return "shape " + s.kind;
+}
+function shapeArgument(s: Shape): string {
+  switch (s.kind) {
+    case "sq":
+      return "sq " + s.side;
+    case "ci":
+      return "ci " + s.r;
+    default:
+      return "default " + shp(s) + " " + String(s === null);
+  }
+}
+const lie = { kind: "tri", side: 1, r: 1 } as unknown as Sq;
+for (const s of [{ kind: "sq", side: 2 } as Shape, { kind: "ci", r: 1 } as Shape, lie]) {
+  console.log(shapeArgument(s));
+}
+const seven: number = 7;
+const outOfRange: Color = seven;
+for (const f of [viaAssertNever, viaNeverConst, viaArithmetic, viaTypedConst]) {
+  for (const c of [Color.Red, Color.Green, outOfRange]) {
+    try {
+      console.log(f(c));
+    } catch (error: any) {
+      console.log("caught", error.message);
+    }
+  }
+}
+const raw: string = "left";
+for (const d of ["up" as Dir, "down" as Dir, raw as Dir]) {
+  for (const f of [literal, literalSwitch]) {
+    try {
+      console.log(f(d));
+    } catch (error: any) {
+      console.log("caught", error.message);
+    }
+  }
+}
+
+// expect:
+// sq 2
+// ci 1
+// default shape tri false
+// red
+// green
+// caught unexpected 7
+// red
+// green
+// never const 7
+// red
+// green
+// next 8 color 7
+// red
+// green
+// number 7.0 7 7
+// up
+// up
+// down
+// down
+// other left dir left 4 "left"
+// caught unexpected "left"

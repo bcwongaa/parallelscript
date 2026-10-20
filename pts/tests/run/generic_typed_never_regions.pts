@@ -1,0 +1,96 @@
+// RED on the base (H09b4b2, C220): generic code that tsc itself types never or an
+// intersection no value has, in the generic code and not just for an instance, beyond
+// `generic_typed_never_dead_branches.pts`: `typeof x === "number"` for an `x: T` with `T
+// extends string` (tsc reduces `T & number` to never) and for an unconstrained `T & string`,
+// `x instanceof Pt` for a `T & number[]`, `!x` for a `T & Pt`, an honest predicate for a `T &
+// string`, and `typeof x === "boolean"` for a `T & (string | number)`. D-195's instance
+// traps leave code tsc already types never as the base lowered it: PTS1001 (`converting
+// string to number`, `converting number[] to Pt`, `converting Pt to null`, `converting number
+// | string to boolean`, `conditional expression with operands of types Box and Box`). Only a
+// lie reaches these regions; Node runs none. (A box of `T & number & any[]` in the erased
+// copy a call through a generic value runs is `generic_value_erased_class_reads.pts`: live
+// code fails there too.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+function num(n: number): string {
+  return "num " + (n + 1);
+}
+function ptv(p: Pt): string {
+  return "pt " + p.v;
+}
+function nul(n: null): string {
+  return "nul " + n;
+}
+function bool(b: boolean): string {
+  return "bool " + b;
+}
+function isNum(v: unknown): v is number {
+  return typeof v === "number";
+}
+function flip(): boolean {
+  return [1].length > 0;
+}
+
+function constrained<T extends string>(x: T): string {
+  if (typeof x === "number") {
+    console.log("  dead", num(x), x + 1);
+  }
+  return "constrained " + x;
+}
+function unconstrained<T>(x: T & string): string {
+  if (typeof x === "number") {
+    const n: number = x;
+    console.log("  dead", n);
+  }
+  return "unconstrained " + x;
+}
+function points<T extends number[]>(x: T & number[]): string {
+  if (x instanceof Pt) {
+    console.log("  dead", x.v + 1, ptv(x));
+  }
+  return "points " + x.length;
+}
+function falsy<T extends Pt>(x: T & Pt): string {
+  if (!x) {
+    const n: null = x;
+    console.log("  dead", nul(x), n);
+  }
+  return "falsy " + x.v;
+}
+function predicate<T extends string>(x: T & string): string {
+  if (isNum(x)) {
+    console.log("  dead", x + 1);
+  }
+  return "predicate " + x;
+}
+function union<T extends string | number>(x: T & (string | number)): string {
+  if (typeof x === "boolean") {
+    console.log("  dead", bool(x));
+  }
+  return "union " + x;
+}
+function boxes<T extends string>(x: T): string {
+  const b = typeof x === "number" ? new Box(x) : new Box("live");
+  const c = flip() && typeof x === "number" ? new Box(x) : new Box(0);
+  return "boxes " + b.value + " " + c.value;
+}
+function arrays<T extends number>(x: T & number): string {
+  if (Array.isArray(x)) {
+    console.log("  dead", new Box(x).value);
+  }
+  return "arrays " + x;
+}
+console.log(constrained<"s">("s"), constrained<string>("t"), unconstrained<string>("u"));
+console.log(points<number[]>([1, 2]), falsy<Pt>(new Pt(4)), predicate<string>("p"));
+console.log(union<string | number>(5), union<string>("w"), boxes<string>("b"));
+console.log(arrays<number>(6));
+
+// expect:
+// constrained s constrained t unconstrained u
+// points 2 falsy 4 predicate p
+// union 5 union w boxes live 0
+// arrays 6

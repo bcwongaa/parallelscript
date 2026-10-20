@@ -1,12 +1,13 @@
-// skip: known issue (H09b4b2, C220): plain code that tsc narrows to never, or to an intersection no value has, doesn't lower (PTS1001)
 // Plain (non-generic) code that narrows a value to a type no value it holds can have (H09b4b,
 // C220): `typeof x === "number"` for a string, `Array.isArray(x)` for a number, `instanceof`
 // a class for an array or an unrelated class, `=== null` for a string, a falsy object, a user
 // type predicate, an assertion function, `switch (typeof x)` and `switch (true)`, an early
 // return, `?:` over boxes, a comparison after `&&`, and a union narrowed to `never`. tsc
-// accepts each; Node never runs the dead code. None compiled: PTS1001 (`converting string to
-// number is not supported yet`, `` `x.length` is not supported yet ``, `converting number[]
-// to Pt`, `using a Pt as a Other`, `converting number | string to boolean`, …).
+// accepts each; Node never runs the dead code. None compiled on the base: PTS1001
+// (`converting string to number is not supported yet`, `` `x.length` is not supported yet
+// ``, `converting number[] to Pt`, `using a Pt as a Other`, `converting number | string to
+// boolean`, …). Each read is of a parameter only its own function assigns, so its region is
+// a trap (D-197).
 class Box<T> {
   constructor(public value: T) {}
 }

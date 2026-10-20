@@ -1,0 +1,44 @@
+// RED on the base (H09b4b2, C220): D-090's loose locals in branches tsc types never, used as
+// undefined. An element read past the end, a record's missing key or an array pattern's
+// missing element, tested for undefined, holds undefined though tsc types it string or
+// number; in the tested branch tsc types it never, and Node runs the branch with no lie. A
+// copy into an `undefined` const and an `undefined` argument must take the undefined it
+// holds. The read is a const, which can't be stale, yet its never is live: such reads must
+// hold their union, not trap. The base: PTS1001 (`converting string | undefined to undefined
+// is not supported yet`, `converting number | undefined to undefined`).
+function und(u: undefined): string {
+  return "und " + u;
+}
+function elementUndefined(i: number): string {
+  const a: string[] = ["a"];
+  const y = a[i];
+  if (y === undefined) {
+    const u: undefined = y;
+    return "element undefined " + u + " " + und(y);
+  }
+  return "element " + y;
+}
+function recordUndefined(k: string): string {
+  const d: Record<string, number> = { a: 1 };
+  const y = d[k];
+  if (y === undefined) {
+    const u: undefined = y;
+    return "record undefined " + u + " " + und(y);
+  }
+  return "record " + y;
+}
+function patternUndefined(s: string): string {
+  const [key, value] = s.split("=");
+  if (value === undefined) {
+    return "pattern " + key + " " + und(value);
+  }
+  return "pattern " + key + "=" + value;
+}
+console.log(elementUndefined(5), elementUndefined(0));
+console.log(recordUndefined("z"), recordUndefined("a"));
+console.log(patternUndefined("k"), patternUndefined("k=v"));
+
+// expect:
+// element undefined undefined und undefined element a
+// record undefined undefined und undefined record 1
+// pattern k und undefined pattern k=v

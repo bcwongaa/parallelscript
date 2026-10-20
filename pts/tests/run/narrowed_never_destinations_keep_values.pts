@@ -1,0 +1,79 @@
+// RED on the base (H09b4b2, C220): a value that reaches code tsc types never, with no lie or
+// through a lying predicate, sent where never goes, must arrive as it is. A numeric enum holds
+// a number it doesn't name (no cast): a never-returning function's `return c` in the
+// exhaustive switch's default returns it in Node; so does `return x` after a lying predicate.
+// A D-090 loose local (an element read past the end, a record's missing key) holds undefined:
+// `assertNever(y)` gets undefined and throws its own Error. The base runs each but wrongly:
+// the never function's result is undefined (`returned undefined` where Node has `returned
+// 7`), and the loose local is checked as its declared type before the call (`TypeError:
+// Expected string, got undefined` where Node throws `unexpected undefined`).
+enum Color {
+  Red,
+  Green,
+}
+function assertNever(x: never): never {
+  throw new Error("unexpected " + String(x)); // not JSON.stringify, whose undefined is C151's
+}
+function lyingIsNum(v: unknown): v is number {
+  return true;
+}
+function failColor(c: Color): never {
+  switch (c) {
+    case Color.Red:
+      throw new Error("red");
+    case Color.Green:
+      throw new Error("green");
+    default:
+      return c;
+  }
+}
+function colorReturned(c: Color): string {
+  const r = failColor(c);
+  return "returned " + String(r) + " " + typeof r;
+}
+function failLied(x: string): never {
+  if (lyingIsNum(x)) {
+    return x;
+  }
+  throw new Error("not lied " + x);
+}
+function liedReturned(x: string): string {
+  const r = failLied(x);
+  return "lie returned " + String(r);
+}
+function elementAssertNever(i: number): string {
+  const a: string[] = ["a"];
+  const y = a[i];
+  if (y === undefined) {
+    return assertNever(y);
+  }
+  return "element " + y;
+}
+function recordAssertNever(k: string): string {
+  const d: Record<string, number> = { a: 1 };
+  const y = d[k];
+  if (y === undefined) {
+    assertNever(y);
+  }
+  return "record " + y;
+}
+
+const seven: number = 7;
+const outOfRange: Color = seven;
+for (const f of [() => colorReturned(outOfRange), () => colorReturned(Color.Red), () => liedReturned("s"),
+  () => elementAssertNever(5), () => elementAssertNever(0), () => recordAssertNever("z"), () => recordAssertNever("a")]) {
+  try {
+    console.log(f());
+  } catch (error: any) {
+    console.log("caught", error.message);
+  }
+}
+
+// expect:
+// returned 7 number
+// caught red
+// lie returned s
+// caught unexpected undefined
+// element a
+// caught unexpected undefined
+// record 1

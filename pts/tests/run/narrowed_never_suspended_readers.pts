@@ -1,0 +1,62 @@
+// A variable tsc narrows to never in a function other than its own, which assigns it while
+// the reader awaits (H09b4b2, D-197): the reader's second test types a live value never
+// with no lie, since tsc doesn't follow what runs during an await, so the read holds its
+// value. A module `let` that only module code assigns, read by an async function; a `let`
+// that only its own function assigns, read by a closure that awaits. Around them, module
+// code tsc narrows to never (dead: a trap Node never reaches), and a dead `x` of a
+// parameter in a closure that doesn't await, whose own function never assigns it.
+function num(n: number): string {
+  return "num " + (n + 1);
+}
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+const mode: string = "a";
+if (typeof mode === "number") {
+  console.log("module dead", num(mode));
+}
+console.log("module", mode);
+let shared: number | string = 1;
+async function reader(): Promise<string> {
+  if (typeof shared === "number") {
+    await sleep(5);
+    if (typeof shared === "string") {
+      return "reader live " + shared + " " + String(shared).length;
+    }
+  }
+  return "reader kept";
+}
+const pending = reader();
+shared = "s";
+console.log(await pending);
+function outer(): Promise<string> {
+  let v: number | string = 1;
+  const inner = async (): Promise<string> => {
+    if (typeof v === "number") {
+      await sleep(5);
+      if (typeof v === "string") {
+        return "inner live " + v;
+      }
+    }
+    return "inner kept";
+  };
+  const result = inner();
+  v = "t";
+  return result;
+}
+console.log(await outer());
+function captured(x: string): () => string {
+  return () => {
+    if (typeof x === "number") {
+      return num(x);
+    }
+    return "captured " + x;
+  };
+}
+console.log(captured("c")());
+
+// expect:
+// module a
+// reader live s 1
+// inner live t
+// captured c

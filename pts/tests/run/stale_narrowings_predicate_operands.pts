@@ -1,0 +1,73 @@
+// RED on the base (H09b4b2, C220): a type predicate's argument that tsc keeps narrowed across
+// a call that changed it (a stale narrowing) is a test of what the place holds, as `typeof`'s
+// and `===`'s operands are (D-196's C230), and the predicate's second test types the live
+// value never (`isCi(o.v)` where `o.v` was narrowed to Sq: `Sq & Ci`) or an intersection no
+// value has (`isArr(o.v)` where it was narrowed to number: `number & unknown[]`). No lie:
+// Node runs the branch, which logs the value, passes it where its declared type goes and
+// stringifies it. The base converts the argument to the stale narrowed type with a check:
+// `TypeError: Expected {kind: string; side: number}, got Object` and `TypeError: Expected
+// number, got Array`, though the predicate's parameter takes any Shape or any value. Each
+// function also runs with a change that changes nothing.
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Shape = Sq | Ci;
+function isCi(s: Shape): s is Ci {
+  return s.kind === "ci";
+}
+function isArr(v: unknown): v is unknown[] {
+  return Array.isArray(v);
+}
+function shp(s: Shape): string {
+  return "shape " + s.kind;
+}
+function len(v: unknown[]): string {
+  return "len " + v.length;
+}
+function shapePredicate(o: { v: Shape }, change: () => void): string {
+  if (o.v.kind === "sq") {
+    change();
+    if (isCi(o.v)) {
+      console.log("  shape predicate", o.v);
+      return "shape now " + shp(o.v) + " " + JSON.stringify(o.v);
+    }
+  }
+  return "shape kept";
+}
+function arrayPredicate(o: { v: number | string[] }, change: () => void): string {
+  if (typeof o.v === "number") {
+    change();
+    if (isArr(o.v)) {
+      console.log("  array predicate", o.v);
+      return "predicate array now " + len(o.v) + " " + String(o.v);
+    }
+  }
+  return "predicate array kept";
+}
+const nothing = (): void => {};
+const sh: { v: Shape } = { v: { kind: "sq", side: 2 } };
+const p: { v: number | string[] } = { v: 1 };
+for (const f of [() => shapePredicate(sh, () => {
+  sh.v = { kind: "ci", r: 3 };
+}), () => shapePredicate({ v: { kind: "sq", side: 4 } }, nothing), () => arrayPredicate(p, () => {
+  p.v = ["m", "n"];
+}), () => arrayPredicate({ v: 5 }, nothing)]) {
+  try {
+    console.log(f());
+  } catch (error: any) {
+    console.log("caught", error.message);
+  }
+}
+
+// expect:
+//   shape predicate { kind: 'ci', r: 3 }
+// shape now shape ci {"kind":"ci","r":3}
+// shape kept
+//   array predicate [ 'm', 'n' ]
+// predicate array now len 2 m,n
+// predicate array kept

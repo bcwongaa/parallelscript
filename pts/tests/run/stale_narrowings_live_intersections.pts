@@ -1,0 +1,117 @@
+// RED on the base (H09b4b2, C220): tsc keeps a narrowing across what it doesn't follow (a
+// call that sets a property, a closure's assignment, a getter's second read, an await), so a
+// second test can type a live value as an intersection no value has or as never, with no
+// lie, and Node runs the branch. Such a read must hold its value: `o.v.length` after
+// Array.isArray where `o.v` was narrowed to number (`number & any[]`), `o.v.b`, a Sub2
+// argument and a Sub2 const after `o.v instanceof Sub2` where it was narrowed to a sibling
+// Sub1 (`Sub1 & Sub2`), `o.v.length` after an honest `isArr(o.v)` where it was narrowed
+// to number (`number & unknown[]`). Each function also runs with a change that changes
+// nothing (the branch is then dead). The base: PTS1001 (`` `o.v.length` is not supported
+// yet ``, `using a Base as a Sub2`). The predicates' operands are
+// `stale_narrowings_predicate_operands.pts`; a conditional of boxes of a read typed never is
+// `stale_narrowings_never_generic_boxes.pts`.
+class Base {
+  constructor(public n: number) {}
+}
+class Sub1 extends Base {
+  a = "a";
+}
+class Sub2 extends Base {
+  b = "b";
+}
+function isArr(v: unknown): v is unknown[] {
+  return Array.isArray(v);
+}
+function sub2(s: Sub2): string {
+  return "sub2 " + s.b;
+}
+
+function arrayMember(o: { v: number | string[] }, change: () => void): string {
+  if (typeof o.v === "number") {
+    change();
+    if (Array.isArray(o.v)) {
+      return "array now " + o.v.length + " " + o.v.join("");
+    }
+  }
+  return "array kept";
+}
+function arrayMemberOfClosure(): string {
+  let v: number | string[] = 1;
+  const set = (): void => {
+    v = ["p", "q", "r"];
+  };
+  if (typeof v === "number") {
+    set();
+    if (Array.isArray(v)) {
+      return "closure array now " + v.length;
+    }
+  }
+  return "closure array kept";
+}
+class Flips {
+  reads = 0;
+  get v(): number | string[] {
+    return this.reads++ >= 1 ? ["g"] : 1;
+  }
+}
+function arrayMemberOfGetter(g: Flips): string {
+  if (typeof g.v === "number") {
+    if (Array.isArray(g.v)) {
+      return "getter array now " + g.v.length;
+    }
+  }
+  return "getter array kept";
+}
+async function arrayMemberAfterAwait(o: { v: number | string[] }): Promise<string> {
+  if (typeof o.v === "number") {
+    await Promise.resolve();
+    if (Array.isArray(o.v)) {
+      return "awaited array now " + o.v.length;
+    }
+  }
+  return "awaited array kept";
+}
+function siblings(o: { v: Base }, change: () => void): string {
+  if (o.v instanceof Sub1) {
+    change();
+    if (o.v instanceof Sub2) {
+      const s: Sub2 = o.v;
+      return "sibling now " + o.v.b + " " + sub2(o.v) + " " + s.n;
+    }
+  }
+  return "sibling kept";
+}
+function arrayPredicateMember(o: { v: number | string[] }, change: () => void): string {
+  if (typeof o.v === "number") {
+    change();
+    if (isArr(o.v)) {
+      return "predicate member now " + o.v.length;
+    }
+  }
+  return "predicate member kept";
+}
+const nothing = (): void => {};
+const a: { v: number | string[] } = { v: 1 };
+console.log(arrayMember(a, () => {
+  a.v = ["x", "y"];
+}), arrayMember({ v: 2 }, nothing));
+console.log(arrayMemberOfClosure(), arrayMemberOfGetter(new Flips()));
+const s: { v: Base } = { v: new Sub1(1) };
+console.log(siblings(s, () => {
+  s.v = new Sub2(2);
+}), siblings({ v: new Sub1(3) }, nothing));
+const p: { v: number | string[] } = { v: 1 };
+console.log(arrayPredicateMember(p, () => {
+  p.v = ["m", "n"];
+}), arrayPredicateMember({ v: 5 }, nothing));
+const w: { v: number | string[] } = { v: 1 };
+const pending = arrayMemberAfterAwait(w);
+w.v = ["w"];
+pending.then((r) => console.log(r));
+
+// expect:
+// array now 2 xy array kept
+// closure array now 3 getter array now 1
+// sibling now b sub2 b 2 sibling kept
+// predicate member now 2 predicate member kept
+// awaited array now 1

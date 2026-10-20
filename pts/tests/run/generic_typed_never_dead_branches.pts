@@ -1,11 +1,11 @@
-// skip: known issue (H09b4b2, C220): generic code that tsc itself types never (`typeof x === "number"` for an `x: T & string`) lowers its reads as the declared type: PTS1001 (`converting string to number`)
 // Generic code that tsc itself types never (H09b4b, C220): `x: T & string` tested as a
 // number is `T & string & number`, never in the generic code, not just for the instance, so
 // D-195's instance test leaves it as the base lowered it (code tsc already types never). As
-// in plain code, only a lie can reach it: Node never runs it. The base made each read the
-// declared string: PTS1001 (`converting string to number`, `converting string to null`,
-// `conditional expression with operands of types Box and Box`); `Array.isArray` for a
-// `T & number` (`T & number & any[]`) too (`` `x.length` is not supported yet ``).
+// in plain code, only a lie can reach it: Node never runs it, and it is a trap (D-197). The
+// base made each read the declared string: PTS1001 (`converting string to number`,
+// `converting string to null`, `conditional expression with operands of types Box and
+// Box`). `Array.isArray` for a `T & number` (`T & number & any[]`, which tsc doesn't type
+// never in the generic code) is D-195's instance trap, and already ran on the base.
 class Box<T> {
   constructor(public value: T) {}
 }

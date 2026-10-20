@@ -1,0 +1,118 @@
+// RED on the base (H09b4b2, C220): plain code tsc narrows to never (`typeof x === "number"`
+// for a string), to `number & any[]` (Array.isArray for a number) and to `Pt & Other`
+// (instanceof an unrelated class), with no lie, using the value as the narrowed type: an
+// arithmetic operand, a typed argument, a member, a typed const, a conditional of boxes
+// (`Box<never> | Box<string>`), a comparison, a cast to the tested type. Node never runs
+// these regions. The base rejected each: PTS1001 (`converting string to number`,
+// `conditional expression with operands of types Box and Box`, `the > operator on string and
+// number`, `converting number to value[]`, `` `x.length` ``, `using a Pt as a Other`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+class Other {
+  constructor(public w: number) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function len(v: unknown[]): string {
+  return "len " + v.length;
+}
+function oth(o: Other): string {
+  return "other " + o.w;
+}
+function flip(): boolean {
+  return [1].length > 0;
+}
+
+function neverArithmetic(x: string): string {
+  if (typeof x === "number") {
+    console.log("  dead", x + 1);
+  }
+  return "arithmetic " + x;
+}
+function neverArgument(x: string): string {
+  if (typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  return "argument " + x;
+}
+function neverTypedConst(x: string): string {
+  if (typeof x === "number") {
+    const n: number = x;
+    console.log("  dead", n);
+  }
+  return "typed const " + x;
+}
+function neverBoxes(x: string): string {
+  if (typeof x === "number") {
+    const b = flip() ? new Box(x) : new Box("o");
+    console.log("  dead", b.value);
+  }
+  return "boxes " + x;
+}
+function neverComparison(x: string): string {
+  if (typeof x === "number") {
+    console.log("  dead", x > 1);
+  }
+  return "comparison " + x;
+}
+function neverCast(x: string): string {
+  if (typeof x === "number") {
+    console.log("  dead", num(x as number));
+  }
+  return "cast " + x;
+}
+function arrayMember(x: number): string {
+  if (Array.isArray(x)) {
+    console.log("  dead", x.length);
+  }
+  return "array member " + x;
+}
+function arrayArgument(x: number): string {
+  if (Array.isArray(x)) {
+    const a: any[] = x;
+    console.log("  dead", len(x), a.length);
+  }
+  return "array argument " + x;
+}
+function arrayBoxes(x: number): string {
+  if (Array.isArray(x)) {
+    const b = flip() ? new Box(x) : new Box(3);
+    console.log("  dead", b.value);
+  }
+  return "array boxes " + x;
+}
+function classMember(x: Pt): string {
+  if (x instanceof Other) {
+    console.log("  dead", x.w + 1);
+  }
+  return "class member " + x.v;
+}
+function classArgument(x: Pt): string {
+  if (x instanceof Other) {
+    const o: Other = x;
+    console.log("  dead", oth(x), o.w);
+  }
+  return "class argument " + x.v;
+}
+function classCast(x: Pt): string {
+  if (x instanceof Other) {
+    console.log("  dead", oth(x as Other));
+  }
+  return "class cast " + x.v;
+}
+
+console.log(neverArithmetic("a"), neverArgument("b"), neverTypedConst("c"));
+console.log(neverBoxes("d"), neverComparison("e"), neverCast("f"));
+console.log(arrayMember(1), arrayArgument(2), arrayBoxes(3));
+console.log(classMember(new Pt(4)), classArgument(new Pt(5)), classCast(new Pt(6)));
+
+// expect:
+// arithmetic a argument b typed const c
+// boxes d comparison e cast f
+// array member 1 array argument 2 array boxes 3
+// class member 4 class argument 5 class cast 6

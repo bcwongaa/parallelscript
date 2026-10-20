@@ -1301,10 +1301,11 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	}
 	declared := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(node))
 	result := l.instantiate(declared)
-	// A function declared to return never only throws; an instance whose type arguments make
-	// its result never (`T` for never, D-195) returns what it has: undefined, as in JS; so
-	// does an arrow whose expression tsc types never though it has a value (`xs[0] ??
-	// "none"` for a `never[]` xs) rather than calling a function that throws.
+	// A function declared to return never only throws, unless it returns a value
+	// (returnsNeverValue); an instance whose type arguments make its result never (`T` for
+	// never, D-195) returns what it has: undefined, as in JS; so does an arrow whose
+	// expression tsc types never though it has a value (`xs[0] ?? "none"` for a `never[]`
+	// xs) rather than calling a function that throws.
 	if result.Flags()&checker.TypeFlagsVoid != 0 || isNever(result) && isNever(declared) && !returnsNeverValue(node) {
 		if node.Kind == ast.KindGetAccessor {
 			return ir.Undefined // a property's value, which a getter of type void gives as undefined (one of never only throws)
@@ -1317,14 +1318,24 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	return l.irType(result, nameOf(node))
 }
 
-// returnsNeverValue reports whether node is an arrow function or function expression whose
-// result tsc infers from an expression body of type never that isn't a call: an element of
-// a `never[]`, which is undefined, or an expression that holds one (D-195).
+// returnsNeverValue reports whether node, a function tsc types as returning never, returns
+// a value: an arrow function or function expression whose result tsc infers from an
+// expression body of type never that isn't a call (an element of a `never[]`, which is
+// undefined, or an expression that holds one, D-195), or a function whose body returns
+// something other than a call, which code tsc types never reaches without a lie (`return c`
+// in an exhaustive switch's default, where an enum c holds another number, D-197).
 func returnsNeverValue(node *ast.Node) bool {
-	if node.Kind != ast.KindArrowFunction && node.Kind != ast.KindFunctionExpression || node.Type() != nil || node.Body() == nil || node.Body().Kind == ast.KindBlock {
+	body := node.Body()
+	switch {
+	case body == nil:
 		return false
+	case body.Kind == ast.KindBlock:
+		return ast.ForEachReturnStatement(body, func(statement *ast.Node) bool {
+			return statement.Expression() != nil && ast.SkipParentheses(statement.Expression()).Kind != ast.KindCallExpression
+		})
 	}
-	return ast.SkipParentheses(node.Body()).Kind != ast.KindCallExpression
+	return (node.Kind == ast.KindArrowFunction || node.Kind == ast.KindFunctionExpression) && node.Type() == nil &&
+		ast.SkipParentheses(body).Kind != ast.KindCallExpression
 }
 
 // nameOf is a declaration's name, or the declaration itself if it has none (`export default function () {}`).
@@ -2418,7 +2429,7 @@ func (l *lowerer) keyedElementRead(node *ast.Node) ir.Expr {
 	if t == nil || value == nil {
 		return nil
 	}
-	if l.isNarrowedProperty(node) && testsAnyValue(node) {
+	if l.isNarrowedProperty(node) && l.testsAnyValue(node) {
 		return value
 	}
 	return l.checkedConversion(value, t, node)

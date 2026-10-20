@@ -1,0 +1,79 @@
+// Guard (passes on the base): D-090's loose locals in branches tsc types never (H09b4b2,
+// C220). An element read past the end, a record's missing key or an array pattern's missing
+// element, tested for undefined (`=== undefined`, `typeof … === "undefined"`, `== null`,
+// `!y`), holds undefined though tsc types it string, number or Pt, so the branch where tsc
+// says it is never runs in Node with no lie. Its uses there run as in Node: a console
+// argument, String, `+` with a string, typeof, an `unknown` parameter, `??`, a `never` const,
+// a box's value, a return. A trap for plain code tsc narrows to never must leave these
+// alone: the read is a const that can't be stale, yet its never is live.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+function show(v: unknown): string {
+  return "show " + String(v);
+}
+
+function element(i: number): string | undefined {
+  const a: string[] = ["a"];
+  const y = a[i];
+  if (y === undefined) {
+    console.log("  element", y, String(y), "+" + y, typeof y, show(y), y ?? "fallback");
+    const u: never = y;
+    console.log("  never const", u, new Box(y).value);
+    return y;
+  }
+  return "element " + y;
+}
+function typeofElement(i: number): string {
+  const a: string[] = ["a"];
+  const y = a[i];
+  if (typeof y === "undefined") {
+    return "typeof element " + y + " " + typeof y;
+  }
+  return "element " + y;
+}
+function looseNull(i: number): string {
+  const a: number[] = [1];
+  const y = a[i];
+  if (y == null) {
+    return "loose null " + String(y) + " " + show(y);
+  }
+  return "number " + y;
+}
+function falsyObject(i: number): string {
+  const a: Pt[] = [new Pt(1)];
+  const y = a[i];
+  if (!y) {
+    return "falsy object " + String(y) + " " + (y ?? "none");
+  }
+  return "pt " + y.v;
+}
+function record(k: string): string {
+  const d: Record<string, number> = { a: 1 };
+  const y = d[k];
+  if (y === undefined) {
+    return "record " + y + " " + typeof y + " " + JSON.stringify([y]);
+  }
+  return "record " + y;
+}
+function pattern(s: string): string {
+  const [key, value] = s.split("=");
+  if (value === undefined) {
+    return "pattern " + key + " " + value + ` ${value}`;
+  }
+  return "pattern " + key + "=" + value;
+}
+
+console.log(element(5), element(0));
+console.log(typeofElement(5), looseNull(5), looseNull(0), falsyObject(5), falsyObject(0));
+console.log(record("z"), record("a"), pattern("k"), pattern("k=v"));
+
+// expect:
+//   element undefined undefined +undefined undefined show undefined fallback
+//   never const undefined undefined
+// undefined element a
+// typeof element undefined undefined loose null undefined show undefined number 1 falsy object undefined none pt 1
+// record undefined undefined [null] record 1 pattern k undefined undefined pattern k=v

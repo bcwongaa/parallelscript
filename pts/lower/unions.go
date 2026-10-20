@@ -134,25 +134,35 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	if x.Type() == ir.Value {
 		return l.narrowedValue(node, x)
 	}
+	if l.narrowsReadToNoValue(node) {
+		if l.mayHoldUntestedValue(node) {
+			// A second test narrowed it to a type no value of its declared type has (never,
+			// `Sub1 & Sub2`), as tsc sees it, though a call tsc doesn't follow changed it
+			// since the first, or it is a loose local's undefined: what it holds, as a
+			// dynamic value, converted with a check where it is used (C220).
+			return box(x)
+		}
+		// Code that can't run (isDeadRead), a use that takes its declared type
+		// (takesAnyValueAsIs), or a value of its IR type that tsc's narrowing ran out of (an
+		// enum's other numbers): what it holds, as its declared type.
+		return x
+	}
 	union, ok := x.Type().(*ir.Union)
 	if !ok {
 		return x
 	}
 	t := l.typeAt(node)
 	if t.Flags()&checker.TypeFlagsNever != 0 {
-		if l.mayHaveChanged(node) {
-			// A second test narrowed it to never, as tsc sees it, though a call tsc doesn't
-			// follow changed it since the first: what it holds, as a dynamic value, converted
-			// with a check where it is used (C220).
-			return box(x)
+		if l.mayHoldUntestedValue(node) {
+			return box(x) // never for the instance's type arguments (`T & number` for a string T), as above
 		}
-		return x // unreachable code, as tsc sees it
+		return x // code that can't run for the instance (isDeadRead)
 	}
 	narrow := l.irType(t, node)
 	if narrow == ir.Value {
 		return box(x) // narrowed to a type only dynamic values hold (`E & Error` after `e instanceof Error`, D-095)
 	}
-	if narrow != nil && isNarrowing(union, narrow) && l.mayHaveChanged(node) && testsAnyValue(node) {
+	if narrow != nil && isNarrowing(union, narrow) && l.mayHaveChanged(node) && l.testsAnyValue(node) {
 		// A test of what it holds (`typeof o.v`, `o.v instanceof P2`, `o.v === 5`), which a
 		// narrowing kept across a call that changed it mustn't decide: what it holds, as a
 		// dynamic value (C230).
@@ -175,14 +185,17 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 }
 
 // testsAnyValue reports whether node is an operand of a test that takes any value:
-// `typeof`'s, an equality's (`===`, `!==`, `==`, `!=`), instanceof's left, or a switch's.
-func testsAnyValue(node *ast.Node) bool {
+// `typeof`'s, an equality's (`===`, `!==`, `==`, `!=`), instanceof's left, a switch's, or
+// the argument a type predicate narrows (`isCi(o.v)`, D-197).
+func (l *lowerer) testsAnyValue(node *ast.Node) bool {
 	for node.Parent.Kind == ast.KindParenthesizedExpression {
 		node = node.Parent
 	}
 	switch parent := node.Parent; parent.Kind {
 	case ast.KindTypeOfExpression, ast.KindSwitchStatement:
 		return true
+	case ast.KindCallExpression:
+		return l.isPredicateArgument(parent, node)
 	case ast.KindBinaryExpression:
 		switch binary := parent.AsBinaryExpression(); binary.OperatorToken.Kind {
 		case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken, ast.KindEqualsEqualsToken, ast.KindExclamationEqualsToken:
@@ -192,6 +205,17 @@ func testsAnyValue(node *ast.Node) bool {
 		}
 	}
 	return false
+}
+
+// isPredicateArgument reports whether argument is the argument of call that the called
+// signature's type predicate narrows (`v` of `isCi(v): v is Ci`, `assertNum(v)`).
+func (l *lowerer) isPredicateArgument(call, argument *ast.Node) bool {
+	index := slices.Index(call.Arguments(), argument)
+	if index < 0 {
+		return false
+	}
+	signature := l.checker.GetResolvedSignature(call)
+	return signature != nil && l.checker.PtsTypePredicateParameterIndex(signature) == index
 }
 
 // mayHaveChanged reports whether node, a reference tsc narrowed, may have changed since,
