@@ -179,7 +179,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
-		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}}
+		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		if l.current == nil {
@@ -339,6 +339,7 @@ type lowerer struct {
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
 	droppedFuncs        map[*ir.Func]bool                // the functions failed trials dropped
+	deadTests           map[*substitution]*substitution  // each instance's substitution for isDeadRead (deadTest)
 	instanceKeys        map[string]string                // the keys of dynamic results' entries, by what tells them apart (instanceKey)
 	receives            map[receiving]bool               // whether a class may be a receiver of a type (mayReceive)
 	unexplained         *ast.Node                        // the first expression that failed without a diagnostic
@@ -424,16 +425,15 @@ func (l *lowerer) report(d diagnostic.Diagnostic) {
 
 func (l *lowerer) block(node *ast.Node, statements []*ast.Node) *ir.Block {
 	block := &ir.Block{At: l.pos(node), Stmts: l.hoistedFunctions(statements)}
-	for _, statement := range statements {
-		block.Stmts = append(block.Stmts, l.statement(statement)...)
-	}
+	block.Stmts = append(block.Stmts, l.statementList(statements)...)
 	return block
 }
 
-// statement lowers one statement to zero or more IR statements.
+// statement lowers one statement to zero or more IR statements, or to a trap if an
+// instance's type arguments make it dead (D-195).
 func (l *lowerer) statement(node *ast.Node) []ir.Stmt {
 	outer := l.lowering(node)
-	stmts := l.statementOf(node)
+	stmts, _ := l.statementOrTrap(node)
 	l.leaving(node, outer)
 	return stmts
 }
@@ -711,9 +711,7 @@ func (l *lowerer) switchStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 			c.Match = l.caseMatch(clause, tag)
 			failed = failed || c.Match == nil
 		}
-		for _, statement := range clause.Statements() {
-			c.Body = append(c.Body, l.statement(statement)...)
-		}
+		c.Body = l.statementList(clause.Statements())
 		result.Cases = append(result.Cases, c)
 	}
 	if failed {
@@ -1301,8 +1299,13 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 	if n, ok := l.info.ResultType(node); ok {
 		return numericTypes[n]
 	}
-	result := l.returnTypeOf(l.checker.GetSignatureFromDeclaration(node))
-	if result.Flags()&(checker.TypeFlagsVoid|checker.TypeFlagsNever) != 0 {
+	declared := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(node))
+	result := l.instantiate(declared)
+	// A function declared to return never only throws; an instance whose type arguments make
+	// its result never (`T` for never, D-195) returns what it has: undefined, as in JS; so
+	// does an arrow whose expression tsc types never though it has a value (`xs[0] ??
+	// "none"` for a `never[]` xs) rather than calling a function that throws.
+	if result.Flags()&checker.TypeFlagsVoid != 0 || isNever(result) && isNever(declared) && !returnsNeverValue(node) {
 		if node.Kind == ast.KindGetAccessor {
 			return ir.Undefined // a property's value, which a getter of type void gives as undefined (one of never only throws)
 		}
@@ -1312,6 +1315,16 @@ func (l *lowerer) resultType(node *ast.Node) ir.Type {
 		result = contextual // `(input) => c ? { ok: true, … } : { ok: false, … }` as a Parser (D-095)
 	}
 	return l.irType(result, nameOf(node))
+}
+
+// returnsNeverValue reports whether node is an arrow function or function expression whose
+// result tsc infers from an expression body of type never that isn't a call: an element of
+// a `never[]`, which is undefined, or an expression that holds one (D-195).
+func returnsNeverValue(node *ast.Node) bool {
+	if node.Kind != ast.KindArrowFunction && node.Kind != ast.KindFunctionExpression || node.Type() != nil || node.Body() == nil || node.Body().Kind == ast.KindBlock {
+		return false
+	}
+	return ast.SkipParentheses(node.Body()).Kind != ast.KindCallExpression
 }
 
 // nameOf is a declaration's name, or the declaration itself if it has none (`export default function () {}`).
@@ -1467,7 +1480,8 @@ func (l *lowerer) expressionOf(node *ast.Node) ir.Expr {
 		if l.isMatchElement(node) {
 			return l.matchElement(node)
 		}
-		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node))) {
+		if (l.isArrayElement(node) || l.isTypedArrayElement(node) || l.isStringElement(node) || l.isRecordElement(node)) && (l.contextTakesUndefined(node) || mayHoldUndefined(l.typeAt(node)) || isNever(l.typeAt(node))) {
+			// An element of type never (a `never[]`'s, an instance's for never) can only be missing.
 			x := l.valueExpression(node)
 			if x == nil {
 				return nil
@@ -2895,6 +2909,11 @@ func (l *lowerer) operation(node *ast.Node, op ir.BinaryOp, x ir.Expr, y ir.Expr
 		x, y = commonClass(x, y)
 	}
 	if !acceptsOperands(op, x.Type(), y.Type()) {
+		if operator := node.AsBinaryExpression().OperatorToken.Kind; (operator == ast.KindEqualsEqualsEqualsToken || operator == ast.KindExclamationEqualsEqualsToken) && otherPrimitives(x.Type(), y.Type()) {
+			// Primitives of different kinds are never strictly equal: an instance's `x === 1`
+			// for an x of type T and a string T, a test that narrows x to never (D-195).
+			return discard(x, discard(y, &ir.BoolConst{Value: op == ir.Ne}))
+		}
 		l.notSupportedYet(node, fmt.Sprintf("%s on %s and %s is", describe(node), x.Type(), y.Type()))
 		return nil
 	}
@@ -3399,6 +3418,9 @@ func (l *lowerer) branch(node *ast.Node) ir.Expr {
 
 // logical lowers && and ||, whose operands must have one type.
 func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right *ast.Node) ir.Expr {
+	if trap := l.deadOperand(right); trap != nil {
+		return l.logicalWithDeadRight(op, left, trap)
+	}
 	loose := l.isLooseIdentifier(left) || l.isMatchElement(ast.SkipParentheses(left)) // a union of its type and undefined (D-090, D-133)
 	if op == ir.And && !loose && !l.involvesUnion(node, left, right) && neverFalsy(l.irType(l.typeAt(left), left)) {
 		x, y := l.expression(left), l.expression(right) // `obj && test` is test, after obj (D-089)
@@ -3419,6 +3441,23 @@ func (l *lowerer) logical(node *ast.Node, op ir.LogicalOp, left *ast.Node, right
 		return nil
 	}
 	return &ir.Logical{Op: op, X: x, Y: y}
+}
+
+// logicalWithDeadRight lowers `left && right` or `left || right` whose right operand an
+// instance's type arguments make dead (D-195): left's value, with the trap where JS would
+// evaluate right, so the whole has left's type.
+func (l *lowerer) logicalWithDeadRight(op ir.LogicalOp, left *ast.Node, trap ir.Expr) ir.Expr {
+	x := l.expression(left)
+	if x == nil {
+		return nil
+	}
+	tmp := l.newLocal("value", x.Type())
+	ref := &ir.LocalRef{Local: tmp}
+	then, otherwise := l.convert(trap, x.Type(), left), ir.Expr(ref)
+	if op == ir.Or {
+		then, otherwise = otherwise, then
+	}
+	return &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: truthOf(ref), Then: then, Else: otherwise}}
 }
 
 // neverFalsy reports whether every value of type t is truthy: an object, an array, a
@@ -3485,15 +3524,25 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 	if node.Kind == ast.KindConditionalExpression && mayHoldUndefined(l.typeAt(node)) {
 		operand = l.branch // `c ? room.exits[dir] : undefined`
 	}
-	x, y := operand(a), operand(b)
+	x, y := l.deadOperand(a), l.deadOperand(b) // a branch an instance's type arguments make dead (D-195)
+	if node.Kind != ast.KindConditionalExpression {
+		x = nil // the left operand of && and || runs whenever the expression does
+	}
+	deadX, deadY := x != nil, y != nil
+	if !deadX {
+		x = operand(a)
+	}
+	if !deadY {
+		y = operand(b)
+	}
 	if x == nil || y == nil {
 		return nil, nil
 	}
 	if t := l.numericType(node); t != nil && !isNullish(x.Type()) && !isNullish(y.Type()) { // `c ? undefined : n` is a number | undefined
-		if !isNonNumeric(x.Type()) { // `c ? n : s` for a number | string keeps s a string
+		if !deadX && !isNonNumeric(x.Type()) { // `c ? n : s` for a number | string keeps s a string
 			x = l.convert(x, t, a)
 		}
-		if x != nil && !isNonNumeric(y.Type()) {
+		if x != nil && !deadY && !isNonNumeric(y.Type()) {
 			y = l.convert(y, t, b)
 		}
 		if x == nil || y == nil {
@@ -3505,6 +3554,9 @@ func (l *lowerer) sameType(node *ast.Node, a *ast.Node, b *ast.Node) (ir.Expr, i
 		x = l.convert(x, y.Type(), a)
 	case y.Type() == ir.Void && x.Type() != ir.Void:
 		y = l.convert(y, x.Type(), b)
+	}
+	if deadX || deadY {
+		return x, y // the live operand's type, which tsc's type for the whole may not express (`Box<never> | Box<string>`)
 	}
 	if contextual := l.contextualType(node); contextual == nil || contextual.Flags()&checker.TypeFlagsUnion != 0 {
 		t := l.typeAt(node)

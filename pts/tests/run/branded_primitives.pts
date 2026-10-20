@@ -1,0 +1,31 @@
+// skip: known issue (H09b4b, C221): a branded primitive (`string & { __brand: "id" }`) reads its members as an object's: the C doesn't compile (PTS9001)
+// A branded primitive (`string & { __brand: "id" }`, the usual nominal-type idiom) is a string
+// at run time: its length, methods and narrowing by typeof or a type predicate work as for a
+// string (found by H09b4's reproducer; plain code, no generics needed). The C read the
+// string's members from a dynamic value: PTS9001 (`member reference type 'pts_value' (aka
+// 'unsigned long') is not a pointer`, `incompatible integer to pointer conversion`).
+type Id = string & { __brand: "id" };
+function isStr(v: unknown): v is string {
+  return typeof v === "string";
+}
+const id = "id1" as Id;
+console.log("length", id.length);
+console.log("upper", id.toUpperCase());
+function show(x: Id): string {
+  if (typeof x === "string") {
+    return "typeof " + x.toUpperCase();
+  }
+  return "never";
+}
+function guarded(x: Id): number {
+  if (isStr(x)) {
+    return x.length;
+  }
+  return -1;
+}
+console.log(show(id), guarded(id));
+
+// expect:
+// length 3
+// upper ID1
+// typeof ID1 3

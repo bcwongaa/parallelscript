@@ -1,0 +1,81 @@
+// Instances whose narrowed type is an intersection tsc doesn't reduce (H09b4a, C171, D-195),
+// live or dead: `Array.isArray(x)` for a `number[]` is `number[] & any[]` (live: Node prints
+// the length), for a number `number & any[]` (dead); `typeof x === "string"` for a `number[]`
+// or a class is `number[] & string` or `Pt & string` (dead); `x instanceof Pt` for `{ v:
+// number }` is `{ v: number } & Pt` (live for a Pt). Called by name they were PTS1001 (``
+// `x.length` is not supported yet ``, `` `x.v` ``) or PTS9001, an internal compiler error
+// (`no member named 'utf16_len' in 'struct pts_array'`, `member reference type 'double' is
+// not a pointer`: the C read a string's length from an array, a class or a double); through a
+// value, TypeError (`Expected Box<number[]>, got Box<any>`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function arrays<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("  an array of", x.length);
+  }
+  return new Box(x);
+}
+function strings<T>(x: T): Box<T> {
+  if (typeof x === "string") {
+    console.log("  a string of", x.length);
+  }
+  return new Box(x);
+}
+function points<T>(x: T): Box<T> {
+  if (x instanceof Pt) {
+    console.log("  a point", x.v + 1);
+  }
+  return new Box(x);
+}
+function cases<T>(x: T): Box<T> {
+  switch (typeof x) {
+    case "number":
+      console.log("  case number", x + 1);
+      break;
+    case "string":
+      console.log("  case string", x.length);
+      break;
+  }
+  return new Box(x);
+}
+function use(label: string, f: <T>(x: T) => Box<T>): void {
+  attempt(label + " number[]", () => f<number[]>([1, 2]).value);
+  attempt(label + " Pt", () => f<Pt>(new Pt(1)).value);
+  attempt(label + " number", () => f<number>(2).value);
+}
+
+console.log("Array.isArray", arrays<number[]>([1, 2]).value, arrays<number>(2).value);
+console.log("typeof string", strings<number[]>([1, 2]).value, strings<Pt>(new Pt(1)).value, strings<string>("ab").value);
+console.log("instanceof", points<{ v: number }>(new Pt(4)).value, points<{ v: number }>({ v: 5 }).value);
+console.log("switch typeof", cases<number>(2).value, cases<string>("ab").value);
+use("Array.isArray through a value", arrays);
+use("typeof string through a value", strings);
+
+// expect:
+//   an array of 2
+// Array.isArray [ 1, 2 ] 2
+//   a string of 2
+// typeof string [ 1, 2 ] Pt { v: 1 } ab
+//   a point 5
+// instanceof Pt { v: 4 } { v: 5 }
+//   case number 3
+//   case string 2
+// switch typeof 2 ab
+//   an array of 2
+// Array.isArray through a value number[] [ 1, 2 ]
+// Array.isArray through a value Pt Pt { v: 1 }
+// Array.isArray through a value number 2
+// typeof string through a value number[] [ 1, 2 ]
+// typeof string through a value Pt Pt { v: 1 }
+// typeof string through a value number 2

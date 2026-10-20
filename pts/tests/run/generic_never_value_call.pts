@@ -1,14 +1,31 @@
-// skip: known issue (H09b4, C194): a value call whose type argument is inferred never calls the instance, which reads `[]`'s missing element and throws RangeError where Node and the erased copy give undefined
-// A generic function value called with an empty array literal, so tsc infers T = never: the
-// D-148 instance for never reads the array's first element, which `[]` lacks.
+// A generic function called with an empty array literal, so tsc infers T = never: the
+// instance for never reads the array's first element, which `[]` lacks, as undefined, as
+// JS does (D-195), through a value (D-148), directly and as a `T` result, which is never
+// only for this instance. Before, the instance threw RangeError, and the `T` result was
+// PTS1001 (C194).
 class Box<T> {
   constructor(public value: T) {}
 }
 function first<T>(xs: readonly T[]): Box<T> {
   return new Box(xs[0]);
 }
+function firstPlain<T>(xs: readonly T[]): T {
+  return xs[0];
+}
 const firstValue: <T>(xs: readonly T[]) => Box<T> = first;
 console.log("never[] value", String(firstValue([]).value));
+console.log("never[] direct", String(first([]).value));
+console.log("never[] plain", String(firstPlain([])));
+const missing = firstPlain([]);
+console.log("never[] kept", typeof missing, missing === undefined);
+const empty: never[] = [];
+console.log("never[] element", String(empty[0]));
+console.log("number[]", first([1, 2]).value + 1, firstPlain(["a"]).length);
 
 // expect:
 // never[] value undefined
+// never[] direct undefined
+// never[] plain undefined
+// never[] kept undefined true
+// never[] element undefined
+// number[] 2 1

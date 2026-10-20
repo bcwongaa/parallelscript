@@ -1,9 +1,9 @@
-// no-diff: an instance whose code narrows its value to a type it can't hold (here `T & any[]` for a number) doesn't lower, so the call keeps the erased copy, whose `Box<any>` throws TypeError where Node prints the box (C171)
-// A generic arrow function's instances are tried (H09, D-190): one whose body doesn't lower
-// for its type arguments, directly or in a generic function it calls, is dropped with
-// what it made, and its call keeps the erased copy, as before H09, so the program still
-// compiles. The instances that lower are used: here the number instance of `cond`, the
-// string instance of `cases` and both of `plain`.
+// A generic arrow function's, a declaration's and a dispatched or interface method's
+// instance whose code narrows its value to a type no value of its type arguments has
+// (`T & any[]` for a number or a string, `T & number` for a string), directly or in a
+// generic function it calls, lowers that code as unreachable (D-195), so its typed calls
+// find it and run as Node does. Before, such an instance didn't lower: the trials dropped
+// it and the call kept the erased copy, whose `Box<any>` threw TypeError (C171).
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -49,10 +49,8 @@ function main(): void {
 }
 main();
 
-// A declaration through a value and a dispatched generic method whose instances don't lower
-// keep the erased copy too, where the base reported the instance's PTS1001 (D-190's
-// trade-off: the compiler can't tell a pairing the program makes from one it doesn't;
-// review rounds 1 and 2, `f04` and `t01`).
+// A declaration through a value and a dispatched generic method (H09 review rounds 1 and
+// 2, `f04` and `t01`).
 function arrays<T>(x: T): Box<T> {
   if (Array.isArray(x)) {
     console.log("an array of", x.length);
@@ -87,8 +85,8 @@ function dispatch(label: string, m: Maker): void {
 dispatch("plain method", new Plain());
 dispatch("method", new ArrayAware());
 
-// Through an interface (D-191): the subclass's entry without an instance ends the search,
-// so the call takes the override's erased copy, never its base class's instance.
+// Through an interface (D-191): each class's entry has its own instance, the override's
+// with its dead branch, never its base class's.
 interface Making {
   make<T>(x: T): Box<T>;
 }
@@ -119,22 +117,22 @@ viaInterface("base through an interface", new Base());
 viaInterface("override through an interface", new Sub());
 
 // expect:
-// isArray TypeError Expected Box<number>, got Box<any>
-// isArray TypeError Expected Box<string>, got Box<any>
-// calls inspect TypeError Expected Box<number>, got Box<any>
-// calls inspect TypeError Expected Box<string>, got Box<any>
+// isArray number 2
+// isArray string s
+// calls inspect number 2
+// calls inspect string s
 // cond number 2
-// cond TypeError Expected Box<string>, got Box<any>
-// cases TypeError Expected Box<number>, got Box<any>
+// cond string s
+// cases number 2
 // a string of 1
 // cases string s
 // plain number 2
 // plain string s
-// declaration TypeError Expected Box<number>, got Box<any>
-// declaration TypeError Expected Box<string>, got Box<any>
+// declaration number 2
+// declaration string s
 // plain method 3
-// method TypeError Expected Box<number>, got Box<any>
+// method 3
 // base's make
 // base through an interface 3
 // sub's make
-// override through an interface TypeError Expected Box<number>, got Box<any>
+// override through an interface 3

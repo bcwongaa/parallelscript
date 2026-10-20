@@ -1,0 +1,134 @@
+// Typed calls through values and dispatch of generic functions and methods whose instances
+// have dead narrowed branches (H09b4a, C171, D-195): a value passed as `<T>(x: T) => Box<T>`
+// (a function declaration, a module-scope const arrow, a function-local arrow, a method
+// value), a nested generic call, a class's generic method through an abstract base and an
+// interface, and an object literal's generic method through its own type and an interface.
+// `narrowsAway` (D-148) kept the erased copy for each, or the instance's trial failed, so
+// each call threw `TypeError: Expected Box<string>, got Box<any>` (`Box<number>` for
+// Array.isArray's dead number instance) where Node prints the box's value; the direct calls
+// of the same functions are in generic_narrowed_dead_branch_direct_calls.pts.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function use(label: string, f: <T>(x: T) => Box<T>): void {
+  attempt(label + " string", () => f<string>("s").value);
+  attempt(label + " number", () => f<number>(2).value);
+}
+
+function declared<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("  declared", num(x));
+  }
+  return new Box(x);
+}
+function arrays<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("  an array of", x.length);
+  }
+  return new Box(x);
+}
+const arrow = <T>(x: T): Box<T> => {
+  if (typeof x === "number") {
+    console.log("  arrow", num(x));
+  }
+  return new Box(x);
+};
+function inner<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("  inner", num(x));
+  }
+  return new Box(x);
+}
+function outer<T>(x: T): Box<T> {
+  return inner(x);
+}
+abstract class Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+interface Making {
+  make<T>(x: T): Box<T>;
+}
+class Narrowing extends Maker implements Making {
+  make<T>(x: T): Box<T> {
+    if (typeof x === "number") {
+      console.log("  method", num(x));
+    }
+    return new Box(x);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    if (typeof x === "number") {
+      console.log("  literal", num(x));
+    }
+    return new Box(x);
+  },
+};
+const literalMaking: Making = {
+  make<T>(x: T): Box<T> {
+    if (typeof x === "number") {
+      console.log("  literal through an interface", num(x));
+    }
+    return new Box(x);
+  },
+};
+
+use("declaration", declared);
+use("const arrow", arrow);
+use("nested call", outer);
+use("method value", new Narrowing().make);
+use("Array.isArray", arrays);
+function main(): void {
+  const local = <T>(x: T): Box<T> => {
+    if (typeof x === "number") {
+      console.log("  local", num(x));
+    }
+    return new Box(x);
+  };
+  use("local arrow", local);
+  attempt("local arrow called by name", () => local<string>("s").value);
+}
+main();
+const base: Maker = new Narrowing();
+const making: Making = new Narrowing();
+attempt("abstract base", () => base.make<string>("s").value);
+attempt("interface", () => making.make<string>("s").value);
+attempt("object literal", () => literal.make<string>("s").value);
+attempt("object literal through an interface", () => literalMaking.make<string>("s").value);
+attempt("abstract base number", () => base.make<number>(2).value);
+
+// expect:
+// declaration string s
+//   declared num 3
+// declaration number 2
+// const arrow string s
+//   arrow num 3
+// const arrow number 2
+// nested call string s
+//   inner num 3
+// nested call number 2
+// method value string s
+//   method num 3
+// method value number 2
+// Array.isArray string s
+// Array.isArray number 2
+// local arrow string s
+//   local num 3
+// local arrow number 2
+// local arrow called by name s
+// abstract base s
+// interface s
+// object literal s
+// object literal through an interface s
+//   method num 3
+// abstract base number 2

@@ -1,0 +1,148 @@
+// Code that tsc narrows to never yet runs (H09b4a, D-195): a lying type predicate's branch
+// that only prints the value, in an instance and in plain code; an exhaustive switch's
+// `assertNever(s)` reached through a cast lie, in plain code and in an instance; and around
+// them, a branded string under a typeof that is dead for it, T = unknown, a union whose
+// branch is live, a subclass, `typeof null`, an instanceof's false branch and the erased copy
+// through any. Each runs as in Node: code tsc already sees as dead (never in the generic code)
+// lowers as before, a dead read where any value goes (`String(x)`, `typeof x`, a `console`
+// argument) reads the value it holds, and an instance's dead code is dead for every type
+// argument that runs it (a branded string's instance is unknown's).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+class SubPt extends Pt {
+  extra = 1;
+}
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Id = string & { __brand: "id" };
+function lyingIsNum(v: unknown): v is number {
+  return true;
+}
+function assertNever(x: never): never {
+  throw new Error("unexpected " + JSON.stringify(x));
+}
+
+function lied<T>(x: T): Box<T> {
+  if (lyingIsNum(x)) {
+    console.log("  lied", typeof x, String(x));
+  }
+  return new Box(x);
+}
+function plainLied(x: string): string {
+  if (lyingIsNum(x)) {
+    console.log("  plain lied", typeof x, String(x));
+  }
+  return x;
+}
+function area(s: Sq | Ci): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side * s.side;
+    case "ci":
+      return 3 * s.r * s.r;
+    default:
+      return assertNever(s);
+  }
+}
+function genericArea<T extends Sq | Ci>(s: T): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side * s.side;
+    case "ci":
+      return 3 * s.r * s.r;
+    default:
+      return assertNever(s);
+  }
+}
+function numbers<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("  a number", x + 1);
+  } else {
+    console.log("  not a number", x);
+  }
+  return new Box(x);
+}
+function subclasses<T>(x: T): Box<T> {
+  if (x instanceof SubPt) {
+    console.log("  a SubPt", x.extra);
+  }
+  return new Box(x);
+}
+function objects<T>(x: T): Box<T> {
+  if (typeof x === "object") {
+    console.log("  an object", x);
+  }
+  return new Box(x);
+}
+function notPoints<T>(x: T): Box<T> {
+  if (!(x instanceof Pt)) {
+    console.log("  not a point", x);
+  }
+  return new Box(x);
+}
+function use(label: string, f: <T>(x: T) => Box<T>): void {
+  console.log(label, f<unknown>(5).value, f<string | number>("u").value, f<Id>("id1" as Id).value);
+}
+
+console.log("lying predicate", lied<string>("s").value);
+console.log("plain lying predicate", plainLied("s"));
+const lie = { kind: "tri", side: 1, r: 1 } as unknown as Sq;
+for (const s of [{ kind: "sq", side: 2 } as Sq, { kind: "ci", r: 1 } as Ci, lie]) {
+  for (const f of [area, genericArea]) {
+    try {
+      console.log("area", f(s));
+    } catch (error: any) {
+      console.log("caught", error.message);
+    }
+  }
+}
+console.log("brand", numbers<Id>("id1" as Id).value);
+console.log("unknown", numbers<unknown>(5).value);
+console.log("union", numbers<string | number>("u").value, numbers<string | number>(3).value);
+use("through a value", numbers);
+console.log("subclass", subclasses<Pt>(new SubPt(1)).value);
+console.log("typeof null", objects<null>(null).value);
+console.log("instanceof false branch", notPoints<Pt>(new Pt(2)).value);
+const erased: any = numbers;
+console.log("through any", erased("s").value, erased(2).value);
+
+// expect:
+//   lied string s
+// lying predicate s
+//   plain lied string s
+// plain lying predicate s
+// area 4
+// area 4
+// area 3
+// area 3
+// caught unexpected {"kind":"tri","side":1,"r":1}
+// caught unexpected {"kind":"tri","side":1,"r":1}
+//   not a number id1
+// brand id1
+//   a number 6
+// unknown 5
+//   not a number u
+//   a number 4
+// union u 3
+//   a number 6
+//   not a number u
+//   not a number id1
+// through a value 5 u id1
+//   a SubPt 1
+// subclass SubPt { v: 1, extra: 1 }
+//   an object null
+// typeof null null
+// instanceof false branch Pt { v: 2 }
+//   not a number s
+//   a number 3
+// through any s 2

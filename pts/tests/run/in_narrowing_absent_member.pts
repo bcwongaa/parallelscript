@@ -1,0 +1,23 @@
+// skip: known issue (H09b4b, C222): `"k" in x` for an object type without k narrows to `X & Record<"k", unknown>`, whose read of k passes an unboxed object as a dynamic value: the C doesn't compile (PTS9001)
+// `"k" in x` for an x whose type has no k narrows x to `NoK & Record<"k", unknown>`, which a
+// value with an extra property has (found by H09b4's reproducer; plain code). Node runs the
+// branch for the object that has k and prints its value. The C passed an object where a
+// dynamic value goes: PTS9001 (`incompatible pointer to integer conversion passing 'pts_object
+// *' to parameter of type 'pts_value'`).
+interface NoK {
+  m: string;
+}
+function describe(x: NoK): string {
+  if ("k" in x) {
+    return "has k " + String(x.k);
+  }
+  return "no k";
+}
+const withK = { m: "s", k: 5 };
+const without: NoK = { m: "t" };
+console.log(describe(withK));
+console.log(describe(without));
+
+// expect:
+// has k 5
+// no k

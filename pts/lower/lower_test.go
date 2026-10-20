@@ -3,6 +3,7 @@ package lower_test
 import (
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -1182,9 +1183,10 @@ func run.arrow_number(x: number) Box closure [k] of run.arrow {
 
 func TestAGenericArrowsInstanceThatDoesntLowerIsDroppedWithWhatItMade(t *testing.T) {
 	t.Parallel()
-	// For a number, `x` in the branch is `number & any[]`, whose `length` doesn't lower,
-	// and the local declared there cascades; the trial takes back what it reported, and
-	// the call keeps the erased copy (D-190).
+	// For a number, `x == "1"` compares a number with a string, which typed code doesn't
+	// lower (a branch its narrowing makes dead would, D-195), and the local declared there
+	// cascades; the trial takes back what it reported, and the call keeps the erased copy
+	// (D-190).
 	got := lowerValid(t, `class Box<T> {
   constructor(public value: T) {}
 }
@@ -1193,9 +1195,9 @@ function use(f: <T>(x: T) => Box<T>): number {
 }
 function run(): number {
   return use(<T>(x: T) => {
-    if (Array.isArray(x)) {
-      const n = x.length;
-      console.log(n);
+    if (x != null) {
+      const same = x == "1";
+      console.log(same);
     }
     return new Box(x);
   });
@@ -1211,9 +1213,9 @@ func use(f: (value) => value) number {
   5: return (let callee = f in (let argument1 = 1 in instance (callee, argument1) else Box(call callee(box(argument1))))).value
 }
 func run.arrow(x: value) value closure [] {
-  9: if Array.isArray(x) {
-    10: let n: number = number(get(x, box("length")))
-    11: console.log(box(n))
+  9: if (!nullish(x)) {
+    10: let same: boolean = ==(x, box("1"))
+    11: console.log(box(same))
   }
   13: return box(new Box(x))
 }
@@ -1523,4 +1525,52 @@ func ClassMaker.make_number(this: ClassMaker, x: number) Box {
   9: return new Box(x)
 }
 `)
+}
+
+func TestCodeThatAnInstancesTypeArgumentsMakeDeadLowersAsATrap(t *testing.T) {
+	t.Parallel()
+	// For a string, `x` is `string & number` (never) where `typeof x === "number"` holds,
+	// and `string & any[]` where Array.isArray(x) does: an if's branch, the statements after
+	// an early return, a branch of `?:`, the right operand of `&&` and an arrow's expression
+	// body can't run, and lower as traps; the live code around them lowers as usual (D-195).
+	got := lowerValid(t, `function show<T>(x: T): number {
+  if (typeof x === "number") {
+    console.log("a number", x + 1);
+  }
+  const n = typeof x === "string" ? x.length : Array.isArray(x) ? x.length : 0;
+  const long = Array.isArray(x) && x.length > 1;
+  const later = () => (Array.isArray(x) ? () => x.length : null);
+  console.log(long, later());
+  if (typeof x !== "number") {
+    return n;
+  }
+  console.log("past the return");
+  return x + 1;
+}
+console.log(show("s"));
+`)
+	assert.Equal(t, got, strings.ReplaceAll(`func main() void {
+  15: console.log(box(show_string("s")))
+}
+func show_string.later.arrow() number closure [] {
+  7: throw("TypeError", "code that can't run for T = string ran: ´x´ narrows to ´T & any[]´ here; a type predicate, assertion or cast was wrong")
+}
+func show_string.later() (() => number) | null closure [x] {
+  7: return (false ? ((() => number) | null)(closure show_string.later.arrow) : ((() => number) | null)(null))
+}
+func show_string(x: string) number {
+  2: if ("string" === "number") {
+    3: throw("TypeError", "code that can't run for T = string ran: ´x´ narrows to ´T & number´ here; a type predicate, assertion or cast was wrong")
+  }
+  5: let n: number = (("string" === "string") ? String.length(x) : (false ? (throw("TypeError", "code that can't run for T = string ran: ´x´ narrows to ´T & any[]´ here; a type predicate, assertion or cast was wrong"), left-out number) : 0))
+  6: let long: boolean = (let value = false in (value ? (throw("TypeError", "code that can't run for T = string ran: ´x´ narrows to ´T & any[]´ here; a type predicate, assertion or cast was wrong"), left-out boolean) : value))
+  7: let later: () => (() => number) | null = closure show_string.later
+  8: console.log(box(long), box(call later()))
+  9: if ("string" !== "number") {
+    10: return n
+  }
+  12: console.log(box("past the return"))
+  13: throw("TypeError", "code that can't run for T = string ran: ´x´ narrows to ´T & number´ here; a type predicate, assertion or cast was wrong")
+}
+`, "´", "`"))
 }

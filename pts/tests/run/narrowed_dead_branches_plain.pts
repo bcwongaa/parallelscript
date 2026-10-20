@@ -1,0 +1,179 @@
+// skip: known issue (H09b4b, C220): plain code that tsc narrows to never, or to an intersection no value has, doesn't lower (PTS1001)
+// Plain (non-generic) code that narrows a value to a type no value it holds can have (H09b4b,
+// C220): `typeof x === "number"` for a string, `Array.isArray(x)` for a number, `instanceof`
+// a class for an array or an unrelated class, `=== null` for a string, a falsy object, a user
+// type predicate, an assertion function, `switch (typeof x)` and `switch (true)`, an early
+// return, `?:` over boxes, a comparison after `&&`, and a union narrowed to `never`. tsc
+// accepts each; Node never runs the dead code. None compiled: PTS1001 (`converting string to
+// number is not supported yet`, `` `x.length` is not supported yet ``, `converting number[]
+// to Pt`, `using a Pt as a Other`, `converting number | string to boolean`, …).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+class Other {
+  constructor(public w: number) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function isNum(v: unknown): v is number {
+  return typeof v === "number";
+}
+function assertNum(v: unknown): asserts v is number {
+  if (typeof v !== "number") {
+    throw new TypeError("not a number: " + String(v));
+  }
+}
+
+function typeofNumber(x: string): string {
+  if (typeof x === "number") {
+    return "number " + (x + 1);
+  }
+  return "string " + x;
+}
+function arrays(x: number): number {
+  if (Array.isArray(x)) {
+    console.log("  an array of", x.length);
+  }
+  return x;
+}
+function points(x: number[]): number {
+  if (x instanceof Pt) {
+    console.log("  a point", x.v + 1);
+  }
+  return x.length;
+}
+function others(x: Pt): number {
+  if (x instanceof Other) {
+    console.log("  other", x.w + 1);
+  }
+  return x.v;
+}
+function nulls(x: string): string {
+  if (x === null) {
+    const n: null = x;
+    console.log("  null", n);
+  }
+  return x;
+}
+function falsy(x: Pt): number {
+  if (!x) {
+    const n: null = x;
+    console.log("  falsy", n);
+  }
+  return x.v;
+}
+function predicate(x: string): string {
+  if (isNum(x)) {
+    console.log("  isNum", x + 1);
+  }
+  return x;
+}
+function assertion(x: string): string {
+  try {
+    assertNum(x);
+    console.log("  asserted", x + 1);
+  } catch (error: any) {
+    console.log("  caught", error.message);
+  }
+  return x;
+}
+function cases(x: string): string {
+  switch (typeof x) {
+    case "number":
+      console.log("  case number", num(x));
+      break;
+    case "string":
+      console.log("  case string", x.length);
+  }
+  switch (true) {
+    case typeof x === "number":
+      console.log("  switch true number", num(x));
+      break;
+    default:
+      console.log("  switch true default");
+  }
+  return x;
+}
+function earlyReturn(x: string): Box<string> {
+  if (typeof x !== "number") {
+    return new Box(x);
+  }
+  console.log("  past the return", num(x));
+  return new Box(x);
+}
+function boxes(x: string): Box<string> {
+  return typeof x === "number" ? new Box(x) : new Box(x);
+}
+function compare(x: string): string {
+  if (typeof x === "number" && x > 1) {
+    console.log("  more than one", num(x));
+  }
+  return x;
+}
+function union(x: string | number): string | number {
+  if (typeof x === "boolean") {
+    const b: boolean = x;
+    console.log("  boolean", b);
+  }
+  return x;
+}
+
+function plainHoisted(x: string): string {
+  if (typeof x !== "number") {
+    return helper(x);
+  }
+  console.log("  dead", num(x));
+  return x;
+  function helper(v: string): string {
+    console.log("  plain helper ran");
+    return v + "!";
+  }
+}
+function plainBefore(x: string): string {
+  console.log("  plain hi");
+  if (typeof x !== "number") {
+    return x;
+  }
+  return num(x);
+}
+
+console.log("typeof", typeofNumber("s"));
+console.log("Array.isArray", arrays(2));
+console.log("instanceof", points([1, 2]), others(new Pt(3)));
+console.log("=== null", nulls("s"));
+console.log("falsy", falsy(new Pt(4)));
+console.log("predicate", predicate("s"));
+console.log("assertion", assertion("s"));
+console.log("switch", cases("s"));
+console.log("early return", earlyReturn("s").value);
+console.log("conditional", boxes("s").value);
+console.log("&&", compare("s"));
+console.log("union", union(5), union("u"));
+
+console.log("plain hoisted", plainHoisted("s"));
+console.log("plain side effect", plainBefore("s"));
+
+// expect:
+// typeof string s
+// Array.isArray 2
+// instanceof 2 3
+// === null s
+// falsy 4
+// predicate s
+//   caught not a number: s
+// assertion s
+//   case string 1
+//   switch true default
+// switch s
+// early return s
+// conditional s
+// && s
+// union 5 u
+//   plain helper ran
+// plain hoisted s!
+//   plain hi
+// plain side effect s

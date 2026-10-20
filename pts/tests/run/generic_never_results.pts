@@ -1,0 +1,27 @@
+// A generic function that returns its type parameter, called with an empty array literal so
+// that tsc infers never (H09b4a, C194, D-195): the call's result is never, which the lowering
+// took for no value (a void call), so `String(firstPlain([]))` was PTS1001 `converting void
+// to a string is not supported yet`; Node prints undefined. Through a value it ran already.
+function firstPlain<T>(xs: readonly T[]): T {
+  return xs[0];
+}
+const firstValue: <T>(xs: readonly T[]) => T = firstPlain;
+async function firstAsync<T>(xs: readonly T[]): Promise<T> {
+  return xs[0];
+}
+console.log(String(firstPlain([])));
+console.log(`${firstPlain([])}`);
+console.log("value", String(firstValue([])));
+const got = firstPlain([]);
+console.log("const", got === undefined);
+firstAsync([]).then(
+  (v) => console.log("async", String(v)),
+  (error: any) => console.log("async rejected", error.name),
+);
+
+// expect:
+// undefined
+// undefined
+// value undefined
+// const true
+// async undefined

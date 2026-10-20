@@ -119,6 +119,19 @@ func (c *Checker) PtsInstantiateType(t *Type, sources []*Type, targets []*Type) 
 	return c.instantiateType(t, newTypeMapper(sources, targets))
 }
 
+// PtsIntersectionType returns the intersection of types as tsc forms it, never where tsc
+// reduces it to never (disjoint primitives or literals): whether a value of an instance's
+// declared type can have the type tsc narrows it to (D-195).
+func (c *Checker) PtsIntersectionType(types []*Type) *Type {
+	return c.getIntersectionType(types)
+}
+
+// PtsReducedType returns t as tsc reduces it where it is used: never for an intersection
+// of object types whose discriminants conflict (`{ kind: "a" } & { kind: "b" }`) (D-195).
+func (c *Checker) PtsReducedType(t *Type) *Type {
+	return c.getReducedType(t)
+}
+
 // PtsInstantiateSignatureInContextOf returns a generic signature instantiated with the
 // type arguments tsc infers from a non-generic contextual signature, as when it relates
 // the two: the instance a generic function used as a value of that type stands for (D-078).

@@ -1,9 +1,9 @@
-// no-diff: Node doesn't check conversions from any, so it prints the boxes
-// Typed calls of generic function values take the erased copy where the value lists no
-// instance of their signature (D-148): a factory whose instance would narrow its value to
-// a type it can't have (`typeof x === "number"` for a string), which instances don't
-// lower (D-102). Its instance for number is listed, and the program compiles. An inline
-// generic arrow function lists its instances too, which run with its closure (D-190).
+// Typed calls of generic function values find the instance of their signature that the
+// value lists (D-148): a factory whose instance narrows its value to a type it can't have
+// (`typeof x === "number"` for a string) lowers that branch as code that can't run
+// (D-195), so its instances for number and string are listed (before, the string's
+// wasn't, and the call took the erased copy: TypeError, C171). An inline generic arrow
+// function lists its instances too, which run with its closure (D-190).
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -35,7 +35,7 @@ console.log(anyShow(5).value);
 // expect:
 // a number 3
 // number 2
-// TypeError Expected Box<string>, got Box<any>
+// string s
 // number 2
 // string s
 // a number 6

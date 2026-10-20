@@ -1,0 +1,67 @@
+// no-diff: a type predicate that lies lets code run that its instance's type arguments make dead; Node runs it with the value as it is, ParallelScript throws TypeError (D-195)
+// Code that tsc narrows to a type no value of the instance's type arguments has (here `x`
+// as `T & number` for a string) can't run unless something lied to tsc. It lowers as a
+// trap: TypeError naming the type arguments and the narrowing, catchable, where the base
+// rejected the program (PTS1001, C171); so does what follows an assertion that lied. A dead
+// read where any value goes (`typeof x`) reads the value it holds. An honest predicate's or
+// assertion's branch, and the instance for number, run as in Node.
+function honestIsNum(x: unknown): x is number {
+  return typeof x === "number";
+}
+function lyingIsNum(x: unknown): x is number {
+  return true;
+}
+function lyingAssertNum(x: unknown): asserts x is number {}
+function assertNum(x: unknown): asserts x is number {
+  if (typeof x !== "number") {
+    throw new Error("not a number: " + String(x));
+  }
+}
+function honest<T>(x: T): string {
+  return honestIsNum(x) ? "number " + (x + 1) : "not a number";
+}
+function lying<T>(x: T): string {
+  if (lyingIsNum(x)) {
+    return "lied " + (x + 1);
+  }
+  return "no";
+}
+function lyingAssertion<T>(x: T): string {
+  lyingAssertNum(x);
+  console.log("after the lying assertion", typeof x);
+  return "asserted " + (x + 1);
+}
+function asserted<T>(x: T): string {
+  console.log("before the assertion");
+  assertNum(x);
+  return "asserted " + (x + 1);
+}
+console.log(honest(1), honest("s"));
+console.log(lying(1));
+try {
+  console.log(lying("s"));
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+try {
+  console.log(lyingAssertion("s"));
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+console.log(asserted(1));
+try {
+  console.log(asserted("s"));
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+
+// expect:
+// number 2 not a number
+// lied 2
+// TypeError code that can't run for T = string ran: `x` narrows to `T & number` here; a type predicate, assertion or cast was wrong
+// after the lying assertion string
+// TypeError code that can't run for T = string ran: `x` narrows to `T & number` here; a type predicate, assertion or cast was wrong
+// before the assertion
+// asserted 2
+// before the assertion
+// Error not a number: s

@@ -1,0 +1,90 @@
+// Calls by name of generic functions and methods whose instances have dead narrowed branches
+// (H09b4a, C171, D-195): a function declaration, a module-scope const arrow, a class's
+// generic method, a static generic method, a generic class's method that narrows the class's
+// type parameter (`C<string>`), and a generic function that calls another by name. Each
+// instance for a string (or for a number, under `Array.isArray`) reads x as a number (or an
+// array) in a branch it never takes; none lowered (PTS1001 `converting string to number is
+// not supported yet`, `` `x.length` is not supported yet ``).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+
+function declared<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("  declared", num(x));
+  }
+  return new Box(x);
+}
+const arrow = <T>(x: T): Box<T> => {
+  if (typeof x === "number") {
+    console.log("  arrow", num(x));
+  }
+  return new Box(x);
+};
+class Methods {
+  make<T>(x: T): Box<T> {
+    if (typeof x === "number") {
+      console.log("  method", num(x));
+    }
+    return new Box(x);
+  }
+  static build<T>(x: T): Box<T> {
+    if (Array.isArray(x)) {
+      console.log("  static, an array of", x.length);
+    }
+    return new Box(x);
+  }
+}
+class Holder<T> {
+  constructor(public held: T) {}
+  describe(): Box<T> {
+    if (typeof this.held === "number") {
+      console.log("  holder", num(this.held));
+    }
+    return new Box(this.held);
+  }
+  check(x: T): Box<T> {
+    if (typeof x === "number") {
+      console.log("  check", num(x));
+    }
+    return new Box(x);
+  }
+}
+function inner<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("  inner, an array of", x.length);
+  }
+  return new Box(x);
+}
+function outer<T>(x: T): Box<T> {
+  console.log("  outer");
+  return inner(x);
+}
+
+console.log("declaration", declared<string>("s").value, declared<number>(2).value);
+console.log("const arrow", arrow<string>("s").value, arrow<number>(2).value);
+const methods = new Methods();
+console.log("method", methods.make<string>("s").value, methods.make<number>(2).value);
+console.log("static method", Methods.build<number>(2).value, Methods.build<string>("s").value);
+console.log("class type parameter", new Holder<string>("h").describe().value, new Holder<number>(2).describe().value);
+console.log("class type parameter", new Holder<string>("h").check("c").value, new Holder<number>(2).check(3).value);
+console.log("nested call", outer<number>(2).value, outer<string>("s").value);
+
+// expect:
+//   declared num 3
+// declaration s 2
+//   arrow num 3
+// const arrow s 2
+//   method num 3
+// method s 2
+// static method 2 s
+//   holder num 3
+// class type parameter h 2
+//   check num 4
+// class type parameter c 3
+//   outer
+//   outer
+// nested call 2 s

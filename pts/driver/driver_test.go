@@ -120,8 +120,9 @@ func TestAPanicWhileCompilingIsReturnedAsAnInternalError(t *testing.T) {
 func TestABuildThatOnlyItsSpeculativeInstancesStopIsLoweredAgainWithoutThem(t *testing.T) {
 	t.Parallel()
 	// The arrow's instance for string, which `use`'s call would look up, makes a
-	// Weird<string>, whose `inc` narrows `typeof v === "number"` and doesn't lower; the
-	// arrow reaches `use` only through `any`, and its erased copy compiled before H09.
+	// Weird<string>, whose `inc` compares a string with a number by `==`, which typed code
+	// doesn't lower (a branch its narrowing makes dead would, D-195); the arrow reaches
+	// `use` only through `any`, and its erased copy compiled before H09.
 	entry := writeSource(t, `class Box<T> {
   constructor(public value: T) {}
 }
@@ -129,8 +130,8 @@ class Weird<T> {
   constructor(public value: T) {}
   inc(): number {
     const v = this.value;
-    if (typeof v === "number") {
-      return v + 1;
+    if (v == 1) {
+      return 1;
     }
     return 0;
   }
@@ -150,7 +151,7 @@ console.log(d(1).inc(), use(make));
 	c, fallback := driver.EmitC(t.Context(), entry)
 
 	diagnostics := compileErrors(t, err)
-	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:9:14 - error PTS1001: converting string to number is not supported yet")
+	assert.Equal(t, diagnostics[0].Format(filepath.Dir(entry)), "main.pts:8:9 - error PTS1001: the `==` operator on string and number is not supported yet")
 	assert.NilError(t, fallback)
 	assert.Assert(t, strings.Contains(c, "pts_fn_make_string"), "the declaration's instance is made as before H09")
 }
@@ -203,8 +204,8 @@ class Weird<T> {
   constructor(public value: T) {}
   inc(): number {
     const v = this.value;
-    if (typeof v === "number") {
-      return v + 1;
+    if (v == 1) {
+      return 1;
     }
     return 0;
   }
@@ -238,7 +239,7 @@ main();
 	_, values := driver.EmitCWith(t.Context(), entry, lower.ValueInstances)
 	c, fallback := driver.EmitC(t.Context(), entry)
 
-	assert.Equal(t, compileErrors(t, err)[0].Format(filepath.Dir(entry)), "main.pts:9:14 - error PTS1001: converting string to number is not supported yet")
+	assert.Equal(t, compileErrors(t, err)[0].Format(filepath.Dir(entry)), "main.pts:8:9 - error PTS1001: the `==` operator on string and number is not supported yet")
 	assert.NilError(t, values)
 	assert.NilError(t, fallback)
 	assert.Assert(t, strings.Contains(c, "pts_fn_main_named_number"), "the generic arrow's instance is made, as with H09a")

@@ -183,7 +183,8 @@ type substitution struct {
 }
 
 // instantiate is t in the instance being lowered, if any: with its type parameters
-// replaced, or any if it mentions an erased one. Readonly<X> of a class or library type
+// replaced (in an intersection that narrows one, as narrowedInstance says), or any if it
+// mentions an erased one. Readonly<X> of a class or library type
 // X is X: Object.freeze's result is its argument, and only tsc reads the modifiers.
 func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	switch {
@@ -191,12 +192,62 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	case l.mentionsErased(t):
 		return l.checker.GetAnyType()
 	case len(l.subst.parameters) > 0:
-		t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
+		if narrowed := l.narrowedInstance(t); narrowed != nil {
+			t = narrowed
+		} else {
+			t = l.checker.PtsInstantiateType(t, l.subst.parameters, l.subst.arguments)
+		}
 	}
 	if instance := l.readonlyInstance(t); instance != nil {
 		return instance // Readonly<Point>, which Object.freeze gives, is a Point (D-157)
 	}
 	return t
+}
+
+// narrowedInstance is t, an intersection of one of the instance's type parameters with other
+// types, which tsc narrows a value of the parameter's type to (`T & any[]` after
+// Array.isArray(x) for an x of type T), for the instance's type arguments: each member of
+// the parameter's type argument that the other types already include is itself (`number[]`
+// where tsc keeps `number[] & any[]`), and each that no value of is left drops out (`string &
+// any[]` for a `string | number[]`; never if none is left, D-195). It is nil if t is no such
+// intersection.
+func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
+	if t.Flags()&checker.TypeFlagsIntersection == 0 {
+		return nil
+	}
+	index := -1
+	var others []*checker.Type
+	for _, member := range t.Types() {
+		if i := slices.Index(l.subst.parameters, member); i >= 0 {
+			if index >= 0 {
+				return nil
+			}
+			index = i
+			continue
+		}
+		others = append(others, l.checker.PtsInstantiateType(member, l.subst.parameters, l.subst.arguments))
+	}
+	if index < 0 {
+		return nil
+	}
+	argument := l.subst.arguments[index]
+	members := []*checker.Type{argument}
+	if argument.Flags()&checker.TypeFlagsUnion != 0 {
+		members = argument.Types()
+	}
+	var left []*checker.Type
+	for _, member := range members {
+		if !slices.ContainsFunc(others, func(other *checker.Type) bool { return !l.checker.IsTypeAssignableTo(member, other) }) {
+			left = append(left, member)
+			continue
+		}
+		arguments := slices.Clone(l.subst.arguments)
+		arguments[index] = member
+		if narrowed := l.checker.PtsInstantiateType(t, l.subst.parameters, arguments); !l.uninhabited(narrowed) {
+			left = append(left, narrowed)
+		}
+	}
+	return l.checker.GetUnionType(left)
 }
 
 // instantiateMade is the type of a value that code makes (an array or object literal, a

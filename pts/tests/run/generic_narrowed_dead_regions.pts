@@ -1,0 +1,301 @@
+// The shapes a dead region of an instance takes (H09b4a, C171, D-195): for a string x,
+// everything `typeof x === "number"` guards is dead, wherever it is: a branch, the rest of a
+// block after an early return, throw, continue or break, an operand of `?:`, `&&`, `||` and
+// of `&&=`, `||=`, `??=`, a switch case, a loop body, a labelled block, code in or around
+// try, catch and finally, closures that capture x, a generator's yield, an async function's
+// await, a const that copies x, and a function declared in a dead tail that live code calls
+// (hoisted, so it must stay). Each function is called by name for a string (dead) and a
+// number (live); the string instances didn't lower (PTS1001 `converting string to number is
+// not supported yet`, `using a Box as a Box`, `conditional expression with operands of types
+// Box and Box`, `the > operator on string and number`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function maybe(): string | undefined {
+  return undefined;
+}
+
+function earlyReturn<T>(x: T): Box<T> {
+  if (typeof x !== "number") {
+    console.log("  early return");
+    return new Box(x);
+  }
+  console.log("  past the return", num(x));
+  return new Box(x);
+}
+function earlyThrow<T>(x: T): Box<T> {
+  if (typeof x !== "number") {
+    throw new Error("thrown for " + String(x));
+  }
+  console.log("  past the throw", num(x));
+  return new Box(x);
+}
+function returnsBox<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    return new Box(x);
+  }
+  return new Box(x);
+}
+function skips<T>(x: T): Box<T> {
+  for (let i = 0; i < 2; i++) {
+    if (typeof x !== "number") continue;
+    console.log("  past continue", num(x + i));
+  }
+  return new Box(x);
+}
+function breaks<T>(x: T): Box<T> {
+  while (true) {
+    if (typeof x !== "number") break;
+    console.log("  past break", num(x));
+    break;
+  }
+  do {
+    if (typeof x !== "number") break;
+    console.log("  past do break", num(x));
+  } while (false);
+  return new Box(x);
+}
+function conditional<T>(x: T): Box<T> {
+  console.log("  ?:", typeof x === "number" ? num(x) : "not a number");
+  return typeof x === "number" ? new Box(x) : new Box(x);
+}
+function logical<T>(x: T): Box<T> {
+  console.log("  &&", typeof x === "number" && num(x));
+  console.log("  ||", typeof x !== "number" || num(x));
+  console.log("  ?? in a dead branch", typeof x !== "number" ? "not a number" : (maybe() ?? num(x)));
+  if (typeof x === "number" && x > 1) {
+    console.log("  more than one", num(x));
+  }
+  return new Box(x);
+}
+function compound<T>(x: T): Box<T> {
+  let a = "a";
+  a &&= typeof x === "number" ? num(x) : "kept";
+  let b = "";
+  b ||= typeof x === "number" ? num(x) : "kept";
+  let c: string | undefined = undefined;
+  c ??= typeof x === "number" ? num(x) : "kept";
+  console.log("  &&= ||= ??=", a, b, c);
+  return new Box(x);
+}
+function cases<T>(x: T): Box<T> {
+  switch (typeof x) {
+    case "number":
+      console.log("  case number", num(x));
+      break;
+    default:
+      console.log("  default");
+  }
+  return new Box(x);
+}
+function loops<T>(x: T): Box<T> {
+  let i = 0;
+  while (typeof x === "number" && i < 1) {
+    console.log("  while", num(x));
+    i++;
+  }
+  for (let j = 0; typeof x === "number" && j < 1; j++) {
+    console.log("  for", num(x));
+  }
+  if (typeof x === "number") {
+    for (const k of [1, 2]) {
+      console.log("  for of", num(x + k));
+    }
+  }
+  return new Box(x);
+}
+function labelled<T>(x: T): Box<T> {
+  block: {
+    if (typeof x !== "number") break block;
+    console.log("  in the block", num(x));
+  }
+  return new Box(x);
+}
+function tries<T>(x: T): Box<T> {
+  try {
+    if (typeof x === "number") {
+      console.log("  in try", num(x));
+    }
+  } finally {
+    console.log("  finally");
+  }
+  if (typeof x === "number") {
+    try {
+      console.log("  try in a dead branch", num(x));
+    } catch (error) {
+      console.log("  caught");
+    } finally {
+      console.log("  finally in a dead branch");
+    }
+  }
+  try {
+    if (typeof x === "number") {
+      throw new Error(num(x));
+    }
+    console.log("  nothing thrown");
+  } catch (error: any) {
+    console.log("  caught", error.message);
+  }
+  return new Box(x);
+}
+function closures<T>(x: T): Box<T> {
+  let later: () => string = () => "the live closure";
+  if (typeof x === "number") {
+    const expression = () => num(x);
+    const block = () => {
+      const r = num(x);
+      return r;
+    };
+    const expressionFunction = function () {
+      return num(x);
+    };
+    console.log("  closures", expression(), block(), expressionFunction());
+    later = () => num(x);
+  }
+  console.log("  later", later());
+  return new Box(x);
+}
+function* generator<T>(x: T): Generator<string, Box<T>, unknown> {
+  yield "start";
+  if (typeof x === "number") {
+    yield num(x);
+  }
+  yield "end";
+  return new Box(x);
+}
+async function awaits<T>(x: T): Promise<Box<T>> {
+  await null;
+  if (typeof x === "number") {
+    const y = await Promise.resolve(x);
+    console.log("  awaited", num(y));
+  }
+  return new Box(x);
+}
+function copies<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    const y = x;
+    console.log("  a copy", num(y));
+  }
+  let z: T = x;
+  if (typeof x === "number") {
+    z = x;
+    console.log("  assigned", num(x));
+  }
+  return new Box(z);
+}
+function hoisted<T>(x: T): Box<T> {
+  if (typeof x !== "number") {
+    return new Box(helper(x));
+  }
+  console.log("  past the return", num(x));
+  return new Box(helper(x));
+  function helper(v: T): T {
+    console.log("  helper");
+    return v;
+  }
+}
+
+console.log("early return", earlyReturn<string>("s").value, earlyReturn<number>(2).value);
+try {
+  earlyThrow<string>("s");
+} catch (error: any) {
+  console.log("early throw", error.message);
+}
+console.log("early throw", earlyThrow<number>(2).value);
+console.log("return a box", returnsBox<string>("s").value, returnsBox<number>(2).value);
+console.log("continue", skips<string>("s").value, skips<number>(2).value);
+console.log("break", breaks<string>("s").value, breaks<number>(2).value);
+console.log("conditional", conditional<string>("s").value, conditional<number>(2).value);
+console.log("logical", logical<string>("s").value, logical<number>(2).value);
+console.log("compound", compound<string>("s").value, compound<number>(2).value);
+console.log("switch", cases<string>("s").value, cases<number>(2).value);
+console.log("loops", loops<string>("s").value, loops<number>(2).value);
+console.log("labelled", labelled<string>("s").value, labelled<number>(2).value);
+console.log("try", tries<string>("s").value, tries<number>(2).value);
+console.log("closures", closures<string>("s").value, closures<number>(2).value);
+for (const label of ["string", "number"]) {
+  const it = label === "string" ? generator<string>("s") : generator<number>(2);
+  let step = it.next();
+  while (!step.done) {
+    console.log("generator", label, "yielded", step.value);
+    step = it.next();
+  }
+  console.log("generator", label, "returned", step.value.value);
+}
+console.log("copies", copies<string>("s").value, copies<number>(2).value);
+console.log("hoisted", hoisted<string>("s").value, hoisted<number>(2).value);
+awaits<string>("s")
+  .then((b) => console.log("await", b.value))
+  .then(() => awaits<number>(2))
+  .then((b) => console.log("await", b.value));
+
+// expect:
+//   early return
+//   past the return num 3
+// early return s 2
+// early throw thrown for s
+//   past the throw num 3
+// early throw 2
+// return a box s 2
+//   past continue num 3
+//   past continue num 4
+// continue s 2
+//   past break num 3
+//   past do break num 3
+// break s 2
+//   ?: not a number
+//   ?: num 3
+// conditional s 2
+//   && false
+//   || true
+//   ?? in a dead branch not a number
+//   && num 3
+//   || num 3
+//   ?? in a dead branch num 3
+//   more than one num 3
+// logical s 2
+//   &&= ||= ??= kept kept kept
+//   &&= ||= ??= num 3 num 3 num 3
+// compound s 2
+//   default
+//   case number num 3
+// switch s 2
+//   while num 3
+//   for num 3
+//   for of num 4
+//   for of num 5
+// loops s 2
+//   in the block num 3
+// labelled s 2
+//   finally
+//   nothing thrown
+//   in try num 3
+//   finally
+//   try in a dead branch num 3
+//   finally in a dead branch
+//   caught num 3
+// try s 2
+//   later the live closure
+//   closures num 3 num 3 num 3
+//   later num 3
+// closures s 2
+// generator string yielded start
+// generator string yielded end
+// generator string returned s
+// generator number yielded start
+// generator number yielded num 3
+// generator number yielded end
+// generator number returned 2
+//   a copy num 3
+//   assigned num 3
+// copies s 2
+//   helper
+//   past the return num 3
+//   helper
+// hoisted s 2
+// await s
+//   awaited num 3
+// await 2

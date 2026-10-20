@@ -1,0 +1,268 @@
+// Generic functions whose code narrows a value to a type no value of an instance has (H09b4a,
+// D-195, C171): `typeof x === "number"` for a string x is never, `Array.isArray(x)` for a
+// number is `number & any[]`. A branch no value of the instance reaches is never taken, so
+// each instance runs as Node, called by name with a type argument that makes its branch dead
+// and one that makes it live (`Array.isArray`'s live instances, whose narrowed types are
+// intersections such as `number[] & any[]`, are in generic_narrowed_intersections.pts). The
+// instances didn't lower: PTS1001 (`converting string to number is not supported yet`, ``
+// `x.length` is not supported yet ``, `` `instanceof` on a string ``, `converting string to
+// null`, `the === operator on string and number`). A discriminant that tsc narrows through
+// the type parameter's constraint is generic_narrowed_constraint_discriminants.pts (C223).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pt {
+  constructor(public v: number) {}
+}
+function isNum(v: unknown): v is number {
+  return typeof v === "number";
+}
+function assertNum(v: unknown): asserts v is number {
+  if (typeof v !== "number") {
+    throw new TypeError("not a number: " + String(v));
+  }
+}
+
+function typeofEquals<T>(x: T): Box<T> {
+  if (typeof x === "number") {
+    console.log("  a number plus one", x + 1);
+  }
+  return new Box(x);
+}
+function typeofElse<T>(x: T): Box<T> {
+  if (typeof x !== "number") {
+    console.log("  not a number");
+  } else {
+    console.log("  fixed", x.toFixed(1));
+  }
+  return new Box(x);
+}
+function arrays<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    console.log("  an array of", x.length);
+  }
+  return new Box(x);
+}
+function points<T>(x: T): Box<T> {
+  if (x instanceof Pt) {
+    console.log("  a point", x.v + 1);
+  }
+  return new Box(x);
+}
+function nulls<T extends string | null>(x: T): Box<T> {
+  if (x === null) {
+    const n: null = x;
+    console.log("  null", n);
+  }
+  return new Box(x);
+}
+function undefineds<T extends string | undefined>(x: T): Box<T> {
+  if (x === undefined) {
+    const u: undefined = x;
+    console.log("  undefined", u);
+  }
+  return new Box(x);
+}
+function nullish<T extends number | null | undefined>(x: T): Box<T> {
+  if (x == null) {
+    const u: null | undefined = x;
+    console.log("  nullish", u);
+  }
+  return new Box(x);
+}
+function truthy<T extends number | null>(x: T): Box<T> {
+  if (x) {
+    const n: number = x;
+    console.log("  truthy", n + 1);
+  }
+  return new Box(x);
+}
+function falsy<T extends Pt | null>(x: T): Box<T> {
+  if (!x) {
+    const n: null = x;
+    console.log("  falsy", n);
+  }
+  return new Box(x);
+}
+function property<T>(o: { v: T }): Box<T> {
+  if (typeof o.v === "number") {
+    console.log("  a number property", o.v + 1);
+  }
+  return new Box(o.v);
+}
+function element<T>(t: [T, number]): Box<T> {
+  if (typeof t[0] === "number") {
+    console.log("  a number element", t[0] + 1);
+  }
+  return new Box(t[0]);
+}
+function predicate<T>(x: T): Box<T> {
+  if (isNum(x)) {
+    console.log("  isNum", x + 1);
+  }
+  return new Box(x);
+}
+function assertion<T>(x: T): Box<T> {
+  try {
+    assertNum(x);
+    console.log("  asserted", x + 1);
+  } catch (error: any) {
+    console.log("  caught", error.message);
+  }
+  return new Box(x);
+}
+function cases<T>(x: T): Box<T> {
+  switch (typeof x) {
+    case "number":
+      console.log("  case number", x + 1);
+      break;
+    case "string":
+      console.log("  case string", x.length);
+      break;
+  }
+  return new Box(x);
+}
+function fallsThrough<T>(x: T): Box<T> {
+  switch (typeof x) {
+    case "number":
+      console.log("  case number", x + 1);
+    case "string":
+      console.log("  case string or fell through");
+      break;
+  }
+  return new Box(x);
+}
+function switchTrue<T>(x: T): Box<T> {
+  switch (true) {
+    case typeof x === "number":
+      console.log("  switch true number", x + 1);
+      break;
+    default:
+      console.log("  switch true default");
+  }
+  return new Box(x);
+}
+function literal<T extends string | number>(x: T): Box<T> {
+  if (x === 1) {
+    const one: 1 = x;
+    console.log("  one plus one", one + 1);
+  }
+  return new Box(x);
+}
+function aliased<T>(x: T): Box<T> {
+  const isNumber = typeof x === "number";
+  if (isNumber) {
+    console.log("  aliased number", x + 1);
+  }
+  return new Box(x);
+}
+function functions<T>(x: T): Box<T> {
+  if (typeof x === "function") {
+    console.log("  a function named", x.name);
+  }
+  return new Box(x);
+}
+
+function named(): void {}
+console.log("typeof ===", typeofEquals<string>("s").value);
+console.log("typeof ===", typeofEquals<number>(2).value);
+console.log("typeof !== with else", typeofElse<string>("s").value);
+console.log("typeof !== with else", typeofElse<number>(2).value);
+console.log("Array.isArray", arrays<number>(2).value);
+console.log("Array.isArray", arrays<string>("ab").value);
+console.log("instanceof", points<string>("s").value);
+console.log("instanceof", points<Pt>(new Pt(1)).value);
+console.log("=== null", nulls<string>("s").value);
+console.log("=== null", nulls<null>(null).value);
+console.log("=== undefined", undefineds<string>("s").value);
+console.log("=== undefined", undefineds<undefined>(undefined).value);
+console.log("== null", nullish<number>(2).value);
+console.log("== null", nullish<null>(null).value);
+console.log("truthy", truthy<null>(null).value);
+console.log("truthy", truthy<number>(2).value);
+console.log("falsy", falsy<Pt>(new Pt(1)).value);
+console.log("falsy", falsy<null>(null).value);
+console.log("property", property<string>({ v: "s" }).value);
+console.log("property", property<number>({ v: 2 }).value);
+console.log("element", element<string>(["s", 0]).value);
+console.log("element", element<number>([2, 0]).value);
+console.log("predicate", predicate<string>("s").value);
+console.log("predicate", predicate<number>(2).value);
+console.log("assertion", assertion<string>("s").value);
+console.log("assertion", assertion<number>(2).value);
+console.log("switch typeof", cases<string>("s").value);
+console.log("switch typeof", cases<number>(2).value);
+console.log("fallthrough", fallsThrough<string>("s").value);
+console.log("fallthrough", fallsThrough<number>(2).value);
+console.log("switch true", switchTrue<string>("s").value);
+console.log("switch true", switchTrue<number>(2).value);
+console.log("literal", literal<string>("s").value);
+console.log("literal", literal<number>(1).value);
+console.log("aliased condition", aliased<string>("s").value);
+console.log("aliased condition", aliased<number>(2).value);
+console.log("typeof function", functions<string>("s").value);
+console.log("typeof function", functions<() => void>(named).value === named);
+
+// expect:
+// typeof === s
+//   a number plus one 3
+// typeof === 2
+//   not a number
+// typeof !== with else s
+//   fixed 2.0
+// typeof !== with else 2
+// Array.isArray 2
+// Array.isArray ab
+// instanceof s
+//   a point 2
+// instanceof Pt { v: 1 }
+// === null s
+//   null null
+// === null null
+// === undefined s
+//   undefined undefined
+// === undefined undefined
+// == null 2
+//   nullish null
+// == null null
+// truthy null
+//   truthy 3
+// truthy 2
+// falsy Pt { v: 1 }
+//   falsy null
+// falsy null
+// property s
+//   a number property 3
+// property 2
+// element s
+//   a number element 3
+// element 2
+// predicate s
+//   isNum 3
+// predicate 2
+//   caught not a number: s
+// assertion s
+//   asserted 3
+// assertion 2
+//   case string 1
+// switch typeof s
+//   case number 3
+// switch typeof 2
+//   case string or fell through
+// fallthrough s
+//   case number 3
+//   case string or fell through
+// fallthrough 2
+//   switch true default
+// switch true s
+//   switch true number 3
+// switch true 2
+// literal s
+//   one plus one 2
+// literal 1
+// aliased condition s
+//   aliased number 3
+// aliased condition 2
+// typeof function s
+//   a function named named
+// typeof function true

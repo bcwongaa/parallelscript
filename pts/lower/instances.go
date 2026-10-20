@@ -782,8 +782,7 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	defer func() { l.subst = outer }()
 	instantiated := l.checker.PtsInstantiateSignatureInContextOf(l.checker.GetSignatureFromDeclaration(v.generic.node), d.signature)
 	arguments := l.checker.PtsTypeArgumentsOfSignature(instantiated)
-	if len(arguments) != len(v.generic.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) ||
-		l.narrowsAway(v.generic, l.instantiateAll(arguments), map[*genericFunc]bool{}) {
+	if len(arguments) != len(v.generic.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) {
 		return
 	}
 	params := 0
@@ -1003,69 +1002,10 @@ func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
 	// g's type arguments as tsc infers them relating g to the call's resolved signature: an
 	// interface's method or an overridden one may have other type parameters than g.
 	arguments := l.checker.PtsTypeArgumentsOfSignature(l.checker.PtsInstantiateSignatureInContextOf(l.checker.GetSignatureFromDeclaration(g.node), d.signature))
-	if len(arguments) != len(g.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) ||
-		l.narrowsAway(g, l.instantiateAll(arguments), map[*genericFunc]bool{}) {
+	if len(arguments) != len(g.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) {
 		return
 	}
 	entry.Func = l.tryInstance(d, g, arguments, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })
-}
-
-// narrowsAway reports whether the instance of generic for concrete type arguments (with
-// its class instance's, for a method) has code that narrows a variable to a type that no
-// value of the instance has (`typeof x === "number"` for a string x), directly or in a
-// generic function it calls by name: instances don't lower such code (D-102), so a demand
-// takes the erased copy instead of making the instance.
-func (l *lowerer) narrowsAway(generic *genericFunc, concrete []*checker.Type, seen map[*genericFunc]bool) bool {
-	if seen[generic] || generic.node.Body() == nil {
-		return false
-	}
-	seen[generic] = true
-	parameters, arguments := generic.parameters, concrete
-	if outer := generic.outer; outer != nil {
-		parameters = append(slices.Clone(outer.parameters), parameters...)
-		arguments = append(slices.Clone(outer.arguments), arguments...)
-	}
-	instantiate := func(t *checker.Type) *checker.Type { return l.checker.PtsInstantiateType(t, parameters, arguments) }
-	isNever := func(t *checker.Type) bool { return t.Flags()&checker.TypeFlagsNever != 0 }
-	found := false
-	var visit func(node *ast.Node) bool
-	visit = func(node *ast.Node) bool {
-		switch node.Kind {
-		case ast.KindIdentifier:
-			symbol := l.checker.GetSymbolAtLocation(node)
-			if symbol != nil && symbol.Flags&ast.SymbolFlagsVariable != 0 && !ast.IsDeclarationName(node) {
-				found = isNever(instantiate(l.checker.GetTypeAtLocation(node))) && !isNever(instantiate(l.checker.GetTypeOfSymbol(symbol)))
-			}
-		case ast.KindCallExpression:
-			callee := ast.SkipParentheses(node.Expression())
-			if callee.Kind == ast.KindIdentifier {
-				target := l.target(callee)
-				other := l.generics[target]
-				if other == nil {
-					other = l.genericConsts[target]
-				}
-				if other != nil {
-					var typeArguments []*checker.Type
-					for _, t := range l.checker.PtsTypeArgumentsOfSignature(l.checker.GetResolvedSignature(node)) {
-						typeArguments = append(typeArguments, instantiate(t))
-					}
-					found = len(typeArguments) == len(other.parameters) && l.narrowsAway(other, typeArguments, seen)
-				}
-			}
-		}
-		return found || node.ForEachChild(visit)
-	}
-	visit(generic.node.Body())
-	return found
-}
-
-// instantiateAll is instantiate of each type.
-func (l *lowerer) instantiateAll(types []*checker.Type) []*checker.Type {
-	instantiated := make([]*checker.Type, len(types))
-	for i, t := range types {
-		instantiated[i] = l.instantiate(t)
-	}
-	return instantiated
 }
 
 // descendsFrom reports whether class is ancestor or one of its subclasses.

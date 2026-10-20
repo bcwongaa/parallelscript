@@ -1,0 +1,86 @@
+// Live code around dead narrowed regions must still run (H09b4a, C171, D-195): side effects
+// before an early return or throw in the same block, a condition's side effects before and
+// after the narrowing test, a case that falls through into a live case, and a function
+// declared in a dead tail that live code calls (hoisted). Each function is called by name for
+// a string, for which the narrowed code is dead. None compiled: PTS1001 (`converting string
+// to number is not supported yet`). Plain code's are in narrowed_dead_branches_plain.pts
+// (C220).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function num(v: number): string {
+  return "num " + (v + 1);
+}
+function note(label: string): boolean {
+  console.log("  condition", label);
+  return true;
+}
+
+function beforeReturn<T>(x: T): Box<T> {
+  console.log("  hi");
+  if (typeof x !== "number") {
+    return new Box(x);
+  }
+  console.log("  dead", num(x));
+  return new Box(x);
+}
+function beforeThrow<T>(x: T): Box<T> {
+  console.log("  hi");
+  if (typeof x !== "number") {
+    console.log("  bye");
+    return new Box(x);
+  }
+  throw new Error(num(x));
+}
+function conditions<T>(x: T): Box<T> {
+  if (note("before") && typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  if (typeof x === "number" && note(num(x))) {
+    console.log("  dead");
+  }
+  if (typeof x === "number" || note("after")) {
+    console.log("  live then");
+  }
+  return new Box(x);
+}
+function fallsThrough<T>(x: T): Box<T> {
+  switch (typeof x) {
+    case "number":
+      console.log("  dead", num(x));
+    case "string":
+      console.log("  live case");
+  }
+  return new Box(x);
+}
+function hoisted<T>(x: T): Box<T> {
+  if (typeof x !== "number") {
+    return new Box(helper(x));
+  }
+  console.log("  dead", num(x));
+  return new Box(x);
+  function helper(v: T): T {
+    console.log("  helper ran");
+    return v;
+  }
+}
+console.log("side effect before return", beforeReturn<string>("s").value);
+console.log("side effect before throw", beforeThrow<string>("s").value);
+console.log("conditions", conditions<string>("s").value);
+console.log("fallthrough", fallsThrough<string>("s").value);
+console.log("hoisted", hoisted<string>("s").value);
+
+// expect:
+//   hi
+// side effect before return s
+//   hi
+//   bye
+// side effect before throw s
+//   condition before
+//   condition after
+//   live then
+// conditions s
+//   live case
+// fallthrough s
+//   helper ran
+// hoisted s

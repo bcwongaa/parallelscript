@@ -303,6 +303,9 @@ func (l *lowerer) functionExpressionBody(node *ast.Node) *ir.Block {
 		return l.block(body, body.Statements())
 	}
 	at := l.pos(body)
+	if trap := l.deadOperand(body); trap != nil {
+		return &ir.Block{At: at, Stmts: []ir.Stmt{&ir.ExprStmt{At: at, X: trap}}} // an instance's type arguments make it dead (D-195)
+	}
 	var hoisted []ir.Stmt
 	var value ir.Expr
 	if l.function.Generator && l.hasYield(body) {

@@ -1,0 +1,47 @@
+// skip: known issue (H09b4b, C223): a discriminant that tsc narrows through a type parameter's union constraint gives the member's type without T; reading it is PTS9001 even where the branch is live
+// A generic function over a union constraint (`T extends Sq | Ci`) narrows its value by the
+// discriminant through the constraint: tsc types `x` in the branch as Sq, not `T & Sq`. For
+// T = the union the branch is live, for T = Sq too, and for T = Ci it is dead; an object
+// whose discriminant a cast set to "sq" reaches it (Node runs it with the value it has).
+// Each read of the narrowed value is PTS9001 today (the C passes an unboxed object as a
+// dynamic value), and an object type argument with a literal discriminant shares its IR type
+// with others, so its dead code isn't a trap (D-195).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Shape = Sq | Ci;
+function sides<T extends Shape>(x: T): Box<T> {
+  if (x.kind === "sq") {
+    console.log("  a square of side", x.side + 1);
+  }
+  return new Box(x);
+}
+function area<T extends Shape>(s: T): number {
+  if (s.kind === "ci") {
+    return 3 * s.r * s.r;
+  }
+  return s.side * s.side;
+}
+const shape: Shape = { kind: "sq", side: 2 };
+console.log("union", area(shape), sides<Shape>(shape).value.kind);
+console.log("member", sides<Sq>({ kind: "sq", side: 3 }).value.kind, area<Sq>({ kind: "sq", side: 3 }));
+console.log("dead member", sides<Ci>({ kind: "ci", r: 1 }).value.kind, area<Ci>({ kind: "ci", r: 1 }));
+const lie = { kind: "sq", side: 2, r: 1 } as unknown as Ci;
+console.log("cast lie", sides<Ci>(lie).value.kind);
+
+// expect:
+//   a square of side 3
+// union 4 sq
+//   a square of side 4
+// member sq 9
+// dead member ci 3
+//   a square of side 3
+// cast lie sq

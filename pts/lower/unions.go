@@ -530,9 +530,15 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	if x == nil {
 		return nil
 	}
+	right := func() ir.Expr {
+		if trap := l.deadOperand(expr.Right); trap != nil {
+			return trap // an instance's type arguments make it dead (D-195)
+		}
+		return l.expression(expr.Right)
+	}
 	switch t := x.Type(); {
 	case t == ir.Null || t == ir.Undefined:
-		y := l.expression(expr.Right)
+		y := right()
 		if y == nil {
 			return nil
 		}
@@ -553,7 +559,7 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 		t = l.checker.GetUnionType([]*checker.Type{t, l.typeAt(expr.Right)})
 	}
 	result := l.irType(t, node)
-	y := l.expression(expr.Right)
+	y := right()
 	if result == nil || y == nil {
 		return nil
 	}
@@ -861,7 +867,10 @@ func (l *lowerer) unsetFieldFallback(x ir.Expr, right *ast.Node) ir.Expr {
 	if !ok || !isPure(field.X) || !l.checker.IsTypeAssignableTo(l.typeAt(right), l.typeAt(right.Parent.AsBinaryExpression().Left)) {
 		return x
 	}
-	y := l.expression(right)
+	y := l.deadOperand(right) // an instance's type arguments make it dead (D-195)
+	if y == nil {
+		y = l.expression(right)
+	}
 	if y == nil {
 		return nil
 	}

@@ -1168,6 +1168,9 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 		if x == nil || generic == nil {
 			return nil
 		}
+		if isPrimitive(x.Type()) {
+			return discard(x, &ir.BoolConst{Value: false}) // no primitive is (D-195)
+		}
 		return &ir.InstanceOf{X: x, Family: &generic.classes} // its instances, all made by the time C is written
 	}
 	if !ok && l.isPromiseConstructor(expr.Right) {
@@ -1192,6 +1195,10 @@ func (l *lowerer) instanceOf(node *ast.Node) ir.Expr {
 	switch {
 	case x == nil || class == nil:
 		return nil // reported, or the class failed, which was
+	case isPrimitive(x.Type()):
+		// No primitive is a class's instance: an instance's `x instanceof C` for an x of
+		// type T and a string T, the test that narrows x to `string & C` (D-195).
+		return discard(x, &ir.BoolConst{Value: false})
 	case !isObject(x.Type()) && !isDynamic(x.Type()):
 		l.notSupportedYet(expr.Left, fmt.Sprintf("`instanceof` on a %s is", x.Type()))
 		return nil

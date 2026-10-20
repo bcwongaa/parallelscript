@@ -1,0 +1,106 @@
+// Calls whose type argument tsc infers as never (an empty array literal) run the instance for
+// never (H09b4a, C194, D-195): `first([])`'s instance reads `[]`'s missing element 0, which
+// Node and the erased copy give as undefined, but which threw `RangeError: Array index 0 is
+// out of range (length 0)` in the instance, through a value (D-148), by name, with `<never>`
+// and `[] as never[]` written out, through a const arrow, a function-local arrow, a class's
+// generic method, an async function's promise and a generator. Through an interface or an
+// object literal's own type the call keeps the erased copy and gave undefined already. A
+// `number[]` that is empty still throws D-085's RangeError (not here: Node gives undefined).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, String(f()));
+  } catch (error: any) {
+    console.log(label, error.name);
+  }
+}
+function first<T>(xs: readonly T[]): Box<T> {
+  return new Box(xs[0]);
+}
+const firstValue: <T>(xs: readonly T[]) => Box<T> = first;
+const firstArrow = <T>(xs: readonly T[]): Box<T> => new Box(xs[0]);
+class Firsts {
+  first<T>(xs: readonly T[]): Box<T> {
+    return new Box(xs[0]);
+  }
+}
+interface Firsting {
+  first<T>(xs: readonly T[]): Box<T>;
+}
+const literal = {
+  first<T>(xs: readonly T[]): Box<T> {
+    return new Box(xs[0]);
+  },
+};
+function firstPlain<T>(xs: readonly T[]): T {
+  return xs[0];
+}
+function narrowed<T>(xs: readonly T[]): Box<T> {
+  const x = xs[0];
+  if (typeof x === "number") {
+    console.log("  a number", x + 1);
+  }
+  return new Box(x);
+}
+const narrowedValue: <T>(xs: readonly T[]) => Box<T> = narrowed;
+async function firstAsync<T>(xs: readonly T[]): Promise<Box<T>> {
+  return new Box(xs[0]);
+}
+function* each<T>(xs: readonly T[]): Generator<Box<T>> {
+  yield new Box(xs[0]);
+}
+
+attempt("value", () => firstValue([]).value);
+attempt("by name", () => first([]).value);
+attempt("explicit never", () => first<never>([]).value);
+attempt("never[] cast", () => first([] as never[]).value);
+attempt("?? fallback", () => firstValue([]).value ?? "fallback");
+attempt("const arrow", () => firstArrow([]).value);
+function main(): void {
+  const local = <T>(xs: readonly T[]): Box<T> => new Box(xs[0]);
+  attempt("local arrow", () => local([]).value);
+}
+main();
+attempt("method", () => new Firsts().first([]).value);
+const firsting: Firsting = new Firsts();
+attempt("interface", () => firsting.first([]).value);
+attempt("object literal", () => literal.first([]).value);
+attempt("T by name", () => firstPlain([]));
+attempt("narrowed by name", () => narrowed([]).value);
+attempt("narrowed value", () => narrowedValue([]).value);
+try {
+  for (const box of each([])) {
+    console.log("generator", String(box.value));
+  }
+} catch (error: any) {
+  console.log("generator", error.name);
+}
+try {
+  console.log("printed", first([]));
+} catch (error: any) {
+  console.log("printed", error.name);
+}
+firstAsync([]).then(
+  (box) => console.log("async", String(box.value)),
+  (error: any) => console.log("async rejected", error.name),
+);
+
+// expect:
+// value undefined
+// by name undefined
+// explicit never undefined
+// never[] cast undefined
+// ?? fallback fallback
+// const arrow undefined
+// local arrow undefined
+// method undefined
+// interface undefined
+// object literal undefined
+// T by name undefined
+// narrowed by name undefined
+// narrowed value undefined
+// generator undefined
+// printed Box { value: undefined }
+// async undefined

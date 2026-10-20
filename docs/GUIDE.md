@@ -245,6 +245,7 @@ At run time every value has a fixed type. Where TypeScript's types are only a pr
 - `x!` throws on `null` and `undefined`, and `m.get(k)!` throws `RangeError` when the map has no entry for `k`. A downcast with `as` is checked, and so is a type guard (`x is Dog`) that is wrong about a value's class.
 - A value that tsc keeps narrowed across a call that changed it (a property, or a variable another function assigns) is checked where it is read as the narrowed type: if it now holds another member of its union, the read throws `TypeError`.
 - A method read as a value is bound to its object, so `const f = obj.method; f()` works.
+- A generic function is compiled for each of its type arguments, so a branch that narrows a `T` to something its type argument can't be (`typeof x === "number"` when T is string) can't run, and is compiled to throw `TypeError`. Only a type predicate, assertion or cast that lied can reach it.
 
 [examples/guide_differences.pts](examples/guide_differences.pts):
 
