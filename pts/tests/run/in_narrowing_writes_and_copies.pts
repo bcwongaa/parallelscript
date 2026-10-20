@@ -2,7 +2,10 @@
 // written (`x.k = 10`, `+=` after a typeof test, in an instance of `T extends object`, on a
 // union neither of whose members has k), destructured and spread, and on a class's object
 // whose class lacks it (a subclass has it), also where an object of another class reaches it
-// as its base class (H09b4b1 review round 1's i01, i05, i10, i06, i02). The base, and the
+// as its base class (H09b4b1 review round 1's i01, i05, i10, i06, i02); patterns with a
+// default, a rename or a rest element, and a spread, which copies k only where it is the
+// object's own (not a class's getter or method, which `in` finds and destructuring reads:
+// round 2's d01, g03; the copy's keys still list k then, C234). The base, and the
 // first version of the fix for writes: PTS9001 (`incompatible pointer to integer conversion
 // passing 'pts_object *' to parameter of type 'pts_value'`); destructuring and spreading:
 // PTS1001 (`destructuring the property k of a {m: string}`); a class's: PTS1001 (`` `a.bark`
@@ -80,6 +83,37 @@ function has(x: P): string {
 }
 const asP: P = new Q();
 console.log(has(new P()), has(new Q()), has(asP));
+function patterns(x: NoK): string {
+  if ("k" in x) {
+    const { k = "dflt" } = x;
+    const { k: renamed } = x;
+    const { m, ...rest } = x;
+    return "k " + String(k) + " renamed " + String(renamed) + " m " + m + " rest " + JSON.stringify(rest);
+  }
+  return "none";
+}
+console.log(patterns({ m: "a", k: undefined } as NoK), patterns({ m: "b", k: 2 } as NoK), patterns({ m: "c" }));
+class Getter {
+  m = "g";
+  get k(): number {
+    return 5;
+  }
+}
+class Method {
+  m = "m";
+  k(): number {
+    return 6;
+  }
+}
+function prototypes(x: NoK): string {
+  if ("k" in x) {
+    const copy = { ...x };
+    const { k } = x;
+    return "copy.k " + typeof copy.k + " destructured " + typeof k;
+  }
+  return "none";
+}
+console.log(prototypes(new Getter()), prototypes(new Method()), prototypes({ m: "o", k: 1 } as NoK));
 
 // expect:
 // set 10 10 none
@@ -87,3 +121,5 @@ console.log(has(new P()), has(new Q()), has(asP));
 // k 1 copy.k 1 keys m,k none
 // says woof silent
 // no k has k 3 has k 3
+// k dflt renamed undefined m a rest {} k 2 renamed 2 m b rest {"k":2} none
+// copy.k undefined destructured number copy.k undefined destructured function copy.k number destructured number

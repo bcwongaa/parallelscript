@@ -1,0 +1,31 @@
+// skip: known issue (H29, C234): a spread of an object that `"k" in x` narrowed, where k is a class's getter or method (on the prototype), copies undefined for k but its copy still lists k, since the copy's shape has a field for it
+// A spread copies an object's own properties only. After `"k" in x` (which finds a getter or
+// method on the prototype too), the copy's k is undefined, as in Node, but the copy, whose
+// type lists k, still has a key k holding undefined (H09b4b1 review round 2's g03; the first
+// version of the fix copied the getter's value or the method).
+interface NoK {
+  m: string;
+}
+class G {
+  m = "g";
+  get k(): number {
+    return 5;
+  }
+}
+class M {
+  m = "m";
+  k(): number {
+    return 6;
+  }
+}
+function copies(x: NoK): string {
+  if ("k" in x) {
+    const copy = { ...x };
+    return "copy.k " + typeof copy.k + " own " + Object.keys(copy).join(",");
+  }
+  return "none";
+}
+console.log(copies(new G()), copies(new M()), copies({ m: "o", k: 1 } as NoK));
+
+// expect:
+// copy.k undefined own m copy.k undefined own m copy.k number own m,k

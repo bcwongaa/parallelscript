@@ -121,3 +121,48 @@ Snapshot: `/tmp/h09b4b/s2/snap4`, main at `03cd1cba0` plus round 1's fixes (comm
 > Probes, outputs and the runner are in `/tmp/h09b4b/s2/review2-probes.tar.gz`; `review2/INDEX.txt` maps each probe to its finding and has the per-CLI status table. I built no binaries and removed the caches.
 >
 > VERDICT: not ready (R2-F1 needs a fix, or a recorded gap with a skipped test; everything else is low or already recorded)
+
+## Round 3 (snap5)
+
+Snapshot: `/tmp/h09b4b/s2/snap5`, main at `05bfdc261` plus round 2's fixes. Archive: [h09b4b1-review3-probes.tar.gz](h09b4b1-review3-probes.tar.gz) (`review3/INDEX.txt`).
+
+> Round 3 finds no new correctness or regression issues. Every round-2 finding is fixed or recorded, and all that remains is minor comment and readability cleanup.
+>
+> ### 1. Earlier probes re-run on snap5
+> I ran all 100 round-1 and round-2 probes on snap5 and compared them with snap4:
+> - **Now match Node:** a10 (R2-F3), d01 (R2-F4: rest elements now work and the misleading "method" message is gone), w11 (R2-F2).
+> - **Changed but still different from Node:**
+>   - g03 (R2-F1): the values are now right (`copy.k` is undefined for a prototype getter or method). The copy still lists k; that's recorded as C234, and the skipped test reproduces it.
+>   - a03: only C228's callback and `for…of` errors are left.
+> - **Everything else:** same result as on snap4. That covers the C231, C232, C233, C235 and C228 rows, and the lies c03 and c07, which now hit the intended checked-cast TypeError.
+> - **Tests:** the new and changed tests (class_mapped_intersections, in_narrowing_writes_and_copies, narrowed_array_intersections, narrowed_optional_chains) fail on base and match Node on snap5. The two skipped tests (in_narrowing_spread_prototype_members, in_narrowing_union_member_types) still reproduce, and Node's output equals their `// expect:` lines.
+>
+> ### 2. Regression hunt on the round-2 changes
+> **The hasOwn branch (spreads and rest elements):**
+> - **h01:** object literals with an own field, an own getter (called once per read, the same count as Node), a frozen object, a class's own field, a class's prototype getter, an own undefined, and an object without k. Only Proto's key count differs (C234).
+> - **h07:** rest elements whose source is a property read, an array element or a tuple element.
+> - **h10:** class objects whose k is declared in a base class, is an optional field with no initializer, or is set in the constructor. The values match Node. Only the key order differs: the copy lists keys in the static type's order, which is pre-existing on base (control h12) and follows D-L10's fixed layouts, so it's not a finding.
+> - **h02:** `{ ...this }` and a spread of a union, both after `in`. Both are PTS1001 on base and snap4 as well, so nothing changed.
+>
+> **The context-typed conversion of narrowed chains:**
+> - **h05:** generic instances, overloads, `string | null | undefined`, an explicit `generic<number>`, an optional parameter, and a return of type `T | undefined`. All match Node.
+> - **h09:** the chain as the right operand of `??` and `||`, and as a `?:` branch, in typed places that take undefined. Matches Node.
+> - **h03:** a chain used as a default parameter's initializer is PTS1001 on base, snap4 and snap5 alike, so it's pre-existing.
+>
+> **Widening chains whose object is a dynamic value:**
+> - **h06:** `?.` calls on `any`, `a.find(…)?.x`, `JSON.parse` values, and `a?.b?.c` through any. Matches Node.
+> - **h08:** an unknown narrowed by a predicate, and elements of an `any[]`, whose chain results are a class, an object, a string, a number or a method call in typed places. These were PTS1001 on base and snap4 ("converting undefined to C") and now match Node.
+> - **h04:** `const s: string = x?.s` for `x: any` holding undefined throws a TypeError, as it did on base (D-070's checked conversion), so it isn't a regression.
+>
+> ### 3. Code quality of the round-2 code (low, no behaviour change)
+> - **Q1:** `missingOwnProperty`'s doc comment (`/tmp/h09b4b/s2/snap5/pts/lower/dynamic.go`) says "for a spread", but rest elements use it too. Its two lines run 104 and 101 characters, where nearly all doc comments in `pts/lower` wrap at about 95.
+> - **Q2:** in `optionalChainFrom` (`chains.go`), `l.contextTakesUndefined(node)` is called twice, once in the outer condition and again in the new inner `if`. Hoisting it into a local would read better.
+> - **Q3:** `restProperties` (`destructuring.go`) still uses the "rest properties holding the method `k`" message when the source isn't pure and k isn't a method. I couldn't build such a source, since narrowing never applies to call results, so this is cosmetic only.
+>
+> The renames (`takesAnyValue` to `takesUndefined`) and the comments for Q1–Q3 of round 2 now match what the code does.
+>
+> Probes, outputs, the runner and `INDEX.txt` (per-CLI status table and probe map) are in `/tmp/h09b4b/s2/review3-probes.tar.gz`. I built no binaries and removed the caches.
+>
+> VERDICT: ready
+
+The parent applied round 3's Q1–Q3 (comment, a local for `contextTakesUndefined`, and a message that names a property the object's type lacks rather than a method) before the final snapshot.

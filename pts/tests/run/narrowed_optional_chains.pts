@@ -3,7 +3,8 @@
 // in an instance of a generic function: H09b4a review round 1's s19b) holds either the
 // property's value or undefined, and converts to its narrowed type with a check (C226), also
 // where a type with undefined goes: an annotated const, an argument, an array element, a
-// result (H09b4b1 review round 1's o06). Each was PTS1001 (`converting string to
+// result (H09b4b1 review round 1's o06), to that type, which a stale narrowing's chain may
+// hold the property's value in again (round 2's w11). Each was PTS1001 (`converting string to
 // undefined`, `converting number | string to undefined`; the typed places, in the first
 // version of the fix, `converting string | undefined to number | undefined`), though the
 // branch runs when the object is undefined. (`optional_chains_narrowed_by_predicates.pts`
@@ -54,8 +55,21 @@ function nullish(o: { v: string | null } | undefined): string {
   return "has " + o.v;
 }
 console.log("nullish", nullish(undefined), nullish({ v: null }), nullish({ v: "x" }));
+function opt(s: string | undefined): string {
+  return "opt " + s;
+}
+function stale(o: { v?: string } | undefined, change: () => void): string {
+  if (o?.v === undefined) {
+    change();
+    return opt(o?.v);
+  }
+  return "set";
+}
+const changing: { v?: string } = {};
+console.log("stale", stale(changing, () => { changing.v = "s"; }), stale(undefined, () => {}));
 
 // expect:
 // typed annotated undefined show undefined 1 other undefined -1 undefined -1 2
 // kinds undef undefined num 3 str 3
 // nullish missing undefined missing null has x
+// stale opt s opt undefined

@@ -5,7 +5,9 @@
 // i01), as a plain number[] is that the predicate narrows the same way. Each was PTS1001
 // (`` `x.length` is not supported yet ``, `calling `x.join``), and taking `number[] &
 // string[]` as a number[] read `x[0].length` from a double (PTS9001); `for…of` over the
-// dynamic one was PTS1001 (`converting number to string`, H09b4b1 review round 1's a06).
+// dynamic one was PTS1001 (`converting number to string`, H09b4b1 review round 1's a06),
+// and so was an optional chain on its element (`converting undefined to string`, round 2's
+// a10).
 // (`array_type_intersections.pts` has the reads' other forms; iterating a mixed array
 // narrowed to string[] is C228's: `narrowed_array_aliases.pts`.)
 function isStrings(v: unknown): v is string[] {
@@ -42,8 +44,16 @@ function plain(ns: number[]): string {
   return "plain other";
 }
 console.log(plain([]), plain([1, 2]));
+function first<T>(x: T): string {
+  if (isStrings(x)) {
+    return "first " + (x[0]?.toUpperCase() ?? "none");
+  }
+  return "other";
+}
+console.log(first<number[]>([]), first<string[]>(["a"]), first<string[]>([]));
 
 // expect:
 // n=0 copy 0 first undefined other n=2 AB C copy 2 first ab
 // AB 2 2 abz [ 'ab', 'z' ] other
 // plain strings 0  -1 0 plain other
+// first none first A first none

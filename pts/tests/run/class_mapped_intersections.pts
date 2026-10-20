@@ -1,0 +1,42 @@
+// A class's object typed through an intersection with a mapped type: `C & Partial<Extra>`
+// reads Extra's optional property, which the object lacks, as undefined; `Pick<C, "a"> &
+// Record<"z", number>` reads and writes z of a plain object; `Readonly<C> & Partial<Extra>`
+// reads C's fields, a getter and Extra's property, also of a frozen object (H09b4b1 review
+// round 2's w08, w07, w10). The base: PTS1001 for w08's read (`` `x.e` is not supported
+// yet ``). (Writing such a property on a class's object throws D-072's TypeError, as the
+// object has no field for it, where Node adds it.)
+class C {
+  a = 1;
+}
+interface Extra {
+  e: number;
+}
+function optional(x: C & Partial<Extra>): string {
+  return "a " + x.a + " e " + x.e + " " + (x.e ?? "dflt") + " " + typeof x.e;
+}
+console.log(optional(new C()));
+class D {
+  a = 1;
+  b = "b";
+}
+function picked(x: Pick<D, "a"> & Record<"z", number>): number {
+  x.z = x.a + 10;
+  return x.z;
+}
+const o = { a: 5, z: 0 };
+console.log(picked(o), o.z);
+class R {
+  a = 1;
+  get twice(): number {
+    return this.a * 2;
+  }
+}
+function frozen(x: Readonly<R> & Partial<Extra>): string {
+  return "a " + x.a + " twice " + x.twice + " e " + x.e;
+}
+console.log(frozen(new R()), frozen(Object.freeze(new R())));
+
+// expect:
+// a 1 e undefined dflt undefined
+// 15 15
+// a 1 twice 2 e undefined a 1 twice 2 e undefined

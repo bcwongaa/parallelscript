@@ -606,7 +606,7 @@ func (l *lowerer) nullishCoalescing(node *ast.Node) ir.Expr {
 	tmp := l.newLocal("value", x.Type())
 	ref := &ir.LocalRef{Local: tmp}
 	coalesced := &ir.Bind{Local: tmp, Value: x, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: y, Else: fromUnion(ref, result)}}
-	if t != required && !l.takesAnyValue(node) {
+	if t != required && !l.takesUndefined(node) {
 		if requiredType := l.irType(required, node); requiredType != nil && requiredType != result {
 			return l.checkedConversion(coalesced, requiredType, node)
 		}

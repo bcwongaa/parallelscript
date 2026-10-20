@@ -459,8 +459,17 @@ func (l *lowerer) restProperties(source ir.Expr, element *ast.Node) ir.Expr {
 			continue // named by the pattern
 		}
 		read := propertyOf(source, name)
-		if read == nil {
+		property := l.checker.GetPropertyOfType(restType, name)
+		method := property == nil || property.Flags&ast.SymbolFlagsMethod != 0
+		if read == nil && !method && isPure(source) && isObjectOrUnionOfObjects(source.Type()) {
+			read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223), which a rest copies if it is the object's own
+		}
+		switch {
+		case read == nil && method:
 			l.notSupportedYet(element, fmt.Sprintf("rest properties holding the method `%s` are", name))
+			return nil
+		case read == nil:
+			l.notSupportedYet(element, fmt.Sprintf("rest properties holding `%s`, which the object's type lacks, are", name))
 			return nil
 		}
 		value := l.convert(copiedRead(read, field), field.Type, element)

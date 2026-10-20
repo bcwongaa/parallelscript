@@ -165,6 +165,17 @@ func (l *lowerer) missingProperty(object ir.Expr, name string) ir.Expr {
 	return &ir.CallBuiltin{Builtin: ir.DynamicGet, Args: []ir.Expr{box(object), box(&ir.StringConst{Value: name})}}
 }
 
+// missingOwnProperty is missingProperty for a spread or a rest element, which copy own
+// properties only: undefined where object holds name on its prototype (a class's getter or
+// method, which `in` finds). object is pure.
+func (l *lowerer) missingOwnProperty(object ir.Expr, name string) ir.Expr {
+	return &ir.Conditional{
+		Cond: &ir.CallBuiltin{Builtin: ir.ValueHasOwn, Args: []ir.Expr{box(object), box(&ir.StringConst{Value: name})}},
+		Then: l.missingProperty(object, name),
+		Else: box(&ir.UndefinedConst{}),
+	}
+}
+
 // valuePlace is the place `o.name` or `o[k]` (node) names in object, written by name at run
 // time with a check (D-072): object is a dynamic value, or an object whose type has no such
 // property, which a narrowing added (`"k" in o`, a discriminant narrowed through a type

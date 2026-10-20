@@ -1447,7 +1447,10 @@ func (l *lowerer) forOfStatement(node *ast.Node, label *ir.Label) []ir.Stmt {
 		iterable = box(iterable) // `index.get(k) ?? []`: a set or an array, iterated as a dynamic value (D-089)
 	}
 	if l.typeAt(s.Expression).Flags()&checker.TypeFlagsAny != 0 {
-		iterable = box(iterable) // an instance's `number[] & string[]`, which no IR type holds (withoutArrayIntersection, C227)
+		// tsc types it as any, so its elements are any values: a typed array an instance
+		// takes as `number[] & string[]`, which no IR type holds (withoutArrayIntersection,
+		// C227), iterated as a dynamic value (a dynamic value already is one).
+		iterable = box(iterable)
 	}
 	if iterable.Type() == ir.Value { // a dynamic value's items (D-078), or its iterator's, one next() at a time
 		return l.iteratorLoop(node, label, declaration, iterable, ir.Value)

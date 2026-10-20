@@ -141,23 +141,33 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 			// isn't: the chain holds either, and converts to its type with a check (C226),
 			// also where a type with undefined goes (`const n: number | undefined = o?.v`).
 			result = l.withUndefined(rest.Type())
-		case mayBeMissing:
+		case mayBeMissing || object.Type() == ir.Value:
+			// A dynamic object may be undefined where tsc says it isn't (`x[0]?.length` of an
+			// x read dynamically, C227), as an element past the end may.
 			result = l.withUndefined(result)
 		}
 		if whenNullish, whenNot = l.convert(whenNullish, result, node), l.convert(rest, result, node); whenNullish == nil || whenNot == nil {
 			return nil
 		}
-		if result != required && !l.takesEveryValue(node) && (narrowedAway || !l.contextTakesUndefined(node)) {
+		takesUndefined := l.contextTakesUndefined(node)
+		if result != required && !l.takesEveryValue(node) && (narrowedAway || !takesUndefined) {
 			chain := &ir.Bind{Local: tmp, Value: object, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: whenNullish, Else: whenNot}}
+			if contextual := l.contextualType(node); narrowedAway && contextual != nil && takesUndefined {
+				// Where a type with undefined goes, to that type: a stale narrowing's chain
+				// holds the property's value again after a call set it.
+				if required = l.irType(contextual, node); required == nil {
+					return nil
+				}
+			}
 			return l.checkedConversion(chain, required, node)
 		}
 	}
 	return &ir.Bind{Local: tmp, Value: object, In: &ir.Conditional{Cond: &ir.IsNullish{X: ref}, Then: whenNullish, Else: whenNot}}
 }
 
-// takesAnyValue reports whether node's context takes any value, undefined included: the
-// left of `??`, or a place whose type is any, unknown or a union with undefined.
-func (l *lowerer) takesAnyValue(node *ast.Node) bool {
+// takesUndefined reports whether node's context takes undefined: the left of `??`, or a
+// place whose type is any, unknown or a union with undefined.
+func (l *lowerer) takesUndefined(node *ast.Node) bool {
 	return l.contextTakesUndefined(node) || l.takesEveryValue(node)
 }
 

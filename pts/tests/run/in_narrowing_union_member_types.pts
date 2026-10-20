@@ -1,0 +1,31 @@
+// skip: known issue (H29, C235): after `"k" in x` for an `A | B` where A declares k as a string, an object of B that holds k as a number is read and spread as A's: TypeError (`Cannot read property k of Object as string: it is declared number`)
+// `"k" in x` narrows `A | B` to `A | (B & Record<"k", unknown>)`, so tsc types x.k as unknown,
+// but the read takes A's field type, a string, and throws for a B holding a number; a spread
+// of the narrowed union takes one member's shape (H09b4b1 review round 2's g04, g07;
+// pre-existing, the base too).
+type A = { a: number; k: string };
+type B = { b: string };
+function read(x: A | B): string {
+  if ("k" in x) {
+    const k = x.k;
+    return "k " + typeof k + " " + String(k);
+  }
+  return "no k";
+}
+const withNum = { b: "s", k: 5 };
+console.log(read({ a: 1, k: "s" }), read(withNum), read({ b: "t" }));
+type P = { p: number };
+type Q = { q: string };
+type S = { s: boolean; k: string };
+function spread(x: P | Q | S): string {
+  if ("k" in x) {
+    const copy = { ...x, extra: 1 };
+    return "k " + String(copy.k) + " keys " + Object.keys(copy).join(",");
+  }
+  return "none";
+}
+console.log(spread({ p: 1, k: 5 } as P), spread({ q: "s", k: "kq" } as Q), spread({ s: true, k: "ks" }), spread({ p: 2 }));
+
+// expect:
+// k string s k number 5 no k
+// k 5 keys p,k,extra k kq keys q,k,extra k ks keys s,k,extra none

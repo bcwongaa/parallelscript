@@ -610,7 +610,7 @@ func (l *lowerer) spreadObject(parts []spreadProperty, shape *ir.Class, node *as
 			field := shape.Field(name)
 			read := propertyOf(source, name)
 			if read == nil && field != nil && isObjectOrUnionOfObjects(source.Type()) {
-				read = l.missingProperty(source, name) // one a narrowing added (C222, C223)
+				read = l.missingOwnProperty(source, name) // one a narrowing added (C222, C223)
 			}
 			if field == nil || read == nil {
 				of := part.of
@@ -863,8 +863,9 @@ func (l *lowerer) isShapeProperty(member *ast.Node) bool {
 }
 
 // isMappedProperty reports whether a property access reads a property of a mapped object
-// type (`Partial<Point>`), which has no declaration of its own (D-065), also one that `in`
-// added to a class's object (`Animal & Record<"bark", unknown>`, C222).
+// type (`Partial<Point>`), which has no declaration of its own (D-065), also through an
+// intersection with a class (`Animal & Record<"bark", unknown>`, which `"bark" in a` narrows
+// to, C222; `C & Partial<Extra>`), whose object lacks it as a field.
 func (l *lowerer) isMappedProperty(node *ast.Node) bool {
 	symbol := l.memberSymbol(node)
 	t := l.typeAt(node.Expression())
@@ -922,13 +923,17 @@ func (l *lowerer) shapeProperty(node *ast.Node) (ir.Expr, *ir.Field) {
 			return &ir.ClassCast{X: object, To: iface}, iface.Field(name)
 		}
 		if t.Field(name) == nil && t.AccessorField(name, ir.Getter) == nil && t.AccessorField(name, ir.Setter) == nil {
-			return object, nil // a property that `in` added to a class's object (C222): found at run time
+			// A property a class's object lacks, which tsc types through an intersection
+			// (`Animal & Record<"bark", unknown>` after `"bark" in a`, C222; `C &
+			// Partial<Extra>`): found at run time, as a subclass's object may have it.
+			return object, nil
 		}
 	case *ir.Union:
 		if isUnionOfObjects(t) {
-			// An instance's union type argument that a discriminant narrowed through the
-			// constraint to a member it doesn't have (`Ci` for `T = Sq | Tr` of `T extends Sq
-			// | Ci | Tr`): found at run time (valueProperty), as a lie reaches it.
+			// A union of objects that tsc narrowed to a type it doesn't hold: an instance's
+			// union type argument that a discriminant narrowed through the constraint to a
+			// member it doesn't have (`Ci` for `T = Sq | Tr` of `T extends Sq | Ci | Tr`, which
+			// a lie reaches, C223). Found at run time (valueProperty, valuePlace).
 			return object, nil
 		}
 	}

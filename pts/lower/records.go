@@ -273,7 +273,7 @@ func (l *lowerer) recordElementFallback(node *ast.Node, element *ast.Node, fallb
 		}
 		return l.convert(value, t, fallback)
 	})
-	if x != nil && t != required && !l.takesAnyValue(node) {
+	if x != nil && t != required && !l.takesUndefined(node) {
 		if requiredType := l.irType(required, node); requiredType != nil && requiredType != result {
 			return l.checkedConversion(x, requiredType, node)
 		}
