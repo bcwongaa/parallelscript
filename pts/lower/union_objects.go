@@ -138,7 +138,7 @@ func (l *lowerer) holdsIteratorResults(t *checker.Type) bool {
 // have the method m with one signature: a call through an interface with just that method.
 func (l *lowerer) unionMethodCall(call *ast.CallExpression) ir.Expr {
 	callee := ast.SkipParentheses(call.Expression)
-	name := callee.AsPropertyAccessExpression().Name().Text()
+	name := l.calleeName(callee) // `u["make"]`'s too (C185)
 	t := l.checker.GetNonNullableType(l.typeAt(callee.Expression()))
 	members, ok := l.unionObjectMembers(t, name, callee)
 	if !ok {

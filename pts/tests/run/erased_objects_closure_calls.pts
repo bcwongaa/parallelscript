@@ -3,7 +3,8 @@
 // the member's signature passed a double or a string pointer where the closure reads a
 // dynamic value, and read its dynamic result as a double or a pointer: SIGSEGV (H09b2, C187).
 // The read must give a function of the member's type (an adapter, D-075), as Node calls the
-// closure. Honest values; the erased copy comes from an element access (C185).
+// closure. Honest values; an `any` argument keeps the call on the erased copy (D-191), as an
+// element access did until H09b3a (C185).
 type Fn<T> = { readonly tag: "some"; readonly value: (y: T) => T } | { readonly tag: "none" };
 const Ops = {
   twice<T>(x: T): Fn<T> {
@@ -17,12 +18,15 @@ function attempt(label: string, f: () => string): void {
     console.log(label, e.name, e.message);
   }
 }
+function loose(x: any): any {
+  return x;
+}
 attempt("a closure taking a number", () => {
-  const o: Fn<number> = Ops["twice"](0);
+  const o: Fn<number> = Ops.twice<number>(loose(0));
   return o.tag === "some" ? String(o.value(7) + 1) : "none";
 });
 attempt("a closure taking a string", () => {
-  const o: Fn<string> = Ops["twice"]("");
+  const o: Fn<string> = Ops.twice<string>(loose(""));
   return o.tag === "some" ? o.value("ab").toUpperCase() : "none";
 });
 

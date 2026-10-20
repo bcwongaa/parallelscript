@@ -1,0 +1,124 @@
+// no-diff: a generic method that lies through `any` about the instance it returns throws TypeError at the typed call (D-071, D-155), a call through `any` has no type arguments to find an instance by (D-078), and a call passing a dynamic value keeps the erased copy (D-191), where Node goes on with the value, and an element-access call whose key only its type says is the method's name (a parameter of a string literal type, which may hold another string through `any`) keeps the erased copy too
+// The call forms that find instances since H09b3a (`?.` calls, element-access calls with a
+// constant key, object literals written for a union parameter, rest parameters) keep the
+// checked boundaries of `any` (D-155), as the dotted calls do (`generic_method_any_boundaries`):
+// a generic method whose body returns a `Box<string>` through `any` where its signature says
+// `Box<T>` throws TypeError rather than handing typed code a wrong-typed value, through each
+// form; a call through `any`, which has no type arguments, keeps the erased copy, whose
+// `Box<any>` a typed place rejects, while its result used dynamically works; and a call that
+// passes a dynamic value (an `any` argument, or one among rest arguments) keeps the erased
+// copy, as its dotted form does (D-191), rather than handing the instance an unchecked value;
+// and so does an element-access call whose key's value isn't known to be the method's name
+// (a parameter of type "make", which a string of another value reaches through `any`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Opt<T> = { tag: "some"; value: T } | { tag: "none" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function pick<X>(flag: boolean, x: X): X | undefined {
+  return flag ? x : undefined;
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  orElse<T>(o: Opt<T>, d: T): Box<T>;
+  many<T>(...xs: T[]): Box<T[]>;
+}
+class Liar implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box("lie") as any;
+  }
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box("lie") as any;
+  }
+  many<T>(...xs: T[]): Box<T[]> {
+    return new Box(["lie"]) as any;
+  }
+}
+class Honest implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  }
+  many<T>(...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+const liar: Maker = new Liar();
+const maybeLiar: Maker | undefined = pick(true, liar);
+const lyingValue: (<T>(x: T) => Box<T>) | undefined = pick(true, <T,>(x: T): Box<T> => new Box("lie") as any);
+
+attempt("a liar through ?.", () => {
+  const b: Box<number> | undefined = maybeLiar?.make(5);
+  return String(b!.value);
+});
+attempt("a lying value through ?.", () => {
+  const b: Box<number> | undefined = lyingValue?.(5);
+  return String(b!.value);
+});
+attempt("a liar through an element access", () => {
+  const b: Box<number> = liar["make"](5);
+  return String(b.value);
+});
+attempt("a liar given a literal", () => {
+  const b: Box<number> = liar.orElse({ tag: "some", value: 3 }, 0);
+  return String(b.value);
+});
+attempt("a liar with a rest parameter", () => {
+  const b: Box<number[]> = liar.many(1, 2);
+  return String(b.value[0]);
+});
+attempt("through any with ?.", () => {
+  const a: any = new Honest();
+  const b: Box<number> = a?.make(5);
+  return String(b.value);
+});
+attempt("through any with an element access", () => {
+  const a: any = new Honest();
+  const b: Box<number> = a["make"](5);
+  return String(b.value);
+});
+attempt("dynamic results", () => {
+  const a: any = new Honest();
+  const b = a?.make(5);
+  const c = a["many"](1, 2);
+  return `${b.value + 1} ${c.value.length}`;
+});
+// A dynamic value is never passed to an instance (D-191): these calls keep the erased copy,
+// whose Box<any> a typed place rejects, as their dotted forms do.
+const honest: Maker = new Honest();
+const maybeHonest: Maker | undefined = pick(true, honest);
+const loose: any = 3;
+attempt("an any argument through ?.", () => {
+  const b: Box<Box<number>> | undefined = maybeHonest?.make<Box<number>>(loose);
+  return String(b!.value);
+});
+attempt("an any rest argument", () => {
+  const b: Box<number[]> = honest.many<number>(1, loose);
+  return String(b.value[1]);
+});
+function byParameter(key: "make"): string {
+  const b: Box<number> = honest[key](4);
+  return String(b.value + 1);
+}
+attempt("a parameter's key", () => byParameter("make"));
+
+// expect:
+// a liar through ?. TypeError Expected Box<number>, got Box<string>
+// a lying value through ?. TypeError Expected Box<number>, got Box<string>
+// a liar through an element access TypeError Expected Box<number>, got Box<string>
+// a liar given a literal TypeError Expected Box<number>, got Box<string>
+// a liar with a rest parameter TypeError Expected Box<number[]>, got Box<string[]>
+// through any with ?. TypeError Expected Box<number>, got Box<any>
+// through any with an element access TypeError Expected Box<number>, got Box<any>
+// dynamic results 6 2
+// an any argument through ?. TypeError Expected Box<Box<number>>, got Box<any>
+// an any rest argument TypeError Expected Box<number[]>, got Box<any[]>
+// a parameter's key TypeError Expected Box<number>, got Box<any>

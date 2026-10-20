@@ -5,8 +5,9 @@
 // (`{ tag: "none" }`, since tags are strings at run time) and then be read as another one;
 // typed code reading it gets its values, converted, as Node does (H09b2: C187, which read
 // 7 as 7.5 or 15 for 14, and C186, which threw "it is declared value"). The erased copies
-// come from calls that keep them: an element access (C185), `?.` (C179), a method value,
-// an `any` argument holding the right value (D-191) and a JSON value. No line lies.
+// come from calls that keep them: a method value (H09b3b), an `any` argument holding the
+// right value (D-191) and a JSON value; an element access and `?.` kept them until H09b3a
+// (C185, C179), and now find their instances. No line lies.
 type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
 type One<T> = { readonly tag: "some"; readonly value: T } | { readonly tag: "none" };
 type Shapes<T> =
@@ -79,17 +80,20 @@ function shapeOf(s: Shapes<number>): number {
 const maybeOps: typeof Ops | undefined = Math.random() > 2 ? undefined : Ops;
 const wrapValue = Ops.wrap;
 const seven: any = 7;
+function loose(x: any): any {
+  return x;
+}
 attempt("an element access, a typed read", () => String(firstOf(Ops["wrap"](7)) * 2));
 attempt("an optional call, a typed read", () => String(firstOf(maybeOps?.wrap(8)!) * 2));
 attempt("a method value, a typed read", () => String(firstOf(wrapValue(9)) * 2));
 attempt("an any argument, a typed read", () => String(firstOf(Ops.wrap<number>(seven)) * 2));
 attempt("a JSON value, a typed read", () => String(firstOf(Ops.wrap<number>(JSON.parse("10"))) * 2));
 attempt("a boolean pair", () => {
-  const o: Opt<boolean> = Ops["wrap"](true);
+  const o: Opt<boolean> = Ops.wrap<boolean>(loose(true));
   return o.tag === "some" ? String(o.value[0] === true) + " " + String(!o.value[0]) : "none";
 });
 attempt("held, then iterated", () => {
-  const o = Ops["wrap"](3);
+  const o = Ops.wrap<number>(loose(3));
   let sum = 0;
   if (o.tag === "some") {
     const xs: number[] = o.value;
@@ -100,24 +104,24 @@ attempt("held, then iterated", () => {
   return String(sum);
 });
 attempt("destructured", () => {
-  const o = Ops["wrap"](4);
+  const o = Ops.wrap<number>(loose(4));
   if (o.tag !== "some") {
     return "none";
   }
   const { value } = o;
   return String(value[0] * 2);
 });
-attempt("a dynamic field read as a number (C186)", () => String(oneOf(Ops["one"](5), 0) * 2));
+attempt("a dynamic field read as a number (C186)", () => String(oneOf(Ops.one<number>(loose(5)), 0) * 2));
 attempt("a dynamic field read as an interface (C186)", () => {
   const o: One<{ id: number; zip?: string }> = Ops.one<{ id: number; zip?: string }>(JSON.parse('{"id": 1, "zip": "1100"}'));
   return o.tag === "some" ? `${o.value.id} ${o.value.zip}` : "none";
 });
-attempt("a getter of a dynamic value", () => String(oneOf(Ops["computed"](6), 0) * 2));
-attempt("a tuple", () => String(shapeOf(Ops["pair"](7))));
-attempt("a nested object", () => String(shapeOf(Ops["nested"](7)) * 2));
-attempt("a hash-map object", () => String(shapeOf(Ops["keyed"](7)) * 2));
-attempt("a closure", () => String(shapeOf(Ops["lazy"](7)) * 2));
-attempt("an optional property", () => String(shapeOf(Ops["maybe"](7)) * 2));
+attempt("a getter of a dynamic value", () => String(oneOf(Ops.computed<number>(loose(6)), 0) * 2));
+attempt("a tuple", () => String(shapeOf(Ops.pair<number>(loose(7)))));
+attempt("a nested object", () => String(shapeOf(Ops.nested<number>(loose(7))) * 2));
+attempt("a hash-map object", () => String(shapeOf(Ops.keyed<number>(loose(7))) * 2));
+attempt("a closure", () => String(shapeOf(Ops.lazy<number>(loose(7))) * 2));
+attempt("an optional property", () => String(shapeOf(Ops.maybe<number>(loose(7))) * 2));
 
 // expect:
 // an element access, a typed read 14

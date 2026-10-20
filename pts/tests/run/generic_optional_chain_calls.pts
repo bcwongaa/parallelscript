@@ -1,0 +1,231 @@
+// Typed calls through `?.` of generic functions and methods whose results hold generic class
+// instances find the instance their calls without `?.` find (H09b3a, C179): a generic function
+// value (`f?.(x)`, `o.f?.(x)`, `o?.f(x)`), a dispatched generic method (`c?.make(x)`), an
+// interface's method of a class and of an object literal, an object literal's method through
+// its own type, and a union of object types' method; for results that are a box, an array of
+// boxes, a box or a pair and a promise of a box, and for number, string, class and array type
+// arguments. tsc's signature of such a call returns the chain's undefined too
+// (`Box<number> | undefined`), which no instance's result is, so each took the erased copy and
+// threw `TypeError: Expected Box | undefined, got Box<any>`. A nullish receiver still gives
+// undefined without evaluating the arguments, the receiver and each argument are evaluated
+// once, in order, and `?.` on a receiver that can't be nullish, a declared `Box<T> | undefined`
+// result and an `any` argument keep working.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<T> {
+  constructor(
+    public first: T,
+    public second: T,
+  ) {}
+}
+class Point {
+  constructor(public x: number) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function pick<X>(flag: boolean, x: X): X | undefined {
+  return flag ? x : undefined;
+}
+
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  many<T>(x: T): Box<T>[];
+  either<T>(x: T): Box<T> | Pair<T>;
+  later<T>(x: T): Promise<Box<T>>;
+  maybe<T>(x: T): Box<T> | undefined;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x), new Box(x)];
+  }
+  either<T>(x: T): Box<T> | Pair<T> {
+    return new Box(x);
+  }
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  }
+  maybe<T>(x: T): Box<T> | undefined {
+    return new Box(x);
+  }
+}
+abstract class Base {
+  abstract make<T>(x: T): Box<T>;
+}
+class Impl extends Base {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+type A = { kind: "a"; make<T>(x: T): Box<T> };
+type B = { kind: "b"; make<T>(x: T): Box<T> };
+type Holder = { f: <T>(x: T) => Box<T> };
+type OptionalHolder = { f?: <T>(x: T) => Box<T> };
+
+const value: (<T>(x: T) => Box<T>) | undefined = pick(true, make);
+const optionalHolder: OptionalHolder = { f: make };
+const holder: Holder | undefined = pick<Holder>(true, { f: make });
+const dispatched: Base | undefined = pick<Base>(true, new Impl());
+const viaInterface: Maker | undefined = pick<Maker>(true, new ClassMaker());
+const literalMaker: Maker | undefined = pick<Maker>(true, {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x)];
+  },
+  either<T>(x: T): Box<T> | Pair<T> {
+    return new Pair(x, x);
+  },
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  },
+  maybe<T>(x: T): Box<T> | undefined {
+    return undefined;
+  },
+});
+const own: typeof literal | undefined = pick(true, literal);
+const union: A | B | undefined = pick<A | B>(true, {
+  kind: "b",
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+});
+const none: Maker | undefined = pick<Maker>(false, new ClassMaker());
+const noValue: (<T>(x: T) => Box<T>) | undefined = pick(false, make);
+const sure: Maker = new ClassMaker();
+
+attempt("value f?.()", () => {
+  const b: Box<number> | undefined = value?.(5);
+  const s: Box<string> | undefined = value?.("ab");
+  return `${b!.value + 1} ${s!.value.length}`;
+});
+attempt("value o.f?.()", () => {
+  const b: Box<Point> | undefined = optionalHolder.f?.(new Point(3));
+  return String(b!.value.x + 1);
+});
+attempt("value o?.f()", () => {
+  const b: Box<number[]> | undefined = holder?.f([1, 2]);
+  return String(b!.value.length + b!.value[0]);
+});
+attempt("dispatched c?.make()", () => {
+  const b: Box<number> | undefined = dispatched?.make(5);
+  return String(b!.value + 1);
+});
+attempt("interface m?.make()", () => {
+  const b: Box<number> | undefined = viaInterface?.make(5);
+  const s: Box<string> | undefined = viaInterface?.make("ab");
+  return `${b!.value + 1} ${s!.value.length} ${b instanceof Box}`;
+});
+attempt("interface of a literal m?.make()", () => {
+  const b: Box<number> | undefined = literalMaker?.make(5);
+  return String(b!.value + 1);
+});
+attempt("literal's own type o?.make()", () => {
+  const b: Box<number> | undefined = own?.make(5);
+  return String(b!.value + 1);
+});
+attempt("union u?.make()", () => {
+  const b: Box<number> | undefined = union?.make(5);
+  return String(b!.value + 1);
+});
+attempt("array result", () => {
+  const boxes: Box<number>[] | undefined = viaInterface?.many(5);
+  const fromLiteral: Box<number>[] | undefined = literalMaker?.many(7);
+  return `${boxes![0].value + boxes![1].value} ${fromLiteral![0].value}`;
+});
+attempt("box or pair result", () => {
+  const b: Box<number> | Pair<number> | undefined = viaInterface?.either(5);
+  const p: Box<string> | Pair<string> | undefined = literalMaker?.either("ab");
+  return `${b instanceof Box ? b.value + 1 : "pair"} ${p instanceof Pair ? p.first + p.second : "box"}`;
+});
+attempt("?? after the call", () => {
+  const b: Box<number> = viaInterface?.make(5) ?? new Box(0);
+  const c: Box<number> = none?.make(5) ?? new Box(7);
+  return `${b.value + 1} ${c.value}`;
+});
+
+// Guards: these worked before and must keep working.
+const order: string[] = [];
+function receiver(m: Maker | undefined): Maker | undefined {
+  order.push("receiver");
+  return m;
+}
+function argument(n: number): number {
+  order.push(`argument ${n}`);
+  return n;
+}
+attempt("nullish receiver", () => {
+  const b: Box<number> | undefined = receiver(none)?.make(argument(1));
+  const c: Box<number> | undefined = noValue?.(argument(2));
+  return `${b} ${c} ${order.join(",")}`;
+});
+attempt("evaluation order", () => {
+  order.length = 0;
+  const b: Box<number> | undefined = receiver(viaInterface)?.make(argument(3));
+  return `${b!.value} ${order.join(",")}`;
+});
+attempt("non-nullable receiver", () => {
+  const b: Box<number> = sure?.make(5);
+  return String(b.value + 1);
+});
+attempt("declared undefined result", () => {
+  const b: Box<number> | undefined = viaInterface?.maybe(5);
+  const c: Box<number> | undefined = literalMaker?.maybe(5);
+  return `${b!.value + 1} ${c}`;
+});
+attempt("any argument", () => {
+  const loose: any = 5;
+  const b = viaInterface?.make(loose);
+  return String(b!.value + 1);
+});
+attempt("through any", () => {
+  const loose: any = viaInterface;
+  return String(loose?.make(5).value + 1);
+});
+async function main(): Promise<void> {
+  try {
+    const b: Box<number> | undefined = await viaInterface?.later(5);
+    const c: Box<string> | undefined = await literalMaker?.later("ab");
+    console.log("promise result", b!.value + 1, c!.value.length);
+  } catch (error: any) {
+    console.log("promise result", error.name, error.message);
+  }
+}
+main();
+
+// expect:
+// value f?.() 6 2
+// value o.f?.() 4
+// value o?.f() 3
+// dispatched c?.make() 6
+// interface m?.make() 6 2 true
+// interface of a literal m?.make() 6
+// literal's own type o?.make() 6
+// union u?.make() 6
+// array result 10 7
+// box or pair result 6 abab
+// ?? after the call 6 7
+// nullish receiver undefined undefined receiver
+// evaluation order 3 receiver,argument 3
+// non-nullable receiver 6
+// declared undefined result 6 undefined
+// any argument 6
+// through any 6
+// promise result 6 2

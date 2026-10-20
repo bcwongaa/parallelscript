@@ -1,0 +1,115 @@
+// A method's optional call (`o.m?.(x)`, `o["m"]?.(x)`, `o[K]?.(x)`) evaluates o once, reads
+// the method, and if it is there calls it on that o (H09b3a, C203): the lowering evaluated o
+// again for the call, so a receiver with an effect ran twice, generic method or not. A
+// generic method's call finds its instance, as its call without `?.` does (C179), and a
+// method that isn't there makes the call undefined without evaluating the arguments. A
+// class's static method, `Math`'s, a namespace import's function and a static method through
+// `this` are called as before, their object not evaluated as a value.
+import * as shapes from "./optional_method_calls_evaluate_receiver_once/shapes.pts";
+
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  plain(x: number): number;
+  later?: (x: number) => number;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  plain(x: number): number {
+    return x + 1;
+  }
+}
+class Tools {
+  id<T>(x: T): T {
+    return x;
+  }
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+let receivers = 0;
+let argumentsRun = 0;
+function maker(): Maker {
+  receivers++;
+  return new ClassMaker();
+}
+function tools(): Tools {
+  receivers++;
+  return new Tools();
+}
+function argument(n: number): number {
+  argumentsRun++;
+  return n;
+}
+function counted(f: () => string): () => string {
+  return () => {
+    receivers = 0;
+    argumentsRun = 0;
+    const result = f();
+    return `${result} receivers ${receivers} arguments ${argumentsRun}`;
+  };
+}
+const K = "make";
+attempt("a method that isn't generic", counted(() => String(maker().plain?.(argument(4)))));
+attempt("a generic method through an interface", counted(() => {
+  const b: Box<number> | undefined = maker().make?.(argument(5));
+  return String(b!.value + 1);
+}));
+attempt("a class's generic method", counted(() => {
+  const b: Box<number> | undefined = tools().make?.(argument(6));
+  return String(b!.value + 1);
+}));
+attempt("a generic method by a literal key", counted(() => {
+  const b: Box<number> | undefined = tools()["make"]?.(argument(7));
+  return String(b!.value + 1);
+}));
+attempt("a generic method by a const key", counted(() => {
+  const b: Box<number> | undefined = maker()[K]?.(argument(8));
+  return String(b!.value + 1);
+}));
+attempt("a generic method whose result holds no class instance", counted(() => String(tools()["id"]?.(argument(9)))));
+attempt("a method that isn't there", counted(() => String(maker().later?.(argument(10)))));
+class Util {
+  static twice(x: number): number {
+    return x * 2;
+  }
+  static box<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  static viaThis(x: number): number {
+    return this.twice?.(x) ?? 0;
+  }
+}
+attempt("a static method", () => String(Util.twice?.(3)));
+attempt("a generic static method", () => {
+  const b: Box<number> | undefined = Util.box?.(4);
+  return String(b!.value + 1);
+});
+attempt("a static method through this", () => String(Util.viaThis(5)));
+attempt("Math's method", () => String(Math.max?.(1, 6)));
+attempt("a namespace import's function", () => String(shapes.area?.(7)));
+
+// expect:
+// a method that isn't generic 5 receivers 1 arguments 1
+// a generic method through an interface 6 receivers 1 arguments 1
+// a class's generic method 7 receivers 1 arguments 1
+// a generic method by a literal key 8 receivers 1 arguments 1
+// a generic method by a const key 9 receivers 1 arguments 1
+// a generic method whose result holds no class instance 9 receivers 1 arguments 1
+// a method that isn't there undefined receivers 1 arguments 0
+// a static method 6
+// a generic static method 5
+// a static method through this 10
+// Math's method 6
+// a namespace import's function 49

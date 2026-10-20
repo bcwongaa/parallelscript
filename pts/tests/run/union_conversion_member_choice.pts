@@ -33,9 +33,10 @@ const Ops = {
     return Object.freeze({ tag: "maybe", xs: [x] });
   },
 };
-const absent = Ops["absent"]<number>();
+const erased: any = Ops; // a call through `any` keeps the erased copy (D-078)
+const absent: M<number> = erased.absent();
 console.log("an absent property stays absent", "value" in absent, Object.keys(absent).join(","));
-const frozen = Ops["frozen"](7);
+const frozen: M<number> = erased.frozen(7);
 console.log("a frozen object stays frozen", Object.isFrozen(frozen), frozen.tag === "maybe" ? frozen.xs[0] * 2 : "none");
 
 // expect:

@@ -1,0 +1,168 @@
+// Typed calls of generic methods by name (through an interface, an object literal's own type
+// or a union of object types) whose parameter is a union of object types typed with the
+// method's type parameters (`o: Opt<T>`) find their instance when the argument is an object
+// of one member as it is (H09b3a, C188): an object literal written as the argument, with and
+// without explicit type arguments, of either member, with a spread or a getter, as an
+// optional argument, one holding an `any` value (which the literal checks where it is made,
+// as before), and a class's instance. The arguments are lowered once, to the erased
+// copy's parameter types (D-191), and such an object isn't a member of the instance's
+// `Opt<number>` as it is, so each call kept the erased copy and threw
+// `TypeError: Expected Box<number>, got Box<any>`. A variable of the union's type, a value
+// call and a dispatched call (whose arguments are lowered to the instance's types), an array
+// of such literals and a literal inside a literal already worked and must keep working.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Point {
+  constructor(public x: number) {}
+}
+class Some<T> {
+  readonly tag = "some" as const;
+  constructor(public value: T) {}
+}
+type Opt<T> = { tag: "some"; value: T } | { tag: "none" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function orElse<T>(o: Opt<T>, d: T): Box<T> {
+  return new Box(o.tag === "some" ? o.value : d);
+}
+interface Ops {
+  orElse<T>(o: Opt<T>, d: T): Box<T>;
+  maybe<T>(d: T, o?: Opt<T>): Box<T>;
+  first<T>(os: Opt<T>[], d: T): Box<T>;
+  inner<T>(o: { opt: Opt<T> }, d: T): Box<T>;
+}
+const Opts = {
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  },
+  maybe<T>(d: T, o?: Opt<T>): Box<T> {
+    return new Box(o !== undefined && o.tag === "some" ? o.value : d);
+  },
+  first<T>(os: Opt<T>[], d: T): Box<T> {
+    const o = os[0];
+    return new Box(o.tag === "some" ? o.value : d);
+  },
+  inner<T>(o: { opt: Opt<T> }, d: T): Box<T> {
+    return new Box(o.opt.tag === "some" ? o.opt.value : d);
+  },
+};
+class ClassOps implements Ops {
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  }
+  maybe<T>(d: T, o?: Opt<T>): Box<T> {
+    return new Box(o !== undefined && o.tag === "some" ? o.value : d);
+  }
+  first<T>(os: Opt<T>[], d: T): Box<T> {
+    const o = os[0];
+    return new Box(o.tag === "some" ? o.value : d);
+  }
+  inner<T>(o: { opt: Opt<T> }, d: T): Box<T> {
+    return new Box(o.opt.tag === "some" ? o.opt.value : d);
+  }
+}
+abstract class BaseOps {
+  abstract orElse<T>(o: Opt<T>, d: T): Box<T>;
+}
+class ImplOps extends BaseOps {
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  }
+}
+type UA = { kind: "a"; orElse<T>(o: Opt<T>, d: T): Box<T> };
+type UB = { kind: "b"; orElse<T>(o: Opt<T>, d: T): Box<T> };
+
+const viaInterface: Ops = new ClassOps();
+const literalOps: Ops = Opts;
+const union: UA | UB = {
+  kind: "b",
+  orElse<T>(o: Opt<T>, d: T): Box<T> {
+    return new Box(o.tag === "some" ? o.value : d);
+  },
+};
+const base = { tag: "some" as const, value: 2 };
+
+attempt("literal's own type, explicit", () => String(Opts.orElse<number>({ tag: "some", value: 3 }, 0).value + 1));
+attempt("literal's own type, inferred", () => {
+  const b: Box<number> = Opts.orElse({ tag: "some", value: 3 }, 0);
+  const s: Box<string> = Opts.orElse({ tag: "some", value: "ab" }, "");
+  return `${b.value + 1} ${s.value.length}`;
+});
+attempt("the other member", () => String(Opts.orElse<number>({ tag: "none" }, 5).value + 1));
+attempt("interface of a class", () => {
+  const b: Box<Point> = viaInterface.orElse({ tag: "some", value: new Point(3) }, new Point(0));
+  return String(b.value.x + 1);
+});
+attempt("interface of a literal", () => {
+  const b: Box<number[]> = literalOps.orElse({ tag: "some", value: [1, 2] }, []);
+  return String(b.value.length + b.value[0]);
+});
+attempt("union of object types", () => {
+  const b: Box<number> = union.orElse({ tag: "some", value: 3 }, 0);
+  return String(b.value + 1);
+});
+attempt("optional argument given", () => {
+  const b: Box<number> = viaInterface.maybe(0, { tag: "some", value: 3 });
+  return String(b.value + 1);
+});
+attempt("a spread", () => {
+  const b: Box<number> = viaInterface.orElse({ ...base, value: 3 }, 0);
+  return String(b.value + 1);
+});
+attempt("a getter", () => {
+  const b: Box<number> = viaInterface.orElse<number>({ tag: "some", get value() { return 3; } }, 0);
+  return String(b.value + 1);
+});
+attempt("a class's instance", () => {
+  const b: Box<number> = viaInterface.orElse(new Some(3), 0);
+  return String(b.value + 1);
+});
+attempt("an any value checked where the literal is made", () => {
+  const loose: any = 3;
+  const b: Box<number> = viaInterface.orElse<number>({ tag: "some", value: loose }, 0);
+  return String(b.value + 1);
+});
+
+// Guards: these worked before and must keep working.
+const three: Opt<number> = { tag: "some", value: 3 };
+const valueCall: <T>(o: Opt<T>, d: T) => Box<T> = orElse;
+const dispatched: BaseOps = new ImplOps();
+attempt("a variable of the union", () => String(viaInterface.orElse(three, 0).value + 1));
+attempt("value and dispatched calls", () => {
+  const b: Box<number> = valueCall({ tag: "some", value: 3 }, 0);
+  const c: Box<number> = dispatched.orElse({ tag: "some", value: 4 }, 0);
+  return `${b.value + 1} ${c.value + 1}`;
+});
+attempt("array of literals", () => String(viaInterface.first([{ tag: "some", value: 3 }], 0).value + 1));
+attempt("literal inside a literal", () => String(literalOps.inner({ opt: { tag: "some", value: 3 } }, 0).value + 1));
+attempt("optional argument left out", () => String(viaInterface.maybe(3).value + 1));
+attempt("an any value inside", () => {
+  const loose: any = 3;
+  const b = Opts.orElse({ tag: "some", value: loose }, 0);
+  return String(b.value + 1);
+});
+
+// expect:
+// literal's own type, explicit 4
+// literal's own type, inferred 4 2
+// the other member 6
+// interface of a class 4
+// interface of a literal 3
+// union of object types 4
+// optional argument given 4
+// a spread 4
+// a getter 4
+// a class's instance 4
+// an any value checked where the literal is made 4
+// a variable of the union 4
+// value and dispatched calls 4 5
+// array of literals 4
+// literal inside a literal 4
+// optional argument left out 4
+// an any value inside 4

@@ -8,7 +8,10 @@ const Ops = {
     return { tag: "some", value: [x, x, x] };
   },
 };
-const o: Opt<number> = Ops["mk"](7);
+function loose(x: any): any {
+  return x;
+}
+const o: Opt<number> = Ops.mk<number>(loose(7)); // an `any` argument keeps the erased copy (D-191)
 if (o.tag === "some") {
   console.log("par map", o.value.par.map((v) => v * 2).join(","));
   console.log("par reduce", o.value.par.reduce((a, b) => a + b, 0));

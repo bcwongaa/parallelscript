@@ -1,0 +1,187 @@
+// Typed calls of generic methods written with an element access whose key is a constant
+// (`m["make"](5)`, a quoted method name, `m[K](5)` for `const K = "make"`, a key of a string
+// literal type, `m?.["make"](5)`, `this["make"](5)`) find the instance their dotted calls find
+// (H09b3a, C185): an interface's method of a class and of an object literal, an object
+// literal's method through its own type, a class's own generic method and a dispatched one,
+// and a union of object types' method; for results that are a box, an array of boxes and a
+// promise of a box. The element access read the method as a value found at run time, a bound
+// wrapper of its erased copy that lists no instances, so each threw
+// `TypeError: Expected Box<number>, got Box<any>`. The receiver is evaluated once and before
+// the arguments; a function-valued property, a non-generic method and a dynamic result keep
+// working.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Point {
+  constructor(public x: number) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function pick<X>(flag: boolean, x: X): X | undefined {
+  return flag ? x : undefined;
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  many<T>(x: T): Box<T>[];
+  later<T>(x: T): Promise<Box<T>>;
+  plain(x: number): Box<number>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x), new Box(x)];
+  }
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  }
+  plain(x: number): Box<number> {
+    return new Box(x);
+  }
+  self(): Box<number> {
+    return this["make"](3);
+  }
+}
+abstract class Base {
+  abstract make<T>(x: T): Box<T>;
+}
+class Impl extends Base {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const quoted = {
+  "make"<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+type A = { kind: "a"; make<T>(x: T): Box<T> };
+type B = { kind: "b"; make<T>(x: T): Box<T> };
+
+const m: Maker = new ClassMaker();
+const literalMaker: Maker = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+  many<T>(x: T): Box<T>[] {
+    return [new Box(x)];
+  },
+  async later<T>(x: T): Promise<Box<T>> {
+    return new Box(x);
+  },
+  plain(x: number): Box<number> {
+    return new Box(x);
+  },
+};
+const dispatched: Base = new Impl();
+const union: A | B = {
+  kind: "a",
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+const holder: { f: <T>(x: T) => Box<T> } = { f: make };
+const K = "make";
+const key: "make" = "make";
+const maybe: Maker | undefined = pick(true, m);
+
+attempt("interface m['make']", () => {
+  const b: Box<number> = m["make"](5);
+  const s: Box<string> = m["make"]("ab");
+  return `${b.value + 1} ${s.value.length}`;
+});
+attempt("interface of a literal", () => {
+  const b: Box<Point> = literalMaker["make"](new Point(5));
+  return String(b.value.x + 1);
+});
+attempt("quoted method name", () => {
+  const b: Box<number> = quoted["make"](6);
+  return String(b.value + 1);
+});
+attempt("class's own method", () => {
+  const b: Box<number> = new ClassMaker()["make"](8);
+  return `${b.value + 1} ${new ClassMaker().self().value + 1}`;
+});
+attempt("dispatched method", () => {
+  const b: Box<number[]> = dispatched["make"]([1, 2]);
+  return String(b.value.length + b.value[0]);
+});
+attempt("union of object types", () => {
+  const b: Box<number> = union["make"](5);
+  return String(b.value + 1);
+});
+attempt("const key", () => {
+  const b: Box<number> = m[K](5);
+  const c: Box<number> = literalMaker[key](6);
+  return `${b.value + 1} ${c.value + 1}`;
+});
+attempt("optional chain", () => {
+  const b: Box<number> | undefined = maybe?.["make"](5);
+  return String(b!.value + 1);
+});
+attempt("array result", () => {
+  const boxes: Box<number>[] = m["many"](5);
+  return String(boxes[0].value + boxes[1].value);
+});
+
+// Guards: these worked before and must keep working.
+const order: string[] = [];
+function receiver(): Maker {
+  order.push("receiver");
+  return m;
+}
+function argument(n: number): number {
+  order.push(`argument ${n}`);
+  return n;
+}
+attempt("evaluation order", () => {
+  const b = receiver()["make"](argument(4));
+  return `${b.value} ${order.join(",")}`;
+});
+attempt("function-valued property", () => {
+  const b: Box<number> = holder["f"](5);
+  return String(b.value + 1);
+});
+attempt("non-generic method", () => {
+  const b: Box<number> = m["plain"](5);
+  return String(b.value + 1);
+});
+attempt("dynamic result", () => {
+  const loose: any = m;
+  return String(loose["make"](5).value + 1);
+});
+async function main(): Promise<void> {
+  try {
+    const b: Box<number> = await m["later"](5);
+    const c: Box<string> = await literalMaker["later"]("ab");
+    console.log("promise result", b.value + 1, c.value.length);
+  } catch (error: any) {
+    console.log("promise result", error.name, error.message);
+  }
+}
+main();
+
+// expect:
+// interface m['make'] 6 2
+// interface of a literal 6
+// quoted method name 7
+// class's own method 9 4
+// dispatched method 3
+// union of object types 6
+// const key 6 7
+// optional chain 6
+// array result 10
+// evaluation order 4 receiver,argument 4
+// function-valued property 6
+// non-generic method 6
+// dynamic result 6
+// promise result 6 2

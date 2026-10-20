@@ -1398,3 +1398,55 @@ func ClassMaker.make_number(this: ClassMaker, x: number) Box {
 }
 `)
 }
+
+func TestElementAccessAndOptionalCallsOfGenericMethodsFindTheirInstances(t *testing.T) {
+	t.Parallel()
+	// `m[K](1)` is the demand by name `m.make(1)` is, its key read after the object and
+	// before the arguments, as JS reads it (a global's read checks that its declaration has
+	// run); a call inside a `?.` chain is the demand its call without `?.` is (D-193).
+	got := lowerValid(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function run(m: Maker, maybe: Maker | undefined): void {
+  console.log(m[K](1).value);
+  console.log(maybe?.make(2).value);
+}
+const K = "make";
+run(new ClassMaker(), undefined);
+`)
+	assert.Equal(t, got, `class ClassMaker {  }
+class Box { value: number }
+class Box { value: value }
+func main() void {
+  7: global ClassMaker.class: boolean = true
+  16: global K: string = "make"
+  17: run((new ClassMaker() as {make(value): value}), (undefined | {make(value): value})(undefined))
+}
+func ClassMaker.constructor(this: ClassMaker) void {
+}
+func run(m: {make(value): value}, maybe: undefined | {make(value): value}) void {
+  13: console.log(box((let object = m in (K, (let callee = object in (let argument1 = 1 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))))).value))
+  14: console.log(box((let object = maybe in (nullish(object) ? (number | undefined)(undefined) : (number | undefined)((let callee = {make(value): value}(object) in (let argument1 = 2 in instance make(callee, argument1) else Box(interface make(callee, box(argument1))))).value)))))
+}
+func ClassMaker.make_dynamic(this: ClassMaker, x: value) value {
+  9: return box(new Box(x))
+}
+func Box.constructor(this: Box, value: number) void {
+  2: (this.value = value)
+}
+func Box.constructor(this: Box, value: value) void {
+  2: (this.value = value)
+}
+func ClassMaker.make_number(this: ClassMaker, x: number) Box {
+  9: return new Box(x)
+}
+`)
+}

@@ -37,6 +37,7 @@ type demand struct {
 	subst     *substitution      // the instance being lowered where the call is, if any
 	want      *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
 	key       string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
+	chained   bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
 	node      *ast.Node
 }
 
@@ -87,29 +88,62 @@ func (l *lowerer) holdsGenericObjects(t *checker.Type, parameters []*checker.Typ
 }
 
 // demandAt is the demand of a call of an erased copy taking erasedParams, if the call's
-// type arguments don't mention erased type parameters, it passes no rest parameter, and
-// its result converts from the erased copy's to the type of the resolved signature's;
-// else nil. A dynamic result is one too: a promise or generator object, whose values an
-// instance makes for the call's type arguments (D-190).
+// type arguments don't mention erased type parameters and its result converts from the
+// erased copy's to the type of the resolved signature's (without `?.`'s undefined); else
+// nil. A dynamic result is one too: a promise or generator object, whose values an
+// instance makes for the call's type arguments (D-190). A rest parameter is one of the
+// instance's elements, which the call passes as a new array of its own (C170).
 func (l *lowerer) demandAt(call *ast.CallExpression, erasedParams []ir.Type) *demand {
 	resolved := l.checker.GetResolvedSignature(call.AsNode())
-	if resolved.HasRestParameter() || slices.ContainsFunc(l.checker.PtsTypeArgumentsOfSignature(resolved), l.mentionsErased) {
+	// A `?.` call's signature returns the chain's undefined too (or inside the chain, its
+	// optional marker), which no instance does: its demand is the one the call without `?.`
+	// makes, and the chain adds the undefined (C179). The outermost call's type is the
+	// chain's, so its erased copy's result converts to the instance's.
+	chained := l.checker.PtsIsOuterCallChain(resolved)
+	resolved = l.checker.PtsWithoutCallChain(resolved)
+	// Calls with a rest argument make instances the base never made: not in the last
+	// fallback, which makes what the base made (C170).
+	if resolved.HasRestParameter() && l.specialization == DeclaredInstances || slices.ContainsFunc(l.checker.PtsTypeArgumentsOfSignature(resolved), l.mentionsErased) {
 		return nil
 	}
 	want := l.signatureType(resolved, call.AsNode())
-	if want == nil || want.Result == ir.Value && l.specialization == DeclaredInstances || want.Result != l.erasedTarget(call.AsNode()) || len(want.Params) != len(erasedParams) {
+	if want == nil || want.Result == ir.Value && l.specialization == DeclaredInstances || !chained && want.Result != l.erasedTarget(call.AsNode()) || len(want.Params) != len(erasedParams) {
 		return nil
 	}
 	for i, param := range want.Params {
-		if erasedParams[i] != param && erasedParams[i] != ir.Value {
+		if erasedParams[i] != param && erasedParams[i] != ir.Value && !isErasedRest(erasedParams[i], param) {
 			return nil
 		}
 	}
-	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode()}
+	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained}
 	if want.Result == ir.Value {
 		d.key = l.instanceKey(resolved, call.AsNode()) // its values are made for its type arguments (D-190)
 	}
 	return d
+}
+
+// isErasedRest reports whether erased, an erased copy's parameter, is a rest parameter
+// (`...xs: T[]` erased, of dynamic values, or `...xs: Opt<T>[]`, of objects holding them)
+// where param, the instance's, is one of other elements, which the call passes as a new
+// array of its own (C170).
+func isErasedRest(erased, param ir.Type) bool {
+	_, ok := erased.(*ir.Rest)
+	_, isRest := param.(*ir.Rest)
+	return ok && isRest && erased != param
+}
+
+// fromErasedFor converts value, the result of a demand d's call of an erased copy, to the
+// type of its instance's result: the call's type (fromErased), or for the outermost call of
+// a `?.` chain, the result of the call without `?.`, which the chain makes undefined where
+// its object is (C179).
+func (l *lowerer) fromErasedFor(d *demand, value ir.Expr, node *ast.Node) ir.Expr {
+	if !d.chained {
+		return l.fromErased(value, node)
+	}
+	if d.want.Result == ir.Value {
+		return value
+	}
+	return l.dynamicConversion(value, d.want.Result, node)
 }
 
 // instanceKey is the key (ir.Instance.Key) of the entries a call with a dynamic result
@@ -308,6 +342,15 @@ func (l *lowerer) instanceCall(d *demand, call *ast.CallExpression, x ir.Expr, n
 func (l *lowerer) erasedArguments(args []ir.Expr, params []ir.Type, node *ast.Node) []ir.Expr {
 	converted := make([]ir.Expr, len(args))
 	for i, arg := range args {
+		if rest, ok := params[i].(*ir.Rest); ok {
+			converted[i] = arg // the call's own new array
+			if arg.Type() != rest.Array {
+				// of typed elements, which the erased copy takes as one of dynamic values: a
+				// copy no one can tell from it (C170)
+				converted[i] = l.dynamicConversion(box(arg), rest.Array, node)
+			}
+			continue
+		}
 		converted[i] = l.convert(arg, params[i], node)
 	}
 	return converted
@@ -331,7 +374,7 @@ func (l *lowerer) instanceValueCall(call *ast.CallExpression, callee ir.Expr, ft
 		d.callee = l.target(name)
 	}
 	return l.instanceCall(d, call, callee, "", func(closure ir.Expr, args []ir.Expr) ir.Expr {
-		return l.fromErased(&ir.CallValue{Callee: closure, Args: l.erasedArguments(args, ft.Params, call.AsNode())}, call.AsNode())
+		return l.fromErasedFor(d, &ir.CallValue{Callee: closure, Args: l.erasedArguments(args, ft.Params, call.AsNode())}, call.AsNode())
 	}), true
 }
 
@@ -349,7 +392,7 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 	d.method, d.name = generic, method.Name
 	return l.instanceCall(d, call, receiver, method.Name, func(object ir.Expr, args []ir.Expr) ir.Expr {
 		object = &ir.ClassCast{X: object, To: &ir.Interface{}} // any object, whose method is found by name
-		return l.fromErased(&ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, l.erasedArguments(args, method.Params, call.AsNode())...)}, call.AsNode())
+		return l.fromErasedFor(d, &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, l.erasedArguments(args, method.Params, call.AsNode())...)}, call.AsNode())
 	}), true
 }
 
@@ -376,15 +419,19 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 	if d == nil {
 		return nil, false
 	}
-	args := l.typedArguments(call.Arguments.Nodes, params) // as the erased copy takes them, which the base passed
+	values, at, ok := l.argumentList(call.Arguments.Nodes, params)
+	if !ok {
+		return nil, true
+	}
+	args := l.convertArguments(values, at, params) // as the erased copy takes them, which the base passed
 	if args == nil {
 		return nil, true
 	}
 	erased := func(object ir.Expr, args []ir.Expr) ir.Expr {
-		return l.fromErased(erasedCall(object, args), call.AsNode())
+		return l.fromErasedFor(d, erasedCall(object, args), call.AsNode())
 	}
 	nodes := argumentNodes(call.Arguments.Nodes, params)
-	passed := l.passedAsIs(d, args, nodes, params)
+	passed := l.passedAsIs(d, args, values, nodes, params)
 	if passed == nil {
 		if dynamicResult {
 			return erasedCall(receiver, args), true
@@ -406,6 +453,11 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 			continue
 		}
 		locals[i] = l.newLocal(fmt.Sprintf("argument%d", i+1), value.Type())
+		if isRest(params[i]) { // the call's new array, of the instance's elements (passedAsIs, C170)
+			erasedArgs[i] = l.erasedArguments([]ir.Expr{&ir.LocalRef{Local: locals[i]}}, params[i:i+1], node)[0]
+			typedArgs[i] = &ir.LocalRef{Local: locals[i]}
+			continue
+		}
 		erasedArgs[i] = l.convert(&ir.LocalRef{Local: locals[i]}, params[i], node)
 		typedArgs[i] = l.convert(&ir.LocalRef{Local: locals[i]}, d.want.Params[i], node)
 	}
@@ -458,7 +510,7 @@ func argumentNodes(arguments []*ast.Node, params []ir.Type) []*ast.Node {
 // Option<Box<T>>`, a union of object types holding a generic class's instance): an object
 // an erased copy made may be one of it only as a member that leaves its `Box<any>` out,
 // which the instance would read as another member's (verifiesObjects; C187, D-192).
-func (l *lowerer) passedAsIs(d *demand, args []ir.Expr, nodes []*ast.Node, params []ir.Type) []ir.Expr {
+func (l *lowerer) passedAsIs(d *demand, args, values []ir.Expr, nodes []*ast.Node, params []ir.Type) []ir.Expr {
 	want := d.want.Params
 	if nodes == nil || len(args) != len(params) || len(args) != len(want) || l.takesUnverifiedObjects(d, params) {
 		return nil
@@ -470,6 +522,13 @@ func (l *lowerer) passedAsIs(d *demand, args []ir.Expr, nodes []*ast.Node, param
 		switch {
 		case want[i] == params[i]:
 			passed[i] = arg
+		case isErasedRest(params[i], want[i]):
+			// The rest arguments, the values the call passes after the other parameters', as
+			// they were before the erased copy's conversion, in a new array of the instance's
+			// elements (C170).
+			if passed[i] = l.restAsIs(values[min(arity(params[:i]), len(values)):], want[i].(*ir.Rest).Array, d.node); passed[i] == nil {
+				return nil
+			}
 		case params[i] != ir.Value:
 			return nil
 		case leftOut:
@@ -481,6 +540,22 @@ func (l *lowerer) passedAsIs(d *demand, args []ir.Expr, nodes []*ast.Node, param
 		}
 	}
 	return passed
+}
+
+// restAsIs is a new array of the instance's elements array holding values, the rest
+// arguments of a call, each as it is (passesAsIs), or nil if one is a dynamic value or isn't
+// one of the elements as it is.
+func (l *lowerer) restAsIs(values []ir.Expr, array *ir.Array, node *ast.Node) ir.Expr {
+	elems := make([]ir.Expr, len(values))
+	for j, value := range values {
+		if _, spread := value.(*spreadValue); spread || value.Type() == ir.Value || !passesAsIs(value.Type(), array.Elem) {
+			return nil // a spread, which makes no demand (D-191), or a dynamic value
+		}
+		if elems[j] = l.convert(value, array.Elem, node); elems[j] == nil { // as it is (a union's member, a wider number)
+			return nil
+		}
+	}
+	return &ir.NewArray{Array: array, Elems: elems}
 }
 
 // takesUnverifiedObjects reports whether the instance of a demand d takes a parameter (of
@@ -555,6 +630,8 @@ func holdsUnverified(t ir.Type, inUnion bool, seen map[ir.Type]bool) bool {
 		return slices.ContainsFunc(t.Fields, func(f *ir.Field) bool { return holds(f.Type) })
 	case *ir.Array:
 		return holds(t.Elem)
+	case *ir.Rest: // the call's new array (C170)
+		return holds(t.Array)
 	case *ir.MapType:
 		return holds(t.Key) || (t.Value != nil && holds(t.Value))
 	case *ir.Union:
@@ -587,7 +664,15 @@ func passesAsIs(from, to ir.Type) bool {
 		if members, ok := from.(*ir.Union); ok {
 			return !slices.ContainsFunc(members.Members, func(m ir.Type) bool { return !u.Has(m) })
 		}
-		return u.Has(from)
+		if u.Has(from) {
+			return true
+		}
+		// An object of the member of a union of object types that it provides as it is,
+		// which toUnion takes it as (`{ tag: "some", value: 3 }` where an `Opt<number>`
+		// goes), holding no dynamic value a typed read would convert (C188).
+		member := providedMember(from, u)
+		return member != nil && isObject(from) && !isArray(from) && !leavesOut(from, member, u) &&
+			verifiesObjects(from, map[ir.Type]bool{}) && passesAsIs(from, member)
 	}
 	if class, ok := from.(*ir.Class); ok && class.Result {
 		return false // an iterator result's object, which may be of another layout (D-178)

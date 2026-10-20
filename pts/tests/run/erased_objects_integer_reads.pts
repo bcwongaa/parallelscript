@@ -2,7 +2,7 @@
 // an array of an integer type (H09b2, C187): typed code read a dynamic value's bits as a
 // `u8` (1 for 8) or an `i64`, where the element's value is what Node prints. The integer
 // types make this ParallelScript-only; the other element types are in
-// `erased_objects_typed_reads.pts`.
+// `erased_objects_typed_reads.pts`. An `any` argument keeps the calls on the erased copy (D-191).
 type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
 const Ops = {
   wrap<T>(x: T): Opt<T> {
@@ -16,13 +16,16 @@ function attempt(label: string, f: () => string): void {
     console.log(label, e.name, e.message);
   }
 }
+function loose(x: any): any {
+  return x;
+}
 attempt("a u8 array", () => {
-  const o: Opt<u8> = Ops["wrap"](200 as u8);
+  const o: Opt<u8> = Ops.wrap<u8>(loose(200 as u8));
   return o.tag === "some" ? String(o.value[0] + 1) : "none";
 });
 attempt("an i64 array", () => {
   const big: i64 = 9007199254740993;
-  const o: Opt<i64> = Ops["wrap"](big);
+  const o: Opt<i64> = Ops.wrap<i64>(loose(big));
   return o.tag === "some" ? String(o.value[0] - 1) : "none";
 });
 

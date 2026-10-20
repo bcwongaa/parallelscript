@@ -1,8 +1,8 @@
 // A Map or Set of other key or value types converts to a typed Map or Set by a checked copy
 // of its entries, keys as they are, in their order (D-192), as an array of other elements
 // converts by a copy (D-071): an erased copy's `Map<string, any>` where tsc says
-// `Map<string, number>` (C187), and maps and sets held in `any`. One of the target's own
-// types stays the same object.
+// `Map<string, number>` (C187; an `any` argument keeps the call on the erased copy, D-191),
+// and maps and sets held in `any`. One of the target's own types stays the same object.
 const Ops = {
   index<T>(x: T): Map<string, T> {
     return new Map([
@@ -14,9 +14,12 @@ const Ops = {
     return new Set([x, x]);
   },
 };
-const counts = Ops["index"](7);
+function anyOf(x: any): any {
+  return x;
+}
+const counts = Ops.index<number>(anyOf(7));
 console.log("an erased copy's map", counts.get("a")! + counts.get("b")!, [...counts.keys()].join(","));
-const ids = Ops["unique"](8);
+const ids = Ops.unique<number>(anyOf(8));
 console.log("an erased copy's set", ids.size, ids.has(8));
 const loose: any = new Map<string, any>([["x", 1.5], ["y", 2]]);
 const typed: Map<string, number> = loose;

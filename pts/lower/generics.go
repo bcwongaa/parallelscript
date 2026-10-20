@@ -512,7 +512,7 @@ func (l *lowerer) resultTypeArguments(call *ast.CallExpression, generic *generic
 	}
 	signature := l.checker.GetSignatureFromDeclaration(generic.node)
 	inferred := l.checker.PtsInferTypeArgumentsFromResult(signature, contextual)
-	if inferred == nil || slices.Equal(inferred, arguments) || slices.ContainsFunc(inferred, l.mentionsErased) || signature.HasRestParameter() {
+	if inferred == nil || slices.Equal(inferred, arguments) || slices.ContainsFunc(inferred, l.mentionsErased) {
 		return nil
 	}
 	instantiated := func(t *checker.Type) *checker.Type {
@@ -523,6 +523,21 @@ func (l *lowerer) resultTypeArguments(call *ast.CallExpression, generic *generic
 	}
 	params := signature.Parameters()
 	for i, argument := range call.Arguments.Nodes {
+		if signature.HasRestParameter() && i >= len(params)-1 {
+			// An argument for the rest parameter (C170): of its element type, or a spread of its type.
+			rest := instantiated(l.typeOfSymbol(params[len(params)-1]))
+			if !l.checker.IsArrayType(rest) {
+				return nil // a tuple's elements: as before
+			}
+			if argument.Kind == ast.KindSpreadElement {
+				if !l.checker.IsTypeAssignableTo(l.typeAt(argument.Expression()), rest) {
+					return nil
+				}
+			} else if !l.checker.IsTypeAssignableTo(l.typeAt(argument), l.checker.GetElementTypeOfArrayType(rest)) {
+				return nil
+			}
+			continue
+		}
 		if i >= len(params) || !l.checker.IsTypeAssignableTo(l.typeAt(argument), instantiated(l.typeOfSymbol(params[i]))) {
 			return nil
 		}

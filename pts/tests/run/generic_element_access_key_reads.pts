@@ -1,0 +1,71 @@
+// An element-access call of a generic method whose key is a name of a string literal type
+// (`m[K](x)` for `const K = "make"`) finds the instance its dotted call finds (H09b3a, C185),
+// and reads the key as JS does: after the object, before the arguments. So a key read before
+// its declaration ran throws ReferenceError after the object is evaluated and before any
+// argument is, and a key that is a local const, for `this`'s method too, works.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  twice<T>(x: T): Box<T> {
+    const key: "make" = "make";
+    return this[key](x);
+  }
+}
+class Statics {
+  static make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const order: string[] = [];
+const maker: Maker = new ClassMaker();
+function receiver(): Maker {
+  order.push("receiver");
+  return maker;
+}
+function argument(n: number): number {
+  order.push(`argument ${n}`);
+  return n;
+}
+function early(): string {
+  order.length = 0;
+  const b: Box<number> = receiver()[LATE](argument(1));
+  return `${b.value + 1} ${order.join(",")}`;
+}
+function byLocalConst(): string {
+  const key = "make";
+  const b: Box<number> = maker[key](4);
+  return String(b.value + 1);
+}
+
+attempt("a key read before its declaration ran", early);
+console.log("order", order.join(","));
+const LATE = "make";
+attempt("the same key after it", early);
+attempt("a local const's key", byLocalConst);
+attempt("this's method by a local key", () => String(new ClassMaker().twice(6).value + 1));
+attempt("a static method by a key", () => {
+  const b: Box<string> = Statics[LATE]("ab");
+  return String(b.value.length);
+});
+
+// expect:
+// a key read before its declaration ran ReferenceError Cannot access 'LATE' before initialization
+// order receiver
+// the same key after it 2 receiver,argument 1
+// a local const's key 5
+// this's method by a local key 7
+// a static method by a key 2

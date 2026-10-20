@@ -3,8 +3,8 @@
 // unions (conversions of an erased copy's result), a class's field, a callback that the
 // erased copy calls, a generator's values and an awaited result, a call through a union of
 // interfaces (whose dynamic result a union-typed place took unchecked: r02b), and typed
-// code's own object with an `any[]` field given to a union (no erased copy at all). Each
-// line prints what Node prints.
+// code's own object with an `any[]` field given to a union (no erased copy at all). An
+// `any` argument keeps the calls on the erased copy (D-191). Each line prints what Node prints.
 type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
 type Outer<T> = { readonly inner: Opt<T> };
 class Holder {
@@ -66,13 +66,13 @@ function attempt(label: string, f: () => string): void {
 }
 const read = (o: Opt<number>): string => (o.tag === "some" ? String(o.value[0] * 2) : "none");
 const seven: any = 7;
-attempt("a union in an object type", () => read(Ops["outer"](7).inner));
-attempt("an array of unions", () => read(Ops["all"](7)[0]));
-attempt("a class's field", () => read(new Holder(Ops["wrap"](7)).o));
-attempt("a callback of the erased copy", () => Ops["each"](7, read));
+attempt("a union in an object type", () => read(Ops.outer<number>(seven).inner));
+attempt("an array of unions", () => read(Ops.all<number>(seven)[0]));
+attempt("a class's field", () => read(new Holder(Ops.wrap<number>(seven)).o));
+attempt("a callback of the erased copy", () => Ops.each<number>(seven, read));
 attempt("a generator's value", () => {
   let r = "empty";
-  for (const o of Ops["gen"](7)) {
+  for (const o of Ops.gen<number>(seven)) {
     r = read(o);
   }
   return r;
@@ -89,7 +89,7 @@ attempt("typed code's object with an any[] field", () => {
 });
 async function main(): Promise<void> {
   try {
-    console.log("an awaited result", read(await Ops["later"](7)));
+    console.log("an awaited result", read(await Ops.later<number>(seven)));
   } catch (e: any) {
     console.log("an awaited result", e.name, e.message);
   }

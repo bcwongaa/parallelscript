@@ -1,0 +1,47 @@
+// A direct call of a generic function with a rest parameter whose result goes where a union of
+// object types goes takes the type arguments the result implies (D-095), as one without a rest
+// parameter does (H09b3a, C170's neighbour): `return errs({ kind: "empty" })` where a
+// `Result<number, ParseError>` goes. tsc infers `{ kind: "empty" }` from the argument, whose
+// instance makes an `Err` of another representation than the union's member
+// `Err<ParseError>`; D-095's inference from the result skipped signatures with a rest
+// parameter (`resultTypeArguments`), so the call was PTS1001 (`converting {error: …} to … is
+// not supported yet`) where the same call of a function without a rest parameter compiles.
+type Ok<T> = { ok: true; value: T };
+type Err<E> = { ok: false; error: E };
+type Result<T, E> = Ok<T> | Err<E>;
+function err<E>(error: E): Err<E> {
+  return { ok: false, error };
+}
+function errs<E>(...errors: E[]): Err<E> {
+  return { ok: false, error: errors[0] };
+}
+function labelled<E>(label: string, ...errors: E[]): Err<E> {
+  return { ok: false, error: errors[0] };
+}
+const errsArrow = <E,>(...errors: E[]): Err<E> => ({ ok: false, error: errors[0] });
+type ParseError = { kind: "empty" } | { kind: "notNumber"; text: string };
+function show(r: Result<number, ParseError>): string {
+  return r.ok ? String(r.value) : r.error.kind === "empty" ? "empty" : r.error.text;
+}
+function plain(): Result<number, ParseError> {
+  return err({ kind: "empty" });
+}
+function rest(): Result<number, ParseError> {
+  return errs({ kind: "empty" });
+}
+function restAfterLabel(): Result<number, ParseError> {
+  return labelled("l", { kind: "notNumber", text: "x" }, { kind: "empty" });
+}
+function restArrow(): Result<number, ParseError> {
+  return errsArrow({ kind: "notNumber", text: "y" });
+}
+console.log("plain", show(plain()));
+console.log("rest", show(rest()));
+console.log("rest after a label", show(restAfterLabel()));
+console.log("rest arrow", show(restArrow()));
+
+// expect:
+// plain empty
+// rest empty
+// rest after a label x
+// rest arrow y

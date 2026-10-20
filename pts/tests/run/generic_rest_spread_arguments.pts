@@ -1,0 +1,31 @@
+// A spread argument into the rest parameter of a generic function value
+// (`value(...numbers)` for `value: <T>(...xs: T[]) => Box<T[]>`) is a typed call that finds
+// its instance (H09b3a, C170), whose rest parameter takes the typed array's elements; the
+// erased copy's rest parameter takes dynamic values, and spreading a `number[]` into it was
+// PTS1001 (`spreading a number[] into a rest parameter of type value[] is not supported yet`),
+// which stopped the whole program. A spread of an `any[]` and direct calls with spreads
+// worked and must keep working. (A call by name through an interface makes no demand for a
+// spread argument, D-191, and spreading a typed array into an `any[]` rest parameter is
+// PTS1001 anywhere, generic or not, so `viaInterface.many(...numbers)` stays PTS1001.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+function many<T>(...xs: T[]): Box<T[]> {
+  return new Box(xs);
+}
+const value: <T>(...xs: T[]) => Box<T[]> = many;
+const numbers = [4, 5, 6];
+const words = ["a", "bc"];
+const anys: any[] = [8, 9];
+
+const b: Box<number[]> = value(...numbers);
+const c: Box<number[]> = value(1, ...numbers);
+const s: Box<string[]> = value(...words, "def");
+console.log("a spread argument", b.value.length + b.value[0], c.value.length, s.value[2].length);
+const e = value(...anys);
+const f: Box<number[]> = many(...numbers);
+console.log("guards", e.value.length, f.value[2]);
+
+// expect:
+// a spread argument 7 4 3
+// guards 2 6

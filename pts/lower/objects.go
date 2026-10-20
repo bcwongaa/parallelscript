@@ -1069,7 +1069,7 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 	if receiver == nil {
 		return nil
 	}
-	name := callee.AsPropertyAccessExpression().Name().Text()
+	name := l.calleeName(callee) // `m["make"]`'s too (C185)
 	if shape, ok := receiver.Type().(*ir.Class); ok && shape.Shape && shape.Field(name) != nil && shape.Field(name).Method {
 		field := shape.Field(name)
 		ft := field.Type.(*ir.FuncType)
@@ -1095,7 +1095,7 @@ func (l *lowerer) interfaceMethodCall(call *ast.CallExpression) ir.Expr {
 		l.notSupportedYet(callee, fmt.Sprintf("calling a method of an object type on a %s is", receiver.Type()))
 		return nil
 	}
-	method := iface.Method(callee.AsPropertyAccessExpression().Name().Text())
+	method := iface.Method(name)
 	if x, ok := l.namedInstanceCall(call, receiver, name, nil, method.Params, method.Result, false, func(object ir.Expr, args []ir.Expr) ir.Expr {
 		return &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, args...)}
 	}); ok {

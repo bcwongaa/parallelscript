@@ -6,9 +6,10 @@
 // (review round 3 of H09b1, R3-1; C187), so H09b1 kept these calls on the erased copy. Since
 // H09b2 the union takes such an object as the member that declares its properties, copied
 // into it (D-192), and typed reads verify what they read, so the calls find their instances
-// and print what Node prints. The objects come from calls that keep the erased copy: an
-// element access (C185), `?.` (C179), a method value (H09b3), an `any` argument (D-191) and
-// a JSON value. A lie through `any` is `erased_objects_lies.pts`'s.
+// and print what Node prints. The objects come from calls that keep the erased copy: a
+// method value (H09b3b), an `any` argument (D-191) and a JSON value; an element access and
+// `?.` kept it too until H09b3a (C185, C179), and now find their instances, as the dotted
+// calls do. A lie through `any` is `erased_objects_lies.pts`'s.
 type Opt<T> = { readonly tag: "some"; readonly value: T[] } | { readonly tag: "none" };
 const Ops = {
   wrap<T>(x: T): Opt<T> {
@@ -83,7 +84,8 @@ class CB implements FirstB {
 function pick(n: number): FirstA | FirstB {
   return n === 0 ? new CA() : new CB();
 }
-const held = Ops["wrap"](11);
+const eleven: any = 11;
+const held = Ops.wrap<number>(eleven); // an `any` argument keeps the erased copy (D-191)
 if (held.tag === "some") {
   const xs: number[] = held.value;
   console.log("an array an erased copy made, through a union", pick(0).first(xs));

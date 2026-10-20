@@ -20,14 +20,18 @@ function attempt(label: string, f: () => string): void {
     console.log(label, e.name, e.message);
   }
 }
-const o = Ops["wrap"](7);
+// An `any` argument keeps a call on the erased copy (D-191), whose objects these lines read.
+function loose(x: any): any {
+  return x;
+}
+const o = Ops.wrap<number>(loose(7));
 attempt("push, typed read", () => {
   if (o.tag !== "some") return "none";
   o.value.push(8);
   return String(o.value.length) + " " + String(o.value[1] * 2);
 });
 console.log("logged", o);
-const c = Ops["cell"](7);
+const c = Ops.cell<number>(loose(7));
 attempt("field write, typed read", () => {
   if (c.tag !== "some") return "none";
   c.value = 9;

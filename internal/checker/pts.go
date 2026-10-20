@@ -126,6 +126,29 @@ func (c *Checker) PtsInstantiateSignatureInContextOf(signature *Signature, conte
 	return c.instantiateSignatureInContextOf(signature, contextual, nil /*inferenceContext*/, nil /*compareTypes*/)
 }
 
+// PtsWithoutCallChain returns a `?.` call's resolved signature without the call-chain
+// flags tsc adds to it (getOptionalCallSignature), so that its return type lacks the
+// undefined (or inside the chain, the optional marker) the chain adds: the signature of the
+// same call written without `?.`, whose instance ParallelScript looks up (D-193). Other
+// signatures are returned as they are.
+func (c *Checker) PtsWithoutCallChain(signature *Signature) *Signature {
+	if signature.flags&SignatureFlagsCallChainFlags != 0 {
+		return c.cloneSignature(signature) // which keeps the propagating flags only
+	}
+	// A generic call's resolved signature is an instantiation of the candidate tsc made
+	// optional (reorderCandidates), whose flags instantiation doesn't propagate.
+	if target := signature.target; target != nil && target.flags&SignatureFlagsCallChainFlags != 0 && signature.mapper != nil {
+		return c.instantiateSignatureEx(c.cloneSignature(target), signature.mapper, true /*eraseTypeParameters*/)
+	}
+	return signature
+}
+
+// PtsIsOuterCallChain reports whether a resolved signature is that of the outermost call
+// of an optional chain (`f?.(x)`, `o?.m(x)`), whose return type tsc makes optional.
+func (c *Checker) PtsIsOuterCallChain(signature *Signature) bool {
+	return signature.flags&SignatureFlagsIsOuterCallChain != 0 || signature.target != nil && signature.target.flags&SignatureFlagsIsOuterCallChain != 0
+}
+
 // PtsInferTypeArgumentsFromResult returns the type arguments tsc infers for a generic
 // signature's type parameters from its return type related to target alone, as for a call
 // whose result goes where a value of type target goes, or nil if it infers none for one

@@ -101,8 +101,11 @@ func (l *lowerer) membersFor(member *ast.Node, receiver *ast.Node) *classMembers
 // a class: for `this` (or a value of a type parameter), its constraint's.
 func (l *lowerer) receiverClass(receiver *ast.Node) *ir.Class {
 	t := l.checker.GetTypeAtLocation(receiver)
-	if object, ok := l.chainObjects[receiver]; ok {
+	switch object, ok := l.chainObjects[receiver]; {
+	case ok:
 		t = object.checkerType // the object of a `?.`, which is neither null nor undefined (D-064)
+	case l.chainDepth > 0 && ast.IsOptionalChain(receiver) && !l.chainRests[receiver]:
+		t = l.checker.GetNonOptionalType(t) // a link inside the chain being lowered (`o?.box(5).value`, as typeAt)
 	}
 	if t.Flags()&checker.TypeFlagsTypeParameter != 0 {
 		if constraint := l.checker.GetBaseConstraintOfType(t); constraint != nil {

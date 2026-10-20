@@ -1717,6 +1717,9 @@ func (l *lowerer) call(node *ast.Node) ir.Expr {
 	if l.isUnionReceiver(ast.SkipParentheses(call.Expression)) {
 		return l.unionMethodCall(call)
 	}
+	if x, handled := l.constantKeyCall(call); handled {
+		return x // `m["make"](5)` for a generic method, as `m.make(5)` (C185)
+	}
 	callee := l.target(ast.SkipParentheses(call.Expression))
 	if generic := l.genericMethodAt(ast.SkipParentheses(call.Expression)); generic != nil {
 		if generic.static != nil {
@@ -1969,21 +1972,29 @@ func (l *lowerer) maybeUndefinedFor(t ir.Type, param ir.Type) bool {
 // gets an array of the arguments from its position on (D-057); a spread argument passes
 // a tuple's elements, or an array's into a rest parameter.
 func (l *lowerer) typedArguments(arguments []*ast.Node, params []ir.Type) []ir.Expr {
+	values, at, ok := l.argumentList(arguments, params)
+	if !ok {
+		return nil
+	}
+	return l.convertArguments(values, at, params)
+}
+
+// argumentList lowers the arguments of a call of a function taking params, as they are
+// (argumentValues), each with the node it is written at; ok is false if one is reported.
+func (l *lowerer) argumentList(arguments []*ast.Node, params []ir.Type) (values []ir.Expr, at []*ast.Node, ok bool) {
 	if len(params) == 0 || !isRest(params[len(params)-1]) {
 		arguments = arguments[:min(len(arguments), arity(params))] // tsc rejects more
 	}
-	var values []ir.Expr
-	var at []*ast.Node
 	for _, argument := range arguments {
 		passed := l.argumentValues(argument)
 		if passed == nil {
-			return nil
+			return nil, nil, false
 		}
 		for _, value := range passed {
 			values, at = append(values, value), append(at, argument)
 		}
 	}
-	return l.convertArguments(values, at, params)
+	return values, at, true
 }
 
 // spreadValue is an array that a spread argument (`...x`) passes the elements of, while

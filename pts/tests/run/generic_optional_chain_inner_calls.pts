@@ -1,0 +1,91 @@
+// Calls inside a `?.` chain whose results are generic class instances read their members
+// (`o?.make(5).value`, `f?.(5).value`; H09b3a, C179, C195): a generic function value, a
+// dispatched generic method, an interface's method of a class and of an object literal, an
+// object literal's method through its own type, a class's own generic method, and a method
+// that returns a `Box<number>` without being generic. tsc types such a call with the chain's
+// optional marker, so a demand took the erased copy's signature for one that returns
+// undefined too, and reading a member of a generic class instance in the chain took the
+// object's type as `Box<number> | undefined`: each line was PTS1001 (`… is not supported
+// yet`). A nullish object still makes the whole chain undefined.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function pick<X>(flag: boolean, x: X): X | undefined {
+  return flag ? x : undefined;
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+  plain(x: number): Box<number>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+  plain(x: number): Box<number> {
+    return new Box(x);
+  }
+}
+abstract class Base {
+  abstract make<T>(x: T): Box<T>;
+}
+class Impl extends Base {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const literal = {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+};
+type Holder = { f: <T>(x: T) => Box<T> };
+
+const value: (<T>(x: T) => Box<T>) | undefined = pick(true, make);
+const holder: Holder | undefined = pick<Holder>(true, { f: make });
+const some: Maker | undefined = pick<Maker>(true, new ClassMaker());
+const literalMaker: Maker | undefined = pick<Maker>(true, {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  },
+  plain(x: number): Box<number> {
+    return new Box(x);
+  },
+});
+const none: Maker | undefined = pick<Maker>(false, new ClassMaker());
+const cls: ClassMaker | undefined = pick(true, new ClassMaker());
+const dispatched: Base | undefined = pick<Base>(true, new Impl());
+const own: typeof literal | undefined = pick(true, literal);
+
+attempt("value", () => String(value?.(5).value));
+attempt("value's member", () => String(holder?.f("ab").value.length));
+attempt("interface", () => {
+  const n: number | undefined = some?.make(5).value;
+  return String(n! + 1);
+});
+attempt("interface of a literal", () => String(literalMaker?.make([1, 2]).value.length));
+attempt("a nullish object", () => String(none?.make(5).value));
+attempt("not generic", () => String(some?.plain(5).value));
+attempt("a class's own method", () => String(cls?.make(5).value));
+attempt("dispatched", () => String(dispatched?.make(5).value));
+attempt("literal's own type", () => String(own?.make("abc").value.length));
+
+// expect:
+// value 5
+// value's member 2
+// interface 6
+// interface of a literal 2
+// a nullish object undefined
+// not generic 5
+// a class's own method 5
+// dispatched 5
+// literal's own type 3
