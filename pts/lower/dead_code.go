@@ -267,15 +267,16 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 }
 
 // isDynamicIRType reports whether t's IR type is that of dynamic values, unknown's, or t
-// has none.
+// has none. t is a type argument of the instance being lowered, whose IR type its
+// instance already made: asking makes nothing new.
 func (l *lowerer) isDynamicIRType(t *checker.Type) bool {
 	var irType ir.Type
 	reports := l.reports
-	l.quietly(func() bool {
+	lowered := l.quietly(func() bool {
 		irType = l.irType(t, l.subst.declaration)
 		return irType != nil && l.reports == reports
 	})
-	return irType == nil || irType == ir.Value || l.reports != reports
+	return !lowered || irType == ir.Value
 }
 
 // maxLiteralFreeDepth bounds how deep literalFree looks into a type's properties.
@@ -283,49 +284,57 @@ const maxLiteralFreeDepth = 4
 
 // literalFree reports whether t holds no literal types (`{ kind: "sq" }`'s, which shares
 // its IR type with `{ kind: "ci" }`'s) and no types of dynamic values' IR type other than
-// any and unknown (a branded primitive, a promise, `{}`, a recursive union), in its type
-// arguments, properties and call signatures: then no other type of its IR type is narrower. A class of the program is its own IR type.
+// any and unknown (a branded primitive, a promise, `{}`, a union that holds itself, as
+// `Json` does), in its type arguments, properties and call signatures: then no other type
+// of its IR type is narrower. It asks no IR types, which a phantom type argument
+// (`Tagged<Weird<string>>`'s) would make. A class of the program or the library is its
+// own IR type.
 func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, depth int) bool {
-	if seen[t] {
-		return true
-	}
-	seen[t] = true
+	return l.literalFreeIn(t, seen, map[*checker.Type]bool{}, depth)
+}
+
+// literalFreeIn is literalFree, unions holding the unions being looked into.
+func (l *lowerer) literalFreeIn(t *checker.Type, seen, unions map[*checker.Type]bool, depth int) bool {
 	flags := t.Flags()
 	switch {
+	case unions[t]:
+		return false // a union that holds itself: D-089's dynamic values
+	case seen[t]:
+		return true
 	case flags&(checker.TypeFlagsBoolean|checker.TypeFlagsAny|checker.TypeFlagsUnknown) != 0:
 		return true
 	case flags&checker.TypeFlagsPrimitive != 0:
 		return flags&(checker.TypeFlagsLiteral|checker.TypeFlagsEnumLike|checker.TypeFlagsTemplateLiteral|checker.TypeFlagsStringMapping|checker.TypeFlagsUniqueESSymbol) == 0
 	case flags&checker.TypeFlagsUnion != 0:
-		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.literalFree(member, seen, depth) }) && !l.isDynamicIRType(t)
+		unions[t] = true
+		defer delete(unions, t)
+		return !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return !l.literalFreeIn(member, seen, unions, depth) })
 	case flags&checker.TypeFlagsObject == 0 || depth > maxLiteralFreeDepth: // a type parameter (a generic signature's), an intersection
 		return false
-	case l.isDynamicIRType(t):
-		return false // `Json` inside `() => Json` shares `() => unknown`'s IR type, as a promise or `{}`
+	case l.isPromiseType(t) || l.isIteratorType(t) || l.isIterableType(t) || l.isAsyncIteratorType(t) || l.isTimerType(t) || l.checker.IsEmptyAnonymousObjectType(t):
+		return false // values of dynamic IR type
 	}
-	if t.ObjectFlags()&checker.ObjectFlagsReference != 0 {
-		for _, argument := range l.checker.GetTypeArguments(t) {
-			if !l.literalFree(argument, seen, depth+1) {
-				return false
-			}
-		}
+	seen[t] = true
+	free := func(u *checker.Type) bool { return l.literalFreeIn(u, seen, unions, depth+1) }
+	if t.ObjectFlags()&checker.ObjectFlagsReference != 0 && slices.ContainsFunc(l.checker.GetTypeArguments(t), func(u *checker.Type) bool { return !free(u) }) {
+		return false
 	}
 	symbol := t.Symbol()
 	if l.checker.IsArrayType(t) || checker.IsTupleType(t) || symbol != nil && (symbol.Flags&ast.SymbolFlagsClass != 0 || l.valueKind(t) == kindInstance) {
 		return true // a class of the program's or the library's (Uint8Array, Error, Map) is its own IR type
 	}
 	for _, signature := range l.checker.GetSignaturesOfType(t, checker.SignatureKindCall) {
-		if !l.literalFree(l.checker.GetReturnTypeOfSignature(signature), seen, depth+1) {
+		if !free(l.checker.GetReturnTypeOfSignature(signature)) {
 			return false // `() => 1` shares `() => number`'s IR type
 		}
 		for _, parameter := range signature.Parameters() {
-			if !l.literalFree(l.checker.GetTypeOfSymbol(parameter), seen, depth+1) {
+			if !free(l.checker.GetTypeOfSymbol(parameter)) {
 				return false
 			}
 		}
 	}
 	for _, property := range l.checker.GetPropertiesOfType(t) {
-		if !l.literalFree(l.checker.GetTypeOfSymbol(property), seen, depth+1) {
+		if !free(l.checker.GetTypeOfSymbol(property)) {
 			return false
 		}
 	}
