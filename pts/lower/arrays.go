@@ -280,8 +280,16 @@ func (l *lowerer) arrayObject(access *ast.Node) ir.Expr {
 		return nil
 	}
 	x := l.expression(access.Expression())
-	if x != nil && isTuple(x.Type()) {
+	switch {
+	case x != nil && isTuple(x.Type()):
 		return l.tupleArray(x, l.typeAt(access.Expression()), access.Expression()) // `pair.map(f)`
+	case x != nil && x.Type() == ir.Value:
+		// A dynamic value tsc types as an array: `x.slice(0)` of an x read dynamically (C227).
+		t := l.irType(l.typeAt(access.Expression()), access.Expression())
+		if t == nil {
+			return nil
+		}
+		return l.convert(x, t, access.Expression())
 	}
 	return x
 }

@@ -1,0 +1,28 @@
+// skip: known issue (H29, C228): an array of a union element type narrowed to an array of one member (an honest `v is string[]` on a `(string | number)[]`) can't be kept or passed on as that array: PTS1001 (`using a (number | string)[] as a string[] where it may be changed or kept`, `converting number | string to string`)
+// A `(string | number)[]` that an honest `v is string[]` narrows to string[] (in plain code,
+// and in an instance for a T of `(string | number)[]`, where `T & string[]` is the narrower
+// array: H09b4b1, C227) holds only strings, but its IR type is the union's array: aliasing
+// it as a string[] (`const y = x`) and its callback methods, whose callbacks take a string,
+// need a conversion that a copy can't make, since the array may be changed or kept (found
+// by H09b4b's reproducer, pre-existing; passing it to a parameter that is only read works).
+function isStrings(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((e) => typeof e === "string");
+}
+function plain(x: (string | number)[]): string {
+  if (isStrings(x)) {
+    const y = x;
+    return "plain " + y.length + " " + x.map((s) => s.length).join(",");
+  }
+  return "plain other";
+}
+function generic<T>(x: T): string {
+  if (isStrings(x)) {
+    const y = x;
+    return "generic " + y.length + " " + x.map((s) => s.toUpperCase()).join(",");
+  }
+  return "generic other";
+}
+console.log(plain(["ab", "c"]), plain([1]), generic<(string | number)[]>(["ab"]), generic<number[]>([2]));
+
+// expect:
+// plain 2 2,1 plain other generic 1 AB generic other

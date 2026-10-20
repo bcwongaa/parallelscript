@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"slices"
+
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
 	"github.com/microsoft/typescript-go/pts/ir"
@@ -131,7 +133,13 @@ func (l *lowerer) optionalChainFrom(node, link *ast.Node) ir.Expr {
 			return nil
 		}
 		required := result
-		if mayBeMissing {
+		switch {
+		case !holds(result, rest.Type()):
+			// tsc narrowed the chain to the undefined of its `?.` (`o?.v === undefined`, a
+			// predicate's `number | undefined` for a string v), which the read's value
+			// isn't: the chain holds either, and converts to its type with a check (C226).
+			result = l.withUndefined(rest.Type())
+		case mayBeMissing:
 			result = l.withUndefined(result)
 		}
 		if whenNullish, whenNot = l.convert(whenNullish, result, node), l.convert(rest, result, node); whenNullish == nil || whenNot == nil {
@@ -159,4 +167,20 @@ func (l *lowerer) takesAnyValue(node *ast.Node) bool {
 // being lowered past its `?.` test, which only optionalChain lowers.
 func (l *lowerer) isUnloweredOptionalChain(node *ast.Node) bool {
 	return ast.IsOptionalChain(node) && l.chainDepth == 0
+}
+
+// holds reports whether values of type from are values of t: t is from, any value, a
+// numeric type for a numeric from, or a union that holds from or its members.
+func holds(t, from ir.Type) bool {
+	switch {
+	case t == from || t == ir.Value || ir.IsNumeric(t) && ir.IsNumeric(from):
+		return true
+	case !isUnion(t):
+		return !isNullish(t) && !isPrimitive(t) // an object or function type: converted as before
+	}
+	u := t.(*ir.Union)
+	if members, ok := from.(*ir.Union); ok {
+		return !slices.ContainsFunc(members.Members, func(m ir.Type) bool { return !u.Has(m) })
+	}
+	return u.Has(from) || !isPrimitive(from) && !isNullish(from)
 }

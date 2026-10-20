@@ -1574,3 +1574,63 @@ func show_string(x: string) number {
 }
 `, "´", "`"))
 }
+
+func TestNarrowedReadsThatTheirIRTypesDontHoldReadTheirValues(t *testing.T) {
+	t.Parallel()
+	// A branded string is a string; a property that `in` adds is found at run time on the
+	// boxed object; a union read that tsc narrows to never (a narrowing kept across a call)
+	// is its value boxed; an optional chain narrowed to its own undefined holds the read's
+	// value too and converts with a check (H09b4b1).
+	got := lowerValid(t, `type Id = string & { __brand: "id" };
+interface NoK { m: string }
+function length(id: Id): number { return id.length; }
+function has(x: NoK): unknown { return "k" in x ? x.k : undefined; }
+function stale(o: { v: string | number }, change: () => void): number {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return n;
+    }
+  }
+  return 0;
+}
+function missing(o: { v: string } | undefined): undefined {
+  if (o?.v === undefined) {
+    return o?.v;
+  }
+  return undefined;
+}
+console.log(length("a" as Id), has({ m: "s" }), stale({ v: 1 }, () => {}), missing(undefined));
+`)
+	assert.Equal(t, got, `shape object1{m: string}
+shape object2{v: number | string}
+func main() void {
+  21: console.log(box(length("a")), has((object1{m: "s"} as {m: string})), box(stale((object2{v: (number | string)(1)} as {v: number | string}), closure arrow)), box(missing((undefined | {v: string})(undefined))))
+}
+func arrow() void closure [] {
+}
+func length(id: string) number {
+  3: return String.length(id)
+}
+func has(x: {m: string}) value {
+  4: return ("k" in x ? value(get(box(x), box("k"))) : box(undefined))
+}
+func stale(o: {v: number | string}, change: () => void) number {
+  6: if (typeof(box(o.v)) !== "number") {
+    7: call change()
+    8: if (typeof(box(o.v)) === "number") {
+      9: let n: number = number(box(o.v))
+      10: return n
+    }
+  }
+  13: return 0
+}
+func missing(o: undefined | {v: string}) undefined {
+  16: if isundefined((let object = o in (nullish(object) ? (string | undefined)(undefined) : (string | undefined)({v: string}(object).v)))) {
+    17: return undefined(box((let object = o in (nullish(object) ? (string | undefined)(undefined) : (string | undefined)({v: string}(object).v)))))
+  }
+  19: return undefined
+}
+`)
+}

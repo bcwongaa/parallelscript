@@ -6,7 +6,7 @@
 // through any. Each runs as in Node: code tsc already sees as dead (never in the generic code)
 // lowers as before, a dead read where any value goes (`String(x)`, `typeof x`, a `console`
 // argument) reads the value it holds, and an instance's dead code is dead for every type
-// argument that runs it (a branded string's instance is unknown's).
+// argument that runs it (a branded string's instance is string's since D-196, unknown's before).
 class Box<T> {
   constructor(public value: T) {}
 }

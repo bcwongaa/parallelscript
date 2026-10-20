@@ -1,0 +1,211 @@
+// tsc keeps a narrowing across what it doesn't follow (H09b4b, C220): after a call, an
+// await, a yield or a getter's second read, and for a variable another function assigns (a
+// closure's, a module function's), a second test can narrow a read to never while the value
+// really is one its declared type has. Such code isn't dead and runs in Node with no lie.
+// The read holds a value of its declared type; where code needs the type the test named
+// (`const n: number = o.v`, an argument, a result) it converts with a check. The base made
+// each read the declared union unconverted: PTS1001 (`converting number | string to number`,
+// `converting null | string to null`). A `const`, or a parameter or `let` only its own
+// function assigns, can't change this way.
+type V = string | number;
+function num(n: number): string {
+  return "num " + (n + 1);
+}
+function twice(n: number): number {
+  return n * 2;
+}
+function propertyAfterCall(o: { v: V }, change: () => void): string {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "property " + (n + 1) + " " + num(o.v) + " " + twice(o.v);
+    }
+  }
+  return "kept";
+}
+function resultAfterCall(o: { v: V }, change: () => void): number {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      return o.v;
+    }
+  }
+  return -1;
+}
+function tupleAfterCall(t: [V], change: () => void): string {
+  if (typeof t[0] !== "number") {
+    change();
+    if (typeof t[0] === "number") {
+      const n: number = t[0];
+      return "tuple " + num(n);
+    }
+  }
+  return "kept";
+}
+function arrayAfterCall(a: V[], change: () => void): string {
+  if (typeof a[0] !== "number") {
+    change();
+    if (typeof a[0] === "number") {
+      return "array " + num(a[0]);
+    }
+  }
+  return "kept";
+}
+function letOfClosure(): string {
+  let v: V = "s";
+  const set = () => {
+    v = 5;
+  };
+  if (typeof v !== "number") {
+    set();
+    if (typeof v === "number") {
+      return "let " + num(v);
+    }
+  }
+  return "kept";
+}
+function parameterOfClosure(p: V): string {
+  const set = () => {
+    p = 5;
+  };
+  if (typeof p !== "number") {
+    set();
+    if (typeof p === "number") {
+      const n: number = p;
+      return "parameter " + (n + 1);
+    }
+  }
+  return "kept";
+}
+let moduleV: V = "s";
+function setModuleV(): void {
+  moduleV = 5;
+}
+function moduleLet(): string {
+  if (typeof moduleV !== "number") {
+    setModuleV();
+    if (typeof moduleV === "number") {
+      return "module " + num(moduleV);
+    }
+  }
+  return "kept";
+}
+async function propertyAfterAwait(o: { v: V }): Promise<string> {
+  if (typeof o.v !== "number") {
+    await Promise.resolve();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "await " + (n + 1);
+    }
+  }
+  return "kept";
+}
+class Flips {
+  reads = 0;
+  get v(): V {
+    return this.reads++ >= 1 ? 5 : "s";
+  }
+}
+function getter(g: Flips): string {
+  if (typeof g.v !== "number") {
+    if (typeof g.v === "number") {
+      return "getter " + num(g.v);
+    }
+  }
+  return "kept";
+}
+class Holder {
+  constructor(public v: V) {}
+  run(change: () => void): string {
+    if (typeof this.v !== "number") {
+      change();
+      if (typeof this.v === "number") {
+        const n: number = this.v;
+        return "this " + (n + 1);
+      }
+    }
+    return "kept";
+  }
+}
+function* generator(o: { v: V }): Generator<string> {
+  if (typeof o.v !== "number") {
+    yield "first";
+    if (typeof o.v === "number") {
+      yield "generator " + num(o.v);
+    }
+  }
+}
+function nullAfterCall(o: { v: string | null }, change: () => void): string {
+  if (o.v !== null) {
+    change();
+    if (o.v === null) {
+      const n: null = o.v;
+      return "null " + n;
+    }
+  }
+  return "kept";
+}
+function unchanged(o: { v: V }): string {
+  if (typeof o.v !== "number") {
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "dead " + n;
+    }
+  }
+  return "kept";
+}
+
+const o1: { v: V } = { v: "s" };
+console.log(propertyAfterCall(o1, () => {
+  o1.v = 5;
+}));
+const o2: { v: V } = { v: "s" };
+console.log("result", resultAfterCall(o2, () => {
+  o2.v = 7;
+}));
+const t: [V] = ["s"];
+console.log(tupleAfterCall(t, () => {
+  t[0] = 5;
+}));
+const a: V[] = ["s"];
+console.log(arrayAfterCall(a, () => {
+  a[0] = 5;
+}));
+console.log(letOfClosure());
+console.log(parameterOfClosure("s"));
+console.log(moduleLet());
+const o3: { v: V } = { v: "s" };
+propertyAfterAwait(o3).then((r) => console.log(r));
+o3.v = 5;
+console.log(getter(new Flips()));
+const holder = new Holder("s");
+console.log(holder.run(() => {
+  holder.v = 5;
+}));
+const o4: { v: V } = { v: "s" };
+const it = generator(o4);
+console.log(it.next().value);
+o4.v = 5;
+console.log(it.next().value);
+const o5: { v: string | null } = { v: "s" };
+console.log(nullAfterCall(o5, () => {
+  o5.v = null;
+}));
+console.log(unchanged({ v: "s" }));
+
+// expect:
+// property 6 num 6 10
+// result 7
+// tuple num 6
+// array num 6
+// let num 6
+// parameter 6
+// module num 6
+// getter num 6
+// this 6
+// first
+// generator num 6
+// null null
+// kept
+// await 6

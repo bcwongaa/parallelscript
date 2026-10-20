@@ -140,11 +140,23 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	}
 	t := l.typeAt(node)
 	if t.Flags()&checker.TypeFlagsNever != 0 {
+		if l.mayHaveChanged(node) {
+			// A second test narrowed it to never, as tsc sees it, though a call tsc doesn't
+			// follow changed it since the first: what it holds, as a dynamic value, converted
+			// with a check where it is used (C220).
+			return box(x)
+		}
 		return x // unreachable code, as tsc sees it
 	}
 	narrow := l.irType(t, node)
 	if narrow == ir.Value {
 		return box(x) // narrowed to a type only dynamic values hold (`E & Error` after `e instanceof Error`, D-095)
+	}
+	if narrow != nil && isNarrowing(union, narrow) && l.mayHaveChanged(node) && testsAnyValue(node) {
+		// A test of what it holds (`typeof o.v`, `o.v instanceof P2`, `o.v === 5`), which a
+		// narrowing kept across a call that changed it mustn't decide: what it holds, as a
+		// dynamic value (C230).
+		return box(x)
 	}
 	if narrow != nil && isNarrowing(union, narrow) {
 		if node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
@@ -153,15 +165,40 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 			}
 			return l.looseRead(x, narrow, node) // it may be undefined, which tsc doesn't know (D-090)
 		}
-		if !isClass(narrow) && (node.Kind != ast.KindIdentifier || l.assignedOutside[l.readSymbol(node)]) {
-			// A property tsc narrowed, or a variable another function assigns, may have
-			// changed since, through a call that tsc doesn't follow, so its value is
-			// checked as a dynamic value is (classes' always are) (D-089, D-140).
+		if !isClass(narrow) && l.mayHaveChanged(node) {
+			// Its value is checked as a dynamic value is (classes' always are) (D-089, D-140).
 			return &ir.FromUnion{X: box(x), To: narrow}
 		}
 		return &ir.FromUnion{X: x, To: narrow}
 	}
 	return x
+}
+
+// testsAnyValue reports whether node is an operand of a test that takes any value:
+// `typeof`'s, `===`'s, `!==`'s, or instanceof's left.
+func testsAnyValue(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	switch parent := node.Parent; parent.Kind {
+	case ast.KindTypeOfExpression:
+		return true
+	case ast.KindBinaryExpression:
+		switch binary := parent.AsBinaryExpression(); binary.OperatorToken.Kind {
+		case ast.KindEqualsEqualsEqualsToken, ast.KindExclamationEqualsEqualsToken:
+			return true
+		case ast.KindInstanceOfKeyword:
+			return binary.Left == node
+		}
+	}
+	return false
+}
+
+// mayHaveChanged reports whether node, a reference tsc narrowed, may have changed since,
+// through a call that tsc doesn't follow: a property, or a variable another function
+// assigns.
+func (l *lowerer) mayHaveChanged(node *ast.Node) bool {
+	return node.Kind != ast.KindIdentifier || l.assignedOutside[l.readSymbol(node)]
 }
 
 // readSymbol is the variable an identifier reads: the shorthand property `{ x }`'s value

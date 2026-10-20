@@ -1,0 +1,81 @@
+// `"k" in x` for an x whose type has no k (H09b4b, C222) narrows x to `X & Record<"k",
+// unknown>`, which an object with an extra property k has. The object keeps k on every route
+// to a place typed X (a typed const, an array, a union, a spread copy, a generic identity, a
+// class's instance, a map's value, a cast literal), and the read finds it by name, in plain
+// code and in an instance (`T extends object`), for a union of which neither member has k,
+// and for a k that is a function. The base passed the unboxed object where a dynamic value
+// goes: PTS9001 (`incompatible pointer to integer conversion passing 'pts_object *'`).
+// (Parsed JSON cast to X is copied into X's shape, D-071, which drops k: not here; a k that
+// is a function and is called: in_narrowing_absent_method.pts.)
+interface NoK {
+  m: string;
+}
+function describe(x: NoK): string {
+  if ("k" in x) {
+    return "has k " + String(x.k);
+  }
+  return "no k";
+}
+function kind(x: NoK): string {
+  if ("k" in x) {
+    const k = x.k;
+    return typeof k === "number" ? "k+1 " + (k + 1) : "k is " + typeof k;
+  }
+  return "no k";
+}
+function logged(x: NoK): string {
+  if ("k" in x) {
+    console.log("  k is", x.k, "and m", x.m);
+    return "logged";
+  }
+  return "no k";
+}
+function describeT<T extends object>(x: T): string {
+  if ("k" in x) {
+    const k: unknown = x.k;
+    return "T has k " + String(k);
+  }
+  return "T no k";
+}
+type A = { a: number };
+type B = { b: string };
+function neither(x: A | B): string {
+  if ("k" in x) {
+    return "union has k " + String(x.k);
+  }
+  return "union no k";
+}
+function ident<T>(x: T): T {
+  return x;
+}
+class W {
+  m = "w";
+  k = 7;
+}
+
+const withK = { m: "s", k: 5 };
+const without: NoK = { m: "t" };
+const asNoK: NoK = withK;
+const all: NoK[] = [withK, without];
+const maybe: NoK | undefined = Math.random() < 2 ? withK : undefined;
+const copied: NoK = { ...withK };
+const byName = new Map<string, NoK>([["a", withK]]);
+console.log(describe(withK), describe(without), describe(asNoK));
+console.log(all.map(describe).join("; "), describe(maybe!), describe(copied));
+console.log(describe(ident<NoK>(withK)), describe(new W()), describe(byName.get("a")!));
+console.log(describe({ m: "lit", k: 3 } as NoK), describe({ m: "text", k: "kk" } as NoK));
+console.log(kind(withK), kind({ m: "u", k: undefined } as NoK), kind(without));
+console.log(logged(withK), logged(without));
+console.log(describeT(withK), describeT(without), describeT(new W()), describeT({ other: 1 }));
+console.log(neither({ a: 1, k: "kk" } as A), neither({ b: "x" }));
+
+// expect:
+// has k 5 no k has k 5
+// has k 5; no k has k 5 has k 5
+// has k 5 has k 7 has k 5
+// has k 3 has k kk
+// k+1 6 k is undefined no k
+//   k is 5 and m s
+// logged no k
+// T has k 5 T no k T has k 7 T no k
+// union has k kk union no k

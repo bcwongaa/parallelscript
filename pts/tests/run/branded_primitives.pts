@@ -1,12 +1,19 @@
-// skip: known issue (H09b4b, C221): a branded primitive (`string & { __brand: "id" }`) reads its members as an object's: the C doesn't compile (PTS9001)
 // A branded primitive (`string & { __brand: "id" }`, the usual nominal-type idiom) is a string
 // at run time: its length, methods and narrowing by typeof or a type predicate work as for a
-// string (found by H09b4's reproducer; plain code, no generics needed). The C read the
-// string's members from a dynamic value: PTS9001 (`member reference type 'pts_value' (aka
+// string (found by H09b4's reproducer; plain code, no generics needed), and so do number
+// brands, `string & {}`, brands in arrays, maps, sets, unions, optional values, object
+// properties, generic classes and as type arguments of generic functions (C221). The C read
+// the string's members from a dynamic value: PTS9001 (`member reference type 'pts_value' (aka
 // 'unsigned long') is not a pointer`, `incompatible integer to pointer conversion`).
 type Id = string & { __brand: "id" };
+type Usd = number & { readonly __unit: "usd" };
+type Email = string & { readonly __email: true };
+type Loose = string & {};
 function isStr(v: unknown): v is string {
   return typeof v === "string";
+}
+function asId(s: string): Id {
+  return s as Id;
 }
 const id = "id1" as Id;
 console.log("length", id.length);
@@ -25,7 +32,91 @@ function guarded(x: Id): number {
 }
 console.log(show(id), guarded(id));
 
+const ids: Id[] = [asId("a"), asId("bb")];
+const byId = new Map<Id, number>([[ids[0], 1], [ids[1], 2]]);
+console.log("collections", ids.map((i) => i.length), byId.get(asId("bb")), ids.join("+"));
+const price = 5 as Usd;
+const total: number = price * 2;
+console.log("numbers", total, (price as number).toFixed(2), price + 1);
+const email = "x@y" as Email;
+const loose: Loose = "loose";
+console.log("methods", email.includes("@"), email.split("@"), loose.toUpperCase(), typeof loose);
+function first<T>(xs: T[]): T | undefined {
+  return xs[0];
+}
+class Holder<T> {
+  constructor(public v: T) {}
+  get(): T {
+    return this.v;
+  }
+}
+const holder = new Holder(asId("hh"));
+console.log("generics", first(ids), first<Usd>([price]), holder.get().length, holder.v);
+function either(x: Id | number): string {
+  if (typeof x === "string") {
+    return "id " + x.toUpperCase();
+  }
+  return "num " + (x + 1);
+}
+const maybe: Id | undefined = ids.length > 5 ? undefined : asId("z");
+console.log("unions", either(asId("q")), either(3), maybe?.length, maybe ?? "none");
+const record = { id: asId("k"), n: 1 };
+console.log("values", JSON.stringify(record), String(ids[0]), `${ids[1]}`);
+function same(a: Id, b: string): boolean {
+  return a === b;
+}
+const set: Set<Id> = new Set(ids);
+console.log("equality", same(asId("m"), "m"), ids.includes(asId("a")), ids.indexOf(asId("bb")), set.has(asId("a")), [...set].length);
+function numbers<T>(x: T): number {
+  if (typeof x === "number") {
+    return x + 1;
+  }
+  return 0;
+}
+function strings<T>(x: T): string {
+  if (typeof x === "string") {
+    return x.toUpperCase();
+  }
+  return "no";
+}
+console.log("type arguments", numbers(id), numbers("s"), numbers(2), strings(id), strings(5));
+const a = "a" as Id;
+const b = "b" as Id;
+let joined = a + "x";
+joined += b;
+console.log("string operators", joined, a < b, `${a}-${b}`, a === b, a == "a", a[0], [...a], a.at(-1), a.localeCompare(b));
+const p = 3 as Usd;
+const q = 4 as Usd;
+let sum: number = p + q;
+sum += p;
+console.log("number operators", sum, p < q, p * q, -p, p % 2, p ** 2, Math.max(p, q), [q, p].sort((x, y) => x - y));
+const counts: Record<string, number> = { a: 1, b: 2 };
+console.log("keys", counts[a], counts[b], { [a]: 9 }, Object.keys({ [b]: 1 }));
+switch (a) {
+  case "a":
+    console.log("switch a");
+    break;
+  default:
+    console.log("switch default");
+}
+const dynamic: any = a;
+const back: Id = dynamic;
+console.log("through any", back.length, (dynamic as Id).toUpperCase());
+
 // expect:
 // length 3
 // upper ID1
 // typeof ID1 3
+// collections [ 1, 2 ] 2 a+bb
+// numbers 10 5.00 6
+// methods true [ 'x', 'y' ] LOOSE string
+// generics a 5 2 hh
+// unions id Q num 4 1 z
+// values {"id":"k","n":1} a bb
+// equality true true 1 true 2
+// type arguments 0 0 3 ID1 no
+// string operators axb true a-b false true a [ 'a' ] a -1
+// number operators 10 true 12 -3 1 9 4 [ 3, 4 ]
+// keys 1 2 { a: 9 } [ 'b' ]
+// switch a
+// through any 1 A

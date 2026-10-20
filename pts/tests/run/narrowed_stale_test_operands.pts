@@ -1,0 +1,73 @@
+// A stale narrowing to a type that isn't never (H09b4b, found by its reproducer;
+// pre-existing): after a call changed it, the next test's own operand is a read of the stale
+// narrowed type, which the base converted with a check and threw, where Node runs with no
+// lie: `typeof o["v"]` read o["v"] as the string the first test left (`TypeError: Expected
+// string, got number`), `o.v instanceof P2` read o.v as the P1 the first test left
+// (`TypeError: The value narrowed to P1 is not an instance of it`); `typeof o.v` (a property
+// access) didn't. A test's operand takes any value: it must read what the place holds.
+class P1 {
+  p = 1;
+}
+class P2 {
+  q = 2;
+}
+function element(o: { v: string | number }, change: () => void): string {
+  if (typeof o["v"] !== "number") {
+    change();
+    if (typeof o["v"] === "number") {
+      return "element now a number";
+    }
+    return "element still " + typeof o["v"];
+  }
+  return "kept";
+}
+function property(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      return "property now a number";
+    }
+    return "property still " + typeof o.v;
+  }
+  return "kept";
+}
+function instance(o: { v: P1 | P2 }, change: () => void): string {
+  if (o.v instanceof P1) {
+    change();
+    if (o.v instanceof P2) {
+      return "instance now a P2";
+    }
+    return "instance still a P1";
+  }
+  return "kept";
+}
+function run(name: string, f: () => string): void {
+  try {
+    console.log(f());
+  } catch (error: any) {
+    console.log(name, "caught", error.message);
+  }
+}
+const o1: { v: string | number } = { v: "s" };
+run("element", () =>
+  element(o1, () => {
+    o1.v = 5;
+  }));
+const o2: { v: string | number } = { v: "s" };
+run("property", () =>
+  property(o2, () => {
+    o2.v = 5;
+  }));
+const o3: { v: P1 | P2 } = { v: new P1() };
+run("instance", () =>
+  instance(o3, () => {
+    o3.v = new P2();
+  }));
+const o4: { v: P1 | P2 } = { v: new P1() };
+run("unchanged", () => instance(o4, () => {}));
+
+// expect:
+// element now a number
+// property now a number
+// instance now a P2
+// instance still a P1

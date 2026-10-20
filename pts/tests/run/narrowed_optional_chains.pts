@@ -1,0 +1,49 @@
+// An optional chain that a test narrows to the undefined of its `?.` (`o?.v === undefined`,
+// `o?.v == null`, a predicate's `v is number | undefined` for a string v, in plain code and
+// in an instance of a generic function: H09b4a review round 1's s19b) holds either the
+// property's value or undefined, and converts to its narrowed type with a check (C226).
+// Each was PTS1001 (`converting string to undefined`, `converting number | string to
+// undefined`), though the branch runs when the object is undefined.
+function isNumOrUndefined(v: unknown): v is number | undefined {
+  return v === undefined || typeof v === "number";
+}
+function generic<T>(o: { v: T } | undefined): string {
+  if (isNumOrUndefined(o?.v)) {
+    const n = o?.v;
+    return "n " + n;
+  }
+  return "other";
+}
+console.log("generic", generic<string>(undefined), generic<string>({ v: "s" }), generic<number>({ v: 1 }), generic<number>(undefined));
+function plain(o: { v: string } | undefined): string {
+  if (isNumOrUndefined(o?.v)) {
+    const n = o?.v;
+    return "n " + n;
+  }
+  return "other";
+}
+console.log("plain", plain(undefined), plain({ v: "s" }));
+function kinds(o: { v: string | number } | undefined): string {
+  if (typeof o?.v === "number") {
+    return "num " + (o?.v + 1);
+  }
+  if (o?.v === undefined) {
+    return "undef " + o?.v;
+  }
+  return "str " + o?.v.length;
+}
+console.log("kinds", kinds(undefined), kinds({ v: 2 }), kinds({ v: "abc" }));
+function nullish(o: { v: string | null } | undefined): string {
+  if (o?.v == null) {
+    const missing: null | undefined = o?.v;
+    return "missing " + missing;
+  }
+  return "has " + o.v;
+}
+console.log("nullish", nullish(undefined), nullish({ v: null }), nullish({ v: "x" }));
+
+// expect:
+// generic n undefined other n 1 n undefined
+// plain n undefined other
+// kinds undef undefined num 3 str 3
+// nullish missing undefined missing null has x

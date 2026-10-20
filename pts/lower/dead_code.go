@@ -226,7 +226,8 @@ func (l *lowerer) mentionsParameters(t *checker.Type) bool {
 // argument the widest type of its IR type (widestOfIRType). Instances are told apart by IR
 // types (a function's also by literal type arguments), so one instance's code runs for
 // every type argument of those IR types: `Holder<Id>`'s methods for a branded string Id are
-// `Holder<unknown>`'s, which hold numbers too. Code is dead only if it is for all of them.
+// `Holder<string>`'s, and `Holder<Json>`'s `Holder<unknown>`'s, which hold numbers too.
+// Code is dead only if it is for all of them.
 func (l *lowerer) deadTest() *substitution {
 	if test, ok := l.deadTests[l.subst]; ok {
 		return test
@@ -248,8 +249,10 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 	switch {
 	case t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown|checker.TypeFlagsNever) != 0:
 		return t
+	case l.brandedPrimitive(t) != nil:
+		return l.checker.GetBaseTypeOfLiteralType(l.brandedPrimitive(t)) // `string & { __brand: "id" }` is a string
 	case l.isDynamicIRType(t):
-		return l.checker.GetUnknownType() // a recursive union's (`Json`), a branded primitive's, a promise's: unknown's
+		return l.checker.GetUnknownType() // a recursive union's (`Json`), a promise's: unknown's
 	case t.Flags()&checker.TypeFlagsPrimitive != 0:
 		return l.checker.GetBaseTypeOfLiteralType(t) // `"a"` and `string` are one IR type
 	case t.Flags()&checker.TypeFlagsUnion != 0:
@@ -283,9 +286,9 @@ func (l *lowerer) isDynamicIRType(t *checker.Type) bool {
 const maxLiteralFreeDepth = 4
 
 // literalFree reports whether t holds no literal types (`{ kind: "sq" }`'s, which shares
-// its IR type with `{ kind: "ci" }`'s) and no types of dynamic values' IR type other than
-// any and unknown (a branded primitive, a promise, `{}`, a union that holds itself, as
-// `Json` does), in its type arguments, properties, index signatures and call signatures:
+// its IR type with `{ kind: "ci" }`'s) or branded primitives (string's IR type), and no
+// types of dynamic values' IR type other than any and unknown (a promise, `{}`, a union
+// that holds itself, as `Json` does), in its type arguments, properties, index signatures and call signatures:
 // then no other type of its IR type is narrower. It asks no IR types, which a phantom type argument
 // (`Tagged<Weird<string>>`'s) would make. A class of the program or the library is its
 // own IR type.

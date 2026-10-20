@@ -1,0 +1,85 @@
+// A discriminant narrowed through a type parameter's union constraint (H09b4b, C223): for
+// `T extends Sq | Ci`, `x.kind === "sq"` types x as Sq, not `T & Sq`. Each form (if/else, a
+// switch, an early return, `?:`, `!==`, a copy typed Sq, an Sq argument, a `Box<Sq>`) for T =
+// the union, T = Sq, T = Ci (its sq code is dead), T inferred from a narrowed const, and an
+// object a cast says is a Ci but whose kind is "sq": Node reads its side, as does a checked
+// read of the narrowed member, since Sq is a real type (no trap needed). The base read side
+// from an object of Ci's IR type by passing it unboxed where a dynamic value goes: PTS9001
+// (`incompatible pointer to integer conversion`), or PTS1001 (`using a {kind: string; r:
+// number} as a {kind: string; side: number}`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Shape = Sq | Ci;
+function sideOf(s: Sq): number {
+  return s.side;
+}
+function ifElse<T extends Shape>(x: T): string {
+  if (x.kind === "sq") {
+    return "side " + x.side;
+  } else {
+    return "r " + x.r;
+  }
+}
+function switched<T extends Shape>(x: T): string {
+  switch (x.kind) {
+    case "sq":
+      return "side " + (x.side + 1);
+    case "ci":
+      return "r " + (x.r + 1);
+  }
+  return "none";
+}
+function early<T extends Shape>(x: T): string {
+  if (x.kind === "ci") {
+    return "r " + x.r;
+  }
+  return "side " + x.side;
+}
+function ternary<T extends Shape>(x: T): string {
+  return x.kind === "sq" ? "side " + x.side : "r " + x.r;
+}
+function notSq<T extends Shape>(x: T): string {
+  if (x.kind !== "sq") {
+    return "r " + x.r;
+  }
+  return "side " + x.side;
+}
+function copied<T extends Shape>(x: T): string {
+  if (x.kind === "sq") {
+    const s: Sq = x;
+    return "copy " + s.side + " arg " + sideOf(x) + " box " + new Box<Sq>(x).value.side;
+  }
+  return "kind " + x.kind;
+}
+const narrowed: Shape = { kind: "sq", side: 5 };
+function makeShape(): Shape {
+  return { kind: "ci", r: 4 };
+}
+const sq: Sq = { kind: "sq", side: 3 };
+const ci: Ci = { kind: "ci", r: 1 };
+console.log("if/else", ifElse<Shape>(makeShape()), ifElse<Sq>(sq), ifElse<Ci>(ci), ifElse(narrowed));
+console.log("switch", switched<Shape>(makeShape()), switched<Sq>(sq), switched<Ci>(ci), switched(narrowed));
+console.log("early", early<Shape>(makeShape()), early<Sq>(sq), early<Ci>(ci), early(narrowed));
+console.log("ternary", ternary<Shape>(makeShape()), ternary<Sq>(sq), ternary<Ci>(ci), ternary(narrowed));
+console.log("!==", notSq<Shape>(makeShape()), notSq<Sq>(sq), notSq<Ci>(ci), notSq(narrowed));
+console.log("copies", copied<Shape>(makeShape()), copied<Sq>(sq), copied<Ci>(ci), copied(narrowed));
+const lie = { kind: "sq", side: 2, r: 1 } as unknown as Ci;
+console.log("cast lie", ifElse<Ci>(lie), switched<Ci>(lie), early<Ci>(lie), ternary<Ci>(lie), notSq<Ci>(lie), copied<Ci>(lie));
+
+// expect:
+// if/else r 4 side 3 r 1 side 5
+// switch r 5 side 4 r 2 side 6
+// early r 4 side 3 r 1 side 5
+// ternary r 4 side 3 r 1 side 5
+// !== r 4 side 3 r 1 side 5
+// copies kind ci copy 3 arg 3 box 3 kind ci copy 5 arg 5 box 5
+// cast lie side 2 side 3 side 2 side 2 side 2 copy 2 arg 2 box 2

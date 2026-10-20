@@ -1,6 +1,7 @@
 // Instances are told apart by IR types (a function's also by literal type arguments), so
-// type arguments of one IR type run the same instance: a branded string and unknown (IR
-// value), "a" and string for a class, two object types that differ only in a literal
+// type arguments of one IR type run the same instance: "a" and string for a class (a
+// branded string ran unknown's until D-196 made a brand its primitive; it runs string's
+// now, where the number branch is dead too), two object types that differ only in a literal
 // property's type, `() => 1` and `() => number`, a recursive union (IR value) and unknown,
 // also inside a function's result, a property or a class's type argument (review rounds 1
 // and 2, F2, R2-F2). Deciding this asks no IR types of a type argument's parts: a phantom

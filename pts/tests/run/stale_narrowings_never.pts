@@ -1,0 +1,86 @@
+// tsc keeps a narrowing across what it doesn't follow (a call that sets a property, a
+// closure's assignment to a `let`, an await while another task sets a property, a getter),
+// so a second test can narrow a value of a union type to never while it really holds a
+// member the second test admits: no lie, and Node runs the branch. In plain code and in an
+// instance of a generic function (H09b4a review round 1's s02) such a read holds its value
+// and converts with a check where it is used (C220). Each was PTS1001 (`converting number |
+// string to number`).
+function generic<T>(o: { v: T | number }, change: () => void): string {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "number now " + (n + 1);
+    }
+  }
+  return "kept";
+}
+const g: { v: string | number } = { v: "s" };
+console.log("generic", generic<string>(g, () => {
+  g.v = 5;
+}));
+function plain(o: { v: string | number }, change: () => void): string {
+  if (typeof o.v !== "number") {
+    change();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "number now " + (n + 1);
+    }
+  }
+  return "kept";
+}
+const p: { v: string | number } = { v: "s" };
+console.log("plain", plain(p, () => {
+  p.v = 7;
+}), plain({ v: "t" }, () => {}));
+class Counter {
+  value: string | number = "start";
+  bump(): void {
+    this.value = 1;
+  }
+  check(): string {
+    if (typeof this.value === "string") {
+      this.bump();
+      if (typeof this.value === "number") {
+        return "bumped to " + (this.value + 1);
+      }
+    }
+    return "unchanged";
+  }
+}
+console.log("method", new Counter().check());
+async function awaited(o: { v: string | number }): Promise<string> {
+  if (typeof o.v === "string") {
+    await Promise.resolve();
+    if (typeof o.v === "number") {
+      const n: number = o.v;
+      return "awaited " + n.toFixed(1);
+    }
+  }
+  return "not awaited";
+}
+const a: { v: string | number } = { v: "a" };
+const pending = awaited(a);
+a.v = 2;
+pending.then((text) => console.log("await", text));
+let shared: string | number = "s";
+function setShared(): void {
+  shared = 9;
+}
+function module(): string {
+  if (typeof shared === "string") {
+    setShared();
+    if (typeof shared === "number") {
+      return "shared " + (shared + 1);
+    }
+  }
+  return "shared kept";
+}
+console.log("let", module());
+
+// expect:
+// generic number now 6
+// plain number now 8 kept
+// method bumped to 2
+// let shared 10
+// await awaited 2.0

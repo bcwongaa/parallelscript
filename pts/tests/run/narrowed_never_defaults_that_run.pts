@@ -1,0 +1,130 @@
+// Guard (passes on the base): code tsc types never that a lie reaches and that must keep
+// running as in Node (H09b4b, C220's acceptance). An exhaustive switch's default, or an
+// if chain's end, reached by an object a cast says is an Sq: `assertNever(s)`, a copy into a
+// `never` const, a cast back to the union or to any, JSON.stringify, concatenation and a log;
+// in plain code and in an instance. A lying predicate's branch that only prints the value,
+// concatenates it, puts it in a template, passes it to String or JSON.stringify, or tests
+// its typeof. A fix that makes plain dead code a trap must leave these alone.
+interface Sq {
+  kind: "sq";
+  side: number;
+}
+interface Ci {
+  kind: "ci";
+  r: number;
+}
+type Shape = Sq | Ci;
+function assertNever(x: never): never {
+  throw new Error("unexpected " + JSON.stringify(x));
+}
+function viaAssertNever(s: Shape): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side * s.side;
+    case "ci":
+      return 3 * s.r * s.r;
+    default:
+      return assertNever(s);
+  }
+}
+function viaNeverConst(s: Shape): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side;
+    case "ci":
+      return s.r;
+    default: {
+      const unexpected: never = s;
+      throw new Error("never const " + JSON.stringify(unexpected));
+    }
+  }
+}
+function viaCast(s: Shape): number {
+  if (s.kind === "sq") {
+    return s.side;
+  }
+  if (s.kind === "ci") {
+    return s.r;
+  }
+  throw new Error("cast kind " + (s as Shape).kind + " any kind " + (s as any).kind);
+}
+function viaJson(s: Shape): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side;
+    case "ci":
+      return s.r;
+  }
+  return -JSON.stringify(s).length;
+}
+function viaConcat(s: Shape): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side;
+    case "ci":
+      return s.r;
+    default:
+      console.log("  default", s, "" + s);
+      return -1;
+  }
+}
+function generic<T extends Shape>(s: T): number {
+  switch (s.kind) {
+    case "sq":
+      return s.side;
+    case "ci":
+      return s.r;
+    default:
+      return assertNever(s);
+  }
+}
+function lyingIsNum(v: unknown): v is number {
+  return true;
+}
+function lied(x: string): string {
+  if (lyingIsNum(x)) {
+    console.log("  lied", x, "+" + x, `${x}`, String(x), JSON.stringify(x), typeof x);
+  }
+  return "done " + x;
+}
+function liedT<T>(x: T): string {
+  if (lyingIsNum(x)) {
+    console.log("  lied T", x, "+" + x, `${x}`, String(x), JSON.stringify(x), typeof x);
+  }
+  return "done T";
+}
+const lie = { kind: "tri", side: 1, r: 1 } as unknown as Sq;
+for (const f of [viaAssertNever, viaNeverConst, viaCast, viaJson, viaConcat, (s: Shape) => generic<Shape>(s)]) {
+  for (const s of [{ kind: "sq", side: 2 } as Shape, { kind: "ci", r: 1 } as Shape, lie]) {
+    try {
+      console.log("result", f(s));
+    } catch (error: any) {
+      console.log("caught", error.message);
+    }
+  }
+}
+console.log(lied("s"), liedT<string>("t"));
+
+// expect:
+// result 4
+// result 3
+// caught unexpected {"kind":"tri","side":1,"r":1}
+// result 2
+// result 1
+// caught never const {"kind":"tri","side":1,"r":1}
+// result 2
+// result 1
+// caught cast kind tri any kind tri
+// result 2
+// result 1
+// result -29
+// result 2
+// result 1
+//   default { kind: 'tri', side: 1, r: 1 } [object Object]
+// result -1
+// result 2
+// result 1
+// caught unexpected {"kind":"tri","side":1,"r":1}
+//   lied s +s s s "s" string
+//   lied T t +t t t "t" string
+// done s done T

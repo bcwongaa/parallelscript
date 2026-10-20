@@ -1,0 +1,100 @@
+// Branded primitives (H09b4b, C221) where code keeps them: a branded number, a branded
+// template-literal string, a brand over a union of literals, and a branded string in arrays,
+// maps, sets, unions, object properties, generic type arguments, a generic class, a brand
+// predicate, a switch and a record key. A brand is its primitive at run time: everything
+// works as for the primitive, and the brand's own property reads undefined, as in Node. The
+// base made a brand a dynamic value and read its members as a string's from it: PTS9001
+// (`member reference type 'pts_value' is not a pointer`, `incompatible integer to pointer
+// conversion`), or PTS1001 (`as expression (which the compiler failed to lower without
+// saying why)` for the literal union).
+type Id = string & { __brand: "id" };
+type Usd = number & { __brand: "usd" };
+type Path = `/${string}` & { __brand: "path" };
+type Dir = ("up" | "down") & { __brand: "dir" };
+function first<T>(xs: T[]): T {
+  return xs[0];
+}
+function ident<T>(x: T): T {
+  return x;
+}
+class Holder<T> {
+  constructor(private v: T) {}
+  get(): T {
+    return this.v;
+  }
+}
+function isId(v: unknown): v is Id {
+  return typeof v === "string" && v.startsWith("id");
+}
+function echo<S extends string>(s: S): S {
+  return s;
+}
+function makeId(s: string): Id {
+  return s as Id;
+}
+
+const id = makeId("id1");
+console.log("length", id.length, id.toUpperCase(), id.slice(1), echo(id).length);
+const ids: Id[] = [id, makeId("id22")];
+console.log("array", ids.map((i) => i.length).join(","), ids.join("+"), first(ids).length);
+const byId = new Map<Id, number>();
+byId.set(id, 1);
+for (const [k, v] of byId) {
+  console.log("map", k.length, v, byId.get(id), byId.has(id));
+}
+const names = new Map<string, Id>([["a", id]]);
+console.log("map value", names.get("a")?.length);
+const set = new Set<Id>(ids);
+console.log("set", set.has(id), [...set][1].length);
+const maybe: Id | null = Math.random() < 2 ? id : null;
+console.log("union", maybe?.length, maybe !== null ? maybe.toUpperCase() : "none");
+const either: Id | number = Math.random() < 2 ? id : 1;
+if (typeof either === "string") {
+  console.log("narrowed", either.length);
+} else {
+  console.log("number", either + 1);
+}
+const record: { id: Id; n: number } = { id, n: 1 };
+console.log("property", record.id.length, record.id.charAt(0));
+console.log("generic", ident(id).length, new Holder<Id>(id).get().toUpperCase());
+const raw: unknown = "id333";
+if (isId(raw)) {
+  console.log("predicate", raw.length, raw.toUpperCase());
+}
+switch (id as string) {
+  case "id1":
+    console.log("switch", id.length);
+    break;
+  default:
+    console.log("switch default");
+}
+const counts: Record<string, number> = {};
+counts[id] = 2;
+console.log("record", counts[id], Object.keys(counts)[0].length);
+console.log("brand property", (id as any).__brand);
+
+const usd = 12.5 as Usd;
+const prices: Usd[] = [usd, 2 as Usd];
+console.log("usd", usd.toFixed(2), usd + 1, prices.reduce((s, p) => s + p, 0), Math.floor(usd), ident(usd) * 2);
+const path = "/a/b" as Path;
+console.log("path", path.length, path.split("/").length, path.toUpperCase());
+const dir = "up" as Dir;
+console.log("dir", dir.length, dir.toUpperCase(), dir === "up");
+
+// expect:
+// length 3 ID1 d1 3
+// array 3,4 id1+id22 3
+// map 3 1 1 true
+// map value 3
+// set true 4
+// union 3 ID1
+// narrowed 3
+// property 3 i
+// generic 3 ID1
+// predicate 5 ID333
+// switch 3
+// record 2 3
+// brand property undefined
+// usd 12.50 13.5 14.5 12 25
+// path 4 3 /A/B
+// dir 2 UP true

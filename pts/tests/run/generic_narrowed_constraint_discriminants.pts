@@ -1,11 +1,10 @@
-// skip: known issue (H09b4b, C223): a discriminant that tsc narrows through a type parameter's union constraint gives the member's type without T; reading it is PTS9001 even where the branch is live
 // A generic function over a union constraint (`T extends Sq | Ci`) narrows its value by the
 // discriminant through the constraint: tsc types `x` in the branch as Sq, not `T & Sq`. For
 // T = the union the branch is live, for T = Sq too, and for T = Ci it is dead; an object
 // whose discriminant a cast set to "sq" reaches it (Node runs it with the value it has).
-// Each read of the narrowed value is PTS9001 today (the C passes an unboxed object as a
-// dynamic value), and an object type argument with a literal discriminant shares its IR type
-// with others, so its dead code isn't a trap (D-195).
+// Each read of the narrowed value was PTS9001 (the C passed an unboxed object as a dynamic
+// value, C223): a property the instance's type lacks is found at run time, with a check,
+// as the `switch` and `in` forms' are.
 class Box<T> {
   constructor(public value: T) {}
 }
@@ -36,6 +35,22 @@ console.log("member", sides<Sq>({ kind: "sq", side: 3 }).value.kind, area<Sq>({ 
 console.log("dead member", sides<Ci>({ kind: "ci", r: 1 }).value.kind, area<Ci>({ kind: "ci", r: 1 }));
 const lie = { kind: "sq", side: 2, r: 1 } as unknown as Ci;
 console.log("cast lie", sides<Ci>(lie).value.kind);
+function label<T extends Shape>(s: T): string {
+  switch (s.kind) {
+    case "sq":
+      return "sq " + s.side;
+    case "ci":
+      return "ci " + s.r;
+  }
+}
+function measure<T extends Shape>(s: T): number {
+  if ("side" in s) {
+    return s.side;
+  }
+  return s.r;
+}
+console.log("switch", label(shape), label<Ci>({ kind: "ci", r: 5 }), label<Sq>({ kind: "sq", side: 6 }));
+console.log("in", measure(shape), measure<Ci>({ kind: "ci", r: 7 }), measure<Sq>({ kind: "sq", side: 8 }));
 
 // expect:
 //   a square of side 3
@@ -45,3 +60,5 @@ console.log("cast lie", sides<Ci>(lie).value.kind);
 // dead member ci 3
 //   a square of side 3
 // cast lie sq
+// switch sq 2 ci 5 sq 6
+// in 2 7 8

@@ -1,0 +1,47 @@
+// skip: known issue (H09b4b2, C220): generic code that tsc itself types never (`typeof x === "number"` for an `x: T & string`) lowers its reads as the declared type: PTS1001 (`converting string to number`)
+// Generic code that tsc itself types never (H09b4b, C220): `x: T & string` tested as a
+// number is `T & string & number`, never in the generic code, not just for the instance, so
+// D-195's instance test leaves it as the base lowered it (code tsc already types never). As
+// in plain code, only a lie can reach it: Node never runs it. The base made each read the
+// declared string: PTS1001 (`converting string to number`, `converting string to null`,
+// `conditional expression with operands of types Box and Box`); `Array.isArray` for a
+// `T & number` (`T & number & any[]`) too (`` `x.length` is not supported yet ``).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function num(n: number): string {
+  return "num " + (n + 1);
+}
+function added<T extends string>(x: T & string): string {
+  if (typeof x === "number") {
+    console.log("  dead", x + 1);
+  }
+  return "added " + x;
+}
+function argument<T extends string>(x: T & string): string {
+  if (typeof x === "number") {
+    console.log("  dead", num(x));
+  }
+  return "argument " + x;
+}
+function nulls<T extends string>(x: T & string): string {
+  if (x === null) {
+    const n: null = x;
+    console.log("  dead", n);
+  }
+  return "nulls " + x;
+}
+function boxes<T extends string>(x: T & string): string {
+  const b = typeof x === "number" ? new Box(x) : new Box(x);
+  return "boxes " + b.value;
+}
+function arrays<T extends number>(x: T & number): string {
+  if (Array.isArray(x)) {
+    console.log("  dead", x.length);
+  }
+  return "arrays " + x;
+}
+console.log(added<"s">("s"), argument<string>("t"), nulls<string>("u"), boxes<string>("v"), arrays<number>(3));
+
+// expect:
+// added s argument t nulls u boxes v arrays 3

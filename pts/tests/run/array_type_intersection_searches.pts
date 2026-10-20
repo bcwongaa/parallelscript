@@ -1,0 +1,27 @@
+// Searching an intersection of array types (H09b4b, C227): `indexOf`, `includes` and
+// `lastIndexOf` of a string in a `number[] & string[]` (an honest `v is string[]` on a
+// number[]: an empty array) find nothing, as in Node; for a mixed array narrowed to string[]
+// they search it. The base: PTS1001 (`calling x.indexOf is not supported yet`); the
+// reproducer's prototype: PTS1001 (`converting string to number`, the argument converted to
+// the instance's element type).
+function isStrings(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((e) => typeof e === "string");
+}
+function search<T>(x: T): string {
+  if (isStrings(x)) {
+    return x.indexOf("a") + " " + x.includes("a") + " " + x.lastIndexOf("b");
+  }
+  return "other";
+}
+function plain(x: number[]): string {
+  if (isStrings(x)) {
+    return "plain " + x.indexOf("a") + " " + x.includes("a");
+  }
+  return "plain other";
+}
+console.log(search<number[]>([]), search<(string | number)[]>(["a", "b"]), search<number[]>([1]));
+console.log(plain([]), plain([2]));
+
+// expect:
+// -1 false -1 0 true 1 other
+// plain -1 false plain other

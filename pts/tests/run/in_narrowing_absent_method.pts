@@ -1,0 +1,18 @@
+// skip: known issue (H29, C229): a value narrowed to `Function` (`typeof x.k === "function"` after `"k" in x`, or an unknown) is PTS1001 where called (`calling x.k`); the type Function is D-170's PTS1001
+// `"k" in x && typeof x.k === "function"` for an x whose type has no k (H09b4b, C222): x.k
+// is unknown narrowed to Function, and calling it calls what the object holds, as in Node.
+// The base: PTS1001 (`calling x.k is not supported yet`); so does the reproducer's prototype.
+interface NoK {
+  m: string;
+}
+function called(x: NoK): string {
+  if ("k" in x && typeof x.k === "function") {
+    return "k() " + x.k();
+  }
+  return "no k()";
+}
+const withK = { m: "s", k: 5 };
+console.log(called({ m: "f", k: () => 42 } as NoK), called(withK), called({ m: "t" }));
+
+// expect:
+// k() 42 no k() no k()

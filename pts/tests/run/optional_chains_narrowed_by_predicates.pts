@@ -1,0 +1,78 @@
+// An optional chain that a predicate or test narrows (H09b4b, C226; H09b4a review round 1's
+// s19b): `isNumOrUndefined(o?.v)` for an `o: { v: string } | undefined` types the chain
+// undefined, and it is live: o undefined reaches it. Also `v is undefined`, `=== undefined`
+// and `v is string | undefined` for a number v, in an instance (T = string, T = number) and in
+// plain code, read by a copy, String, `??` and a template. The chain's value is the chain's
+// own undefined or the property's, converted with a check. The base converted the
+// property's value to the narrowed type: PTS1001 (`converting string to undefined`,
+// `converting number to undefined`).
+function isNumOrUndefined(v: unknown): v is number | undefined {
+  return v === undefined || typeof v === "number";
+}
+function isUndefined(v: unknown): v is undefined {
+  return v === undefined;
+}
+function isStrOrUndefined(v: unknown): v is string | undefined {
+  return v === undefined || typeof v === "string";
+}
+function numbers<T>(o: { v: T } | undefined): string {
+  if (isNumOrUndefined(o?.v)) {
+    const n = o?.v;
+    return "n " + n;
+  }
+  return "other";
+}
+function missing<T>(o: { v: T } | undefined): string {
+  if (isUndefined(o?.v)) {
+    return "missing " + String(o?.v) + " " + (o?.v ?? "dflt");
+  }
+  return "present";
+}
+function equal<T>(o: { v: T } | undefined): string {
+  if (o?.v === undefined) {
+    return `equal ${o?.v}`;
+  }
+  return "set";
+}
+function strings<T>(o: { v: T } | undefined): string {
+  if (isStrOrUndefined(o?.v)) {
+    const s = o?.v;
+    return "s " + s;
+  }
+  return "other";
+}
+function plainNumbers(o: { v: string } | undefined): string {
+  if (isNumOrUndefined(o?.v)) {
+    const n = o?.v;
+    return "plain n " + n;
+  }
+  return "plain other";
+}
+function plainMissing(o: { v: number } | undefined): string {
+  if (isUndefined(o?.v)) {
+    return "plain missing " + String(o?.v) + " " + (o?.v ?? "dflt");
+  }
+  return "plain present";
+}
+function plainStrings(o: { v: number } | undefined): string {
+  if (isStrOrUndefined(o?.v)) {
+    return `plain s ${o?.v}`;
+  }
+  return "plain other";
+}
+console.log(numbers<string>(undefined), numbers<string>({ v: "s" }), numbers<number>({ v: 1 }), numbers<number>(undefined));
+console.log(missing<string>(undefined), missing<number>(undefined), missing<number>({ v: 2 }));
+console.log(equal<string>(undefined), equal<number>({ v: 3 }));
+console.log(strings<number>(undefined), strings<number>({ v: 4 }), strings<string>({ v: "t" }));
+console.log(plainNumbers(undefined), plainNumbers({ v: "s" }));
+console.log(plainMissing(undefined), plainMissing({ v: 5 }));
+console.log(plainStrings(undefined), plainStrings({ v: 6 }));
+
+// expect:
+// n undefined other n 1 n undefined
+// missing undefined dflt missing undefined dflt present
+// equal undefined set
+// s undefined other s t
+// plain n undefined plain other
+// plain missing undefined dflt plain present
+// plain s undefined plain other

@@ -1,0 +1,42 @@
+// An intersection of array types (H09b4b, C227; H09b4a review round 2's i01): an honest
+// `v is string[]` applied to a T of number[] narrows to `number[] & string[]`, which an empty
+// array has, so the branch is live. Its value is the array the instance holds: `length`,
+// `join` and `slice` work as for that array, and its elements, which no
+// value has (`number & string`), can only be missing. Also in plain code (a number[]
+// parameter), and for mixed arrays where the narrowing is to string[] itself. The base made
+// every member access PTS1001 (`` `x.length` is not supported yet ``, `calling x.join`,
+// `element access other than indexing a string`); taking the intersection as number[] alone
+// made `x[0].length` read a string's length from a double: PTS9001 (H09b4a round 2's R2-F3).
+// (Aliasing a mixed array narrowed to string[], `const y = x`: narrowed_array_aliases.pts.)
+function isStrings(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((e) => typeof e === "string");
+}
+function f<T>(x: T): string {
+  if (isStrings(x)) {
+    const first = x.length > 0 ? x[0].length : -1;
+    return "strings " + x.join("-") + " " + first;
+  }
+  return "other";
+}
+function members<T>(x: T): string {
+  if (isStrings(x)) {
+    return "len " + x.length + " slice " + x.slice(0).length + " first " + String(x[0]);
+  }
+  return "other";
+}
+function plain(x: number[]): string {
+  if (isStrings(x)) {
+    return "plain len " + x.length + " join [" + x.join("-") + "] slice " + x.slice(0).length;
+  }
+  return "plain other";
+}
+const mixed: (string | number)[] = ["ab", "c"];
+const nums: number[] = [];
+console.log(f(mixed), f<(string | number)[]>([1, "a"]), f(nums), f([3]));
+console.log(members<number[]>([]), members<number[]>([1]), members<(string | number)[]>(["a", "b"]), members<string[]>([]));
+console.log(plain([]), plain([1, 2]));
+
+// expect:
+// strings ab-c 2 other strings  -1 other
+// len 0 slice 0 first undefined other len 2 slice 2 first a len 0 slice 0 first undefined
+// plain len 0 join [] slice 0 plain other

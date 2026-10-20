@@ -1,4 +1,4 @@
-// skip: known issue (H09b4b, C220): plain code that tsc narrows to never, or to an intersection no value has, doesn't lower (PTS1001)
+// skip: known issue (H09b4b2, C220): plain code that tsc narrows to never, or to an intersection no value has, doesn't lower (PTS1001)
 // Plain (non-generic) code that narrows a value to a type no value it holds can have (H09b4b,
 // C220): `typeof x === "number"` for a string, `Array.isArray(x)` for a number, `instanceof`
 // a class for an array or an unrelated class, `=== null` for a string, a falsy object, a user

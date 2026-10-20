@@ -1,9 +1,9 @@
-// skip: known issue (H09b4b, C222): `"k" in x` for an object type without k narrows to `X & Record<"k", unknown>`, whose read of k passes an unboxed object as a dynamic value: the C doesn't compile (PTS9001)
 // `"k" in x` for an x whose type has no k narrows x to `NoK & Record<"k", unknown>`, which a
 // value with an extra property has (found by H09b4's reproducer; plain code). Node runs the
-// branch for the object that has k and prints its value. The C passed an object where a
-// dynamic value goes: PTS9001 (`incompatible pointer to integer conversion passing 'pts_object
-// *' to parameter of type 'pts_value'`).
+// branch for the object that has k and prints its value; so does an instance of a generic
+// function, a class instance with the property and a nested property read (C222). The C
+// passed an object where a dynamic value goes: PTS9001 (`incompatible pointer to integer
+// conversion passing 'pts_object *' to parameter of type 'pts_value'`).
 interface NoK {
   m: string;
 }
@@ -17,7 +17,29 @@ const withK = { m: "s", k: 5 };
 const without: NoK = { m: "t" };
 console.log(describe(withK));
 console.log(describe(without));
+function has<T extends object>(x: T): string {
+  if ("len" in x) {
+    return "has len " + String(x.len);
+  }
+  return "no len";
+}
+class Sized {
+  constructor(public len: number) {}
+}
+console.log(has({ other: 1 }), has({ other: 2, len: 3 }), has(new Sized(4)));
+interface Wrapper {
+  inner: NoK;
+}
+function deep(w: Wrapper): string {
+  if ("k" in w.inner) {
+    return "inner k " + JSON.stringify(w.inner.k);
+  }
+  return "inner without k";
+}
+console.log(deep({ inner: { m: "u", k: [1] } as NoK }), deep({ inner: without }));
 
 // expect:
 // has k 5
 // no k
+// no len has len 3 has len 4
+// inner k [1] inner without k

@@ -2199,7 +2199,7 @@ func arity(params []ir.Type) int {
 // converted to its parameter's type, or what a left-out argument means.
 func (l *lowerer) methodCall(node *ast.Node, builtin *ir.Builtin) ir.Expr {
 	call := node.AsCallExpression()
-	receiver := l.expression(call.Expression.Expression())
+	receiver := l.builtinReceiver(call.Expression.Expression(), builtin)
 	if receiver == nil {
 		return nil
 	}
@@ -2409,14 +2409,26 @@ func (l *lowerer) isKeyedElement(node *ast.Node) bool {
 }
 
 // keyedElementRead lowers a read of a keyed element: the property found at run time,
-// converted to the type tsc gives it with a check.
+// converted to the type tsc gives it with a check; as it is where a test of what it holds
+// reads a narrowed one (`typeof o["v"]`, which a narrowing kept across a call that changed
+// it mustn't decide).
 func (l *lowerer) keyedElementRead(node *ast.Node) ir.Expr {
 	t := l.irType(l.typeAt(node), node)
 	value := l.keyedElementValue(node)
 	if t == nil || value == nil {
 		return nil
 	}
+	if l.isNarrowedProperty(node) && testsAnyValue(node) {
+		return value
+	}
 	return l.checkedConversion(value, t, node)
+}
+
+// isNarrowedProperty reports whether node, an element whose key names a property (`o["v"]`),
+// has a narrower type there than the property's.
+func (l *lowerer) isNarrowedProperty(node *ast.Node) bool {
+	symbol := l.checker.GetSymbolAtLocation(node.AsElementAccessExpression().ArgumentExpression)
+	return symbol != nil && symbol.Flags&ast.SymbolFlagsProperty != 0 && l.checker.GetTypeOfSymbol(symbol) != l.checker.GetTypeAtLocation(node)
 }
 
 // keyedElementValue is the property a keyed element reads, found at run time: a dynamic value.
@@ -2654,11 +2666,22 @@ func (l *lowerer) propertyAccess(node *ast.Node) ir.Expr {
 		l.notSupportedYet(node, "`"+scanner.GetTextOfNode(node)+"` is")
 		return nil
 	}
-	receiver := l.expression(node.Expression())
+	receiver := l.builtinReceiver(node.Expression(), builtin)
 	if receiver == nil {
 		return nil
 	}
 	return &ir.CallBuiltin{Builtin: builtin, Args: []ir.Expr{receiver}}
+}
+
+// builtinReceiver lowers node, the receiver of a library member builtin, converted with a
+// check to the builtin's receiver type where it is a dynamic value that tsc types as that
+// type: an element an instance reads dynamically (C227).
+func (l *lowerer) builtinReceiver(node *ast.Node, builtin *ir.Builtin) ir.Expr {
+	receiver := l.expression(node)
+	if receiver == nil || receiver.Type() != ir.Value || len(builtin.Params) == 0 || builtin.Params[0] == ir.Value {
+		return receiver
+	}
+	return l.checkedConversion(receiver, builtin.Params[0], node)
 }
 
 // isBuiltinFieldOfObjectType reports whether `o.p` (node) reads a field of a builtin class
@@ -3789,6 +3812,45 @@ func (l *lowerer) coveringMember(t *checker.Type) *checker.Type {
 		}
 	}
 	return nil
+}
+
+// brandedPrimitive is the primitive of t, an intersection of a primitive type with object
+// types that only name properties (`string & { __brand: "id" }`, `number & Tagged<"usd">`,
+// `string & {}`), whose values are the primitive's: a brand only tsc sees. Otherwise nil.
+func (l *lowerer) brandedPrimitive(t *checker.Type) *checker.Type {
+	if t.Flags()&checker.TypeFlagsIntersection == 0 {
+		return nil
+	}
+	var primitive *checker.Type
+	for _, member := range t.Types() {
+		switch {
+		case member.Flags()&checker.TypeFlagsPrimitive != 0 && primitive == nil:
+			primitive = member
+		case member.Flags()&checker.TypeFlagsObject == 0 || !l.isObjectType(member) && !l.checker.IsEmptyAnonymousObjectType(member):
+			return nil
+		}
+	}
+	return primitive
+}
+
+// unbranded is t without its brands: a branded primitive's primitive, or for a union that
+// holds branded primitives (`("up" | "down") & { __brand: "dir" }`, which tsc distributes
+// into `("up" & { __brand: "dir" }) | ("down" & …)`), the union of its members with theirs.
+// Otherwise nil.
+func (l *lowerer) unbranded(t *checker.Type) *checker.Type {
+	if primitive := l.brandedPrimitive(t); primitive != nil || t.Flags()&checker.TypeFlagsUnion == 0 {
+		return primitive
+	}
+	if !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return l.brandedPrimitive(member) != nil }) {
+		return nil
+	}
+	members := make([]*checker.Type, len(t.Types()))
+	for i, member := range t.Types() {
+		if members[i] = l.brandedPrimitive(member); members[i] == nil {
+			members[i] = member
+		}
+	}
+	return l.checker.GetUnionType(members)
 }
 
 // builtin returns the runtime function a member access refers to, or nil if it isn't

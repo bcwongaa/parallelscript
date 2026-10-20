@@ -185,7 +185,9 @@ type substitution struct {
 // instantiate is t in the instance being lowered, if any: with its type parameters
 // replaced (in an intersection that narrows one, as narrowedInstance says), or any if it
 // mentions an erased one. Readonly<X> of a class or library type
-// X is X: Object.freeze's result is its argument, and only tsc reads the modifiers.
+// X is X: Object.freeze's result is its argument, and only tsc reads the modifiers. A
+// branded primitive is its primitive, also in a union (unbranded, C221), and an
+// intersection of array types one of them or any (withoutArrayIntersection).
 func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	switch {
 	case l.subst == nil:
@@ -201,7 +203,10 @@ func (l *lowerer) instantiate(t *checker.Type) *checker.Type {
 	if instance := l.readonlyInstance(t); instance != nil {
 		return instance // Readonly<Point>, which Object.freeze gives, is a Point (D-157)
 	}
-	return t
+	if primitive := l.unbranded(t); primitive != nil {
+		return primitive
+	}
+	return l.withoutArrayIntersection(t)
 }
 
 // narrowedInstance is t, an intersection of one of the instance's type parameters with other
@@ -244,10 +249,32 @@ func (l *lowerer) narrowedInstance(t *checker.Type) *checker.Type {
 		arguments := slices.Clone(l.subst.arguments)
 		arguments[index] = member
 		if narrowed := l.checker.PtsInstantiateType(t, l.subst.parameters, arguments); !l.uninhabited(narrowed) {
-			left = append(left, narrowed)
+			left = append(left, l.withoutArrayIntersection(narrowed))
 		}
 	}
 	return l.checker.GetUnionType(left)
+}
+
+// withoutArrayIntersection is t, or for an intersection of array types (`number[] &
+// string[]`, which an honest `v is string[]` narrows a number[] to, in plain code and for
+// a T of number[]), the member whose elements every other member's take (`(string |
+// number)[] & string[]` is a string[], as tsc narrows it in plain code), or any where none
+// does: no IR type holds both a number[] and a string[], which only an array of no elements
+// is, so such a value is read dynamically (C227).
+func (l *lowerer) withoutArrayIntersection(t *checker.Type) *checker.Type {
+	if t.Flags()&checker.TypeFlagsIntersection == 0 || slices.ContainsFunc(t.Types(), func(member *checker.Type) bool {
+		return !l.checker.IsArrayType(member) && !checker.IsTupleType(member)
+	}) {
+		return t
+	}
+	for _, member := range t.Types() {
+		if l.checker.IsArrayType(member) && !slices.ContainsFunc(t.Types(), func(other *checker.Type) bool {
+			return !l.checker.IsArrayType(other) || !l.checker.IsTypeAssignableTo(l.checker.GetElementTypeOfArrayType(member), l.checker.GetElementTypeOfArrayType(other))
+		}) {
+			return member
+		}
+	}
+	return l.checker.GetAnyType()
 }
 
 // includes reports whether every value of member is one of t's, for narrowedInstance: it
