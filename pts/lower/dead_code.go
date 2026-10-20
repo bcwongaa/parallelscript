@@ -285,8 +285,8 @@ const maxLiteralFreeDepth = 4
 // literalFree reports whether t holds no literal types (`{ kind: "sq" }`'s, which shares
 // its IR type with `{ kind: "ci" }`'s) and no types of dynamic values' IR type other than
 // any and unknown (a branded primitive, a promise, `{}`, a union that holds itself, as
-// `Json` does), in its type arguments, properties and call signatures: then no other type
-// of its IR type is narrower. It asks no IR types, which a phantom type argument
+// `Json` does), in its type arguments, properties, index signatures and call signatures:
+// then no other type of its IR type is narrower. It asks no IR types, which a phantom type argument
 // (`Tagged<Weird<string>>`'s) would make. A class of the program or the library is its
 // own IR type.
 func (l *lowerer) literalFree(t *checker.Type, seen map[*checker.Type]bool, depth int) bool {
@@ -336,6 +336,11 @@ func (l *lowerer) literalFreeIn(t *checker.Type, seen, unions map[*checker.Type]
 	for _, property := range l.checker.GetPropertiesOfType(t) {
 		if !free(l.checker.GetTypeOfSymbol(property)) {
 			return false
+		}
+	}
+	for _, info := range l.checker.GetIndexInfosOfType(t) {
+		if !free(info.KeyType()) || !free(info.ValueType()) {
+			return false // `{ [k: string]: J2 }` of a `J2` that recurs through it
 		}
 	}
 	return true

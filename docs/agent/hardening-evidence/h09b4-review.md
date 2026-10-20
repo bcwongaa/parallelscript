@@ -138,3 +138,21 @@ Archive: [h09b4-review3-probes.tar.gz](h09b4-review3-probes.tar.gz) (sha256 `205
 ### Parent's response to round 3
 
 R3-F1 fixed by making `literalFree` structural (`literalFreeIn`): it asks no IR types; dynamic shapes are recognized by the checker's predicates (promises, iterators, timers, `{}`), and a union reached again while it is looked into (`Json`) counts as dynamic; only the type argument itself, whose IR type its instance already made, is asked (`isDynamicIRType`, with the nit fixed). d01, d02 (130 lines of C, as on the base) and d05 match Node; `generic_dead_branches_shared_instances.pts` gains d01's shape (RED on snap7). All 97 probes of the three rounds re-run: 73 match Node; the other 24 are as classified above, plus `d03`, `d04`, `s20` printing what the base prints.
+
+## Round 4 (snapshot `/tmp/h09b4/snap8`, commit `51119cce9`)
+
+Archive: [h09b4-review4-probes.tar.gz](h09b4-review4-probes.tar.gz) (sha256 `a223057c7602f50e129e010b98929b6c47f076903ff95b6fdb99d0892640bc42`; `round4/INDEX.txt` inside).
+
+---
+
+**Round 4 verdict: not ready.** The R3-F1 fix works, but making `literalFree` purely structural loosened one case: a union that recurs only through an index signature (a hash-map object type) now counts as literal-free. That brings back the round-2 F2 trap, with no lie in the program. It's a one-line fix.
+
+The 98 earlier probes on snap8: 73 match Node; `o02` (an intended lie) is the only one where the base matches Node and snap8 doesn't; the other 24 differ from Node on the base too. Against snap7 only `d01` and `d05` changed (both now match Node); `d02`'s C is byte-identical to the base's.
+
+**R4-F1 — Medium, introduced in round 4.** `type J2 = string | number | { [k: string]: J2 }` recurs through a hash-map object, so its IR type is the dynamic value's (D-089); `literalFreeIn` walks type arguments, properties and call signatures but not index signatures, never meets J2 again, and counts it literal-free, so `{v: J2}`, `() => J2`, `Box<J2>` and `[J2]` share unknown's instance tested as if literal-free. Repros `r4/h04`–`h07`: Node and base print the live branch (`unset object`, `undefined true`, `empty box object`, `holds undefined object`); snap8 throws the trap. Direction: walk the value types of index signatures (`GetIndexInfosOfType`); stays structural.
+
+**What held up:** the R3-F1 fix (phantom type arguments create nothing); nested branded primitives, `object`, `{}`, promises, iterables and iterators and unions holding them, unions recurring through arrays, maps or function types, `Map`/`Set` of dynamic values, `Readonly<>`/`Partial<>` stay dynamic or own-IR; library class-likes keep their IR types nested (`ArrayBuffer`, `Error`, `Date`, `RegExp`, `Set`, `Int32Array`, `Map`; `Object`, `Number`, `Boolean`, `WeakMap`, `WeakRef`, `Function` are PTS1001 on both); index signatures with literal or dynamic values and `Ctx` recurring through arrays in a record (`r4/h01`–`h03`) reduce to nothing dead, PTS1001 as on the base; recursive interfaces (`Tree`, `Node`, `Expr` in `r4/c06`) get no traps and the base's PTS1001s; 937 corpus and run programs: emit-c 915 same / 22 different (the same set; only the shared-instances test's C changed since snap7), AllInstances-only 0 regressions, 13 improvements. Outside this slice: `corpus/functional/transducers` emits different C from run to run on the base itself (a second field-order variant of an object-literal shape; `scratch/t.*.c`).
+
+### Parent's response to round 4
+
+R4-F1 fixed as suggested: `literalFreeIn` walks index signatures' key and value types. h04–h07 match Node; `generic_dead_branches_shared_instances.pts` gains the shape (RED on snap8). All probes of the four rounds re-run: 77 match Node; no earlier probe's output changed; `c06` and `h01`–`h03` print the base's PTS1001s (recursive or index-signature type arguments get no traps, which D-195 now states). The `transducers` nondeterminism is the known C85 (map order).

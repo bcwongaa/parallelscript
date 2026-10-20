@@ -5,7 +5,8 @@
 // also inside a function's result, a property or a class's type argument (review rounds 1
 // and 2, F2, R2-F2). Deciding this asks no IR types of a type argument's parts: a phantom
 // type argument's (`Tagged<Weird<string>>`) would make a class instance whose code doesn't
-// lower (round 3, R3-F1).
+// lower (round 3, R3-F1); a union that recurs through an index signature is dynamic too
+// (round 4, R4-F1).
 // Code is dead in an instance only if it is for
 // every type argument that may run it (D-195): each branch below is dead for the first
 // call's type argument and live for the second's, and runs as in Node.
@@ -149,6 +150,16 @@ function numberOrNot<T>(x: T): string {
 }
 const tagged: Tagged<Weird<string>> = { v: 1 };
 console.log(numberOrNot(tagged), numberOrNot(2), new Weird(1).isOne());
+type Hashed = string | number | { [k: string]: Hashed };
+function checkHashed<T>(x: T): string {
+  if (isUnset(x)) {
+    const y = x;
+    return "unset " + typeof y;
+  }
+  return "set";
+}
+const hashed: { v: Hashed } = { v: 1 };
+console.log(checkHashed<{ v: Hashed }>(hashed), checkHashed<{ v: unknown }>({ v: undefined }));
 
 // expect:
 // other id1 number 6
@@ -162,3 +173,4 @@ console.log(numberOrNot(tagged), numberOrNot(2), new Weird(1).isOne());
 // set unset object
 // full empty box object
 // other number true
+// set unset object
