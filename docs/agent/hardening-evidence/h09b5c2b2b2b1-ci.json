@@ -1,0 +1,14 @@
+{
+  "task": "H09b5c2b2b2b1 (D-208)",
+  "checked": "2026-10-22",
+  "method": "One non-blocking session-start list of ten recent runs; no waiting or polling.",
+  "runs": [
+    {"commit": "0f7b68bc233639e2746c91d99f13804b0c2a3722", "role": "literal projection planning documentation", "run_id": 39681782788, "status": "completed", "conclusion": "success", "note": "Certifies only this SHA, not later implementation or acceptance."},
+    {"commit": "6448fb43b5901cae74e70599ec7cd69cc8685099", "role": "prior startup CI backfill documentation", "run_id": 39681498047, "status": "completed", "conclusion": "cancelled", "note": "Cancellation is not a green receipt."}
+  ],
+  "pending_at_session_start": [
+    {"commit": "6a55a85e6e85b8761770b67b6f6a50ccf8c6cf0e", "role": "literal projection implementation", "run_id": 39695634701, "status": "in_progress"},
+    {"commit": "cc17630fbb6da4c6106dddaa7a3e596e89837543", "role": "literal projection acceptance documentation", "run_id": 39695928317, "status": "pending"}
+  ],
+  "note": "No failed run among latest ten. Companion skipped workflows are not PTS receipts. Leave active runs for next session."
+}

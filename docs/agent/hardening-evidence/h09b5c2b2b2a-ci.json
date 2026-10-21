@@ -25,7 +25,9 @@
       "commit": "e7c7a748ef84800c0a676f20f0dbf11efd005858",
       "role": "b2a acceptance documentation",
       "run_id": 39681073833,
-      "status": "in_progress"
+      "status": "completed",
+      "conclusion": "cancelled",
+      "observed": "2026-10-22 next session startup list; superseded, not a green receipt"
     }
   ],
   "note": "No failed run among the ten most recent. In-progress runs are left for a later session, not polled."
