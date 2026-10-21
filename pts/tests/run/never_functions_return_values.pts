@@ -1,0 +1,37 @@
+// skip: known issue (C239, H29): a function declared to return never that returns a value (an enum's other number in an exhaustive switch's default) returns undefined, and its call is void (PTS1001 `converting void to a string` as String's argument)
+// A function declared never only throws, so its result is void (D-195); one whose body
+// returns a value reached without a lie (an enum holds any number, so `return c` in an
+// exhaustive switch's default runs) or after a lying predicate returns undefined, where Node
+// returns the value. Giving such functions a dynamic result breaks overrides, interfaces and
+// conditionals of never functions, whose results stay void (H09b4b2 review round 1's
+// finding 2: `never_functions_dispatched.pts`). Found by H09b4b2's reproducer
+// (`narrowed_never_destinations_keep_values`); pre-existing.
+enum Color {
+  Red,
+  Green,
+}
+function lyingIsNum(v: unknown): v is number {
+  return true;
+}
+function failColor(c: Color): never {
+  switch (c) {
+    case Color.Red:
+      throw new Error("red");
+    case Color.Green:
+      throw new Error("green");
+    default:
+      return c;
+  }
+}
+function failLied(x: string): never {
+  if (lyingIsNum(x)) {
+    return x;
+  }
+  throw new Error("not lied " + x);
+}
+const seven: number = 7;
+const r = failColor(seven);
+console.log("returned " + String(r) + " " + typeof r, "lie returned " + String(failLied("s")));
+
+// expect:
+// returned 7 number lie returned s

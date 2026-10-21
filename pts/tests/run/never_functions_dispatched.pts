@@ -1,0 +1,79 @@
+// Guard (passes on the base; H09b4b2 review round 1's finding 2): functions and methods
+// declared to return never, one of which returns its argument, called through an override,
+// an interface and a conditional of function values, and a generic exhaustiveness helper
+// whose parameter is declared never, reached by a lying predicate. Their results are void
+// alike (a never function only throws); the fix commit made the one that returns a value
+// return a dynamic value, which no longer matched the others (PTS1001 `overriding
+// Handler.fail with other parameter or result types`), and took the generic helper's
+// declared never for an inferred one (a trap where Node returns the fallback).
+class Handler {
+  fail(x: never): never {
+    throw new Error("unhandled " + String(x));
+  }
+}
+class Quiet extends Handler {
+  fail(x: never): never {
+    return x;
+  }
+}
+type Shape = { kind: "sq" } | { kind: "ci" };
+function area(s: Shape, h: Handler): string {
+  switch (s.kind) {
+    case "sq":
+      return "square";
+    case "ci":
+      return "circle";
+    default:
+      return h.fail(s);
+  }
+}
+interface Reporter {
+  unreachable(x: never): never;
+}
+class Lenient implements Reporter {
+  unreachable(x: never): never {
+    return x;
+  }
+}
+type Dir = "up" | "down";
+function move(d: Dir, r: Reporter): number {
+  switch (d) {
+    case "up":
+      return 1;
+    case "down":
+      return -1;
+  }
+  return r.unreachable(d);
+}
+function strict(x: never): never {
+  throw new Error("unexpected " + String(x));
+}
+function lenient(x: never): never {
+  return x;
+}
+const debug = process.argv.length > 99;
+const unreachable: (x: never) => never = debug ? strict : lenient;
+function moved(d: Dir): number {
+  if (d === "up") return 1;
+  if (d === "down") return -1;
+  return unreachable(d);
+}
+function exhaustive<T>(x: never, fallback: T): T {
+  return fallback;
+}
+function lie(v: unknown): v is number {
+  return true;
+}
+function viaGeneric(x: string): string {
+  if (lie(x)) return exhaustive(x, "fallback");
+  return "string " + x;
+}
+console.log(area({ kind: "sq" }, new Quiet()), area({ kind: "ci" }, new Handler()));
+const r: Reporter = new Lenient();
+console.log(move("up", r), move("down", r), moved("up"), moved("down"));
+console.log(viaGeneric("a"));
+
+// expect:
+// square circle
+// 1 -1 1 -1
+// fallback

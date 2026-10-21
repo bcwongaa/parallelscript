@@ -1,0 +1,84 @@
+// Plain code tsc narrows to never in parts of a statement that don't run first (H09b4b2
+// review round 1's finding 4): a `for` condition and update, a `do…while` condition, a case
+// label, a read past `?.`, and dead regions in a finally block, a catch block, an object
+// literal's method and a labelled block. A unit is a trap where such a read is evaluated
+// first; elsewhere the read holds its value and converts with a check where it is used
+// (D-197). Node runs none of it. The base: PTS1001 (`converting string to number is not
+// supported yet`).
+function num(n: number): number {
+  return n + 1;
+}
+function chained(x: string, o: { m(n: number): number } | undefined): number | undefined {
+  if (typeof x === "number") {
+    return o?.m(x);
+  }
+  return 0;
+}
+function loops(x: string): number {
+  let i = 0;
+  if (typeof x === "number") {
+    do {
+      i++;
+    } while (i < x);
+    for (let j = 0; j < 3; j += x) i++;
+    for (let j = 0; j < x; j++) i++;
+  }
+  return i;
+}
+function caseLabel(x: string, k: number): string {
+  if (typeof x === "number") {
+    switch (k) {
+      case num(x):
+        return "hit";
+      default:
+        return "miss";
+    }
+  }
+  return "s";
+}
+function inFinally(x: string): number {
+  if (typeof x === "number") {
+    try {
+      console.log("try");
+    } finally {
+      num(x);
+    }
+  }
+  return 0;
+}
+function inCatch(x: string): number {
+  if (typeof x === "number") {
+    try {
+      throw new Error("e");
+    } catch {
+      return num(x);
+    }
+  }
+  return 0;
+}
+function inMethod(x: string): number {
+  if (typeof x === "number") {
+    const o = {
+      m(): number {
+        return num(x);
+      },
+    };
+    return o.m();
+  }
+  return 0;
+}
+function labelled(x: string): number {
+  if (typeof x === "number") {
+    block: {
+      if (Math.random() > 2) break block;
+      return num(x);
+    }
+  }
+  return 0;
+}
+console.log(chained("a", { m: (n: number) => n + 1 }), loops("b"), caseLabel("c", 1));
+console.log(inFinally("d"), inCatch("e"), inMethod("f"), labelled("g"));
+
+// expect:
+// 0 0 s
+// 0 0 0 0

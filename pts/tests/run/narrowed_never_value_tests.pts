@@ -1,0 +1,150 @@
+// Guard (passes on the base; H09b4b2 review round 1's finding 1): code tsc narrows to never
+// through tests of a value against others, which Node runs with no lie. A destructured
+// discriminant narrows its siblings (`payload` through `kind`): an enum holds any number, so
+// an object whose enum kind is 7 is an Action with no cast, in a declaration, a parameter
+// pattern and a `for…of` pattern; JSON cast to a literal-discriminated Action. A class
+// union's literal `kind` that the base class's method writes, a renamed Error subclass's
+// `name` written through `Error`, an instance Object.assign fills from JSON. `code ===
+// expected` narrows a number to an enum, whose members a chain then exhausts. tsc types
+// each last read never; the fix commit trapped them (`code that can't run ran`). Uses the
+// declared type takes, and copies, read the value they hold (D-197).
+enum Kind {
+  Add,
+  Say,
+}
+type Payload = { n: number; text: string };
+type Action = { kind: Kind.Add; payload: Payload } | { kind: Kind.Say; payload: Payload };
+function destructured(action: Action): string {
+  const { kind, payload } = action;
+  if (kind === Kind.Add) return "add " + payload.n;
+  if (kind === Kind.Say) return "say " + payload.text;
+  const p = payload;
+  return "unknown " + kind + " " + JSON.stringify(p);
+}
+function viaParameter({ kind, payload }: Action): string {
+  if (kind === Kind.Add) return "add";
+  if (kind === Kind.Say) return "say";
+  const p = payload;
+  return "parameter other " + JSON.stringify(p);
+}
+function viaLoop(actions: Action[]): string[] {
+  const out: string[] = [];
+  for (const { kind, payload } of actions) {
+    if (kind === Kind.Add) {
+      out.push("add");
+      continue;
+    }
+    if (kind === Kind.Say) {
+      out.push("say");
+      continue;
+    }
+    const p = payload;
+    out.push("loop other " + JSON.stringify(p));
+  }
+  return out;
+}
+type Literal = { kind: "add"; payload: { n: number } } | { kind: "say"; payload: { text: string } };
+function literal(action: Literal): string {
+  const { kind, payload } = action;
+  if (kind === "add") return "add " + payload.n;
+  if (kind === "say") return "say " + payload.text;
+  const p = payload;
+  return "unknown " + kind + " " + JSON.stringify(p);
+}
+class Base {
+  kind: string = "base";
+  rename(k: string): void {
+    this.kind = k;
+  }
+}
+class Add extends Base {
+  kind: "add" = "add";
+  n = 1;
+}
+class Say extends Base {
+  kind: "say" = "say";
+  text = "x";
+}
+function classes(a: Add | Say): string {
+  switch (a.kind) {
+    case "add":
+      return "add " + a.n;
+    case "say":
+      return "say " + a.text;
+    default: {
+      const other = a;
+      return "other " + (other as Base).kind;
+    }
+  }
+}
+class Loaded {
+  kind: "loaded" = "loaded";
+  n = 0;
+}
+class Empty {
+  kind: "empty" = "empty";
+}
+function described(a: Loaded | Empty): string {
+  switch (a.kind) {
+    case "loaded":
+      return "loaded " + a.n;
+    case "empty":
+      return "empty";
+  }
+  const unknown = a;
+  return "skipped " + JSON.stringify(unknown);
+}
+class NotFound extends Error {
+  name: "NotFound" = "NotFound";
+}
+class Denied extends Error {
+  name: "Denied" = "Denied";
+}
+function errors(e: NotFound | Denied): string {
+  switch (e.name) {
+    case "NotFound":
+      return "404 " + e.message;
+    case "Denied":
+      return "403 " + e.message;
+    default: {
+      const other = e;
+      return "other " + (other as Error).name + " " + (other as Error).message;
+    }
+  }
+}
+function classify(code: number, expected: Kind): string {
+  if (code === expected) {
+    if (code === Kind.Add) return "add";
+    if (code === Kind.Say) return "say";
+    const c = code;
+    return "other " + c;
+  }
+  return "mismatch";
+}
+
+const seven: number = 7;
+const k: Kind = seven;
+const a: Action = { kind: k, payload: { n: 1, text: "hi" } };
+console.log(destructured({ kind: Kind.Say, payload: { n: 0, text: "yo" } }), destructured(a));
+console.log(viaParameter(a), viaLoop([a, { kind: Kind.Add, payload: { n: 3, text: "" } }]).join(", "));
+console.log(literal({ kind: "add", payload: { n: 1 } }), literal(JSON.parse('{"kind":"del","payload":{"n":2}}') as Literal));
+const renamed = new Add();
+renamed.rename("del");
+console.log(classes(new Say()), classes(renamed));
+const loaded = new Loaded();
+Object.assign(loaded, JSON.parse('{"kind":"remove","n":3}'));
+console.log(described(new Empty()), described(loaded));
+const err = new NotFound("gone");
+const asError: Error = err;
+asError.name = "Renamed";
+console.log(errors(new Denied("no")), errors(err));
+console.log(classify(1, Kind.Say), classify(7, k));
+
+// expect:
+// say yo unknown 7 {"n":1,"text":"hi"}
+// parameter other {"n":1,"text":"hi"} loop other {"n":1,"text":"hi"}, add
+// add 1 unknown del {"n":2}
+// say x other del
+// empty skipped {"kind":"remove","n":3}
+// 403 no other Renamed gone
+// say other 7

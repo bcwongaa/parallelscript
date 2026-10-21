@@ -25,14 +25,14 @@ import (
 //
 // Code that tsc itself narrows to a type no value of the read's declared type has (plain
 // code's `typeof x === "number"` for an `x: string`, generic code's for an `x: T & string`)
-// is dead the same way where the narrowing can't be stale (C220, D-197): the read is of a
-// variable no other function assigns, read in its own function, so every test that
-// narrowed it saw the value it holds, and its declared type holds every value of its IR
-// type (an enum, holding any number, or a literal union, doesn't). Where a call or suspension tsc doesn't follow may
-// have changed it since (a property, an element, a variable another function assigns), or
-// it is a loose local that may be undefined, it may be live and reads the value it holds
-// (narrowed). Uses that take its declared type (a
-// cast back to it, an `assertNever`, a log) keep reading it as before (takesAnyValueAsIs).
+// is dead the same way where it holds no value its tests didn't rule out (C220, D-197): the
+// read is of a variable that only its own function assigns and reads, not a loose local;
+// no value of its declared type's IR type passes the tests either; and kind tests narrowed
+// it, not tests of its value against others (testsValues): an enum holds any number, so an
+// exhausted switch over one runs. Elsewhere it may be live without a lie (a property, an
+// element, a variable another function assigns: tsc keeps narrowings across calls and
+// awaits it doesn't follow) and reads what it holds (narrowed). Uses that take its declared
+// type (a cast back to it, an `assertNever`, a log) read it as before (takesAnyValueAsIs).
 
 // deadRead is a read in unit, evaluated where unit starts with no narrowing in between,
 // that has no value there (isDeadRead): unit can't run. It is nil if unit has no such read.
@@ -55,9 +55,11 @@ func (l *lowerer) deadRead(unit *ast.Node) *ast.Node {
 // `String`, `JSON.stringify` or a `console` method, an element of a literal there, an
 // `unknown` parameter), the operand of `typeof`, a template literal's placeholder, and an
 // operand of `+` whose other operand is a string or of `===` and `!==`; not a copy (`const
-// y = x`), whose type is the narrowed one that later code reads. A dead read there (one a
-// type predicate that lied lets run: `if (isNumber(x)) console.log("number", x)`) lowers as
-// the value x holds, as before, rather than making its unit a trap (D-195).
+// y = x`), whose type is the narrowed one that later code reads; and a read tsc itself
+// narrows to no value where its declared type goes (goesAsItsDeclaredType: `assertNever(x)`,
+// a cast back to it, D-197). A dead read there (one a type predicate that lied lets run: `if
+// (isNumber(x)) console.log("number", x)`) lowers as the value x holds, as before, rather
+// than making its unit a trap (D-195).
 func (l *lowerer) takesAnyValueAsIs(node *ast.Node) bool {
 	for node.Parent.Kind == ast.KindParenthesizedExpression {
 		node = node.Parent
@@ -166,7 +168,7 @@ func (l *lowerer) isDeadRead(node *ast.Node) bool {
 	case declared == nil:
 		return false
 	case l.narrowsToNoValue(declared, narrowed):
-		return !l.mayHoldUntestedValue(node) && l.noValueOfItsIRTypePasses(declared, narrowed)
+		return !l.mayHoldUntestedValue(node, declared, narrowed)
 	case l.subst == nil || len(l.subst.parameters) == 0 || l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})):
 		return false
 	}
@@ -221,24 +223,30 @@ func (l *lowerer) narrowsToNoValue(declared, narrowed *checker.Type) bool {
 	return narrowed != declared && l.uninhabited(l.checker.PtsIntersectionType([]*checker.Type{declared, narrowed})) && !l.uninhabited(declared)
 }
 
-// noValueOfItsIRTypePasses reports whether no value of declared's IR type has narrowed,
-// tsc's narrowed type of a read of that declared type, where declared holds no value. For
-// never, declared holds no literal types, enum members or branded primitives (literalFree),
-// whose IR type holds values tsc's narrowing ran out of without testing (an enum's other
-// numbers, a string cast to `"up" | "down"`, an object cast to `Sq` with another kind). An
-// intersection of disjoint kinds or classes (`Color & any[]`) has no value of its IR type
-// either. In an instance, declared is for its type arguments widened (deadTest).
-func (l *lowerer) noValueOfItsIRTypePasses(declared, narrowed *checker.Type) bool {
+// noValueOfItsIRTypePasses reports whether no value of declared's IR type has the type the
+// tests before node, a read of that declared type, narrow it to, where tsc narrows it to
+// narrowed, which no value of declared has. An intersection of disjoint kinds or classes
+// (`Color & any[]`) has no value of the IR type either. tsc's never may only mean that the
+// tests ran out of declared's own values (an enum's members, a literal union's strings, an
+// object union's discriminants), where its IR type holds others (an enum holds any number,
+// and a cast to a literal union or an object type isn't checked for them): so the tests
+// are run again from the widest type of declared's IR type (widestOfIRType), and pass none
+// of its values only if tsc narrows that to no value too (`typeof d === "number"` for a `d:
+// "up" | "down"` does; an exhausted switch over an enum doesn't). In an instance, declared
+// is for its type arguments widened (deadTest).
+func (l *lowerer) noValueOfItsIRTypePasses(node *ast.Node, declared, narrowed *checker.Type) bool {
 	if !isNever(narrowed) && !isNever(l.checker.PtsReducedType(narrowed)) {
 		return true
 	}
+	at := node
 	if l.subst != nil && len(l.subst.parameters) > 0 {
 		instance := l.subst
 		l.subst = l.deadTest()
 		defer func() { l.subst = instance }()
-		declared = l.instantiate(declared)
+		declared, at = l.instantiate(declared), l.subst.declaration
 	}
-	return l.literalFree(declared, map[*checker.Type]bool{}, 0)
+	widest := l.widestOfIRType(declared, at)
+	return widest == declared || l.uninhabited(l.checker.PtsFlowTypeOfReference(node, widest))
 }
 
 // mayBeStale reports whether node, a reference tsc narrowed, may hold a value the tests
@@ -253,11 +261,17 @@ func (l *lowerer) mayBeStale(node *ast.Node) bool {
 	return l.assignedAnywhere[symbol] && functionOf(symbol.ValueDeclaration) != functionOf(node)
 }
 
-// mayHoldUntestedValue reports whether node, a reference tsc narrowed, may hold a value
-// its tests didn't see (mayBeStale), or one its declared type leaves out: a loose local's
-// undefined (`const [a, b] = xs` past xs's end, D-090, D-172).
-func (l *lowerer) mayHoldUntestedValue(node *ast.Node) bool {
-	return l.mayBeStale(node) || node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node))
+// mayHoldUntestedValue reports whether node, a read that tsc narrows to narrowed, which no
+// value of its declared type has, may hold a value its tests didn't rule out: one they
+// didn't see (mayBeStale), one its declared type leaves out (a loose local's undefined:
+// `const [a, b] = xs` past xs's end, D-090, D-172), or one of its declared type's IR type
+// that tsc's narrowing ran out of without testing (noValueOfItsIRTypePasses: an enum's
+// other numbers, a string an `any` or a cast made a `"up" | "down"`), as where a test
+// compared its value with others (testsValues: an exhausted switch on an enum or a class's
+// literal field, `code === expected` for an enum `expected`).
+func (l *lowerer) mayHoldUntestedValue(node *ast.Node, declared, narrowed *checker.Type) bool {
+	return l.mayBeStale(node) || node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) ||
+		!l.noValueOfItsIRTypePasses(node, declared, narrowed) || l.testsValues(node)
 }
 
 // narrowsReadToNoValue reports whether node is a read that tsc narrows to a type no value
@@ -265,6 +279,19 @@ func (l *lowerer) mayHoldUntestedValue(node *ast.Node) bool {
 func (l *lowerer) narrowsReadToNoValue(node *ast.Node) bool {
 	declared, narrowed := l.readTypes(node)
 	return declared != nil && l.narrowsToNoValue(declared, narrowed)
+}
+
+// readsAsItsDeclaredType reports whether node, a read that tsc narrows to a type no value
+// of its declared type has (narrowsReadToNoValue), reads as its declared type, as before:
+// where that type goes (goesAsItsDeclaredType), and if it may hold no untested value (code
+// that can't run), also where any value goes (takesAnyValueAsIs). Elsewhere it holds what
+// it holds, as a dynamic value (narrowed).
+func (l *lowerer) readsAsItsDeclaredType(node *ast.Node) bool {
+	declared, narrowed := l.readTypes(node)
+	if l.mayHoldUntestedValue(node, declared, narrowed) {
+		return l.goesAsItsDeclaredType(node) // stale reads' tests (`o.v === 5`) compare dynamic values (D-196)
+	}
+	return l.takesAnyValueAsIs(node)
 }
 
 // goesAsItsDeclaredType reports whether node is a read that tsc narrows to a type no value
@@ -292,15 +319,27 @@ func (l *lowerer) goesAsItsDeclaredType(node *ast.Node) bool {
 	return l.checker.IsTypeAssignableTo(declared, contextual)
 }
 
-// isInferredParameter reports whether node is an argument whose parameter's type in the
-// called signature is one tsc inferred: a type parameter's (`new Box(x)`'s T).
+// isInferredParameter reports whether node is an argument whose parameter tsc typed never
+// by inference, not by its declaration: a type parameter's (`new Box(x)`'s T), where the
+// called signature's declaration doesn't declare it never (`exhaustive<T>(x: never,
+// fallback: T)`'s x is declared so).
 func (l *lowerer) isInferredParameter(node *ast.Node) bool {
 	call := node.Parent
 	if !ast.IsCallOrNewExpression(call) || node == call.Expression() {
 		return false
 	}
 	signature := l.checker.GetResolvedSignature(call)
-	return signature != nil && (signature.Target() != nil || len(signature.TypeParameters()) > 0)
+	if signature == nil {
+		return false
+	}
+	for signature.Target() != nil {
+		signature = signature.Target()
+	}
+	index, parameters := slices.Index(call.Arguments(), node), signature.Parameters()
+	if index < 0 || len(parameters) == 0 {
+		return false
+	}
+	return !isNever(l.checker.GetTypeOfSymbol(parameters[min(index, len(parameters)-1)]))
 }
 
 // testedType is narrowed, tsc's narrowed type of a read, without the members of its
@@ -351,31 +390,34 @@ func (l *lowerer) deadTest() *substitution {
 	test := *l.subst
 	test.arguments = make([]*checker.Type, len(l.subst.arguments))
 	for i, argument := range l.subst.arguments {
-		test.arguments[i] = l.widestOfIRType(argument)
+		test.arguments[i] = l.widestOfIRType(argument, l.subst.declaration)
 	}
 	l.deadTests[l.subst] = &test
 	return &test
 }
 
-// widestOfIRType is the widest type whose values have t's IR type, or unknown where that
-// isn't one this can name: a primitive's base type for a literal or enum type, t itself
-// for a type that holds no literal types and no values of dynamic IR types, a union of
-// those, any, unknown and never as they are.
-func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
+// widestOfIRType is the widest type whose values have t's IR type (at node, for any
+// report), or unknown where that isn't one this can name: number or string for an enum
+// type, a primitive's base type for a literal type, t itself for a type that holds no
+// literal types and no values of dynamic IR types, a union of those, any, unknown and
+// never as they are.
+func (l *lowerer) widestOfIRType(t *checker.Type, node *ast.Node) *checker.Type {
 	if primitive := l.brandedPrimitive(t); primitive != nil {
 		t = primitive // `string & { __brand: "id" }` is a string
 	}
 	switch {
 	case t.Flags()&(checker.TypeFlagsAny|checker.TypeFlagsUnknown|checker.TypeFlagsNever) != 0:
 		return t
-	case l.isDynamicIRType(t):
+	case l.isDynamicIRType(t, node):
 		return l.checker.GetUnknownType() // a recursive union's (`Json`), a promise's: unknown's
+	case t.Flags()&checker.TypeFlagsEnumLike != 0:
+		return l.enumRepresentation(t) // an enum holds any number (or string) of its IR type
 	case t.Flags()&checker.TypeFlagsPrimitive != 0:
 		return l.checker.GetBaseTypeOfLiteralType(t) // `"a"` and `string` are one IR type
 	case t.Flags()&checker.TypeFlagsUnion != 0:
 		members := make([]*checker.Type, len(t.Types()))
 		for i, member := range t.Types() {
-			if members[i] = l.widestOfIRType(member); members[i].Flags()&checker.TypeFlagsUnknown != 0 {
+			if members[i] = l.widestOfIRType(member, node); members[i].Flags()&checker.TypeFlagsUnknown != 0 {
 				return members[i]
 			}
 		}
@@ -387,16 +429,33 @@ func (l *lowerer) widestOfIRType(t *checker.Type) *checker.Type {
 }
 
 // isDynamicIRType reports whether t's IR type is that of dynamic values, unknown's, or t
-// has none. t is a type argument of the instance being lowered, whose IR type its
-// instance already made: asking makes nothing new.
-func (l *lowerer) isDynamicIRType(t *checker.Type) bool {
+// has none (at node). t is a type argument of the instance being lowered, or the declared
+// type of a read, whose IR type was already made: asking makes nothing new.
+func (l *lowerer) isDynamicIRType(t *checker.Type, node *ast.Node) bool {
 	var irType ir.Type
 	reports := l.reports
 	lowered := l.quietly(func() bool {
-		irType = l.irType(t, l.subst.declaration)
+		irType = l.irType(t, node)
 		return irType != nil && l.reports == reports
 	})
 	return !lowered || irType == ir.Value
+}
+
+// enumRepresentation is the primitive type an enum type t's values have: number for a
+// numeric enum, string for a string one; unknown for an enum of both.
+func (l *lowerer) enumRepresentation(t *checker.Type) *checker.Type {
+	switch {
+	case t.Flags()&checker.TypeFlagsNumberLike != 0 || allMembers(t, checker.TypeFlagsNumberLike):
+		return l.checker.GetNumberType()
+	case t.Flags()&checker.TypeFlagsStringLike != 0 || allMembers(t, checker.TypeFlagsStringLike):
+		return l.checker.GetStringType()
+	}
+	return l.checker.GetUnknownType()
+}
+
+// allMembers reports whether t is a union whose members all have one of flags.
+func allMembers(t *checker.Type, flags checker.TypeFlags) bool {
+	return t.Flags()&checker.TypeFlagsUnion != 0 && !slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return member.Flags()&flags == 0 })
 }
 
 // maxLiteralFreeDepth bounds how deep literalFree looks into a type's properties.

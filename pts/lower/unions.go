@@ -135,17 +135,16 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		return l.narrowedValue(node, x)
 	}
 	if l.narrowsReadToNoValue(node) {
-		if l.mayHoldUntestedValue(node) {
-			// A second test narrowed it to a type no value of its declared type has (never,
-			// `Sub1 & Sub2`), as tsc sees it, though a call tsc doesn't follow changed it
-			// since the first, or it is a loose local's undefined: what it holds, as a
-			// dynamic value, converted with a check where it is used (C220).
-			return box(x)
+		if l.readsAsItsDeclaredType(node) {
+			return x
 		}
-		// Code that can't run (isDeadRead), a use that takes its declared type
-		// (takesAnyValueAsIs), or a value of its IR type that tsc's narrowing ran out of (an
-		// enum's other numbers): what it holds, as its declared type.
-		return x
+		// A second test narrowed it to a type no value of its declared type has (never,
+		// `Sub1 & Sub2`), as tsc sees it, though a call tsc doesn't follow changed it since
+		// the first, or it is a loose local's undefined, or an enum's other number; or code
+		// that can't run, where it isn't evaluated first in a trap (a loop's update, a case
+		// label, past `?.`): what it holds, as a dynamic value, converted with a check where
+		// it is used (C220).
+		return box(x)
 	}
 	union, ok := x.Type().(*ir.Union)
 	if !ok {
@@ -153,7 +152,7 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 	}
 	t := l.typeAt(node)
 	if t.Flags()&checker.TypeFlagsNever != 0 {
-		if l.mayHoldUntestedValue(node) {
+		if l.mayBeStale(node) || node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
 			return box(x) // never for the instance's type arguments (`T & number` for a string T), as above
 		}
 		return x // code that can't run for the instance (isDeadRead)
