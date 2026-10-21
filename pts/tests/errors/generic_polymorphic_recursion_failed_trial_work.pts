@@ -1,0 +1,44 @@
+// Failed trials that would make the same trees again (H09b5, D-198): as
+// generic_polymorphic_recursion_kept_classes.pts, each trial of val makes a Node<U>, which
+// stays when the trial fails, but first runs helper<U>'s branching recursion up to its
+// root's budget. The instances recursion makes count against helper's total for good, so
+// the trials that the kept Nodes' methods start stop making helper's tree; when a failed
+// trial gave the total back, each made it again until Box's total stopped the classes
+// (review round 5: 150 s, 1.05 GB; now about 1.5 s; the base: PTS9001). TestCompilerFailsCleanly's
+// minute per compile catches that cost, and the error names helper, not Box.
+class Box<T> {
+  constructor(public value: T) {}
+}
+const kept: Map<string, unknown>[] = [];
+let g: <U>(x: U, n: number) => Box<U>;
+class Node<T> {
+  constructor(public v: T) {}
+  left(n: number): Box<[T]> {
+    return g<[T]>([this.v], n - 1);
+  }
+  right(n: number): Box<{ v: T }> {
+    return g<{ v: T }>({ v: this.v }, n - 1);
+  }
+}
+function helper<T>(x: T, n: number): number {
+  return n <= 0 ? 1 : helper<[T]>([x], n - 1) + helper<{ w: T }>({ w: x }, n - 1);
+}
+const val = <U,>(x: U, n: number): Box<U> => {
+  const node = new Node<U>(x);
+  const h = helper<U>(x, 2);
+  kept.push(new Map<string, U>());
+  if (n > 0) {
+    node.left(n);
+    node.right(n);
+  }
+  return new Box(x);
+};
+g = val;
+try {
+  const b: Box<number> = g(1, 2);
+  console.log(b.value, kept.length);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// error: polymorphic recursion that makes more than 1024 instances (`helper`) is not supported yet
+// error: converting Map<string, 

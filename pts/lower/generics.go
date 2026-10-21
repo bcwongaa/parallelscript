@@ -32,8 +32,8 @@ const maxInstanceDepth = 64
 const maxRecursiveInstances = 256
 
 // maxRecursiveTotal bounds the instances of one generic function or class declaration that
-// polymorphic recursion makes from all roots together. A class's instances count only here,
-// and stay counted when a trial that made them is taken back, since they stay too (D-198).
+// polymorphic recursion makes from all roots together, failed trials' included. A class's
+// instances count only here (D-198).
 const maxRecursiveTotal = 4 * maxRecursiveInstances
 
 // recursionBudget is a root's budget for one declaration's instances (maxRecursiveInstances),
@@ -72,12 +72,12 @@ func (l *lowerer) instanceLimitAt(declaration *ast.Node, class bool) (limit inst
 }
 
 // countInstance counts an instance of a generic function or class (class) declaration that
-// recursion makes here: a function's against its root's budget and its declaration's total,
-// which taking back a trial that made it gives back with it (D-190), a class's against its
-// declaration's total alone, for good (D-198).
+// recursion makes here against its declaration's total, for good, and a function's against
+// its root's budget too, which taking back a trial that made it gives back (D-190, D-198).
+// The total is kept: the class instances a failed trial made stay, and their bodies may
+// start trials that make the same trees again.
 func (l *lowerer) countInstance(declaration *ast.Node, class bool) {
-	total := recursionBudget{nil, declaration}
-	l.instanceCounts[total]++
+	l.instanceCounts[recursionBudget{nil, declaration}]++
 	if class {
 		return
 	}
@@ -85,7 +85,7 @@ func (l *lowerer) countInstance(declaration *ast.Node, class bool) {
 	budget := recursionBudget{root, declaration}
 	l.instanceCounts[budget]++
 	if t := l.trial; t != nil {
-		t.counted = append(t.counted, budget, total)
+		t.counted = append(t.counted, budget)
 	}
 }
 

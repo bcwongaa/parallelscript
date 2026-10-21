@@ -924,7 +924,7 @@ type trial struct {
 	instances []*instance       // the instances made in it
 	funcs     map[*ir.Func]bool // their functions
 	captures  []capturedBy      // the locals its code made functions outside it capture
-	counted   []recursionBudget // the budgets its function instances counted against (D-198)
+	counted   []recursionBudget // the roots' budgets its function instances counted against (D-198)
 	making    int               // above 0 while an instance is made, whose reports are the trial's
 	foreign   bool              // code that isn't the trial's reported
 }

@@ -351,3 +351,80 @@ Everything below I ran myself. Probe paths are relative to `/tmp/h09b5/review-a/
 
 - **Probes, overlays and results:** `/tmp/h09b5/review-a/r4/` (start with `INDEX.txt`).
 - **Archive:** `/tmp/h09b5/h09b5a-review4-probes.tar.gz` (created last). The CLIs built from overlays are deleted; `INDEX.txt` has the rebuild command.
+
+## Round 5 (snapshot `/tmp/h09b5/snap-e`: `0bdaa4d8f` plus the round-4 changes, committed as `e40e4d3c7`)
+
+Probes, tools and overlays: [h09b5a-review5-probes.tar.gz](h09b5a-review5-probes.tar.gz) (sha256 `ccfba7fbcca272e4…`, 179 entries; `INDEX.txt`).
+
+---
+
+**Verdict: ready, once a one-line change goes in (finding 1).** Everything is bounded now. Round 4's hang is fixed, and I found no program that compiled correctly on the base and does worse on snap-e. But one remaining path still costs 150 s where the base takes 0.36 s, and a one-line prototype brings it to 4 s with every slice test passing. If the parent prefers to keep the code as it is, finding 1 should go into D-198's known gaps.
+
+Everything below I ran myself. Probe paths are relative to `/tmp/h09b5/review-a/r5/`.
+
+### 1. MEDIUM (verified): failed trials can rebuild whole function trees, because a function's total is given back with the trial
+
+- **What happens:**
+  - A failed trial gives back both its per-root budget and the declaration's total.
+  - The class instances it made stay. Their bodies, lowered later, start new typed calls, and each new trial rebuilds a helper's branching tree up to 256 instances, then fails and gives the counts back.
+  - Only Box's class total (1024) stops this, after roughly 2,000 trials × 256 instances of work.
+- **`p/giveback_work.pts`** (round 4's `giveback_classes` plus a branching helper inside `val`):
+
+| Build | Result |
+|---|---|
+| Base | PTS9001 in 0.36 s |
+| snap-e | 150 s and 1.05 GB, then PTS1001 for Box's total |
+| Prototype `overlay/keeptotals` | 4.1 s, same PTS1001 |
+| Node | `1 7` |
+
+- **The prototype** is one line: give back the per-root budgets but keep the declaration totals. Every slice Go, run and error test passes (`mut_keeptotals.txt`), `trial_counts` included.
+- **Trade-off:** instances from failed trials then use up a declaration's total for good. After more than about 16 failed recursive trees of one declaration, its real calls get an honest PTS1001.
+
+### 2. LOW-MEDIUM (verified, same as the base): the total's stand-in-a-trial rule brings back the fallback cliff
+
+- **What happens:** when an interface call (made only in AllInstances) meets a total inside its trial, the report stands, AllInstances fails, and ValueInstances compiles silently.
+- **`p/total_cliff_interface.pts`:** 6 classes implement one interface generic method, each a branching recursion with Box results, beside an unrelated interface call.
+  - The per-level tool shows AllInstances failing on Box's total, then ValueInstances and DeclaredInstances compiling without the interface instances.
+  - Both lines throw `TypeError Expected Box<number>, got Box<any>`; Node prints `5` and `6`. The base prints the same two TypeErrors.
+  - Without the rule (`overlay/noforeign`) it prints Node's output, but then `speculative_roots_3x6` throws at its first level, which is why the rule was added.
+- **Docs:** D-198 says past a total "every case is PTS1001". That isn't true here, and the reason D-198 gives for rejecting option A (the PTS1001 survives only where every fallback makes the same trial) applies to this rule too.
+- **Suggestion:** list it in D-198's known gaps for H09b5b, or make a total's PTS1001 not fall back, so the user gets the error rather than silent TypeErrors.
+
+### 3. LOW (verified, by design)
+
+- **Direct branching recursion now reaches the erased copy at run time.** Classes no longer have a per-root budget, so a function's budget runs out first. `p4/branch_box_deep.pts`: the base reports PTS1001, round 4 reported PTS1001, snap-e compiles and throws the checked TypeError at n=9; Node prints `1`. D-198 states this gap only for `branching_dispatched_deep`; the same applies to direct calls.
+- **Distinct linear chains meet the total.** `p/chains_distinct_17.pts` (17 base types, primitive results) is PTS1001 on both base and snap-e; Node prints `68`; round 3 compiled it. For primitive results the erased copy would be exactly right past the total, but this is a design choice.
+
+### Boundedness (from reading, plus the probes)
+
+- **Class instances made by recursion:** at most 1024 per class declaration, never given back. That closes round 4's hang; `giveback_classes` now stops in about 4.3 s with PTS1001.
+- **Kept function instances:** at most 256 per (root, declaration) and 1024 per declaration. Function instances from failed trials are dropped.
+- **Instances no recursion makes:** limited by chains of distinct declarations, so by program size.
+- **Roots** come from the program's own calls, trials for typed calls in code outside instances, class instances that plain code makes, and erased copies of top-level generics. All are finite.
+- **The only amplification left** is finding 1, and it is bounded.
+
+### Tests
+
+- **Pinned:** `noforeign` fails `errors/generic_polymorphic_recursion_past_the_total`. `trial_counts`, `class_results_via_value` and `kept_classes` passed under both overlays I ran.
+- **`kept_classes` pins the hang only by hanging:** the error-test harness has no time limit, so a regression would show up as a suite timeout rather than a clean failure.
+- **The totals choice is unpinned:** `keeptotals` passes every slice test. If that change is adopted, `giveback_work` (expecting the PTS1001, in seconds) would pin it.
+
+### Regressions
+
+- **Round-4 probes** (`round4_probes_on_snape.txt`):
+  - now match Node: `branch_box_via_value` (`7`), `branch_numbers_deep`, `roots_from_values`;
+  - now PTS1001 for a total, as on the base: `branch_roots_40`, `speculative_roots_3x6`, `giveback_classes`;
+  - `branching_dispatched_deep` is unchanged, by design.
+- **61 probes from rounds 1–3** (`all_probes_on_snape.txt`): 36 match Node. The other 25 are the known honest or conservative PTS1001s and issues the base has too (`Array.isArray` on tuples, `id_array_dispatched`, the cascades).
+- **`branching_direct`** now compiles and prints `5`, like Node.
+- **The parent's suite on snap-e** passed (`suite-e.done`: exit 0).
+
+### Docs
+
+- **D-198 and SPEC §3.7 (line 238)** match the code except for finding 2's sentence and the known gaps named in findings 1 and 3.
+- **`h09b5a.md`** is still the draft the parent described: it ends at "Round 4: see below" and doesn't cover this round yet.
+
+### Files
+
+- **Probes, overlays, mutation results and `INDEX.txt`:** `/tmp/h09b5/review-a/r5/`.
+- **Archive:** `/tmp/h09b5/h09b5a-review5-probes.tar.gz` (created last). The binaries I built are deleted; `INDEX.txt` has the rebuild command.
