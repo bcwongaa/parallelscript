@@ -1,0 +1,67 @@
+// C176 (H09b5b): a failure in an object literal's generic method's pairing (D-191, AllInstances
+// only). The interface call m.make([dog]) is a demand by name, which pairs with every literal
+// whose type is assignable to Maker, so with weirdLiteral too, whose instance for Dog[] makes
+// Weird<Dog[]>, whose animals() doesn't lower (D-094) after every trial; the driver lowered the
+// whole program again with ValueInstances, where the unrelated interface call w.wrap(5) and the
+// call m.make([dog]) itself, whose receiver is a ClassMaker, lost their instances (`Expected
+// Box<…>, got Box<any>`). The literal is never a receiver: only its pairing may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const weirdLiteral = {
+  make<T>(x: T): Box<T> {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  },
+};
+interface Wrapper {
+  wrap<T>(x: T): Box<T>;
+}
+class ClassWrapper implements Wrapper {
+  wrap<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const w: Wrapper = new ClassWrapper();
+attempt("victim", () => String(w.wrap(5).value + 1));
+const m: Maker = new ClassMaker();
+attempt("dogs", () => String(m.make([new Dog()]).value.length));
+const d: any = weirdLiteral;
+console.log("literal through any", d.make(1).value);
+// expect:
+// victim 6
+// dogs 1
+// weird 0
+// literal through any 1

@@ -1,0 +1,28 @@
+// Not C176, so a narrower fallback (H09b5b) keeps it an error: a relaxed cast (D-066) in the
+// instance of a declaration that the program's own value call makes (useBase's demand x the
+// declaration boxed, D-148, at every fallback level). boxed<Base> converts a Base, which lacks
+// Tagged's optional `tag`, to Tagged, and a Derived holds `tag` as a number, so the cast is
+// reported after lowering at every level.
+// error: using a `Base` as a `{id: number; tag?: string | undefined}`, when it may refer to a `Derived` that holds `tag` as another type, is not supported yet
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+function boxed<T extends Base>(x: T): Box<T> {
+  const tagged: Tagged = x;
+  console.log("tagged", tagged.id);
+  return new Box(x);
+}
+function useBase(f: <T extends Base>(x: T) => Box<T>): number {
+  return f(new Base()).value.id;
+}
+console.log("base", useBase(boxed), new Derived().tag);

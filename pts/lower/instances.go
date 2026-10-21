@@ -39,11 +39,22 @@ type demand struct {
 	key       string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
 	chained   bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
 	node      *ast.Node
-	// The last fallback doesn't make it (DeclaredInstances): a demand by name (D-191), an
-	// adapter's or a wrapper's (D-194), a constant key's (C185), one with a rest parameter
-	// (C170) or a dynamic result (D-190). Its pairings' failures are left out of a narrower
-	// lowering (C176).
-	narrowable bool
+	// The last fallback doesn't make it (DeclaredInstances, narrowable): a constant key's
+	// (C185), one with a rest parameter (C170) or a dynamic result (D-190); nor does
+	// ValueInstances (allOnly): a demand by name (D-191), an adapter's or a wrapper's
+	// (D-194). Its pairings' failures are left out of a narrower lowering (C176).
+	narrowable, allOnly bool
+}
+
+// level is the last of Fallbacks that makes d.
+func (d *demand) level() Specialization {
+	switch {
+	case d.allOnly:
+		return AllInstances
+	case d.narrowable:
+		return ValueInstances
+	}
+	return DeclaredInstances
 }
 
 // erasedValue is a function whose closures are a generic function's erased copy as a
@@ -128,6 +139,20 @@ func (l *lowerer) demandAt(call *ast.CallExpression, erasedParams []ir.Type) *de
 		d.key = l.instanceKey(resolved, call.AsNode()) // its values are made for its type arguments (D-190)
 	}
 	return d
+}
+
+// siteDemandAt is demandAt for a call of a value or a dispatched method (instanceCall). The
+// last fallback makes no demand where the call has a rest parameter or a dynamic result
+// (narrowable): what lowering such a demand reports is blamed on the call site, and a
+// narrower lowering lowers the call as the last fallback does, with no demand (C176).
+func (l *lowerer) siteDemandAt(call *ast.CallExpression, erasedParams []ir.Type) *demand {
+	if l.leavesOutSite(call.AsNode(), demandSite) {
+		return nil
+	}
+	if l.checker.PtsWithoutCallChain(l.checker.GetResolvedSignature(call.AsNode())).HasRestParameter() {
+		defer l.blamingSite(call.AsNode(), demandSite)() // the last fallback makes none (demandAt)
+	}
+	return l.demandAt(call, erasedParams)
 }
 
 // isErasedRest reports whether erased, an erased copy's parameter, is a rest parameter
@@ -323,6 +348,9 @@ func (l *lowerer) irTypeKeyPart(identity *keyIdentity, t *checker.Type, node *as
 // receiver: a call of the instance x lists for the call's signature, or else erasedCall,
 // given x and the arguments, each of the call's parameter type, in locals.
 func (l *lowerer) instanceCall(d *demand, call *ast.CallExpression, x ir.Expr, name string, erasedCall func(x ir.Expr, args []ir.Expr) ir.Expr) ir.Expr {
+	if d.narrowable { // the last fallback makes no demand here (siteDemandAt)
+		defer l.blamingSite(call.AsNode(), demandSite)()
+	}
 	args := l.typedArguments(call.Arguments.Nodes, d.want.Params)
 	if args == nil {
 		return nil
@@ -339,6 +367,9 @@ func (l *lowerer) instanceCall(d *demand, call *ast.CallExpression, x ir.Expr, n
 		return nil
 	}
 	l.demands = append(l.demands, d)
+	if d.narrowable {
+		l.usedSite(call.AsNode(), demandSite)
+	}
 	result := ir.Expr(&ir.InstanceCall{X: &ir.LocalRef{Local: object}, Name: name, Signature: d.want, Key: d.key, Args: refs, Otherwise: otherwise})
 	for i := len(args) - 1; i >= 0; i-- {
 		result = &ir.Bind{Local: locals[i], Value: args[i], In: result}
@@ -376,7 +407,7 @@ func (l *lowerer) instanceValueCall(call *ast.CallExpression, callee ir.Expr, ft
 		!l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(signatures[0]), signatures[0].TypeParameters()) {
 		return nil, false
 	}
-	d := l.demandAt(call, ft.Params)
+	d := l.siteDemandAt(call, ft.Params)
 	if d == nil {
 		return nil, false
 	}
@@ -396,7 +427,7 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 	if method.Result != ir.Value || !l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(generic.node)), generic.parameters) {
 		return nil, false
 	}
-	d := l.demandAt(call, method.Params)
+	d := l.siteDemandAt(call, method.Params)
 	if d == nil {
 		return nil, false
 	}
@@ -425,7 +456,7 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 // a local holding a string, holds at run time (D-194), or if byKey is nil, the one name.
 func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, names []string, byKey ir.Expr, shape *ir.Class, params []ir.Type, result ir.Type, dynamicResult bool,
 	erasedCall func(object ir.Expr, args []ir.Expr) ir.Expr) (x ir.Expr, ok bool) {
-	if l.specialization != AllInstances || result != ir.Value || l.leavesOutSite(call.AsNode()) {
+	if l.specialization != AllInstances || result != ir.Value || l.leavesOutSite(call.AsNode(), byNameSite) {
 		return nil, false // a narrower lowering's call site lowers as ValueInstances' (C176)
 	}
 	signatures := l.checker.GetSignaturesOfType(l.typeAt(call.Expression), checker.SignatureKindCall)
@@ -433,13 +464,13 @@ func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		!l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(signatures[0]), signatures[0].TypeParameters()) {
 		return nil, false
 	}
-	restore := l.blamingSite(call.AsNode()) // what the call without its demand doesn't lower (C176)
+	restore := l.blamingSite(call.AsNode(), byNameSite) // what the call without its demand doesn't lower (C176)
 	d := l.demandAt(call, params)
 	restore()
 	if d == nil {
 		return nil, false
 	}
-	d.narrowable = true // a demand by name: AllInstances' alone
+	d.narrowable, d.allOnly = true, true // a demand by name: AllInstances' alone
 	values, at, ok := l.argumentList(call.Arguments.Nodes, params)
 	if !ok {
 		return nil, true
@@ -452,7 +483,7 @@ func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		return l.fromErasedFor(d, erasedCall(object, args), call.AsNode())
 	}
 	nodes := argumentNodes(call.Arguments.Nodes, params)
-	defer l.blamingSite(call.AsNode())()
+	defer l.blamingSite(call.AsNode(), byNameSite)()
 	passed := l.passedAsIs(d, args, values, nodes, params)
 	if passed == nil {
 		if dynamicResult {
@@ -491,6 +522,7 @@ func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		return nil, true
 	}
 	l.demands = append(l.demands, d)
+	l.usedSite(call.AsNode(), byNameSite)
 	for _, other := range names[1:] { // each name byKey may hold
 		named := *d
 		named.name = other
@@ -782,8 +814,11 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	}) {
 		return
 	}
-	if v.forward == nil && l.leavesOut(d, v.generic.node) {
-		return // a narrower lowering's (C176)
+	var p pairing
+	if v.forward == nil {
+		if p = pairingOf(d, v.generic.node, valueLevel(v)); l.narrowing.leavesOut(p) {
+			return // a narrower lowering's (C176)
+		}
 	}
 	if v.forward != nil {
 		l.forwardingInstance(d, v) // a wrapper's (D-194)
@@ -804,7 +839,7 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	fits := func(fn *ir.Func) bool {
 		return (!fn.Closure || fn.Shares == v.fn) && fitsInstance(fn.Params[params:], fn.Result, d.want)
 	}
-	if fn := l.tryInstance(d, v.generic, arguments, d.narrowable || valueNarrowable(v), fits); fn != nil {
+	if fn := l.tryInstance(d, v.generic, arguments, p, fits); fn != nil {
 		v.fn.Instances = append(v.fn.Instances, &ir.Instance{Name: d.name, Signature: d.want, Key: d.key, Func: fn})
 	}
 }
@@ -880,10 +915,11 @@ func (l *lowerer) classType(class *ir.Class) *checker.Type {
 // no call can use, and an instance's code may not lower where its erased copy did (a
 // branch tsc narrows to an intersection for its type arguments), where the program
 // compiled with the erased copy. A failure the trial can't take back (another function's)
-// stands, blamed on the pairing (narrowable: the last fallback doesn't make it) or not; the
-// build is then lowered again without it, or falls back (Fallbacks, C176).
-func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, narrowable bool, fits func(fn *ir.Func) bool) *ir.Func {
-	t := &trial{funcs: map[*ir.Func]bool{}, pairing: pairing{call: d.node, name: d.name, value: generic.node}, narrowable: narrowable}
+// stands, blamed on the pairing p where a later fallback doesn't make it; the build is then
+// lowered again without it, or falls back (Fallbacks, C176). What the trial made that stays
+// and is still to be lowered (its class instances' erased copies) is lowered outside it.
+func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, p pairing, fits func(fn *ir.Func) bool) *ir.Func {
+	t := &trial{funcs: map[*ir.Func]bool{}, pairing: p}
 	reported := l.reportedSoFar() // report only appends to errors
 	reports := reported.reports
 	lowered, demands, values := len(l.lowered), len(l.demands), len(l.erasedValues)
@@ -900,6 +936,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	l.trial = nil
 	switch {
 	case t.foreign:
+		l.lowerPending()
 		return nil // another function failed: that stands, as it would without the trial
 	case fn != nil && l.reports == reports && l.unexplained == reported.unexplained:
 		return fn
@@ -931,6 +968,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	for _, c := range t.captures {
 		c.fn.Captures = slices.DeleteFunc(c.fn.Captures, func(local *ir.Local) bool { return local == c.local })
 	}
+	l.lowerPending() // what stays and wasn't lowered in the trial, not the next trial's code
 	return nil
 }
 
@@ -943,9 +981,8 @@ type trial struct {
 	making    int               // above 0 while an instance is made, whose reports are the trial's
 	foreign   bool              // code that isn't the trial's reported
 	// The demand's pairing with the value or method, which reports of code the trial made
-	// are blamed on where the last fallback doesn't make it (narrowable, C176).
-	pairing    pairing
-	narrowable bool
+	// are blamed on where a later fallback doesn't make it (here, C176).
+	pairing pairing
 }
 
 // capturedBy is a local a function captures.
@@ -1019,7 +1056,8 @@ func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
 	}
 	entry := &ir.Instance{Name: d.name, Signature: d.want, Key: d.key}
 	g.class.Instances = append(g.class.Instances, entry)
-	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) || l.leavesOut(d, g.node) {
+	p := pairingOf(d, g.node, DeclaredInstances)
+	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) || l.narrowing.leavesOut(p) {
 		return
 	}
 	outer := l.subst
@@ -1031,7 +1069,7 @@ func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
 	if len(arguments) != len(g.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) {
 		return
 	}
-	entry.Func = l.tryInstance(d, g, arguments, d.narrowable, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })
+	entry.Func = l.tryInstance(d, g, arguments, p, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })
 }
 
 // descendsFrom reports whether class is ancestor or one of its subclasses.

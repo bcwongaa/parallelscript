@@ -168,6 +168,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 	}
 	for _, existing := range generic.instances {
 		if slices.Equal(existing.arguments, arguments) {
+			l.use(existing.subst)
 			return existing.class
 		}
 	}
@@ -181,8 +182,9 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),
-		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, trial: l.trial}}
+		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}}
 	generic.instances = append(generic.instances, inst)
+	l.use(inst.subst)
 	l.classInstances[class] = inst
 	l.classNodes[class] = generic.node
 	if !l.declareInstanceSuperclass(inst) {

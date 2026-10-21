@@ -662,6 +662,9 @@ func (l *lowerer) trap(read *ast.Node) ir.Expr {
 
 // statementOrTrap lowers a statement, or a trap if it can't run (deadRead); dead says which.
 func (l *lowerer) statementOrTrap(node *ast.Node) (stmts []ir.Stmt, dead bool) {
+	sites := l.statementSites
+	l.statementSites = nil // its own (usedSite)
+	defer func() { l.statementSites = sites }()
 	if read := l.deadRead(node); read != nil {
 		return []ir.Stmt{&ir.ExprStmt{At: l.pos(node), X: l.trap(read)}}, true
 	}

@@ -1,0 +1,58 @@
+// C176 (H09b5b): a failure in a dynamic-result demand's pairing (D-190: a typed call whose result
+// is a promise of generic class instances is a demand, ValueInstances and up). useDogs' call for
+// Dog[] pairs with the escaping async arrow w, whose instance makes Weird<Dog[]>, whose animals()
+// doesn't lower (D-094) after every trial; the driver lowered the whole program again with
+// DeclaredInstances, where the unrelated local arrow and useDogs' call of its inline arrow lost
+// their instances (`Expected Box<…>, got Box<any>`). Only w's pairing may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+async function useDogs(f: <T>(x: T) => Promise<Box<T>>): Promise<number> {
+  const b = await f([new Dog()]);
+  return b.value.length;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+async function main(): Promise<void> {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("victim", () => String(named(5).value + 1));
+  const w = async <T,>(x: T): Promise<Box<T>> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  const d: any = w;
+  console.log("arrow through any", (await d(1)).value);
+  try {
+    console.log("dogs", await useDogs(async <T,>(x: T): Promise<Box<T>> => new Box(x)));
+  } catch (error: any) {
+    console.log("dogs", error.name, error.message);
+  }
+}
+main();
+// expect:
+// victim 6
+// weird 0
+// arrow through any 1
+// dogs 1

@@ -1,0 +1,69 @@
+// C176 (H09b5b): a chain of pairings through a class instance body. useDog's value demand for
+// Dog pairs with the escaping arrow h, whose instance makes Holder<Dog>; Holder<Dog>'s count,
+// lowered after the trial, holds a typed call through a generic function type, f([this.value])
+// for Dog[], another demand, which pairs with the escaping arrow w, whose instance for Dog[]
+// makes Weird<Dog[]>, whose animals() doesn't lower (D-094). The failure stood and the driver
+// lowered the whole program again with DeclaredInstances, where the unrelated local arrow and the
+// program's own calls of inline arrows lost their instances (`Expected Box<…>, got Box<any>`).
+// Only the failing pairing (count's demand x w, or the chain's root, useDog x h) may be dropped.
+// (h takes two parameters, so count's demand doesn't pair with h itself.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+class Holder<T> {
+  constructor(public value: T) {}
+  count(f: <U>(x: U) => Box<U>): number {
+    const b: Box<T[]> = f([this.value]);
+    return b.value.length;
+  }
+}
+function useDog(f: <T>(x: T, label: string) => Box<T>): string {
+  const b: Box<Dog> = f(new Dog(), "dog");
+  return b.value.name;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("victim", () => String(named(5).value + 1));
+  const h = <T,>(x: T, label: string): Box<T> => {
+    const holder = new Holder(x);
+    console.log(label, holder.count(<U,>(y: U): Box<U> => new Box(y)));
+    return new Box(x);
+  };
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  const escaped: any[] = [h, w];
+  attempt("through any", () => String(escaped.length + escaped[1](2).value));
+  attempt("dog", () => useDog(<T,>(x: T, label: string): Box<T> => new Box(x)));
+}
+main();
+// expect:
+// victim 6
+// weird 0
+// through any 4
+// dog a

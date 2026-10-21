@@ -1,0 +1,89 @@
+// C176 (H09b5b): relaxed casts (D-066) in the program's own code that fail only because of
+// pairings. `const t: Tagged = hasId` converts a HasId, which lacks Tagged's optional `tag`, so
+// it is relaxed and checked after lowering against every class the program converts to HasId;
+// Num, which holds `tag` as a number, is converted to HasId only in mk's instance for Num, which
+// useNum's demand made by pairing with the escaping arrow mk (mk's erased copy converts a dynamic
+// value). Likewise `const u: Labelled = hasKey`: Key, holding `label` as a number, is converted to
+// HasKey only in the body of Conv<Key>, a class instance that useKey's demand made by pairing
+// with the escaping arrow mk2. The casts were reported at AllInstances and ValueInstances, so the
+// driver lowered the whole program again with DeclaredInstances, where the unrelated local arrow
+// and useNum's and useKey's calls of their inline arrows lost their instances (`Expected Box<…>,
+// got Box<any>`). Only the pairings useNum x mk and useKey x mk2 may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface HasId {
+  id: number;
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+interface HasKey {
+  key: number;
+}
+interface Labelled {
+  key: number;
+  label?: string;
+}
+class Item {
+  id = 1;
+  key = 1;
+}
+class Num {
+  id = 2;
+  tag = 5;
+}
+class Key {
+  key = 3;
+  label = 7;
+}
+class Conv<T extends HasKey> {
+  constructor(public value: T) {}
+  asHasKey(): HasKey {
+    return this.value;
+  }
+}
+function useNum(f: <T extends HasId>(x: T) => Box<T>): string {
+  const b: Box<Num> = f(new Num());
+  return String(b.value.tag + 1);
+}
+function useKey(f: <T extends HasKey>(x: T) => Box<T>): string {
+  const b: Box<Key> = f(new Key());
+  return String(b.value.label - 1);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("victim", () => String(named(5).value + 1));
+  const mk = <T extends HasId>(x: T): Box<T> => {
+    const h: HasId = x;
+    return new Box(x);
+  };
+  const mk2 = <T extends HasKey>(x: T): Box<T> => {
+    const conv = new Conv(x);
+    return new Box(conv.value);
+  };
+  const escaped: any[] = [mk, mk2];
+  console.log("arrows through any", escaped[0](new Item()).value.id, escaped[1](new Item()).value.key);
+  attempt("num", () => useNum(<T extends HasId>(x: T): Box<T> => new Box(x)));
+  attempt("key", () => useKey(<T extends HasKey>(x: T): Box<T> => new Box(x)));
+  const hasId: HasId = new Item();
+  const t: Tagged = hasId;
+  const hasKey: HasKey = new Item();
+  const u: Labelled = hasKey;
+  console.log("casts", t.id, t.tag, u.key, u.label);
+}
+main();
+// expect:
+// victim 6
+// arrows through any 1 1
+// num 6
+// key 6
+// casts 1 undefined 1 undefined

@@ -1,0 +1,61 @@
+// C176 (H09b5b): a failure in an instantiating adapter's pairing (D-194, AllInstances only).
+// `const t: (x: Dog[]) => Box<Dog[]> = mk` makes an adapter whose demand is a value demand of
+// mk's erased type, which pairs with every erased value of that type, so with the escaping
+// arrow w too, whose instance for Dog[] makes Weird<Dog[]>, whose animals() doesn't lower
+// (D-094) after every trial (D-194's t04); the driver lowered the whole program again with
+// ValueInstances, where the unrelated interface call and the adapter itself lost their instances
+// (`Expected Box<…>, got Box<any>`). Only w's pairing with the adapter's demand may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const maker: Maker = new ClassMaker();
+  attempt("victim", () => String(maker.make(5).value + 1));
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  const d: any = w;
+  console.log("arrow through any", d(1).value);
+  const mk = <T,>(x: T): Box<T> => new Box(x);
+  const t: (x: Dog[]) => Box<Dog[]> = mk;
+  attempt("adapted", () => String(t([new Dog()]).value.length));
+}
+main();
+// expect:
+// victim 6
+// weird 0
+// arrow through any 1
+// adapted 1

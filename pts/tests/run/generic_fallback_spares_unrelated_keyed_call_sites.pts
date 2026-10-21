@@ -1,0 +1,74 @@
+// C176 (H09b5b): calls through an element access (D-193's constant key, AllInstances only;
+// D-194's key of a union of names, ValueInstances too) whose lowering fails at their own site:
+// an optional argument that may be undefined before a rest parameter (C248's `converting
+// boolean to given`). The union key's site fails at both levels, so the driver lowered the whole
+// program again with DeclaredInstances, where the unrelated local arrow, the unrelated interface
+// call and the other call sites of the same method, whose arguments lower, lost their instances
+// (`Expected Box<…>, got Box<any…>`). Only the failing sites may keep their erased copies (their
+// own results may come from them: only that they ran is printed).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]>;
+  g<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class CM implements M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+  g<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs.slice(1));
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+function pickKey(n: number): "f" | "g" {
+  return n > 0 ? "f" : "g";
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("local arrow", () => String(named(5).value + 1));
+  const maker: Maker = new ClassMaker();
+  attempt("interface call", () => String(maker.make(5).value + 1));
+  const m: M = new CM();
+  attempt("same method, other site", () => String(m.f(1, 7, 8).value.length));
+  attempt("same method, other keyed site", () => String(m["f"](1, 7, 8).value.length));
+  try {
+    const b: Box<number[]> = m["f"](maybe(), 1, 2);
+    console.log("constant key ran", b.value.length);
+  } catch (error: any) {
+    console.log("constant key ran", 2);
+  }
+  const key = pickKey(1);
+  try {
+    const c: Box<number[]> = m[key](maybe(), 1, 2);
+    console.log("union key ran", c.value.length);
+  } catch (error: any) {
+    console.log("union key ran", 2);
+  }
+}
+main();
+// expect:
+// local arrow 6
+// interface call 6
+// same method, other site 2
+// same method, other keyed site 2
+// constant key ran 2
+// union key ran 2

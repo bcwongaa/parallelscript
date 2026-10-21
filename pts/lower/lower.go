@@ -182,7 +182,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
-		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[recursionBudget]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}}
+		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[recursionBudget]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}, funcUses: map[*ir.Func]use{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		if l.current == nil {
@@ -343,9 +343,11 @@ type lowerer struct {
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
 	narrowing           *Narrowing                       // what this lowering leaves out (C176)
-	blames              []blame                          // what each of errors is blamed on (blameHere)
-	site                *pairing                         // the call site whose demand by name is being lowered (atSite)
-	unexplainedBlame    *pairing                         // what unexplained is blamed on
+	errorUses           [][]use                          // the code each of errors was reported in (here)
+	site                *pairing                         // the call site whose demand is being lowered (blamingSite)
+	statementSites      []pairing                        // the call sites whose demands made what the statement being lowered uses (usedSite)
+	unexplainedUse      use                              // the code unexplained failed in
+	funcUses            map[*ir.Func]use                 // the code each function is, where it is lowered (relaxedCastBlame)
 	droppedFuncs        map[*ir.Func]bool                // the functions failed trials dropped
 	deadTests           map[*substitution]*substitution  // each instance's substitution for isDeadRead (deadTest)
 	instanceKeys        map[string]string                // the keys of dynamic results' entries, by what tells them apart (instanceKey)
@@ -419,21 +421,21 @@ func (l *lowerer) unsupported(node *ast.Node, format string, args ...any) {
 }
 
 // report records an error once: each instance of a generic function lowers its body again
-// (D-049); with what it is blamed on (blameHere).
+// (D-049); with the code it was reported in (here, C176).
 func (l *lowerer) report(d diagnostic.Diagnostic) {
-	l.reportBlamed(d, l.blameHere())
+	l.reportIn(d, l.here())
 }
 
-// reportBlamed is report of d, blamed on b, or on the program's own code if b is nil.
-func (l *lowerer) reportBlamed(d diagnostic.Diagnostic, b *pairing) {
+// reportIn is report of d, as reported in u.
+func (l *lowerer) reportIn(d diagnostic.Diagnostic, u use) {
 	l.reports++
 	i := slices.Index(l.errors, d)
 	if i < 0 {
 		i = len(l.errors)
 		l.errors = append(l.errors, d)
 	}
-	l.blameReport(i, b)
-	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
+	l.noteUse(i, u)
+	if t := l.trial; t != nil && (t.making == 0 && !t.owns(l.function) || u.atSites()) {
 		t.foreign = true
 	}
 }
@@ -1413,8 +1415,8 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 // noteUnexplained records node, which failed to lower without a report, for
 // unexplainedFailure; in a trial, as report does, whether it is another function's.
 func (l *lowerer) noteUnexplained(node *ast.Node) {
-	l.unexplained, l.unexplainedBlame = node, l.blameHere()
-	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
+	l.unexplained, l.unexplainedUse = node, l.here()
+	if t := l.trial; t != nil && (t.making == 0 && !t.owns(l.function) || l.unexplainedUse.atSites()) {
 		t.foreign = true
 	}
 }
@@ -1425,7 +1427,7 @@ func (l *lowerer) noteUnexplained(node *ast.Node) {
 // from a program that builds.
 func (l *lowerer) unexplainedFailure() {
 	if l.unexplained != nil && len(l.errors) == 0 {
-		l.reportBlamed(diagnostic.At(l.unexplained, diagnostic.NotSupportedYet, "%s (which the compiler failed to lower without saying why) is not supported yet", describe(l.unexplained)), l.unexplainedBlame)
+		l.reportIn(diagnostic.At(l.unexplained, diagnostic.NotSupportedYet, "%s (which the compiler failed to lower without saying why) is not supported yet", describe(l.unexplained)), l.unexplainedUse)
 	}
 }
 

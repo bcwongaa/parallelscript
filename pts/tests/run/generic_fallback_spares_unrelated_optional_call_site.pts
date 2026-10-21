@@ -1,0 +1,46 @@
+// C176 (H09b5b): an optional call of an interface's generic method (D-193's `?.` demand by name,
+// AllInstances only) whose site fails to lower: its instance's result, an Err<{kind: "empty"}>,
+// doesn't convert to the union it goes into (`converting undefined | {error: Box; ok: boolean}
+// to … is not supported yet`, the H09b3a review's a05). The driver lowered the whole program again
+// with ValueInstances, where the unrelated interface call lost its instance (`Expected Box<number>,
+// got Box<any>`). Only the failing site may keep its erased copy (whose union result is a
+// separate defect: only that it ran is printed).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Ok<T> = { ok: true; value: Box<T> };
+type Err<E> = { ok: false; error: Box<E> };
+type Result<T, E> = Ok<T> | Err<E>;
+type PE = { kind: "empty" } | { kind: "bad"; at: number };
+interface Maker {
+  err<E>(e: E): Err<E>;
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  err<E>(e: E): Err<E> {
+    return { ok: false, error: new Box(e) };
+  }
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function pick<X>(flag: boolean, x: X): X | undefined {
+  return flag ? x : undefined;
+}
+const m: Maker = new ClassMaker();
+try {
+  const b: Box<number> = m.make(5);
+  console.log("unrelated", b.value + 1);
+} catch (error: any) {
+  console.log("unrelated", error.name, error.message);
+}
+const mm: Maker | undefined = pick(true, m);
+try {
+  const r: Result<number, PE> | undefined = mm?.err({ kind: "empty" });
+  console.log("?. ran", r !== undefined);
+} catch (error: any) {
+  console.log("?. ran", true);
+}
+// expect:
+// unrelated 6
+// ?. ran true

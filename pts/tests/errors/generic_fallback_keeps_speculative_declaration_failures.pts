@@ -1,0 +1,42 @@
+// Not C176, so a narrower fallback (H09b5b) keeps it an error, though the pairing is
+// speculative: the declaration mkWeird escapes through `any`, so it is an erased value (D-148) at
+// every fallback level, and useDogs' value demand for Dog[] pairs with it at every level, though
+// the program passes useDogs another function; mkWeird's instance for Dog[] makes Weird<Dog[]>,
+// whose animals() doesn't lower (D-094). The compiler can't tell this pairing from a real one
+// (D-190), and no level compiles the program: it stays an error (where Node runs it), as on the
+// base, rather than a build whose real pairings could throw.
+// error: using a Dog[] as a Animal[] where it may be changed or kept
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+function mkWeird<T>(x: T): Box<T> {
+  const weird = new Weird(x);
+  console.log("weird", weird.animals().length);
+  return new Box(x);
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+const d: any = mkWeird;
+console.log("through any", d(1).value);
+console.log("dogs", useDogs(make));

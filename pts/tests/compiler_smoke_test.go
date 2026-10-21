@@ -57,8 +57,17 @@ const (
 var (
 	needsNarrowing = []string{"/run/generic_instances_fall_back.pts",
 		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_class_body.pts",
-		"/run/generic_fallback_spares_unrelated_relaxed_cast.pts"}
-	needsFallback []string
+		"/run/generic_fallback_spares_unrelated_relaxed_cast.pts",
+		"/run/generic_fallback_spares_the_values_other_instances.pts", "/run/generic_fallback_spares_unrelated_adapter.pts",
+		"/run/generic_fallback_spares_unrelated_chain.pts", "/run/generic_fallback_spares_unrelated_dynamic_result.pts",
+		"/run/generic_fallback_spares_unrelated_forwarder.pts", "/run/generic_fallback_spares_unrelated_keyed_call_sites.pts",
+		"/run/generic_fallback_spares_unrelated_literal_method.pts", "/run/generic_fallback_spares_unrelated_optional_call_site.pts",
+		"/run/generic_fallback_spares_unrelated_program_cast.pts", "/run/generic_fallback_spares_unrelated_several.pts",
+		"/run/generic_fallback_spares_unrelated_total.pts", "/run/generic_fallback_spares_unrelated_value_call_site.pts",
+		"/run/generic_fallback_blames_the_trial_whose_code_failed.pts", "/run/generic_fallback_keeps_value_pairings_for_by_name_casts.pts",
+		"/run/generic_fallback_leaves_out_a_cascade_at_once.pts", "/run/generic_fallback_site_inside_a_trial.pts",
+		"/run/generic_fallback_spares_method_instances_of_left_out_classes.pts", "/run/generic_fallback_spares_unrelated_constant_key_site.pts"}
+	needsFallback = []string{"/run/generic_fallback_keeps_value_pairings_for_by_name_totals.pts"}
 )
 
 // smokeProgram is one program the smoke test compiles: a seed, or a mutant of one.

@@ -1,0 +1,55 @@
+// C176 (H09b5b): the narrowest unit is a pairing, not the value. The arrow w is passed to useNum,
+// so it is an erased value, and useDogs' demand for Dog[] pairs with it too, though the program
+// passes useDogs another arrow; w's instance for Dog[] makes Weird<Dog[]>, whose animals()
+// doesn't lower (D-094) after every trial, while its instance for number, which the program's own
+// useNum(w) calls, is fine. The driver lowered the whole program again with DeclaredInstances,
+// where useNum(w) and useDogs' call of its inline arrow lost their instances (`Expected Box<…>,
+// got Box<any>`). Only the pairing useDogs x w may be dropped, not w's other instances.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+function useNum(f: <T>(x: T) => Box<T>): string {
+  const b: Box<number> = f(5);
+  return String(b.value + 1);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  attempt("same value", () => useNum(w));
+  attempt("dogs", () => String(useDogs(<T,>(x: T): Box<T> => new Box(x))));
+}
+main();
+// expect:
+// weird 0
+// same value 6
+// dogs 1

@@ -239,9 +239,9 @@ func (l *lowerer) contextualFuncType(node *ast.Node) *ir.FuncType {
 	if contextual == nil {
 		return nil
 	}
-	errors, blames := l.errors, l.blames
+	errors, uses := l.errors, l.errorUses
 	ft, ok := l.functionType(contextual, node)
-	l.errors, l.blames = errors, blames
+	l.errors, l.errorUses = errors, uses
 	if !ok || ft == nil || ft.Result == ir.Value && l.function.Result != ir.Value {
 		return nil // filter's predicate returns unknown: it gives nothing a shape to take
 	}

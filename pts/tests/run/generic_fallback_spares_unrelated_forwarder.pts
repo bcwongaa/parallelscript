@@ -1,0 +1,90 @@
+// C176 (H09b5b): failures in wrappers' pairings (D-194's forwarders, AllInstances only). The
+// method value of WeirdMaker's make is an erased value with a forwarder; useDogs' value demand
+// for Dog[] pairs with it, and the forwarded call, a dispatched demand of make for Dog[], makes
+// Weird<Dog[]>, whose animals() doesn't lower (D-094: a Dog[] returned as an Animal[]). The
+// literal `adapted` fills DogMaker's generic method with an arrow, so it is wrapped in a
+// functionAsMethod adapter; dm.make([dog]), a demand by name, pairs with it, and the forwarded
+// call makes the arrow's instance for Dog[], another Weird<Dog[]> (and useDogs' demand pairs with
+// the arrow itself, at ValueInstances too). Class instance bodies are lowered after every trial,
+// so the failures stood and the driver lowered the whole program again with DeclaredInstances,
+// where the unrelated interface call, useDogs' call of its inline arrow and dm.make([dog]) itself
+// lost their instances (`Expected Box<…>, got Box<any>`). Neither wrapper nor the arrow reaches a
+// typed call (only `any`): only their pairings with useDogs' and dm.make's demands may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+class WeirdMaker {
+  make<T>(x: T): Box<T> {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  }
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+interface DogMaker {
+  make<T>(x: T): Box<T>;
+}
+class ClassDogMaker implements DogMaker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const m: Maker = new ClassMaker();
+attempt("victim", () => String(m.make(5).value + 1));
+const methodValue = new WeirdMaker().make;
+const d: any = methodValue;
+console.log("method value through any", d(1).value);
+attempt("dogs", () => String(useDogs(<T,>(x: T): Box<T> => new Box(x))));
+const adapted: DogMaker = {
+  make: <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  },
+};
+const viaAny: any = adapted;
+console.log("adapted through any", viaAny.make(1).value);
+const dm: DogMaker = new ClassDogMaker();
+attempt("dog maker", () => String(dm.make([new Dog()]).value.length));
+// expect:
+// victim 6
+// weird 0
+// method value through any 1
+// dogs 1
+// weird 0
+// adapted through any 1
+// dog maker 1

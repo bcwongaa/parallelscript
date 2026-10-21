@@ -1,0 +1,35 @@
+// Not C176, so a narrower fallback (H09b5b) keeps it an error: useDogs' typed call through its
+// generic parameter is a value demand at every fallback level, and the declaration mkWeird passed
+// to it is an erased value at every level too (D-148); mkWeird's instance for Dog[] makes
+// Weird<Dog[]>, whose animals() doesn't lower (D-094). No level compiles the program; dropping
+// the pairing would compile it into the erased copy's run-time TypeError where Node runs it.
+// error: using a Dog[] as a Animal[] where it may be changed or kept
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+function mkWeird<T>(x: T): Box<T> {
+  const weird = new Weird(x);
+  console.log("weird", weird.animals().length);
+  return new Box(x);
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+console.log("dogs", useDogs(mkWeird));

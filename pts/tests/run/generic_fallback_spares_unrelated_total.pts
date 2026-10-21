@@ -1,0 +1,92 @@
+// C176 (H09b5b): D-198's total met in trials that only AllInstances makes (review round 5's
+// total_cliff_interface). The interface call recs[0].rec(5, 3) is a demand by name (D-191)
+// that pairs with six classes' rec, each a branching polymorphic recursion by direct calls with
+// Box results; their trials together spend Box's total (1024), past which the report stands
+// (D-198), so the driver lowered the whole program again with ValueInstances, where the
+// unrelated interface call lost its instance (`Expected Box<number>, got Box<any>`). Only the
+// recursion's call may keep its erased copy (its own result is the erased copy's past the total,
+// so only that it ran is printed).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+interface Rec {
+  rec<T>(x: T, n: number): Box<T>;
+}
+class R0 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v0: T }>({ v0: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R1 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v1: T }>({ v1: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R2 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v2: T }>({ v2: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R3 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v3: T }>({ v3: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R4 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v4: T }>({ v4: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R5 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v5: T }>({ v5: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+const maker: Maker = new ClassMaker();
+try {
+  console.log("unrelated interface call", maker.make(4).value + 1);
+} catch (error: any) {
+  console.log("unrelated interface call", error.name, error.message);
+}
+const recs: Rec[] = [new R0(), new R1(), new R2(), new R3(), new R4(), new R5()];
+try {
+  recs[0].rec(5, 3);
+  console.log("recursion ran");
+} catch (error: any) {
+  console.log("recursion ran");
+}
+// expect:
+// unrelated interface call 5
+// recursion ran

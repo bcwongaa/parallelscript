@@ -122,7 +122,7 @@ func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType) func(d *d
 		if otherwise == nil {
 			return nil
 		}
-		l.demands = append(l.demands, &demand{in: fn, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, narrowable: true})
+		l.demands = append(l.demands, &demand{in: fn, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, narrowable: true, allOnly: true})
 		return &ir.InstanceCall{X: &ir.LocalRef{Local: wrapped}, Signature: d.want, Key: d.key, Args: args, Otherwise: otherwise}
 	}
 }
@@ -142,7 +142,7 @@ func (l *lowerer) methodForward(receiver *ir.Local, m method, generic *genericFu
 		if otherwise == nil {
 			return nil
 		}
-		inner := &demand{in: fn, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic, narrowable: true}
+		inner := &demand{in: fn, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic, narrowable: true, allOnly: true}
 		if generic == nil {
 			inner.shape, inner.receiver = shape, receiverType
 		}
@@ -280,7 +280,7 @@ func (l *lowerer) instantiatingAdapterSkipping(value ir.Expr, to *ir.FuncType, s
 	if to == nil {
 		to = want
 	}
-	d := &demand{erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true}
+	d := &demand{erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true, allOnly: true}
 	if want.Result == ir.Value {
 		d.key = l.instanceKey(instantiated, node) // its values are made for its type arguments (D-190)
 	}

@@ -1,0 +1,69 @@
+// Not C176, so a narrower fallback (H09b5b) keeps it an error: D-198's total met in trials of a
+// dispatched demand (D-101), which every fallback level makes. recs[0].rec(5, 3) through the
+// abstract class Rec pairs with six subclasses' overrides, each a branching polymorphic recursion
+// by direct calls with Box results; their trials together spend Box's total, past which the
+// report stands "as the program's own" (D-198) at every level. (The same recursions through an
+// interface, which only AllInstances pairs, are C176: run/generic_fallback_spares_unrelated_total.pts.)
+// error: polymorphic recursion that makes more than 1024 instances (`Box`) is not supported yet
+class Box<T> {
+  constructor(public value: T) {}
+}
+abstract class Rec {
+  abstract rec<T>(x: T, n: number): Box<T>;
+}
+class R0 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v0: T }>({ v0: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R1 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v1: T }>({ v1: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R2 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v2: T }>({ v2: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R3 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v3: T }>({ v3: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R4 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v4: T }>({ v4: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R5 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v5: T }>({ v5: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+const recs: Rec[] = [new R0(), new R1(), new R2(), new R3(), new R4(), new R5()];
+console.log("recursion", recs[0].rec(5, 3).value + 1);

@@ -1,0 +1,70 @@
+// C176 (H09b5b review round 1, F2): a trial that doesn't fit (hm.hold's instance for Dog[], a
+// Holder<Dog[]> where a Box<Dog[]> goes) is taken back before its pending bodies are lowered, but
+// Holder<Dog[]> stays, and the erased copy of its make, queued, was lowered by the next trial, the
+// victim's (named(5) with named), which then made Weird<Dog[]> (D-094: its method doesn't lower)
+// and was blamed for it. What a failed trial leaves is lowered outside the next trial, so the
+// failure is the first trial's, and the victim keeps its instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+abstract class Maker {
+  abstract make<U>(u: U): Box<U>;
+}
+class Holder<T> extends Maker {
+  constructor(public value: T) {
+    super();
+  }
+  make<U>(u: U): Box<U> {
+    const w = new Weird(this.value);
+    console.log("weird", w.animals().length);
+    return new Box(u);
+  }
+}
+class Plain extends Maker {
+  make<U>(u: U): Box<U> {
+    return new Box(u);
+  }
+}
+interface HM {
+  hold<T>(x: T): Box<T>;
+}
+class HolderMaker implements HM {
+  hold<T>(x: T): Holder<T> {
+    return new Holder(x);
+  }
+}
+const hm: HM = new HolderMaker();
+if (process.argv.length > 100) {
+  console.log("never", hm.hold([new Dog()]).value.length);
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  try {
+    const b: Box<number> = named(5);
+    console.log("victim", b.value + 1);
+  } catch (e: any) {
+    console.log("victim threw", e.message);
+  }
+  const m: Maker = new Plain();
+  console.log("dispatched", m.make(7).value + 1);
+}
+main();
+// expect:
+// victim 6
+// dispatched 8

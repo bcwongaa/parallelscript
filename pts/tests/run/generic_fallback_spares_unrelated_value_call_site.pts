@@ -1,0 +1,38 @@
+// C176 (H09b5b): a typed call of a generic function value (a value demand, D-148, ValueInstances
+// and up) whose lowering fails at its own site: an optional argument that may be undefined
+// before a rest parameter (`converting boolean to given`, C248, in the demand's erased call's
+// arguments, erasedArguments). The site fails at AllInstances and ValueInstances, so the driver
+// lowered the whole program again with DeclaredInstances, where the unrelated local arrow and
+// another call of the same value, whose arguments lower, lost their instances (`Expected Box<…>,
+// got Box<any…>`). Only the failing site may keep its erased copy (its own result may come from
+// it: only that it ran is printed). (If C248 is fixed first, this trigger goes away.)
+class Box<T> {
+  constructor(public value: T) {}
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("victim", () => String(named(5).value + 1));
+  const f: <T>(a?: number, ...xs: T[]) => Box<T[]> = <T,>(a?: number, ...xs: T[]): Box<T[]> => new Box(xs);
+  attempt("same value, other site", () => String(f(1, 1, 2, 3, 4, 5, 6).value.length));
+  try {
+    const b: Box<number[]> = f(maybe(), 1, 2);
+    console.log("trigger ran", b.value.length);
+  } catch (error: any) {
+    console.log("trigger ran", 2);
+  }
+}
+main();
+// expect:
+// victim 6
+// same value, other site 6
+// trigger ran 2

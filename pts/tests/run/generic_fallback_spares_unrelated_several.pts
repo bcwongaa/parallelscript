@@ -1,0 +1,102 @@
+// C176 (H09b5b): several independent failures in one program, each of a kind no trial takes
+// back: a class instance body (useDogs' demand x the escaping arrow w makes Weird<Dog[]>, whose
+// animals() doesn't lower), a relaxed cast in a kept instance (useBase's demand x the escaping
+// arrow boxed) and an interface call site whose AllInstances lowering fails (an optional argument
+// before a rest parameter). The driver lowered the whole program again with DeclaredInstances,
+// where the unrelated local arrow, the unrelated interface call and useDogs' call of its inline
+// arrow lost their instances. All three failing units, and only they, may be dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+interface M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class CM implements M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+function useBase(f: <T extends Base>(x: T) => Box<T>): number {
+  return f(new Base()).value.id;
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+function main(): void {
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("victim arrow", () => String(named(5).value + 1));
+  const maker: Maker = new ClassMaker();
+  attempt("victim interface", () => String(maker.make(5).value + 1));
+  const w = <T,>(x: T): Weird<T> => new Weird(x);
+  const boxed = <T extends Base>(x: T): Box<T> => {
+    const tagged: Tagged = x;
+    return new Box(x);
+  };
+  const escaped: any[] = [w, boxed];
+  console.log("weird", escaped[0](1).animals().length);
+  attempt("dogs", () => String(useDogs(<T,>(x: T): Box<T> => new Box(x))));
+  console.log("kept cast", escaped[1](new Base()).value.id, new Derived().tag);
+  if (escaped.length > 5) {
+    console.log(useBase(boxed));
+  }
+  const m: M = new CM();
+  try {
+    const b: Box<number[]> = m.f(maybe(), 1, 2);
+    console.log("call site ran", b.value.length);
+  } catch (error: any) {
+    console.log("call site ran", 2);
+  }
+}
+main();
+// expect:
+// victim arrow 6
+// victim interface 6
+// weird 0
+// dogs 1
+// kept cast 1 5
+// call site ran 2

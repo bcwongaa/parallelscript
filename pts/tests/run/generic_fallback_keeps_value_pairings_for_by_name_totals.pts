@@ -1,0 +1,50 @@
+// C176 (H09b5b review round 1, F1): trials only AllInstances makes (an interface call by name
+// paired with two classes' branching recursions) spend Box's total (D-198); then a value pairing
+// that ValueInstances makes too (use's call of g with the local arrow la) meets the total in its
+// trial. ValueInstances keeps la's pairing, so a narrower lowering at AllInstances mustn't leave
+// it out: the build falls back to ValueInstances, as before, and la's instance stays.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Rec {
+  rec<T>(x: T, n: number): Box<T>;
+}
+class R0 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v0: T }>({ v0: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R1 implements Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v1: T }>({ v1: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+function r<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    r<[T]>([x], n - 1);
+    r<{ w: T }>({ w: x }, n - 1);
+  }
+  return new Box(x);
+}
+const recs: Rec[] = [new R0(), new R1()];
+if (recs.length > 10) {
+  console.log("never", recs[0].rec(5, 3).value);
+}
+function use(g: <T>(x: T) => Box<T>): number {
+  return g(5).value + 1;
+}
+function main(): void {
+  const la = <T>(x: T): Box<T> => r(x, 3);
+  console.log("value call", use(la));
+}
+main();
+// expect:
+// value call 6

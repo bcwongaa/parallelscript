@@ -1,0 +1,50 @@
+// C176 (H09b5b review round 1, F1): a relaxed cast (D-066) in a value pairing's instance (use's
+// call of g with the local arrow la, which ValueInstances makes too) fails only because an instance
+// that only AllInstances makes (CM.make<Derived>, an interface call by name that never runs)
+// converts a Derived, which holds `tag` as a number, to HasId. A narrower lowering never leaves out
+// what a later fallback keeps: la's pairing stays, and the source's is left out (or the build falls
+// back to ValueInstances, as before), so use's call keeps la's instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface HasId {
+  id: number;
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived {
+  id = 2;
+  tag = 5;
+}
+interface Maker {
+  make<T extends HasId>(x: T): Box<T>;
+}
+class CM implements Maker {
+  make<T extends HasId>(x: T): Box<T> {
+    const h: HasId = x;
+    return new Box(x);
+  }
+}
+const maker: Maker = new CM();
+if (process.argv.length > 100) {
+  console.log("never", maker.make(new Derived()).value.tag);
+}
+function use(g: <T extends HasId>(x: T) => Box<T>, hv: HasId): number {
+  return g(hv).value.id + 1;
+}
+function main(): void {
+  const la = <T extends HasId>(x: T): Box<T> => {
+    const t: Tagged = x;
+    return new Box(x);
+  };
+  const hv: HasId = new Base();
+  console.log("value call", use(la, hv), new Derived().tag);
+}
+main();
+// expect:
+// value call 2 5

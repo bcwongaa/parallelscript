@@ -95,7 +95,9 @@ func (l *lowerer) countInstance(declaration *ast.Node, class bool) {
 // as the program's own, rather than leave a call the erased copy at its first level (D-198).
 func (l *lowerer) reportInstanceLimit(limit instanceLimit, name string, node *ast.Node) {
 	if t := l.trial; t != nil && limit == pastTotal {
-		t.foreign = true
+		t.foreign = true // it stands, the trial's code (here, C176)
+		t.making++
+		defer func() { t.making-- }()
 	}
 	switch limit {
 	case pastDepth:
@@ -309,7 +311,12 @@ type substitution struct {
 	mentions    map[*checker.Type]bool // whether a type mentions an erased type parameter, as found so far
 	instance    bool                   // a generic function's or class's instance, not code extended to erase (erasing) or an erased copy
 	made        *substitution          // what was being lowered or declared where it was made: the instance that made it, if any
-	trial       *trial                 // the trial it was made in, if any, which reports of its code are blamed on (C176)
+	// For an instance, a class instance or an erased copy, the code that made or found it
+	// (use, here): used once it is made, ownUse once the program's own code has (C176).
+	used   bool
+	ownUse bool
+	users  []use
+	outer  *substitution // for a method of a generic class's instance, the class instance's, without which it isn't made
 }
 
 // instanceChain is, for an instance of declaration that the code subst is lowering (or
@@ -974,14 +981,16 @@ func (l *lowerer) contextualTypeArguments(node *ast.Node, generic *genericFunc, 
 // (reported at node).
 func (l *lowerer) erasedInstance(generic *genericFunc, node *ast.Node) *ir.Func {
 	if inst := generic.erased; inst != nil {
+		l.use(inst.subst)
 		return inst.fn
 	}
-	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}, made: generic.outer, trial: l.trial}
+	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}, made: generic.outer, outer: generic.outer}
 	if outer := generic.outer; outer != nil {
 		subst.parameters, subst.arguments = outer.parameters, outer.arguments
 	}
 	inst := &instance{generic: generic, subst: subst}
 	generic.erased = inst
+	l.use(subst)
 	l.declareInstance(inst, generic.name+"_dynamic")
 	return inst.fn
 }
@@ -1164,6 +1173,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	for _, existing := range generic.instances {
 		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
 			if !dynamic || l.madeFor(existing, concrete, node) {
+				l.use(existing.subst)
 				return existing.fn, withinLimits
 			}
 			variants++
@@ -1179,13 +1189,14 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	if recursive {
 		l.countInstance(generic.node, false)
 	}
-	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, trial: l.trial}
+	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, outer: generic.outer}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
 	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
 	generic.instances = append(generic.instances, inst)
+	l.use(subst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
 	if t := l.trial; t != nil {
 		t.instances = append(t.instances, inst)

@@ -763,6 +763,7 @@ func (l *lowerer) fieldInitializers(node *ast.Node, class *ir.Class) []ir.Stmt {
 
 // inFunction lowers with fn as the function being lowered.
 func (l *lowerer) inFunction(fn *ir.Func, lower func()) {
+	l.funcUses[fn] = l.here()
 	outer, outerTargets, outerFinallies := l.function, l.targets, l.finallies
 	l.function, l.targets, l.finallies = fn, nil, nil
 	prologue := l.parameterPrologue(fn) // declares the names the body uses

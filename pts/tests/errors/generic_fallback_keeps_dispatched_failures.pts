@@ -1,0 +1,40 @@
+// Not C176, so a narrower fallback (H09b5b) keeps it an error: a dispatched generic method's
+// demand (D-101) is made at every fallback level, and it pairs with Sub.make, the override the
+// call reaches, whose instance for Dog[] makes Weird<Dog[]>, whose animals() doesn't lower
+// (D-094). No level compiles the program; dropping the pairing would compile it into the erased
+// copy's run-time TypeError (`Expected Box<Dog[]>, got Box<any>`) where Node prints `dogs 1`.
+// error: using a Dog[] as a Animal[] where it may be changed or kept
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+class Base {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Sub extends Base {
+  override make<T>(x: T): Box<T> {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  }
+}
+const b: Base = new Sub();
+const dogs: Box<Dog[]> = b.make([new Dog()]);
+console.log("dogs", dogs.value.length);

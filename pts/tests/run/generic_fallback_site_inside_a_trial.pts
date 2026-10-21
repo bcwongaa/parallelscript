@@ -1,0 +1,40 @@
+// C176 (H09b5b review round 1, F7, pre-existing): the call_site trigger (an interface call by
+// name whose AllInstances lowering fails at its own site) inside a local arrow's instance body.
+// The report was the trial's own, so the trial was taken back silently and use's call kept the
+// erased copy, where ValueInstances (no demands by name) keeps la's instance. A call site's
+// report stands in a trial, so a narrower lowering lowers the site as ValueInstances does, and
+// the trial keeps la's instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class CM implements M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+const m: M = new CM();
+function use(g: <T>(x: T) => Box<T>): number {
+  return g(5).value + 1;
+}
+function main(): void {
+  const la = <T>(x: T): Box<T> => {
+    try {
+      const b: Box<T[]> = m.f(maybe(), x);
+      console.log("inner", b.value.length);
+    } catch (e: any) {
+      console.log("inner", 1);
+    }
+    return new Box(x);
+  };
+  console.log("value call", use(la));
+}
+main();
+// expect:
+// inner 1
+// value call 6

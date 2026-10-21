@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"github.com/microsoft/typescript-go/internal/vfs/osvfs"
@@ -50,8 +51,8 @@ func EmitCNarrowedWith(ctx context.Context, entry string, specialization lower.S
 	if err != nil {
 		return "", err
 	}
-	code, _, err = checked.lowerNarrowing(ctx, specialization, nil)
-	return code, err
+	r := checked.narrowedAt(ctx, slices.Index(lower.Fallbacks, specialization), map[int]*lowering{})
+	return r.code, r.err
 }
 
 // Build compiles the program whose entry module is the file at entry into a native
@@ -72,45 +73,76 @@ func Build(ctx context.Context, entry string, output string) error {
 // the next.
 const maxLowerings = 8
 
-// lowerNarrowing lowers the program to C with specialization, leaving out what narrowing
-// does, and while a lowering fails blaming every failure on what a narrower one leaves out,
-// lowers it again without that too, at most maxLowerings times; narrowing is then what
-// the last lowering left out.
-func (p *checkedProgram) lowerNarrowing(ctx context.Context, specialization lower.Specialization, narrowing *lower.Narrowing) (code string, _ *lower.Narrowing, err error) {
-	for range maxLowerings {
-		var narrower *lower.Narrowing
-		if code, narrower, err = p.emitC(ctx, specialization, narrowing); err == nil || narrower == nil || !fallsBack(ctx, err) {
-			break
-		}
-		narrowing = narrower
-	}
-	return code, narrowing, err
-}
-
 // compileC lowers the program to C, and gives it to accept (a build, or emit-c's check),
 // with each of lower.Fallbacks in turn, until a lowering reports nothing and accept doesn't
 // fail with the C compiler rejecting the C (rejectedC). The instances each but the last adds
 // are made for calls that may never meet them, and a failure in their code that the
 // lowering's trials don't take back mustn't stop a program that compiles without them
-// (D-190, D-191). Where the lowering blames every failure on the instances of some
-// pairings of demands with values, or on some calls' demands by name, it lowers the program
-// again without those (lower.Narrowing, C176), so the rest keep their instances; where it
-// can't, or its C is rejected, the next of lower.Fallbacks is tried, without them too.
+// (D-190, D-191): each is lowered leaving out what its failures are blamed on (narrowedAt).
 func (p *checkedProgram) compileC(ctx context.Context, accept func(ctx context.Context, c string) error) (code string, err error) {
-	var narrowing *lower.Narrowing
-	for _, specialization := range lower.Fallbacks {
-		code, narrowing, err = p.lowerNarrowing(ctx, specialization, narrowing)
-		if err == nil {
-			var rejected *rejectedC
-			if err = accept(ctx, code); !errors.As(err, &rejected) || ctx.Err() != nil {
-				return code, err
+	lowerings := map[int]*lowering{}
+	for at := range lower.Fallbacks {
+		r := p.narrowedAt(ctx, at, lowerings)
+		if r.err != nil {
+			if err = r.err; !fallsBack(ctx, err) {
+				return "", err
 			}
-			err = rejected.InternalError
-		} else if !fallsBack(ctx, err) {
-			return "", err
+			continue
 		}
+		var rejected *rejectedC
+		if err = accept(ctx, r.code); !errors.As(err, &rejected) || ctx.Err() != nil {
+			return r.code, err
+		}
+		err = rejected.InternalError
 	}
 	return "", err
+}
+
+// lowering is the program lowered with lower.Fallbacks[at], leaving out narrowing: its C,
+// or what stopped it.
+type lowering struct {
+	at        int
+	code      string
+	narrowing *lower.Narrowing
+	err       error
+}
+
+// narrowedAt lowers the program with lower.Fallbacks[at], and while a lowering fails blaming
+// every failure on pairings and call sites a narrower one leaves out (lower.Narrowing, C176),
+// lowers it again without those too, at most maxLowerings times, so the rest keep their
+// instances. It never leaves out what the first later fallback that lowers the program
+// keeps: there the program falls back, as before (the lowering fails), so no call has fewer
+// instances than the fallback would give it. lowerings holds each fallback's, made once.
+func (p *checkedProgram) narrowedAt(ctx context.Context, at int, lowerings map[int]*lowering) *lowering {
+	if r := lowerings[at]; r != nil {
+		return r
+	}
+	r := &lowering{at: at}
+	for range maxLowerings {
+		var narrower *lower.Narrowing
+		if r.code, narrower, r.err = p.emitC(ctx, lower.Fallbacks[at], r.narrowing); r.err == nil || narrower == nil || !fallsBack(ctx, r.err) {
+			break
+		}
+		if at+1 < len(lower.Fallbacks) && !narrower.Within(nil, lower.Fallbacks[at+1]) {
+			if later := p.laterLowering(ctx, at+1, lowerings); later != nil && !narrower.Within(later.narrowing, lower.Fallbacks[later.at]) {
+				break
+			}
+		}
+		r.narrowing = narrower
+	}
+	lowerings[at] = r
+	return r
+}
+
+// laterLowering is the first of the lowerings with lower.Fallbacks[from:] that lowers the
+// program (narrowedAt), or nil.
+func (p *checkedProgram) laterLowering(ctx context.Context, from int, lowerings map[int]*lowering) *lowering {
+	for at := from; at < len(lower.Fallbacks); at++ {
+		if r := p.narrowedAt(ctx, at, lowerings); r.err == nil {
+			return r
+		}
+	}
+	return nil
 }
 
 // checkedProgram is a program that loaded and passed the semantic checks.

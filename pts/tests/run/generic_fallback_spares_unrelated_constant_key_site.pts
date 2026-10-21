@@ -1,0 +1,39 @@
+// C176 (H09b5b review round 1, F3): the call_site test's trigger (an optional argument that may
+// be undefined before a rest parameter: `converting boolean to given`, C248) written with a
+// constant key, m["f"]. Left out, the site lowers as ValueInstances lowers it, a dotted call, whose
+// own failure is a call site of its own (a rest parameter's demand), lowered as DeclaredInstances
+// does when left out too; the unrelated local arrow `named` keeps its instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class CM implements M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  try {
+    const b: Box<number> = named(5);
+    console.log("victim", b.value + 1);
+  } catch (e: any) {
+    console.log("victim threw", e.message);
+  }
+  const m: M = new CM();
+  try {
+    const b: Box<number[]> = m["f"](maybe(), 1, 2);
+    console.log("trigger ran", b.value.length);
+  } catch (error: any) {
+    console.log("trigger ran", 2);
+  }
+}
+main();
+// expect:
+// victim 6
+// trigger ran 2
