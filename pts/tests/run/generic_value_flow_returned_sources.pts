@@ -1,0 +1,102 @@
+// H09b5c2a: source-proven returns keep every callable's required instance and closure.
+class Box<T> {
+  constructor(public value: T, public kind: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+
+function aliases(): Factory {
+  const alias = second;
+  const again = alias;
+  return again;
+}
+const arrowFactory = (): Factory => first;
+const expressionFactory = function(): Factory { return second; };
+const factoryAlias = aliases;
+function chained(): Factory {
+  return factoryAlias();
+}
+function nested(): Factory {
+  const hidden: any[] = [second];
+  function ignored(): Factory { return hidden[0]; }
+  const object = { ignored(): Factory { return hidden[0]; } };
+  return first;
+}
+function merged(flag: boolean): Factory {
+  if (flag) return first;
+  return second;
+}
+function finallyReturned(): Factory {
+  try {
+    return first;
+  } finally {
+    return second;
+  }
+}
+function optional(flag: boolean): Factory | undefined {
+  if (flag) return second;
+}
+function bare(flag: boolean): Factory | undefined {
+  if (flag) return first;
+  return;
+}
+function captured(kind: string): Factory {
+  return <T,>(value: T): Box<T> => new Box(value, kind);
+}
+function identity(f: Factory): Factory {
+  return f;
+}
+
+const fromAliases = aliases();
+const aliasesBox: Box<number> = fromAliases(0);
+console.log("aliases", aliasesBox.kind, aliasesBox.value);
+const fromArrow = arrowFactory();
+const arrowBox: Box<number> = fromArrow(1);
+console.log("arrow", arrowBox.kind, arrowBox.value);
+const fromExpression = expressionFactory();
+const expressionBox: Box<number> = fromExpression(2);
+console.log("expression", expressionBox.kind, expressionBox.value);
+const fromChain = chained();
+const chainBox: Box<number> = fromChain(3);
+console.log("chain", chainBox.kind, chainBox.value);
+const fromNested = nested();
+const nestedBox: Box<number> = fromNested(4);
+console.log("nested", nestedBox.kind, nestedBox.value);
+const mergedFirst = merged(true);
+const mergedSecond = merged(false);
+const mergedFirstBox: Box<number> = mergedFirst(5);
+const mergedSecondBox: Box<number> = mergedSecond(6);
+console.log("merged", mergedFirstBox.kind, mergedSecondBox.kind, mergedFirstBox.value, mergedSecondBox.value);
+const fromFinally = finallyReturned();
+const finallyBox: Box<number> = fromFinally(7);
+console.log("finally", finallyBox.kind, finallyBox.value);
+console.log("implicit", optional(false) === undefined, bare(false) === undefined);
+const fromOptional = optional(true)!;
+const optionalBox: Box<number> = fromOptional(8);
+const fromBare = bare(true)!;
+const bareBox: Box<number> = fromBare(9);
+console.log("optional", optionalBox.kind, bareBox.kind, optionalBox.value, bareBox.value);
+const alpha = captured("alpha");
+const beta = captured("beta");
+const alphaBox: Box<number> = alpha(10);
+const betaBox: Box<number> = beta(11);
+console.log("closures", alphaBox.kind, betaBox.kind, alphaBox.value, betaBox.value);
+const identityFirst = identity(first);
+const identitySecond = identity(second);
+const identityFirstBox: Box<number> = identityFirst(12);
+const identitySecondBox: Box<number> = identitySecond(13);
+console.log("shared parameter", identityFirstBox.kind, identitySecondBox.kind, identityFirstBox.value, identitySecondBox.value);
+
+// expect:
+// aliases second 0
+// arrow first 1
+// expression second 2
+// chain second 3
+// nested first 4
+// merged first second 5 6
+// finally second 7
+// implicit true true
+// optional second first 8 9
+// closures alpha beta 10 11
+// shared parameter first second 12 13

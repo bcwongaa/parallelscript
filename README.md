@@ -613,6 +613,8 @@ M7 completes the usable prototype, not correctness or production hardening. The 
 
 ## Known gaps
 
+Generic function-value instances are pruned only when bounded immutable-source analysis proves them unreachable, including returns of synchronous non-generic factories. Unknown/`any`/container origins stay conservative. Broader method/wrapper flow and remaining specialization-growth work are still open; see [the hardening plan](docs/agent/HARDENING_PLAN.md).
+
 Not built yet:
 
 - `https://` for `fetch` (no TLS yet), and streamed request and response bodies.

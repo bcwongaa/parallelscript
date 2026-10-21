@@ -1,0 +1,49 @@
+class Box<T> {
+  constructor(public value: T, public label: string) {}
+}
+class C0 { tag = 0; }
+class C1 { padding = "padding"; tag = 1; }
+type Factory = <T>(value: T) => Box<T>;
+
+function enclosing<U extends { tag: number }>(label: string, value: U): void {
+  const product = <T,>(item: T): Box<T> => new Box(item, label + ":" + value.tag);
+  function returned(): Factory { return product; }
+  const f = returned();
+  const box: Box<U> = f(value);
+  console.log("function", box.label, box.value.tag);
+}
+
+class Host<U extends { tag: number }> {
+  constructor(public label: string, public value: U) {}
+  run(): void {
+    const label = this.label;
+    const saved = this.value;
+    function returned(): Factory {
+      return <T,>(item: T): Box<T> => new Box(item, label + ":" + saved.tag);
+    }
+    const f = returned();
+    const box: Box<U> = f(this.value);
+    console.log("class", box.label, box.value.tag);
+  }
+}
+
+enclosing("zero", new C0());
+enclosing("one", new C1());
+new Host("two", new C0()).run();
+new Host("three", new C1()).run();
+
+function makeCaptured(label: string): Factory {
+  return <T,>(item: T): Box<T> => new Box(item, label);
+}
+const left = makeCaptured("left");
+const right = makeCaptured("right");
+const leftBox: Box<C0> = left(new C0());
+const rightBox: Box<C1> = right(new C1());
+console.log("closures", leftBox.label, leftBox.value.tag, rightBox.label, rightBox.value.tag);
+
+// expect:
+// function zero:0 0
+// function one:1 1
+// class two:0 0
+// class three:1 1
+// closures left 0 right 1

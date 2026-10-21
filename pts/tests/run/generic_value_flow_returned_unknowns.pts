@@ -1,0 +1,112 @@
+// H09b5c2a guards: unknown, mutable, escaping and cyclic return origins remain conservative.
+class Box<T> {
+  constructor(public value: T, public kind: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+const held: any[] = [first, second];
+class C0 { tag = 0; }
+class C1 { tag = 1; }
+
+function anyReturned(): Factory { return held[1]; }
+const unknown: unknown[] = held;
+function unknownReturned(): Factory { return unknown[1] as Factory; }
+function mixedReturned(flag: boolean): Factory {
+  if (flag) return first;
+  return held[1];
+}
+let selected: Factory = first;
+function mutableReturned(): Factory { return selected; }
+selected = second;
+function assignedReturned(f: Factory): Factory {
+  f = second;
+  return f;
+}
+function capturedMutation(f: Factory): Factory {
+  function replace(): void { f = second; }
+  replace();
+  return f;
+}
+let mutableFactory: () => Factory = (): Factory => first;
+mutableFactory = (): Factory => second;
+function escapedReturned(f: Factory): Factory { return f; }
+escapedReturned(first);
+const escapedAlias = escapedReturned;
+function callbackReturned(f: Factory): Factory { return f; }
+const mapped = [second].map(callbackReturned);
+function genericReturned<U>(f: Factory, marker: U): Factory { return f; }
+function recursiveReturned(depth: number): Factory {
+  if (depth === 0) return second;
+  return recursiveReturned(depth - 1);
+}
+function left(depth: number): Factory {
+  if (depth === 0) return first;
+  return right(depth - 1);
+}
+function right(depth: number): Factory {
+  if (depth === 0) return second;
+  return left(depth - 1);
+}
+function enclosing<U>(f: Factory, marker: U): void {
+  function returned(): Factory { return f; }
+  const fromReturn = returned();
+  const box: Box<C0> = fromReturn(new C0());
+  console.log("generic enclosing", box.kind, box.value.tag);
+}
+
+const anyValue = anyReturned();
+const anyBox: Box<number> = anyValue(0);
+console.log("any", anyBox.kind, anyBox.value);
+const unknownValue = unknownReturned();
+const unknownBox: Box<number> = unknownValue(1);
+console.log("unknown", unknownBox.kind, unknownBox.value);
+const mixedValue = mixedReturned(false);
+const mixedBox: Box<number> = mixedValue(2);
+console.log("mixed", mixedBox.kind, mixedBox.value);
+const mutableValue = mutableReturned();
+const mutableBox: Box<number> = mutableValue(3);
+console.log("mutable", mutableBox.kind, mutableBox.value);
+const assignedValue = assignedReturned(first);
+const assignedBox: Box<number> = assignedValue(4);
+console.log("assigned", assignedBox.kind, assignedBox.value);
+const capturedValue = capturedMutation(first);
+const capturedBox: Box<number> = capturedValue(5);
+console.log("captured mutation", capturedBox.kind, capturedBox.value);
+const mutableFactoryValue = mutableFactory();
+const mutableFactoryBox: Box<number> = mutableFactoryValue(6);
+console.log("mutable factory", mutableFactoryBox.kind, mutableFactoryBox.value);
+const escapedValue = escapedAlias(second);
+const escapedBox: Box<number> = escapedValue(7);
+console.log("escaped", escapedBox.kind, escapedBox.value);
+const callbackValue = callbackReturned(first);
+const callbackBox: Box<number> = callbackValue(8);
+const mappedBox: Box<number> = mapped[0](9);
+console.log("callback", callbackBox.kind, mappedBox.kind, callbackBox.value, mappedBox.value);
+const genericValue = genericReturned(second, "marker");
+const genericBox: Box<C1> = genericValue(new C1());
+console.log("generic factory", genericBox.kind, genericBox.value.tag);
+const recursiveValue = recursiveReturned(2);
+const recursiveBox: Box<number> = recursiveValue(10);
+console.log("recursive", recursiveBox.kind, recursiveBox.value);
+const mutualValue = left(1);
+const mutualBox: Box<number> = mutualValue(11);
+console.log("mutual", mutualBox.kind, mutualBox.value);
+enclosing(first, new C0());
+enclosing(second, new C1());
+
+// expect:
+// any second 0
+// unknown second 1
+// mixed second 2
+// mutable second 3
+// assigned second 4
+// captured mutation second 5
+// mutable factory second 6
+// escaped second 7
+// callback first second 8 9
+// generic factory second 1
+// recursive second 10
+// mutual second 11
+// generic enclosing first 0
+// generic enclosing second 0

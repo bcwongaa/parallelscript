@@ -158,6 +158,8 @@ Most TypeScript compiles unchanged. That includes:
 - `Map`, `Set`, `JSON`, `Math`, `RegExp`, typed arrays, basic `Date`, timers and `queueMicrotask`, and `Object.freeze`, after which writes throw `TypeError`, as in strict-mode JavaScript;
 - `fetch`, with `Request`, `Response`, `Headers` and `AbortController` as globals (plain `http://` for now; see [`fetch`](#fetch)).
 
+Generic functions can be passed as values or returned by factories, retaining their captures. To limit generated code, the compiler follows immutable aliases, closed named parameters and returns of synchronous non-generic factories, omitting only instances proved unreachable. Unknown sources (including values read back from `any` or containers) keep compatible instances; this optimization does not weaken run-time type checks or impose a new source-language restriction.
+
 Node is the reference for behaviour. A program that uses only plain TypeScript must print exactly what Node prints, unless [SPEC.md §8](SPEC.md#8-documented-differences-from-typescript-and-node) documents a difference. `console.log` formats values as Node's `util.inspect` does: the same quotes, line breaks, `[Array]` past depth 2, `Map(2) {…}` and class names. Numbers print as JavaScript prints them, so `0.1 + 0.2` is `0.30000000000000004`.
 
 The tests hold the compiler to this. They compare 300 ordinary TypeScript programs with Node: 267 print exactly the same, and each of the other 33 says why it differs (24 use something not supported yet, 8 differ by design and 1 is a known bug).

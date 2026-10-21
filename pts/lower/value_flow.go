@@ -10,11 +10,12 @@ import (
 // means unknown, not no sources. One declaration stands for all its enclosing instances.
 type functionSources map[*ast.Node]bool
 
-// valueFlow proves only immutable sources and parameters of closed named functions
-// (D-201). Everything else keeps the old type-compatible pairing, including any readback.
+// valueFlow proves immutable sources, closed named parameters (D-201) and synchronous
+// non-generic returns (D-202). Unknown sources keep the old type-compatible pairing.
 type valueFlow struct {
 	files   []*ast.SourceFile
 	sources map[*ast.Node]functionSources
+	returns map[*ast.Node]functionSources
 	active  map[*ast.Node]bool
 	uses    map[*ast.Symbol]*functionValueUses
 }
@@ -86,6 +87,8 @@ func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources f
 		ast.KindNumericLiteral, ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral,
 		ast.KindVoidExpression:
 		return functionSources{} // these cannot be a function, even when asserted as one
+	case ast.KindCallExpression:
+		return l.callSources(node.AsCallExpression(), steps, depth+1)
 	case ast.KindParameter:
 		return l.parameterSources(node, steps, depth+1)
 	case ast.KindIdentifier:
