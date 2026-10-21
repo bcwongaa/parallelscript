@@ -888,11 +888,11 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 		return fn
 	}
 	l.errors, l.unexplained = errors, unexplained
+	for _, budget := range t.counted {
+		l.instanceCounts[budget]--
+	}
 	for _, inst := range t.instances {
 		inst.generic.instances = slices.DeleteFunc(inst.generic.instances, func(other *instance) bool { return other == inst })
-		if inst.recursive {
-			l.instanceCounts[inst.generic.node]--
-		}
 	}
 	l.instances = slices.DeleteFunc(l.instances, func(inst *instance) bool { return slices.Contains(t.instances, inst) }) // not lowered, if it didn't fit
 	for fn := range t.funcs {
@@ -921,6 +921,7 @@ type trial struct {
 	instances []*instance       // the instances made in it
 	funcs     map[*ir.Func]bool // their functions
 	captures  []capturedBy      // the locals its code made functions outside it capture
+	counted   []recursionBudget // the budgets its instances, its class instances included, counted against (D-198)
 	making    int               // above 0 while an instance is made, whose reports are the trial's
 	foreign   bool              // code that isn't the trial's reported
 }

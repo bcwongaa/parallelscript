@@ -1,0 +1,42 @@
+// Polymorphic recursion that the program calls side by side, and that calls generic functions
+// side by side at each level (H09b5, D-198). rec is called directly for five base types: each
+// call is a root with its own budget (maxRecursiveInstances), so the five chains of 63
+// instances don't share one, where they stopped at 256 (review round 3's five_chains). f
+// recurses 64 instances deep and each instance calls g1, whose instances call g2 for two type
+// arguments, and so on: the helpers' instances that recursion makes count against f's call's
+// budget, so the tree stops at it, and the calls past it take the erased copies (their
+// results are numbers), where nothing bounded them (round 3's fanout2: 26 s for nine helpers).
+function rec<T>(x: T, n: number): number {
+  if (n === 0) return 1;
+  return 1 + rec([x], n - 1);
+}
+console.log(rec(1, 3), rec("s", 3), rec(true, 3), rec({ a: 1 }, 3), rec(null, 3));
+function g1<U>(u: U): number {
+  return g2<[U]>([u]) + g2<{ v: U }>({ v: u });
+}
+function g2<U>(u: U): number {
+  return g3<[U]>([u]) + g3<{ v: U }>({ v: u });
+}
+function g3<U>(u: U): number {
+  return g4<[U]>([u]) + g4<{ v: U }>({ v: u });
+}
+function g4<U>(u: U): number {
+  return g5<[U]>([u]) + g5<{ v: U }>({ v: u });
+}
+function g5<U>(u: U): number {
+  return g6<[U]>([u]) + g6<{ v: U }>({ v: u });
+}
+function g6<U>(u: U): number {
+  return g7<[U]>([u]) + g7<{ v: U }>({ v: u });
+}
+function g7<U>(u: U): number {
+  return 1;
+}
+function f<T>(x: T, n: number): number {
+  if (n === 0) return g1<T>(x);
+  return g1<T>(x) + f<T[]>([x], n - 1);
+}
+console.log(f(1, 3));
+// expect:
+// 4 4 4 4 4
+// 256

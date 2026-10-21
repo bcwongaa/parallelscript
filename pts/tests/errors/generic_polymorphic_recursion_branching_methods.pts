@@ -1,0 +1,15 @@
+// Branching polymorphic recursion in a generic method of a generic class (H09b5, D-198): m<U>
+// calls this.m for [U] and { v: U } and makes Box<T[]>, whose m makes its own. Past its root's
+// budget for m (maxRecursiveInstances) a call of m takes the erased copy, and the chain of
+// Box instances stops at the class's depth, all in a fraction of a second; counting m's
+// instances per Box instance took 86 s (review round 1's product_blowup).
+class Box<T> {
+  constructor(public value: T) {}
+  m<U>(u: U, n: number): number {
+    if (n <= 0) return 0;
+    const next = new Box<T[]>([this.value]);
+    return this.m<[U]>([u], n - 1) + this.m<{ v: U }>({ v: u }, n - 1) + next.m<U>(u, n - 1);
+  }
+}
+console.log(new Box(1).m(2, 2));
+// error: generic_polymorphic_recursion_branching_methods.pts:10:11 - error PTS1001: polymorphic recursion more than 64 instances deep (`Box`) is not supported yet

@@ -24,10 +24,18 @@ import (
 const maxInstanceDepth = 64
 
 // maxRecursiveInstances bounds the instances of one generic function or class declaration
-// that polymorphic recursion makes, those made in an instance of that declaration (the
-// generic methods of all of a generic class's instances together), so that recursion that
-// branches (f<T> calling f<[T]> and f<T[]>) stops too; side by side instances don't count.
+// that polymorphic recursion makes from one instance the program's own code made (a root,
+// the outermost on their chain): those whose chain repeats a declaration (instanceChain),
+// so that recursion that branches (f<T> calling f<[T]> and f<T[]>), or that calls other
+// generic functions side by side at each level, stops too. Each root has its own budget;
+// instances no recursion makes don't count.
 const maxRecursiveInstances = 256
+
+// recursionBudget is a root's budget for one declaration's instances (maxRecursiveInstances).
+type recursionBudget struct {
+	root        *substitution
+	declaration *ast.Node
+}
 
 // instanceLimit is which limit an instance would be past, if any (D-198).
 type instanceLimit int
@@ -39,17 +47,29 @@ const (
 )
 
 // instanceLimitAt is the limit code here (l.subst) would be past by making another
-// instance of a generic function or class declaration, and whether that instance would be
-// made by recursion, in an instance of the declaration, and count (instanceCounts).
+// instance of a generic function or class declaration, and whether recursion makes it
+// (it then counts against its root's budget: countInstance).
 func (l *lowerer) instanceLimitAt(declaration *ast.Node) (limit instanceLimit, recursive bool) {
-	depth := instanceDepth(l.subst, declaration)
+	depth, root, recursive := instanceChain(l.subst, declaration)
 	switch {
 	case depth >= maxInstanceDepth:
-		return pastDepth, true
-	case depth > 0 && l.instanceCounts[declaration] >= maxRecursiveInstances:
-		return pastCount, true
+		return pastDepth, recursive
+	case recursive && l.instanceCounts[recursionBudget{root, declaration}] >= maxRecursiveInstances:
+		return pastCount, recursive
 	}
-	return withinLimits, depth > 0
+	return withinLimits, recursive
+}
+
+// countInstance counts an instance of declaration that recursion makes here against its
+// root's budget, and in a trial, among what taking the trial back gives back (D-190): its
+// class instances stay, but a trial that failed made them for a call that won't use them.
+func (l *lowerer) countInstance(declaration *ast.Node) {
+	_, root, _ := instanceChain(l.subst, declaration)
+	budget := recursionBudget{root, declaration}
+	l.instanceCounts[budget]++
+	if t := l.trial; t != nil {
+		t.counted = append(t.counted, budget)
+	}
 }
 
 // reportInstanceLimit reports at node that an instance of a generic function or class
@@ -251,7 +271,6 @@ type instance struct {
 	literals  []*checker.Type // the type arguments that are literal types, which `T[K]` can tell apart (D-089)
 	fn        *ir.Func        // nil if it failed, which was reported
 	subst     *substitution
-	recursive bool // made in an instance of its declaration, so it counts (maxRecursiveInstances)
 }
 
 // substitution replaces type parameters by type arguments in the checker types of an
@@ -267,17 +286,25 @@ type substitution struct {
 	made        *substitution          // what was being lowered or declared where it was made: the instance that made it, if any
 }
 
-// instanceDepth is how many instances of declaration the code that subst is lowering (or
-// declaring) was made in, its own included: one more than that is the depth of an
-// instance of declaration that it makes (maxInstanceDepth).
-func instanceDepth(subst *substitution, declaration *ast.Node) int {
-	depth := 0
+// instanceChain is, for an instance of declaration that the code subst is lowering (or
+// declaring) makes, how many instances of declaration that code was made in, its own
+// included (one less than the new instance's depth, maxInstanceDepth); the outermost
+// instance on the chain, its root; and whether polymorphic recursion makes it: the chain
+// with the new instance repeats a declaration (maxRecursiveInstances).
+func instanceChain(subst *substitution, declaration *ast.Node) (depth int, root *substitution, recursive bool) {
+	seen := map[*ast.Node]bool{declaration: true}
 	for ; subst != nil; subst = subst.made {
-		if subst.instance && subst.declaration == declaration {
+		if !subst.instance {
+			continue
+		}
+		if subst.declaration == declaration {
 			depth++
 		}
+		recursive = recursive || seen[subst.declaration]
+		seen[subst.declaration] = true
+		root = subst
 	}
-	return depth
+	return depth, root, recursive
 }
 
 // instantiate is t in the instance being lowered, if any: with its type parameters
@@ -629,10 +656,10 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 		arguments = fromResult
 	}
 	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode(), false)
-	if limit == pastDepth && !l.erasedResultCopies(generic, call.AsNode()) {
-		// Polymorphic recursion: the call maxInstanceDepth instances deep calls the erased
-		// copy, its result checked (fromErasedCall), which only a call that runs that deep
-		// reaches (D-198).
+	if limit != withinLimits && !l.erasedResultCopies(generic, call.AsNode()) {
+		// Polymorphic recursion: the call maxInstanceDepth instances deep, or past its root's
+		// budget, calls the erased copy, its result checked (fromErasedCall), which only a
+		// call that runs that deep or that wide reaches (D-198).
 		return l.erasedInstance(generic, call.AsNode())
 	}
 	if limit != withinLimits {
@@ -1122,14 +1149,14 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		return nil, limit
 	}
 	if recursive {
-		l.instanceCounts[generic.node]++
+		l.countInstance(generic.node)
 	}
 	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
-	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst, recursive: recursive}
+	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
 	generic.instances = append(generic.instances, inst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
 	if t := l.trial; t != nil {

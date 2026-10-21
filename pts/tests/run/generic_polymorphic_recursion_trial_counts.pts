@@ -1,0 +1,43 @@
+// A failed trial's instances leave its root's budget (H09b5, D-198): viaValue<number> is an
+// instance its program's call makes, a root, and the typed calls in it pair with rec in
+// trials (D-190) whose direct recursion makes 63 instances of rec each, counted against
+// viaValue<number>'s budget (maxRecursiveInstances, 256). The trials for u16 and u32 then
+// fail on the root's `T | i16` (a union of two numeric types, the trial's own failure) and
+// are taken back, and their calls never run (gate). The calls for i8, i32, f32 and string
+// make 63 each: 252, within the budget only because the 126 taken back left it; otherwise
+// the last ones' trials fail and they throw `Expected Box<…>, got Box<any>` (review round 3).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function rec<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = rec([x], n - 1);
+    const y: T | i16 = x;
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const gate = Date.now() < 0;
+function viaValue<V>(g: <T>(x: T, n: number) => Box<T>, root: V): void {
+  if (gate) {
+    attempt("u16", () => `${g(2 as u16, 1).value}`);
+    attempt("u32", () => `${g(5 as u32, 1).value}`);
+  }
+  attempt("i8", () => `${g(3 as i8, 3).value}`);
+  attempt("i32", () => `${g(4 as i32, 3).value}`);
+  attempt("f32", () => `${g(6 as f32, 3).value}`);
+  attempt("string", () => g("s", 3).value);
+}
+viaValue(rec, 0);
+// expect:
+// i8 3
+// i32 4
+// f32 6
+// string s

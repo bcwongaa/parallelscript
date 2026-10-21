@@ -177,7 +177,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 		return nil
 	}
 	if recursive {
-		l.instanceCounts[generic.node]++ // class instances aren't taken back with a trial's
+		l.countInstance(generic.node)
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),

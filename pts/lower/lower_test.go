@@ -1715,29 +1715,25 @@ func TestInstancesMadeSideBySideDontCountAgainstTheLimits(t *testing.T) {
 	assert.Equal(t, countFuncs(program, "Holder.pick_"), 9*32, "every Holder's pick for every type")
 }
 
-func TestPolymorphicRecursionCountsTheInstancesItMakesPerDeclaration(t *testing.T) {
+func TestPolymorphicRecursionCountsTheInstancesItMakesPerRoot(t *testing.T) {
 	t.Parallel()
-	// m<U> calls this.m for [U] and { v: U } and makes Box<T[]>, whose m makes its own: a tree
-	// of instances that branches past what the depth limit stops. The instances recursion
-	// makes count per declaration, every Box instance's m together (maxRecursiveInstances,
-	// 256), so the tree stops at 256 of them besides the one the program's call makes; counted
-	// per Box instance it made 1024 for each (review round 1's product_blowup: 86 s).
-	program, errors := lowerSource(t, `class Box<T> {
-  constructor(public value: T) {}
-  m<U>(u: U, n: number): number {
-    if (n <= 0) return 0;
-    const next = new Box<T[]>([this.value]);
-    return this.m<[U]>([u], n - 1) + this.m<{ v: U }>({ v: u }, n - 1) + next.m<U>(u, n - 1);
-  }
+	// f<T> calls f<[T]> and f<{ v: T }>: a tree of instances that branches past what the
+	// depth limit stops. Each of the program's two calls is a root, and the instances
+	// recursion makes from it count against its own budget (maxRecursiveInstances, 256), so
+	// each tree stops at 256 besides its root, where the call takes the erased copy (its
+	// result needs no copy, D-198). Counted per declaration, the two trees shared 256 (review
+	// round 3's five_chains); counted per generic function instance, a generic class's
+	// branching method made 1024 of them for each class instance (round 1's product_blowup).
+	program, errors := lowerSource(t, `function f<T>(x: T, n: number): number {
+  if (n <= 0) return 0;
+  return f<[T]>([x], n - 1) + f<{ v: T }>({ v: x }, n - 1);
 }
-console.log(new Box(1).m(2, 2));
+console.log(f(1, 3), f("s", 3));
 `)
 
-	assert.Assert(t, len(errors) > 0)
-	for _, d := range errors {
-		assert.Assert(t, strings.Contains(d.Format("/p"), "polymorphic recursion that makes more than 256 instances (`Box.m`)"), "%s", d.Format("/p"))
-	}
-	assert.Equal(t, countFuncs(program, "Box.m_"), 257)
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	assert.Equal(t, countFuncs(program, "f_dynamic"), 1, "the erased copy, which the calls past each budget take")
+	assert.Equal(t, countFuncs(program, "f_"), 2*257+1)
 }
 
 // countFuncs is how many of program's functions have names starting with prefix.

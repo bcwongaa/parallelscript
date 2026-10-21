@@ -187,3 +187,84 @@ I agree with deferring them to H22; I found no cheap, safe fix by reading.
 - **Still open, out of scope:** `spec_class_recursion` and `spec_class_recursion2` are still PTS1001. A class depth met during member declaration in a speculative trial counts as foreign, because trials don't take back class instances (H09b5b).
 
 Probes, overlays, results and `INDEX.txt` are in `/tmp/h09b5/review-a/r2/`, archived last as `/tmp/h09b5/h09b5a-review2-probes.tar.gz`. The CLIs and binaries I built are deleted; `INDEX.txt` has the rebuild command.
+
+## Round 3 (snapshot `/tmp/h09b5/snap-c`: `909af48b7` plus the round-2 changes, committed as `aa42491a5`)
+
+Probes, tools and overlays: [h09b5a-review3-probes.tar.gz](h09b5a-review3-probes.tar.gz) (sha256 `3adf66083c814fc7…`, 140 entries; `INDEX.txt`).
+
+---
+
+**Verdict: ready.** I found no correctness defect, no silent wrong value past the depth for direct calls, no internal error, and no regression against the base. The three findings below are a design gap, a compile-cost backstop and a missing test. I recommend the cheap fixes for the first and third before committing.
+
+Everything marked verified I ran myself. Probe paths are relative to `/tmp/h09b5/review-a/r3/`.
+
+### Findings
+
+#### 1. MEDIUM (verified): one recursion budget is shared by separate linear chains, and a direct call past it is PTS1001
+
+- **What happens:** maxRecursiveInstances is meant to stop branching recursion. But each call of a linear (non-branching) recursion for a new base type uses 63 of the 256 before the depth limit. The main loop lowers instances breadth-first, so all chains spend the budget together.
+- **`p/five_chains.pts`:** one linear `rec` called directly for 5 base types, recursing 3 levels. Snap-c gives PTS1001 "polymorphic recursion that makes more than 256 instances (`rec`)"; Node prints `4 4 4 4 4`. The base gave PTS1001 too, so this is not a regression.
+- **`p/five_chains_dispatched.pts`** (the same recursion through trials) prints Node's output: at the count a trial fails quietly, and every chain is still about 51 levels deep by then.
+- **Suggested fix, tried as an overlay** (`overlay/countlikedepth`): `calledInstance` takes the erased copy past the count as it does past the depth, when `erasedResultCopies` is false.
+  - five_chains then prints Node's output, and `branching_direct` compiles and prints 5 (Node 5).
+  - Only the two tests that pin the count's PTS1001 fail: `TestPolymorphicRecursionCountsTheInstancesItMakesPerDeclaration` and `errors/generic_instance_cap_methods`. product_blowup then stops at Box's class depth instead.
+- **Why the old objection no longer applies:** D-198 rejects this alternative because "past the count a direct call is a genuine side-by-side call". Now that side-by-side instances don't count, that reason is gone.
+- **Alternative:** make linear chains free, so that only a parent's second and later recursive children count.
+
+#### 2. LOW-MEDIUM (verified): nothing bounds side-by-side instances, and polymorphic recursion multiplies them by 64
+
+- **Setup:** f recurses 64 instances deep. Each f instance calls a chain of helpers g1…gD, each calling the next for `[U]` and `{ v: U }`. All outputs match Node.
+
+| Probe | Base | Snap-c |
+|---|---|---|
+| `p/fanout2_4.pts` | PTS1001, 0.28 s | 27,304 lines of C, 2.3 s |
+| `p/fanout2_7.pts` | PTS1001, 0.43 s | 231,619 lines, 15.6 s, 350 MB |
+| `p/fanout2_9.pts` | PTS1001, 0.16 s | 26.4 s, 1.13 GB |
+
+- Each extra helper level doubles the instances. Round 1's 1024-per-declaration cap also stopped these.
+- **Suggestion:** a global instance budget with an honest PTS1001 as a backstop, or a ledger item for H09b5c.
+
+#### 3. LOW, test gap (verified): the take-back decrement is still unpinned, and here is a test that pins it
+
+- With the decrement removed (`overlay/nodecrement`), every slice test passes.
+- **Suggested run test:** `p/takeback_count_test.pts`.
+  - The calls for u16 and u32 sit behind a run-time-false gate. Their trials make 63 recursive instances each, then fail on `T | i16` (a union of two numeric types, the trial's own failure), so they are taken back.
+  - The calls for i8, i32, f32 and string then use 252 of the 256.
+- **Results:** snap-c prints `i8 3 / i32 4 / f32 6 / string s`, the same as Node. With the decrement removed, `f32` and `string` throw `TypeError Expected Box<…>, got Box<any>`.
+- It depends on `u16|i16` and `u32|i16` being PTS1001 while `u8`, `i8`, `i32` and `f32` with `i16` are not, and on depth 64 and the 256 cap.
+
+### copiesFromDynamic: checked in both directions
+
+- **Results it calls non-copying keep their identity past the depth:** `Promise<Box<T>>`, `Iterable<Box<T>>` and `Generator<Box<T>>` (`id_promise`, `id_iterable`, `id_generator` all match Node). This matches `prepareDynamicTarget`:
+  - program classes are checkable, so they are cast;
+  - arrays, tuples, shapes, maps and interfaces are copied (`copyShape`).
+- **Conservative cases:** library classes, functions, interfaces and enum objects all count as copying, so they become PTS1001. `typeAt` instantiates the call's type, so no bare type parameter reaches the check.
+- **Arguments the erased copy mutates and keeps** (arrays, objects, closures) stay shared by reference: `args_mutated` prints `77 213 0`, the same as Node.
+- **Async job order across the boundary** matches Node (`async_order`).
+- **Mutations:** forcing `erasedResultCopies` to false fails `copied_results`; forcing `copiesFromDynamic` to true fails `_direct`, `_in_trials` and `_past_the_depth`. Both are pinned.
+- **Remaining silent copy, from before this slice:** in the demand forms' erased-copy fallback. `id_array_dispatched` prints `false 71` on both base and snap-c, Node `true 71`: with no generic class instances there is no trial, so the whole recursion runs in the erased copy (D-101).
+
+### The recursion-only count
+
+- **Termination (from reading):** every infinite made-chain repeats a declaration, and that declaration's depth and count bound it. Erased copies are one per genericFunc, and their `made` is now `generic.outer`. Only the side-by-side fan-out in finding 2 is unbounded, and it is finite for a given program.
+- **Consistency (from reading):** counts go up only for recursive instances (functions and classes) and down only for recursive `t.instances` when a trial is taken back. Class instances are never taken back. I found no way for the counts to drift.
+
+### Regressions and earlier probes
+
+- **Round-2 probes rerun on snap-c** (`round2_probes_on_snapc.txt`):
+  - fixed: `b_finite_chain_40`, `b_finite_class_chain_40`, `c_method_instances_per_declaration` (33264 in 36.6 s with 1.0 GB RSS; the base took 75 s under load), and `b_box_past_depth`, which now prints all four lines since 40 < 64;
+  - now honest PTS1001s, as on the base: the identity probes, plus the conservative T, tuple and array results (`b_identity_passthrough`, `b_numbers`, `b_overloads`, `b_generator`, `b_async_arrays`, `d_direct_use`, `d_nested_generic`).
+- **Parent's matrix:** nothing is worse, except the intended trade: `decl_70`, `method_70`, `override_70`, `static_70` and `arrowconst_70` go from PTS1001 to a checked TypeError at run time past depth 64.
+
+### Docs
+
+D-198 in snap-c is still round 1's version (depth 32, 1024 per declaration, the "count cap's too" rejection). SPEC §3.7 needs the same update; the parent said it will do both.
+
+### Side note (from before this slice, verified)
+
+`Array.isArray` on a tuple-typed value returns false. `p/fanout_isarray_control.pts` prints `0 1 0 0` on both base and snap-c; Node prints `1 2 1 0`. It should go in the ledger.
+
+### Files
+
+- **Probes, overlays and results:** `/tmp/h09b5/review-a/r3/` (start with `INDEX.txt`).
+- **Archive:** `/tmp/h09b5/h09b5a-review3-probes.tar.gz` (created last). The CLIs I built are deleted; `INDEX.txt` has the rebuild command.
