@@ -4,7 +4,10 @@
 // C220). It lowers as a trap where the value is used as its narrowed type (`x + 1` as a
 // number, `num(x)`), which a lying predicate or assertion reaches: TypeError, where Node
 // computes "t1". Printing it, or passing it where its declared type goes, runs as Node
-// (`narrowed_never_lies_that_print.pts`, `narrowed_never_declared_type_uses.pts`).
+// (`narrowed_never_lies_that_print.pts`, `narrowed_never_declared_type_uses.pts`). A type
+// predicate that tests a discriminant its object's base class rewrote answers false for an
+// Add (H09b4b2 review round 2's finding 3): a lie about its type too, which a copy of the
+// value reaches.
 function lie(v: unknown): v is number {
   return true;
 }
@@ -22,7 +25,34 @@ function asserted(x: string): string {
   lyingAssert(x);
   return num(x);
 }
-for (const f of [() => typed("t"), () => asserted("a")]) {
+class Base {
+  kind: string = "base";
+  rename(k: string): void {
+    this.kind = k;
+  }
+}
+class Add extends Base {
+  kind: "add" = "add";
+}
+class Say extends Base {
+  kind: "say" = "say";
+}
+function isKnown(a: Add | Say): a is Add | Say {
+  switch (a.kind) {
+    case "add":
+    case "say":
+      return true;
+  }
+  return false;
+}
+function known(a: Add | Say): string {
+  if (isKnown(a)) return "known";
+  const other = a;
+  return "other " + (other as Base).kind;
+}
+const renamed = new Add();
+renamed.rename("del");
+for (const f of [() => typed("t"), () => asserted("a"), () => known(new Say()), () => known(renamed)]) {
   try {
     console.log(f());
   } catch (error: any) {
@@ -33,3 +63,5 @@ for (const f of [() => typed("t"), () => asserted("a")]) {
 // expect:
 // caught TypeError code that can't run ran: `x` narrows to `never` here; a type predicate, assertion or cast was wrong
 // caught TypeError code that can't run ran: `x` narrows to `never` here; a type predicate, assertion or cast was wrong
+// known
+// caught TypeError code that can't run ran: `a` narrows to `never` here; a type predicate, assertion or cast was wrong

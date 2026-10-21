@@ -1,0 +1,60 @@
+// Guard (passes on the base; H09b4b2 review round 2's finding 1): an enum holds any number
+// with no cast, so an exhaustive switch's default runs in Node for 7, where tsc types the
+// enum never. There it indexes, writes and increments an array, a typed array and a
+// number-keyed record, slices, takes powers and shifts and bounds a loop; a string cast to
+// a literal union indexes records. The round-1 fix boxed such reads (PTS1001 `indexing an
+// array with a value is not supported yet`); they hold a number or string of their declared
+// type, and index as it (D-197).
+enum Kind {
+  Add,
+  Say,
+}
+type Dir = "up" | "down";
+const names = ["add", "say", "x", "y", "z", "w", "v", "seven"];
+const bytes = new Uint8Array(8);
+const counts = [0, 0, 0, 0, 0, 0, 0, 0];
+const scores: Record<string, number> = { left: 3 };
+const byNum: Record<number, string> = { 7: "seven" };
+function label(c: Kind): string {
+  switch (c) {
+    case Kind.Add:
+      return "add";
+    case Kind.Say:
+      return "say";
+    default:
+      return names[c] ?? "?";
+  }
+}
+function uses(c: Kind): string {
+  switch (c) {
+    case Kind.Add:
+      return "a";
+    case Kind.Say:
+      return "s";
+    default: {
+      bytes[c] = 9;
+      names[c] = "set";
+      counts[c]++;
+      let t = 0;
+      for (let i = 0; i < c; i++) t += i;
+      return [bytes[c], names[7], counts[7], byNum[c], counts.slice(c).length, c ** 2, c % 3, c >> 1, t].join(" ");
+    }
+  }
+}
+function keyed(d: Dir): string {
+  switch (d) {
+    case "up":
+      return "u";
+    case "down":
+      return "d";
+    default:
+      return "rec " + scores[d];
+  }
+}
+const seven: number = 7;
+const k: Kind = seven;
+const raw: string = "left";
+console.log(label(Kind.Say), label(k), uses(Kind.Add), uses(k), keyed(raw as Dir));
+
+// expect:
+// say seven a 9 set 1 seven 1 49 1 3 21 rec 3

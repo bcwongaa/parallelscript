@@ -1,0 +1,25 @@
+// Comparing the variable itself with a literal (`x === "skip"`) is a kind test for D-197: a
+// string that isn't "skip" stays a string, so `typeof x === "number"` after it is dead, and
+// `?:` over boxes there (tsc types it `Box<never> | Box<number>`) lowers with a trap for the
+// dead branch (H09b4b2 review round 2's finding 4). The base and the round-1 fix: PTS1001
+// (`conditional expression with operands of types Box and Box`). Node runs none of it.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function pick(x: string, flip: boolean): string {
+  if (x === "skip") return "skipped";
+  switch (x) {
+    case "a":
+    case "b":
+      break;
+  }
+  if (typeof x === "number") {
+    const b = flip ? new Box(x) : new Box(0);
+    return "dead " + b.value;
+  }
+  return "string " + x;
+}
+console.log(pick("a", true), pick("skip", false), pick("c", false));
+
+// expect:
+// string a skipped string c

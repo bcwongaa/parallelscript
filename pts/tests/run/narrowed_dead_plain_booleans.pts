@@ -1,0 +1,36 @@
+// A boolean exhausted by equalities with true and false is dead past them (H09b4b2, D-197):
+// a boolean holds no other value, so `?:` over boxes of it lowers with a trap for the dead
+// branch, as kind tests' never does (the base: PTS1001 `conditional expression with
+// operands of types Box and Box`). A literal `true` field that a subclass declares and its
+// base class's method sets to false isn't: tsc's never after `r.ok === true` fails runs in
+// Node with no lie, and here too.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function exhausted(x: boolean): string {
+  if (x === true) return "true";
+  if (x === false) return "false";
+  const b = Math.random() < 2 ? new Box(x) : new Box(0);
+  return "dead " + b.value;
+}
+class Result {
+  ok: boolean = true;
+  fail(): void {
+    this.ok = false;
+  }
+}
+class Ok extends Result {
+  ok: true = true;
+  value = 1;
+}
+function rewritten(r: Ok): string {
+  if (r.ok === true) return "ok " + r.value;
+  const other = r;
+  return "rewritten " + (other as Result).ok;
+}
+const failed = new Ok();
+failed.fail();
+console.log(exhausted(true), exhausted(false), rewritten(new Ok()), rewritten(failed));
+
+// expect:
+// true false ok 1 rewritten false

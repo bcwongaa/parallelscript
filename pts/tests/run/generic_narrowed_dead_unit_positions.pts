@@ -1,0 +1,36 @@
+// An instance's dead reads (D-195) in parts of a statement that don't run first (H09b4b2
+// review round 2's finding 6): a `for` loop's update and condition, a case label, a read
+// past `?.`. Where the instance's type argument makes them dead (T = string after `typeof x
+// === "number"`), they hold their values and convert with a check where they are used, as
+// plain code's do (D-197); for T = number they run. The base: PTS1001 (`converting string to
+// number is not supported yet`).
+function num(n: number): number {
+  return n + 1;
+}
+function forUpdate<T extends string | number>(x: T): number {
+  let i = 0;
+  if (typeof x === "number") {
+    for (let j = 0; j < 3; j += x) i++;
+    for (let j = 0; j < x; j++) i++;
+  }
+  return i;
+}
+function caseLabel<T extends string | number>(x: T, k: number): string {
+  if (typeof x === "number") {
+    switch (k) {
+      case num(x):
+        return "hit";
+      default:
+        return "miss";
+    }
+  }
+  return "s";
+}
+function optional<T extends string | number>(x: T, o: { m(n: number): number } | undefined): number | undefined {
+  if (typeof x === "number") return o?.m(x);
+  return 0;
+}
+console.log(forUpdate("a"), forUpdate(1), caseLabel("b", 1), caseLabel(1, 2), optional("c", { m: (n: number) => n }), optional(4, { m: (n: number) => n }));
+
+// expect:
+// 0 4 s hit 0 4

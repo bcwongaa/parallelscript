@@ -1,0 +1,75 @@
+// Guard (passes on the base; H09b4b2 review round 2's finding 2): tsc narrows a union
+// through a discriminant read into a const (`const { kind } = a`, `const kind = a.kind`, and
+// an aliased condition built on one), which a base class's method rewrote (`kind: "add"`
+// renamed to "del") or an enum holding 7 sets: no cast, and Node runs the code past an
+// exhausted test, where tsc types `a` never. Such tests compare values (D-197), so the read
+// holds its value; the round-1 fix trapped them (`code that can't run ran`).
+class Base {
+  kind: string = "base";
+  rename(k: string): void {
+    this.kind = k;
+  }
+}
+class Add extends Base {
+  kind: "add" = "add";
+  n = 1;
+}
+class Say extends Base {
+  kind: "say" = "say";
+  text = "x";
+}
+type Action = Add | Say;
+function destructured(a: Action): string {
+  const { kind } = a;
+  switch (kind) {
+    case "add":
+      return "add " + a.n;
+    case "say":
+      return "say " + a.text;
+  }
+  const other = a;
+  return "other " + (other as Base).kind;
+}
+function viaAlias(a: Action): string {
+  const kind = a.kind;
+  if (kind === "add") return "add";
+  if (kind === "say") return "say";
+  const other = a;
+  return "alias other " + (other as Base).kind;
+}
+function viaAliasedCondition(a: Action): string {
+  const { kind } = a;
+  const isAdd = kind === "add";
+  const isSay = kind === "say";
+  if (isAdd) return "add";
+  if (isSay) return "say";
+  const other = a;
+  return "aliased condition other " + (other as Base).kind;
+}
+enum Kind {
+  Plus,
+  Minus,
+}
+type Payload = { n: number; text: string };
+type Op = { kind: Kind.Plus; p: Payload } | { kind: Kind.Minus; p: Payload };
+function ops(op: Op): string {
+  const { kind } = op;
+  switch (kind) {
+    case Kind.Plus:
+      return "plus";
+    case Kind.Minus:
+      return "minus";
+  }
+  const other = op;
+  return "op other " + JSON.stringify(other);
+}
+const renamed = new Add();
+renamed.rename("del");
+console.log(destructured(new Say()), destructured(renamed), viaAlias(renamed), viaAliasedCondition(renamed));
+const seven: number = 7;
+const k: Kind = seven;
+console.log(ops({ kind: Kind.Plus, p: { n: 0, text: "" } }), ops({ kind: k, p: { n: 1, text: "t" } }));
+
+// expect:
+// say x other del alias other del aliased condition other del
+// plus op other {"kind":7,"p":{"n":1,"text":"t"}}

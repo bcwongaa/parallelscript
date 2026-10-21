@@ -146,16 +146,19 @@ func (l *lowerer) narrowed(node *ast.Node, x ir.Expr) ir.Expr {
 		// it is used (C220).
 		return box(x)
 	}
-	union, ok := x.Type().(*ir.Union)
-	if !ok {
-		return x
+	if l.subst != nil && len(l.subst.parameters) > 0 && l.isDeadRead(node) && !l.takesAnyValueAsIs(node) {
+		return box(x) // code that can't run for the instance, where it isn't evaluated first in a trap (a loop's update, a case label, past `?.`)
 	}
 	t := l.typeAt(node)
 	if t.Flags()&checker.TypeFlagsNever != 0 {
 		if l.mayBeStale(node) || node.Kind == ast.KindIdentifier && l.isLoose(l.readSymbol(node)) {
 			return box(x) // never for the instance's type arguments (`T & number` for a string T), as above
 		}
-		return x // code that can't run for the instance (isDeadRead)
+		return x // code that can't run for the instance (isDeadRead), where any value goes as it is
+	}
+	union, ok := x.Type().(*ir.Union)
+	if !ok {
+		return x
 	}
 	narrow := l.irType(t, node)
 	if narrow == ir.Value {

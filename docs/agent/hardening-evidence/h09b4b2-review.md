@@ -125,3 +125,124 @@ None of these shapes is in the reproducer's 40-shape region family, and C220's a
 Not ready. Finding 1 must be fixed: either stop shortcutting classes in `literalFree` for the never case, or don't trap when the narrowing went through literal or enum types (an equality with a literal- or enum-typed operand, a destructured sibling's discriminant). Finding 2 should be fixed, and finding 3 is small.
 
 Everything is in `/tmp/h09b4b2/review1.tar.gz`: probes in `p/`, outputs in `out/<name>/{node,fix,base}.txt`, `scripts/`, `emitc/diff-summary.txt`, `cg/counts.txt`. It holds no binaries or C files, and I wrote the marker `/tmp/h09b4b2/review1.done`.
+
+## Round 2 (round-1 fix `8023de8e1`, snapshot `snap2`)
+
+Archive: [h09b4b2-review2-probes.tar.gz](h09b4b2-review2-probes.tar.gz) (sha256 `7c4a4eb8f276f8ab…`, 4,934 entries: probes in `p/r1/` and `p/r2/`, outputs in `out/<name>/{node,snap2,snap1,base}.txt`, `out/r1-summary.txt`, `emitc/diff-summary.txt`, `cg/counts.txt` and its generators).
+
+---
+
+# H09b4b2 review round 2: commit `8023de8e1` is not ready
+
+Round 1's F2 (never functions), F3 (generic never parameter) and F5 (`reactive_signals`) are fixed, and F4 (dead reads outside a trap's first part) is fixed in plain code but not in generic instances. F1 (traps in correct code) is mostly fixed. Two problems remain:
+- **New regression:** an enum value used as an array index in an exhaustive default no longer compiles; the base and the fix commit ran it.
+- **F1's holes:** a discriminant read through a `const` alias still traps correct code that has no cast.
+
+Everything below was run with Node (harness style), snap2, snap1 and the base.
+
+## (1) Round-1 probes re-run on snap2
+All 42 match Node or the base; none differs from both.
+- r13–r15 and r18 now match Node.
+- r30–r36 (the F1 cases) match Node and the base.
+- r52 and r53 (F4 shapes) now compile and match Node.
+- The rest match the base, as in round 1: pre-existing behaviour, PTS1001s, or the base's `undefined` for never functions (C239).
+
+## (2)–(4) Findings, by severity
+
+### 1. HIGH: compile regression — an enum's never read can't index an array (verified)
+`readsAsItsDeclaredType` now boxes every read that "may hold an untested value", except where the declared type goes. An array index is not such a place, and a boxed value can't index:
+```ts
+enum Kind { Add, Say }
+const names = ["add", "say", "x", "y", "z", "w", "v", "seven"];
+function label(c: Kind): string {
+  switch (c) {
+    case Kind.Add: return "add";
+    case Kind.Say: return "say";
+    default: return names[c] ?? "?";
+  }
+}
+const n: number = 7; const k: Kind = n;
+console.log(label(Kind.Say), label(k));
+```
+- Node, base and snap1 print `say seven`.
+- snap2 fails with `PTS1001: indexing an array with a value is not supported yet` (`s27`).
+- Reads, writes, `++` and typed-array indexes all fail this way (`s22`, `s24`, `s25`).
+- About 25 other uses of the boxed value match Node (`s21b`, `s23`).
+
+This is the same kind of read the guard `narrowed_never_enum_literal_defaults` covers; it just lacks an index use.
+
+Suggested fix: a read that isn't stale and isn't a loose local always holds a value of its declared IR type. An enum's other number is still a number, and a renamed `Add` is still an `Add`. Such reads can read as their declared type wherever that type lowers, and only need boxing where tsc's never-typed use doesn't fit the declared type.
+
+### 2. HIGH: F1 hole — discriminant aliases still trap correct code with no cast (verified)
+`relatedSymbols(a)` is just `{a}` when `a` is a parameter. But tsc also narrows `a` through `const { kind } = a` and through `const kind = a.kind` (`getCandidateDiscriminantPropertyAccess`):
+```ts
+class Base { kind: string = "base"; rename(k: string): void { this.kind = k; } }
+class Add extends Base { kind: "add" = "add"; n = 1; }
+class Say extends Base { kind: "say" = "say"; text = "x"; }
+function run(a: Add | Say): string {
+  const { kind } = a;               // or: const kind = a.kind;
+  switch (kind) { case "add": return "add " + a.n; case "say": return "say " + a.text; }
+  const other = a;
+  return "other " + (other as Base).kind;
+}
+const a = new Add(); a.rename("del"); console.log(run(a));
+```
+- Node and base print `other del`.
+- snap2 (and snap1) throw `TypeError: code that can't run ran: \`a\` narrows to \`never\` here; …` (`s04`).
+- An aliased condition built on such an alias (`const isAdd = kind === "add"`) does the same (`s05`).
+- With enum kinds on object types the re-run from the widest type already makes these reads live (`s03`).
+
+Suggested fix: add to the related symbols the `const` aliases whose initializer is the read's variable or a property of it, as tsc does.
+
+### 3. MEDIUM, ambiguous: an honest predicate that compares the discriminant (verified)
+`isKnown(a: Action): a is Add | Say { switch (a.kind) { case "add": case "say": return true; } return false; }`, then `if (isKnown(a)) return …; const other = a;` (`s09`).
+- Node and base run the residual; snap2 traps.
+- Whether the predicate lied depends on whether a renamed `Add` counts as an `Add`. D-197's own reasoning says it does, which makes the predicate's `false` the only wrong answer.
+
+Related pre-existing behaviour, the same on every compiler: after a partial discriminant test, reading the renamed instance is a checked downcast that throws (`The value narrowed to Say is not an instance of it`). That already breaks most class-literal shapes outside full switches (`s01`, `s02`).
+
+### 4. MEDIUM: conservatism brings back a C220 compile failure (verified)
+`testsValues` counts any equality on the read's variable anywhere on the paths before it, whether or not that equality helped narrow it.
+- In `s11`, an unrelated `if (x === "skip") return;` turns the dead `typeof x === "number"` region live, so `flip ? new Box(x) : new Box(0)` is PTS1001 again (C237's shape).
+- snap1 trapped and compiled it; the base also failed.
+- Other typed uses of the boxed value compile (`s10`).
+
+An equality between the read itself and a literal expression is a real check of the value. Only non-literal operands typed with literals or enums, and discriminant properties, are unsound.
+
+### 5. MEDIUM-LOW: compile cost grows with flow-graph size times dead reads (verified, callgrind)
+| program | snap2 vs base |
+|---|---|
+| `sql_query_parser` | +0.45% (two pairs) |
+| one function, 150 dead typeof regions + 150 enum defaults | +3.8% (7.60G vs 7.32G; snap1 7.32G) |
+| the same at 285, just under tsc's own TS2563 limit | +12.0% (39.4G vs 35.2G) |
+
+- Each never read walks up to 4,096 flow nodes, and the re-run from the widest type walks the graph again.
+- Past the cap, reads count as value tests: 273 of the 285 regions are traps and the rest are boxed. The program still matches Node.
+- Caching which symbols are value-tested per function would remove the repeated walks.
+
+### 6. LOW gap: F4's fix doesn't cover generic instances (verified)
+Instance-dead reads (D-195) in the same positions — `for` condition and update, case label, past `?.` — are still `PTS1001 converting string to number` on all three compilers (`s26`). `narrowed()`'s instance branch returns the declared value rather than boxing it.
+
+## Checked and found right
+- **`testsValues`' walk** sees `a.kind` value tests through:
+  - closure starts, `try`/`finally`, labelled breaks, `for…of` with `continue`, generators and async (`s07`);
+  - shorthand, array and tuple literals (`s12`);
+  - `a?.kind`, `case CONST:` and `switch (true)` (`s08`).
+- **An assignment from a never source** doesn't narrow its target in tsc, so it's no hole.
+- **`typeof` or `Array.isArray` on a class discriminant** can't arise: PTS rejects redeclaring a field with another IR type.
+- **F4's boxed path under lies** (`s20`): the `for` condition and `do…while` match Node; typed uses throw the checked conversion's TypeError (D-197's intentional category for lies).
+- **`PtsFlowTypeOfReference`**: the loop cache keys include the declared type; `flowTypeCache` holds only expression types. The depth limit is a theoretical risk: `flowAnalysisDisabled` is sticky outside `checkSourceElement`. In practice snap2 and the base hit TS2563 at the same size (285 is fine, 286 fails).
+- **emit-c over 1,116 programs, snap2 vs base:**
+  - The C differs only for the new or changed tests and `reactive_signals`.
+  - No program changed its error output, and there are no PTS9001s.
+  - The C for `never_functions_dispatched` is identical to the base's.
+
+## Test quality
+The guards in `narrowed_never_value_tests` miss two things: the discriminant aliases from finding 2, and an index use in an enum default from finding 1.
+
+## Verdict
+Not ready. Findings 1 and 2 must be fixed; findings 3 and 4 should be decided and logged; findings 5 and 6 can be logged as known issues.
+
+The working tree has uncommitted parent edits (`narrowing_tests.go`, a new untracked `narrowed_dead_plain_booleans.pts`); I didn't touch or review them.
+
+Everything is in `/tmp/h09b4b2/review2.tar.gz`: probes in `p/r1/` and `p/r2/`, outputs in `out/<name>/{node,snap2,snap1,base}.txt`, `out/r1-summary.txt`, `emitc/diff-summary.txt`, `cg/counts.txt` and its generators. It holds no binaries or C files, and I wrote the marker `/tmp/h09b4b2/review2.done`.

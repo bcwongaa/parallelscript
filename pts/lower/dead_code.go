@@ -283,15 +283,23 @@ func (l *lowerer) narrowsReadToNoValue(node *ast.Node) bool {
 
 // readsAsItsDeclaredType reports whether node, a read that tsc narrows to a type no value
 // of its declared type has (narrowsReadToNoValue), reads as its declared type, as before:
-// where that type goes (goesAsItsDeclaredType), and if it may hold no untested value (code
-// that can't run), also where any value goes (takesAnyValueAsIs). Elsewhere it holds what
-// it holds, as a dynamic value (narrowed).
+// where that type goes (goesAsItsDeclaredType) or indexes (`names[c]` for an enum's other
+// number), and if it may hold no untested value (code that can't run), also where any value
+// goes (takesAnyValueAsIs). Elsewhere it holds what it holds, as a dynamic value (narrowed).
 func (l *lowerer) readsAsItsDeclaredType(node *ast.Node) bool {
 	declared, narrowed := l.readTypes(node)
 	if l.mayHoldUntestedValue(node, declared, narrowed) {
-		return l.goesAsItsDeclaredType(node) // stale reads' tests (`o.v === 5`) compare dynamic values (D-196)
+		return l.goesAsItsDeclaredType(node) || isElementKey(node) // stale reads' tests (`o.v === 5`) compare dynamic values (D-196)
 	}
 	return l.takesAnyValueAsIs(node)
+}
+
+// isElementKey reports whether node is the key of an element access (`i` of `a[i]`).
+func isElementKey(node *ast.Node) bool {
+	for node.Parent.Kind == ast.KindParenthesizedExpression {
+		node = node.Parent
+	}
+	return node.Parent.Kind == ast.KindElementAccessExpression && node.Parent.AsElementAccessExpression().ArgumentExpression == node
 }
 
 // goesAsItsDeclaredType reports whether node is a read that tsc narrows to a type no value
