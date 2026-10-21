@@ -1,6 +1,6 @@
 # H09b5c2a independent review
 
-2026-10-22. **Corrected c2a review: ready, no remaining verified blocker.** The parent's separate fresh final full suite also passed (2,271 pass / 335 skip / 0 fail); implementation push/task acceptance are recorded in the parent evidence. This report covers only D-202's new returned ordinary function-value source proof. It does not retry, replace or accept the provider-refused H09b5b review.
+2026-10-22. **Corrected c2a review: ready, no remaining verified blocker.** The parent's separate fresh final full suite also passed (2,271 pass / 335 skip / 0 fail); parent accepted c2a after implementation `5c0dce22c` was pushed to origin/main. CI pending; see parent evidence. This report covers only D-202's new returned ordinary function-value source proof. It does not retry, replace or accept the provider-refused H09b5b review.
 
 ## Isolation and scope
 
@@ -45,7 +45,7 @@ Reviewer actual execution, all sequential with one heavy worker:
 | Refreshed eight-group lower/driver focused checks | exit 0, 86 pass events; empty stderr |
 | Enclosing/capture control, direct AllInstances | emitted and clang-compiled 59,701 C bytes, no fallback; native/strict-ESM Node exit 0, identical five output lines |
 
-Corrected production SHA-256 `e4026f0db56f6a069df282614feb7af98c445078b65fa92a4f3c21cc225a9564` matches parent. C0/C1 have different layouts; generic function/class instances and separately returned captured closures preserve their own captures. No production or parent writes by the reviewer, no tools/agent edits, no commits/pushes. Heavy slot released before the parent's final four-job suite.
+Corrected production SHA-256 `e4026f0db56f6a069df282614feb7af98c445078b65fa92a4f3c21cc225a9564` matches parent. C0/C1 have different layouts; generic function/class instances and separately returned captured closures preserve their own captures. No production implementation edits or writes to the parent checkout by the reviewer, no tools/agent edits, no commits/pushes. Heavy slot released before the parent's final four-job suite.
 
 **Verdict:** ready on corrected c2a; no remaining verified correctness/race/GC/JS-semantics blocker in this bounded diff. The only verified finding was the contextual-generic exclusion gap, fixed and independently rechecked; it was not a native wrong-output or missing-required-instance claim. Safe archive `h09b5c2a-review-probes.tar.gz`, SHA-256 `63364a966d87fd2546e05a470a0b782193fea92ae3d01f302e02b21914137377`: parent validated all 45 members as safe UTF-8 regular files without binaries/symlinks, and independently recounted original RED 3 fail, corrected GREEN 3 pass, bounds 14 pass and final focused 86 pass from raw JSONL. Initial broad filter's 83 pass events include one existing panic test in addition to the 82 new initial cases; not conflated with the exact final focused count. Relocatable contextual replay, initial/corrected source snapshots, commands/manifest, direct-AllInstances harness and capture source/C are retained. No sanitizer/race-stress run is attributed to the reviewer.
 
