@@ -67,7 +67,7 @@ var (
 		"/run/generic_fallback_spares_unrelated_constant_key_site.pts", "/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts",
 		"/run/generic_fallback_spares_other_instances_at_one_call.pts", "/run/generic_fallback_spares_other_class_instances_at_one_call.pts",
 		"/run/generic_fallback_spares_other_cast_instances_at_one_call.pts", "/run/generic_fallback_spares_other_method_owners.pts",
-		"/run/generic_fallback_blames_method_descriptor_reuses.pts"}
+		"/run/generic_fallback_blames_method_descriptor_reuses.pts", "/run/generic_containing_value_pairing.pts"}
 	needsFallback = []string{"/run/generic_fallback_keeps_value_pairings_for_by_name_totals.pts"}
 )
 

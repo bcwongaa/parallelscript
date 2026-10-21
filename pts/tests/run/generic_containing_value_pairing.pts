@@ -1,0 +1,50 @@
+// C251/H09b5c2b1: a value demand inside Bad.make<Dog[]> exists only at AllInstances.
+// Pairing it with main's escaping poison arrow makes Weird<Dog[]>, whose delayed
+// animals() lowering fails. ValueInstances never makes that demand; its intrinsic
+// value-pairing level must not cost the unrelated interface call its instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const value = this.value;
+    if (Array.isArray(value)) {
+      return value;
+    }
+    return [];
+  }
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker {
+  make<T>(value: T): Box<T>;
+}
+class Good implements Maker {
+  make<T>(value: T): Box<T> {
+    return new Box(value);
+  }
+}
+class Bad implements Maker {
+  factory: Factory = <T,>(value: T): Box<T> => new Box(value);
+  make<T>(value: T): Box<T> {
+    const f = this.factory;
+    const result: Box<T> = f(value);
+    return new Box(result.value);
+  }
+}
+function main(): void {
+  const poison = <T,>(value: T): Weird<T> => new Weird(value);
+  const escaped: any = poison;
+  const makers: Maker[] = [new Good(), new Bad()];
+  const maker: Maker = makers[0];
+  console.log("by name", maker.make([new Dog()]).value.length, escaped(0).animals().length);
+}
+main();
+// expect:
+// by name 1 0

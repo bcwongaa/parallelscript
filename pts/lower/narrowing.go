@@ -23,7 +23,8 @@ import (
 
 // pairing is a demand's call (and for a demand by name, its name) paired with an erased
 // value or generic method, by declaration; or a call site (site) whose demand a later
-// fallback doesn't make, with nothing. level is the last of Fallbacks that makes it.
+// fallback doesn't make, with nothing. level is its intrinsic last fallback; containing
+// code can cap its effective availability without changing this stable key.
 type pairing struct {
 	call      *ast.Node
 	name      string
@@ -53,6 +54,7 @@ var siteLevels = map[siteKind]Specialization{byNameSite: AllInstances, constantK
 // first later fallback that doesn't make it does. The zero Narrowing leaves out nothing.
 type Narrowing struct {
 	pairings map[pairing]bool
+	levels   map[pairing]Specialization // effective last fallbacks, proved after all uses
 }
 
 // Len is how many pairings and call sites n leaves out.
@@ -69,7 +71,11 @@ func (n *Narrowing) Len() int {
 func (n *Narrowing) Within(narrowing *Narrowing, at Specialization) bool {
 	if n != nil {
 		for p := range n.pairings {
-			if p.level >= at && !narrowing.leavesOut(p) {
+			level, proved := n.levels[p]
+			if !proved {
+				level = p.level
+			}
+			if level >= at && !narrowing.leavesOut(p) {
 				return false
 			}
 		}
@@ -99,8 +105,9 @@ func (n *Narrowing) with(more []pairing) *Narrowing {
 // site's, whose pairings a narrower lowering leaves out; or an instance's (subst), which is
 // what that instance's own uses are; or the program's own (neither).
 type use struct {
-	pairings []pairing
-	subst    *substitution
+	pairings  []pairing
+	subst     *substitution
+	statement bool // a statementSites report heuristic, not proof of containment
 }
 
 // here is the code being lowered, as a use: the call site whose demand is being lowered
@@ -120,7 +127,7 @@ func (l *lowerer) here() use {
 		return use{pairings: []pairing{t.pairing}}
 	}
 	if len(l.statementSites) > 0 {
-		return use{pairings: slices.Clone(l.statementSites)}
+		return use{pairings: slices.Clone(l.statementSites), statement: true}
 	}
 	return instanceUse(l.subst)
 }
@@ -157,7 +164,9 @@ func (l *lowerer) useFrom(subst *substitution, u use) {
 		subst.ownUse, subst.users = true, nil
 		return
 	}
-	if u.subst == subst || slices.ContainsFunc(subst.users, func(other use) bool { return other.subst == u.subst && slices.Equal(other.pairings, u.pairings) }) {
+	if u.subst == subst || slices.ContainsFunc(subst.users, func(other use) bool {
+		return other.subst == u.subst && other.statement == u.statement && slices.Equal(other.pairings, u.pairings)
+	}) {
 		return
 	}
 	subst.users = append(subst.users, u)
@@ -417,14 +426,17 @@ func (l *lowerer) narrower() *Narrowing {
 			}
 		}
 	}
-	return l.narrowing.with(more)
+	next := l.narrowing.with(more)
+	next.levels = l.containing.levels(next.pairings)
+	return next
 }
 
 // blamingSite makes what is lowered next, the part of the call at node that only its
 // demand (kind) lowers, the call site's, until restore.
 func (l *lowerer) blamingSite(node *ast.Node, kind siteKind) (restore func()) {
 	outer := l.site
-	l.site = &pairing{call: node, site: kind, level: siteLevels[kind]}
+	p := l.sitePairing(node, kind)
+	l.site = &p
 	return func() { l.site = outer }
 }
 
@@ -432,7 +444,7 @@ func (l *lowerer) blamingSite(node *ast.Node, kind siteKind) (restore func()) {
 // node (kind) made: the rest of the statement is the call site's code too (here), a result
 // that doesn't fit where it goes among it.
 func (l *lowerer) usedSite(node *ast.Node, kind siteKind) {
-	if p := (pairing{call: node, site: kind, level: siteLevels[kind]}); !slices.Contains(l.statementSites, p) {
+	if p := l.sitePairing(node, kind); !slices.Contains(l.statementSites, p) {
 		l.statementSites = append(slices.Clip(l.statementSites), p)
 	}
 }
@@ -440,13 +452,21 @@ func (l *lowerer) usedSite(node *ast.Node, kind siteKind) {
 // leavesOutSite reports whether the call at node is lowered as the first later fallback
 // that doesn't make its demand (kind) lowers it (Narrowing).
 func (l *lowerer) leavesOutSite(node *ast.Node, kind siteKind) bool {
-	return l.narrowing.leavesOut(pairing{call: node, site: kind, level: siteLevels[kind]})
+	return l.narrowing.leavesOut(l.sitePairing(node, kind))
+}
+
+func (l *lowerer) sitePairing(node *ast.Node, kind siteKind) pairing {
+	p := pairing{call: node, site: kind, level: siteLevels[kind]}
+	l.containing.record(p, l.subst, nil)
+	return p
 }
 
 // pairingOf is a demand's pairing with an erased value or generic method declared at
 // value, which the last fallback that makes both makes (level is the value's).
 func (l *lowerer) pairingOf(d *demand, value *genericFunc, level Specialization) pairing {
-	return pairing{call: d.node, name: d.name, value: value.node, signature: l.demandIdentity(d), owner: substitutionIdentity(value.outer), level: min(d.level(), level)}
+	p := pairing{call: d.node, name: d.name, value: value.node, signature: l.demandIdentity(d), owner: substitutionIdentity(value.outer), level: min(d.level(), level)}
+	l.containing.record(p, d.subst, value.outer)
+	return p
 }
 
 // substitutionIdentity is the checker's semantic bindings, not how the instance was

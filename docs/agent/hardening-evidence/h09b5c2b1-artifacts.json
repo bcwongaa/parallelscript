@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-22",
+  "source_base": "9e60deebfd6a6b26d24224fdbe9753750ab8e6f0",
+  "ci": "pending; not polled",
+  "final_suite": {
+    "command": [
+      "env",
+      "GOMAXPROCS=4",
+      "PTS_REQUIRE_NODE=1",
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "-p",
+      "4",
+      "-parallel",
+      "4",
+      "-timeout",
+      "40m",
+      "./pts/...",
+      "./cmd/pts/"
+    ],
+    "exit": 0,
+    "seconds": 658.3324221340008,
+    "tests": {
+      "pass": 2301,
+      "skip": 335
+    },
+    "corpus": {
+      "pass": 263,
+      "skip": 37
+    },
+    "packages": {
+      "github.com/microsoft/typescript-go/pts/bench/binary_trees": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fan_out": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fib": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/fib_int": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/file_io": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/http_hello": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/http_json": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/json": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/mandelbrot": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/nbody": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/spectral_norm": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/startup": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/string_building": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/sum_reduce": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/word_count": "skip",
+      "github.com/microsoft/typescript-go/pts/bench/word_freq": "skip",
+      "github.com/microsoft/typescript-go/pts/cgen": "pass",
+      "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+      "github.com/microsoft/typescript-go/pts/check": "pass",
+      "github.com/microsoft/typescript-go/pts/ir": "skip",
+      "github.com/microsoft/typescript-go/pts/lib": "skip",
+      "github.com/microsoft/typescript-go/pts/frontend": "pass",
+      "github.com/microsoft/typescript-go/pts/lsp": "pass",
+      "github.com/microsoft/typescript-go/pts/numeric": "skip",
+      "github.com/microsoft/typescript-go/pts/driver": "pass",
+      "github.com/microsoft/typescript-go/pts/lower": "pass",
+      "github.com/microsoft/typescript-go/pts/toolchain": "pass",
+      "github.com/microsoft/typescript-go/cmd/pts": "pass",
+      "github.com/microsoft/typescript-go/pts/tests": "pass"
+    },
+    "source_count": 6669,
+    "sources_unchanged": true,
+    "changed_sources": [],
+    "cli_before": "559aa8d50c0f0859980f85e5029f3fc9a69d62e18ee00bde879af047df8422da",
+    "cli_after": "559aa8d50c0f0859980f85e5029f3fc9a69d62e18ee00bde879af047df8422da",
+    "stderr_bytes": 0
+  },
+  "artifacts": {
+    "h09b5c2b1-parent-probes.tar.gz": {
+      "sha256": "2b7fd2d69c9bc2d225016ef20e6b345c73b43666300026c80620488b799b83c6",
+      "bytes": 16129720,
+      "regular_files": 205
+    },
+    "h09b5c2b1-reproducer-probes.tar.gz": {
+      "sha256": "6b4e1798e658fb69f5c22fb6c522f2aab31c2b1c2e8f4bf117a6efd5f695b01d",
+      "bytes": 22950,
+      "regular_files": 129
+    },
+    "h09b5c2b1-review-probes.tar.gz": {
+      "sha256": "0d194816547ce7df1d7119c5afd69a72653709010ede300071ee10332f462640",
+      "bytes": 108086,
+      "regular_files": 49
+    },
+    "h09b5c2b1-final-suite.jsonl.gz": {
+      "sha256": "e48814dc3887c15afd4c5a4a41e0fa3710ab665303fd5169c5431cd7a09a4c0f",
+      "bytes": 308274
+    }
+  }
+}
