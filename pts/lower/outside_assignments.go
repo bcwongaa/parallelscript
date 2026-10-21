@@ -60,7 +60,8 @@ func (l *lowerer) markAssignedOutside(target *ast.Node, fn *ast.Node) {
 		l.markIfOutside(l.checker.GetShorthandAssignmentValueSymbol(target), fn)
 	case ast.KindPropertyAssignment:
 		l.markAssignedOutside(target.Initializer(), fn)
-	case ast.KindSpreadElement, ast.KindSpreadAssignment:
+	case ast.KindSpreadElement, ast.KindSpreadAssignment,
+		ast.KindAsExpression, ast.KindTypeAssertionExpression, ast.KindNonNullExpression, ast.KindSatisfiesExpression:
 		l.markAssignedOutside(target.Expression(), fn)
 	case ast.KindArrayLiteralExpression:
 		for _, element := range target.AsArrayLiteralExpression().Elements.Nodes {

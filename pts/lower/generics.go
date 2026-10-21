@@ -873,7 +873,11 @@ func (l *lowerer) genericMethodValue(node *ast.Node, generic *genericFunc) ir.Ex
 // boundGenericMethod is a generic instance method's value bound to receiver, an instance of
 // its class (genericMethodValue): node reads it (`o.m`, or a pattern's `{ m }`).
 func (l *lowerer) boundGenericMethod(node *ast.Node, generic *genericFunc, receiver ir.Expr) ir.Expr {
-	m, forward, ok := l.genericMethodOf(node, generic)
+	var source *ast.Node
+	if node.Kind == ast.KindPropertyAccessExpression {
+		source = node.Expression() // a pattern's name is not its captured receiver (D-207)
+	}
+	m, forward, ok := l.genericMethodOf(node, generic, source)
 	if !ok || receiver == nil {
 		return nil
 	}
@@ -885,8 +889,9 @@ func (l *lowerer) boundGenericMethod(node *ast.Node, generic *genericFunc, recei
 // copy, or for an abstract or overridden one, the erased copy that the receiver's class has,
 // found by name (D-101); with what a value of the erased copy forwards its typed calls to,
 // the instances of the receiver's class's method for their signatures (D-194), or nil. ok
-// is false if it failed (reported).
-func (l *lowerer) genericMethodOf(node *ast.Node, generic *genericFunc) (m method, forward func(*ir.Local) *forwarder, ok bool) {
+// is false if it failed (reported). source is the actual receiver expression, or nil for
+// a synthetic/pattern read; an explicit bind supplies its thisArg instead (D-207).
+func (l *lowerer) genericMethodOf(node *ast.Node, generic *genericFunc, source *ast.Node) (m method, forward func(*ir.Local) *forwarder, ok bool) {
 	m.name, m.receiver = generic.node.Name().Text(), generic.class
 	erased := generic.dispatched
 	if generic.dispatched {
@@ -916,7 +921,7 @@ func (l *lowerer) genericMethodOf(node *ast.Node, generic *genericFunc) (m metho
 	}
 	if erased && m.result == ir.Value && l.genericSignature(node) != nil {
 		forward = func(receiver *ir.Local) *forwarder {
-			return &forwarder{call: l.methodForward(receiver, m, generic, nil, nil)}
+			return &forwarder{call: l.methodForward(receiver, m, generic, nil, nil, source)}
 		}
 	}
 	return m, forward, true

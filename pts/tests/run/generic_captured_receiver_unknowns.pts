@@ -1,0 +1,60 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+interface Maker { make<T>(value: T): Box<T>; }
+type Factory = <T>(value: T) => Box<T>;
+class Left implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "left"); }
+}
+class Right implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "right"); }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const held: any[] = [new Right()];
+const checked: Maker = held[0];
+numberUse("any", read(checked));
+const unknownHeld: unknown[] = [new Left()];
+stringUse("unknown", read(unknownHeld[0] as Maker));
+let mutable: Maker = new Left();
+function change(): void { mutable = new Right(); }
+change();
+numberUse("mutable", read(mutable));
+const escaped = read;
+stringUse("escaped", escaped(new Left()));
+const property = { receiver: new Right() };
+numberUse("property", read(property.receiver));
+class Generic<U> implements Maker {
+  constructor(public marker: U) {}
+  make<T>(value: T): Box<T> {
+    console.log("marker", this.marker);
+    return new Box(value, "generic");
+  }
+}
+function generic<U>(marker: U): Maker { return new Generic(marker); }
+numberUse("generic number", read(generic(4)));
+stringUse("generic string", read(generic("four")));
+function cycle(receiver: Maker, stop: boolean): Maker {
+  if (stop) return receiver;
+  return cycle(receiver, true);
+}
+numberUse("cycle", read(cycle(new Right(), false)));
+
+// expect:
+// any right 8
+// unknown left 5
+// mutable right 8
+// escaped left 5
+// property right 8
+// marker 4
+// generic number generic 8
+// marker four
+// generic string generic 5
+// cycle right 8

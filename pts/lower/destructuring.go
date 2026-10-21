@@ -359,7 +359,7 @@ func (l *lowerer) propertyPart(source ir.Expr, element *ast.Node, property *ast.
 	if m, ok := l.objectTypeMethod(source.Type(), name); ok {
 		var forward func(*ir.Local) *forwarder
 		if sourceType != nil {
-			forward = l.objectMethodForwardFrom(element.Name(), sourceType, m)
+			forward = l.objectMethodForwardFrom(element.Name(), sourceType, m, nil)
 		}
 		return l.boundMethod(property, m, source, nil, name, false, forward) // bound to the object, as `o.m` is (D-044)
 	}

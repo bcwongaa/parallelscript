@@ -529,12 +529,16 @@ func (l *lowerer) methodCallOrBind(call *ast.CallExpression, args []*ast.Node, t
 	var m method
 	var ok bool
 	var forward func(*ir.Local) *forwarder
+	var source *ast.Node
+	if len(args) > 0 {
+		source = args[0] // bind captures thisArg, not the method lookup's object (D-207)
+	}
 	generic := l.isGenericInstanceMethod(target)
 	if generic {
-		m, forward, ok = l.genericMethodOf(target, l.genericMethodAt(target)) // run on thisArg too, as JS does (D-194)
+		m, forward, ok = l.genericMethodOf(target, l.genericMethodAt(target), source) // run on thisArg too, as JS does (D-194)
 	} else {
 		m, ok = l.methodOf(target, object)
-		forward = l.objectMethodForward(target, m)
+		forward = l.objectMethodForwardFrom(target, l.typeAt(target.Expression()), m, source)
 	}
 	if !ok || m.call == nil {
 		return nil // reported

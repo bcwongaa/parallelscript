@@ -63,16 +63,14 @@ interface Maker { make<T>(value: T): Box<T>; }
 				assert.Check(t, len(wrapper.Instances) == 1, "%s must have exactly its required signature, not %d", name, len(wrapper.Instances))
 			}
 			assert.Equal(t, wrappers, 3)
-			if receiver == "interface" {
-				for value := range 3 {
-					for demand := range 3 {
-						name := fmt.Sprintf("M%d.make_C%d", value, demand)
-						present := false
-						for _, fn := range program.Funcs {
-							present = present || fn.Name == name
-						}
-						assert.Check(t, present, "%s stays: wrapper identity does not prove a receiver class", name)
+			for value := range 3 {
+				for demand := range 3 {
+					name := fmt.Sprintf("M%d.make_C%d", value, demand)
+					present := false
+					for _, fn := range program.Funcs {
+						present = present || fn.Name == name
 					}
+					assert.Check(t, present == (value == demand), "%s: the closed caller proves the captured receiver, not just its wrapper site", name)
 				}
 			}
 		})

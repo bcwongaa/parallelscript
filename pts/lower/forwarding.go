@@ -139,8 +139,13 @@ func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType, source *a
 // for the demand's signature (for a class's method generic, a dispatched demand of its
 // overrides', D-101), or that its object literal's method closure lists (by name, through
 // receiverType, or for a literal's own type, its shape, D-191), or else of m, its result
-// converted to the demand's with a check.
-func (l *lowerer) methodForward(receiver *ir.Local, m method, generic *genericFunc, shape *ir.Class, receiverType *checker.Type) func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
+// converted to the demand's with a check. source is the expression actually captured as
+// receiver, not the outer demand's callee or a synthetic pattern's name (D-207).
+func (l *lowerer) methodForward(receiver *ir.Local, m method, generic *genericFunc, shape *ir.Class, receiverType *checker.Type, source *ast.Node) func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
+	steps := maxValueFlowSteps
+	if source != nil && !l.sourceOutsideGenerics(source, &steps) {
+		source = nil // a shared generic creation site may capture different receivers
+	}
 	return func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
 		if !takesAs(m.params, d.want.Params) {
 			return nil
@@ -149,7 +154,7 @@ func (l *lowerer) methodForward(receiver *ir.Local, m method, generic *genericFu
 		if otherwise == nil {
 			return nil
 		}
-		inner := &demand{in: fn, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic, narrowable: true, allOnly: true}
+		inner := &demand{in: fn, receiverSource: source, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic, narrowable: true, allOnly: true}
 		if generic == nil {
 			inner.shape, inner.receiver = shape, receiverType
 		}
@@ -352,12 +357,13 @@ func (l *lowerer) objectMethodForward(node *ast.Node, m method) func(*ir.Local) 
 	if node.Kind != ast.KindPropertyAccessExpression {
 		return nil
 	}
-	return l.objectMethodForwardFrom(node, l.typeAt(node.Expression()), m)
+	return l.objectMethodForwardFrom(node, l.typeAt(node.Expression()), m, node.Expression())
 }
 
 // objectMethodForwardFrom is objectMethodForward for a value of m that node's type is,
-// read from an object of type receiverType (a pattern's `{ m }`).
-func (l *lowerer) objectMethodForwardFrom(node *ast.Node, receiverType *checker.Type, m method) func(*ir.Local) *forwarder {
+// read from an object of type receiverType. source is its captured receiver expression,
+// or nil for a synthetic read (a pattern's `{ m }`).
+func (l *lowerer) objectMethodForwardFrom(node *ast.Node, receiverType *checker.Type, m method, source *ast.Node) func(*ir.Local) *forwarder {
 	if m.result != ir.Value || receiverType == nil || l.genericSignature(node) == nil {
 		return nil
 	}
@@ -374,7 +380,7 @@ func (l *lowerer) objectMethodForwardFrom(node *ast.Node, receiverType *checker.
 	}
 	receiverType = l.instantiate(l.checker.GetNonNullableType(receiverType))
 	return func(receiver *ir.Local) *forwarder {
-		return &forwarder{call: l.methodForward(receiver, m, nil, shape, receiverType)}
+		return &forwarder{call: l.methodForward(receiver, m, nil, shape, receiverType, source)}
 	}
 }
 

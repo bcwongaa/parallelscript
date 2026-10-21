@@ -1,0 +1,63 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+interface Maker { make<T>(value: T): Box<T>; }
+type Factory = <T>(value: T) => Box<T>;
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Inherited extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+function construct(label: string): Maker { return new Inherited(label); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(9);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("nine");
+  console.log(label, box.origin, box.value.length);
+}
+const constructorAlias = construct;
+const firstReceiver = constructorAlias("first");
+const receiverAlias = firstReceiver;
+const first = read(receiverAlias);
+const second = read(new Override("second"));
+numberUse("first", first);
+stringUse("second", second);
+stringUse("first again", first);
+const third = read(construct("third"));
+numberUse("third", third);
+
+class ReboundBase implements Maker {
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> { return new Box(value, this.label); }
+}
+class ReboundLookup extends ReboundBase {
+  make<T>(value: T): Box<T> { return new Box(value, this.label); }
+}
+class ReboundCapture extends ReboundBase {
+  make<T>(value: T): Box<T> { return new Box(value, this.label); }
+}
+function rebind(lookup: ReboundBase, captured: ReboundBase): Factory {
+  return lookup.make.bind(captured);
+}
+const rebound = rebind(new ReboundLookup("lookup"), new ReboundCapture("captured"));
+numberUse("bind thisArg", rebound);
+
+// expect:
+// first first/parent/1 10
+// second second/override/1 4
+// first again first/parent/2 4
+// third third/parent/1 10
+// bind thisArg captured 10
