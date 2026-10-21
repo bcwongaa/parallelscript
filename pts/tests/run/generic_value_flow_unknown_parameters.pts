@@ -1,0 +1,110 @@
+// H09b5c1 guard: assigned, recursive, escaped and generic consumer parameters have unknown
+// origins. Trimming closed immutable flows must not remove the instances these calls use.
+class Box<T> {
+  constructor(public value: T, public kind: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+class P0 { tag = 0; }
+class P1 { tag = 1; }
+class P2 { tag = 2; }
+class P3 { tag = 3; }
+class P4 { tag = 4; }
+class P5 { tag = 5; }
+class P6 { tag = 6; }
+class P7 { tag = 7; }
+class P8 { tag = 8; }
+class P9 { tag = 9; }
+class P10 { tag = 10; }
+class P11 { tag = 11; }
+
+function assigned(f: Factory): void {
+  f = second;
+  const box: Box<P0> = f(new P0());
+  console.log("assigned", box.kind, box.value.tag);
+}
+function destructured(f: Factory): void {
+  [f] = [second];
+  const box: Box<P1> = f(new P1());
+  console.log("destructured", box.kind, box.value.tag);
+}
+function captured(f: Factory): void {
+  function replace(): void {
+    f = second;
+  }
+  replace();
+  const box: Box<P2> = f(new P2());
+  console.log("captured", box.kind, box.value.tag);
+}
+function recursive(f: Factory, depth: number): void {
+  if (depth > 1) {
+    recursive(second, depth - 1);
+    return;
+  }
+  if (depth > 0) {
+    recursive(f, depth - 1);
+    return;
+  }
+  const box: Box<P3> = f(new P3());
+  console.log("recursive", box.kind, box.value.tag);
+}
+function aliasConsumer(f: Factory): void {
+  const box: Box<P4> = f(new P4());
+  console.log("consumer alias", box.kind, box.value.tag);
+}
+function callbackConsumer(f: Factory): void {
+  const box: Box<P5> = f(new P5());
+  console.log("consumer callback", box.kind, box.value.tag);
+}
+function dynamicConsumer(f: Factory): void {
+  const box: Box<P6> = f(new P6());
+  console.log("consumer any", box.kind, box.value.tag);
+}
+export function exportedConsumer(f: Factory): void {
+  const box: Box<P7> = f(new P7());
+  console.log("consumer export", box.kind, box.value.tag);
+}
+function separatelyExportedConsumer(f: Factory): void {
+  const box: Box<P10> = f(new P10());
+  console.log("consumer export specifier", box.kind, box.value.tag);
+}
+export { separatelyExportedConsumer };
+function shorthandConsumer(f: Factory): void {
+  const box: Box<P11> = f(new P11());
+  console.log("consumer shorthand", box.kind, box.value.tag);
+}
+function genericConsumer<U extends { tag: number }>(f: Factory, value: U): void {
+  const box: Box<U> = f(value);
+  console.log("generic consumer", box.kind, box.value.tag);
+}
+
+assigned(first);
+destructured(first);
+captured(first);
+recursive(first, 2);
+const aliasedConsumer = aliasConsumer;
+aliasedConsumer(second);
+[second].forEach(callbackConsumer);
+const anyConsumer: any = dynamicConsumer;
+anyConsumer(second);
+exportedConsumer(second);
+genericConsumer(first, new P8());
+genericConsumer(second, new P9());
+separatelyExportedConsumer(second);
+const held = { shorthandConsumer };
+held.shorthandConsumer(second);
+
+// expect:
+// assigned second 0
+// destructured second 1
+// captured second 2
+// recursive second 3
+// consumer alias second 4
+// consumer callback second 5
+// consumer any second 6
+// consumer export second 7
+// generic consumer first 8
+// generic consumer second 9
+// consumer export specifier second 10
+// consumer shorthand second 11

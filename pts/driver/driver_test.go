@@ -121,8 +121,9 @@ func TestABuildThatOnlyItsSpeculativeInstancesStopIsLoweredAgainWithoutThem(t *t
 	t.Parallel()
 	// The arrow's instance for string, which `use`'s call would look up, makes a
 	// Weird<string>, whose `inc` compares a string with a number by `==`, which typed code
-	// doesn't lower (a branch its narrowing makes dead would, D-195); the arrow reaches
-	// `use` only through `any`, and its erased copy compiled before H09.
+	// doesn't lower (a branch its narrowing makes dead would, D-195). `use` reads its
+	// callee back from any[], whose source is unknown (D-201); the arrow's erased copy
+	// compiled before H09. A direct `use(make)` proves the arrow cannot reach this demand.
 	entry := writeSource(t, `class Box<T> {
   constructor(public value: T) {}
 }
@@ -144,7 +145,8 @@ function use(f: <T>(x: T) => Box<T>): string {
 }
 const w = (() => <T>(x: T) => new Weird(x))();
 const d: any = w;
-console.log(d(1).inc(), use(make));
+const actual: any[] = [make];
+console.log(d(1).inc(), use(actual[0]));
 `)
 
 	_, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)

@@ -1,10 +1,9 @@
 // Not C176, so a narrower fallback (H09b5b) keeps it an error, though the pairing is
-// speculative: the declaration mkWeird escapes through `any`, so it is an erased value (D-148) at
-// every fallback level, and useDogs' value demand for Dog[] pairs with it at every level, though
-// the program passes useDogs another function; mkWeird's instance for Dog[] makes Weird<Dog[]>,
-// whose animals() doesn't lower (D-094). The compiler can't tell this pairing from a real one
-// (D-190), and no level compiles the program: it stays an error (where Node runs it), as on the
-// base, rather than a build whose real pairings could throw.
+// speculative: mkWeird escapes through `any`, and useDogs reads its factory from an any[] whose
+// origins D-201 leaves unknown. Its Dog[] demand must still pair with mkWeird at every fallback
+// level (D-148); that instance makes Weird<Dog[]>, whose animals() doesn't lower (D-094). No
+// level compiles the program, rather than dropping a possibly real pairing. The known-source
+// control useDogs(make) now compiles; run/generic_value_flow_proven_declaration.pts pins it.
 // error: using a Dog[] as a Animal[] where it may be changed or kept
 class Box<T> {
   constructor(public value: T) {}
@@ -39,4 +38,5 @@ function make<T>(x: T): Box<T> {
 }
 const d: any = mkWeird;
 console.log("through any", d(1).value);
-console.log("dogs", useDogs(make));
+const actual: any[] = [make];
+console.log("dogs", useDogs(actual[0]));

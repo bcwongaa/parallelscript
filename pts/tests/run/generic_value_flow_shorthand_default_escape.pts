@@ -1,0 +1,21 @@
+// A destructuring default reads the consumer, not the shorthand assignment's target.
+// Missing that escape wrongly excludes the second factory's required instance (H09b5c1).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Factory = <T>(x: T) => Box<T>;
+const first = <T>(x: T): Box<T> => new Box(x);
+const second = <T>(x: T): Box<T> => new Box(x);
+function use(f: Factory): number {
+  const box: Box<number> = f(42);
+  return box.value;
+}
+console.log(use(first));
+let alias: (f: Factory) => number = (_f: Factory): number => 0;
+const optionsWithoutAlias: { alias?: (f: Factory) => number } = {};
+({ alias = use } = optionsWithoutAlias);
+console.log(alias(second));
+
+// expect:
+// 42
+// 42

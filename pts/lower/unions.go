@@ -230,7 +230,7 @@ func (l *lowerer) mayHaveChanged(node *ast.Node) bool {
 // readSymbol is the variable an identifier reads: the shorthand property `{ x }`'s value
 // symbol, which isn't the symbol at its name (the property's).
 func (l *lowerer) readSymbol(node *ast.Node) *ast.Symbol {
-	if node.Parent != nil && node.Parent.Kind == ast.KindShorthandPropertyAssignment {
+	if node.Parent != nil && node.Parent.Kind == ast.KindShorthandPropertyAssignment && node.Parent.Name() == node {
 		return l.followAliases(l.checker.GetShorthandAssignmentValueSymbol(node.Parent))
 	}
 	return l.target(node)

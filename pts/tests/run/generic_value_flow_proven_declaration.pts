@@ -1,0 +1,41 @@
+// D-201 proves useDogs receives make, so mkWeird's unrelated Dog[] instance is not made.
+// The unknown-source counterpart remains an error in
+// errors/generic_fallback_keeps_speculative_declaration_failures.pts.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+function mkWeird<T>(x: T): Box<T> {
+  const weird = new Weird(x);
+  console.log("weird", weird.animals().length);
+  return new Box(x);
+}
+function useDogs(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+const d: any = mkWeird;
+console.log("through any", d(1).value);
+console.log("dogs", useDogs(make));
+// expect:
+// weird 0
+// through any 1
+// dogs 1

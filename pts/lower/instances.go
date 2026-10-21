@@ -27,6 +27,7 @@ import (
 type demand struct {
 	in        *ir.Func    // the function the call is in
 	callee    *ast.Symbol // what the call's callee names, if it is a name
+	source    *ast.Node   // an ordinary value call's actual callee expression (D-201); nil for wrappers and methods
 	dropped   bool        // in code a failed trial dropped (D-190)
 	erased    *ir.FuncType
 	method    *genericFunc
@@ -412,7 +413,7 @@ func (l *lowerer) instanceValueCall(call *ast.CallExpression, callee ir.Expr, ft
 	if d == nil {
 		return nil, false
 	}
-	d.erased = ft
+	d.erased, d.source = ft, call.Expression
 	if name := ast.SkipParentheses(call.Expression); name.Kind == ast.KindIdentifier {
 		d.callee = l.target(name)
 	}
@@ -810,7 +811,7 @@ func (l *lowerer) specialize() bool {
 // function to the call's resolved signature, if that instance can be called as one of the
 // call's signature.
 func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
-	if !l.reaches(d, v) {
+	if !l.sourceMayReach(d, v) || !l.reaches(d, v) {
 		return
 	}
 	var p pairing

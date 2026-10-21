@@ -1,0 +1,90 @@
+// H09b5c1 guard: call results, mutable names, containers, properties and dynamic reads
+// stay unknown rather than losing the instances their typed calls can reach.
+class Box<T> {
+  constructor(public value: T, public kind: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+class O0 { tag = 0; }
+class O1 { tag = 1; }
+class O2 { tag = 2; }
+class O3 { tag = 3; }
+class O4 { tag = 4; }
+class O5 { tag = 5; }
+class O6 { tag = 6; }
+class O7 { tag = 7; }
+class O8 { tag = 8; }
+class O9 { tag = 9; }
+class O10 { tag = 10; }
+class O11 { tag = 11; }
+function returned(): Factory {
+  return second;
+}
+function dynamicIdentity(value: any): any {
+  return value;
+}
+function defaulted(f: Factory = second): void {
+  const box: Box<O11> = f(new O11());
+  console.log("defaulted", box.kind, box.value.tag);
+}
+class Holder {
+  constructor(public make: Factory) {}
+}
+
+const fromReturn = returned();
+const returnBox: Box<O0> = fromReturn(new O0());
+console.log("return", returnBox.kind, returnBox.value.tag);
+let mutable: Factory = first;
+mutable = second;
+const mutableBox: Box<O1> = mutable(new O1());
+console.log("mutable", mutableBox.kind, mutableBox.value.tag);
+const object = { make: first };
+object.make = second;
+const objectBox: Box<O2> = object.make(new O2());
+console.log("property", objectBox.kind, objectBox.value.tag);
+const list: Factory[] = [first];
+const alias = list;
+alias[0] = second;
+const listBox: Box<O3> = list[0](new O3());
+console.log("array alias", listBox.kind, listBox.value.tag);
+const pair: [Factory, Factory] = [first, second];
+const tupleBox: Box<O4> = pair[1](new O4());
+console.log("tuple", tupleBox.kind, tupleBox.value.tag);
+const map = new Map<string, Factory>([["make", first]]);
+map.set("make", second);
+const mapped: Box<O5> = map.get("make")!(new O5());
+console.log("map", mapped.kind, mapped.value.tag);
+const record: Record<string, Factory> = { make: first };
+record.make = second;
+const recordBox: Box<O6> = record.make(new O6());
+console.log("record", recordBox.kind, recordBox.value.tag);
+const holder = new Holder(second);
+const fieldBox: Box<O7> = holder.make(new O7());
+console.log("class field", fieldBox.kind, fieldBox.value.tag);
+const anyList: any[] = [first, second];
+const recovered: Factory = anyList[1];
+const anyArrayBox: Box<O8> = recovered(new O8());
+console.log("any array", anyArrayBox.kind, anyArrayBox.value.tag);
+const anyRecord: Record<string, any> = { make: second };
+const fromAnyRecord: Factory = anyRecord.make;
+const anyRecordBox: Box<O9> = fromAnyRecord(new O9());
+console.log("any record", anyRecordBox.kind, anyRecordBox.value.tag);
+const fromDynamic: Factory = dynamicIdentity(second);
+const dynamicBox: Box<O10> = fromDynamic(new O10());
+console.log("any return", dynamicBox.kind, dynamicBox.value.tag);
+defaulted();
+
+// expect:
+// return second 0
+// mutable second 1
+// property second 2
+// array alias second 3
+// tuple second 4
+// map second 5
+// record second 6
+// class field second 7
+// any array second 8
+// any record second 9
+// any return second 10
+// defaulted second 11

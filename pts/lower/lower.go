@@ -193,6 +193,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 	l.globalBindings = l.globalModuleBindings(program.Modules)
 	l.collectUndefinedTests(program.Modules)
 	l.collectOutsideAssignments(program.Modules)
+	l.valueFlow.files = program.Modules
 	result := &ir.Program{}
 	for _, file := range program.Modules {
 		module := newModule(file, file == program.Entry)
@@ -340,6 +341,7 @@ type lowerer struct {
 	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
 	instanceCounts      map[recursionBudget]int          // how many instances of each declaration polymorphic recursion made from each root, and from all (maxRecursiveInstances, maxRecursiveTotal)
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
+	valueFlow           valueFlow                        // immutable source proofs for ordinary function-value demands (D-201)
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
 	narrowing           *Narrowing                       // what this lowering leaves out (C176)

@@ -1,0 +1,51 @@
+// H09b5c1: immutable aliases and conditional, comma and logical origins keep every
+// callable branch and do not change short-circuiting or evaluation order.
+class Box<T> {
+  constructor(public value: T, public kind: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+class E0 { tag = 0; }
+class E1 { tag = 1; }
+class E2 { tag = 2; }
+class E3 { tag = 3; }
+class E4 { tag = 4; }
+class E5 { tag = 5; }
+const trace: string[] = [];
+function flag(): boolean {
+  trace.push("flag");
+  return true;
+}
+const yes = flag();
+const alias = first;
+const again = alias;
+const aliased: Box<E0> = again(new E0());
+console.log("alias", aliased.kind, aliased.value.tag, again === first);
+const conditional = yes ? first : second;
+const selected: Box<E1> = conditional(new E1());
+console.log("conditional", selected.kind, selected.value.tag);
+const comma = (trace.push("comma"), second);
+const sequenced: Box<E2> = comma(new E2());
+console.log("comma", sequenced.kind, sequenced.value.tag);
+const optional: Factory | undefined = yes ? first : undefined;
+const either = optional || (trace.push("or rhs"), second);
+const disjunction: Box<E3> = either(new E3());
+console.log("or", disjunction.kind, disjunction.value.tag);
+const missing: Factory | undefined = yes ? undefined : first;
+const fallback = missing ?? (trace.push("nullish rhs"), second);
+const nullish: Box<E4> = fallback(new E4());
+console.log("nullish", nullish.kind, nullish.value.tag);
+const both = (optional && (trace.push("and rhs"), second)) || first;
+const conjunction: Box<E5> = both(new E5());
+console.log("and", conjunction.kind, conjunction.value.tag);
+console.log("trace", trace.join(","));
+
+// expect:
+// alias first 0 true
+// conditional first 1
+// comma second 2
+// or first 3
+// nullish second 4
+// and second 5
+// trace flag,comma,nullish rhs,and rhs

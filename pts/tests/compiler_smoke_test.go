@@ -53,24 +53,21 @@ const (
 // lower.AllInstances only by leaving out the speculative instances whose failures the
 // lowering's trials don't take back (driver.EmitCNarrowedWith, C176), and needsFallback
 // those that compile only with the driver's fallback to a later one of lower.Fallbacks
-// (D-190).
+// (D-190). D-201 removes impossible pairs from nine former entries; those seeds now
+// compile with AllInstances alone, which the smoke test requires without an exemption.
 var (
 	needsNarrowing = []string{"/run/generic_instances_fall_back.pts",
-		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_class_body.pts",
-		"/run/generic_fallback_spares_unrelated_relaxed_cast.pts",
-		"/run/generic_fallback_spares_the_values_other_instances.pts", "/run/generic_fallback_spares_unrelated_adapter.pts",
-		"/run/generic_fallback_spares_unrelated_chain.pts", "/run/generic_fallback_spares_unrelated_dynamic_result.pts",
+		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_relaxed_cast.pts",
+		"/run/generic_fallback_spares_unrelated_adapter.pts",
 		"/run/generic_fallback_spares_unrelated_forwarder.pts", "/run/generic_fallback_spares_unrelated_keyed_call_sites.pts",
 		"/run/generic_fallback_spares_unrelated_literal_method.pts", "/run/generic_fallback_spares_unrelated_optional_call_site.pts",
-		"/run/generic_fallback_spares_unrelated_program_cast.pts", "/run/generic_fallback_spares_unrelated_several.pts",
+		"/run/generic_fallback_spares_unrelated_several.pts",
 		"/run/generic_fallback_spares_unrelated_total.pts", "/run/generic_fallback_spares_unrelated_value_call_site.pts",
 		"/run/generic_fallback_blames_the_trial_whose_code_failed.pts", "/run/generic_fallback_keeps_value_pairings_for_by_name_casts.pts",
-		"/run/generic_fallback_leaves_out_a_cascade_at_once.pts", "/run/generic_fallback_blames_dense_cycles_of_instances.pts",
-		"/run/generic_fallback_spares_method_instances_of_left_out_classes.pts", "/run/generic_fallback_spares_unrelated_constant_key_site.pts",
-		"/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts",
+		"/run/generic_fallback_spares_unrelated_constant_key_site.pts", "/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts",
 		"/run/generic_fallback_spares_other_instances_at_one_call.pts", "/run/generic_fallback_spares_other_class_instances_at_one_call.pts",
 		"/run/generic_fallback_spares_other_cast_instances_at_one_call.pts", "/run/generic_fallback_spares_other_method_owners.pts",
-		"/run/generic_fallback_blames_descriptor_reuses.pts", "/run/generic_fallback_blames_method_descriptor_reuses.pts"}
+		"/run/generic_fallback_blames_method_descriptor_reuses.pts"}
 	needsFallback = []string{"/run/generic_fallback_keeps_value_pairings_for_by_name_totals.pts"}
 )
 
