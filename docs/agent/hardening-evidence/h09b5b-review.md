@@ -173,3 +173,7 @@ It does not fix R2-3 or the gap.
 - **Within and laterLowering:** the memo is consistent, and each level is lowered at most 8 times. When the later level's C is rejected the result is the same as base; I worked that out but didn't run it.
 - **relaxedCastUse:** its choice is sound.
 - **Trial-owned dense cycles** take one step and are fine (`p/r2/dense_use_cycle_N.pts`).
+
+## Interrupted round 3 (snapshot `snap-f`, `9132cb9d1`): recovered evidence, no saved verdict
+
+Parent recovery note, 2026-10-21: [h09b5b-review3-probes.tar.gz](h09b5b-review3-probes.tar.gz) was present in `/tmp/h09b5b/review3` at resumption (295 entries). No final prose report was present; this note is **not** a reconstructed reviewer report. Its `INDEX.txt` records probe replays, emit-c comparisons, and an overlay that compares `blameOf` against a synthetic use-graph oracle. With `outer` links, it records 66 insufficient cuts and one empty result for the checkpoint implementation; without `outer`, no mismatch. These are unresolved test-design/review evidence until independently rerun and their graph assumptions checked. The resumed named reviewer is investigating them before the slice is ticked. The original archive's model attribution is claude-opus-5-5; resumed agents inherit gpt-6.1-sol.

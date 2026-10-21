@@ -1,0 +1,48 @@
+{
+  "task": "H09b5b (D-199), checkpoint commits; slice still under review",
+  "checked": "2026-10-21",
+  "workflow": "PTS",
+  "method": "Session-start gh run list, then one jobs API read per completed run; no waiting or polling",
+  "runs": [
+    {
+      "commit": "3dde86f422a24548df37b963a36747f3c264d23e",
+      "role": "initial fix",
+      "run_id": 39579899920,
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39579899920",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"},
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"}
+      ]
+    },
+    {
+      "commit": "578b12d9ff65474ec5dfe795920d79b7712e75ef",
+      "role": "review round 1 fixes",
+      "run_id": 39591859967,
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39591859967",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+      ]
+    },
+    {
+      "commit": "9132cb9d18db9f35a26bf12c75e7194b415915b5",
+      "role": "review round 2 fixes",
+      "run_id": 39600804083,
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39600804083",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+      ]
+    }
+  ],
+  "note": "These runs certify only their immutable SHAs, not the task's acceptance or any subsequent changes. Later commits: CI pending."
+}
