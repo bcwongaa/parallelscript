@@ -26,5 +26,23 @@
       "status": "pending"
     }
   ],
-  "note": "No failed run among the ten most recent. Pending/in-progress runs are left for a later session, not polled."
+  "later_startup_observations": [
+    {
+      "checked": "2026-10-22",
+      "method": "Next session's single non-blocking startup list, not an in-session recheck.",
+      "commit": "bfee838c73d6fd91b64934aa8cb04a59cb7b806f",
+      "run_id": 39671281581,
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "checked": "2026-10-22",
+      "method": "Next session's single non-blocking startup list, not an in-session recheck.",
+      "commit": "be71aac864884bef6eadfe4cdf8bb5f1b7ce12db",
+      "run_id": 39671726097,
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "note": "No failed run among the ten most recent. Cancelled/superseded runs are not green receipts. Pending/in-progress runs are left for a later session, not polled."
 }

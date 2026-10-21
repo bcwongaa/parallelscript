@@ -1,0 +1,32 @@
+{
+  "task": "H09b5c2b2b2a (D-207)",
+  "checked": "2026-10-22",
+  "method": "One non-blocking session-start list of ten recent runs; no waiting or polling.",
+  "runs": [
+    {
+      "commit": "ad8441bb20d4a94cf8385538fd1e0a525b75e361",
+      "role": "prior startup CI backfill documentation, before b2a implementation",
+      "run_id": 39673715155,
+      "status": "completed",
+      "conclusion": "success",
+      "note": "Certifies only this SHA, not the later b2a implementation or acceptance. Companion skipped workflow is not a PTS receipt."
+    },
+    {
+      "commit": "eefd5cf6f80912134c7a41a213704dff4f0d77a3",
+      "role": "b2a implementation",
+      "run_id": 39680809502,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Cancelled/superseded is not green CI evidence; local acceptance is unchanged."
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "e7c7a748ef84800c0a676f20f0dbf11efd005858",
+      "role": "b2a acceptance documentation",
+      "run_id": 39681073833,
+      "status": "in_progress"
+    }
+  ],
+  "note": "No failed run among the ten most recent. In-progress runs are left for a later session, not polled."
+}
