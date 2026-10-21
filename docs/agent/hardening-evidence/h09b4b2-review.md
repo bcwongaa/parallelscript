@@ -333,3 +333,60 @@ The commit is ready for correctness: no wrong output or new trap, and no compile
 The working tree has uncommitted parent edits (docs and a new `h09b4b2.md`); I didn't touch them.
 
 Everything is in `/tmp/h09b4b2/review3.tar.gz`: probes in `p/r1`, `p/r2`, `p/r3`; outputs in `out/<name>/{node,snap3,snap2,base}.txt`; `out/prev-summary.txt`; `emitc/diff-summary.txt`; the cost programs and their counts in `cg/`. It holds no binaries or C files, and I wrote the marker `/tmp/h09b4b2/review3.done`.
+
+## Round 4 (round-3 fix `27d1f0b07`, snapshot `snap4`)
+
+Archive: [h09b4b2-review4-probes.tar.gz](h09b4b2-review4-probes.tar.gz) (sha256 `01e2d68311b48ffc…`, 4974 entries: probes in `p/r1` to `p/r4`, outputs in `out/<name>/{node,snap4,base}.txt`, `out/prev-summary.txt`, `emitc/diff-summary.txt`, the cost programs and runners with their counts in `cg/`). Parent's note: snap4 was taken before `narrowed_never_union_keys.pts` was written, the one test file its `pts/tests/run` lacks (`diff` of the two listings); its code equals `27d1f0b07`'s.
+
+---
+
+# H09b4b2 review round 4: commit `27d1f0b07` is ready
+
+The alias restriction fixed the round-3 cost problem, and I found no regression. All runs compare Node (harness style), snap4 and the base, unless noted.
+
+## (1) All round 1–3 probes, plus two new ones
+- **Probes run:** 75.
+- **Match Node:** 50.
+- **Match the base:** 20, all the known pre-existing cases (PTS1001s, boundary checks, C239's `undefined`, downcast throws, C237's shape in `t06`).
+- **Match neither:** 5.
+  - `s09` and `s20` are the decided lies.
+  - `t02` is strictly better than the base. snap4 fails only on the `null | number` array index (`PTS1001: indexing an array with a value`), where the base fails on that and both record keys.
+  - `t08` fails on the same instance-dead array index as the base, with different wording (`with a value` instead of `with a string`). This is the gap I logged in round 3.
+  - `u02` is the commit's own `narrowed_never_union_keys.pts` (from my `t02b`). It matches Node; the base fails with PTS1001.
+
+## (2) The alias restriction doesn't reopen anything
+- `t03` matches Node and the base in every form: `a["kind"]`, `{ kind: k }`, an alias in an outer function, `a?.kind`, `a!.kind`, an alias of an alias, and aliased conditions over a property alias.
+- `s04` and `s05` also match Node and the base.
+- A new probe at the edges of the restriction (`u01`) matches Node and the base: `const kind = (a.kind)`, `const kind = a.kind!`, `const { kind } = h.a`, `const { kind } = (a)`.
+- `t01` (element-key positions) and `t07` (key writes) still match Node and the base.
+
+## (3) Compile cost, callgrind instruction counts vs the base
+| program | snap4 | base | change | round 3 (snap3) |
+|---|---|---|---|---|
+| `alias_dispatcher` | 1,492.8M | 1,419.6M | +5.2% | +85% |
+| `alias_cost` | 2,146.7M | 2,091.3M | +2.6% | about 10x in wall time |
+| `alias_chain` | 631.9M | 627.5M | +0.7% | |
+| `generic_optional_chain_calls` | 642.1M | 639.1M | +0.5% | +2.5% |
+| `generic_interface_methods` | 671.9M | 673.7M | −0.3% | |
+| `sql_query_parser` | 641.1M | 648.1M | −1.1% | |
+| `big_function_150` | 7,656.0M | 7,306.5M | +4.8% | the recorded F5 cost |
+
+- Run-to-run noise is about ±2%.
+- About one valgrind run in six printed no count, even when run alone. I re-ran those until each produced a number.
+- Wall times for the other cost programs (`alias_realistic`, `alias_functions`, `alias_functions_big`) are now in line with the base.
+
+## (4) Emit-c over all 1,122 programs vs the base
+I used the commit's own test tree, taken with `git archive 27d1f0b07`. snap4's `pts/tests/run` is missing about 10 test files, including the new `narrowed_never_union_keys.pts`. Its code directories do match the commit byte for byte.
+- **Differences:** only this slice's tests (now including `narrowed_never_union_keys`) and corpus `reactive_signals`.
+- **Not a regression:** corpus `transducers.pts` differs too, but that's the pre-existing nondeterministic `pts_object_take_order`. This time the base's C had it and snap4's didn't, the reverse of round 3. Its output matched Node in every run.
+- **No failures:** no new compile failures, no change in error output, and no PTS9001s.
+
+## Verdict
+Ready. Small items that can be logged as known issues:
+- the instance-dead array index (`t08`) and the `null | number` key (`t02`), both still PTS1001 as on the base;
+- C237's shape after `x === SKIP` (`t06`);
+- the `transducers.pts` emit-c nondeterminism.
+
+The working tree has uncommitted parent edits (docs, `DECISIONS.md`, a new `h09b4b2.md`); I didn't touch them.
+
+Everything is in `/tmp/h09b4b2/review4.tar.gz`: probes in `p/r1` to `p/r4`, outputs in `out/<name>/{node,snap4,base}.txt`, `out/prev-summary.txt`, `emitc/diff-summary.txt`, and the cost programs and runners with their counts in `cg/`. It holds no binaries, no C files and no copy of the extracted test tree, and I wrote the marker `/tmp/h09b4b2/review4.done`.
