@@ -42,7 +42,35 @@
         {"name": "PTS tests", "status": "completed", "conclusion": "success"},
         {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
       ]
+    },
+    {
+      "commit": "c6903444593b18ecd8fc80e0c990475ae6e68a99",
+      "role": "recovered evidence checkpoint",
+      "run_id": 39605215607,
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39605215607",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Superseded by a later push; not a passing receipt."
+    },
+    {
+      "commit": "12ab6773164a737b88a4d0b4cc6d309292802b8d",
+      "role": "fresh baseline documentation checkpoint",
+      "run_id": 39606731690,
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39606731690",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"},
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"}
+      ]
     }
   ],
+  "pending_at_session_start": {
+    "commit": "7b3b240da1eef8812c84c93b8a940447c8cd50ec",
+    "run_id": 39615901100,
+    "status": "queued",
+    "note": "Observed once at session start; not polled or waited for."
+  },
   "note": "These runs certify only their immutable SHAs, not the task's acceptance or any subsequent changes. Later commits: CI pending."
 }
