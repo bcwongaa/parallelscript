@@ -31,5 +31,9 @@
       "status": "pending"
     }
   ],
-  "note": "No failures among the latest ten runs. Skipped companion workflows are not passing PTS receipts. The two pending runs are left for a later session."
+  "subsequent_session_start_2026_10_22": [
+    {"commit": "241ba7a21d3cd36ba4bdabbb3d9d6401dbdec36a", "run_id": 39631593352, "status": "completed", "conclusion": "cancelled"},
+    {"commit": "79eb752b9df6a0d512b311d0eebced920a6ec486", "run_id": 39632026065, "status": "completed", "conclusion": "cancelled"}
+  ],
+  "note": "Original pending snapshot retained. The next session's one non-blocking list found both runs cancelled/superseded, not failed or successful. No exact-implementation-SHA success is inferred. Skipped companion workflows are not passing PTS receipts."
 }

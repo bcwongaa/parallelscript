@@ -1,0 +1,37 @@
+{
+  "task": "H09b5c2a (D-202)",
+  "checked": "2026-10-22",
+  "method": "One session-start list; one read of the already-completed planning run. No waiting or polling.",
+  "runs": [
+    {
+      "commit": "9988a04c33bb98a04f455496cae377003fcb6cc6",
+      "role": "c2a split and earlier CI backfill (pre-implementation)",
+      "run_id": 39632930834,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39632930834",
+      "jobs": [
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+      ]
+    },
+    {
+      "commit": "5c0dce22c73c87630a93ebcc17394a48f7e23432",
+      "role": "c2a implementation",
+      "run_id": 39642190108,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Superseded by acceptance-documentation push; not a passing exact-SHA receipt."
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "9e60deebfd6a6b26d24224fdbe9753750ab8e6f0",
+      "role": "c2a acceptance documentation",
+      "run_id": 39642512066,
+      "status": "in_progress"
+    }
+  ],
+  "note": "No failed run among the latest ten. The planning success does not certify the later c2a implementation. Skipped companion workflows are not passing PTS receipts. Pending work is left for a later session."
+}
