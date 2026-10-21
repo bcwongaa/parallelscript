@@ -1,0 +1,78 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+const functions = { selected: first, other: second };
+const selectedAlias = functions.selected;
+numberUse("object", selectedAlias);
+stringUse("fresh object", ({ selected: second, other: first }).selected);
+const list: Factory[] = [first, second];
+numberUse("array", list[1]);
+stringUse("fresh array", [second, first][1]);
+function selectedReturn(): Factory {
+  const held = { selected: second };
+  return held.selected;
+}
+numberUse("projected return", selectedReturn());
+let order = "";
+function selectedEffect(): Factory { order += "selected"; return first; }
+function unselectedEffect(): Factory { order += "/other"; return second; }
+const effects = { selected: selectedEffect(), other: unselectedEffect() };
+numberUse("effects", effects.selected);
+console.log("evaluation order", order);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function pick(receiver: Maker): Factory {
+  const held = { receiver };
+  return held.receiver.make.bind(held.receiver);
+}
+const receivers: { receiver: Maker } = { receiver: new Child("a") };
+const direct: Box<number> = receivers.receiver.make(3);
+console.log("direct", direct.origin, direct.value + 1);
+const wrappers: Factory[] = [pick(receivers.receiver), pick(new Override("b"))];
+numberUse("captured a", wrappers[0]);
+stringUse("captured b", wrappers[1]);
+stringUse("captured a again", wrappers[0]);
+const original = new Child("lookup");
+const rebound = new Parent("thisArg");
+const bound = { selected: original.make.bind(rebound) };
+numberUse("bind thisArg", bound.selected);
+
+// expect:
+// object first 8
+// fresh object second 5
+// array second 8
+// fresh array first 5
+// projected return second 8
+// effects first 8
+// evaluation order selected/other
+// direct a/parent/1 4
+// captured a a/parent/2 8
+// captured b b/override/1 5
+// captured a again a/parent/3 5
+// bind thisArg thisArg/parent/1 8

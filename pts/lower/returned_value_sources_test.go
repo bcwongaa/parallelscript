@@ -160,5 +160,6 @@ func returnedSourceNames(sources functionSources) []string {
 const returnedSourcesPrelude = `type Fn = () => void;
 function first(): void {}
 function second(): void {}
-const held: Fn[] = [second];
+// A mutable container keeps these unknown-return and nested-body controls uncertain.
+let held: Fn[] = [second];
 `

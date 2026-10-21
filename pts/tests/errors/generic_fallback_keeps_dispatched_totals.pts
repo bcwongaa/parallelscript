@@ -65,5 +65,6 @@ class R5 extends Rec {
     return new Box(x);
   }
 }
-const recs: Rec[] = [new R0(), new R1(), new R2(), new R3(), new R4(), new R5()];
+// Keep the receiver unknown: a safe const literal projection proves R0 (D-208).
+let recs: Rec[] = [new R0(), new R1(), new R2(), new R3(), new R4(), new R5()];
 console.log("recursion", recs[0].rec(5, 3).value + 1);

@@ -41,7 +41,8 @@ class Bad implements Maker {
 function main(): void {
   const poison = <T,>(value: T): Weird<T> => new Weird(value);
   const escaped: any = poison;
-  const makers: Maker[] = [new Good(), new Bad()];
+  // A mutable container keeps the receiver uncertain as literal projections improve.
+  let makers: Maker[] = [new Good(), new Bad()];
   const maker: Maker = makers[0];
   console.log("by name", maker.make([new Dog()]).value.length, escaped(0).animals().length);
 }

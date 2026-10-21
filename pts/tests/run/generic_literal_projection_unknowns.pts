@@ -1,0 +1,72 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+function use(label: string, factory: Factory): void {
+  const box: Box<number> = factory(4);
+  console.log(label, box.origin, box.value + 1);
+}
+const mutated = { selected: first };
+mutated.selected = second;
+use("write", mutated.selected);
+const aliased = { selected: first };
+const alias = aliased;
+alias.selected = second;
+use("alias", aliased.selected);
+const passed = { selected: first };
+function replace(held: { selected: Factory }): void { held.selected = second; }
+replace(passed);
+use("passed", passed.selected);
+const returned = { selected: first };
+function expose(): { selected: Factory } { return returned; }
+expose().selected = second;
+use("returned", returned.selected);
+const captured = { selected: first };
+function change(): void { captured.selected = second; }
+change();
+use("captured write", captured.selected);
+const items: Factory[] = [first, second];
+items.reverse();
+use("array method", items[0]);
+const dynamic: any = { selected: second };
+const checked: Factory = dynamic.selected;
+use("any", checked);
+const getter = {
+  get selected(): Factory { console.log("get selected"); return second; }
+};
+use("getter", getter.selected);
+const untouched = {
+  selected: first,
+  get other(): Factory { console.log("unselected getter ran"); return second; }
+};
+use("unselected getter", untouched.selected);
+
+class Named implements Maker {
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> { return new Box(value, this.label); }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const receiverHolder: { selected: Maker } = { selected: new Named("old") };
+const receiverAlias = receiverHolder;
+receiverAlias.selected = new Named("new");
+use("receiver alias", read(receiverHolder.selected));
+const unknownReceivers: any[] = [new Named("any receiver")];
+const checkedReceiver: Maker = unknownReceivers[0];
+use("receiver any", read(checkedReceiver));
+
+// expect:
+// write second 5
+// alias second 5
+// passed second 5
+// returned second 5
+// captured write second 5
+// array method second 5
+// any second 5
+// get selected
+// getter second 5
+// unselected getter first 5
+// receiver alias new 5
+// receiver any any receiver 5

@@ -153,7 +153,7 @@ func TestUnknownReceiverOriginsKeepEveryCompatibleMethod(t *testing.T) {
 		{"assigned_binding", "", "let chosen: Maker = new M0(); chosen = new M1(); use(chosen);"},
 		{"captured_assignment", "", "let chosen: Maker = new M0(); function change(): void { chosen = new M1(); } change(); use(chosen);"},
 		{"escaped_consumer", "", "const alias = use; alias(new M1());"},
-		{"property_read", "", "const held = { receiver: new M1() }; use(held.receiver);"},
+		{"mutable_property_read", "", "let held = { receiver: new M1() }; use(held.receiver);"},
 		{"generic_factory", "function construct<U>(marker: U): Maker { console.log(marker); return new M1(); }", "use(construct(1));"},
 		{"contextual_generic_factory", "const construct: <U>(marker: U) => Maker = marker => { console.log(marker); return new M1(); };", "use(construct(1));"},
 		{"generic_constructor", "class Generic<U> implements Maker { constructor(public marker: U) {} make<T>(value: T): Box<T> { return new Box(value); } }", "use(new Generic(1));"},

@@ -1,0 +1,67 @@
+// A safe literal projection selects R0; unused receivers must not spend Box's total.
+// The unchanged six-class program was the pre-D-208 dispatched-total error control.
+class Box<T> {
+  constructor(public value: T) {}
+}
+abstract class Rec {
+  abstract rec<T>(x: T, n: number): Box<T>;
+}
+class R0 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v0: T }>({ v0: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R1 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v1: T }>({ v1: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R2 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v2: T }>({ v2: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R3 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v3: T }>({ v3: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R4 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v4: T }>({ v4: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+class R5 extends Rec {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      this.rec<[T]>([x], n - 1);
+      this.rec<{ v5: T }>({ v5: x }, n - 1);
+    }
+    return new Box(x);
+  }
+}
+const recs: Rec[] = [new R0(), new R1(), new R2(), new R3(), new R4(), new R5()];
+console.log("recursion", recs[0].rec(5, 3).value + 1);
+
+// expect:
+// recursion 6

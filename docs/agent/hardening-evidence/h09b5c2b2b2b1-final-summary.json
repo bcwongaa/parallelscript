@@ -1,0 +1,50 @@
+{
+  "build_exit": 0,
+  "suite_exit": 0,
+  "seconds": 670.996623930987,
+  "tests": {
+    "pass": 2755,
+    "skip": 341
+  },
+  "corpus": {
+    "pass": 263,
+    "skip": 37
+  },
+  "packages": {
+    "github.com/microsoft/typescript-go/pts/bench/binary_trees": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fan_out": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/fib_int": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/file_io": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_hello": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/http_json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/json": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/mandelbrot": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/nbody": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/spectral_norm": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/startup": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/string_building": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/sum_reduce": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_count": "skip",
+    "github.com/microsoft/typescript-go/pts/bench/word_freq": "skip",
+    "github.com/microsoft/typescript-go/pts/cgen": "pass",
+    "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+    "github.com/microsoft/typescript-go/pts/check": "pass",
+    "github.com/microsoft/typescript-go/pts/ir": "skip",
+    "github.com/microsoft/typescript-go/pts/lib": "skip",
+    "github.com/microsoft/typescript-go/pts/frontend": "pass",
+    "github.com/microsoft/typescript-go/pts/lsp": "pass",
+    "github.com/microsoft/typescript-go/pts/numeric": "skip",
+    "github.com/microsoft/typescript-go/pts/toolchain": "pass",
+    "github.com/microsoft/typescript-go/pts/driver": "pass",
+    "github.com/microsoft/typescript-go/pts/lower": "pass",
+    "github.com/microsoft/typescript-go/cmd/pts": "pass",
+    "github.com/microsoft/typescript-go/pts/tests": "pass"
+  },
+  "failures": [],
+  "sources": 6531,
+  "changed": [],
+  "cli_before": "fde14acf66550ba80acf4b362cd54a71418fde8711641f51a616e5a01083ce38",
+  "cli_after": "fde14acf66550ba80acf4b362cd54a71418fde8711641f51a616e5a01083ce38",
+  "stderr_bytes": 0
+}

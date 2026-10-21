@@ -15,10 +15,12 @@ type functionSources map[*ast.Node]bool
 // non-generic returns (D-202). Unknown sources keep the old type-compatible pairing.
 type valueFlow struct {
 	sourceCache
-	receivers sourceCache // a function-return summary is never a receiver-return summary
-	files     []*ast.SourceFile
-	uses      map[*ast.Symbol]*functionValueUses
-	wrappers  map[*ast.Node]bool
+	receivers     sourceCache // a function-return summary is never a receiver-return summary
+	files         []*ast.SourceFile
+	uses          map[*ast.Symbol]*functionValueUses
+	wrappers      map[*ast.Node]bool
+	containerUses map[*ast.Symbol]*containerUses
+	containers    map[*ast.Node]map[string]*ast.Node // syntax only, shared by both proof kinds
 }
 
 type sourceCache struct {
@@ -137,6 +139,8 @@ func (p sourceProof) valueSources(node *ast.Node, steps *int, depth int) (source
 		ast.KindNumericLiteral, ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral,
 		ast.KindVoidExpression:
 		return functionSources{} // these cannot be a function, even when asserted as one
+	case ast.KindPropertyAccessExpression, ast.KindElementAccessExpression:
+		return p.projectionSources(node, steps, depth+1)
 	case ast.KindCallExpression:
 		return p.callSources(node.AsCallExpression(), steps, depth+1)
 	case ast.KindParameter:

@@ -89,7 +89,7 @@ func TestAdditionalUncertainReturnedSourcesStayUnknown(t *testing.T) {
 		{"async_expression", "const returned = async function(): Promise<Fn> { return first; }; const probe = returned(); probe;"},
 		{"generator_expression", "const returned = function*(): Generator<undefined, Fn, unknown> { return first; }; const probe = returned(); probe;"},
 		{"async_generator", "async function* returned(): AsyncGenerator<undefined, Fn, unknown> { return first; } const probe = returned(); probe;"},
-		{"unknown_callee_in_merge", "function known(): Fn { return first; } const factories: (() => Fn)[] = [known]; const selected = true ? known : factories[0]; const probe = selected(); probe;"},
+		{"unknown_callee_in_merge", "function known(): Fn { return first; } let factories: (() => Fn)[] = [known]; const selected = true ? known : factories[0]; const probe = selected(); probe;"},
 		{"unknown_return_in_merged_callee", "function known(): Fn { return first; } function other(): Fn { return held[0]; } const selected = true ? known : other; const probe = selected(); probe;"},
 		{"factory_binding_write", "function returned(): Fn { return first; } function other(): Fn { return second; }\n// @ts-ignore: deliberate defensive source-only binding write\nreturned = other;\nconst probe = returned(); probe;"},
 		{"parameter_cycle_through_return", "function left(f: Fn): Fn { return f; } function right(f: Fn): Fn { return left(f); } const probe = left(right(first)); left(right(second)); probe;"},

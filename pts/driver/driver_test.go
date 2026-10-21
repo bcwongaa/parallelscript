@@ -199,7 +199,7 @@ console.log(b.value + 1);
 
 func TestABuildThatOnlyItsDemandsByNameStopKeepsTheGenericArrowsInstances(t *testing.T) {
 	t.Parallel()
-	// The receiver's array read is unknown. Unrelated is a Maker to tsc (structurally),
+	// The receiver's mutable array binding is unknown. Unrelated is a Maker to tsc (structurally),
 	// so the demand pairs with its make for string, which makes a Weird<string>, whose `inc` doesn't
 	// lower, after its trial. The build falls back to ValueInstances first, which keeps
 	// the generic arrow's instance (D-190), not to DeclaredInstances (D-191).
@@ -234,7 +234,7 @@ class Unrelated {
 function main(): void {
   const named = <T>(x: T): Box<T> => new Box(x);
   const b: Box<number> = named(5);
-  const held: Maker[] = [new Good()];
+  let held: Maker[] = [new Good()];
   const m: Maker = held[0];
   const s: Box<string> = m.make("s");
   console.log(b.value, s.value, new Unrelated().make(1).value);

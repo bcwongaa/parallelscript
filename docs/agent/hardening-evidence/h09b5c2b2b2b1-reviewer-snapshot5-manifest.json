@@ -1,0 +1,44 @@
+{
+  "archive": "/tmp/pts-h09-container-24da/h09b5c2b2b2b1-reviewer-snapshot5-probes.tar.gz",
+  "archive_sha256": "4c753556577ac6de1bce406d1aeb4cef1f8eda355bd91239b3a0461a20ffd7f2",
+  "archive_bytes": 230018,
+  "member_count": 24,
+  "content_manifest": "h09-container-b1/snapshot5-recheck/archive-manifest.json",
+  "content_manifest_sha256": "09b42fb66f4c2845376b1020db163e940064c3c59cc778b7befe2d790ab2d387",
+  "snapshot5_manifest": {
+    "head": "0f7b68bc233639e2746c91d99f13804b0c2a3722",
+    "files": {
+      "pts/lower/value_flow.go": "a4f007c981523640615f99b0ceb71dae01e665f42cd4f7895dc184660610a7c8",
+      "pts/lower/container_sources.go": "f7edb3ad3e95aed914120cba7bfa061dbcabd1aa05c67de97a7185704aeae18a",
+      "pts/lower/container_sources_test.go": "dfb5b91bafe55e7b2719230757d91972f644e0304dbe1b877554b87a9af9d480",
+      "pts/lower/literal_projection_sources_test.go": "9348db21d47aebaee8abf4ce3ef3b7a5e5037de96e7fa332c550caffc1a64584",
+      "pts/driver/literal_projection_flow_test.go": "0b9918415695829413334178d4c9e22edd547aa15c4a2437eb0b8e2c2b1f3c19",
+      "pts/tests/run/generic_literal_projection_sources.pts": "9e363faad7e0d7443ded16f53d880296ec32c20400700f7ff2e173b74c29f9cb",
+      "pts/tests/run/generic_literal_projection_unknowns.pts": "003d4762397e2d44e7ed180ad7b4efd10b1ebfeceb184688f92ca2ab52000547",
+      "pts/lower/returned_value_sources_test.go": "76ddfe1a21a1d1cf45a56c4e70ca9b04245a59d517bef3553aec1cdb6a29a91b",
+      "pts/lower/returned_value_bounds_test.go": "1060426d32e1568a79d3589dffceccd3b9668151a548bad0d04499ed91d3837e",
+      "pts/driver/receiver_value_sources_test.go": "44fb365279f311bae80dd709cdb69835255040841aadded1e9cb93edd3831407",
+      "pts/driver/h09_captured_receiver_flow_test.go": "2822ffce5d9e8033bc827e8f3e2ec8e2badf9dc917e3fe799ea5ecce6550d945",
+      "pts/driver/driver_test.go": "86622d7c72fcde66da3a38ecc902220618f805610e8ce210f34243e3f732c682",
+      "pts/tests/run/generic_containing_value_pairing.pts": "a3ef1e76ede71cf8433225c1d10f0892a9614bfc9f0475c869066a3741534f06",
+      "pts/tests/compiler_smoke_test.go": "b0e6f3ae435f3f106fa7e56984b7b32f155c46d941952c509c7962e73490f631",
+      "pts/tests/errors/generic_fallback_keeps_dispatched_totals.pts": "899660849b6fe3f427337f6a6427fb79205705be9ad9d7b8b9ac1fc51777de1d",
+      "pts/tests/run/generic_literal_projection_dispatched_total.pts": "378f4f0db81a5c1c335da271139f563861159604753fc171ffe27b4cf5d834a7"
+    }
+  },
+  "historical_snapshot4_archive": {
+    "path": "/tmp/pts-h09-container-24da/h09b5c2b2b2b1-reviewer-probes.tar.gz",
+    "sha256": "74f70cc70b2b0f771e468d3ede9c01a5825a60850971191568a4c4e99782c149"
+  },
+  "counts": {
+    "native_node_cases": 3,
+    "native_node_problems": [],
+    "current_harness_test_passes": 7,
+    "current_harness_package_passes": 1,
+    "current_clang_programs": 2,
+    "current_clang_c_outputs": 1,
+    "base_error_test_passes": 2,
+    "base_error_package_passes": 1
+  },
+  "reviewer_heavy_slot": "released"
+}

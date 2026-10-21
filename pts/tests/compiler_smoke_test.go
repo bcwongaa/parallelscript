@@ -56,13 +56,14 @@ const (
 // (D-190). D-201 removes impossible pairs from nine former entries; those seeds now
 // compile with AllInstances alone, which the smoke test requires without an exemption.
 // D-205 removes the unrelated-adapter exemption; D-206 removes three exact-receiver exemptions.
+// D-208 removes the unrelated-total exemption by proving its selected container source.
 var (
 	needsNarrowing = []string{"/run/generic_instances_fall_back.pts",
 		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_relaxed_cast.pts",
 		"/run/generic_fallback_spares_unrelated_keyed_call_sites.pts",
 		"/run/generic_fallback_spares_unrelated_optional_call_site.pts",
 		"/run/generic_fallback_spares_unrelated_several.pts",
-		"/run/generic_fallback_spares_unrelated_total.pts", "/run/generic_fallback_spares_unrelated_value_call_site.pts",
+		"/run/generic_fallback_spares_unrelated_value_call_site.pts",
 		"/run/generic_fallback_blames_the_trial_whose_code_failed.pts", "/run/generic_fallback_keeps_value_pairings_for_by_name_casts.pts",
 		"/run/generic_fallback_spares_unrelated_constant_key_site.pts", "/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts",
 		"/run/generic_fallback_spares_other_instances_at_one_call.pts", "/run/generic_fallback_spares_other_class_instances_at_one_call.pts",

@@ -202,7 +202,7 @@ func TestCapturedReceiverUnknownSourcesKeepEveryCompatibleClassMethod(t *testing
 		{"mutable_binding", "", "let receiver: Maker = new M0(); receiver = new M1(); use(read(receiver));"},
 		{"captured_assignment", "", "let receiver: Maker = new M0(); function change(): void { receiver = new M1(); } change(); use(read(receiver));"},
 		{"escaped_wrapper_factory", "", "const alias = read; use(alias(new M1()));"},
-		{"property_read", "", "const held = { receiver: new M1() }; use(read(held.receiver));"},
+		{"mutable_property_read", "", "let held = { receiver: new M1() }; use(read(held.receiver));"},
 		{"asserted_receiver", "", "use(read(new M1() as Maker));"},
 		{"generic_factory", "function construct<U>(marker: U): Maker { console.log(marker); return new M1(); }", "use(read(construct(1)));"},
 		{"generic_constructor", "class Generic<U> implements Maker { constructor(public marker: U) {} make<T>(value: T): Box<T> { return new Box(value); } }", "use(read(new Generic(1)));"},
