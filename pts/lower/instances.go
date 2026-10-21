@@ -874,6 +874,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	errors, reports, unexplained := l.errors, l.reports, l.unexplained // report only appends to errors
 	lowered, demands, values := len(l.lowered), len(l.demands), len(l.erasedValues)
 	l.trial = t
+	t.root = true
 	fn := l.genericInstanceFor(generic, arguments, d.node, d.key != "")
 	if fn != nil && l.reports == reports && fits(fn) {
 		l.lowerPending()
@@ -919,7 +920,8 @@ type trial struct {
 	funcs     map[*ir.Func]bool // their functions
 	captures  []capturedBy      // the locals its code made functions outside it capture
 	making    int               // above 0 while an instance is made, whose reports are the trial's
-	foreign   bool              // code that isn't the trial's reported
+	root      bool              // the trial's own instance is about to be made (genericInstanceFor)
+	foreign   bool              // code that isn't the trial's reported, or the program's own limit was met
 }
 
 // capturedBy is a local a function captures.

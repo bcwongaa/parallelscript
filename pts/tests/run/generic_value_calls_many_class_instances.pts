@@ -1,0 +1,344 @@
+// C172 (H09b5): 65 typed calls of one generic value, each for a class type of its own, make
+// 65 instances of Box and of make. They are the program's own calls side by side, not
+// polymorphic recursion, so they compile (maxInstanceDepth); D-049's limit counted them,
+// so the call past the 64th was PTS1001 and then an internal error (PTS9001, nil pointer
+// dereference: classInstanceOf returned a nil *ir.Class as a non-nil ir.Type, which
+// fromErased -> dynamicConversion -> isCheckable dereferenced).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+class C0 {
+  tag = 0;
+}
+class C1 {
+  tag = 1;
+}
+class C2 {
+  tag = 2;
+}
+class C3 {
+  tag = 3;
+}
+class C4 {
+  tag = 4;
+}
+class C5 {
+  tag = 5;
+}
+class C6 {
+  tag = 6;
+}
+class C7 {
+  tag = 7;
+}
+class C8 {
+  tag = 8;
+}
+class C9 {
+  tag = 9;
+}
+class C10 {
+  tag = 10;
+}
+class C11 {
+  tag = 11;
+}
+class C12 {
+  tag = 12;
+}
+class C13 {
+  tag = 13;
+}
+class C14 {
+  tag = 14;
+}
+class C15 {
+  tag = 15;
+}
+class C16 {
+  tag = 16;
+}
+class C17 {
+  tag = 17;
+}
+class C18 {
+  tag = 18;
+}
+class C19 {
+  tag = 19;
+}
+class C20 {
+  tag = 20;
+}
+class C21 {
+  tag = 21;
+}
+class C22 {
+  tag = 22;
+}
+class C23 {
+  tag = 23;
+}
+class C24 {
+  tag = 24;
+}
+class C25 {
+  tag = 25;
+}
+class C26 {
+  tag = 26;
+}
+class C27 {
+  tag = 27;
+}
+class C28 {
+  tag = 28;
+}
+class C29 {
+  tag = 29;
+}
+class C30 {
+  tag = 30;
+}
+class C31 {
+  tag = 31;
+}
+class C32 {
+  tag = 32;
+}
+class C33 {
+  tag = 33;
+}
+class C34 {
+  tag = 34;
+}
+class C35 {
+  tag = 35;
+}
+class C36 {
+  tag = 36;
+}
+class C37 {
+  tag = 37;
+}
+class C38 {
+  tag = 38;
+}
+class C39 {
+  tag = 39;
+}
+class C40 {
+  tag = 40;
+}
+class C41 {
+  tag = 41;
+}
+class C42 {
+  tag = 42;
+}
+class C43 {
+  tag = 43;
+}
+class C44 {
+  tag = 44;
+}
+class C45 {
+  tag = 45;
+}
+class C46 {
+  tag = 46;
+}
+class C47 {
+  tag = 47;
+}
+class C48 {
+  tag = 48;
+}
+class C49 {
+  tag = 49;
+}
+class C50 {
+  tag = 50;
+}
+class C51 {
+  tag = 51;
+}
+class C52 {
+  tag = 52;
+}
+class C53 {
+  tag = 53;
+}
+class C54 {
+  tag = 54;
+}
+class C55 {
+  tag = 55;
+}
+class C56 {
+  tag = 56;
+}
+class C57 {
+  tag = 57;
+}
+class C58 {
+  tag = 58;
+}
+class C59 {
+  tag = 59;
+}
+class C60 {
+  tag = 60;
+}
+class C61 {
+  tag = 61;
+}
+class C62 {
+  tag = 62;
+}
+class C63 {
+  tag = 63;
+}
+class C64 {
+  tag = 64;
+}
+function demand(f: <T>(x: T) => Box<T>): number {
+  let s = 0;
+  const b0: Box<C0> = f(new C0());
+  s += b0.value.tag;
+  const b1: Box<C1> = f(new C1());
+  s += b1.value.tag;
+  const b2: Box<C2> = f(new C2());
+  s += b2.value.tag;
+  const b3: Box<C3> = f(new C3());
+  s += b3.value.tag;
+  const b4: Box<C4> = f(new C4());
+  s += b4.value.tag;
+  const b5: Box<C5> = f(new C5());
+  s += b5.value.tag;
+  const b6: Box<C6> = f(new C6());
+  s += b6.value.tag;
+  const b7: Box<C7> = f(new C7());
+  s += b7.value.tag;
+  const b8: Box<C8> = f(new C8());
+  s += b8.value.tag;
+  const b9: Box<C9> = f(new C9());
+  s += b9.value.tag;
+  const b10: Box<C10> = f(new C10());
+  s += b10.value.tag;
+  const b11: Box<C11> = f(new C11());
+  s += b11.value.tag;
+  const b12: Box<C12> = f(new C12());
+  s += b12.value.tag;
+  const b13: Box<C13> = f(new C13());
+  s += b13.value.tag;
+  const b14: Box<C14> = f(new C14());
+  s += b14.value.tag;
+  const b15: Box<C15> = f(new C15());
+  s += b15.value.tag;
+  const b16: Box<C16> = f(new C16());
+  s += b16.value.tag;
+  const b17: Box<C17> = f(new C17());
+  s += b17.value.tag;
+  const b18: Box<C18> = f(new C18());
+  s += b18.value.tag;
+  const b19: Box<C19> = f(new C19());
+  s += b19.value.tag;
+  const b20: Box<C20> = f(new C20());
+  s += b20.value.tag;
+  const b21: Box<C21> = f(new C21());
+  s += b21.value.tag;
+  const b22: Box<C22> = f(new C22());
+  s += b22.value.tag;
+  const b23: Box<C23> = f(new C23());
+  s += b23.value.tag;
+  const b24: Box<C24> = f(new C24());
+  s += b24.value.tag;
+  const b25: Box<C25> = f(new C25());
+  s += b25.value.tag;
+  const b26: Box<C26> = f(new C26());
+  s += b26.value.tag;
+  const b27: Box<C27> = f(new C27());
+  s += b27.value.tag;
+  const b28: Box<C28> = f(new C28());
+  s += b28.value.tag;
+  const b29: Box<C29> = f(new C29());
+  s += b29.value.tag;
+  const b30: Box<C30> = f(new C30());
+  s += b30.value.tag;
+  const b31: Box<C31> = f(new C31());
+  s += b31.value.tag;
+  const b32: Box<C32> = f(new C32());
+  s += b32.value.tag;
+  const b33: Box<C33> = f(new C33());
+  s += b33.value.tag;
+  const b34: Box<C34> = f(new C34());
+  s += b34.value.tag;
+  const b35: Box<C35> = f(new C35());
+  s += b35.value.tag;
+  const b36: Box<C36> = f(new C36());
+  s += b36.value.tag;
+  const b37: Box<C37> = f(new C37());
+  s += b37.value.tag;
+  const b38: Box<C38> = f(new C38());
+  s += b38.value.tag;
+  const b39: Box<C39> = f(new C39());
+  s += b39.value.tag;
+  const b40: Box<C40> = f(new C40());
+  s += b40.value.tag;
+  const b41: Box<C41> = f(new C41());
+  s += b41.value.tag;
+  const b42: Box<C42> = f(new C42());
+  s += b42.value.tag;
+  const b43: Box<C43> = f(new C43());
+  s += b43.value.tag;
+  const b44: Box<C44> = f(new C44());
+  s += b44.value.tag;
+  const b45: Box<C45> = f(new C45());
+  s += b45.value.tag;
+  const b46: Box<C46> = f(new C46());
+  s += b46.value.tag;
+  const b47: Box<C47> = f(new C47());
+  s += b47.value.tag;
+  const b48: Box<C48> = f(new C48());
+  s += b48.value.tag;
+  const b49: Box<C49> = f(new C49());
+  s += b49.value.tag;
+  const b50: Box<C50> = f(new C50());
+  s += b50.value.tag;
+  const b51: Box<C51> = f(new C51());
+  s += b51.value.tag;
+  const b52: Box<C52> = f(new C52());
+  s += b52.value.tag;
+  const b53: Box<C53> = f(new C53());
+  s += b53.value.tag;
+  const b54: Box<C54> = f(new C54());
+  s += b54.value.tag;
+  const b55: Box<C55> = f(new C55());
+  s += b55.value.tag;
+  const b56: Box<C56> = f(new C56());
+  s += b56.value.tag;
+  const b57: Box<C57> = f(new C57());
+  s += b57.value.tag;
+  const b58: Box<C58> = f(new C58());
+  s += b58.value.tag;
+  const b59: Box<C59> = f(new C59());
+  s += b59.value.tag;
+  const b60: Box<C60> = f(new C60());
+  s += b60.value.tag;
+  const b61: Box<C61> = f(new C61());
+  s += b61.value.tag;
+  const b62: Box<C62> = f(new C62());
+  s += b62.value.tag;
+  const b63: Box<C63> = f(new C63());
+  s += b63.value.tag;
+  const b64: Box<C64> = f(new C64());
+  s += b64.value.tag;
+  return s;
+}
+console.log(demand(make));
+// expect:
+// 2080

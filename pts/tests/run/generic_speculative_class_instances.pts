@@ -1,0 +1,277 @@
+// C172 (H09b5): mkA is called with 25 class types and needs Box<Ai> and Box<Ai[]>; mkB, of the
+// same function type, is called with number only. Pairing every value demand with every value
+// of its erased type (D-148, D-190) gives mkB instances for mkA's demands, whose Box<Ai[][]>
+// class instances no call uses count against the 64-instance limit and fill it, so mkA's own
+// instances for A18 on fail their trials and those calls throw `Expected Box<A18>, got Box<any>`.
+// Only instances calls may use are made and count.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class A0 {
+  tag = 0;
+}
+class A1 {
+  tag = 1;
+}
+class A2 {
+  tag = 2;
+}
+class A3 {
+  tag = 3;
+}
+class A4 {
+  tag = 4;
+}
+class A5 {
+  tag = 5;
+}
+class A6 {
+  tag = 6;
+}
+class A7 {
+  tag = 7;
+}
+class A8 {
+  tag = 8;
+}
+class A9 {
+  tag = 9;
+}
+class A10 {
+  tag = 10;
+}
+class A11 {
+  tag = 11;
+}
+class A12 {
+  tag = 12;
+}
+class A13 {
+  tag = 13;
+}
+class A14 {
+  tag = 14;
+}
+class A15 {
+  tag = 15;
+}
+class A16 {
+  tag = 16;
+}
+class A17 {
+  tag = 17;
+}
+class A18 {
+  tag = 18;
+}
+class A19 {
+  tag = 19;
+}
+class A20 {
+  tag = 20;
+}
+class A21 {
+  tag = 21;
+}
+class A22 {
+  tag = 22;
+}
+class A23 {
+  tag = 23;
+}
+class A24 {
+  tag = 24;
+}
+function mkA<T>(x: T): Box<T> {
+  const w = new Box([x]);
+  return new Box(w.value[0]);
+}
+function mkB<T>(x: T): Box<T> {
+  const w = new Box([[x]]);
+  return new Box(w.value[0][0]);
+}
+function useA(f: <T>(x: T) => Box<T>): void {
+  try {
+    const b0: Box<A0> = f(new A0());
+    console.log(0, b0.value.tag);
+  } catch (e: any) {
+    console.log(0, e.message);
+  }
+  try {
+    const b1: Box<A1> = f(new A1());
+    console.log(1, b1.value.tag);
+  } catch (e: any) {
+    console.log(1, e.message);
+  }
+  try {
+    const b2: Box<A2> = f(new A2());
+    console.log(2, b2.value.tag);
+  } catch (e: any) {
+    console.log(2, e.message);
+  }
+  try {
+    const b3: Box<A3> = f(new A3());
+    console.log(3, b3.value.tag);
+  } catch (e: any) {
+    console.log(3, e.message);
+  }
+  try {
+    const b4: Box<A4> = f(new A4());
+    console.log(4, b4.value.tag);
+  } catch (e: any) {
+    console.log(4, e.message);
+  }
+  try {
+    const b5: Box<A5> = f(new A5());
+    console.log(5, b5.value.tag);
+  } catch (e: any) {
+    console.log(5, e.message);
+  }
+  try {
+    const b6: Box<A6> = f(new A6());
+    console.log(6, b6.value.tag);
+  } catch (e: any) {
+    console.log(6, e.message);
+  }
+  try {
+    const b7: Box<A7> = f(new A7());
+    console.log(7, b7.value.tag);
+  } catch (e: any) {
+    console.log(7, e.message);
+  }
+  try {
+    const b8: Box<A8> = f(new A8());
+    console.log(8, b8.value.tag);
+  } catch (e: any) {
+    console.log(8, e.message);
+  }
+  try {
+    const b9: Box<A9> = f(new A9());
+    console.log(9, b9.value.tag);
+  } catch (e: any) {
+    console.log(9, e.message);
+  }
+  try {
+    const b10: Box<A10> = f(new A10());
+    console.log(10, b10.value.tag);
+  } catch (e: any) {
+    console.log(10, e.message);
+  }
+  try {
+    const b11: Box<A11> = f(new A11());
+    console.log(11, b11.value.tag);
+  } catch (e: any) {
+    console.log(11, e.message);
+  }
+  try {
+    const b12: Box<A12> = f(new A12());
+    console.log(12, b12.value.tag);
+  } catch (e: any) {
+    console.log(12, e.message);
+  }
+  try {
+    const b13: Box<A13> = f(new A13());
+    console.log(13, b13.value.tag);
+  } catch (e: any) {
+    console.log(13, e.message);
+  }
+  try {
+    const b14: Box<A14> = f(new A14());
+    console.log(14, b14.value.tag);
+  } catch (e: any) {
+    console.log(14, e.message);
+  }
+  try {
+    const b15: Box<A15> = f(new A15());
+    console.log(15, b15.value.tag);
+  } catch (e: any) {
+    console.log(15, e.message);
+  }
+  try {
+    const b16: Box<A16> = f(new A16());
+    console.log(16, b16.value.tag);
+  } catch (e: any) {
+    console.log(16, e.message);
+  }
+  try {
+    const b17: Box<A17> = f(new A17());
+    console.log(17, b17.value.tag);
+  } catch (e: any) {
+    console.log(17, e.message);
+  }
+  try {
+    const b18: Box<A18> = f(new A18());
+    console.log(18, b18.value.tag);
+  } catch (e: any) {
+    console.log(18, e.message);
+  }
+  try {
+    const b19: Box<A19> = f(new A19());
+    console.log(19, b19.value.tag);
+  } catch (e: any) {
+    console.log(19, e.message);
+  }
+  try {
+    const b20: Box<A20> = f(new A20());
+    console.log(20, b20.value.tag);
+  } catch (e: any) {
+    console.log(20, e.message);
+  }
+  try {
+    const b21: Box<A21> = f(new A21());
+    console.log(21, b21.value.tag);
+  } catch (e: any) {
+    console.log(21, e.message);
+  }
+  try {
+    const b22: Box<A22> = f(new A22());
+    console.log(22, b22.value.tag);
+  } catch (e: any) {
+    console.log(22, e.message);
+  }
+  try {
+    const b23: Box<A23> = f(new A23());
+    console.log(23, b23.value.tag);
+  } catch (e: any) {
+    console.log(23, e.message);
+  }
+  try {
+    const b24: Box<A24> = f(new A24());
+    console.log(24, b24.value.tag);
+  } catch (e: any) {
+    console.log(24, e.message);
+  }
+}
+function useB(f: <T>(x: T) => Box<T>): number {
+  const b: Box<number> = f(1);
+  return b.value;
+}
+useA(mkA);
+console.log(useB(mkB));
+// expect:
+// 0 0
+// 1 1
+// 2 2
+// 3 3
+// 4 4
+// 5 5
+// 6 6
+// 7 7
+// 8 8
+// 9 9
+// 10 10
+// 11 11
+// 12 12
+// 13 13
+// 14 14
+// 15 15
+// 16 16
+// 17 17
+// 18 18
+// 19 19
+// 20 20
+// 21 21
+// 22 22
+// 23 23
+// 24 24
+// 1

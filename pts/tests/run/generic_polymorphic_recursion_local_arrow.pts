@@ -1,0 +1,24 @@
+// C184 (H09b5): polymorphic recursion through a function-local generic arrow (D-190), three levels at
+// run time: an internal error past the instance limit under AllInstances and ValueInstances, so the
+// build fell back to DeclaredInstances, where the call threw `Expected Box<number>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function main(): void {
+  const rec = <T>(x: T, n: number): Box<T> => {
+    if (n > 0) {
+      const inner: Box<T[]> = rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  };
+  try {
+    const b: Box<number> = rec(5, 3);
+    console.log(b.value + 1);
+  } catch (error: any) {
+    console.log(error.name, error.message);
+  }
+}
+main();
+// expect:
+// 6

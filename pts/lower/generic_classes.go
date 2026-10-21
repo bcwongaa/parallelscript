@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -172,13 +171,12 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 			return existing.class
 		}
 	}
-	if len(generic.instances) == maxInstances {
-		l.notSupportedYet(node, fmt.Sprintf("a generic class with more than %d instances (`%s`) is", maxInstances, generic.node.Name().Text()))
+	if !l.belowInstanceLimits(generic.node, len(generic.instances), generic.node.Name().Text(), node, false) {
 		return nil
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),
-		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete}}
+		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}}
 	generic.instances = append(generic.instances, inst)
 	l.classInstances[class] = inst
 	l.classNodes[class] = generic.node

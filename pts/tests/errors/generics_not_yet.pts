@@ -51,5 +51,5 @@ class Plain extends Box<number> {
 // error: generics_not_yet.pts:34:3 - error PTS1001: overriding a method with a generic method is not supported yet
 // error: generics_not_yet.pts:10:12 - error PTS1001: generic functions inside generic functions or classes are not supported yet
 // error: generics_not_yet.pts:18:12 - error PTS1001: using `start` from outside the function is not supported yet
-// error: generics_not_yet.pts:42:24 - error PTS1001: a generic function with more than 64 instances (`grow`) is not supported yet
+// error: generics_not_yet.pts:42:24 - error PTS1001: polymorphic recursion more than 64 instances deep (`grow`) is not supported yet
 // error: generics_not_yet.pts:46:3 - error PTS1001: overriding a generic method is not supported yet

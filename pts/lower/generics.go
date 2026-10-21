@@ -17,9 +17,15 @@ import (
 // signature and body are lowered with the declaration's type parameters replaced by the
 // call's type arguments, in every checker type the lowering asks about.
 
-// maxInstances bounds the instances of one generic function, which a function that calls
-// itself with ever larger type arguments (f<T> calling f<T[]>) would make without end.
-const maxInstances = 64
+// maxInstanceDepth bounds polymorphic recursion: how many instances of one generic function
+// or class may make each other (made), which a function that calls itself with ever larger
+// type arguments (f<T> calling f<T[]>) would do without end. Instances that the program's
+// own calls make side by side don't count against it, however many there are (C172).
+const maxInstanceDepth = 64
+
+// maxInstances bounds the instances of one generic function or class however they are
+// made, so that recursion that branches (f<T> calling f<[T]> and f<T[]>) stops too.
+const maxInstances = 1024
 
 // maxDynamicVariants bounds the instances of one generic function for the same IR types
 // that calls with dynamic results tell apart by checker types (genericInstanceFor), which
@@ -180,6 +186,21 @@ type substitution struct {
 	arguments   []*checker.Type
 	erased      []*checker.Type
 	mentions    map[*checker.Type]bool // whether a type mentions an erased type parameter, as found so far
+	instance    bool                   // a generic function's or class's instance, not code extended to erase (erasing) or an erased copy
+	made        *substitution          // what was being lowered or declared where it was made: the instance that made it, if any
+}
+
+// instanceDepth is how many instances of declaration the code that subst is lowering (or
+// declaring) was made in, its own included: one more than that is the depth of an
+// instance of declaration that it makes (maxInstanceDepth).
+func instanceDepth(subst *substitution, declaration *ast.Node) int {
+	depth := 0
+	for ; subst != nil; subst = subst.made {
+		if subst.instance && subst.declaration == declaration {
+			depth++
+		}
+	}
+	return depth
 }
 
 // instantiate is t in the instance being lowered, if any: with its type parameters
@@ -329,7 +350,7 @@ func (l *lowerer) mentionsErased(t *checker.Type) bool {
 // erasing is the substitution of the code being lowered, extended to erase a generic
 // signature's type parameters, in code whose declaration is declaration.
 func (l *lowerer) erasing(parameters []*checker.Type, declaration *ast.Node) *substitution {
-	subst := &substitution{declaration: declaration, erased: parameters, mentions: map[*checker.Type]bool{}}
+	subst := &substitution{declaration: declaration, erased: parameters, mentions: map[*checker.Type]bool{}, made: l.subst}
 	if outer := l.subst; outer != nil {
 		subst.parameters, subst.arguments = outer.parameters, outer.arguments
 		subst.erased = append(slices.Clone(outer.erased), parameters...)
@@ -963,10 +984,11 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 // `Promise<number>` and for `any`, or `Promise<number>[]` and `any[]`, make other objects
 // (`Box<Awaited<T>>`): a call with a typed result tells them apart by the instance's
 // result, and one with a dynamic result can't (D-190). Past maxDynamicVariants such
-// instances of the same IR types, or the instance limit, it is nil, unreported: the call
-// keeps the erased copy.
+// instances of the same IR types it is nil, unreported: the call keeps the erased copy.
 func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node, dynamic bool) *ir.Func {
+	root := false
 	if t := l.trial; t != nil {
+		root, t.root = t.root, false
 		t.making++ // what it reports is the trial's (D-190)
 		defer func() { t.making-- }()
 	}
@@ -991,17 +1013,13 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 			variants++
 		}
 	}
-	if variants > 0 && (variants == maxDynamicVariants || len(generic.instances) == maxInstances) {
+	if variants > 0 && (variants == maxDynamicVariants || len(generic.instances) >= maxInstances) {
 		return nil
 	}
-	if len(generic.instances) == maxInstances {
-		if t := l.trial; t != nil {
-			t.foreign = true // the program's own limit, which a trial doesn't take back (D-190)
-		}
-		l.notSupportedYet(node, fmt.Sprintf("a generic function with more than %d instances (`%s`) is", maxInstances, generic.name))
+	if !l.belowInstanceLimits(generic.node, len(generic.instances), generic.name, node, root) {
 		return nil
 	}
-	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete}
+	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
@@ -1016,6 +1034,28 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		}
 	}
 	return inst.fn
+}
+
+// belowInstanceLimits reports whether code here (l.subst) may make another instance of a
+// generic function or class (declaration, named name in diagnostics), which has made count
+// so far; if not, it reports why at node (maxInstanceDepth, maxInstances). Past a limit, a
+// trial's own instance (root, the one specialize paired a call with) fails as the trial's
+// (D-190), so that the call keeps the erased copy, which a call that never runs so deep
+// doesn't notice; an instance its code makes past one is the program's own recursion,
+// which stands, as it would without the trial.
+func (l *lowerer) belowInstanceLimits(declaration *ast.Node, count int, name string, node *ast.Node, root bool) bool {
+	switch {
+	case instanceDepth(l.subst, declaration) >= maxInstanceDepth:
+		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion more than %d instances deep (`%s`) is", maxInstanceDepth, name))
+	case count >= maxInstances:
+		l.notSupportedYet(node, fmt.Sprintf("a generic function or class with more than %d instances (`%s`) is", maxInstances, name))
+	default:
+		return true
+	}
+	if t := l.trial; t != nil && !root {
+		t.foreign = true
+	}
+	return false
 }
 
 // madeFor reports whether inst was made for concrete type arguments, of its IR types, of

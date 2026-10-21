@@ -1,0 +1,28 @@
+// skip: known issue (H09b5d, C172): past maxDynamicVariants (4) a call with a dynamic result keeps the erased copy, whose Box<any> throws
+// C172 (H09b5): calls of a dynamic-result generic value for Promise<1> ... Promise<6> make instances
+// of one IR type told apart by checker types, up to maxDynamicVariants (4, D-190); past them the
+// 5th and 6th calls kept the erased copy and threw `Expected Box<1>, got Box<any>`, though the
+// first instance's Box<number> fits every one.
+class Box<T> {
+  constructor(public value: T) {}
+}
+async function unwrap<T>(x: T): Promise<Box<Awaited<T>>> {
+  return new Box(await x);
+}
+async function use(f: <T>(x: T) => Promise<Box<Awaited<T>>>): Promise<void> {
+  const show = (label: string, n: number): void => console.log(label, n + 1);
+  try { show("1", (await f(Promise.resolve(1 as const))).value); } catch (e: any) { console.log("1 threw", e.message); }
+  try { show("2", (await f(Promise.resolve(2 as const))).value); } catch (e: any) { console.log("2 threw", e.message); }
+  try { show("3", (await f(Promise.resolve(3 as const))).value); } catch (e: any) { console.log("3 threw", e.message); }
+  try { show("4", (await f(Promise.resolve(4 as const))).value); } catch (e: any) { console.log("4 threw", e.message); }
+  try { show("5", (await f(Promise.resolve(5 as const))).value); } catch (e: any) { console.log("5 threw", e.message); }
+  try { show("6", (await f(Promise.resolve(6 as const))).value); } catch (e: any) { console.log("6 threw", e.message); }
+}
+use(unwrap);
+// expect:
+// 1 2
+// 2 3
+// 3 4
+// 4 5
+// 5 6
+// 6 7

@@ -1,0 +1,23 @@
+// C184 (H09b5): polymorphic recursion through an object literal's generic method (D-191), three
+// levels at run time: an internal error past the instance limit under AllInstances, so the build
+// fell back to ValueInstances, where the call threw `Expected Box<number>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+const lit = {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = this.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  },
+};
+try {
+  const b: Box<number> = lit.rec(5, 3);
+  console.log(b.value + 1);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// expect:
+// 6

@@ -159,9 +159,9 @@ console.log(d(1).inc(), use(make));
 func TestInterfaceCallsMakeNoDemandsInTheFallbackBuilds(t *testing.T) {
 	t.Parallel()
 	// Polymorphic recursion through an interface: the call's demands by name make an
-	// instance of rec for Box<T[]>, then Box<T[][]>, … to the instance limit, so the
-	// build falls back, where interface calls make none (D-191) and the program compiles
-	// as it did before H09b1.
+	// instance of rec for Box<T[]>, then Box<T[][]>, … to the instance limit, where the
+	// call keeps the erased copy (H09b5, C172). The builds a failing one falls back to make
+	// no demands by name (D-191), so the program compiles there as it did before H09b1.
 	entry := writeSource(t, `class Box<T> {
   constructor(public value: T) {}
 }
@@ -183,12 +183,16 @@ const b: Box<number> = r.rec(5, 3);
 console.log(b.value + 1);
 `)
 
-	_, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
-	c, fallback := driver.EmitC(t.Context(), entry)
+	all, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+	values, valuesErr := driver.EmitCWith(t.Context(), entry, lower.ValueInstances)
+	declared, declaredErr := driver.EmitCWith(t.Context(), entry, lower.DeclaredInstances)
 
-	assert.Assert(t, err != nil, "the first build reaches the instance limit") // and C172's internal error after it
-	assert.NilError(t, fallback)
-	assert.Assert(t, !strings.Contains(c, "pts_method_instance_find"), "the fallback build's interface call takes the erased copy")
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(all, "pts_method_instance_find"), "the interface call finds rec's instance")
+	assert.NilError(t, valuesErr)
+	assert.NilError(t, declaredErr)
+	assert.Assert(t, !strings.Contains(values, "pts_method_instance_find"), "the fallback build's interface call takes the erased copy")
+	assert.Assert(t, !strings.Contains(declared, "pts_method_instance_find"), "the last fallback build's interface call takes the erased copy")
 }
 
 func TestABuildThatOnlyItsDemandsByNameStopKeepsTheGenericArrowsInstances(t *testing.T) {

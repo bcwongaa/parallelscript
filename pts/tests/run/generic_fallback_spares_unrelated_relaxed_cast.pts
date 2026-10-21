@@ -1,0 +1,43 @@
+// skip: known issue (H09b5b, C176): a relaxed cast (D-066) in a kept instance, checked after lowering, sends the whole program to DeclaredInstances, so the unrelated arrow loses its instance
+// C176 (H09b5): a relaxed cast (D-066) in boxed's instance for Base, which a trial keeps, is
+// checked after lowering and fails; the driver lowered the whole program again with
+// DeclaredInstances, where the unrelated arrow `named` lost its instance (`Expected Box<number>,
+// got Box<any>`). Only the failing value's instances are dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Derived extends Base {
+  tag = 5;
+}
+function useBase(f: <T extends Base>(x: T) => Box<T>): number {
+  return f(new Base()).value.id;
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  try {
+    const b: Box<number> = named(5);
+    console.log("victim", b.value + 1);
+  } catch (e: any) {
+    console.log("victim threw", e.message);
+  }
+  const boxed = <T extends Base>(x: T): Box<T> => {
+    const tagged: Tagged = x;
+    return new Box(x);
+  };
+  const d: any = boxed;
+  console.log("kept cast", d(new Base()).value.id, new Derived().tag);
+  if (d.length > 5) {
+    console.log(useBase(boxed));
+  }
+}
+main();
+// expect:
+// victim 6
+// kept cast 1 5

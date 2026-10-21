@@ -1,0 +1,38 @@
+// C176 and C184 (H09b5): polymorphic recursion through an object literal's generic method, which
+// recurses three levels at run time, reached the instance limit under AllInstances and an internal
+// error after it (C172), so the driver lowered the whole program again with ValueInstances, where
+// the unrelated interface call (D-191) and the literal's own call lost their instances
+// (`Expected Box<number>, got Box<any>`).
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const lit = {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = this.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  },
+};
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const m: Maker = new ClassMaker();
+attempt("interface call (needs AllInstances)", () => String(m.make(4).value + 1));
+attempt("literal recursion", () => String(lit.rec(5, 3).value + 1));
+// expect:
+// interface call (needs AllInstances) 5
+// literal recursion 6

@@ -1,0 +1,445 @@
+// More than 64 instances of one generic function or class that the program's own calls
+// make, with no polymorphic recursion, compile (H09b5, C172): 70 direct calls of `make`
+// make 70 instances of it and of Box, and 70 typed calls of `mapOf` through a generic
+// function value make 70 of its instances. D-049's limit was a count of instances, so
+// each was PTS1001 past the 64th (`a generic class with more than 64 instances`), with
+// an internal error after it through the value.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function make<T>(x: T): Box<T> {
+  return new Box(x);
+}
+function mapOf<T>(x: T): Map<string, T> {
+  return new Map([["k", x]]);
+}
+class C0 {
+  tag = 0;
+}
+class C1 {
+  tag = 1;
+}
+class C2 {
+  tag = 2;
+}
+class C3 {
+  tag = 3;
+}
+class C4 {
+  tag = 4;
+}
+class C5 {
+  tag = 5;
+}
+class C6 {
+  tag = 6;
+}
+class C7 {
+  tag = 7;
+}
+class C8 {
+  tag = 8;
+}
+class C9 {
+  tag = 9;
+}
+class C10 {
+  tag = 10;
+}
+class C11 {
+  tag = 11;
+}
+class C12 {
+  tag = 12;
+}
+class C13 {
+  tag = 13;
+}
+class C14 {
+  tag = 14;
+}
+class C15 {
+  tag = 15;
+}
+class C16 {
+  tag = 16;
+}
+class C17 {
+  tag = 17;
+}
+class C18 {
+  tag = 18;
+}
+class C19 {
+  tag = 19;
+}
+class C20 {
+  tag = 20;
+}
+class C21 {
+  tag = 21;
+}
+class C22 {
+  tag = 22;
+}
+class C23 {
+  tag = 23;
+}
+class C24 {
+  tag = 24;
+}
+class C25 {
+  tag = 25;
+}
+class C26 {
+  tag = 26;
+}
+class C27 {
+  tag = 27;
+}
+class C28 {
+  tag = 28;
+}
+class C29 {
+  tag = 29;
+}
+class C30 {
+  tag = 30;
+}
+class C31 {
+  tag = 31;
+}
+class C32 {
+  tag = 32;
+}
+class C33 {
+  tag = 33;
+}
+class C34 {
+  tag = 34;
+}
+class C35 {
+  tag = 35;
+}
+class C36 {
+  tag = 36;
+}
+class C37 {
+  tag = 37;
+}
+class C38 {
+  tag = 38;
+}
+class C39 {
+  tag = 39;
+}
+class C40 {
+  tag = 40;
+}
+class C41 {
+  tag = 41;
+}
+class C42 {
+  tag = 42;
+}
+class C43 {
+  tag = 43;
+}
+class C44 {
+  tag = 44;
+}
+class C45 {
+  tag = 45;
+}
+class C46 {
+  tag = 46;
+}
+class C47 {
+  tag = 47;
+}
+class C48 {
+  tag = 48;
+}
+class C49 {
+  tag = 49;
+}
+class C50 {
+  tag = 50;
+}
+class C51 {
+  tag = 51;
+}
+class C52 {
+  tag = 52;
+}
+class C53 {
+  tag = 53;
+}
+class C54 {
+  tag = 54;
+}
+class C55 {
+  tag = 55;
+}
+class C56 {
+  tag = 56;
+}
+class C57 {
+  tag = 57;
+}
+class C58 {
+  tag = 58;
+}
+class C59 {
+  tag = 59;
+}
+class C60 {
+  tag = 60;
+}
+class C61 {
+  tag = 61;
+}
+class C62 {
+  tag = 62;
+}
+class C63 {
+  tag = 63;
+}
+class C64 {
+  tag = 64;
+}
+class C65 {
+  tag = 65;
+}
+class C66 {
+  tag = 66;
+}
+class C67 {
+  tag = 67;
+}
+class C68 {
+  tag = 68;
+}
+class C69 {
+  tag = 69;
+}
+let direct = 0;
+direct += make(new C0()).value.tag;
+direct += make(new C1()).value.tag;
+direct += make(new C2()).value.tag;
+direct += make(new C3()).value.tag;
+direct += make(new C4()).value.tag;
+direct += make(new C5()).value.tag;
+direct += make(new C6()).value.tag;
+direct += make(new C7()).value.tag;
+direct += make(new C8()).value.tag;
+direct += make(new C9()).value.tag;
+direct += make(new C10()).value.tag;
+direct += make(new C11()).value.tag;
+direct += make(new C12()).value.tag;
+direct += make(new C13()).value.tag;
+direct += make(new C14()).value.tag;
+direct += make(new C15()).value.tag;
+direct += make(new C16()).value.tag;
+direct += make(new C17()).value.tag;
+direct += make(new C18()).value.tag;
+direct += make(new C19()).value.tag;
+direct += make(new C20()).value.tag;
+direct += make(new C21()).value.tag;
+direct += make(new C22()).value.tag;
+direct += make(new C23()).value.tag;
+direct += make(new C24()).value.tag;
+direct += make(new C25()).value.tag;
+direct += make(new C26()).value.tag;
+direct += make(new C27()).value.tag;
+direct += make(new C28()).value.tag;
+direct += make(new C29()).value.tag;
+direct += make(new C30()).value.tag;
+direct += make(new C31()).value.tag;
+direct += make(new C32()).value.tag;
+direct += make(new C33()).value.tag;
+direct += make(new C34()).value.tag;
+direct += make(new C35()).value.tag;
+direct += make(new C36()).value.tag;
+direct += make(new C37()).value.tag;
+direct += make(new C38()).value.tag;
+direct += make(new C39()).value.tag;
+direct += make(new C40()).value.tag;
+direct += make(new C41()).value.tag;
+direct += make(new C42()).value.tag;
+direct += make(new C43()).value.tag;
+direct += make(new C44()).value.tag;
+direct += make(new C45()).value.tag;
+direct += make(new C46()).value.tag;
+direct += make(new C47()).value.tag;
+direct += make(new C48()).value.tag;
+direct += make(new C49()).value.tag;
+direct += make(new C50()).value.tag;
+direct += make(new C51()).value.tag;
+direct += make(new C52()).value.tag;
+direct += make(new C53()).value.tag;
+direct += make(new C54()).value.tag;
+direct += make(new C55()).value.tag;
+direct += make(new C56()).value.tag;
+direct += make(new C57()).value.tag;
+direct += make(new C58()).value.tag;
+direct += make(new C59()).value.tag;
+direct += make(new C60()).value.tag;
+direct += make(new C61()).value.tag;
+direct += make(new C62()).value.tag;
+direct += make(new C63()).value.tag;
+direct += make(new C64()).value.tag;
+direct += make(new C65()).value.tag;
+direct += make(new C66()).value.tag;
+direct += make(new C67()).value.tag;
+direct += make(new C68()).value.tag;
+direct += make(new C69()).value.tag;
+console.log("direct", direct);
+function throughValue(f: <T>(x: T) => Map<string, T>): number {
+  let s = 0;
+  const m0: Map<string, C0> = f(new C0());
+  s += m0.get("k")!.tag;
+  const m1: Map<string, C1> = f(new C1());
+  s += m1.get("k")!.tag;
+  const m2: Map<string, C2> = f(new C2());
+  s += m2.get("k")!.tag;
+  const m3: Map<string, C3> = f(new C3());
+  s += m3.get("k")!.tag;
+  const m4: Map<string, C4> = f(new C4());
+  s += m4.get("k")!.tag;
+  const m5: Map<string, C5> = f(new C5());
+  s += m5.get("k")!.tag;
+  const m6: Map<string, C6> = f(new C6());
+  s += m6.get("k")!.tag;
+  const m7: Map<string, C7> = f(new C7());
+  s += m7.get("k")!.tag;
+  const m8: Map<string, C8> = f(new C8());
+  s += m8.get("k")!.tag;
+  const m9: Map<string, C9> = f(new C9());
+  s += m9.get("k")!.tag;
+  const m10: Map<string, C10> = f(new C10());
+  s += m10.get("k")!.tag;
+  const m11: Map<string, C11> = f(new C11());
+  s += m11.get("k")!.tag;
+  const m12: Map<string, C12> = f(new C12());
+  s += m12.get("k")!.tag;
+  const m13: Map<string, C13> = f(new C13());
+  s += m13.get("k")!.tag;
+  const m14: Map<string, C14> = f(new C14());
+  s += m14.get("k")!.tag;
+  const m15: Map<string, C15> = f(new C15());
+  s += m15.get("k")!.tag;
+  const m16: Map<string, C16> = f(new C16());
+  s += m16.get("k")!.tag;
+  const m17: Map<string, C17> = f(new C17());
+  s += m17.get("k")!.tag;
+  const m18: Map<string, C18> = f(new C18());
+  s += m18.get("k")!.tag;
+  const m19: Map<string, C19> = f(new C19());
+  s += m19.get("k")!.tag;
+  const m20: Map<string, C20> = f(new C20());
+  s += m20.get("k")!.tag;
+  const m21: Map<string, C21> = f(new C21());
+  s += m21.get("k")!.tag;
+  const m22: Map<string, C22> = f(new C22());
+  s += m22.get("k")!.tag;
+  const m23: Map<string, C23> = f(new C23());
+  s += m23.get("k")!.tag;
+  const m24: Map<string, C24> = f(new C24());
+  s += m24.get("k")!.tag;
+  const m25: Map<string, C25> = f(new C25());
+  s += m25.get("k")!.tag;
+  const m26: Map<string, C26> = f(new C26());
+  s += m26.get("k")!.tag;
+  const m27: Map<string, C27> = f(new C27());
+  s += m27.get("k")!.tag;
+  const m28: Map<string, C28> = f(new C28());
+  s += m28.get("k")!.tag;
+  const m29: Map<string, C29> = f(new C29());
+  s += m29.get("k")!.tag;
+  const m30: Map<string, C30> = f(new C30());
+  s += m30.get("k")!.tag;
+  const m31: Map<string, C31> = f(new C31());
+  s += m31.get("k")!.tag;
+  const m32: Map<string, C32> = f(new C32());
+  s += m32.get("k")!.tag;
+  const m33: Map<string, C33> = f(new C33());
+  s += m33.get("k")!.tag;
+  const m34: Map<string, C34> = f(new C34());
+  s += m34.get("k")!.tag;
+  const m35: Map<string, C35> = f(new C35());
+  s += m35.get("k")!.tag;
+  const m36: Map<string, C36> = f(new C36());
+  s += m36.get("k")!.tag;
+  const m37: Map<string, C37> = f(new C37());
+  s += m37.get("k")!.tag;
+  const m38: Map<string, C38> = f(new C38());
+  s += m38.get("k")!.tag;
+  const m39: Map<string, C39> = f(new C39());
+  s += m39.get("k")!.tag;
+  const m40: Map<string, C40> = f(new C40());
+  s += m40.get("k")!.tag;
+  const m41: Map<string, C41> = f(new C41());
+  s += m41.get("k")!.tag;
+  const m42: Map<string, C42> = f(new C42());
+  s += m42.get("k")!.tag;
+  const m43: Map<string, C43> = f(new C43());
+  s += m43.get("k")!.tag;
+  const m44: Map<string, C44> = f(new C44());
+  s += m44.get("k")!.tag;
+  const m45: Map<string, C45> = f(new C45());
+  s += m45.get("k")!.tag;
+  const m46: Map<string, C46> = f(new C46());
+  s += m46.get("k")!.tag;
+  const m47: Map<string, C47> = f(new C47());
+  s += m47.get("k")!.tag;
+  const m48: Map<string, C48> = f(new C48());
+  s += m48.get("k")!.tag;
+  const m49: Map<string, C49> = f(new C49());
+  s += m49.get("k")!.tag;
+  const m50: Map<string, C50> = f(new C50());
+  s += m50.get("k")!.tag;
+  const m51: Map<string, C51> = f(new C51());
+  s += m51.get("k")!.tag;
+  const m52: Map<string, C52> = f(new C52());
+  s += m52.get("k")!.tag;
+  const m53: Map<string, C53> = f(new C53());
+  s += m53.get("k")!.tag;
+  const m54: Map<string, C54> = f(new C54());
+  s += m54.get("k")!.tag;
+  const m55: Map<string, C55> = f(new C55());
+  s += m55.get("k")!.tag;
+  const m56: Map<string, C56> = f(new C56());
+  s += m56.get("k")!.tag;
+  const m57: Map<string, C57> = f(new C57());
+  s += m57.get("k")!.tag;
+  const m58: Map<string, C58> = f(new C58());
+  s += m58.get("k")!.tag;
+  const m59: Map<string, C59> = f(new C59());
+  s += m59.get("k")!.tag;
+  const m60: Map<string, C60> = f(new C60());
+  s += m60.get("k")!.tag;
+  const m61: Map<string, C61> = f(new C61());
+  s += m61.get("k")!.tag;
+  const m62: Map<string, C62> = f(new C62());
+  s += m62.get("k")!.tag;
+  const m63: Map<string, C63> = f(new C63());
+  s += m63.get("k")!.tag;
+  const m64: Map<string, C64> = f(new C64());
+  s += m64.get("k")!.tag;
+  const m65: Map<string, C65> = f(new C65());
+  s += m65.get("k")!.tag;
+  const m66: Map<string, C66> = f(new C66());
+  s += m66.get("k")!.tag;
+  const m67: Map<string, C67> = f(new C67());
+  s += m67.get("k")!.tag;
+  const m68: Map<string, C68> = f(new C68());
+  s += m68.get("k")!.tag;
+  const m69: Map<string, C69> = f(new C69());
+  s += m69.get("k")!.tag;
+  return s;
+}
+console.log("through a value", throughValue(mapOf));
+// expect:
+// direct 2415
+// through a value 2415

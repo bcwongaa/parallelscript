@@ -1,0 +1,23 @@
+// C184 (H09b5): polymorphic recursion through a value of a generic function type (D-148's demand),
+// three levels at run time: PTS1001 at the instance limit and an internal error (PTS9001) in every
+// fallback. Past the limit the call keeps the erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+let self: <U>(x: U, n: number) => Box<U>;
+function rec<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = self([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+self = rec;
+try {
+  const b: Box<number> = self(5, 3);
+  console.log(b.value + 1);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// expect:
+// 6

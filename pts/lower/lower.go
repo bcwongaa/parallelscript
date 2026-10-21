@@ -3972,7 +3972,10 @@ func (l *lowerer) irType(t *checker.Type, node *ast.Node) ir.Type {
 		if generic == nil {
 			return nil // the class failed, which was reported
 		}
-		return l.classInstanceOf(generic, t, node)
+		if class := l.classInstanceOf(generic, t, node); class != nil {
+			return class
+		}
+		return nil // not a typed nil, which callers would take for a type (C172)
 	}
 	if class, ok := l.classes[t.Symbol()]; ok && t.Flags()&checker.TypeFlagsObject != 0 {
 		if class == nil {

@@ -1,0 +1,48 @@
+// skip: known issue (H09b5b, C176): a class instance body a pairing made, lowered after every trial, that doesn't lower sends the whole program to DeclaredInstances, so the unrelated arrow loses its instance
+// C176 (H09b5): pairing use's demand f<Dog[]> with the unrelated escaping arrow w makes the class
+// instance Weird<Dog[]>, whose method doesn't lower (D-094: a Dog[] returned as an Animal[]); class
+// instance bodies are lowered after every trial, so the failure stands and the driver lowered the
+// whole program again with DeclaredInstances, where the unrelated arrow `named` and use's call
+// lost their instances (`Expected Box<number>, got Box<any>`). Only the failing value's instances
+// are dropped.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+function use(f: <T>(x: T) => Box<T>): void {
+  const b: Box<Dog[]> = f([new Dog()]);
+  console.log("dogs", b.value.length);
+}
+function main(): void {
+  const named = <T>(x: T): Box<T> => new Box(x);
+  try {
+    const b: Box<number> = named(5);
+    console.log("victim", b.value + 1);
+  } catch (e: any) {
+    console.log("victim threw", e.message);
+  }
+  const w = <T>(x: T): Weird<T> => new Weird(x);
+  const d: any = w; // w escapes, so every value demand of its erased type pairs with it
+  console.log("weird", d(1).animals().length);
+  use(named);
+}
+main();
+// expect:
+// victim 6
+// weird 0
+// dogs 1

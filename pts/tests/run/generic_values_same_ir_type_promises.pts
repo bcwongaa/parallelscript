@@ -1,0 +1,34 @@
+// skip: known issue (H09b5d, C177): the second value call's demand shares the first's instance, which doesn't fit, so it keeps the erased copy and throws
+// C177 (H09b5): value calls f<Promise<number>> and f<Promise<string>> of one generic declaration: the
+// instance made for the first (IR value) is the one genericInstanceFor returns for the second too,
+// which doesn't fit its signature, so its trial is dropped and the second call took the erased copy,
+// whose Box<any> threw `Expected Box<string>, got Box<any>`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends Promise<infer U> ? U : T>;
+function pick<T>(x: T, v: R<T>): R<T> {
+  return new Box(v.value);
+}
+function use(f: <T>(x: T, v: R<T>) => R<T>): void {
+  attempt("Promise<number>:", () => {
+    const r = f<Promise<number>>(Promise.resolve(1), new Box(2));
+    return String(r.value + 1);
+  });
+  attempt("Promise<string>:", () => {
+    const r = f<Promise<string>>(Promise.resolve("s"), new Box("t"));
+    return String(r.value + "!");
+  });
+}
+use(pick);
+// expect:
+// Promise<number>: 3
+// Promise<string>: t!

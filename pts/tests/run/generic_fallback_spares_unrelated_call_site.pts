@@ -1,0 +1,49 @@
+// skip: known issue (H09b5b, C176): an interface call site that doesn't lower under AllInstances (C248) sends the whole program to ValueInstances, so the unrelated interface call loses its instance
+// C176 (H09b5): an interface call whose AllInstances lowering fails at its own site (an optional
+// argument that may be undefined before a rest parameter: PTS1001 `converting boolean to given`,
+// first seen in the H09b3a review's r02) sent the whole build to ValueInstances, where the unrelated
+// interface call lost its instance too (`Expected Box<number>, got Box<any>`), and the failing call
+// its own. Only the failing call may keep its erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class CM implements M {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const m: M = new CM();
+const maker: Maker = new ClassMaker();
+attempt("victim", () => String(maker.make(5).value + 1));
+try {
+  // The failing call's own result may come from its erased copy (its PTS1001 is a separate
+  // defect), so only that it ran is printed.
+  const b: Box<number[]> = m.f(maybe(), 1, 2);
+  console.log("trigger ran", b.value.length);
+} catch (error: any) {
+  console.log("trigger ran", 2);
+}
+// expect:
+// victim 6
+// trigger ran 2

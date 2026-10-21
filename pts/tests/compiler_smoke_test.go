@@ -50,8 +50,11 @@ const (
 
 // needsFallback are the seeds that compile only with the driver's fallback (D-190), by
 // the end of their path: their speculative instances fail in a way the lowering's trials
-// don't take back.
-var needsFallback = []string{"/run/generic_instances_fall_back.pts"}
+// don't take back. The generic_fallback_spares_unrelated_* seeds are H09b5b's skipped RED
+// tests (C176), which need the fallback until it is narrower.
+var needsFallback = []string{"/run/generic_instances_fall_back.pts",
+	"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_class_body.pts",
+	"/run/generic_fallback_spares_unrelated_relaxed_cast.pts"}
 
 // smokeProgram is one program the smoke test compiles: a seed, or a mutant of one.
 type smokeProgram struct {

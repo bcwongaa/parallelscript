@@ -1,0 +1,351 @@
+// C172 (H09b5): two generic declarations of one function type, each passed to its own consumer
+// that calls it with 33 class types of its own: each needs 33 instances, but pairing every
+// demand with every value of the type gives each 66, past the 64-instance limit (D-049), which
+// was PTS1001 `a generic function with more than 64 instances (mapOf0)`.
+function mapOf0<T>(x: T): Map<string, T> {
+  return new Map([["k0", x]]);
+}
+function mapOf1<T>(x: T): Map<string, T> {
+  return new Map([["k1", x]]);
+}
+class C0_0 {
+  tag = 0;
+}
+class C0_1 {
+  tag = 1;
+}
+class C0_2 {
+  tag = 2;
+}
+class C0_3 {
+  tag = 3;
+}
+class C0_4 {
+  tag = 4;
+}
+class C0_5 {
+  tag = 5;
+}
+class C0_6 {
+  tag = 6;
+}
+class C0_7 {
+  tag = 7;
+}
+class C0_8 {
+  tag = 8;
+}
+class C0_9 {
+  tag = 9;
+}
+class C0_10 {
+  tag = 10;
+}
+class C0_11 {
+  tag = 11;
+}
+class C0_12 {
+  tag = 12;
+}
+class C0_13 {
+  tag = 13;
+}
+class C0_14 {
+  tag = 14;
+}
+class C0_15 {
+  tag = 15;
+}
+class C0_16 {
+  tag = 16;
+}
+class C0_17 {
+  tag = 17;
+}
+class C0_18 {
+  tag = 18;
+}
+class C0_19 {
+  tag = 19;
+}
+class C0_20 {
+  tag = 20;
+}
+class C0_21 {
+  tag = 21;
+}
+class C0_22 {
+  tag = 22;
+}
+class C0_23 {
+  tag = 23;
+}
+class C0_24 {
+  tag = 24;
+}
+class C0_25 {
+  tag = 25;
+}
+class C0_26 {
+  tag = 26;
+}
+class C0_27 {
+  tag = 27;
+}
+class C0_28 {
+  tag = 28;
+}
+class C0_29 {
+  tag = 29;
+}
+class C0_30 {
+  tag = 30;
+}
+class C0_31 {
+  tag = 31;
+}
+class C0_32 {
+  tag = 32;
+}
+class C1_0 {
+  tag = 0;
+}
+class C1_1 {
+  tag = 1;
+}
+class C1_2 {
+  tag = 2;
+}
+class C1_3 {
+  tag = 3;
+}
+class C1_4 {
+  tag = 4;
+}
+class C1_5 {
+  tag = 5;
+}
+class C1_6 {
+  tag = 6;
+}
+class C1_7 {
+  tag = 7;
+}
+class C1_8 {
+  tag = 8;
+}
+class C1_9 {
+  tag = 9;
+}
+class C1_10 {
+  tag = 10;
+}
+class C1_11 {
+  tag = 11;
+}
+class C1_12 {
+  tag = 12;
+}
+class C1_13 {
+  tag = 13;
+}
+class C1_14 {
+  tag = 14;
+}
+class C1_15 {
+  tag = 15;
+}
+class C1_16 {
+  tag = 16;
+}
+class C1_17 {
+  tag = 17;
+}
+class C1_18 {
+  tag = 18;
+}
+class C1_19 {
+  tag = 19;
+}
+class C1_20 {
+  tag = 20;
+}
+class C1_21 {
+  tag = 21;
+}
+class C1_22 {
+  tag = 22;
+}
+class C1_23 {
+  tag = 23;
+}
+class C1_24 {
+  tag = 24;
+}
+class C1_25 {
+  tag = 25;
+}
+class C1_26 {
+  tag = 26;
+}
+class C1_27 {
+  tag = 27;
+}
+class C1_28 {
+  tag = 28;
+}
+class C1_29 {
+  tag = 29;
+}
+class C1_30 {
+  tag = 30;
+}
+class C1_31 {
+  tag = 31;
+}
+class C1_32 {
+  tag = 32;
+}
+function use0(f: <T>(x: T) => Map<string, T>): number {
+  let s = 0;
+  const m0: Map<string, C0_0> = f(new C0_0());
+  s += m0.get("k0")!.tag;
+  const m1: Map<string, C0_1> = f(new C0_1());
+  s += m1.get("k0")!.tag;
+  const m2: Map<string, C0_2> = f(new C0_2());
+  s += m2.get("k0")!.tag;
+  const m3: Map<string, C0_3> = f(new C0_3());
+  s += m3.get("k0")!.tag;
+  const m4: Map<string, C0_4> = f(new C0_4());
+  s += m4.get("k0")!.tag;
+  const m5: Map<string, C0_5> = f(new C0_5());
+  s += m5.get("k0")!.tag;
+  const m6: Map<string, C0_6> = f(new C0_6());
+  s += m6.get("k0")!.tag;
+  const m7: Map<string, C0_7> = f(new C0_7());
+  s += m7.get("k0")!.tag;
+  const m8: Map<string, C0_8> = f(new C0_8());
+  s += m8.get("k0")!.tag;
+  const m9: Map<string, C0_9> = f(new C0_9());
+  s += m9.get("k0")!.tag;
+  const m10: Map<string, C0_10> = f(new C0_10());
+  s += m10.get("k0")!.tag;
+  const m11: Map<string, C0_11> = f(new C0_11());
+  s += m11.get("k0")!.tag;
+  const m12: Map<string, C0_12> = f(new C0_12());
+  s += m12.get("k0")!.tag;
+  const m13: Map<string, C0_13> = f(new C0_13());
+  s += m13.get("k0")!.tag;
+  const m14: Map<string, C0_14> = f(new C0_14());
+  s += m14.get("k0")!.tag;
+  const m15: Map<string, C0_15> = f(new C0_15());
+  s += m15.get("k0")!.tag;
+  const m16: Map<string, C0_16> = f(new C0_16());
+  s += m16.get("k0")!.tag;
+  const m17: Map<string, C0_17> = f(new C0_17());
+  s += m17.get("k0")!.tag;
+  const m18: Map<string, C0_18> = f(new C0_18());
+  s += m18.get("k0")!.tag;
+  const m19: Map<string, C0_19> = f(new C0_19());
+  s += m19.get("k0")!.tag;
+  const m20: Map<string, C0_20> = f(new C0_20());
+  s += m20.get("k0")!.tag;
+  const m21: Map<string, C0_21> = f(new C0_21());
+  s += m21.get("k0")!.tag;
+  const m22: Map<string, C0_22> = f(new C0_22());
+  s += m22.get("k0")!.tag;
+  const m23: Map<string, C0_23> = f(new C0_23());
+  s += m23.get("k0")!.tag;
+  const m24: Map<string, C0_24> = f(new C0_24());
+  s += m24.get("k0")!.tag;
+  const m25: Map<string, C0_25> = f(new C0_25());
+  s += m25.get("k0")!.tag;
+  const m26: Map<string, C0_26> = f(new C0_26());
+  s += m26.get("k0")!.tag;
+  const m27: Map<string, C0_27> = f(new C0_27());
+  s += m27.get("k0")!.tag;
+  const m28: Map<string, C0_28> = f(new C0_28());
+  s += m28.get("k0")!.tag;
+  const m29: Map<string, C0_29> = f(new C0_29());
+  s += m29.get("k0")!.tag;
+  const m30: Map<string, C0_30> = f(new C0_30());
+  s += m30.get("k0")!.tag;
+  const m31: Map<string, C0_31> = f(new C0_31());
+  s += m31.get("k0")!.tag;
+  const m32: Map<string, C0_32> = f(new C0_32());
+  s += m32.get("k0")!.tag;
+  return s;
+}
+function use1(f: <T>(x: T) => Map<string, T>): number {
+  let s = 0;
+  const m0: Map<string, C1_0> = f(new C1_0());
+  s += m0.get("k1")!.tag;
+  const m1: Map<string, C1_1> = f(new C1_1());
+  s += m1.get("k1")!.tag;
+  const m2: Map<string, C1_2> = f(new C1_2());
+  s += m2.get("k1")!.tag;
+  const m3: Map<string, C1_3> = f(new C1_3());
+  s += m3.get("k1")!.tag;
+  const m4: Map<string, C1_4> = f(new C1_4());
+  s += m4.get("k1")!.tag;
+  const m5: Map<string, C1_5> = f(new C1_5());
+  s += m5.get("k1")!.tag;
+  const m6: Map<string, C1_6> = f(new C1_6());
+  s += m6.get("k1")!.tag;
+  const m7: Map<string, C1_7> = f(new C1_7());
+  s += m7.get("k1")!.tag;
+  const m8: Map<string, C1_8> = f(new C1_8());
+  s += m8.get("k1")!.tag;
+  const m9: Map<string, C1_9> = f(new C1_9());
+  s += m9.get("k1")!.tag;
+  const m10: Map<string, C1_10> = f(new C1_10());
+  s += m10.get("k1")!.tag;
+  const m11: Map<string, C1_11> = f(new C1_11());
+  s += m11.get("k1")!.tag;
+  const m12: Map<string, C1_12> = f(new C1_12());
+  s += m12.get("k1")!.tag;
+  const m13: Map<string, C1_13> = f(new C1_13());
+  s += m13.get("k1")!.tag;
+  const m14: Map<string, C1_14> = f(new C1_14());
+  s += m14.get("k1")!.tag;
+  const m15: Map<string, C1_15> = f(new C1_15());
+  s += m15.get("k1")!.tag;
+  const m16: Map<string, C1_16> = f(new C1_16());
+  s += m16.get("k1")!.tag;
+  const m17: Map<string, C1_17> = f(new C1_17());
+  s += m17.get("k1")!.tag;
+  const m18: Map<string, C1_18> = f(new C1_18());
+  s += m18.get("k1")!.tag;
+  const m19: Map<string, C1_19> = f(new C1_19());
+  s += m19.get("k1")!.tag;
+  const m20: Map<string, C1_20> = f(new C1_20());
+  s += m20.get("k1")!.tag;
+  const m21: Map<string, C1_21> = f(new C1_21());
+  s += m21.get("k1")!.tag;
+  const m22: Map<string, C1_22> = f(new C1_22());
+  s += m22.get("k1")!.tag;
+  const m23: Map<string, C1_23> = f(new C1_23());
+  s += m23.get("k1")!.tag;
+  const m24: Map<string, C1_24> = f(new C1_24());
+  s += m24.get("k1")!.tag;
+  const m25: Map<string, C1_25> = f(new C1_25());
+  s += m25.get("k1")!.tag;
+  const m26: Map<string, C1_26> = f(new C1_26());
+  s += m26.get("k1")!.tag;
+  const m27: Map<string, C1_27> = f(new C1_27());
+  s += m27.get("k1")!.tag;
+  const m28: Map<string, C1_28> = f(new C1_28());
+  s += m28.get("k1")!.tag;
+  const m29: Map<string, C1_29> = f(new C1_29());
+  s += m29.get("k1")!.tag;
+  const m30: Map<string, C1_30> = f(new C1_30());
+  s += m30.get("k1")!.tag;
+  const m31: Map<string, C1_31> = f(new C1_31());
+  s += m31.get("k1")!.tag;
+  const m32: Map<string, C1_32> = f(new C1_32());
+  s += m32.get("k1")!.tag;
+  return s;
+}
+console.log(use0(mapOf0), use1(mapOf1));
+// expect:
+// 528 528

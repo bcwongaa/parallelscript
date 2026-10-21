@@ -1,0 +1,33 @@
+// skip: known issue (H09b5d, C177): a generic class's instances don't tell a literal type argument from its base: PTS1001 `using a Box as a Box`
+// C177 (H09b5): a generic function's instances tell a literal type argument from its base (D-089's
+// literals), a generic class's don't: Holder<1> and Holder<number> were one class, whose pick returns
+// Box<string>, so Holder<number>'s Box<number> was PTS1001 `using a Box as a Box`.
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Id = number & { readonly __brand: "id" };
+function attempt(label: string, f: () => string): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+type R<T> = Box<T extends 1 ? string : number>;
+class Holder<T> {
+  constructor(public x: T) {}
+  pick(v: R<T>): R<T> {
+    return new Box(v.value);
+  }
+}
+attempt("1:", () => {
+  const r = new Holder<1>(1 as const).pick(new Box("s"));
+  return String(r.value + "!");
+});
+attempt("number:", () => {
+  const r = new Holder<number>(5).pick(new Box(7));
+  return String(r.value + 1);
+});
+// expect:
+// 1: s!
+// number: 8

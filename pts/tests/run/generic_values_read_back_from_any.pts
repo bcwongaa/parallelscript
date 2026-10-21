@@ -1,0 +1,24 @@
+// C172 guard (H09b5): a generic arrow that escapes into an any[] and is read back as a generic
+// function type: the typed call reaches it, so pairing only what calls may use must still pair them
+// (passes on HEAD; must keep passing).
+class Box<T> {
+  constructor(public value: T) {}
+}
+class C0 {
+  tag = 7;
+}
+const keep: any[] = [];
+function main(): void {
+  const a0 = <T,>(x: T): Box<T> => new Box(x);
+  keep.push(a0);
+  const g = keep[0] as <T>(x: T) => Box<T>;
+  try {
+    const b: Box<C0> = g(new C0());
+    console.log("read back", b.value.tag);
+  } catch (e: any) {
+    console.log("read back threw", e.message);
+  }
+}
+main();
+// expect:
+// read back 7

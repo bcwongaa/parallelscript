@@ -1,0 +1,29 @@
+// C184 (H09b5): polymorphic recursion through an abstract (dispatched, D-101) generic method, which
+// recurses three levels at run time: its demands make rec<T>, rec<T[]>, ... up to the instance limit,
+// where the call past it was PTS1001 twice and an internal error (PTS9001) in every fallback,
+// since dispatched demands are made in each. Past the limit the call keeps the erased copy.
+class Box<T> {
+  constructor(public value: T) {}
+}
+abstract class Base {
+  abstract rec<T>(x: T, n: number): Box<T>;
+}
+class Recurser extends Base {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const self: Base = this;
+      const inner: Box<T[]> = self.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+}
+const r: Base = new Recurser();
+try {
+  const b: Box<number> = r.rec(5, 3);
+  console.log(b.value + 1);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// expect:
+// 6

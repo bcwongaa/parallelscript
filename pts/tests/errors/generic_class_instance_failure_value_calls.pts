@@ -1,0 +1,16 @@
+// C172(b) (H09b5): a generic class instance that fails (its superclass, Map, is not a class of the
+// program) is a nil *ir.Class that irType returned as a non-nil ir.Type, so the value call whose
+// result is of that type (fromErased -> dynamicConversion -> isCheckable) was an internal error
+// (PTS9001) after the honest PTS1001. The same typed nil follows the instance limit (C172, C184).
+// error: extending `Map` is not supported yet
+class MyMap<T> extends Map<string, T> {}
+function make<T>(x: T): MyMap<T> {
+  const m = new MyMap<T>();
+  m.set("k", x);
+  return m;
+}
+function use(f: <T>(x: T) => MyMap<T>): number {
+  const m: MyMap<number> = f(1);
+  return m.size;
+}
+console.log(use(make));

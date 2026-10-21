@@ -2,7 +2,9 @@ package lower_test
 
 import (
 	"context"
+	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1684,4 +1686,32 @@ func plain(x: string, o: {w: string}) string {
   17: return x
 }
 `, "´", "`"))
+}
+
+func TestPastTheInstanceCapACallIsACompileErrorNotAnInternalError(t *testing.T) {
+	t.Parallel()
+	// 1,025 object types make as many instances of make and of Box, one past the cap
+	// (maxInstances), so the declaration of the typed call's result can't name its Box<{last: number}>.
+	// That is the cap's error, where a typed nil class went on to an internal error (C172).
+	var source strings.Builder
+	source.WriteString("class Box<T> {\n  constructor(public value: T) {}\n}\nfunction make<T>(x: T): Box<T> {\n  return new Box(x);\n}\nlet s = 0;\n")
+	for i := range 1025 {
+		fmt.Fprintf(&source, "s += make({ k%d: 1 }).value.k%d;\n", i, i)
+	}
+	source.WriteString("function viaValue(f: <T>(x: T) => Box<T>): number {\n  const b: Box<{ last: number }> = f({ last: 1 });\n  return b.value.last;\n}\nconsole.log(s, viaValue(make));\n")
+
+	var errors []diagnostic.Diagnostic
+	var internal *diagnostic.InternalError
+	func() {
+		defer func() { internal, _ = recover().(*diagnostic.InternalError) }()
+		_, errors = lowerSource(t, source.String())
+	}()
+
+	assert.Assert(t, internal == nil, "internal error: %v", internal)
+	var report []string
+	for _, d := range errors {
+		assert.Equal(t, d.Code, diagnostic.NotSupportedYet, "%s", d.Format("/p"))
+		report = append(report, d.Format("/p"))
+	}
+	assert.Assert(t, slices.Contains(report, "main.pts:1034:9 - error PTS1001: a generic function or class with more than 1024 instances (`Box`) is not supported yet"), "errors:\n%s", strings.Join(report, "\n"))
 }
