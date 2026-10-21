@@ -1,0 +1,37 @@
+// A read that may hold an untested value, whose declared type's IR type is a union (`Kind |
+// "none"`, `"up" | 3`), as a record's key in code tsc types never (H09b4b2 review round 3):
+// an enum's other number with no cast, a string cast to a literal union. A union is no key
+// type, so the key is found at run time from the value boxed (D-197), where a number or a
+// string declared type reads as itself. The base and the round-2 fix: PTS1001 (`a key of
+// type number | string is not supported yet`).
+enum Kind {
+  Add,
+  Say,
+}
+type Key = Kind | "none";
+const rec: Record<string | number, string> = { 7: "seven", left: "L" };
+function keyed(k: Key): string {
+  switch (k) {
+    case Kind.Add:
+      return "a";
+    case Kind.Say:
+      return "s";
+    case "none":
+      return "n";
+    default:
+      return "rec " + rec[k];
+  }
+}
+type Mixed = "up" | 3;
+function mixed(m: Mixed): string {
+  if (m === "up") return "up";
+  if (m === 3) return "three";
+  return "mixed " + rec[m];
+}
+const seven: number = 7;
+const k: Kind = seven;
+const left = "left" as Mixed;
+console.log(keyed(k), keyed("none"), mixed(left), mixed(3));
+
+// expect:
+// rec seven n mixed L three

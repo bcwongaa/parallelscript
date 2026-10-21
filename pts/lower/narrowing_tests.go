@@ -185,20 +185,30 @@ func aliasedCondition(symbol *ast.Symbol) *ast.Node {
 	return symbol.ValueDeclaration.Initializer()
 }
 
-// aliasedPart is what symbol, a const, holds part of, where tsc narrows a value through it:
-// `const kind = a.kind`'s initializer, or `const { kind } = a`'s; nil otherwise.
+// aliasedPart is what symbol, a const, holds part of in the two forms tsc narrows a value
+// through (getCandidateDiscriminantPropertyAccess): `const kind = a.kind`'s access, and
+// `const { kind } = a`'s initializer, a variable or an access; nil otherwise (an object
+// literal's table, a call), which keeps mentions from walking initializers.
 func aliasedPart(symbol *ast.Symbol) *ast.Node {
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return nil
 	}
 	declaration := symbol.ValueDeclaration
-	if declaration.Kind == ast.KindBindingElement {
+	destructured := declaration.Kind == ast.KindBindingElement
+	if destructured {
 		declaration = ast.GetRootDeclaration(declaration)
 	}
-	if declaration.Kind != ast.KindVariableDeclaration || !ast.IsVarConst(declaration) {
+	if declaration.Kind != ast.KindVariableDeclaration || !ast.IsVarConst(declaration) || declaration.Initializer() == nil {
 		return nil
 	}
-	return declaration.Initializer()
+	initializer := declaration.Initializer()
+	for initializer.Kind == ast.KindParenthesizedExpression || initializer.Kind == ast.KindNonNullExpression {
+		initializer = initializer.Expression()
+	}
+	if ast.IsAccessExpression(initializer) || destructured && initializer.Kind == ast.KindIdentifier {
+		return initializer
+	}
+	return nil
 }
 
 // mentions reports whether expression reads one of read's variables, also through the

@@ -246,3 +246,90 @@ Not ready. Findings 1 and 2 must be fixed; findings 3 and 4 should be decided an
 The working tree has uncommitted parent edits (`narrowing_tests.go`, a new untracked `narrowed_dead_plain_booleans.pts`); I didn't touch or review them.
 
 Everything is in `/tmp/h09b4b2/review2.tar.gz`: probes in `p/r1/` and `p/r2/`, outputs in `out/<name>/{node,snap2,snap1,base}.txt`, `out/r1-summary.txt`, `emitc/diff-summary.txt`, `cg/counts.txt` and its generators. It holds no binaries or C files, and I wrote the marker `/tmp/h09b4b2/review2.done`.
+
+## Round 3 (round-2 fix `3cf15a955`, snapshot `snap3`)
+
+Archive: [h09b4b2-review3-probes.tar.gz](h09b4b2-review3-probes.tar.gz) (sha256 `47f0fcd426254e17…`, 5,030 entries: probes in `p/r1`, `p/r2`, `p/r3`; outputs in `out/<name>/{node,snap3,snap2,base}.txt`; `out/prev-summary.txt`; `emitc/diff-summary.txt`; the cost programs and their counts in `cg/`).
+
+---
+
+# H09b4b2 review round 3: commit `3cf15a955` is ready for correctness, with one compile-cost finding to log
+
+I found no wrong output, trap or compile failure that the base doesn't also have. The one notable problem is compile time: the new alias handling can make the compiler 1.85 times slower on interpreter-style code. That should be recorded and fixed, but it doesn't change behaviour. Everything below was run with Node (harness style), snap3, snap2 and the base, unless noted.
+
+## (1) All earlier probes on snap3
+- **Round 1 and round 2 together:** 62 probes. 40 match Node.
+- **Matching the base instead:** 20 more, all pre-existing behaviour (PTS1001s, boundary checks, C239's `undefined`, downcast throws).
+- **Matching neither:** only 2, both decided lies: `s09` (the honest-looking `a is Add | Say` predicate, F3) and `s20` (lies reaching non-first positions).
+- **Round-2 findings now fixed:**
+  - the discriminant aliases `s04` and `s05` match Node;
+  - the enum array indexes `s21`, `s22`, `s24`, `s25`, `s27` match Node and the base;
+  - `s11` and `s26` now compile.
+
+## (2) Attacks on the new pieces
+
+**The literal-comparison exemption is sound** (`t04`, verified). Comparing the variable itself with a literal relies on the re-run from the widest type, and that re-run covers every declared type that holds literals or enums. I tried:
+- enums through aliased conditions (`const isAdd = c === Kind.Add`);
+- a `const ADD = Kind.Add` alias;
+- an enum destructured from a holder;
+- template-literal and negative-literal unions from casts;
+- booleans.
+
+All match Node. A class union can't be compared with a literal without a TS error, so classes can't use the exemption. One small conservatism: `x === SKIP` (a const holding a literal) still counts as a value test, so C237's `?:` over boxes there is PTS1001, the same as the base (`t06`).
+
+**`aliasedPart` covers the alias forms tsc narrows through** (`t03`, verified). Each of these matches Node and the base (snap2 trapped six of the seven):
+- `const k = a["kind"]`
+- `const { kind: k } = a`
+- an alias declared in an outer function and tested in a closure
+- `const kind = a?.kind`
+- `const kind = a!.kind`
+- an alias of an alias
+- aliased conditions over a property alias
+
+`let` aliases and nested destructuring aren't narrowed by tsc, so missing them is harmless.
+
+**`isElementKey` works for single-type keys** (`t01`, `t07`). Writes, compound assignments, `++`, `??=`, destructuring-assignment targets, `delete`, typed arrays, number and string records, `in` and nested keys all match Node and the base.
+
+One small step back from snap2 (`t02b`): a key whose declared type is a union, such as `Kind | "none"` or `"up" | 3`, used on a record. snap2 boxed it and ran correctly; snap3 reads it as its declared type, which gives `PTS1001: a key of type number | string`, the same as the base. Suggestion: read as the declared type only where that type can be a key; otherwise box it.
+
+**Instance boxing (F6) caused no regressions** (`t08b` and the emit-c comparison). An instance-dead record key in a `for` update matches Node. An instance-dead array index in that position is PTS1001 on every version (`t08`), a remaining gap that isn't new.
+
+**Emit-c over 1,121 programs, snap3 vs base:**
+- The C differs only for this slice's tests and `reactive_signals`.
+- No new failures, no change in error output, no PTS9001s.
+- The one other difference, corpus `functional/transducers.pts`, comes from pre-existing nondeterminism. The emitted C randomly includes or leaves out `pts_object_take_order` for the `{ ...r, value }` spread (the base did so in 2 of 6 runs, snap3 in 1 of 7). The output still matched Node. This is worth a ledger entry: it makes C comparisons noisy, and with a different source key order the output itself could vary between builds.
+
+## Compile cost: MEDIUM (verified with callgrind)
+`mentions` now expands every const it meets in every equality on a read's paths, and nothing is cached. This happens for each read that only kind tests narrowed to never (an exhaustive typeof chain ending in `assertNever`), so the cost is roughly reads × equalities × size of the const's initializer.
+
+| program | snap3 | base | change |
+|---|---|---|---|
+| dispatcher (`alias_dispatcher.pts`): a 300-key const opcode table, 150 `code === OPCODES.OPn` tests, 20 exhaustive typeof checks | 2.64G | 1.43G | +85% (wall 0.46 s vs 0.30 s) |
+| `alias_cost.pts`: a 3,000-key object, 100 conditions, 100 dead reads | 8.8 s | 0.81 s (snap2 0.90 s) | about 10x |
+| a 1,000-entry numeric array, or const arrows that call each other | — | — | no measurable change |
+
+The object-key cases are slow because every identifier key in the initializer costs a symbol lookup.
+
+tsc itself only treats two forms as discriminant aliases: an access-expression initializer (`const k = a.kind`), and destructuring from an identifier or access expression. Two fixes:
+- restrict `aliasedPart` to those two forms, which never expands object literals or function bodies;
+- cache the result per alias symbol.
+
+Separately, generic-heavy code pays for the new `isDeadRead` call on every instance read in `narrowed()`:
+- `generic_optional_chain_calls`: +2.3–2.7% (654.0M twice vs 636.8–639.6M; snap2 642.3M);
+- `generic_interface_methods`: +0.1%;
+- `sql_query_parser`: unchanged from round 2.
+
+## (3) Test quality
+- The five new tests match what they claim:
+  - `narrowed_never_enum_indexes` and `narrowed_never_discriminant_aliases` are guards built from my probes;
+  - `narrowed_dead_plain_literal_tests`, `narrowed_dead_plain_booleans` and `generic_narrowed_dead_unit_positions` turn earlier PTS1001s into running code.
+- Two things nothing guards against:
+  - the alias-expansion cost (a dispatcher-shaped compile-time check would catch it);
+  - union-typed record keys (`t02b`).
+
+## Verdict
+The commit is ready for correctness: no wrong output or new trap, and no compile failure the base doesn't also have. Before closing the slice, record the compile-cost finding as a known issue, or fix it by restricting `aliasedPart` to tsc's two alias forms. The union-key step back from snap2, the instance array-key gap and the transducers nondeterminism are low and can be logged.
+
+The working tree has uncommitted parent edits (docs and a new `h09b4b2.md`); I didn't touch them.
+
+Everything is in `/tmp/h09b4b2/review3.tar.gz`: probes in `p/r1`, `p/r2`, `p/r3`; outputs in `out/<name>/{node,snap3,snap2,base}.txt`; `out/prev-summary.txt`; `emitc/diff-summary.txt`; the cost programs and their counts in `cg/`. It holds no binaries or C files, and I wrote the marker `/tmp/h09b4b2/review3.done`.

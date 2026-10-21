@@ -289,17 +289,27 @@ func (l *lowerer) narrowsReadToNoValue(node *ast.Node) bool {
 func (l *lowerer) readsAsItsDeclaredType(node *ast.Node) bool {
 	declared, narrowed := l.readTypes(node)
 	if l.mayHoldUntestedValue(node, declared, narrowed) {
-		return l.goesAsItsDeclaredType(node) || isElementKey(node) // stale reads' tests (`o.v === 5`) compare dynamic values (D-196)
+		return l.goesAsItsDeclaredType(node) || l.isKeyOfItsType(node, declared) // stale reads' tests (`o.v === 5`) compare dynamic values (D-196)
 	}
 	return l.takesAnyValueAsIs(node)
 }
 
-// isElementKey reports whether node is the key of an element access (`i` of `a[i]`).
-func isElementKey(node *ast.Node) bool {
+// isKeyOfItsType reports whether node is the key of an element access (`i` of `a[i]`),
+// whose declared type's IR type, number or string, is one a key can be; a union's isn't
+// (`Kind | "none"`), and is found at run time from the value boxed.
+func (l *lowerer) isKeyOfItsType(node *ast.Node, declared *checker.Type) bool {
 	for node.Parent.Kind == ast.KindParenthesizedExpression {
 		node = node.Parent
 	}
-	return node.Parent.Kind == ast.KindElementAccessExpression && node.Parent.AsElementAccessExpression().ArgumentExpression == node
+	if node.Parent.Kind != ast.KindElementAccessExpression || node.Parent.AsElementAccessExpression().ArgumentExpression != node {
+		return false
+	}
+	var key ir.Type
+	l.quietly(func() bool {
+		key = l.irType(declared, node)
+		return key != nil
+	})
+	return key != nil && (ir.IsNumeric(key) || key == ir.String)
 }
 
 // goesAsItsDeclaredType reports whether node is a read that tsc narrows to a type no value
