@@ -1,0 +1,35 @@
+{
+  "task": "H09b5c1 (D-201)",
+  "checked": "2026-10-22",
+  "method": "One session-start list; one read of the already-completed planning run. No waiting or polling.",
+  "runs": [
+    {
+      "commit": "7159e500ebe7049c1facb4146879afaf82458932",
+      "role": "c1 plan and earlier CI backfill",
+      "run_id": 39618407613,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39618407613",
+      "jobs": [
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+      ]
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "241ba7a21d3cd36ba4bdabbb3d9d6401dbdec36a",
+      "role": "c1 implementation",
+      "run_id": 39631593352,
+      "status": "in_progress"
+    },
+    {
+      "commit": "79eb752b9df6a0d512b311d0eebced920a6ec486",
+      "role": "c1 acceptance documentation",
+      "run_id": 39632026065,
+      "status": "pending"
+    }
+  ],
+  "note": "No failures among the latest ten runs. Skipped companion workflows are not passing PTS receipts. The two pending runs are left for a later session."
+}
