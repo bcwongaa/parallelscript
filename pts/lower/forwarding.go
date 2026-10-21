@@ -28,6 +28,7 @@ import (
 // its shape, as they reach an object literal's generic method (D-191), and its instances
 // take the object first.
 type forwarder struct {
+	source  *ast.Node // exact wrapper creation site, not the captured value's source (D-205)
 	name    string
 	shape   *ir.Class
 	literal *checker.Type
@@ -41,6 +42,12 @@ type forwarder struct {
 func (l *lowerer) addForwarder(fn *ir.Func, f *forwarder) {
 	if l.specialization == AllInstances && (l.subst == nil || len(l.subst.erased) == 0) {
 		l.erasedValues = append(l.erasedValues, &erasedValue{fn: fn, forward: f})
+		if f.source != nil {
+			if l.valueFlow.wrappers == nil {
+				l.valueFlow.wrappers = map[*ast.Node]bool{}
+			}
+			l.valueFlow.wrappers[f.source] = true
+		}
 	}
 }
 
@@ -113,7 +120,7 @@ func (l *lowerer) fromErasedTo(value ir.Expr, result ir.Type, node *ast.Node) ir
 // the function type erased (a generic function type's, whose values are erased copies,
 // D-078): a demand's call of the instance that value lists for the demand's signature, or
 // else of the value, its result converted to the demand's with a check.
-func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType) func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
+func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType, source *ast.Node) func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
 	return func(d *demand, fn *ir.Func, args []ir.Expr) ir.Expr {
 		if !takesAs(erased.Params, d.want.Params) {
 			return nil
@@ -122,7 +129,7 @@ func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType) func(d *d
 		if otherwise == nil {
 			return nil
 		}
-		l.demands = append(l.demands, &demand{in: fn, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, narrowable: true, allOnly: true})
+		l.demands = append(l.demands, &demand{in: fn, source: source, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, narrowable: true, allOnly: true})
 		return &ir.InstanceCall{X: &ir.LocalRef{Local: wrapped}, Signature: d.want, Key: d.key, Args: args, Otherwise: otherwise}
 	}
 }
@@ -280,7 +287,7 @@ func (l *lowerer) instantiatingAdapterSkipping(value ir.Expr, to *ir.FuncType, s
 	if to == nil {
 		to = want
 	}
-	d := &demand{erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true, allOnly: true}
+	d := &demand{source: node, erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true, allOnly: true}
 	if want.Result == ir.Value {
 		d.key = l.instanceKey(instantiated, node) // its values are made for its type arguments (D-190)
 	}

@@ -1,0 +1,13 @@
+// skip: known issue (C255, H29): a contextually generic arrow returning a bound generic closure loses its typed result (pre-existing on base and current)
+class Box<T> { constructor(public value: T) {} }
+type Factory = <T>(value: T) => Box<T>;
+const contextual: <U>(outer: U) => Factory = outer => {
+  const arrow = <T>(value: T): Box<T> => { console.log(outer); return new Box(value); };
+  return arrow.bind(undefined);
+};
+function use(f: Factory): void { const result: Box<number> = f(7); console.log(result.value); }
+use(contextual(5));
+
+// expect:
+// 5
+// 7

@@ -55,10 +55,10 @@ const (
 // those that compile only with the driver's fallback to a later one of lower.Fallbacks
 // (D-190). D-201 removes impossible pairs from nine former entries; those seeds now
 // compile with AllInstances alone, which the smoke test requires without an exemption.
+// D-205 also removes the now-unnecessary unrelated-adapter exemption.
 var (
 	needsNarrowing = []string{"/run/generic_instances_fall_back.pts",
 		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_relaxed_cast.pts",
-		"/run/generic_fallback_spares_unrelated_adapter.pts",
 		"/run/generic_fallback_spares_unrelated_forwarder.pts", "/run/generic_fallback_spares_unrelated_keyed_call_sites.pts",
 		"/run/generic_fallback_spares_unrelated_literal_method.pts", "/run/generic_fallback_spares_unrelated_optional_call_site.pts",
 		"/run/generic_fallback_spares_unrelated_several.pts",

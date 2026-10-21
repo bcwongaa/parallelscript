@@ -1,0 +1,66 @@
+// Known wrapper creation sites retain required instances through aliases, merges,
+// plain factory returns, bind chains and non-generic adapters (H09b5c2b2a).
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+class First {
+  make<T>(value: T): Box<T> { return new Box(value, "first"); }
+}
+class Second {
+  make<T>(value: T): Box<T> { return new Box(value, "second"); }
+}
+function choose(): boolean { return false; }
+function returned(): Factory {
+  const method = new Second().make;
+  const alias = method;
+  return alias;
+}
+function useNumber(label: string, factory: Factory): void {
+  const box: Box<number> = factory(9);
+  console.log(label, box.origin, box.value + 1);
+}
+function useString(label: string, factory: Factory): void {
+  const box: Box<string> = factory("nine");
+  console.log(label, box.origin, box.value.length);
+}
+function adaptNumber(factory: (value: number) => Box<number>): void {
+  const box = factory(5);
+  console.log("argument adapter", box.origin, box.value + 1);
+}
+function main(): void {
+  const first = new First().make;
+  const second = new Second().make;
+  const alias = first;
+  useNumber("alias", alias);
+  useString("merged", choose() ? first : second);
+  useNumber("returned", returned());
+  const source = <T,>(value: T): Box<T> => new Box(value, "bound");
+  const chain = source.bind(undefined).bind(undefined);
+  useNumber("bind chain", chain);
+  useString("bind alias", chain);
+  adaptNumber(source);
+  const adapted: (value: string) => Box<string> = source;
+  console.log("const adapter", adapted("abc").value.length);
+  const instantiated = source<number>;
+  console.log("instantiation", instantiated(7).value + 1);
+  const boxes: Box<number>[] = [2, 3].map(source);
+  console.log("array adapter", boxes[0].value + boxes[1].value);
+  interface Maker { make<T>(value: T): Box<T>; }
+  const maker: Maker = { make: source };
+  const box: Box<string> = maker.make("method");
+  console.log("method adapter", box.origin, box.value.length);
+}
+main();
+
+// expect:
+// alias first 10
+// merged second 4
+// returned second 10
+// bind chain bound 10
+// bind alias bound 4
+// argument adapter bound 6
+// const adapter 3
+// instantiation 8
+// array adapter 5
+// method adapter bound 6

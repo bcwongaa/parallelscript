@@ -249,6 +249,7 @@ func (l *lowerer) boundMethod(node *ast.Node, m method, receiver ir.Expr, bound 
 	})
 	if forward != nil {
 		if f := forward(captured[0]); f != nil {
+			f.source = l.wrapperSource(node)
 			l.addForwarder(fn, f)
 		}
 	}
@@ -342,7 +343,7 @@ func (l *lowerer) functionMethodCall(call *ast.CallExpression) ir.Expr {
 	if len(values) == 0 && l.genericSignature(target) != nil {
 		// `make.bind(undefined)`, a value of the generic function type make has: its calls
 		// are make's, for the same signatures (D-194).
-		forward = func(wrapped *ir.Local) *forwarder { return &forwarder{call: l.valueForward(wrapped, ft)} }
+		forward = func(wrapped *ir.Local) *forwarder { return &forwarder{call: l.valueForward(wrapped, ft, target)} }
 	}
 	return l.withReceiver(fn, func(f ir.Expr) ir.Expr {
 		return discard(thisArg, l.boundMethod(callee, m, f, values, "bound", true, forward))

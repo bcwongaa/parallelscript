@@ -1,0 +1,50 @@
+// Unknown, any-origin and mutable wrapper sources stay conservative (H09b5c2b2a).
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const first = <T,>(value: T): Box<T> => new Box(value, "first");
+const second = <T,>(value: T): Box<T> => new Box(value, "second");
+class Method {
+  make<T>(value: T): Box<T> { return new Box(value, "method"); }
+}
+function use(label: string, factory: Factory): void {
+  const numberBox: Box<number> = factory(9);
+  const stringBox: Box<string> = factory("nine");
+  console.log(label, numberBox.origin, stringBox.origin, numberBox.value + 1, stringBox.value.length);
+}
+function choose(): boolean { return false; }
+const boundFirst = first.bind(undefined);
+const boundSecond = second.bind(undefined);
+const held: any[] = [boundFirst, boundSecond, new Method().make];
+use("any", held[1]);
+const unknown: unknown[] = held;
+use("unknown", unknown[2] as Factory);
+use("mixed", choose() ? boundFirst : held[1]);
+let target: Factory = first;
+const before = target.bind(undefined);
+target = second;
+const after = target.bind(undefined);
+use("before mutation", before);
+use("after mutation", after);
+let captured: Factory = boundFirst;
+function change(): void { captured = boundSecond; }
+change();
+use("capture mutation", captured);
+const consumer = use;
+consumer("escaped consumer", boundSecond);
+// The inline asserted-any expression is separately pinned as C254; this checks the
+// supported checked-generic binding without weakening unknown-origin pairing.
+const checked: Factory = held[1];
+const adapted: (value: number) => Box<number> = checked;
+console.log("unknown adapter", adapted(4).origin, adapted(4).value + 1);
+
+// expect:
+// any second second 10 4
+// unknown method method 10 4
+// mixed second second 10 4
+// before mutation first first 10 4
+// after mutation second second 10 4
+// capture mutation second second 10 4
+// escaped consumer second second 10 4
+// unknown adapter second 5

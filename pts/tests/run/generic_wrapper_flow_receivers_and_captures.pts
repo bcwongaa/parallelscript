@@ -1,0 +1,66 @@
+// Exact wrapper-site provenance must not guess a receiver class or conflate captures
+// from repeated creations and different enclosing generic instances (H09b5c2b2a).
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+abstract class Base {
+  abstract make<T>(value: T): Box<T>;
+}
+class Left extends Base {
+  make<T>(value: T): Box<T> { return new Box(value, "left"); }
+}
+class Right extends Base {
+  make<T>(value: T): Box<T> { return new Box(value, "right"); }
+}
+function returned(receiver: Base): Factory { return receiver.make; }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(9);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("nine");
+  console.log(label, box.origin, box.value.length);
+}
+const first = returned(new Left());
+const second = returned(new Right());
+numberUse("left receiver", first);
+stringUse("right receiver", second);
+class Receiver {
+  constructor(public name: string) {}
+  make<T>(value: T): Box<T> { return new Box(value, this.name); }
+}
+const object = new Receiver("original");
+const other = new Receiver("other");
+const rebound = object.make.bind(other);
+numberUse("explicit thisArg", rebound);
+const throughAny: any = new Receiver("any receiver");
+const narrowed: Receiver = throughAny;
+const bound = narrowed.make.bind(narrowed);
+stringUse("any receiver", bound);
+function bundle<U>(marker: U): Factory {
+  let calls = 0;
+  const source = <T,>(value: T): Box<T> => {
+    calls++;
+    console.log("capture", marker, calls);
+    return new Box(value, "captured");
+  };
+  return source.bind(undefined).bind(undefined);
+}
+const numberBundle = bundle(7);
+const stringBundle = bundle("s");
+numberUse("number bundle", numberBundle);
+stringUse("string bundle", stringBundle);
+stringUse("same bundle again", numberBundle);
+
+// expect:
+// left receiver left 10
+// right receiver right 4
+// explicit thisArg other 10
+// any receiver any receiver 4
+// capture 7 1
+// number bundle captured 10
+// capture s 1
+// string bundle captured 4
+// capture 7 2
+// same bundle again captured 4

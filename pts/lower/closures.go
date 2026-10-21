@@ -628,7 +628,7 @@ func (l *lowerer) functionAsMethod(value ir.Expr, field *ir.Field, node *ast.Nod
 	if isProperty && value.Type().(*ir.FuncType).Result == ir.Value && l.genericSignature(adaptedExpression(node)) != nil {
 		literal := l.checker.GetWidenedType(l.checker.GetTypeAtLocation(node.Parent))
 		forward = func(wrapped *ir.Local) *forwarder {
-			return &forwarder{name: field.Name, shape: field.Class, literal: literal, call: l.valueForward(wrapped, wrapped.Type.(*ir.FuncType))}
+			return &forwarder{name: field.Name, shape: field.Class, literal: literal, call: l.valueForward(wrapped, wrapped.Type.(*ir.FuncType), adaptedExpression(node))}
 		}
 	}
 	return l.adaptSkipping(value, field.Type.(*ir.FuncType), 1, node, forward)

@@ -6,18 +6,20 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 )
 
-// functionSources is a proven over-approximation of a value's function declarations. nil
-// means unknown, not no sources. One declaration stands for all its enclosing instances.
+// functionSources is a proven over-approximation of a value's function declarations or
+// exact wrapper creation sites. nil means unknown, not no sources. One source stands for
+// all its closures and enclosing instances, never a particular capture or receiver.
 type functionSources map[*ast.Node]bool
 
 // valueFlow proves immutable sources, closed named parameters (D-201) and synchronous
 // non-generic returns (D-202). Unknown sources keep the old type-compatible pairing.
 type valueFlow struct {
-	files   []*ast.SourceFile
-	sources map[*ast.Node]functionSources
-	returns map[*ast.Node]functionSources
-	active  map[*ast.Node]bool
-	uses    map[*ast.Symbol]*functionValueUses
+	files    []*ast.SourceFile
+	sources  map[*ast.Node]functionSources
+	returns  map[*ast.Node]functionSources
+	active   map[*ast.Node]bool
+	uses     map[*ast.Symbol]*functionValueUses
+	wrappers map[*ast.Node]bool
 }
 
 type functionValueUses struct {
@@ -32,10 +34,20 @@ const (
 	maxFunctionSources = 256
 )
 
-// sourceMayReach filters only ordinary generic function values at ordinary value calls.
-// Forwarders' demands call their captured values, not the source call's expression.
+// sourceMayReach filters value calls by proven declarations or exact wrapper sites.
+// Named methods still dispatch conservatively; a forwarder's inner value demand names
+// its captured expression, not the outer call's expression (D-205).
 func (l *lowerer) sourceMayReach(d *demand, v *erasedValue) bool {
-	if d.source == nil || d.name != "" || d.method != nil || v.forward != nil || v.generic.field != nil {
+	if d.source == nil || d.name != "" || d.method != nil {
+		return true
+	}
+	var source *ast.Node
+	if v.forward != nil {
+		source = v.forward.source
+	} else if v.generic.field == nil {
+		source = v.generic.node
+	}
+	if source == nil {
 		return true
 	}
 	flow := &l.valueFlow
@@ -45,7 +57,7 @@ func (l *lowerer) sourceMayReach(d *demand, v *erasedValue) bool {
 	}
 	steps := maxValueFlowSteps
 	sources := l.valueSources(d.source, &steps, 0)
-	return sources == nil || sources[v.generic.node]
+	return sources == nil || sources[source]
 }
 
 func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources functionSources) {
@@ -65,6 +77,9 @@ func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources f
 		delete(flow.active, node)
 		flow.sources[node] = sources
 	}()
+	if flow.wrappers[node] {
+		return functionSources{node: true}
+	}
 	next := func(child *ast.Node) functionSources { return l.valueSources(child, steps, depth+1) }
 	switch node.Kind {
 	case ast.KindArrowFunction, ast.KindFunctionExpression:

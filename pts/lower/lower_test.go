@@ -1516,11 +1516,11 @@ func Box.constructor(this: Box, value: value) void {
 func Box.constructor(this: Box, value: number) void {
   2: (this.value = value)
 }
-func arrow_number(x: number) Box closure [] of arrow {
-  20: return new Box(x)
-}
 func run.make.instance(arg1: number) Box closure [receiver] of run.make {
   16: return instance make(receiver, arg1) else Box(interface make(receiver, box(arg1)))
+}
+func arrow_number(x: number) Box closure [] of arrow {
+  20: return new Box(x)
 }
 func ClassMaker.make_number(this: ClassMaker, x: number) Box {
   9: return new Box(x)

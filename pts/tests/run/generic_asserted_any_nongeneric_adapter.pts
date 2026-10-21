@@ -1,0 +1,17 @@
+// skip: known issue (C254, H29): an inline asserted-any generic function is not instantiated for its non-generic context (pre-existing on base and current)
+// A checked Factory binding adapts; the equivalent inline assertion keeps Box<any>.
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+const source = <T,>(value: T): Box<T> => new Box(value, "source");
+const bound = source.bind(undefined);
+const held: any[] = [bound];
+const adapted: (value: number) => Box<number> = held[0] as Factory;
+console.log("before adapter");
+const box = adapted(4);
+console.log("after adapter", box.origin, box.value + 1);
+
+// expect:
+// before adapter
+// after adapter source 5

@@ -27,7 +27,7 @@ import (
 type demand struct {
 	in        *ir.Func    // the function the call is in
 	callee    *ast.Symbol // what the call's callee names, if it is a name
-	source    *ast.Node   // an ordinary value call's actual callee expression (D-201); nil for wrappers and methods
+	source    *ast.Node   // actual callee or captured value expression (D-201/D-205); nil for methods
 	dropped   bool        // in code a failed trial dropped (D-190)
 	erased    *ir.FuncType
 	method    *genericFunc
