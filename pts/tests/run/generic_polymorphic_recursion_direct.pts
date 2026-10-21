@@ -1,0 +1,115 @@
+// Polymorphic recursion through direct calls (H09b5, C184, D-198): each call of rec<T> calls
+// rec<T[]>, so its instances would make instances without end. The call 32 instances deep
+// calls the erased copy, its result checked, which a program recursing a few levels never
+// reaches; one that recurses deeper runs on through it where its results hold no generic
+// class instance (grow, 100 deep). D-049 made each a compile error at the 64th instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+function rec<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = rec([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+attempt("declaration", () => rec(5, 3).value + 1);
+
+class Methods {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = this.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+  static rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = Methods.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+}
+attempt("method", () => new Methods().rec(5, 3).value + 1);
+attempt("static method", () => Methods.rec(5, 3).value + 1);
+
+const arrow = <T,>(x: T, n: number): Box<T> => {
+  if (n > 0) {
+    const inner: Box<T[]> = arrow([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+};
+attempt("module-scope const", () => arrow(5, 3).value + 1);
+
+class Base {
+  rec<T>(x: T, n: number): Box<T> {
+    return new Box(x);
+  }
+}
+class Override extends Base {
+  override rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = this.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+}
+const overridden: Base = new Override();
+attempt("override", () => overridden.rec(5, 3).value + 1);
+
+function f<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = g([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+function g<T>(x: T, n: number): Box<T> {
+  const inner: Box<[T]> = f([x] as [T], n);
+  return new Box(inner.value[0]);
+}
+attempt("mutual", () => f(5, 3).value + 1);
+
+function plain<T>(x: T, n: number): T {
+  if (n > 0) {
+    const inner: T[] = plain([x], n - 1);
+    return inner[0];
+  }
+  return x;
+}
+attempt("no generic class", () => plain(5, 3) + 1);
+
+function grow<T>(x: T, n: number): number {
+  return n === 0 ? 0 : 1 + grow([x], n - 1);
+}
+attempt("past the limit", () => grow(1, 100));
+
+async function later<T>(x: T, n: number): Promise<Box<T>> {
+  if (n > 0) {
+    const inner: Box<T[]> = await later([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+later(5, 3).then((b) => console.log("async", b.value + 1));
+// expect:
+// declaration 6
+// method 6
+// static method 6
+// module-scope const 6
+// override 6
+// mutual 6
+// no generic class 6
+// past the limit 100
+// async 6

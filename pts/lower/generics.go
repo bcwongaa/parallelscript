@@ -21,11 +21,43 @@ import (
 // or class may make each other (made), which a function that calls itself with ever larger
 // type arguments (f<T> calling f<T[]>) would do without end. Instances that the program's
 // own calls make side by side don't count against it, however many there are (C172).
-const maxInstanceDepth = 64
+const maxInstanceDepth = 32
 
-// maxInstances bounds the instances of one generic function or class however they are
-// made, so that recursion that branches (f<T> calling f<[T]> and f<T[]>) stops too.
+// maxInstances bounds the instances of one generic function or class declaration however
+// they are made (the generic methods of all of a generic class's instances together), so
+// that recursion that branches (f<T> calling f<[T]> and f<T[]>) stops too.
 const maxInstances = 1024
+
+// instanceLimit is which limit an instance would be past, if any (D-198).
+type instanceLimit int
+
+const (
+	withinLimits instanceLimit = iota
+	pastDepth                  // maxInstanceDepth
+	pastCount                  // maxInstances
+)
+
+// instanceLimitAt is the limit code here (l.subst) would be past by making another
+// instance of a generic function or class declaration that has count instances so far.
+func (l *lowerer) instanceLimitAt(declaration *ast.Node, count int) instanceLimit {
+	switch {
+	case instanceDepth(l.subst, declaration) >= maxInstanceDepth:
+		return pastDepth
+	case count >= maxInstances:
+		return pastCount
+	}
+	return withinLimits
+}
+
+// reportInstanceLimit reports at node that an instance of a generic function or class
+// (named name) would be past limit.
+func (l *lowerer) reportInstanceLimit(limit instanceLimit, name string, node *ast.Node) {
+	if limit == pastDepth {
+		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion more than %d instances deep (`%s`) is", maxInstanceDepth, name))
+	} else {
+		l.notSupportedYet(node, fmt.Sprintf("a generic function or class with more than %d instances (`%s`) is", maxInstances, name))
+	}
+}
 
 // maxDynamicVariants bounds the instances of one generic function for the same IR types
 // that calls with dynamic results tell apart by checker types (genericInstanceFor), which
@@ -500,7 +532,7 @@ func (l *lowerer) genericCall(call *ast.CallExpression, generic *genericFunc) ir
 	if fn == nil {
 		return nil
 	}
-	return l.userCall(call, fn)
+	return l.fromErasedCall(l.userCall(call, fn), fn, generic, call)
 }
 
 // genericMethodCall lowers `o.m(args)` for a generic method m of a class: a direct call
@@ -524,12 +556,13 @@ func (l *lowerer) genericMethodCall(call *ast.CallExpression, generic *genericFu
 	if receiver == nil || args == nil {
 		return nil
 	}
-	return &ir.Call{Func: fn, Args: append([]ir.Expr{upcast(receiver, generic.class)}, args...)}
+	return l.fromErasedCall(&ir.Call{Func: fn, Args: append([]ir.Expr{upcast(receiver, generic.class)}, args...)}, fn, generic, call)
 }
 
 // calledInstance is the instance of a generic function or method that a call calls,
 // for the type arguments of tsc's resolved signature, or its erased copy if they mention
-// type parameters whose values are dynamic; nil if it failed (reported).
+// type parameters whose values are dynamic or the instance would be polymorphic
+// recursion past the depth limit; nil if it failed (reported).
 func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc) *ir.Func {
 	resolved := l.checker.GetResolvedSignature(call.AsNode())
 	arguments := l.checker.PtsTypeArgumentsOfSignature(resolved)
@@ -550,7 +583,27 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 	if fromResult := l.resultTypeArguments(call, generic, arguments); fromResult != nil {
 		arguments = fromResult
 	}
-	return l.genericInstance(generic, arguments, call.AsNode())
+	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode(), false)
+	switch limit {
+	case pastDepth:
+		// Polymorphic recursion: the call maxInstanceDepth instances deep calls the erased
+		// copy, its result checked (fromErasedCall), which only a call that runs that deep
+		// reaches (D-198).
+		return l.erasedInstance(generic, call.AsNode())
+	case pastCount:
+		l.reportInstanceLimit(limit, generic.name, call.AsNode())
+	}
+	return fn
+}
+
+// fromErasedCall converts x, a call of fn that genericCall or genericMethodCall made, to
+// the type tsc gives the call if fn is generic's erased copy with a dynamic result (D-078):
+// past the instance limit (calledInstance), and in erased code, where that type is any.
+func (l *lowerer) fromErasedCall(x ir.Expr, fn *ir.Func, generic *genericFunc, call *ast.CallExpression) ir.Expr {
+	if x == nil || generic.erased == nil || generic.erased.fn != fn || fn.Result != ir.Value {
+		return x
+	}
+	return l.fromErased(x, call.AsNode())
 }
 
 // objectUnionContext is the contextual type of an expression whose value goes where a
@@ -823,7 +876,7 @@ func (l *lowerer) erasedInstance(generic *genericFunc, node *ast.Node) *ir.Func 
 	if inst := generic.erased; inst != nil {
 		return inst.fn
 	}
-	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}}
+	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}, made: generic.outer}
 	if outer := generic.outer; outer != nil {
 		subst.parameters, subst.arguments = outer.parameters, outer.arguments
 	}
@@ -973,9 +1026,13 @@ func (l *lowerer) inheritedGenericMethod(class *ir.Class, name string) *genericF
 
 // genericInstance returns the function of a generic function's instance for some type
 // arguments (in terms of the instance being lowered, if any), making it if it is new; nil
-// if it failed (reported at node).
+// if it failed or would be past an instance limit (reported at node).
 func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node) *ir.Func {
-	return l.genericInstanceFor(generic, typeArguments, node, false)
+	fn, limit := l.genericInstanceFor(generic, typeArguments, node, false)
+	if limit != withinLimits {
+		l.reportInstanceLimit(limit, generic.name, node)
+	}
+	return fn
 }
 
 // genericInstanceFor is genericInstance, and for a call with a dynamic result (dynamic)
@@ -984,11 +1041,10 @@ func (l *lowerer) genericInstance(generic *genericFunc, typeArguments []*checker
 // `Promise<number>` and for `any`, or `Promise<number>[]` and `any[]`, make other objects
 // (`Box<Awaited<T>>`): a call with a typed result tells them apart by the instance's
 // result, and one with a dynamic result can't (D-190). Past maxDynamicVariants such
-// instances of the same IR types it is nil, unreported: the call keeps the erased copy.
-func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node, dynamic bool) *ir.Func {
-	root := false
+// instances of the same IR types, or past an instance limit (which limit, unreported:
+// the caller decides, D-198), it is nil: the call keeps the erased copy.
+func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*checker.Type, node *ast.Node, dynamic bool) (*ir.Func, instanceLimit) {
 	if t := l.trial; t != nil {
-		root, t.root = t.root, false
 		t.making++ // what it reports is the trial's (D-190)
 		defer func() { t.making-- }()
 	}
@@ -998,7 +1054,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	for i, t := range typeArguments {
 		concrete[i] = l.instantiate(t)
 		if arguments[i] = l.irType(concrete[i], node); arguments[i] == nil {
-			return nil
+			return nil, withinLimits
 		}
 		if isLiteralType(concrete[i]) {
 			literals[i] = concrete[i] // `pick(o, "a")` and `pick(o, "b")` return different types
@@ -1008,17 +1064,19 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	for _, existing := range generic.instances {
 		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
 			if !dynamic || l.madeFor(existing, concrete, node) {
-				return existing.fn
+				return existing.fn, withinLimits
 			}
 			variants++
 		}
 	}
-	if variants > 0 && (variants == maxDynamicVariants || len(generic.instances) >= maxInstances) {
-		return nil
+	limit := l.instanceLimitAt(generic.node, l.instanceCounts[generic.node])
+	if variants > 0 && (variants == maxDynamicVariants || limit != withinLimits) {
+		return nil, withinLimits
 	}
-	if !l.belowInstanceLimits(generic.node, len(generic.instances), generic.name, node, root) {
-		return nil
+	if limit != withinLimits {
+		return nil, limit
 	}
+	l.instanceCounts[generic.node]++
 	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
@@ -1033,29 +1091,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 			t.funcs[inst.fn] = true
 		}
 	}
-	return inst.fn
-}
-
-// belowInstanceLimits reports whether code here (l.subst) may make another instance of a
-// generic function or class (declaration, named name in diagnostics), which has made count
-// so far; if not, it reports why at node (maxInstanceDepth, maxInstances). Past a limit, a
-// trial's own instance (root, the one specialize paired a call with) fails as the trial's
-// (D-190), so that the call keeps the erased copy, which a call that never runs so deep
-// doesn't notice; an instance its code makes past one is the program's own recursion,
-// which stands, as it would without the trial.
-func (l *lowerer) belowInstanceLimits(declaration *ast.Node, count int, name string, node *ast.Node, root bool) bool {
-	switch {
-	case instanceDepth(l.subst, declaration) >= maxInstanceDepth:
-		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion more than %d instances deep (`%s`) is", maxInstanceDepth, name))
-	case count >= maxInstances:
-		l.notSupportedYet(node, fmt.Sprintf("a generic function or class with more than %d instances (`%s`) is", maxInstances, name))
-	default:
-		return true
-	}
-	if t := l.trial; t != nil && !root {
-		t.foreign = true
-	}
-	return false
+	return inst.fn, withinLimits
 }
 
 // madeFor reports whether inst was made for concrete type arguments, of its IR types, of

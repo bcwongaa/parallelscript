@@ -1,0 +1,15 @@
+// Polymorphic recursion through erased copies (H09b5, D-198): the erased copy of Box<T>.wrap,
+// which `any` calls, makes Box<T[]>, whose erased wrap makes Box<T[][]>, and so on. An erased
+// copy of a generic class instance's method is made in that instance, so the depth limit stops
+// the chain; it was cut there, so only the count stopped it, 40 times slower (review round 1).
+class Box<T> {
+  constructor(public value: T) {}
+  wrap<U>(u: U, n: number): number {
+    if (n <= 0) return 0;
+    const b: any = new Box<T[]>([this.value]);
+    return 1 + b.wrap(u, n - 1);
+  }
+}
+const x: any = new Box(1);
+console.log(x.wrap(2, 3));
+// error: generic_polymorphic_recursion_erased_copies.pts:9:20 - error PTS1001: polymorphic recursion more than 32 instances deep (`Box`) is not supported yet

@@ -1,0 +1,14 @@
+// Branching polymorphic recursion in a generic method of a generic class (H09b5, D-198): m<U>
+// calls this.m for [U] and { v: U } and makes Box<T[]>, whose m makes its own. The count of
+// instances (maxInstances) is the method declaration's, across every Box instance's m, so it
+// stops the tree in about half a second; counted per Box instance it took 86 s (review round 1).
+class Box<T> {
+  constructor(public value: T) {}
+  m<U>(u: U, n: number): number {
+    if (n <= 0) return 0;
+    const next = new Box<T[]>([this.value]);
+    return this.m<[U]>([u], n - 1) + this.m<{ v: U }>({ v: u }, n - 1) + next.m<U>(u, n - 1);
+  }
+}
+console.log(new Box(1).m(2, 2));
+// error: generic_instance_cap_methods.pts:10:38 - error PTS1001: a generic function or class with more than 1024 instances (`Box.m`) is not supported yet

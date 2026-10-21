@@ -1,0 +1,94 @@
+// Polymorphic recursion that a call looking up an instance reaches (H09b5, C184, D-198): the
+// instance its trial makes (D-190) recurses by direct calls, or through a value and a class
+// in turn, so the depth limit is met inside the trial. Past it the direct call calls the
+// erased copy and the trial stands, so each call runs as Node, and the unrelated interface
+// call keeps its instance. The first version of the fix let the limit's PTS1001 stand there,
+// which sent the whole program to a fallback build where these calls threw (review round 1).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const maker: Maker = new ClassMaker();
+attempt("unrelated interface call", () => maker.make(4).value + 1);
+
+interface Recursive {
+  rec<T>(x: T, n: number): Box<T>;
+}
+class Recurser implements Recursive {
+  rec<T>(x: T, n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = this.rec([x], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(x);
+  }
+}
+const recursive: Recursive = new Recurser();
+attempt("interface, then direct calls", () => recursive.rec(5, 3).value + 1);
+
+function rec<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = rec([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+function local(): number {
+  const viaArrow = <T,>(x: T, n: number): Box<T> => rec(x, n);
+  const b: Box<number> = viaArrow(5, 3);
+  return b.value + 1;
+}
+attempt("local arrow, then direct calls", local);
+
+let gv: <U>(x: U, n: number) => Box<U>;
+function f<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = gv([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+gv = <U,>(x: U, n: number): Box<U> => {
+  const inner: Box<U[]> = f([x], n);
+  return new Box(inner.value[0]);
+};
+attempt("a declaration and a value in turn", () => f(5, 3).value + 1);
+
+let viaValue: <U>(x: U, n: number) => Box<U>;
+class Node<T> {
+  constructor(public value: T) {}
+  grow(n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = viaValue([this.value], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(this.value);
+  }
+}
+function step<U>(x: U, n: number): Box<U> {
+  const node: Node<U> = new Node(x);
+  return node.grow(n);
+}
+viaValue = step;
+attempt("a class and a value in turn", () => new Node(5).grow(3).value + 1);
+// expect:
+// unrelated interface call 5
+// interface, then direct calls 6
+// local arrow, then direct calls 6
+// a declaration and a value in turn 6
+// a class and a value in turn 6

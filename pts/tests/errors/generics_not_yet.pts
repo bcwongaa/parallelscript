@@ -1,7 +1,8 @@
 // Generics that aren't supported yet are reported (D-049, D-050, D-051): generic functions
 // inside generic code, nested generic functions that use their outer function's variables,
-// overriding a method with a generic one or a generic method with a plain one, a function
-// needing ever more instances. (`f`, `box.map` and `box instanceof Box` work, D-078, D-089.)
+// overriding a method with a generic one or a generic method with a plain one. (`f`,
+// `box.map` and `box instanceof Box` work, D-078, D-089; a function needing ever more
+// instances calls its erased copy past the limit, D-198.)
 function identity<T>(x: T): T {
   return x;
 }
@@ -38,18 +39,13 @@ class Echo extends Shouting {
 const box = new Box(1);
 console.log(box.map);
 console.log(box instanceof Box);
-function grow<T>(x: T, n: number): number {
-  return n === 0 ? 0 : grow([x], n - 1);
-}
-console.log(grow(1, 3));
 class Plain extends Box<number> {
   map(f: (x: number) => any): any {
     return 0;
   }
 }
 
-// error: generics_not_yet.pts:34:3 - error PTS1001: overriding a method with a generic method is not supported yet
-// error: generics_not_yet.pts:10:12 - error PTS1001: generic functions inside generic functions or classes are not supported yet
-// error: generics_not_yet.pts:18:12 - error PTS1001: using `start` from outside the function is not supported yet
-// error: generics_not_yet.pts:42:24 - error PTS1001: polymorphic recursion more than 64 instances deep (`grow`) is not supported yet
-// error: generics_not_yet.pts:46:3 - error PTS1001: overriding a generic method is not supported yet
+// error: generics_not_yet.pts:35:3 - error PTS1001: overriding a method with a generic method is not supported yet
+// error: generics_not_yet.pts:11:12 - error PTS1001: generic functions inside generic functions or classes are not supported yet
+// error: generics_not_yet.pts:19:12 - error PTS1001: using `start` from outside the function is not supported yet
+// error: generics_not_yet.pts:43:3 - error PTS1001: overriding a generic method is not supported yet

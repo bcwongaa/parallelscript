@@ -2,7 +2,8 @@
 // recurses three levels at run time, reached the instance limit under AllInstances and an internal
 // error after it (C172), so the driver lowered the whole program again with ValueInstances, where
 // the unrelated interface call (D-191) and the literal's own call lost their instances
-// (`Expected Box<number>, got Box<any>`).
+// (`Expected Box<number>, got Box<any>`). Past the depth limit the literal's call keeps the
+// erased copy (D-198), so no build falls back.
 class Box<T> {
   constructor(public value: T) {}
 }

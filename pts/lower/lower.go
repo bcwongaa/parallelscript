@@ -179,7 +179,7 @@ func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Inf
 		genericClasses: map[*ast.Symbol]*genericClass{}, genericStatics: map[*ast.Node]*genericFunc{}, classInstances: map[*ir.Class]*classInstance{}, membersStarted: map[*ir.Class]bool{},
 		tuples: map[string]*ir.Class{}, inKeys: map[string]bool{}, tuplesInProgress: map[*checker.Type]bool{}, bindings: map[*ir.Func][]*parameterBinding{}, paramLocals: map[*ir.Func][]*ir.Local{}, rests: map[*ir.Array]*ir.Rest{}, libObjectTypes: map[*ast.Symbol]bool{},
 		looseSymbols: map[*ast.Symbol]bool{}, intrinsics: map[*ast.Symbol]*ir.Func{}, externs: map[string]*ir.Func{}, classReady: map[*ir.Class]*ir.Local{},
-		genericConstNodes: map[*ast.Node]*genericFunc{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}}
+		genericConstNodes: map[*ast.Node]*genericFunc{}, instanceCounts: map[*ast.Node]int{}, specialized: map[[3]int]bool{}, droppedFuncs: map[*ir.Func]bool{}, instanceKeys: map[string]string{}, receives: map[receiving]bool{}, deadTests: map[*substitution]*substitution{}}
 	l.injectedFailure, l.injectedFailureLeft = diagnostic.InjectedFailure(ctx, "lowering"), diagnostic.InjectedFailure(ctx, "after lowering")
 	defer diagnostic.Locate("lowering", func() (diagnostic.Diagnostic, []diagnostic.Diagnostic) {
 		if l.current == nil {
@@ -335,6 +335,7 @@ type lowerer struct {
 	genericConstNodes   map[*ast.Node]*genericFunc       // the same, by their functions
 	demands             []*demand                        // the typed calls of erased copies that look up instances (D-148)
 	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
+	instanceCounts      map[*ast.Node]int                // how many instances each generic function or method declaration has (maxInstances)
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)

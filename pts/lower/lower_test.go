@@ -1690,9 +1690,10 @@ func plain(x: string, o: {w: string}) string {
 
 func TestPastTheInstanceCapACallIsACompileErrorNotAnInternalError(t *testing.T) {
 	t.Parallel()
-	// 1,025 object types make as many instances of make and of Box, one past the cap
-	// (maxInstances), so the declaration of the typed call's result can't name its Box<{last: number}>.
-	// That is the cap's error, where a typed nil class went on to an internal error (C172).
+	// 1,025 object types would make as many instances of make and of Box, one past the cap
+	// (maxInstances): 1,024 are made, and the declaration of the typed call's result can't
+	// name its Box<{last: number}>. That is the cap's error, where a typed nil class went on
+	// to an internal error (C172).
 	var source strings.Builder
 	source.WriteString("class Box<T> {\n  constructor(public value: T) {}\n}\nfunction make<T>(x: T): Box<T> {\n  return new Box(x);\n}\nlet s = 0;\n")
 	for i := range 1025 {

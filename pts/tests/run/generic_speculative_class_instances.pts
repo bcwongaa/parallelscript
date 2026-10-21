@@ -3,7 +3,8 @@
 // of its erased type (D-148, D-190) gives mkB instances for mkA's demands, whose Box<Ai[][]>
 // class instances no call uses count against the 64-instance limit and fill it, so mkA's own
 // instances for A18 on fail their trials and those calls throw `Expected Box<A18>, got Box<any>`.
-// Only instances calls may use are made and count.
+// The limit is polymorphic recursion's depth now, which side-by-side instances don't reach
+// (D-198); mkB's speculative instances are still made (C172's growth, H09b5c).
 class Box<T> {
   constructor(public value: T) {}
 }
