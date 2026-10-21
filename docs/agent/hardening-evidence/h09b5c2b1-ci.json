@@ -33,5 +33,20 @@
       "status": "queued"
     }
   ],
-  "note": "No failed run among the latest ten. The planning success does not certify the later c2b1 implementation. Skipped companion workflows are not passing PTS receipts. Queued work is left for the next session."
+  "note": "No failed run among the latest ten. The planning success does not certify the later c2b1 implementation. Skipped companion workflows are not passing PTS receipts. Queued work is left for the next session.",
+  "next_session_start_observation": {
+    "checked": "2026-10-22",
+    "commit": "3c021e2237b4b5d3841a652e5fa6bb1f2bf84e6a",
+    "role": "c2b1 acceptance documentation, including unchanged tested implementation",
+    "run_id": 39653252854,
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39653252854",
+    "jobs": [
+      {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+      {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+      {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+    ],
+    "method": "One startup list and one read of this already-completed run; no waiting or polling. Does not certify later code."
+  }
 }

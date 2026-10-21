@@ -1,0 +1,32 @@
+{
+  "task": "H09b5c2b2a (D-205)",
+  "checked": "2026-10-22",
+  "method": "One non-blocking session-start list only; no waiting or polling.",
+  "runs": [
+    {
+      "commit": "e4d3deb20b70f077a04e087b263f32d7256a70c5",
+      "role": "c2b2a implementation",
+      "run_id": 39661317144,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Superseded by acceptance-documentation push; not a passing exact-SHA receipt."
+    },
+    {
+      "commit": "8261d9d4550dd58500b83a9705120bdde5c915a1",
+      "role": "prior startup CI backfill, pre-acceptance documentation",
+      "run_id": 39659550868,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Superseded; not a passing exact-SHA receipt."
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "978027b9bae9c053abc9f7c66158d6a8b8fdf085",
+      "role": "c2b2a acceptance documentation",
+      "run_id": 39661679587,
+      "status": "in_progress"
+    }
+  ],
+  "note": "No failed run among the ten most recent. Skipped companion workflows are not passing PTS receipts. Leave the in-progress run for a later session."
+}
