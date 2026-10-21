@@ -1,0 +1,33 @@
+// Polymorphic recursion through a generic value and a declaration in turn (H09b5, C184, D-198):
+// each level is a demand on gv (D-190), whose arrow's instance calls f directly, so the depth
+// limit is met by a direct call inside the demand's trial. Past it the direct call calls the
+// erased copy and the trial stands, so the call runs as Node. The fix commit let the limit's
+// PTS1001 stand there, which sent the whole program to the last fallback build, where the
+// call threw (review round 1's mutual_mixed).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+let gv: <U>(x: U, n: number) => Box<U>;
+function f<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = gv([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+gv = <U,>(x: U, n: number): Box<U> => {
+  const inner: Box<U[]> = f([x], n);
+  return new Box(inner.value[0]);
+};
+attempt("a declaration and a value in turn", () => f(5, 3).value + 1);
+
+// expect:
+// a declaration and a value in turn 6

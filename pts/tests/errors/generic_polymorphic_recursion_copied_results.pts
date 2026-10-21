@@ -1,0 +1,27 @@
+// Polymorphic recursion whose results converting the erased copy's would copy (H09b5, D-198):
+// past the depth limit an erased copy makes its arrays and objects as dynamic ones (`any[]`),
+// which a typed caller gets as a checked copy, so a caller and the callee would hold
+// different arrays where JS shares one (review round 2's b_identity_array). Such a call stays
+// a compile error past the depth, as D-049 made it; a call whose result is a class's instance
+// (checked) or a primitive takes the erased copy (run/generic_polymorphic_recursion_direct.pts).
+const log: any[] = [];
+function rec<T>(x: T, n: number): T[] {
+  if (n > 0) {
+    const inner: T[][] = rec([x], n - 1);
+    if (!log.includes(inner)) console.log("not the same array at", n);
+  }
+  const out = [x];
+  log.push(out);
+  return out;
+}
+console.log(rec(1, 3).length);
+function plain<T>(x: T, n: number): T {
+  if (n > 0) {
+    const inner: T[] = plain([x], n - 1);
+    return inner[0];
+  }
+  return x;
+}
+console.log(plain(5, 3) + 1);
+// error: generic_polymorphic_recursion_copied_results.pts:10:26 - error PTS1001: polymorphic recursion more than 64 instances deep (`rec`) is not supported yet
+// error: generic_polymorphic_recursion_copied_results.pts:20:24 - error PTS1001: polymorphic recursion more than 64 instances deep (`plain`) is not supported yet

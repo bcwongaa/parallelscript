@@ -1,0 +1,45 @@
+// Finite polymorphic recursion 40 levels deep (H09b5, D-198): unbox<T> and wrapBoxes<T> peel
+// one array level per call, from number[] 40 deep down to number, and Chain<T>'s field is a
+// Chain of one level less, so each makes 41 instances, each made by the one before. D-049's
+// count (64) allowed them; the depth limit (64) does too, where a depth of 32 sent the calls
+// 33 deep to the erased copy, whose Box<any> threw, and made Chain a compile error (review
+// round 2).
+class Box<T> {
+  constructor(public value: T) {}
+}
+type Peel<T> = T extends (infer U)[] ? U : T;
+function unbox<T>(x: T): Box<number> {
+  if (Array.isArray(x)) {
+    const inner: Box<number> = unbox<Peel<T>>(x[0] as Peel<T>);
+    return new Box(inner.value + 1);
+  }
+  return new Box(0);
+}
+function wrapBoxes<T>(x: T): Box<T> {
+  if (Array.isArray(x)) {
+    const inner: Box<Peel<T>> = wrapBoxes<Peel<T>>(x[0] as Peel<T>);
+    return new Box(x);
+  }
+  return new Box(x);
+}
+let deep: any = 7;
+for (let i = 0; i < 40; i++) deep = [deep];
+const typed: number[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][] = deep;
+console.log(unbox(typed).value);
+try {
+  const b: Box<number[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]> = wrapBoxes(typed);
+  console.log(b.value.length);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+type PeelOrNull<T> = T extends (infer U)[] ? U : null;
+class Chain<T> {
+  next: PeelOrNull<T> extends null ? null : Chain<PeelOrNull<T>> | null = null;
+  constructor(public value: T) {}
+}
+const c = new Chain(typed);
+console.log(c.next === null, Array.isArray(c.value));
+// expect:
+// 40
+// 1
+// true true

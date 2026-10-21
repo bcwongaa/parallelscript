@@ -1,0 +1,37 @@
+// Polymorphic recursion through a generic value and a generic class in turn (H09b5, C184,
+// D-198): Node<T>.grow's demand on viaValue makes step's instance, which makes Node<T[]>, so
+// the class's depth limit is met inside the demand's trial. Past it the trial fails as its
+// own and the call keeps the erased copy, which the call 3 deep never reaches, so it runs as
+// Node. The fix commit let the limit's PTS1001 stand there, so the program didn't compile
+// (review round 1's class_first_cycle2). The two values of one erased type in one program
+// pair with each other's demands (C172's growth, H09b5c): 16 s to build them together.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function attempt(label: string, f: () => number): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+
+let viaValue: <U>(x: U, n: number) => Box<U>;
+class Node<T> {
+  constructor(public value: T) {}
+  grow(n: number): Box<T> {
+    if (n > 0) {
+      const inner: Box<T[]> = viaValue([this.value], n - 1);
+      return new Box(inner.value[0]);
+    }
+    return new Box(this.value);
+  }
+}
+function step<U>(x: U, n: number): Box<U> {
+  const node: Node<U> = new Node(x);
+  return node.grow(n);
+}
+viaValue = step;
+attempt("a class and a value in turn", () => new Node(5).grow(3).value + 1);
+// expect:
+// a class and a value in turn 6

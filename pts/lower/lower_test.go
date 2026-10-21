@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -1688,31 +1687,66 @@ func plain(x: string, o: {w: string}) string {
 `, "´", "`"))
 }
 
-func TestPastTheInstanceCapACallIsACompileErrorNotAnInternalError(t *testing.T) {
+func TestInstancesMadeSideBySideDontCountAgainstTheLimits(t *testing.T) {
 	t.Parallel()
-	// 1,025 object types would make as many instances of make and of Box, one past the cap
-	// (maxInstances): 1,024 are made, and the declaration of the typed call's result can't
-	// name its Box<{last: number}>. That is the cap's error, where a typed nil class went on
-	// to an internal error (C172).
+	// 1,025 object types make as many instances of make and of Box, and nine Holders' pick for
+	// 32 types 288 of Holder.pick, side by side: none is made by recursion, so none counts
+	// against maxRecursiveInstances (256) or the depth (D-198). D-049's count stopped the
+	// first past 64 instances, and a typed nil class went on to an internal error at the
+	// value call (C172); the fix commit's count of 1024 per declaration stopped the second
+	// (review round 2).
 	var source strings.Builder
 	source.WriteString("class Box<T> {\n  constructor(public value: T) {}\n}\nfunction make<T>(x: T): Box<T> {\n  return new Box(x);\n}\nlet s = 0;\n")
 	for i := range 1025 {
 		fmt.Fprintf(&source, "s += make({ k%d: 1 }).value.k%d;\n", i, i)
 	}
 	source.WriteString("function viaValue(f: <T>(x: T) => Box<T>): number {\n  const b: Box<{ last: number }> = f({ last: 1 });\n  return b.value.last;\n}\nconsole.log(s, viaValue(make));\n")
-
-	var errors []diagnostic.Diagnostic
-	var internal *diagnostic.InternalError
-	func() {
-		defer func() { internal, _ = recover().(*diagnostic.InternalError) }()
-		_, errors = lowerSource(t, source.String())
-	}()
-
-	assert.Assert(t, internal == nil, "internal error: %v", internal)
-	var report []string
-	for _, d := range errors {
-		assert.Equal(t, d.Code, diagnostic.NotSupportedYet, "%s", d.Format("/p"))
-		report = append(report, d.Format("/p"))
+	source.WriteString("class Holder<T> {\n  constructor(public value: T) {}\n  pick<U>(u: U): number {\n    return 1;\n  }\n}\n")
+	for h := range 9 {
+		fmt.Fprintf(&source, "const h%d = new Holder({ h%d: 1 });\n", h, h)
+		for p := range 32 {
+			fmt.Fprintf(&source, "s += h%d.pick({ p%d: 1 });\n", h, p)
+		}
 	}
-	assert.Assert(t, slices.Contains(report, "main.pts:1034:9 - error PTS1001: a generic function or class with more than 1024 instances (`Box`) is not supported yet"), "errors:\n%s", strings.Join(report, "\n"))
+
+	program, errors := lowerSource(t, source.String())
+
+	assert.DeepEqual(t, errors, []diagnostic.Diagnostic(nil))
+	assert.Equal(t, countFuncs(program, "Holder.pick_"), 9*32, "every Holder's pick for every type")
+}
+
+func TestPolymorphicRecursionCountsTheInstancesItMakesPerDeclaration(t *testing.T) {
+	t.Parallel()
+	// m<U> calls this.m for [U] and { v: U } and makes Box<T[]>, whose m makes its own: a tree
+	// of instances that branches past what the depth limit stops. The instances recursion
+	// makes count per declaration, every Box instance's m together (maxRecursiveInstances,
+	// 256), so the tree stops at 256 of them besides the one the program's call makes; counted
+	// per Box instance it made 1024 for each (review round 1's product_blowup: 86 s).
+	program, errors := lowerSource(t, `class Box<T> {
+  constructor(public value: T) {}
+  m<U>(u: U, n: number): number {
+    if (n <= 0) return 0;
+    const next = new Box<T[]>([this.value]);
+    return this.m<[U]>([u], n - 1) + this.m<{ v: U }>({ v: u }, n - 1) + next.m<U>(u, n - 1);
+  }
+}
+console.log(new Box(1).m(2, 2));
+`)
+
+	assert.Assert(t, len(errors) > 0)
+	for _, d := range errors {
+		assert.Assert(t, strings.Contains(d.Format("/p"), "polymorphic recursion that makes more than 256 instances (`Box.m`)"), "%s", d.Format("/p"))
+	}
+	assert.Equal(t, countFuncs(program, "Box.m_"), 257)
+}
+
+// countFuncs is how many of program's functions have names starting with prefix.
+func countFuncs(program *ir.Program, prefix string) int {
+	n := 0
+	for _, fn := range program.Funcs {
+		if strings.HasPrefix(fn.Name, prefix) {
+			n++
+		}
+	}
+	return n
 }

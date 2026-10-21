@@ -1,0 +1,42 @@
+// no-diff: past the depth limit the erased copy's Box<any> throws the checked TypeError where Node runs (D-198)
+// Polymorphic recursion past the depth limit (H09b5, D-198): rec's call 64 instances deep calls
+// the erased copy, whose result is converted to the call's type with a check (D-078). The
+// erased copy makes Box<any>, which isn't a Box<number[]…[]>, so a program recursing that deep
+// throws the checked TypeError where Node runs on, also where the call's result is used in an
+// expression rather than declared (first); one recursing less runs on its instances.
+// grow's result holds no object the erased copy makes, so it runs on past the depth as Node.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function rec<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    const inner: Box<T[]> = rec([x], n - 1);
+    return new Box(inner.value[0]);
+  }
+  return new Box(x);
+}
+function first<T>(x: T, n: number): Box<T> {
+  return n > 0 ? new Box(first([x], n - 1).value[0]) : new Box(x);
+}
+function grow<T>(x: T, n: number): number {
+  return n === 0 ? 0 : 1 + grow([x], n - 1);
+}
+for (const n of [63, 64, 65]) {
+  try {
+    console.log(n, rec(5, n).value + 1);
+  } catch (error: any) {
+    console.log(n, error.name, error.message.startsWith("Expected Box<number[][]"), error.message.endsWith("got Box<any>"));
+  }
+}
+try {
+  console.log("used in an expression", first(5, 64).value + 1);
+} catch (error: any) {
+  console.log("used in an expression", error.name, error.message.endsWith("got Box<any>"));
+}
+console.log(grow(1, 100));
+// expect:
+// 63 6
+// 64 TypeError true true
+// 65 TypeError true true
+// used in an expression TypeError true
+// 100

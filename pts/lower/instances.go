@@ -890,7 +890,9 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	l.errors, l.unexplained = errors, unexplained
 	for _, inst := range t.instances {
 		inst.generic.instances = slices.DeleteFunc(inst.generic.instances, func(other *instance) bool { return other == inst })
-		l.instanceCounts[inst.generic.node]--
+		if inst.recursive {
+			l.instanceCounts[inst.generic.node]--
+		}
 	}
 	l.instances = slices.DeleteFunc(l.instances, func(inst *instance) bool { return slices.Contains(t.instances, inst) }) // not lowered, if it didn't fit
 	for fn := range t.funcs {

@@ -171,9 +171,13 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 			return existing.class
 		}
 	}
-	if limit := l.instanceLimitAt(generic.node, len(generic.instances)); limit != withinLimits {
+	limit, recursive := l.instanceLimitAt(generic.node)
+	if limit != withinLimits {
 		l.reportInstanceLimit(limit, generic.node.Name().Text(), node)
 		return nil
+	}
+	if recursive {
+		l.instanceCounts[generic.node]++ // class instances aren't taken back with a trial's
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),

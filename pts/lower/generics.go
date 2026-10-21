@@ -21,12 +21,13 @@ import (
 // or class may make each other (made), which a function that calls itself with ever larger
 // type arguments (f<T> calling f<T[]>) would do without end. Instances that the program's
 // own calls make side by side don't count against it, however many there are (C172).
-const maxInstanceDepth = 32
+const maxInstanceDepth = 64
 
-// maxInstances bounds the instances of one generic function or class declaration however
-// they are made (the generic methods of all of a generic class's instances together), so
-// that recursion that branches (f<T> calling f<[T]> and f<T[]>) stops too.
-const maxInstances = 1024
+// maxRecursiveInstances bounds the instances of one generic function or class declaration
+// that polymorphic recursion makes, those made in an instance of that declaration (the
+// generic methods of all of a generic class's instances together), so that recursion that
+// branches (f<T> calling f<[T]> and f<T[]>) stops too; side by side instances don't count.
+const maxRecursiveInstances = 256
 
 // instanceLimit is which limit an instance would be past, if any (D-198).
 type instanceLimit int
@@ -34,19 +35,21 @@ type instanceLimit int
 const (
 	withinLimits instanceLimit = iota
 	pastDepth                  // maxInstanceDepth
-	pastCount                  // maxInstances
+	pastCount                  // maxRecursiveInstances
 )
 
 // instanceLimitAt is the limit code here (l.subst) would be past by making another
-// instance of a generic function or class declaration that has count instances so far.
-func (l *lowerer) instanceLimitAt(declaration *ast.Node, count int) instanceLimit {
+// instance of a generic function or class declaration, and whether that instance would be
+// made by recursion, in an instance of the declaration, and count (instanceCounts).
+func (l *lowerer) instanceLimitAt(declaration *ast.Node) (limit instanceLimit, recursive bool) {
+	depth := instanceDepth(l.subst, declaration)
 	switch {
-	case instanceDepth(l.subst, declaration) >= maxInstanceDepth:
-		return pastDepth
-	case count >= maxInstances:
-		return pastCount
+	case depth >= maxInstanceDepth:
+		return pastDepth, true
+	case depth > 0 && l.instanceCounts[declaration] >= maxRecursiveInstances:
+		return pastCount, true
 	}
-	return withinLimits
+	return withinLimits, depth > 0
 }
 
 // reportInstanceLimit reports at node that an instance of a generic function or class
@@ -55,8 +58,49 @@ func (l *lowerer) reportInstanceLimit(limit instanceLimit, name string, node *as
 	if limit == pastDepth {
 		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion more than %d instances deep (`%s`) is", maxInstanceDepth, name))
 	} else {
-		l.notSupportedYet(node, fmt.Sprintf("a generic function or class with more than %d instances (`%s`) is", maxInstances, name))
+		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion that makes more than %d instances (`%s`) is", maxRecursiveInstances, name))
 	}
+}
+
+// erasedResultCopies reports whether a call (node) of generic's erased copy would get its
+// result as a copy of what the erased copy made: generic's result type mentions its own
+// type parameters, so the erased copy's result is dynamic, and the call's type holds
+// objects that converting a dynamic value copies (copiesFromDynamic), which the program
+// could tell from the objects JS returns by their identity (D-198).
+func (l *lowerer) erasedResultCopies(generic *genericFunc, node *ast.Node) bool {
+	result := l.checker.GetReturnTypeOfSignature(l.checker.GetSignatureFromDeclaration(generic.node))
+	anys := make([]*checker.Type, len(generic.parameters))
+	for i := range anys {
+		anys[i] = l.checker.GetAnyType()
+	}
+	if l.checker.PtsInstantiateType(result, generic.parameters, anys) == l.checker.PtsInstantiateType(result, generic.parameters, generic.parameters) {
+		return false
+	}
+	return l.copiesFromDynamic(l.typeAt(node), map[*checker.Type]bool{})
+}
+
+// copiesFromDynamic reports whether converting a dynamic value to t may copy an object: t
+// is or holds, as a member or as what a promise or an iterator gives, an object type
+// other than a class's instances (an array, tuple, map, set, function or object literal's
+// type, which conversions copy: D-071, D-078). A class's instance converts with a check, a
+// primitive by its value.
+func (l *lowerer) copiesFromDynamic(t *checker.Type, seen map[*checker.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	if t.Flags()&(checker.TypeFlagsUnion|checker.TypeFlagsIntersection) != 0 {
+		return slices.ContainsFunc(t.Types(), func(member *checker.Type) bool { return l.copiesFromDynamic(member, seen) })
+	}
+	if t.Flags()&checker.TypeFlagsObject == 0 {
+		return false
+	}
+	if l.isPromiseType(t) || l.isIteratorType(t) || l.isAsyncIteratorType(t) || l.isIterableType(t) {
+		return slices.ContainsFunc(l.checker.GetTypeArguments(t), func(argument *checker.Type) bool { return l.copiesFromDynamic(argument, seen) })
+	}
+	_, class := l.classes[t.Symbol()]
+	_, genericClass := l.genericClasses[t.Symbol()]
+	return t.Symbol() == nil || !class && !genericClass
 }
 
 // maxDynamicVariants bounds the instances of one generic function for the same IR types
@@ -207,6 +251,7 @@ type instance struct {
 	literals  []*checker.Type // the type arguments that are literal types, which `T[K]` can tell apart (D-089)
 	fn        *ir.Func        // nil if it failed, which was reported
 	subst     *substitution
+	recursive bool // made in an instance of its declaration, so it counts (maxRecursiveInstances)
 }
 
 // substitution replaces type parameters by type arguments in the checker types of an
@@ -584,13 +629,13 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 		arguments = fromResult
 	}
 	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode(), false)
-	switch limit {
-	case pastDepth:
+	if limit == pastDepth && !l.erasedResultCopies(generic, call.AsNode()) {
 		// Polymorphic recursion: the call maxInstanceDepth instances deep calls the erased
 		// copy, its result checked (fromErasedCall), which only a call that runs that deep
 		// reaches (D-198).
 		return l.erasedInstance(generic, call.AsNode())
-	case pastCount:
+	}
+	if limit != withinLimits {
 		l.reportInstanceLimit(limit, generic.name, call.AsNode())
 	}
 	return fn
@@ -1069,20 +1114,22 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 			variants++
 		}
 	}
-	limit := l.instanceLimitAt(generic.node, l.instanceCounts[generic.node])
+	limit, recursive := l.instanceLimitAt(generic.node)
 	if variants > 0 && (variants == maxDynamicVariants || limit != withinLimits) {
 		return nil, withinLimits
 	}
 	if limit != withinLimits {
 		return nil, limit
 	}
-	l.instanceCounts[generic.node]++
+	if recursive {
+		l.instanceCounts[generic.node]++
+	}
 	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)
 	}
-	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
+	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst, recursive: recursive}
 	generic.instances = append(generic.instances, inst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
 	if t := l.trial; t != nil {
