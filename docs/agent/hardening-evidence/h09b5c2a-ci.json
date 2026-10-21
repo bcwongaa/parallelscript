@@ -33,5 +33,8 @@
       "status": "in_progress"
     }
   ],
-  "note": "No failed run among the latest ten. The planning success does not certify the later c2a implementation. Skipped companion workflows are not passing PTS receipts. Pending work is left for a later session."
+  "subsequent_session_start_2026_10_22": [
+    {"commit": "9e60deebfd6a6b26d24224fdbe9753750ab8e6f0", "run_id": 39642512066, "status": "completed", "conclusion": "cancelled"}
+  ],
+  "note": "Original pending snapshot retained. The next session's one non-blocking list found the acceptance run cancelled/superseded, not failed or successful. The planning success does not certify the later c2a implementation. Skipped companion workflows are not passing PTS receipts. No polling or waiting."
 }

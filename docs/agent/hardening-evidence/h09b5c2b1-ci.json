@@ -1,0 +1,37 @@
+{
+  "task": "H09b5c2b1 (D-203/D-204)",
+  "checked": "2026-10-22",
+  "method": "One session-start list, then one read of the already-completed planning run. No waiting or polling.",
+  "runs": [
+    {
+      "commit": "8023eb66e6a10fd3aec0fd422ddce369ed588fbc",
+      "role": "c2b split and earlier CI backfill (pre-implementation)",
+      "run_id": 39643601236,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/bcwongaa/parallelscript/actions/runs/39643601236",
+      "jobs": [
+        {"name": "PTS tests", "status": "completed", "conclusion": "success"},
+        {"name": "Upstream CLI and LSP suites", "status": "completed", "conclusion": "success"},
+        {"name": "VS Code extension", "status": "completed", "conclusion": "success"}
+      ]
+    },
+    {
+      "commit": "cb3692212bacb84f9db34f2eb9939d1fae18d3f3",
+      "role": "c2b1 implementation",
+      "run_id": 39652011645,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "note": "Superseded by acceptance-documentation push; not a passing exact-SHA receipt."
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "3c021e2237b4b5d3841a652e5fa6bb1f2bf84e6a",
+      "role": "c2b1 acceptance documentation",
+      "run_id": 39653252854,
+      "status": "queued"
+    }
+  ],
+  "note": "No failed run among the latest ten. The planning success does not certify the later c2b1 implementation. Skipped companion workflows are not passing PTS receipts. Queued work is left for the next session."
+}
