@@ -83,4 +83,4 @@ b9033265a06caa8ea46db21471cb90bea42f3a331b38cadcb0812c59989066e0
 
 Parent checked the hash and every member before copying: no absolute/parent-traversal paths, symlinks/hardlinks or ELF files. It retains exact-base/round1/final source inputs, source tests, RED/GREEN/affected/smoke/native outputs, native `.pts`/strict `.mts` twins, final hashes and strict-helper/prepare/replay source. No binaries are committed.
 
-**CI: pending**, not polled. Only b1 can be accepted after its own local full gate and implementation push; b2/all parents remain unchecked and H09b5b's refused independent acceptance remains untouched.
+Parent final full gate passed; implementation **`bfee838c7`** pushed to origin/main, then only b1 accepted in the documentation-only closeout. **CI: pending**, not polled. B2/all parents remain unchecked and H09b5b's refused independent acceptance remains untouched. No production change after the reviewed/frozen snapshot.
