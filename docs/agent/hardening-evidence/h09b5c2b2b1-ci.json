@@ -1,0 +1,30 @@
+{
+  "task": "H09b5c2b2b1 (D-206)",
+  "checked": "2026-10-22",
+  "method": "One non-blocking session-start list only; no waiting or polling.",
+  "runs": [
+    {
+      "commit": "d56b514c92e0538efc26daf6150f6a6b0340b2a1",
+      "role": "prior startup CI backfill documentation, before b1 implementation",
+      "run_id": 39662491701,
+      "status": "completed",
+      "conclusion": "success",
+      "note": "Certifies only this SHA, not the later b1 implementation or acceptance. Companion skipped workflow is not a PTS receipt."
+    }
+  ],
+  "pending_at_session_start": [
+    {
+      "commit": "bfee838c73d6fd91b64934aa8cb04a59cb7b806f",
+      "role": "b1 implementation",
+      "run_id": 39671281581,
+      "status": "in_progress"
+    },
+    {
+      "commit": "be71aac864884bef6eadfe4cdf8bb5f1b7ce12db",
+      "role": "b1 acceptance documentation",
+      "run_id": 39671726097,
+      "status": "pending"
+    }
+  ],
+  "note": "No failed run among the ten most recent. Pending/in-progress runs are left for a later session, not polled."
+}
