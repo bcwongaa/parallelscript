@@ -88,8 +88,8 @@ func (l *lowerer) constantKeyCall(call *ast.CallExpression) (x ir.Expr, handled 
 	callee := call.Expression // not parenthesized: genericMethodCall reads its receiver as call.Expression.Expression()
 	name, key, ok := l.constantKey(callee)
 	_, read := l.chainObjects[callee]
-	if !ok || l.specialization == DeclaredInstances || read && calledMethodReceiver(call.AsNode()) == nil {
-		return nil, false // `o?.["m"]?.(args)` calls the value its chain read
+	if !ok || l.specialization == DeclaredInstances || l.leavesOutSite(call.AsNode()) || read && calledMethodReceiver(call.AsNode()) == nil {
+		return nil, false // `o?.["m"]?.(args)` calls the value its chain read; a narrower lowering's site as the last fallback's (C176)
 	}
 	receiver := callee.Expression()
 	t := l.checker.GetNonNullableType(l.typeAt(receiver))
@@ -101,6 +101,15 @@ func (l *lowerer) constantKeyCall(call *ast.CallExpression) (x ir.Expr, handled 
 	if dotted == nil {
 		return nil, false
 	}
+	// The last fallback doesn't lower the call so: what it reports, and the demands it
+	// makes, are left out of a narrower lowering (C176).
+	defer l.blamingSite(call.AsNode())()
+	demands := len(l.demands)
+	defer func() {
+		for _, d := range l.demands[demands:] {
+			d.narrowable = d.narrowable || d.node == call.AsNode()
+		}
+	}()
 	if read || isLiteralKey(key) {
 		return dotted(), true // a literal, or `o[K]?.(args)`'s key, which its chain has read
 	}
@@ -200,7 +209,7 @@ func isGenericMethodSymbol(property *ast.Symbol) bool {
 // the call. handled is false for any other call, which lowers as before.
 func (l *lowerer) keyedCall(call *ast.CallExpression) (x ir.Expr, handled bool) {
 	callee := call.Expression
-	if l.specialization != AllInstances || callee.Kind != ast.KindElementAccessExpression || ast.IsOptionalChain(callee) || l.kept[callee] != nil || l.genericSignature(callee) == nil {
+	if l.specialization != AllInstances || l.leavesOutSite(call.AsNode()) || callee.Kind != ast.KindElementAccessExpression || ast.IsOptionalChain(callee) || l.kept[callee] != nil || l.genericSignature(callee) == nil {
 		return nil, false
 	}
 	if _, read := l.chainObjects[callee]; read {

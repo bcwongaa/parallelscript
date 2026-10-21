@@ -309,6 +309,7 @@ type substitution struct {
 	mentions    map[*checker.Type]bool // whether a type mentions an erased type parameter, as found so far
 	instance    bool                   // a generic function's or class's instance, not code extended to erase (erasing) or an erased copy
 	made        *substitution          // what was being lowered or declared where it was made: the instance that made it, if any
+	trial       *trial                 // the trial it was made in, if any, which reports of its code are blamed on (C176)
 }
 
 // instanceChain is, for an instance of declaration that the code subst is lowering (or
@@ -975,7 +976,7 @@ func (l *lowerer) erasedInstance(generic *genericFunc, node *ast.Node) *ir.Func 
 	if inst := generic.erased; inst != nil {
 		return inst.fn
 	}
-	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}, made: generic.outer}
+	subst := &substitution{declaration: generic.node, erased: generic.parameters, mentions: map[*checker.Type]bool{}, made: generic.outer, trial: l.trial}
 	if outer := generic.outer; outer != nil {
 		subst.parameters, subst.arguments = outer.parameters, outer.arguments
 	}
@@ -1178,7 +1179,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	if recursive {
 		l.countInstance(generic.node, false)
 	}
-	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
+	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, trial: l.trial}
 	if outer := generic.outer; outer != nil {
 		subst.parameters = append(slices.Clone(outer.parameters), subst.parameters...)
 		subst.arguments = append(slices.Clone(outer.arguments), subst.arguments...)

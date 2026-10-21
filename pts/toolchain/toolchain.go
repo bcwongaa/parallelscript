@@ -137,6 +137,17 @@ func (t *Toolchain) CompileProgram(ctx context.Context, rt *Runtime, cFiles []st
 	return t.run(ctx, t.CC, args...)
 }
 
+// CheckProgram checks C files with the C compiler as CompileProgram compiles them for the
+// profile, without compiling or linking them (-fsyntax-only): it rejects what the compiler
+// rejects there. It needs only the runtime's headers, not its archives.
+func (t *Toolchain) CheckProgram(ctx context.Context, profile Profile, cFiles []string) error {
+	args := slices.Concat(profile.flags(), []string{"-std=c11", "-fsyntax-only", "-w"})
+	for _, dir := range t.absolute(runtimeLibrary.includes) {
+		args = append(args, "-I", dir)
+	}
+	return t.run(ctx, t.CC, slices.Concat(args, cFiles)...)
+}
+
 func (t *Toolchain) absolute(paths []string) []string {
 	result := make([]string, len(paths))
 	for i, p := range paths {

@@ -181,7 +181,7 @@ func (l *lowerer) classInstanceOf(generic *genericClass, t *checker.Type, node *
 	}
 	class := &ir.Class{Name: generic.node.Name().Text(), Display: l.instanceDisplay(generic.node.Name().Text(), concrete), Module: generic.module.Module, Abstract: ast.HasSyntacticModifier(generic.node, ast.ModifierFlagsAbstract)}
 	inst := &classInstance{generic: generic, arguments: arguments, class: class, members: newClassMembers(),
-		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}}
+		subst: &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst, trial: l.trial}}
 	generic.instances = append(generic.instances, inst)
 	l.classInstances[class] = inst
 	l.classNodes[class] = generic.node

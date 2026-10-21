@@ -971,7 +971,7 @@ func (l *lowerer) objectCast(value ir.Expr, target ir.Type, node *ast.Node) ir.E
 	} else if missing := unprovided(value.Type(), target.(*ir.Interface)); missing == "" {
 		return l.interfaceCast(value, target.(*ir.Interface), node)
 	} else if holdsOptionally(value.Type(), target.(*ir.Interface)) {
-		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node, in: l.function})
+		l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: value.Type(), to: target.(*ir.Interface), node: node, in: l.function, blame: l.blameHere()})
 		return l.interfaceCast(value, target.(*ir.Interface), node)
 	} else if l.isReferenceNarrowedTo(node, target) {
 		// tsc narrowed it to a type that its value's type doesn't provide: by a type

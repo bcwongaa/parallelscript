@@ -1,4 +1,3 @@
-// skip: known issue (H09b5b, C176): a class instance body a pairing made, lowered after every trial, that doesn't lower sends the whole program to DeclaredInstances, so the unrelated arrow loses its instance
 // C176 (H09b5): pairing use's demand f<Dog[]> with the unrelated escaping arrow w makes the class
 // instance Weird<Dog[]>, whose method doesn't lower (D-094: a Dog[] returned as an Animal[]); class
 // instance bodies are lowered after every trial, so the failure stands and the driver lowered the

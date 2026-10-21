@@ -160,14 +160,17 @@ var Fallbacks = []Specialization{AllInstances, ValueInstances, DeclaredInstances
 // complete only if there are none. A panic is a bug in the compiler: it becomes a panic
 // with a *diagnostic.InternalError at the innermost statement or expression being lowered.
 func Program(ctx context.Context, program *frontend.Program, info *check.Info) (*ir.Program, []diagnostic.Diagnostic) {
-	return ProgramWith(ctx, program, info, AllInstances)
+	lowered, diagnostics, _ := ProgramWith(ctx, program, info, AllInstances, nil)
+	return lowered, diagnostics
 }
 
-// ProgramWith is Program with the given specialization.
-func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization) (*ir.Program, []diagnostic.Diagnostic) {
+// ProgramWith is Program with the given specialization, leaving out what narrowing does
+// (nil: nothing). If it reports, and every diagnostic is blamed on a pairing or call site
+// that a narrower lowering leaves out (C176), narrower is narrowing with them; else nil.
+func ProgramWith(ctx context.Context, program *frontend.Program, info *check.Info, specialization Specialization, narrowing *Narrowing) (lowered *ir.Program, diagnostics []diagnostic.Diagnostic, narrower *Narrowing) {
 	c, release := program.TS.GetTypeCheckerForFile(ctx, program.Entry)
 	defer release()
-	l := &lowerer{program: program.TS, checker: c, info: info, specialization: specialization,
+	l := &lowerer{program: program.TS, checker: c, info: info, specialization: specialization, narrowing: narrowing,
 		locals: map[*ast.Symbol]*ir.Local{}, owners: map[*ir.Local]*ir.Func{}, moduleScope: map[*ir.Local]bool{}, funcs: map[*ast.Symbol]*ir.Func{},
 		classes: map[*ast.Symbol]*ir.Class{}, classNodes: map[*ir.Class]*ast.Node{}, members: newClassMembers(),
 		methodDeclarations: map[*ir.Method]*ast.Node{}, this: map[*ir.Func]*ir.Local{},
@@ -259,7 +262,7 @@ lowering:
 	shareCaptures(result.Funcs)
 	markCells(result.Funcs)
 	l.unexplainedFailure()
-	return result, l.errors
+	return result, l.errors, l.narrower()
 }
 
 // newModule makes the IR module for a source file, with an empty function for its top-level code.
@@ -339,6 +342,10 @@ type lowerer struct {
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)
+	narrowing           *Narrowing                       // what this lowering leaves out (C176)
+	blames              []blame                          // what each of errors is blamed on (blameHere)
+	site                *pairing                         // the call site whose demand by name is being lowered (atSite)
+	unexplainedBlame    *pairing                         // what unexplained is blamed on
 	droppedFuncs        map[*ir.Func]bool                // the functions failed trials dropped
 	deadTests           map[*substitution]*substitution  // each instance's substitution for isDeadRead (deadTest)
 	instanceKeys        map[string]string                // the keys of dynamic results' entries, by what tells them apart (instanceKey)
@@ -411,12 +418,21 @@ func (l *lowerer) unsupported(node *ast.Node, format string, args ...any) {
 	l.report(diagnostic.At(node, diagnostic.Unsupported, format, args...))
 }
 
-// report records an error once: each instance of a generic function lowers its body again (D-049).
+// report records an error once: each instance of a generic function lowers its body again
+// (D-049); with what it is blamed on (blameHere).
 func (l *lowerer) report(d diagnostic.Diagnostic) {
+	l.reportBlamed(d, l.blameHere())
+}
+
+// reportBlamed is report of d, blamed on b, or on the program's own code if b is nil.
+func (l *lowerer) reportBlamed(d diagnostic.Diagnostic, b *pairing) {
 	l.reports++
-	if !slices.Contains(l.errors, d) {
+	i := slices.Index(l.errors, d)
+	if i < 0 {
+		i = len(l.errors)
 		l.errors = append(l.errors, d)
 	}
+	l.blameReport(i, b)
 	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
 		t.foreign = true
 	}
@@ -1397,7 +1413,7 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 // noteUnexplained records node, which failed to lower without a report, for
 // unexplainedFailure; in a trial, as report does, whether it is another function's.
 func (l *lowerer) noteUnexplained(node *ast.Node) {
-	l.unexplained = node
+	l.unexplained, l.unexplainedBlame = node, l.blameHere()
 	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
 		t.foreign = true
 	}
@@ -1409,7 +1425,7 @@ func (l *lowerer) noteUnexplained(node *ast.Node) {
 // from a program that builds.
 func (l *lowerer) unexplainedFailure() {
 	if l.unexplained != nil && len(l.errors) == 0 {
-		l.report(diagnostic.At(l.unexplained, diagnostic.NotSupportedYet, "%s (which the compiler failed to lower without saying why) is not supported yet", describe(l.unexplained)))
+		l.reportBlamed(diagnostic.At(l.unexplained, diagnostic.NotSupportedYet, "%s (which the compiler failed to lower without saying why) is not supported yet", describe(l.unexplained)), l.unexplainedBlame)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
-	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -123,7 +122,7 @@ func (l *lowerer) valueForward(wrapped *ir.Local, erased *ir.FuncType) func(d *d
 		if otherwise == nil {
 			return nil
 		}
-		l.demands = append(l.demands, &demand{in: fn, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node})
+		l.demands = append(l.demands, &demand{in: fn, erased: erased, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, narrowable: true})
 		return &ir.InstanceCall{X: &ir.LocalRef{Local: wrapped}, Signature: d.want, Key: d.key, Args: args, Otherwise: otherwise}
 	}
 }
@@ -143,7 +142,7 @@ func (l *lowerer) methodForward(receiver *ir.Local, m method, generic *genericFu
 		if otherwise == nil {
 			return nil
 		}
-		inner := &demand{in: fn, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic}
+		inner := &demand{in: fn, signature: d.signature, subst: d.subst, want: d.want, key: d.key, node: d.node, name: m.name, method: generic, narrowable: true}
 		if generic == nil {
 			inner.shape, inner.receiver = shape, receiverType
 		}
@@ -167,12 +166,12 @@ func (l *lowerer) genericSignature(node *ast.Node) *checker.Signature {
 // quietly runs f, taking back what it reports: for a type that may not lower, whose
 // lowering is optional.
 func (l *lowerer) quietly(f func() bool) bool {
-	errors, reports, unexplained := l.errors, l.reports, l.unexplained
+	reported := l.reportedSoFar()
 	foreign := l.trial != nil && l.trial.foreign
 	if f() {
 		return true
 	}
-	l.errors, l.reports, l.unexplained = errors, reports, unexplained // a trial counts reports (tryInstance)
+	l.restoreReported(reported) // a trial counts reports (tryInstance)
 	if l.trial != nil {
 		l.trial.foreign = foreign
 	}
@@ -182,16 +181,14 @@ func (l *lowerer) quietly(f func() bool) bool {
 // tentative is where lowering stood before a function that may be taken back
 // (takeBack): its reports, and the functions, demands and erased values made so far.
 type tentative struct {
-	errors                   []diagnostic.Diagnostic
-	reports                  int
-	unexplained              *ast.Node
+	reported
 	foreign                  bool
 	lowered, demands, values int
 }
 
 // tentatively marks where lowering stands, for takeBack.
 func (l *lowerer) tentatively() tentative {
-	return tentative{errors: l.errors, reports: l.reports, unexplained: l.unexplained, foreign: l.trial != nil && l.trial.foreign,
+	return tentative{reported: l.reportedSoFar(), foreign: l.trial != nil && l.trial.foreign,
 		lowered: len(l.lowered), demands: len(l.demands), values: len(l.erasedValues)}
 }
 
@@ -204,7 +201,7 @@ func (l *lowerer) failedSince(t tentative) bool {
 // reports, fn and the functions lowered in it (an adapter's nested adapters), and the
 // demands and erased values made in them. What else lowering made since then stands.
 func (l *lowerer) takeBack(t tentative, fn *ir.Func) {
-	l.errors, l.reports, l.unexplained = t.errors, t.reports, t.unexplained
+	l.restoreReported(t.reported)
 	if l.trial != nil {
 		l.trial.foreign = t.foreign
 	}
@@ -283,7 +280,7 @@ func (l *lowerer) instantiatingAdapterSkipping(value ir.Expr, to *ir.FuncType, s
 	if to == nil {
 		to = want
 	}
-	d := &demand{erased: from, signature: instantiated, subst: l.subst, want: want, node: node}
+	d := &demand{erased: from, signature: instantiated, subst: l.subst, want: want, node: node, narrowable: true}
 	if want.Result == ir.Value {
 		d.key = l.instanceKey(instantiated, node) // its values are made for its type arguments (D-190)
 	}

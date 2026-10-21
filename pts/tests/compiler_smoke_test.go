@@ -6,8 +6,9 @@ package tests
 // each distinct internal compiler error (or panic outside the compiler's boundary, or
 // hang) with the smallest program that hits it. With PTS_SMOKE_CLANG=1 it also asks clang
 // to check the C of each program that compiled. It compiles with lower.AllInstances alone,
-// and fails for a seed that compiles only with the driver's fallback to
-// lower.DeclaredInstances (D-190), but those in needsFallback.
+// and fails for a seed that compiles only by leaving out speculative instances that fail
+// (lower.Narrowing, C176), but those in needsNarrowing, or only with the driver's fallback
+// to lower.DeclaredInstances (D-190), but those in needsFallback.
 
 import (
 	"cmp"
@@ -48,13 +49,17 @@ const (
 	smokeCompileTimeout = time.Minute // a compile running longer is reported as a hang
 )
 
-// needsFallback are the seeds that compile only with the driver's fallback (D-190), by
-// the end of their path: their speculative instances fail in a way the lowering's trials
-// don't take back. The generic_fallback_spares_unrelated_* seeds are H09b5b's skipped RED
-// tests (C176), which need the fallback until it is narrower.
-var needsFallback = []string{"/run/generic_instances_fall_back.pts",
-	"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_class_body.pts",
-	"/run/generic_fallback_spares_unrelated_relaxed_cast.pts"}
+// needsNarrowing are the seeds, by the end of their path, that compile with
+// lower.AllInstances only by leaving out the speculative instances whose failures the
+// lowering's trials don't take back (driver.EmitCNarrowedWith, C176), and needsFallback
+// those that compile only with the driver's fallback to a later one of lower.Fallbacks
+// (D-190).
+var (
+	needsNarrowing = []string{"/run/generic_instances_fall_back.pts",
+		"/run/generic_fallback_spares_unrelated_call_site.pts", "/run/generic_fallback_spares_unrelated_class_body.pts",
+		"/run/generic_fallback_spares_unrelated_relaxed_cast.pts"}
+	needsFallback []string
+)
 
 // smokeProgram is one program the smoke test compiles: a seed, or a mutant of one.
 type smokeProgram struct {
@@ -216,24 +221,46 @@ func compileProgram(dir string, program smokeProgram) (string, *smokeFailure) {
 	}
 }
 
-// fallbackFailure is a seed's failure if it compiles only with the driver's fallback and
-// isn't in needsFallback, or is and no longer needs it; err is its compile errors with
-// lower.AllInstances, if any.
+// fallbackFailure is a seed's failure if it compiles only by narrowing or with the driver's
+// fallback and isn't in needsNarrowing or needsFallback, or is and no longer needs that;
+// err is its compile errors with lower.AllInstances, if any.
 func fallbackFailure(path string, program smokeProgram, err error) *smokeFailure {
 	if program.mutation != "" {
 		return nil
 	}
-	listed := slices.ContainsFunc(needsFallback, func(end string) bool { return strings.HasSuffix(program.seed, end) })
-	switch {
-	case err == nil && listed:
-		return &smokeFailure{kind: "fallback", key: "compiles without the fallback: remove it from needsFallback", program: program}
-	case err == nil || listed:
+	listed := func(seeds []string) bool {
+		return slices.ContainsFunc(seeds, func(end string) bool { return strings.HasSuffix(program.seed, end) })
+	}
+	narrowing, fallback := listed(needsNarrowing), listed(needsFallback)
+	failure := func(key string) *smokeFailure {
+		detail := ""
+		if err != nil {
+			detail = strings.SplitN(err.Error(), "\n", 2)[0]
+		}
+		return &smokeFailure{kind: "fallback", key: key, detail: detail, program: program}
+	}
+	if err == nil {
+		if narrowing || fallback {
+			return failure("compiles with AllInstances alone: remove it from needsNarrowing or needsFallback")
+		}
 		return nil
 	}
-	if _, declared := driver.EmitCWith(context.Background(), path, lower.DeclaredInstances); declared != nil {
-		return nil // an error either way
+	if _, narrowed := driver.EmitCNarrowedWith(context.Background(), path, lower.AllInstances); narrowed == nil {
+		switch {
+		case fallback:
+			return failure("compiles by narrowing (C176): move it from needsFallback to needsNarrowing")
+		case !narrowing:
+			return failure("compiles only by leaving out speculative instances that fail (C176)")
+		}
+		return nil
 	}
-	return &smokeFailure{kind: "fallback", key: "compiles only with the driver's fallback (D-190)", detail: strings.SplitN(err.Error(), "\n", 2)[0], program: program}
+	if narrowing {
+		return failure("no longer compiles by narrowing (C176): remove it from needsNarrowing")
+	}
+	if _, declared := driver.EmitCWith(context.Background(), path, lower.DeclaredInstances); declared != nil || fallback {
+		return nil // an error either way, or listed
+	}
+	return failure("compiles only with the driver's fallback (D-190)")
 }
 
 // compilerFrame matches a stack frame's location in the compiler: pts/<package>/<file>.go:<line>

@@ -1147,7 +1147,7 @@ func (l *lowerer) keepsLeaf(leaf, elem ir.Type, made bool, node *ast.Node) bool 
 				return false
 			}
 			if missing != "" {
-				l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: leaf, to: target, node: node, in: l.function}) // checked against the subclasses that hold it otherwise, as objectCast's (D-066)
+				l.relaxedCasts = append(l.relaxedCasts, relaxedCast{from: leaf, to: target, node: node, in: l.function, blame: l.blameHere()}) // checked against the subclasses that hold it otherwise, as objectCast's (D-066)
 			}
 		case *ir.Class:
 			if class, ok := leaf.(*ir.Class); ok && !target.Result && !class.IsSubclassOf(target) {

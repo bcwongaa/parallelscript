@@ -20,46 +20,97 @@ import (
 	"github.com/microsoft/typescript-go/pts/toolchain"
 )
 
-// EmitC compiles the program whose entry module is the file at entry to C.
-// Compile errors come back as a *diagnostic.Error, and a bug the compiler ran into
-// as a *diagnostic.InternalError (D-179).
+// EmitC compiles the program whose entry module is the file at entry to C: the C that Build
+// compiles, which the C compiler that builds it checks (C176). Compile errors come back as a
+// *diagnostic.Error, and a bug the compiler ran into as a *diagnostic.InternalError (D-179).
 func EmitC(ctx context.Context, entry string) (code string, err error) {
 	checked, err := load(ctx, entry)
 	if err != nil {
 		return "", err
 	}
-	for _, specialization := range lower.Fallbacks {
-		if code, err = checked.emitC(ctx, specialization); !fallsBack(ctx, err) {
-			break
-		}
-	}
-	return code, err
+	return checked.compileC(ctx, checkC)
 }
 
 // EmitCWith is EmitC with the given specialization alone, for tests: a failure doesn't
-// fall back (lower.Fallbacks), so a bug that only AllInstances' instances hit isn't hidden.
+// fall back (lower.Fallbacks) or leave anything out (lower.Narrowing), so a bug that only
+// AllInstances' instances hit isn't hidden, and the C isn't checked.
 func EmitCWith(ctx context.Context, entry string, specialization lower.Specialization) (code string, err error) {
 	checked, err := load(ctx, entry)
 	if err != nil {
 		return "", err
 	}
-	return checked.emitC(ctx, specialization)
+	code, _, err = checked.emitC(ctx, specialization, nil)
+	return code, err
+}
+
+// EmitCNarrowedWith is EmitCWith, leaving out what lowerings that fail blame their failures
+// on, as EmitC does before it falls back (lower.Narrowing), for tests.
+func EmitCNarrowedWith(ctx context.Context, entry string, specialization lower.Specialization) (code string, err error) {
+	checked, err := load(ctx, entry)
+	if err != nil {
+		return "", err
+	}
+	code, _, err = checked.lowerNarrowing(ctx, specialization, nil)
+	return code, err
 }
 
 // Build compiles the program whose entry module is the file at entry into a native
 // executable at output. Compile errors come back as a *diagnostic.Error, and a bug the
-// compiler ran into, C that the C compiler rejects included, as a *diagnostic.InternalError.
+// compiler ran into, C that the C compiler rejects or that doesn't link included, as a
+// *diagnostic.InternalError.
 func Build(ctx context.Context, entry string, output string) error {
 	checked, err := load(ctx, entry)
 	if err != nil {
 		return err
 	}
-	for _, specialization := range lower.Fallbacks {
-		if err = checked.build(ctx, specialization, output); !fallsBack(ctx, err) {
+	_, err = checked.compileC(ctx, func(ctx context.Context, c string) error { return build(ctx, c, output) })
+	return err
+}
+
+// maxLowerings bounds how often a build is lowered with one of lower.Fallbacks, each time
+// leaving out more of its speculative instances (lower.Narrowing), before it falls back to
+// the next.
+const maxLowerings = 8
+
+// lowerNarrowing lowers the program to C with specialization, leaving out what narrowing
+// does, and while a lowering fails blaming every failure on what a narrower one leaves out,
+// lowers it again without that too, at most maxLowerings times; narrowing is then what
+// the last lowering left out.
+func (p *checkedProgram) lowerNarrowing(ctx context.Context, specialization lower.Specialization, narrowing *lower.Narrowing) (code string, _ *lower.Narrowing, err error) {
+	for range maxLowerings {
+		var narrower *lower.Narrowing
+		if code, narrower, err = p.emitC(ctx, specialization, narrowing); err == nil || narrower == nil || !fallsBack(ctx, err) {
 			break
 		}
+		narrowing = narrower
 	}
-	return err
+	return code, narrowing, err
+}
+
+// compileC lowers the program to C, and gives it to accept (a build, or emit-c's check),
+// with each of lower.Fallbacks in turn, until a lowering reports nothing and accept doesn't
+// fail with the C compiler rejecting the C (rejectedC). The instances each but the last adds
+// are made for calls that may never meet them, and a failure in their code that the
+// lowering's trials don't take back mustn't stop a program that compiles without them
+// (D-190, D-191). Where the lowering blames every failure on the instances of some
+// pairings of demands with values, or on some calls' demands by name, it lowers the program
+// again without those (lower.Narrowing, C176), so the rest keep their instances; where it
+// can't, or its C is rejected, the next of lower.Fallbacks is tried, without them too.
+func (p *checkedProgram) compileC(ctx context.Context, accept func(ctx context.Context, c string) error) (code string, err error) {
+	var narrowing *lower.Narrowing
+	for _, specialization := range lower.Fallbacks {
+		code, narrowing, err = p.lowerNarrowing(ctx, specialization, narrowing)
+		if err == nil {
+			var rejected *rejectedC
+			if err = accept(ctx, code); !errors.As(err, &rejected) || ctx.Err() != nil {
+				return code, err
+			}
+			err = rejected.InternalError
+		} else if !fallsBack(ctx, err) {
+			return "", err
+		}
+	}
+	return "", err
 }
 
 // checkedProgram is a program that loaded and passed the semantic checks.
@@ -86,34 +137,27 @@ func load(ctx context.Context, entry string) (checked *checkedProgram, err error
 	return &checkedProgram{program, info}, nil
 }
 
-// fallsBack reports whether a build that failed with err is tried again with the next of
-// lower.Fallbacks, the last of which programs compiled with before H09 (D-190, D-191): the
-// instances that each earlier one adds are made for calls that may never meet them, and a
-// failure in their code, which the lowering's trials don't take back, mustn't stop a
-// program that compiles without them. Compile errors and internal errors fall back.
+// fallsBack reports whether a lowering that failed with err is tried again (compileC):
+// compile errors and internal errors are.
 func fallsBack(ctx context.Context, err error) bool {
 	var compileErrors *diagnostic.Error
 	var internal *diagnostic.InternalError
 	return ctx.Err() == nil && (errors.As(err, &compileErrors) || errors.As(err, &internal))
 }
 
-// emitC lowers the program with the given specialization and emits its C.
-func (p *checkedProgram) emitC(ctx context.Context, specialization lower.Specialization) (code string, err error) {
+// emitC lowers the program with the given specialization, leaving out what narrowing does,
+// and emits its C; narrower is what lower.ProgramWith says a lowering that fails may leave out.
+func (p *checkedProgram) emitC(ctx context.Context, specialization lower.Specialization, narrowing *lower.Narrowing) (code string, narrower *lower.Narrowing, err error) {
 	defer diagnostic.Contain(&err)
-	lowered, diagnostics := lower.ProgramWith(ctx, p.program, p.info, specialization)
+	lowered, diagnostics, narrower := lower.ProgramWith(ctx, p.program, p.info, specialization, narrowing)
 	if len(diagnostics) > 0 {
-		return "", &diagnostic.Error{Diagnostics: diagnostics}
+		return "", narrower, &diagnostic.Error{Diagnostics: diagnostics}
 	}
-	return cgen.Emit(lowered), nil
+	return cgen.Emit(lowered), nil, nil
 }
 
-// build compiles the program, with the given specialization, into a native executable
-// at output.
-func (p *checkedProgram) build(ctx context.Context, specialization lower.Specialization, output string) error {
-	c, err := p.emitC(ctx, specialization)
-	if err != nil {
-		return err
-	}
+// build compiles a program's C into a native executable at output.
+func build(ctx context.Context, c string, output string) error {
 	tc, err := toolchain.New()
 	if err != nil {
 		return err
@@ -122,15 +166,11 @@ func (p *checkedProgram) build(ctx context.Context, specialization lower.Special
 	if err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp("", "pts-build-")
+	dir, cFile, err := writeC(c)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	cFile := filepath.Join(dir, "main.c")
-	if err := os.WriteFile(cFile, []byte(c), 0o644); err != nil {
-		return err
-	}
 	output, err = filepath.Abs(output)
 	if err != nil {
 		return err
@@ -139,6 +179,43 @@ func (p *checkedProgram) build(ctx context.Context, specialization lower.Special
 		return generatedCFailure(err, cFile)
 	}
 	return nil
+}
+
+// checkC checks a program's C with the C compiler a build compiles it with, as emit-c's
+// accept (compileC): a *rejectedC if it rejects it, so emit-c gives the C a build compiles.
+// Without a C compiler to check with (no PTS home, or the compiler doesn't run), the C is
+// taken as it is.
+func checkC(ctx context.Context, c string) error {
+	tc, err := toolchain.New()
+	if err != nil {
+		return nil
+	}
+	dir, cFile, err := writeC(c)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if err := tc.CheckProgram(ctx, toolchain.Release, []string{cFile}); err != nil {
+		var rejected *rejectedC
+		if failure := generatedCFailure(err, cFile); errors.As(failure, &rejected) {
+			return failure
+		}
+	}
+	return nil
+}
+
+// writeC writes a program's C to main.c in a new temporary directory.
+func writeC(c string) (dir string, cFile string, err error) {
+	dir, err = os.MkdirTemp("", "pts-build-")
+	if err != nil {
+		return "", "", err
+	}
+	cFile = filepath.Join(dir, "main.c")
+	if err := os.WriteFile(cFile, []byte(c), 0o644); err != nil {
+		os.RemoveAll(dir)
+		return "", "", err
+	}
+	return dir, cFile, nil
 }
 
 // cCompilerError is the C compiler's first error, "file:line:column: error: message",
@@ -152,11 +229,18 @@ var undefinedReference = regexp.MustCompile("undefined reference to `[^']*'")
 // from (`…/libptsrt.a(008-runtime.o): in function …`): the runtime's, not the generated C's.
 var archiveMember = regexp.MustCompile(`\.a\([^)]*\): in function`)
 
-// generatedCFailure reports the C compiler rejecting the C generated into cFile, or the
-// linker the functions it calls, as the bug in the compiler that it is: an internal
-// error at the source line that the C compiler's first error has through #line (D-179).
-// Other failures (the C compiler killed, a full disk, a runtime archive missing what it
-// calls) are returned as they are.
+// rejectedC is the C compiler rejecting a program's C (generatedCFailure), which a build
+// and emit-c's check both see, so both try the next of lower.Fallbacks (compileC); a failure
+// to link falls back in neither, since emit-c doesn't link.
+type rejectedC struct{ *diagnostic.InternalError }
+
+func (r *rejectedC) Unwrap() error { return r.InternalError }
+
+// generatedCFailure reports the C compiler rejecting the C generated into cFile (a
+// *rejectedC), or the linker the functions it calls, as the bug in the compiler that it
+// is: an internal error at the source line that the C compiler's first error has through
+// #line (D-179). Other failures (the C compiler killed, a full disk, a runtime archive
+// missing what it calls) are returned as they are.
 func generatedCFailure(err error, cFile string) error {
 	var command *toolchain.CommandError
 	if !errors.As(err, &command) {
@@ -169,10 +253,11 @@ func generatedCFailure(err error, cFile string) error {
 			at.File = match[1]
 			at.Line, _ = strconv.Atoi(match[2])
 		}
-	} else if reference := undefinedReference.FindString(command.Output); reference != "" && !archiveMember.MatchString(command.Output) {
-		at.Message = "internal compiler error: the generated C doesn't link: " + reference
-	} else {
-		return err
+		return &rejectedC{&diagnostic.InternalError{Diagnostic: at, Detail: command.Error()}}
 	}
-	return &diagnostic.InternalError{Diagnostic: at, Detail: command.Error()}
+	if reference := undefinedReference.FindString(command.Output); reference != "" && !archiveMember.MatchString(command.Output) {
+		at.Message = "internal compiler error: the generated C doesn't link: " + reference
+		return &diagnostic.InternalError{Diagnostic: at, Detail: command.Error()}
+	}
+	return err
 }

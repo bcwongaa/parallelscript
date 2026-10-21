@@ -1,4 +1,3 @@
-// skip: known issue (H09b5b, C176): a relaxed cast (D-066) in a kept instance, checked after lowering, sends the whole program to DeclaredInstances, so the unrelated arrow loses its instance
 // C176 (H09b5): a relaxed cast (D-066) in boxed's instance for Base, which a trial keeps, is
 // checked after lowering and fails; the driver lowered the whole program again with
 // DeclaredInstances, where the unrelated arrow `named` lost its instance (`Expected Box<number>,

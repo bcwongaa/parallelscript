@@ -1,14 +1,16 @@
 package driver_test
 
-// H09b5's RED tests for C176: the driver's fallback is the whole program's, and `pts emit-c`
-// prints C that the build may not compile.
+// C176 (H09b5b): a failure only some speculative instances make costs other values none of
+// theirs, and `pts emit-c` prints the C that the build compiles.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/driver"
 	"gotest.tools/v3/assert"
 )
@@ -39,11 +41,10 @@ exec clang "$@"
 }
 
 func TestEmitCPrintsTheCThatBuildCompiles(t *testing.T) {
-	t.Skip("known issue (H09b5b, C176): emit-c runs no C compiler, so it prints AllInstances' C where the build falls back")
 	// An interface call of a generic method looks its instance up by name only with
 	// AllInstances (D-191). Where clang rejects AllInstances' C, Build falls back to
-	// ValueInstances, which compiles; emit-c, which runs no C compiler, printed the
-	// AllInstances C that no build compiles (C176).
+	// ValueInstances, which compiles; emit-c, which ran no C compiler, printed the
+	// AllInstances C that no build compiles (C176). It checks its C as the build does.
 	cc, compiled := rejectingCompiler(t, "pts_method_instance_find")
 	t.Setenv("PTS_CC", cc)
 	entry := writeSource(t, `class Box<T> {
@@ -75,8 +76,67 @@ try {
 		strings.Contains(c, "pts_method_instance_find"), strings.Contains(string(built), "pts_method_instance_find"))
 }
 
+// unlinkingCompiler writes a C compiler for PTS_CC that fails to link, as the linker fails on
+// a function the C calls and nothing defines, a program's C holding marker, and checks and
+// compiles anything else with clang.
+func unlinkingCompiler(t *testing.T, marker string) string {
+	t.Helper()
+	cc := filepath.Join(t.TempDir(), "cc")
+	script := `#!/bin/sh
+link=yes
+for arg in "$@"; do
+  case "$arg" in
+  -fsyntax-only) link=no ;;
+  esac
+done
+for arg in "$@"; do
+  case "$arg" in
+  */main.c)
+    if [ $link = yes ] && grep -q '` + marker + `' "$arg"; then
+      printf "/usr/bin/ld: /tmp/main.o: in function \\140main':\\n" >&2
+      printf "main.c:(.text+0x1): undefined reference to \\140pts_fn_missing'\\n" >&2
+      exit 1
+    fi
+    ;;
+  esac
+done
+exec clang "$@"
+`
+	assert.NilError(t, os.WriteFile(cc, []byte(script), 0o755))
+	return cc
+}
+
+func TestABuildWhoseCDoesntLinkDoesntFallBack(t *testing.T) {
+	// emit-c checks its C with the C compiler but doesn't link it, so a build whose C doesn't
+	// link reports the compiler's bug (D-179) rather than building the next fallback's C,
+	// which emit-c wouldn't print (D-199).
+	t.Setenv("PTS_CC", unlinkingCompiler(t, "pts_method_instance_find"))
+	entry := writeSource(t, `class Box<T> {
+  constructor(public value: T) {}
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const m: Maker = new ClassMaker();
+console.log(m.make(4).value + 1);
+`)
+
+	c, err := driver.EmitC(t.Context(), entry)
+	assert.NilError(t, err)
+	buildErr := driver.Build(t.Context(), entry, filepath.Join(t.TempDir(), "main"))
+
+	assert.Assert(t, strings.Contains(c, "pts_method_instance_find"), "emit-c prints AllInstances' C, which the C compiler accepts")
+	var internal *diagnostic.InternalError
+	assert.Assert(t, errors.As(buildErr, &internal), "expected an internal compiler error, got %v", buildErr)
+	assert.Equal(t, internal.Format(filepath.Dir(entry)), "error PTS9001: internal compiler error: the generated C doesn't link: undefined reference to `pts_fn_missing'")
+}
+
 func TestAValueWhoseClassInstanceDoesntLowerCostsNoOtherValueItsInstances(t *testing.T) {
-	t.Skip("known issue (H09b5b, C176): the fallback is the whole program's")
 	t.Parallel()
 	// Pairing useDogs' demand f<Dog[]> with the escaping arrow w makes Weird<Dog[]>, whose
 	// method doesn't lower (D-094: a Dog[] returned as an Animal[]), after every trial. The

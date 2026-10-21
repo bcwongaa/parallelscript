@@ -1,12 +1,12 @@
 package lower
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/checker"
+	"github.com/microsoft/typescript-go/pts/diagnostic"
 	"github.com/microsoft/typescript-go/pts/ir"
 )
 
@@ -128,6 +128,9 @@ type relaxedCast struct {
 	to   *ir.Interface
 	node *ast.Node
 	in   *ir.Func // the function it is in, which a failed trial may drop (D-190)
+	// What a report of it is blamed on, as one where it is lowered would be (C176): it
+	// is checked after lowering.
+	blame *pairing
 }
 
 // holdsOptionally reports whether values of type t may be used as an interface whose
@@ -202,7 +205,8 @@ func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
 		}
 		for _, object := range l.concreteTypes(cast.from, sources, map[ir.Type]bool{}) {
 			if property := unheld(object, cast.to); property != nil {
-				l.notSupportedYet(cast.node, fmt.Sprintf("using a `%s` as a `%s`, when it may refer to a `%s` that holds `%s` as another type, is", cast.from, cast.to, objectTypeString(object), property.Name))
+				l.reportBlamed(diagnostic.At(cast.node, diagnostic.NotSupportedYet, "using a `%s` as a `%s`, when it may refer to a `%s` that holds `%s` as another type, is not supported yet",
+					cast.from, cast.to, objectTypeString(object), property.Name), cast.blame)
 				break
 			}
 		}

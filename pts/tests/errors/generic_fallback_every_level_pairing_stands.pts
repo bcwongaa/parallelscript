@@ -1,0 +1,38 @@
+// A failure in speculative code that every fallback makes stands (H09b5b, C176): the
+// dispatched call m.make (D-101) pairs with WeirdMaker's make at every level, and its instance
+// for Dog[] makes Weird<Dog[]>, whose method doesn't lower (D-094), after the trial. A
+// narrower lowering leaves out only what a later fallback doesn't make, so this program keeps
+// its error, as before, rather than compiling the call to the erased copy and its TypeError.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+abstract class Maker {
+  abstract make<T>(x: T): Box<T>;
+}
+class WeirdMaker extends Maker {
+  make<T>(x: T): Box<T> {
+    const w = new Weird(x);
+    console.log(w.animals().length);
+    return new Box(x);
+  }
+}
+const m: Maker = new WeirdMaker();
+const b: Box<Dog[]> = m.make([new Dog()]);
+console.log(b.value.length);
+// error: using a Dog[] as a Animal[] where it may be changed or kept

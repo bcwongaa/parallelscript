@@ -39,6 +39,11 @@ type demand struct {
 	key       string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
 	chained   bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
 	node      *ast.Node
+	// The last fallback doesn't make it (DeclaredInstances): a demand by name (D-191), an
+	// adapter's or a wrapper's (D-194), a constant key's (C185), one with a rest parameter
+	// (C170) or a dynamic result (D-190). Its pairings' failures are left out of a narrower
+	// lowering (C176).
+	narrowable bool
 }
 
 // erasedValue is a function whose closures are a generic function's erased copy as a
@@ -118,7 +123,7 @@ func (l *lowerer) demandAt(call *ast.CallExpression, erasedParams []ir.Type) *de
 			return nil
 		}
 	}
-	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained}
+	d := &demand{in: l.function, signature: resolved, subst: l.subst, want: want, node: call.AsNode(), chained: chained, narrowable: resolved.HasRestParameter() || want.Result == ir.Value}
 	if want.Result == ir.Value {
 		d.key = l.instanceKey(resolved, call.AsNode()) // its values are made for its type arguments (D-190)
 	}
@@ -297,12 +302,12 @@ func (l *lowerer) objectKeyParts(identity *keyIdentity, t *checker.Type, node *a
 // irTypeKeyPart writes t by its IR type for keyPart, or by its checker type if that is a
 // dynamic value or it has none (the report taken back, with the trial's mark).
 func (l *lowerer) irTypeKeyPart(identity *keyIdentity, t *checker.Type, node *ast.Node) {
-	errors, reports, unexplained := l.errors, l.reports, l.unexplained
+	reported := l.reportedSoFar()
 	foreign := l.trial != nil && l.trial.foreign
 	irType := l.irType(t, node)
 	switch {
 	case irType == nil:
-		l.errors, l.reports, l.unexplained = errors, reports, unexplained
+		l.restoreReported(reported)
 		if l.trial != nil {
 			l.trial.foreign = foreign // the report that marked it is taken back
 		}
@@ -420,18 +425,21 @@ func (l *lowerer) namedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 // a local holding a string, holds at run time (D-194), or if byKey is nil, the one name.
 func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, names []string, byKey ir.Expr, shape *ir.Class, params []ir.Type, result ir.Type, dynamicResult bool,
 	erasedCall func(object ir.Expr, args []ir.Expr) ir.Expr) (x ir.Expr, ok bool) {
-	if l.specialization != AllInstances || result != ir.Value {
-		return nil, false
+	if l.specialization != AllInstances || result != ir.Value || l.leavesOutSite(call.AsNode()) {
+		return nil, false // a narrower lowering's call site lowers as ValueInstances' (C176)
 	}
 	signatures := l.checker.GetSignaturesOfType(l.typeAt(call.Expression), checker.SignatureKindCall)
 	if len(signatures) != 1 || len(signatures[0].TypeParameters()) == 0 ||
 		!l.holdsGenericObjects(l.checker.GetReturnTypeOfSignature(signatures[0]), signatures[0].TypeParameters()) {
 		return nil, false
 	}
+	restore := l.blamingSite(call.AsNode()) // what the call without its demand doesn't lower (C176)
 	d := l.demandAt(call, params)
+	restore()
 	if d == nil {
 		return nil, false
 	}
+	d.narrowable = true // a demand by name: AllInstances' alone
 	values, at, ok := l.argumentList(call.Arguments.Nodes, params)
 	if !ok {
 		return nil, true
@@ -444,6 +452,7 @@ func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		return l.fromErasedFor(d, erasedCall(object, args), call.AsNode())
 	}
 	nodes := argumentNodes(call.Arguments.Nodes, params)
+	defer l.blamingSite(call.AsNode())()
 	passed := l.passedAsIs(d, args, values, nodes, params)
 	if passed == nil {
 		if dynamicResult {
@@ -773,6 +782,9 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	}) {
 		return
 	}
+	if v.forward == nil && l.leavesOut(d, v.generic.node) {
+		return // a narrower lowering's (C176)
+	}
 	if v.forward != nil {
 		l.forwardingInstance(d, v) // a wrapper's (D-194)
 		return
@@ -792,7 +804,7 @@ func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
 	fits := func(fn *ir.Func) bool {
 		return (!fn.Closure || fn.Shares == v.fn) && fitsInstance(fn.Params[params:], fn.Result, d.want)
 	}
-	if fn := l.tryInstance(d, v.generic, arguments, fits); fn != nil {
+	if fn := l.tryInstance(d, v.generic, arguments, d.narrowable || valueNarrowable(v), fits); fn != nil {
 		v.fn.Instances = append(v.fn.Instances, &ir.Instance{Name: d.name, Signature: d.want, Key: d.key, Func: fn})
 	}
 }
@@ -868,10 +880,12 @@ func (l *lowerer) classType(class *ir.Class) *checker.Type {
 // no call can use, and an instance's code may not lower where its erased copy did (a
 // branch tsc narrows to an intersection for its type arguments), where the program
 // compiled with the erased copy. A failure the trial can't take back (another function's)
-// stands; the build then falls back (Fallbacks).
-func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, fits func(fn *ir.Func) bool) *ir.Func {
-	t := &trial{funcs: map[*ir.Func]bool{}}
-	errors, reports, unexplained := l.errors, l.reports, l.unexplained // report only appends to errors
+// stands, blamed on the pairing (narrowable: the last fallback doesn't make it) or not; the
+// build is then lowered again without it, or falls back (Fallbacks, C176).
+func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, narrowable bool, fits func(fn *ir.Func) bool) *ir.Func {
+	t := &trial{funcs: map[*ir.Func]bool{}, pairing: pairing{call: d.node, name: d.name, value: generic.node}, narrowable: narrowable}
+	reported := l.reportedSoFar() // report only appends to errors
+	reports := reported.reports
 	lowered, demands, values := len(l.lowered), len(l.demands), len(l.erasedValues)
 	l.trial = t
 	fn, limit := l.genericInstanceFor(generic, arguments, d.node, d.key != "") // past a limit, the trial's own failure (D-198)
@@ -887,10 +901,11 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	switch {
 	case t.foreign:
 		return nil // another function failed: that stands, as it would without the trial
-	case fn != nil && l.reports == reports && l.unexplained == unexplained:
+	case fn != nil && l.reports == reports && l.unexplained == reported.unexplained:
 		return fn
 	}
-	l.errors, l.unexplained = errors, unexplained
+	reported.reports = l.reports // its reports stay counted
+	l.restoreReported(reported)
 	for _, budget := range t.counted {
 		l.instanceCounts[budget]--
 	}
@@ -927,6 +942,10 @@ type trial struct {
 	counted   []recursionBudget // the roots' budgets its function instances counted against (D-198)
 	making    int               // above 0 while an instance is made, whose reports are the trial's
 	foreign   bool              // code that isn't the trial's reported
+	// The demand's pairing with the value or method, which reports of code the trial made
+	// are blamed on where the last fallback doesn't make it (narrowable, C176).
+	pairing    pairing
+	narrowable bool
 }
 
 // capturedBy is a local a function captures.
@@ -1000,7 +1019,7 @@ func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
 	}
 	entry := &ir.Instance{Name: d.name, Signature: d.want, Key: d.key}
 	g.class.Instances = append(g.class.Instances, entry)
-	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) {
+	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) || l.leavesOut(d, g.node) {
 		return
 	}
 	outer := l.subst
@@ -1012,7 +1031,7 @@ func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
 	if len(arguments) != len(g.parameters) || slices.ContainsFunc(arguments, l.mentionsErased) {
 		return
 	}
-	entry.Func = l.tryInstance(d, g, arguments, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })
+	entry.Func = l.tryInstance(d, g, arguments, d.narrowable, func(fn *ir.Func) bool { return fitsInstance(fn.Params[1:], fn.Result, d.want) })
 }
 
 // descendsFrom reports whether class is ancestor or one of its subclasses.
