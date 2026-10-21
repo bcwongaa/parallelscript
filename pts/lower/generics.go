@@ -95,9 +95,7 @@ func (l *lowerer) countInstance(declaration *ast.Node, class bool) {
 // as the program's own, rather than leave a call the erased copy at its first level (D-198).
 func (l *lowerer) reportInstanceLimit(limit instanceLimit, name string, node *ast.Node) {
 	if t := l.trial; t != nil && limit == pastTotal {
-		t.foreign = true // it stands, the trial's code (here, C176)
-		t.making++
-		defer func() { t.making-- }()
+		t.foreign = true
 	}
 	switch limit {
 	case pastDepth:

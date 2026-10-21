@@ -1,0 +1,51 @@
+// C176 (H09b5b review round 2, R2-4): f<T>'s statement makes the demand by name m.make(1), then
+// (for T = Dog[] only) keeps the Dog[] as an Animal[] (D-094). Only a speculative trial (la with
+// use's demand) makes f<Dog[]>; the failure is the trial's own and is taken back, so the site,
+// which is left out by its node in every instance, isn't, and the program's own f<number> keeps
+// m.make(1)'s instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+const kept: Animal[][] = [];
+function keepAnimals(a: Animal[]): number {
+  kept.push(a);
+  return a.length;
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+const maker: Maker = new ClassMaker();
+function f<T>(m: Maker, x: T): number {
+  return m.make(1).value + (Array.isArray(x) ? keepAnimals(x) : 0);
+}
+function use(g: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = g([new Dog()]);
+  return b.value.length;
+}
+function main(): void {
+  console.log("own instance", f(maker, 5));
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  const la = <T,>(x: T): Box<T> => {
+    f(maker, x);
+    return new Box(x);
+  };
+  const d: any = la;
+  console.log("la", d(2).value);
+  console.log("use", use(named));
+}
+main();
+// expect:
+// own instance 1
+// la 2
+// use 1

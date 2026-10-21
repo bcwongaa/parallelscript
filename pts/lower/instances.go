@@ -916,8 +916,9 @@ func (l *lowerer) classType(class *ir.Class) *checker.Type {
 // branch tsc narrows to an intersection for its type arguments), where the program
 // compiled with the erased copy. A failure the trial can't take back (another function's)
 // stands, blamed on the pairing p where a later fallback doesn't make it; the build is then
-// lowered again without it, or falls back (Fallbacks, C176). What the trial made that stays
-// and is still to be lowered (its class instances' erased copies) is lowered outside it.
+// lowered again without it, or falls back (Fallbacks, C176). What the trial left pending and
+// that stays (its class instances' erased copies) is lowered outside it, not in the next
+// trial, which would take back the instances that code makes with itself.
 func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*checker.Type, p pairing, fits func(fn *ir.Func) bool) *ir.Func {
 	t := &trial{funcs: map[*ir.Func]bool{}, pairing: p}
 	reported := l.reportedSoFar() // report only appends to errors
@@ -936,8 +937,8 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	l.trial = nil
 	switch {
 	case t.foreign:
-		l.lowerPending()
-		return nil // another function failed: that stands, as it would without the trial
+		l.lowerPending() // what it left pending, outside the next trial
+		return nil       // another function failed: that stands, as it would without the trial
 	case fn != nil && l.reports == reports && l.unexplained == reported.unexplained:
 		return fn
 	}
@@ -968,7 +969,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	for _, c := range t.captures {
 		c.fn.Captures = slices.DeleteFunc(c.fn.Captures, func(local *ir.Local) bool { return local == c.local })
 	}
-	l.lowerPending() // what stays and wasn't lowered in the trial, not the next trial's code
+	l.lowerPending() // what stays and wasn't lowered in the trial (its class instances' erased copies), outside the next trial
 	return nil
 }
 

@@ -1,0 +1,220 @@
+// C176 (H09b5b review round 2, R2-3): Holder<Dog[]>, which only use's speculative pairing with the
+// escaping arrow w makes, has a method calling f0<T>; ten generic declarations all call each other
+// (instances lowered outside any trial that use each other) and each makes Weird<T>, whose method
+// fails for Dog[] (D-094). Finding the blame through that graph was exponential and gave up as
+// the program's own past a step budget, so the whole build fell back; it is linear per report.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) {
+      return v;
+    }
+    return [];
+  }
+}
+class Holder<T> {
+  constructor(public value: T) {}
+  run(): number {
+    return f0(this.value, 0).value === undefined ? 0 : 1;
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function f0<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f1<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f2<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f3<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f4<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f5<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f6<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f7<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f8(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f8<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f9(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function f9<T>(x: T, k: number): Box<T> {
+  if (k > 0) {
+    f0(x, k - 1);
+    f1(x, k - 1);
+    f2(x, k - 1);
+    f3(x, k - 1);
+    f4(x, k - 1);
+    f5(x, k - 1);
+    f6(x, k - 1);
+    f7(x, k - 1);
+    f8(x, k - 1);
+  }
+  const w = new Weird<T>(x);
+  if (k < -100) console.log(w.animals().length);
+  return new Box(x);
+}
+function use(f: <T>(x: T) => Box<T>): void {
+  const b: Box<Dog[]> = f([new Dog()]);
+  console.log("dogs", b.value.length);
+}
+function main(): void {
+  const maker: Maker = new ClassMaker();
+  console.log("interface victim", maker.make(4).value + 1);
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  console.log("value victim", named(5).value + 1);
+  const w = <T,>(x: T): Holder<T> => new Holder(x);
+  const d: any = w;
+  console.log("holder", d(3).run());
+  console.log("direct", f0(7, 1).value);
+  use(named);
+}
+main();
+// expect:
+// interface victim 5
+// value victim 6
+// holder 1
+// direct 7
+// dogs 1

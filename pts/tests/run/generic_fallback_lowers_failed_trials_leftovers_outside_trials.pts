@@ -1,0 +1,66 @@
+// C176 (H09b5b review round 2, WT): use's demand pairs first with the escaping arrow w, whose
+// instance for Dog[] doesn't fit (a Holder<Dog[]> where a Box<Dog[]> goes), leaving Holder<Dog[]>
+// and the erased copy of its make pending; then with la2, whose instance fits and fails on its own
+// (D-094). Lowered inside la2's trial, the leftover's helper<Dog[]> was taken back with it, and the
+// kept erased copy called nothing (C that clang rejects: the base's fallback, and an emit-c that
+// printed that C). What a trial leaves pending is lowered outside the next trial.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+const kept: Animal[][] = [];
+function keepAnimals(a: Animal[]): number {
+  kept.push(a);
+  return a.length;
+}
+function helper<T>(x: T): number {
+  return x === undefined ? 0 : 1;
+}
+abstract class Maker {
+  abstract make<U>(u: U): Box<U>;
+}
+class Holder<T> extends Maker {
+  constructor(public value: T) {
+    super();
+  }
+  make<U>(u: U): Box<U> {
+    console.log("holder make", helper(this.value));
+    return new Box(u);
+  }
+}
+class Plain extends Maker {
+  make<U>(u: U): Box<U> {
+    return new Box(u);
+  }
+}
+function use(f: <T>(x: T) => Box<T>): number {
+  const b: Box<Dog[]> = f([new Dog()]);
+  return b.value.length;
+}
+function main(): void {
+  const w = <T,>(x: T): Holder<T> => new Holder(x);
+  const la2 = <T,>(x: T): Box<T> => {
+    if (Array.isArray(x)) {
+      keepAnimals(x);
+    }
+    return new Box(x);
+  };
+  const dw: any = w;
+  const dl: any = la2;
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  console.log("w", dw([new Dog()]).make(3).value, "la2", dl(4).value);
+  const m: Maker = new Plain();
+  console.log("dispatched", m.make(7).value + 1);
+  console.log("use", use(named));
+}
+main();
+// expect:
+// holder make 1
+// w 3 la2 4
+// dispatched 8
+// use 1

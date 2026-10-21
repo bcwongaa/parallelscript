@@ -1,0 +1,37 @@
+// C176 (H09b5b review round 2, R2-1): a value call with a rest parameter (a demand ValueInstances
+// makes too) fails at its own site (`converting boolean to given`, C248) inside an instance only a
+// demand by name makes (Bad.make<number>, paired speculatively with m.make's demand; m is never a
+// Bad). The trial owns the report and is taken back, as on the base, so m.make(4) keeps
+// Good.make's instance; a report that stood would send the build to ValueInstances, which never
+// makes Bad.make<number>.
+class Box<T> {
+  constructor(public value: T) {}
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class Good implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+class Bad implements Maker {
+  make<T>(x: T): Box<T> {
+    const g = <U,>(a?: number, ...xs: U[]): Box<U[]> => new Box(xs);
+    try {
+      const b: Box<T[]> = g(maybe(), x);
+      console.log("bad", b.value.length);
+    } catch (e: any) {
+      console.log("bad", 1);
+    }
+    return new Box(x);
+  }
+}
+const makers: Maker[] = [new Good(), new Bad()];
+const m: Maker = makers[0];
+console.log("by name", m.make(4).value + 1);
+// expect:
+// by name 5

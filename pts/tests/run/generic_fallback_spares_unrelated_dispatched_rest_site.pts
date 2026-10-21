@@ -1,0 +1,52 @@
+// C176 (H09b5b review round 2): a dispatched generic method (D-101) with a rest parameter whose
+// demand fails at its own site (an optional argument before the rest: `converting boolean to
+// given`, C248). Only that site lowers without its demand; the unrelated interface call, local
+// arrow and the same method's other dispatched call keep their instances (the base's fallback
+// lost two of them).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function maybe(): number | undefined {
+  return undefined;
+}
+abstract class A {
+  abstract f<T>(a?: number, ...xs: T[]): Box<T[]>;
+}
+class B extends A {
+  f<T>(a?: number, ...xs: T[]): Box<T[]> {
+    return new Box(xs);
+  }
+}
+interface Maker {
+  make<T>(x: T): Box<T>;
+}
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => unknown): void {
+  try {
+    console.log(label, f());
+  } catch (error: any) {
+    console.log(label, error.name, error.message);
+  }
+}
+const maker: Maker = new ClassMaker();
+attempt("interface victim", () => maker.make(4).value + 1);
+const named = <T,>(x: T): Box<T> => new Box(x);
+attempt("value victim", () => named(5).value + 1);
+const a: A = new B();
+attempt("dispatched other", () => a.f(1, "x", "y").value.length);
+attempt("trigger", () => {
+  try {
+    return a.f(maybe(), 1, 2).value.length;
+  } catch (e: any) {
+    return 2;
+  }
+});
+// expect:
+// interface victim 5
+// value victim 6
+// dispatched other 2
+// trigger 2

@@ -199,7 +199,6 @@ func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
 		return
 	}
 	sources, uses := l.interfaceCasts(funcs)
-	search := newBlames()
 	for _, cast := range l.relaxedCasts {
 		if l.droppedFuncs[cast.in] {
 			continue // in code a failed trial dropped (D-190)
@@ -212,11 +211,11 @@ func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
 					failure = diagnostic.At(cast.node, diagnostic.NotSupportedYet, "using a `%s` as a `%s`, when it may refer to a `%s` that holds `%s` as another type, is not supported yet",
 						cast.from, cast.to, objectTypeString(object), property.Name)
 				}
-				objects = objects.merge(l.objectBlame(cast.from, object, sources, uses, search, map[ir.Type]bool{}))
+				objects = objects.merge(l.objectBlame(cast.from, object, sources, uses, map[ir.Type]bool{}))
 			}
 		}
 		if failure.Message != "" {
-			l.reportIn(failure, l.relaxedCastUse(cast, objects, search))
+			l.reportIn(failure, l.relaxedCastUse(cast, objects))
 		}
 	}
 }
@@ -224,8 +223,8 @@ func (l *lowerer) checkRelaxedCasts(funcs []*ir.Func) {
 // relaxedCastUse is what a relaxed cast's failure is of: the code the cast is in, or the code
 // that makes the objects that fail it be where it meets them (objects), whichever a narrower
 // lowering can leave out with fewer later fallbacks' instances (C176).
-func (l *lowerer) relaxedCastUse(cast relaxedCast, objects blame, search *blames) use {
-	in, _ := l.blameOf(cast.use, search)
+func (l *lowerer) relaxedCastUse(cast relaxedCast, objects blame) use {
+	in, _ := l.blameOf(cast.use, newBlames())
 	switch {
 	case objects.own || len(objects.pairings) == 0:
 		return cast.use
@@ -240,7 +239,7 @@ func (l *lowerer) relaxedCastUse(cast relaxedCast, objects blame, search *blames
 // make them so, else the pairings and call sites of the speculative code that may: the code
 // that made object's class (classUse), or the code that converts a source of an interface
 // on the way (uses, of the functions that convert it: funcUses).
-func (l *lowerer) objectBlame(t, object ir.Type, sources map[*ir.Interface][]ir.Type, uses map[interfaceSource][]use, search *blames, seen map[ir.Type]bool) blame {
+func (l *lowerer) objectBlame(t, object ir.Type, sources map[*ir.Interface][]ir.Type, uses map[interfaceSource][]use, seen map[ir.Type]bool) blame {
 	if seen[t] {
 		return blame{} // reached on another way, which is merged there
 	}
@@ -250,17 +249,17 @@ func (l *lowerer) objectBlame(t, object ir.Type, sources map[*ir.Interface][]ir.
 	switch from := t.(type) {
 	case *ir.Class:
 		if from == object || !from.Shape && isSubclassOf(object.(*ir.Class), from) {
-			b, _ = l.blameOf(l.classUse(object.(*ir.Class)), search)
+			b, _ = l.blameOf(l.classUse(object.(*ir.Class)), newBlames())
 		}
 	case *ir.Interface:
 		for _, source := range sources[from] {
-			inner := l.objectBlame(source, object, sources, uses, search, seen)
+			inner := l.objectBlame(source, object, sources, uses, seen)
 			if !inner.own && len(inner.pairings) == 0 {
 				continue // object isn't reached this way
 			}
 			var step blame
 			for _, u := range uses[interfaceSource{from, source}] {
-				ub, _ := l.blameOf(u, search)
+				ub, _ := l.blameOf(u, newBlames())
 				step = step.merge(ub)
 			}
 			// This way is the program's own if both its conversions to here and from here

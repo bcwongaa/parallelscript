@@ -100,21 +100,23 @@ type use struct {
 }
 
 // here is the code being lowered, as a use: the call site whose demand is being lowered
-// (site); the call sites whose demands made what the statement being lowered uses
-// (statementSites); the trial being run, for its own code (what an instance it is making
-// declares, or a function it made); or the instance being lowered (the first substitution
-// out from it with uses: an instance's, a class instance's or an erased copy's); else the
-// program's own. Trials and call sites that every fallback makes are none of these: their
-// code is what the instances it is in are.
+// (site); the trial being run, for its own code (what an instance it is making declares, or
+// a function it made); the call sites whose demands made what the statement being lowered
+// uses (statementSites); or the instance being lowered (the first substitution out from it
+// with uses: an instance's, a class instance's or an erased copy's); else the program's own.
+// Trials and call sites that every fallback makes are none of these: their code is what the
+// instances it is in are. A trial's report, of its own code, is taken back with the trial
+// even where a call site in it reported: a later fallback may make the site and not the
+// trial, and leaving the site out would leave it out where the program's own code lowers it.
 func (l *lowerer) here() use {
 	if l.site != nil {
 		return use{pairings: []pairing{*l.site}}
 	}
-	if len(l.statementSites) > 0 {
-		return use{pairings: slices.Clone(l.statementSites)}
-	}
 	if t := l.trial; t != nil && t.pairing.level < DeclaredInstances && (t.making > 0 || t.owns(l.function)) {
 		return use{pairings: []pairing{t.pairing}}
+	}
+	if len(l.statementSites) > 0 {
+		return use{pairings: slices.Clone(l.statementSites)}
 	}
 	for s := l.subst; s != nil; s = s.made {
 		if s.used {
@@ -122,13 +124,6 @@ func (l *lowerer) here() use {
 		}
 	}
 	return use{}
-}
-
-// atSites reports whether u is call sites' code: a report there stands in a trial, as another
-// function's does, so that a narrower lowering lowers the sites otherwise and the trial's
-// instance with them, rather than the trial being taken back for them (C176).
-func (u use) atSites() bool {
-	return len(u.pairings) > 0 && u.pairings[0].site != notASite
 }
 
 // use records that the code being lowered (here) makes or finds the instance of subst.
@@ -166,8 +161,10 @@ func newBlames() *blames { return &blames{found: map[*substitution]*blame{}} }
 // instance isn't made without the class instance either (outer): where its uses are own,
 // or blamed on later fallbacks' code, the class instance's blame may be; and it adds
 // nothing to the class instance's own blame. Instances that make each other are what
-// makes the first: a use being found adds nothing (cut), and what is found so is found
-// again where it is met another way.
+// makes the first: a use being found adds nothing (cut), which the use's own search adds
+// where it merges its users, so a search from one use is a union over what reaches it, and
+// each substitution is searched once (search is one query's: what a cut leaves out of a
+// substitution's blame is the query's own use's).
 func (l *lowerer) blameOf(u use, search *blames) (b blame, cut bool) {
 	switch {
 	case u.pairings != nil:
@@ -205,11 +202,7 @@ func (l *lowerer) blameOf(u use, search *blames) (b blame, cut bool) {
 			b = class
 		}
 	}
-	if cut {
-		delete(search.found, u.subst)
-	} else {
-		search.found[u.subst] = &b
-	}
+	search.found[u.subst] = &b
 	return b, cut
 }
 
@@ -284,11 +277,10 @@ func (l *lowerer) narrower() *Narrowing {
 		return nil
 	}
 	var more []pairing
-	search := newBlames()
 	for _, uses := range l.errorUses {
 		var b blame
 		for _, u := range uses {
-			ub, _ := l.blameOf(u, search)
+			ub, _ := l.blameOf(u, newBlames())
 			b = b.merge(ub)
 		}
 		if b.own || len(b.pairings) == 0 {

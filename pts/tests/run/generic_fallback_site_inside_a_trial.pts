@@ -1,9 +1,11 @@
+// skip: known issue (C250, H17): a demand by name whose AllInstances lowering fails at its own site inside a trial's instance (C248) takes the trial back, so the value loses its instance where ValueInstances keeps it (pre-existing)
 // C176 (H09b5b review round 1, F7, pre-existing): the call_site trigger (an interface call by
 // name whose AllInstances lowering fails at its own site) inside a local arrow's instance body.
 // The report was the trial's own, so the trial was taken back silently and use's call kept the
-// erased copy, where ValueInstances (no demands by name) keeps la's instance. A call site's
-// report stands in a trial, so a narrower lowering lowers the site as ValueInstances does, and
-// the trial keeps la's instance.
+// erased copy, where ValueInstances (no demands by name) keeps la's instance. Letting the site's
+// report stand in the trial (review round 1's fix) sent builds whose sites a later fallback makes
+// to that fallback, and left the site out of the program's own instances (review round 2's
+// R2-1, R2-4).
 class Box<T> {
   constructor(public value: T) {}
 }

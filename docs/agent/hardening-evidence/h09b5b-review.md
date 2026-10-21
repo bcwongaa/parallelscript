@@ -103,3 +103,73 @@ Your working tree has changed since the snapshot (`docs/SPEC.md`, `narrow_fallba
 **Verdict: not ready.** Fix F1–F3 before ticking the task; F4 should come with them.
 
 The debug and prototype CLIs aren't in the archive; they are at `/tmp/h09b5b/review1/pts-debug` and `/tmp/h09b5b/review1/pts-proto`, and `INDEX.txt` has the rebuild commands.
+
+## Round 2 (snapshot `snap-d`, `578b12d9f`)
+
+Archive: [h09b5b-review2-probes.tar.gz](h09b5b-review2-probes.tar.gz) (sha256 `0b898e65e9af8f24…`, 380 entries; `INDEX.txt`).
+
+---
+
+**Verdict: not ready.** Round 1's findings F1–F4 and F7 are fixed: none of the 20 round-1 probes prints worse than base, and emit-c for ordinary programs is unchanged. But three new probes (R2-1, R2-2, R2-4 below) print Node's output on base and a TypeError on snap-d. All three come from one change: a call site's report inside a trial now stands (`atSites`), and the rest of that statement counts as the site's code (`statementSites`).
+
+On your note: removing `tryInstance`'s `lowerPending()` calls does matter (finding WT). For removing `t.making++`, I found no case where it changes anything.
+
+Everything is in `/tmp/h09b5b/review2/h09b5b-review2-probes.tar.gz` (380 entries, sha256 `0b898e65…`); `INDEX.txt` lists each probe, output and overlay. Line numbers below are in snap-d.
+
+## Findings, most severe first
+
+**R2-1 (high): a site that ValueInstances makes, failing inside code only AllInstances makes, now sends the whole build to ValueInstances.**
+- Repro: `p/r2/demand_site_in_by_name_trial.pts`. `Bad.make<T>` is paired speculatively with the by-name `m.make`. Inside it, a rest-parameter value call `g(maybe(), x)` fails at its own site.
+- Base and Node print `by name 5`. Snap-d throws `TypeError: Expected Box<number>, got Box<any>`; debug shows "not within later spec=1 … falls back".
+- Cause: `reportIn` makes the trial foreign for any site report (`lower.go:438`, also `:1419`), so the report stands. The site's level is ValueInstances, but ValueInstances never lowers `Bad.make<number>`. `Within` therefore fails and the build falls back. Base just took that trial back.
+- Fix: only make the trial foreign when every site's level is at most the trial pairing's level; otherwise take the trial back. `proto/` (`atSitesWithin`) does this.
+
+**R2-2 (high): the same failure through `statementSites`.**
+- Repro: `p/r2/statement_site_in_by_name_trial.pts`. A rest-parameter call that lowers fine, then later in the same statement a `Dog[]` kept as an `Animal[]` (D-094). That is the trial's own failure, which base takes back silently.
+- Base and Node print `by name 1`; snap-d throws a TypeError.
+- Cause: `here()` puts `statementSites` ahead of the trial's own code (`narrowing.go:113`), so the D-094 report becomes the site's and stands.
+- Fix: check the trial's own code before `statementSites`. `proto2/` does this and also fixes R2-1 and R2-4.
+
+**R2-4 (high): leaving out a site removes it from every instance of the function it is in, including the program's own.**
+- Repro: `p/r2/site_key_across_instances.pts`. `f<T>` has a statement with the by-name call `m.make(1)` followed by a D-094 failure that only `f<Dog[]>` hits, and only a speculative trial makes `f<Dog[]>`.
+- Base and Node print `own instance 1 / la 2 / use 1`. Snap-d throws a TypeError inside the program's own `f<number>`.
+- Cause: the report stands (R2-2), the by-name site (AllInstances only, so `Within` doesn't apply) is left out, and sites are keyed by call node alone (`leavesOutSite`, `narrowing.go:328`).
+- Fix: key sites per instance, or never let a trial's report stand for a site node that the program's own code also lowered. `proto2` happens to avoid this case.
+
+**WT (high): the working tree's removal of `lowerPending()` (`instances.go:932`, `:939`, `:971`) matters.**
+- Repro: `p/r2/leftover_dangling_instance.pts`.
+  1. `w<Dog[]>` doesn't fit, so the erased copy of `Holder<Dog[]>.make` is left pending.
+  2. The next trial, `la2<Dog[]>`, lowers that leftover. `helper<Dog[]>`, which the leftover calls, is credited to that trial (`generics.go:1202` credits every instance made while a trial runs).
+  3. The trial fails on its own and is taken back, which drops `helper<Dog[]>`. The kept erased copy then emits `pts_value_from_number((pts_array *)…)` with the call missing, and clang rejects it (`out/ld.base.c`, `out/cc-saved-0.c`).
+- Base: its AllInstances C doesn't compile, so the build falls back and use throws a TypeError. Base's emit-c printed that uncompilable C, which makes this a natural C176 emit-c trigger.
+- Snap-d prints Node's output. The working tree has both AllInstances' and ValueInstances' C rejected, builds DeclaredInstances, and throws a TypeError.
+- Fix: keep the `lowerPending()` calls. The underlying bug is that instances made by code a trial doesn't own are added to `t.instances`/`t.funcs`.
+- `making++`: three probes (`total_trial_own_instance.pts`, `total_own_demand_context{,2}.pts`) give identical blames with and without it. In each case the `d.subst` chain reaches the same node-level pairing, or the program's own code had already hit the Box total.
+
+**R2-3 (medium): `blameOf` is exponential on strongly connected use graphs, and past `maxBlameSteps` the report counts as the program's own.**
+- Repro: `p/r2/dense_use_cycle_outside_N.pts`, N generic functions that all call each other, lowered outside any trial and reached only through a speculative `Holder<Dog[]>`.
+- Steps: 1,958 for N=6, 13,701 for N=7, over 100,000 for N≥8 (`narrowing.go:159`). From N=8 the program falls back as a whole, so victims throw; Node prints the victims' values.
+- Cause: results that were cut aren't cached (`:209`), so nodes are re-explored.
+- Fix: compute the merge by plain reachability with a visited set (merge is a union), and handle `outer` separately.
+
+**Gap (no regression): levels aren't capped by the code that contains the demand.**
+- Repro: `p/r2/value_pairing_inside_by_name_trial.pts`. A value pairing whose demand exists only inside a by-name trial's instance is blamed at ValueInstances' level. `Within` fails, and the build falls back like base (both TypeError; Node prints `by name 5`).
+- Related, by reading only: `valueLevel` puts object-literal methods defined with method syntax on a function-typed property (`asFunction`) at ValueInstances, though only AllInstances makes them. That is conservative.
+
+**Docs.** D-199 says "no call has fewer instances than the base's fallback gave it". R2-1, R2-2 and R2-4 contradict it until fixed.
+
+## Prototypes (`proto/`, `proto2/`)
+`proto2` (`proto2-vs-snap-d.patch`) fixes R2-1, R2-2 and R2-4. Under it:
+- the 22 `run/generic_fallback_*` tests match their `// expect:` blocks;
+- the 7 `errors/generic_fallback_*` guards keep their errors;
+- the driver tests pass.
+
+It does not fix R2-3 or the gap.
+
+## Checked and fine
+- **emit-c:** identical between base and snap-d on 1,459 of 1,480 programs from `pts/tests`, docs and examples; the 21 that differ are all the slice's tests. The 74 D-198 probes match except `total_cliff_interface`. Lowering leftovers outside the trial changed no generated C.
+- **Round-1 probes:** all reproduce as you described, and the working tree gives the same results on them. `fanout2_7`'s 0.6 → 2.0 s is the clang check on 67k lines.
+- **siteDemandAt for dispatched calls** (`p/r2/dispatched_rest_site.pts`): only the failing site loses its demand; the interface call, the value call and the method's other call keep theirs (matches Node; base loses two of them).
+- **Within and laterLowering:** the memo is consistent, and each level is lowered at most 8 times. When the later level's C is rejected the result is the same as base; I worked that out but didn't run it.
+- **relaxedCastUse:** its choice is sound.
+- **Trial-owned dense cycles** take one step and are fine (`p/r2/dense_use_cycle_N.pts`).

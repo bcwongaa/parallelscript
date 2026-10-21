@@ -435,7 +435,7 @@ func (l *lowerer) reportIn(d diagnostic.Diagnostic, u use) {
 		l.errors = append(l.errors, d)
 	}
 	l.noteUse(i, u)
-	if t := l.trial; t != nil && (t.making == 0 && !t.owns(l.function) || u.atSites()) {
+	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
 		t.foreign = true
 	}
 }
@@ -1416,7 +1416,7 @@ func (l *lowerer) expression(node *ast.Node) ir.Expr {
 // unexplainedFailure; in a trial, as report does, whether it is another function's.
 func (l *lowerer) noteUnexplained(node *ast.Node) {
 	l.unexplained, l.unexplainedUse = node, l.here()
-	if t := l.trial; t != nil && (t.making == 0 && !t.owns(l.function) || l.unexplainedUse.atSites()) {
+	if t := l.trial; t != nil && t.making == 0 && !t.owns(l.function) {
 		t.foreign = true
 	}
 }
