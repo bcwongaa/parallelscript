@@ -5,7 +5,11 @@ import "github.com/microsoft/typescript-go/internal/ast"
 // callSources joins every possible callee's returned sources. Parameter proofs still join
 // all callers, never a call-specific environment that a declaration cache could confuse.
 func (l *lowerer) callSources(call *ast.CallExpression, steps *int, depth int) functionSources {
-	callees := l.valueSources(call.Expression, steps, depth)
+	return (sourceProof{l: l}).callSources(call, steps, depth)
+}
+
+func (p sourceProof) callSources(call *ast.CallExpression, steps *int, depth int) functionSources {
+	callees := p.l.valueSources(call.Expression, steps, depth)
 	if callees == nil {
 		return nil
 	}
@@ -15,7 +19,7 @@ func (l *lowerer) callSources(call *ast.CallExpression, steps *int, depth int) f
 			return nil
 		}
 		*steps-- // joining cached return summaries still consumes work
-		sources = mergeFunctionSources(sources, l.returnSources(fn, steps, depth))
+		sources = mergeFunctionSources(sources, p.returnSources(fn, steps, depth))
 		if sources == nil {
 			return nil
 		}
@@ -26,8 +30,12 @@ func (l *lowerer) callSources(call *ast.CallExpression, steps *int, depth int) f
 // returnSources caches a synchronous non-generic function's entire return union (D-202).
 // Async/generator calls return wrappers, not what their bodies return. A source identity
 // stands for every enclosing generic instance, as in the ordinary value-source proof.
-func (l *lowerer) returnSources(fn *ast.Node, steps *int, depth int) (sources functionSources) {
-	flow := &l.valueFlow
+func (l *lowerer) returnSources(fn *ast.Node, steps *int, depth int) functionSources {
+	return (sourceProof{l: l}).returnSources(fn, steps, depth)
+}
+
+func (p sourceProof) returnSources(fn *ast.Node, steps *int, depth int) (sources functionSources) {
+	l, flow := p.l, p.cache()
 	if known, ok := flow.returns[fn]; ok {
 		return known
 	}
@@ -53,15 +61,15 @@ func (l *lowerer) returnSources(fn *ast.Node, steps *int, depth int) (sources fu
 		return nil // a factory can be generic through context, with no syntactic parameters
 	}
 	if fn.Body().Kind != ast.KindBlock {
-		return l.valueSources(fn.Body(), steps, depth+1)
+		return p.valueSources(fn.Body(), steps, depth+1)
 	}
-	return l.bodyReturnSources(fn.Body(), steps, depth+1)
+	return p.bodyReturnSources(fn.Body(), steps, depth+1)
 }
 
 // bodyReturnSources joins every explicit return, including unreachable and finally arms.
 // Falling through or returning nothing adds no functions; any unknown arm makes the union
 // unknown. Nested callables and classes have no returns belonging to this body.
-func (l *lowerer) bodyReturnSources(body *ast.Node, steps *int, depth int) functionSources {
+func (p sourceProof) bodyReturnSources(body *ast.Node, steps *int, depth int) functionSources {
 	sources := functionSources{}
 	var visit func(*ast.Node, int) bool
 	visit = func(node *ast.Node, depth int) bool {
@@ -75,7 +83,7 @@ func (l *lowerer) bodyReturnSources(body *ast.Node, steps *int, depth int) funct
 		}
 		if node.Kind == ast.KindReturnStatement {
 			if expression := node.Expression(); expression != nil {
-				sources = mergeFunctionSources(sources, l.valueSources(expression, steps, depth+1))
+				sources = mergeFunctionSources(sources, p.valueSources(expression, steps, depth+1))
 			}
 			return sources == nil
 		}

@@ -136,6 +136,22 @@ consume(source); consume(source); consume(source); consume(source);
 	assert.Equal(t, steps, 0)
 }
 
+func TestSourceBindingWriteAssertionsKeepFunctionProofsUnknown(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"(first as any)", "(<any>first)", "[(first as any)]"} {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+			value := "second"
+			if target[0] == '[' {
+				value = "[second]"
+			}
+			l, probe := valueFlowProbe(t, "function first(): void {} function second(): void {} "+target+" = "+value+"; const probe = first; probe;")
+			steps := maxValueFlowSteps
+			assert.Assert(t, l.valueSources(probe, &steps, 0) == nil)
+		})
+	}
+}
+
 // valueFlowProbe builds the source-only analysis and returns the expression statement
 // `probe;`, allowing tests to exercise proof limits without manufacturing checker nodes.
 func valueFlowProbe(t *testing.T, source string) (*lowerer, *ast.Node) {
@@ -146,7 +162,7 @@ func valueFlowProbe(t *testing.T, source string) (*lowerer, *ast.Node) {
 	c, release := program.TS.GetTypeCheckerForFile(t.Context(), program.Entry)
 	t.Cleanup(release)
 	l := &lowerer{program: program.TS, checker: c, valueFlow: valueFlow{
-		files: program.Modules, sources: map[*ast.Node]functionSources{}, active: map[*ast.Node]bool{},
+		files: program.Modules,
 	}}
 	l.collectOutsideAssignments(program.Modules)
 	var probe *ast.Node

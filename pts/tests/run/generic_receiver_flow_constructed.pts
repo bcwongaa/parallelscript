@@ -1,0 +1,51 @@
+// Constructed receiver proofs join every closed caller and preserve runtime receivers.
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+interface Maker { make<T>(value: T): Box<T>; }
+class Left implements Maker {
+  constructor(public origin: string) {}
+  make<T>(value: T): Box<T> { return new Box(value, this.origin); }
+}
+class Right implements Maker {
+  constructor(public origin: string) {}
+  make<T>(value: T): Box<T> { return new Box(value, this.origin); }
+}
+function numberUse(receiver: Maker): void {
+  const box: Box<number> = receiver.make(4);
+  console.log("number", box.origin, box.value + 1);
+}
+function stringUse(receiver: Maker): void {
+  const box: Box<string> = receiver.make("four");
+  console.log("string", box.origin, box.value.length);
+}
+function choose(): boolean { return false; }
+function construct(flag: boolean): Maker {
+  if (flag) return new Left("returned-left");
+  return new Right("returned-right");
+}
+function relay(receiver: Maker): void { numberUse(receiver); }
+const left: Maker = new Left("left");
+const right: Maker = new Right("right");
+const alias = left;
+numberUse(alias);
+numberUse(right);
+stringUse(choose() ? left : right);
+relay(construct(true));
+relay(construct(false));
+const constructAlias = construct;
+stringUse(constructAlias(false));
+let reads = 0;
+function evaluated(): Maker { reads++; return new Left("read-once"); }
+numberUse(evaluated());
+console.log("receiver evaluations", reads);
+
+// expect:
+// number left 5
+// number right 5
+// string right 4
+// number returned-left 5
+// number returned-right 5
+// string returned-right 4
+// number read-once 5
+// receiver evaluations 1

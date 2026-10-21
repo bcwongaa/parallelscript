@@ -199,8 +199,8 @@ console.log(b.value + 1);
 
 func TestABuildThatOnlyItsDemandsByNameStopKeepsTheGenericArrowsInstances(t *testing.T) {
 	t.Parallel()
-	// Unrelated is a Maker to tsc (structurally), so the interface call's demand by name
-	// pairs with its make for string, which makes a Weird<string>, whose `inc` doesn't
+	// The receiver's array read is unknown. Unrelated is a Maker to tsc (structurally),
+	// so the demand pairs with its make for string, which makes a Weird<string>, whose `inc` doesn't
 	// lower, after its trial. The build falls back to ValueInstances first, which keeps
 	// the generic arrow's instance (D-190), not to DeclaredInstances (D-191).
 	entry := writeSource(t, `class Box<T> {
@@ -234,7 +234,8 @@ class Unrelated {
 function main(): void {
   const named = <T>(x: T): Box<T> => new Box(x);
   const b: Box<number> = named(5);
-  const m: Maker = new Good();
+  const held: Maker[] = [new Good()];
+  const m: Maker = held[0];
   const s: Box<string> = m.make("s");
   console.log(b.value, s.value, new Unrelated().make(1).value);
 }

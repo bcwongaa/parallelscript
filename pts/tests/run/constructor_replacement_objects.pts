@@ -1,0 +1,21 @@
+// skip: known issue (C256, H29): class constructors returning replacement objects are ignored, including inherited constructors (pre-existing on base and current)
+class Box<T> { constructor(public value: T, public origin: string) {} }
+interface Maker { make<T>(value: T): Box<T>; }
+class Replacement implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "replacement"); }
+}
+class Constructed implements Maker {
+  constructor() { return new Replacement(); }
+  make<T>(value: T): Box<T> { return new Box(value, "constructed"); }
+}
+class Child extends Constructed {}
+function use(receiver: Maker): void {
+  const box: Box<number> = receiver.make(3);
+  console.log(box.origin, box.value + 1);
+}
+use(new Constructed());
+use(new Child());
+
+// expect:
+// replacement 4
+// replacement 4

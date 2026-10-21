@@ -1,0 +1,56 @@
+// Unknown receiver proofs never replace the checked dynamic boundary with a static guess.
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+interface Maker { make<T>(value: T): Box<T>; }
+class Left implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "left"); }
+}
+class Right implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "right"); }
+}
+function use(label: string, receiver: Maker): void {
+  const numberBox: Box<number> = receiver.make(9);
+  const stringBox: Box<string> = receiver.make("nine");
+  console.log(label, numberBox.origin, stringBox.origin, numberBox.value + 1, stringBox.value.length);
+}
+const literal = {
+  make<T>(value: T): Box<T> { return new Box(value, "literal"); }
+};
+const held: any[] = [new Left(), new Right(), literal];
+const checked: Maker = held[2];
+use("structural any", checked);
+use("class any", held[1]);
+const unknown: unknown[] = held;
+use("unknown", unknown[0] as Maker);
+let mutable: Maker = new Left();
+mutable = new Right();
+use("mutable", mutable);
+let captured: Maker = new Left();
+function change(): void { captured = new Right(); }
+change();
+use("capture mutation", captured);
+const escaped = use;
+escaped("escaped consumer", new Right());
+function generic<U>(marker: U): Maker { console.log("generic", marker); return new Right(); }
+use("generic factory", generic(7));
+const contextual: <U>(marker: U) => Maker = marker => {
+  console.log("contextual", marker);
+  return new Left();
+};
+use("contextual factory", contextual("s"));
+const property = { receiver: new Right() };
+use("property", property.receiver);
+
+// expect:
+// structural any literal literal 10 4
+// class any right right 10 4
+// unknown left left 10 4
+// mutable right right 10 4
+// capture mutation right right 10 4
+// escaped consumer right right 10 4
+// generic 7
+// generic factory right right 10 4
+// contextual s
+// contextual factory left left 10 4
+// property right right 10 4

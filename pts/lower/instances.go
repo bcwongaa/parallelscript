@@ -25,22 +25,23 @@ import (
 // (whose erased signature is erased), of a dispatched generic method (method), or of a
 // generic method named name through an interface or of an object literal's type (D-191).
 type demand struct {
-	in        *ir.Func    // the function the call is in
-	callee    *ast.Symbol // what the call's callee names, if it is a name
-	source    *ast.Node   // actual callee or captured value expression (D-201/D-205); nil for methods
-	dropped   bool        // in code a failed trial dropped (D-190)
-	erased    *ir.FuncType
-	method    *genericFunc
-	name      string             // a method's: a dispatched one's, or one that a class's or an object literal's generic method of that name implements
-	shape     *ir.Class          // for a call of an object literal's method through the literal's type, its shape: only its literals' methods
-	receiver  *checker.Type      // for a call by name (D-191), its object's type, which only classes and literals of types assignable to it may be
-	signature *checker.Signature // the call's resolved signature
-	identity  string             // its instantiated checker types (demandIdentity), for narrowing only
-	subst     *substitution      // the instance being lowered where the call is, if any
-	want      *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
-	key       string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
-	chained   bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
-	node      *ast.Node
+	in             *ir.Func    // the function the call is in
+	callee         *ast.Symbol // what the call's callee names, if it is a name
+	source         *ast.Node   // actual callee or captured value expression (D-201/D-205); nil for methods
+	receiverSource *ast.Node   // actual method receiver expression, not its static type (D-206)
+	dropped        bool        // in code a failed trial dropped (D-190)
+	erased         *ir.FuncType
+	method         *genericFunc
+	name           string             // a method's: a dispatched one's, or one that a class's or an object literal's generic method of that name implements
+	shape          *ir.Class          // for a call of an object literal's method through the literal's type, its shape: only its literals' methods
+	receiver       *checker.Type      // for a call by name (D-191), its object's type, which only classes and literals of types assignable to it may be
+	signature      *checker.Signature // the call's resolved signature
+	identity       string             // its instantiated checker types (demandIdentity), for narrowing only
+	subst          *substitution      // the instance being lowered where the call is, if any
+	want           *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
+	key            string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
+	chained        bool               // the outermost call of a `?.` chain, whose type is the chain's (C179)
+	node           *ast.Node
 	// The last fallback doesn't make it (DeclaredInstances, narrowable): a constant key's
 	// (C185), one with a rest parameter (C170) or a dynamic result (D-190); nor does
 	// ValueInstances (allOnly): a demand by name (D-191), an adapter's or a wrapper's
@@ -434,6 +435,7 @@ func (l *lowerer) dispatchedInstanceCall(call *ast.CallExpression, generic *gene
 		return nil, false
 	}
 	d.method, d.name = generic, method.Name
+	d.receiverSource = ast.SkipParentheses(call.Expression).Expression()
 	return l.instanceCall(d, call, receiver, method.Name, func(object ir.Expr, args []ir.Expr) ir.Expr {
 		object = &ir.ClassCast{X: object, To: &ir.Interface{}} // any object, whose method is found by name
 		return l.fromErasedFor(d, &ir.InterfaceCall{Method: method, Args: append([]ir.Expr{object}, l.erasedArguments(args, method.Params, call.AsNode())...)}, call.AsNode())
@@ -494,7 +496,8 @@ func (l *lowerer) keyedInstanceCall(call *ast.CallExpression, receiver ir.Expr, 
 		return l.withReceiver(receiver, func(object ir.Expr) ir.Expr { return erased(object, args) }), true
 	}
 	d.name, d.shape = names[0], shape
-	d.receiver = l.instantiate(l.checker.GetNonNullableType(l.typeAt(ast.SkipParentheses(call.Expression).Expression())))
+	d.receiverSource = ast.SkipParentheses(call.Expression).Expression()
+	d.receiver = l.instantiate(l.checker.GetNonNullableType(l.typeAt(d.receiverSource)))
 	object := l.newLocal("callee", receiver.Type())
 	locals := make([]*ir.Local, len(passed))
 	erasedArgs, typedArgs := make([]ir.Expr, len(passed)), make([]ir.Expr, len(passed))
@@ -811,7 +814,7 @@ func (l *lowerer) specialize() bool {
 // function to the call's resolved signature, if that instance can be called as one of the
 // call's signature.
 func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
-	if !l.sourceMayReach(d, v) || !l.reaches(d, v) {
+	if !l.sourceMayReach(d, v) || !l.reaches(d, v) || d.name != "" && !l.receiverMayReach(d, nil) {
 		return
 	}
 	var p pairing
@@ -1058,7 +1061,7 @@ func shareCaptures(funcs []*ir.Func) {
 // instance, so that the call takes g's erased copy rather than finding an ancestor's
 // instance.
 func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
-	if g.static != nil || g.node.Name().Text() != d.name || d.method != nil && !descendsFrom(g.class, d.method.class) || d.method == nil && !l.mayReceive(d, g.class) {
+	if g.static != nil || g.node.Name().Text() != d.name || d.method != nil && !descendsFrom(g.class, d.method.class) || d.method == nil && !l.mayReceive(d, g.class) || !l.receiverMayReach(d, g.class) {
 		return
 	}
 	p := l.pairingOf(d, g, DeclaredInstances)

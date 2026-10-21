@@ -1,0 +1,86 @@
+// One constructed source AST stands for every receiver and lexical capture made there.
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+interface Maker { make<T>(value: T): Box<T>; }
+type Factory = <T>(value: T) => Box<T>;
+class Receiver implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/" + this.calls);
+  }
+}
+function construct(label: string): Maker { return new Receiver(label); }
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(9);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("nine");
+  console.log(label, box.origin, box.value.length);
+}
+const first = read(construct("first"));
+const second = read(construct("second"));
+numberUse("first receiver", first);
+stringUse("second receiver", second);
+stringUse("same first receiver", first);
+class Parent implements Maker {
+  make<T>(value: T): Box<T> { return new Box(value, "parent"); }
+}
+class Inherited extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> { return new Box(value, "override"); }
+}
+function inheritedUse(receiver: Maker): void {
+  const box: Box<number> = receiver.make(4);
+  console.log("inheritance", box.origin, box.value + 1);
+}
+inheritedUse(new Inherited());
+inheritedUse(new Override());
+inheritedUse(new Parent());
+class GenericReceiver<U> implements Maker {
+  constructor(public marker: U) {}
+  make<T>(value: T): Box<T> {
+    console.log("generic marker", this.marker);
+    return new Box(value, "generic");
+  }
+}
+function generic<U>(marker: U): Maker { return new GenericReceiver(marker); }
+numberUse("generic number", read(generic(7)));
+stringUse("generic string", read(generic("s")));
+function captured<U>(marker: U): Factory {
+  let calls = 0;
+  const value = <T,>(argument: T): Box<T> => {
+    calls++;
+    console.log("lexical", marker, calls);
+    return new Box(argument, "captured");
+  };
+  const object: Maker = { make: value };
+  return object.make;
+}
+const capturedFirst = captured(1);
+const capturedSecond = captured("two");
+numberUse("captured first", capturedFirst);
+stringUse("captured second", capturedSecond);
+stringUse("captured first again", capturedFirst);
+
+// expect:
+// first receiver first/1 10
+// second receiver second/1 4
+// same first receiver first/2 4
+// inheritance parent 5
+// inheritance override 5
+// inheritance parent 5
+// generic marker 7
+// generic number generic 10
+// generic marker s
+// generic string generic 4
+// lexical 1 1
+// captured first captured 10
+// lexical two 1
+// captured second captured 4
+// lexical 1 2
+// captured first again captured 4

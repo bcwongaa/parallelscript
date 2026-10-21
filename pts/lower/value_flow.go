@@ -6,20 +6,44 @@ import (
 	"github.com/microsoft/typescript-go/internal/ast"
 )
 
-// functionSources is a proven over-approximation of a value's function declarations or
-// exact wrapper creation sites. nil means unknown, not no sources. One source stands for
-// all its closures and enclosing instances, never a particular capture or receiver.
+// functionSources is a proven over-approximation of source identities: function
+// declarations/wrapper sites, or class declarations in a separate receiver proof (D-206).
+// nil means unknown, not no sources. An identity covers every runtime value at its site.
 type functionSources map[*ast.Node]bool
 
 // valueFlow proves immutable sources, closed named parameters (D-201) and synchronous
 // non-generic returns (D-202). Unknown sources keep the old type-compatible pairing.
 type valueFlow struct {
-	files    []*ast.SourceFile
-	sources  map[*ast.Node]functionSources
-	returns  map[*ast.Node]functionSources
-	active   map[*ast.Node]bool
-	uses     map[*ast.Symbol]*functionValueUses
-	wrappers map[*ast.Node]bool
+	sourceCache
+	receivers sourceCache // a function-return summary is never a receiver-return summary
+	files     []*ast.SourceFile
+	uses      map[*ast.Symbol]*functionValueUses
+	wrappers  map[*ast.Node]bool
+}
+
+type sourceCache struct {
+	sources map[*ast.Node]functionSources
+	returns map[*ast.Node]functionSources
+	active  map[*ast.Node]bool
+}
+
+// sourceProof shares traversal and budgets, but not summaries, between the two kinds.
+// A receiver call still resolves its callees with a function proof.
+type sourceProof struct {
+	l         *lowerer
+	receivers bool
+}
+
+func (p sourceProof) cache() *sourceCache {
+	cache := &p.l.valueFlow.sourceCache
+	if p.receivers {
+		cache = &p.l.valueFlow.receivers
+	}
+	if cache.sources == nil {
+		cache.sources = map[*ast.Node]functionSources{}
+		cache.active = map[*ast.Node]bool{}
+	}
+	return cache
 }
 
 type functionValueUses struct {
@@ -50,21 +74,20 @@ func (l *lowerer) sourceMayReach(d *demand, v *erasedValue) bool {
 	if source == nil {
 		return true
 	}
-	flow := &l.valueFlow
-	if flow.sources == nil {
-		flow.sources = map[*ast.Node]functionSources{}
-		flow.active = map[*ast.Node]bool{}
-	}
 	steps := maxValueFlowSteps
 	sources := l.valueSources(d.source, &steps, 0)
 	return sources == nil || sources[source]
 }
 
-func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources functionSources) {
+func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) functionSources {
+	return (sourceProof{l: l}).valueSources(node, steps, depth)
+}
+
+func (p sourceProof) valueSources(node *ast.Node, steps *int, depth int) (sources functionSources) {
 	if node == nil {
 		return nil
 	}
-	flow := &l.valueFlow
+	l, flow := p.l, p.cache()
 	if known, ok := flow.sources[node]; ok {
 		return known
 	}
@@ -77,16 +100,28 @@ func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources f
 		delete(flow.active, node)
 		flow.sources[node] = sources
 	}()
-	if flow.wrappers[node] {
+	if p.receivers && (l.isDynamicSource(node) || l.storedDynamic(node)) {
+		return nil
+	}
+	if !p.receivers && l.valueFlow.wrappers[node] {
 		return functionSources{node: true}
 	}
-	next := func(child *ast.Node) functionSources { return l.valueSources(child, steps, depth+1) }
+	next := func(child *ast.Node) functionSources { return p.valueSources(child, steps, depth+1) }
 	switch node.Kind {
 	case ast.KindArrowFunction, ast.KindFunctionExpression:
-		return functionSources{node: true}
-	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindTypeAssertionExpression,
-		ast.KindNonNullExpression, ast.KindSatisfiesExpression:
+		if !p.receivers {
+			return functionSources{node: true}
+		}
+	case ast.KindNewExpression:
+		if p.receivers {
+			return l.constructedReceiver(node, steps, depth+1)
+		}
+	case ast.KindParenthesizedExpression, ast.KindNonNullExpression, ast.KindSatisfiesExpression:
 		return next(node.Expression())
+	case ast.KindAsExpression, ast.KindTypeAssertionExpression:
+		if !p.receivers {
+			return next(node.Expression()) // checked object assertions may change representation
+		}
 	case ast.KindConditionalExpression:
 		expr := node.AsConditionalExpression()
 		return mergeFunctionSources(next(expr.WhenTrue), next(expr.WhenFalse))
@@ -103,9 +138,9 @@ func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources f
 		ast.KindVoidExpression:
 		return functionSources{} // these cannot be a function, even when asserted as one
 	case ast.KindCallExpression:
-		return l.callSources(node.AsCallExpression(), steps, depth+1)
+		return p.callSources(node.AsCallExpression(), steps, depth+1)
 	case ast.KindParameter:
-		return l.parameterSources(node, steps, depth+1)
+		return p.parameterSources(node, steps, depth+1)
 	case ast.KindIdentifier:
 		symbol := l.readSymbol(node)
 		if symbol == l.checker.GetUndefinedSymbol() {
@@ -117,7 +152,7 @@ func (l *lowerer) valueSources(node *ast.Node, steps *int, depth int) (sources f
 		declaration := symbol.ValueDeclaration
 		switch declaration.Kind {
 		case ast.KindFunctionDeclaration:
-			if len(symbol.Declarations) == 1 && declaration.Body() != nil && !l.functionValueUses(symbol).written {
+			if !p.receivers && len(symbol.Declarations) == 1 && declaration.Body() != nil && !l.functionValueUses(symbol).written {
 				return functionSources{declaration: true}
 			}
 		case ast.KindVariableDeclaration:
@@ -151,7 +186,8 @@ func mergeFunctionSources(a, b functionSources) functionSources {
 // parameterSources joins every caller only when the declaration cannot be called through
 // a value. Mutation, generic contexts, defaults, patterns, rest and missing/spread arguments
 // are deliberately unknown. Cycles through callers are caught by valueSources' active set.
-func (l *lowerer) parameterSources(parameter *ast.Node, steps *int, depth int) functionSources {
+func (p sourceProof) parameterSources(parameter *ast.Node, steps *int, depth int) functionSources {
+	l := p.l
 	fn := parameter.Parent
 	if fn.Kind != ast.KindFunctionDeclaration || fn.Body() == nil || len(fn.TypeParameters()) != 0 ||
 		ast.HasSyntacticModifier(fn, ast.ModifierFlagsExport) {
@@ -187,7 +223,7 @@ func (l *lowerer) parameterSources(parameter *ast.Node, steps *int, depth int) f
 		if index >= len(args) || slices.ContainsFunc(args, func(arg *ast.Node) bool { return arg.Kind == ast.KindSpreadElement }) {
 			return nil
 		}
-		sources = mergeFunctionSources(sources, l.valueSources(args[index], steps, depth))
+		sources = mergeFunctionSources(sources, p.valueSources(args[index], steps, depth))
 		if sources == nil {
 			return nil
 		}
@@ -198,6 +234,7 @@ func (l *lowerer) parameterSources(parameter *ast.Node, steps *int, depth int) f
 // functionValueUses indexes all source references once, including uses outside a
 // declaration's body and shorthand values. Only its own declaration name is skipped:
 // imports, export specifiers, type queries and aliased calls make a consumer non-closed.
+// Class references share the write index: assignedAnywhere does not track class bindings.
 func (l *lowerer) functionValueUses(symbol *ast.Symbol) *functionValueUses {
 	flow := &l.valueFlow
 	if flow.uses == nil {
@@ -206,13 +243,13 @@ func (l *lowerer) functionValueUses(symbol *ast.Symbol) *functionValueUses {
 		visit = func(node *ast.Node) bool {
 			if node.Kind == ast.KindIdentifier {
 				s := l.readSymbol(node)
-				if s != nil && s.ValueDeclaration != nil && s.ValueDeclaration.Kind == ast.KindFunctionDeclaration && node != s.ValueDeclaration.Name() {
+				if s != nil && s.ValueDeclaration != nil && (s.ValueDeclaration.Kind == ast.KindFunctionDeclaration || s.ValueDeclaration.Kind == ast.KindClassDeclaration) && node != s.ValueDeclaration.Name() {
 					uses := flow.uses[s]
 					if uses == nil {
 						uses = &functionValueUses{}
 						flow.uses[s] = uses
 					}
-					uses.written = uses.written || ast.IsAssignmentTarget(node)
+					uses.written = uses.written || sourceBindingWritten(node)
 					parent := node.Parent
 					for parent.Kind == ast.KindParenthesizedExpression {
 						parent = parent.Parent
@@ -235,4 +272,23 @@ func (l *lowerer) functionValueUses(symbol *ast.Symbol) *functionValueUses {
 		return uses
 	}
 	return &functionValueUses{}
+}
+
+// Assertions are legal assignment targets, but IsAssignmentTarget does not climb them
+// from their identifier. An exhausted wrapper walk conservatively marks a binding written.
+func sourceBindingWritten(node *ast.Node) bool {
+	for depth := 0; depth < maxValueFlowDepth; depth++ {
+		parent := node.Parent
+		if parent == nil {
+			return ast.IsAssignmentTarget(node)
+		}
+		switch parent.Kind {
+		case ast.KindParenthesizedExpression, ast.KindNonNullExpression, ast.KindAsExpression,
+			ast.KindTypeAssertionExpression, ast.KindSatisfiesExpression:
+			node = parent
+		default:
+			return ast.IsAssignmentTarget(node)
+		}
+	}
+	return true
 }

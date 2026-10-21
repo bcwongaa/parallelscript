@@ -23,17 +23,28 @@ func (l *lowerer) wrapperSource(node *ast.Node) *ast.Node {
 		}
 		node = callee.Parent
 	}
-	// A shared generic AST can lower as a wrapper in one instance and as a field read in
-	// another. Do not give that expression a wrapper-only source set (D-205), including
-	// contextually generic functions whose syntax declares no type parameters.
-	for parent, depth := node.Parent, 0; parent != nil && depth < maxValueFlowDepth; parent, depth = parent.Parent, depth+1 {
-		if ast.IsClassLike(parent) && len(parent.TypeParameters()) != 0 ||
-			ast.IsFunctionLike(parent) && len(l.checker.GetSignatureFromDeclaration(parent).TypeParameters()) != 0 {
-			return nil
-		}
-		if parent.Kind == ast.KindSourceFile {
-			return node
-		}
+	steps := maxValueFlowSteps
+	if l.sourceOutsideGenerics(node, &steps) {
+		return node
 	}
 	return nil
+}
+
+// A shared generic AST can lower differently in different instances. Creation proofs
+// exclude it (D-205/D-206), including contextually generic functions with no syntax params.
+func (l *lowerer) sourceOutsideGenerics(node *ast.Node, steps *int) bool {
+	for parent, depth := node.Parent, 0; parent != nil && depth < maxValueFlowDepth; parent, depth = parent.Parent, depth+1 {
+		if *steps == 0 {
+			return false
+		}
+		*steps--
+		if ast.IsClassLike(parent) && len(parent.TypeParameters()) != 0 ||
+			ast.IsFunctionLike(parent) && len(l.checker.GetSignatureFromDeclaration(parent).TypeParameters()) != 0 {
+			return false
+		}
+		if parent.Kind == ast.KindSourceFile {
+			return true
+		}
+	}
+	return false
 }
