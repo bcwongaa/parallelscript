@@ -428,3 +428,86 @@ Everything below I ran myself. Probe paths are relative to `/tmp/h09b5/review-a/
 
 - **Probes, overlays, mutation results and `INDEX.txt`:** `/tmp/h09b5/review-a/r5/`.
 - **Archive:** `/tmp/h09b5/h09b5a-review5-probes.tar.gz` (created last). The binaries I built are deleted; `INDEX.txt` has the rebuild command.
+
+## Round 6, a confirmation (snapshot `/tmp/h09b5/snap-f`: the code of `699ec2f6b`)
+
+Probes and checks: [h09b5a-review6-probes.tar.gz](h09b5a-review6-probes.tar.gz) (sha256 `45fe0063aa861239…`, 248 entries; `INDEX.txt`).
+
+---
+
+**Verdict: ready.** The commit is my round-5 prototype and nothing else changed in `pts/`. All my probes from rounds 1–5 behave as in round 5, and none is worse than on the base. The docs need a handful of small corrections, listed in section 3; none of them is about the code.
+
+### 1. The code change (verified)
+
+- **`git diff e40e4d3c7 699ec2f6b -- pts/`** touches three files:
+  - `pts/lower/generics.go`: compared with my round-5 `keeptotals` overlay, it differs only in comments and in writing the total's key inline. `countInstance` now increments `recursionBudget{nil, decl}` for good and appends only the root's budget to `trial.counted`.
+  - `pts/lower/instances.go`: a comment on `trial.counted`.
+  - the new test `errors/generic_polymorphic_recursion_failed_trial_work.pts`.
+- **e40e4d3c7 is round 5's snapshot:** its `pts/` diff from `0bdaa4d8f` is, file by file, the same as `/tmp/h09b5/parent/round4.diff`.
+- **snap-f matches the commit:** `generics.go`, `instances.go`, `generic_classes.go`, `lower.go` and the new test are byte-identical to `699ec2f6b`.
+
+### 2. Probes rerun on snap-f (verified)
+
+- **All 78 probes from rounds 1–5** (`all_probes.tsv`):
+  - 42 match Node.
+  - No probe matches Node on the base and not on snap-f.
+  - The other 36 behave as in round 5: honest or conservative PTS1001s, `branch_box_deep` and `branching_dispatched_deep` throwing at n=9 (by design), and the issues the base has too (C249, `id_array_dispatched`, `total_cliff_interface`).
+- **What changed from round 5 is only finding 1's fix.** `giveback_work` now takes 2.3 s with two jobs running (round 5: 150 s); its first error is a Map conversion (I didn't check the full list for helper's total).
+- **Other timings:**
+
+| Probe | snap-f | Base |
+|---|---|---|
+| `giveback_classes` | 2.6 s | — |
+| `fanout2_9` | 5.2 s | — |
+| `branching_dispatched` | 9.8 s, 251 MB | — |
+| `branch_roots_40` | 0.5 s, PTS1001 | — |
+| `c_method_instances_per_declaration` | 43 s, prints 33264 | 47 s |
+
+- **The slice's 27 tests built by both CLIs** (`red_on_base.tsv`): all pass on snap-f. On the base all fail except `_finite_chains` and the guard `_values_read_back_from_any`.
+
+### 3. Docs: inaccurate, overstated or missing
+
+#### D-198 (`docs/DECISIONS.md`)
+
+- **The quoted per-root message is incomplete.** D-198 quotes "polymorphic recursion that makes more than 256 instances (`f`)". The code prints "… (`f`) from one call is not supported yet" (seen in `branch_arrays_deep`).
+- **"None worse case by case" overstates the matrix.** Ranked strictly, five m8 cases (`arrowconst_70`, `decl_70`, `method_70`, `override_70`, `static_70`) go from the base's PTS1001 to the checked TypeError past depth 64. The known gaps admit this, but the sentence in Reason should name them. `h09b5a.md` says the same thing.
+- **The emit-c count is stale.** D-198 cites 1,137 programs. The final comparison is `csize/round6.json`: 1,143 programs, 26 differ, all the slice's `generic_*` tests plus `mini_query_engine`.
+- **"Speculative recursion print[s] Node's output" holds for functions only.** Speculative class recursion (`spec_class_recursion`, `spec_class_recursion2`) is still PTS1001. C247 covers only part of that case.
+
+#### SPEC §3.7, line 238
+
+Accurate. Its "anything past the 1024 … is a compile error" ignores the AllInstances-only fallback, which D-198's known gaps record.
+
+#### `docs/agent/hardening-evidence/h09b5a.md`
+
+- **emit-c is stale:** it cites "1,139 … `csize/round4.json`"; it should be round6.json with 1,143 programs.
+- **"None worse case by case":** as for D-198.
+- **Two RED-on-base claims are slightly off:**
+  - `_direct` on the base is PTS1001 followed by PTS9001 (exit 3), not just "PTS1001 at the count".
+  - `_value_and_class` on the base is PTS9001 (exit 3), but it is grouped with the TypeError-after-fallback tests.
+- **The Round 2 disposition says "F4 … 4.4 s now",** while its own Costs section says 8.9 s after round 4.
+- **"Round 6: see below" is still empty.**
+- **Verified as stated:** the mutation list (`TestCompilerFailsCleanly` does cover `errors/` with a 1-minute hang check, `compiler_smoke_test.go:48`), the remaining RED claims, the suite numbers and the skip arithmetic (9 + 9 + 3 + 2 = 23).
+
+#### `docs/reviews/2026-10-13-final/CONSOLIDATED.md`
+
+- **C176 is missing a trigger.** The row says H09b5a removed the limit's report inside trials as a trigger, but not that since round 4 a total's report stands inside a trial. That is a remaining trigger (`total_cliff_interface`, the same as on the base) and belongs in this row.
+- **C184 overstates the RED list.** Its RED/GREEN list includes `_finite_chains`, which passes on the base: it is a guard against round 1's depth 32. The errors tests `copied_results`, `erased_copies`, `branching_methods` and `past_the_total` are RED on the base only by message wording; the base was PTS1001 too.
+- **C184 omits the fallback:** "past a declaration's total (1024), PTS1001" leaves out the AllInstances fallback.
+- **The H09b5a paragraph pre-empted this round:** it says "round 6 ready" before this round had reported. That now holds, but the paragraph should be confirmed rather than written ahead.
+- **C172, C177, C246, C247, C248, C249** are accurate.
+
+#### `PROGRESS.md`
+
+- **"Current slice" and the session log** also said "complete" and "round 6 ready" before this round's verdict.
+- **"Found by H09b5a"** could add the total's fallback trigger (C176).
+- **"Next task"** is accurate.
+
+#### `docs/agent/HARDENING_PLAN.md`, H09b5a row
+
+The test list is now complete: 20 run tests, 7 error tests and both lowering tests. But it calls all of them "RED tests". `_finite_chains` passes on the base (a guard), and the four errors tests above are RED only by wording.
+
+### Files
+
+- **Checks, probe results, `red_on_base.tsv` and `INDEX.txt`:** `/tmp/h09b5/review-a/r6/`.
+- **Archive:** `/tmp/h09b5/h09b5a-review6-probes.tar.gz` (created last).
