@@ -1,0 +1,26 @@
+// Branching polymorphic recursion with generic class results reached through a typed call of
+// a generic function value (H09b5, D-198): the call's trial (D-190) makes r's tree by direct
+// calls, which stops at its root's budget for r, where the calls take the erased copy (a
+// Box's instance converts with a check), before the tree's Box instances reach Box's total.
+// They passed a budget of their own inside the trial first, so the trial was taken back and
+// the call kept the erased copy from its first level (review round 4; the base: PTS1001).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function r<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    r<[T]>([x], n - 1);
+    r<{ v: T }>({ v: x }, n - 1);
+  }
+  return new Box(x);
+}
+function use(g: <T>(x: T, n: number) => Box<T>): number {
+  return g(7, 3).value;
+}
+try {
+  console.log(use(r));
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// expect:
+// 7

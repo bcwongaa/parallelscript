@@ -268,3 +268,86 @@ D-198 in snap-c is still round 1's version (depth 32, 1024 per declaration, the 
 
 - **Probes, overlays and results:** `/tmp/h09b5/review-a/r3/` (start with `INDEX.txt`).
 - **Archive:** `/tmp/h09b5/h09b5a-review3-probes.tar.gz` (created last). The CLIs I built are deleted; `INDEX.txt` has the rebuild command.
+
+## Round 4 (snapshot `/tmp/h09b5/snap-d`: `aa42491a5` plus the round-3 changes, committed as `0bdaa4d8f`)
+
+Probes, tools and overlays: [h09b5a-review4-probes.tar.gz](h09b5a-review4-probes.tar.gz) (sha256 `fff4658a6487f159…`, 93 entries; `INDEX.txt`).
+
+---
+
+**Verdict: not ready.** The per-root design fixes everything I reported in round 3, but its give-back opens a new hole. A class instance that stays after a failed trial gets its budget back, so a valid program can make the compiler run effectively forever. The base fails on that program in 0.3 s. A small fix, prototyped below, closes it.
+
+Everything below I ran myself. Probe paths are relative to `/tmp/h09b5/review-a/r4/`.
+
+### 1. HIGH (verified): the compiler effectively never finishes once kept class instances get their budget back
+
+- **What happens:**
+  - A trial that is taken back keeps the class instances it made but gives back their count (`trial.counted`).
+  - Those classes' bodies are lowered later, outside the trial, and can make new typed calls.
+  - The new calls' trials chain back to the same root, whose budget is back at zero. If those trials fail too, their class instances also stay, uncounted.
+  - The class instances then form a binary tree that only the class depth (64) bounds: about 2^64.
+- **`p/giveback_classes.pts`:**
+  - Every call through `g` pairs with `val` (D-190).
+  - `val`'s instance makes a `Node<U>`, then fails. Converting `Map<string, U>` to `Map<string, unknown>` is PTS1001 for a typed U, the trial's own failure.
+  - `Node`'s methods `left` and `right` make typed calls through `g` for `[T]` and `{ v: T }`.
+  - Node prints `1 7`.
+- **Results:**
+
+| Build | Result |
+|---|---|
+| Base | PTS9001 in 0.31 s |
+| snap-d `emit-c` | still running at the 900 s timeout, 1.5 GB RSS (`giveback_long.txt`) |
+| depth limit lowered to 10 (overlay) | 25.5 s, 532,185 lines of C, 2,046 distinct `Node<…>` instances (2^11 − 2) |
+| depth limit lowered to 12 (overlay) | still running at the 300 s timeout |
+
+- **Why simply keeping class counts isn't the fix:** with class counts never given back (`overlay/keepclasscounts`), the probe ends in 1.4 s, but the parent's `trial_counts` test then fails (`f32` and `string` throw). That confirms the parent's reason for the give-back.
+- **Prototype fix (`overlay/classcap`):** a second bound on the class instances recursion makes of one class declaration, across all roots, never given back (4 × 256).
+  - `giveback_classes` then stops in 1.7 s with a PTS1001.
+  - `trial_counts` still prints Node's output.
+  - Every slice Go, run and error test passes (`mut_classcap.txt`).
+  - A real fix could instead let trials own the bodies of the class instances they make (H09b5b's plan). Either way, add `giveback_classes` as a test.
+
+### 2. MEDIUM (verified): branching recursion with class results, reached through a value call, throws at depth 0
+
+- **What happens:**
+  - Inside a value call's trial the whole tree is made by direct calls. Its `Box` instances pass the root's class budget there, and a class has no erased copy, so that is PTS1001 and counts as the trial's own failure.
+  - The whole trial is then taken back, and the top-level call keeps the erased copy from depth 0.
+- **`p/branch_box_via_value.pts`:** the base reports PTS1001 at compile time. snap-d compiles, then prints `TypeError Expected Box<number>, got Box<any>`; Node prints `7`.
+- **`p/speculative_roots_3x6.pts`:** the same at the first call; Node prints `15`.
+- **Contrast:** the same recursion called directly is an honest PTS1001.
+- **Scope:** not new in round 3; trials have handled class limits this way since round 1. But it turns the base's compile error into a run-time TypeError at depth 0.
+- **Suggestion:** where a direct call's instance fails only because a class it needs is past a limit, take the erased copy (when `erasedResultCopies` is false) instead of failing the trial.
+
+### 3. LOW-MEDIUM (verified): compile cost grows with the number of roots
+
+- Each root gets 256 instances per declaration, so cost is linear in the number of the program's calls of a branching recursion.
+- **`p/branch_roots_40.pts`** (40 one-line calls, 3 deep): 24.7 s and 707 MB, printing Node's `320`. The base reports PTS1001 in 0.2 s.
+- Every trial for a typed call in plain code is a root of its own, so speculative pairings add roots as well.
+- **Suggestion:** a global backstop on the total number of instances recursion makes.
+
+### 4. LOW (verified, by design): past the count, the erased copy is reached at shallow run-time depth
+
+- **`p/branching_dispatched_deep.pts`:** n=3 and n=6 print `5`; n=9 throws `TypeError Expected Box<[[[[[[[[number]]]]]]]]>…`. Node prints `5` for all three.
+- **`p/branch_numbers_deep.pts`:** with number results the output is correct (`41984 19968`, as Node).
+- **Doc consequence:** D-198's known gaps say the TypeError comes "past 64 levels". Branching recursion reaches its budget after about 8 levels of a binary tree, and the docs should say so.
+
+### 5. Docs
+
+- **D-198 and the `maxRecursiveInstances` comment** call a root "one the program's own code made". Roots also include each trial's instance for a typed call in plain code, which is speculative and may be dropped.
+- **D-198** should state the bound on kept class instances once finding 1 is fixed.
+- Apart from these, D-198 and SPEC §3.7 now describe the design accurately.
+
+### Verified OK
+
+- **Round-3 probes rerun on snap-d** (`round3_probes_on_snapd.txt`):
+  - match Node: `five_chains` (`4 4 4 4 4`), `five_chains_dispatched`, `fanout_4`, `fanout_7`, `fanout2_4`, `fanout2_7`, `takeback_count_test`, the identity probes (`id_promise`, `id_iterable`, `id_generator`), `args_mutated` and `async_order`;
+  - honest or conservative PTS1001: `branching_direct` and `product_blowup` (class limits), `id_class_union`;
+  - from before this slice, as on the base: `fanout_isarray_control` and `id_array_dispatched`.
+- **Chains can't grow without repeating a declaration.** Chain length is bounded by the number of generic declaration nodes; arrows inside instances and methods of class instances share their node.
+- **Where roots come from:** the program's own calls, each trial for a typed call in plain code, class instances made by plain code, and instances made in erased copies of top-level generics (`made: nil`). All of these are finite. Function instances from failed trials are dropped, so kept class instances (finding 1) are the only way past the budgets.
+- **Erased copies past the count** use the same checked conversions as past the depth; I found no silent wrong value.
+
+### Files
+
+- **Probes, overlays and results:** `/tmp/h09b5/review-a/r4/` (start with `INDEX.txt`).
+- **Archive:** `/tmp/h09b5/h09b5a-review4-probes.tar.gz` (created last). The CLIs built from overlays are deleted; `INDEX.txt` has the rebuild command.

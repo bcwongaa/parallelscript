@@ -335,7 +335,7 @@ type lowerer struct {
 	genericConstNodes   map[*ast.Node]*genericFunc       // the same, by their functions
 	demands             []*demand                        // the typed calls of erased copies that look up instances (D-148)
 	erasedValues        []*erasedValue                   // the functions whose closures are erased copies that list instances (D-148)
-	instanceCounts      map[recursionBudget]int          // how many instances of each declaration polymorphic recursion made from each root (maxRecursiveInstances)
+	instanceCounts      map[recursionBudget]int          // how many instances of each declaration polymorphic recursion made from each root, and from all (maxRecursiveInstances, maxRecursiveTotal)
 	specialized         map[[3]int]bool                  // the pairs of a demand and an erased value (0) or generic method (1) met so far
 	specialization      Specialization                   // which generic function values list instances (D-190)
 	trial               *trial                           // the instances specialize is trying, while it lowers them (D-190)

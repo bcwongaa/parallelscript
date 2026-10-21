@@ -23,15 +23,21 @@ import (
 // own calls make side by side don't count against it, however many there are (C172).
 const maxInstanceDepth = 64
 
-// maxRecursiveInstances bounds the instances of one generic function or class declaration
-// that polymorphic recursion makes from one instance the program's own code made (a root,
-// the outermost on their chain): those whose chain repeats a declaration (instanceChain),
-// so that recursion that branches (f<T> calling f<[T]> and f<T[]>), or that calls other
-// generic functions side by side at each level, stops too. Each root has its own budget;
-// instances no recursion makes don't count.
+// maxRecursiveInstances bounds the instances of one generic function declaration that
+// polymorphic recursion makes from one root (the outermost instance on their chain: one the
+// program's code made, or a trial's for a typed call in code outside instances): those
+// whose chain repeats a declaration (instanceChain), so that recursion that branches (f<T>
+// calling f<[T]> and f<T[]>), or that calls other generic functions side by side at each
+// level, stops too. Each root has its own budget; instances no recursion makes don't count.
 const maxRecursiveInstances = 256
 
-// recursionBudget is a root's budget for one declaration's instances (maxRecursiveInstances).
+// maxRecursiveTotal bounds the instances of one generic function or class declaration that
+// polymorphic recursion makes from all roots together. A class's instances count only here,
+// and stay counted when a trial that made them is taken back, since they stay too (D-198).
+const maxRecursiveTotal = 4 * maxRecursiveInstances
+
+// recursionBudget is a root's budget for one declaration's instances (maxRecursiveInstances),
+// or with no root, the declaration's total (maxRecursiveTotal).
 type recursionBudget struct {
 	root        *substitution
 	declaration *ast.Node
@@ -44,41 +50,60 @@ const (
 	withinLimits instanceLimit = iota
 	pastDepth                  // maxInstanceDepth
 	pastCount                  // maxRecursiveInstances
+	pastTotal                  // maxRecursiveTotal
 )
 
 // instanceLimitAt is the limit code here (l.subst) would be past by making another
-// instance of a generic function or class declaration, and whether recursion makes it
-// (it then counts against its root's budget: countInstance).
-func (l *lowerer) instanceLimitAt(declaration *ast.Node) (limit instanceLimit, recursive bool) {
+// instance of a generic function or class (class) declaration, and whether recursion makes
+// it (it then counts: countInstance).
+func (l *lowerer) instanceLimitAt(declaration *ast.Node, class bool) (limit instanceLimit, recursive bool) {
 	depth, root, recursive := instanceChain(l.subst, declaration)
 	switch {
 	case depth >= maxInstanceDepth:
 		return pastDepth, recursive
-	case recursive && l.instanceCounts[recursionBudget{root, declaration}] >= maxRecursiveInstances:
-		return pastCount, recursive
+	case !recursive:
+		return withinLimits, false
+	case l.instanceCounts[recursionBudget{nil, declaration}] >= maxRecursiveTotal:
+		return pastTotal, true
+	case !class && l.instanceCounts[recursionBudget{root, declaration}] >= maxRecursiveInstances:
+		return pastCount, true
 	}
-	return withinLimits, recursive
+	return withinLimits, true
 }
 
-// countInstance counts an instance of declaration that recursion makes here against its
-// root's budget, and in a trial, among what taking the trial back gives back (D-190): its
-// class instances stay, but a trial that failed made them for a call that won't use them.
-func (l *lowerer) countInstance(declaration *ast.Node) {
+// countInstance counts an instance of a generic function or class (class) declaration that
+// recursion makes here: a function's against its root's budget and its declaration's total,
+// which taking back a trial that made it gives back with it (D-190), a class's against its
+// declaration's total alone, for good (D-198).
+func (l *lowerer) countInstance(declaration *ast.Node, class bool) {
+	total := recursionBudget{nil, declaration}
+	l.instanceCounts[total]++
+	if class {
+		return
+	}
 	_, root, _ := instanceChain(l.subst, declaration)
 	budget := recursionBudget{root, declaration}
 	l.instanceCounts[budget]++
 	if t := l.trial; t != nil {
-		t.counted = append(t.counted, budget)
+		t.counted = append(t.counted, budget, total)
 	}
 }
 
 // reportInstanceLimit reports at node that an instance of a generic function or class
-// (named name) would be past limit.
+// (named name) would be past limit. Past a declaration's total, which only a program's
+// pathological recursion or many speculative pairings reach, the report stands in a trial,
+// as the program's own, rather than leave a call the erased copy at its first level (D-198).
 func (l *lowerer) reportInstanceLimit(limit instanceLimit, name string, node *ast.Node) {
-	if limit == pastDepth {
+	if t := l.trial; t != nil && limit == pastTotal {
+		t.foreign = true
+	}
+	switch limit {
+	case pastDepth:
 		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion more than %d instances deep (`%s`) is", maxInstanceDepth, name))
-	} else {
-		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion that makes more than %d instances (`%s`) is", maxRecursiveInstances, name))
+	case pastCount:
+		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion that makes more than %d instances (`%s`) from one call is", maxRecursiveInstances, name))
+	default:
+		l.notSupportedYet(node, fmt.Sprintf("polymorphic recursion that makes more than %d instances (`%s`) is", maxRecursiveTotal, name))
 	}
 }
 
@@ -656,10 +681,12 @@ func (l *lowerer) calledInstance(call *ast.CallExpression, generic *genericFunc)
 		arguments = fromResult
 	}
 	fn, limit := l.genericInstanceFor(generic, arguments, call.AsNode(), false)
-	if limit != withinLimits && !l.erasedResultCopies(generic, call.AsNode()) {
+	if (limit == pastDepth || limit == pastCount) && !l.erasedResultCopies(generic, call.AsNode()) {
 		// Polymorphic recursion: the call maxInstanceDepth instances deep, or past its root's
 		// budget, calls the erased copy, its result checked (fromErasedCall), which only a
-		// call that runs that deep or that wide reaches (D-198).
+		// call that runs that deep or that wide reaches (D-198). Past the declaration's total
+		// a root would have none of its own: that is an error, rather than a call that
+		// throws at its first level.
 		return l.erasedInstance(generic, call.AsNode())
 	}
 	if limit != withinLimits {
@@ -1141,7 +1168,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 			variants++
 		}
 	}
-	limit, recursive := l.instanceLimitAt(generic.node)
+	limit, recursive := l.instanceLimitAt(generic.node, false)
 	if variants > 0 && (variants == maxDynamicVariants || limit != withinLimits) {
 		return nil, withinLimits
 	}
@@ -1149,7 +1176,7 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 		return nil, limit
 	}
 	if recursive {
-		l.countInstance(generic.node)
+		l.countInstance(generic.node, false)
 	}
 	subst := &substitution{declaration: generic.node, parameters: generic.parameters, arguments: concrete, instance: true, made: l.subst}
 	if outer := generic.outer; outer != nil {

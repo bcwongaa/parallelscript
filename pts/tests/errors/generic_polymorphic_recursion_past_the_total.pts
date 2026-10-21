@@ -1,0 +1,42 @@
+// Polymorphic recursion past a declaration's total (H09b5, D-198): three branching recursions
+// passed as values of one generic function type, and six typed calls through that type,
+// pair as 18 trials (D-190), each a root of its own; their trees' Box instances reach Box's
+// total (maxRecursiveTotal) on the fourth. Past a total the report stands, an error as on
+// the base, where the trial taken back left a call the erased copy, which threw at its first
+// level (review round 4).
+class Box<T> {
+  constructor(public value: T) {}
+}
+function r0<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    r0<[T]>([x], n - 1);
+    r0<{ v: T }>({ v: x }, n - 1);
+  }
+  return new Box(x);
+}
+function r1<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    r1<[T]>([x], n - 1);
+    r1<{ v: T }>({ v: x }, n - 1);
+  }
+  return new Box(x);
+}
+function r2<T>(x: T, n: number): Box<T> {
+  if (n > 0) {
+    r2<[T]>([x], n - 1);
+    r2<{ v: T }>({ v: x }, n - 1);
+  }
+  return new Box(x);
+}
+function use(g: <T>(x: T, n: number) => Box<T>): number {
+  let s = 0;
+  s += g({ k0: 0 }, 3).value.k0;
+  s += g({ k1: 1 }, 3).value.k1;
+  s += g({ k2: 2 }, 3).value.k2;
+  s += g({ k3: 3 }, 3).value.k3;
+  s += g({ k4: 4 }, 3).value.k4;
+  s += g({ k5: 5 }, 3).value.k5;
+  return s;
+}
+console.log(use(r0));
+// error: generic_polymorphic_recursion_past_the_total.pts:10:10 - error PTS1001: polymorphic recursion that makes more than 1024 instances (`Box`) is not supported yet

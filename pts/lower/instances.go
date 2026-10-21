@@ -874,7 +874,10 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 	errors, reports, unexplained := l.errors, l.reports, l.unexplained // report only appends to errors
 	lowered, demands, values := len(l.lowered), len(l.demands), len(l.erasedValues)
 	l.trial = t
-	fn, _ := l.genericInstanceFor(generic, arguments, d.node, d.key != "") // past a limit, the trial's own failure (D-198)
+	fn, limit := l.genericInstanceFor(generic, arguments, d.node, d.key != "") // past a limit, the trial's own failure (D-198)
+	if limit == pastTotal {
+		l.reportInstanceLimit(limit, generic.name, d.node)
+	}
 	if fn != nil && l.reports == reports && fits(fn) {
 		l.lowerPending()
 	} else {
@@ -921,7 +924,7 @@ type trial struct {
 	instances []*instance       // the instances made in it
 	funcs     map[*ir.Func]bool // their functions
 	captures  []capturedBy      // the locals its code made functions outside it capture
-	counted   []recursionBudget // the budgets its instances, its class instances included, counted against (D-198)
+	counted   []recursionBudget // the budgets its function instances counted against (D-198)
 	making    int               // above 0 while an instance is made, whose reports are the trial's
 	foreign   bool              // code that isn't the trial's reported
 }

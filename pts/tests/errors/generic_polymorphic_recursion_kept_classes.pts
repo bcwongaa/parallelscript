@@ -1,0 +1,39 @@
+// Trials that keep their class instances (H09b5, D-198): each typed call through g pairs with
+// val (D-190), whose instance makes a Node<U> and then fails on its own conversion, so the
+// trial is taken back but Node<U> stays, and its methods, lowered later, make two more typed
+// calls through g, for [U] and { v: U }. The class instances recursion makes count against
+// Node's total for good, so the tree stops there and the program gets its own error; when a
+// failed trial gave their count back, it grew until only the class depth stopped it (review
+// round 4: still compiling after 900 s; the base: PTS9001).
+class Box<T> {
+  constructor(public value: T) {}
+}
+const kept: Map<string, unknown>[] = [];
+let g: <U>(x: U, n: number) => Box<U>;
+class Node<T> {
+  constructor(public v: T) {}
+  left(n: number): Box<[T]> {
+    return g<[T]>([this.v], n - 1);
+  }
+  right(n: number): Box<{ v: T }> {
+    return g<{ v: T }>({ v: this.v }, n - 1);
+  }
+}
+const val = <U,>(x: U, n: number): Box<U> => {
+  const node = new Node<U>(x);
+  kept.push(new Map<string, U>());
+  if (n > 0) {
+    node.left(n);
+    node.right(n);
+  }
+  return new Box(x);
+};
+g = val;
+try {
+  const b: Box<number> = g(1, 2);
+  console.log(b.value, kept.length);
+} catch (error: any) {
+  console.log(error.name, error.message);
+}
+// error: polymorphic recursion that makes more than 1024 instances
+// error: converting Map<string, 
