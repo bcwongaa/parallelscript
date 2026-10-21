@@ -67,7 +67,10 @@ var (
 		"/run/generic_fallback_blames_the_trial_whose_code_failed.pts", "/run/generic_fallback_keeps_value_pairings_for_by_name_casts.pts",
 		"/run/generic_fallback_leaves_out_a_cascade_at_once.pts", "/run/generic_fallback_blames_dense_cycles_of_instances.pts",
 		"/run/generic_fallback_spares_method_instances_of_left_out_classes.pts", "/run/generic_fallback_spares_unrelated_constant_key_site.pts",
-		"/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts"}
+		"/run/generic_fallback_spares_unrelated_dispatched_rest_site.pts",
+		"/run/generic_fallback_spares_other_instances_at_one_call.pts", "/run/generic_fallback_spares_other_class_instances_at_one_call.pts",
+		"/run/generic_fallback_spares_other_cast_instances_at_one_call.pts", "/run/generic_fallback_spares_other_method_owners.pts",
+		"/run/generic_fallback_blames_descriptor_reuses.pts", "/run/generic_fallback_blames_method_descriptor_reuses.pts"}
 	needsFallback = []string{"/run/generic_fallback_keeps_value_pairings_for_by_name_totals.pts"}
 )
 

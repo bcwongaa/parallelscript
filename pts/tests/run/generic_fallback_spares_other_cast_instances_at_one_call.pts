@@ -1,0 +1,48 @@
+// C176: relay's call has a good Good pairing and a bad Base relaxed-cast pairing
+// with w. Only the latter may lose its instance.
+class Box<T> {
+  constructor(public value: T) {}
+}
+interface Tagged {
+  id: number;
+  tag?: string;
+}
+class Base {
+  id = 1;
+}
+class Good extends Base {
+  tag = "ok";
+}
+class Derived extends Base {
+  tag = 5;
+}
+function relay<X extends Base>(f: <T extends Base>(x: T) => Box<T>, x: X): Box<X> {
+  return f(x);
+}
+function main(): void {
+  const w = <T extends Base>(x: T): Box<T> => {
+    const tagged: Tagged = x;
+    console.log("tag", tagged.tag ?? "none");
+    return new Box(x);
+  };
+  const good = <T extends Base>(x: T): Box<T> => new Box(x);
+  try {
+    const b: Box<Good> = relay(w, new Good());
+    console.log("same call good", b.value.id + 1, b.value.tag);
+  } catch (error: any) {
+    console.log("same call good", error.name, error.message);
+  }
+  try {
+    const b: Box<Base> = relay(good, new Base());
+    console.log("same call base", b.value.id);
+  } catch (error: any) {
+    console.log("same call base", error.name, error.message);
+  }
+  console.log("derived", new Derived().tag);
+}
+main();
+// expect:
+// tag ok
+// same call good 2 ok
+// same call base 1
+// derived 5

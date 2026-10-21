@@ -1171,6 +1171,9 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	for _, existing := range generic.instances {
 		if slices.Equal(existing.arguments, arguments) && slices.Equal(existing.literals, literals) {
 			if !dynamic || l.madeFor(existing, concrete, node) {
+				if t := l.trial; t != nil && t.root == nil {
+					t.root = existing.subst
+				}
 				l.use(existing.subst)
 				return existing.fn, withinLimits
 			}
@@ -1194,6 +1197,9 @@ func (l *lowerer) genericInstanceFor(generic *genericFunc, typeArguments []*chec
 	}
 	inst := &instance{generic: generic, arguments: arguments, literals: literals, subst: subst}
 	generic.instances = append(generic.instances, inst)
+	if t := l.trial; t != nil && t.root == nil {
+		t.root = subst
+	}
 	l.use(subst)
 	l.declareInstance(inst, generic.name+"_"+typeArgumentsName(arguments))
 	if t := l.trial; t != nil {

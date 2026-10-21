@@ -3,6 +3,8 @@
 The ordered task list. Each session takes the **first unchecked task**, finishes it end to end (code, tests, docs, commit, push), ticks it with the short hash (`- [x] M1.2 … (abc1234)`), and moves on. A task too big for one session gets split in place (`M1.2a`, `M1.2b`) without dropping scope.
 Source of truth for semantics: `docs/BRIEF.md` → `docs/SPEC.md` → `docs/DECISIONS.md`. Source files use the `.pts` extension (owner override).
 
+M0–M7 below are the historical completed prototype. The active post-M7 order is [HARDENING_PLAN.md](agent/HARDENING_PLAN.md). As of 2026-10-21, H09b5b has an implementation checkpoint but remains unchecked: required independent review is provider-blocked ([exact error and disposition](agent/hardening-evidence/h09b5b-resume-review.md)). This is not permission to retry that scope or start H09b5c in the checkpoint session.
+
 ## Milestone checklist (run when a milestone's last task is ticked)
 1. The full test suite is green locally (`make test`, or the commands in `PROGRESS.md`), and CI is green on the pushed commit (`gh run list -L 1`).
 2. `PROGRESS.md` is updated, and `README.md`, `docs/SPEC.md`, `docs/GUIDE.md` and `docs/ARCHITECTURE.md` describe what this milestone added (use subagents; verify samples compile).

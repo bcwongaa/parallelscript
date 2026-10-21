@@ -1,0 +1,50 @@
+// C176: one call in Relay<X>.call must keep w's number pairing when the speculative
+// Dog[] pairing at that call, in another class instance, makes a class that fails.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const value = this.value;
+    if (Array.isArray(value)) return value;
+    return [];
+  }
+}
+class Relay<X> {
+  constructor(public input: X) {}
+  call(f: <T>(x: T) => Box<T>): Box<X> {
+    return f(this.input);
+  }
+}
+function main(): void {
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  const good = <T,>(x: T): Box<T> => new Box(x);
+  try {
+    const numberBox: Box<number> = new Relay(5).call(w);
+    console.log("class number", numberBox.value + 1);
+  } catch (error: any) {
+    console.log("class number", error.name, error.message);
+  }
+  try {
+    const dogs: Box<Dog[]> = new Relay([new Dog()]).call(good);
+    console.log("class dogs", dogs.value.length);
+  } catch (error: any) {
+    console.log("class dogs", error.name, error.message);
+  }
+}
+main();
+// expect:
+// weird 0
+// class number 6
+// class dogs 1

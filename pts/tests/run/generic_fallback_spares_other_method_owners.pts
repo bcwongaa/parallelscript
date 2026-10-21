@@ -1,0 +1,48 @@
+// C176: one demand and one method declaration have different generic class owners.
+// Leaving out Holder<Dog[]>.make<number> must keep Holder<number>.make<number>.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const value = this.value;
+    if (Array.isArray(value)) return value;
+    return [];
+  }
+}
+interface Maker {
+  make<U>(u: U): Box<U>;
+}
+class Holder<T> implements Maker {
+  constructor(public value: T) {}
+  make<U>(u: U): Box<U> {
+    const weird = new Weird<T | U>(this.value);
+    console.log("outer weird", weird.animals().length);
+    return new Box(u);
+  }
+}
+function use(maker: Maker): Box<number> {
+  return maker.make(5);
+}
+function main(): void {
+  const keep = new Holder([new Dog()]);
+  try {
+    const good: Box<number> = use(new Holder(7));
+    console.log("outer number", good.value + 1);
+  } catch (error: any) {
+    console.log("outer number", error.name, error.message);
+  }
+  console.log("kept dogs", keep.value.length);
+}
+main();
+// expect:
+// outer weird 0
+// outer number 6
+// kept dogs 1

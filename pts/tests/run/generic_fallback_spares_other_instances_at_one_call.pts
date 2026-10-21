@@ -1,0 +1,47 @@
+// C176: one call in relay<X> makes both number and Dog[] demands. Leaving out the
+// speculative Dog[] pairing must not leave out the same value's number pairing.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Animal {
+  name = "a";
+}
+class Dog extends Animal {
+  bark = 1;
+}
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const value = this.value;
+    if (Array.isArray(value)) return value;
+    return [];
+  }
+}
+function relay<X>(f: <T>(x: T) => Box<T>, x: X): Box<X> {
+  return f(x);
+}
+function main(): void {
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    console.log("weird", weird.animals().length);
+    return new Box(x);
+  };
+  const good = <T,>(x: T): Box<T> => new Box(x);
+  try {
+    const numberBox: Box<number> = relay(w, 5);
+    console.log("same call number", numberBox.value + 1);
+  } catch (error: any) {
+    console.log("same call number", error.name, error.message);
+  }
+  try {
+    const dogs: Box<Dog[]> = relay(good, [new Dog()]);
+    console.log("same call dogs", dogs.value.length);
+  } catch (error: any) {
+    console.log("same call dogs", error.name, error.message);
+  }
+}
+main();
+// expect:
+// weird 0
+// same call number 6
+// same call dogs 1

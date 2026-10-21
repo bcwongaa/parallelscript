@@ -1,0 +1,62 @@
+// C176: method descriptor hits must record every demand that keeps the instance.
+class Box<T> { constructor(public value: T) {} }
+class Animal { name = "a"; }
+class Dog extends Animal { bark = 1; }
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) return v;
+    return [];
+  }
+}
+interface Maker { make<T>(x: T): Box<T>; }
+class GoodMaker implements Maker {
+  make<T>(x: T): Box<T> { return new Box(x); }
+}
+class BadMaker implements Maker {
+  make<T>(x: T): Box<T> {
+    const weird = new Weird(x);
+    weird.animals();
+    return new Box(x);
+  }
+}
+function attempt(label: string, f: () => unknown): void {
+  try { console.log(label, f()); }
+  catch (error: any) { console.log(label, error.name, error.message); }
+}
+function use0(m: Maker): void { console.log("dogs0", m.make([new Dog()]).value.length); }
+function use1(m: Maker): void { console.log("dogs1", m.make([new Dog()]).value.length); }
+function use2(m: Maker): void { console.log("dogs2", m.make([new Dog()]).value.length); }
+function use3(m: Maker): void { console.log("dogs3", m.make([new Dog()]).value.length); }
+function use4(m: Maker): void { console.log("dogs4", m.make([new Dog()]).value.length); }
+function use5(m: Maker): void { console.log("dogs5", m.make([new Dog()]).value.length); }
+function use6(m: Maker): void { console.log("dogs6", m.make([new Dog()]).value.length); }
+function use7(m: Maker): void { console.log("dogs7", m.make([new Dog()]).value.length); }
+function use8(m: Maker): void { console.log("dogs8", m.make([new Dog()]).value.length); }
+function use9(m: Maker): void { console.log("dogs9", m.make([new Dog()]).value.length); }
+function main(): void {
+  const good: Maker = new GoodMaker();
+  const bad: Maker = new BadMaker();
+  attempt("interface victim", () => good.make(4).value + 1);
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("value victim", () => named(5).value + 1);
+  console.log("bad number", bad.make(1).value);
+  use0(good); use1(good); use2(good); use3(good); use4(good);
+  use5(good); use6(good); use7(good); use8(good); use9(good);
+}
+main();
+// expect:
+// interface victim 5
+// value victim 6
+// bad number 1
+// dogs0 1
+// dogs1 1
+// dogs2 1
+// dogs3 1
+// dogs4 1
+// dogs5 1
+// dogs6 1
+// dogs7 1
+// dogs8 1
+// dogs9 1

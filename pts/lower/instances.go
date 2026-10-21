@@ -34,6 +34,7 @@ type demand struct {
 	shape     *ir.Class          // for a call of an object literal's method through the literal's type, its shape: only its literals' methods
 	receiver  *checker.Type      // for a call by name (D-191), its object's type, which only classes and literals of types assignable to it may be
 	signature *checker.Signature // the call's resolved signature
+	identity  string             // its instantiated checker types (demandIdentity), for narrowing only
 	subst     *substitution      // the instance being lowered where the call is, if any
 	want      *ir.FuncType       // the instance's function type, after `this`: the resolved signature's
 	key       string             // for a dynamic result, its type arguments' (ir.Instance.Key, instanceKey)
@@ -809,16 +810,22 @@ func (l *lowerer) specialize() bool {
 // function to the call's resolved signature, if that instance can be called as one of the
 // call's signature.
 func (l *lowerer) specializeValue(d *demand, v *erasedValue) {
-	if !l.reaches(d, v) || slices.ContainsFunc(v.fn.Instances, func(inst *ir.Instance) bool {
-		return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
-	}) {
+	if !l.reaches(d, v) {
 		return
 	}
 	var p pairing
 	if v.forward == nil {
-		if p = pairingOf(d, v.generic.node, valueLevel(v)); l.narrowing.leavesOut(p) {
+		if p = l.pairingOf(d, v.generic, valueLevel(v)); l.narrowing.leavesOut(p) {
 			return // a narrower lowering's (C176)
 		}
+	}
+	if i := slices.IndexFunc(v.fn.Instances, func(inst *ir.Instance) bool {
+		return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
+	}); i >= 0 {
+		if v.forward == nil {
+			l.useListedInstance(d, v.generic, p, v.fn.Instances[i].Func)
+		}
+		return
 	}
 	if v.forward != nil {
 		l.forwardingInstance(d, v) // a wrapper's (D-194)
@@ -975,6 +982,7 @@ func (l *lowerer) tryInstance(d *demand, generic *genericFunc, arguments []*chec
 
 // trial is what tryInstance makes while it tries an instance (D-190).
 type trial struct {
+	root      *substitution     // the trial's function instance; its dependencies must follow descriptor reuses
 	instances []*instance       // the instances made in it
 	funcs     map[*ir.Func]bool // their functions
 	captures  []capturedBy      // the locals its code made functions outside it capture
@@ -1049,15 +1057,20 @@ func shareCaptures(funcs []*ir.Func) {
 // instance, so that the call takes g's erased copy rather than finding an ancestor's
 // instance.
 func (l *lowerer) specializeMethod(d *demand, g *genericFunc) {
-	if g.static != nil || g.node.Name().Text() != d.name || d.method != nil && !descendsFrom(g.class, d.method.class) || d.method == nil && !l.mayReceive(d, g.class) ||
-		slices.ContainsFunc(g.class.Instances, func(inst *ir.Instance) bool {
-			return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
-		}) {
+	if g.static != nil || g.node.Name().Text() != d.name || d.method != nil && !descendsFrom(g.class, d.method.class) || d.method == nil && !l.mayReceive(d, g.class) {
+		return
+	}
+	p := l.pairingOf(d, g, DeclaredInstances)
+	if i := slices.IndexFunc(g.class.Instances, func(inst *ir.Instance) bool {
+		return inst.Name == d.name && inst.Signature == d.want && inst.Key == d.key
+	}); i >= 0 {
+		if !l.narrowing.leavesOut(p) {
+			l.useListedInstance(d, g, p, g.class.Instances[i].Func)
+		}
 		return
 	}
 	entry := &ir.Instance{Name: d.name, Signature: d.want, Key: d.key}
 	g.class.Instances = append(g.class.Instances, entry)
-	p := pairingOf(d, g.node, DeclaredInstances)
 	if !l.makesGenericInstances(g, map[*genericFunc]bool{}) || l.narrowing.leavesOut(p) {
 		return
 	}

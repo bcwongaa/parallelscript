@@ -1,0 +1,61 @@
+// C176: ten calls of the same signature reuse one descriptor entry. Its class-body
+// failure belongs to all ten pairings, not one per relowering until the driver's cap.
+class Box<T> { constructor(public value: T) {} }
+class Animal { name = "a"; }
+class Dog extends Animal { bark = 1; }
+class Weird<T> {
+  constructor(public value: T) {}
+  animals(): Animal[] {
+    const v = this.value;
+    if (Array.isArray(v)) return v;
+    return [];
+  }
+}
+interface Maker { make<T>(x: T): Box<T>; }
+class ClassMaker implements Maker {
+  make<T>(x: T): Box<T> { return new Box(x); }
+}
+function attempt(label: string, f: () => unknown): void {
+  try { console.log(label, f()); }
+  catch (error: any) { console.log(label, error.name, error.message); }
+}
+function use0(f: <T>(x: T) => Box<T>): void { console.log("dogs0", f([new Dog()]).value.length); }
+function use1(f: <T>(x: T) => Box<T>): void { console.log("dogs1", f([new Dog()]).value.length); }
+function use2(f: <T>(x: T) => Box<T>): void { console.log("dogs2", f([new Dog()]).value.length); }
+function use3(f: <T>(x: T) => Box<T>): void { console.log("dogs3", f([new Dog()]).value.length); }
+function use4(f: <T>(x: T) => Box<T>): void { console.log("dogs4", f([new Dog()]).value.length); }
+function use5(f: <T>(x: T) => Box<T>): void { console.log("dogs5", f([new Dog()]).value.length); }
+function use6(f: <T>(x: T) => Box<T>): void { console.log("dogs6", f([new Dog()]).value.length); }
+function use7(f: <T>(x: T) => Box<T>): void { console.log("dogs7", f([new Dog()]).value.length); }
+function use8(f: <T>(x: T) => Box<T>): void { console.log("dogs8", f([new Dog()]).value.length); }
+function use9(f: <T>(x: T) => Box<T>): void { console.log("dogs9", f([new Dog()]).value.length); }
+function main(): void {
+  const maker: Maker = new ClassMaker();
+  attempt("interface victim", () => maker.make(4).value + 1);
+  const named = <T,>(x: T): Box<T> => new Box(x);
+  attempt("value victim", () => named(5).value + 1);
+  const w = <T,>(x: T): Box<T> => {
+    const weird = new Weird(x);
+    weird.animals();
+    return new Box(x);
+  };
+  const dynamic: any = w;
+  console.log("weird", dynamic(1).value);
+  use0(named); use1(named); use2(named); use3(named); use4(named);
+  use5(named); use6(named); use7(named); use8(named); use9(named);
+}
+main();
+// expect:
+// interface victim 5
+// value victim 6
+// weird 1
+// dogs0 1
+// dogs1 1
+// dogs2 1
+// dogs3 1
+// dogs4 1
+// dogs5 1
+// dogs6 1
+// dogs7 1
+// dogs8 1
+// dogs9 1

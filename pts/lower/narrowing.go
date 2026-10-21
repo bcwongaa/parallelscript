@@ -1,7 +1,9 @@
 package lower
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/pts/diagnostic"
@@ -23,11 +25,13 @@ import (
 // value or generic method, by declaration; or a call site (site) whose demand a later
 // fallback doesn't make, with nothing. level is the last of Fallbacks that makes it.
 type pairing struct {
-	call  *ast.Node
-	name  string
-	value *ast.Node
-	site  siteKind
-	level Specialization
+	call      *ast.Node
+	name      string
+	value     *ast.Node
+	signature string // the demand's instantiated checker types, stable across relowerings
+	owner     string // the value's enclosing generic class instance, if any
+	site      siteKind
+	level     Specialization
 }
 
 // siteKind is what a call site that a narrower lowering lowers as a later fallback does
@@ -118,7 +122,12 @@ func (l *lowerer) here() use {
 	if len(l.statementSites) > 0 {
 		return use{pairings: slices.Clone(l.statementSites)}
 	}
-	for s := l.subst; s != nil; s = s.made {
+	return instanceUse(l.subst)
+}
+
+// instanceUse is the code of the first instance on subst's chain, else the program's own.
+func instanceUse(subst *substitution) use {
+	for s := subst; s != nil; s = s.made {
 		if s.used {
 			return use{subst: s}
 		}
@@ -129,10 +138,21 @@ func (l *lowerer) here() use {
 // use records that the code being lowered (here) makes or finds the instance of subst.
 func (l *lowerer) use(subst *substitution) {
 	subst.used = true
+	u := l.here()
+	if t := l.trial; t != nil && t.root != nil && subst != t.root && l.site == nil && t.pairing.level < DeclaredInstances && (t.making > 0 || t.owns(l.function)) {
+		// Reports belong to the trial, but dependencies belong to the instance: a
+		// descriptor hit by another demand also keeps what its signature and body use.
+		u = instanceUse(l.subst)
+	}
+	l.useFrom(subst, u)
+}
+
+// useFrom records that u makes or finds the instance of subst.
+func (l *lowerer) useFrom(subst *substitution, u use) {
+	subst.used = true
 	if subst.ownUse {
 		return // the program's own: what else uses it doesn't matter
 	}
-	u := l.here()
 	if u.pairings == nil && u.subst == nil {
 		subst.ownUse, subst.users = true, nil
 		return
@@ -141,6 +161,25 @@ func (l *lowerer) use(subst *substitution) {
 		return
 	}
 	subst.users = append(subst.users, u)
+}
+
+// useListedInstance records a descriptor hit just as a trial finding the instance does.
+// The descriptor needs one entry per signature, but every pairing keeps that entry's code
+// alive. Otherwise a delayed failure is blamed on just the first demand, one per relowering.
+func (l *lowerer) useListedInstance(d *demand, generic *genericFunc, p pairing, fn *ir.Func) {
+	if fn == nil {
+		return // an entry that keeps the erased copy
+	}
+	for _, inst := range generic.instances {
+		if inst.fn == fn {
+			u := instanceUse(d.subst)
+			if p.level < DeclaredInstances {
+				u = use{pairings: []pairing{p}}
+			}
+			l.useFrom(inst.subst, u)
+			return
+		}
+	}
 }
 
 // blames are what blameOf has found so far, for the substitutions with uses (nil for one
@@ -156,16 +195,23 @@ const maxBlameSteps = 100000
 func newBlames() *blames { return &blames{found: map[*substitution]*blame{}} }
 
 // blameOf is what code that is u is blamed on: the pairings and call sites a narrower
-// lowering leaves out so that none of it is made, or own if it can't (the program's own
-// code makes it, or every fallback does). An instance of a method of a generic class's
-// instance isn't made without the class instance either (outer): where its uses are own,
-// or blamed on later fallbacks' code, the class instance's blame may be; and it adds
-// nothing to the class instance's own blame. Instances that make each other are what
-// makes the first: a use being found adds nothing (cut), which the use's own search adds
-// where it merges its users, so a search from one use is a union over what reaches it, and
-// each substitution is searched once (search is one query's: what a cut leaves out of a
-// substitution's blame is the query's own use's).
+// lowering leaves out so that none of it is made, or own if it can't. findBlame's cached
+// partial results are safe for a union over users, but an outer alternative can replace
+// that union with an incomplete cut. Validate the whole query before a caller can turn
+// its blame into pairings and lose the original graph (relaxedCastUse).
 func (l *lowerer) blameOf(u use, search *blames) (b blame, cut bool) {
+	b, cut = l.findBlame(u, search)
+	if u.subst != nil && !b.own && survives(u.subst, b.pairings) {
+		b = blame{own: true} // no sound cut found: fall back as the base did
+	}
+	return b, cut
+}
+
+// findBlame proposes a cut, searching each substitution once per query. Users merge by
+// union; a method's enclosing class (outer) offers an alternative cut where the method
+// cannot exist without it. A use still being searched adds nothing (cut); a cached result
+// may therefore be partial, which blameOf checks independently against the whole graph.
+func (l *lowerer) findBlame(u use, search *blames) (b blame, cut bool) {
 	switch {
 	case u.pairings != nil:
 		return blame{pairings: u.pairings}, false
@@ -192,11 +238,11 @@ func (l *lowerer) blameOf(u use, search *blames) (b blame, cut bool) {
 		if b.own {
 			break
 		}
-		ub, c := l.blameOf(user, search)
+		ub, c := l.findBlame(user, search)
 		b, cut = b.merge(ub), cut || c
 	}
 	if outer := u.subst.outer; outer != nil {
-		class, c := l.blameOf(use{subst: outer}, search)
+		class, c := l.findBlame(use{subst: outer}, search)
 		cut = cut || c
 		if !class.own && len(class.pairings) > 0 && (b.own || len(b.pairings) == 0 || class.level() < b.level()) {
 			b = class
@@ -204,6 +250,82 @@ func (l *lowerer) blameOf(u use, search *blames) (b blame, cut bool) {
 	}
 	search.found[u.subst] = &b
 	return b, cut
+}
+
+// survives reports whether root still exists with pairings left out. A substitution is
+// made when any user makes it AND its enclosing class, if any, exists. Starting with no
+// instances and waking their dependents computes the least fixed point in linear time;
+// a cycle without a surviving source cannot create itself.
+func survives(root *substitution, pairings []pairing) bool {
+	type state struct {
+		subst        *substitution
+		source, made bool
+		users        []*state
+		inside       []*state
+	}
+	removed := map[pairing]bool{}
+	for _, p := range pairings {
+		removed[p] = true
+	}
+	states := map[*substitution]*state{}
+	var graph []*state
+	get := func(subst *substitution) *state {
+		if s := states[subst]; s != nil {
+			return s
+		}
+		s := &state{subst: subst, source: subst.ownUse}
+		states[subst] = s
+		graph = append(graph, s)
+		return s
+	}
+	first := get(root)
+	for i := 0; i < len(graph); i++ {
+		if i >= maxBlameSteps {
+			return true // an unproved cut cannot narrow the program
+		}
+		s := graph[i]
+		if outer := s.subst.outer; outer != nil {
+			class := get(outer)
+			class.inside = append(class.inside, s)
+		}
+		for _, u := range s.subst.users {
+			switch {
+			case u.pairings != nil:
+				for _, p := range u.pairings {
+					s.source = s.source || !removed[p]
+				}
+			case u.subst != nil:
+				user := get(u.subst)
+				user.users = append(user.users, s)
+			default:
+				s.source = true
+			}
+		}
+	}
+	var ready []*state
+	wake := func(s *state) {
+		if !s.made && s.source && (s.subst.outer == nil || states[s.subst.outer].made) {
+			s.made = true
+			ready = append(ready, s)
+		}
+	}
+	for _, s := range graph {
+		wake(s)
+	}
+	for i := 0; i < len(ready); i++ {
+		s := ready[i]
+		if s == first {
+			return true
+		}
+		for _, user := range s.users {
+			user.source = true
+			wake(user)
+		}
+		for _, nested := range s.inside {
+			wake(nested)
+		}
+	}
+	return false
 }
 
 // blame is what a diagnostic's reports, or a cast's sources, are blamed on: the pairings
@@ -323,8 +445,51 @@ func (l *lowerer) leavesOutSite(node *ast.Node, kind siteKind) bool {
 
 // pairingOf is a demand's pairing with an erased value or generic method declared at
 // value, which the last fallback that makes both makes (level is the value's).
-func pairingOf(d *demand, value *ast.Node, level Specialization) pairing {
-	return pairing{call: d.node, name: d.name, value: value, level: min(d.level(), level)}
+func (l *lowerer) pairingOf(d *demand, value *genericFunc, level Specialization) pairing {
+	return pairing{call: d.node, name: d.name, value: value.node, signature: l.demandIdentity(d), owner: substitutionIdentity(value.outer), level: min(d.level(), level)}
+}
+
+// substitutionIdentity is the checker's semantic bindings, not how the instance was
+// reached. Methods of two class instances have the same declaration but different owners.
+func substitutionIdentity(subst *substitution) string {
+	if subst == nil {
+		return ""
+	}
+	var key strings.Builder
+	for i, param := range subst.parameters {
+		fmt.Fprintf(&key, ",%d=%d", param.Id(), subst.arguments[i].Id())
+	}
+	key.WriteString("|erased")
+	for _, param := range subst.erased {
+		fmt.Fprintf(&key, ",%d", param.Id())
+	}
+	return key.String()
+}
+
+// demandIdentity distinguishes one source call's demands in different generic instances.
+// The checker for this program's entry file survives relowerings; its instantiated type
+// IDs do too. IR types and substitutions are rebuilt, and the raw resolved signature is
+// shared by every instance of the call, so none of those pointers identifies a pairing.
+// This key is only for narrowing the same checked program, not a run-time instance key.
+func (l *lowerer) demandIdentity(d *demand) string {
+	if d.identity != "" {
+		return d.identity
+	}
+	outer := l.subst
+	l.subst = d.subst
+	defer func() { l.subst = outer }()
+	var key strings.Builder
+	for _, t := range l.checker.PtsTypeArgumentsOfSignature(d.signature) {
+		fmt.Fprintf(&key, ",%d", l.instantiate(t).Id())
+	}
+	key.WriteString("|")
+	for _, param := range d.signature.Parameters() {
+		fmt.Fprintf(&key, ",%d", l.typeOfSymbol(param).Id())
+	}
+	key.WriteString("|")
+	fmt.Fprintf(&key, "%d", l.instantiate(l.checker.GetReturnTypeOfSignature(d.signature)).Id())
+	d.identity = key.String()
+	return d.identity
 }
 
 // valueLevel is the last of Fallbacks that lists instances in v: AllInstances for an
