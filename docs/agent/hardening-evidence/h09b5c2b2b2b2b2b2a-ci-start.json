@@ -1,0 +1,18 @@
+{
+  "task": "H09b5c2b2b2b2b2b2a (D-213)",
+  "checked": "2026-10-22 session start",
+  "method": "One non-blocking recent-ten list; no subsequent CI query, wait or poll.",
+  "runs": [
+    {"headSha":"fccb65ad6e2e598ea862aaae8dbde26b73ddf32e","databaseId":39723444604,"status":"in_progress","conclusion":""},
+    {"headSha":"fccb65ad6e2e598ea862aaae8dbde26b73ddf32e","databaseId":39723444560,"status":"completed","conclusion":"skipped"},
+    {"headSha":"2fb43dcdfc70d95a0507b8546eba7fd80b459e53","databaseId":39723134096,"status":"completed","conclusion":"cancelled"},
+    {"headSha":"2fb43dcdfc70d95a0507b8546eba7fd80b459e53","databaseId":39723134005,"status":"completed","conclusion":"skipped"},
+    {"headSha":"a53542e52cac4922c902bb2aa20c8512fa54d6a2","databaseId":39718461008,"status":"completed","conclusion":"success"},
+    {"headSha":"a53542e52cac4922c902bb2aa20c8512fa54d6a2","databaseId":39718460894,"status":"completed","conclusion":"skipped"},
+    {"headSha":"50d8ed087bf5836cb2fc912076e905d629b570e6","databaseId":39716684088,"status":"completed","conclusion":"success"},
+    {"headSha":"50d8ed087bf5836cb2fc912076e905d629b570e6","databaseId":39716684037,"status":"completed","conclusion":"skipped"},
+    {"headSha":"22593d6aa5f63e55624b6cff175908d7c52daf4b","databaseId":39716297299,"status":"completed","conclusion":"skipped"},
+    {"headSha":"22593d6aa5f63e55624b6cff175908d7c52daf4b","databaseId":39716297280,"status":"completed","conclusion":"cancelled"}
+  ],
+  "note":"No failed run. Successful runs certify their exact named documentation SHAs, not cancelled implementation SHAs. Skipped companions and cancellations are not green receipts. Active D-212 acceptance is left pending for the next session."
+}

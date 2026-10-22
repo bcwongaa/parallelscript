@@ -9,5 +9,9 @@
     {"commit":"22593d6aa5f63e55624b6cff175908d7c52daf4b","role":"D-211 implementation","run_id":39716297280,"status":"in_progress"},
     {"commit":"50d8ed087bf5836cb2fc912076e905d629b570e6","role":"D-211 child-only acceptance documentation","run_id":39716684088,"status":"pending"}
   ],
-  "note":"Active runs remain pending. Companion skipped workflows are not PTS receipts. No failed run; acceptance is based on the recorded green local suite."
+  "later_observations": [
+    {"checked":"2026-10-22 D-213 session start","commit":"50d8ed087bf5836cb2fc912076e905d629b570e6","role":"D-211 child-only acceptance documentation","run_id":39716684088,"status":"completed","conclusion":"success"},
+    {"checked":"2026-10-22 D-213 session start","commit":"22593d6aa5f63e55624b6cff175908d7c52daf4b","role":"D-211 implementation","run_id":39716297280,"status":"completed","conclusion":"cancelled"}
+  ],
+  "note":"Original startup observations remain historical; later exact-SHA observations are appended separately. Acceptance documentation passed, implementation run was cancelled/superseded, not green. Companion skipped workflows are not PTS receipts. No failed run; acceptance is based on the recorded green local suite."
 }
