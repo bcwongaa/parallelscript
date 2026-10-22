@@ -1,0 +1,140 @@
+class Box<T> {
+  constructor(public value: T, public origin: string) {}
+}
+type Factory = <T>(value: T) => Box<T>;
+interface Maker { make<T>(value: T): Box<T>; }
+function first<T>(value: T): Box<T> { return new Box(value, "first"); }
+function second<T>(value: T): Box<T> { return new Box(value, "second"); }
+const firstValue: Factory = first;
+const secondValue: Factory = second;
+function numberUse(label: string, factory: Factory): void {
+  const box: Box<number> = factory(7);
+  console.log(label, box.origin, box.value + 1);
+}
+function stringUse(label: string, factory: Factory): void {
+  const box: Box<string> = factory("seven");
+  console.log(label, box.origin, box.value.length);
+}
+
+const child = ({ child: { selected: firstValue, other: secondValue } }).child;
+const alias = child;
+numberUse("inline object", alias.selected);
+stringUse("inline alternate", child.other);
+const array = [[firstValue, secondValue]][0];
+const arrayAlias = array;
+numberUse("inline array", arrayAlias[1]);
+const branch = ({ branch: { rows: [{ selected: firstValue, other: secondValue }] } }).branch;
+const rows = branch.rows;
+const row = rows[0];
+stringUse("inline recursive", row.selected);
+
+function capture(label: string): Factory {
+  let calls = 0;
+  const source: Factory = <T,>(value: T): Box<T> => {
+    calls++;
+    return new Box(value, label + "/" + calls);
+  };
+  const captured = ({ child: [{ selected: source }] }).child;
+  const selected = captured[0];
+  return selected.selected;
+}
+const captures = ({ child: [capture("a"), capture("b")] }).child;
+numberUse("inline capture a", captures[0]);
+stringUse("inline capture b", captures[1]);
+stringUse("inline capture a again", captures[0]);
+
+let order = "";
+function selectedEffect(): Factory { order += "selected"; return first; }
+function otherEffect(): Factory { order += "/other"; return second; }
+function siblingEffect(): Factory { order += "/sibling"; return second; }
+const effects = ({
+  child: [{ selected: selectedEffect(), other: otherEffect() }],
+  side: { selected: siblingEffect() }
+}).child;
+const effect = effects[0];
+numberUse("inline effects", effect.selected);
+console.log("inline evaluation order", order);
+
+class Parent implements Maker {
+  calls = 0;
+  constructor(public label: string) {}
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/parent/" + this.calls);
+  }
+}
+class Child extends Parent {}
+class Override extends Parent {
+  make<T>(value: T): Box<T> {
+    this.calls++;
+    return new Box(value, this.label + "/override/" + this.calls);
+  }
+}
+function read(receiver: Maker): Factory { return receiver.make.bind(receiver); }
+const firstReceiver: Maker = new Child("receiver a");
+const secondReceiver: Maker = new Override("receiver b");
+const receiverRows = ({ branch: [{ selected: firstReceiver, other: secondReceiver }] }).branch;
+const receiverRow = receiverRows[0];
+const receiverAlias = receiverRow;
+const direct: Box<number> = receiverAlias.selected.make(3);
+console.log("inline direct", direct.origin, direct.value + 1);
+const wrappers = ({ child: { selected: read(receiverRow.selected), other: read(receiverAlias.other) } }).child;
+const wrapperAlias = wrappers;
+numberUse("inline captured receiver a", wrapperAlias.selected);
+stringUse("inline captured receiver b", wrappers.other);
+stringUse("inline captured receiver a again", wrapperAlias.selected);
+const lookup = new Parent("lookup");
+const thisArg = new Child("thisArg");
+const boundRows = ({ child: [{ selected: lookup.make.bind(thisArg) }] }).child;
+const boundRow = boundRows[0];
+numberUse("inline bind thisArg", boundRow.selected);
+
+const mutated = ({ child: { selected: firstValue } }).child;
+const mutatedAlias = mutated;
+const capturedBeforeWrite = mutated.selected;
+mutatedAlias.selected = secondValue;
+numberUse("inline terminal before write", capturedBeforeWrite);
+numberUse("inline alias mutation", mutated.selected);
+const changedArray = ({ child: [firstValue, secondValue] }).child;
+changedArray.reverse();
+numberUse("inline array mutation", changedArray[0]);
+const beforeReceiver: Maker = new Child("before");
+const afterReceiver: Maker = new Override("after");
+const changedReceiver = ({ child: { selected: beforeReceiver } }).child;
+const before = read(changedReceiver.selected);
+changedReceiver.selected = afterReceiver;
+numberUse("inline capture before mutation", before);
+numberUse("inline capture after mutation", read(changedReceiver.selected));
+const escaped = ({ child: { selected: firstValue } }).child;
+const dynamic: any = escaped;
+dynamic.selected = secondValue;
+numberUse("inline dynamic mutation", escaped.selected);
+function replace(value: { selected: Factory }): void { value.selected = secondValue; }
+const passed = ({ child: { selected: firstValue } }).child;
+numberUse("inline before escape", passed.selected);
+replace(passed);
+numberUse("inline parameter mutation", passed.selected);
+
+// expect:
+// inline object first 8
+// inline alternate second 5
+// inline array second 8
+// inline recursive first 5
+// inline capture a a/1 8
+// inline capture b b/1 5
+// inline capture a again a/2 5
+// inline effects first 8
+// inline evaluation order selected/other/sibling
+// inline direct receiver a/parent/1 4
+// inline captured receiver a receiver a/parent/2 8
+// inline captured receiver b receiver b/override/1 5
+// inline captured receiver a again receiver a/parent/3 5
+// inline bind thisArg thisArg/parent/1 8
+// inline terminal before write first 8
+// inline alias mutation second 8
+// inline array mutation second 8
+// inline capture before mutation before/parent/1 8
+// inline capture after mutation after/override/1 8
+// inline dynamic mutation second 8
+// inline before escape first 8
+// inline parameter mutation second 8

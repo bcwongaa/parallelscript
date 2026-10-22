@@ -109,6 +109,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		}
 	}()
 	var literal *ast.Node
+	projected := false
 	for {
 		if _, seen := component[declaration]; seen {
 			return nil
@@ -118,7 +119,7 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 			return nil
 		}
 		literal = declaration.Initializer()
-		projected := false
+		projected = false
 		for literal != nil {
 			if literal.Kind == ast.KindParenthesizedExpression {
 				if !containerStep(steps, &depth) {
@@ -136,9 +137,6 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 			}
 		}
 		if literal == nil || literal.Kind != ast.KindIdentifier {
-			if projected {
-				return nil // extraction roots must be named immutable literal bindings
-			}
 			break
 		}
 		origin, source := l.containerBinding(literal)
@@ -153,6 +151,23 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 	}
 	checked := map[*ast.Node]bool{}
 	var check func(*ast.Node, *ast.Symbol, *literalContainer, int) bool
+	aliasUse := func(selected *literalContainer, read *ast.Node, depth int) bool {
+		parent := read.Parent
+		alias, target := l.containerBinding(parent.Name())
+		if alias != parent {
+			return false
+		}
+		contract := l.checker.GetTypeOfSymbol(target)
+		if projected && parent == declaration {
+			// Normalize freshness only along this first edge's finite literal tree.
+			if !l.nestedContainerTypes(selected, contract, steps, depth) {
+				return false
+			}
+		} else if !l.containerDataTypes(l.containerReadType(read, steps, depth), contract, steps) {
+			return false
+		}
+		return check(alias, target, selected, depth)
+	}
 	check = func(declaration *ast.Node, symbol *ast.Symbol, tree *literalContainer, depth int) bool {
 		if done, seen := checked[declaration]; seen {
 			return done // a cycle is unknown, not a provisional positive
@@ -163,12 +178,6 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		if uses.overflow {
 			return false
 		}
-		aliasUse := func(selected *literalContainer, read *ast.Node, depth int) bool {
-			parent := read.Parent
-			alias, target := l.containerBinding(parent.Name())
-			return alias == parent && l.containerDataTypes(l.containerReadType(read, steps, depth), l.checker.GetTypeOfSymbol(target), steps) &&
-				check(alias, target, selected, depth)
-		}
 		for _, read := range uses.reads {
 			// Each sibling starts at the same depth; fanout is work, not recursion.
 			if !tree.projectionUse(read, steps, depth, aliasUse) {
@@ -178,7 +187,12 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		checked[declaration] = true
 		return true
 	}
-	if !check(declaration, symbol, data, depth) {
+	if projected {
+		// A fresh literal has no named root: check its path into the first binding.
+		if !data.projectionUse(literal, steps, depth, aliasUse) {
+			return nil
+		}
+	} else if !check(declaration, symbol, data, depth) {
 		return nil
 	}
 	complete = true

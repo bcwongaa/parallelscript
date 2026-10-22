@@ -1,0 +1,73 @@
+{
+  "events": {
+    "pass": 4442,
+    "skip": 341
+  },
+  "packages": [
+    {
+      "package": "github.com/microsoft/typescript-go/pts/cgen",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/diagnostic",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/check",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/frontend",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/lsp",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/toolchain",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/cmd/pts",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/driver",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/lower",
+      "action": "pass"
+    },
+    {
+      "package": "github.com/microsoft/typescript-go/pts/tests",
+      "action": "pass"
+    }
+  ],
+  "corpus": {
+    "pass": 263,
+    "skip": 37
+  },
+  "failures": [],
+  "verification": {
+    "build_exit": 0,
+    "suite_exit": 0,
+    "sources_and_cli_unchanged": true,
+    "reviewed_files_unchanged": true,
+    "source_files": 6713,
+    "reviewed_files": 8,
+    "cli_sha256": "1a5045b10de656216f0531f957fb474af826c328d25213bf6cceff46864b8856",
+    "events": {
+      "pass": 4442,
+      "skip": 341
+    },
+    "corpus": {
+      "pass": 263,
+      "skip": 37
+    },
+    "all_ten_packages_pass": true,
+    "stderr_bytes": 0,
+    "green": true
+  }
+}
