@@ -1,0 +1,18 @@
+{
+  "task": "H09b5c2b2b2b2b2b1 (D-212)",
+  "checked": "2026-10-22 session start",
+  "method": "One non-blocking recent-ten list; no later query, wait or poll.",
+  "runs": [
+    {"commit":"50d8ed087bf5836cb2fc912076e905d629b570e6","databaseId":39716684088,"status":"pending","conclusion":""},
+    {"commit":"50d8ed087bf5836cb2fc912076e905d629b570e6","databaseId":39716684037,"status":"completed","conclusion":"skipped"},
+    {"commit":"22593d6aa5f63e55624b6cff175908d7c52daf4b","databaseId":39716297299,"status":"completed","conclusion":"skipped"},
+    {"commit":"22593d6aa5f63e55624b6cff175908d7c52daf4b","databaseId":39716297280,"status":"in_progress","conclusion":""},
+    {"commit":"c8e9e8d0a13dc3309225c05655580f2bc2a59d05","databaseId":39711445759,"status":"completed","conclusion":"skipped"},
+    {"commit":"c8e9e8d0a13dc3309225c05655580f2bc2a59d05","databaseId":39711445745,"status":"completed","conclusion":"success"},
+    {"commit":"5cc375c5abc21aa1f739b4c4faeadefc0876fafc","databaseId":39710748798,"status":"completed","conclusion":"cancelled"},
+    {"commit":"5cc375c5abc21aa1f739b4c4faeadefc0876fafc","databaseId":39710748746,"status":"completed","conclusion":"skipped"},
+    {"commit":"17d65202bcab53db8a148ad86a1c8c6e19eb91fa","databaseId":39710445293,"status":"completed","conclusion":"skipped"},
+    {"commit":"17d65202bcab53db8a148ad86a1c8c6e19eb91fa","databaseId":39710445263,"status":"completed","conclusion":"cancelled"}
+  ],
+  "note": "No failed run. Skipped companions/cancellations are not green PTS receipts; active runs remain pending. Slice acceptance uses actual local gates."
+}

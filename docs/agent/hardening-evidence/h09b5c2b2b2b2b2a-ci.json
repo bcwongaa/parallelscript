@@ -1,0 +1,13 @@
+{
+  "task": "H09b5c2b2b2b2b2a (D-211)",
+  "checked": "2026-10-22 D-212 session start",
+  "method": "One non-blocking recent-ten list; no later query, waiting or polling.",
+  "runs": [
+    {"commit":"c8e9e8d0a13dc3309225c05655580f2bc2a59d05","role":"D-211 planning/startup receipts","run_id":39711445745,"status":"completed","conclusion":"success"}
+  ],
+  "pending_at_session_start": [
+    {"commit":"22593d6aa5f63e55624b6cff175908d7c52daf4b","role":"D-211 implementation","run_id":39716297280,"status":"in_progress"},
+    {"commit":"50d8ed087bf5836cb2fc912076e905d629b570e6","role":"D-211 child-only acceptance documentation","run_id":39716684088,"status":"pending"}
+  ],
+  "note":"Active runs remain pending. Companion skipped workflows are not PTS receipts. No failed run; acceptance is based on the recorded green local suite."
+}

@@ -6,7 +6,7 @@
     {"commit": "17d65202bcab53db8a148ad86a1c8c6e19eb91fa", "role": "direct nested literal implementation", "run_id": 39710445263, "status": "completed", "conclusion": "cancelled", "note": "Cancelled is not a green receipt."}
   ],
   "pending_at_session_start": [
-    {"commit": "5cc375c5abc21aa1f739b4c4faeadefc0876fafc", "role": "direct nested literal acceptance documentation", "run_id": 39710748798, "status": "in_progress"}
+    {"commit": "5cc375c5abc21aa1f739b4c4faeadefc0876fafc", "role": "direct nested literal acceptance documentation", "run_id": 39710748798, "status": "in_progress", "later_startup_observation": "2026-10-22 D-212: completed/cancelled; not a green receipt"}
   ],
   "note": "No failed run among latest ten. Companion skipped workflows are not PTS receipts. Leave the active run for a later session. D-210 acceptance is based on its recorded green local suite."
 }
