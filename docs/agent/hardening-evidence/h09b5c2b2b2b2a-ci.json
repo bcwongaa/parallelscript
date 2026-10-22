@@ -6,8 +6,14 @@
     {"commit": "2e56b60e7fede1f740a20786034fe8375c0e7b9e", "role": "immutable alias planning documentation", "run_id": 39696391582, "status": "completed", "conclusion": "success", "note": "Certifies only this documentation SHA, not later implementation or acceptance."},
     {"commit": "3a53f1d2395d9f1cdcaea557ac194797356ed2bd", "role": "immutable alias implementation", "run_id": 39702360412, "status": "completed", "conclusion": "cancelled", "note": "Cancellation is not a green receipt."}
   ],
-  "pending_at_session_start": [
-    {"commit": "e631cca68a38b01880fa93562d2574029f085b24", "role": "immutable alias acceptance documentation", "run_id": 39702724582, "status": "in_progress"}
-  ],
+  "pending_at_session_start": [],
+  "next_session_observation": {
+    "checked": "2026-10-22 (D-211 session start)",
+    "method": "One non-blocking recent-ten list; no later query or polling.",
+    "runs": [
+      {"commit": "e631cca68a38b01880fa93562d2574029f085b24", "role": "immutable alias acceptance documentation", "run_id": 39702724582, "status": "completed", "conclusion": "success"},
+      {"commit": "c367d494113001b14a72d51894d8b9aa81b78fba", "role": "startup receipt documentation", "run_id": 39707625665, "status": "completed", "conclusion": "success"}
+    ]
+  },
   "note": "No failed run among latest ten. Companion skipped workflows are not PTS receipts. Leave active run for next session. D-209 acceptance remains based on its recorded green local suite."
 }

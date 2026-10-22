@@ -1,0 +1,12 @@
+{
+  "task": "H09b5c2b2b2b2b1 (D-210)",
+  "checked": "2026-10-22 (D-211 session start)",
+  "method": "One non-blocking recent-ten list; no later query, waiting or polling.",
+  "runs": [
+    {"commit": "17d65202bcab53db8a148ad86a1c8c6e19eb91fa", "role": "direct nested literal implementation", "run_id": 39710445263, "status": "completed", "conclusion": "cancelled", "note": "Cancelled is not a green receipt."}
+  ],
+  "pending_at_session_start": [
+    {"commit": "5cc375c5abc21aa1f739b4c4faeadefc0876fafc", "role": "direct nested literal acceptance documentation", "run_id": 39710748798, "status": "in_progress"}
+  ],
+  "note": "No failed run among latest ten. Companion skipped workflows are not PTS receipts. Leave the active run for a later session. D-210 acceptance is based on its recorded green local suite."
+}
