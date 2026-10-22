@@ -59,9 +59,13 @@ func literalContainerTree(node *ast.Node, steps *int, depth int) *literalContain
 	return tree
 }
 
-// A literal-valued prefix cannot be extracted, aliased, passed or returned. Only
-// the terminal value may escape. This checks the full chain, including implicit this.
+// Only terminal values may escape. Named closed components can additionally
+// check immutable aliases of literal-valued prefixes, including their entire uses.
 func (tree *literalContainer) projectionRead(read *ast.Node, steps *int, depth int) bool {
+	return tree.projectionUse(read, steps, depth, nil)
+}
+
+func (tree *literalContainer) projectionUse(read *ast.Node, steps *int, depth int, alias func(*literalContainer, *ast.Node, int) bool) bool {
 	for containerStep(steps, &depth) {
 		for read.Parent != nil && read.Parent.Kind == ast.KindParenthesizedExpression {
 			if !containerStep(steps, &depth) {
@@ -70,6 +74,9 @@ func (tree *literalContainer) projectionRead(read *ast.Node, steps *int, depth i
 			read = read.Parent
 		}
 		parent := read.Parent
+		if alias != nil && parent != nil && parent.Kind == ast.KindVariableDeclaration && parent.Initializer() == read {
+			return alias(tree, read, depth)
+		}
 		if parent == nil || !ast.IsAccessExpression(parent) || parent.Expression() != read {
 			return false
 		}

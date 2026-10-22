@@ -97,33 +97,52 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 	}
 	// Resolve backwards to one literal, then check the complete forward component.
 	// Publish nothing positive until unsafe siblings and every transitive use pass.
-	component := map[*ast.Node]bool{}
+	requested := declaration
+	component := map[*ast.Node]*literalContainer{}
+	complete := false
 	defer func() {
-		for alias := range component {
-			flow.containers[alias] = members
+		for alias, tree := range component {
+			if !complete {
+				tree = nil
+			}
+			flow.containers[alias] = tree
 		}
 	}()
 	var literal *ast.Node
 	for {
-		if component[declaration] {
+		if _, seen := component[declaration]; seen {
 			return nil
 		}
-		component[declaration] = true
+		component[declaration] = nil
 		if !containerStep(steps, &depth) {
 			return nil
 		}
 		literal = declaration.Initializer()
-		for literal != nil && literal.Kind == ast.KindParenthesizedExpression {
-			if !containerStep(steps, &depth) {
-				return nil
+		projected := false
+		for literal != nil {
+			if literal.Kind == ast.KindParenthesizedExpression {
+				if !containerStep(steps, &depth) {
+					return nil
+				}
+				literal = literal.Expression()
+			} else if ast.IsAccessExpression(literal) {
+				if _, ok := literalProjectionKey(literal); !ok || !containerStep(steps, &depth) {
+					return nil
+				}
+				projected = true
+				literal = literal.Expression()
+			} else {
+				break
 			}
-			literal = literal.Expression()
 		}
 		if literal == nil || literal.Kind != ast.KindIdentifier {
+			if projected {
+				return nil // extraction roots must be named immutable literal bindings
+			}
 			break
 		}
 		origin, source := l.containerBinding(literal)
-		if origin == nil || !l.containerAliasTypes(source, symbol, steps) {
+		if origin == nil {
 			return nil
 		}
 		declaration, symbol = origin, source
@@ -133,56 +152,44 @@ func (l *lowerer) closedContainer(declaration *ast.Node, symbol *ast.Symbol, ste
 		return nil
 	}
 	checked := map[*ast.Node]bool{}
-	var check func(*ast.Node, *ast.Symbol, int) bool
-	check = func(declaration *ast.Node, symbol *ast.Symbol, depth int) bool {
+	var check func(*ast.Node, *ast.Symbol, *literalContainer, int) bool
+	check = func(declaration *ast.Node, symbol *ast.Symbol, tree *literalContainer, depth int) bool {
 		if done, seen := checked[declaration]; seen {
 			return done // a cycle is unknown, not a provisional positive
 		}
 		checked[declaration] = false
-		component[declaration] = true
+		component[declaration] = tree
 		uses := l.containerReferences(symbol)
 		if uses.overflow {
 			return false
 		}
+		aliasUse := func(selected *literalContainer, read *ast.Node, depth int) bool {
+			parent := read.Parent
+			alias, target := l.containerBinding(parent.Name())
+			return alias == parent && l.containerDataTypes(l.containerReadType(read, steps, depth), l.checker.GetTypeOfSymbol(target), steps) &&
+				check(alias, target, selected, depth)
+		}
 		for _, read := range uses.reads {
 			// Each sibling starts at the same depth; fanout is work, not recursion.
-			referenceDepth := depth
-			if !containerStep(steps, &referenceDepth) {
-				return false
-			}
-			for read.Parent != nil && read.Parent.Kind == ast.KindParenthesizedExpression {
-				if !containerStep(steps, &referenceDepth) {
-					return false
-				}
-				read = read.Parent
-			}
-			parent := read.Parent
-			if parent != nil && parent.Kind == ast.KindVariableDeclaration && parent.Initializer() == read {
-				alias, target := l.containerBinding(parent.Name())
-				if alias != parent || !l.containerAliasTypes(symbol, target, steps) || !check(alias, target, referenceDepth) {
-					return false
-				}
-				continue
-			}
-			if !data.projectionRead(read, steps, referenceDepth) {
+			if !tree.projectionUse(read, steps, depth, aliasUse) {
 				return false
 			}
 		}
 		checked[declaration] = true
 		return true
 	}
-	if !check(declaration, symbol, depth) {
+	if !check(declaration, symbol, data, depth) {
 		return nil
 	}
-	return data
+	complete = true
+	return component[requested]
 }
 
 // An annotation may adapt functions into methods or change an array's layout.
 // Accept exact checker types, or data-only objects with identical member contracts;
 // readonly alone neither proves closure nor licenses a representation guess.
-func (l *lowerer) containerAliasTypes(source, target *ast.Symbol, steps *int) bool {
-	from, to := l.checker.GetTypeOfSymbol(source), l.checker.GetTypeOfSymbol(target)
-	if from.Flags()&checker.TypeFlagsObject == 0 || to.Flags()&checker.TypeFlagsObject == 0 {
+func (l *lowerer) containerDataTypes(from, to *checker.Type, steps *int) bool {
+	if from == nil || to == nil || from.Flags()&checker.TypeFlagsObject == 0 || to.Flags()&checker.TypeFlagsObject == 0 {
 		return false
 	}
 	if from == to {

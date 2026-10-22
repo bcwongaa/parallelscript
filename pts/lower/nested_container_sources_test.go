@@ -65,6 +65,51 @@ func TestNestedContainerSourcesResolveSelectedTerminals(t *testing.T) {
 	}
 }
 
+// D-211 makes these unchanged D-210 unknown controls closed components.
+func TestNestedContainerExtractedAliasesRemainClosed(t *testing.T) {
+	t.Parallel()
+	for _, receivers := range []bool{false, true} {
+		t.Run(fmt.Sprintf("receivers_%t", receivers), func(t *testing.T) {
+			t.Parallel()
+			for _, tt := range []struct {
+				name   string
+				source string
+			}{
+				{"root_component", nestedContainerPrelude(receivers) + `function replace<T>(this: { value: Value }, input?: T): void { this.value = second; }
+const root = { branch: { value: first, other: first, count: 0, replace }, side: { value: first, other: first, count: 0, replace }, plain: first };
+const alias = root; const other = alias; const sibling = root;
+const extracted = other.branch;` + nestedContainerProbeDeclarations(".branch.value")},
+				{"array_component", nestedContainerPrelude(receivers) + "const root = { branch: [first, second], plain: first }; const alias = root; const other = alias;\nconst extracted = other.branch;" + nestedContainerProbeDeclarations(".branch[0]")},
+				{"child_projection", literalProjectionPrelude(receivers) + "const root = { branch: { value: first } }; const inner = root.branch; const probe = inner.value; probe;"},
+				{"root_projection", literalProjectionPrelude(receivers) + "const root = { branch: { value: first } }; const inner = root.branch; const probe = root.branch.value; probe;"},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+					for _, reverse := range []bool{false, true} {
+						l, probe := valueFlowProbe(t, tt.source)
+						projections := containerAliasProbeExpressions(l)
+						if len(projections) == 0 {
+							projections = append(projections, probe)
+						}
+						if reverse {
+							slices.Reverse(projections)
+						}
+						for _, projection := range projections {
+							steps := maxValueFlowSteps
+							sources := (sourceProof{l: l, receivers: receivers}).valueSources(projection, &steps, 0)
+							want := "first"
+							if receivers {
+								want = "A"
+							}
+							assert.DeepEqual(t, returnedSourceNames(sources), []string{want})
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestNestedContainerUnsafeUsesPoisonWholeRoot(t *testing.T) {
 	t.Parallel()
 	for _, receivers := range []bool{false, true} {
@@ -91,7 +136,6 @@ func TestNestedContainerUnsafeUsesPoisonWholeRoot(t *testing.T) {
 				{"stored_inner", "const stored = [other.branch];"},
 				{"stored_sibling", "const stored = { nested: sibling.side };"},
 				{"spread_inner", "const copied = { ...other.branch };"},
-				{"extracted_inner_alias", "const extracted = other.branch;"},
 				{"mutable_inner_alias", "let extracted = other.branch;"},
 				{"dynamic_inner_alias", "const extracted: any = other.branch;"},
 				{"asserted_inner_read", "const ignored = (other.branch as { value: Value }).value;"},
@@ -140,7 +184,7 @@ func TestNestedContainerArraysRejectIntermediateEscapeAndMutation(t *testing.T) 
 	for _, use := range []string{
 		"", "other.branch[0] = second;", "other.branch.reverse();", "other.branch.length = 0;", "const ignored = other.branch.length;",
 		"let index = 0; const ignored = other.branch[index];", "consume(other.branch);", "const copied = [...other.branch];",
-		"const extracted = other.branch;", "const extracted: unknown = other.branch;", "const extracted = other.branch as Value[];",
+		"const extracted: unknown = other.branch;", "const extracted = other.branch as Value[];",
 	} {
 		name := use
 		if name == "" {
@@ -191,8 +235,6 @@ func TestNestedContainerUnsupportedOriginsAndContractsStayUnknown(t *testing.T) 
 		"const root = { branch: choose() ? { value: first } : { value: second } }; const probe = root.branch.value; probe;",
 		"function selected(root: { branch: { value: Value } }): void { const probe = root.branch.value; probe; } selected({ branch: { value: first } });",
 		"function selected(): { branch: { value: Value } } { return { branch: { value: first } }; } const probe = selected().branch.value; probe;",
-		"const root = { branch: { value: first } }; const inner = root.branch; const probe = inner.value; probe;",
-		"const root = { branch: { value: first } }; const inner = root.branch; const probe = root.branch.value; probe;",
 		"const root: { branch: { value: any } } = { branch: { value: first } }; const probe = root.branch.value; probe;",
 		"const root: { branch: { value: unknown } } = { branch: { value: first } }; const probe = root.branch.value; probe;",
 		"const root: { branch: { value?: Value } } = { branch: { value: first } }; const probe = root.branch.value; probe;",

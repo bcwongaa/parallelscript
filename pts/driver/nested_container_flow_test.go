@@ -128,6 +128,37 @@ func nestedContainerFlowSource(kind, origin string) string {
 	return source.String()
 }
 
+// Preserve the complete former unknown fixture: a closed extraction no longer
+// justifies retaining the six source-impossible targets.
+func TestNestedContainerExtractedAliasKeepsOnlyReachableTargets(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"function", "receiver", "captured_receiver", "wrapper"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			entry := writeSource(t, nestedContainerUnknownFlowSource(kind, "const extracted = other.branch;"))
+
+			c, err := driver.EmitCWith(t.Context(), entry, lower.AllInstances)
+
+			assert.NilError(t, err)
+			for value := range 3 {
+				for demand := range 3 {
+					name := literalProjectionTarget(kind, value, demand)
+					required := value == 0
+					assert.Check(t, strings.Contains(c, name) == required, "%s: the unchanged extracted-alias fixture proves only source zero", name)
+					if kind != "function" {
+						assert.Check(t, strings.Contains(c, "return "+name) == required, "%s registration follows the target", name)
+					}
+				}
+			}
+			if kind == "captured_receiver" {
+				for wrapper := range 3 {
+					assertCapturedReceiverWrapperSignatures(t, c, fmt.Sprintf("read%d_make", wrapper), []int{wrapper})
+				}
+			}
+		})
+	}
+}
+
 func TestNestedContainerUnsafeUsesKeepEveryCompatibleTarget(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"function", "receiver", "captured_receiver", "wrapper"} {
@@ -144,7 +175,6 @@ func TestNestedContainerUnsafeUsesKeepEveryCompatibleTarget(t *testing.T) {
 				{"passed_inner", "function replace(value: { value: Value; other: Value }): void { value.value = second; } replace(other.branch);"},
 				{"returned_inner", "function expose(): { value: Value; other: Value } { return other.branch; } expose().value = second;"},
 				{"stored_inner", "const stored = [other.branch];"},
-				{"extracted_inner", "const extracted = other.branch;"},
 				{"dynamic_inner", "const dynamic: any = other.branch;"},
 				{"asserted_inner", "const asserted = other.branch as { value: Value; other: Value };"},
 				{"dynamic_inner_key", "let key: \"value\" = \"value\"; const ignored = other.branch[key];"},

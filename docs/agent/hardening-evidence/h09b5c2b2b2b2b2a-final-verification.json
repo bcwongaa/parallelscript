@@ -1,0 +1,40 @@
+{
+  "exit": 0,
+  "source_manifest_unchanged": true,
+  "selected_source_count": 6543,
+  "eight_reviewed_files_and_cli_unchanged": true,
+  "summary": {
+    "corpus": {
+      "pass": 263,
+      "skip": 37
+    },
+    "events": {
+      "pass": 3977,
+      "skip": 341
+    },
+    "notes": [
+      "compiler_smoke_test.go:102: compiled 2365 programs (1550 compiled to C) in 3m14.686s, 82ms each on average, 4 jobs",
+      "=== RUN   TestRunMatchesNode/generic_fallback_keeps_the_programs_own_sites",
+      "=== PAUSE TestRunMatchesNode/generic_fallback_keeps_the_programs_own_sites",
+      "=== RUN   TestRun/generic_fallback_keeps_the_programs_own_sites",
+      "=== PAUSE TestRun/generic_fallback_keeps_the_programs_own_sites",
+      "run_test.go:158: corpus: 300 programs: 268 Node-identical, 8 intentional differences, 23 unsupported, 1 failing",
+      "=== CONT  TestRunMatchesNode/generic_fallback_keeps_the_programs_own_sites",
+      "--- PASS: TestRunMatchesNode/generic_fallback_keeps_the_programs_own_sites (0.80s)",
+      "=== CONT  TestRun/generic_fallback_keeps_the_programs_own_sites",
+      "--- PASS: TestRun/generic_fallback_keeps_the_programs_own_sites (0.00s)"
+    ],
+    "packages": {
+      "github.com/microsoft/typescript-go/cmd/pts": "pass",
+      "github.com/microsoft/typescript-go/pts/cgen": "pass",
+      "github.com/microsoft/typescript-go/pts/check": "pass",
+      "github.com/microsoft/typescript-go/pts/diagnostic": "pass",
+      "github.com/microsoft/typescript-go/pts/driver": "pass",
+      "github.com/microsoft/typescript-go/pts/frontend": "pass",
+      "github.com/microsoft/typescript-go/pts/lower": "pass",
+      "github.com/microsoft/typescript-go/pts/lsp": "pass",
+      "github.com/microsoft/typescript-go/pts/tests": "pass",
+      "github.com/microsoft/typescript-go/pts/toolchain": "pass"
+    }
+  }
+}
